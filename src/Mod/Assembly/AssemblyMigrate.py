@@ -30,7 +30,7 @@ over (App/AppAssembly.cpp). It converts upstream's joints
 simulations, motions, exploded views, steps and snapshots to their C++
 twins (TWINS); grounding and rigid groups stay as they are.
 
-A side converts to one element link, with Offset = F^-1 * G: G upstream's
+A side converts to one element binding, with Offset = F^-1 * G: G upstream's
 frame as it is (its PlacementN on the referenced object, which carries its
 OffsetN, or the user's own when DetachN), F the element's frame. So a joint
 keeps its frames exactly and a re-solve moves nothing. The vertex upstream
@@ -152,7 +152,7 @@ def convertJoint(assembly, joint):
             doc.removeObject(new.Name)
             return None, "side %d: %s" % (i, e)
         JointObject.recomputeSides(new)
-        # The element's frame, with the vertex's share: the element link's
+        # The element's frame, with the vertex's share: the element binding's
         # Offset is still none
         F = new.getFrame(i)
         G = toAssembly * frame

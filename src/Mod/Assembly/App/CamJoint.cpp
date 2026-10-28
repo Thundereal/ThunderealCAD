@@ -233,7 +233,7 @@ std::string elementPhrase(const App::DocumentObject* joint, const char* prop)
 bool hasPick(const App::DocumentObject* joint, const char* prop)
 {
     if (int side = typedJointSide(joint, prop)) {
-        return static_cast<const Joint*>(joint)->getElementLink(side) != nullptr;
+        return static_cast<const Joint*>(joint)->getBinding(side) != nullptr;
     }
     const auto* ref = joint->getPropertyByName<App::PropertyXLinkSub>(prop);
     return ref && ref->getValue() && !ref->getSubValues().empty();

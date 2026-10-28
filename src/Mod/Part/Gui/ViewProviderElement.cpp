@@ -175,7 +175,7 @@ void ViewProviderElement::setAutoVisibility(bool on)
         return;
     for (auto doc : App::GetApplication().getDocuments()) {
         for (auto obj : doc->getObjects()) {
-            if (!obj->isDerivedFrom<Part::Element>() && !obj->isDerivedFrom<Part::ElementLink>())
+            if (!obj->isDerivedFrom<Part::Element>() && !obj->isDerivedFrom<Part::ElementBinding>())
                 continue;
             if (obj->Visibility.getValue()) {
                 // Visibility is view state: no undo step, no modified document
@@ -190,18 +190,18 @@ void ViewProviderElement::setAutoVisibility(bool on)
 
 // ------------------------------------------------------------------------
 
-PROPERTY_SOURCE(PartGui::ViewProviderElementLink, PartGui::ViewProviderElement)
+PROPERTY_SOURCE(PartGui::ViewProviderElementBinding, PartGui::ViewProviderElement)
 
-ViewProviderElementLink::ViewProviderElementLink()
+ViewProviderElementBinding::ViewProviderElementBinding()
 {
     applyStyle();
 }
 
-bool ViewProviderElementLink::getVertexMark(Base::Vector3d &point) const
+bool ViewProviderElementBinding::getVertexMark(Base::Vector3d &point) const
 {
     // The link has no vertex of its own: its element's, at the same place in
     // the frame of the copy, which is the element's moved
-    auto link = Base::freecad_dynamic_cast<Part::ElementLink>(getObject());
+    auto link = Base::freecad_dynamic_cast<Part::ElementBinding>(getObject());
     auto element = link ? link->getVertexElement() : nullptr;
     if (!element || link->Shape.getShape().isNull())
         return false;
@@ -211,8 +211,8 @@ bool ViewProviderElementLink::getVertexMark(Base::Vector3d &point) const
     return true;
 }
 
-App::Color ViewProviderElementLink::defaultColor() const
+App::Color ViewProviderElementBinding::defaultColor() const
 {
-    // Assembly3's element link color
+    // Assembly3's element binding color
     return App::Color(1.0f, 60.0f/255.0f, 60.0f/255.0f);
 }

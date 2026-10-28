@@ -231,7 +231,7 @@ class TestGuiCommands(unittest.TestCase):
         made = self.joints(jtype)
         self.assertEqual(len(made), 1, "no %s joint was made" % jtype)
         j = made[0]
-        # A joint made in an assembly is the C++ one, its sides element links
+        # A joint made in an assembly is the C++ one, its sides element bindings
         self.assertTrue(JointObject.isTyped(j))
         self.assertEqual(UtilsAssembly.getObject(JointObject.sideRef(j, 1)), self.cyl1)
         self.assertEqual(UtilsAssembly.getObject(JointObject.sideRef(j, 2)), self.cyl2)

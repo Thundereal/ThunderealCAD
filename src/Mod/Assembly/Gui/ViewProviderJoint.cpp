@@ -204,9 +204,8 @@ void ViewProviderJoint::updateData(const App::Property* prop)
     Gui::ViewProviderDocumentObject::updateData(prop);
     auto joint = Base::freecad_dynamic_cast<Assembly::Joint>(getObject());
     if (joint
-        && (prop == &joint->Placement1 || prop == &joint->Placement2
-            || prop == &joint->ElementLink1 || prop == &joint->ElementLink2
-            || prop == &joint->_Instances)) {
+        && (prop == &joint->Placement1 || prop == &joint->Placement2 || prop == &joint->Binding1
+            || prop == &joint->Binding2 || prop == &joint->_Instances)) {
         redrawMarkers();
     }
 }
@@ -259,7 +258,7 @@ void ViewProviderJoint::redrawMarkers()
     // markers are: the two sides, then each instance's
     std::vector<std::pair<bool, Base::Placement>> frames;
     for (int side : {1, 2}) {
-        const bool set = joint->getElementLink(side) != nullptr;
+        const bool set = joint->getBinding(side) != nullptr;
         frames.emplace_back(set, set ? joint->getFrame(side) : Base::Placement());
     }
     for (auto obj : joint->_Instances.getValues()) {
@@ -295,7 +294,7 @@ std::vector<App::DocumentObject*> ViewProviderJoint::claimChildren() const
         return children;
     }
     for (int side : {1, 2}) {
-        if (auto link = joint->getElementLink(side)) {
+        if (auto link = joint->getBinding(side)) {
             children.push_back(link);
         }
     }

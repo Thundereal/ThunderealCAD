@@ -21,7 +21,7 @@
 
 // Not upstream. What an element is, geometrically, and the frame it puts its
 // users on: the one place an edge's curve or a face's surface type is read
-// for elements (Part::Element, Part::ElementLink) and for the Assembly
+// for elements (Part::Element, Part::ElementBinding) and for the Assembly
 // workbench's joints (docs/AssemblySolverInterface.md sec 6.11,
 // docs/AssemblyObjectModel.md sec 7.1). It was Assembly's until the element
 // link needed the frame.
@@ -126,7 +126,7 @@ PartExport TopoDS_Shape singleSubShape(const TopoDS_Shape& shape);
 /// The frame an element puts its users on: of a vertex, an edge or a face,
 /// or a whole object's shape (its own placement). UtilsAssembly.findPlacement's
 /// rules, on a shape in one coordinate system, without a second, vertex,
-/// sub-element: an element link's Vertex moves the origin instead.
+/// sub-element: an element binding's Vertex moves the origin instead.
 PartExport Base::Placement findElementFrame(const TopoShape& shape);
 
 }  // namespace Part

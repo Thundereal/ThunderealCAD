@@ -45,7 +45,7 @@ namespace AssemblyGui
 
 /** The view provider of a C++ joint (Assembly::Joint)
  *
- * The joint holds its element links, and a multiplied joint its instance
+ * The joint holds its element bindings, and a multiplied joint its instance
  * joints: it claims them in the tree. Claimed in C++, not by the joint's
  * Python view provider: a group's tree export asks every child for its
  * claims, and an assembly's children are its joints, so a Python call per

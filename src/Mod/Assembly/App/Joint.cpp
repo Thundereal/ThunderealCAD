@@ -152,7 +152,7 @@ App::DocumentObject* componentOf(const App::Part* assembly,
     return child;
 }
 
-/// The element an element link's (object, subname) resolves to, or null
+/// The element an element binding's (object, subname) resolves to, or null
 Part::Element* resolveElement(App::DocumentObject* obj, const std::string& sub)
 {
     if (!obj) {
@@ -212,10 +212,16 @@ Joint::Joint()
     ADD_PROPERTY_TYPE(JointType, (0L), "Joint", App::Prop_None, "The type of the joint");
     JointType.setEnums(JointTypeEnums);
 
-    ADD_PROPERTY_TYPE(ElementLink1, (nullptr), "Joint Connector 1", App::Prop_None,
-                      "The element link of the first side, a child of the assembly");
-    ADD_PROPERTY_TYPE(ElementLink2, (nullptr), "Joint Connector 2", App::Prop_None,
-                      "The element link of the second side, a child of the assembly");
+    ADD_PROPERTY_TYPE(Binding1,
+                      (nullptr),
+                      "Joint Connector 1",
+                      App::Prop_None,
+                      "The element binding of the first side, a child of the assembly");
+    ADD_PROPERTY_TYPE(Binding2,
+                      (nullptr),
+                      "Joint Connector 2",
+                      App::Prop_None,
+                      "The element binding of the second side, a child of the assembly");
     ADD_PROPERTY_TYPE(Placement1, (Base::Placement()), "Joint Connector 1",
                       App::PropertyType(App::Prop_Output | App::Prop_ReadOnly),
                       "The first joint coordinate system, relative to the side's component");
@@ -285,10 +291,10 @@ Joint::Joint()
     App::SuppressibleExtension::initExtension(this);
 }
 
-Part::ElementLink* Joint::getElementLink(int side) const
+Part::ElementBinding* Joint::getBinding(int side) const
 {
-    auto& prop = side == 1 ? ElementLink1 : ElementLink2;
-    return Base::freecad_dynamic_cast<Part::ElementLink>(prop.getValue());
+    auto& prop = side == 1 ? Binding1 : Binding2;
+    return Base::freecad_dynamic_cast<Part::ElementBinding>(prop.getValue());
 }
 
 AssemblyObject* Joint::getAssembly() const
@@ -357,16 +363,16 @@ App::DocumentObject* Joint::getComponent(int side) const
         auto component = multiplier->getComponent(side);
         return side == 1 ? arrayElement(component, _Instance.getValue()) : component;
     }
-    auto link = getElementLink(side);
+    auto link = getBinding(side);
     if (!link) {
         return nullptr;
     }
-    return componentOfLink(getContainer(), link, nullptr);
+    return componentOfBinding(getContainer(), link, nullptr);
 }
 
-App::DocumentObject* Joint::componentOfLink(App::Part* assembly,
-                                            Part::ElementLink* link,
-                                            Base::Placement* placement)
+App::DocumentObject* Joint::componentOfBinding(App::Part* assembly,
+                                               Part::ElementBinding* link,
+                                               Base::Placement* placement)
 {
     auto obj = link->Element.getValue();
     const auto& subs = link->Element.getSubValues();
@@ -424,14 +430,14 @@ JointSide Joint::getSide(int side) const
         return res;
     }
     JointSide res;
-    res.link = getElementLink(side);
-    if (!res.link) {
+    res.binding = getBinding(side);
+    if (!res.binding) {
         return res;
     }
-    res.component = componentOfLink(getContainer(), res.link, &res.placement);
+    res.component = componentOfBinding(getContainer(), res.binding, &res.placement);
 
-    auto obj = res.link->Element.getValue();
-    const auto& subs = res.link->Element.getSubValues();
+    auto obj = res.binding->Element.getValue();
+    const auto& subs = res.binding->Element.getSubValues();
     const std::string sub = subs.empty() ? std::string() : subs.front();
 
     // A convenience element in the assembly's own Elements group keeps a copy
@@ -468,8 +474,8 @@ JointSide Joint::getSide(int side) const
     }
     if (res.shape.isNull()) {
         // Not resolved now (a component not loaded, a broken reference): the
-        // copy the element link keeps
-        res.shape = res.link->Shape.getShape();
+        // copy the element binding keeps
+        res.shape = res.binding->Shape.getShape();
         res.stored = !res.shape.isNull();
     }
     // A path naming no element is a whole object, framed by its placement
@@ -485,7 +491,7 @@ JointSide Joint::getSide(int side) const
     }
 
     // The offsets down the chain of elements, the deepest first, then the
-    // element link's own: each is a placement in the frame before it
+    // element binding's own: each is a placement in the frame before it
     std::vector<Base::Placement> offsets;
     std::vector<const Part::Element*> visited;
     auto element = resolveElement(obj, sub);
@@ -501,7 +507,7 @@ JointSide Joint::getSide(int side) const
     for (auto it = offsets.rbegin(); it != offsets.rend(); ++it) {
         res.frame = res.frame * *it;
     }
-    res.frame = res.frame * res.link->Offset.getValue();
+    res.frame = res.frame * res.binding->Offset.getValue();
     if (res.stored && res.component) {
         // The copy is where the component was when it was taken, which a
         // solve since makes stale: the frame is the last one the geometry
@@ -523,11 +529,11 @@ bool Joint::getStoredSide(int side,
     if (isTouched() || isError() || getMultiplier() || mustExecute()) {
         return false;
     }
-    auto link = getElementLink(side);
+    auto link = getBinding(side);
     if (!link || link->isTouched()) {
         return false;
     }
-    component = componentOfLink(getContainer(), link, &placement);
+    component = componentOfBinding(getContainer(), link, &placement);
     if (!component) {
         return false;
     }
@@ -548,7 +554,7 @@ Base::Placement Joint::getFrame(int side) const
 
 short Joint::mustExecute() const
 {
-    if (ElementLink1.isTouched() || ElementLink2.isTouched()) {
+    if (Binding1.isTouched() || Binding2.isTouched()) {
         return 1;
     }
     return App::DocumentObject::mustExecute();
@@ -557,7 +563,7 @@ short Joint::mustExecute() const
 App::DocumentObjectExecReturn* Joint::execute()
 {
     for (int side : {1, 2}) {
-        if (!getElementLink(side)) {
+        if (!getBinding(side)) {
             continue;  // incomplete, as while the joint task is open
         }
         const auto jointSide = getSide(side);
@@ -884,7 +890,7 @@ void Joint::updateInstances()
 
 namespace
 {
-bool isUsedByAnotherJoint(const Part::ElementLink* link, const Joint* joint)
+bool isUsedByAnotherJoint(const Part::ElementBinding* link, const Joint* joint)
 {
     for (auto user : link->getInList()) {
         if (user != joint && user->isDerivedFrom<Joint>()) {
@@ -894,9 +900,9 @@ bool isUsedByAnotherJoint(const Part::ElementLink* link, const Joint* joint)
     return false;
 }
 
-/// Delete an element link, and the convenience element it used when no
-/// other element link of the assembly uses that one
-void removeElementLink(App::Part* assembly, Part::ElementLink* link)
+/// Delete an element binding, and the convenience element it used when no
+/// other element binding of the assembly uses that one
+void removeBinding(App::Part* assembly, Part::ElementBinding* link)
 {
     auto doc = link->getDocument();
     Part::Element* convenience = nullptr;
@@ -913,7 +919,7 @@ void removeElementLink(App::Part* assembly, Part::ElementLink* link)
         return;
     }
     for (auto child : assembly->Group.getValues()) {
-        auto other = Base::freecad_dynamic_cast<Part::ElementLink>(child);
+        auto other = Base::freecad_dynamic_cast<Part::ElementBinding>(child);
         if (!other || other->isRemoving()) {
             continue;
         }
@@ -927,11 +933,11 @@ void removeElementLink(App::Part* assembly, Part::ElementLink* link)
 }
 }  // namespace
 
-Part::ElementLink* Joint::setSide(int side,
-                                  App::DocumentObject* component,
-                                  const char* subname,
-                                  const char* vertex,
-                                  bool local)
+Part::ElementBinding* Joint::setSide(int side,
+                                     App::DocumentObject* component,
+                                     const char* subname,
+                                     const char* vertex,
+                                     bool local)
 {
     auto assembly = getAssembly();
     if (!assembly) {
@@ -939,17 +945,35 @@ Part::ElementLink* Joint::setSide(int side,
     }
     auto link = makeSide(assembly, component, subname, vertex, local);
     clearSide(side);
-    (side == 1 ? ElementLink1 : ElementLink2).setValue(link);
+    (side == 1 ? Binding1 : Binding2).setValue(link);
     return link;
 }
 
 void Joint::clearSide(int side)
 {
-    auto old = getElementLink(side);
-    (side == 1 ? ElementLink1 : ElementLink2).setValue(nullptr);
+    auto old = getBinding(side);
+    (side == 1 ? Binding1 : Binding2).setValue(nullptr);
     if (old && !old->isRemoving() && !isUsedByAnotherJoint(old, this)) {
-        removeElementLink(getContainer(), old);
+        removeBinding(getContainer(), old);
     }
+}
+
+void Joint::handleChangedPropertyName(Base::XMLReader& reader,
+                                      const char* typeName,
+                                      const char* propName)
+{
+    App::PropertyLink* side = nullptr;
+    if (strcmp(propName, "ElementLink1") == 0) {
+        side = &Binding1;
+    }
+    else if (strcmp(propName, "ElementLink2") == 0) {
+        side = &Binding2;
+    }
+    if (side && strcmp(side->getTypeId().getName(), typeName) == 0) {
+        side->Restore(reader);
+        return;
+    }
+    App::DocumentObject::handleChangedPropertyName(reader, typeName, propName);
 }
 
 PyObject* Joint::getPyObject()
@@ -969,12 +993,12 @@ void Joint::unsetupObject()
             instance->getDocument()->removeObject(instance->getNameInDocument());
         }
     }
-    // The joint holds its element links: they go with it, unless another
+    // The joint holds its element bindings: they go with it, unless another
     // joint uses one too
     auto assembly = getContainer();
     std::vector<App::DocumentObjectT> links;
     for (int side : {1, 2}) {
-        auto link = getElementLink(side);
+        auto link = getBinding(side);
         if (!link || link->isRemoving()) {
             continue;
         }
@@ -983,9 +1007,9 @@ void Joint::unsetupObject()
         }
     }
     for (auto& linkT : links) {
-        auto link = Base::freecad_dynamic_cast<Part::ElementLink>(linkT.getObject());
+        auto link = Base::freecad_dynamic_cast<Part::ElementBinding>(linkT.getObject());
         if (link && !link->isRemoving()) {
-            removeElementLink(assembly, link);
+            removeBinding(assembly, link);
         }
     }
     App::DocumentObject::unsetupObject();
@@ -1004,7 +1028,7 @@ Joint::Copies Joint::copiesOf(App::Part* assembly)
         }
     };
     for (auto child : assembly->Group.getValues()) {
-        auto link = Base::freecad_dynamic_cast<Part::ElementLink>(child);
+        auto link = Base::freecad_dynamic_cast<Part::ElementBinding>(child);
         if (!link) {
             continue;
         }
@@ -1113,7 +1137,7 @@ Part::Element* findElement(App::AuxGroup* group,
 /** An element of the container on this target, made if there is none
  *
  * A vertex picked with the geometry places the frame's origin: the element
- * keeps it, and its Offset follows it, so that an element link refers to an
+ * keeps it, and its Offset follows it, so that an element binding refers to an
  * element only (docs/AssemblyObjectModel.md sec 4.3). An element with
  * another vertex, or none, is another element.
  */
@@ -1196,11 +1220,11 @@ App::DocumentObject* childOf(App::DocumentObject* container, const std::string& 
 
 }  // namespace
 
-Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
-                                   App::DocumentObject* component,
-                                   const char* subname,
-                                   const char* vertex,
-                                   bool local)
+Part::ElementBinding* Joint::makeSide(AssemblyObject* assembly,
+                                      App::DocumentObject* component,
+                                      const char* subname,
+                                      const char* vertex,
+                                      bool local)
 {
     if (!assembly || !component) {
         THROWM(Base::ValueError, "No assembly or component");
@@ -1232,12 +1256,12 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
         }
     }
     // The path names the element of the array: what declares elements is
-    // what every element links to, so the element is the assembly's own
+    // what every element bindings to, so the element is the assembly's own
     if (isElementLinkGroup(component)) {
         local = true;
     }
 
-    Part::ElementLink* link = nullptr;
+    Part::ElementBinding* link = nullptr;
     // The component declares elements: the element goes in its Elements
     // group, as a direct child of it plus the rest of the path, and so does
     // its vertex
@@ -1249,11 +1273,10 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
         auto vertex = vertexSub.empty() ? nullptr : childOf(container, vertexSub, vertexRest);
         if (target && (vertex || vertexSub.empty())) {
             auto element = declare(container, target, rest, vertex, vertexRest, nullptr);
-            link = Part::ElementLink::create(
+            link = Part::ElementBinding::create(
                 assembly,
                 via,
-                (prefix + "$$Elements.$" + element->Label.getValue() + ".").c_str()
-            );
+                (prefix + "$$Elements.$" + element->Label.getValue() + ".").c_str());
         }
     }
     if (!link) {
@@ -1264,11 +1287,10 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
                                vertexSub.empty() ? nullptr : via,
                                vertexSub.empty() ? vertexSub : prefix + vertexSub,
                                "_Element");
-        link = Part::ElementLink::create(
+        link = Part::ElementBinding::create(
             assembly,
             assembly->getElementsGroup(false),
-            (std::string("$") + element->Label.getValue() + ".").c_str()
-        );
+            (std::string("$") + element->Label.getValue() + ".").c_str());
     }
     return link;
 }
@@ -1297,8 +1319,8 @@ Joint* Joint::make(AssemblyObject* assembly,
         ext->addObject(joint);
     }
     joint->JointType.setValue(type);
-    joint->ElementLink1.setValue(makeSide(assembly, component1, subname1, vertex1));
-    joint->ElementLink2.setValue(makeSide(assembly, component2, subname2, vertex2));
+    joint->Binding1.setValue(makeSide(assembly, component1, subname1, vertex1));
+    joint->Binding2.setValue(makeSide(assembly, component2, subname2, vertex2));
     return joint;
 }
 

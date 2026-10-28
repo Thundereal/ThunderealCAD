@@ -86,7 +86,7 @@ void AssemblyGroup::onSettingDocument()
             // A proxy set decides the role of what has it. Not any Python
             // object property: each view provider property change touches
             // the object's ViewObject mirror, which is one too, and an
-            // element link's style alone refreshed every group of the
+            // element binding's style alone refreshed every group of the
             // assembly a dozen times per joint made
             if (!prop.isDerivedFrom<App::PropertyPythonObject>() || !prop.getName()
                 || std::strcmp(prop.getName(), "Proxy") != 0) {
@@ -96,8 +96,7 @@ void AssemblyGroup::onSettingDocument()
             if (group && group->hasObject(&obj)) {
                 refresh();
             }
-        }
-    );
+        });
 }
 
 

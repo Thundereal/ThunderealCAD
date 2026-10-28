@@ -56,7 +56,7 @@ public:
 
     /** Turn auto element visibility on or off
      *
-     * Turned on, it hides every element and element link of every open
+     * Turned on, it hides every element and element binding of every open
      * document, as Assembly3's "Auto element visibility" does. Turned off,
      * each keeps the visibility it has, and new ones are made visible.
      */
@@ -67,7 +67,7 @@ protected:
     virtual App::Color defaultColor() const;
     void applyStyle();
     /** Where the frame's origin is put by a vertex, in the object's own
-     * coordinates: the element's Vertex, or an element link's element's
+     * coordinates: the element's Vertex, or an element binding's element's
      *
      * @return false when there is none
      */
@@ -81,14 +81,14 @@ private:
     SoCoordinate3 *pcVertexCoord;
 };
 
-/// The view provider of a Part::ElementLink: the same, in red
-class PartGuiExport ViewProviderElementLink : public ViewProviderElement
+/// The view provider of a Part::ElementBinding: the same, in red
+class PartGuiExport ViewProviderElementBinding : public ViewProviderElement
 {
     using inherited = ViewProviderElement;
-    PROPERTY_HEADER_WITH_OVERRIDE(PartGui::ViewProviderElementLink);
+    PROPERTY_HEADER_WITH_OVERRIDE(PartGui::ViewProviderElementBinding);
 
 public:
-    ViewProviderElementLink();
+    ViewProviderElementBinding();
 
 protected:
     App::Color defaultColor() const override;

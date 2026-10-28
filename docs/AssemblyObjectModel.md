@@ -12,6 +12,28 @@ Sources:
   `asm3/...` below is under its `freecad/asm3/`;
 - `PartDesign::AuxGroup` in this tree.
 
+**Words.** "Element" names three things in FreeCAD; here each has one word:
+- a **sub-element** (or, as a path, a subname) is a shape's named piece,
+  `Face3`, `Edge1`, `Vertex2`;
+- an **element** (`Part::Element`) is a reference a container declares in
+  its Elements group: the geometry it publishes for its parents to connect
+  to, found by label and kept through renamed sub-elements. One element
+  serves every user of the same reference; the picked vertex is its own
+  (`Vertex`, which its `Offset` follows);
+- an **element binding** (`Part::ElementBinding`) is one user's binding to
+  one element: a child of the assembly, owned by exactly one user -- a
+  joint's side (`Binding1` / `Binding2`), a spring's end -- which claims it
+  in the tree and deletes it with itself. It always goes through an
+  element, holds that use's own `Offset` and a copy of the shape for when
+  the element cannot be resolved. Never shared: an edit made for one user
+  goes to its binding, never to the element the others use too.
+Renamed 2026-10-28 from `Part::ElementLink` (`ElementLink1/2`,
+`Part.makeElementLink`), which a document or a macro of before still
+names: the type keeps its old name as a legacy alias
+(`Base::Type::addLegacyName`), a joint restores the old property names, and
+`Part.makeElementLink` stays. Assembly3's own `AsmElementLink` keeps its
+name.
+
 ## 0. Decisions (user, 2026-10-24)
 
 1. **The assembly object model is C++.** The container, elements, element
@@ -24,13 +46,13 @@ Sources:
    and BOM fields are kept.
 3. **Ownership follows Body and its aux groups**: the container's `Group`
    owns its children flat, and aux groups show them sorted (sec 3).
-4. **Elements and ElementLinks as Assembly3 has them** (sec 4): an Element
+4. **Elements and ElementBindings as Assembly3 has them** (sec 4): an Element
    is an interface declared by the container that holds the geometry, for
-   its parents to connect to; an ElementLink is how a container uses an
+   its parents to connect to; an ElementBinding is how a container uses an
    element of a direct child, or its own, to form a joint.
 5. **The Elements group owns its children.** It is the label namespace
    `$Label` resolves in.
-6. **An ElementLink stores the shape too**, unlike Assembly3's, so a joint
+6. **An ElementBinding stores the shape too**, unlike Assembly3's, so a joint
    is self-contained and a child need not be loaded (sec 4.4).
 7. **Body and App::Part declare interfaces as well as Assembly** (sec 5),
    using the same aux group.
@@ -67,18 +89,18 @@ Rotor                       Assembly : App::Part, GroupMode = Auto   (Rotor.FCSt
     _Element      -> (Dome, "Edge7")                 convenience: Dome has no Elements
     ShaftEnd      -> (Axis, "$$Elements.$PinEnd.")    re-exported upward, renamed
   Joints                    aux view
-    Revolute001             a joint owns its ElementLinks
-      ElementLink     -> (Elements, "$_Element.")      Shape copy, Offset
-      ElementLink001  -> (Axis, "$$Elements.$PinEnd.")  straight into the child's interface
+    Revolute001             a joint owns its ElementBindings
+      ElementBinding     -> (Elements, "$_Element.")      Shape copy, Offset
+      ElementBinding001  -> (Axis, "$$Elements.$PinEnd.")  straight into the child's interface
   Physics                   aux view; shared items
     Spring001
-      ElementLink     -> (Elements, "$HubFace.")
-      ElementLink001  -> (Bracket, "$$Elements.$Bore.")  a Body's own interface
+      ElementBinding     -> (Elements, "$HubFace.")
+      ElementBinding001  -> (Bracket, "$$Elements.$Bore.")  a Body's own interface
   Simulations               aux view
     Study001 [Dynamic]      owns its own items; Elements = the Physics items it uses
       Motion001             Joint = Revolute001 (a whole joint, plain link)
       Force001
-        ElementLink   -> (Elements, "$_Element.")
+        ElementBinding   -> (Elements, "$_Element.")
   Views
     Exploded View           owns its steps
       Move                  Components = [Bracket]
@@ -165,8 +187,8 @@ Built as step 2 (2026-10-24):
 - Tests: `tests/src/App/PartGroupMode.cpp`, one case per rule above.
 
 Every reference inside the container ends at one of its own children: an
-element links to a child (a direct part or an owned link) with a subname, a
-joint links to its own element links. All are local links; only an owned
+element bindings to a child (a direct part or an owned link) with a subname, a
+joint links to its own element bindings. All are local links; only an owned
 link's `LinkedObject` reaches outside, which is the App::Link's business. No
 Hidden links and no cross-document links are needed in joints or elements.
 
@@ -191,7 +213,7 @@ Hidden links and no cross-document links are needed in joints or elements.
     sensors, plots): they mean nothing outside it, and duplicating or
     deleting a study carries them;
   - **an exploded view** owns its steps, for the same reason.
-- **A joint owns its ElementLinks**, as an Assembly3 constraint does.
+- **A joint owns its ElementBindings**, as an Assembly3 constraint does.
 - Physics items stay shared and flat; a study lists the ones it uses in its
   `Elements` link list (`docs/AssemblyDynamics.md` sec 5.1, which this
   changes only in that Physics becomes an aux view).
@@ -233,14 +255,14 @@ Built as step 4e (2026-10-25), for Joints, Simulations and Views:
   the Snapshots and Bills of Materials groups stay upstream's, the plan
   naming only these three.
 - **An assembly's Parts group takes the components only** (sec 3.1): not
-  a joint's element link, nor what a group of its own holds (a motion, a
+  a joint's element binding, nor what a group of its own holds (a motion, a
   step, a snapshot), nor upstream's groups, nor what is neither a
   geometry feature nor a link.
 - **Auto is the assembly's group mode** (sec 2): an object in another
   geometry group, in another document, or a component already, is added as
   an owned link. A file that saved another mode restores it.
 - Checked in the GUI: an assembly made by the commands shows Origin,
-  Elements, Joints (a grounding and a joint, its element links under it),
+  Elements, Joints (a grounding and a joint, its element bindings under it),
   Simulations, Exploded Views, then the components.
 - Tests: `AssemblyTests/TestAssemblyGroups.py` (9): the group and its
   owner, the workbench's objects by role and the components and element
@@ -335,20 +357,20 @@ Freeze built (2026-10-25, step 5):
   probe checked the drawing, undo and redo, and the link in the parent.
 
 Export fixed (2026-10-26). An assembly's shape (`Part.getShape`, a link
-to it, STEP export) missed components and took in element links: the
+to it, STEP export) missed components and took in element bindings: the
 export list (`_ExportChildren`) leaves out a child another child refers
 to, and here the Parts group lists the components, a grounded joint names
-its part, and a joint holds its element links
+its part, and a joint holds its element bindings
 (`GeoFeatureGroupExtension::buildExport`, and
 `ViewProviderGroupExtension::buildExport` with a view).
 
 - **The rule.** `AssemblyObject::getChildDefaultExport` answers, for the
   shape (`GS_DEFAULT`), a component as the Parts group takes it (a
-  geometry feature or a link, not an element or element link, not in a
+  geometry feature or a link, not an element or element binding, not in a
   plain group), and the user's plain group holding one at any depth (not
   upstream's assembly groups). The same test now backs the Parts role of
   `isAuxGroupAllowed`. `_ExportChildren` is left alone: it is also the
-  tree's children, where element links show under their joint only.
+  tree's children, where element bindings show under their joint only.
   This is how PartDesign's `Body` overrides the default too.
 - **Customizing.** The assembly's `ExportMode` stays the user's. "By
   Visibility", the default, takes the visible components. "Child Query"
@@ -365,7 +387,7 @@ its part, and a joint holds its element links
 
 Link scope (2026-10-26). Asked whether making our own reference links
 Global would have fixed the export instead. Not alone: the elements', the
-element links' and both groundings' already were, and the rule without a
+element bindings' and both groundings' already were, and the rule without a
 view ignored scope (any child in another child's `InList` was left out).
 What was done:
 
@@ -390,7 +412,7 @@ What was done:
   the child out and a Global one leaves it in; a link set later is
   followed on recompute.
 
-## 4. Elements and ElementLinks
+## 4. Elements and ElementBindings
 
 ### 4.1 What they are
 
@@ -405,15 +427,15 @@ The Assembly3 concept, unchanged (wiki, Concepts / Element):
   share an interface by name.
 - **One geometry per element**, read flexibly as a point, a line or a plane
   (wiki, Constraints and Solvers / Constraining Geometry Element).
-- **An ElementLink is the use site.** A joint in container A holds
-  ElementLinks. Each links straight to an element declared by one of A's
+- **An ElementBinding is the use site.** A joint in container A holds
+  ElementBindings. Each links straight to an element declared by one of A's
   direct children, through that child: `(Axis, "$$Elements.$PinEnd.")`.
   Only a child with no Elements group of its own (a plain feature such as
   `Dome`) gets a convenience element in A's own Elements group (`_Element`
-  above), and the ElementLink links to that.
+  above), and the ElementBinding links to that.
 - **Not Assembly3's 0.9 rule.** Since 0.9 Assembly3 always links through a
   local element, so that a copy survives a missing lower element (release
-  notes 0.9). Here the ElementLink keeps its own copy (sec 4.4), so that
+  notes 0.9). Here the ElementBinding keeps its own copy (sec 4.4), so that
   indirection is not needed.
 - **A pick on a child that declares elements** creates the element in that
   child's Elements group when the face is not declared yet, as Assembly3
@@ -422,23 +444,23 @@ The Assembly3 concept, unchanged (wiki, Concepts / Element):
   (frozen, partially loaded, read-only document), the element is made as a
   convenience element in the picking container instead, and the report
   view says so (decision 10).
-- **Offsets.** An ElementLink's `Offset` affects only its joint; an
+- **Offsets.** An ElementBinding's `Offset` affects only its joint; an
   Element's `Offset` affects every user.
 - **Repair is in one place.** When a face is renamed, only the deepest
   element is fixed; elements and joints above it stay as they are.
 - **Elements are made for you.** A pick in the 3D view creates the elements
-  and element links down the hierarchy; named, explicit elements are the
+  and element bindings down the hierarchy; named, explicit elements are the
   practice for reuse.
 
 ### 4.2 Upstream's joint picks
 
 Upstream picks two sub-elements for one side of a joint, a face and a vertex
 (`[Component, ["Body.Face6", "Body.Vertex3"]]`); the vertex only places the
-origin on the face. Here one side is one ElementLink to an element of the
+origin on the face. Here one side is one ElementBinding to an element of the
 face, and the vertex is that element's `Vertex`: a live link, which the
-element's `Offset` follows. An element link refers to an element only, so
+element's `Offset` follows. An element binding refers to an element only, so
 that a reference into geometry is repaired in one place, the element (user,
-2026-10-26; until then the vertex was the element link's own, user,
+2026-10-26; until then the vertex was the element binding's own, user,
 2026-10-25). A pick that already gives a frame (a circular edge, a datum,
 an LCS) needs no vertex.
 
@@ -464,10 +486,10 @@ at display or solve time.
     geometry with another vertex, or none: a pick finds or makes the one
     with both.
   - The view provider shows the vertex as a yellow point, 10 px, over the
-    element's half transparent cyan, and an element link's over its red, at
-    its element's vertex (`ElementLink::getVertexElement()`: the first
+    element's half transparent cyan, and an element binding's over its red, at
+    its element's vertex (`ElementBinding::getVertexElement()`: the first
     element down the chain with one).
-- `Part::ElementLink`: `Element` (an `App::PropertyLinkSub`: a direct child
+- `Part::ElementBinding`: `Element` (an `App::PropertyLinkSub`: a direct child
   of its container and the subname to an element in that child's Elements
   group, or the container's own Elements group and a convenience element),
   `Offset` (the user's, for this use), `Shape` (sec 4.4). No vertex of its
@@ -475,13 +497,13 @@ at display or solve time.
   it on open, with a warning to pick the side again.
 - **The element frame** (`Part::findElementFrame`, `Part/App/ElementGeometry`,
   with the curve and surface recognition it reads) is Part's: `Offset` is
-  relative to it, and the element link computes it. It was Assembly's
+  relative to it, and the element binding computes it. It was Assembly's
   until the vertex needed it; `Assembly/App/ElementGeometry.h` forwards.
 - **Copies follow through what does not change.** In this build a change
   reaches a dependent only through objects that change, and the objects
   between an element and its geometry (an `App::Part`, an Elements group, a
   link) do not. Two things make the copies follow anyway:
-  - an element and an element link keep a hidden `_Resolved` link
+  - an element and an element binding keep a hidden `_Resolved` link
     (`PropertyXLink`, Global) on what their subname resolves to (through a
     link, what it links; sec 4.5), kept in step when the link is set and on
     each recompute: the dependency on the geometry itself;
@@ -503,7 +525,7 @@ at display or solve time.
   and place nothing, so neither is a coordinate-system link: with Global
   scope the link-scope check and the walks of what moves with what
   (`getCSOutList`, `getCSInList`, `getCSRelevantLinks`) never follow them,
-  whatever the element links to.
+  whatever the element bindings to.
 - **Copies follow their source.** A copy is taken as its source resolves in
   the element's container and is retaken whenever the source recomputes.
   That includes a component that deforms under motion: assembly solving
@@ -520,7 +542,7 @@ goes instead:
 |---|---|
 | showing the referenced geometry in place (`ViewProviderLinkPython`, `asm3/assembly.py:250`) | a part view provider showing the copy, at the component's current placement |
 | link navigation ("Select linked", "Select final"): `getLinkedViewProvider` (`Gui/CommandLink.cpp:923`) | the element view providers override `getLinkedViewProvider` to step to the target. `getLinkedObject` is NOT overridden: `Part::Feature::getTopoShape` follows it (`Part/App/PartFeature.cpp:1235`) and would bypass the copy, which `asm3/assembly.py:598` warns of too |
-| a link-array ElementLink for constraint multiplication (`Count`, `PlacementList`, `ShowElement`; `asm3/assembly.py:1898-1903`, `:2210-2248`, `:2541`) | the multiplied joint (sec 7.4): one joint, an instance joint per pair, each side derived from the joint's |
+| a link-array ElementBinding for constraint multiplication (`Count`, `PlacementList`, `ShowElement`; `asm3/assembly.py:1898-1903`, `:2210-2248`, `:2541`) | the multiplied joint (sec 7.4): one joint, an instance joint per pair, each side derived from the joint's |
 | re-pointing by drag and drop | the view providers' own drop handlers, as Assembly3's are (`:2363`) |
 
 Not tied to the extension, so kept as they are: `$Label` references and
@@ -531,7 +553,7 @@ adjustment of relative links on "Replace with link"
 
 Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
 
-- `Part::Element` and `Part::ElementLink`, both `Part::Feature`. Each
+- `Part::Element` and `Part::ElementBinding`, both `Part::Feature`. Each
   `execute` takes the shape its link resolves to (`Feature::getTopoShape`
   on the link's object and subname) and keeps it with its location in
   `Placement`. `Detach` keeps the copy and skips the target. `Offset` is
@@ -546,8 +568,8 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
   marks `LiveImport` as an import, and the converters on open made two
   `_Element` there, joining both sides of a joint to one; a load is marked
   `LiveLoad` too now, and its labels are made unique.) A new element is
-  hidden; its geometry is the target's. `Part.makeElementLink(container, obj,
-  subname)` adds an ElementLink to the container's `Group` directly,
+  hidden; its geometry is the target's. `Part.makeElementBinding(container, obj,
+  subname)` adds an ElementBinding to the container's `Group` directly,
   whatever its GroupMode (a joint owns them from step 4).
 - The Elements group is an `App::AuxGroup` of role "Elements", which makes
   it owning (`AuxGroup::isOwning()`): its `Group` is what it holds, it is
@@ -575,14 +597,14 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
   `asm3/gui.py:31-160`, `:712-745`):
   - `PartGui::ViewProviderElement`: the copy in half transparent cyan,
     lines and points 4 wide, `OnTopWhenSelected` "Object";
-    `PartGui::ViewProviderElementLink`: the same in red.
+    `PartGui::ViewProviderElementBinding`: the same in red.
   - The owning group draws its elements (`Gui::ViewProviderAuxGroup` gives
     an owning group a child root and claims its children in 3D), and the
     container claims the group in 3D, so an element is in the scene in the
     container's coordinate system and a selection path to it resolves.
   - **Auto element visibility** (the Part preference
     `AutoElementVisibility`, on by default, Assembly3's default too): new
-    elements and element links are made hidden, and each is seen only
+    elements and element bindings are made hidden, and each is seen only
     while it is selected or preselected. Assembly3 does that by toggling
     `Visibility` from a selection observer, and stands down when the core
     draws the selection on top (`asm3/gui.py:78`). This fork's core always
@@ -593,7 +615,7 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
     object too. So nothing toggles `Visibility`, and no document is
     modified by looking. Off: new ones are made visible, and each is shown
     and hidden by hand. The element's context menu has the switch;
-    turning it on hides every element and element link, as Assembly3's
+    turning it on hides every element and element binding, as Assembly3's
     command does.
   - Not yet: Assembly3's "Show element coordinate system" (a coordinate
     cross at the element's frame), and the pick commands.
@@ -634,8 +656,8 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
   `PartDesignTests/TestBodyElement.py` (4): the group and its property,
   `$$Elements.` with the group relabelled, copies at the right place and
   following their target, `Detach`, labels unique among siblings only,
-  re-export through an owned link, an ElementLink to a child's element and
-  to a convenience element, relabel updating the ElementLink, deletion,
+  re-export through an owned link, an ElementBinding to a child's element and
+  to a convenience element, relabel updating the ElementBinding, deletion,
   save and restore, and a body's element recomputing with no cycle.
 
 ### 4.4 Shapes on both, and partial loading
@@ -648,7 +670,7 @@ In a frozen assembly elements answer `canLoadPartial` 1 (`:628`) and the
 constraint group 2 (`:3253`), so a parent can only solve against a child
 that is frozen or loaded far enough for the chain to resolve.
 
-Here the ElementLink also stores the shape:
+Here the ElementBinding also stores the shape:
 
 - **It costs almost nothing.** In memory the copy shares the element's
   `TShape`. On disk the shape store keeps what is shared in memory once
@@ -656,15 +678,15 @@ Here the ElementLink also stores the shape:
   To be checked
   with a round-trip probe when it is built.
 - **A joint is self-contained.** The solver, the highlight and the joint's
-  display read the ElementLinks alone.
+  display read the ElementBindings alone.
 - **A child need not be loaded at all to solve**, not only frozen. Partial
   loading is object- and property-level, not a link-extension feature:
   `DocumentObject::canLoadPartial` is written into the file's dependency
   table (`App/Document.cpp:3822`) and read back to create dependencies
   without restoring them (`:4063-4097`), and an XLink with `AllowPartial`
   opens its document partially and tolerates a missing target
-  (`App/PropertyLinks.cpp:4255`, `:5082`). Joints and element links answer
-  `canLoadPartial` 1; an element link into an unloaded child keeps its copy
+  (`App/PropertyLinks.cpp:4255`, `:5082`). Joints and element bindings answer
+  `canLoadPartial` 1; an element binding into an unloaded child keeps its copy
   and reports itself unresolved, not broken.
 - **Display is the container's business.** Showing an unloaded child needs
   the child container to keep a frozen shape of its own, in its Parts group
@@ -680,7 +702,7 @@ Here the ElementLink also stores the shape:
 Built (2026-10-26, step 5), for a child whose document is closed or
 missing; a frozen child loaded partially is sec 3.1's:
 
-- **The element link keeps its copy** (`Part/App/FeatureElement.cpp`).
+- **The element binding keeps its copy** (`Part/App/FeatureElement.cpp`).
   When its path stops at an object not loaded now
   (`Element::isUnloaded`: a link whose `PropertyXLink` keeps an object
   name but has no object, or an object a partial load created only), it
@@ -702,14 +724,14 @@ missing; a frozen child loaded partially is sec 3.1's:
   component's placement times the joint's own `Placement1`/`Placement2`,
   the frame its geometry last gave, and the copy moves with it. An
   `Offset` changed while unresolved waits for the geometry.
-- **Not needed: `canLoadPartial` on joints and element links.** A
+- **Not needed: `canLoadPartial` on joints and element bindings.** A
   document is loaded partially for what another document links to, and
-  nothing links to a joint or an element link from outside; a frozen
+  nothing links to a joint or an element binding from outside; a frozen
   child's joints are rightly created only.
 - **The link itself still reports "Link broken!"** on recompute, App::Link's
   own message for a missing document.
 - **Tests.** `TestUnloadedChild` (3): the child's file missing (the
-  element link keeps its copy, unresolved and no error, and the joint
+  element binding keeps its copy, unresolved and no error, and the joint
   solves the link back to its place), the child closed and opened again in
   session, and an element that is not there still an error.
 
@@ -746,25 +768,25 @@ Built (2026-10-26, step 5), `Part::Element::repair()` in
   reordered replacement keeps its face (Face1 becomes Face6).
 - **What is found** is set as the new `Target`, with a warning naming the
   old and new name and how it was found. Not found: a missing name stays the
-  element's error ("Target not found"), and its element links keep the copy
+  element's error ("Target not found"), and its element bindings keep the copy
   it last had, so the joints are not broken by it; a replacement without the
   copy keeps the name it resolves (Face1 of a taller box), with a warning.
 - **`_Resolved` goes through a link** to what it links (it stopped at the
   link before), so a component replaced behind a link is seen, and the copy
   depends on the geometry itself there too.
 - **Replacing a component** needs nothing more: set the link's
-  `LinkedObject`. The element links follow the labels, and the joints solve
+  `LinkedObject`. The element bindings follow the labels, and the joints solve
   on the new geometry.
 - **The vertex** (`Element::Vertex`, sec 4.3) is repaired the same way,
   its copy being the point `VertexPosition` gives in the old copy's frame:
   where its name names nothing now, and once when the component it is on,
-  the target's, is replaced. An element link has no reference into
+  the target's, is replaced. An element binding has no reference into
   geometry, so nothing else is to repair.
 - **Tests.** `parttests/ElementTest.py` (4): labelled elements followed
   through a replacement, a replacement searched for the copy and for the
   vertex, a replacement without the copy keeping the name. `PartDesignTests/TestBodyElement.py` (2): the
   naming history after a fillet, and a face gone an error of the element
-  with its element link keeping the copy. `TestReplaceComponent` (1): the
+  with its element binding keeping the copy. `TestReplaceComponent` (1): the
   joint solved on the replacement.
 
 ## 5. Who declares elements
@@ -775,7 +797,7 @@ All three can carry an Elements group (decision 7). An assembly in its part
 role (no joints, only an interface) stays available, but wrapping each part
 in an assembly is no longer needed: a Body or a Part declares its own.
 
-- **Assembly and App::Part**: an element links to a child with a subname
+- **Assembly and App::Part**: an element bindings to a child with a subname
   (`Box.Face3`), or to a child container's element. No cycle: the
   container depends on its Elements group, which depends on the children.
 - **Body**: an element may link to a feature (`Sketch.Edge3`, a datum, an
@@ -1018,11 +1040,11 @@ links store `$$Elements.` and `$PinEnd.` instead.
 
 ## 7. Joints, Physics items and studies
 
-- A joint owns two ElementLinks (one per side) instead of `Reference1/2`;
+- A joint owns two ElementBindings (one per side) instead of `Reference1/2`;
   its other properties follow upstream's joint (type, offsets, limits,
   motion), as typed C++ properties.
 - Physics items that pick geometry (springs, bushings, cam contacts) own
-  ElementLinks the same way. Study items that pick geometry (forces,
+  ElementBindings the same way. Study items that pick geometry (forces,
   initial conditions on a part) do too.
 - A motion links to its joint with a plain link; an exploded step to its
   components with a plain link list.
@@ -1044,24 +1066,24 @@ links store `$$Elements.` and `$PinEnd.` instead.
   `AngleMax`), and `Placement1` / `Placement2`, the two joint coordinate
   systems relative to each side's component, as the Python joint's are
   relative to their object, output only (the markers draw them; nothing
-  reads them back). `ElementLink1` / `ElementLink2`
+  reads them back). `Binding1` / `Binding2`
   replace `Reference1/2`, `Offset1/2` and `Detach1/2`: each is a
-  `PropertyLink` to a `Part::ElementLink`, whose own `Offset` is the
+  `PropertyLink` to a `Part::ElementBinding`, whose own `Offset` is the
   side's offset (user, 2026-10-25). The picked vertex's share is the
   element's (its `Vertex`, which its `Offset` follows, sec 4.3; the element
   link's until 2026-10-26). The joint task's offset and rotation edit it (step 4b); an
   upstream joint converts as sec 8 says. The frame of a side is the
   element's frame, then the offsets of the elements down the chain (the
-  deepest first), then the element link's `Offset`.
+  deepest first), then the element binding's `Offset`.
 - **Ownership: flat, as everything in the container** (sec 3). The element
   links are direct children of the assembly, so they are in its coordinate
   system and link to their siblings, with no special case in
   `GeoFeatureGroupExtension` (an object in a plain group inside a Part is a
   direct child of the Part too, which is what makes that work). The joint
   holds them: it deletes them when it is deleted, its view provider claims
-  them, and the assembly's tree leaves out the element links a joint holds.
+  them, and the assembly's tree leaves out the element bindings a joint holds.
 - **A side resolves to** (`Assembly::JointSide`): the moving component (a
-  direct child of the assembly: the element link's `Element` object, or,
+  direct child of the assembly: the element binding's `Element` object, or,
   for a convenience element in the assembly's own Elements group, that
   element's `Target` object); the element's shape in the assembly's
   coordinate system (resolved live through the component, the element
@@ -1096,14 +1118,14 @@ Built as step 4a (2026-10-25):
   `AssemblyObject.makeJoint(type, pick1, pick2)` in Python, and on the
   joint `getComponent(side)`, `getFrame(side)` (the frame in the
   assembly's coordinate system, resolved now), `setSide(side, component,
-  subname, vertex)` and `clearSide(side)`. An element link a side lets go of
+  subname, vertex)` and `clearSide(side)`. An element binding a side lets go of
   is deleted unless another joint uses it, and with it the convenience
-  element it used when no other element link does.
+  element it used when no other element binding does.
 - **The reference helpers answer for both kinds** of joint. They keep the
   Python joint's property names ("Reference1", "Reference2") as the names
   of the sides (`typedJointSide`): `getMovingPartFromRef` gives the side's
   component, `getObjFromJointRef` and `getLinkedObjFromRef` its element
-  link, `getElementFromProp` names the element link's copy ("Face1"), so
+  link, `getElementFromProp` names the element binding's copy ("Face1"), so
   the Distance classification, the radii and the refusals read the copy.
   Branches of their own: the side placement, the marker
   (`handleOneSideOfJoint`), rack and pinion, `swapJCS`, the current value,
@@ -1116,7 +1138,7 @@ Built as step 4a (2026-10-25):
   - a side is resolved through a convenience element's target, not
     through the element's copy, which is where the component was;
   - the copies that follow a component in the assembly's coordinate
-    system (its element links, the convenience elements on it) are moved
+    system (its element bindings, the convenience elements on it) are moved
     with it where the solve writes its placement
     (`Joint::relocateCopies`): a relocation of the same shape, as sec 4.3
     has it. `Placement1/2` are relative to the components for the same
@@ -1134,7 +1156,7 @@ Built as step 4a (2026-10-25):
   a user's offset composed with it; Fixed, Revolute (the same pose as the Python
   joint from the same start) and Distance solved; malformed when both
   sides are one part; the sides from Python; deleting the joint deletes
-  its element links and an unused convenience element; saved and
+  its element bindings and an unused convenience element; saved and
   restored.
 
 Built as step 4b (2026-10-25), the joints the task makes:
@@ -1146,27 +1168,27 @@ Built as step 4b (2026-10-25), the joints the task makes:
   joint's sides need an assembly.
 - **One set of side helpers answers for both kinds** (`JointObject.py`):
   `sideRef` (a C++ joint's side rebuilt as upstream's reference
-  `[component, [element, vertex]]` from its element link), `sideMovingPart`,
+  `[component, [element, vertex]]` from its element binding), `sideMovingPart`,
   `sideJcsGlobal`, `jointOffset` / `setJointOffset`, `syncSides` (the
-  task's picks to element links, keeping a side whose pick did not
-  change, so editing a joint keeps its element links and offsets) and
-  `recomputeSides` (the joint, its element links and their elements; not
+  task's picks to element bindings, keeping a side whose pick did not
+  change, so editing a joint keeps its element bindings and offsets) and
+  `recomputeSides` (the joint, its element bindings and their elements; not
   the components, which the task may be setting up). The proxy's
   pre-solve, flip, parallel check and connector swap, the view provider's
   markers and overlay, the task, `JointCam.pickRefusal` and
   `UtilsAssembly.getJointDistance` / `getJointXYAngle` use them. A C++
   joint's proxy `execute` returns False, so the C++ `execute` keeps
   `Placement1/2`.
-- **Offsets.** The task's offset and rotation edit the element link's
+- **Offsets.** The task's offset and rotation edit the element binding's
   `Offset`, which is the user's whole: the vertex's share is the element's
   (until 2026-10-26 the link held both, `Offset = T(VertexPosition) *
-  user's`). The advanced offset buttons open the placement dialog on the element link's
+  user's`). The advanced offset buttons open the placement dialog on the element binding's
   whole `Offset`. Not yet: an expression on those two spin boxes, which
   the Python joint binds to `Offset2`.
 - **Markers** are the frames in the assembly's coordinate system
   (`Joint.getFrame`), under the assembly's transform, as the Python
   joint's are once made relative to it.
-- **The view provider claims the element links**, and the assembly's
+- **The view provider claims the element bindings**, and the assembly's
   exported children leave out what a child claims through a non-Global
   link (`ViewProviderGroupExtension::buildExport`), so they show under
   their joint only.
@@ -1177,7 +1199,7 @@ Built as step 4b (2026-10-25), the joints the task makes:
   as upstream's joint takes such a reference.
 - **C++ branches**: the cam (`hasPick`, `camEdge`), dragging along a
   joint (`ViewProviderAssembly`), and the messages, which name what the
-  user picked ("the face Face1 of Free"), not the element link's copy
+  user picked ("the face Face1 of Free"), not the element binding's copy
   (`describeJointSide`).
 - Found on the way: a document object with no view provider, claimed in
   3D, crashed the 3D claim's incremental update (`LinkView::setChildren`
@@ -1196,21 +1218,21 @@ joint's properties:
 
 - **Cam joints** needed nothing: `CamJoint.cpp` already read a C++ joint's
   sides through `getSide()` and the side helpers of `AssemblyUtils`. The
-  refusal reads the element links' copies, made on recompute, as the task
+  refusal reads the element bindings' copies, made on recompute, as the task
   makes them before it asks. Tests: `TestCamJointTyped` (3), the
   mechanisms of `TestCamJoint` converted in place, a point and a roller,
   the static solve and the simulation, at the Python joint's 1e-9.
-- **The DoF counted element links as parts.** `collectComponentsRecursively`
+- **The DoF counted element bindings as parts.** `collectComponentsRecursively`
   took every `GeoFeature` child of the assembly for a component, a joint's
-  element links included: six freedoms each, 37 for a cam that has 1. They
+  element bindings included: six freedoms each, 37 for a cam that has 1. They
   are left out now, as `getChildDefaultExport` leaves them out of the
-  shape. Test: `TestElementJoint.testElementLinksAreNoComponents`.
+  shape. Test: `TestElementJoint.testElementBindingsAreNoComponents`.
 - **A flexible sub-assembly** (`AssemblyLink`, `Rigid` off) mirrors its
   assembly's joints onto its own links to the components. A C++ joint was
-  copied (`copyObject`): the copy's element links were the assembly's, and
+  copied (`copyObject`): the copy's element bindings were the assembly's, and
   adding it to the instance took them, and the joint, out of that
   assembly -- the instance left the sub-assembly without its joint. Now:
-  - the mirror is a plain `Assembly::Joint`, with element links of its
+  - the mirror is a plain `Assembly::Joint`, with element bindings of its
     own in the instance, on the instance's links (the step into a link
     group's element mapped to the instance's element), and, for a side on
     a convenience element, a convenience element of the instance's own
@@ -1218,7 +1240,7 @@ joint's properties:
     and offsets carried over. A mirror of the other kind is replaced, so a
     joint converted since is mirrored again. A multiplied joint is not
     mirrored (a warning): its instances are made in its assembly's group;
-  - `synchronizeComponents` neither links nor removes element links and
+  - `synchronizeComponents` neither links nor removes element bindings and
     elements;
   - `Joint::getContainer()` is the assembly or the instance holding the
     joint, and the side helpers take an `App::Part`, so a mirror's sides
@@ -1233,7 +1255,7 @@ joint's properties:
   steps through a flexible instance: `(Inst, "B001.Face3")` is on `B001`,
   at any depth, and `JointSide::placement` is the component's placement in
   the container, which the builder, `execute` and the cam use in place of
-  the component's own. `makeSide` takes such a part: its element link and
+  the component's own. `makeSide` takes such a part: its element binding and
   convenience element go through the instance, the parent's child, with
   the path in front; an element the part declares stays its own. Rigid on
   and off needs no re-pointing: the path is the same, and only `componentOf`
@@ -1361,7 +1383,7 @@ joint's properties:
   array's shape caches its elements where they were, which a solve, that
   moves an element without a recompute, makes stale (that put an element
   28 mm off). A pick on an element is a convenience element of the
-  assembly: what declares elements is what every element links to, so the
+  assembly: what declares elements is what every element bindings to, so the
   element path would lose which. The joint task's picks and makeJoint take
   either the array with the path or the element.
 - **The multiplied joint** (user, 2026-10-25), as Assembly3's multiplied
@@ -1387,7 +1409,7 @@ joint's properties:
     solve from anywhere puts each element back by its own edge.
   - **An instance joint per pair**: an `Assembly::Joint` with `_Multiplier`,
     `_Instance` (the element's index) and `_Target` (the edge's name), no
-    element links of its own; its sides are the joint's carried, side 1
+    element bindings of its own; its sides are the joint's carried, side 1
     from the element picked to its element, side 2 from the edge picked to
     its edge, the offsets kept. The builder takes the instance joints for
     the joint (`getJointGroupMembers`), so every one of its uses of a joint
@@ -1410,16 +1432,16 @@ joint's properties:
 - **Opening upstream 1.0 and 1.1 files**: a converter runs on restore and
   replaces upstream's Python joints, groups, simulations and steps with
   these objects. Each joint side becomes an element in the container that
-  holds the geometry plus an ElementLink with the vertex as its `Offset`
+  holds the geometry plus an ElementBinding with the vertex as its `Offset`
   (sec 4.2). This is the importer of `docs/AssemblyFromAsm3.md` B pointed at
   upstream's files; Assembly3 files map 1:1 onto these objects.
   - **A side converts to one offset** (user, 2026-10-25: the joint's
-    offsets fold into the element link's). Upstream's side is a
+    offsets fold into the element binding's). Upstream's side is a
     reference `[component, [element, vertex]]`, `PlacementN` (the frame
     relative to the referenced object, `findPlacement`'s or, with
     `DetachN`, the user's own) and `OffsetN`. The converter takes upstream's
     frame as it is, `G = global(referenced object) * PlacementN *
-    OffsetN`, makes the element link from `(component, element, vertex)`,
+    OffsetN`, makes the element binding from `(component, element, vertex)`,
     which makes the element with upstream's vertex as its `Vertex` and the
     vertex's share in its `Offset`, and sets the link's `Offset = F^-1 *
     G`, with `F` the element's frame (`findElementFrame`, then the
@@ -1493,7 +1515,7 @@ joint's properties:
     place, as one transaction, as `docs/AssemblyFromAsm3.md` B.5 has it,
     but onto these objects rather than upstream's joints:
     - **Read first, through Assembly3**: every assembly, children first,
-      its parts, elements and constraints, and for each element link
+      its parts, elements and constraints, and for each element binding
       Assembly3's own `getInfo()`: the part, the path below it, and the
       frame Assembly3 puts on the element, offsets applied. Nothing is
       changed until all is read, as a parent's references go into its
@@ -1508,7 +1530,7 @@ joint's properties:
       parent's references into a child keep naming its elements by label.
     - **A constraint** becomes joints, N-1 for N elements, paired as
       Assembly3 pairs them (Cascade or from the first), a pair on one part
-      skipped as Assembly3 skips it. Each side is an element link to the
+      skipped as Assembly3 skips it. Each side is an element binding to the
       element, with `Offset = F^-1 * G` (G Assembly3's frame, F ours), and
       side 2's frame made to satisfy the joint at the saved poses where
       the type ties the two: a revolute's and a ball's origin on side 1's,
@@ -1529,7 +1551,7 @@ joint's properties:
       part's edges like the one picked, that its first side's element sits
       by, as Assembly3 pairs them by position (its offset taken), not on
       the edge picked: so the saved pose pairs every element as Assembly3
-      had it. Its NoExpand element links, the targets picked by hand, are
+      had it. Its NoExpand element bindings, the targets picked by hand, are
       the joint's Targets, by their names in the part (found by where they
       are); one on another part than the first is dropped and reported. A
       count other than Assembly3's is reported.
@@ -1553,7 +1575,7 @@ joint's properties:
       their sides live for the verifying solve.
     - Found on the way, in the bundled code (`Assembly3/README.md`):
       without the GUI, a view provider was attached to a missing view
-      object when restoring migrated the oldest element links (so they
+      object when restoring migrated the oldest element bindings (so they
       did not resolve), when an assembly recomputed, and when a constraint
       was disabled.
     - Checked on the sample of `docs/AssemblyFromAsm3.md` B.6 (essais_asm3,
@@ -1583,7 +1605,7 @@ joint's properties:
    2026-10-24.
 2. `GroupMode` on `App::Part`, with gtests for each case of sec 2, and
    its aux groups, the Parts group optional (sec 3.1). Done 2026-10-24.
-3. `Part::Element` and `Part::ElementLink`, the Owning aux group, and
+3. `Part::Element` and `Part::ElementBinding`, the Owning aux group, and
    Elements on `App::Part` and Body (done 2026-10-24, sec 4.3), with the
    SolidBody views (done 2026-10-24, sec 5.3).
 4. The C++ assembly objects, the solver builder on them, and the
@@ -1606,7 +1628,7 @@ joint's properties:
      (2026-10-25, sec 8).
    Physics items come with the dynamics phase (`docs/AssemblyDynamics.md`),
    none exist yet.
-5. Partial loading through element links (sec 4.4), Freeze with the Parts
+5. Partial loading through element bindings (sec 4.4), Freeze with the Parts
    group's compound (sec 3.1), and repair (sec 4.5). Freeze, with the
    partial loading of a frozen assembly, built (2026-10-25, sec 3.1); a
    joint on a child not loaded, built (2026-10-26, sec 4.4); repair and

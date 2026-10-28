@@ -24,7 +24,7 @@
 """What an assembly's shape and export are made of.
 
 docs/AssemblyObjectModel.md sec 3.1. The components, and the user's plain
-groups of them, whatever refers to them: a joint, its element links, the
+groups of them, whatever refers to them: a joint, its element bindings, the
 grounding and the groups name a component without taking its place.
 ExportMode "Child Query" lets the user leave a component out, or put one in.
 """
@@ -79,7 +79,7 @@ class TestAssemblyExport(unittest.TestCase):
         return len(Part.getShape(obj or self.assembly).Solids)
 
     def testTheShapeIsTheComponents(self):
-        # The grounding, the joint and its element links all refer to A, B
+        # The grounding, the joint and its element bindings all refer to A, B
         self.assertEqual(self.exported(), ["A", "B", "Link"])
         self.assertEqual(self.solids(), 3)
 

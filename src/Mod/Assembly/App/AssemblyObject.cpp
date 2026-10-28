@@ -475,11 +475,11 @@ std::vector<std::string> AssemblyObject::getSubObjects(int reason) const
 
 namespace
 {
-// A component as the Parts group takes it: not a joint's element link, nor a
+// A component as the Parts group takes it: not a joint's element binding, nor a
 // group, nor anything without a place of its own
 bool isComponentObject(const App::DocumentObject* obj)
 {
-    return obj && !obj->isDerivedFrom<::Part::ElementLink>()
+    return obj && !obj->isDerivedFrom<::Part::ElementBinding>()
         && !obj->isDerivedFrom<::Part::Element>()
         && !App::GeoFeatureGroupExtension::isNonGeoGroup(obj)
         && (obj->isDerivedFrom<App::GeoFeature>()
@@ -2335,7 +2335,7 @@ bool AssemblyObject::isAuxGroupAllowed(const App::AuxGroup* group,
             || proxyClassIn(obj, "CommandCreateView", {"ExplodedView"});
     }
     if (role == App::Part::PartsRole) {
-        // The components only: not a joint's element link, nor what a group
+        // The components only: not a joint's element binding, nor what a group
         // of its own holds (a simulation's motion, a view's step, a snapshot
         // in upstream's group), nor upstream's groups
         if (!isComponentObject(obj) || App::GroupExtension::getGroupOfObject(obj)) {
@@ -2522,7 +2522,7 @@ void AssemblyObject::collectMalformedJoints()
 bool AssemblyObject::isJointRefUsable(App::DocumentObject* joint, const char* propName)
 {
     if (int side = typedJointSide(joint, propName)) {
-        // Up to date, or the element must resolve, or the element link keep
+        // Up to date, or the element must resolve, or the element binding keep
         // a copy of it
         auto* typed = static_cast<Joint*>(joint);
         App::DocumentObject* component = nullptr;

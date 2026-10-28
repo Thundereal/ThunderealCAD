@@ -39,7 +39,7 @@ What each becomes:
   assembly's Elements group, so that a parent's references into it, by
   label, keep working (sec 6.3, "$$Elements.$Label.");
 - a constraint: joints (a constraint of N elements gives N-1 of them,
-  pairs as Assembly3 forms them), each side an element link to the
+  pairs as Assembly3 forms them), each side an element binding to the
   element, with the Offset that puts our frame where Assembly3 has it
   (Offset = F^-1 * G, as AssemblyMigrate does for upstream's joints), and
   the frames made to satisfy the joint at the saved poses;
@@ -222,7 +222,7 @@ def _read(a, report):
                     side["count"] = getattr(link, "Count", 0)
                 if multiply and n >= 1 and getattr(link, "NoExpand", False):
                     # The targets picked by hand: this element and those of
-                    # the element links after it, on the part of the first
+                    # the element bindings after it, on the part of the first
                     side["noExpand"] = [info]
                     if n >= 2 and len(sides) == 2 and sides[1].get("noExpand"):
                         if _partOf(info) == _partOf(sides[1]["noExpand"][0]):
@@ -483,8 +483,8 @@ def _makeJoint(assembly, key, jtype, label, pair, elements, report):
             component, sub = side["direct"]
             elements[side["element"]] = Part.makeElement(assembly, component, sub, "_Element")
         element = elements[side["element"]]
-        link = Part.makeElementLink(assembly, assembly.Elements, "$%s." % element.Label)
-        setattr(joint, "ElementLink%d" % i, link)
+        link = Part.makeElementBinding(assembly, assembly.Elements, "$%s." % element.Label)
+        setattr(joint, "Binding%d" % i, link)
     JointObject.recomputeSides(joint)
     frames = []
     for i, side in enumerate(pair, 1):
@@ -504,7 +504,7 @@ def _makeJoint(assembly, key, jtype, label, pair, elements, report):
             frames.append(side["frame"])
     g1, g2 = _frames(jtype, frames[0], frames[1])
     for i, g in ((1, g1), (2, g2)):
-        link = getattr(joint, "ElementLink%d" % i)
+        link = getattr(joint, "Binding%d" % i)
         link.Offset = joint.getFrame(i).inverse().multiply(g)
     JointObject.recomputeSides(joint)
     return joint
@@ -731,7 +731,7 @@ def _placements(assemblies):
         for part in a.Group:
             if (
                 hasattr(part, "Placement")
-                and not part.isDerivedFrom("Part::ElementLink")
+                and not part.isDerivedFrom("Part::ElementBinding")
                 and not part.isDerivedFrom("App::AuxGroup")
             ):
                 res[part] = part.Placement

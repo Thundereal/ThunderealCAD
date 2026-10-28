@@ -107,7 +107,7 @@ void collect(App::DocumentObject* obj,
              int depth)
 {
     if (!obj || depth > 100 || obj->isDerivedFrom<Part::Element>()
-        || obj->isDerivedFrom<Part::ElementLink>()) {
+        || obj->isDerivedFrom<Part::ElementBinding>()) {
         return;
     }
     if (auto* feature = Base::freecad_dynamic_cast<Part::Feature>(obj->getLinkedObject(true))) {

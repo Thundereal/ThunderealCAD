@@ -453,7 +453,7 @@ class AssemblyObject(Part):
     def makeJoint(self, jointType: str, pick1: tuple, pick2: tuple, /) -> DocumentObject:
         """
         Make a C++ joint (Assembly::Joint) in the assembly's joint group, its
-        two sides element links made from picks (docs/AssemblyObjectModel.md
+        two sides element bindings made from picks (docs/AssemblyObjectModel.md
         sec 7.1).
 
         Args:

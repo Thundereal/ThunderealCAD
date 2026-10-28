@@ -107,7 +107,7 @@ Phase D1 is under way (2026-10-28):
   - `SpringDamper` (`App/Physics.{h,cpp}`), a Physics item: two ends, each
     a `Component` and a `Point` in its coordinates (no component: the
     ground, the assembly's coordinates) -- sec 5.2's `Reference1/2` as two
-    picked points for now, not element links; `Stiffness`, `FreeLength` (0:
+    picked points for now, not element bindings; `Stiffness`, `FreeLength` (0:
     the length when the run starts), `Preload` (pushing the ends apart),
     `Damping` (a quantity in kg/s, N s / m: FreeCAD has no damping
     property). Linear: the exponents of sec 5.2 later.

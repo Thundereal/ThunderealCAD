@@ -84,7 +84,7 @@ JointTypes = [
 # The two kinds of joint (docs/AssemblyObjectModel.md sec 7.1)
 #
 # A joint made in an assembly is the C++ one (Assembly::JointPython): its
-# sides are element links, children of the assembly, instead of Reference1/2,
+# sides are element bindings, children of the assembly, instead of Reference1/2,
 # Offset1/2 and Detach1/2. These helpers answer for a side of either kind, so
 # that the proxy, the view provider and the task below need not ask which.
 
@@ -95,13 +95,13 @@ JointMultipliable = ("Fixed", "Revolute", "Cylindrical", "Slider")
 
 
 def isTyped(joint):
-    """Whether the joint is the C++ one, its sides element links"""
+    """Whether the joint is the C++ one, its sides element bindings"""
     return joint is not None and joint.isDerivedFrom("Assembly::Joint")
 
 
-def elementLink(joint, i):
-    """The element link of side i (1 or 2) of a C++ joint, or None"""
-    return joint.ElementLink1 if i == 1 else joint.ElementLink2
+def sideBinding(joint, i):
+    """The element binding of side i (1 or 2) of a C++ joint, or None"""
+    return joint.Binding1 if i == 1 else joint.Binding2
 
 
 def _plainSub(sub):
@@ -117,13 +117,13 @@ def sideRef(joint, i):
     """The reference of side i as the Python joint holds it,
     [component, [element, vertex]], or None while it is not set.
 
-    For a C++ joint it is rebuilt from the element link: the path from the
+    For a C++ joint it is rebuilt from the element binding: the path from the
     component to the element's geometry, and the element's Vertex (the
     element again when there is none, as upstream repeats it).
     """
     if not isTyped(joint):
         return joint.Reference1 if i == 1 else joint.Reference2
-    link = elementLink(joint, i)
+    link = sideBinding(joint, i)
     comp = joint.getComponent(i)
     if link is None or comp is None or link.Element is None:
         return None
@@ -153,7 +153,7 @@ def sideMovingPart(joint, i):
 def sideJcsGlobal(joint, i):
     """The joint coordinate system of side i in the document's"""
     if isTyped(joint):
-        if elementLink(joint, i) is None:
+        if sideBinding(joint, i) is None:
             return App.Placement()
         assembly = None
         for obj in joint.InList:
@@ -169,12 +169,12 @@ def sideJcsGlobal(joint, i):
 def jointOffset(joint, i):
     """Upstream's OffsetN: the user's offset of side i.
 
-    A C++ joint's element link holds it. The picked vertex's share is the
+    A C++ joint's element binding holds it. The picked vertex's share is the
     element's (Part::Element::Vertex), in the element's Offset.
     """
     if not isTyped(joint):
         return joint.Offset1 if i == 1 else joint.Offset2
-    link = elementLink(joint, i)
+    link = sideBinding(joint, i)
     if link is None:
         return App.Placement()
     return link.Offset
@@ -185,7 +185,7 @@ def setJointOffset(joint, i, plc):
     if not isTyped(joint):
         setattr(joint, "Offset1" if i == 1 else "Offset2", plc)
         return
-    link = elementLink(joint, i)
+    link = sideBinding(joint, i)
     if link is not None:
         link.Offset = plc
 
@@ -194,7 +194,7 @@ def recomputeSides(joint):
     """Recompute a C++ joint and what makes its sides, its elements and element
     links: not the components, which the task may be setting up"""
     for i in (1, 2):
-        link = elementLink(joint, i)
+        link = sideBinding(joint, i)
         if link is None:
             continue
         if link.Element is not None:
@@ -210,8 +210,8 @@ def updateOffset(joint):
     """Not upstream: Assembly3's AttachmentOffset 'Update element offset'. The
     second side's offset taken so that its frame is the first side's where
     the parts are now: a Fixed joint keeps them there"""
-    link = elementLink(joint, 2)
-    if link is None or elementLink(joint, 1) is None:
+    link = sideBinding(joint, 2)
+    if link is None or sideBinding(joint, 1) is None:
         return False
     link.Offset = link.Offset.multiply(joint.getFrame(2).inverse()).multiply(joint.getFrame(1))
     recomputeSides(joint)
@@ -223,13 +223,13 @@ def updateOffset(joint):
 
 def syncSides(joint, refs):
     """Make the sides of a C++ joint those the references name, keeping a
-    side that already names its reference (and so its element link and
+    side that already names its reference (and so its element binding and
     offset)"""
     ignoreVertex = joint.JointType in ("Distance", "Cam")
     for i in (1, 2):
         ref = refs[i - 1] if len(refs) >= i else None
         if ref is None:
-            if elementLink(joint, i) is not None:
+            if sideBinding(joint, i) is not None:
                 joint.clearSide(i)
             continue
         comp, subs = ref[0], list(ref[1])
@@ -980,7 +980,7 @@ class Joint:
                     break
 
         if isTyped(joint):
-            # Its sides' offsets are on its element links, which the task
+            # Its sides' offsets are on its element bindings, which the task
             # changes through setJointOffset() and onOffsetChanged()
             if prop == "Distance" and joint.JointType == "Distance":
                 solveIfAllowed(self.getAssembly(joint))
@@ -1058,9 +1058,9 @@ class Joint:
         if isTyped(joint):
             syncSides(joint, refs)
             recomputeSides(joint)
-            if joint.ElementLink1 is None:
+            if joint.Binding1 is None:
                 self.partMovedByPresolved = None
-            if joint.ElementLink1 is not None and joint.ElementLink2 is not None:
+            if joint.Binding1 is not None and joint.Binding2 is not None:
                 self.ensureUnconnectedIsSecondRef(joint)
                 if joint.JointType in JointUsingPreSolve:
                     self.preSolve(joint)
@@ -1287,10 +1287,10 @@ class Joint:
 
         # If only part1 is unconnected and part2 is connected, swap references and related properties
         if not part1Connected and part2Connected and isTyped(joint):
-            # The offsets are on the element links: they go with them
-            link1 = joint.ElementLink1
-            joint.ElementLink1 = joint.ElementLink2
-            joint.ElementLink2 = link1
+            # The offsets are on the element bindings: they go with them
+            link1 = joint.Binding1
+            joint.Binding1 = joint.Binding2
+            joint.Binding2 = link1
             recomputeSides(joint)
             if activeTask and activeTask.joint == joint:
                 activeTask.updateTaskboxFromJoint()
@@ -1372,7 +1372,7 @@ class ViewProviderJoint:
             return
 
         if isTyped(joint):
-            if prop in ("Placement1", "Placement2", "ElementLink1", "ElementLink2", "_Instances"):
+            if prop in ("Placement1", "Placement2", "Binding1", "Binding2", "_Instances"):
                 self.redrawJointPlacements(joint)
             return
 
@@ -1394,7 +1394,7 @@ class ViewProviderJoint:
         if isTyped(joint):
             # The frames are the assembly's, under which the markers are
             for i, jcs in ((1, self.switch_JCS1), (2, self.switch_JCS2)):
-                if elementLink(joint, i) is None:
+                if sideBinding(joint, i) is None:
                     jcs.whichChild = coin.SO_SWITCH_NONE
                 else:
                     jcs.whichChild = coin.SO_SWITCH_ALL
@@ -1487,12 +1487,12 @@ class ViewProviderJoint:
         return modes
 
     def claimChildren(self):
-        """A C++ joint holds its element links, and a multiplied one its
+        """A C++ joint holds its element bindings, and a multiplied one its
         instance joints, as a link array shows its elements"""
         joint = self.app_obj if hasattr(self, "app_obj") else None
         if joint is None or not isTyped(joint):
             return []
-        links = [link for link in (joint.ElementLink1, joint.ElementLink2) if link is not None]
+        links = [link for link in (joint.Binding1, joint.Binding2) if link is not None]
         return links + list(joint._Instances)
 
     def getDefaultDisplayMode(self):
@@ -2187,7 +2187,7 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         bind = Gui.ExpressionBinding(self.jForm.distanceSpinbox).bind(self.joint, "Distance")
         bind = Gui.ExpressionBinding(self.jForm.distanceSpinbox2).bind(self.joint, "Distance2")
         if not isTyped(self.joint):
-            # A C++ joint's offset is its element link's, with the picked
+            # A C++ joint's offset is its element binding's, with the picked
             # vertex's share in it: not bound to an expression (yet)
             bind = Gui.ExpressionBinding(self.jForm.offsetSpinbox).bind(
                 self.joint, "Offset2.Base.z"
@@ -2430,7 +2430,7 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         if self.activeType == "Part":
             self.joint = self.assembly.newObject("App::FeaturePython", "Temporary joint")
         else:
-            # In an assembly a joint is the C++ one, its sides element links
+            # In an assembly a joint is the C++ one, its sides element bindings
             # (docs/AssemblyObjectModel.md sec 7.1)
             joint_group = UtilsAssembly.getJointGroup(self.assembly)
             self.joint = joint_group.newObject("Assembly::JointPython", "Joint")
@@ -2681,8 +2681,8 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
 
     def editOffset(self, i):
         if isTyped(self.joint):
-            # The element link's whole offset, the picked vertex's share in it
-            link = elementLink(self.joint, i)
+            # The element binding's whole offset, the picked vertex's share in it
+            link = sideBinding(self.joint, i)
             if link is None:
                 return
             UtilsAssembly.openEditingPlacementDialog(link, "Offset")

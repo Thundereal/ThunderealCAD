@@ -110,9 +110,9 @@ void swapJCS(const App::DocumentObject* joint)
     }
     if (auto typed = dynamic_cast<const Joint*>(joint)) {
         auto* j = const_cast<Joint*>(typed);
-        auto* link1 = j->ElementLink1.getValue();
-        j->ElementLink1.setValue(j->ElementLink2.getValue());
-        j->ElementLink2.setValue(link1);
+        auto* link1 = j->Binding1.getValue();
+        j->Binding1.setValue(j->Binding2.getValue());
+        j->Binding2.setValue(link1);
         return;
     }
 
@@ -730,9 +730,9 @@ std::string getElementFromProp(const App::DocumentObject* obj, const char* pName
         return "";
     }
     if (int side = typedJointSide(obj, pName)) {
-        // The element link's copy is the element alone: its one vertex, edge
+        // The element binding's copy is the element alone: its one vertex, edge
         // or face, named as the copy names it
-        auto* link = static_cast<const Joint*>(obj)->getElementLink(side);
+        auto* link = static_cast<const Joint*>(obj)->getBinding(side);
         if (!link) {
             return "";
         }
@@ -902,7 +902,7 @@ App::DocumentObject* getObjFromJointRef(const App::DocumentObject* joint, const 
     }
     if (int side = typedJointSide(joint, pName)) {
         // The object holding the element's geometry
-        return static_cast<const Joint*>(joint)->getElementLink(side);
+        return static_cast<const Joint*>(joint)->getBinding(side);
     }
 
     const auto* prop = joint->getPropertyByName<App::PropertyXLinkSub>(pName);
@@ -1016,7 +1016,7 @@ void describeJointSide(
         }
         return;
     }
-    auto* link = static_cast<const Joint*>(joint)->getElementLink(side);
+    auto* link = static_cast<const Joint*>(joint)->getBinding(side);
     if (!link) {
         return;
     }
@@ -1084,9 +1084,9 @@ void collectComponentsRecursively(
         if (!obj || isSuppressedLinkElement(obj)) {
             continue;
         }
-        // A joint's element links are children of the assembly, and shapes,
+        // A joint's element bindings are children of the assembly, and shapes,
         // but no components: counted, each added six freedoms to the DoF
-        if (obj->isDerivedFrom<Part::ElementLink>() || obj->isDerivedFrom<Part::Element>()) {
+        if (obj->isDerivedFrom<Part::ElementBinding>() || obj->isDerivedFrom<Part::Element>()) {
             continue;
         }
 
@@ -1124,7 +1124,7 @@ void collectComponentsRecursively(
         }
         else if (auto* link = freecad_cast<App::Link*>(obj)) {
             // A link to what is not loaded now (a closed or missing document)
-            // keeps its place, and is solved on its element links' copies
+            // keeps its place, and is solved on its element bindings' copies
             if (Part::Element::isUnloaded(link)) {
                 results.push_back(link);
                 continue;

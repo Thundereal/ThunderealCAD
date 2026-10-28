@@ -15,7 +15,7 @@ from App.DocumentObject import DocumentObject
 )
 class Joint(DocumentObject):
     """
-    A joint whose two sides are element links, children of its assembly
+    A joint whose two sides are element bindings, children of its assembly
     (docs/AssemblyObjectModel.md sec 7.1).
 
     Author: Zheng Lei (realthunder.dev@gmail.com)
@@ -54,10 +54,10 @@ class Joint(DocumentObject):
         the origin on the element (AssemblyObject.makeJoint). With local, the
         element is a convenience element of the assembly even when the
         component declares elements: a migration does not edit the
-        components. The side's old element link is deleted unless another
+        components. The side's old element binding is deleted unless another
         joint uses it.
 
-        Returns: the new element link.
+        Returns: the new element binding.
         """
         ...
 
@@ -70,7 +70,7 @@ class Joint(DocumentObject):
 
     def clearSide(self, side: int, /) -> None:
         """
-        Unset side 1 or 2, deleting its element link unless another joint
+        Unset side 1 or 2, deleting its element binding unless another joint
         uses it.
         """
         ...

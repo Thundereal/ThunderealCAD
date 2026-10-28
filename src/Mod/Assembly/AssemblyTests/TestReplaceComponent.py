@@ -25,7 +25,7 @@
 """Replacing a component of an assembly.
 
 docs/AssemblyObjectModel.md sec 4.5. The link to the component is pointed
-at another container declaring the same element labels; the element links
+at another container declaring the same element labels; the element bindings
 follow the labels, and the joint is solved on the new geometry.
 """
 

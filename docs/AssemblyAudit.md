@@ -439,7 +439,7 @@ kinematic run, ASMT export, link arrays in assemblies.
    `docs/AssemblyObjectModel.md`. The container stays an `App::Part`, given
    LinkGroup-like group modes; ownership follows Body and its aux groups,
    with `PartDesign::AuxGroup` generalized for every container; Assembly3's
-   Elements and ElementLinks are adopted, declared by Assembly, App::Part
+   Elements and ElementBindings are adopted, declared by Assembly, App::Part
    and Body alike. This narrows decision 1: upstream's commits to the
    objects that move to C++ are ported by hand, not taken as they come.
 
@@ -602,7 +602,7 @@ solver; fixed:
   `Joint::getStoredSide()` / `getFrame()` read that, and resolve only a
   joint not up to date. Solves are the Python joint's again (chain 50,
   0.5 s);
-- the DoF counted the element links as parts (fixed with the C++ joint
+- the DoF counted the element bindings as parts (fixed with the C++ joint
   work, `docs/AssemblyObjectModel.md` sec 7.1);
 - F3 and F4: `isPartConnected`, `getDownstreamParts`,
   `isJointConnectingPartToGround` and `removeUnconnectedJoints` walk a
@@ -626,7 +626,7 @@ solver; fixed:
 
 Then, the cost of building joints, which grew with the joints there are:
 
-- the joint's view provider claims its element links in C++
+- the joint's view provider claims its element bindings in C++
   (`AssemblyGui::ViewProviderJoint`, `ViewProviderJointPython` for
   `JointPython`): a group's tree export asked every joint's Python view
   provider for its claims at each change of the assembly's `Group`. The

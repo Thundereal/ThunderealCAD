@@ -498,7 +498,7 @@ class TestSimulationMotions(CamMechanism, JointTestBase):
 
 class TestCamJointTyped(CamMechanism, JointTestBase):
     """The Cam joint as a C++ joint (docs/AssemblyObjectModel.md sec 7.1): its
-    sides are element links, the cam's edge and the follower are read through
+    sides are element bindings, the cam's edge and the follower are read through
     them. The mechanisms are built as Python joints and converted in place,
     which keeps every frame exactly."""
 
@@ -525,7 +525,7 @@ class TestCamJointTyped(CamMechanism, JointTestBase):
         f = self.box("Follower", plc(0, 30, CAM_H), size=4.0)
         self.doc.recompute()
         top = circle_edge(cam, CAM_H)
-        # The refusal reads the element links' copies, made on recompute (the
+        # The refusal reads the element bindings' copies, made on recompute (the
         # task recomputes the sides before it asks)
         j = self.assembly.makeJoint("Cam", (cam, top), (f, "Vertex1"))
         self.doc.recompute()

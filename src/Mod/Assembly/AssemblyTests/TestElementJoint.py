@@ -21,7 +21,7 @@
 # *                                                                         *
 # ***************************************************************************
 
-"""The C++ joint (Assembly::Joint): its sides are element links.
+"""The C++ joint (Assembly::Joint): its sides are element bindings.
 
 See docs/AssemblyObjectModel.md sec 7.1. Each side is made from a pick, a
 component and a subname as a selection gives it; the joint coordinate
@@ -72,9 +72,9 @@ class TestElementJoint(JointTestBase):
         self.assertIsNotNone(elements)
         labels = sorted(e.Label for e in elements.Group)
         self.assertEqual(labels, ["_Element", "_Element001"])
-        link1, link2 = joint.ElementLink1, joint.ElementLink2
-        self.assertEqual(link1.TypeId, "Part::ElementLink")
-        # The element links are the assembly's children, the joint holds them
+        link1, link2 = joint.Binding1, joint.Binding2
+        self.assertEqual(link1.TypeId, "Part::ElementBinding")
+        # The element bindings are the assembly's children, the joint holds them
         self.assertIn(link1, self.assembly.Group)
         self.assertIn(link2, self.assembly.Group)
         self.assertEqual(link1.Element[0], elements)
@@ -88,8 +88,8 @@ class TestElementJoint(JointTestBase):
         element = part.Elements.Group[0]
         self.assertEqual(element.Target[0], box)
         self.assertEqual(element.Target[1], ["Face6"])
-        self.assertEqual(joint.ElementLink1.Element[0], part)
-        self.assertEqual(joint.ElementLink1.Element[1], ["$$Elements.$%s." % element.Label])
+        self.assertEqual(joint.Binding1.Element[0], part)
+        self.assertEqual(joint.Binding1.Element[1], ["$$Elements.$%s." % element.Label])
 
     def testElementIsReused(self):
         a = self.box("A")
@@ -178,8 +178,8 @@ class TestElementJoint(JointTestBase):
         self.assertVecClose(p1.Base, a.getSubObject(top).Point)
         self.assertVecClose(zaxis(p1), Z)
         # The element keeps the vertex, and its Offset follows it; the
-        # element link refers to the element only
-        link = joint.ElementLink1
+        # element binding refers to the element only
+        link = joint.Binding1
         element = link.Element[0].getSubObject(link.Element[1][0], retType=1)
         self.assertEqual(element.Vertex[0], a)
         self.assertEqual(element.Vertex[1], [top])
@@ -200,8 +200,8 @@ class TestElementJoint(JointTestBase):
         self.solve()
         self.assertCoincide(joint, a, b)
 
-    def testElementLinksAreNoComponents(self):
-        # A joint's element links are children of the assembly and shapes,
+    def testElementBindingsAreNoComponents(self):
+        # A joint's element bindings are children of the assembly and shapes,
         # but no parts: counted, each added six freedoms to the DoF
         a = self.box("A")
         b = self.box("B", plc(30, 5, 2, Z, 20))
@@ -262,24 +262,24 @@ class TestElementJoint(JointTestBase):
         self.assertEqual(joint.getComponent(1), a)
         self.assertEqual(joint.getComponent(2), b)
         self.assertVecClose(joint.getFrame(1).Base, App.Vector(5, 5, 10))
-        old = joint.ElementLink2.Name
+        old = joint.Binding2.Name
         link = joint.setSide(2, c, "Face5")
-        self.assertEqual(joint.ElementLink2, link)
+        self.assertEqual(joint.Binding2, link)
         self.assertEqual(joint.getComponent(2), c)
         self.assertIsNone(self.doc.getObject(old))
         joint.clearSide(1)
-        self.assertIsNone(joint.ElementLink1)
+        self.assertIsNone(joint.Binding1)
         self.assertIsNone(joint.getComponent(1))
         with self.assertRaises(ValueError):
             joint.getFrame(3)
 
     # ------------------------------------------------------------ lifetime
 
-    def testDeletingTheJointDeletesItsElementLinks(self):
+    def testDeletingTheJointDeletesItsElementBindings(self):
         a = self.box("A")
         b = self.box("B", plc(30, 0, 0))
         joint = self.assembly.makeJoint("Fixed", (a, "Face6"), (b, "Face5"))
-        names = [joint.ElementLink1.Name, joint.ElementLink2.Name]
+        names = [joint.Binding1.Name, joint.Binding2.Name]
         self.doc.removeObject(joint.Name)
         for name in names:
             self.assertIsNone(self.doc.getObject(name))
@@ -298,17 +298,73 @@ class TestElementJoint(JointTestBase):
         self.assertIn("A", targets)
         self.assertNotIn("B", targets)
 
-    def testElementLinkOffsetIsTheSidesOffset(self):
+    def testElementBindingOffsetIsTheSidesOffset(self):
         a = self.box("A")
         b = self.box("B", plc(30, 0, 0))
         self.doc.recompute()
         joint = self.assembly.makeJoint("Fixed", (a, "Face6", "Vertex2"), (b, "Face5"))
         self.assertFalse(hasattr(joint, "Offset1"))
         # The user's offset composes with the picked vertex's, in the frame
-        link = joint.ElementLink1
+        link = joint.Binding1
         vertex = joint.getFrame(1).Base
         link.Offset = link.Offset.multiply(plc(0, 0, 3))
         self.assertVecClose(joint.getFrame(1).Base, vertex + App.Vector(0, 0, 3))
+
+    def testRestoresTheNamesOfBefore(self):
+        """A document of before the rename names Part::ElementLink and the
+        joint's ElementLink1/2: it restores as Part::ElementBinding and
+        Binding1/2, the joint on the same frames. The document is this one
+        saved as a directory (an archive's blobs are zstd, which Python's
+        zipfile does not read) with the old names written back into its XML
+        (Document.xml, and each object's file: SplitXML), as the build
+        before 2026-10-28 wrote them."""
+        part = self.assembly.newObject("App::Part", "Part")
+        part.newObject("Part::Box", "SubBox")
+        b = self.box("B", plc(0, 0, 10))
+        self.doc.recompute()
+        joint = self.assembly.makeJoint("Fixed", (part, "SubBox.Face6"), (b, "Face5"))
+        joint.Binding2.Offset = plc(1, 2, 3)
+        self.doc.recompute()
+        frames = [joint.getFrame(1), joint.getFrame(2)]
+        name = joint.Name
+        old = os.path.join(tempfile.mkdtemp(), "Old")
+        os.makedirs(old)
+        self.doc.saveAs(old)
+        App.closeDocument(self.doc.Name)
+        renamed = {"type": 0, "Binding1": 0, "Binding2": 0}
+        for fileName in os.listdir(old):
+            if not fileName.endswith(".xml"):
+                continue
+            xml = os.path.join(old, fileName)
+            with open(xml, encoding="utf-8") as f:
+                text = f.read()
+            renamed["type"] += text.count('type="Part::ElementBinding"')
+            text = text.replace('type="Part::ElementBinding"', 'type="Part::ElementLink"')
+            for i in (1, 2):
+                renamed["Binding%d" % i] += text.count('<Property name="Binding%d"' % i)
+                text = text.replace(
+                    '<Property name="Binding%d"' % i, '<Property name="ElementLink%d"' % i
+                )
+            with open(xml, "w", encoding="utf-8") as f:
+                f.write(text)
+        self.assertEqual(renamed, {"type": 2, "Binding1": 1, "Binding2": 1})
+        self.doc = App.openDocument(old)
+        self.assembly = self.doc.getObject("Assembly")
+        joint = self.doc.getObject(name)
+        for i in (1, 2):
+            binding = getattr(joint, "Binding%d" % i)
+            self.assertIsNotNone(binding, i)
+            self.assertEqual(binding.TypeId, "Part::ElementBinding")
+            # The old name still answers, for the macros of before
+            self.assertTrue(binding.isDerivedFrom("Part::ElementLink"))
+        self.assertFalse(hasattr(joint, "ElementLink1"))
+        self.assertTrue(joint.Binding2.Offset.isSame(plc(1, 2, 3), 1e-12))
+        self.doc.recompute()
+        for i in (1, 2):
+            self.assertTrue(joint.getFrame(i).isSame(frames[i - 1], 1e-9), i)
+        # And the old Python name makes the new type
+        made = Part.makeElementLink(self.assembly, self.assembly.Elements, "$_Element.")
+        self.assertEqual(made.TypeId, "Part::ElementBinding")
 
     def testSaveAndRestore(self):
         a = self.box("A")

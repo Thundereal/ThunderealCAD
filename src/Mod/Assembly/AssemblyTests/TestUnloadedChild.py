@@ -23,7 +23,7 @@
 
 """A joint on a child assembly that is not loaded.
 
-docs/AssemblyObjectModel.md sec 4.4. The element link keeps its copy and
+docs/AssemblyObjectModel.md sec 4.4. The element binding keeps its copy and
 says it is unresolved, not broken; the link to the child is still a
 component, and the joint is solved on the frame it last had relative to it.
 The child closing and coming back is followed.
@@ -99,11 +99,11 @@ class TestUnloadedChild(unittest.TestCase):
         return parent, parent.getObject("Top"), parent.getObject("SubLink")
 
     def childLink(self, parent, link):
-        """The element link on the child's element"""
+        """The element binding on the child's element"""
         links = [
             o
             for o in parent.Objects
-            if o.isDerivedFrom("Part::ElementLink") and o.Element[0] == link
+            if o.isDerivedFrom("Part::ElementBinding") and o.Element[0] == link
         ]
         self.assertEqual(len(links), 1)
         return links[0]
@@ -118,42 +118,42 @@ class TestUnloadedChild(unittest.TestCase):
         os.rename(self.childPath, self.childPath + ".moved")
         parent, top, link = self.openParent()
         self.assertIsNone(link.LinkedObject)
-        elementLink = self.childLink(parent, link)
-        self.assertTrue(elementLink.Unresolved)
-        self.assertFalse(elementLink.Shape.isNull())
-        self.assertNotIn("Invalid", elementLink.State)
+        binding = self.childLink(parent, link)
+        self.assertTrue(binding.Unresolved)
+        self.assertFalse(binding.Shape.isNull())
+        self.assertNotIn("Invalid", binding.State)
         # Recomputed, it keeps the copy and is no error
-        elementLink.touch()
+        binding.touch()
         parent.recompute()
-        self.assertTrue(elementLink.Unresolved)
-        self.assertFalse(elementLink.Shape.isNull())
-        self.assertNotIn("Invalid", elementLink.State)
-        self.assertNotIn("Error", elementLink.State)
+        self.assertTrue(binding.Unresolved)
+        self.assertFalse(binding.Shape.isNull())
+        self.assertNotIn("Invalid", binding.State)
+        self.assertNotIn("Error", binding.State)
         self.assertSolvesBack(parent, top, link)
 
     def testTheChildClosingAndComingBackIsFollowed(self):
         parent, top, link = self.openParent()
         self.assertIsNotNone(link.LinkedObject)
-        elementLink = self.childLink(parent, link)
-        self.assertFalse(elementLink.Unresolved)
+        binding = self.childLink(parent, link)
+        self.assertFalse(binding.Unresolved)
         App.closeDocument("UnloadedChild")
         self.assertIsNone(link.LinkedObject)
-        self.assertTrue(elementLink.Unresolved)
+        self.assertTrue(binding.Unresolved)
         self.assertSolvesBack(parent, top, link)
         App.openDocument(self.childPath)
         self.assertIsNotNone(link.LinkedObject)
-        self.assertFalse(elementLink.Unresolved)
+        self.assertFalse(binding.Unresolved)
         parent.recompute()
-        self.assertFalse(elementLink.Unresolved)
+        self.assertFalse(binding.Unresolved)
         self.assertSolvesBack(parent, top, link)
 
     def testAnElementNotThereIsStillAnError(self):
         parent, top, link = self.openParent()
-        elementLink = self.childLink(parent, link)
-        elementLink.Element = (link, "$$Elements.$NoSuchElement.")
+        binding = self.childLink(parent, link)
+        binding.Element = (link, "$$Elements.$NoSuchElement.")
         parent.recompute()
-        self.assertFalse(elementLink.Unresolved)
-        self.assertIn("Invalid", elementLink.State)
+        self.assertFalse(binding.Unresolved)
+        self.assertIn("Invalid", binding.State)
 
 
 if __name__ == "__main__":

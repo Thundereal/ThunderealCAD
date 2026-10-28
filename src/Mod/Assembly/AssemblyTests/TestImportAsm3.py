@@ -105,7 +105,7 @@ class TestImportAsm3(unittest.TestCase):
             o.Name: o.Placement
             for o in self.doc.Objects
             if o.isDerivedFrom("Part::Feature")
-            and not o.isDerivedFrom("Part::ElementLink")
+            and not o.isDerivedFrom("Part::ElementBinding")
             and not o.isDerivedFrom("Part::Element")
             and not o.isDerivedFrom("Part::FeaturePython")
         }
@@ -300,7 +300,7 @@ class TestImportAsm3(unittest.TestCase):
             l.Element[1][0]
             for j in self.joints(newParent)
             if hasattr(j, "JointType")
-            for l in (j.ElementLink1, j.ElementLink2)
+            for l in (j.Binding1, j.Binding2)
         ]
         self.assertTrue(all(p.startswith("$") for p in paths), paths)
         targets = [e.Target for e in newParent.Elements.Group]
@@ -370,7 +370,7 @@ class TestImportAsm3(unittest.TestCase):
         cstr = self.constraint(
             a, 35, "Pins.0.%s" % self.pinEdge, "Plate.%s" % self.holeEdge(50, 10)
         )
-        # As Assembly3's multiply command leaves the first element link
+        # As Assembly3's multiply command leaves the first element binding
         first = cstr.Group[0]
         first.addProperty("App::PropertyInteger", "Count", "", "")
         first.addProperty("App::PropertyPlacementList", "PlacementList", "", "")

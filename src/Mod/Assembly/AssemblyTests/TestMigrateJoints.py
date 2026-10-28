@@ -98,7 +98,7 @@ class TestMigrateJoints(JointTestBase):
             )
 
     def vertexOf(self, link):
-        """The vertex of the element an element link refers to"""
+        """The vertex of the element an element binding refers to"""
         element = link.Element[0].getSubObject(link.Element[1][0], retType=1)
         return element.Vertex
 
@@ -128,8 +128,8 @@ class TestMigrateJoints(JointTestBase):
         self.assertSameFrame(after[0], before[0], "side 1")
         self.assertSameFrame(after[1], before[1], "side 2")
         # The vertex is kept live, the offset whole
-        self.assertIsNotNone(self.vertexOf(new.ElementLink1))
-        self.assertIsNone(self.vertexOf(new.ElementLink2))
+        self.assertIsNotNone(self.vertexOf(new.Binding1))
+        self.assertIsNone(self.vertexOf(new.Binding2))
         self.solve()
         self.assertNotMoved(poses)
 
@@ -164,7 +164,7 @@ class TestMigrateJoints(JointTestBase):
         after = self.frames(new)
         self.assertSameFrame(after[0], before[0], "side 1")
         self.assertSameFrame(after[1], before[1], "side 2")
-        self.assertIsNone(self.vertexOf(new.ElementLink1))
+        self.assertIsNone(self.vertexOf(new.Binding1))
 
     def testDistanceKeepsItsValueAndExpression(self):
         a = self.box("A")
@@ -183,7 +183,7 @@ class TestMigrateJoints(JointTestBase):
         self.assertAlmostEqual(new.Distance.Value, 6.0)
         self.assertIn("Distance", [p for p, _ in new.ExpressionEngine])
         # A Distance joint does not take its frame from the vertex
-        self.assertIsNone(self.vertexOf(new.ElementLink1))
+        self.assertIsNone(self.vertexOf(new.Binding1))
         after = self.frames(new)
         self.assertSameFrame(after[0], before[0], "side 1")
         self.assertSameFrame(after[1], before[1], "side 2")

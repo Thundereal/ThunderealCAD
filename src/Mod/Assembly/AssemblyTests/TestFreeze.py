@@ -185,7 +185,7 @@ class TestFreeze(unittest.TestCase):
         self.grounded(other, top)
         joint = top.makeJoint("Fixed", (link, "A.Face6"), (other, "Face5"))
         parent.recompute()
-        self.assertTrue(joint.ElementLink1.Shape.Faces)
+        self.assertTrue(joint.Binding1.Shape.Faces)
         self.assembly.Freeze = freeze
         # Saved once: the stored shapes borrow sub-shapes from the files of
         # the components, which a partial load does not restore

@@ -530,9 +530,9 @@ Element *Element::create(App::DocumentObject *container,
 
 // ------------------------------------------------------------------------
 
-PROPERTY_SOURCE(Part::ElementLink, Part::Feature)
+PROPERTY_SOURCE(Part::ElementBinding, Part::Feature)
 
-ElementLink::ElementLink()
+ElementBinding::ElementBinding()
 {
     ADD_PROPERTY_TYPE(Element, (nullptr), "Element", App::Prop_None,
             "A direct child of the container and the subname to one of its\n"
@@ -553,7 +553,7 @@ ElementLink::ElementLink()
     Element.setScope(App::LinkScope::Global);
 }
 
-ElementLink *ElementLink::create(App::DocumentObject *container,
+ElementBinding *ElementBinding::create(App::DocumentObject *container,
                                  App::DocumentObject *obj,
                                  const char *subname)
 {
@@ -561,7 +561,8 @@ ElementLink *ElementLink::create(App::DocumentObject *container,
     if (!group)
         THROWM(Base::TypeError, "The container is not a group");
     auto doc = container->getDocument();
-    auto link = static_cast<ElementLink*>(doc->addObject("Part::ElementLink", "ElementLink"));
+    auto link = static_cast<ElementBinding*>(
+        doc->addObject("Part::ElementBinding", "ElementBinding"));
     // The container's own, whatever its GroupMode
     auto children = group->Group.getValues();
     children.push_back(link);
@@ -574,7 +575,7 @@ ElementLink *ElementLink::create(App::DocumentObject *container,
     return link;
 }
 
-App::DocumentObjectExecReturn *ElementLink::execute()
+App::DocumentObjectExecReturn *ElementBinding::execute()
 {
     if (!Element.getValue())
         return new App::DocumentObjectExecReturn("No element");
@@ -593,7 +594,7 @@ App::DocumentObjectExecReturn *ElementLink::execute()
     return App::DocumentObject::StdReturn;
 }
 
-void ElementLink::onChanged(const App::Property *prop)
+void ElementBinding::onChanged(const App::Property *prop)
 {
     if (prop == &_Resolved && isEditing(this))
         followResolved(this, _Resolved, Unresolved);
@@ -602,7 +603,7 @@ void ElementLink::onChanged(const App::Property *prop)
     inherited::onChanged(prop);
 }
 
-void ElementLink::onDocumentRestored()
+void ElementBinding::onDocumentRestored()
 {
     inherited::onDocumentRestored();
     // Restored with the document of the geometry missing
@@ -610,7 +611,7 @@ void ElementLink::onDocumentRestored()
         Unresolved.setValue(true);
 }
 
-const Element *ElementLink::getVertexElement() const
+const Element *ElementBinding::getVertexElement() const
 {
     // Down the chain of elements: this one's, then what it re-exports
     std::vector<const App::DocumentObject *> visited;
@@ -630,11 +631,11 @@ const Element *ElementLink::getVertexElement() const
     return nullptr;
 }
 
-void ElementLink::handleChangedPropertyName(Base::XMLReader &reader,
+void ElementBinding::handleChangedPropertyName(Base::XMLReader &reader,
                                             const char *typeName,
                                             const char *propName)
 {
-    // An element link of a build before 2026-10-26 kept a vertex of its own;
+    // An element binding of a build before 2026-10-26 kept a vertex of its own;
     // the element keeps it now (docs/AssemblyObjectModel.md sec 4.3)
     if (strcmp(propName, "Vertex") == 0) {
         Base::Console().Warning("%s: its vertex is not kept; an element keeps it now. "

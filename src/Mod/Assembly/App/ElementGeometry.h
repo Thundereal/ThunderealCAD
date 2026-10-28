@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 // The element geometry is Part's (Mod/Part/App/ElementGeometry.h), with the
-// element frame, which Part::ElementLink needs; the Assembly names stay.
+// element frame, which Part::ElementBinding needs; the Assembly names stay.
 
 #pragma once
 

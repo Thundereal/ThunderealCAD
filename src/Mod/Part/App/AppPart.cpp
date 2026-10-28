@@ -529,11 +529,14 @@ PyMOD_INIT_FUNC(Part)
     Part::Sweep                 ::init();
     Part::Offset                ::init();
     Part::Element               ::init();
-    Part::ElementLink           ::init();
+    Part::ElementBinding        ::init();
     Part::Offset2D              ::init();
     Part::Thickness             ::init();
     Part::Refine                ::init();
     Part::Reverse               ::init();
+
+    // Renamed 2026-10-28: a document and a macro of before still name it so
+    Base::Type::addLegacyName(Part::ElementBinding::getClassTypeId(), "Part::ElementLink");
     Part::SubShapeBinder        ::init();
     Part::SubShapeBinderPython  ::init();
 

@@ -114,10 +114,10 @@ public:
                            const char *subname,
                            const char *label = nullptr);
 
-    /** Whether elements and element links are hidden, and shown only while
+    /** Whether elements and element bindings are hidden, and shown only while
      * selected or preselected, as Assembly3's "Auto element visibility"
      *
-     * On by default. A new element or element link is made hidden while it
+     * On by default. A new element or element binding is made hidden while it
      * is on, visible while it is off. The setting is the Part preference
      * AutoElementVisibility.
      */
@@ -185,13 +185,13 @@ private:
  * of the element's geometry in Shape, in the container's coordinate system,
  * so that a joint is self-contained (docs/AssemblyObjectModel.md sec 4.4).
  */
-class PartExport ElementLink : public Part::Feature
+class PartExport ElementBinding : public Part::Feature
 {
-    PROPERTY_HEADER_WITH_OVERRIDE(Part::ElementLink);
+    PROPERTY_HEADER_WITH_OVERRIDE(Part::ElementBinding);
     using inherited = Part::Feature;
 
 public:
-    ElementLink();
+    ElementBinding();
 
     /// A direct child of the container and the subname to one of its elements
     App::PropertyLinkSub Element;
@@ -217,17 +217,17 @@ public:
     const Part::Element *getVertexElement() const;
 
     const char *getViewProviderName() const override {
-        return "PartGui::ViewProviderElementLink";
+        return "PartGui::ViewProviderElementBinding";
     }
 
-    /** Add an element link to a container, made its own child whatever its
+    /** Add an element binding to a container, made its own child whatever its
      * GroupMode
      *
      * @param container: the container
      * @param obj: a direct child of the container, or its Elements group
      * @param subname: the path to an element of the child, or one in the group
      */
-    static ElementLink *create(App::DocumentObject *container,
+    static ElementBinding *create(App::DocumentObject *container,
                                App::DocumentObject *obj,
                                const char *subname);
 

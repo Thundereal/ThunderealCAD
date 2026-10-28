@@ -22,7 +22,7 @@
  ***************************************************************************/
 
 // The joint as a C++ object (docs/AssemblyObjectModel.md sec 7.1): each side
-// is a Part::ElementLink, a child of the assembly, instead of the Python
+// is a Part::ElementBinding, a child of the assembly, instead of the Python
 // joint's Reference1/2, Offset1/2 and Detach1/2.
 
 #pragma once
@@ -51,7 +51,7 @@ class Part;
 
 namespace Part
 {
-class ElementLink;
+class ElementBinding;
 }
 
 namespace Assembly
@@ -63,8 +63,8 @@ class AssemblyObject;
 /// What one side of a joint resolves to
 struct AssemblyExport JointSide
 {
-    /// The element link of the side
-    Part::ElementLink* link = nullptr;
+    /// The element binding of the side
+    Part::ElementBinding* binding = nullptr;
     /// The component that moves: a direct child of the assembly, an element
     /// of a link array that is one, or a part of a flexible sub-assembly
     /// instance that is one, at any depth
@@ -82,13 +82,13 @@ struct AssemblyExport JointSide
     /// frame is its placement
     bool wholeObject = false;
     /// The geometry does not resolve now (a component not loaded): the
-    /// shape is the element link's copy, and the frame the joint's last,
+    /// shape is the element binding's copy, and the frame the joint's last,
     /// relative to the component
     bool stored = false;
 
     bool isValid() const
     {
-        return link && component && (wholeObject || !shape.isNull());
+        return binding && component && (wholeObject || !shape.isNull());
     }
     /// "Vertex", "Edge" or "Face" when the element is one, else empty
     std::string elementType() const;
@@ -103,10 +103,10 @@ public:
 
     /// The same enumeration, in the same order, as JointObject.JointTypes
     App::PropertyEnumeration JointType;
-    /// The element link of each side, a child of the assembly. Its Offset
+    /// The element binding of each side, a child of the assembly. Its Offset
     /// is the side's offset: the picked vertex and the user's offset in one
-    App::PropertyLink ElementLink1;
-    App::PropertyLink ElementLink2;
+    App::PropertyLink Binding1;
+    App::PropertyLink Binding2;
     /// The joint coordinate systems relative to each side's component, as
     /// the Python joint's are relative to their object; output, for display
     App::PropertyPlacement Placement1;
@@ -167,10 +167,15 @@ public:
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    /// ElementLink1/2, the sides' names before 2026-10-28, restore as
+    /// Binding1/2
+    void handleChangedPropertyName(Base::XMLReader& reader,
+                                   const char* typeName,
+                                   const char* propName) override;
     void unsetupObject() override;
     void onChanged(const App::Property* prop) override;
     PyObject* getPyObject() override;
-    /// One that claims the element links and draws nothing: the markers
+    /// One that claims the element bindings and draws nothing: the markers
     /// come with JointPython's Python view provider. A joint the assembly
     /// claims must have one.
     const char* getViewProviderName() const override
@@ -178,13 +183,13 @@ public:
         return "AssemblyGui::ViewProviderJoint";
     }
 
-    /// The element link of side 1 or 2
-    Part::ElementLink* getElementLink(int side) const;
+    /// The element binding of side 1 or 2
+    Part::ElementBinding* getBinding(int side) const;
     /// The component side 1 or 2 moves, a direct child of the assembly,
     /// without resolving the geometry
     App::DocumentObject* getComponent(int side) const;
     /// What side 1 or 2 resolves to now: the element through its component
-    /// when that resolves, the element link's stored copy when not
+    /// when that resolves, the element binding's stored copy when not
     JointSide getSide(int side) const;
     /** Side 1 or 2 without its geometry: the component, its placement in
      * the container, and the frame relative to it that execute() kept
@@ -210,15 +215,15 @@ public:
      * draws its markers again.
      */
     fastsignals::signal<void()> signalFramesMoved;
-    /** The component an element link of \a assembly is on (JointSide::component)
+    /** The component an element binding of \a assembly is on (JointSide::component)
      *
      * @param placement: optionally, the component's placement in the
      *                   assembly's coordinate system
      */
-    static App::DocumentObject* componentOfLink(App::Part* assembly,
-                                                Part::ElementLink* link,
-                                                Base::Placement* placement = nullptr);
-    /** What holds the joint and its element links, whose children its
+    static App::DocumentObject* componentOfBinding(App::Part* assembly,
+                                                   Part::ElementBinding* link,
+                                                   Base::Placement* placement = nullptr);
+    /** What holds the joint and its element bindings, whose children its
      * components are: its assembly, or the instance of a flexible
      * sub-assembly (AssemblyLink) holding the joint mirrored from its
      * assembly's (AssemblyLink::synchronizeJoints())
@@ -227,12 +232,12 @@ public:
 
     /// Make side 1 or 2 from a pick (makeSide()), deleting its old element
     /// link unless another joint uses it
-    Part::ElementLink* setSide(int side,
-                               App::DocumentObject* component,
-                               const char* subname,
-                               const char* vertex = nullptr,
-                               bool local = false);
-    /// Unset side 1 or 2, deleting its element link unless another joint
+    Part::ElementBinding* setSide(int side,
+                                  App::DocumentObject* component,
+                                  const char* subname,
+                                  const char* vertex = nullptr,
+                                  bool local = false);
+    /// Unset side 1 or 2, deleting its element binding unless another joint
     /// uses it
     void clearSide(int side);
 
@@ -252,19 +257,19 @@ public:
      * passes \a local: it does not edit the components, which may be other
      * documents.
      */
-    static Part::ElementLink* makeSide(AssemblyObject* assembly,
-                                       App::DocumentObject* component,
-                                       const char* subname,
-                                       const char* vertex = nullptr,
-                                       bool local = false);
+    static Part::ElementBinding* makeSide(AssemblyObject* assembly,
+                                          App::DocumentObject* component,
+                                          const char* subname,
+                                          const char* vertex = nullptr,
+                                          bool local = false);
 
     /// The copies that follow each component in the assembly's coordinate
-    /// system: its element links and the convenience elements on it
+    /// system: its element bindings and the convenience elements on it
     using Copies = std::unordered_map<App::DocumentObject*, std::vector<App::DocumentObject*>>;
     static Copies copiesOf(App::Part* assembly);
 
     /// Move the copies that follow a component in the assembly's coordinate
-    /// system by \a delta, as a solve moved the component: its element links
+    /// system by \a delta, as a solve moved the component: its element bindings
     /// and the convenience elements on it
     static void relocateCopies(App::Part* assembly,
                                App::DocumentObject* component,

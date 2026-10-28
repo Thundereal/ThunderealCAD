@@ -21,11 +21,11 @@
 # *                                                                         *
 # ***************************************************************************
 
-"""Part::Element and Part::ElementLink in an App::Part.
+"""Part::Element and Part::ElementBinding in an App::Part.
 
 An element is an interface a container declares, kept in the container's
 Elements group (held by its Elements property, reached as "$$Elements.");
-an element link is how a container uses an element of a child, or its own.
+an element binding is how a container uses an element of a child, or its own.
 Both keep a copy of the geometry in the container's coordinate system.
 See docs/AssemblyObjectModel.md sec 4 and 6.
 """
@@ -131,36 +131,36 @@ class ElementTest(unittest.TestCase):
         self.assertSameFace(shaftEnd.Shape, box.Shape.Face6, link.Placement)
         self.assertEqual(axis.getSubObject("$$Elements.$ShaftEnd.", retType=1), shaftEnd)
 
-    def testElementLinkUsesAChildsElement(self):
+    def testElementBindingUsesAChildsElement(self):
         pin, box = self.makePart("Pin")
         Part.makeElement(pin, box, "Face6", "End")
         rotor = self.doc.addObject("App::Part", "Rotor")
         rotor.GroupMode = "Link"
         link = rotor.addObject(pin)[0]
         link.Placement.Base = FreeCAD.Vector(10, 0, 0)
-        elementLink = Part.makeElementLink(rotor, link, "$$Elements.$End.")
+        binding = Part.makeElementBinding(rotor, link, "$$Elements.$End.")
         self.doc.recompute()
-        self.assertIn(elementLink, rotor.Group)
-        self.assertSameFace(elementLink.Shape, box.Shape.Face6, link.Placement)
+        self.assertIn(binding, rotor.Group)
+        self.assertSameFace(binding.Shape, box.Shape.Face6, link.Placement)
 
-    def testElementLinkUsesAConvenienceElement(self):
+    def testElementBindingUsesAConvenienceElement(self):
         rotor, box = self.makePart("Rotor")
         Part.makeElement(rotor, box, "Face1", "_Element")
-        elementLink = Part.makeElementLink(rotor, rotor.Elements, "$_Element.")
+        binding = Part.makeElementBinding(rotor, rotor.Elements, "$_Element.")
         self.doc.recompute()
-        self.assertSameFace(elementLink.Shape, box.Shape.Face1)
+        self.assertSameFace(binding.Shape, box.Shape.Face1)
 
-    def testRelabelUpdatesTheElementLink(self):
+    def testRelabelUpdatesTheElementBinding(self):
         pin, box = self.makePart("Pin")
         end = Part.makeElement(pin, box, "Face6", "End")
         rotor = self.doc.addObject("App::Part", "Rotor")
         rotor.GroupMode = "Link"
         link = rotor.addObject(pin)[0]
-        elementLink = Part.makeElementLink(rotor, link, "$$Elements.$End.")
+        binding = Part.makeElementBinding(rotor, link, "$$Elements.$End.")
         end.Label = "Tip"
-        self.assertEqual(elementLink.Element[1], ["$$Elements.$Tip."])
+        self.assertEqual(binding.Element[1], ["$$Elements.$Tip."])
         pin.Elements.Label = "Whatever"
-        self.assertEqual(elementLink.Element[1], ["$$Elements.$Tip."])
+        self.assertEqual(binding.Element[1], ["$$Elements.$Tip."])
 
     def testDeletingThePartDeletesItsElements(self):
         part, box = self.makePart("Part")
@@ -209,7 +209,7 @@ class ElementTest(unittest.TestCase):
         try:
             part, box = self.makePart("Part")
             element = Part.makeElement(part, box, "Face6", "Top")
-            link = Part.makeElementLink(part, part.Elements, "$Top.")
+            link = Part.makeElementBinding(part, part.Elements, "$Top.")
             self.assertTrue(element.Visibility)
             self.assertTrue(link.Visibility)
         finally:
@@ -218,7 +218,7 @@ class ElementTest(unittest.TestCase):
     def testAutoVisibilityHidesThem(self):
         part, box = self.makePart("Part")
         element = Part.makeElement(part, box, "Face6", "Top")
-        link = Part.makeElementLink(part, part.Elements, "$Top.")
+        link = Part.makeElementBinding(part, part.Elements, "$Top.")
         self.assertFalse(element.Visibility)
         self.assertFalse(link.Visibility)
 
@@ -232,7 +232,7 @@ class ElementTest(unittest.TestCase):
     def testElementVertexDrivesTheOffset(self):
         part, box = self.makePart("Part")
         element = Part.makeElement(part, box, "Face6", "Top")
-        link = Part.makeElementLink(part, part.Elements, "$Top.")
+        link = Part.makeElementBinding(part, part.Elements, "$Top.")
         self.doc.recompute()
         # The top face's frame is at its centre, z up; the vertex at (0, 0, 10)
         name, _ = self.topVertex(box)
@@ -240,7 +240,7 @@ class ElementTest(unittest.TestCase):
         self.doc.recompute()
         self.assertTrue(element.VertexPosition.isEqual(FreeCAD.Vector(-5, -5, 0), 1e-9))
         self.assertTrue(element.Offset.Base.isEqual(FreeCAD.Vector(-5, -5, 0), 1e-9))
-        # The element link refers to the element only, and keeps no vertex
+        # The element binding refers to the element only, and keeps no vertex
         self.assertFalse(hasattr(link, "Vertex"))
         self.assertTrue(link.Offset.isIdentity())
 
@@ -268,7 +268,7 @@ class ElementTest(unittest.TestCase):
         Part.makeElement(part, box, "Face6", "Top")
         through = Part.makeElement(outer, part, "%s.Face6" % box.Name, "Through")
         reexport = Part.makeElement(outer, part, "$$Elements.$Top.", "Again")
-        link = Part.makeElementLink(outer, outer.Elements, "$Through.")
+        link = Part.makeElementBinding(outer, outer.Elements, "$Through.")
         self.doc.recompute()
         box.Length = 20
         self.doc.recompute()
@@ -283,7 +283,7 @@ class ElementTest(unittest.TestCase):
         self.assertIn("Invalid", element.State)
 
     def testReplacedComponentKeepsItsLabelledElements(self):
-        # Replacing a component: its element links follow the labels the
+        # Replacing a component: its element bindings follow the labels the
         # new one declares (docs/AssemblyObjectModel.md sec 4.5)
         pin, box = self.makePart("Pin")
         Part.makeElement(pin, box, "Face6", "End")
@@ -293,11 +293,11 @@ class ElementTest(unittest.TestCase):
         rotor = self.doc.addObject("App::Part", "Rotor")
         rotor.GroupMode = "Link"
         link = rotor.addObject(pin)[0]
-        elementLink = Part.makeElementLink(rotor, link, "$$Elements.$End.")
+        binding = Part.makeElementBinding(rotor, link, "$$Elements.$End.")
         self.doc.recompute()
         link.LinkedObject = other
         self.doc.recompute()
-        self.assertSameFace(elementLink.Shape, otherBox.Shape.Face6)
+        self.assertSameFace(binding.Shape, otherBox.Shape.Face6)
 
     def makeReplaceable(self):
         """A link to a box in a part, and an element on the box's Face1

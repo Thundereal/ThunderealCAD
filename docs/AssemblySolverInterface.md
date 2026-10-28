@@ -3582,7 +3582,7 @@ masses the drag steps took the same three Newton iterations, and 4.0 s
 against 4.4 s, within the bench's spread. Timed inside, a drag step of the
 chain at 200 parts spent 0.07 s in the solver and 0.35 s writing the
 placements back -- all of it in `Joint::relocateCopies`, which moves the
-element links and elements that follow a moved component and found them by
+element bindings and elements that follow a moved component and found them by
 scanning every child of the assembly, once for each of the 200 parts moved.
 `Joint::copiesOf(assembly)` now finds them once, a map from each component
 to its copies, and `setNewPlacements` takes it once per assembly per write
@@ -3649,7 +3649,7 @@ and measured no better (the cost is in the changes' signals, not the
 touches); not kept.
 
 **Not done:** making joints in a burst grows per joint (28 ms at the start
-of a chain of 200, 90 ms at its end): each element link added to the
+of a chain of 200, 90 ms at its end): each element binding added to the
 assembly's Group re-runs `updateChildren`, whose `claimChildren` flushes the
 coalesced tree export (`ViewProviderGroupExtension::buildExport`) at once --
 O(children) per joint. Deferring `updateChildren` is a Gui core change, left

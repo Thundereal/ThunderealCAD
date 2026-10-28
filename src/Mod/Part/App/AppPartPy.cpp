@@ -830,11 +830,15 @@ public:
             "missing. 'target' is a direct child of the container and 'subname' a\n"
             "path into it. Returns the Part::Element."
         );
-        add_varargs_method("makeElementLink",&Module::makeElementLink,
-            "makeElementLink(container, obj, subname) -- Add a Part::ElementLink to a\n"
+        add_varargs_method("makeElementBinding",&Module::makeElementBinding,
+            "makeElementBinding(container, obj, subname) -- Add a Part::ElementBinding to a\n"
             "container, to an element: 'obj' is a direct child of the container and\n"
             "'subname' the path to one of its elements ('$$Elements.$Name.'), or 'obj'\n"
             "is the container's own Elements group and 'subname' an element in it."
+        );
+        // Its name before 2026-10-28, for the macros of before
+        add_varargs_method("makeElementLink",&Module::makeElementBinding,
+            "makeElementLink(container, obj, subname) -- makeElementBinding()'s former name."
         );
         add_varargs_method("makeLongHelix",&Module::makeLongHelix,
             "makeLongHelix(pitch,height,radius,[angle],[hand]) -- Make a (multi-edge) helix with a given pitch, height and radius\n"
@@ -2127,7 +2131,7 @@ private:
             return Py::asObject(element->getPyObject());
         } _PY_CATCH_OCC(throw Py::Exception())
     }
-    Py::Object makeElementLink(const Py::Tuple& args)
+    Py::Object makeElementBinding(const Py::Tuple& args)
     {
         PyObject *pyContainer, *pyObj;
         const char *subname = "";
@@ -2139,7 +2143,7 @@ private:
         PY_TRY {
             auto container = static_cast<App::DocumentObjectPy*>(pyContainer)->getDocumentObjectPtr();
             auto obj = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
-            auto link = Part::ElementLink::create(container, obj, subname);
+            auto link = Part::ElementBinding::create(container, obj, subname);
             return Py::asObject(link->getPyObject());
         } _PY_CATCH_OCC(throw Py::Exception())
     }

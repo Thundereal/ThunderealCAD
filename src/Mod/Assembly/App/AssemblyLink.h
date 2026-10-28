@@ -36,7 +36,7 @@
 namespace Part
 {
 class Element;
-class ElementLink;
+class ElementBinding;
 }  // namespace Part
 
 namespace Assembly
@@ -107,12 +107,12 @@ protected:
     void onDocumentRestored() override;
 
 private:
-    /** The element link of this instance for side \a side of a C++ joint of
+    /** The element binding of this instance for side \a side of a C++ joint of
      * the linked assembly: the same element, through this instance's link to
      * the component, or a convenience element of this instance's own. \a
-     * current, the mirror's element link, is kept and set when there is one.
+     * current, the mirror's element binding, is kept and set when there is one.
      */
-    ::Part::ElementLink* mirrorSide(Joint* joint, int side, ::Part::ElementLink* current);
+    ::Part::ElementBinding* mirrorSide(Joint* joint, int side, ::Part::ElementBinding* current);
     /// This instance's convenience element for one of the linked assembly's
     ::Part::Element* mirrorElement(::Part::Element* element);
     /// The (object, subname) of this instance a path of the linked assembly

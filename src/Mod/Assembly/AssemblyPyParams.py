@@ -132,7 +132,7 @@ Params = [
         True,
         title="Convert joints when a file is opened",
         doc="Converts the joints of upstream's assemblies (Python features with\n"
-        "Reference1/2) to this version's joints, whose sides are element links,\n"
+        "Reference1/2) to this version's joints, whose sides are element bindings,\n"
         "when a file is opened; their frames are kept exactly. A joint that\n"
         "cannot be converted is kept as it is, and reported. Takes effect at\n"
         "the next open.",

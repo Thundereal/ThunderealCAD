@@ -28,7 +28,7 @@ docs/AssemblyObjectModel.md sec 7.1. The instance of a flexible
 sub-assembly (Assembly::AssemblyLink) mirrors its assembly's joints onto its
 own links to the components. A C++ joint is mirrored as one, with element
 links of its own on the instance's links, and convenience elements of its
-own: copied, its element links were the assembly's, and took the joint out
+own: copied, its element bindings were the assembly's, and took the joint out
 of it.
 """
 
@@ -90,10 +90,10 @@ class TestFlexibleSubAssembly(unittest.TestCase):
         )
 
     def assertSubIntact(self):
-        # The assembly keeps its joint and the joint its element links
+        # The assembly keeps its joint and the joint its element bindings
         self.assertIn(self.joint, self.sub.Group)
         for i in (1, 2):
-            link = getattr(self.joint, "ElementLink%d" % i)
+            link = getattr(self.joint, "Binding%d" % i)
             self.assertIn(link, self.sub.Group)
             self.assertNotIn(link, self.inst.Group)
 
@@ -109,7 +109,7 @@ class TestFlexibleSubAssembly(unittest.TestCase):
         centre = rel.multVec(App.Vector(5, 5, 0))
         self.assertTrue(centre.isEqual(App.Vector(5, 5, 10), 1e-6), rel)
 
-    def testTheJointIsMirroredWithElementLinksOfItsOwn(self):
+    def testTheJointIsMirroredWithElementBindingsOfItsOwn(self):
         self.assertSubIntact()
         mirror = next(o for o in self.inst.Group if o.isDerivedFrom("Assembly::Joint"))
         self.assertEqual(mirror.TypeId, "Assembly::Joint")
@@ -117,7 +117,7 @@ class TestFlexibleSubAssembly(unittest.TestCase):
         self.assertEqual(mirror.getComponent(1), self.local("A"))
         self.assertEqual(mirror.getComponent(2), self.local("B"))
         for i in (1, 2):
-            link = getattr(mirror, "ElementLink%d" % i)
+            link = getattr(mirror, "Binding%d" % i)
             self.assertIn(link, self.inst.Group)
         # The convenience elements are the instance's own
         self.assertEqual(len(self.inst.Elements.Group), 2)
@@ -133,7 +133,7 @@ class TestFlexibleSubAssembly(unittest.TestCase):
         self.inst.Rigid = True
         self.doc.recompute()
         self.assertFalse([o for o in self.inst.Group
-                          if o.isDerivedFrom("Part::ElementLink")
+                          if o.isDerivedFrom("Part::ElementBinding")
                           or o.isDerivedFrom("Assembly::Joint")])
         group = self.inst.Elements
         self.assertTrue(group is None or not group.Group)

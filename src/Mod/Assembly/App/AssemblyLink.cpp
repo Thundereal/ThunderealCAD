@@ -414,9 +414,9 @@ void AssemblyLink::synchronizeComponents()
         if (isSuppressedLinkElement(obj)) {
             continue;
         }
-        // A joint's element links are shapes, and no components: this
+        // A joint's element bindings are shapes, and no components: this
         // instance has its own, its mirrored joints' (synchronizeJoints())
-        if (obj->isDerivedFrom<::Part::ElementLink>() || obj->isDerivedFrom<::Part::Element>()) {
+        if (obj->isDerivedFrom<::Part::ElementBinding>() || obj->isDerivedFrom<::Part::Element>()) {
             continue;
         }
         if (!obj->isDerivedFrom<App::Part>() && !obj->isDerivedFrom<PartApp::Feature>()
@@ -581,7 +581,7 @@ void AssemblyLink::synchronizeComponents()
             continue;
         }
         // The mirrored joints' own: they go with their joints
-        if (obj->isDerivedFrom<::Part::ElementLink>() || obj->isDerivedFrom<::Part::Element>()) {
+        if (obj->isDerivedFrom<::Part::ElementBinding>() || obj->isDerivedFrom<::Part::Element>()) {
             continue;
         }
         if (validLinks.find(obj) == validLinks.end()) {
@@ -685,10 +685,10 @@ void AssemblyLink::synchronizeJoints()
             }
         }
         if (!lJoint && typed) {
-            // A C++ joint is not copied: its element links are its
+            // A C++ joint is not copied: its element bindings are its
             // assembly's, and a copy taken into this instance took them, and
             // the joint with them, out of that assembly. Its mirror has
-            // element links of its own, on this instance's links.
+            // element bindings of its own, on this instance's links.
             lJoint = doc->addObject("Assembly::Joint", joint->getNameInDocument());
             lJoint->Label.setValue(joint->Label.getValue());
             jGroup->addObject(lJoint);
@@ -726,8 +726,8 @@ void AssemblyLink::synchronizeJoints()
             copyPropertyIfDifferent<App::PropertyFloat>(joint, lJoint, "Angle");
             auto* mirror = static_cast<Joint*>(lJoint);
             for (int side : {1, 2}) {
-                auto& prop = side == 1 ? mirror->ElementLink1 : mirror->ElementLink2;
-                auto* current = Base::freecad_dynamic_cast<::Part::ElementLink>(prop.getValue());
+                auto& prop = side == 1 ? mirror->Binding1 : mirror->Binding2;
+                auto* current = Base::freecad_dynamic_cast<::Part::ElementBinding>(prop.getValue());
                 auto* link = mirrorSide(typed, side, current);
                 if (link != current) {
                     prop.setValue(link);
@@ -917,9 +917,10 @@ bool AssemblyLink::mapPath(App::DocumentObject* obj,
     return mirror;
 }
 
-::Part::ElementLink* AssemblyLink::mirrorSide(Joint* joint, int side, ::Part::ElementLink* current)
+::Part::ElementBinding*
+AssemblyLink::mirrorSide(Joint* joint, int side, ::Part::ElementBinding* current)
 {
-    auto* link = joint->getElementLink(side);
+    auto* link = joint->getBinding(side);
     if (!link || !link->Element.getValue()) {
         return current;
     }
@@ -949,7 +950,7 @@ bool AssemblyLink::mapPath(App::DocumentObject* obj,
         targetSub = std::string("$") + mirror->Label.getValue() + ".";
     }
     if (!current) {
-        current = ::Part::ElementLink::create(this, target, targetSub.c_str());
+        current = ::Part::ElementBinding::create(this, target, targetSub.c_str());
     }
     else {
         const auto& csubs = current->Element.getSubValues();

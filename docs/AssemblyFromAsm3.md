@@ -5,7 +5,8 @@ Status (2026-10-22): a study, nothing changed. It extends
 
 Revised 2026-10-24: the Element verdict of A.1 was wrong, and so was the
 merge-cost premise behind it. The object model moves to C++ with Assembly3's
-Elements and ElementLinks: `docs/AssemblyObjectModel.md`. Section B's
+Elements and ElementLinks (ElementBindings in this tree since 2026-10-28;
+Assembly3's names stay below): `docs/AssemblyObjectModel.md`. Section B's
 mapping of elements onto upstream's joint references is superseded by it;
 Assembly3 elements now map 1:1.
 
@@ -169,7 +170,8 @@ as a link group at run time (`configLinkProperty`, `asm3/assembly.py:320-334`).
      sub-assembly are copied by property name into mirrored objects
      (`Assembly/App/AssemblyLink.cpp:561-686`, F9).
 
-**Verdict (revised 2026-10-24): adopt Element and ElementLink.**
+**Verdict (revised 2026-10-24): adopt Element and ElementLink** (built as
+`Part::ElementBinding`, so named since 2026-10-28).
 
 The first verdict here ("do not adopt", costed by the merge burden on
 upstream's Python joints and by object counts) misread the design: it
@@ -510,7 +512,7 @@ Built 2026-10-25 against the C++ object model, not upstream's joints:
 `docs/AssemblyObjectModel.md` sec 8 (step 4f). It reads the document
 through the bundled Assembly3 code instead of the structural classifier
 of B.1, and maps elements to `Part::Element`s and constraints to joints
-whose element links carry the offsets; what follows is the plan it
+whose element bindings carry the offsets; what follows is the plan it
 started from.
 
 ### B.1 Loading without Assembly3 installed
@@ -862,5 +864,5 @@ need Assembly3 or `py_slvs` installed):
 | joint selection validation messages | joint task | small | low |
 | pattern command (array + N joints) | new command | small | none |
 | Assembly3 importer (B) | new files | about 1000 lines plus tests | none |
-| Element and ElementLink objects (revised 2026-10-24) | `docs/AssemblyObjectModel.md` | large | the object model leaves upstream's (decision 8) |
+| Element and ElementBinding objects (revised 2026-10-24) | `docs/AssemblyObjectModel.md` | large | the object model leaves upstream's (decision 8) |
 | **not** the SolveSpace interface, **not** relation objects | -- | -- | -- |

@@ -201,7 +201,10 @@ PyMOD_INIT_FUNC(PartGui)
     PartGui::ViewProviderLCS                        ::init();
     PartGui::ViewProviderPart                       ::init();
     PartGui::ViewProviderElement                    ::init();
-    PartGui::ViewProviderElementLink                ::init();
+    PartGui::ViewProviderElementBinding             ::init();
+    // Renamed 2026-10-28, as Part::ElementBinding
+    Base::Type::addLegacyName(PartGui::ViewProviderElementBinding::getClassTypeId(),
+                              "PartGui::ViewProviderElementLink");
     PartGui::ViewProviderPrimitive                  ::init();
     PartGui::ViewProviderEllipsoid                  ::init();
     PartGui::ViewProviderPython                     ::init();

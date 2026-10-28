@@ -232,11 +232,11 @@ AssemblyExport void syncPlacements(App::DocumentObject* src, App::DocumentObject
 // name stands for: 1 for "Reference1", 2 for "Reference2"; 0 for anything
 // else, or when the joint is not a C++ one. The reference helpers above take
 // the property names for both kinds of joint, and answer for a C++ joint
-// from its element links (docs/AssemblyObjectModel.md sec 7.1).
+// from its element bindings (docs/AssemblyObjectModel.md sec 7.1).
 AssemblyExport int typedJointSide(const App::DocumentObject* joint, const char* refName);
 // The element of a joint's side and the label of the object it is of, as the
 // user picked them, for messages: for a C++ joint its element's target
-// ("Face1", "Free"), not the element link's copy ("Face1", "ElementLink001").
+// ("Face1", "Free"), not the element binding's copy ("Face1", "ElementBinding001").
 AssemblyExport void describeJointSide(
     const App::DocumentObject* joint,
     const char* refName,

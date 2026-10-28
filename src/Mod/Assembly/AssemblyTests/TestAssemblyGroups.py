@@ -83,8 +83,8 @@ class TestAssemblyGroups(JointTestBase):
         for obj in (ground, joint, rg):
             self.assertIn(obj, self.assembly.Group, obj.Name)
             self.assertIn(obj, self.jointgroup.Group, obj.Name)
-        # The components and the joint's element links are not joints
-        for obj in [a, b, joint.ElementLink1, joint.ElementLink2]:
+        # The components and the joint's element bindings are not joints
+        for obj in [a, b, joint.Binding1, joint.Binding2]:
             self.assertNotIn(obj, self.jointgroup.Group, obj.Name)
 
     def testAnUpstreamJointJoinsWhenItGetsItsProxy(self):

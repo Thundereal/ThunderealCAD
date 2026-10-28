@@ -116,19 +116,19 @@ class TestBodyElement(unittest.TestCase):
         self.assertAlmostEqual(element.Shape.CenterOfMass.z, 10, places=6)
 
     def testElementWithItsFaceGoneIsAnErrorOfItsOwn(self):
-        # Nothing became the face: the element says so, and an element link
+        # Nothing became the face: the element says so, and an element binding
         # to it keeps its copy
         part, element = self.elementOnTheBody()
-        elementLink = Part.makeElementLink(part, part.Elements, "$Top.")
+        binding = Part.makeElementBinding(part, part.Elements, "$Top.")
         self.doc.recompute()
         cut = self.body.newObject("PartDesign::SubtractiveBox", "Cut")
         cut.Placement.Base = FreeCAD.Vector(-1, -1, 5)
         cut.Length = cut.Width = 12
         self.doc.recompute()
         self.assertIn("Invalid", element.State)
-        self.assertNotIn("Invalid", elementLink.State)
-        self.assertAlmostEqual(elementLink.Shape.Area, 100, places=6)
-        self.assertAlmostEqual(elementLink.Shape.CenterOfMass.z, 10, places=6)
+        self.assertNotIn("Invalid", binding.State)
+        self.assertAlmostEqual(binding.Shape.Area, 100, places=6)
+        self.assertAlmostEqual(binding.Shape.CenterOfMass.z, 10, places=6)
 
 
 class TestSolidBodyElements(unittest.TestCase):

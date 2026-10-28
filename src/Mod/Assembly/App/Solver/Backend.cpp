@@ -182,6 +182,14 @@ private:
                 frame.local = centres[frame.body].inverse() * frame.local;
             }
         }
+        // The masses with their frames (docs/AssemblyDynamics.md sec 6.1)
+        if (out.dynamics) {
+            for (auto& inertia : out.dynamics->inertias) {
+                if (inertia.body < n && shifted[inertia.body]) {
+                    inertia = moved(inertia, centres[inertia.body].inverse());
+                }
+            }
+        }
         return out;
     }
 

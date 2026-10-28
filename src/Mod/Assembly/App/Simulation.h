@@ -60,6 +60,15 @@ public:
     App::PropertyTime TimeStepOutput;
     App::PropertyFloat GlobalErrorTolerance;
     App::PropertyInteger FramesPerSecond;
+    /// Kinematic: the motions drive the joints; Dynamic: the bodies move
+    /// under gravity by their masses (docs/AssemblyDynamics.md, phase D1),
+    /// on a backend that runs dynamics
+    App::PropertyEnumeration AnalysisType;
+    /// Dynamic: gravity, in the document's coordinates, mm/s^2
+    App::PropertyVector Gravity;
+    App::PropertyBool GravityEnabled;
+
+    static const char* AnalysisTypeEnums[];
 
     /// Upstream's name of each property above, and the property's name
     static const std::map<std::string, std::string>& upstreamNames();

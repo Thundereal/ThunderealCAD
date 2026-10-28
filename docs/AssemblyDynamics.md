@@ -68,8 +68,37 @@ built (2026-10-28):
   inside the item's setData, and a fill there clears the table and the item
   Qt is still in -- an access violation in `QTreeWidgetItem::setData`, the
   first run getting away with it.
-- Next, D1 (sec 4): a Dynamic analysis of an unpowered mechanism under
-  gravity on Chrono, converting by `Solver::SI`.
+
+Phase D1 is under way (2026-10-28):
+- Built, step 1 of sec 4's order: a Dynamic analysis of an unpowered
+  mechanism under gravity. The C++ `Simulation` has `AnalysisType`
+  {Kinematic, Dynamic}, `Gravity` (the document's coordinates, mm/s^2,
+  turned into the assembly's frame for the model) and `GravityEnabled`;
+  `SimulationSpec` has `analysis` and `maxStep` (0: the backend's, 1 ms on
+  Chrono). A Dynamic study adds the dynamics block (`addDynamics()`) and runs
+  on the first backend whose `Capabilities::dynamics` is set -- Chrono, now
+  -- whichever the assembly solves with. `centredOnJoints` moves the
+  inertias with the frames it moves. `ChronoSession::simulateDynamics()`:
+  the model in SI (`Solver::scaled`, every length times `SI::length`), each
+  body's frame at its centre of mass (a `ChBody`'s inertia is about its own
+  frame, and the kinematic build makes ChBody, not ChBodyAuxRef), a system
+  of its own with the real masses and full inertia tensors, gravity, HHT
+  (alpha -0.2) on the session's direct solver (LUThenQR), the poses back.
+  Refused, with the reason in the report: no masses, a free body without
+  mass, and what a dynamic run does not take yet -- motions (D1 step 3),
+  limits (stops) and cams (a curve is not scaled).
+- **The accelerations at the start are assembled first**
+  (`DoAssembly(FULL)`): HHT takes those it is given, none from rest, and the
+  run lagged a fraction of a step behind -- the pendulum's period long by
+  0.2% at 1 ms, the error first order in the step. Assembled: 0.004% at
+  1 ms, second order (0.001% at 0.5 ms).
+- Test: `TestDynamics` -- a rod hinged at one end, released horizontal,
+  swings down in the quarter period of a pendulum let go at 90 deg
+  (sqrt(I / (m g d)) K(sin 45 deg)), within 0.05%, the hinge held to 1e-6
+  mm, the lowest point 50 mm below it; nothing moves without gravity; a
+  motion is refused.
+- Next: the Simulation task panel's Analysis choice, then springs and
+  dampers (step 2).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -769,6 +769,17 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
         return -1;
     }
 
+    // A dynamic run: the bodies' masses, and gravity in the assembly's frame
+    if (simulationSpec && simulationSpec->analysis == Solver::Analysis::Dynamic) {
+        addDynamics(*solverModel);
+        if (auto* typed = freecad_cast<Simulation*>(sim);
+            typed && typed->GravityEnabled.getValue()) {
+            const Base::Rotation turn =
+                App::GeoFeature::getGlobalPlacement(this).getRotation().inverse();
+            solverModel->dynamics->gravity = turn.multVec(typed->Gravity.getValue());
+        }
+    }
+
     makeMbdModel();
 
     // Every frame the backend produces is kept here, so playback needs no
@@ -2007,6 +2018,25 @@ void AssemblyObject::makeMbdModel()
 {
     loadedBodies = 0;
     Solver::Backend* backend = Solver::Registry::instance().select(this);
+    // A dynamic run, on the first backend that runs dynamics, whichever the
+    // assembly solves with
+    if (simulationSpec && simulationSpec->analysis == Solver::Analysis::Dynamic
+        && !(backend && backend->capabilities().dynamics)) {
+        backend = nullptr;
+        auto& registry = Solver::Registry::instance();
+        for (const auto& name : registry.names()) {
+            auto* candidate = registry.find(name);
+            if (candidate && candidate->capabilities().dynamics) {
+                backend = candidate;
+                break;
+            }
+        }
+        if (!backend) {
+            FC_ERR("Assembly: no solver backend runs a dynamic analysis (Chrono's is not built)");
+            session.reset();
+            return;
+        }
+    }
     session = backend
         ? Solver::groupedRigidly(Solver::centredOnJoints(backend->createSession()))
         : nullptr;
@@ -2989,6 +3019,8 @@ void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObjec
         return;
     }
     if (auto* typed = freecad_cast<Simulation*>(sim)) {
+        mbdSim->analysis = typed->AnalysisType.getValue() == 1 ? Solver::Analysis::Dynamic
+                                                               : Solver::Analysis::Kinematic;
         mbdSim->tStart = typed->TimeStart.getValue();
         mbdSim->tEnd = typed->TimeEnd.getValue();
         mbdSim->tOutput = typed->TimeStepOutput.getValue();

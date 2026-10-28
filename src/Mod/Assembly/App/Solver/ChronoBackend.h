@@ -107,7 +107,17 @@ public:
     // Chrono's kinematic run: the motors follow the formulas, each output
     // interval split so that no driven angle turns more than a quarter
     // radian per step, each step predicted from the velocities and solved.
+    // A Dynamic spec runs simulateDynamics().
     Status simulate(const SimulationSpec& spec, TrajectorySink& sink) override;
+    // The forward dynamics of the bodies' masses under gravity
+    // (docs/AssemblyDynamics.md, phase D1): the model in SI (sec 8.1), each
+    // body's frame moved to its centre of mass so that a ChBody holds its
+    // inertia, in a system of its own; Chrono's HHT on the direct solver;
+    // the poses back in the model's units and frames. Refused, with the
+    // reason logged: a model without its dynamics block, a body free to move
+    // without mass, and what a dynamic run does not take yet -- motions,
+    // limits and cams.
+    Status simulateDynamics(const SimulationSpec& spec, TrajectorySink& sink);
     // The Chrono system as Chrono's own JSON archive.
     Status exportNative(const std::string& path) override;
 

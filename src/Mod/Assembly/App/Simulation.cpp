@@ -44,7 +44,28 @@ Simulation::Simulation()
     ADD_PROPERTY_TYPE(GlobalErrorTolerance, (1.0e-6), "Simulation", App::Prop_None,
                       "Integration global error tolerance.");
     ADD_PROPERTY_TYPE(FramesPerSecond, (30), "Simulation", App::Prop_None, "Frames Per Second.");
+    // Not upstream: dynamics (docs/AssemblyDynamics.md); a file without
+    // them is a kinematic study, as before
+    ADD_PROPERTY_TYPE(AnalysisType,
+                      (0L),
+                      "Simulation",
+                      App::Prop_None,
+                      "Kinematic: the motions drive the joints. Dynamic: the parts move "
+                      "under gravity by their masses.");
+    AnalysisType.setEnums(AnalysisTypeEnums);
+    ADD_PROPERTY_TYPE(Gravity,
+                      (Base::Vector3d(0.0, 0.0, -9806.65)),
+                      "Simulation",
+                      App::Prop_None,
+                      "Dynamic: gravity, in the document's coordinates, mm/s^2");
+    ADD_PROPERTY_TYPE(GravityEnabled,
+                      (true),
+                      "Simulation",
+                      App::Prop_None,
+                      "Dynamic: whether gravity acts");
 }
+
+const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", nullptr};
 
 const std::map<std::string, std::string>& Simulation::upstreamNames()
 {

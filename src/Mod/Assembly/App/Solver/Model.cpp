@@ -133,6 +133,60 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
         && sameRecords(a.drivers, b.drivers) && sameRecords(a.curves, b.curves);
 }
 
+Model Assembly::Solver::scaled(const Model& model, double length)
+{
+    Model out = model;
+    auto scale = [length](Base::Placement& placement) {
+        placement.setPosition(placement.getPosition() * length);
+    };
+    for (auto& body : out.bodies) {
+        scale(body.placement);
+        body.mass.com = body.mass.com * length;
+    }
+    for (auto& frame : out.frames) {
+        scale(frame.local);
+    }
+    for (auto& joint : out.joints) {
+        switch (joint.kind) {
+            case JointKind::Planar:
+            case JointKind::PointInPlane:
+            case JointKind::LineInPlane:
+            case JointKind::PointPointDistance:
+            case JointKind::PointLineDistance:
+            case JointKind::LineLineDistance:
+            case JointKind::RackPinion:
+            case JointKind::Screw:
+            case JointKind::PointOnCurve:
+                joint.value *= length;
+                break;
+            default:
+                // Angles, and the gears' radii, whose ratio is all they say
+                break;
+        }
+    }
+    for (auto& limit : out.limits) {
+        if (limit.kind == LimitKind::TranslationZ) {
+            if (limit.min) {
+                *limit.min *= length;
+            }
+            if (limit.max) {
+                *limit.max *= length;
+            }
+            limit.tolerance *= length;
+        }
+    }
+    if (out.dynamics) {
+        out.dynamics->gravity = out.dynamics->gravity * length;
+        for (auto& inertia : out.dynamics->inertias) {
+            inertia.com = inertia.com * length;
+            for (auto& value : inertia.inertia) {
+                value *= length * length;
+            }
+        }
+    }
+    return out;
+}
+
 Inertia Assembly::Solver::moved(const Inertia& inertia, const Base::Placement& toOther)
 {
     Inertia out = inertia;

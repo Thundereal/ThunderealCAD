@@ -126,12 +126,14 @@
 #include <chrono/solver/ChConstraintNgeneric.h>
 #include <chrono/solver/ChDirectSolverLS.h>
 #include <chrono/solver/ChSystemDescriptor.h>
+#include <chrono/timestepper/ChTimestepperHHT.h>
 
 #include <Base/Console.h>
 
 #include "ChronoBackend.h"
 #include "JointEquations.h"
 #include "ReferenceBackend.h"
+#include "Units.h"
 
 using namespace Assembly::Solver;
 namespace ch = chrono;
@@ -945,6 +947,7 @@ Capabilities ChronoBackend::capabilities() const
     caps.drivers = true;
     caps.drag = true;
     caps.kinematics = true;
+    caps.dynamics = true;
     caps.redundancy = true;
     caps.conflicts = true;
     caps.nativeFormat = "chrono-json";
@@ -2395,6 +2398,9 @@ Status ChronoSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
     if (!d->refused.empty()) {
         return Status::Unsupported;
     }
+    if (spec.analysis == Analysis::Dynamic) {
+        return simulateDynamics(spec, sink);
+    }
     for (const auto& driver : d->model.drivers) {
         for (const Formula* formula : {&driver.rotation, &driver.translation}) {
             if (!formula->text.empty() && !formula->tree && !formula->function
@@ -2458,6 +2464,133 @@ Status ChronoSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
     }
     d->removeMotors();
     d->sys->SetChTime(0.0);
+    return status;
+}
+
+Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySink& sink)
+{
+    const Model& model = d->model;
+    auto refuse = [](const std::string& why) {
+        Base::Console().error("Assembly: the dynamic analysis cannot run: %s\n", why.c_str());
+        return Status::Unsupported;
+    };
+    if (!model.dynamics) {
+        return refuse("the model has no masses");
+    }
+    if (!model.drivers.empty()) {
+        return refuse("it has motions, which a dynamic analysis does not run yet");
+    }
+    if (!model.limits.empty()) {
+        return refuse("it has limits, which a dynamic analysis does not run yet");
+    }
+    for (const auto& joint : model.joints) {
+        if (joint.kind == JointKind::PointOnCurve) {
+            return refuse("the cam " + model.sourceName(joint.source)
+                          + " is not run by a dynamic analysis yet");
+        }
+    }
+    if (!(spec.tOutput > 0.0) || spec.tEnd < spec.tStart) {
+        return Status::Failed;
+    }
+
+    // In SI, each body's frame at its centre of mass: a ChBody's inertia is
+    // about its own frame
+    Model si = scaled(model, SI::length);
+    const std::size_t n = si.bodies.size();
+    std::vector<Base::Placement> centre(n);
+    std::vector<const Inertia*> inertiaOf(n, nullptr);
+    for (const auto& inertia : si.dynamics->inertias) {
+        if (inertia.body < n) {
+            inertiaOf[inertia.body] = &inertia;
+            centre[inertia.body] = Base::Placement(inertia.com, Base::Rotation());
+        }
+    }
+    for (std::size_t b = 0; b < n; ++b) {
+        si.bodies[b].placement = si.bodies[b].placement * centre[b];
+    }
+    for (auto& frame : si.frames) {
+        if (frame.body < n) {
+            frame.local = centre[frame.body].inverse() * frame.local;
+        }
+    }
+
+    ChronoSession run;
+    if (run.load(si) != Status::Ok) {
+        return Status::Failed;
+    }
+    if (!run.d->refused.empty()) {
+        return refuse(run.d->refused);
+    }
+    ch::ChSystemNSC& sys = *run.d->sys;
+    for (std::size_t b = 0; b < n; ++b) {
+        auto& body = run.d->bodies[b];
+        if (body->IsFixed()) {
+            continue;
+        }
+        const Inertia* inertia = inertiaOf[b];
+        if (!inertia || inertia->mass <= 0.0) {
+            return refuse("the part " + model.sourceName(model.bodies[b].source)
+                          + " has no mass, and is free to move");
+        }
+        body->SetMass(inertia->mass * SI::mass);
+        // Scaled with the model: in kg m^2 already
+        const auto& i = inertia->inertia;
+        ch::ChMatrix33d tensor;
+        tensor << i[0], i[3], i[4], i[3], i[1], i[5], i[4], i[5], i[2];
+        body->SetInertia(tensor);
+    }
+    sys.SetGravitationalAcceleration(toCh(si.dynamics->gravity));
+    // HHT, which needs a direct solver: the load set LUThenQR
+    sys.SetTimestepperType(ch::ChTimestepper::Type::HHT);
+    if (auto hht = std::dynamic_pointer_cast<ch::ChTimestepperHHT>(sys.GetTimestepper())) {
+        hht->SetAlpha(-0.2);
+        hht->SetMaxIters(20);
+        hht->SetStepControl(false);
+    }
+
+    const double hMax = spec.maxStep > 0.0 ? spec.maxStep : 1e-3;
+    const int sub = std::max(1, static_cast<int>(std::ceil(spec.tOutput / hMax - 1e-9)));
+    const double h = spec.tOutput / sub;
+    const auto steps =
+        static_cast<std::size_t>(std::floor((spec.tEnd - spec.tStart) / spec.tOutput + 1e-9));
+    auto posesNow = [&]() {
+        std::vector<BodyPose> poses;
+        poses.reserve(n);
+        for (std::size_t b = 0; b < n; ++b) {
+            const auto& body = run.d->bodies[b];
+            Base::Placement placement =
+                toPlacement(body->GetPos(), body->GetRot()) * centre[b].inverse();
+            placement.setPosition(placement.getPosition() / SI::length);
+            poses.push_back({static_cast<Id>(b), placement});
+        }
+        return poses;
+    };
+
+    Status status = Status::Ok;
+    try {
+        sys.SetChTime(spec.tStart);
+        // The accelerations at the start, gravity's: HHT takes those it is
+        // given, and from rest that was none, the run lagging a part of a
+        // step behind -- the pendulum's period long by 0.2% at 1 ms, the
+        // error first order in the step
+        sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::FULL));
+        for (std::size_t k = 0; k <= steps; ++k) {
+            const double time = spec.tStart + static_cast<double>(k) * spec.tOutput;
+            if (k > 0) {
+                for (int s = 0; s < sub; ++s) {
+                    sys.DoStepDynamics(h);
+                }
+            }
+            if (!sink.frame(time, posesNow())) {
+                status = Status::Cancelled;
+                break;
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        Base::Console().error("Assembly: the Chrono backend's dynamic run failed: %s\n", e.what());
+        status = Status::Failed;
+    }
     return status;
 }
 

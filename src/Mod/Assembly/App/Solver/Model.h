@@ -339,4 +339,13 @@ private:
 // before a drag (Session::update).
 AssemblyExport bool sameExceptDragWeights(const Model& a, const Model& b);
 
+/** The model with its lengths times `length` (docs/AssemblyDynamics.md sec
+ * 8.1: Solver::SI::length takes it to SI): positions, frames, the joints'
+ * offsets, distances, radii and pitches, the translation limits, and the
+ * dynamics block's centres, inertias (times length^2) and gravity. Masses,
+ * times and angles stay. Not scaled: the drivers' translation formulas and
+ * the curves -- a run that scales refuses a model that has them.
+ */
+AssemblyExport Model scaled(const Model& model, double length);
+
 }  // namespace Assembly::Solver

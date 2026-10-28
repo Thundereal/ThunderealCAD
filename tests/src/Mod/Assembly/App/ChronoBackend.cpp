@@ -1310,7 +1310,8 @@ TEST(ChronoBackend, registered)  // NOLINT
     EXPECT_TRUE(caps.redundancy);
     EXPECT_TRUE(caps.conflicts);
     EXPECT_FALSE(caps.warmUpdate);
-    EXPECT_FALSE(caps.dynamics);
+    // A dynamic run since phase D1 (docs/AssemblyDynamics.md)
+    EXPECT_TRUE(caps.dynamics);
     auto session = backend->createSession();
     ASSERT_TRUE(session);
     EXPECT_NE(dynamic_cast<ChronoSession*>(session.get()), nullptr);

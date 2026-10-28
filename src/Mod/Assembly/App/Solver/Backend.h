@@ -123,8 +123,20 @@ struct DragOptions
     bool bundleFixed = true;
 };
 
+// What a simulation computes (docs/AssemblyDynamics.md sec 6.2): the
+// motions' kinematics, or the forward dynamics of the bodies' masses under
+// gravity (the model's dynamics block, which a Dynamic run needs)
+enum class Analysis : std::uint8_t
+{
+    Kinematic,
+    Dynamic
+};
+
 struct SimulationSpec
 {
+    Analysis analysis = Analysis::Kinematic;
+    // Dynamic: the integrator's largest step (s); 0, the backend's choice
+    double maxStep = 0.0;
     double tStart = 0.0;
     double tEnd = 1.0;
     double tOutput = 1e-2;

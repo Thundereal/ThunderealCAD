@@ -65,6 +65,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestCore.py
     AssemblyTests/TestInterference.py
     AssemblyTests/TestMassProperties.py
+    AssemblyTests/TestDynamics.py
     AssemblyTests/TestCommandCreateView.py
     AssemblyTests/TestCommandInsertLink.py
     AssemblyTests/TestSimulationExport.py

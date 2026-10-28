@@ -23,6 +23,7 @@
 
 #ifndef _PreComp_
 # include <QAbstractScrollArea>
+# include <QApplication>
 # include <QCursor>
 # include <QEvent>
 # include <QGraphicsOpacityEffect>
@@ -60,6 +61,61 @@ constexpr int StayMs = 1200;
 constexpr int Near = 3 * OverlayScrollBars::Thickness;
 
 }  // namespace
+
+/** Every pointer move, whatever widget it goes to, told to the bars of every
+ * area (docs/HandsOnQueue.md entry 233). The area's viewport alone was asked
+ * before, and missed what never reached it: a move over the clear part of a
+ * see-through panel, which OverlayManager passes on to the view under it
+ * (this filter is installed after OverlayManager's, and so asked before it),
+ * and one over whatever lies over an area's edge.
+ */
+class OverlayScrollBars::PointerWatch: public QObject
+{
+public:
+    static PointerWatch* instance()
+    {
+        static QPointer<PointerWatch> watch;
+        if (!watch && qApp) {
+            watch = new PointerWatch(qApp);
+            qApp->installEventFilter(watch);
+        }
+        return watch;
+    }
+
+    void add(OverlayScrollBars* bars)
+    {
+        all.push_back(bars);
+    }
+
+    void remove(OverlayScrollBars* bars)
+    {
+        all.erase(std::remove(all.begin(), all.end(), bars), all.end());
+    }
+
+protected:
+    bool eventFilter(QObject*, QEvent* event) override
+    {
+        if (event->type() == QEvent::MouseMove) {
+            const QPoint global =
+                static_cast<QMouseEvent*>(event)->globalPosition().toPoint();
+            // A move goes to each widget up the line that ignores it, and one
+            // passed on is sent again: once for each place is enough
+            if (global != last) {
+                last = global;
+                for (auto bars : all) {
+                    bars->revealNear(global);
+                }
+            }
+        }
+        return false;
+    }
+
+private:
+    using QObject::QObject;
+
+    std::vector<OverlayScrollBars*> all;
+    QPoint last {INT_MIN, INT_MIN};
+};
 
 OverlayScrollBars::OverlayScrollBars(QAbstractScrollArea* scrollArea)
     : QObject(scrollArea)
@@ -106,8 +162,10 @@ OverlayScrollBars::OverlayScrollBars(QAbstractScrollArea* scrollArea)
     connect(&idle, &QTimer::timeout, this, &OverlayScrollBars::fadeOut);
 
     area->installEventFilter(this);
-    area->viewport()->installEventFilter(this);
-    area->viewport()->setMouseTracking(true);
+    bindViewport();
+    if (auto watch = PointerWatch::instance()) {
+        watch->add(this);
+    }
     if (auto manager = OverlayManager::instance()) {
         connect(manager, &OverlayManager::coverChanged, this, &OverlayScrollBars::place);
         connect(manager, &OverlayManager::layoutChanged, this, &OverlayScrollBars::place);
@@ -115,7 +173,31 @@ OverlayScrollBars::OverlayScrollBars(QAbstractScrollArea* scrollArea)
     place();
 }
 
-OverlayScrollBars::~OverlayScrollBars() = default;
+OverlayScrollBars::~OverlayScrollBars()
+{
+    if (auto watch = PointerWatch::instance()) {
+        watch->remove(this);
+    }
+}
+
+void OverlayScrollBars::bindViewport()
+{
+    // A view may swap its viewport (a drawing page does, for its renderer):
+    // the new one is watched for its size, and tracks the pointer, without
+    // which no move over it is made at all
+    QWidget* now = area ? area->viewport() : nullptr;
+    if (now == viewport) {
+        return;
+    }
+    if (viewport) {
+        viewport->removeEventFilter(this);
+    }
+    viewport = now;
+    if (viewport) {
+        viewport->installEventFilter(this);
+        viewport->setMouseTracking(true);
+    }
+}
 
 void OverlayScrollBars::remove()
 {
@@ -123,7 +205,9 @@ void OverlayScrollBars::remove()
     idle.stop();
     if (area) {
         area->removeEventFilter(this);
-        area->viewport()->removeEventFilter(this);
+        if (viewport) {
+            viewport->removeEventFilter(this);
+        }
         area->setVerticalScrollBarPolicy(ownVPolicy);
         area->setHorizontalScrollBarPolicy(ownHPolicy);
     }
@@ -174,7 +258,7 @@ void OverlayScrollBars::place()
     if (!area) {
         return;
     }
-    QWidget* viewport = area->viewport();
+    bindViewport();
     const QRect view = viewport->geometry();
     const int width = view.width();
     const int height = view.height();
@@ -188,24 +272,46 @@ void OverlayScrollBars::place()
     int top = 0;
     int right = width;
     int bottom = height;
+    // A dock in a corner is a dock along one edge: the one it reaches in from
+    // the least, as the task panel host reads them (roomIn()). A dock at the
+    // side ends where the one at the bottom begins, so it reaches the top
+    // and not the bottom, and was taken for a dock at the top as well; the
+    // two then left "too little" between them and both bars went back to the
+    // area's edges, under the docks, where the pointer coming near them was
+    // the docks' (docs/HandsOnQueue.md entry 233). The covers one by one for
+    // that: a region's bands cut such a dock in two.
+    QVector<QRect> covers;
     if (auto manager = OverlayManager::instance()) {
-        const QRegion covered = manager->covered(viewport);
-        for (const QRect& r : covered) {
+        covers = manager->coverRects(viewport);
+        const int none = width + height;
+        for (const QRect& r : covers) {
             const bool atLeft = r.left() <= 0;
             const bool atRight = r.right() >= width - 1;
             const bool atTop = r.top() <= 0;
             const bool atBottom = r.bottom() >= height - 1;
-            if (atRight && !atLeft) {
-                right = std::min(right, r.left());
+            // how far in from each edge it touches; a strip from edge to
+            // edge lies along the edge between them
+            int depth[4] = {atLeft && !atRight ? r.right() + 1 : none,
+                            atRight && !atLeft ? width - r.left() : none,
+                            atTop && !atBottom ? r.bottom() + 1 : none,
+                            atBottom && !atTop ? height - r.top() : none};
+            const int edge = int(std::min_element(depth, depth + 4) - depth);
+            if (depth[edge] >= none) {
+                continue;
             }
-            if (atBottom && !atTop) {
-                bottom = std::min(bottom, r.top());
-            }
-            if (atLeft && !atRight) {
-                left = std::max(left, r.right() + 1);
-            }
-            if (atTop && !atBottom) {
-                top = std::max(top, r.bottom() + 1);
+            switch (edge) {
+                case 0:
+                    left = std::max(left, r.right() + 1);
+                    break;
+                case 1:
+                    right = std::min(right, r.left());
+                    break;
+                case 2:
+                    top = std::max(top, r.bottom() + 1);
+                    break;
+                default:
+                    bottom = std::min(bottom, r.top());
+                    break;
             }
         }
     }
@@ -233,6 +339,23 @@ void OverlayScrollBars::place()
     hrect = showH ? QRect(view.left() + left, view.top() + bottom - Thickness,
                           right - left - (showV ? Thickness : 0), Thickness)
                   : QRect();
+    // (C) What still stands over a bar reaches no side of the area: round
+    // it, as the view cell's menu button and handles go round what covers
+    // them (ViewAreaCell::placeChrome, entry 83). An area in an overlaid
+    // panel has the panel itself over the whole of it: nowhere to go, and
+    // its bars stay at its edges.
+    if (!covers.isEmpty()) {
+        QVector<QRect> local;
+        for (const QRect& r : covers) {
+            local.push_back(r.translated(view.topLeft()));
+        }
+        vrect = goRound(vrect, local, view);
+        hrect = goRound(hrect, local, view);
+        // the vertical one moved inward: the horizontal one stops short of it
+        if (!vrect.isEmpty() && hrect.intersects(vrect)) {
+            hrect.setRight(vrect.left() - 1);
+        }
+    }
     const bool shown = veffect->opacity() > 0.0 || fade->state() == QAbstractAnimation::Running;
     vbar->setGeometry(vrect);
     hbar->setGeometry(hrect);
@@ -240,6 +363,67 @@ void OverlayScrollBars::place()
     hbar->setVisible(shown && !hrect.isEmpty());
     vbar->raise();
     hbar->raise();
+}
+
+QRect OverlayScrollBars::goRound(const QRect& home, const QVector<QRect>& covers,
+                                 const QRect& bounds) const
+{
+    if (home.isEmpty()) {
+        return home;
+    }
+    const bool vertical = home.height() > home.width();
+    // shortened to no less than this; else slid
+    const int least = std::max(4 * Thickness, (vertical ? home.height() : home.width()) / 2);
+    QRect at = home;
+    for (int turn = 0; turn < 8; ++turn) {
+        QRect hit;
+        for (const QRect& r : covers) {
+            if (r.intersects(at)) {
+                hit = r;
+                break;
+            }
+        }
+        if (hit.isNull()) {
+            return at;
+        }
+        // Shortened from the end that leaves more of it, past the cover --
+        // which may lie anywhere along it, a small panel near one end too --
+        // if that leaves enough; else slid inward to just past the cover
+        if (vertical) {
+            const int below = at.bottom() - hit.bottom();
+            const int above = hit.top() - at.top();
+            if (below >= above && below >= least) {
+                at.setTop(hit.bottom() + 1);
+            }
+            else if (above > below && above >= least) {
+                at.setBottom(hit.top() - 1);
+            }
+            else {
+                at.moveRight(hit.left() - 1);
+            }
+            if (at.left() < bounds.left()) {
+                break;
+            }
+        }
+        else {
+            const int after = at.right() - hit.right();
+            const int before = hit.left() - at.left();
+            if (after >= before && after >= least) {
+                at.setLeft(hit.right() + 1);
+            }
+            else if (before > after && before >= least) {
+                at.setRight(hit.left() - 1);
+            }
+            else {
+                at.moveBottom(hit.top() - 1);
+            }
+            if (at.top() < bounds.top()) {
+                break;
+            }
+        }
+    }
+    // no clear place: where it was
+    return home;
 }
 
 void OverlayScrollBars::reveal()
@@ -277,18 +461,31 @@ void OverlayScrollBars::fadeOut()
     fade->start();
 }
 
-bool OverlayScrollBars::pointerNear() const
+bool OverlayScrollBars::isNearBar(const QPoint& at) const
 {
-    if (!area) {
-        return false;
-    }
-    const QPoint at = area->mapFromGlobal(QCursor::pos());
     for (const QRect& r : {vrect, hrect}) {
         if (!r.isEmpty() && r.adjusted(-Near, -Near, Near, Near).contains(at)) {
             return true;
         }
     }
     return false;
+}
+
+bool OverlayScrollBars::pointerNear() const
+{
+    return area && isNearBar(area->mapFromGlobal(QCursor::pos()));
+}
+
+void OverlayScrollBars::revealNear(const QPoint& global)
+{
+    // over the area itself: not the bars of a panel or a cell beside it
+    if (!area || !area->isVisible()) {
+        return;
+    }
+    const QPoint at = area->mapFromGlobal(global);
+    if (area->rect().contains(at) && isNearBar(at)) {
+        reveal();
+    }
 }
 
 bool OverlayScrollBars::eventFilter(QObject* watched, QEvent* event)
@@ -299,23 +496,17 @@ bool OverlayScrollBars::eventFilter(QObject* watched, QEvent* event)
     switch (event->type()) {
         case QEvent::Resize:
         case QEvent::Show:
-            if (watched == area || watched == area->viewport()) {
+            if (watched == area || watched == viewport) {
                 place();
             }
             break;
-        case QEvent::MouseMove:
-            if (watched == area->viewport()) {
-                // the pointer coming near a bar shows it
-                const QPoint at = area->viewport()->mapTo(
-                    area, static_cast<QMouseEvent*>(event)->position().toPoint());
-                for (const QRect& r : {vrect, hrect}) {
-                    if (!r.isEmpty() && r.adjusted(-Near, -Near, Near, Near).contains(at)) {
-                        reveal();
-                        break;
-                    }
-                }
+        case QEvent::ChildAdded:
+            // a viewport swapped in (QAbstractScrollArea::setViewport)
+            if (watched == area) {
+                bindViewport();
             }
             break;
+        // The pointer coming near a bar shows it: PointerWatch
         case QEvent::Enter:
         case QEvent::MouseButtonPress:
             if (watched == vbar || watched == hbar) {

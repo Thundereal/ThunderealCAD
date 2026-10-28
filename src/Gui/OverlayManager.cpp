@@ -2976,27 +2976,46 @@ void OverlayManager::addCover(QWidget *cover)
     Q_EMIT coverChanged();
 }
 
+static QVector<QRect> dockRects(const QWidget *widget);
+
 QRegion OverlayManager::covered(const QWidget *widget) const
 {
-    QRegion region = occupied(widget);
+    QRegion region;
+    for (const QRect &r : coverRects(widget))
+        region += r;
+    return region;
+}
+
+QVector<QRect> OverlayManager::coverRects(const QWidget *widget) const
+{
+    QVector<QRect> rects = dockRects(widget);
     if (!widget)
-        return region;
+        return rects;
     for (QWidget *cover : d->covers) {
         if (!cover->isVisible() || cover->window() != widget->window())
             continue;
         const QRect local = QRect(widget->mapFromGlobal(cover->mapToGlobal(QPoint(0, 0))),
                                   cover->size()).intersected(widget->rect());
         if (!local.isEmpty())
-            region += local;
+            rects.push_back(local);
     }
-    return region;
+    return rects;
 }
 
 QRegion OverlayManager::occupied(const QWidget *widget) const
 {
     QRegion region;
+    for (const QRect &r : dockRects(widget))
+        region += r;
+    return region;
+}
+
+// The shown overlaid docks' rectangles in widget, one each
+static QVector<QRect> dockRects(const QWidget *widget)
+{
+    QVector<QRect> rects;
     if (!widget)
-        return region;
+        return rects;
     for (OverlayTabWidget *tabWidget : _Overlays) {
         // Not asked whether it isOverlaid(): that is its see-through look,
         // which the dock under the pointer and the one with the focus are
@@ -3010,9 +3029,9 @@ QRegion OverlayManager::occupied(const QWidget *widget) const
         const QRect local = QRect(widget->mapFromGlobal(global.topLeft()), global.size())
             .intersected(widget->rect());
         if (!local.isEmpty())
-            region += local;
+            rects.push_back(local);
     }
-    return region;
+    return rects;
 }
 
 bool OverlayManager::isUnderOverlay() const

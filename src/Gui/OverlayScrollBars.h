@@ -26,6 +26,7 @@
 #include <QPointer>
 #include <QRect>
 #include <QTimer>
+#include <QVector>
 #include <FCGlobal.h>
 
 class QAbstractScrollArea;
@@ -49,6 +50,17 @@ namespace Gui {
  *
  * (B) They are thin and see-through, shown while the area scrolls and while
  * the pointer is near them or on them, and fade out a moment after.
+ *
+ * Near is told by where the pointer is, whatever widget its move goes to:
+ * one filter on the application, ahead of OverlayManager's, which passes the
+ * moves over a see-through panel on to the view under it -- the panel's own
+ * lists never saw them -- and of anything laid over an area's edge
+ * (docs/HandsOnQueue.md entry 233).
+ *
+ * (C) A cover that reaches no side of the area -- a task panel over part of
+ * the view, a dock short of its edge -- the bars go round as the view cell's
+ * menu button and handles do: one shortened past a cover over one of its
+ * ends, or else slid inward to just past it (entry 233).
  *
  * The area's own bars are turned off and kept: these follow their ranges,
  * steps and values, and set their values back. Made by and owned by the
@@ -80,14 +92,26 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    class PointerWatch;
+    friend class PointerWatch;
+
     void follow(QScrollBar* own, QScrollBar* ours);
     void place();
+    /// \a home moved off \a covers (area coordinates) within \a bounds,
+    /// or \a home where no place is clear
+    QRect goRound(const QRect& home, const QVector<QRect>& covers, const QRect& bounds) const;
+    /// The viewport watched: the area's present one (a page swaps its own)
+    void bindViewport();
     /// Shown, and the fade-out put off
     void reveal();
+    /// Shown if the pointer, at \a global, is near a bar
+    void revealNear(const QPoint& global);
     void fadeOut();
     bool pointerNear() const;
+    bool isNearBar(const QPoint& at) const;
 
     QPointer<QAbstractScrollArea> area;
+    QPointer<QWidget> viewport;
     QPointer<QScrollBar> vbar;
     QPointer<QScrollBar> hbar;
     Qt::ScrollBarPolicy ownVPolicy = Qt::ScrollBarAsNeeded;

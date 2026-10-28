@@ -248,6 +248,14 @@ public:
      * (docs/HandsOnQueue.md entry 76).
      */
     QRegion covered(const QWidget *widget) const;
+    /** covered() one cover at a time: each dock's and each cover's own
+     * rectangle in \a widget. A region keeps rectangles in bands, so that
+     * a dock at the side of a dock at the bottom comes back from it in two
+     * pieces, the upper one reading as a dock at the top: what lays itself
+     * out against the docks by side asks this (OverlayScrollBars,
+     * docs/HandsOnQueue.md entry 233).
+     */
+    QVector<QRect> coverRects(const QWidget *widget) const;
     /// \a cover is laid over views while it is shown: covered() counts it,
     /// and coverChanged() tells when it moves, shows or hides. Forgotten
     /// when it is destroyed.

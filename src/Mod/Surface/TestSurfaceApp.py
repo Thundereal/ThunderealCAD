@@ -24,6 +24,7 @@
 from SurfaceTests.TestBlendCurve import TestBlendCurve
 from SurfaceTests.TestBlendSurface import TestBlendSurface
 from SurfaceTests.TestContinuity import TestContinuity
+from SurfaceTests.TestCurves import TestCurves
 from SurfaceTests.TestEdgeConditions import TestEdgeConditions
 from SurfaceTests.TestExtend import TestExtend
 from SurfaceTests.TestNetwork import TestNetwork, TestNetworkConditions

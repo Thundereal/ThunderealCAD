@@ -31,6 +31,7 @@
 #include "Blending/FeatureBlendCurve.h"
 
 #include "FeatureBlendSurface.h"
+#include "FeatureCurves.h"
 #include "FeatureCut.h"
 #include "FeatureExtend.h"
 #include "FeatureFilling.h"
@@ -100,6 +101,11 @@ PyMOD_INIT_FUNC(Surface)
     Surface::Untrim            ::init();
     Surface::TwoRailSweep      ::init();
     Surface::PipeShell         ::init();
+    Surface::Isocurve          ::init();
+    Surface::CurveOnSurface    ::init();
+    Surface::IntersectionCurve ::init();
+    Surface::JoinCurves        ::init();
+    Surface::ExtendCurve       ::init();
     // clang-format on
 
     PyMOD_Return(mod);

@@ -48,6 +48,8 @@ SET(Geom_SRCS
   Geom/Blend.h
   Geom/Continuity.cpp
   Geom/Continuity.h
+  Geom/Curves.cpp
+  Geom/Curves.h
   Geom/EdgeCondition.cpp
   Geom/EdgeCondition.h
   Geom/Extend.cpp
@@ -94,6 +96,8 @@ SET(Surface_SRCS
   FeatureTwoRailSweep.h
   FeatureBlendSurface.cpp
   FeatureBlendSurface.h
+  FeatureCurves.cpp
+  FeatureCurves.h
   FeatureCut.cpp
   FeatureCut.h
 )

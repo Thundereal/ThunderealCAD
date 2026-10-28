@@ -37,6 +37,7 @@
 #include "FeatureNetwork.h"
 #include "FeatureSections.h"
 #include "FeatureSewing.h"
+#include "FeatureTrim.h"
 #include "Geom/GeomPy.h"
 
 
@@ -90,6 +91,9 @@ PyMOD_INIT_FUNC(Surface)
     Surface::FeatureBlendCurve ::init();
     Surface::Sections          ::init();
     Surface::Network           ::init();
+    Surface::Split             ::init();
+    Surface::Trim              ::init();
+    Surface::Untrim            ::init();
     // clang-format on
 
     PyMOD_Return(mod);

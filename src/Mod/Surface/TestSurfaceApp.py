@@ -26,3 +26,4 @@ from SurfaceTests.TestEdgeConditions import TestEdgeConditions
 from SurfaceTests.TestExtend import TestExtend
 from SurfaceTests.TestNetwork import TestNetwork, TestNetworkConditions
 from SurfaceTests.TestSurfaceFeatures import TestSurfaceFeatures
+from SurfaceTests.TestTrim import TestTrim

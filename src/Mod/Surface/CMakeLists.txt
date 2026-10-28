@@ -16,6 +16,7 @@ set(Surface_TestScripts
     SurfaceTests/TestExtend.py
     SurfaceTests/TestNetwork.py
     SurfaceTests/TestSurfaceFeatures.py
+    SurfaceTests/TestTrim.py
 )
 
 if(BUILD_GUI)

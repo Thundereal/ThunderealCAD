@@ -4,4 +4,5 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/EdgeCondition.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Extend.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/NetworkSurface.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/Trim.cpp
 )

@@ -48,6 +48,8 @@ SET(Geom_SRCS
   Geom/EdgeCondition.h
   Geom/Extend.cpp
   Geom/Extend.h
+  Geom/Trim.cpp
+  Geom/Trim.h
   Geom/GeomPy.cpp
   Geom/GeomPy.h
   Geom/NetworkSurface.cpp
@@ -78,6 +80,8 @@ SET(Surface_SRCS
   FeatureSections.h
   FeatureSewing.cpp
   FeatureSewing.h
+  FeatureTrim.cpp
+  FeatureTrim.h
   FeatureCut.cpp
   FeatureCut.h
 )

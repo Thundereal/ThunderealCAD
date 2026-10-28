@@ -167,6 +167,10 @@ fc_add_gui_test(GuiSurfaceEdgeMarkers_tests_run surface-edge-markers.py
 # their conditions: a box of them in each dialog, and their arrows.
 fc_add_gui_test(GuiSurfaceFillMarkers_tests_run surface-fill-markers.py
                 --timeout 180)
+# Its features in a PartDesign Body, as a sketch is: the commands put what
+# they make into the active body, and nowhere else.
+fc_add_gui_test(GuiSurfaceInBody_tests_run surface-in-body.py
+                --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
 fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py

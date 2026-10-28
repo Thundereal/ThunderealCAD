@@ -13,6 +13,7 @@ set(Surface_TestScripts
     SurfaceTests/__init__.py
     SurfaceTests/TestBlendCurve.py
     SurfaceTests/TestBlendSurface.py
+    SurfaceTests/TestBody.py
     SurfaceTests/TestContinuity.py
     SurfaceTests/TestCurves.py
     SurfaceTests/TestEdgeConditions.py

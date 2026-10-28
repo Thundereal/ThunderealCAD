@@ -45,6 +45,7 @@
 #include <Gui/Command.h>
 #include <Gui/Control.h>
 #include <Gui/Document.h>
+#include <Gui/MDIView.h>
 #include <Gui/MainWindow.h>
 #include <Gui/SelectionFilter.h>
 #include <Gui/SelectionObject.h>
@@ -117,6 +118,27 @@ void CmdSurfaceCut::activated(int iMsg)
 namespace
 {
 
+/** Into the active PartDesign Body of the view the command came through, as
+ * a sketch goes: a body takes Surface features (Part::BodyBase::allowType),
+ * not solid, never its Tip. Through the body's own Python: Surface does not
+ * link PartDesign.
+ */
+void intoActiveBody(Gui::Document* gdoc, const std::string& feat)
+{
+    Gui::MDIView* view = gdoc ? gdoc->getActiveView() : nullptr;
+    auto body = view ? view->getActiveObject<App::DocumentObject*>("pdbody") : nullptr;
+    if (!body || body->getDocument() != gdoc->getDocument()) {
+        return;
+    }
+    Gui::Command::doCommand(Gui::Command::Doc,
+                            "App.getDocument('%s').getObject('%s').addObject("
+                            "App.getDocument('%s').getObject('%s'))",
+                            body->getDocument()->getName(),
+                            body->getNameInDocument(),
+                            gdoc->getDocument()->getName(),
+                            feat.c_str());
+}
+
 /// A new surface of `type` in the document of the view the command came
 /// through, its panel opened: named, not "Active", since a served document
 /// is never Python's ActiveDocument
@@ -134,6 +156,7 @@ void makeAndEdit(Gui::Command* cmd, const char* type)
                             doc,
                             type,
                             feat.c_str());
+    intoActiveBody(gdoc, feat);
     Gui::Command::doCommand(Gui::Command::Gui,
                             "Gui.getDocument('%s').setEdit('%s', 0)",
                             doc,
@@ -278,6 +301,7 @@ void CmdBlendCurve::activated(int)
     doCommand(Doc,
               "App.ActiveDocument.addObject(\"Surface::FeatureBlendCurve\",\"%s\")",
               featName.c_str());
+    intoActiveBody(getActiveGuiDocument(), featName);
     doCommand(Doc,
               "App.ActiveDocument.%s.StartEdge = (App.getDocument('%s').getObject('%s'),['%s'])",
               featName.c_str(),
@@ -327,6 +351,7 @@ void CmdSurfaceExtendFace::activated(int)
             doCommand(Doc,
                       "App.ActiveDocument.addObject(\"Surface::Extend\",\"%s\")",
                       FeatName.c_str());
+            intoActiveBody(getActiveGuiDocument(), FeatName);
             doCommand(Doc,
                       "App.ActiveDocument.%s.Face = %s",
                       FeatName.c_str(),
@@ -422,6 +447,7 @@ void CmdSurfaceNetwork::activated(int iMsg)
               "App.getDocument('%s').addObject('Surface::Network', '%s')",
               doc,
               FeatName.c_str());
+    intoActiveBody(gdoc, FeatName);
     if (!links.str().empty()) {
         doCommand(Doc,
                   "App.getDocument('%s').getObject('%s').Profiles = [%s]",
@@ -499,6 +525,7 @@ void makeCut(Gui::Command* cmd, const char* type, const char* name, bool edit)
                             doc,
                             type,
                             feat.c_str());
+    intoActiveBody(gdoc, feat);
     if (!base.empty()) {
         Gui::Command::doCommand(Gui::Command::Doc,
                                 "App.getDocument('%s').getObject('%s').Base = [%s]",
@@ -622,6 +649,7 @@ void CmdSurfaceUntrim::activated(int)
                   doc,
                   feat.c_str(),
                   link.c_str());
+        intoActiveBody(gdoc, feat);
     }
     doCommand(Doc, "App.getDocument('%s').recompute()", doc);
     commitCommand();
@@ -690,6 +718,7 @@ void CmdSurfaceExtendEdges::activated(int)
               "App.getDocument('%s').addObject('Surface::Extend', '%s')",
               doc,
               feat.c_str());
+    intoActiveBody(gdoc, feat);
     doCommand(Doc,
               "_ext = App.getDocument('%s').getObject('%s')\n"
               "_ext.Face = (%s, 'Face%d')\n"
@@ -751,6 +780,7 @@ void makeFeature(Gui::Command* cmd,
         Gui::Command::doCommand(Gui::Command::Doc, "_f.%s", a.c_str());
     }
     Gui::Command::doCommand(Gui::Command::Doc, "del _f");
+    intoActiveBody(gdoc, feat);
     Gui::Command::doCommand(Gui::Command::Doc, "App.getDocument('%s').recompute()", doc);
     Gui::Command::commitCommand();
 }
@@ -1231,6 +1261,7 @@ void CmdSurfaceSewing::activated(int iMsg)
     std::string FeatName = getUniqueObjectName("Sewing");
     openCommand(QT_TRANSLATE_NOOP("Command", "Sew"));
     doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Sewing\",\"%s\")", FeatName.c_str());
+    intoActiveBody(getActiveGuiDocument(), FeatName);
     doCommand(Doc,
               "App.ActiveDocument.%s.ShapeList = [%s]",
               FeatName.c_str(),

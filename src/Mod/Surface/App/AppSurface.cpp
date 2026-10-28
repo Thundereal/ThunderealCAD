@@ -25,6 +25,7 @@
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/Parameter.h>
+#include <Mod/Part/App/BodyBase.h>
 
 #include "Blending/BlendCurvePy.h"
 #include "Blending/BlendPointPy.h"
@@ -107,6 +108,29 @@ PyMOD_INIT_FUNC(Surface)
     Surface::JoinCurves        ::init();
     Surface::ExtendCurve       ::init();
     // clang-format on
+
+    // In a PartDesign Body, as a sketch is: not solid, never its Tip
+    for (Base::Type type : {Surface::Filling::getClassTypeId(),
+                            Surface::Sewing::getClassTypeId(),
+                            Surface::Cut::getClassTypeId(),
+                            Surface::GeomFillSurface::getClassTypeId(),
+                            Surface::Extend::getClassTypeId(),
+                            Surface::FeatureBlendCurve::getClassTypeId(),
+                            Surface::Sections::getClassTypeId(),
+                            Surface::Network::getClassTypeId(),
+                            Surface::BlendSurface::getClassTypeId(),
+                            Surface::Split::getClassTypeId(),
+                            Surface::Trim::getClassTypeId(),
+                            Surface::Untrim::getClassTypeId(),
+                            Surface::TwoRailSweep::getClassTypeId(),
+                            Surface::PipeShell::getClassTypeId(),
+                            Surface::Isocurve::getClassTypeId(),
+                            Surface::CurveOnSurface::getClassTypeId(),
+                            Surface::IntersectionCurve::getClassTypeId(),
+                            Surface::JoinCurves::getClassTypeId(),
+                            Surface::ExtendCurve::getClassTypeId()}) {
+        Part::BodyBase::allowType(type);
+    }
 
     PyMOD_Return(mod);
 }

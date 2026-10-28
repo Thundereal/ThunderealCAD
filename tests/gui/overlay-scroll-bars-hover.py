@@ -89,8 +89,9 @@ def ours(area, name):
 
 
 def shown(bar):
-    effect = bar.graphicsEffect()
-    return bar.isVisible() and effect is not None and effect.opacity() > 0.0
+    # the bar paints itself at this opacity (no graphics effect)
+    o = bar.property("overlayOpacity")
+    return bar.isVisible() and o is not None and o > 0.0
 
 
 def pointer(gpos):
@@ -192,18 +193,60 @@ def global_rect(w):
     return QtCore.QRect(w.mapToGlobal(QtCore.QPoint(0, 0)), w.size())
 
 
+class Box:
+    """A cover that is not a widget of its own: a box a see-through Tasks
+    panel shows"""
+
+    def __init__(self, widget):
+        self.widget = widget
+
+    def rect(self):
+        return QtCore.QRect(self.widget.mapToGlobal(QtCore.QPoint(0, 0)), self.widget.size())
+
+    def isAncestorOf(self, w):
+        return False
+
+
+def transparent(tab):
+    for button in tab.findChildren(QtWidgets.QAbstractButton):
+        if button.objectName() == "OBTN Transparent":
+            return button.isChecked()
+    return False
+
+
 def covers():
+    """What stands over the views: the overlaid docks and the task panels
+    over a view; a see-through dock that shows task views by what they show,
+    the boxes in their panels (an empty Tasks panel is no cover, entry 233)"""
     out = []
     for w in QtWidgets.QApplication.allWidgets():
         try:
             if not w.isVisible():
                 continue
-            if ((cls(w) == "Gui::OverlayTabWidget" and w.count())
-                    or cls(w) == "Gui::TaskView::TaskPanelHost"):
+            if cls(w) == "Gui::OverlayTabWidget" and w.count():
+                views = [t for t in w.findChildren(QtWidgets.QWidget)
+                         if cls(t) == "Gui::TaskView::TaskView" and t.isVisible()]
+                if views and transparent(w):
+                    for t in views:
+                        for p in t.findChildren(QtWidgets.QWidget):
+                            if cls(p) == "Gui::TaskView::TaskPanel" and p.isVisible():
+                                out += [Box(c) for c in p.children()
+                                        if isinstance(c, QtWidgets.QWidget) and c.isVisible()]
+                else:
+                    out.append(w)
+            elif cls(w) == "Gui::TaskView::TaskPanelHost":
                 out.append(w)
         except RuntimeError:
             pass
     return out
+
+
+def cover_rect(c):
+    return c.rect() if isinstance(c, Box) else global_rect(c)
+
+
+def cover_name(c):
+    return "task box" if isinstance(c, Box) else cls(c)
 
 
 def bars_clear(area, name):
@@ -216,9 +259,9 @@ def bars_clear(area, name):
         for c in covers():
             if c.isAncestorOf(area):
                 continue  # the panel the area is in
-            if r.intersects(global_rect(c)):
-                under.append((bar.objectName(), r.getRect(), cls(c), global_rect(c).getRect()))
-    note("INFO %s: covers %s" % (name, [(cls(c), global_rect(c).getRect()) for c in covers()
+            if r.intersects(cover_rect(c)):
+                under.append((bar.objectName(), r.getRect(), cover_name(c), cover_rect(c).getRect()))
+    note("INFO %s: covers %s" % (name, [(cover_name(c), cover_rect(c).getRect()) for c in covers()
                                         if not c.isAncestorOf(area)]))
     return check("%s: neither bar stands under a dock or a panel" % name, not under, under)
 
@@ -290,7 +333,7 @@ def page_panel_shown():
     view = find("TechDrawGui::QGVPage")
     host = None
     for w in covers():
-        if cls(w) == "Gui::TaskView::TaskPanelHost":
+        if not isinstance(w, Box) and cls(w) == "Gui::TaskView::TaskPanelHost":
             host = w
     if check("a task panel is shown over the page's view",
              host is not None and global_rect(view).contains(global_rect(host)),

@@ -30,7 +30,6 @@
 #include <FCGlobal.h>
 
 class QAbstractScrollArea;
-class QGraphicsOpacityEffect;
 class QScrollBar;
 class QVariantAnimation;
 
@@ -52,10 +51,10 @@ namespace Gui {
  * the pointer is near them or on them, and fade out a moment after.
  *
  * Near is told by where the pointer is, whatever widget its move goes to:
- * one filter on the application, ahead of OverlayManager's, which passes the
- * moves over a see-through panel on to the view under it -- the panel's own
- * lists never saw them -- and of anything laid over an area's edge
- * (docs/HandsOnQueue.md entry 233).
+ * OverlayManager's event filter tells pointerMoved() of every move before it
+ * decides whether to pass it on to the view under a see-through panel -- the
+ * panel's own lists never saw a move passed on -- and whatever lies over an
+ * area's edge takes no move from its bars (docs/HandsOnQueue.md entry 233).
  *
  * (C) A cover that reaches no side of the area -- a task panel over part of
  * the view, a dock short of its edge -- the bars go round as the view cell's
@@ -85,6 +84,11 @@ public:
     /// The bars laid over \a area, if any
     static OverlayScrollBars* of(QAbstractScrollArea* area);
 
+    /// The pointer moved to \a global (screen coordinates): the bars of
+    /// every area it is in that it is near show. Asked by OverlayManager's
+    /// event filter, before a move is passed through a see-through panel.
+    static void pointerMoved(const QPoint& global);
+
     /// How thick a bar is
     static constexpr int Thickness = 10;
 
@@ -92,9 +96,6 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    class PointerWatch;
-    friend class PointerWatch;
-
     void follow(QScrollBar* own, QScrollBar* ours);
     void place();
     /// \a home moved off \a covers (area coordinates) within \a bounds,
@@ -109,6 +110,8 @@ private:
     void fadeOut();
     bool pointerNear() const;
     bool isNearBar(const QPoint& at) const;
+    /// How far the bars are faded in, 0 to 1
+    qreal opacity() const;
 
     QPointer<QAbstractScrollArea> area;
     QPointer<QWidget> viewport;
@@ -116,8 +119,6 @@ private:
     QPointer<QScrollBar> hbar;
     Qt::ScrollBarPolicy ownVPolicy = Qt::ScrollBarAsNeeded;
     Qt::ScrollBarPolicy ownHPolicy = Qt::ScrollBarAsNeeded;
-    QGraphicsOpacityEffect* veffect = nullptr;
-    QGraphicsOpacityEffect* heffect = nullptr;
     QVariantAnimation* fade = nullptr;
     QTimer idle;
     QRect vrect;

@@ -1931,6 +1931,9 @@ void OverlayManager::onTaskViewUpdate()
     // widgets it holds: touched, the overlay sets it again, the new page's
     // included (its lists' row bands, docs/HandsOnQueue.md entry 193)
     d->refresh(taskview);
+    // an empty task panel is no cover for the scroll bars (coverRects()):
+    // filled or emptied, they are placed again (entry 233)
+    Q_EMIT coverChanged();
     QDockWidget *dock = nullptr;
     for (QWidget *w=taskview; w; w=w->parentWidget()) {
         if ((dock = qobject_cast<QDockWidget*>(w)))
@@ -2109,6 +2112,14 @@ bool OverlayManager::eventFilter(QObject *o, QEvent *ev)
     case QEvent::MouseButtonRelease:
     case QEvent::MouseButtonPress:
     case QEvent::MouseMove: {
+        // The thin scroll bars near the pointer shown first, whatever is
+        // decided below: a move passed through a see-through panel to the
+        // view under it never reaches the panel's lists (docs/HandsOnQueue.md
+        // entry 233, the reporter: "you need some code there to handle scroll
+        // bar toggle before mouse pass through")
+        if (ev->type() == QEvent::MouseMove)
+            OverlayScrollBars::pointerMoved(
+                static_cast<QMouseEvent*>(ev)->globalPosition().toPoint());
         if (OverlayTabWidget::_Dragging && OverlayTabWidget::_Dragging != o) {
             if (auto titleBar = qobject_cast<OverlayTitleBar*>(OverlayTabWidget::_Dragging))
                 titleBar->endDrag();
@@ -2976,7 +2987,7 @@ void OverlayManager::addCover(QWidget *cover)
     Q_EMIT coverChanged();
 }
 
-static QVector<QRect> dockRects(const QWidget *widget);
+static QVector<QRect> dockRects(const QWidget *widget, bool taskContent = false);
 
 QRegion OverlayManager::covered(const QWidget *widget) const
 {
@@ -2986,9 +2997,9 @@ QRegion OverlayManager::covered(const QWidget *widget) const
     return region;
 }
 
-QVector<QRect> OverlayManager::coverRects(const QWidget *widget) const
+QVector<QRect> OverlayManager::coverRects(const QWidget *widget, bool taskContent) const
 {
-    QVector<QRect> rects = dockRects(widget);
+    QVector<QRect> rects = dockRects(widget, taskContent);
     if (!widget)
         return rects;
     for (QWidget *cover : d->covers) {
@@ -3010,8 +3021,46 @@ QRegion OverlayManager::occupied(const QWidget *widget) const
     return region;
 }
 
-// The shown overlaid docks' rectangles in widget, one each
-static QVector<QRect> dockRects(const QWidget *widget)
+/** Whether a see-through overlaid dock shows task views and nothing else;
+ * if so, what they show -- the boxes in their task panels -- added to \a
+ * content, in screen coordinates. A task panel's own ground is clear there:
+ * an empty one covers nothing, one with a box at its top only that box
+ * (docs/HandsOnQueue.md entry 233, the reporter: "if Task overlay panel is
+ * empty, then do not slide out affected scroll bar").
+ */
+static bool taskContent(OverlayTabWidget *tabWidget, QVector<QRect> &content)
+{
+    if (!tabWidget->isTransparent())
+        return false;
+    QVector<QRect> found;
+    bool tasks = false;
+    QSplitter *splitter = tabWidget->getSplitter();
+    for (int i = 0, c = splitter ? splitter->count() : 0; i < c; ++i) {
+        QWidget *w = splitter->widget(i);
+        if (!w || !w->isVisible())
+            continue;
+        auto taskView = w->findChild<TaskView::TaskView*>();
+        if (!taskView || !taskView->isVisible())
+            return false;
+        tasks = true;
+        for (auto panel : taskView->findChildren<TaskView::TaskPanel*>()) {
+            if (!panel->isVisible())
+                continue;
+            for (QObject *child : panel->children()) {
+                auto box = qobject_cast<QWidget*>(child);
+                if (box && box->isVisible() && !box->isWindow())
+                    found.push_back(QRect(box->mapToGlobal(QPoint(0, 0)), box->size()));
+            }
+        }
+    }
+    if (tasks)
+        content += found;
+    return tasks;
+}
+
+// The shown overlaid docks' rectangles in widget, one each; with taskContent,
+// a see-through dock showing task views by what they show (taskContent())
+static QVector<QRect> dockRects(const QWidget *widget, bool taskContent)
 {
     QVector<QRect> rects;
     if (!widget)
@@ -3025,6 +3074,16 @@ static QVector<QRect> dockRects(const QWidget *widget)
         if (!tabWidget || !tabWidget->count() || !tabWidget->isVisible()
                 || tabWidget->getState() > OverlayTabWidget::State::Normal)
             continue;
+        QVector<QRect> content;
+        if (taskContent && ::taskContent(tabWidget, content)) {
+            for (const QRect &global : content) {
+                const QRect local = QRect(widget->mapFromGlobal(global.topLeft()), global.size())
+                    .intersected(widget->rect());
+                if (!local.isEmpty())
+                    rects.push_back(local);
+            }
+            continue;
+        }
         const QRect global(tabWidget->mapToGlobal(QPoint(0, 0)), tabWidget->size());
         const QRect local = QRect(widget->mapFromGlobal(global.topLeft()), global.size())
             .intersected(widget->rect());

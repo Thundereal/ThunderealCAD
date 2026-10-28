@@ -729,8 +729,11 @@ public:
         if (nextEditingItem == item) {
             nextEditingItem = nullptr;
         }
-        if (master->editingItem == item) {
-            master->editingItem = nullptr;
+        for (auto it = master->editingItems.begin(); it != master->editingItems.end();) {
+            if (it->second == item)
+                it = master->editingItems.erase(it);
+            else
+                ++it;
         }
         if (master->hiddenItem == item) {
             master->hiddenItem = nullptr;
@@ -1172,7 +1175,6 @@ TreeWidget::TreeWidget(const char *name, QWidget* parent)
     , searchObject(nullptr)
     , searchDoc(nullptr)
     , searchContextDoc(nullptr)
-    , editingItem(nullptr)
     , myName(name)
 {
     // The selection of the view the user is working in, whatever scope
@@ -6281,23 +6283,30 @@ void DocumentItem::slotInEdit(const Gui::ViewProviderDocumentObject& v)
     if (!docitem)
         return;
 
+    // This edit's item; the others' keep their mark
+    DocumentObjectItem *editingItem = nullptr;
     if(getTree()->pimpl->nextEditingItem)
-        getTree()->editingItem = getTree()->pimpl->nextEditingItem;
+        editingItem = getTree()->pimpl->nextEditingItem;
     else {
+        // the session starting, which this signal is sent from
         ViewProviderDocumentObject *parentVp=nullptr;
         std::string subname;
         auto vp = doc->getInEdit(&parentVp,&subname);
         if(!parentVp)
             parentVp = dynamic_cast<ViewProviderDocumentObject*>(vp);
         if(parentVp)
-            getTree()->editingItem = docitem->findItemByObject(
+            editingItem = docitem->findItemByObject(
                     true,parentVp->getObject(),subname.c_str());
     }
+    if (editingItem)
+        getTree()->editingItems[&v] = editingItem;
+    else
+        getTree()->editingItems.erase(&v);
 
-    if(getTree()->editingItem) {
-        getTree()->editingItem->setBackground(0,color);
-        docitem->showItem(getTree()->editingItem, false, true);
-        getTree()->scrollToItem(getTree()->editingItem);
+    if(editingItem) {
+        editingItem->setBackground(0,color);
+        docitem->showItem(editingItem, false, true);
+        getTree()->scrollToItem(editingItem);
     } else{
         FOREACH_ITEM(item,v)
             item->setBackground(0,color);
@@ -6372,17 +6381,21 @@ void DocumentItem::sortObjectItems()
 
 void DocumentItem::slotResetEdit(const Gui::ViewProviderDocumentObject& v)
 {
+    // This edit's item only: another may be in edit still (entry 232)
     auto tree = getTree();
+    auto found = tree->editingItems.find(&v);
+    DocumentObjectItem *editingItem = found != tree->editingItems.end() ? found->second : nullptr;
     FOREACH_ITEM_ALL(item)
-        if(tree->editingItem) {
-            if(item == tree->editingItem) {
+        if(editingItem) {
+            if(item == editingItem) {
                 item->setHighlight(true, item->highlightMode);
                 break;
             }
         }else if(item->object() == &v)
             item->setHighlight(true, item->highlightMode);
     END_FOREACH_ITEM
-    tree->editingItem = nullptr;
+    if (found != tree->editingItems.end())
+        tree->editingItems.erase(found);
 }
 
 void DocumentItem::slotNewObject(const Gui::ViewProviderDocumentObject& obj) {

@@ -325,7 +325,9 @@ private:
     App::DocumentObject *searchObject;
     Gui::Document *searchDoc;
     Gui::Document *searchContextDoc;
-    DocumentObjectItem *editingItem;
+    /// The item of each edit, by its view provider: several may be in
+    /// edit at once (docs/HandsOnQueue.md entry 232)
+    std::unordered_map<const ViewProviderDocumentObject*, DocumentObjectItem*> editingItems;
     DocumentObjectItem *hiddenItem;
     DocumentItem *currentDocItem;
     QTreeWidgetItem* rootItem;

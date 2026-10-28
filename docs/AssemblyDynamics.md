@@ -183,7 +183,31 @@ Phase D1 is under way (2026-10-28):
   kinematic run does, at each accepted pose): a pinion past half a turn
   read as turned the other way, and the rack jumped a pitch. It commits
   after every step now.
-- Next: the static analysis (step 4).
+- Built, step 4: the static analysis. `AnalysisType` Static
+  (`Analysis::Static`): where the parts settle under gravity, the
+  springs and the Effort motions, at each output time -- a quasi-static
+  sweep, a Position motion's value at that time held; one frame when
+  TimeEnd is TimeStart. It takes the masses, gravity and the elements as a
+  Dynamic study does, and refuses a Speed motion (it holds nothing still).
+  Chrono's static Newton (`DoStaticNonlinear`) was not used: only its mates
+  carry a tangent stiffness, so a pendulum has none in its free turn, and
+  a Newton step goes to the nearest equilibrium, stable or not. The run is
+  dynamic relaxation with kinetic damping instead: HHT steps from rest
+  with the time held, every body set to rest at each peak of the kinetic
+  energy, settled once a whole cycle moves no frame by more than the
+  study's GlobalErrorTolerance (mm, a turn counted at the body's farthest
+  frame); then the acceleration analysis at rest gives the reactions. It
+  descends, so it finds a stable equilibrium -- or stays on an unstable one
+  it starts exactly on. 50000 steps without settling fail the study ("a
+  part keeps moving"). Tests: a pendulum from horizontal hangs straight
+  down (1e-4 mm), the hinge carrying m g; a block on a spring sags by m g /
+  k (1e-5 mm), the spring's force m g; an Effort of half m g d holds the
+  rod 60 deg below horizontal at every frame (1e-3 deg); a Speed motion is
+  refused; a block on a slider with nothing under it fails in about a
+  second.
+- Next: D1 is complete as sec 4 orders it. Left over from it: limits as
+  stops, cams (curve scaling), torsional springs, a spring's end on an
+  element rather than a point.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

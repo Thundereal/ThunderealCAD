@@ -51,7 +51,8 @@ Simulation::Simulation()
                       "Simulation",
                       App::Prop_None,
                       "Kinematic: the motions drive the joints. Dynamic: the parts move "
-                      "under gravity by their masses.");
+                      "under gravity by their masses. Static: where they settle, at each "
+                      "output time.");
     AnalysisType.setEnums(AnalysisTypeEnums);
     ADD_PROPERTY_TYPE(Gravity,
                       (Base::Vector3d(0.0, 0.0, -9806.65)),
@@ -70,7 +71,7 @@ Simulation::Simulation()
                       "Dynamic: the Physics group's force elements this study uses");
 }
 
-const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", nullptr};
+const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", "Static", nullptr};
 
 const std::map<std::string, std::string>& Simulation::upstreamNames()
 {

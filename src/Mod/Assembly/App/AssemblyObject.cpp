@@ -762,14 +762,21 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 
     create_mbdSimulationParameters(sim);
 
-    // Speed and Effort are a dynamic run's (docs/AssemblyDynamics.md sec 5.2)
-    if (simulationSpec && simulationSpec->analysis == Solver::Analysis::Kinematic) {
+    // Speed and Effort are a dynamic run's (docs/AssemblyDynamics.md sec 5.2);
+    // a static one takes an Effort, a load, but a speed holds nothing still
+    if (simulationSpec && simulationSpec->analysis != Solver::Analysis::Dynamic) {
+        const bool statics = simulationSpec->analysis == Solver::Analysis::Static;
+        auto refused = [&](Solver::MotorControl control) {
+            return control == Solver::MotorControl::Speed
+                || (!statics && control == Solver::MotorControl::Effort);
+        };
         for (const auto& driver : solverModel->drivers) {
-            if (driver.rotationControl != Solver::MotorControl::Position
-                || driver.translationControl != Solver::MotorControl::Position) {
+            if (refused(driver.rotationControl) || refused(driver.translationControl)) {
                 Base::Console().error(
-                    "Assembly: the motion of %s is a Speed or an Effort, which only a Dynamic "
-                    "study runs\n",
+                    statics ? "Assembly: the motion of %s is a Speed, which a Static study "
+                              "does not run\n"
+                            : "Assembly: the motion of %s is a Speed or an Effort, which only "
+                              "a Dynamic or a Static study runs\n",
                     solverModel->sourceName(driver.source).c_str());
                 ++badFormulas;
             }
@@ -783,10 +790,10 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
         return -1;
     }
 
-    // A dynamic run: the bodies' masses, its force elements, and gravity in
-    // the assembly's frame. The forces first: a part a spring alone holds
-    // becomes a body there, which the masses then weigh.
-    if (simulationSpec && simulationSpec->analysis == Solver::Analysis::Dynamic) {
+    // A dynamic or static run: the bodies' masses, its force elements, and
+    // gravity in the assembly's frame. The forces first: a part a spring
+    // alone holds becomes a body there, which the masses then weigh.
+    if (simulationSpec && simulationSpec->analysis != Solver::Analysis::Kinematic) {
         addForces(*solverModel, sim);
         addDynamics(*solverModel);
         if (auto* typed = freecad_cast<Simulation*>(sim);
@@ -2101,9 +2108,9 @@ void AssemblyObject::makeMbdModel()
 {
     loadedBodies = 0;
     Solver::Backend* backend = Solver::Registry::instance().select(this);
-    // A dynamic run, on the first backend that runs dynamics, whichever the
-    // assembly solves with
-    if (simulationSpec && simulationSpec->analysis == Solver::Analysis::Dynamic
+    // A dynamic or static run, on the first backend that runs dynamics,
+    // whichever the assembly solves with
+    if (simulationSpec && simulationSpec->analysis != Solver::Analysis::Kinematic
         && !(backend && backend->capabilities().dynamics)) {
         backend = nullptr;
         auto& registry = Solver::Registry::instance();
@@ -3102,8 +3109,17 @@ void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObjec
         return;
     }
     if (auto* typed = freecad_cast<Simulation*>(sim)) {
-        mbdSim->analysis = typed->AnalysisType.getValue() == 1 ? Solver::Analysis::Dynamic
-                                                               : Solver::Analysis::Kinematic;
+        switch (typed->AnalysisType.getValue()) {
+            case 1:
+                mbdSim->analysis = Solver::Analysis::Dynamic;
+                break;
+            case 2:
+                mbdSim->analysis = Solver::Analysis::Static;
+                break;
+            default:
+                mbdSim->analysis = Solver::Analysis::Kinematic;
+                break;
+        }
         mbdSim->tStart = typed->TimeStart.getValue();
         mbdSim->tEnd = typed->TimeEnd.getValue();
         mbdSim->tOutput = typed->TimeStepOutput.getValue();

@@ -124,12 +124,14 @@ struct DragOptions
 };
 
 // What a simulation computes (docs/AssemblyDynamics.md sec 6.2): the
-// motions' kinematics, or the forward dynamics of the bodies' masses under
-// gravity (the model's dynamics block, which a Dynamic run needs)
+// motions' kinematics, the forward dynamics of the bodies' masses under
+// gravity, or the static equilibrium at each output time (the model's
+// dynamics block, which Dynamic and Static need)
 enum class Analysis : std::uint8_t
 {
     Kinematic,
-    Dynamic
+    Dynamic,
+    Static
 };
 
 struct SimulationSpec

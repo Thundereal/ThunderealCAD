@@ -2433,7 +2433,7 @@ Status ChronoSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
     if (!d->refused.empty()) {
         return Status::Unsupported;
     }
-    if (spec.analysis == Analysis::Dynamic) {
+    if (spec.analysis != Analysis::Kinematic) {
         return simulateDynamics(spec, sink);
     }
     for (const auto& driver : d->model.drivers) {
@@ -2505,8 +2505,9 @@ Status ChronoSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
 Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySink& sink)
 {
     const Model& model = d->model;
-    auto refuse = [](const std::string& why) {
-        Base::Console().error("Assembly: the dynamic analysis cannot run: %s\n", why.c_str());
+    const char* kind = spec.analysis == Analysis::Static ? "static" : "dynamic";
+    auto refuse = [kind](const std::string& why) {
+        Base::Console().error("Assembly: the %s analysis cannot run: %s\n", kind, why.c_str());
         return Status::Unsupported;
     };
     if (!model.dynamics) {
@@ -2519,6 +2520,15 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         if (joint.kind == JointKind::PointOnCurve) {
             return refuse("the cam " + model.sourceName(joint.source)
                           + " is not run by a dynamic analysis yet");
+        }
+    }
+    if (spec.analysis == Analysis::Static) {
+        for (const auto& driver : model.drivers) {
+            if (driver.rotationControl == MotorControl::Speed
+                || driver.translationControl == MotorControl::Speed) {
+                return refuse("the motion of " + model.sourceName(driver.source)
+                              + " is a Speed, which holds nothing still");
+            }
         }
     }
     if (!(spec.tOutput > 0.0) || spec.tEnd < spec.tStart) {
@@ -2795,6 +2805,92 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         sink.channels(channels);
     }
 
+    // Static (sec 4, step 4): the stable equilibrium at a time, by dynamic
+    // relaxation with kinetic damping -- the dynamics stepped from rest with
+    // the time held, every velocity zeroed at each peak of the kinetic
+    // energy, settled once a whole cycle moves no frame by more than the
+    // tolerance. Chrono's static Newton (DoStaticNonlinear) is no use here:
+    // only its mates carry a tangent stiffness, so a pendulum has none in
+    // its free turn, and a Newton step goes to the nearest equilibrium,
+    // stable or not. This descends, and its reactions are the acceleration
+    // analysis's at rest.
+    const bool statics = spec.analysis == Analysis::Static;
+    std::vector<double> reach(n, 1e-3);  // a body's frames' farthest from its centre, m
+    for (const auto& frame : si.frames) {
+        if (frame.body < n) {
+            reach[frame.body] = std::max(reach[frame.body], frame.local.getPosition().Length());
+        }
+    }
+    const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
+    const int maxRelaxSteps = 50000;
+    auto kinetic = [&]() {
+        double energy = 0.0;
+        for (const auto& body : run.d->bodies) {
+            if (body->IsFixed()) {
+                continue;
+            }
+            const ch::ChVector3d w = body->GetAngVelLocal();
+            energy += body->GetMass() * body->GetPosDt().Length2() + w.Dot(body->GetInertia() * w);
+        }
+        return 0.5 * energy;
+    };
+    auto toRest = [&]() {
+        for (const auto& body : run.d->bodies) {
+            body->ForceToRest();
+        }
+    };
+    auto settle = [&](double time) {
+        sys.SetChTime(time);
+        // At the time's motions first, at rest
+        sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::POSITION));
+        toRest();
+        run.d->commitAngles();
+        std::vector<ch::ChVector3d> at(n);
+        std::vector<ch::ChQuaterniond> turned(n);
+        auto mark = [&]() {
+            for (std::size_t b = 0; b < n; ++b) {
+                at[b] = run.d->bodies[b]->GetPos();
+                turned[b] = run.d->bodies[b]->GetRot();
+            }
+        };
+        auto moved = [&]() {
+            double most = 0.0;
+            for (std::size_t b = 0; b < n; ++b) {
+                const auto& body = run.d->bodies[b];
+                const ch::ChQuaterniond q = turned[b].GetConjugate() * body->GetRot();
+                const double angle = 2.0 * std::atan2(q.GetVector().Length(), std::abs(q.e0()));
+                most = std::max(most, (body->GetPos() - at[b]).Length() + angle * reach[b]);
+            }
+            return most;
+        };
+        mark();
+        double last = 0.0;
+        for (int i = 0; i < maxRelaxSteps; ++i) {
+            // Ending at the time held: a Position motion holds its value then
+            sys.SetChTime(time - h);
+            sys.DoStepDynamics(h);
+            run.d->commitAngles();
+            const double energy = kinetic();
+            if (energy > last) {
+                last = energy;
+                continue;
+            }
+            // Past a peak, or at rest
+            toRest();
+            last = 0.0;
+            const bool still = moved() <= tolerance;
+            mark();
+            if (still) {
+                sys.SetChTime(time);
+                // The accelerations at rest, near none, and the reactions
+                sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::FULL));
+                toRest();
+                return true;
+            }
+        }
+        return false;
+    };
+
     Status status = Status::Ok;
     try {
         sys.SetChTime(spec.tStart);
@@ -2805,7 +2901,19 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::FULL));
         for (std::size_t k = 0; k <= steps; ++k) {
             const double time = spec.tStart + static_cast<double>(k) * spec.tOutput;
-            if (k > 0) {
+            if (statics) {
+                if (!settle(time)) {
+                    Base::Console().error(
+                        "Assembly: the static analysis found no equilibrium at %g s in %d "
+                        "steps: a part keeps moving (one nothing holds, or a load nothing "
+                        "balances)\n",
+                        time,
+                        maxRelaxSteps);
+                    status = Status::Failed;
+                    break;
+                }
+            }
+            else if (k > 0) {
                 for (int s = 0; s < sub; ++s) {
                     sys.DoStepDynamics(h);
                     // The neutral links count their turns from the angles

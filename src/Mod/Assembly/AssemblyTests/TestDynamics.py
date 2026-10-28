@@ -402,3 +402,80 @@ class TestDynamics(unittest.TestCase):
         expected = massRack * (G - accel)
         for force in forces:
             self.assertAlmostEqual(force.x, expected, delta=expected * 1e-4)
+
+    # ------------------------------------------------------------ statics
+
+    def test_static_pendulum(self):
+        """Static, from horizontal: the rod hangs straight down from the
+        hinge, which holds the block's weight off it."""
+        rod = self.pendulum()
+        _, result = self.simulate(0.0, 1e-2, AnalysisType="Static")
+        self.assertEqual(result, 0)
+        self.assertEqual(self.assembly.numberOfFrames(), 1)
+        (_, centre, hinge), = self.frames(rod, 1e-2)
+        self.assertLess((hinge - App.Vector(10, 5, 5)).Length, 1e-6)
+        self.assertLess((centre - App.Vector(10, 5, 5 - 50)).Length, 1e-4)
+        weight = 100 * 10 * 10 * 2.7e-6 * G
+        force = self.channel("Revolute", "Force")[0]
+        self.assertLess((force - App.Vector(0, 0, -weight)).Length, weight * 1e-6)
+
+    def test_static_spring(self):
+        """A block on a vertical slider over a spring sags by its weight
+        over the stiffness, m g / k, from the spring's free length."""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        block = self.box("Block", (10, 10, 10), (0, 0, 14))
+        self.doc.recompute()
+        self.joint("Slider", (base, ["Face6"]), plc(5, 5, 10), (block, ["Face5"]), plc(5, 5, 0))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        physics = self.assembly.getGroup("Physics", True)
+        spring = physics.newObject("Assembly::SpringDamper", "Spring")
+        spring.Component1 = base
+        spring.Point1 = App.Vector(5, 5, 10)
+        spring.Component2 = block
+        spring.Point2 = App.Vector(5, 5, 0)
+        spring.Stiffness = "%g N/m" % self.K
+        spring.FreeLength = 4.0
+        _, result = self.simulate(0.0, 1e-2, AnalysisType="Static", Elements=[spring])
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(0)
+        sag = self.MASS * G / self.K
+        self.assertAlmostEqual(block.Placement.Base.z, 10 + 4 - sag, delta=1e-5)
+        self.assertAlmostEqual(
+            self.channel("Spring", "SpringForce")[0], self.MASS * G, delta=self.MASS * G * 1e-6
+        )
+
+    def test_static_effort(self):
+        """An Effort motion of half the rod's weight times its arm holds it
+        where gravity's torque is that: 60 deg below horizontal."""
+        mass = 100 * 10 * 10 * 2.7e-6
+        holding = mass * G * 50 * 1e-6  # N m
+        # The sign that holds the rod up (test_motor_torque)
+        self.assertIsNotNone(self.driven("Speed", "0"))
+        sign = math.copysign(1.0, self.channel("Revolute", "MotorTorque")[-1])
+        self.tearDown()
+        self.setUp()
+        turns = self.driven("Effort", repr(sign * 0.5 * holding), analysis="Static")
+        self.assertIsNotNone(turns)
+        for time, angle in turns:
+            self.assertAlmostEqual(math.degrees(angle), 60.0, delta=1e-3, msg=time)
+
+    def test_static_refuses_speed(self):
+        """A Speed motion holds nothing still: a static study refuses it."""
+        self.assertIsNone(self.driven("Speed", "1", analysis="Static"))
+
+    def test_static_no_equilibrium(self):
+        """A block on a vertical slider with nothing under it has no
+        equilibrium: the study says so rather than settle."""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        block = self.box("Block", (10, 10, 10), (0, 0, 14))
+        self.doc.recompute()
+        self.joint("Slider", (base, ["Face6"]), plc(5, 5, 10), (block, ["Face5"]), plc(5, 5, 0))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(0.0, 1e-2, AnalysisType="Static")
+        self.assertNotEqual(result, 0)

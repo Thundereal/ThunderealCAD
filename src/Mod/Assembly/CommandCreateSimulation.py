@@ -1093,11 +1093,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.analysisCombo = QtWidgets.QComboBox()
         self.analysisCombo.addItem(translate("Assembly", "Kinematic"), "Kinematic")
         self.analysisCombo.addItem(translate("Assembly", "Dynamic"), "Dynamic")
+        self.analysisCombo.addItem(translate("Assembly", "Static"), "Static")
         self.analysisCombo.setToolTip(
             translate(
                 "Assembly",
                 "Kinematic: the motions drive the joints.\n"
-                "Dynamic: the parts move under gravity by their masses (Mass Properties).",
+                "Dynamic: the parts move under gravity by their masses (Mass Properties).\n"
+                "Static: where the parts settle under those loads, at each output time.",
             )
         )
         row.addWidget(self.analysisCombo, 1)
@@ -1204,7 +1206,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.simFeaturePy.Elements = [o for o in used if o is not None]
 
     def showAnalysis(self):
-        dynamic = self.analysisCombo.currentData() == "Dynamic"
+        # Static takes the masses, gravity and the elements as Dynamic does
+        dynamic = self.analysisCombo.currentData() in ("Dynamic", "Static")
         self.gravityCheck.setEnabled(dynamic)
         self.elementsBox.setVisible(dynamic and self.hasAnalysis())
 
@@ -1301,6 +1304,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.fillResults()
         self.form.frameSlider.setMaximum(nFrms - 1)
         self.setFrameValue(nFrms - 1)
+        # Not upstream: shown even when the slider stays where it was -- a
+        # single frame (a Static study at one time) is frame 0, as before
+        self.onFrameChanged(self.form.frameSlider.value())
         self.form.groupBox_player.show()
         self.form.SaveAnimationButton.show()
 

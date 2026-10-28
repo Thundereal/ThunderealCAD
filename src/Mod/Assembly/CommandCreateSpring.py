@@ -119,7 +119,7 @@ def makeSpring(assembly, end1, end2, stiffness="1 N/mm"):
         spring.FreeLength = (b - a).Length
         sims = assembly.getGroup("Simulations")
         for sim in sims.Group if sims else []:
-            if getattr(sim, "AnalysisType", None) == "Dynamic":
+            if getattr(sim, "AnalysisType", None) in ("Dynamic", "Static"):
                 sim.Elements = list(sim.Elements) + [spring]
     finally:
         doc.commitTransaction()

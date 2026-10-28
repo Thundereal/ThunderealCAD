@@ -8091,3 +8091,26 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   DrawWindowBackground fills a widget's palette ground even when it never
   paints one. The comparison of the r189 rows (alpha 255) with the
   docked ones (181) is what pointed at the list's own ground.
+
+### 2026-10-28: entries 230 and 231 -- COMMITTED `5bb09a4fe1`, `289f655b22`, not pushed, not staged
+
+- 230: ShowFrames defaults to false on a new page and is shown in the
+  page's view properties; a saved page keeps its value (no migration).
+  Set there it redraws the page (onChanged -> refreshFrames); the
+  printer's setFrameState() still sets it quietly. The template's editable
+  text marks are hidden when a page with frames off opens, as Toggle
+  Frames leaves them -- before, they showed on such a page until toggled.
+  techdraw-frames-default-off.py 10 of 10 (rtx17, the rtx16 build).
+- 231: the cause was the click guard of 1a5ce344af: a release counted as
+  a move only if the mouse was startDragDistance (10 px) from the press at
+  the release, while the line follows from the first move. A press is a
+  drag now once it went that far at any time, or the button was held
+  startDragTime (500 ms); the change point marks too. Undo/Redo of a move
+  now repaints the base view (DrawViewSection::onChanged, SectionOrigin or
+  SectionNormal while the document performs a transaction): only a
+  finished cut repainted it, and Undo makes none.
+  techdraw-section-line-click.py 15 of 15 on rtx16 (3.00 px and 4.00 px
+  landed, a quick 3 px shake a click, 0 pixels differ after undo);
+  TestTechDrawApp 13 OK.
+- Not checked: the reporter's own Section003 in their copy (needs a
+  restage); the drag test's synthetic events, not a hand.

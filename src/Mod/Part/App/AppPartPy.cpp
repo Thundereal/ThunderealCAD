@@ -738,7 +738,9 @@ public:
             "         coordinate system. It can also be a tuple for a sub-object reference\n"
             "wholeObject: if True, then import the whole object if necessary, or else just import the\n"
             "             referenced sub-element."
-            "noSubObject: if True, then create import if there is any sub-object reference."
+            "noSubObject: if True, then create import if there is any sub-object reference.\n"
+            "makeFace: if False, a binder made has no face of the wires it binds, and only one\n"
+            "          without is reused: for curves taken as curves."
         );
         add_varargs_method("disableElementMapping",&Module::disableElementMapping,
             "disableElementMapping(obj : Document | DocumentObject, disable=True)\n\n"
@@ -2834,9 +2836,10 @@ private:
         PyObject *wholeobj = Py_True;
         PyObject *nosobj = Py_True;
         PyObject *noelement = Py_False;
-        static std::array<const char*, 6> kwd_list = {"obj", "editObj", "wholeObject", "noSubObject", "noSubElement", nullptr};
-        if(!Base::Wrapped_ParseTupleAndKeywords(args.ptr(), kwds.ptr(), "OO|OO", kwd_list,
-                &pyobj, &pyeditobj, &wholeobj, &nosobj, &noelement))
+        PyObject *makeface = Py_True;
+        static std::array<const char*, 7> kwd_list = {"obj", "editObj", "wholeObject", "noSubObject", "noSubElement", "makeFace", nullptr};
+        if(!Base::Wrapped_ParseTupleAndKeywords(args.ptr(), kwds.ptr(), "OO|OOOO", kwd_list,
+                &pyobj, &pyeditobj, &wholeobj, &nosobj, &noelement, &makeface))
             throw Py::Exception();
 
         PY_TRY {
@@ -2851,7 +2854,8 @@ private:
                                               PyObject_IsTrue(wholeobj),
                                               PyObject_IsTrue(noelement),
                                               false,
-                                              PyObject_IsTrue(nosobj));
+                                              PyObject_IsTrue(nosobj),
+                                              PyObject_IsTrue(makeface));
             return Py::asObject(res.getPyObject());
         } _PY_CATCH_OCC(throw Py::Exception())
     }

@@ -114,12 +114,17 @@ public:
     App::DocumentObject *_getLinkedObject(bool recurse=true,
             Base::Matrix4D *mat=0, bool transform=false, int depth=0) const;
 
+    /** \a makeFace false: a binder made has no face of the wires it binds,
+     * and only one with none is reused -- for curves taken as curves (a
+     * surface's network), where a face would replace them
+     */
     static App::SubObjectT import(const App::SubObjectT &feature,
                                   const App::SubObjectT &editObj,
                                   bool importWholeObject = true,
                                   bool noSubElement = false,
                                   bool compatible = false,
-                                  bool noSubObject = true);
+                                  bool noSubObject = true,
+                                  bool makeFace = true);
 
 protected:
     bool needUpdate() const;

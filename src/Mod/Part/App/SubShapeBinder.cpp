@@ -1576,7 +1576,8 @@ SubShapeBinder::import(const App::SubObjectT &_feature,
                        bool importWholeObject,
                        bool noSubElement,
                        bool compatible,
-                       bool noSubObject)
+                       bool noSubObject,
+                       bool makeFace)
 {
     // Normalize to 1) simplify hierarchy, 2) make sure to use old style index
     // based element, because e.g. TaskDraftParameter stores neutral plane in
@@ -1705,7 +1706,7 @@ SubShapeBinder::import(const App::SubObjectT &_feature,
         if (!binder || (!boost::starts_with(o->getNameInDocument(), "Import")
                         && !boost::starts_with(o->getNameInDocument(), "BaseFeature")))
             continue;
-        if (binder->Support.getSize() != 1)
+        if (binder->Support.getSize() != 1 || binder->MakeFace.getValue() != makeFace)
             continue;
         auto &binderSupport = binder->Support.getSubListValues().front();
         const auto &subs = binderSupport.getSubValues(false);
@@ -1755,6 +1756,7 @@ SubShapeBinder::import(const App::SubObjectT &_feature,
                 "PartDesign::SubShapeBinder" : "Part::SubShapeBinder", featName));
     Cleaner guard(binder);
     binder->Visibility.setValue(false);
+    binder->MakeFace.setValue(makeFace);
     if (group)
         group->addObject(binder);
     std::map<App::DocumentObject*, std::vector<std::string> > support;

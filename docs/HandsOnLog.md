@@ -8265,3 +8265,21 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   TransactionAuditCases 16/16 after the fix.
 - Screenshots (bgfx): the Length label at 0 and 50 %, an origin plane
   preselected -- g-rtx55-shots-dev.
+
+### 2026-10-28 night: PD on-view labels get the sketch's outline -- restaged (stage32), NOT pushed
+
+- The reporter: "the label outline is on by default right" -- only the
+  Sketcher's on-view parameters had it; "yes show the outline and give me
+  a screenshot".
+- `14b17ae490`: OnViewValueSet labels call setOutline() with the Sketcher's
+  View preferences (ConstraintOutlineWidth, default 1 px; the
+  ConstrainedOutlineColor / *Light colour by the background).
+  viewBackgroundIsLight moved from SketcherGui to Gui.
+- rtx56: ctest 1088/1088; pd-primitive-labels-at-handle 12/12 (outline
+  1 px), pd-values-in-view 37, chamfer 19, fillet 21, sketch-datum-label-
+  pick 12. sketch-constraint-highlight-view fails offscreen (render dump
+  times out), 12/12 on the real screen with both rtx56 and stage31.
+- Screenshots g-rtx56-shots-dev: dark background, the dark outline shows;
+  on a light one the light outline hardly shows against magenta text (the
+  Sketcher's light scheme darkens its text too; PD keeps its colour).
+- The push was refused by the permission check; waits for the reporter.

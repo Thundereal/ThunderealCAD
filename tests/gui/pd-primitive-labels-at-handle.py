@@ -12,7 +12,9 @@ Claims, a box and then a cylinder in their edits:
     label background transparency setting, default 0"); with the setting at
     40 percent, the next edit's label has one that opaque;
   - it has the outline a sketch's on-view parameters have (the reporter:
-    "show the outline"), ConstraintOutlineWidth, 1 px by default.
+    "show the outline"), ConstraintOutlineWidth, 1 px by default;
+  - its text is in the sketch's dimension colour, and on a light background
+    a fifth darker (the reporter: "darken in light theme, only a bit").
 Runs offscreen as well.
 """
 import os
@@ -84,9 +86,29 @@ def labels():
         if shown(p):
             alpha = label.getField("backgroundAlpha")
             width = label.getField("outlineWidth")
+            colour = label.getField("textColor")
             out.append((text, float(alpha.getValue()) if alpha else None,
-                        float(width.getValue()) if width else None))
+                        float(width.getValue()) if width else None,
+                        tuple(colour.getValue().getValue()) if colour else None))
     return out
+
+
+VIEW = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
+
+
+def background(packed):
+    """A plain background of that colour"""
+    VIEW.SetBool("Gradient", False)
+    VIEW.SetBool("RadialGradient", False)
+    VIEW.SetUnsigned("BackgroundColor", packed)
+    pump(20)
+
+
+def dimension_colour(light):
+    """The sketch's dimension colour, a fifth darker on a light background"""
+    packed = VIEW.GetUnsigned("ConstrainedDimColor", 0xFF2600FF)
+    rgb = [((packed >> s) & 0xFF) / 255 for s in (24, 16, 8)]
+    return tuple(c * 0.8 for c in rgb) if light else tuple(rgb)
 
 
 def key(k):
@@ -101,7 +123,7 @@ def key(k):
 GIZMOS = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Gui/Gizmos")
 
 
-def try_feature(obj, name, first, opacity=0):
+def try_feature(obj, name, first, opacity=0, light=False):
     gdoc = FreeCADGui.getDocument(DOC)
     gdoc.setEdit(obj, 0)
     pump(100)
@@ -122,6 +144,11 @@ def try_feature(obj, name, first, opacity=0):
         width = now[0][2]
         check("%s: the label has the sketch's outline, 1 px by default" % name,
               width == 1.0, width)
+        got, wanted = now[0][3], dimension_colour(light)
+        check("%s: the text in the dimension colour%s" % (
+                  name, ", a little darker" if light else ""),
+              got is not None and max(abs(a - b) for a, b in zip(got, wanted)) < 0.01,
+              (got, wanted))
     key(Qt.Key_Escape)
     gdoc.resetEdit()
     pump(30)
@@ -140,11 +167,14 @@ def run():
         view().fitAll()
         pump(50)
         GIZMOS.RemInt("OnViewLabelBackgroundOpacity")
+        background(0x333333FF)
         try_feature(box, "box", "Length")
         try_feature(cyl, "cylinder", "Radius")
         GIZMOS.SetInt("OnViewLabelBackgroundOpacity", 40)
         try_feature(box, "box, the ground at 40%", "Length", 40)
         GIZMOS.RemInt("OnViewLabelBackgroundOpacity")
+        background(0xF0F0F0FF)
+        try_feature(box, "box, a light background", "Length", light=True)
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))
     finally:
@@ -152,6 +182,9 @@ def run():
             FreeCADGui.Control.closeDialog()
         except Exception:
             pass
+        for name in ("Gradient", "RadialGradient"):
+            VIEW.RemBool(name)
+        VIEW.RemUnsigned("BackgroundColor")
         for n in list(FreeCAD.listDocuments()):
             FreeCAD.closeDocument(n)
         note("DONE")

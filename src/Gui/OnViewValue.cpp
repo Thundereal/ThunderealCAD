@@ -102,6 +102,28 @@ SbColor expressionColor()
     return color;
 }
 
+/// The sketcher's colour of a dimension (EditableDatumLabel::initColors)
+SbColor dimensionColor()
+{
+    auto hGrp = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/View");
+    SbColor color;
+    float transparency = 0.f;
+    color.setPackedValue(uint32_t(hGrp->GetUnsigned("ConstrainedDimColor", 0xFF2600FF)),
+                         transparency);
+    return color;
+}
+
+/** A value's text colour on the view's background: a little darker on a
+ * light one, where the light outline alone does not set it off (the
+ * reporter: "darken in light theme, only a bit"). The sketch has *Light
+ * colours of its own for it; these values keep theirs, darkened.
+ */
+SbColor onBackground(const SbColor& color)
+{
+    return viewBackgroundIsLight() ? SbColor(color * 0.8f) : color;
+}
+
 /// A key that starts a number
 bool startsNumber(const QKeyEvent* event)
 {
@@ -1053,10 +1075,10 @@ void OnViewValueSet::updateLabel(int index)
                 text += QStringLiteral(" = ") + QString::fromStdString(info.expression->toString());
             }
         }
-        entry->label->setColor(expressionColor());
+        entry->label->setColor(onBackground(expressionColor()));
     }
     else {
-        entry->label->setActivatedColor();
+        entry->label->setColor(onBackground(dimensionColor()));
     }
     entry->label->label->string = text.toUtf8().constData();
 }

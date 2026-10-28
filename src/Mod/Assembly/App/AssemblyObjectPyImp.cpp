@@ -38,6 +38,7 @@
 #include <Mod/Part/App/OCCError.h>
 
 #include "Interference.h"
+#include "MassProperties.h"
 
 using namespace Assembly;
 
@@ -368,6 +369,57 @@ PyObject* AssemblyObjectPy::getDragCollisions(PyObject* args) const
                               Py::asObject(hit.second->getPyObject())));
     }
     return Py::new_reference_to(ret);
+}
+
+PyObject* AssemblyObjectPy::getMassProperties(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto asDict = [](const MassProperties& props) {
+            Py::Dict entry;
+            entry.setItem("Object",
+                          props.obj ? Py::asObject(props.obj->getPyObject()) : Py::None());
+            const char* origin = "None";
+            switch (props.origin) {
+                case MassProperties::Origin::Shape:
+                    origin = "Shape";
+                    break;
+                case MassProperties::Origin::Assumed:
+                    origin = "Assumed";
+                    break;
+                case MassProperties::Origin::Override:
+                    origin = "Override";
+                    break;
+                case MassProperties::Origin::None:
+                    break;
+            }
+            entry.setItem("Origin", Py::String(origin));
+            entry.setItem("Material", Py::String(props.material));
+            entry.setItem("Density", Py::Float(props.density));
+            entry.setItem("Volume", Py::Float(props.volume));
+            entry.setItem("Mass", Py::Float(props.mass));
+            entry.setItem("CenterOfMass", Py::Vector(props.com));
+            Py::Tuple inertia(6);
+            for (int i = 0; i < 6; ++i) {
+                inertia.setItem(i, Py::Float(props.inertia[i]));
+            }
+            entry.setItem("Inertia", inertia);
+            return entry;
+        };
+        const auto components = massPropertiesOf(getAssemblyObjectPtr());
+        Py::List list;
+        for (const auto& props : components) {
+            list.append(asDict(props));
+        }
+        Py::Dict ret;
+        ret.setItem("Components", list);
+        ret.setItem("Total", asDict(totalOf(components)));
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH_OCC
 }
 
 PyObject* AssemblyObjectPy::getCollisionMarkers(PyObject* args) const

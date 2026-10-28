@@ -17,6 +17,7 @@ link_directories(${OCC_LIBRARY_DIR})
 
 set(Assembly_LIBS
     Part
+    Materials
     PartDesign
     Spreadsheet
     FreeCADApp
@@ -121,6 +122,8 @@ SET(Assembly_SRCS
     Interference.h
     Joint.cpp
     Joint.h
+    MassProperties.cpp
+    MassProperties.h
     Simulation.cpp
     Simulation.h
     Views.cpp

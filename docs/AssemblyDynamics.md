@@ -3,6 +3,27 @@
 Status (2026-10-23): this is a design study only. No code, build or FreeCAD run
 stands behind it. Branch `AssemblyPort`.
 
+Progress (2026-10-28): both queued pieces of work are built -- Chrono's
+`NeutralLink` (queued (a)) and `PointOnCurve` (queued (b)). Phase D0 is under
+way:
+- Built: mass properties from shape and material (`App/MassProperties.{h,cpp}`,
+  `AssemblyObject.getMassProperties()`, tests `AssemblyTests/
+  TestMassProperties.py`). Per component, from the shape features it is made
+  of (itself, what a link links to, a container's children; a Body is one,
+  elements are none), each solid's `BRepGProp::VolumeProperties` at its
+  feature's `ShapeMaterial` density, or the default material's
+  (`Mod/Assembly/DefaultMaterial`, a card's UUID, Aluminum Generic unless
+  set), the component then "Assumed". The inertia is about the centre of
+  mass, along the assembly's axes; components and the total combine by the
+  parallel-axis theorem (`MassProperties::add`). **The Default card is no
+  material**: every shape has it until one is chosen, and its density,
+  1 kg/m^3 (`Standard/Default.FCMat`), is a placeholder -- taken at its word,
+  every unchosen part weighed a thousandth of water.
+- Not yet: the Physics group and `MassOverride` (a C++ object, as
+  `docs/AssemblyObjectModel.md` decision 0 has every Physics item, not the
+  Python feature sec 5.2 sketches); the neutral `Inertia`; the unit
+  contract's conversions; the Mass Properties table.
+
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono
 backend that `docs/AssemblySolverInterface.md` sec 6.15 built for

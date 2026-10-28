@@ -241,6 +241,26 @@ class AssemblyObject(Part):
         ...
 
     @constmethod
+    def getMassProperties(self) -> dict:
+        """
+        The mass properties of the components (docs/AssemblyDynamics.md sec
+        5.2), from their shapes and their materials' density, or the default
+        material's (the preference Mod/Assembly/DefaultMaterial, Aluminum
+        Generic) where a material gives none.
+
+        Returns: a dict: Components, a list of dicts, one per component
+        (getAssemblyComponents()); Total, a dict of them all together. Each
+        dict has Object (None for the total), Origin ("Shape", "Assumed":
+        the default material's density for some of it, "Override", or
+        "None": no solid), Material (its name; empty for several), Density
+        (kg/mm^3; 0 for several), Volume (mm^3), Mass (kg), CenterOfMass
+        (a vector, mm, in the assembly's coordinates) and Inertia (xx, yy,
+        zz, xy, xz, yz: the inertia tensor about the centre of mass, along
+        the assembly's axes, kg mm^2).
+        """
+        ...
+
+    @constmethod
     def getCollisionMarkers(self) -> list:
         """
         Collision while dragging (docs/AssemblyInterference.md): the markers of

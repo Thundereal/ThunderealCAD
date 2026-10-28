@@ -8114,3 +8114,25 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   TestTechDrawApp 13 OK.
 - Not checked: the reporter's own Section003 in their copy (needs a
   restage); the drag test's synthetic events, not a hand.
+
+### 2026-10-28: entries 233 and 234 -- COMMITTED `8e49bf9df2`, `296e82e496`, not pushed, not staged
+
+- 233 (a): on the reporter's dock layout (left, right and bottom
+  overlays, transparent) both bars stood at the area's own edges, under
+  the docks: place() read each band of the covered() region as a dock, a
+  side dock's upper piece as one at the top, and "too little left" sent
+  the bars back. Reproduced offscreen on a copy of the reporter's
+  user.cfg (dl\handson\2026-10-12\s1\usercfg\user-1028-1200.cfg).
+  OverlayManager::coverRects() gives each cover whole; a corner dock lies
+  along the edge it reaches in from the least (as roomIn()).
+- 233 (b): an application filter (OverlayScrollBars::PointerWatch), asked
+  before OverlayManager passes a move through, reveals by position. (c):
+  goRound() shortens a bar past a cover not at a side, or slides it.
+- overlay-scroll-bars-hover.py 36/36 plain, 31/31 on the reporter's cfg
+  (rtx24); 222 8, 224 16, 225 11, pass-through 19 (rtx22/rtx24).
+- 234: PHONG again, 0.7 diffuse + 0.3 emissive; NO_SHADOWING and the
+  annotation kept. rotation-center-ball-shaded.py 3/3 on Coin and on the
+  backend (red 116..194 across the ball). Full colour diffuse saturated
+  (230..255) on the first try.
+- Not checked by hand on the real Windows screen; the hover runs were
+  offscreen (the platform's own pointer).

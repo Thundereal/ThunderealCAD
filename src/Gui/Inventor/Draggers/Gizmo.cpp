@@ -668,10 +668,23 @@ void LinearGizmo::setDragLength(double dragLength)
 
 void LinearGizmo::setGeometryScale(float scale)
 {
+    geometryScale = scale;
     dragger->geometryScale = SbVec3f(scale, scale, scale);
+    if (valueStep) {
+        dragger->translationIncrement = multFactor * *valueStep;
+        return;
+    }
     // Scales the dragger increment in exponents of 10 based on the zoom level (scale)
     constexpr float base = 10.0F;
     dragger->translationIncrement = multFactor * std::pow(base, std::floor(std::log10(scale)));
+}
+
+void LinearGizmo::setValueStep(std::optional<double> step)
+{
+    valueStep = step;
+    if (dragger) {
+        setGeometryScale(geometryScale);
+    }
 }
 
 SoLinearDraggerContainer* LinearGizmo::getDraggerContainer()
@@ -707,6 +720,10 @@ void LinearGizmo::setMultFactor(const double val)
 {
     multFactor = val;
     setDragLength(property->value().getValue());
+    // the increment is a length: the value's step times the factor
+    if (dragger && valueStep) {
+        setGeometryScale(geometryScale);
+    }
 }
 
 void LinearGizmo::setAddFactor(const double val)

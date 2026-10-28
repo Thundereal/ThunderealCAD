@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-29 07:11: Windows GUI tests on a hidden desktop by default (ffc92bb1d9,
+scripts/gui-test.cmd); PUSHED ..5408ca6c3a by dwin on the reporter's
+word; no restage.** Under the entries.
+
 **2026-10-21 17:44: entry 210 -- the distinct-colour pick made reusable: dress-up
 groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
@@ -31534,6 +31538,22 @@ GUI gate 341/342 (the one failure GuiTechDrawPageBackendLineWidths,
 which fails on main too); Python 4004 OK.
 (The note-taker's reading: the PD round is not finished -- Primitive,
 Pattern and Boolean remain -- although TechDraw has started.)
+
+**2026-10-29 07:11, dwin (fcad-88; relayed): the reporter asked dwin directly (the
+note-taker did not hear it) to commit the Windows hidden-desktop GUI
+test driver, make it the Windows default, push, and tell x16win. Done;
+PUSHED c1ce3df7d1..5408ca6c3a (the note-taker checked: thundereal
+LinkVibe at 5408ca6c3a); NOT restaged (nothing in the app changed).**
+- `ffc92bb1d9` Tests: scripts/gui-test.cmd, scripts/gui-test-guard.py,
+  scripts/run-on-hidden-desktop.ps1; GT_DESKTOP hidden by default
+  (screen and offscreen the alternatives); docs/Testing.md and
+  CLAUDE.md point Windows GUI tests at the driver. Driven through it:
+  pd-primitive-labels-at-handle 20/20, sketch-constraint-highlight-view
+  12/12.
+- The local dl\handson gui.cmd runs dev and staged tests on the hidden
+  desktop by default too; GT_ON_SCREEN=1 gives the old way.
+- x16win messaged by dwin.
+The push carries the note-taker's queue commit 486fc6e8e9.
 
 ## Inbox
 

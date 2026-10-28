@@ -455,6 +455,12 @@ class TestGuiCommands(unittest.TestCase):
         def tree_icon():
             j.ViewObject.signalChangeIcon()
             _process()
+            # The tree makes a group's items when it is expanded: the joint's
+            # is not there under a collapsed Joints group
+            for tree in Gui.getMainWindow().findChildren(QtWidgets.QTreeWidget):
+                if tree.isVisible():
+                    tree.expandAll()
+            _process()
             for tree in Gui.getMainWindow().findChildren(QtWidgets.QTreeWidget):
                 found = tree.findItems(j.Label, QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive)
                 if found:

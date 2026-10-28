@@ -85,6 +85,7 @@
 #include "QGIWeldSymbol.h"
 #include "QGSPage.h"
 #include "Rez.h"
+#include "TemplateTextField.h"
 #include "ViewProviderPage.h"
 #include "ZVALUE.h"
 
@@ -246,6 +247,14 @@ void QGSPage::setPageTemplate(TechDraw::DrawTemplate* templateFeat)
     }
     pageTemplate->setTemplate(templateFeat);
     pageTemplate->updateView();
+    // A page with frames off shows no marks at the template's editable
+    // texts, as Toggle Frames leaves it; a new page has them off
+    // (docs/HandsOnQueue.md entry 230)
+    if (!m_vpPage->getFrameState()) {
+        for (auto field : pageTemplate->getTextFields()) {
+            field->hide();
+        }
+    }
 }
 
 QGITemplate* QGSPage::getTemplate() const { return pageTemplate; }

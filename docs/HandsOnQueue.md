@@ -178,6 +178,10 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 09:41: entry 230 -- TechDraw's Toggle Frames default off for a new page
+(stored as the page view provider's hidden ShowFrames, default true);
+ASSIGNED to fcad-dc.** Under the entries.
+
 **2026-10-23 23:20: PUSHED a19fb686e7..f012b2550f by fcad-dc on the reporter's word
 ("Push") -- 223, 226, 228, 224, 225, 229; NOT restaged, the staged copy
 is still stage29.** Under the entries.
@@ -4413,6 +4417,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 227 | 2026-10-23 | a question and a defect: does the current implementation have PER-VIEW UNDO/REDO? the problem: with a TechDraw PAGE as the active view, a double click on a FILLET for edit -> an undo step of the fillet edit shows in the TechDraw page view | OPEN; said to the note-taker 2026-10-23 18:17; ANSWERED by the note-taker from a read: NO per-view undo of document changes -- every view of a document shows and acts on the ONE document undo stack (MDIView::onMsg/onHasMsg/undoActions, MDIViewPage the same); per-view stacks are designed for VIEW state only (docs/MultiViewEdit.md sec 5, not built: no undo-view command found); per-AUTHOR stacks are built over the transaction log (docs/ThinClient.md 8.12 G, TransactionLog.md 30.9/30.10), but one desktop user is one author; the reporter's decision awaited on what a view's undo should offer; NOT assigned. 2026-10-23 18:35 the reporter: "But in my test, techdraw page shows different undo list than the 3d view" -- CONTRADICTS the note-taker's read (one stack per document); a second read found no per-view filter: the list is App::Document::getAvailableUndoNames -> stepsOf(), which filters by AUTHOR (ActorScope; every desktop view is the one desktop user), and the drop-down (UndoDialog) asks the active MDI view's undoActions(), which MDIViewPage does not override; NOT explained yet -- the note-taker asks the reporter's word to read their live session (which document each view belongs to, and the two lists). 2026-10-23 19:41 NOT REPRODUCED by the note-taker on the reporter's word ("You can start it and open scanner to test"): stage29 (`a19fb686e7`), a COPY of scanner, migration recompute Yes; a page change (SectionView X + 5, "Drag View") with the Page view active, then Fillet004 (PrismLocker) double-clicked (its view provider's doubleClicked()) -- the edit went to the 3D view, which became active -- and Edge22 moved group 2 -> 3 (the row's data set, as the delegate's commit does): the 3D view's and the page view's undoActions() the SAME at every point (['Drag View'], then ['Edit Fillet004', 'Drag View']); the reporter asked how they saw the two lists differ |
 | 228 | 2026-10-23 | a change request: each UNDO STEP of a PartDesign editing task gets a CONCISE DESCRIPTION of what it did; today a fillet edit's steps show only the object name and the edge name | OPEN; said to the note-taker 2026-10-23 18:17; READ by the note-taker: TaskFeatureParameters::setupTransaction() names every fine-undo step "Edit <object name>" (TaskFeatureParameters.cpp 438-439); ASSIGNED to fcad-dc (PD task panels), after 226. 2026-10-23 19:37 DONE by fcad-dc `3c40300068`, local, NOT pushed, NOT staged: every fine undo step of the fillet and chamfer panels (the only two with fine undo) named "<label>: <what>" -- e.g. "Fillet: default radius", "Fillet: Edge2 to group 1", "Fillet: remove Edge3", "Chamfer: default size"; OK's step "<label>: OK, recompute"; pd-undo-step-names.py 7/7. 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
 | 229 | 2026-10-23 | test failures found by fcad-dc (on 225), made an entry by the note-taker coordinating: offscreen, NOT from 225 (an A/B in one build with the new bars off fails the same) -- task-panel-overlay ABORT "views: 1"; overlay-pass-through, the Tasks panel's two pass-through claims; overlay-item-outline-and-hover, "cut to the item" and "rows above and below" (Dark and Light) | OPEN; 2026-10-23 19:37; ASSIGNED to fcad-dc (overlays; free): find whether the tests or the code, since which commit. 2026-10-23 19:55 DONE by fcad-dc `793c572a72` (tests only), local, NOT pushed, NOT staged: every failure the TEST's, no code at fault, traced before fixing -- task-panel-overlay a real-screen test run offscreen (offscreen the 400x366 view is not split since `dd336be800`, least cell 300x300); now says NOT RUN offscreen, least cell 100; 43/43 on the real screen; overlay-pass-through: the move and click DO pass through the Tasks panel, the test guessed the plate from the window's middle but since `c9417fada7` (entry 150) the wheel zooms at the pointer; the expected plate is the view's own pick; 19/19; overlay-item-outline-and-hover: offscreen the tree is 121 px and Box05's row ran under the next panel's title; now Box02-Box04, checked inside the viewport; 'cut to the item' measured against the viewport's edge, not column 0 (ResizeToContents); since when NOT pinned (34/34 on 10-13, no build of 10-13 left); 30/30. 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
+| 230 | 2026-10-28 | a change request: TechDraw's Toggle Frames (the page's frames and labels) DEFAULT OFF | OPEN; said to the note-taker 2026-10-28 09:41; READ by the note-taker: stored per page as ViewProviderPage::ShowFrames, a hidden PropertyBool of the page's view provider, default true (ViewProviderPage.cpp 95, hidden 102), saved in the document's GuiDocument.xml; TechDraw_ToggleFrame and the page's context menu flip it (toggleFrameState, 509); no preference behind it (ShowGrid beside it takes PreferencesGui::showGrid()); with frames off a view still shows its frame and label while anything of it is selected (QGIView::getFrameState, entries 155/204); a page already saved keeps its saved value; ASSIGNED to fcad-dc |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30555,6 +30560,35 @@ restage; so stage29 (`a19fb686e7`) stays the staged copy and none of
 the six is in it for a hand check. fcad-dc FREE; 227 waits on the
 reporter.
 
+## 230. TechDraw's Toggle Frames default off (a change request) -- OPEN
+
+**2026-10-28 09:41, the reporter (to the note-taker):** "new request, how does techdraw
+toggle frames option stored in the page. I want to make it default off."
+The note-taker's reading: two things -- how the state is stored (answered
+from the code), and frames OFF on a page by default.
+READ by the note-taker: the state is ViewProviderPage::ShowFrames, a
+PropertyBool on the page's VIEW PROVIDER (not the DrawPage), group
+"Grid", hidden from the property editor, default `true`
+(src/Mod/TechDraw/Gui/ViewProviderPage.cpp 95 and 102). Being a view
+provider property it is saved per page in the document's GuiDocument.xml
+and restored with it. getFrameState()/setFrameState() read and write it
+(505/507); toggleFrameState() (509) flips it, refreshes the views and the
+template markers; TechDraw_ToggleFrame (CommandDecorate.cpp 280) and the
+page view's context menu "Toggle Frames" (MDIViewPage.cpp 110) call it.
+There is no preference for it; ShowGrid beside it takes its default from
+PreferencesGui::showGrid(). Printing and export switch it off around the
+render and back (PagePrinter.cpp 497, QGSPage.cpp 1096). With frames off,
+a view shows its frame and label while anything of it is selected
+(QGIView::getFrameState, entries 155 and 204), so it can still be dragged.
+What changes with the default: a NEW page starts with frames off; a page
+already saved keeps the value it saved (true for every page so far) -- a
+file opens as it was.
+NOT said: whether existing pages should turn off too; whether it becomes
+a TechDraw preference like ShowGrid's; how a page with frames off is
+told apart from one with them on.
+ASSIGNED to fcad-dc (the note-taker coordinating): ShowFrames' default
+false for a new page; saved pages unchanged.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30566,5 +30600,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 229
+the build session, 131 and 132 found by it; entries 134 to 230
 are of 2026-10-15, 134 said to the build session)

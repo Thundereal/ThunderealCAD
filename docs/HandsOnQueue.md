@@ -178,6 +178,10 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 15:19: entry 237 -- Blender style: a two-button pan on a TechDraw page
+ends in the page's context menu; ASSIGNED to dwin after 236.** Under
+the entries.
+
 **2026-10-28 12:43: 233 (8e49bf9df2) and 234 (296e82e496) DONE by dwin, local, not
 pushed, not restaged; dwin on 235, then 236.** Under the entries.
 
@@ -4465,6 +4469,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 234 | 2026-10-28 | a change request: the view's spin centre ball (the rotation-center indicator) drawn SHADED; today it looks flat | OPEN; said to the note-taker 2026-10-28 12:03; READ by the note-taker: flat on purpose since `201889b931` (2026-07-21, "keep render-cache effects off the rotation-center sphere"): View3DInventorViewer::showRotationCenter (View3DInventorViewer.cpp 3787) gives the SoSphere an SoLightModel BASE_COLOR and the colour as diffuse AND emissive (3834-3854), so nothing lights it; NO_SHADOWING and the SoAnnotation keep the effects off; ASSIGNED to dwin (fcad-88). 2026-10-28 12:43 DONE by dwin `296e82e496`, local, NOT pushed, NOT staged: lit again (PHONG), 0.7 of the colour diffuse + 0.3 emissive (full diffuse saturated to flat), NO_SHADOWING and SoAnnotation kept; rotation-center-ball-shaded.py 3/3 on Coin and the backend, red 116-194 across the ball; the strength dwin's choice |
 | 235 | 2026-10-28 | a defect and change request: an origin plane's (pre)selection glitches -- hovering its edge pre-selects it and it grows to full size but shows no highlight colour, and moving off the edge drops the pre-selection at once and it shrinks back to a quarter; wanted: once highlighted, the WHOLE face picks with high priority, the highlight like other objects' (outline/colour settings), and NO size change on pre-selection or selection | OPEN; said to the note-taker 2026-10-28 12:14; READ by the note-taker: the size change is ViewProviderPlane::updateDatumSize/onSelectionChanged (ViewProviderPlane.cpp 115-178): with DatumScreenSize on and a role (an origin plane), a quarter (offset 8 to size) unless isSelected or isHovered, then full -- from `7e1824d01d` (2026-09-28, upstream b942275957); the face is in an SoFCLatePickGroup (79), picked only when nothing else is, with its own SoMaterial transparency 0.95; the highlight node is an SoFCSelection (ViewProviderDatum.cpp 110); ASSIGNED to dwin (fcad-88) after 234 |
 | 236 | 2026-10-28 | a defect: PD Box -- the on-view edit handles do not follow the box's orientation; a box attached to the YZ plane, a handle drives the wrong dimension; AUDIT every other feature's handles for the same | OPEN; said to the note-taker 2026-10-28 12:15; READ by the note-taker (not reproduced): TaskBoxPrimitives::setGizmoPositions (TaskPrimitiveParameters.cpp 255-292) places Length/Width/Height along the box Placement's rotated X/Y/Z at its position; GizmoContainer::getWorldMatrix (Gizmo.cpp 1540) starts from the document's editing transform (Document::setEdit, getSubObject's matrix); if that already holds the box's placement the rotation is applied TWICE -- unseen at identity, wrong axes on the YZ plane (a lead, not verified); handles also in the extrude, revolution, helix, hole, fillet, chamfer, draft and thickness panels; ASSIGNED to dwin (fcad-88) after 235 |
+| 237 | 2026-10-28 | a defect: Blender navigation style on a TechDraw page -- a pan with left and right buttons held works, but releasing the buttons pops up the page's context menu; Gesture style (right-button drag) does not, nor does either style in the 3D view | OPEN; said to the note-taker 2026-10-28 15:19; READ by the note-taker: QGVNavStyleBlender::allowContextMenu (src/Mod/TechDraw/Gui/QGVNavStyleBlender.cpp 116-127) refuses the menu only while the LEFT button is still down when the context menu event comes; on Windows it comes at the right button's release, so a pan that lets go of the left button first gets the menu; nothing remembers that a pan happened (stopPan at the first release, 99-113); Gesture's refuses every mouse context menu event (QGVNavStyleGesture.cpp 99-105); ASSIGNED to dwin (fcad-88) after 236 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -31062,6 +31067,35 @@ Tests: tests/gui/overlay-panel-bar-hover-pointer.py, moving the real
 system pointer, 15/15; the offscreen hover test 36/36 plain, 29/29 on
 the reporter's config. dwin on 235 now, 236 after.
 
+## 237. Blender style: a two-button pan on a TechDraw page ends in the context menu (a defect) -- OPEN
+
+**2026-10-28 15:19, the reporter (to the note-taker):** "new defects, with blender
+navigation style, pan techdraw page with left and right button button
+down drag works. but will releasing the button the page context menu
+pops up. Using gesture style which requires a right button drag does
+not trigger the menu. also both style in 3d view does not trigger menu"
+The note-taker's reading: on a TechDraw page with the Blender navigation
+style, panning by dragging with the left and right buttons both held
+works, but letting go of the buttons opens the page's context menu. It
+should not: with the Gesture style (right-button drag) on the page, and
+with both styles in the 3D view, a pan ends with no menu.
+READ by the note-taker (not reproduced):
+- QGVNavStyleBlender::allowContextMenu (src/Mod/TechDraw/Gui/
+  QGVNavStyleBlender.cpp 116-127) refuses a mouse context menu only if
+  the LEFT button is down at the moment the event comes. On Windows the
+  context menu event comes with the right button's RELEASE; a pan that
+  lets go of the left button first (or both at once, the left a moment
+  earlier) has no left button down by then, and gets the menu.
+- Nothing remembers that the press was a pan: handleMouseReleaseEvent
+  (92-114) stops the pan at the first button's release, and
+  allowContextMenu looks only at the buttons held now.
+- QGVNavStyleGesture::allowContextMenu (QGVNavStyleGesture.cpp 99-105)
+  refuses every mouse context menu event (its menu comes another way),
+  which is why Gesture shows none.
+NOT said: which button the reporter lets go first; whether a two-button
+press with no drag should give the menu.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 236.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -31073,5 +31107,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 236
+the build session, 131 and 132 found by it; entries 134 to 237
 are of 2026-10-15, 134 said to the build session)

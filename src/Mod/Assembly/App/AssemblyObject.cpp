@@ -818,8 +818,24 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
             for (const auto& pose : poses) {
                 frames.poses.push_back(pose.placement);
             }
+            frames.values.insert(frames.values.end(), pending.begin(), pending.end());
+            pending.clear();
             return true;
         }
+        void channels(const std::vector<Solver::Channel>& channels) override
+        {
+            frames.channels = channels;
+            for (const auto& channel : channels) {
+                width += channel.width;
+            }
+        }
+        void values(const std::vector<double>& values) override
+        {
+            pending = values;
+            pending.resize(width, 0.0);
+        }
+        std::size_t width = 0;
+        std::vector<double> pending;
     } sink;
     if (!session || !simulationSpec
         || session->simulate(*simulationSpec, sink) != Solver::Status::Ok) {

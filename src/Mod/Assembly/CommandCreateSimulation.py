@@ -66,6 +66,133 @@ __author__ = "Ondsel"
 __url__ = "https://www.freecad.org"
 
 
+# Not upstream: what a dynamic run reports with its frames
+# (docs/AssemblyDynamics.md sec 8.4), as getSimulationResults() names it: the
+# label, the factor from the model's units to the shown one, and that unit
+ResultQuantities = {
+    "Force": (QT_TRANSLATE_NOOP("Assembly", "Reaction force"), 1e-3, "N"),
+    "Torque": (QT_TRANSLATE_NOOP("Assembly", "Reaction torque"), 1e-6, "N m"),
+    "MotorTorque": (QT_TRANSLATE_NOOP("Assembly", "Motor torque"), 1e-6, "N m"),
+    "MotorForce": (QT_TRANSLATE_NOOP("Assembly", "Motor force"), 1e-3, "N"),
+    "SpringForce": (QT_TRANSLATE_NOOP("Assembly", "Spring force"), 1e-3, "N"),
+    "SpringLength": (QT_TRANSLATE_NOOP("Assembly", "Spring length"), 1.0, "mm"),
+}
+
+if App.GuiUp:
+
+    class ResultPlot(QtWidgets.QWidget):
+        """Not upstream: curves over the run's time, drawn by hand -- their
+        range, the times at the ends, and the frame shown as a cursor."""
+
+        COLOURS = ["#d62728", "#2ca02c", "#1f77b4", "#888888"]
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setMinimumHeight(150)
+            self.times = []
+            self.curves = []  # (name, values)
+            self.unit = ""
+            self.frame = None
+
+        def setCurves(self, times, curves, unit):
+            self.times = list(times)
+            self.curves = curves
+            self.unit = unit
+            self.update()
+
+        def setFrame(self, frame):
+            self.frame = frame
+            self.update()
+
+        def paintEvent(self, event):
+            painter = QtGui.QPainter(self)
+            painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            palette = self.palette()
+            text = palette.color(QtGui.QPalette.WindowText)
+            painter.fillRect(self.rect(), palette.color(QtGui.QPalette.Base))
+            metrics = painter.fontMetrics()
+            values = [v for _, curve in self.curves for v in curve]
+            if len(self.times) < 2 or not values:
+                painter.setPen(text)
+                painter.drawText(
+                    self.rect(), Qt.AlignCenter, translate("Assembly", "No values to show")
+                )
+                return
+            low, high = min(values), max(values)
+            if high - low <= 1e-12 * max(1.0, abs(high)):
+                pad = max(abs(high) * 0.1, 1e-9)
+                low, high = low - pad, high + pad
+
+            def label(v):
+                return f"{v:.4g}"
+
+            left = 6 + max(metrics.horizontalAdvance(label(v)) for v in (low, high))
+            area = QtCore.QRectF(
+                left + 4,
+                metrics.height() + 4,
+                self.width() - left - 10,
+                self.height() - 2 * metrics.height() - 10,
+            )
+            t0, t1 = self.times[0], self.times[-1]
+            span = (t1 - t0) or 1.0
+
+            def at(t, v):
+                return QtCore.QPointF(
+                    area.left() + area.width() * (t - t0) / span,
+                    area.bottom() - area.height() * (v - low) / (high - low),
+                )
+
+            grid = QtGui.QColor(text)
+            grid.setAlpha(70)
+            painter.setPen(QtGui.QPen(grid, 1))
+            painter.drawRect(area)
+            if low < 0.0 < high:
+                painter.drawLine(at(t0, 0.0), at(t1, 0.0))
+            painter.setPen(text)
+            painter.drawText(
+                QtCore.QRectF(0, area.top() - metrics.height() / 2, left, metrics.height()),
+                Qt.AlignRight | Qt.AlignVCenter,
+                label(high),
+            )
+            painter.drawText(
+                QtCore.QRectF(0, area.bottom() - metrics.height() / 2, left, metrics.height()),
+                Qt.AlignRight | Qt.AlignVCenter,
+                label(low),
+            )
+            painter.drawText(
+                QtCore.QRectF(area.left(), area.bottom() + 2, area.width(), metrics.height()),
+                Qt.AlignLeft | Qt.AlignTop,
+                f"{t0:g} s",
+            )
+            painter.drawText(
+                QtCore.QRectF(area.left(), area.bottom() + 2, area.width(), metrics.height()),
+                Qt.AlignRight | Qt.AlignTop,
+                f"{t1:g} s",
+            )
+            painter.drawText(
+                QtCore.QRectF(0, 0, left, metrics.height()), Qt.AlignRight | Qt.AlignTop, self.unit
+            )
+            # The legend, along the top
+            x = area.left()
+            for k, (name, curve) in enumerate(self.curves):
+                colour = QtGui.QColor(self.COLOURS[k % len(self.COLOURS)])
+                painter.setPen(QtGui.QPen(colour, 1.5))
+                n = min(len(self.times), len(curve))
+                painter.drawPolyline(
+                    QtGui.QPolygonF([at(self.times[i], curve[i]) for i in range(n)])
+                )
+                if len(self.curves) > 1:
+                    painter.drawText(QtCore.QPointF(x, metrics.ascent()), name)
+                    x += metrics.horizontalAdvance(name) + 10
+            if self.frame is not None and 0 <= self.frame < len(self.times):
+                cursor = QtGui.QColor(text)
+                cursor.setAlpha(160)
+                painter.setPen(QtGui.QPen(cursor, 1, Qt.DashLine))
+                p = at(self.times[self.frame], low)
+                painter.drawLine(QtCore.QPointF(p.x(), area.top()), QtCore.QPointF(p.x(), area.bottom()))
+
+
+
 class CommandCreateSimulation:
     def __init__(self):
         pass
@@ -1000,6 +1127,30 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.runMessage.setStyleSheet("color: #c80000")
         self.runMessage.hide()
         self.form.layout().addWidget(self.runMessage)
+        # What a dynamic run reports with its frames (sec 8.4)
+        self.resultsBox = QtWidgets.QGroupBox(translate("Assembly", "Results"))
+        results = QtWidgets.QVBoxLayout(self.resultsBox)
+        self.resultCombo = QtWidgets.QComboBox()
+        self.resultCombo.setToolTip(
+            translate(
+                "Assembly",
+                "What the run reports with each frame: a joint's reaction on the part of its\n"
+                "first reference (in the assembly's axes, the torque about the joint's\n"
+                "coordinate system on that part), a motion's motor effort, a spring's force\n"
+                "(positive pushing its ends apart) and length",
+            )
+        )
+        results.addWidget(self.resultCombo)
+        self.resultPlot = ResultPlot()
+        results.addWidget(self.resultPlot)
+        self.resultValue = QtWidgets.QLabel()
+        self.resultValue.setWordWrap(True)
+        self.resultValue.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        results.addWidget(self.resultValue)
+        self.resultsBox.hide()
+        self.form.layout().addWidget(self.resultsBox)
+        self.resultCombo.currentIndexChanged.connect(self.showResult)
+        self.results = None
         self.analysisCombo.currentIndexChanged.connect(self.onAnalysisChanged)
         self.gravityCheck.toggled.connect(self.onGravityChanged)
 
@@ -1135,6 +1286,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def runKinematics(self):
         # Not upstream: a run that fails says so, here as in the report
         self.runMessage.hide()
+        self.results = None
+        self.resultsBox.hide()
         if self.assembly.generateSimulation(self.simFeaturePy) != 0:
             self.runMessage.setText(
                 translate(
@@ -1145,16 +1298,82 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.runMessage.show()
             return
         nFrms = self.assembly.numberOfFrames()
+        self.fillResults()
         self.form.frameSlider.setMaximum(nFrms - 1)
         self.setFrameValue(nFrms - 1)
         self.form.groupBox_player.show()
         self.form.SaveAnimationButton.show()
+
+    def fillResults(self):
+        """Not upstream: the run's channels in the Results box, which shows
+        when it has any"""
+        self.results = self.assembly.getSimulationResults()
+        current = self.resultCombo.currentData()
+        self.resultCombo.blockSignals(True)
+        self.resultCombo.clear()
+        for k, channel in enumerate(self.results["Channels"]):
+            obj = channel["Object"]
+            name = obj.Label if obj is not None else channel["Name"]
+            quantity = ResultQuantities.get(channel["Quantity"], (channel["Quantity"], 1.0, ""))
+            key = (channel["Name"], channel["Quantity"])
+            self.resultCombo.addItem(
+                "%s: %s" % (name, translate("Assembly", quantity[0])), key
+            )
+        at = self.resultCombo.findData(current) if current is not None else -1
+        self.resultCombo.setCurrentIndex(max(0, at))
+        self.resultCombo.blockSignals(False)
+        self.resultsBox.setVisible(self.resultCombo.count() > 0)
+        self.showResult()
+
+    def resultCurves(self):
+        """The chosen channel's curves, in the shown unit: a vector's X, Y, Z
+        and its length; and the unit"""
+        if not self.results:
+            return [], ""
+        key = self.resultCombo.currentData()
+        for channel in self.results["Channels"]:
+            if (channel["Name"], channel["Quantity"]) != key:
+                continue
+            _, factor, unit = ResultQuantities.get(channel["Quantity"], ("", 1.0, ""))
+            values = channel["Values"]
+            if values and isinstance(values[0], App.Vector):
+                return [
+                    ("X", [v.x * factor for v in values]),
+                    ("Y", [v.y * factor for v in values]),
+                    ("Z", [v.z * factor for v in values]),
+                    ("|%s|" % translate("Assembly", "total"), [v.Length * factor for v in values]),
+                ], unit
+            return [("", [v * factor for v in values])], unit
+        return [], ""
+
+    def showResult(self, index=None):
+        curves, unit = self.resultCurves()
+        times = self.results["Times"] if self.results else []
+        self.resultPlot.setCurves(times, curves, unit)
+        self.showResultValue()
+
+    def showResultValue(self):
+        frame = self.form.frameSlider.value()
+        self.resultPlot.setFrame(frame)
+        curves, unit = self.resultCurves()
+        times = self.results["Times"] if self.results else []
+        if not curves or frame >= len(times):
+            self.resultValue.clear()
+            return
+        parts = []
+        for name, values in curves:
+            if frame < len(values):
+                value = f"{values[frame]:.6g} {unit}"
+                parts.append(f"{name} {value}" if name else value)
+        self.resultValue.setText(f"{times[frame]:g} s: " + ", ".join(parts))
 
     def onFrameChanged(self, val):
         self.assembly.updateForFrame(val)
         self.form.FrameLabel.setText(translate("Assembly", "Frame" + " " + str(val)))
         time = float(val * self.simValues.TimeStepOutput)
         self.form.FrameTimeLabel.setText(f"{time:.2f} s")
+        if self.results:
+            self.showResultValue()
 
     def onFramesPerSecondChanged(self):
         self.simValues.FramesPerSecond = self.form.FramesPerSecondSpinBox.value()

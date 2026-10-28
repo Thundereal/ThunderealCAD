@@ -35,11 +35,13 @@
 #include <Base/PlacementPy.h>
 #include <Base/VectorPy.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>
+#include <App/Document.h>
 #include <App/DocumentObjectPy.h>
 #include <Mod/Part/App/OCCError.h>
 
 #include "Interference.h"
 #include "MassProperties.h"
+#include "Solver/Backend.h"
 
 using namespace Assembly;
 
@@ -175,6 +177,60 @@ PyObject* AssemblyObjectPy::numberOfFrames(PyObject* args) const
     }
     size_t ret = this->getAssemblyObjectPtr()->numberOfFrames();
     return Py_BuildValue("k", ret);
+}
+
+PyObject* AssemblyObjectPy::getSimulationResults(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        Py::List times;
+        Py::List channels;
+        const Solver::Trajectory* trajectory = getAssemblyObjectPtr()->lastTrajectory();
+        if (trajectory) {
+            for (double time : trajectory->times) {
+                times.append(Py::Float(time));
+            }
+            std::size_t width = 0;
+            for (const auto& channel : trajectory->channels) {
+                width += channel.width;
+            }
+            const std::size_t frames = width ? trajectory->values.size() / width : 0;
+            App::Document* doc = getAssemblyObjectPtr()->getDocument();
+            std::size_t offset = 0;
+            for (const auto& channel : trajectory->channels) {
+                // The model's source names are full names, "Doc#Object"
+                const std::size_t hash = channel.source.rfind('#');
+                const std::string name =
+                    hash == std::string::npos ? channel.source : channel.source.substr(hash + 1);
+                App::DocumentObject* obj = doc ? doc->getObject(name.c_str()) : nullptr;
+                Py::List values;
+                for (std::size_t f = 0; f < frames; ++f) {
+                    const double* v = &trajectory->values[f * width + offset];
+                    if (channel.width == 3) {
+                        values.append(Py::Vector(Base::Vector3d(v[0], v[1], v[2])));
+                    }
+                    else {
+                        values.append(Py::Float(v[0]));
+                    }
+                }
+                Py::Dict entry;
+                entry.setItem("Object", obj ? Py::asObject(obj->getPyObject()) : Py::None());
+                entry.setItem("Name", Py::String(name));
+                entry.setItem("Quantity", Py::String(channel.quantity));
+                entry.setItem("Values", values);
+                channels.append(entry);
+                offset += channel.width;
+            }
+        }
+        Py::Dict ret;
+        ret.setItem("Times", times);
+        ret.setItem("Channels", channels);
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH
 }
 
 PyObject* AssemblyObjectPy::updateSolveStatus(PyObject* args) const

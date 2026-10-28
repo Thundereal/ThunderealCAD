@@ -274,3 +274,131 @@ class TestDynamics(unittest.TestCase):
         heights = self.oscillator(listed=False)
         for time, z in heights:
             self.assertAlmostEqual(z, 12.0, delta=1e-9, msg=time)
+
+    # ------------------------------------------------------------ reactions
+
+    def channel(self, prefix, quantity):
+        """The values of the last run's channel of the object named prefix...
+        and the quantity."""
+        results = self.assembly.getSimulationResults()
+        found = [
+            c
+            for c in results["Channels"]
+            if c["Name"].startswith(prefix) and c["Quantity"] == quantity
+        ]
+        self.assertEqual(len(found), 1, [(c["Name"], c["Quantity"]) for c in results["Channels"]])
+        self.assertEqual(len(found[0]["Values"]), len(results["Times"]))
+        return found[0]["Values"]
+
+    def test_hinge_reaction(self):
+        """The hinge's reaction on the grounded block, its first reference:
+        the opposite of what holds the swinging rod, m (a - g), with a its
+        centre of mass's from the angle -- the energy it has lost, alpha
+        from gravity's torque; no torque about the hinge."""
+        rod = self.pendulum()
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        forces = self.channel("Revolute", "Force")
+        torques = self.channel("Revolute", "Torque")
+        mass = 100 * 10 * 10 * 2.7e-6
+        d = 50.0
+        inertia = mass * ((100**2 + 10**2) / 12 + d**2)  # kg mm^2, about the hinge
+        weight = mass * G  # mN
+        # At the start, still: the hinge carries what the fall does not
+        self.assertAlmostEqual(forces[0].z, -weight * (1 - mass * d * d / inertia), delta=weight * 1e-4)
+        for (time, centre, _), force, torque in zip(self.frames(rod, 1e-2), forces, torques):
+            theta = math.atan2(5 - centre.z, centre.x - 10)
+            omega2 = 2 * mass * G * d * math.sin(theta) / inertia
+            alpha = mass * G * d * math.cos(theta) / inertia
+            # Along the rod, and the way it swings
+            e = App.Vector(math.cos(theta), 0, -math.sin(theta))
+            t = App.Vector(-math.sin(theta), 0, -math.cos(theta))
+            accel = t * (alpha * d) - e * (omega2 * d)
+            onRod = accel * mass + App.Vector(0, 0, weight)
+            self.assertLess((force + onRod).Length, weight * 1e-3, time)
+            self.assertLess(torque.Length, weight * d * 1e-6, time)
+
+    def test_motor_torque(self):
+        """A Speed motion holding the rod still at horizontal applies its
+        weight's torque about the hinge, m g d; an Effort motion of that torque
+        holds it there."""
+        self.assertIsNotNone(self.driven("Speed", "0"))
+        torques = self.channel("Revolute", "MotorTorque")
+        mass = 100 * 10 * 10 * 2.7e-6
+        holding = mass * G * 50  # mN mm
+        for torque in torques[1:]:
+            self.assertAlmostEqual(abs(torque), holding, delta=holding * 1e-4)
+        self.tearDown()
+        self.setUp()
+        # In N m
+        turns = self.driven("Effort", repr(torques[-1] * 1e-6))
+        self.assertIsNotNone(turns)
+        for time, angle in turns:
+            self.assertLess(angle, 1e-4, time)
+        efforts = self.channel("Revolute", "MotorTorque")
+        for effort in efforts:
+            self.assertAlmostEqual(effort, torques[-1], delta=abs(torques[-1]) * 1e-9)
+
+    def test_spring_force(self):
+        """A spring reports its length, and its force: k times how far it is
+        from its free length, pushing apart when shorter."""
+        heights = self.oscillator()
+        lengths = self.channel("Spring", "SpringLength")
+        forces = self.channel("Spring", "SpringForce")
+        for (time, z), length, force in zip(heights, lengths, forces):
+            self.assertAlmostEqual(length, z - 10.0, delta=1e-9, msg=time)
+            self.assertAlmostEqual(force, -self.K * (length - 4.0), delta=1e-9, msg=time)
+
+    def test_kinematic_reports_nothing(self):
+        """A kinematic run reports no channels."""
+        self.assertIsNotNone(self.driven("Position", "time", analysis="Kinematic"))
+        results = self.assembly.getSimulationResults()
+        self.assertEqual(results["Channels"], [])
+        self.assertEqual(len(results["Times"]), self.assembly.numberOfFrames())
+
+    def test_rack_pinion_reaction(self):
+        """A rack falling along x drives a pinion on a grounded block; the
+        rack-and-pinion joint, held by the neutral equations, pushes back on
+        the rack (its first reference) by m (a - g), a = g m / (m + I / r^2)."""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        rack = self.box("Rack", (60, 6, 6), (0, 0, 10))
+        pinion = self.assembly.newObject("Part::Cylinder", "Pinion")
+        pinion.Radius = 10
+        pinion.Height = 5
+        pinion.Placement.Base = App.Vector(0, 20, 10)
+        self.doc.recompute()
+        along_x = App.Rotation(App.Vector(0, 1, 0), 90)  # local z -> global x
+        self.joint(
+            "Slider",
+            (base, ["Face6"]),
+            App.Placement(App.Vector(0, 0, 10), along_x),
+            (rack, ["Face5"]),
+            App.Placement(App.Vector(), along_x),
+        )
+        self.joint("Revolute", (base, ["Face6"]), plc(0, 20, 10), (pinion, ["Face3"]), plc())
+        rp = self.joint(
+            "RackPinion",
+            (rack, ["Face5"]),
+            App.Placement(App.Vector(), along_x),
+            (pinion, ["Face1"]),
+            plc(),
+        )
+        rp.Distance = 10.0
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(0.1, 1e-2, Gravity=App.Vector(-G, 0, 0))
+        self.assertEqual(result, 0)
+        density = 2.7e-6
+        massRack = 60 * 6 * 6 * density
+        massPinion = math.pi * 10**2 * 5 * density
+        inertia = massPinion * 10**2 / 2  # about its axis
+        accel = G * massRack / (massRack + inertia / 10**2)
+        # It falls by that
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        self.assertAlmostEqual(rack.Placement.Base.x, -0.5 * accel * 0.1**2, delta=1e-3)
+        forces = self.channel("RackPinion", "Force")
+        expected = massRack * (G - accel)
+        for force in forces:
+            self.assertAlmostEqual(force.x, expected, delta=expected * 1e-4)

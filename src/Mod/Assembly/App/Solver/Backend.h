@@ -145,6 +145,23 @@ struct SimulationSpec
     double hMax = 1.0;
 };
 
+// A value a run reports with each frame besides the poses
+// (docs/AssemblyDynamics.md sec 8.4), in the model's units (mm, mN, mN mm)
+// and, a vector's components, in the model's axes:
+//   "Force", "Torque"  a joint's reaction on the body of its frame I (its
+//                      first reference's part), the torque about frame I's
+//                      origin; width 3
+//   "MotorTorque"      the torque a rotation motor applies about its axis
+//   "MotorForce"       the force a linear motor applies along its axis
+//   "SpringForce"      a spring-damper's force, positive pushing its ends apart
+//   "SpringLength"     its length
+struct Channel
+{
+    std::string source;  // the model's source name: the joint's, the spring's
+    std::string quantity;
+    int width = 1;
+};
+
 // Poses of the bodies at each output time; owned by the neutral layer, so
 // playback needs no live solver.
 struct Trajectory
@@ -152,6 +169,8 @@ struct Trajectory
     std::vector<Id> bodies;
     std::vector<double> times;
     std::vector<Base::Placement> poses;  // times.size() * bodies.size(), row per time
+    std::vector<Channel> channels;
+    std::vector<double> values;  // times.size() * the channels' widths, row per time
 };
 
 class TrajectorySink
@@ -160,6 +179,17 @@ public:
     virtual ~TrajectorySink() = default;
     // false: cancel the run
     virtual bool frame(double time, const std::vector<BodyPose>& poses) = 0;
+    // Once, before the first frame, from a run that reports values: their
+    // channels
+    virtual void channels(const std::vector<Channel>& channels)
+    {
+        (void)channels;
+    }
+    // Before each frame: its values, the channels' components in order
+    virtual void values(const std::vector<double>& values)
+    {
+        (void)values;
+    }
 };
 
 // What centredOnJoints gives each body: the centre of its joints in the

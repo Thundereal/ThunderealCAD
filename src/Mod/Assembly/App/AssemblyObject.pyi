@@ -79,6 +79,24 @@ class AssemblyObject(Part):
         ...
 
     @constmethod
+    def getSimulationResults(self) -> dict:
+        """
+        The values the last simulation reported with its frames
+        (docs/AssemblyDynamics.md sec 8.4); a Dynamic one reports them.
+
+        Returns: a dict: Times (s, one per frame) and Channels, a list of
+        dicts, each with Object (the joint or the spring; None when gone),
+        Name (its name), Quantity and Values (one per frame). Quantity is
+        "Force" or "Torque", a joint's reaction on the part of its first
+        reference, vectors in the assembly's axes (mN, and mN mm about the
+        joint's coordinate system on that part); "MotorTorque" (mN mm) or
+        "MotorForce" (mN), what a motion's motor applies along its joint's
+        axis; "SpringForce" (mN, positive pushing the ends apart) or
+        "SpringLength" (mm), a spring-damper's.
+        """
+        ...
+
+    @constmethod
     def updateSolveStatus(self) -> Any:
         """updateSolveStatus()
 

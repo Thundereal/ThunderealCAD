@@ -545,7 +545,37 @@ public:
     {
         return absolute(frames[0]);
     }
-    // Kinematics only: no reactions are reported.
+    // The wrench the rows put on 'body', absolute: the force, and the torque
+    // about the absolute point 'about'. Cq^T times the multipliers, the
+    // force on the variables (HHT's residual adds Cq^T L to f); the angular
+    // block is the body's own axes'. A body the rows do not move -- the
+    // ground, a fixed one -- takes the opposite of what they put on the
+    // others: a joint's rows read relative poses only, so they balance.
+    ch::ChWrenchd wrenchOn(const ch::ChBody* body, const ch::ChVector3d& about)
+    {
+        ch::ChVector3d sumForce;
+        ch::ChVector3d sumTorque;
+        for (std::size_t b = 0; b < bodies.size(); ++b) {
+            ch::ChVector3d force;
+            ch::ChVector3d local;
+            for (std::size_t r = 0; r < constraints.size(); ++r) {
+                const double l = reactions(static_cast<Eigen::Index>(r));
+                auto row = constraints[r].Get_Cq_N(b);
+                force += l * ch::ChVector3d(row(0), row(1), row(2));
+                local += l * ch::ChVector3d(row(3), row(4), row(5));
+            }
+            const ch::ChVector3d torque = bodies[b]->GetRotMat() * local
+                + ch::Vcross(bodies[b]->GetPos() - about, force);
+            if (bodies[b] == body) {
+                return {force, torque};
+            }
+            sumForce += force;
+            sumTorque += torque;
+        }
+        return {-sumForce, -sumTorque};
+    }
+
+    // Kinematics only: no reactions are reported (wrenchOn() reads them).
     ch::ChWrenchd GetReaction1() const override
     {
         return {ch::VNULL, ch::VNULL};
@@ -2541,6 +2571,10 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         tensor << i[0], i[3], i[4], i[3], i[1], i[5], i[4], i[5], i[2];
         body->SetInertia(tensor);
     }
+    // What each frame reports besides the poses (sec 8.4)
+    std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkTSDA>>> springs;
+    std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorRotation>>> rotationMotors;
+    std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorLinear>>> linearMotors;
     // The force elements, on frames of the model: in SI and at the centres
     // of mass with it (a stiffness and a damping need no factor, sec 8.1)
     for (const auto& force : si.dynamics->forces) {
@@ -2562,6 +2596,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         spring->SetDampingCoefficient(force.c * SI::linearDamping);
         spring->SetActuatorForce(force.preload);
         sys.AddLink(spring);
+        springs.emplace_back(force.source, spring);
     }
     // The motions, as motors: an angle or a distance, a speed, or a torque or
     // a force (sec 5.2), the formulas in SI with the model
@@ -2601,6 +2636,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
                                   f2);
                 motor->SetMotorFunction(function);
                 sys.AddLink(motor);
+                rotationMotors.emplace_back(driver.source, motor);
             }
         }
         if (driver.kind != DriverKind::RotationZ) {
@@ -2625,6 +2661,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
                                   f2);
                 motor->SetMotorFunction(function);
                 sys.AddLink(motor);
+                linearMotors.emplace_back(driver.source, motor);
             }
         }
     }
@@ -2655,6 +2692,109 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         return poses;
     };
 
+    // The values each frame reports (sec 8.4). A joint's reaction is per
+    // document joint: the links of its model joints summed, the torque about
+    // the first one's frame I.
+    struct Reaction
+    {
+        std::string source;
+        std::vector<std::pair<const Joint*, std::shared_ptr<ch::ChLinkBase>>> links;
+    };
+    std::vector<Reaction> reactions;
+    for (const auto& record : run.d->links) {
+        if (record.owner != Owner::Joint || record.id >= si.joints.size()) {
+            continue;
+        }
+        const Joint& joint = si.joints[record.id];
+        const std::string& name = si.sourceName(joint.source);
+        auto at = std::find_if(reactions.begin(), reactions.end(), [&](const Reaction& r) {
+            return r.source == name;
+        });
+        if (at == reactions.end()) {
+            reactions.push_back({name, {}});
+            at = std::prev(reactions.end());
+        }
+        at->links.emplace_back(&joint, record.link);
+    }
+    std::vector<Channel> channels;
+    for (const auto& reaction : reactions) {
+        channels.push_back({reaction.source, "Force", 3});
+        channels.push_back({reaction.source, "Torque", 3});
+    }
+    for (const auto& motor : rotationMotors) {
+        channels.push_back({si.sourceName(motor.first), "MotorTorque", 1});
+    }
+    for (const auto& motor : linearMotors) {
+        channels.push_back({si.sourceName(motor.first), "MotorForce", 1});
+    }
+    for (const auto& spring : springs) {
+        channels.push_back({si.sourceName(spring.first), "SpringForce", 1});
+        channels.push_back({si.sourceName(spring.first), "SpringLength", 1});
+    }
+    // A link's wrench on the body of frame I, absolute, the torque about
+    // 'about': Chrono's links report it on either body in their own frame
+    // on it, a NeutralLink from its rows
+    auto wrenchOnI = [&](const Joint& joint,
+                         const std::shared_ptr<ch::ChLinkBase>& base,
+                         const ch::ChVector3d& about) -> ch::ChWrenchd {
+        const ch::ChBody* bodyI = run.d->bodyOf(joint.frameI).get();
+        if (auto neutral = std::dynamic_pointer_cast<NeutralLink>(base)) {
+            return neutral->wrenchOn(bodyI, about);
+        }
+        auto link = std::dynamic_pointer_cast<ch::ChLink>(base);
+        if (!link) {
+            return {ch::VNULL, ch::VNULL};
+        }
+        ch::ChWrenchd w;
+        if (link->GetBody2() == bodyI) {
+            w = link->GetFrame2Abs().TransformWrenchLocalToParent(link->GetReaction2());
+        }
+        else if (link->GetBody1() == bodyI) {
+            w = link->GetFrame1Abs().TransformWrenchLocalToParent(link->GetReaction1());
+        }
+        else {
+            return {ch::VNULL, ch::VNULL};
+        }
+        // About the absolute origin, as the frame transform gives it
+        return {w.force, w.torque - ch::Vcross(about, w.force)};
+    };
+    auto valuesNow = [&]() {
+        std::vector<double> out;
+        out.reserve(6 * reactions.size() + rotationMotors.size() + linearMotors.size()
+                    + 2 * springs.size());
+        for (const auto& reaction : reactions) {
+            const ch::ChVector3d about =
+                run.d->globalOf(reaction.links.front().first->frameI).GetPos();
+            ch::ChVector3d force;
+            ch::ChVector3d torque;
+            for (const auto& [joint, link] : reaction.links) {
+                const ch::ChWrenchd w = wrenchOnI(*joint, link, about);
+                force += w.force;
+                torque += w.torque;
+            }
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(force[k] / SI::force);
+            }
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(torque[k] / SI::torque);
+            }
+        }
+        for (const auto& motor : rotationMotors) {
+            out.push_back(motor.second->GetMotorTorque() / SI::torque);
+        }
+        for (const auto& motor : linearMotors) {
+            out.push_back(motor.second->GetMotorForce() / SI::force);
+        }
+        for (const auto& spring : springs) {
+            out.push_back(spring.second->GetForce() / SI::force);
+            out.push_back(spring.second->GetLength() / SI::length);
+        }
+        return out;
+    };
+    if (!channels.empty()) {
+        sink.channels(channels);
+    }
+
     Status status = Status::Ok;
     try {
         sys.SetChTime(spec.tStart);
@@ -2668,7 +2808,14 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
             if (k > 0) {
                 for (int s = 0; s < sub; ++s) {
                     sys.DoStepDynamics(h);
+                    // The neutral links count their turns from the angles
+                    // last committed: a pinion past half a turn read as
+                    // the other way round, the rack jumping a pitch
+                    run.d->commitAngles();
                 }
+            }
+            if (!channels.empty()) {
+                sink.values(valuesNow());
             }
             if (!sink.frame(time, posesNow())) {
                 status = Status::Cancelled;

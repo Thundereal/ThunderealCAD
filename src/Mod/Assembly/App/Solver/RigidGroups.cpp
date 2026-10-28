@@ -211,6 +211,15 @@ public:
             {
                 return sink.frame(time, session.expand(poses));
             }
+            // The joints a group dropped report nothing
+            void channels(const std::vector<Channel>& channels) override
+            {
+                sink.channels(channels);
+            }
+            void values(const std::vector<double>& values) override
+            {
+                sink.values(values);
+            }
         } expandSink(*this, sink);
         return inner->simulate(spec, expandSink);
     }

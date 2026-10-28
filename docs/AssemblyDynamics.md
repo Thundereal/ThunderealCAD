@@ -152,8 +152,38 @@ Phase D1 is under way (2026-10-28):
   Tests: Position holds the angle to its formula against gravity (1e-6
   rad), Speed turns at its rate (1e-4), Effort accelerates by tau / I about
   the hinge, a Kinematic study refuses Effort.
-- Next: the reactions -- the joints' forces and the motors' efforts per
-  frame -- and their plots (the rest of step 3).
+- Built, step 3: the reactions and their plots. A run reports values with
+  each frame besides the poses: `Solver::Channel` {source, quantity,
+  width}, `TrajectorySink::channels()` once and `values()` before each
+  frame (the centring and rigid-group wrappers pass them on), kept in
+  `Trajectory::channels / values` and read by
+  `AssemblyObject.getSimulationResults()` (Times, and Channels: Object,
+  Name, Quantity, Values). Chrono's dynamic run reports, per document
+  joint, the reaction Force and Torque on the part of its **first
+  reference** (frame I), in the assembly's axes, the torque about frame
+  I's origin -- not sec 8.4's "on J, in frame I": the part a user picks
+  first is the one asked about, and one set of axes plots across joints;
+  its model joints' links summed. A Chrono link gives the wrench on either
+  body in its own frame (`GetReaction1/2`); our `NeutralLink` (gears,
+  screws, the bevel gear) gives it from its rows, Cq^T times the
+  multipliers, a body the rows do not move taking the opposite of the
+  rest. Also `MotorTorque` / `MotorForce` (`GetMotorTorque/Force`: an
+  Effort motor reports its formula) and a spring's `SpringForce`
+  (positive pushing apart) and `SpringLength`. In mN, mN mm and mm. The
+  Simulation panel's Results box plots a channel over the run (a vector's
+  X, Y, Z and its length, in N, N m or mm) with the frame shown as a
+  cursor and its values under it. Tests: the hinge reaction on the
+  grounded block is the opposite of m (a - g) for the swinging rod, a from
+  the angle (1e-3 of m g), with no torque; a Speed motion holding the rod
+  level applies m g d, and an Effort motion of what it reported holds the
+  rod level; a spring's force is -k (L - L0); a rack falling along a
+  pinion is pushed back by m (g - a), a = g m / (m + I / r^2) (the
+  NeutralLink path, 1e-4); a kinematic run reports no channels. That test
+  found the dynamic run never committed the neutral links' angles (the
+  kinematic run does, at each accepted pose): a pinion past half a turn
+  read as turned the other way, and the rack jumped a pitch. It commits
+  after every step now.
+- Next: the static analysis (step 4).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

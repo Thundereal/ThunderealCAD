@@ -135,6 +135,12 @@ public:
     // or there is no such frame)
     double timeOfFrame(size_t index) const;
     bool placementAtFrame(App::DocumentObject* obj, size_t index, Base::Placement& placement) const;
+    // The last simulation's frames, with the values a dynamic run reports
+    // (Solver::Channel); null before one
+    const Solver::Trajectory* lastTrajectory() const
+    {
+        return trajectory.get();
+    }
     void preDrag(std::vector<App::DocumentObject*> dragParts);
     /* One drag step: solves for the Placement the caller wrote on the dragged parts.
     Returns false when no drag is in progress or the step failed; a failed step leaves

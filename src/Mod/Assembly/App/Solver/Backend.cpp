@@ -137,6 +137,15 @@ public:
                 }
                 return sink.frame(time, out);
             }
+            // Absolute, and in the model's axes: no body frame in them
+            void channels(const std::vector<Channel>& channels) override
+            {
+                sink.channels(channels);
+            }
+            void values(const std::vector<double>& values) override
+            {
+                sink.values(values);
+            }
         } backSink(*this, sink);
         return inner->simulate(spec, backSink);
     }

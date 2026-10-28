@@ -1751,13 +1751,11 @@ static const App::ParamRegistry::Registrar _RenderParamsRegistrar({
 "Needs render cache mode 3 with a renderer selected."),
     App::ParamInfo("Gui", "RenderParams", "User parameter:BaseApp/Preferences/View/Render", "MatcapPreset", "MatcapPreset", App::ParamInfo::Int, 0)
         .setTitle("Matcap")
-        .setDoc("Which matcap to shade with, computed in the shader. Studio: soft key\n"
-"light with a rim. Clay: matte, the most neutral read of form. Metal:\n"
-"banded, exaggerates curvature. Pearl: warm and cool, shows shallow\n"
-"undulation. Zebra: black and white stripes that step at an angle, kink\n"
-"at a tangent seam and run through where curvature is continuous.\n"
-"Draft: how each face releases from a mold pulled along the view's\n"
-"MatcapDirection -- green released, yellow too steep, red undercut.")
+        .setDoc("Which matcap to shade with. Studio: a soft key light. Clay: matte,\n"
+"form alone. Metal: banded, exaggerates curvature. Pearl: warm and cool,\n"
+"shows undulation. Zebra: stripes that step at a crease, kink at a\n"
+"tangent seam and run through where curvature is continuous. Draft:\n"
+"green released, yellow too steep, red undercut along MatcapDirection.")
         .setProxy("ComboBox")
         .setItems({{"Studio", "", nullptr}, {"Clay", "", nullptr}, {"Metal", "", nullptr}, {"Pearl", "", nullptr}, {"Zebra", "", nullptr}, {"Draft", "", nullptr}}, false, true),
     App::ParamInfo("Gui", "RenderParams", "User parameter:BaseApp/Preferences/View/Render", "MatcapFixed", "MatcapFixed", App::ParamInfo::Bool, false)
@@ -4841,13 +4839,11 @@ void RenderParams::removeMatcap() {
 // Auto generated code (Tools/params_utils.py:397)
 const char *RenderParams::docMatcapPreset() {
     return QT_TRANSLATE_NOOP("RenderParams",
-"Which matcap to shade with, computed in the shader. Studio: soft key\n"
-"light with a rim. Clay: matte, the most neutral read of form. Metal:\n"
-"banded, exaggerates curvature. Pearl: warm and cool, shows shallow\n"
-"undulation. Zebra: black and white stripes that step at an angle, kink\n"
-"at a tangent seam and run through where curvature is continuous.\n"
-"Draft: how each face releases from a mold pulled along the view's\n"
-"MatcapDirection -- green released, yellow too steep, red undercut.");
+"Which matcap to shade with. Studio: a soft key light. Clay: matte,\n"
+"form alone. Metal: banded, exaggerates curvature. Pearl: warm and cool,\n"
+"shows undulation. Zebra: stripes that step at a crease, kink at a\n"
+"tangent seam and run through where curvature is continuous. Draft:\n"
+"green released, yellow too steep, red undercut along MatcapDirection.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)

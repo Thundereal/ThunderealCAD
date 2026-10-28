@@ -1583,13 +1583,11 @@ Params = [
     ParamInt('MatcapPreset',  0, title='Matcap',
         proxy=ParamComboBox(items=['Studio', 'Clay', 'Metal', 'Pearl',
                                    'Zebra', 'Draft']),
-        doc="Which matcap to shade with, computed in the shader. Studio: soft key\n"
-            "light with a rim. Clay: matte, the most neutral read of form. Metal:\n"
-            "banded, exaggerates curvature. Pearl: warm and cool, shows shallow\n"
-            "undulation. Zebra: black and white stripes that step at an angle, kink\n"
-            "at a tangent seam and run through where curvature is continuous.\n"
-            "Draft: how each face releases from a mold pulled along the view's\n"
-            "MatcapDirection -- green released, yellow too steep, red undercut."),
+        doc="Which matcap to shade with. Studio: a soft key light. Clay: matte,\n"
+            "form alone. Metal: banded, exaggerates curvature. Pearl: warm and cool,\n"
+            "shows undulation. Zebra: stripes that step at a crease, kink at a\n"
+            "tangent seam and run through where curvature is continuous. Draft:\n"
+            "green released, yellow too steep, red undercut along MatcapDirection."),
     ParamBool('MatcapFixed',  False, title='Zebra fixed to the model',
         doc="Zebra matcap only: the room of stripes looked at along the view's\n"
         "MatcapDirection instead of the camera, so the stripes stay where they\n"

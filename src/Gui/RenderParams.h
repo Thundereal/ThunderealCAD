@@ -1359,13 +1359,11 @@ public:
     //@{
     /// Accessor for parameter MatcapPreset
     ///
-    /// Which matcap to shade with, computed in the shader. Studio: soft key
-    /// light with a rim. Clay: matte, the most neutral read of form. Metal:
-    /// banded, exaggerates curvature. Pearl: warm and cool, shows shallow
-    /// undulation. Zebra: black and white stripes that step at an angle, kink
-    /// at a tangent seam and run through where curvature is continuous.
-    /// Draft: how each face releases from a mold pulled along the view's
-    /// MatcapDirection -- green released, yellow too steep, red undercut.
+    /// Which matcap to shade with. Studio: a soft key light. Clay: matte,
+    /// form alone. Metal: banded, exaggerates curvature. Pearl: warm and cool,
+    /// shows undulation. Zebra: stripes that step at a crease, kink at a
+    /// tangent seam and run through where curvature is continuous. Draft:
+    /// green released, yellow too steep, red undercut along MatcapDirection.
     static const long & getMatcapPreset();
     static const long & defaultMatcapPreset();
     static void removeMatcapPreset();

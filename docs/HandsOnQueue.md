@@ -178,6 +178,10 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 12:03: entry 234 -- the spin centre ball shaded, not flat (unlit on
+purpose since 201889b931); ASSIGNED to dwin after 233.** Under the
+entries.
+
 **2026-10-28 11:44: entry 233 -- the overlay auto scroll bars do not show on hover;
 transparent panels to be tested with the reveal before the pass-through;
 the views' bars to slide clear of overlays like the cell's handles;
@@ -4446,6 +4450,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 231 | 2026-10-28 | a defect: scanner, after the migration recompute (Section003 broken, as expected), dragging Section003's section line to line it up with the middle of Top003's two lower holes: on the mouse release the line jumps a bit up or down, "as if the section line can only be placed at some discrete number of possible positions" | OPEN; said to the note-taker 2026-10-28 09:45; READ by the note-taker: no snapping in TechDraw's Gui (snap only in QGTracker's angle snap); the release goes QGISectionLine::onItemMoved (QGISectionLine.cpp 664) -> the line's points moved by the drag offset -> a queued DrawViewSection::setChangePoints (DrawViewSection.cpp 1292), which divides the points by the base view's scale, moves SectionOrigin by inverseProjectPoint(newMid - oldMid) with oldMid from sectionLineEnds(); the line is then drawn from the recomputed origin; cause NOT found by reading; NOT reproduced; ASSIGNED to fcad-dc, NOT YET DELIVERED (not reachable). 2026-10-28 09:57 REPRODUCED by the note-taker in the reporter's LIVE session on their word ("check my live session ... you can drag the Section003"): mouse events on Page004's view, zoom 1.238: drags of -15 and +10 px landed exactly (-15, +10; SectionOrigin.y -0.6057, +0.4038), drags of -7, +3, -2, -1, +1, +4, +8, -9 px went back to where they started -- QApplication::startDragDistance() is 10 there, and onItemMoved puts the line back when the release is less than that from the press (wasDragged, QGISectionLine.cpp 656/692, the click guard); a fine correction under 10 px is lost, which reads as fixed positions; also: after Undo of a 'Move section line' the line is NOT redrawn (SectionOrigin back, the line still where the move left it); the note-taker's two moves undone; to dwin, NOT YET DELIVERED. 2026-10-28 11:15 DELIVERED to fcad-88, on the reporter's word "I think it is fcad-88 on the same box" (dwin itself not listed); asked to say if it is not dwin. 2026-10-28 11:40 DONE by dwin (fcad-88) `289f655b22`, local, NOT pushed, NOT staged: a press is a drag once the mouse has gone startDragDistance at ANY point OR the button was held startDragTime (500 ms) -- a slow small correction lands, a quick click with a wobble stays a click (not 'any move', which would move the line on a wobbly click); change point marks the same; Undo/Redo of SectionOrigin/SectionNormal repaints the base view; test techdraw-section-line-click.py 15/15 (3 px held lands 3.00 px; 15 px out and back to 4 lands 4.00; after undo 0 pixels differ), TestTechDrawApp 13 OK; the reporter's Section003 not checked by hand (needs a restage) |
 | 232 | 2026-10-28 | a change request: with PerViewEdit on, SEVERAL objects of ONE document in edit at once, each in its own view | OPEN; said to the note-taker 2026-10-28 11:26; the reporter asked for a PLAN FIRST; plan given by the note-taker (section 232), the reporter's decisions awaited; NOT assigned. 2026-10-28 11:35 DECIDED by the reporter: transactions B, an edit may depend on another view's edit, PD features and dress-ups first, then the Sketcher, then TechDraw; ASSIGNED to x16 on the reporter's word ("Let x16 do this. I have already briefed there"). 2026-10-28 11:39 x16 (relayed): section received; base main e09f46bdd2 contains thundereal/LinkVibe ef7af542e0 (which contains f012b2550f, read by the note-taker); the reporter asked x16 for its plan before it builds; x16's finding on decision 1: ActorScope cannot tell two desktop sessions apart (sameUser, sec 30.10 item 1), proposes Cancel reverts the session's own step ids (undoLogged(seqs), sec 33.13), put to the reporter |
 | 233 | 2026-10-28 | defects and a request on the overlay auto scroll bars (224, 225): (a) they do not show when the pointer comes near, only after a wheel scroll; (b) test overlays with a transparent background, the hover reveal checked BEFORE the pass-through; (c) the bars of views (TechDraw page, spreadsheet) placed aware of overlay widgets, sliding out of the way like the cell's menu button and handles | OPEN; said to the note-taker 2026-10-28 11:44; READ by the note-taker: the hover reveal is OverlayScrollBars::eventFilter on the area's VIEWPORT's MouseMove within 3 x Thickness of a bar (OverlayScrollBars.cpp 306-317), and Enter/press on a bar that is hidden; in a transparent overlay panel the pointer's events go through to the view under it, so the panel's viewport may never see them (not verified); place() (172) moves the bars only for a cover touching a side edge; the cell's slide is ViewAreaCell's (ViewArea.cpp 899-951, entry 83); ASSIGNED to dwin (fcad-88) |
+| 234 | 2026-10-28 | a change request: the view's spin centre ball (the rotation-center indicator) drawn SHADED; today it looks flat | OPEN; said to the note-taker 2026-10-28 12:03; READ by the note-taker: flat on purpose since `201889b931` (2026-07-21, "keep render-cache effects off the rotation-center sphere"): View3DInventorViewer::showRotationCenter (View3DInventorViewer.cpp 3787) gives the SoSphere an SoLightModel BASE_COLOR and the colour as diffuse AND emissive (3834-3854), so nothing lights it; NO_SHADOWING and the SoAnnotation keep the effects off; ASSIGNED to dwin (fcad-88) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30892,6 +30897,27 @@ to the clear rectangle; whether (a) is seen in the page and the
 spreadsheet too, or in the overlay panels only.
 ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
 
+## 234. The spin centre ball shaded (a change request) -- OPEN
+
+**2026-10-28 12:03, the reporter (to the note-taker):** "new request, make the view
+spin center indicating ball shaded. right now it seems to be render as
+flat"
+The note-taker's reading: the ball shown at the rotation centre while
+the view spins (ShowRotationCenter) should look like a lit ball, not a
+flat disc of colour.
+READ by the note-taker: it is flat on purpose. `201889b931` (2026-07-21,
+"Gui: keep render-cache effects off the rotation-center sphere") made
+it unlit so the render-cache backend would not shade, shadow or tint
+it: View3DInventorViewer::showRotationCenter (View3DInventorViewer.cpp
+3787) puts an SoLightModel BASE_COLOR before the SoSphere and gives the
+colour (RotationCenterColor, default 0xFF000033, alpha 0x33) as both
+diffuse and emissive (3834-3854); SoShadowStyle NO_SHADOWING, all under
+an SoAnnotation. So shading it undoes part of that commit; what it kept
+off (shadows, SSAO and the other screen-space effects) should stay off.
+NOT said: how strong the shading; whether on both the Coin and the
+bgfx paths (the render-cache backend is what 201889b931 was for).
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 233.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30903,5 +30929,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 233
+the build session, 131 and 132 found by it; entries 134 to 234
 are of 2026-10-15, 134 said to the build session)

@@ -46,6 +46,8 @@ SET(Blending_SRCS
 SET(Geom_SRCS
   Geom/EdgeCondition.cpp
   Geom/EdgeCondition.h
+  Geom/Extend.cpp
+  Geom/Extend.h
   Geom/GeomPy.cpp
   Geom/GeomPy.h
   Geom/NetworkSurface.cpp

@@ -178,6 +178,10 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 17:59: entry 239 -- PD Box edit: the origin shown while hidden does not
+highlight unless the Origin group is visible; ASSIGNED to dwin.** Under
+the entries.
+
 **2026-10-28 17:48: PUSHED ..3f3174731f and RESTAGED by dwin on the reporter's word --
 230 to 237 in the reporter's copy for hand checks.** Under the entries.
 
@@ -4488,6 +4492,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 236 | 2026-10-28 | a defect: PD Box -- the on-view edit handles do not follow the box's orientation; a box attached to the YZ plane, a handle drives the wrong dimension; AUDIT every other feature's handles for the same | OPEN; said to the note-taker 2026-10-28 12:15; READ by the note-taker (not reproduced): TaskBoxPrimitives::setGizmoPositions (TaskPrimitiveParameters.cpp 255-292) places Length/Width/Height along the box Placement's rotated X/Y/Z at its position; GizmoContainer::getWorldMatrix (Gizmo.cpp 1540) starts from the document's editing transform (Document::setEdit, getSubObject's matrix); if that already holds the box's placement the rotation is applied TWICE -- unseen at identity, wrong axes on the YZ plane (a lead, not verified); handles also in the extrude, revolution, helix, hole, fillet, chamfer, draft and thickness panels; ASSIGNED to dwin (fcad-88) after 235. 2026-10-28 17:21 DONE by dwin `6669972af0`, local, NOT pushed, NOT staged: cause -- a panel's gizmo frame is the editing transform less the object's own placement, made the editing root's transform; when the placement changes DURING the edit (attached to YZ in its own panel) Gui::Document re-sets the WHOLE editing transform, placement included, so the handles had it twice (reopening the edit was right); fix -- GizmoContainer sets its frame back on signalEditingTransformChanged, getWorldMatrix() is that frame from the edit path (it multiplied the editing transform in once more); AUDIT: every PD panel with gizmos goes through GizmoContainer -- primitives, pad/pocket, revolution, helix, hole, draft, thickness, fillet, chamfer -- one fix covers them; a moved/rotated Body not tested; pd-box-handles-follow-attachment.py 5/5 (the staged copy fails the attached-in-edit case), pd-values-in-view 37, chamfer 19, fillet 21 pass. 2026-10-28 17:48 PUSHED (c30ae593fa..3f3174731f) and RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed), IN the reporter's copy |
 | 237 | 2026-10-28 | a defect: Blender navigation style on a TechDraw page -- a pan with left and right buttons held works, but releasing the buttons pops up the page's context menu; Gesture style (right-button drag) does not, nor does either style in the 3D view | OPEN; said to the note-taker 2026-10-28 15:19; READ by the note-taker: QGVNavStyleBlender::allowContextMenu (src/Mod/TechDraw/Gui/QGVNavStyleBlender.cpp 116-127) refuses the menu only while the LEFT button is still down when the context menu event comes; on Windows it comes at the right button's release, so a pan that lets go of the left button first gets the menu; nothing remembers that a pan happened (stopPan at the first release, 99-113); Gesture's refuses every mouse context menu event (QGVNavStyleGesture.cpp 99-105); ASSIGNED to dwin (fcad-88) after 236. 2026-10-28 17:29 DONE by dwin `c20481f73d`, local, NOT pushed, NOT staged: the note-taker's reading confirmed; the style remembers a left+right pan from the gesture's first press and refuses the menu at its end (as the 3D view's Blender style); a plain right click still gets the menu; a two-button press with NO drag, left let go first, still gives the menu (the old behaviour, changeable on the reporter's word); CAD, Maya, OCC page styles refuse by keys, not touched; techdraw-blender-pan-no-menu.py (real screen, QTest) 5/5, the staged copy opens the menu. 2026-10-28 17:48 PUSHED (c30ae593fa..3f3174731f) and RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed), IN the reporter's copy |
 | 238 | 2026-10-28 | a defect: panning lags noticeably, in the 3D view and (worse) on a TechDraw page | OPEN; said to the note-taker 2026-10-28 15:20; build not said (the reporter's dev build was in use for 233); NOT reproduced, cause NOT found; leads from today's work, NOT verified: OverlayManager's application-wide filter now calls OverlayScrollBars::pointerMoved on every mouse move (OverlayManager.cpp 2120, `ea124fd624`), which visits every area with auto bars (revealNear, OverlayScrollBars.cpp 515); on the page a pan scrolls, and every scroll step reveals the bars (follow -> reveal, raise, fade); an A/B against the build before `8e49bf9df2` would tell; ASSIGNED to dwin (fcad-88), NEXT after 235 (a possible regression of unpushed work). 2026-10-28 15:38 dwin (relayed): MEASURED, today's overlay scroll bar work NOT the cause -- tests/gui/pan-timing.py, real screen, the reporter's config, Blender style, 60 pan steps with their redraw: staged d04054d9b0 3D 9.9/12.0 ms (median/p90), page 25.5/30.7; dev build (ea124fd624 + 235 work) 3D 9.7/30.9, page 16.1/18.5; the bars' trace: page about 11 of 980 ms (1%), 3D about 0.3 ms; NOT measured: a lag before a pan starts or the view trailing the pointer; no baseline before today (needs a second tree); questions to the reporter: start lag or trailing, which style, since when. 2026-10-28 16:10 pan-timing.py committed by dwin as `98a1ffb0a0` (a diagnostic) |
+| 239 | 2026-10-28 | a defect: creating or editing a PD Box shows the origin planes whatever their visibility, at another size; with the origin group INVISIBLE the origin shown in the edit does not react to the highlight (pre-selection), only once the group is made visible | OPEN; said to the note-taker 2026-10-28 17:59; READ by the note-taker: the Box panel shows the origin's axes and planes on purpose (TaskPrimitiveParameters.cpp 85, setTemporaryVisibility(true, true)), as an edit visibility in the views of the edit (ViewProviderCoordinateSystem::setTemporaryVisibilityInEdit, ViewProviderCoordinateSystem.cpp 144-185, Gui::Document::setEditVisibility) -- the objects' Visibility untouched; the attacher grows them by DatumTemporaryScaleFactor (2.0, TaskAttacher.cpp 350); the highlight missing while the group's own Visibility is off -- cause NOT found (the 235 pick-first path or the selection's visibility test, a lead); ASSIGNED to dwin (fcad-88) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -31267,6 +31272,40 @@ TechDrawGui.pyd 17:27:33 newer than QGVNavStyleBlender.cpp (17:23, 237):
 both in the stage. In the reporter's copy for hand checks: 230, 231,
 233 (both), 234, 235 (both), 236, 237.
 
+## 239. PD Box edit: the origin shown at another size, and no highlight while the origin group is hidden (a defect) -- OPEN
+
+**2026-10-28 17:59, the reporter (to the note-taker):** "new defect. when create/edit
+partdesign box, the origin plane is shown regardless of its visibility,
+and it shows at a different size. But when the origin group is
+invisible, the origin shown when editing box does not react to
+highlight. it only reacts when origin group is made visible"
+The note-taker's reading: while a PD Box is created or edited, the
+body's origin planes are shown even if hidden, and larger (or smaller)
+than usual. The defect: when the Origin group itself is hidden, the
+origin shown during the edit does not pre-select (no highlight on
+hover); with the group visible it does.
+READ by the note-taker:
+- The showing is on purpose, for picking an attachment reference: the
+  Box panel calls setTemporaryVisibility(true, true) on the body's
+  origin (src/Mod/PartDesign/Gui/TaskPrimitiveParameters.cpp 85), undone
+  at 315. Since the per-view edit work it is an EDIT visibility in the
+  views of the edit (ViewProviderCoordinateSystem::
+  setTemporaryVisibilityInEdit, src/Gui/ViewProviderCoordinateSystem.cpp
+  144-185, through Gui::Document::setEditVisibility), the objects'
+  Visibility left as it was; the old path writes Visibility (187-232).
+- The size: the attacher grows the datums by DatumTemporaryScaleFactor
+  (ViewParams, default 2.0, "How much datum planes grow while a
+  reference is picked from them") (src/Mod/Part/Gui/TaskAttacher.cpp
+  350, reset at 388); 235 kept the plane's rest size (the quarter) on
+  pre-selection, which this does not touch.
+- The highlight while the group is hidden: cause NOT found. A lead, not
+  verified: a pick or a pre-selection that asks the object's (or its
+  parent group's) own Visibility, not the edit visibility -- the 235
+  pick-first path, or the selection's visible-object test.
+NOT said: whether the showing and the grown size are wanted (the
+note-taker reads them as the context, the defect being the highlight).
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -31278,5 +31317,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 238
+the build session, 131 and 132 found by it; entries 134 to 239
 are of 2026-10-15, 134 said to the build session)

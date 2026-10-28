@@ -1081,18 +1081,44 @@ first runs found two more on the way: a client's show raised no publish on
 the host, and the snapshot never carried a per-view-shown draw at all.
 
 **On Windows they do not register**, and cannot: `tests/gui/CMakeLists.txt`
-wants `xvfb-run` and `.conda/run.sh`, and the box has neither. Run one by
-hand instead -- nothing in these scripts needs a display of its own, only a
-running application:
+wants `xvfb-run` and `.conda/run.sh`, and the box has neither. Run one with
+`scripts/gui-test.cmd`, the Windows driver (2026-10-29):
+
+    set FC_RUNNER=<a .cmd that puts the conda env, OCCT and Coin on PATH and runs its arguments>
+    scripts\gui-test.cmd tests\gui\sketch-constraint-highlight-view.py <outdir> [timeout]
+
+It gives the test a configuration of its own under `<outdir>\home`
+(`FREECAD_USER_HOME`), runs it through `scripts/gui-test-guard.py` (which
+ends the session if the script fails to start or hangs) after
+`scripts/gui-test-profile.py`, and judges the result file as `gui-test.sh`
+does: `DONE` and no `FAIL` or `ABORT` line, exit 0; anything else, exit 1.
+`FC_BUILD` or `FC_EXE` names another build, `GT_ADDONS` a Mod directory of
+addons linked in as the test's own.
+
+**Windows runs go on a hidden desktop by default** (`GT_DESKTOP=hidden`,
+the user, 2026-10-29). `scripts/run-on-hidden-desktop.ps1` creates a desktop
+of its own (`WinSta0\fcad-gui-test`) and starts the test there: the windows
+are real, so OpenGL, the bgfx Direct3D backend and `saveRenderDump` work,
+and nothing appears on the user's screen. `QT_QPA_PLATFORM=offscreen` --
+the Linux habit -- is not the same thing on Windows: that platform has no
+OpenGL at all ("QOpenGLWidget is not supported on this platform"), the 3D
+view never draws, every render dump times out, and code that asks whether
+a view can draw falls back; `sketch-constraint-highlight-view.py` failed 2
+claims there and passes 12/12 on the hidden desktop. Nothing on the
+hidden desktop takes real input: QTest events reach the widgets, the system
+pointer and `SetCursorPos` do not, and a modal box nobody sweeps waits for
+the guard's timeout. `GT_DESKTOP=screen` puts the window on the user's
+screen; `GT_DESKTOP=offscreen` is for a test that needs no pixels.
+
+Before the driver, a test was run by hand under cdb, which is still the
+way to catch a crash's stack:
 
     powershell -File D:\works\sw\tools\run_cdb.ps1 -UserHome <dir> -StartupScript <wrap.py>
 
 where `wrap.py` is three lines that set `GT_OUT` and `GT_RESULT` in
-`os.environ` and `exec` the test file in its own globals. `-UserHome` is the
-isolated configuration `gui-test.sh` builds with XDG variables, and the cdb
-console is where a crash leaves a stack. The verdict is the result file, as
-it is on Linux: PASS lines and `DONE`. `GuiServeSelectionEcho_tests_run` was
-run this way for stage 5 of `SceneServerPort.md` (section 7.5 there).
+`os.environ` and `exec` the test file in its own globals.
+`GuiServeSelectionEcho_tests_run` was run this way for stage 5 of
+`SceneServerPort.md` (section 7.5 there).
 
 **A known load-sensitive assertion in that test, seen 2026-09-22.** Under
 `ctest -j8` on a busy box, `a batch of two ctrl-picks pushed one frame`

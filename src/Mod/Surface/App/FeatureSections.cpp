@@ -40,6 +40,7 @@
 
 #include "ElementNames.h"
 #include "FeatureSections.h"
+#include "Geom/NetworkSurface.h"
 
 
 using namespace Surface;
@@ -49,6 +50,13 @@ PROPERTY_SOURCE(Surface::Sections, Part::Spline)
 Sections::Sections()
 {
     ADD_PROPERTY_TYPE(NSections, (nullptr), "Sections", App::Prop_None, "Section curves");
+    ADD_PROPERTY_TYPE(Guides,
+                      (nullptr),
+                      "Sections",
+                      App::Prop_None,
+                      "Curves across the sections, each crossing every one: the loft follows "
+                      "them");
+    Guides.setScope(App::LinkScope::Global);
     NSections.setScope(App::LinkScope::Global);
     SURFACE_ADD_CONDITION(FirstSection, "the first section");
     SURFACE_ADD_CONDITION(LastSection, "the last section");
@@ -92,10 +100,44 @@ App::DocumentObjectExecReturn* Sections::execute()
         return new App::DocumentObjectExecReturn("At least two sections are required.");
     }
 
-    GeomFill_NSections fillOp(curveSeq);
-    fillOp.ComputeSurface();
+    // the guides: with them, the sections and they are a network
+    std::vector<Handle(Geom_Curve)> guides;
+    const auto& guideObjs = Guides.getValues();
+    const auto& guideSubs = Guides.getSubValues();
+    for (std::size_t i = 0; i < guideObjs.size() && i < guideSubs.size(); ++i) {
+        auto edge = Part::Feature::getTopoShape(guideObjs[i], guideSubs[i].c_str(), true);
+        if (edge.isNull() || edge.getShape().ShapeType() != TopAbs_EDGE) {
+            return new App::DocumentObjectExecReturn("Guide " + std::to_string(i + 1)
+                                                     + " is not an edge");
+        }
+        BRepAdaptor_Curve adapt(TopoDS::Edge(edge.getShape()));
+        Handle(Geom_Curve) curve = new Geom_TrimmedCurve(adapt.Curve().Curve(),
+                                                         adapt.FirstParameter(),
+                                                         adapt.LastParameter());
+        if (!edge.getShape().Location().IsIdentity()) {
+            curve->Transform(edge.getShape().Location().Transformation());
+        }
+        guides.push_back(curve);
+        inputs.push_back(edge);
+    }
 
-    Handle(Geom_BSplineSurface) aSurf = fillOp.BSplineSurface();
+    Handle(Geom_BSplineSurface) aSurf;
+    if (guides.empty()) {
+        GeomFill_NSections fillOp(curveSeq);
+        fillOp.ComputeSurface();
+        aSurf = fillOp.BSplineSurface();
+    }
+    else {
+        std::vector<Handle(Geom_Curve)> profiles;
+        for (int i = 1; i <= curveSeq.Length(); ++i) {
+            profiles.push_back(curveSeq(i));
+        }
+        auto result = Geom::networkSurface(profiles, guides);
+        if (!result.isDone()) {
+            return new App::DocumentObjectExecReturn("With its guides: " + result.error);
+        }
+        aSurf = result.surface;
+    }
     if (aSurf.IsNull()) {
         return new App::DocumentObjectExecReturn("Failed to create surface from sections.");
     }
@@ -130,8 +172,10 @@ App::DocumentObjectExecReturn* Sections::execute()
         any = true;
     }
     if (any) {
+        // a loft's sides are no curve of the user's, and may move; with
+        // guides they are the outer guides, and stay
         for (int b = 0; b < 4; ++b) {
-            conditions[b].free = b != at[0] && b != at[1];
+            conditions[b].free = guides.empty() && b != at[0] && b != at[1];
         }
         // a condition reaches half way to the next section, so the sections
         // between stay on the surface

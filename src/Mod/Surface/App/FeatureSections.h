@@ -41,6 +41,9 @@ public:
     Sections();
 
     App::PropertyLinkSubList NSections;
+    /// Curves across the sections, each crossing every one: the loft
+    /// follows them, as a network of the two (docs/Surface.md sec 5.1)
+    App::PropertyLinkSubList Guides;
 
     /// The edge conditions at the first and last section (docs/Surface.md
     /// sec 5.1); the loft's sides are free

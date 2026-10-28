@@ -60,6 +60,7 @@
 #include <algorithm>
 
 #include <App/Application.h>
+#include <App/GeoFeature.h>
 #include <Base/Converter.h>
 #include <Base/Parameter.h>
 #include <Base/Precision.h>
@@ -1529,23 +1530,66 @@ void GizmoContainer::attachViewer(Gui::ViewerContext* viewer, Base::Placement& o
     this->viewer = viewer;
     viewerLife = viewer->lifetime();
 
-    // Upstream also makes `origin` the document's editing transform. Here the
-    // edit path has already set that transform for the object being edited,
-    // and ViewProviderDragger passes the offset from it, so only the gizmo
-    // node is placed.
+    // `origin` is the gizmos' whole frame (ViewProviderDragger: the editing
+    // transform less the object's own placement), and it takes the editing
+    // root's transform: the gizmos are all the edit puts there.
     So3DAnnotation* annotation = SO_GET_ANY_PART(this, "annotation", So3DAnnotation);
     viewer->setupEditingRoot(annotation, &mat);
+
+    connEditingTransform.disconnect();
+    if (auto vp = viewProvider.get()) {
+        if (auto doc = vp->getDocument()) {
+            connEditingTransform = doc->signalEditingTransformChanged.connect(
+                [this](const Gui::Document&) {
+                    onEditingTransformChanged();
+                });
+        }
+    }
+}
+
+void GizmoContainer::onEditingTransformChanged()
+{
+    // A PartDesign box attached to the YZ plane in its own panel: its new
+    // placement was put on the editing root with the rest of the editing
+    // transform, and its handles, placed by that placement in the frame,
+    // had it twice -- along the wrong edges, the length handle on the width
+    // (docs/HandsOnQueue.md entry 236, the reporter: "the handle then
+    // controls the wrong dimenion"). Set back to the frame they are placed
+    // in.
+    if (!viewer || viewerLife.expired()) {
+        return;
+    }
+    origin = getWorldMatrix();
+    viewer->setEditingTransform(origin);
 }
 
 Base::Matrix4D GizmoContainer::getWorldMatrix() const
 {
-    Base::Matrix4D mat;
-    if (auto vp = viewProvider.get()) {
-        if (auto doc = vp->getDocument()) {
-            mat = doc->getEditingTransform();
-        }
+    // The frame attachViewer() was given -- the editing transform less the
+    // object's placement -- as it is now: it used to be put on top of the
+    // editing transform once more, and a value's label stood where its
+    // handle would with the object's placement applied twice
+    auto vp = viewProvider.get();
+    auto doc = vp ? vp->getDocument() : nullptr;
+    if (!doc) {
+        return origin;
     }
-    mat *= origin;
+    // the edit's own path, not the document's copy of its transform, which
+    // a panel re-placing its handles on the same change may read before it
+    // is brought up to date
+    Base::Matrix4D mat;
+    ViewProviderDocumentObject* parentVp = nullptr;
+    std::string subname;
+    if (doc->getInEdit(&parentVp, &subname) != vp || !parentVp || !parentVp->getObject()
+        || parentVp->getObject()->getSubObject(subname.c_str(), nullptr, &mat)
+            != vp->getObject()) {
+        mat = doc->getEditingTransform();
+    }
+    if (auto feat = dynamic_cast<App::GeoFeature*>(vp->getObject())) {
+        Base::Matrix4D inverse = feat->Placement.getValue().toMatrix();
+        inverse.inverse();
+        mat *= inverse;
+    }
     return mat;
 }
 

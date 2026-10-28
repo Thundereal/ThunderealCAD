@@ -158,6 +158,12 @@ public:
     std::vector<InterferenceResult> check();
     // The pairs interfering when the watch started
     std::size_t initialInterferences() const;
+    // How far the last check found the components moved since the check
+    // before, at most: the largest distance a corner of one's box went (mm)
+    double travel() const;
+    // The largest tolerance its pairs are judged with (mm): the watch's, at
+    // least twice the meshes' deflection
+    double tolerance() const;
     std::size_t components() const;
     // A component's triangles (three points each), from the meshes the watch
     // checks with, in the component's own frame: placed by its placement in

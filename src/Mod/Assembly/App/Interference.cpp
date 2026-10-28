@@ -131,6 +131,9 @@ struct Component
     Base::Placement now;
     Base::Placement move;
     bool moved = true;
+    // How far the last posing moved it: the largest distance a corner of its
+    // box went (mm)
+    double travel = 0.0;
     double volume = -1.0;     // computed when needed
     double deflection = 0.0;  // Fast: the largest of its solids'
     TopoDS_Compound meshes;   // Fast, contacts: the meshes where checked, made when needed
@@ -1365,7 +1368,23 @@ struct Scene
         for (auto& component : components) {
             const Base::Placement move = placementOf(component.obj) * component.now.inverse();
             const bool replace = !move.isSame(component.move, same);
+            component.travel = 0.0;
             if (replace) {
+                if (!component.baseBox.IsVoid()) {
+                    double x0 {}, y0 {}, z0 {}, x1 {}, y1 {}, z1 {};
+                    component.baseBox.Get(x0, y0, z0, x1, y1, z1);
+                    for (const double x : {x0, x1}) {
+                        for (const double y : {y0, y1}) {
+                            for (const double z : {z0, z1}) {
+                                Base::Vector3d was(x, y, z);
+                                Base::Vector3d is(x, y, z);
+                                component.move.multVec(was, was);
+                                move.multVec(is, is);
+                                component.travel = std::max(component.travel, (is - was).Length());
+                            }
+                        }
+                    }
+                }
                 component.move = move;
                 place(component, move, fast);
             }
@@ -1587,6 +1606,24 @@ std::vector<InterferenceResult> CollisionWatch::check()
         results.push_back(std::move(entry.second));
     }
     return results;
+}
+
+double CollisionWatch::travel() const
+{
+    double most = 0.0;
+    for (const auto& component : d->scene.components) {
+        most = std::max(most, component.travel);
+    }
+    return most;
+}
+
+double CollisionWatch::tolerance() const
+{
+    double most = d->scene.tol;
+    for (const auto& component : d->scene.components) {
+        most = std::max(most, 2.0 * component.deflection);
+    }
+    return most;
 }
 
 std::size_t CollisionWatch::initialInterferences() const

@@ -907,6 +907,7 @@ void AssemblyObject::beginCollisionWatch()
     }
     dragCollisionMode = static_cast<DragCollision>(mode);
     ++collisionWatches;
+    dragStopped = false;
     try {
         collisionWatch =
             std::make_unique<CollisionWatch>(this, AssemblyParams::getDragCollisionTolerance());
@@ -943,6 +944,9 @@ const std::vector<InterferenceResult>& AssemblyObject::checkDragCollisions()
         catch (const Standard_Failure& e) {
             FC_WARN("The collision check of a drag step failed: " << e.GetMessageString());
         }
+    }
+    if (!stoppingDrag && dragCollisions.empty()) {
+        dragStopped = false;
     }
     markDragCollisions();
     return dragCollisions;
@@ -1021,21 +1025,39 @@ void AssemblyObject::clearCollisionMarkers(bool checksOnly)
 
 double AssemblyObject::stopAtDragCollision(const std::function<bool(double)>& poseAt)
 {
+    Base::StateLocker stopping(stoppingDrag);
     auto hits = dragCollisions;
     double lo = 0.0;
     double hi = 1.0;
-    for (int i = 0; i < dragCollisionHalvings; ++i) {
-        const double t = 0.5 * (lo + hi);
+    // How far the whole step moves the parts (mm): the first fraction posed
+    // went (1 - t) of it from where the step's check had them
+    double span = -1.0;
+    const double tolerance = collisionWatch ? std::max(collisionWatch->tolerance(), 1e-6) : 0.0;
+    auto tryAt = [&](double t) {
         const bool posed = poseAt(t);
-        if (posed && checkDragCollisions().empty()) {
+        const bool clear = posed && checkDragCollisions().empty();
+        if (posed && span < 0.0 && collisionWatch) {
+            span = collisionWatch->travel() / (1.0 - t);
+        }
+        if (clear) {
             lo = t;
-            continue;
+            return;
         }
         hi = t;
         if (posed) {
             hits = dragCollisions;
         }
+    };
+    if (dragStopped) {
+        tryAt(1.0 / (1 << dragCollisionHalvings));
     }
+    for (int i = 0; i < dragCollisionHalvings; ++i) {
+        if (span >= 0.0 && span * (hi - lo) <= tolerance) {
+            break;
+        }
+        tryAt(0.5 * (lo + hi));
+    }
+    dragStopped = true;
     poseAt(lo);
     dragCollisions = std::move(hits);
     return lo;

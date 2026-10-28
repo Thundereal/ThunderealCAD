@@ -430,7 +430,7 @@ class TestDragCollision(unittest.TestCase):
                     self.assertEqual(steps[1], (True, 14.0, []))
                     # S's top at 26: 1 mm into the plate. Halved back to the
                     # plate's underside at 25, within the tolerance and the
-                    # last halving (2 mm / 256) above it
+                    # last halving (as small as the tolerance) above it
                     ok, z, pairs = steps[2]
                     self.assertFalse(ok)
                     self.assertEqual(pairs, [("Plate", "S")])
@@ -512,9 +512,9 @@ class TestDragCollision(unittest.TestCase):
             ok, z, pairs = steps[1]
             self.assertFalse(ok)
             self.assertEqual(pairs, [("Plate", "S")])
-            # S's top 2 below the plate's underside at 25: S at 13, within the
-            # last halving (2 mm / 256) below it
-            self.assertGreaterEqual(z, 13.0 - 2.0 / 256 - 1e-6)
+            # S's top 2 below the plate's underside at 25: S at 13, within
+            # the watch's tolerance (0.02 mm here) below it
+            self.assertGreaterEqual(z, 13.0 - 0.02 - 1e-6)
             self.assertLessEqual(z, 13.0 + 1e-6)
             self.assembly.postDrag()
         finally:

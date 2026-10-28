@@ -82,9 +82,15 @@ drag watches the assembly's components with the Fast check:
   pair's faces are drawn in red so, the status bar saying "Stopped: A would collide with
   B". The part stays against the other and follows the mouse again as soon
   as it can. How far: the move from the last good step to this one is
-  halved towards the farthest fraction that does not collide, 8 times at
-  most (`AssemblyObject::stopAtDragCollision()`), so the part stops within
-  1/256 of the step, and within the tolerance, of the contact. With the
+  halved towards the farthest fraction that does not collide
+  (`AssemblyObject::stopAtDragCollision()`) until what is left of it moves
+  the parts less than the watch's tolerance -- the first fraction posed
+  tells how far the step moves them (`CollisionWatch::travel()`, the most a
+  corner of a component's box went) -- and 8 times at most, so the part
+  stops within the tolerance of the contact, or 1/256 of a long step.
+  Pushed on from where the last step stopped -- most often against what
+  stopped it -- the least fraction, 1/256, is tried first: colliding, the
+  part stays, for one check instead of all of them. With the
   solver each fraction is a drag step solved from the last good poses
   towards the targets moved that fraction of the way (`Placement::sclerp`);
   without, the moved parts' placements are interpolated so.
@@ -303,11 +309,25 @@ contact):
 | Highlight | 16 ms | 0.2 s (every pair checked once) |
 | Stop | 16 ms | 0.17 s |
 
-A step that collides costs its halvings: up to 8 solves and checks. The box
-of the tests (`TestDragCollision`) dragged 2 mm, 1 mm of it into a plate:
-12 to 20 ms, against under 1 ms for a step that does not collide; it stops
-0.039 mm into the plate, within the tolerance, on all three backends, where
-it stopped 1 mm short before.
+A step that collides costs its halvings: a solve and a check each, as few
+as reach the tolerance, 8 at most. The box of the tests
+(`TestDragCollision`) dragged 2 mm, 1 mm of it into a plate: 11 to 31 ms
+(5 halvings), against under 1 ms for a step that does not collide; it
+stops 0.031 mm into the plate, within the tolerance, on all three backends,
+where it stopped 1 mm short before.
+
+The stack with a block beside its top plate, which the plate's corner meets
+at 20 deg, turned on to 60 deg in steps of 2 (as a mouse moving on past the
+block does, each step from the contact to further on):
+
+| Stop, a step | median | max |
+|---|---|---|
+| free (to 20 deg) | 23 ms | |
+| pushing on against the block, all halvings | 230 ms | 260 ms |
+| the least fraction first | 87 ms | 315 ms (the first stop) |
+
+Highlight's steps through the block: 28 ms. The rest of a stopped step is
+the step's own check, its solve, and putting the parts back.
 
 Timed with a WSL build sharing the box.
 
@@ -342,9 +362,14 @@ at a point.
 
 ## Limits
 
-- Dragging stops within 1/256 of the last step of the contact, not at it:
-  a fast mouse's long step leaves a gap of that much. The halvings are
-  fractions of the step, not of the distance to the contact.
+- Dragging stops within the tolerance of the contact, or, a step more than
+  256 times as long, within 1/256 of it: a fast mouse's very long step
+  leaves a gap of that much. The halvings are fractions of the step, not of
+  the distance to the contact.
+- Stop's least-fraction-first and its halving both take the step's path to
+  collide from some fraction on: a path that passes through a gap in the
+  other part and collides only in the middle is stopped where a halving
+  lands, not at the first contact.
 - Fast finds that two components overlap, not by how much, and an overlap
   no deeper than a few times the tolerance can be taken for a contact; Exact
   is the authority. Fast's tolerance is at least twice the deflection, so

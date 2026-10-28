@@ -180,10 +180,14 @@ public:
     // Stop at a collision: the move from where the last good step left the
     // parts (0) to where this one takes them (1) collides, and is halved
     // towards the farthest fraction that does not, dragCollisionHalvings times
-    // at most. poseAt(t) puts the parts at fraction t, in the solver and the
-    // document both, and says whether it could. Leaves the parts at the
-    // fraction found, which it returns, the collisions those of the nearest
-    // fraction that collides.
+    // at most, and no more once what is left of it moves the parts less than
+    // the watch's tolerance (how far the step moves them, the first fraction
+    // posed tells). Pushed on from where the last step stopped -- against
+    // what stopped it, most often -- the least fraction (1/2^halvings) is
+    // tried first: colliding, the parts stay, for one check, not all. poseAt(t) puts the parts at
+    // fraction t, in the solver and the document both, and says whether it could. Leaves the parts
+    // at the fraction found, which it returns, the collisions those of the nearest fraction that
+    // collides.
     double stopAtDragCollision(const std::function<bool(double)>& poseAt);
     static constexpr int dragCollisionHalvings = 8;
     const std::vector<InterferenceResult>& getDragCollisions() const
@@ -536,6 +540,10 @@ private:
     std::vector<InterferenceResult> dragCollisions;
     std::vector<CollisionMarker> collisionMarkers;
     int collisionWatches {0};
+    // The last step stopped at a collision, and none since went through;
+    // stopping: in stopAtDragCollision(), whose checks do not tell
+    bool dragStopped {false};
+    bool stoppingDrag {false};
     // The markers of the pairs the last check found
     void markDragCollisions();
     bool lastDragStepFailed {false};

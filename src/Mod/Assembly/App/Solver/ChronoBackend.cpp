@@ -119,8 +119,12 @@
 #include <chrono/physics/ChLinkLockGear.h>
 #include <chrono/physics/ChLinkMate.h>
 #include <chrono/physics/ChLinkTSDA.h>
+#include <chrono/physics/ChLinkMotorLinearForce.h>
 #include <chrono/physics/ChLinkMotorLinearPosition.h>
+#include <chrono/physics/ChLinkMotorLinearSpeed.h>
 #include <chrono/physics/ChLinkMotorRotationAngle.h>
+#include <chrono/physics/ChLinkMotorRotationSpeed.h>
+#include <chrono/physics/ChLinkMotorRotationTorque.h>
 #include <chrono/physics/ChSystemNSC.h>
 #include <chrono/physics/ChLinkBase.h>
 #include <chrono/serialization/ChArchiveJSON.h>
@@ -2478,9 +2482,6 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     if (!model.dynamics) {
         return refuse("the model has no masses");
     }
-    if (!model.drivers.empty()) {
-        return refuse("it has motions, which a dynamic analysis does not run yet");
-    }
     if (!model.limits.empty()) {
         return refuse("it has limits, which a dynamic analysis does not run yet");
     }
@@ -2561,6 +2562,71 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         spring->SetDampingCoefficient(force.c * SI::linearDamping);
         spring->SetActuatorForce(force.preload);
         sys.AddLink(spring);
+    }
+    // The motions, as motors: an angle or a distance, a speed, or a torque or
+    // a force (sec 5.2), the formulas in SI with the model
+    for (const auto& driver : si.drivers) {
+        if (!run.d->validFrame(driver.frameI) || !run.d->validFrame(driver.frameJ)
+            || run.d->isRigid(driver.frameI, driver.frameJ)) {
+            continue;
+        }
+        const ch::ChFramed f1 = run.d->driverLocalOf(driver.frameJ);
+        const ch::ChFramed f2 = run.d->localOf(driver.frameI);
+        auto functionOf = [](const Formula& formula) -> std::shared_ptr<ch::ChFunction> {
+            if (formula.text.empty() && !formula.tree && !formula.function) {
+                return nullptr;
+            }
+            FormulaFunction function = formula.evaluator();
+            return function ? std::make_shared<FormulaChFunction>(std::move(function)) : nullptr;
+        };
+        if (driver.kind != DriverKind::TranslationZ) {
+            if (auto function = functionOf(driver.rotation)) {
+                std::shared_ptr<ch::ChLinkMotorRotation> motor;
+                switch (driver.rotationControl) {
+                    case MotorControl::Position:
+                        motor = std::make_shared<ch::ChLinkMotorRotationAngle>();
+                        break;
+                    case MotorControl::Speed:
+                        motor = std::make_shared<ch::ChLinkMotorRotationSpeed>();
+                        break;
+                    case MotorControl::Effort:
+                        motor = std::make_shared<ch::ChLinkMotorRotationTorque>();
+                        break;
+                }
+                motor->SetSpindleConstraint(ch::ChLinkMotorRotation::SpindleConstraint::FREE);
+                motor->Initialize(run.d->bodyOf(driver.frameJ),
+                                  run.d->bodyOf(driver.frameI),
+                                  true,
+                                  f1,
+                                  f2);
+                motor->SetMotorFunction(function);
+                sys.AddLink(motor);
+            }
+        }
+        if (driver.kind != DriverKind::RotationZ) {
+            if (auto function = functionOf(driver.translation)) {
+                std::shared_ptr<ch::ChLinkMotorLinear> motor;
+                switch (driver.translationControl) {
+                    case MotorControl::Position:
+                        motor = std::make_shared<ch::ChLinkMotorLinearPosition>();
+                        break;
+                    case MotorControl::Speed:
+                        motor = std::make_shared<ch::ChLinkMotorLinearSpeed>();
+                        break;
+                    case MotorControl::Effort:
+                        motor = std::make_shared<ch::ChLinkMotorLinearForce>();
+                        break;
+                }
+                motor->SetGuideConstraint(ch::ChLinkMotorLinear::GuideConstraint::FREE);
+                motor->Initialize(run.d->bodyOf(driver.frameJ),
+                                  run.d->bodyOf(driver.frameI),
+                                  true,
+                                  f1,
+                                  f2);
+                motor->SetMotorFunction(function);
+                sys.AddLink(motor);
+            }
+        }
     }
     sys.SetGravitationalAcceleration(toCh(si.dynamics->gravity));
     // HHT, which needs a direct solver: the load set LUThenQR

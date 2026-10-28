@@ -137,8 +137,23 @@ Phase D1 is under way (2026-10-28):
     period, pi sqrt(m / k), within 0.1%; damped at 5% of critical, each
     swing smaller by the logarithmic decrement within 1%; a spring the study
     does not list does nothing.
-- Next: motor modes and reactions (step 3), which lifts the refusal of
-  motions in a dynamic run.
+- Built, step 3 in part: the motor modes. `Motion::Control` {Position,
+  Speed, Effort} (the motion dialog's Control choice): Position, the
+  angle (rad) or distance (mm), as before; Speed, their rate; Effort, the
+  torque (N m) or force (N) -- the units a user writes, which the builder
+  takes to the model's internal mN mm and mN (`scaledFormula`). Neutral:
+  `Driver::rotationControl` / `translationControl` (`MotorControl`), and
+  `scaled()` scales a driver's formula by what it gives (a distance, a
+  speed or a force as a length, a torque as a length squared). Chrono's
+  dynamic run makes `ChLinkMotorRotationAngle / Speed / Torque` and
+  `ChLinkMotorLinearPosition / Speed / Force`, spindle and guide free (the
+  joint holds the rest), so motions are no longer refused there; a
+  Kinematic study refuses a Speed or an Effort motion (as a bad formula).
+  Tests: Position holds the angle to its formula against gravity (1e-6
+  rad), Speed turns at its rate (1e-4), Effort accelerates by tau / I about
+  the hinge, a Kinematic study refuses Effort.
+- Next: the reactions -- the joints' forces and the motors' efforts per
+  frame -- and their plots (the rest of step 3).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -476,11 +476,16 @@ class ViewProviderMotion:
 
         joint = motionJoint(self.app_obj)
 
-        dialog = MotionEditDialog(assembly, self.app_obj.MotionType, joint, self.app_obj.Formula)
+        control = getattr(self.app_obj, "Control", MotionControls[0])
+        dialog = MotionEditDialog(
+            assembly, self.app_obj.MotionType, joint, self.app_obj.Formula, control
+        )
         if dialog.exec_():
             self.app_obj.MotionType = dialog.motionType
             self.app_obj.Joint = dialog.joint
             self.app_obj.Formula = dialog.formula
+            if hasattr(self.app_obj, "Control"):
+                self.app_obj.Control = dialog.control
 
             self.updateLabel()
 
@@ -507,14 +512,24 @@ class ViewProviderMotion:
         return assembly
 
 
+# Not upstream: what a motion's formula gives (docs/AssemblyDynamics.md sec 5.2)
+MotionControls = ["Position", "Speed", "Effort"]
+
+
 class MotionEditDialog:
     def __init__(
-        self, assembly, motionType=MotionTypes[0], joint=None, formula="initialValue + 5*time"
+        self,
+        assembly,
+        motionType=MotionTypes[0],
+        joint=None,
+        formula="initialValue + 5*time",
+        control=MotionControls[0],
     ):
         self.assembly = assembly
         self.motionType = motionType
         self.joint = joint
         self.formula = formula
+        self.control = control
 
         # Create a non-modal, frameless dialog
         self.dialog = QDialog()
@@ -534,6 +549,25 @@ class MotionEditDialog:
             self.motionType = text
 
         self.motion_type_combo.currentTextChanged.connect(on_motion_type_changed)
+
+        # Not upstream: Position, Speed or Effort
+        self.control_combo = QComboBox(self.dialog)
+        for name in MotionControls:
+            self.control_combo.addItem(translate("Assembly", name), name)
+        self.control_combo.setCurrentIndex(max(0, self.control_combo.findData(self.control)))
+        self.control_combo.setToolTip(
+            translate(
+                "Assembly",
+                "What the formula gives. Position: the angle (rad) or the distance (mm).\n"
+                "Speed: their rate (rad/s, mm/s). Effort: the torque (N m) or the force (N).\n"
+                "Speed and Effort need a Dynamic simulation.",
+            )
+        )
+
+        def on_control_changed(index):
+            self.control = self.control_combo.itemData(index)
+
+        self.control_combo.currentIndexChanged.connect(on_control_changed)
 
         def on_joint_changed(index):
             self.joint = self.joint_combo.itemData(index)
@@ -571,22 +605,25 @@ class MotionEditDialog:
         layout.addWidget(QLabel("Motion Type"), 1, 0)
         layout.addWidget(self.motion_type_combo, 1, 1)
 
-        layout.addWidget(QLabel("Formula"), 2, 0)
-        layout.addWidget(formula_edit, 2, 1)
+        layout.addWidget(QLabel(translate("Assembly", "Control")), 2, 0)
+        layout.addWidget(self.control_combo, 2, 1)
+
+        layout.addWidget(QLabel("Formula"), 3, 0)
+        layout.addWidget(formula_edit, 3, 1)
 
         # Add the help label above the buttons
-        layout.addWidget(self.help_label0, 3, 0, 1, 2)
-        layout.addWidget(self.help_label1, 4, 0, 1, 2)
-        layout.addWidget(self.help_label2, 5, 0, 1, 2)
-        layout.addWidget(self.help_label3, 6, 0, 1, 2)
-        layout.addWidget(self.help_label4, 7, 0, 1, 2)
-        layout.addWidget(self.help_label5, 8, 0, 1, 2)
-        layout.addWidget(self.help_label6, 9, 0, 1, 2)
-        layout.addWidget(self.help_label7, 10, 0, 1, 2)
+        layout.addWidget(self.help_label0, 4, 0, 1, 2)
+        layout.addWidget(self.help_label1, 5, 0, 1, 2)
+        layout.addWidget(self.help_label2, 6, 0, 1, 2)
+        layout.addWidget(self.help_label3, 7, 0, 1, 2)
+        layout.addWidget(self.help_label4, 8, 0, 1, 2)
+        layout.addWidget(self.help_label5, 9, 0, 1, 2)
+        layout.addWidget(self.help_label6, 10, 0, 1, 2)
+        layout.addWidget(self.help_label7, 11, 0, 1, 2)
         # Add the help button and button box in the next row
-        layout.addWidget(self.help_button, 11, 0)
+        layout.addWidget(self.help_button, 12, 0)
 
-        layout.addWidget(button_box, 11, 1)
+        layout.addWidget(button_box, 12, 1)
 
         self.positionDialog()
 
@@ -1019,13 +1056,6 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         dynamic = self.analysisCombo.currentData() == "Dynamic"
         self.gravityCheck.setEnabled(dynamic)
         self.elementsBox.setVisible(dynamic and self.hasAnalysis())
-        # A dynamic run does not take motions yet (sec 4, D1 step 3)
-        self.form.groupBox_motions.setEnabled(not dynamic)
-        self.form.groupBox_motions.setToolTip(
-            translate("Assembly", "A dynamic analysis does not run motions yet")
-            if dynamic
-            else ""
-        )
 
     def onAnalysisChanged(self, index):
         if self.hasAnalysis():
@@ -1087,9 +1117,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         Simulation(self.simFeaturePy)
         ViewProviderSimulation(self.simFeaturePy.ViewObject)
 
-    def createMotionObject(self, motionType, joint, formula):
+    def createMotionObject(self, motionType, joint, formula, control=MotionControls[0]):
         motion = self.assembly.newObject("Assembly::MotionPython", "Motion")
         Motion(motion, motionType, joint, formula)
+        motion.Control = control
         ViewProviderMotion(motion.ViewObject)
 
         listOfMotions = self.simFeaturePy.Group
@@ -1195,7 +1226,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def addMotionClicked(self):
         dialog = MotionEditDialog(self.assembly)
         if dialog.exec_():
-            self.createMotionObject(dialog.motionType, dialog.joint, dialog.formula)
+            self.createMotionObject(
+                dialog.motionType, dialog.joint, dialog.formula, dialog.control
+            )
 
     # Taskbox keyboard event handler
     def eventFilter(self, watched, event):

@@ -94,7 +94,8 @@ bool same(const Driver& a, const Driver& b)
 {
     return a.id == b.id && a.source == b.source && a.frameI == b.frameI && a.frameJ == b.frameJ
         && a.kind == b.kind && a.rotation.text == b.rotation.text
-        && a.translation.text == b.translation.text;
+        && a.translation.text == b.translation.text && a.rotationControl == b.rotationControl
+        && a.translationControl == b.translationControl;
 }
 
 bool same(const ForceElement& a, const ForceElement& b)
@@ -172,6 +173,13 @@ Model Assembly::Solver::scaled(const Model& model, double length)
                 break;
         }
     }
+    for (auto& driver : out.drivers) {
+        // A distance, a speed or a force: as a length; a torque: as two
+        driver.translation = scaledFormula(driver.translation, length);
+        if (driver.rotationControl == MotorControl::Effort) {
+            driver.rotation = scaledFormula(driver.rotation, length * length);
+        }
+    }
     for (auto& limit : out.limits) {
         if (limit.kind == LimitKind::TranslationZ) {
             if (limit.min) {
@@ -198,6 +206,23 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             force.preload *= length;
         }
     }
+    return out;
+}
+
+Formula Assembly::Solver::scaledFormula(const Formula& formula, double factor)
+{
+    FormulaFunction function = formula.evaluator();
+    if (factor == 1.0 || !function) {
+        return formula;
+    }
+    Formula out = formula;
+    out.function = [function = std::move(function), factor](double time) {
+        FormulaValue value = function(time);
+        value.value *= factor;
+        value.rate *= factor;
+        value.acceleration *= factor;
+        return value;
+    };
     return out;
 }
 

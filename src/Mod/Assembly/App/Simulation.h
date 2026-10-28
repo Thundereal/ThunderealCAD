@@ -106,8 +106,14 @@ public:
     App::PropertyEnumeration MotionType;
     /// The motion as a formula of time, as '1.0*time'
     App::PropertyString Formula;
+    /// Not upstream (docs/AssemblyDynamics.md sec 5.2): what the formula
+    /// gives -- Position: the angle (rad) or the distance (mm); Speed: their
+    /// rate (rad/s, mm/s); Effort: the torque (N m) or the force (N). Speed
+    /// and Effort need a Dynamic study.
+    App::PropertyEnumeration Control;
 
     static const char* MotionTypeEnums[];
+    static const char* ControlEnums[];
 
     const char* getViewProviderName() const override
     {

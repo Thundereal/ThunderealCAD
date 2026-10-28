@@ -136,18 +136,59 @@ class TestDynamics(unittest.TestCase):
         for time, centre, _ in self.frames(rod, 1e-2):
             self.assertLess((centre - App.Vector(60, 5, 5)).Length, 1e-9, time)
 
-    def test_motion_refused(self):
-        """A motion is not run by a dynamic analysis yet: refused."""
-        self.pendulum()
+    def driven(self, control, formula, analysis="Dynamic", gravity=True):
+        """The pendulum's hinge driven by a motion; the rod's turn about it
+        (rad, unsigned) at each frame of 0.2 s by 0.01 s, or None if the run
+        was refused."""
+        rod = self.pendulum()
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
-        sim.AnalysisType = "Dynamic"
+        sim.AnalysisType = analysis
+        sim.GravityEnabled = gravity
+        sim.TimeEnd = 0.2
+        sim.TimeStepOutput = 0.01
         motion = sim.newObject("Assembly::Motion", "Motion")
         motion.Joint = [o for o in self.joints.Group if o.Name.startswith("Revolute")][0]
         motion.MotionType = "Angular"
-        motion.Formula = "time"
+        motion.Control = control
+        motion.Formula = formula
         self.doc.recompute()
-        self.assertNotEqual(self.assembly.generateSimulation(sim), 0)
+        if self.assembly.generateSimulation(sim) != 0:
+            return None
+        turns = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            turns.append((i * 0.01, rod.Placement.Rotation.Angle))
+        return turns
+
+    def test_motor_position(self):
+        """A Position motion holds the angle to its formula, against gravity."""
+        turns = self.driven("Position", "time")
+        self.assertIsNotNone(turns)
+        for time, angle in turns:
+            self.assertAlmostEqual(angle, time, delta=1e-6, msg=time)
+
+    def test_motor_speed(self):
+        """A Speed motion turns at its rate, against gravity."""
+        turns = self.driven("Speed", "2")
+        self.assertIsNotNone(turns)
+        for time, angle in turns:
+            self.assertAlmostEqual(angle, 2 * time, delta=1e-4, msg=time)
+
+    def test_motor_effort(self):
+        """An Effort motion's torque, 1 mN m, accelerates the rod by tau / I
+        about the hinge (no gravity): half of it times the time squared."""
+        turns = self.driven("Effort", "0.001", gravity=False)
+        self.assertIsNotNone(turns)
+        mass = 100 * 10 * 10 * 2.7e-6  # kg, the default aluminium
+        inertia = mass * ((100**2 + 10**2) / 12 + 50**2) * 1e-6  # kg m^2
+        accel = 0.001 / inertia
+        for time, angle in turns[1:]:
+            self.assertAlmostEqual(angle, 0.5 * accel * time * time, delta=1e-4 * accel, msg=time)
+
+    def test_kinematic_refuses_effort(self):
+        """Speed and Effort are a dynamic study's: a kinematic one refuses."""
+        self.assertIsNone(self.driven("Effort", "0.001", analysis="Kinematic"))
 
     # ------------------------------------------------------------ springs
 

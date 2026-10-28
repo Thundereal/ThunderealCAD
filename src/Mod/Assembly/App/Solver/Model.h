@@ -223,6 +223,16 @@ enum class DriverKind : std::uint8_t
 };
 
 // Prescribes the relative motion of frame J against frame I over time.
+// What a driver's formula gives (docs/AssemblyDynamics.md sec 6.1):
+// Position, the angle (rad) or the distance (mm); Speed, their rate; Effort,
+// the torque (mN mm) or the force (mN). Speed and Effort are a dynamic run's.
+enum class MotorControl : std::uint8_t
+{
+    Position,
+    Speed,
+    Effort
+};
+
 struct Driver
 {
     Id id = NoId;
@@ -232,6 +242,8 @@ struct Driver
     DriverKind kind {};
     Formula rotation;
     Formula translation;
+    MotorControl rotationControl = MotorControl::Position;
+    MotorControl translationControl = MotorControl::Position;
 };
 
 // Physical mass properties of a body (a bundle of parts), for dynamics only
@@ -363,11 +375,17 @@ AssemblyExport bool sameExceptDragWeights(const Model& a, const Model& b);
 
 /** The model with its lengths times `length` (docs/AssemblyDynamics.md sec
  * 8.1: Solver::SI::length takes it to SI): positions, frames, the joints'
- * offsets, distances, radii and pitches, the translation limits, and the
- * dynamics block's centres, inertias (times length^2) and gravity. Masses,
- * times and angles stay. Not scaled: the drivers' translation formulas and
- * the curves -- a run that scales refuses a model that has them.
+ * offsets, distances, radii and pitches, the translation limits, the
+ * drivers' formulas that give a length, a force (a force scales as a length
+ * when mass and time stay) or a torque (as a length squared), and the
+ * dynamics block's centres, inertias (times length^2), gravity and force
+ * elements. Masses, times and angles stay. Not scaled: the curves -- a run
+ * that scales refuses a model that has them.
  */
 AssemblyExport Model scaled(const Model& model, double length);
+
+/// The formula times a factor: its value, rate and acceleration; the text,
+/// the record, kept
+AssemblyExport Formula scaledFormula(const Formula& formula, double factor);
 
 }  // namespace Assembly::Solver

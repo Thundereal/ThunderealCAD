@@ -762,6 +762,20 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 
     create_mbdSimulationParameters(sim);
 
+    // Speed and Effort are a dynamic run's (docs/AssemblyDynamics.md sec 5.2)
+    if (simulationSpec && simulationSpec->analysis == Solver::Analysis::Kinematic) {
+        for (const auto& driver : solverModel->drivers) {
+            if (driver.rotationControl != Solver::MotorControl::Position
+                || driver.translationControl != Solver::MotorControl::Position) {
+                Base::Console().error(
+                    "Assembly: the motion of %s is a Speed or an Effort, which only a Dynamic "
+                    "study runs\n",
+                    solverModel->sourceName(driver.source).c_str());
+                ++badFormulas;
+            }
+        }
+    }
+
     if (badFormulas > 0) {
         // Each was reported by the build, with its position in the text.
         Base::Console().Error("Generation of simulation failed\n");
@@ -3636,12 +3650,14 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
         App::DocumentObject* joint = nullptr;
         std::string type;
         std::string formula;
+        Solver::MotorControl control = Solver::MotorControl::Position;
     };
     auto readMotion = [](App::DocumentObject* motion, MotionData& data) {
         if (auto* typed = freecad_cast<Motion*>(motion)) {
             data.joint = typed->Joint.getValue();
             data.type = typed->MotionType.getValueAsString();
             data.formula = typed->Formula.getValue();
+            data.control = static_cast<Solver::MotorControl>(typed->Control.getValue());
             return true;
         }
         auto* pJoint = dynamic_cast<App::PropertyXLinkSub*>(motion->getPropertyByName("Joint"));
@@ -3672,6 +3688,14 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
                 }
             }
         };
+
+    // An Effort's formula is in N m or N, as a user writes it; the model's
+    // is in internal units, mN mm and mN (docs/AssemblyDynamics.md sec 8.1)
+    auto internal = [](Solver::Formula& formula, const MotionData& data) {
+        if (data.control == Solver::MotorControl::Effort) {
+            formula = Solver::scaledFormula(formula, data.type == "Angular" ? 1e6 : 1e3);
+        }
+    };
 
     // Parsed here, once, in the workbench's grammar (Solver/Formula.h): a bad
     // formula is reported against its motion instead of failing in the solver.
@@ -3707,6 +3731,7 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
         replaceInitialValue(formula, joint, motionType);
         Solver::Formula parsed;
         setFormula(parsed, formula, motion);
+        internal(parsed, data);
 
         // check if there is a second motion as cylindrical can have both,
         // in which case the solver needs a general motion.
@@ -3725,6 +3750,7 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             replaceInitialValue(formula2, joint, motionType2);
             Solver::Formula parsed2;
             setFormula(parsed2, formula2, motion2);
+            internal(parsed2, data2);
 
             Solver::Driver ASMTmotion;
             ASMTmotion.source = solverModel->addSource(joint->getFullName());
@@ -3733,6 +3759,8 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             ASMTmotion.kind = Solver::DriverKind::Both;
             ASMTmotion.translation = motionType == "Angular" ? parsed2 : parsed;
             ASMTmotion.rotation = motionType == "Angular" ? parsed : parsed2;
+            ASMTmotion.translationControl = motionType == "Angular" ? data2.control : data.control;
+            ASMTmotion.rotationControl = motionType == "Angular" ? data.control : data2.control;
             solverModel->addDriver(ASMTmotion);
 
             done.push_back(motion2);
@@ -3745,6 +3773,7 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             ASMTmotion.frameJ = fullMarkerNameJ;
             ASMTmotion.kind = Solver::DriverKind::RotationZ;
             ASMTmotion.rotation = parsed;
+            ASMTmotion.rotationControl = data.control;
             solverModel->addDriver(ASMTmotion);
         }
         else if (motionType == "Linear") {
@@ -3754,6 +3783,7 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             ASMTmotion.frameJ = fullMarkerNameJ;
             ASMTmotion.kind = Solver::DriverKind::TranslationZ;
             ASMTmotion.translation = parsed;
+            ASMTmotion.translationControl = data.control;
             solverModel->addDriver(ASMTmotion);
         }
     }

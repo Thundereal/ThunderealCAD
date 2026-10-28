@@ -103,6 +103,7 @@ void Simulation::handleChangedPropertyName(Base::XMLReader& reader,
 PROPERTY_SOURCE(Assembly::Motion, App::DocumentObject)
 
 const char* Motion::MotionTypeEnums[] = {"Angular", "Linear", nullptr};
+const char* Motion::ControlEnums[] = {"Position", "Speed", "Effort", nullptr};
 
 Motion::Motion()
 {
@@ -112,6 +113,14 @@ Motion::Motion()
     MotionType.setEnums(MotionTypeEnums);
     ADD_PROPERTY_TYPE(Formula, (""), "Motion", App::Prop_None,
                       "This is the formula of the motion. For example '1.0*time'.");
+    ADD_PROPERTY_TYPE(Control,
+                      (0L),
+                      "Motion",
+                      App::Prop_None,
+                      "What the formula gives. Position: the angle (rad) or distance (mm). "
+                      "Speed: their rate (rad/s, mm/s).\nEffort: the torque (N m) or force "
+                      "(N). Speed and Effort need a Dynamic study.");
+    Control.setEnums(ControlEnums);
 }
 
 

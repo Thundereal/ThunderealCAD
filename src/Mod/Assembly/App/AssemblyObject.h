@@ -246,6 +246,21 @@ public:
     void clearUndo();
 
     void exportAsASMT(std::string fileName);
+    /** The model's dynamics block (docs/AssemblyDynamics.md sec 6.1): each
+     * body's mass properties, from its components' (massPropertiesOf()),
+     * summed in the assembly's frame and given in the body's. Of the model
+     * the last build made: objectPartMap says which components a body is.
+     */
+    void addDynamics(Solver::Model& model) const;
+    /// A model built, as for a solve, with its dynamics block: each body's
+    /// inertia, and the components that make it up
+    struct BodyInertia
+    {
+        Solver::Inertia inertia;
+        Base::Placement placement;  // the body's frame
+        std::vector<App::DocumentObject*> objects;
+    };
+    std::vector<BodyInertia> getBodyInertias();
     bool requiresRigidSolveForMove(const std::vector<App::DocumentObject*>& movedParts);
 
     bool validateNewPlacements();

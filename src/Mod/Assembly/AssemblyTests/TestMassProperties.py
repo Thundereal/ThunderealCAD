@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 import FreeCAD as App
+import JointObject
 import Materials
 import Part
 
@@ -254,3 +255,50 @@ class TestMassProperties(unittest.TestCase):
         after, _ = self.props()
         self.assertAlmostEqual(after["Cube"]["Mass"], 3.0, places=12)
         self.assertTupleAlmost(after["Cube"]["Inertia"], before["Cube"]["Inertia"])
+
+    def test_body_inertias(self):
+        """The solver's bodies weigh their components: S and R, a rigid
+        group on a slider, are one body, in the frame of R, the group's
+        representative -- turned, so its axes are not the assembly's."""
+        params = self.params
+        creation = params.GetBool("SolveInJointCreation", True)
+        params.SetBool("SolveInJointCreation", False)
+        try:
+            g = self.box("G", (10, 10, 10), (0, 0, 0))
+            s = self.box("S", (10, 10, 10), (0, 0, 10))
+            r = self.box("R", (4, 6, 8), (20, 0, 10))
+            r.Placement.Rotation = App.Rotation(App.Vector(0, 0, 1), 30)
+            joints = self.assembly.getGroup("Joints", True)
+            ground = joints.newObject("Assembly::GroundedJointPython", "GroundedG")
+            JointObject.GroundedJoint(ground, g)
+            self.doc.recompute()
+            self.assembly.makeJoint("Slider", (g, "Face6"), (s, "Face5"))
+            group = joints.newObject("Assembly::RigidGroupPython", "RigidGroupJoint")
+            JointObject.RigidGroupJoint(group, [s, r])
+            self.doc.recompute()
+            components, _ = self.props()
+            bodies = self.assembly.getBodyInertias()
+        finally:
+            params.SetBool("SolveInJointCreation", creation)
+        byObjects = {tuple(o.Name for o in b["Objects"]): b for b in bodies}
+        self.assertIn(("R", "S"), byObjects)
+        bundle = byObjects[("R", "S")]
+        # Both, together in the assembly's frame, then in the body's
+        together = [components["R"], components["S"]]
+        mass = sum(c["Mass"] for c in together)
+        self.assertAlmostEqual(bundle["Mass"], mass, places=12)
+        self.assertEqual(bundle["Origin"], "AssumedDensity")
+        frame = bundle["Placement"]
+        self.assertTrue(frame.isSame(r.Placement, 1e-9))
+        centre = sum((c["CenterOfMass"] * c["Mass"] for c in together), App.Vector()) * (1 / mass)
+        self.assertTupleAlmost(bundle["CenterOfMass"], tuple(frame.inverse().multVec(centre)))
+        # The trace and the moments about the centre do not depend on the
+        # axes: the sum of xx, yy and zz is the same in any frame
+        trace = 0.0
+        for c in together:
+            d = c["CenterOfMass"] - centre
+            trace += sum(c["Inertia"][:3]) + 2 * c["Mass"] * d.Length**2
+        self.assertAlmostEqual(sum(bundle["Inertia"][:3]), trace, places=9)
+        # G, grounded, a body of its own
+        self.assertIn(("G",), byObjects)
+        self.assertAlmostEqual(byObjects[("G",)]["Mass"], components["G"]["Mass"], places=12)

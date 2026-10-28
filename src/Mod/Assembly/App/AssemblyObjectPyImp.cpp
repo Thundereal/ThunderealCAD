@@ -32,6 +32,7 @@
 #include "Joint.h"
 
 #include <Base/GeometryPyCXX.h>
+#include <Base/PlacementPy.h>
 #include <Base/VectorPy.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>
 #include <App/DocumentObjectPy.h>
@@ -369,6 +370,46 @@ PyObject* AssemblyObjectPy::getDragCollisions(PyObject* args) const
                               Py::asObject(hit.second->getPyObject())));
     }
     return Py::new_reference_to(ret);
+}
+
+PyObject* AssemblyObjectPy::getBodyInertias(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto* assembly = getAssemblyObjectPtr();
+        const auto bodies = assembly->getBodyInertias();
+        Py::List list;
+        for (const auto& [inertia, placement, objects] : bodies) {
+            Py::Dict entry;
+            Py::List members;
+            for (auto* obj : objects) {
+                members.append(Py::asObject(obj->getPyObject()));
+            }
+            entry.setItem("Objects", members);
+            entry.setItem("Placement", Py::asObject(new Base::PlacementPy(placement)));
+            entry.setItem("Mass", Py::Float(inertia.mass));
+            entry.setItem("CenterOfMass", Py::Vector(inertia.com));
+            Py::Tuple values(6);
+            for (int i = 0; i < 6; ++i) {
+                values.setItem(i, Py::Float(inertia.inertia[i]));
+            }
+            entry.setItem("Inertia", values);
+            const char* origin = "Shape";
+            if (inertia.origin == Solver::Inertia::Origin::Override) {
+                origin = "Override";
+            }
+            else if (inertia.origin == Solver::Inertia::Origin::AssumedDensity) {
+                origin = "AssumedDensity";
+            }
+            entry.setItem("Origin", Py::String(origin));
+            list.append(entry);
+        }
+        return Py::new_reference_to(list);
+    }
+    PY_CATCH_OCC
 }
 
 PyObject* AssemblyObjectPy::getMassProperties(PyObject* args) const

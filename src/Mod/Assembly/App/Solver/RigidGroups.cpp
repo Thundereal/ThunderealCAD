@@ -668,6 +668,37 @@ private:
         reduced.limits = original.limits;
         reduced.drivers = original.drivers;
         reduced.curves = original.curves;
+        // A bundle weighs its members, theirs moved into the kept body's
+        // frame and added (docs/AssemblyDynamics.md sec 5.2); a body held to
+        // the ground moves nothing
+        if (original.dynamics) {
+            Dynamics dynamics;
+            dynamics.gravity = original.dynamics->gravity;
+            std::vector<std::optional<Inertia>> of(reduced.bodies.size());
+            for (const auto& inertia : original.dynamics->inertias) {
+                if (inertia.body >= n) {
+                    continue;
+                }
+                const BodyMap& m = map[inertia.body];
+                if (m.role == Role::Placed || m.reduced >= of.size()) {
+                    continue;
+                }
+                Inertia here = m.role == Role::Member ? moved(inertia, m.pose) : inertia;
+                here.body = m.reduced;
+                if (of[m.reduced]) {
+                    add(*of[m.reduced], here);
+                }
+                else {
+                    of[m.reduced] = here;
+                }
+            }
+            for (const auto& inertia : of) {
+                if (inertia) {
+                    dynamics.inertias.push_back(*inertia);
+                }
+            }
+            reduced.dynamics = std::move(dynamics);
+        }
     }
 
     // The poses of the smaller model's bodies as the poses of all bodies

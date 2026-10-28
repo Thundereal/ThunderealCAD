@@ -32,8 +32,21 @@ way:
   scaled to that mass. Full: nothing from the shape, the centre and the
   inertia turned into the assembly's frame (R I R^T). The last of several
   overrides of a component is used, with a warning.
-- Not yet: the neutral `Inertia`; the unit contract's conversions; the Mass
-  Properties table.
+- Built: the neutral `Inertia` (`Solver/Model.{h,cpp}`, sec 6.1 as
+  sketched): `Model::version` 2 and `Model::dynamics`, a `Dynamics` of
+  `gravity` and `inertias` for now, empty in every kinematic build;
+  `moved()` (an inertia in another frame, R I R^T) and `add()` (the
+  parallel-axis sum, the weakest origin kept); `sameExceptDragWeights`
+  compares the block. The builder, `AssemblyObject::addDynamics()`, sums
+  the components' mass properties per solver body (a rigid group's members
+  are one, by `objectPartMap`) and gives them in the body's frame; the
+  Fixed-joint bundling (`groupedRigidly`, SI sec 6.21) merges its members'
+  into the kept body's, and a body held to the ground drops its own. From
+  Python, `getBodyInertias()` builds the model as a solve does and returns
+  the records. Tests: `DynamicsModel.*` (gtest, a session that keeps the
+  model it is given checks the bundling) and `TestMassProperties.
+  test_body_inertias`.
+- Not yet: the unit contract's conversions; the Mass Properties table.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

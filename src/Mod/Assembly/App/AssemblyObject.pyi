@@ -260,6 +260,22 @@ class AssemblyObject(Part):
         """
         ...
 
+    def getBodyInertias(self) -> list:
+        """
+        The solver's bodies, as a solve builds them, and each one's mass
+        properties for dynamics (docs/AssemblyDynamics.md sec 6.1): its
+        components' (getMassProperties()) summed, a rigid group's members
+        into one body.
+
+        Returns: a list of dicts, one per body with mass: Objects (the
+        components it is), Placement (the body's frame, in the assembly),
+        Mass (kg), CenterOfMass (mm, in the body's frame), Inertia (xx, yy,
+        zz, xy, xz, yz, kg mm^2, about the centre of mass along the body's
+        axes), Origin ("Shape", "Override" or "AssumedDensity"). The
+        assembly is left as a solve leaves it before solving.
+        """
+        ...
+
     @constmethod
     def getCollisionMarkers(self) -> list:
         """

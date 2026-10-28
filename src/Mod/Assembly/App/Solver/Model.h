@@ -234,9 +234,46 @@ struct Driver
     Formula translation;
 };
 
+// Physical mass properties of a body (a bundle of parts), for dynamics only
+// (docs/AssemblyDynamics.md sec 6.1). Kinematic solves keep Body::mass, the
+// placeholder (audit defect 2), and never read this.
+struct Inertia
+{
+    Id body = NoId;
+    double mass = 0.0;   // kg
+    Base::Vector3d com;  // mm, in the body's frame
+    // kg mm^2, about com, along the body's axes: the tensor's xx yy zz xy xz
+    // yz (xy is minus the integral of x y dm)
+    std::array<double, 6> inertia {};
+    enum class Origin : std::uint8_t
+    {
+        Shape,          // from the shape and its material's density
+        Override,       // given (a mass override)
+        AssumedDensity  // from the shape, at the default material's density
+    } origin {};
+};
+
+// The inertia in another frame: toOther takes the points of the record's
+// frame into the other's (its placement there). Mass and origin kept.
+AssemblyExport Inertia moved(const Inertia& inertia, const Base::Placement& toOther);
+// b added to a, both in the same frame: the masses summed, the inertias
+// moved to the common centre of mass by the parallel-axis theorem. The
+// origin: AssumedDensity if either is, else Override if either is.
+AssemblyExport void add(Inertia& a, const Inertia& b);
+
+// What a dynamic analysis adds to the model (sec 6.1); a kinematic build has
+// none. Grows with phase D1: forces, tables, contact, stops, initial
+// velocities, sensors.
+struct Dynamics
+{
+    Base::Vector3d gravity;         // mm/s^2, in the assembly's frame; zero: off
+    std::vector<Inertia> inertias;  // one per body that has mass, by Inertia::body
+};
+
 struct Model
 {
-    std::uint32_t version = 1;
+    // 2: the dynamics block (sec 6.1)
+    std::uint32_t version = 2;
     std::vector<std::string> sources;  // names, for diagnostics, dumps and native formats
     std::vector<Body> bodies;  // in insertion order (sec 6.2: order matters)
     std::vector<Frame> frames;  // in creation order
@@ -245,6 +282,7 @@ struct Model
     std::vector<Limit> limits;
     std::vector<Driver> drivers;
     std::vector<Curve> curves;
+    std::optional<Dynamics> dynamics;  // empty for every kinematic build
 
     Id addSource(std::string name)
     {

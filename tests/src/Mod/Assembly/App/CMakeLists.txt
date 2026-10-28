@@ -2,6 +2,7 @@ target_sources(
     Assembly_tests_run
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/AssemblyObject.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/DynamicsModel.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/FormulaEvaluator.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/SolverRegistry.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/OndselAdapter.cpp

@@ -69,6 +69,7 @@
 #include "AssemblyGroup.h"
 #include "Grounding.h"
 #include "Joint.h"
+#include "MassProperties.h"
 #include "Physics.h"
 #include "Simulation.h"
 #include "Views.h"
@@ -1483,6 +1484,73 @@ void AssemblyObject::undoSolve()
 void AssemblyObject::clearUndo()
 {
     previousPositions.clear();
+}
+
+void AssemblyObject::addDynamics(Solver::Model& model) const
+{
+    std::map<Solver::Id, std::vector<MassProperties>> byBody;
+    for (auto& props : massPropertiesOf(this)) {
+        if (props.mass <= 0.0 || !props.obj) {
+            continue;
+        }
+        auto it = objectPartMap.find(props.obj);
+        if (it == objectPartMap.end() || it->second.body >= model.bodies.size()) {
+            continue;
+        }
+        byBody[it->second.body].push_back(std::move(props));
+    }
+    Solver::Dynamics dynamics;
+    for (const auto& [body, parts] : byBody) {
+        const MassProperties total = totalOf(parts);
+        Solver::Inertia inertia;
+        inertia.body = body;
+        inertia.mass = total.mass;
+        inertia.com = total.com;
+        inertia.inertia = total.inertia;
+        switch (total.origin) {
+            case MassProperties::Origin::Override:
+                inertia.origin = Solver::Inertia::Origin::Override;
+                break;
+            case MassProperties::Origin::Assumed:
+                inertia.origin = Solver::Inertia::Origin::AssumedDensity;
+                break;
+            default:
+                inertia.origin = Solver::Inertia::Origin::Shape;
+                break;
+        }
+        // From the assembly's frame into the body's
+        dynamics.inertias.push_back(Solver::moved(inertia, model.bodies[body].placement.inverse()));
+    }
+    model.dynamics = std::move(dynamics);
+}
+
+std::vector<AssemblyObject::BodyInertia> AssemblyObject::getBodyInertias()
+{
+    // Built as a solve builds it, as exportAsASMT does
+    solverModel = makeMbdAssembly();
+    objectPartMap.clear();
+    rebuildRigidClusters();
+    fixGroundedParts();
+    std::vector<App::DocumentObject*> joints = getJoints();
+    jointParts(joints);
+    makeMbdModel();
+    addDynamics(*solverModel);
+
+    std::vector<BodyInertia> result;
+    for (const auto& inertia : solverModel->dynamics->inertias) {
+        std::vector<App::DocumentObject*> objects;
+        for (const auto& [obj, data] : objectPartMap) {
+            if (data.body == inertia.body) {
+                objects.push_back(obj);
+            }
+        }
+        std::sort(objects.begin(), objects.end(), [](auto* a, auto* b) {
+            return std::string(a->getNameInDocument()) < b->getNameInDocument();
+        });
+        result.push_back(
+            {inertia, solverModel->bodies[inertia.body].placement, std::move(objects)});
+    }
+    return result;
 }
 
 void AssemblyObject::exportAsASMT(std::string fileName)

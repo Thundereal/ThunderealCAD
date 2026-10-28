@@ -97,6 +97,12 @@ bool same(const Driver& a, const Driver& b)
         && a.translation.text == b.translation.text;
 }
 
+bool same(const Inertia& a, const Inertia& b)
+{
+    return a.body == b.body && a.mass == b.mass && same(a.com, b.com) && a.inertia == b.inertia
+        && a.origin == b.origin;
+}
+
 template<typename T>
 bool sameRecords(const std::vector<T>& a, const std::vector<T>& b)
 {
@@ -115,8 +121,80 @@ bool sameRecords(const std::vector<T>& a, const std::vector<T>& b)
 
 bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
 {
+    if (a.dynamics.has_value() != b.dynamics.has_value()
+        || (a.dynamics
+            && (!same(a.dynamics->gravity, b.dynamics->gravity)
+                || !sameRecords(a.dynamics->inertias, b.dynamics->inertias)))) {
+        return false;
+    }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)
         && sameRecords(a.frames, b.frames) && sameRecords(a.joints, b.joints)
         && sameRecords(a.grounds, b.grounds) && sameRecords(a.limits, b.limits)
         && sameRecords(a.drivers, b.drivers) && sameRecords(a.curves, b.curves);
+}
+
+Inertia Assembly::Solver::moved(const Inertia& inertia, const Base::Placement& toOther)
+{
+    Inertia out = inertia;
+    toOther.multVec(inertia.com, out.com);
+    // R I R^T, R's columns the record's axes in the other frame
+    const auto& i = inertia.inertia;
+    const double m[3][3] = {{i[0], i[3], i[4]}, {i[3], i[1], i[5]}, {i[4], i[5], i[2]}};
+    double r[3][3];
+    for (int c = 0; c < 3; ++c) {
+        const Base::Vector3d axis = toOther.getRotation().multVec(
+            Base::Vector3d(c == 0 ? 1.0 : 0.0, c == 1 ? 1.0 : 0.0, c == 2 ? 1.0 : 0.0));
+        r[0][c] = axis.x;
+        r[1][c] = axis.y;
+        r[2][c] = axis.z;
+    }
+    double t[3][3] {};
+    for (int a = 0; a < 3; ++a) {
+        for (int b = 0; b < 3; ++b) {
+            for (int k = 0; k < 3; ++k) {
+                for (int l = 0; l < 3; ++l) {
+                    t[a][b] += r[a][k] * m[k][l] * r[b][l];
+                }
+            }
+        }
+    }
+    out.inertia = {t[0][0], t[1][1], t[2][2], t[0][1], t[0][2], t[1][2]};
+    return out;
+}
+
+void Assembly::Solver::add(Inertia& a, const Inertia& b)
+{
+    if (b.origin == Inertia::Origin::AssumedDensity
+        || (b.origin == Inertia::Origin::Override && a.origin == Inertia::Origin::Shape)) {
+        a.origin = b.origin;
+    }
+    if (b.mass <= 0.0) {
+        return;
+    }
+    if (a.mass <= 0.0) {
+        a.mass = b.mass;
+        a.com = b.com;
+        a.inertia = b.inertia;
+        a.origin = b.origin;
+        return;
+    }
+    const double total = a.mass + b.mass;
+    const Base::Vector3d centre = (a.com * a.mass + b.com * b.mass) / total;
+    auto shifted = [&](const Inertia& own) {
+        const Base::Vector3d d = own.com - centre;
+        const double m = own.mass;
+        return std::array<double, 6> {own.inertia[0] + m * (d.y * d.y + d.z * d.z),
+                                      own.inertia[1] + m * (d.x * d.x + d.z * d.z),
+                                      own.inertia[2] + m * (d.x * d.x + d.y * d.y),
+                                      own.inertia[3] - m * d.x * d.y,
+                                      own.inertia[4] - m * d.x * d.z,
+                                      own.inertia[5] - m * d.y * d.z};
+    };
+    const auto ia = shifted(a);
+    const auto ib = shifted(b);
+    for (std::size_t k = 0; k < a.inertia.size(); ++k) {
+        a.inertia[k] = ia[k] + ib[k];
+    }
+    a.mass = total;
+    a.com = centre;
 }

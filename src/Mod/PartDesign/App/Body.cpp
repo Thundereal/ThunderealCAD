@@ -247,6 +247,8 @@ bool Body::isAllowed(const Base::Type &type)
             type.isDerivedFrom(Part::Part2DObject::getClassTypeId()) ||
             // the 3D sketch (docs/Sketch3D.md), by name: PartDesign does not link Sketcher
             type.isDerivedFrom(Base::Type::fromName("Sketcher::Sketch3DObject")) ||
+            // what other modules register: the Surface workbench's features
+            Part::BodyBase::isTypeAllowed(type) ||
             type.isDerivedFrom(PartDesign::ShapeBinder::getClassTypeId()) ||
             type.isDerivedFrom(Part::SubShapeBinder::getClassTypeId()) ||
             type.isDerivedFrom(PartDesign::AuxGroup::getClassTypeId()) ||

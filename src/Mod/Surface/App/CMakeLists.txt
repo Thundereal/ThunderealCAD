@@ -80,6 +80,8 @@ SET(Surface_SRCS
   FeatureFilling.h
   FeatureNetwork.cpp
   FeatureNetwork.h
+  FeaturePipeShell.cpp
+  FeaturePipeShell.h
   FeatureSections.cpp
   FeatureSections.h
   FeatureSewing.cpp

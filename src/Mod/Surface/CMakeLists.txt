@@ -16,6 +16,7 @@ set(Surface_TestScripts
     SurfaceTests/TestEdgeConditions.py
     SurfaceTests/TestExtend.py
     SurfaceTests/TestNetwork.py
+    SurfaceTests/TestPipeShell.py
     SurfaceTests/TestSectionsGuides.py
     SurfaceTests/TestSurfaceFeatures.py
     SurfaceTests/TestTrim.py

@@ -36,6 +36,7 @@
 #include "FeatureFilling.h"
 #include "FeatureGeomFillSurface.h"
 #include "FeatureNetwork.h"
+#include "FeaturePipeShell.h"
 #include "FeatureSections.h"
 #include "FeatureSewing.h"
 #include "FeatureTrim.h"
@@ -98,6 +99,7 @@ PyMOD_INIT_FUNC(Surface)
     Surface::Trim              ::init();
     Surface::Untrim            ::init();
     Surface::TwoRailSweep      ::init();
+    Surface::PipeShell         ::init();
     // clang-format on
 
     PyMOD_Return(mod);

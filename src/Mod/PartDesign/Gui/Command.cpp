@@ -58,6 +58,7 @@
 #include <Mod/PartDesign/App/FeatureBoolean.h>
 #include <Mod/PartDesign/App/FeatureGroove.h>
 #include <Mod/PartDesign/App/FeatureSplit.h>
+#include <Mod/PartDesign/App/FeatureThicken.h>
 #include <Mod/PartDesign/App/FeatureRevolution.h>
 #include <Mod/PartDesign/App/FeaturePipe.h>
 
@@ -3177,6 +3178,72 @@ bool CmdPartDesignSplit::isActive(void)
 // Initialization
 //===========================================================================
 
+//===========================================================================
+// PartDesign_Thicken
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignThicken)
+
+CmdPartDesignThicken::CmdPartDesignThicken()
+    : Command("PartDesign_Thicken")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Thicken");
+    sToolTipText = QT_TR_NOOP("Makes the selected faces -- a surface's, or a solid's -- into a\n"
+                              "solid of a thickness, added to the body");
+    sWhatsThis = "PartDesign_Thicken";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_Thicken";
+}
+
+void CmdPartDesignThicken::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = PartDesignGui::getBody(/*messageIfNot*/ true);
+    if (!body) {
+        return;
+    }
+    auto selection = Gui::Selection().getSelectionT("*", Gui::ResolveMode::NoResolve);
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Thicken"));
+    // faces, or objects given whole; outside the body bound into it, as a
+    // sketch's external geometry is
+    std::ostringstream links;
+    for (const auto& sel : selection) {
+        auto obj = sel.getSubObject();
+        if (!obj || obj == body) {
+            continue;
+        }
+        const std::string element = sel.getOldElementName();
+        if (!element.empty() && !boost::starts_with(element, "Face")) {
+            continue;
+        }
+        App::SubObjectT link = PartDesignGui::importExternalObject(sel, /*report*/ true);
+        App::DocumentObject* linked = link.getSubObject();
+        if (!linked) {
+            continue;
+        }
+        links << "(" << getObjectCmd(linked) << ", '" << link.getOldElementName() << "'), ";
+    }
+    std::string name = getUniqueObjectName("Thicken", body);
+    Gui::cmdAppObject(body,
+                      std::ostringstream() << "newObject('PartDesign::Thicken','" << name << "')");
+    auto feat = body->getDocument()->getObject(name.c_str());
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    if (!links.str().empty()) {
+        Gui::cmdAppObject(feat, std::ostringstream() << "Faces = [" << links.str() << "]");
+    }
+    finishFeature(this, feat);
+}
+
+bool CmdPartDesignThicken::isActive()
+{
+    return hasActiveDocument();
+}
+
 void CreatePartDesignCommands()
 {
     Gui::CommandManager &rcCmdMgr = Gui::Application::Instance->commandManager();
@@ -3224,4 +3291,5 @@ void CreatePartDesignCommands()
 
     rcCmdMgr.addCommand(new CmdPartDesignBoolean());
     rcCmdMgr.addCommand(new CmdPartDesignSplit());
+    rcCmdMgr.addCommand(new CmdPartDesignThicken());
 }

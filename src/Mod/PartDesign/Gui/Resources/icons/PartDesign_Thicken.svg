@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>PartDesign_Thicken</title>
+  <!-- a curved surface, and the slab it is made into -->
+  <path d="M6 40 C 18 22, 46 22, 58 40 L 58 50 C 46 32, 18 32, 6 50 Z"
+        fill="#73d216" stroke="#172a04" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M6 40 C 18 22, 46 22, 58 40" fill="none" stroke="#fce94f" stroke-width="3"/>
+  <path d="M32 8 L 32 22" stroke="#204a87" stroke-width="3"/>
+  <path d="M26 16 L 32 24 L 38 16 Z" fill="#3465a4" stroke="#204a87" stroke-width="1.5"
+        stroke-linejoin="round"/>
+</svg>

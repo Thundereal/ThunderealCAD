@@ -176,6 +176,11 @@ fc_add_gui_test(GuiSurfaceInBody_tests_run surface-in-body.py
 # binder in it -- by its commands and every panel.
 fc_add_gui_test(GuiSurfaceImport_tests_run surface-import.py
                 --timeout 180)
+# PartDesign Thicken's command and panel: the selected face made a solid,
+# the panel's fields the feature's, a face outside the body bound in, Remove,
+# OK and Cancel.
+fc_add_gui_test(GuiPDThicken_tests_run pd-thicken.py
+                --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
 fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py

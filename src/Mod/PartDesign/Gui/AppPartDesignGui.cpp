@@ -66,6 +66,7 @@
 #include "ViewProviderSolidBody.h"
 #include "ViewProviderSplit.h"
 #include "ViewProviderThickness.h"
+#include "ViewProviderThicken.h"
 #include "ViewProviderDefeaturing.h"
 #include "ViewProviderWrap.h"
 
@@ -148,6 +149,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderFillet        ::init();
     PartDesignGui::ViewProviderDraft         ::init();
     PartDesignGui::ViewProviderThickness     ::init();
+    PartDesignGui::ViewProviderThicken       ::init();
     PartDesignGui::ViewProviderDefeaturing   ::init();
     PartDesignGui::ViewProviderTransformed   ::init();
     PartDesignGui::ViewProviderMirrored      ::init();

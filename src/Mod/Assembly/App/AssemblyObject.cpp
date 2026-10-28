@@ -297,6 +297,30 @@ AssemblyObject::AssemblyObject()
     );
     // As Assembly3's: the one change a partially loaded document takes
     Freeze.setStatus(App::Property::PartialTrigger, true);
+    ADD_PROPERTY_TYPE(InterferenceExcluded,
+                      (nullptr),
+                      "Interference",
+                      App::Prop_NoRecompute,
+                      "Components left out of the interference check and of collision while\n"
+                      "dragging, or containers or groups of them (a fasteners group).");
+    ADD_PROPERTY_TYPE(InterferenceIgnoreHidden,
+                      (false),
+                      "Interference",
+                      App::Prop_NoRecompute,
+                      "Leave the hidden components out of the interference check and of\n"
+                      "collision while dragging.");
+    ADD_PROPERTY_TYPE(InterferenceIgnoredPairs,
+                      (),
+                      "Interference",
+                      App::Prop_NoRecompute,
+                      "Pairs never reported, \"Name1|Name2\" by the objects' names: a\n"
+                      "component's, or a container's or group's it is in.");
+    ADD_PROPERTY_TYPE(InterferenceClearances,
+                      (),
+                      "Interference",
+                      App::Prop_NoRecompute,
+                      "Clearances pairs keep, \"Name1|Name2\" to mm: a pair closer than its\n"
+                      "clearance is reported, and stops a drag as a collision does.");
 
     // The workbench's Python decides "is this container a real assembly?" by
     // testing Type == "Assembly" (six sites in JointObject.py). Upstream stamps
@@ -981,13 +1005,18 @@ void AssemblyObject::addCollisionMarker(App::DocumentObject* first,
     signalCollisionMarkers();
 }
 
-void AssemblyObject::clearCollisionMarkers()
+void AssemblyObject::clearCollisionMarkers(bool checksOnly)
 {
-    if (collisionMarkers.empty()) {
-        return;
+    const auto count = collisionMarkers.size();
+    collisionMarkers.erase(std::remove_if(collisionMarkers.begin(),
+                                          collisionMarkers.end(),
+                                          [&](const CollisionMarker& marker) {
+                                              return !checksOnly || marker.watch == 0;
+                                          }),
+                           collisionMarkers.end());
+    if (collisionMarkers.size() != count) {
+        signalCollisionMarkers();
     }
-    collisionMarkers.clear();
-    signalCollisionMarkers();
 }
 
 double AssemblyObject::stopAtDragCollision(const std::function<bool(double)>& poseAt)

@@ -74,6 +74,9 @@ struct InterferenceOptions
     // component where the frame puts it; the document is not moved. Frames
     // past the last are skipped.
     std::vector<std::size_t> frames;
+    // Apply the assembly's interference rules (its Interference properties:
+    // the components left out, the pairs ignored, the clearances pairs keep)
+    bool rules = true;
 };
 
 struct InterferenceResult
@@ -81,7 +84,10 @@ struct InterferenceResult
     enum class Kind
     {
         Interference,
-        Contact
+        Contact,
+        // Closer than the clearance the assembly's rules ask of the pair, and
+        // not overlapping
+        Clearance
     };
     App::DocumentObject* first = nullptr;
     App::DocumentObject* second = nullptr;
@@ -95,6 +101,8 @@ struct InterferenceResult
     // The tolerance the pair was judged with (Fast: at least twice the
     // deflection)
     double tolerance = 0.0;
+    // The clearance the rules ask of the pair (mm), 0 for none
+    double clearance = 0.0;
     // Exact interference: the solid in common, in the assembly's coordinates
     // (at the frame, over a simulation's frames)
     Part::TopoShape overlap;
@@ -109,7 +117,8 @@ struct InterferenceResult
     //   other, of the common part of their boxes. Exact: the centre of mass of
     //   the solid in common, the direction from the centre of the box of the
     //   one hit to the other's.
-    // - Contact: the middle of the vertices of each mesh within the tolerance
+    // - Contact, Clearance (within the clearance): the middle of the vertices
+    //   of each mesh within the tolerance
     //   of the other's triangles, the direction the normal of the triangles of
     //   the one hit that lie face to face with the other's. Exact meshes the
     //   two for it (ContactGeometryCache), the tolerance at least twice the

@@ -161,6 +161,48 @@ class TestInterference(unittest.TestCase):
                 )
                 self.assembly.clearCollisionMarkers()
 
+    def test_rules(self):
+        """The assembly's rules: components left out (by themselves, by a group
+        they are in, hidden), pairs ignored, either way round, and a clearance
+        kept, in both modes; rules=False checks without them."""
+        a = self.assembly
+        group = a.newObject("App::DocumentObjectGroup", "Fasteners")
+        group.addObject(self.Bar1)
+        self.doc.recompute()
+        a.InterferenceExcluded = [self.B, group]
+        a.InterferenceIgnoredPairs = ["Strip2|Strip1"]
+        self.Twin2.Visibility = False
+        a.InterferenceIgnoreHidden = True
+        a.InterferenceClearances = {"Gap1|Gap2": "0.1", "Inner|Outer": "5"}
+        left = [("Big", "Small"), ("Inner", "Outer")]
+        for mode in ("Exact", "Fast"):
+            with self.subTest(mode=mode):
+                results = a.findInterferences(mode=mode, tolerance=0.01, contacts=True)
+                self.assertEqual(self.pairs(results, "Interference"), left)
+                # B left out: no contact of B and C; A and C still touch
+                self.assertEqual(self.pairs(results, "Contact"), [("A", "C"), ("Pin", "Plate")])
+                # Gap1 and Gap2, 0.05 mm apart, keep 0.1: too close
+                (gap,) = [r for r in results if r["Kind"] == "Clearance"]
+                self.assertEqual(
+                    sorted((gap["Object1"].Name, gap["Object2"].Name)), ["Gap1", "Gap2"]
+                )
+                self.assertEqual(gap["Clearance"], 0.1)
+                if mode == "Exact":
+                    self.assertAlmostEqual(gap["Distance"], 0.05, places=6)
+                self.assertIsNotNone(gap["Centre"])
+                # A clearance asked of a pair that interferes leaves it one
+                (inner,) = [r for r in results if r["Object1"].Name in ("Inner", "Outer")]
+                self.assertEqual(inner["Kind"], "Interference")
+
+                # Without the rules: all there
+                results = a.findInterferences(mode=mode, tolerance=0.01, rules=False)
+                self.assertEqual(self.pairs(results, "Interference"), self.INTERFERING)
+
+        # A clearance smaller than the gap: nothing to report
+        a.InterferenceClearances = {"Gap2|Gap1": "0.01"}
+        results = a.findInterferences(mode="Exact", tolerance=0.01)
+        self.assertEqual(self.pairs(results, "Clearance"), [])
+
     def test_tolerance(self):
         """A gap within the tolerance is a contact, beyond it nothing."""
         for mode in ("Exact", "Fast"):
@@ -455,6 +497,26 @@ class TestDragCollision(unittest.TestCase):
 
             self.assembly.clearCollisionMarkers()
             self.assertEqual(self.assembly.getCollisionMarkers(), [])
+        finally:
+            App.closeDocument(self.doc.Name)
+
+    def test_clearance(self):
+        """A pair's clearance is kept while dragging: S stops 2 mm below the
+        plate's underside, as it would stop against it."""
+        self.params.SetInt("DragCollision", 2)
+        self.build("Ondsel")
+        try:
+            self.assembly.InterferenceClearances = {"S|Plate": "2"}
+            steps = self.drag([12, 14])
+            self.assertEqual(steps[0], (True, 12.0, []))
+            ok, z, pairs = steps[1]
+            self.assertFalse(ok)
+            self.assertEqual(pairs, [("Plate", "S")])
+            # S's top 2 below the plate's underside at 25: S at 13, within the
+            # last halving (2 mm / 256) below it
+            self.assertGreaterEqual(z, 13.0 - 2.0 / 256 - 1e-6)
+            self.assertLessEqual(z, 13.0 + 1e-6)
+            self.assembly.postDrag()
         finally:
             App.closeDocument(self.doc.Name)
 

@@ -144,8 +144,42 @@ assembly of the document. They are not saved. Where
 
 From Python: `getCollisionMarkers()` (dicts of `First`, `Second`, `Centre`,
 `Direction`), `addCollisionMarker(first, second, centre, direction, contact=False)`,
-`clearCollisionMarkers()`; `findInterferences()` gives each result its
+`clearCollisionMarkers(checksOnly=False)`; `findInterferences()` gives each result its
 `Centre` and `Direction`.
+
+### Rules
+
+The assembly's **Interference** properties, which the check and collision
+while dragging both follow (`Rules` in `App/Interference.cpp`;
+`findInterferences(rules=False)` checks without them):
+
+- `InterferenceExcluded`: components left out, or containers or plain
+  groups of them -- a sub-assembly, a fasteners group -- whose components
+  are then all left out.
+- `InterferenceIgnoreHidden`: the hidden components left out (a component,
+  or a container or group it is in, with its Visibility off).
+- `InterferenceIgnoredPairs`: pairs never reported, `"Name1|Name2"` either
+  way round, by the objects' names: a component's, or a container's or
+  group's it is in (names, not links: removing a linked object from a list
+  would shift the pairs after it; a pair naming a deleted object matches
+  nothing).
+- `InterferenceClearances`: `"Name1|Name2"` to mm. A pair that does not
+  overlap but comes closer than its clearance is reported, as `Clearance`
+  (Exact: its distance; Fast: its meshes within the clearance of each
+  other); while dragging it is a collision, highlighted or stopped at, so a
+  part stops the clearance away from the other. The largest of the
+  clearances that name a pair.
+
+In Check Interference, a result's context menu adds them -- Ignore This
+Pair, Leave Out (either component), Require Clearance -- each an undoable
+change of the assembly that runs the check again; "Leave out hidden
+components" is the hidden one's box, and Clear Rules empties them all. Undo
+changes the properties, but not the open panel until it checks again. Each
+run replaces the markers of the last; a drag's stay until cleared.
+
+A component in a plain group in the assembly was collected twice
+(`getAssemblyComponents()`: the assembly's Group has it too) and found
+interfering with itself; it is collected once now.
 
 ## What is checked
 
@@ -322,8 +356,6 @@ at a point.
 
 ## Not done
 
-- Exclusions (hidden components, a fasteners group) and clearance thresholds
-  per pair.
 - Faces in contact highlighted, the touching area measured.
 - The work in a worker or another process (`docs/ComputeBoundaries.md`), and
   the pairs of a frame in parallel.

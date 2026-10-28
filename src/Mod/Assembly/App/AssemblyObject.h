@@ -97,6 +97,18 @@ public:
      * document linking to it restores that shape and its elements only
      */
     App::PropertyBool Freeze;
+    /** The interference check's and collision while dragging's rules
+     * (docs/AssemblyInterference.md): the components left out -- or
+     * containers or groups of them, as a fasteners group -- and the hidden
+     * ones, if asked; the pairs never reported, each "Name1|Name2" by the
+     * objects' names (a component's, or a container's or group's it is in);
+     * and the clearances pairs keep, "Name1|Name2" to mm, a pair closer than
+     * its clearance being reported as such
+     */
+    App::PropertyLinkListHidden InterferenceExcluded;
+    App::PropertyBool InterferenceIgnoreHidden;
+    App::PropertyStringList InterferenceIgnoredPairs;
+    App::PropertyMap InterferenceClearances;
 
     /// returns the type name of the ViewProvider
     const char* getViewProviderName() const override
@@ -198,7 +210,9 @@ public:
     {
         return collisionMarkers;
     }
-    void clearCollisionMarkers();
+    // All of them, or with checks only, those of no drag (the interference
+    // check's)
+    void clearCollisionMarkers(bool checksOnly = false);
     // A marker of a collision found elsewhere (the interference check's), or
     // of a contact, unless the pair has one there already
     void addCollisionMarker(App::DocumentObject* first,

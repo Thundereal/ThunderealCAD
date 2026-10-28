@@ -52,8 +52,10 @@
 #include <gp_Mat.hxx>
 #include <gp_Trsf.hxx>
 
+#include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/GeoFeatureGroupExtension.h>
+#include <App/GroupExtension.h>
 #include <Base/Console.h>
 #include <Base/Sequencer.h>
 #include <Mod/Part/App/PartFeature.h>
@@ -116,6 +118,9 @@ struct Instance
 struct Component
 {
     App::DocumentObject* obj = nullptr;
+    // What the assembly's rules may name it by: its name, its containers' up
+    // to the assembly, and those of the groups each is in
+    std::vector<std::string> names;
     std::vector<Instance> instances;
     TopoDS_Compound compound;  // Exact: the solids together, where checked
     Bnd_Box baseBox;           // now
@@ -163,6 +168,92 @@ std::string pathFrom(const AssemblyObject* assembly, App::DocumentObject* obj)
         path += '.';
     }
     return path;
+}
+
+// The assembly's interference rules (AssemblyObject's Interference
+// properties), the pairs by the names of their two sides
+struct Rules
+{
+    std::set<std::string> excluded;
+    bool ignoreHidden = false;
+    std::vector<std::pair<std::string, std::string>> ignored;
+    std::vector<std::tuple<std::string, std::string, double>> clearances;
+
+    // None without an assembly
+    explicit Rules(const AssemblyObject* assembly)
+    {
+        if (!assembly) {
+            return;
+        }
+        for (auto* obj : assembly->InterferenceExcluded.getValues()) {
+            if (obj && obj->isAttachedToDocument()) {
+                excluded.insert(obj->getNameInDocument());
+            }
+        }
+        ignoreHidden = assembly->InterferenceIgnoreHidden.getValue();
+        auto split = [](const std::string& pair, std::string& first, std::string& second) {
+            const auto bar = pair.find('|');
+            if (bar == std::string::npos) {
+                return false;
+            }
+            first = pair.substr(0, bar);
+            second = pair.substr(bar + 1);
+            return !first.empty() && !second.empty();
+        };
+        std::string first;
+        std::string second;
+        for (const auto& pair : assembly->InterferenceIgnoredPairs.getValues()) {
+            if (split(pair, first, second)) {
+                ignored.emplace_back(first, second);
+            }
+        }
+        for (const auto& [pair, value] : assembly->InterferenceClearances.getValues()) {
+            double gap = 0.0;
+            try {
+                gap = std::stod(value);
+            }
+            catch (const std::exception&) {
+                continue;
+            }
+            if (gap > 0.0 && split(pair, first, second)) {
+                clearances.emplace_back(first, second, gap);
+            }
+        }
+    }
+
+    bool empty() const
+    {
+        return excluded.empty() && !ignoreHidden && ignored.empty() && clearances.empty();
+    }
+};
+
+// The names a component goes by in the rules (Component::names), and whether
+// it or one of those is hidden
+std::vector<std::string>
+namesOf(const AssemblyObject* assembly, App::DocumentObject* obj, bool& hidden)
+{
+    std::vector<std::string> names;
+    hidden = false;
+    auto add = [&](App::DocumentObject* named) {
+        names.emplace_back(named->getNameInDocument());
+        hidden = hidden || !named->Visibility.getValue();
+    };
+    for (auto* step = obj; step && step != assembly;
+         step = App::GeoFeatureGroupExtension::getGroupOfObject(step)) {
+        add(step);
+        // The plain groups it is in (a fasteners group), up to a container
+        for (auto* group = App::GroupExtension::getGroupOfObject(step); group && group != assembly
+             && !group->hasExtension(App::GeoFeatureGroupExtension::getExtensionClassTypeId());
+             group = App::GroupExtension::getGroupOfObject(group)) {
+            add(group);
+        }
+    }
+    return names;
+}
+
+bool named(const std::vector<std::string>& names, const std::string& name)
+{
+    return std::find(names.begin(), names.end(), name) != names.end();
 }
 
 double volumeOf(const TopoDS_Shape& shape)
@@ -724,48 +815,66 @@ bool faceToFace(const Vec (&p)[3], const Vec (&t)[3], double tol)
 // face to face with one of the other's, turned to agree and then to point out
 // of `hit` (a step along it leaves it; else the way from hit's box to the
 // other's). With no vertex near (an edge across a face), the middle of the
-// common part of the boxes.
-void contactOf(Component& other, Component& hit, double tol, InterferenceResult& result)
+// common part of the boxes. The faces of each lying face to face into
+// otherFaces and hitFaces.
+void contactOf(Component& other,
+               Component& hit,
+               double tol,
+               InterferenceResult& result,
+               std::vector<std::pair<int, int>>& otherFaces,
+               std::vector<std::pair<int, int>>& hitFaces)
 {
+    std::set<std::pair<int, int>> facingOther;
+    std::set<std::pair<int, int>> facingHit;
     std::set<std::array<double, 3>> seen;
     Vec sum(0.0, 0.0, 0.0);
     Vec normal(0.0, 0.0, 0.0);
     int pairs = 0;
-    for (const auto& io : other.instances) {
-        for (const auto& ih : hit.instances) {
+    for (std::size_t no = 0; no < other.instances.size(); ++no) {
+        const auto& io = other.instances[no];
+        for (std::size_t nh = 0; nh < hit.instances.size(); ++nh) {
+            const auto& ih = hit.instances[nh];
             if (!io.geometry || !ih.geometry || !boxesNear(io.box, ih.box, tol)) {
                 continue;
             }
             const Vec origin = apply(io.trsf, Vec(0.0, 0.0, 0.0));
-            visitNearTriangles(io, ih, tol, [&](const Vec(&po)[3], const Vec(&ph)[3], int, int) {
-                bool touching = false;
-                auto add = [&](const Vec& vertex, const Vec(&triangle)[3]) {
-                    const Vec gap = vertex - nearestOnTriangle(vertex, triangle);
-                    if (dot(gap, gap) > tol * tol) {
-                        return;
+            visitNearTriangles(
+                io,
+                ih,
+                tol,
+                [&](const Vec(&po)[3], const Vec(&ph)[3], int indexO, int indexH) {
+                    bool touching = false;
+                    auto add = [&](const Vec& vertex, const Vec(&triangle)[3]) {
+                        const Vec gap = vertex - nearestOnTriangle(vertex, triangle);
+                        if (dot(gap, gap) > tol * tol) {
+                            return;
+                        }
+                        touching = true;
+                        const Vec at = apply(io.trsf, vertex);
+                        if (seen.insert({at.x(), at.y(), at.z()}).second) {
+                            sum = sum + at;
+                        }
+                    };
+                    for (const Vec& vertex : po) {
+                        add(vertex, ph);
                     }
-                    touching = true;
-                    const Vec at = apply(io.trsf, vertex);
-                    if (seen.insert({at.x(), at.y(), at.z()}).second) {
-                        sum = sum + at;
+                    for (const Vec& vertex : ph) {
+                        add(vertex, po);
                     }
-                };
-                for (const Vec& vertex : po) {
-                    add(vertex, ph);
-                }
-                for (const Vec& vertex : ph) {
-                    add(vertex, po);
-                }
-                if (touching && faceToFace(po, ph, tol)) {
-                    Vec unit = apply(io.trsf, cross(ph[1] - ph[0], ph[2] - ph[0])) - origin;
-                    const double size = std::sqrt(dot(unit, unit));
-                    if (size > 0.0) {
-                        unit = unit * ((dot(unit, normal) < 0.0 ? -1.0 : 1.0) / size);
-                        normal = normal + unit;
+                    if (touching && faceToFace(po, ph, tol)) {
+                        facingOther.emplace(static_cast<int>(no),
+                                            io.geometry->triangles().GetFaceID(indexO));
+                        facingHit.emplace(static_cast<int>(nh),
+                                          ih.geometry->triangles().GetFaceID(indexH));
+                        Vec unit = apply(io.trsf, cross(ph[1] - ph[0], ph[2] - ph[0])) - origin;
+                        const double size = std::sqrt(dot(unit, unit));
+                        if (size > 0.0) {
+                            unit = unit * ((dot(unit, normal) < 0.0 ? -1.0 : 1.0) / size);
+                            normal = normal + unit;
+                        }
                     }
-                }
-                return ++pairs >= maxTouchPairs;
-            });
+                    return ++pairs >= maxTouchPairs;
+                });
         }
     }
 
@@ -801,6 +910,8 @@ void contactOf(Component& other, Component& hit, double tol, InterferenceResult&
     result.touched = true;
     result.touchCentre = Base::Vector3d(centre.x(), centre.y(), centre.z());
     result.touchNormal = Base::Vector3d(normal.x(), normal.y(), normal.z());
+    otherFaces.assign(facingOther.begin(), facingOther.end());
+    hitFaces.assign(facingHit.begin(), facingHit.end());
 }
 
 // Whether `inner` is inside `outer`, by more than tol: the one inside the
@@ -1062,14 +1173,6 @@ bool checkPair(Component& a,
             if (distance.IsDone() && distance.Value() <= tol + Precision::Confusion()) {
                 result.kind = InterferenceResult::Kind::Contact;
                 result.distance = distance.Value();
-                // Where they touch: as Fast finds it, on the solids' meshes,
-                // within the tolerance and at least twice their error
-                Component meshedA = meshedCopy(a);
-                Component meshedB = meshedCopy(b);
-                contactOf(meshedA,
-                          meshedB,
-                          std::max(tol, 2.0 * std::max(meshedA.deflection, meshedB.deflection)),
-                          result);
                 return true;
             }
         }
@@ -1110,6 +1213,7 @@ struct Scene
     InterferenceOptions options;
     bool fast;
     double tol;
+    Rules rules;
     std::vector<Component> components;
 
     Scene(const AssemblyObject* assembly,
@@ -1119,6 +1223,7 @@ struct Scene
         , options(options)
         , fast(options.mode == InterferenceOptions::Mode::Fast)
         , tol(std::max(options.tolerance, 0.0))
+        , rules(options.rules ? assembly : nullptr)
     {
         for (auto* obj : getAssemblyComponents(assembly)) {
             if (!obj || (!only.empty() && std::find(only.begin(), only.end(), obj) == only.end())) {
@@ -1126,6 +1231,15 @@ struct Scene
             }
             const std::string path = pathFrom(assembly, obj);
             if (path.empty()) {
+                continue;
+            }
+            bool hidden = false;
+            std::vector<std::string> names = namesOf(assembly, obj, hidden);
+            // Left out by the rules
+            if ((rules.ignoreHidden && hidden)
+                || std::any_of(names.begin(), names.end(), [&](const std::string& name) {
+                       return rules.excluded.count(name) > 0;
+                   })) {
                 continue;
             }
             Part::TopoShape shape;
@@ -1148,6 +1262,7 @@ struct Scene
             }
             Component component;
             component.obj = obj;
+            component.names = std::move(names);
             component.now = placementIn(assembly, obj, -1);
             BRep_Builder builder;
             TopoDS_Compound bases;
@@ -1185,6 +1300,60 @@ struct Scene
             place(component, Base::Placement(), fast);
             components.push_back(std::move(component));
         }
+    }
+
+    // Whether the rules leave the pair in, and the clearance they ask of it
+    // (the largest of those that name it)
+    bool pairRules(const Component& a, const Component& b, double& clearance) const
+    {
+        auto names = [&](const std::string& x, const std::string& y) {
+            return (named(a.names, x) && named(b.names, y))
+                || (named(a.names, y) && named(b.names, x));
+        };
+        for (const auto& [x, y] : rules.ignored) {
+            if (names(x, y)) {
+                return false;
+            }
+        }
+        for (const auto& [x, y, gap] : rules.clearances) {
+            if (names(x, y)) {
+                clearance = std::max(clearance, gap);
+            }
+        }
+        return true;
+    }
+
+    // Whether the pair, overlapping not, is closer than the clearance: Fast,
+    // its meshes within it of each other; Exact, the distance
+    bool withinClearance(Component& a, Component& b, double clearance, InterferenceResult& result)
+    {
+        try {
+            if (fast) {
+                BRepExtrema_ShapeProximity proximity(meshesOf(a), meshesOf(b), clearance);
+                proximity.Perform();
+                if (!proximity.IsDone() || proximity.OverlapSubShapes1().IsEmpty()) {
+                    return false;
+                }
+                result.distance = clearance;
+            }
+            else {
+                BRepExtrema_DistShapeShape distance(a.compound, b.compound);
+                if (!distance.IsDone() || distance.Value() >= clearance) {
+                    return false;
+                }
+                result.distance = distance.Value();
+            }
+        }
+        catch (const Standard_Failure& e) {
+            FC_WARN("The clearance of " << a.obj->getFullName() << " and " << b.obj->getFullName()
+                                        << " was not checked: " << e.GetMessageString());
+            return false;
+        }
+        result.first = a.obj;
+        result.second = b.obj;
+        result.kind = InterferenceResult::Kind::Clearance;
+        result.clearance = clearance;
+        return true;
     }
 
     // Each component where `placementOf` puts it in the assembly; `moved` set
@@ -1228,10 +1397,28 @@ struct Scene
                     result = it->second;
                 }
                 else {
+                    double clearance = 0.0;
+                    if (!rules.empty() && !pairRules(a, b, clearance)) {
+                        continue;
+                    }
                     const double pairTol =
                         fast ? std::max(tol, 2.0 * std::max(a.deflection, b.deflection)) : tol;
-                    if (!boxesNear(a.box, b.box, pairTol + Precision::Confusion())
-                        || !checkPair(a, b, options, tol, pairTol, result)) {
+                    if (!boxesNear(a.box,
+                                   b.box,
+                                   std::max(pairTol, clearance) + Precision::Confusion())) {
+                        continue;
+                    }
+                    bool found = checkPair(a, b, options, tol, pairTol, result);
+                    if (clearance > 0.0
+                        && (!found || result.kind != InterferenceResult::Kind::Interference)) {
+                        // Not overlapping: closer than the clearance?
+                        InterferenceResult close = result;
+                        if (withinClearance(a, b, clearance, close)) {
+                            result = std::move(close);
+                            found = true;
+                        }
+                    }
+                    if (!found) {
                         continue;
                     }
                     if (fast && result.kind == InterferenceResult::Kind::Interference) {
@@ -1251,10 +1438,25 @@ struct Scene
                                              << " meet was not found: " << e.GetMessageString());
                         }
                     }
-                    else if (fast && result.kind == InterferenceResult::Kind::Contact) {
+                    else if (result.kind != InterferenceResult::Kind::Interference) {
+                        // A contact, or within a clearance: where they touch,
+                        // on the meshes (Exact meshes them for it)
                         const bool aHit = b.moved && !a.moved;
                         try {
-                            contactOf(aHit ? b : a, aHit ? a : b, pairTol, result);
+                            Component meshedA = fast ? Component() : meshedCopy(a);
+                            Component meshedB = fast ? Component() : meshedCopy(b);
+                            Component& ma = fast ? a : meshedA;
+                            Component& mb = fast ? b : meshedB;
+                            const double within =
+                                std::max({pairTol,
+                                          result.clearance,
+                                          2.0 * std::max(ma.deflection, mb.deflection)});
+                            contactOf(aHit ? mb : ma,
+                                      aHit ? ma : mb,
+                                      within,
+                                      result,
+                                      aHit ? result.touchFaces2 : result.touchFaces1,
+                                      aHit ? result.touchFaces1 : result.touchFaces2);
                         }
                         catch (const Standard_Failure& e) {
                             FC_WARN("Where " << a.obj->getFullName() << " and "

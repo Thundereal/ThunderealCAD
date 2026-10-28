@@ -255,8 +255,9 @@ class AssemblyObject(Part):
         """
         ...
 
-    def clearCollisionMarkers(self) -> None:
-        """Removes the markers of getCollisionMarkers()."""
+    def clearCollisionMarkers(self, checksOnly: bool = False, /) -> None:
+        """Removes the markers of getCollisionMarkers(); with checksOnly, those
+        the interference check added (addCollisionMarker()) only."""
         ...
 
     def addCollisionMarker(
@@ -330,6 +331,7 @@ class AssemblyObject(Part):
         objects: list = None,
         deflection: float = 0.0,
         frames: list = None,
+        rules: bool = True,
     ) -> list:
         """
         Which components overlap, and, with contacts, which touch
@@ -352,9 +354,16 @@ class AssemblyObject(Part):
             frames: frame numbers of the last simulation (numberOfFrames()):
                 each component where the frame puts it, the document left
                 where it is (default: the components where they are).
+            rules: apply the assembly's Interference properties: the
+                components left out (InterferenceExcluded,
+                InterferenceIgnoreHidden), the pairs ignored
+                (InterferenceIgnoredPairs), the clearances pairs keep
+                (InterferenceClearances).
 
         Returns: a list of dicts, one per pair (and frame): Object1, Object2, Kind
-        ("Interference" or "Contact"), Volume (Exact, mm^3; 0 in Fast),
+        ("Interference", "Contact", or "Clearance": closer than the clearance
+        the rules ask of the pair, which Clearance gives, in mm, 0 for none,
+        and not overlapping), Volume (Exact, mm^3; 0 in Fast),
         Distance (contacts, mm; Fast gives the tolerance), Tolerance (the one
         the pair was judged with) and Overlap (Exact: the solid in common, in
         the assembly's coordinates; else None); with frames, also Frame and

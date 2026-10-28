@@ -98,6 +98,8 @@ class TaskCheckInterference:
     def __init__(self, assembly):
         self.assembly = assembly
         self.results = []
+        # Whether a check was run: a change of the rules runs it again
+        self.checked = False
         self.overlap = None
         # The parts' placements before a frame was shown, put back on closing
         self.initialPlcs = None
@@ -156,6 +158,18 @@ class TaskCheckInterference:
         self.contacts = QtWidgets.QCheckBox(translate("Assembly", "Report touching components"))
         options.addRow(self.contacts)
 
+        self.ignoreHidden = QtWidgets.QCheckBox(
+            translate("Assembly", "Leave out hidden components")
+        )
+        self.ignoreHidden.setToolTip(
+            translate(
+                "Assembly",
+                "A rule of the assembly's (InterferenceIgnoreHidden): collision while dragging "
+                "follows it too.",
+            )
+        )
+        options.addRow(self.ignoreHidden)
+
         self.frameCount = self.assembly.numberOfFrames()
         self.positions = QtWidgets.QComboBox()
         self.positions.addItem(translate("Assembly", "Where they are"), "Now")
@@ -201,6 +215,24 @@ class TaskCheckInterference:
             ]
         )
         layout.addWidget(self.table)
+        self.table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.onContextMenu)
+
+        rules = QtWidgets.QHBoxLayout()
+        self.rules = QtWidgets.QLabel()
+        self.rules.setWordWrap(True)
+        self.rules.setToolTip(
+            translate(
+                "Assembly",
+                "The assembly's interference rules, which collision while dragging follows too: "
+                "right-click a result to add one; they are the assembly's Interference "
+                "properties.",
+            )
+        )
+        rules.addWidget(self.rules, 1)
+        self.clearRules = QtWidgets.QPushButton(translate("Assembly", "Clear Rules"))
+        rules.addWidget(self.clearRules)
+        layout.addLayout(rules)
 
         mode = self.params.GetString("InterferenceMode", "Exact")
         self.mode.setCurrentIndex(max(0, self.mode.findData(mode)))
@@ -208,11 +240,15 @@ class TaskCheckInterference:
         self.deflection.setValue(self.params.GetFloat("InterferenceDeflection", 0.0))
         self.contacts.setChecked(self.params.GetBool("InterferenceContacts", False))
         self.frameStep.setValue(self.params.GetInt("InterferenceFrameStep", 1))
+        self.ignoreHidden.setChecked(self.assembly.InterferenceIgnoreHidden)
         self.onOptionsChanged()
+        self.showRules()
 
         self.mode.currentIndexChanged.connect(self.onOptionsChanged)
         self.positions.currentIndexChanged.connect(self.onOptionsChanged)
         self.check.clicked.connect(self.run)
+        self.ignoreHidden.toggled.connect(self.onIgnoreHidden)
+        self.clearRules.clicked.connect(self.onClearRules)
         self.table.itemSelectionChanged.connect(self.onSelected)
 
     def getStandardButtons(self):
@@ -259,6 +295,7 @@ class TaskCheckInterference:
         self.params.SetBool("InterferenceContacts", contacts)
         self.params.SetInt("InterferenceFrameStep", self.frameStep.value())
         frames = self.frames()
+        self.checked = True
 
         # Cleared quietly: removing the selected row moves the selection, which
         # would show a frame of the old results again
@@ -298,8 +335,9 @@ class TaskCheckInterference:
         else:
             marked = [self.results[i] for i in self.listByPair(mode)]
             self.table.setRootIsDecorated(True)
-        # Where they meet, marked as a drag's collisions are, until cleared;
-        # contacts in amber
+        # Where they meet, marked as a drag's collisions are, until cleared or
+        # the next run; contacts in amber
+        self.assembly.clearCollisionMarkers(True)
         for result in marked:
             if result["Centre"] is not None:
                 self.assembly.addCollisionMarker(
@@ -314,24 +352,26 @@ class TaskCheckInterference:
 
         pairs = {(r["Object1"].Name, r["Object2"].Name, r["Kind"]) for r in self.results}
         interferences = sum(1 for p in pairs if p[2] == "Interference")
+        clearances = sum(1 for p in pairs if p[2] == "Clearance")
         tolerances = [r["Tolerance"] for r in self.results]
         used = max(tolerances) if tolerances else tolerance
         if frames is None:
             text = translate(
                 "Assembly",
-                "{interferences} interfering, {contacts} touching -- {mode}, "
-                "tolerance {tolerance:.4g} mm, {seconds:.2f} s",
+                "{interferences} interfering, {clearances} too close, {contacts} touching -- "
+                "{mode}, tolerance {tolerance:.4g} mm, {seconds:.2f} s",
             )
         else:
             text = translate(
                 "Assembly",
-                "{interferences} interfering, {contacts} touching over {frames} frames -- "
-                "{mode}, tolerance {tolerance:.4g} mm, {seconds:.2f} s",
+                "{interferences} interfering, {clearances} too close, {contacts} touching over "
+                "{frames} frames -- {mode}, tolerance {tolerance:.4g} mm, {seconds:.2f} s",
             )
         self.summary.setText(
             text.format(
                 interferences=interferences,
-                contacts=len(pairs) - interferences,
+                clearances=clearances,
+                contacts=len(pairs) - interferences - clearances,
                 frames=len(frames or []),
                 mode=self.mode.currentText(),
                 tolerance=used,
@@ -347,6 +387,15 @@ class TaskCheckInterference:
                 amount = "%.6g mm^3" % result["Volume"]
             else:
                 amount = translate("Assembly", "overlap")
+        elif result["Kind"] == "Clearance":
+            kind = translate("Assembly", "Clearance")
+            if mode == "Exact":
+                amount = translate("Assembly", "%.4g mm of %.4g") % (
+                    result["Distance"],
+                    result["Clearance"],
+                )
+            else:
+                amount = translate("Assembly", "within %.4g mm") % result["Clearance"]
         else:
             kind = translate("Assembly", "Contact")
             if mode == "Exact":
@@ -361,7 +410,7 @@ class TaskCheckInterference:
             columns = [result["Object1"].Label, result["Object2"].Label] + columns
         item = QtWidgets.QTreeWidgetItem(columns)
         item.setData(0, QtCore.Qt.UserRole, index)
-        if result["Kind"] == "Interference":
+        if result["Kind"] in ("Interference", "Clearance"):
             item.setForeground(2, QtGui.QBrush(QtGui.QColor(200, 0, 0)))
         if isinstance(parent, QtWidgets.QTreeWidget):
             parent.addTopLevelItem(item)
@@ -421,6 +470,130 @@ class TaskCheckInterference:
         for obj in (result["Object1"], result["Object2"]):
             self.select(obj)
         self.showOverlap(result["Overlap"])
+
+    def showRules(self):
+        a = self.assembly
+        self.rules.setText(
+            translate(
+                "Assembly",
+                "Rules: {excluded} left out{hidden}, {ignored} pairs ignored, "
+                "{clearances} clearances",
+            ).format(
+                excluded=len(a.InterferenceExcluded),
+                hidden=(
+                    translate("Assembly", " and the hidden ones")
+                    if a.InterferenceIgnoreHidden
+                    else ""
+                ),
+                ignored=len(a.InterferenceIgnoredPairs),
+                clearances=len(a.InterferenceClearances),
+            )
+        )
+        self.clearRules.setEnabled(
+            bool(
+                a.InterferenceExcluded
+                or a.InterferenceIgnoreHidden
+                or a.InterferenceIgnoredPairs
+                or a.InterferenceClearances
+            )
+        )
+
+    def changeRules(self, name, change):
+        """Change the assembly's rules, in a transaction, and check again."""
+        doc = self.assembly.Document
+        doc.openTransaction(name)
+        try:
+            change(self.assembly)
+        finally:
+            doc.commitTransaction()
+        self.ignoreHidden.blockSignals(True)
+        self.ignoreHidden.setChecked(self.assembly.InterferenceIgnoreHidden)
+        self.ignoreHidden.blockSignals(False)
+        self.showRules()
+        if self.checked:
+            self.run()
+
+    @staticmethod
+    def pairKey(result):
+        return "%s|%s" % (result["Object1"].Name, result["Object2"].Name)
+
+    def ignorePair(self, result):
+        def change(a):
+            pairs = list(a.InterferenceIgnoredPairs)
+            if self.pairKey(result) not in pairs:
+                pairs.append(self.pairKey(result))
+            a.InterferenceIgnoredPairs = pairs
+
+        self.changeRules(translate("Assembly", "Ignore pair"), change)
+
+    def leaveOut(self, obj):
+        def change(a):
+            if obj not in a.InterferenceExcluded:
+                a.InterferenceExcluded = a.InterferenceExcluded + [obj]
+
+        self.changeRules(translate("Assembly", "Leave out of interference"), change)
+
+    def requireClearance(self, result, clearance):
+        """The pair keeps clearance mm apart; 0 removes the rule."""
+
+        def change(a):
+            clearances = dict(a.InterferenceClearances)
+            if clearance > 0:
+                clearances[self.pairKey(result)] = "%g" % clearance
+            else:
+                clearances.pop(self.pairKey(result), None)
+            a.InterferenceClearances = clearances
+
+        self.changeRules(translate("Assembly", "Require clearance"), change)
+
+    def onIgnoreHidden(self, checked):
+        def change(a):
+            a.InterferenceIgnoreHidden = checked
+
+        self.changeRules(translate("Assembly", "Leave out hidden components"), change)
+
+    def onClearRules(self):
+        def change(a):
+            a.InterferenceExcluded = []
+            a.InterferenceIgnoreHidden = False
+            a.InterferenceIgnoredPairs = []
+            a.InterferenceClearances = {}
+
+        self.changeRules(translate("Assembly", "Clear interference rules"), change)
+
+    def onContextMenu(self, pos):
+        item = self.table.itemAt(pos)
+        if item is None:
+            return
+        result = self.results[item.data(0, QtCore.Qt.UserRole)]
+        menu = QtWidgets.QMenu(self.table)
+        menu.addAction(
+            translate("Assembly", "Ignore This Pair"), lambda: self.ignorePair(result)
+        )
+        for obj in (result["Object1"], result["Object2"]):
+            menu.addAction(
+                translate("Assembly", "Leave Out {label}").format(label=obj.Label),
+                lambda obj=obj: self.leaveOut(obj),
+            )
+
+        def askClearance():
+            current = dict(self.assembly.InterferenceClearances).get(self.pairKey(result), "0")
+            value, ok = QtWidgets.QInputDialog.getDouble(
+                self.form,
+                translate("Assembly", "Require Clearance"),
+                translate(
+                    "Assembly", "Clearance {first} and {second} keep, mm (0 for none):"
+                ).format(first=result["Object1"].Label, second=result["Object2"].Label),
+                float(current),
+                0.0,
+                1000.0,
+                4,
+            )
+            if ok:
+                self.requireClearance(result, value)
+
+        menu.addAction(translate("Assembly", "Require Clearance..."), askClearance)
+        menu.exec_(self.table.viewport().mapToGlobal(pos))
 
     def select(self, obj):
         """Select the component through the assembly, from the document's root."""

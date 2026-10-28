@@ -424,10 +424,11 @@ PyObject* AssemblyObjectPy::addCollisionMarker(PyObject* args)
 
 PyObject* AssemblyObjectPy::clearCollisionMarkers(PyObject* args)
 {
-    if (!PyArg_ParseTuple(args, "")) {
+    PyObject* checksOnly = Py_False;
+    if (!PyArg_ParseTuple(args, "|O!", &PyBool_Type, &checksOnly)) {
         return nullptr;
     }
-    getAssemblyObjectPtr()->clearCollisionMarkers();
+    getAssemblyObjectPtr()->clearCollisionMarkers(checksOnly == Py_True);
     Py_Return;
 }
 
@@ -477,18 +478,26 @@ PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) co
     PyObject* objects = Py_None;
     double deflection = 0.0;
     PyObject* frames = Py_None;
-    static const std::array<const char*, 7>
-        keywords {"mode", "tolerance", "contacts", "objects", "deflection", "frames", nullptr};
+    int rules = 1;
+    static const std::array<const char*, 8> keywords {"mode",
+                                                      "tolerance",
+                                                      "contacts",
+                                                      "objects",
+                                                      "deflection",
+                                                      "frames",
+                                                      "rules",
+                                                      nullptr};
     if (!Base::Wrapped_ParseTupleAndKeywords(args,
                                              kwds,
-                                             "|sdpOdO",
+                                             "|sdpOdOp",
                                              keywords,
                                              &mode,
                                              &tolerance,
                                              &contacts,
                                              &objects,
                                              &deflection,
-                                             &frames)) {
+                                             &frames,
+                                             &rules)) {
         return nullptr;
     }
 
@@ -505,6 +514,7 @@ PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) co
         options.tolerance = tolerance;
         options.contacts = contacts != 0;
         options.deflection = deflection;
+        options.rules = rules != 0;
 
         std::vector<App::DocumentObject*> only;
         if (objects != Py_None) {
@@ -548,12 +558,15 @@ PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) co
             Py::Dict entry;
             entry.setItem("Object1", Py::asObject(result.first->getPyObject()));
             entry.setItem("Object2", Py::asObject(result.second->getPyObject()));
-            entry.setItem(
-                "Kind",
-                Py::String(
-                    result.kind == InterferenceResult::Kind::Interference ? "Interference" : "Contact"
-                )
-            );
+            const char* kind = "Interference";
+            if (result.kind == InterferenceResult::Kind::Contact) {
+                kind = "Contact";
+            }
+            else if (result.kind == InterferenceResult::Kind::Clearance) {
+                kind = "Clearance";
+            }
+            entry.setItem("Kind", Py::String(kind));
+            entry.setItem("Clearance", Py::Float(result.clearance));
             entry.setItem("Volume", Py::Float(result.volume));
             entry.setItem("Distance", Py::Float(result.distance));
             entry.setItem("Tolerance", Py::Float(result.tolerance));

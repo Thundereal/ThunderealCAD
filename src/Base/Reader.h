@@ -420,7 +420,7 @@ public:
     /** Hand the bytes of every entry readFiles() serves to `sink`, by name.
      *
      * The transaction log's version manifest wants each XML entry of the
-     * file as found (docs/TransactionLog.md sec 16.1, 16.6): the readers
+     * file as found (docs/TransactionLogJournal.md sec 16.1, 16.6): the readers
      * tap the entry's Reader around RestoreDocFile() and pass on what
      * streamed, drained to the end. Blob entries go through the archive
      * handler, not through this.
@@ -619,7 +619,7 @@ public:
      * endTap() first drains what is left of the stream into the sink, so a
      * parser that stopped at the closing element still leaves the sink with
      * the whole entry -- which is how a restore hashes Document.xml as found
-     * (docs/TransactionLog.md sec 16.6) without inflating it twice. It must
+     * (docs/TransactionLogJournal.md sec 16.6) without inflating it twice. It must
      * therefore be ended while the stream is still on that entry: a
      * forward-only archive reader moves on at readFiles().
      */

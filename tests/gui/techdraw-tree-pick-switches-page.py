@@ -39,9 +39,10 @@ Qt = QtCore.Qt
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 TREE = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/TreeView")
+VIEW = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
 DOC = "TreePickPage"
 
-state = {"done": False, "sync": None}
+state = {"done": False, "sync": None, "area": None}
 
 
 def note(msg):
@@ -165,6 +166,12 @@ def make_page(doc, name, box, template):
 def run():
     try:
         state["sync"] = TREE.GetBool("SyncView", True)
+        # Both page views open at once, each in a tab of its own: in a view
+        # area a page view opened takes the cell of the one before (the
+        # reuse step, ViewPlacement.cpp), and the first one's view would be
+        # closed, not behind. Off before the document makes its 3D view.
+        state["area"] = VIEW.GetBool("UseViewArea", True)
+        VIEW.SetBool("UseViewArea", False)
         doc = FreeCAD.newDocument(DOC)
         box = doc.addObject("Part::Box", "Box")
         doc.recompute()
@@ -237,6 +244,8 @@ def finish():
     state["done"] = True
     if state["sync"] is not None:
         TREE.SetBool("SyncView", state["sync"])
+    if state["area"] is not None:
+        VIEW.SetBool("UseViewArea", state["area"])
     try:
         FreeCADGui.Control.closeDialog()
     except Exception:

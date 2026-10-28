@@ -25,6 +25,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QRect>
+#include <QRegion>
 #include <QTimer>
 #include <QVector>
 #include <FCGlobal.h>
@@ -88,6 +89,10 @@ public:
     /// every area it is in that it is near show. Asked by OverlayManager's
     /// event filter, before a move is passed through a see-through panel.
     static void pointerMoved(const QPoint& global);
+    /// What the bars leave free, in the area's coordinates: a view cell's
+    /// menu button and corner handles (ViewAreaCell::placeChrome), which
+    /// keep their corners. A bar that would run under one stops short of it.
+    void keepClear(const QRegion& region);
 
     /// How thick a bar is
     static constexpr int Thickness = 10;
@@ -123,6 +128,7 @@ private:
     QTimer idle;
     QRect vrect;
     QRect hrect;
+    QRegion clear;
 };
 
 }  // namespace Gui

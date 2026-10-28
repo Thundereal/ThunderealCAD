@@ -23,6 +23,7 @@
 
 #include "PreCompiled.h"
 
+#include <optional>
 #include <algorithm>
 
 #include <QDir>
@@ -349,7 +350,7 @@ void PropertyLinkBase::updateElementReferences(DocumentObject *feature, bool rev
     if(it == _ElementRefMap.end())
         return;
     // What is written from here on follows the feature's shape: nobody
-    // sets it (docs/TransactionLog.md sec 31.25)
+    // sets it (docs/TransactionLogJournal.md sec 31.25)
     TransactionFollowing scope;
     std::vector<PropertyLinkBase*> props;
     props.reserve(it->second.size());
@@ -426,7 +427,7 @@ static bool translateElement(const char *element, const StringHasher &from, Stri
 }
 
 /// A reference across tables keeps 'first' imported into the owner's table:
-/// what the file stores (docs/TransactionLog.md sec 27.76 item 5).
+/// what the file stores (docs/TransactionLogJournal.md sec 27.76 item 5).
 static void storeShadow(PropertyLinkBase::ShadowSub &shadow, StringHasher &owner,
                         const StringHasher &target)
 {
@@ -439,7 +440,7 @@ static void storeShadow(PropertyLinkBase::ShadowSub &shadow, StringHasher &owner
     }
 }
 
-/** A restored reference across tables (docs/TransactionLog.md sec 27.76 item
+/** A restored reference across tables (docs/TransactionLogJournal.md sec 27.76 item
  * 5) takes its working form, 'first', from what the file stored: the stored
  * name looked up by content in the target's table, which the target may have
  * compacted or re-minted since. The ids read are held in the owner's table.
@@ -506,7 +507,7 @@ static bool lookupShadow(DocumentObject *obj, std::string &sub,
 }
 
 /** Hold the string ids of the element 'shadow' names in 'geo'
- * (docs/TransactionLog.md sec 27.75). 'element' is the element part of the
+ * (docs/TransactionLogJournal.md sec 27.75). 'element' is the element part of the
  * resolved new style name, null while the element is missing: a missing
  * reference keeps what it holds, which is the point. An element the
  * reference moved to takes the map's ids. Otherwise the ids a file gave are
@@ -819,8 +820,30 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         }
     }
 
+    // A reference put right with no signal -- a restore's (docs/
+    // TransactionLogJournal.md sec 38.14) -- is still a change to what the file
+    // holds, which a folder's next save must not keep the old file over.
+    struct NoteChange
+    {
+        PropertyLinkBase* prop;
+        const std::string& sub;
+        const ShadowSub& shadow;
+        std::string subWas;
+        ShadowSub shadowWas;
+        ~NoteChange()
+        {
+            if (sub == subWas && shadow == shadowWas)
+                return;
+            auto obj = freecad_dynamic_cast<DocumentObject>(prop->getContainer());
+            if (obj && obj->getDocument())
+                obj->getDocument()->noteSavedChange(obj);
+        }
+    };
+    std::optional<NoteChange> noteChange;
     if(notify)
         aboutToSetValue();
+    else
+        noteChange.emplace(NoteChange {this, sub, shadow, sub, shadow});
 
     auto updateSub = [&](const std::string &newSub) {
         if (sub != newSub) {
@@ -1971,7 +1994,7 @@ bool PropertyLinkSub::referenceChanged() const {
 }
 
 /// A sub-object path read from a value of another copy of the file names
-/// its element in that copy's string table (docs/TransactionLog.md sec
+/// its element in that copy's string table (docs/TransactionLogJournal.md sec
 /// 30.16): taken into this file's, where a restore is reading one.
 static std::string importSubStrings(std::string sub)
 {
@@ -2259,7 +2282,7 @@ static bool allOf(const Data::ElementIDRefs &sids, const StringHasherRef &hasher
 
 /** The string ids a shadow holds, written beside it as the element map
  * writes its own (hex, space separated), and noted for a transaction-log
- * capture of the value (sec 27.50 item 4): docs/TransactionLog.md sec
+ * capture of the value (sec 27.50 item 4): docs/TransactionLogJournal.md sec
  * 27.75. Ids read and not yet held go out as they came in.
  *
  * Only the owner's table's: a reference across tables (sec 27.76 item 5)
@@ -2349,7 +2372,7 @@ static void markShadowIDs(const std::vector<PropertyLinkBase::ShadowSub> &shadow
 }
 
 /// Whether a link target is written: in the document, or removed while a
-/// transaction-log capture holds the name it had (docs/TransactionLog.md sec
+/// transaction-log capture holds the name it had (docs/TransactionLogJournal.md sec
 /// 24.3, 27.67) -- a value of an object removed with its target.
 static bool isSavedTarget(const DocumentObject* obj)
 {
@@ -3797,7 +3820,7 @@ DocInfoMap _DocInfoMap;
 namespace {
 
 /// The file a link's owner is a document of: its FileName, or the file a
-/// version document is of (docs/TransactionLog.md sec 27.20); empty when
+/// version document is of (docs/TransactionLogJournal.md sec 27.20); empty when
 /// the owner is not saved.
 std::string ownFileOf(const DocumentObject* owner)
 {
@@ -3832,7 +3855,7 @@ public:
     std::string myPath;
     App::Document *pcDoc{nullptr};
     std::set<PropertyXLink*> links;
-    /// For a pinned link's DocInfo (docs/TransactionLog.md sec 27.7), keyed
+    /// For a pinned link's DocInfo (docs/TransactionLogJournal.md sec 27.7), keyed
     /// `<file>@v<num>`: the version, and the file's history, kept open until
     /// the version's document has it.
     int64_t version {0};
@@ -4206,7 +4229,7 @@ public:
     static DocInfoPtr get(const char *filename,
             App::Document *pDoc,PropertyXLink *l, const char *objName)
     {
-        // A version document is named `<file>@v<num>` (docs/TransactionLog.md
+        // A version document is named `<file>@v<num>` (docs/TransactionLogJournal.md
         // sec 27.7): a link to it is pinned to that version, and the path it
         // keeps is the file's.
         std::string plain(filename ? filename : "");
@@ -4551,7 +4574,13 @@ public:
         // time stamp changed, touch the linking document.
         std::set<Document*> docs;
         for(auto link : links) {
-            auto linkdoc = static_cast<DocumentObject*>(link->getContainer())->getDocument();
+            auto owner = static_cast<DocumentObject*>(link->getContainer());
+            auto linkdoc = owner->getDocument();
+            // What the link saves -- the file's path and stamp -- moved
+            // with no change of its own: a folder save writes the owner
+            // again rather than keep its file (TransactionLog sec 38.21 F2).
+            if (linkdoc)
+                linkdoc->noteSavedChange(owner);
             auto ret = docs.insert(linkdoc);
             if(ret.second) {
                 // This will signal the Gui::Document to call setModified();
@@ -4983,7 +5012,7 @@ void PropertyXLink::setValue(std::string &&filename, std::string &&name,
     if(pObject) {
         // Through the DocInfo just found, not one derived again from the
         // document's name: a version document saved as its file keeps the
-        // name of the version it was opened at (docs/TransactionLog.md sec
+        // name of the version it was opened at (docs/TransactionLogJournal.md sec
         // 27.16), and that name would pin the link back to it.
         if (info && docInfo != info) {
             if (docInfo)
@@ -5043,7 +5072,7 @@ void PropertyXLink::setPin(int64_t version, const std::string& uuid)
     if (!owner || !owner->isAttachedToDocument())
         THROWM(Base::RuntimeError, "invalid container")
     // The file linked, whatever its document is now -- the file itself, or
-    // a version of it (docs/TransactionLog.md sec 27.7).
+    // a version of it (docs/TransactionLogJournal.md sec 27.7).
     std::string file;
     if (docInfo)
         file = docInfo->myPath;
@@ -5434,7 +5463,7 @@ void PropertyXLink::Save (Base::Writer &writer) const {
     auto owner = dynamic_cast<const DocumentObject *>(getContainer());
     // A detached copy -- a before value the undo system took, a value the
     // transaction log copies at commit -- has no owner; it writes relative
-    // to the document the log's capture is for (docs/TransactionLog.md sec
+    // to the document the log's capture is for (docs/TransactionLogJournal.md sec
     // 27.67). It holds no _pcLink, only the names copyTo() kept.
     const Document* ownerDoc = owner ? owner->getDocument() : capturingDocument();
     if(!ownerDoc)
@@ -5577,7 +5606,7 @@ void PropertyXLink::Save (Base::Writer &writer) const {
             writer.Stream() << "\" held=\"" << encodeAttribute(_heldHash)
                             << "\" heldpath=\"" << encodeAttribute(_heldPath);
         }
-        // Pinned (docs/TransactionLog.md sec 16.5, 27): absent otherwise,
+        // Pinned (docs/TransactionLogJournal.md sec 16.5, 27): absent otherwise,
         // and a FreeCAD that does not know them resolves the file.
         if (!plain && _pinVersion > 0) {
             writer.Stream() << "\" version=\"" << _pinVersion;
@@ -5665,6 +5694,20 @@ std::string folderOf(const std::string& file)
 std::string writeHeldFile(const std::string& hash, const std::string& heldPath,
                           App::Document* owner)
 {
+    // The path comes from a file: one with no way out of held/ -- not
+    // absolute, no `..`, no `\` or `:` -- as the import makes it (holdAlone)
+    // and as a save record's lines are taken (sec 39, L2).
+    if (heldPath.empty() || heldPath.front() == '/'
+            || heldPath.find_first_of("\\:") != std::string::npos) {
+        FC_WARN("the held file '" << heldPath << "' is not a path under held/: not written");
+        return {};
+    }
+    for (const QString& part : QString::fromUtf8(heldPath.c_str()).split(QLatin1Char('/'))) {
+        if (part == QStringLiteral("..")) {
+            FC_WARN("the held file '" << heldPath << "' leaves held/: not written");
+            return {};
+        }
+    }
     std::vector<App::Document*> docs;
     if (owner)
         docs.push_back(owner);
@@ -6098,7 +6141,7 @@ void PropertyXLink::copyTo(PropertyXLink &other,
         other.objectName = linked->getNameInDocument();
         other.docInfo.reset();
         // Kept for Paste(): the document may be gone by then -- a pinned
-        // version is closed when its last pin goes (docs/TransactionLog.md
+        // version is closed when its last pin goes (docs/TransactionLogJournal.md
         // sec 27.38), and an undo that pins again must find it by file.
         other.filePath = linked == _pcLink ? filePath : std::string();
     }else{

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-// The transaction log, phase 1 (docs/TransactionLog.md sec 15): what a
+// The transaction log, phase 1 (docs/TransactionLogJournal.md sec 15): what a
 // commit writes to the store, the pending-after rule of sec 20.2, and the
 // promise that matters -- a log replays to an identical document.
 
@@ -46,7 +46,7 @@
 #include "Base/Stream.h"
 #include <src/App/InitApplication.h>
 
-// A stand-in for a view provider (docs/TransactionLog.md sec 24.9): a
+// A stand-in for a view provider (docs/TransactionLogJournal.md sec 24.9): a
 // transactional container that is not a document object, belongs to one,
 // and reports its changes to that object's document.
 class TxnLogFakeView: public App::TransactionalObject
@@ -565,7 +565,7 @@ TEST_F(TransactionLogTest, implicitTransactionsGroupByInvocation)
     EXPECT_EQ(txns.back().name, "explicit");
 
     // Undo on: the implicit transaction is recorded, and is no undo step of
-    // its own (docs/TransactionLog.md sec 33.4). With no step of the user's
+    // its own (docs/TransactionLogJournal.md sec 33.4). With no step of the user's
     // below it there is nothing to undo ...
     doc()->setUndoMode(1);
     {
@@ -2060,7 +2060,7 @@ std::map<std::string, App::LogOp> setsByProp(App::TransactionStore& store, int64
 
 TEST_F(TransactionLogTest, undoAndRedoAreLoggedAsInverses)
 {
-    // docs/TransactionLog.md sec 24.2: an undo is a transaction of its own
+    // docs/TransactionLogJournal.md sec 24.2: an undo is a transaction of its own
     // whose ops are the undone one's with before and after swapped, naming
     // the row it inverts; a redo inverts the undo. Derived stays derived.
     doc()->openTransaction("create");
@@ -2148,7 +2148,7 @@ TEST_F(TransactionLogTest, undoAndRedoAreLoggedAsInverses)
 
 TEST_F(TransactionLogTest, coldUndoRevertsFromTheLog)
 {
-    // docs/TransactionLog.md sec 24.3: past the hot window a step keeps its
+    // docs/TransactionLogJournal.md sec 24.3: past the hot window a step keeps its
     // name and log row only, and undoing it applies the row reversed from
     // the log -- objects recreated under their id and name, dynamic
     // properties added back, links restored.
@@ -2236,7 +2236,7 @@ TEST_F(TransactionLogTest, coldUndoRevertsFromTheLog)
 
 TEST_F(TransactionLogTest, selectiveUndoRefusesWhatChangedSince)
 {
-    // docs/TransactionLog.md sec 24.4: a row that is not the tip is undone
+    // docs/TransactionLogJournal.md sec 24.4: a row that is not the tip is undone
     // by a new transaction when nothing since touched what it set, and
     // refused when something did.
     doc()->openTransaction("create");
@@ -2317,7 +2317,7 @@ TEST_F(TransactionLogTest, selectiveUndoRefusesWhatChangedSince)
 
 TEST_F(TransactionLogTest, severalRowsUndoneAreOneStep)
 {
-    // docs/TransactionLog.md sec 33.13: several rows undone at once are one
+    // docs/TransactionLogJournal.md sec 33.13: several rows undone at once are one
     // transaction, taken back newest first; what the rows of the set did is
     // not held against one another, what any other row did is; and if one
     // is refused none is undone.
@@ -2771,7 +2771,7 @@ TEST_F(TransactionLogTest, recomputeRecordSurvivesAnObserverRemovingWithUndoOff)
     // An observer of signalRecomputed may delete what was recomputed -- with
     // undo off, at once -- and the record was read after it ran: the use
     // after free CAMTests.TestPathHelix crashed on with the log on, where a
-    // Python observer clears the document (docs/TransactionLog.md sec 24.12).
+    // Python observer clears the document (docs/TransactionLogJournal.md sec 24.12).
     doc()->setUndoMode(0);
     auto temp = make("Temp");
     ASSERT_TRUE(temp);
@@ -2800,7 +2800,7 @@ TEST_F(TransactionLogTest, implicitTransactionClosesWhenUndoModeChanges)
     // Writes made with undo off open an implicit transaction for the log.
     // Turning undo on before it closed made them an undo step the user never
     // had: one create and one rename became two steps in
-    // OmniControl.test_documentReachOfEditOps (docs/TransactionLog.md sec
+    // OmniControl.test_documentReachOfEditOps (docs/TransactionLogJournal.md sec
     // 24.13). The mode change closes it under the mode it was opened in.
     doc()->setUndoMode(0);
     auto obj = make("Obj");
@@ -2836,7 +2836,7 @@ TEST_F(TransactionLogTest, implicitTransactionIsNotMirroredIntoTheActiveDocument
     // implicit transaction into the active document as "-> <implicit>",
     // which was not implicit and so never closed with it: an empty step in
     // someone else's undo list (DocumentObserverCases.testDocument,
-    // docs/TransactionLog.md sec 24.13).
+    // docs/TransactionLogJournal.md sec 24.13).
     auto obj = make("Obj");
     ASSERT_TRUE(obj);
     doc()->commitTransaction();
@@ -2914,7 +2914,7 @@ TEST_F(TransactionLogTest, commitWritesItsAfterValuesAndKeepsTheCopy)
 
 TEST_F(TransactionLogTest, blobStoreRecoversALeftoverDirectory)
 {
-    // docs/TransactionLog.md sec 25.2 item 5: what a crashed session left in
+    // docs/TransactionLogJournal.md sec 25.2 item 5: what a crashed session left in
     // its blob directory is taken over -- the newest complete generation of
     // each segment, never one the crash cut short -- and handed back by hash.
     auto& source = doc()->getFileBlobManager();
@@ -2967,7 +2967,7 @@ TEST_F(TransactionLogTest, blobStoreRecoversALeftoverDirectory)
 
 TEST_F(TransactionLogTest, recoversACrashedSessionFromItsLog)
 {
-    // docs/TransactionLog.md sec 25: the transient directory a crashed
+    // docs/TransactionLogJournal.md sec 25: the transient directory a crashed
     // session leaves is enough to rebuild its document -- the newest version
     // with the log's tail replayed over it -- and the history carries on.
     doc()->openTransaction("create");
@@ -3143,7 +3143,7 @@ int rawInt(const std::string& path, const char* sql)
 }
 
 /** A store as the log wrote it on 2026-09-28, when the layout settled
- * without a version (docs/TransactionLog.md sec 27.55): one row on main,
+ * without a version (docs/TransactionLogJournal.md sec 27.55): one row on main,
  * one session by its user's name.
  */
 std::string makeSettledStore(const char* name)
@@ -3184,7 +3184,7 @@ std::string makeSettledStore(const char* name)
 
 TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
 {
-    // docs/TransactionLog.md sec 27.55 (2026-10-19): a store from before the
+    // docs/TransactionLogJournal.md sec 27.55 (2026-10-19): a store from before the
     // version -- "scanner"'s, "no such column: joined" -- is brought up to
     // date when opened: the columns added since, with their defaults, and a
     // session's user, which was a name, as a row of `user`.
@@ -3313,7 +3313,7 @@ TEST_F(TransactionLogTest, aStoreOfScannersLayoutIsMigrated)
 
 TEST_F(TransactionLogTest, aStoreOfLayoutOneGetsObjectUids)
 {
-    // docs/TransactionLog.md sec 36 U4: layout 2 adds `objuid`; a store of
+    // docs/TransactionLogJournal.md sec 36 U4: layout 2 adds `objuid`; a store of
     // layout 1 is brought to it, and the UIDs are read from the table and
     // from what the `create` and `remove` ops say.
     const std::string path = Base::FileInfo::getTempFileName("txnlog-one") + ".db";
@@ -3362,7 +3362,7 @@ TEST_F(TransactionLogTest, aStoreOfLayoutOneGetsObjectUids)
 
 TEST_F(TransactionLogTest, aStoreOfLayoutTwoGetsItsOpsPacked)
 {
-    // docs/TransactionLog.md sec 37.4 P2: layout 3 keeps an op's hashes as
+    // docs/TransactionLogJournal.md sec 37.4 P2: layout 3 keeps an op's hashes as
     // 20 bytes and its type and property names as ids of `name`; the rows of
     // a layout-2 store are packed when it is opened and read back the same.
     const std::string path = Base::FileInfo::getTempFileName("txnlog-two") + ".db";
@@ -3438,7 +3438,7 @@ TEST_F(TransactionLogTest, aStoreOfLayoutTwoGetsItsOpsPacked)
 
 TEST_F(TransactionLogTest, aRecordKeepsItsNamesAsIds)
 {
-    // docs/TransactionLog.md sec 37.4 P3: a record's property names go as
+    // docs/TransactionLogJournal.md sec 37.4 P3: a record's property names go as
     // ids of `name`, a script past 128 bytes compressed; both read back as
     // the JSON written, and a short script that is not a record stays text.
     const std::string path = Base::FileInfo::getTempFileName("txnlog-record") + ".db";
@@ -3540,7 +3540,7 @@ TEST_F(TransactionLogTest, aStoreNotOfThisBuildIsRefused)
 
 TEST_F(TransactionLogTest, branchesAreChainsInTheStore)
 {
-    // docs/TransactionLog.md sec 26 (4.a): a branch is a named tip into the
+    // docs/TransactionLogJournal.md sec 26 (4.a): a branch is a named tip into the
     // parent tree; appending on it moves its head, and its history is the
     // chain from there, whatever else the store holds.
     const std::string path = Base::FileInfo::getTempFileName("txnlog-branches") + ".db";
@@ -3621,7 +3621,7 @@ TEST_F(TransactionLogTest, branchesAreChainsInTheStore)
 
 TEST_F(TransactionLogTest, compositeAndManifestHoldWithoutEdges)
 {
-    // docs/TransactionLog.md sec 27.53-27.54: the hashes of `entity` and
+    // docs/TransactionLogJournal.md sec 27.53-27.54: the hashes of `entity` and
     // `ref` are 20-byte blobs; a composite has no edge per value and a
     // version no manifest rows -- the collector reads both lists from the
     // entities themselves.
@@ -3710,7 +3710,7 @@ TEST_F(TransactionLogTest, compositeAndManifestHoldWithoutEdges)
 
 TEST_F(TransactionLogTest, dropTierWithEvictionIsTheTwoCalls)
 {
-    // docs/TransactionLog.md sec 27.69: the embedded copy's retention --
+    // docs/TransactionLogJournal.md sec 27.69: the embedded copy's retention --
     // evict the versions, drop the cache tier -- as one collection keeps
     // exactly what the two calls one after the other keep.
     const std::string pathA = Base::FileInfo::getTempFileName("txnlog-tier") + ".db";
@@ -3825,7 +3825,7 @@ TEST_F(TransactionLogTest, dropTierWithEvictionIsTheTwoCalls)
 
 TEST_F(TransactionLogTest, theCacheTierIsHeldUnderItsBudget)
 {
-    // docs/TransactionLog.md sec 37.13: over the budget, of each property
+    // docs/TransactionLogJournal.md sec 37.13: over the budget, of each property
     // the oldest values go first, the cheapest to recompute first across
     // properties, down to three quarters; the newest of a property, what a
     // version lists stay, and a delta kept on a value that goes is written
@@ -3933,7 +3933,7 @@ TEST_F(TransactionLogTest, theCacheTierIsHeldUnderItsBudget)
 
 TEST_F(TransactionLogTest, branchesSwitchInPlace)
 {
-    // docs/TransactionLog.md sec 26 (4.b): a branch from the head leaves the
+    // docs/TransactionLogJournal.md sec 26 (4.b): a branch from the head leaves the
     // document and its steps as they are; a switch makes the document the
     // other branch's head in place, with that branch's own steps; object
     // ids never collide across branches.
@@ -4134,7 +4134,7 @@ TEST_F(TransactionLogTest, recoveryContinuesOnTheBranch)
 
 TEST_F(TransactionLogTest, trimAndDeleteBranches)
 {
-    // docs/TransactionLog.md sec 16.7, 26 (4.e): a trim never takes what
+    // docs/TransactionLogJournal.md sec 16.7, 26 (4.e): a trim never takes what
     // another branch's history holds; a delete takes what only the branch
     // holds; what stays still checks out.
     doc()->openTransaction("create");
@@ -4229,7 +4229,7 @@ TEST_F(TransactionLogTest, trimAndDeleteBranches)
 
 TEST_F(TransactionLogTest, trimLeavesABridgeToABranchForkedBelow)
 {
-    // docs/TransactionLog.md sec 27.71 (user): where another branch shares
+    // docs/TransactionLogJournal.md sec 27.71 (user): where another branch shares
     // the history, a trim squashes the rows from the newest shared one up to
     // the kept version into that version's row, so the two histories still
     // meet in rows and a switch walks them -- no version is read whole.
@@ -4304,7 +4304,7 @@ TEST_F(TransactionLogTest, trimLeavesABridgeToABranchForkedBelow)
 
 TEST_F(TransactionLogTest, squashFoldsTheNetChange)
 {
-    // docs/TransactionLog.md sec 16.7 (4.e): the rows between two versions
+    // docs/TransactionLogJournal.md sec 16.7 (4.e): the rows between two versions
     // become one transaction of their net change, which undoes -- cold, from
     // the log -- and redoes like any.
     doc()->openTransaction("create");
@@ -4880,7 +4880,7 @@ TEST_F(TransactionLogTest, aClosedFilesHistoryIsReadFromTheArchive)
 
 TEST_F(TransactionLogTest, stringTableAndReferenceSets)
 {
-    // docs/TransactionLog.md sec 27.50 items 2 and 4: the store keeps the
+    // docs/TransactionLogJournal.md sec 27.50 items 2 and 4: the store keeps the
     // file's strings once, and each version's and value's ids as ranges
     // that go with their entity.
     const std::string path = Base::FileInfo::getTempFileName("txnlog-strings") + ".db";
@@ -7510,7 +7510,7 @@ TEST_F(TransactionLogTest, aRecreatedObjectKeepsItsPythonExtensions)
 
 TEST_F(TransactionLogTest, aCopyBroughtUpToDateHoldsWhatACopyMadeWholeDoes)
 {
-    // docs/TransactionLog.md sec 38.9: a folder's copy of the store, copied
+    // docs/TransactionLogJournal.md sec 38.9: a folder's copy of the store, copied
     // at one save, is brought up to date at the next by what changed since.
     // It then holds the rows a copy made whole then holds. A row the copy no
     // longer has -- retention took it out -- is left out of the changes to

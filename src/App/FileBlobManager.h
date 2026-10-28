@@ -151,7 +151,7 @@ public:
     bool inPack() const;
 
     /** Whether the file is the document's folder's, read where it is
-     * (docs/TransactionLog.md sec 38.9): the store never deletes it or
+     * (docs/TransactionLogJournal.md sec 38.9): the store never deletes it or
      * changes its permissions, and copies it in before a save takes it
      * away or the document leaves the folder.
      */
@@ -172,7 +172,7 @@ public:
      * A shape file that borrows geometry names the files it borrows from
      * (docs/SharedShapeStorage.md sec 11.5); it cannot be read without them,
      * so whoever keeps it for later -- the transaction log
-     * (docs/TransactionLog.md sec 23.16) -- has to keep them too. The module
+     * (docs/TransactionLogJournal.md sec 23.16) -- has to keep them too. The module
      * that owns a format says how to find them, see
      * FileBlobManager::registerSourceReader(); content with no reader for
      * its extension reads nothing else. Reads the content.
@@ -290,7 +290,7 @@ public:
      * A property that keeps the file its value was last written to (a
      * shape after a save, until it changes) answers it here so that a
      * reader wanting a content hash -- the transaction log
-     * (docs/TransactionLog.md sec 20.2, decision 6b) -- can take the hash
+     * (docs/TransactionLogJournal.md sec 20.2, decision 6b) -- can take the hash
      * and hold the blob instead of serialising the value again. Null
      * means "not known": the caller serialises. It must never name a blob
      * whose content differs from the value.
@@ -306,7 +306,7 @@ public:
  * exactly which files the value names -- and the manager's save set, which
  * belongs to whatever save the document runs next, is left alone. The
  * transaction log captures values on its worker thread this way
- * (docs/TransactionLog.md sec 23.16). Nests; the innermost records.
+ * (docs/TransactionLogJournal.md sec 23.16). Nests; the innermost records.
  */
 class AppExport BlobRecorder
 {
@@ -356,7 +356,7 @@ private:
 class AppExport FileBlobManager
 {
 public:
-    /// The store of `history`'s directory (docs/TransactionLog.md sec 27.7);
+    /// The store of `history`'s directory (docs/TransactionLogJournal.md sec 27.7);
     /// null for the process-wide default, which lives in the temp directory.
     explicit FileBlobManager(FileHistory* history);
     ~FileBlobManager();
@@ -425,7 +425,7 @@ public:
 
     /** The store for a property of `container`: its document's, else the
      * one a capture on this thread names (a detached copy the transaction
-     * log serialises, docs/TransactionLog.md sec 27.37), else the default.
+     * log serialises, docs/TransactionLogJournal.md sec 27.37), else the default.
      */
     static FileBlobManager& managerFor(const PropertyContainer* container);
 
@@ -474,7 +474,7 @@ public:
     void flush();
 
     /** Crash recovery: take over what a crashed session left in blobDir()
-     * (docs/FileBlobsManager.md sec 15.8 and 15.11, docs/TransactionLog.md
+     * (docs/FileBlobsManager.md sec 15.8 and 15.11, docs/TransactionLogJournal.md
      * sec 25.2).
      *
      * Each segment number keeps its newest generation whose central
@@ -543,7 +543,7 @@ public:
      */
     static const char* indexName();
 
-    /** A save that rewrites only part of an archive (docs/TransactionLog.md
+    /** A save that rewrites only part of an archive (docs/TransactionLogJournal.md
      * sec 27.28, save to the log only): read one member of the zip archive
      * at `path`, decoded. False when there is no such member.
      */
@@ -653,12 +653,12 @@ public:
     /// Claim this document's blob entries out of the archive being read.
     void beginRestore(Base::XMLReader& reader);
     /** Every blob of the document archive at `archive` into this store,
-     * with no document restored (docs/TransactionLog.md sec 27.13): held,
+     * with no document restored (docs/TransactionLogJournal.md sec 27.13): held,
      * and named as the archive named them, until endRestore().
      */
     bool splitArchive(const std::string& archive);
     /** Content taken in from here, and an archive written, carry deflate
-     * at its fastest level instead of zstd (docs/TransactionLog.md sec 38.10):
+     * at its fastest level instead of zstd (docs/TransactionLogJournal.md sec 38.10):
      * any zip tool extracts it, and the folder extracted opens as the
      * document. The document's `BlobCompression`, set before each save and
      * after each restore.
@@ -668,10 +668,17 @@ public:
     /** What each object refers to in the save in progress, by its id: the
      * hash and the referrer's name of every blob it noted, sorted. An object
      * whose list is what it was at the last save names the same files
-     * (docs/TransactionLog.md sec 38.12).
+     * (docs/TransactionLogJournal.md sec 38.12).
      */
     std::map<long, std::vector<std::string>> referencesByObject() const;
-    /** @name Blobs read where they are (docs/TransactionLog.md sec 38.9)
+    /** The blobs each object's properties were handed by the restores
+     * since the last call, by id, as referencesByObject() lists them (hash,
+     * then `Object.Property`), sorted; and the lists taken away. What an
+     * open of a folder read, for its first save to compare with
+     * (docs/TransactionLogJournal.md sec 38.14).
+     */
+    std::map<long, std::vector<std::string>> takeRestoredReferences();
+    /** @name Blobs read where they are (docs/TransactionLogJournal.md sec 38.9)
      *
      * A document saved as a folder keeps its blobs as files under `blobs/`.
      * Its open reads them there, named by the hash the folder's index gives
@@ -740,20 +747,20 @@ public:
 
     /// The collected save set in hash order, so a document always writes the
     /// same file for the same content. Read by the save itself and by the
-    /// transaction log's version manifest (docs/TransactionLog.md 16.3).
+    /// transaction log's version manifest (docs/TransactionLogJournal.md 16.3).
     std::vector<FileBlobHandle> collected() const;
 
     /** The collected save set with the names a save gives it, in name order.
      *
      * The names planSave() derives from the referrers -- `Box.Shape.brp` --
      * as an archive would carry them. The transaction log keys a version's
-     * blobs by these (docs/TransactionLog.md sec 23.16): the same property's
+     * blobs by these (docs/TransactionLogJournal.md sec 23.16): the same property's
      * file has the same name in the next version, which is what pairs the
      * old content with the new for a delta.
      */
     std::vector<std::pair<std::string, FileBlobHandle>> collectedEntries() const;
     /** The same, less the content only the document's own History property
-     * refers to -- its database and the blobs it keeps (docs/TransactionLog.md
+     * refers to -- its database and the blobs it keeps (docs/TransactionLogJournal.md
      * sec 27.29): what a version of the document holds. A version holding
      * them would keep the history of its time in every later history.
      */
@@ -883,7 +890,7 @@ private:
     uint64_t segmentCap() const;
     uint64_t memberCap() const;
     /// How full the segment new content is added to may be before a batch
-    /// starts another (BlobAppendSize, sec 37.4 P8 of docs/TransactionLog.md).
+    /// starts another (BlobAppendSize, sec 37.4 P8 of docs/TransactionLogJournal.md).
     uint64_t appendCap() const;
     /// Take a compressed member in memory for the next batch, and the blob.
     /// Called with the lock held.
@@ -935,6 +942,9 @@ private:
     mutable std::unordered_map<std::string, FileBlobHandle> _saveSet;
     /// Who refers to each of them, which is what names the file it goes to.
     std::unordered_map<std::string, std::vector<BlobReferrer>> _saveRefs;
+    /// takeRestoredReferences(), under _mutex.
+    std::map<long, std::vector<std::string>> _restoredRefs;
+    void noteRestored(BlobReferrerProperty* referrer, const FileBlobHandle& blob);
     /// What each of them is, for the ones nothing gets to name: the
     /// extension of the first referrer that offered one. A file named by
     /// its hash still has to say what it holds -- a stored environment

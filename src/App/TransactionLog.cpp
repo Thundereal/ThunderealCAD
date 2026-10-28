@@ -195,6 +195,42 @@ ContainerInfo describe(Document& doc, const TransactionalObject* tobj, const std
     return c;
 }
 
+/// The versions that travel in a file's copy of `store` (16.4, 13.3, 37.4
+/// P1), with the retention numbers they were worked out by: what
+/// finishEmbed() keeps, and what an updated folder copy is checked against
+/// (sec 38.21 F3).
+std::set<int64_t> travelling(TransactionStore& store, const std::vector<LogVersion>& versions,
+                             long& keepNamed, long& keepSnapshots)
+{
+    TransactionLog::historyRetention(store, keepNamed, keepSnapshots);
+    std::set<int64_t> travel;
+    std::map<int64_t, int64_t> newest;
+    for (const auto& v : versions)
+        newest[v.branch] = v.num;
+    for (const auto& kv : newest)
+        travel.insert(kv.second);
+    long named = 0;
+    std::map<int64_t, long> unnamed;
+    for (auto it = versions.rbegin(); it != versions.rend(); ++it) {
+        const auto& v = *it;
+        if (v.kind == "named") {
+            if (keepNamed <= 0 || named++ < keepNamed)
+                travel.insert(v.num);
+        }
+        else if (keepNamed >= 0 && unnamed[v.branch]++ < keepSnapshots) {
+            travel.insert(v.num);
+        }
+    }
+    for (const auto& b : store.branches()) {
+        if (b.fromVersion)
+            travel.insert(b.fromVersion);
+    }
+    // A pin names its version by number from another file (sec 27).
+    const std::set<int64_t> pinned = TransactionLog::pinnedVersions(store);
+    travel.insert(pinned.begin(), pinned.end());
+    return travel;
+}
+
 } // namespace
 
 /** What store() hands out: every call waits for the worker's queue to
@@ -961,6 +997,7 @@ bool TransactionLogCore::adoptEmbedded(const std::string& path, const std::strin
     if (!folder.empty() && _store->beginChanges()) {
         _folderTrack.folder = folder;
         _folderTrack.saveId = _store->getMeta("save_id");
+        _folderTrack.copyId = _store->getMeta("copy_id");
     }
     // The copy's blobs came with the file, restored into the file's blob
     // store for the History property; the log holds them from here.
@@ -1403,6 +1440,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
                                                         int64_t branch, const std::string& folder,
                                                         const std::string& target,
                                                         const std::string& previous,
+                                                        const std::string& saveId,
                                                         const std::string& trigger)
 {
     auto clock = std::chrono::steady_clock::now();
@@ -1412,7 +1450,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
         clock = now;
         return secs;
     };
-    TransactionLog::Embedded out = beginEmbed(branch, std::string(), trigger);
+    TransactionLog::Embedded out = beginEmbed(branch, saveId, trigger);
     out.path = target;
     Base::FileInfo(target).deleteFile();
     const double tState = split();
@@ -1426,7 +1464,9 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
     const FolderTrack was = _folderTrack;
     _folderTrack.folder = folder;
     _folderTrack.saveId.clear();
+    _folderTrack.copyId.clear();
     _folderTrack.pending = out.saveId;
+    _folderTrack.pendingCopy = Base::Uuid::createUuid();
     std::unique_ptr<TransactionStore> copy;
     if (recorded && !was.saveId.empty() && was.folder == folder && !previous.empty()
             && Base::FileInfo(previous).exists()) {
@@ -1439,7 +1479,39 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
             // then of a save this store did not record from.
             if (copy->getMeta("save_id") != was.saveId)
                 THROWM(Base::RuntimeError, "the folder's history is of another save")
+            // ... or of the same save made again elsewhere, to the history
+            // alone, which keeps the save id (sec 38.21 F6). A copy older
+            // than the token has none: made whole once.
+            if (was.copyId.empty() || copy->getMeta("copy_id") != was.copyId)
+                THROWM(Base::RuntimeError, "the folder's history is another copy")
+            const auto keptBefore = copy->keptObjects();
+            std::set<std::string> valuesBefore;
+            for (const auto& k : copy->keptValues())
+                valuesBefore.insert(k.hash);
             copy->applyChanges(changes);
+            // What retention left out of this copy at an earlier save never
+            // comes back by the record, which holds only rows the store
+            // wrote since (sec 38.21 F3). A version that now travels -- a
+            // limit raised, a pin, a newer one unnamed -- or a value or an
+            // object kept since that the copy may have dropped: made whole.
+            std::set<int64_t> has;
+            for (const auto& v : copy->versions())
+                has.insert(v.num);
+            long named = 0, snapshots = 0;
+            for (int64_t num : travelling(*_store, _store->versions(), named, snapshots)) {
+                if (!has.count(num))
+                    THROWM(Base::RuntimeError, "a version that travels now was left out before")
+            }
+            for (const auto& k : copy->keptValues()) {
+                if (!valuesBefore.count(k.hash) && !copy->hasEntity(k.hash))
+                    THROWM(Base::RuntimeError, "a value kept since was left out before")
+            }
+            auto keptNow = copy->keptObjects();
+            std::sort(keptNow.begin(), keptNow.end());
+            auto keptWas = keptBefore;
+            std::sort(keptWas.begin(), keptWas.end());
+            if (!std::includes(keptWas.begin(), keptWas.end(), keptNow.begin(), keptNow.end()))
+                THROWM(Base::RuntimeError, "an object kept since may have rows left out before")
             out.updated = true;
         }
         catch (const Base::Exception& e) {
@@ -1454,6 +1526,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
     }
     const double tCopy = split();
     finishEmbed(*copy, out, saveDate, branch, trigger);
+    copy->setMeta("copy_id", _folderTrack.pendingCopy);
     const double tRetain = split();
     // The check (sec 38.9): the same copy made whole, here and now, holds
     // the same rows. Not where retention trimmed rows: a copy trimmed save
@@ -1466,6 +1539,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
             auto whole = TransactionStore::openSQLiteCopy(check);
             TransactionLog::Embedded same = out;
             finishEmbed(*whole, same, saveDate, branch, trigger);
+            whole->setMeta("copy_id", _folderTrack.pendingCopy);
             whole.reset();
             out.checked = true;
             out.differences = copy->differences(check);
@@ -1497,7 +1571,9 @@ void TransactionLogCore::folderSaved(const std::string& folder, const std::strin
 {
     if (_folderTrack.folder == folder && _folderTrack.pending == saveId) {
         _folderTrack.saveId = saveId;
+        _folderTrack.copyId = _folderTrack.pendingCopy;
         _folderTrack.pending.clear();
+        _folderTrack.pendingCopy.clear();
     }
 }
 
@@ -1524,40 +1600,8 @@ void TransactionLogCore::finishEmbed(TransactionStore& copyRef, TransactionLog::
     // 27.71). A file that says `named` below 0 carries every named version
     // and every row, as before the bound.
     long keepNamed = 0, keepSnapshots = 0;
-    TransactionLog::historyRetention(*copy, keepNamed, keepSnapshots);
     const auto versions = copy->versions();
-    std::set<int64_t> travel;
-    {
-        std::map<int64_t, int64_t> newest;
-        for (const auto& v : versions)
-            newest[v.branch] = v.num;
-        for (const auto& kv : newest)
-            travel.insert(kv.second);
-        long named = 0;
-        std::map<int64_t, long> unnamed;
-        for (auto it = versions.rbegin(); it != versions.rend(); ++it) {
-            const auto& v = *it;
-            if (v.kind == "named") {
-                if (keepNamed <= 0 || named++ < keepNamed)
-                    travel.insert(v.num);
-            }
-            else if (keepNamed >= 0 && unnamed[v.branch]++ < keepSnapshots) {
-                travel.insert(v.num);
-            }
-        }
-        for (const auto& b : copy->branches()) {
-            if (b.fromVersion)
-                travel.insert(b.fromVersion);
-        }
-        // A pin names its version by number from another file (sec 27):
-        // `pins` is a line per pin, the version first.
-        std::istringstream pins(copy->getMeta("pins"));
-        for (std::string line; std::getline(pins, line);) {
-            const long long num = std::atoll(line.c_str());
-            if (num > 0)
-                travel.insert(num);
-        }
-    }
+    const std::set<int64_t> travel = travelling(*copy, versions, keepNamed, keepSnapshots);
     std::vector<int64_t> evicted;
     std::set<int64_t> evictedAt;
     for (const auto& v : versions) {
@@ -1689,6 +1733,18 @@ void TransactionLog::setHistoryRetention(TransactionStore& store, long named, lo
     store.setMeta("keep_snapshots", std::to_string(std::max(1L, snapshots)));
 }
 
+std::set<int64_t> TransactionLog::pinnedVersions(TransactionStore& store)
+{
+    std::set<int64_t> pinned;
+    std::istringstream pins(store.getMeta("pins"));
+    for (std::string line; std::getline(pins, line);) {
+        const long long num = std::atoll(line.c_str());
+        if (num > 0)
+            pinned.insert(num);
+    }
+    return pinned;
+}
+
 bool TransactionLog::readRecoveryMeta(const std::string& oldDir, RecoverInfo& info)
 {
     const std::string path = oldDir + "/history/log.db";
@@ -1798,7 +1854,7 @@ bool TransactionLog::recover(const std::string& oldDir, RecoverInfo& info)
 
     openStore();
     // A document saved as a folder read its saved blobs where they are, so
-    // the store left behind does not have them (docs/TransactionLog.md sec
+    // the store left behind does not have them (docs/TransactionLogJournal.md sec
     // 38.9): they are read from the folder again. Its name is the log's, the
     // recovered document having none yet.
     const std::string file = _c._store->getMeta("file");
@@ -1857,7 +1913,7 @@ int64_t TransactionLog::record(const char* kind, const std::string& name,
 int64_t TransactionLog::keepFile(const FileBlobHandle& file, const std::string& name,
                                  const std::string& script)
 {
-    // docs/TransactionLog.md sec 30.29: a row that says who sent what, under
+    // docs/TransactionLogJournal.md sec 30.29: a row that says who sent what, under
     // whoever acts, and the bytes held as one blob. The blob is made
     // durable and named in the store before the row that says it is there.
     LogTransaction t;
@@ -1997,6 +2053,25 @@ bool TransactionLog::othersStandOn(const std::vector<int64_t>& seqs) const
     return false;
 }
 
+Document* TransactionLog::otherStandingOn(const std::set<int64_t>& rows,
+                                          const std::set<int64_t>& versions) const
+{
+    for (const TransactionLog* cursor : _c._cursors) {
+        if (cursor == this)
+            continue;
+        // One at a version needs the version, which is whole: its row may go
+        // (a pin's frozen document; a first change then forks from it).
+        if (cursor->_branch == 0 && cursor->_at) {
+            if (versions.count(cursor->_at))
+                return &cursor->_doc;
+            continue;
+        }
+        if (rows.count(cursor->_head))
+            return &cursor->_doc;
+    }
+    return nullptr;
+}
+
 int64_t TransactionLog::forkHere(int64_t target, const std::string& name)
 {
     flush();
@@ -2012,6 +2087,11 @@ int64_t TransactionLog::forkHere(int64_t target, const std::string& name)
     branch.target = target;
     branch.created = now();
     store.addBranch(branch);
+    // The fork point outlives eviction, as createBranch's does (17.1):
+    // named, so the branch's `from_version` names a version that is there.
+    LogVersion fork;
+    if (_at && store.getVersion(_at, fork) && fork.kind != "named")
+        store.nameVersion(_at, "branch " + name);
     auto held = _c._holders.find(_branch);
     if (held != _c._holders.end() && held->second == this)
         _c._holders.erase(held);
@@ -2237,7 +2317,21 @@ TransactionLog::Embedded TransactionLog::embedFolder(const std::string& saveDate
                                                     const std::string& previous,
                                                     const std::string& trigger)
 {
-    _lastEmbed = _c.embedFolder(saveDate, _branch, folder, target, previous, trigger);
+    _lastEmbed = _c.embedFolder(saveDate, _branch, folder, target, previous, std::string(),
+                                trigger);
+    return _lastEmbed;
+}
+
+TransactionLog::Embedded TransactionLog::embedFolderForFile(const std::string& saveDate,
+                                                           const std::string& saveId,
+                                                           const std::string& folder,
+                                                           const std::string& target,
+                                                           const std::string& previous,
+                                                           const std::string& trigger)
+{
+    // Branch 0: the branch the file reopens on stays the store's, as
+    // embedForFile() leaves it.
+    _lastEmbed = _c.embedFolder(saveDate, 0, folder, target, previous, saveId, trigger);
     return _lastEmbed;
 }
 
@@ -2328,10 +2422,13 @@ void TransactionLog::forgetValue(const Property& prop)
     _recorded.erase(prop.getID());
 }
 
-bool TransactionLog::objectsChangedSince(int64_t seq, std::set<long>& objects)
+bool TransactionLog::objectsChangedSince(int64_t seq, std::set<long>& objects,
+                                         std::set<long>* views)
 {
     flush();
     objects.clear();
+    if (views)
+        views->clear();
     if (seq == _head)
         return true;
     if (seq <= 0 || !_c._store)
@@ -2346,6 +2443,8 @@ bool TransactionLog::objectsChangedSince(int64_t seq, std::set<long>& objects)
         for (const auto& op : _c._store->ops(t.seq)) {
             if (op.ckind == "obj")
                 objects.insert(op.cid);
+            else if (views && op.ckind == "view")
+                views->insert(op.cid);
         }
     }
     return true;
@@ -2989,7 +3088,7 @@ void TransactionLog::restoreBlobsOf(const std::string& hash)
         // restore this is for: the tip's snapshot had just made the file a
         // patch of its successor, its last holder let go between this and
         // the property asking, and the property waited for a file nobody
-        // was going to bring (docs/TransactionLog.md sec 31.6).
+        // was going to bring (docs/TransactionLogJournal.md sec 31.6).
         if (FileBlobHandle live = _c.liveBlob(r.target))
             _c.putBlob(live);
         else
@@ -4013,11 +4112,18 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                 continue;
             }
 
+            // Removals first (sec 39, C1): a property removed and one of its
+            // name added in the transaction read forward as delprop, addprop,
+            // set -- the map's order put the delprop last, and a replay
+            // removed what it had just added.
+            for (int pass = 0; pass < 2; ++pass)
             for (auto& kv : rec._PropChangeMap) {
                 auto& data = kv.second;
                 auto prop = const_cast<Property*>(data.propertyOrig);
                 std::string typeName = data.propertyType.getName();
                 if (!data.property) {
+                    if (pass == 0)
+                        continue;
                     // Nothing that is not saved is logged: a cache a module
                     // hangs on an object as a dynamic property (Part's
                     // shape cache) is not the document's (sec 30.18).
@@ -4038,9 +4144,12 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                 // `prop` is read only once found live in the container; the
                 // id tells a property added in a removed one's freed address
                 // (the same name and type, in one transaction) from it.
-                if (!name || (!data.name.empty() && data.name != name)
+                const bool gone = !name || (!data.name.empty() && data.name != name)
                         || data.propertyType != prop->getTypeId()
-                        || prop->getID() != kv.first) {
+                        || prop->getID() != kv.first;
+                if (gone != (pass == 0))
+                    continue;
+                if (gone) {
                     // The original is gone: a dynamic property removed.
                     if (data.name.empty())
                         continue;

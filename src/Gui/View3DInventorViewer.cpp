@@ -130,6 +130,7 @@
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
 #include <App/GeoFeatureGroupExtension.h>
+#include <App/PropertyGeo.h>
 #include <App/PropertyUnits.h>
 #include <App/PropertyFile.h>
 #include <App/ComplexGeoDataPy.h>
@@ -5802,7 +5803,7 @@ void Gui::initRenderProperties(App::PropertyContainer *view)
     // the names are installed before the value is set.
     if (!view->getPropertyByName("Render_MatcapPreset")) {
         static const char* _matcapPresetEnums[] =
-            {"Studio", "Clay", "Metal", "Pearl", "Zebra", nullptr};
+            {"Studio", "Clay", "Metal", "Pearl", "Zebra", "Draft", "Curvature", nullptr};
         auto prop = static_cast<App::PropertyEnumeration*>(
                 view->addDynamicProperty("App::PropertyEnumeration",
                                          "Render_MatcapPreset", "Render",
@@ -5821,6 +5822,31 @@ void Gui::initRenderProperties(App::PropertyContainer *view)
     _renderParam<App::PropertyFloatConstraint>(view, "MatcapTint",
             RenderParams::docMatcapTint(), RenderParams::getMatcapTint(),
             applyUnitConstraint);
+    _renderParam<App::PropertyBool>(view, "MatcapFixed",
+            RenderParams::docMatcapFixed(), RenderParams::getMatcapFixed());
+    _renderParam<App::PropertyFloat>(view, "MatcapDraftAngle",
+            RenderParams::docMatcapDraftAngle(), RenderParams::getMatcapDraftAngle());
+    if (!view->getPropertyByName("Render_MatcapCurvature")) {
+        static const char* _curvatureEnums[] = {"Gaussian", "Mean", "Least", "Greatest", nullptr};
+        auto prop = static_cast<App::PropertyEnumeration*>(
+                view->addDynamicProperty("App::PropertyEnumeration",
+                                         "Render_MatcapCurvature", "Render",
+                                         RenderParams::docMatcapCurvature()));
+        prop->setEnums(_curvatureEnums);
+        prop->setValue(long(RenderParams::getMatcapCurvature()));
+    }
+    _renderParam<App::PropertyFloat>(view, "MatcapCurvatureRange",
+            RenderParams::docMatcapCurvatureRange(), RenderParams::getMatcapCurvatureRange());
+    // a direction of this view's alone, in world space: no default to keep
+    // in the preferences, since what it points at is the model in the view
+    if (!view->getPropertyByName("Render_MatcapDirection")) {
+        auto prop = static_cast<App::PropertyVector*>(
+                view->addDynamicProperty("App::PropertyVector",
+                                         "Render_MatcapDirection", "Render",
+                                         "The fixed zebra's eye and the draft matcap's pull, in\n"
+                                         "world space; the shading options set it from the view"));
+        prop->setValue(Base::Vector3d(0, 0, 1));
+    }
     _renderParam<App::PropertyFloat>(view, "BumpScale",
             RenderParams::docBumpScale(), RenderParams::getBumpScale());
     _renderParam<App::PropertyBool>(view, "Parallax",

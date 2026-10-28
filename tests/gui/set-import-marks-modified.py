@@ -1,4 +1,4 @@
-"""A linked set's import leaves its files to be saved (docs/TransactionLog.md sec 35.18).
+"""A linked set's import leaves its files to be saved (docs/TransactionLogJournal.md sec 35.18).
 
 An import puts each file's branch in that file's own history, which a save
 of that file writes; closed unsaved, the branch is gone. The import marks

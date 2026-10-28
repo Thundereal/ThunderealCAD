@@ -32,7 +32,7 @@
 namespace App
 {
 
-/** Who acts (docs/TransactionLog.md sec 30.3 S.b, 30.6): one login of one
+/** Who acts (docs/TransactionLogJournal.md sec 30.3 S.b, 30.6): one login of one
  * user, as the transaction log records the author of a row.
  *
  * The desktop user, whose process it is, is the absence of an actor: no
@@ -48,7 +48,7 @@ namespace App
  * per login and a user row per kind and name, so one person's logins are
  * one author.
  *
- * `Enrolled` is one of the browsers a grant counts (docs/TransactionLog.md
+ * `Enrolled` is one of the browsers a grant counts (docs/TransactionLogJournal.md
  * sec 30.32): known by half a grant gave -- a token, or a sign-in -- and
  * half its own, the id it keeps. Nobody verified who sits at it; the host's
  * record of browsers says which one it is.

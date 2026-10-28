@@ -70,7 +70,7 @@
 #include <thread>
 #include <vector>
 
-// The OCCT fork's Immutable flag (docs/TransactionLog.md sec 23.6): a
+// The OCCT fork's Immutable flag (docs/TransactionLogJournal.md sec 23.6): a
 // shape held as a property value refuses every change to its geometry and
 // topology but still takes the caches a mesher writes.
 namespace {
@@ -148,7 +148,7 @@ TEST(ImmutableShapeTest, meshesButRefusesEdits)
     EXPECT_NO_THROW(builder.UpdateFace(plainFace, 0.1));
 }
 
-// Step 5 (docs/TransactionLog.md sec 23.7): a shape property's value is
+// Step 5 (docs/TransactionLogJournal.md sec 23.7): a shape property's value is
 // immutable from the moment it is set. The flag is per TShape, so every
 // sub-shape carries it, and so does every other handle on those TShapes --
 // the value is the TShapes, not the handle the caller passed in.
@@ -163,7 +163,7 @@ protected:
     void SetUp() override
     {
         // Stated, not inherited: the default follows the OCCT loaded at run
-        // time (docs/TransactionLog.md sec 23.13).
+        // time (docs/TransactionLogJournal.md sec 23.13).
         Part::PartParams::setImmutableShapeValues(true);
         _docName = App::GetApplication().getUniqueDocumentName("immutable");
         _doc = App::GetApplication().newDocument(_docName.c_str(), "testUser");
@@ -258,7 +258,7 @@ TEST_F(PropertyShapeImmutableTest, transformGeometryIsANewValue)
 // and an element map not made yet is made by Save() from that cache, which
 // also clears the sub-shapes the cache holds -- on the worker, while this
 // thread hands them out: a SIGSEGV in Cache::Info::_getTopoShape under
-// Shape.Faces (docs/TransactionLog.md sec 31.27). Asked whether it may be
+// Shape.Faces (docs/TransactionLogJournal.md sec 31.27). Asked whether it may be
 // saved off this thread, the copy makes its map here first.
 TEST_F(PropertyShapeImmutableTest, aCopyForTheWorkerHasItsElementMap)
 {
@@ -287,7 +287,7 @@ TEST_F(PropertyShapeImmutableTest, aCopyForTheWorkerHasItsElementMap)
 // with every other copy, and a map is edited in place. So the map is held
 // from the handover until the reader is done (Property::holdForOffThread),
 // and the check (FC_ELEMENTMAP_CHECK) counts an edit of it meanwhile
-// (docs/TransactionLog.md sec 31.28, 31.31).
+// (docs/TransactionLogJournal.md sec 31.28, 31.31).
 namespace {
 
 struct CheckingHeldMaps
@@ -534,7 +534,7 @@ TEST_F(HeldElementMapTest, namesGivenFromManyThreadsAreTakenInOnce)
 
 // Not a check: what a recompute costs beside a thread that saves element
 // maps without a pause, as the transaction log's worker would with a queue
-// that never empties (docs/TransactionLog.md sec 31.32, which has what it
+// that never empties (docs/TransactionLogJournal.md sec 31.32, which has what it
 // printed for the scheme that was not kept). Run with
 // --gtest_also_run_disabled_tests --gtest_filter='*aRecomputeBesideAReaderOfMaps'.
 TEST_F(PropertyShapeImmutableTest, DISABLED_aRecomputeBesideAReaderOfMaps)
@@ -622,7 +622,7 @@ TEST_F(PropertyShapeImmutableTest, DISABLED_aRecomputeBesideAReaderOfMaps)
 // Not a check: what holding a shape's element map for another thread costs
 // the main thread at a handover, by how many features the shape was made
 // of, beside what the save that follows costs the worker and what the
-// recompute that made the shapes cost (docs/TransactionLog.md sec 31.33).
+// recompute that made the shapes cost (docs/TransactionLogJournal.md sec 31.33).
 // Run with --gtest_also_run_disabled_tests --gtest_filter='*aHoldOfAMapByItsDepth'.
 TEST_F(PropertyShapeImmutableTest, DISABLED_aHoldOfAMapByItsDepth)
 {
@@ -759,7 +759,7 @@ TEST(ImmutableShapeTest, booleanGoesNonDestructive)
     EXPECT_TRUE(frozen.NonDestructive());
 }
 
-// Pcurves as a cache (docs/TransactionLog.md sec 23.12): building on a frozen
+// Pcurves as a cache (docs/TransactionLogJournal.md sec 23.12): building on a frozen
 // wire gives its edges pcurves for the new faces, which the fork lets through,
 // and the storage writer leaves out, so the wire's bytes do not move.
 TEST(ImmutableShapeTest, aFaceBuiltOnAFrozenWireLeavesItsBytes)
@@ -888,7 +888,7 @@ TEST(ImmutableShapeTest, aRefusalRaisedByAnInlineSetterIsCounted)
 }
 
 // A frozen edge takes a pcurve cache for each new face on it; a face that is
-// gone leaves its cache to the next one added (docs/TransactionLog.md sec
+// gone leaves its cache to the next one added (docs/TransactionLogJournal.md sec
 // 27.81-27.82). Extruded over and over, a sketch's frozen edge carried a
 // cache for every extrusion ever made, and every walk of its list slowed.
 TEST(ImmutableShapeTest, aFrozenEdgeKeepsNoCacheOfAFaceThatIsGone)
@@ -970,7 +970,7 @@ TEST(ImmutableShapeTest, aWireMergeCopiesAFrozenVertex)
     EXPECT_EQ(BRep_Tool::Tolerance(join), joinTol);
     EXPECT_TRUE(BRep_Tool::Pnt(join).IsEqual(joinPnt, 0.));
     // The copies are thawed copies of what they stand for, the joining vertex
-    // and the first edge, which uses it (docs/TransactionLog.md sec 23.15).
+    // and the first edge, which uses it (docs/TransactionLogJournal.md sec 23.15).
     for (int i = 1; i <= ancestors.Extent(); ++i) {
         if (ancestors(i).Extent() == 2) {
             const TopoDS_Shape& vertex = ancestors.FindKey(i);
@@ -986,7 +986,7 @@ TEST(ImmutableShapeTest, aWireMergeCopiesAFrozenVertex)
     EXPECT_EQ(firstCopies, 1);
 }
 
-// A widening that is rounding is none (docs/TransactionLog.md sec 33.10): the
+// A widening that is rounding is none (docs/TransactionLogJournal.md sec 33.10): the
 // end of the edge added sits where the frozen one's does, one ulp wider. The
 // wire keeps the frozen edge and its vertex, where it made a copy of each to
 // grow by nothing.
@@ -1031,7 +1031,7 @@ TEST(ImmutableShapeTest, aWireMergeCopiesNothingForRounding)
     EXPECT_EQ(BRep_Tool::Tolerance(join), joinTol);
 }
 
-// A vertex parameter is derived data like a pcurve (docs/TransactionLog.md sec
+// A vertex parameter is derived data like a pcurve (docs/TransactionLogJournal.md sec
 // 23.14): a frozen vertex put on a new edge -- as the offset algorithm puts an
 // input edge's ends, INTERNAL, on the edge it extends -- takes a parameter on
 // that edge's curve, marked a cache; its own parameters may only be restated.
@@ -1108,7 +1108,7 @@ TEST(ImmutableShapeTest, aParameterOnANewPCurveLeavesTheFaceBytes)
 // A face on a frozen wire whose edges' tolerances differ: FindSurface gives the
 // face the largest, and UpdateTolerances raises every other edge to it. Those
 // are frozen, so the face holds copies that are raised -- thawed copies, which
-// name their originals -- and the wire keeps its own (docs/TransactionLog.md
+// name their originals -- and the wire keeps its own (docs/TransactionLogJournal.md
 // sec 23.15).
 namespace {
 
@@ -1186,7 +1186,7 @@ TEST(ImmutableShapeTest, aFaceOnAFrozenWireThawsWhatMustGrow)
 // edge under a face of such a tolerance was copied to grow by nothing, and the
 // copy then lay beside the original wherever the edge is shared -- a refine's
 // sewing merged the two into a new edge and renamed every face on it, on the
-// one platform whose boolean left that rounding (docs/TransactionLog.md sec
+// one platform whose boolean left that rounding (docs/TransactionLogJournal.md sec
 // 33.10).
 TEST(ImmutableShapeTest, aFaceOnAFrozenWireCopiesNothingForRounding)
 {
@@ -1217,7 +1217,7 @@ TEST(ImmutableShapeTest, aFaceOnAFrozenWireCopiesNothingForRounding)
 // instance does: a thawed copy of an edge keeps its vertices at its curve's
 // ends. The copy took the placed edge's location and orientation, and the
 // vertices it was given were moved back by it and turned round -- a
-// PolarPattern refined with vertices of tolerance 6.8 (docs/TransactionLog.md
+// PolarPattern refined with vertices of tolerance 6.8 (docs/TransactionLogJournal.md
 // sec 27.84).
 TEST(ImmutableShapeTest, aThawedCopyOfAPlacedEdgeKeepsItsVertices)
 {
@@ -1306,7 +1306,7 @@ TEST(ImmutableShapeTest, aThawedCopyKeepsItsName)
 // offset puts the removed face's vertices on the edges it extends (the first
 // test above), and leaves the input's bytes as they were. A whole sphere
 // with its one face removed, which this used, leaves no face to thicken and
-// is refused (docs/TransactionLog.md sec 27.105): not done, and no throw.
+// is refused (docs/TransactionLogJournal.md sec 27.105): not done, and no throw.
 TEST(ImmutableShapeTest, aThickSolidLeavesAFrozenInput)
 {
     SKIP_WITHOUT_OCCT_IMMUTABLE();
@@ -1355,7 +1355,7 @@ TEST(ImmutableShapeTest, fixLeavesAFrozenPartAlone)
 // values it is given on a worker -- while it still takes caches here: a
 // mesher's polygons, a pcurve for a new face. Both edit the edge's list of
 // representations, and the writer walked a node the remesh had freed
-// (docs/TransactionLog.md sec 27.98). In the OCCT fork every edit of an
+// (docs/TransactionLogJournal.md sec 27.98). In the OCCT fork every edit of an
 // Immutable TShape's representations, and every walk of them by a writer,
 // holds BRep_RepresentationLock.
 namespace {

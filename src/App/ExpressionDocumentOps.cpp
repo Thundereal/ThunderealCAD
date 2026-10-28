@@ -726,7 +726,7 @@ bool ObjectIdentifier::updateElementReference(ExpressionVisitor &v,
     ResolveResults result(*this);
     // The ids a file gave are held against the target's table first, as a
     // link's are on registering, whether the element is there or missing
-    // (docs/TransactionLog.md sec 27.77): else the next save's compaction
+    // (docs/TransactionLogJournal.md sec 27.77): else the next save's compaction
     // drops the strings the reference names.
     // A stored name's ids are the owner's, held by the lookup in
     // _updateElementReference (sec 27.82).

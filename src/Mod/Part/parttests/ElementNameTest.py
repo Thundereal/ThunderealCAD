@@ -115,7 +115,7 @@ class LoftCapNameTest(unittest.TestCase):
     The forward pass of the element mapper names a face whose outer wire gives
     one distinct name from that name alone. It used to append to a stream still
     holding the last encode of the passes before, so a loft's caps carried a
-    vertex's name, and each cap the one before it (docs/TransactionLog.md sec
+    vertex's name, and each cap the one before it (docs/TransactionLogJournal.md sec
     27.77).
     """
 

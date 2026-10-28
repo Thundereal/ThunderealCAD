@@ -86,7 +86,7 @@ list(APPEND FreeCADApp_LIBS
         ${ZLIB_LIBRARIES}
 )
 
-# The transaction log's store (docs/TransactionLog.md sec 13).
+# The transaction log's store (docs/TransactionLogJournal.md sec 13).
 # 3.38: json_extract/json_valid built in (TransactionStoreSQLite.cpp reads
 # object UIDs out of op metadata with them); upsert (3.24) and VACUUM INTO
 # (3.27) come with it.
@@ -95,7 +95,7 @@ include_directories(${SQLite3_INCLUDE_DIRS})
 list(APPEND FreeCADApp_LIBS ${SQLite3_LIBRARIES})
 
 # The history a folder holds is brought up to date at a save by what changed
-# since the last one (docs/TransactionLog.md sec 38.9), which SQLite's
+# since the last one (docs/TransactionLogJournal.md sec 38.9), which SQLite's
 # session extension records. A library built without it -- conda-forge's
 # has it on Linux and Windows -- makes every save copy the history whole.
 include(CheckSymbolExists)
@@ -112,7 +112,7 @@ if(FC_SQLITE_HAS_SESSION)
 endif()
 
 # zstd is optional and only used by the transaction-log measurement
-# (TransactionMeasure.cpp, docs/TransactionLog.md sec 15 phase 0), which
+# (TransactionMeasure.cpp, docs/TransactionLogJournal.md sec 15 phase 0), which
 # compares it against zlib. Nothing is stored with it yet.
 find_path(ZSTD_INCLUDE_DIR zstd.h)
 find_library(ZSTD_LIBRARY NAMES zstd)

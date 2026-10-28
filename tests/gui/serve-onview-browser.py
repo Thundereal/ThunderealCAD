@@ -61,7 +61,7 @@ import wsclient
 from wsclient import free_port
 
 # The browser acts on the document, so it is someone: the holder of an
-# invitation issued to its name (docs/TransactionLog.md sec 30.6 U4, U6).
+# invitation issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).
 TOKEN = "onview-browser-invite"
 CLIENT = "onview-browser"
 

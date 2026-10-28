@@ -26,9 +26,12 @@ SET(SurfaceGui_UIC_SRCS
     TaskFillingVertex.ui
     TaskGeomFillSurface.ui
     TaskSections.ui
+    Blending/TaskBlendCurve.ui
 )
 
 SET(BlendingGui_SRCS
+    Blending/TaskBlendCurve.cpp
+    Blending/TaskBlendCurve.h
     Blending/ViewProviderBlendCurve.cpp
     Blending/ViewProviderBlendCurve.h
 )
@@ -47,6 +50,10 @@ SET(SurfaceGui_SRCS
     TaskGeomFillSurface.h
     TaskSections.cpp
     TaskSections.h
+    TaskNetwork.cpp
+    TaskNetwork.h
+    TaskTrim.cpp
+    TaskTrim.h
     AppSurfaceGui.cpp
     Command.cpp
     PreCompiled.cpp

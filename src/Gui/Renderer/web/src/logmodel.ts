@@ -1,5 +1,5 @@
 // What the transaction log's panel says and keeps (logpanel.tsx, docs/
-// TransactionLog.md sec 32.21), apart from the drawing of it: plain
+// TransactionLogJournal.md sec 32.21), apart from the drawing of it: plain
 // functions, so that the gate checks them in node with no DOM
 // (widgets/gate.ts).
 
@@ -54,7 +54,7 @@ export function logOpText(op: LogOp): string {
   }
 }
 
-// Acting on what is listed (docs/TransactionLog.md sec 32.22): rows taken
+// Acting on what is listed (docs/TransactionLogJournal.md sec 32.22): rows taken
 // back, versions, branches.
 
 /// The kinds of row that have something to take back, as the host has them.
@@ -106,7 +106,7 @@ export function deletable(branches: LogBranch[], reach: LogReach): LogBranch[] {
 }
 
 /// A branch the asker reads. One it does not is listed greyed, by its name
-/// alone (docs/TransactionLog.md sec 32.30).
+/// alone (docs/TransactionLogJournal.md sec 32.30).
 export function branchRead(b: { read?: boolean }): boolean {
   return b.read !== false;
 }
@@ -226,7 +226,7 @@ export function actRefusal(e: { code?: string; message?: string } | undefined): 
   }
 }
 
-// -- The merge's own panel (docs/TransactionLog.md sec 32.26) --------------
+// -- The merge's own panel (docs/TransactionLogJournal.md sec 32.26) --------------
 
 /// The changes of a preview in the order the desktop's merge dialog lists
 /// them: the conflicts first, then what goes in, then what is kept or
@@ -306,7 +306,7 @@ export function previewText(p: { what: string; source?: string; count: number;
   return `${title}: ${many(p.count, 'change')}, ${many(p.conflicts, 'conflict')}`;
 }
 
-// -- What is kept in the file (docs/TransactionLog.md sec 32.27) ----------
+// -- What is kept in the file (docs/TransactionLogJournal.md sec 32.27) ----------
 
 /// One line of the list of the kept, as the desktop's Kept tab has it: each
 /// value kept by itself, then each object kept and under it the values the
@@ -419,7 +419,7 @@ export function keepText(values: number, keep: boolean, where: string): string {
 }
 
 // What takes rows out for good, and the requests of sec 30.20 -- a file
-// sent, a branch an import made: the host's (docs/TransactionLog.md sec
+// sent, a branch an import made: the host's (docs/TransactionLogJournal.md sec
 // 32.30).
 
 const HOST_TRIMS = "that takes rows out of the log for good, which is the host's";
@@ -472,7 +472,7 @@ export function squashChoices(behind: LogBehind[]): Array<{ value: string; label
   }));
 }
 
-// The graph of the rows (docs/TransactionLog.md sec 32.35): the desktop's
+// The graph of the rows (docs/TransactionLogJournal.md sec 32.35): the desktop's
 // (sec 26, TransactionLogView::layoutGraph), laid out the same way --
 // newest first as git draws it, every row a node on a lane, each lane
 // waiting for the parent of the row above it, lanes waiting for the same

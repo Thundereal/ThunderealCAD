@@ -102,7 +102,7 @@ def build():
         ):
             finish()
             return
-        # The page writes, so it is someone (docs/TransactionLog.md sec 30.6
+        # The page writes, so it is someone (docs/TransactionLogJournal.md sec 30.6
         # U4, U6): the token is an invitation issued to the name the page
         # says in its hello, and an open invitation to look for its plain
         # fetches, which are made before any name is said.

@@ -157,7 +157,7 @@ void DlgObjectSelection::init(const std::vector<App::DocumentObject*> &objs,
     }
     onItemSelectionChanged();
 
-    // What a listed object owns goes with it (docs/TransactionLog.md sec
+    // What a listed object owns goes with it (docs/TransactionLogJournal.md sec
     // 37.9): a body's origin is copied with the body or not at all
     for (const auto& v : itemMap) {
         auto obj = v.first.getObject();

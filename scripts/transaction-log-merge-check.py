@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 28: a branch merged in the running
+# GUI check of docs/TransactionLogJournal.md sec 28: a branch merged in the running
 # application through the log panel's dialog -- the picker's rows, a side
 # picked for a conflict, the view providers following the merge, and the
 # merge row in the list. One GUI run in a fresh user home, given this script
@@ -21,7 +21,7 @@ lines = []
 
 
 def mergeDialog():
-    # The merge's preview is not modal (docs/TransactionLog.md sec 32.15): it
+    # The merge's preview is not modal (docs/TransactionLogJournal.md sec 32.15): it
     # is found among the windows. Anything modal instead is in its way.
     for w in QtWidgets.QApplication.topLevelWidgets():
         if w.objectName() == "TransactionMergeDialog" and w.isVisible():

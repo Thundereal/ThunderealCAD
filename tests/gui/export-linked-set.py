@@ -1,4 +1,4 @@
-"""File > Export with Linked Files (docs/TransactionLog.md sec 35 L7).
+"""File > Export with Linked Files (docs/TransactionLogJournal.md sec 35 L7).
 
 An assembly links an object of a part in its folder and pins it to a
 version; Std_ExportLinkedSet opens the dialog, which lists the set.

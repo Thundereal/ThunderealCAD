@@ -485,7 +485,7 @@ bool GUIApplication::notify (QObject * receiver, QEvent * event)
     }
     SlowDispatchTrace slowTrace(receiver, event);
     // The desktop user's own input is the desktop user's
-    // (docs/TransactionLog.md sec 30.3 S.b): an event the window system
+    // (docs/TransactionLogJournal.md sec 30.3 S.b): an event the window system
     // delivers while a client's operation spins an event loop of its own --
     // a dialog it opened -- is not that client's.
     std::optional<App::ActorScope> own;

@@ -16,7 +16,10 @@ A page in its view, zoomed in so that it is larger than the view, with the
   - they fade out a while after;
   - HidePageScrollBars on: no overlaid bars, Qt's own still hidden, and an
     arrow key still pans;
-  - off again: the overlaid bars are back.
+  - off again: the overlaid bars are back;
+  - in a view cell (the view area turned on for the run), shown, the bars
+    stop short of the cell's corner handles, which keep their corners:
+    "cells drag handle takes priority" (the user, 2026-10-26).
 
 Runs offscreen as well.
 """
@@ -38,6 +41,8 @@ Qt = QtCore.Qt
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 GENERAL = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/TechDraw/General")
+VIEW = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
+ZONE = 14
 
 state = {"done": False}
 
@@ -79,6 +84,16 @@ def overlay_bars(gv):
     return found.get("OverlayScrollBarH"), found.get("OverlayScrollBarV")
 
 
+def cell_of(widget):
+    while widget is not None and widget.metaObject().className() != "Gui::ViewAreaCell":
+        widget = widget.parentWidget()
+    return widget
+
+
+def place(widget, of):
+    return QtCore.QRect(widget.mapTo(of, QtCore.QPoint(0, 0)), widget.size())
+
+
 def pan_right(gv, times=5):
     gv.setFocus()
     for _ in range(times):
@@ -90,6 +105,8 @@ def run():
     try:
         GENERAL.RemBool("HidePageScrollBars")
         GENERAL.SetBool("HideScrollBars", True)
+        state["area"] = VIEW.GetBool("UseViewArea", True)
+        VIEW.SetBool("UseViewArea", True)
         doc = FreeCAD.newDocument("PageScrollBars")
         templates = glob.glob(os.path.join(FreeCAD.getResourceDir(), "Mod", "TechDraw",
                                            "Templates", "**", "*A4*Landscape*.svg"), recursive=True)
@@ -127,6 +144,20 @@ def run():
         g = oh.geometry()
         check("it is thin and lies over the page", 0 < g.height() <= 12
               and gv.viewport().geometry().contains(g.center()), g)
+        cell = cell_of(gv)
+        if check("the page is in a view cell", cell is not None):
+            w, h = cell.width(), cell.height()
+            zones = sorted((place(z, cell) for z in cell.findChildren(QtWidgets.QWidget)
+                            if z.metaObject().className() == "Gui::ViewAreaZone"
+                            and z.parentWidget() is cell), key=lambda r: r.x())
+            bars = [place(b, cell) for b in (oh, ov)]
+            check("shown, the bars leave the cell's corner handles in their corners",
+                  zones == [QtCore.QRect(0, h - ZONE, ZONE, ZONE),
+                            QtCore.QRect(w - ZONE, 0, ZONE, ZONE)], (zones, w, h))
+            check("... and run under neither",
+                  not any(b.intersects(z) for b in bars for z in zones), (bars, zones))
+            check("... and stop just short of them, not further",
+                  bars[0].left() == ZONE and bars[1].top() == ZONE, bars)
 
         target = (oh.minimum() + oh.maximum()) // 2
         if target == hsb.value():
@@ -166,6 +197,8 @@ def finish():
     state["done"] = True
     GENERAL.RemBool("HidePageScrollBars")
     GENERAL.RemBool("HideScrollBars")
+    if "area" in state:
+        VIEW.SetBool("UseViewArea", state["area"])
     for name in list(FreeCAD.listDocuments().keys()):
         FreeCAD.closeDocument(name)
     note("DONE")

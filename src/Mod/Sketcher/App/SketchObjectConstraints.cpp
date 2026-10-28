@@ -1008,7 +1008,7 @@ int SketchObject::deleteAllConstraints(DeleteOptions options)
 
 // The state a constraint puts on its geometry (InternalType, Blocked) is
 // saved with the geometry, so writing it is a change of the Geometry property
-// and goes through its guard (docs/TransactionLog.md 23.6). The guard marks
+// and goes through its guard (docs/TransactionLogJournal.md 23.6). The guard marks
 // the property only when a value actually differs.
 void SketchObject::addGeometryState(const Constraint* cstr)
 {
@@ -1063,6 +1063,12 @@ int SketchObject::addConstraints(const std::vector<Constraint*>& ConstraintList)
 {
     // no need to check input data validity as this is an sketchobject managed operation.
     Base::StateLocker lock(managedoperation, true);
+
+    for (auto* c : ConstraintList) {
+        if (c->isSketch3DOnly()) {
+            FC_THROWM(Base::ValueError, "Constraint type " << c->typeToString() << " belongs to a 3D sketch");
+        }
+    }
 
     const std::vector<Constraint*>& vals = this->Constraints.getValues();
 
@@ -1140,6 +1146,10 @@ int SketchObject::addConstraint(const Constraint* constraint)
 
 int SketchObject::addConstraint(std::unique_ptr<Constraint> constraint)
 {
+    if (constraint->isSketch3DOnly()) {
+        FC_THROWM(Base::ValueError, "Constraint type " << constraint->typeToString() << " belongs to a 3D sketch");
+    }
+
     // no need to check input data validity as this is an sketchobject managed operation.
     Base::StateLocker lock(managedoperation, true);
 

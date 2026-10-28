@@ -54,7 +54,7 @@ using namespace App;
 
 namespace {
 
-// docs/TransactionLog.md sec 27.53: an entity's hash, its base and both
+// docs/TransactionLogJournal.md sec 27.53: an entity's hash, its base and both
 // ends of an edge are the SHA-1's 20 bytes, and `ref` is its key.
 #define FC_ENTITY_COLUMNS                                                              \
     "(hash BLOB PRIMARY KEY, kind TEXT, enc TEXT, base BLOB, tier TEXT,"         \
@@ -108,7 +108,7 @@ bool packHash(const char* hex, size_t n, unsigned char* out)
     return true;
 }
 
-/** The store's layout version, PRAGMA user_version (docs/TransactionLog.md
+/** The store's layout version, PRAGMA user_version (docs/TransactionLogJournal.md
  * sec 27.55: none from 2026-09-28, one again from 2026-10-19 for the release
  * at the end of 2026). 0 is a store from before it; 1 is the layout of
  * 2026-10-19; 2 adds the object UIDs (sec 36, 2026-10-21); 3 packs the op
@@ -237,7 +237,23 @@ std::string fileUri(const std::string& path)
     return uri;
 }
 
-/** The SQLite log (docs/TransactionLog.md sec 13). One database per
+/// One step of a read: true for a row, false at the end. Anything else -- an
+/// I/O error, a damaged page, a lock held past the busy timeout -- throws:
+/// taken for "no row" it read a live store as empty, and an adoption then
+/// deleted it (sec 39.3, S5).
+bool stepRow(sqlite3_stmt* s)
+{
+    const int rc = sqlite3_step(s);
+    if (rc == SQLITE_ROW)
+        return true;
+    if (rc == SQLITE_DONE)
+        return false;
+    const std::string msg = sqlite3_errmsg(sqlite3_db_handle(s));
+    sqlite3_reset(s);
+    THROWM(Base::RuntimeError, "Transaction log: " + msg);
+}
+
+/** The SQLite log (docs/TransactionLogJournal.md sec 13). One database per
  * document history; every append is one SQL transaction, so atomicity
  * and crash recovery are the database's, not ours.
  */
@@ -277,7 +293,7 @@ public:
         }
     }
 
-    /** The layout, made or brought up to StoreVersion (docs/TransactionLog.md
+    /** The layout, made or brought up to StoreVersion (docs/TransactionLogJournal.md
      * sec 27.55, as ruled again on 2026-10-19). A store of a newer build is
      * refused, never misread; one older is migrated, step by step.
      */
@@ -437,7 +453,7 @@ public:
             // name -> (type, default, part of the key)
             std::map<std::string, std::tuple<std::string, std::string, bool>> out;
             Statement s(db, "PRAGMA " + schema + ".table_info(" + table + ")");
-            while (sqlite3_step(s.stmt) == SQLITE_ROW) {
+            while (stepRow(s.stmt)) {
                 auto col = [&](int i) {
                     auto t = reinterpret_cast<const char*>(sqlite3_column_text(s.stmt, i));
                     return std::string(t ? t : "");
@@ -486,21 +502,21 @@ public:
     int pragmaInt(const char* sql)
     {
         Statement s(db, sql);
-        return sqlite3_step(s.stmt) == SQLITE_ROW ? sqlite3_column_int(s.stmt, 0) : 0;
+        return stepRow(s.stmt) ? sqlite3_column_int(s.stmt, 0) : 0;
     }
 
     bool hasTable(const char* name)
     {
         Statement s(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?");
         sqlite3_bind_text(s.stmt, 1, name, -1, SQLITE_TRANSIENT);
-        return sqlite3_step(s.stmt) == SQLITE_ROW;
+        return stepRow(s.stmt);
     }
 
     std::string metaValue(const char* key)
     {
         Statement s(db, "SELECT value FROM meta WHERE key=?");
         sqlite3_bind_text(s.stmt, 1, key, -1, SQLITE_TRANSIENT);
-        if (sqlite3_step(s.stmt) != SQLITE_ROW)
+        if (!stepRow(s.stmt))
             return {};
         auto t = reinterpret_cast<const char*>(sqlite3_column_text(s.stmt, 0));
         return t ? t : "";
@@ -529,7 +545,7 @@ public:
     bool hasRow(const char* sql)
     {
         auto s = prepare(sql);
-        bool found = sqlite3_step(s) == SQLITE_ROW;
+        bool found = stepRow(s);
         sqlite3_reset(s);
         return found;
     }
@@ -696,7 +712,7 @@ public:
     {
         auto s = prepare("SELECT 1 FROM entity WHERE hash=?");
         bindHash(s, 1, hash);
-        bool found = sqlite3_step(s) == SQLITE_ROW;
+        bool found = stepRow(s);
         sqlite3_reset(s);
         return found;
     }
@@ -737,7 +753,7 @@ public:
     {
         auto s = prepare("SELECT kind,enc,base,tier,size,data FROM entity WHERE hash=?");
         bindHash(s, 1, hash);
-        if (sqlite3_step(s) != SQLITE_ROW) {
+        if (!stepRow(s)) {
             sqlite3_reset(s);
             return false;
         }
@@ -755,7 +771,7 @@ public:
         auto r = prepare("SELECT target,role,name FROM ref WHERE entity=? AND role<>'base'"
                          " ORDER BY seq");
         bindHash(r, 1, hash);
-        while (sqlite3_step(r) == SQLITE_ROW)
+        while (stepRow(r))
             e.refs.push_back(LogRef {columnHash(r, 0), text(r, 1), text(r, 2)});
         sqlite3_reset(r);
         return true;
@@ -786,7 +802,7 @@ public:
             // other new ones at the end.
             auto s = prepare("SELECT kind,tier,size FROM entity WHERE hash=?");
             bindHash(s, 1, hash);
-            if (sqlite3_step(s) != SQLITE_ROW) {
+            if (!stepRow(s)) {
                 sqlite3_reset(s);
                 return;
             }
@@ -839,7 +855,7 @@ public:
         auto s = prepare("SELECT COALESCE(MAX(seq),-1)+1 FROM ref WHERE entity=? AND role<>'base'");
         bindHash(s, 1, entity);
         int seq = 0;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             seq = sqlite3_column_int(s, 0);
         sqlite3_reset(s);
         insertRef(entity, r, seq);
@@ -850,7 +866,7 @@ public:
         auto s = prepare("SELECT hash FROM entity WHERE enc=? ORDER BY hash");
         bindText(s, 1, enc);
         std::vector<std::string> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(columnHash(s, 0));
         sqlite3_reset(s);
         return out;
@@ -861,7 +877,7 @@ public:
         auto s = prepare("SELECT entity FROM ref WHERE target=? AND role='base'");
         bindHash(s, 1, hash);
         std::vector<std::string> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(columnHash(s, 0));
         sqlite3_reset(s);
         return out;
@@ -893,7 +909,7 @@ public:
         sqlite3_bind_int64(s, 1, from);
         sqlite3_bind_int(s, 2, limit > 0 ? limit : -1);
         std::vector<LogTransaction> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(readTransaction(s));
         sqlite3_reset(s);
         return out;
@@ -914,7 +930,7 @@ public:
         sqlite3_bind_int64(s, 1, head);
         sqlite3_bind_int64(s, 2, from);
         std::vector<LogTransaction> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(readTransaction(s));
         sqlite3_reset(s);
         return out;
@@ -935,7 +951,7 @@ public:
                          " ORDER BY seq");
         sqlite3_bind_int64(s, 1, head);
         std::vector<LogTransaction> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(readTransaction(s));
         sqlite3_reset(s);
         return out;
@@ -946,7 +962,7 @@ public:
         auto s = prepare("SELECT DISTINCT txn FROM op WHERE txn>=? ORDER BY txn");
         sqlite3_bind_int64(s, 1, from);
         std::vector<int64_t> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(sqlite3_column_int64(s, 0));
         sqlite3_reset(s);
         return out;
@@ -958,7 +974,7 @@ public:
                          "derived,touched FROM op WHERE txn=? ORDER BY idx");
         sqlite3_bind_int64(s, 1, txn);
         std::vector<LogOp> out;
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogOp o;
             o.txn = txn;
             o.idx = sqlite3_column_int(s, 0);
@@ -1003,7 +1019,7 @@ public:
         sqlite3_bind_int64(s, 3, cid);
         sqlite3_bind_int64(s, 4, propId);
         bindText(s, 5, ckind);
-        if (sqlite3_step(s) != SQLITE_ROW) {
+        if (!stepRow(s)) {
             sqlite3_reset(s);
             return false;
         }
@@ -1019,7 +1035,7 @@ public:
                          "touched FROM op WHERE txn=? AND idx=?");
         sqlite3_bind_int64(s, 1, txn);
         sqlite3_bind_int(s, 2, idx);
-        if (sqlite3_step(s) != SQLITE_ROW) {
+        if (!stepRow(s)) {
             sqlite3_reset(s);
             return false;
         }
@@ -1046,17 +1062,33 @@ public:
     {
         auto s = prepare("SELECT MAX(seq) FROM txn");
         int64_t seq = 0;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             seq = sqlite3_column_int64(s, 0);
         sqlite3_reset(s);
-        return seq;
+        // A row removed at the tip keeps its number taken (sec 39, S2):
+        // txn.inverts, merge_from and version.seq name rows by it.
+        return std::max(seq, seqCounter());
+    }
+
+    int64_t seqCounter()
+    {
+        const std::string counter = getMeta("seq_counter");
+        return counter.empty() ? 0 : std::atoll(counter.c_str());
+    }
+
+    /// Before rows are deleted: the newest number stays taken.
+    void keepSeqCounter()
+    {
+        const int64_t last = lastSeq();
+        if (last > seqCounter())
+            setMeta("seq_counter", std::to_string(last));
     }
 
     long maxObjectId() override
     {
         auto s = prepare("SELECT MAX(cid) FROM op");
         long id = 0;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             id = static_cast<long>(sqlite3_column_int64(s, 0));
         sqlite3_reset(s);
         return id;
@@ -1066,7 +1098,7 @@ public:
     {
         std::vector<std::pair<long, std::string>> out;
         auto read = [&](sqlite3_stmt* s) {
-            while (sqlite3_step(s) == SQLITE_ROW)
+            while (stepRow(s))
                 out.emplace_back(static_cast<long>(sqlite3_column_int64(s, 0)), text(s, 1));
             sqlite3_reset(s);
         };
@@ -1080,7 +1112,7 @@ public:
     {
         std::vector<std::pair<long, std::string>> out;
         auto read = [&](sqlite3_stmt* s) {
-            while (sqlite3_step(s) == SQLITE_ROW)
+            while (stepRow(s))
                 out.emplace_back(static_cast<long>(sqlite3_column_int64(s, 0)), text(s, 1));
             sqlite3_reset(s);
         };
@@ -1119,7 +1151,7 @@ public:
     {
         std::vector<std::pair<long, long>> out;
         auto s = prepare("SELECT cid, id FROM lastgeoid");
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.emplace_back(static_cast<long>(sqlite3_column_int64(s, 0)),
                              static_cast<long>(sqlite3_column_int64(s, 1)));
         sqlite3_reset(s);
@@ -1143,7 +1175,7 @@ public:
     {
         std::vector<long> out;
         auto s = prepare("SELECT DISTINCT cid FROM op WHERE ckind='obj'");
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(static_cast<long>(sqlite3_column_int64(s, 0)));
         sqlite3_reset(s);
         return out;
@@ -1178,7 +1210,7 @@ public:
         auto s = prepare("SELECT hash,cid,prop,seq,kind,name FROM keepvalue"
                          " ORDER BY seq, cid, prop");
         std::vector<LogKept> out;
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogKept kept;
             kept.hash = columnHash(s, 0);
             kept.cid = static_cast<long>(sqlite3_column_int64(s, 1));
@@ -1197,7 +1229,7 @@ public:
         auto s = prepare("SELECT kind, name, branch, write, from_seq, from_version, made"
                          " FROM access ORDER BY branch, kind, name");
         std::vector<LogAccess> out;
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogAccess a;
             a.kind = text(s, 0);
             a.name = text(s, 1);
@@ -1241,7 +1273,7 @@ public:
         auto s = prepare("SELECT id, source, target, kind, name, note, created, state, closed,"
                          " closed_kind, closed_name, result FROM mergerequest ORDER BY id");
         std::vector<LogMergeRequest> out;
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogMergeRequest r;
             r.id = sqlite3_column_int64(s, 0);
             r.source = sqlite3_column_int64(s, 1);
@@ -1304,7 +1336,7 @@ public:
     {
         auto s = prepare("SELECT cid FROM keepobject ORDER BY cid");
         std::vector<long> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(static_cast<long>(sqlite3_column_int64(s, 0)));
         sqlite3_reset(s);
         return out;
@@ -1321,7 +1353,7 @@ public:
                          " AND op='set' ORDER BY txn, idx");
         sqlite3_bind_int64(s, 1, cid);
         sqlite3_bind_int64(s, 2, propId);
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             const int64_t txn = sqlite3_column_int64(s, 0);
             if (!out.empty() && out.back().first == txn)
                 out.back().second = columnHash(s, 1);
@@ -1339,7 +1371,7 @@ public:
         sqlite3_bind_int64(s, 1, cid);
         sqlite3_bind_int(s, 2, OpDerived);
         std::vector<std::string> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(columnName(s, 0));
         sqlite3_reset(s);
         // By name, as before the names were ids.
@@ -1392,7 +1424,7 @@ public:
                      : std::string();
         };
         auto read = [&](sqlite3_stmt* s) {
-            while (sqlite3_step(s) == SQLITE_ROW) {
+            while (stepRow(s)) {
                 LogString str;
                 str.id = static_cast<long>(sqlite3_column_int64(s, 0));
                 str.flags = sqlite3_column_int(s, 1);
@@ -1421,7 +1453,7 @@ public:
     {
         std::vector<long> out;
         auto s = prepare("SELECT id FROM strtable ORDER BY id");
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.push_back(static_cast<long>(sqlite3_column_int64(s, 0)));
         sqlite3_reset(s);
         return out;
@@ -1514,7 +1546,7 @@ public:
     {
         std::vector<std::pair<long, long>> all;
         auto s = prepare("SELECT ranges FROM strref");
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             unpackRanges(static_cast<const unsigned char*>(sqlite3_column_blob(s, 0)),
                          sqlite3_column_bytes(s, 0), all);
         }
@@ -1553,6 +1585,7 @@ public:
     {
         exec("BEGIN");
         try {
+            keepSeqCounter();
             for (int64_t seq : seqs) {
                 auto s = prepare("DELETE FROM op WHERE txn=?");
                 sqlite3_bind_int64(s, 1, seq);
@@ -1575,6 +1608,7 @@ public:
     {
         exec("BEGIN");
         try {
+            keepSeqCounter();
             for (int64_t seq : seqs) {
                 auto s = prepare("DELETE FROM op WHERE txn=?");
                 sqlite3_bind_int64(s, 1, seq);
@@ -1854,7 +1888,7 @@ public:
     void loadGraph(HeldGraph& g)
     {
         auto s = prepare("SELECT entity, target, role FROM ref");
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             HeldKey from, to;
             if (!columnKey(s, 0, from) || !columnKey(s, 1, to))
                 continue;
@@ -1866,7 +1900,7 @@ public:
         }
         sqlite3_reset(s);
         s = prepare("SELECT hash, kind FROM entity WHERE kind IN ('composite','manifest')");
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             HeldKey key;
             if (columnKey(s, 0, key))
                 g.list[g.id(std::move(key))] =
@@ -1879,7 +1913,7 @@ public:
     void addRoots(HeldGraph& g, const char* roots, std::vector<uint32_t>& out)
     {
         auto s = prepare(roots);
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             HeldKey key;
             if (columnKey(s, 0, key))
                 out.push_back(g.id(std::move(key)));
@@ -1984,7 +2018,7 @@ public:
         }
         auto s = prepare("SELECT enc,base,size,data FROM entity WHERE hash=?");
         bindHash(s, 1, hash);
-        if (sqlite3_step(s) != SQLITE_ROW) {
+        if (!stepRow(s)) {
             sqlite3_reset(s);
             return false;
         }
@@ -2057,7 +2091,7 @@ public:
         try {
             auto count = [this](const std::string& sql) {
                 Statement s(db, sql);
-                return sqlite3_step(s.stmt) == SQLITE_ROW ? sqlite3_column_int64(s.stmt, 0) : 0;
+                return stepRow(s.stmt) ? sqlite3_column_int64(s.stmt, 0) : 0;
             };
             for (const auto& t : Tables) {
                 const std::string name = t.name;
@@ -2205,7 +2239,7 @@ public:
                 std::vector<char> inTier(count, 0);
                 auto s = prepare("SELECT hash FROM entity WHERE tier=?");
                 bindText(s, 1, tier);
-                while (sqlite3_step(s) == SQLITE_ROW) {
+                while (stepRow(s)) {
                     HeldKey key;
                     if (!columnKey(s, 0, key))
                         continue;
@@ -2265,7 +2299,7 @@ public:
         std::unordered_map<long, std::pair<double, int>> sum;
         auto s = prepare("SELECT script FROM txn WHERE kind='recompute'");
         static const char key[] = "{\"id\":";
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             const std::string j = columnScript(s, 0);
             for (size_t pos = j.find(key); pos != std::string::npos; pos = j.find(key, pos)) {
                 pos += sizeof(key) - 1;
@@ -2306,7 +2340,7 @@ public:
             {
                 auto s = prepare("SELECT hash FROM entity WHERE tier=?");
                 bindText(s, 1, tier);
-                while (sqlite3_step(s) == SQLITE_ROW) {
+                while (stepRow(s)) {
                     HeldKey key;
                     if (columnKey(s, 0, key))
                         tierSet.insert(g.id(std::move(key)));
@@ -2329,9 +2363,14 @@ public:
             std::map<std::pair<int64_t, std::string>, std::pair<int64_t, uint32_t>> newestOn;
             {
                 auto s = prepare("SELECT o.txn, t.branch, o.ckind, o.cid, o.prop, o.vbefore,"
-                                 " o.vafter FROM op o JOIN txn t ON t.seq=o.txn");
-                while (sqlite3_step(s) == SQLITE_ROW) {
+                                 " o.vafter, o.derived FROM op o JOIN txn t ON t.seq=o.txn");
+                while (stepRow(s)) {
                     const int64_t seq = sqlite3_column_int64(s, 0);
+                    // A value a row by hand names -- the before of a hand
+                    // write over a computed value -- is what undoing that
+                    // row writes back: not the cache's to drop (sec 39.3,
+                    // C3). A derived row's values are (24.1).
+                    const bool byHand = sqlite3_column_int(s, 7) != 1;
                     const int64_t branch = sqlite3_column_int64(s, 1);
                     const long cid = static_cast<long>(sqlite3_column_int64(s, 3));
                     std::string chain = text(s, 2);
@@ -2344,7 +2383,7 @@ public:
                         if (sqlite3_column_bytes(s, col) == 0 || !columnKey(s, col, key))
                             continue;   // none, or one still pending
                         const uint32_t n = g.id(std::move(key));
-                        if (!tierSet.count(n)) {
+                        if (!tierSet.count(n) || byHand) {
                             fixed.push_back(n);
                             continue;
                         }
@@ -2393,7 +2432,7 @@ public:
             std::vector<uint64_t> stored(g.keys.size(), 0);
             {
                 auto s = prepare("SELECT hash, enc, size, length(data) FROM entity");
-                while (sqlite3_step(s) == SQLITE_ROW) {
+                while (stepRow(s)) {
                     HeldKey key;
                     if (!columnKey(s, 0, key))
                         continue;
@@ -2579,7 +2618,7 @@ public:
     {
         auto s = prepare("SELECT id FROM environment WHERE json=?");
         bindText(s, 1, json);
-        if (sqlite3_step(s) == SQLITE_ROW) {
+        if (stepRow(s)) {
             int64_t id = sqlite3_column_int64(s, 0);
             sqlite3_reset(s);
             return id;
@@ -2593,7 +2632,7 @@ public:
         s = prepare("SELECT id FROM environment WHERE json=?");
         bindText(s, 1, json);
         int64_t id = 0;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             id = sqlite3_column_int64(s, 0);
         sqlite3_reset(s);
         return id;
@@ -2604,7 +2643,7 @@ public:
         auto s = prepare("SELECT json FROM environment WHERE id=?");
         sqlite3_bind_int64(s, 1, id);
         std::string v;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             v = text(s, 0);
         sqlite3_reset(s);
         return v;
@@ -2616,7 +2655,7 @@ public:
         bindText(find, 1, kind);
         bindText(find, 2, name);
         int64_t id = 0;
-        if (sqlite3_step(find) == SQLITE_ROW)
+        if (stepRow(find))
             id = sqlite3_column_int64(find, 0);
         sqlite3_reset(find);
         if (id)
@@ -2628,7 +2667,7 @@ public:
         find = prepare("SELECT id FROM user WHERE kind=? AND name=?");
         bindText(find, 1, kind);
         bindText(find, 2, name);
-        if (sqlite3_step(find) == SQLITE_ROW)
+        if (stepRow(find))
             id = sqlite3_column_int64(find, 0);
         sqlite3_reset(find);
         return id;
@@ -2638,7 +2677,7 @@ public:
     {
         auto s = prepare("SELECT id,kind,name,parent FROM user ORDER BY id");
         std::vector<LogUser> out;
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogUser r;
             r.id = sqlite3_column_int64(s, 0);
             r.kind = text(s, 1);
@@ -2680,7 +2719,7 @@ public:
                          " WHERE t.seq=?");
         sqlite3_bind_int64(s, 1, seq);
         bool found = false;
-        if (sqlite3_step(s) == SQLITE_ROW) {
+        if (stepRow(s)) {
             id.session = text(s, 0);
             id.ordinal = sqlite3_column_int64(s, 1);
             found = !id.session.empty() && id.ordinal > 0;
@@ -2698,7 +2737,7 @@ public:
         bindText(s, 1, id.session);
         sqlite3_bind_int64(s, 2, id.ordinal);
         int64_t seq = 0;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             seq = sqlite3_column_int64(s, 0);
         sqlite3_reset(s);
         return seq;
@@ -2717,7 +2756,7 @@ public:
         auto s = prepare("SELECT id,env,user,host,access,opened,closed,uuid FROM session"
                          " ORDER BY id");
         std::vector<LogSession> out;
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogSession r;
             r.id = sqlite3_column_int64(s, 0);
             r.env = sqlite3_column_int64(s, 1);
@@ -2784,7 +2823,7 @@ public:
     {
         auto s = prepare("SELECT MAX(num) FROM version");
         int64_t n = 0;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             n = sqlite3_column_int64(s, 0);
         sqlite3_reset(s);
         return n;
@@ -2795,7 +2834,7 @@ public:
         auto s = prepare("SELECT num,uuid,branch,kind,name,seq,env,docxml_hash,schema,created,manifest"
                          " FROM version ORDER BY num");
         std::vector<LogVersion> out;
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogVersion v;
             readVersion(s, v);
             out.push_back(std::move(v));
@@ -2809,7 +2848,7 @@ public:
         auto s = prepare("SELECT num,uuid,branch,kind,name,seq,env,docxml_hash,schema,created,manifest"
                          " FROM version WHERE num=?");
         sqlite3_bind_int64(s, 1, num);
-        bool found = sqlite3_step(s) == SQLITE_ROW;
+        bool found = stepRow(s);
         if (found)
             readVersion(s, v);
         sqlite3_reset(s);
@@ -2821,7 +2860,7 @@ public:
         auto s = prepare("SELECT num,uuid,branch,kind,name,seq,env,docxml_hash,schema,created,manifest"
                          " FROM version WHERE docxml_hash=? ORDER BY num DESC LIMIT 1");
         bindText(s, 1, hash);
-        bool found = sqlite3_step(s) == SQLITE_ROW;
+        bool found = stepRow(s);
         if (found)
             readVersion(s, v);
         sqlite3_reset(s);
@@ -2833,7 +2872,7 @@ public:
         auto s = prepare("SELECT manifest FROM version WHERE num=?");
         sqlite3_bind_int64(s, 1, num);
         std::string hash;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             hash = columnHash(s, 0);
         sqlite3_reset(s);
         std::vector<LogManifestEntry> out;
@@ -2862,7 +2901,7 @@ public:
         auto s = prepare("SELECT id,name,from_version,from_seq,head_seq,id_base,last_id,created,closed,"
                          "target,joined FROM branch ORDER BY id");
         std::vector<LogBranch> out;
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogBranch b;
             readBranch(s, b);
             out.push_back(std::move(b));
@@ -2876,7 +2915,7 @@ public:
         auto s = prepare("SELECT id,name,from_version,from_seq,head_seq,id_base,last_id,created,closed,"
                          "target,joined FROM branch WHERE id=?");
         sqlite3_bind_int64(s, 1, id);
-        bool found = sqlite3_step(s) == SQLITE_ROW;
+        bool found = stepRow(s);
         if (found)
             readBranch(s, b);
         sqlite3_reset(s);
@@ -2888,7 +2927,7 @@ public:
         auto s = prepare("SELECT id,name,from_version,from_seq,head_seq,id_base,last_id,created,closed,"
                          "target,joined FROM branch WHERE name=?");
         bindText(s, 1, name);
-        bool found = sqlite3_step(s) == SQLITE_ROW;
+        bool found = stepRow(s);
         if (found)
             readBranch(s, b);
         sqlite3_reset(s);
@@ -2904,7 +2943,7 @@ public:
                              " UNION ALL SELECT MAX(branch) FROM txn"
                              " UNION ALL SELECT MAX(CAST(branch AS INTEGER)) FROM version)");
             b.id = 1;
-            if (sqlite3_step(m) == SQLITE_ROW)
+            if (stepRow(m))
                 b.id = sqlite3_column_int64(m, 0) + 1;
             sqlite3_reset(m);
         }
@@ -3021,7 +3060,7 @@ public:
         auto s = prepare("SELECT value FROM meta WHERE key=?");
         bindText(s, 1, key);
         std::string v;
-        if (sqlite3_step(s) == SQLITE_ROW)
+        if (stepRow(s))
             v = text(s, 0);
         sqlite3_reset(s);
         return v;
@@ -3100,7 +3139,7 @@ public:
             return out;
         auto s = prepare("SELECT t.seq, h.file, h.branch FROM heldfile h JOIN txn t"
                          " ON t.session=h.session AND t.ord=h.ord ORDER BY t.seq");
-        while (sqlite3_step(s) == SQLITE_ROW) {
+        while (stepRow(s)) {
             LogHeldFile f;
             f.seq = sqlite3_column_int64(s, 0);
             f.hash = columnHash(s, 1);
@@ -3118,7 +3157,7 @@ public:
         sqlite3_bind_int64(s, 1, static_cast<sqlite3_int64>(prefix.size()));
         bindText(s, 2, prefix);
         std::vector<std::pair<std::string, std::string>> out;
-        while (sqlite3_step(s) == SQLITE_ROW)
+        while (stepRow(s))
             out.emplace_back(text(s, 0), text(s, 1));
         sqlite3_reset(s);
         return out;
@@ -3254,7 +3293,7 @@ private:
         }
         auto s = prepare("SELECT id FROM name WHERE text=?");
         bindText(s, 1, name);
-        const bool found = sqlite3_step(s) == SQLITE_ROW;
+        const bool found = stepRow(s);
         if (found) {
             id = sqlite3_column_int64(s, 0);
             nameIds.emplace(name, id);
@@ -3284,7 +3323,7 @@ private:
         auto q = prepare("SELECT text FROM name WHERE id=?");
         sqlite3_bind_int64(q, 1, id);
         std::string out;
-        if (sqlite3_step(q) == SQLITE_ROW) {
+        if (stepRow(q)) {
             out = text(q, 0);
             nameIds.emplace(out, id);
             nameTexts.emplace(id, out);

@@ -1,4 +1,4 @@
-"""A save merges what another process saved into the file (docs/TransactionLog.md sec 29.8).
+"""A save merges what another process saved into the file (docs/TransactionLogJournal.md sec 29.8).
 
 The file is opened here; a FreeCADCmd run opens it too, changes it and saves.
 

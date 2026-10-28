@@ -38,7 +38,7 @@ class file_lock;
 namespace App
 {
 
-/** What a file on disk is, as one stat says it (docs/TransactionLog.md sec
+/** What a file on disk is, as one stat says it (docs/TransactionLogJournal.md sec
  * 29.8): enough to tell a file nobody else wrote since from one somebody
  * did, at the cost of a single system call. A write by rename -- what a save
  * is -- changes the inode; a write in place changes the size or the time.
@@ -106,6 +106,7 @@ struct AppExport FileOpener
     std::string host;
     int64_t pid {0};
     double since {0};   ///< seconds since the epoch
+    double seen {0};    ///< the last time it said so: its open or a save
 };
 
 /** The marker beside a file that says which processes have it open,
@@ -122,7 +123,9 @@ namespace FileOpeners
 AppExport std::string markerPath(const std::string& file);
 /// The other processes that have `file` open.
 AppExport std::vector<FileOpener> others(const std::string& file);
-/// This process has `file` open; the others it found there.
+/// This process has `file` open, seen now; the others it found there. Run
+/// again at each save, so that a line of a process that is still there stays
+/// seen (FileOpenerExpiryDays).
 AppExport std::vector<FileOpener> add(const std::string& file);
 /// This process no longer has `file` open.
 AppExport void remove(const std::string& file);
@@ -130,7 +133,7 @@ AppExport void remove(const std::string& file);
 AppExport std::string describe(const FileOpener& opener);
 }   // namespace FileOpeners
 
-/** A document saved as a folder goes in whole (docs/TransactionLog.md sec
+/** A document saved as a folder goes in whole (docs/TransactionLogJournal.md sec
  * 38). The save writes into a stage beside the folder, `.~<name>.save`,
  * laid out as the folder is. Once every entry is closed, commit() drops the
  * staged files whose bytes the folder has already, writes the stage's

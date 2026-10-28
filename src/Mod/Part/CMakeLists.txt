@@ -70,6 +70,8 @@ set(Part_tests
     parttests/TestFaceMakerUnifiedPlanar.py
     parttests/TestFaceMakerUnifiedNonPlanar.py
     parttests/ShapeListTest.py
+    parttests/CurveOnSurfaceTest.py
+    parttests/GeometrySaveTest.py
     parttests/ShapeDiffTest.py
     parttests/TopoShapeListTest.py
     parttests/ColorPerFaceTest.py

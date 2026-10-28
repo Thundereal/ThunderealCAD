@@ -3,4 +3,5 @@ target_sources(
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/GCS.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Constraints.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/Constraints3D.cpp
 )

@@ -383,7 +383,7 @@ void PropertyConstraintList::Restore(Base::XMLReader& reader)
     // the transaction log (a branch switched to, an undo past the hot
     // window, a merge) then lost every binding the sketch had; what is
     // bound is the expression engine's to say, which is put back by its own
-    // value (docs/TransactionLog.md sec 31.14).
+    // value (docs/TransactionLogJournal.md sec 31.14).
     Base::StateLocker lock(restoreFromTransaction, true);
     // assignment
     setValues(std::move(values));

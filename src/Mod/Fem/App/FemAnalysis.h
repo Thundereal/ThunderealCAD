@@ -59,7 +59,7 @@ public:
 
     /**
      * The analysis's unique identifier is the object's (getObjectUid(),
-     * docs/TransactionLog.md sec 36.7), which Python's read-only `Uid`
+     * docs/TransactionLogJournal.md sec 36.7), which Python's read-only `Uid`
      * answers: it was a property of its own, made new for each object,
      * kept across save and load.
      */

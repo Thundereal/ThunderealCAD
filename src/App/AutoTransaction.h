@@ -94,7 +94,7 @@ private:
 };
 
 
-/** View state the Gui derives from the model (docs/TransactionLog.md sec
+/** View state the Gui derives from the model (docs/TransactionLogJournal.md sec
  * 24.10) -- an origin fitted to the model's extent, say -- is not an edit.
  * While one of these lives, a view provider's property written with no
  * transaction open opens none, whatever the log would otherwise do; inside

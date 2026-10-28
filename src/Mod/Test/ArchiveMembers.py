@@ -119,7 +119,7 @@ class HistoryLeftOut:
     """Saves write no history into the file while this is held.
 
     The transaction log is on by default and a save writes the history into
-    the file (docs/TransactionLog.md sec 27.5): the log's database and the
+    the file (docs/TransactionLogJournal.md sec 27.5): the log's database and the
     blobs of the versions it keeps become archive entries too. A case that
     reads what an archive carries is about the document's own content, so
     it takes this in setUp and release() in tearDown. The log stays on

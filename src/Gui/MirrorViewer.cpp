@@ -55,6 +55,7 @@
 #endif
 
 #include <Base/Converter.h>
+#include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/Matrix.h>
 #include <Base/Placement.h>
@@ -450,7 +451,20 @@ MirrorViewer::~MirrorViewer()
         // room's -- a client dropping mid-edit must not leave the sketch
         // it was editing selected for everybody else.
         ViewerScope scope(this);
-        pimpl->doc->resetEdit();
+        // a destructor: what the edit mode throws on its way out is said,
+        // not passed on to std::terminate
+        try {
+            pimpl->doc->resetEdit();
+        }
+        catch (Base::Exception& e) {
+            e.reportException();
+        }
+        catch (std::exception& e) {
+            Base::Console().Error("Ending a dropped client's edit: %s\n", e.what());
+        }
+        catch (...) {
+            Base::Console().Error("Ending a dropped client's edit: unknown exception\n");
+        }
     }
     // And a task dialog this view still owns is closed with it: rejected,
     // not accepted -- nobody is there to answer it

@@ -252,6 +252,15 @@ OverlayScrollBars* OverlayScrollBars::of(QAbstractScrollArea* area)
                 : nullptr;
 }
 
+void OverlayScrollBars::keepClear(const QRegion& region)
+{
+    if (region == clear) {
+        return;
+    }
+    clear = region;
+    place();
+}
+
 QScrollBar* OverlayScrollBars::bar(Qt::Orientation orientation) const
 {
     return orientation == Qt::Vertical ? vbar : hbar;
@@ -386,6 +395,33 @@ void OverlayScrollBars::place()
         if (!vrect.isEmpty() && hrect.intersects(vrect)) {
             hrect.setRight(vrect.left() - 1);
         }
+    }
+    // A view cell's handles keep their corners: a bar running under one
+    // stops short of it, at the end it is nearer; one left too short to
+    // take hold of is not shown.
+    for (const QRect& r : clear) {
+        if (vrect.intersects(r)) {
+            if (r.center().y() <= vrect.center().y()) {
+                vrect.setTop(r.bottom() + 1);
+            }
+            else {
+                vrect.setBottom(r.top() - 1);
+            }
+        }
+        if (hrect.intersects(r)) {
+            if (r.center().x() <= hrect.center().x()) {
+                hrect.setLeft(r.right() + 1);
+            }
+            else {
+                hrect.setRight(r.left() - 1);
+            }
+        }
+    }
+    if (vrect.height() < 3 * Thickness) {
+        vrect = QRect();
+    }
+    if (hrect.width() < 3 * Thickness) {
+        hrect = QRect();
     }
     const bool shown = opacity() > 0.0 || fade->state() == QAbstractAnimation::Running;
     vbar->setGeometry(vrect);

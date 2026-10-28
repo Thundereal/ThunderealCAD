@@ -356,7 +356,7 @@ class TestFilletSlivers(unittest.TestCase):
         fillet.Radius = 0.3
         self.Doc.recompute()
         self.assertTrue(fillet.isValid())
-        # on a copy: a feature's Shape is frozen (docs/TransactionLog.md sec
+        # on a copy: a feature's Shape is frozen (docs/TransactionLogJournal.md sec
         # 27.82), and a fillet that writes into its input raises on it
         shape = self.Base.Shape.copy()
         made = shape.makeFillet(0.3, [shape.getElement(slope)])
@@ -410,7 +410,10 @@ class TestFilletSlivers(unittest.TestCase):
         # A dress-up given the outside object links the FeatureBase: taking
         # the outside one for its BaseFeature ran the body's chain out of it,
         # and removing the dress-up made the outside object the body's Tip;
-        # the third time round the recompute crashed
+        # the third time round the recompute crashed. Removing the fillet
+        # also cleared its Corners before its Base, and linking Corners again
+        # left the deleted fillet in the holder's InList: the recompute
+        # walking it crashed, when the freed memory had been reused
         holder = self.Body.Group[0]
         self.assertEqual(holder.TypeId, 'PartDesign::FeatureBase')
         for k in range(3):
@@ -424,6 +427,8 @@ class TestFilletSlivers(unittest.TestCase):
             self.Body.removeObject(fillet)
             self.Doc.removeObject(fillet.Name)
             self.assertEqual(self.Body.Tip, holder, k)
+            # the body's Group and Tip, nothing else
+            self.assertEqual(holder.InList, [self.Body, self.Body], k)
             self.assertFalse([o for o in self.Body.Group if o.TypeId == 'PartDesign::SolidBody'])
 
     def testChamferTakesOutTheStep(self):

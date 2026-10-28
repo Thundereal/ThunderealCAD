@@ -402,7 +402,7 @@ public:
     const std::string &getSubObjectName() const;
 
     /// The element path's shadow and the string ids it holds
-    /// (docs/TransactionLog.md sec 27.75).
+    /// (docs/TransactionLogJournal.md sec 27.75).
     const ShadowSub &getShadowSub() const {
         return shadowSub;
     }
@@ -590,7 +590,7 @@ protected:
     String  documentObjectName;
     String  subObjectName;
     /// Holds the string ids of the element it names, as a link's does
-    /// (docs/TransactionLog.md sec 27.75)
+    /// (docs/TransactionLogJournal.md sec 27.75)
     ShadowSub shadowSub;
     std::vector<Component> components;
     bool documentNameSet;

@@ -271,7 +271,7 @@ public:
     virtual void afterRestore() {}
 
     /** A saved value of this property as the things it is made of
-     * (docs/TransactionLog.md sec 31.8): for a property that holds many
+     * (docs/TransactionLogJournal.md sec 31.8): for a property that holds many
      * things each known by something of its own -- a sheet's cells by
      * their address, an object's expressions by their path, a list of
      * links by the object -- so that two branches that each changed
@@ -383,7 +383,7 @@ public:
     /** Whether this value, a Copy(), may be written on another thread.
      *
      * The transaction log serialises the copies a commit takes on its
-     * worker (docs/TransactionLog.md sec 27.99). That is safe for a copy
+     * worker (docs/TransactionLogJournal.md sec 27.99). That is safe for a copy
      * that owns its value outright, which is the default. A copy that
      * shares data the main thread may still change in place answers false
      * and is serialised on the main thread as the commit takes it: a shape
@@ -399,7 +399,7 @@ public:
      * returned is let go of -- on any thread. Asked on the main thread of a
      * value that answered yes to canSaveOffThread(), as it is handed over.
      * Null where there is nothing to hold, which is the default. A shape
-     * holds its element map (docs/TransactionLog.md sec 31.31).
+     * holds its element map (docs/TransactionLogJournal.md sec 31.31).
      */
     virtual std::shared_ptr<void> holdForOffThread() const { return {}; }
 
@@ -474,7 +474,7 @@ public:
     friend struct PropertyData;
     friend class DynamicProperty;
     /// Brackets a restore from a transaction-log value with aboutToSetValue()
-    /// and hasSetValue() (docs/TransactionLog.md sec 24.5).
+    /// and hasSetValue() (docs/TransactionLogJournal.md sec 24.5).
     friend class PropertyValueRestorer;
 
 private:
@@ -904,7 +904,7 @@ public:
 
 protected:
 
-    /** The list, for writing (docs/TransactionLog.md 23.6).
+    /** The list, for writing (docs/TransactionLogJournal.md 23.6).
      *
      * The one non-const path to the values, and it needs a live guard,
      * which it marks: the write is then bracketed by aboutToSetValue()

@@ -102,7 +102,7 @@ public:
     /** The RefIndex an export writes for each Ref, carried by the writer
      * rather than by the geometry.
      *
-     * A save must not write the value it saves (docs/TransactionLog.md
+     * A save must not write the value it saves (docs/TransactionLogJournal.md
      * 23.6), and a RefIndex is only meaningful in an exported file. So
      * SketchObject::Save installs the map for the writer it is given, for
      * as long as this object lives, and saveAttributes()/preSave() write the

@@ -82,6 +82,7 @@ set(TestExecutables
     Part_tests_run
     Points_tests_run
     Sketcher_tests_run
+    Surface_tests_run
 )
 
 # -------------------------

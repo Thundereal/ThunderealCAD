@@ -73,7 +73,7 @@ class Proxy:
         self.Dictionary = data
 
 class OwnerProxy:
-    """A scripted object that owns a helper object (docs/TransactionLog.md
+    """A scripted object that owns a helper object (docs/TransactionLogJournal.md
     sec 37.9): it says so, and which of a live owner's objects a helper
     brought stands for."""
 
@@ -106,7 +106,7 @@ def optimizeRecompute():
 def transactionLogIsOn():
     # With the log on, a bare write outside any invocation opens an implicit
     # transaction, and observers see it open and commit like any other
-    # (docs/TransactionLog.md sec 24.13).
+    # (docs/TransactionLogJournal.md sec 24.13).
     return FreeCAD.ParamGet(
             'User parameter:BaseApp/Preferences/Document').GetInt(
                     'TransactionLog',2) != 0
@@ -2481,7 +2481,7 @@ class DocumentObserverCases(unittest.TestCase):
         self.assertEqual(self.Obs.signal.pop(), "DocFinishSave")
         self.assertEqual(self.Obs.parameter2.pop(), self.Doc1.FileName)
         # A save that writes the history into the file (the default with the
-        # transaction log on, docs/TransactionLog.md sec 27.5) sets the
+        # transaction log on, docs/TransactionLogJournal.md sec 27.5) sets the
         # document's History, Version and Branch properties as it goes.
         while self.Obs.parameter2[-1] in ("History", "Version", "Branch"):
             self.Obs.signal.pop()
@@ -3251,7 +3251,7 @@ class ElementAppearanceCases(unittest.TestCase):
 
 
 class TransactionBranchCases(unittest.TestCase):
-    # Branches of the transaction log in a file (docs/TransactionLog.md
+    # Branches of the transaction log in a file (docs/TransactionLogJournal.md
     # sec 17, 26): the branch travels with the embedded history, and a file
     # edited elsewhere keeps its history as closed branches.
 
@@ -9953,7 +9953,7 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.Made.Integer, 7)
 
     def testUsersInGroups(self):
-        # docs/TransactionLog.md sec 32.32: a group is a user of kind
+        # docs/TransactionLogJournal.md sec 32.32: a group is a user of kind
         # 'group'; a user is put in one by naming it, which makes it; a
         # group may be in a group, and not in itself.
         doc = self.track(FreeCAD.newDocument("Groups"))
@@ -9984,7 +9984,7 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(users[("invited", "bob")], "")
 
     def testABranchOpenedByNameLeavesAnotherBranchsDocumentWhereItIs(self):
-        # docs/TransactionLog.md sec 32.31: the tip of a branch opened by its
+        # docs/TransactionLogJournal.md sec 32.31: the tip of a branch opened by its
         # name, where the editable instance of the version it opens at is
         # another branch's document -- that one is not switched from under
         # it; a second instance is opened.
@@ -12446,7 +12446,7 @@ class TransactionBranchCases(unittest.TestCase):
 
 
 class FolderSaveCases(unittest.TestCase):
-    # A document saved as a folder goes in whole (docs/TransactionLog.md sec
+    # A document saved as a folder goes in whole (docs/TransactionLogJournal.md sec
     # 38): the save writes into a stage beside the folder, `.~<name>.save`,
     # then moves in what changed, Document.xml last. A stage left by a save
     # cut short is thrown away at the next open without its record, and
@@ -12514,6 +12514,30 @@ class FolderSaveCases(unittest.TestCase):
         doc.save()
         self.assertFalse(os.path.exists(os.path.join(path, "Box2.xml")))
         self.assertTrue(os.path.exists(os.path.join(path, "Box1.xml")))
+
+    def testASaveFlushedOrNotGoesInWhole(self):
+        # Sec 38.16 (Q5): with FolderSaveSync, what a save moves in is
+        # flushed to the disk before its record is written. On or off, the
+        # save goes in whole and reopens as saved; many files flush several
+        # at a time.
+        self.noCheck()
+        was = self.param.GetBool("FolderSaveSync", True)
+        try:
+            for sync in (True, False):
+                self.param.SetBool("FolderSaveSync", sync)
+                name = "Sync%d" % sync
+                doc, path = self.saved(name, boxes=40)
+                self.edit(doc, "longer", lambda d: setattr(d.Box3, "Length", 20 + sync))
+                doc.save()
+                self.assertFalse(os.path.exists(self.stage(path)))
+                last = doc.getLastFolderSave()
+                self.assertEqual((last["written"], last["kept"]), (1, 39), last)
+                FreeCAD.closeDocument(doc.Name)
+                doc = self.track(FreeCAD.openDocument(path))
+                self.assertEqual(doc.Box3.Length.Value, 20 + sync)
+                self.assertEqual(len(doc.Objects), 40)
+        finally:
+            self.param.SetBool("FolderSaveSync", was)
 
     def cutShort(self, name, record, halfMoved=False):
         # A folder saved at Length 10, then at 20; the second save's files
@@ -12705,12 +12729,16 @@ class FolderSaveCases(unittest.TestCase):
         # Sec 38.9: while another process has the folder open, a save gives
         # no name it found other content, and takes none away; a save made
         # alone sweeps what was left.
+        import time
+
         doc, path = self.withFile("Shared")
         old = self.blobFiles(path)
         marker = os.path.join(self.dir, ".~Shared.open")
         lines = open(marker).read()
         with open(marker, "w") as f:
-            f.write(lines + "elsewhere 4242 1\n")
+            # Seen now: a line of another computer not seen for
+            # FileOpenerExpiryDays is taken as gone (sec 39.3).
+            f.write(lines + "elsewhere 4242 %r\n" % time.time())
         self.setFile(doc, b"two")
         doc.save()
         now = self.blobFiles(path)
@@ -12795,6 +12823,50 @@ class FolderSaveCases(unittest.TestCase):
             self.assertGreater(o.Shape.Volume, 0, o.Name)
         self.assertFalse(os.path.exists(dirs[0]))
 
+    def testTheHistoryAloneIsSavedIntoTheFolder(self):
+        # Sec 27.28 for a folder (38.13): the history saved alone, the
+        # document's own files as they were, the folder opening as it did,
+        # with the version restorable; the next save carries on from it.
+        import re
+
+        def model(path):
+            xml = open(os.path.join(path, "Document.xml")).read()
+            return re.sub(r"<History[^>]*/>|<History .*?</History>", "", xml, flags=re.S)
+
+        self.noCheck()
+        doc, path = self.saved("LogOnly")
+        before = model(path)
+        boxes = {n: self.stamp(os.path.join(path, n)) for n in ("Box0.xml", "Box1.xml")}
+        history = self.stamp(os.path.join(path, "History.db"))
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        num = doc.saveToLog()
+        self.assertEqual(model(path), before)
+        for n, st in boxes.items():
+            self.assertEqual(self.stamp(os.path.join(path, n)), st, n)
+        self.assertNotEqual(self.stamp(os.path.join(path, "History.db")), history)
+        self.assertFalse(os.path.exists(self.stage(path)))
+        saved = {v["num"]: v for v in doc.getTransactionVersions()}
+        self.assertEqual(saved[num]["name"], "Saved to history")
+        self.assertEqual(doc.Box0.Length.Value, 20)
+        # A save after it: the folder's history brought up to date from
+        # there, the unchanged objects kept.
+        self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 30))
+        doc.save()
+        self.assertTrue(doc.getLastSaveHistory()["updated"])
+        self.assertEqual(doc.getLastFolderSave()["kept"], 1)
+        self.edit(doc, "back", lambda d: setattr(d.Box1, "Width", 10))
+        num2 = doc.saveToLog("again")
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        self.assertEqual((doc.Box0.Length.Value, doc.Box1.Width.Value), (20, 30))
+        versions = [v["num"] for v in doc.getTransactionVersions()]
+        self.assertIn(num, versions)
+        self.assertIn(num2, versions)
+        self.assertFalse([b for b in doc.getTransactionBranches() if b["closed"]])
+        doc.restoreTransactionVersion(num2)
+        self.assertEqual(doc.Box1.Width.Value, 10)
+
     def noCheck(self):
         # FC_FOLDER_SAVE_CHECK off for this case, as the gates may set it.
         was = os.environ.pop("FC_FOLDER_SAVE_CHECK", None)
@@ -12869,9 +12941,251 @@ class FolderSaveCases(unittest.TestCase):
             self.assertTrue(last["checked"])
             self.assertEqual(last["kept"], 0)
             self.assertEqual(last["differed"], [])
+            # The first save after an open too (sec 38.14).
+            FreeCAD.closeDocument(doc.Name)
+            doc = self.track(FreeCAD.openDocument(path))
+            self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 20))
+            doc.save()
+            last = doc.getLastFolderSave()
+            self.assertTrue(last["checked"])
+            self.assertEqual(last["differed"], [])
         finally:
             if was is None:
                 del os.environ["FC_FOLDER_SAVE_CHECK"]
+
+    def testTheFirstSaveAfterAnOpenKeepsWhatItRead(self):
+        # Sec 38.14: an open of the document's own folder is what its first
+        # save keeps from, as a save of it would be.
+        self.noCheck()
+        doc, path = self.saved("Opened", boxes=4)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        before = {n: self.stamp(os.path.join(path, n)) for n in ("Box1.xml", "Box2.xml")}
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+        for n, st in before.items():
+            self.assertEqual(self.stamp(os.path.join(path, n)), st, n)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Box0.Length.Value, 20)
+        for o in doc.Objects:
+            self.assertTrue(o.Shape.isValid(), o.Name)
+        # Nothing changed: nothing written.
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 4)
+
+    def mapsDocument(self, name, tool="Part::Box"):
+        # First, then A and B cut: First's maps are numbered before theirs.
+        import Part
+
+        path = os.path.join(self.dir, name)
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument(name))
+        doc.UndoMode = 1
+
+        def make(d):
+            d.addObject("Part::Feature", "First").Shape = Part.makeBox(1, 1, 1)
+            a = d.addObject("Part::Box", "A")
+            b = d.addObject(tool, "B")
+            b.Placement.Base = FreeCAD.Vector(5, 5, 5)
+            cut = d.addObject("Part::Cut", "Cut")
+            cut.Base, cut.Tool = a, b
+
+        self.edit(doc, "create", make)
+        doc.saveAs(path)
+        doc.save()
+        return doc, path
+
+    def testAnObjectGainingMapsLeavesTheFilesAfterIt(self):
+        # Sec 38.14, 38.15: a save numbers element maps across all its
+        # objects, and a reader takes a map by its number once, whichever
+        # file names it first. A map keeps its number from save to save, and
+        # from an open, so an earlier object gaining maps leaves the files of
+        # the objects after it as they are -- and they reopen with their own.
+        self.noCheck()
+        doc, path = self.mapsDocument("Maps")
+        names = ("A", "B", "Cut")
+        before = {n: doc.getObject(n).Shape.ElementMap for n in names}
+        self.assertTrue(all(before.values()))
+        files = {n: self.stamp(os.path.join(path, n + ".xml")) for n in names}
+
+        # The first object takes a shape with maps of its own and its inputs':
+        # the cut's, scaled. (One congruent to the cut's would change the
+        # cut's blob, which 38.11 then stores as a match, and write it.)
+        def more(d):
+            d.First.Shape = d.Cut.Shape.copy().transformGeometry(
+                FreeCAD.Matrix(2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1)
+            )
+
+        self.edit(doc, "more maps", more)
+        first = doc.First.Shape.ElementMap
+        self.assertTrue(first)
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+        for n in names:
+            self.assertEqual(self.stamp(os.path.join(path, n + ".xml")), files[n], n)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        for n in names:
+            self.assertEqual(doc.getObject(n).Shape.ElementMap, before[n], n)
+        self.assertEqual(doc.First.Shape.ElementMap, first)
+        # After the open, the maps it read keep their numbers too.
+        import Part
+
+        self.edit(doc, "fewer maps", lambda d: setattr(d.First, "Shape", Part.makeBox(2, 2, 2)))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        for n in names:
+            self.assertEqual(doc.getObject(n).Shape.ElementMap, before[n], n)
+
+    MAP_IDS = r"^(\d+) PostfixCount|^ElementMap (\d+) (\d+) "
+
+    def mapIds(self, path):
+        # {file: [map ids]} of the objects' files of folder `path`
+        import re
+
+        ids = {}
+        for n in sorted(os.listdir(path)):
+            if n.endswith(".xml") and n != "Document.xml":
+                with open(os.path.join(path, n), encoding="utf-8") as f:
+                    text = f.read()
+                found = re.findall(self.MAP_IDS, text, re.M)
+                ids[n] = [int(x or z) for x, _, z in found]
+        return ids
+
+    def testElementMapsNumberedOtherwiseAreWritten(self):
+        # Sec 38.15: two maps can hold the same number -- one read from this
+        # document's folder, one merged in from a file another process wrote
+        # -- and a save gives it to the first it numbers. The other is
+        # numbered anew and its object written, or its file would name a map
+        # another file holds under that number.
+        import re
+        import zipfile
+
+        self.noCheck()
+        doc, path = self.mapsDocument("Into")
+        FreeCAD.closeDocument(doc.Name)
+        # Its maps unlike ours, so that one taken for another shows; an
+        # archive of deflate entries, so that it can be written by hand.
+        other = self.track(FreeCAD.newDocument("From"))
+        other.BlobCompression = "Deflate"
+
+        def make(d):
+            a = d.addObject("Part::Box", "A")
+            b = d.addObject("Part::Cylinder", "B")
+            b.Placement.Base = FreeCAD.Vector(5, 5, 5)
+            cut = d.addObject("Part::Cut", "Cut")
+            cut.Base, cut.Tool = a, b
+
+        self.edit(other, "create", make)
+        names = ("A", "B", "Cut")
+        theirs = {n: other.getObject(n).Shape.ElementMap for n in names}
+        archive = os.path.join(self.dir, "From.FCStd")
+        other.saveAs(archive)
+        FreeCAD.closeDocument(other.Name)
+        # A process numbers maps above any it has seen; another starts low.
+        # Its file, by hand: From's numbers made ours.
+        with zipfile.ZipFile(archive) as z:
+            entries = [(i.filename, z.read(i.filename)) for i in z.infolist()]
+        xml = dict(entries)["Document.xml"].decode("utf-8")
+        ours = sorted({i for v in self.mapIds(path).values() for i in v})
+        their = sorted({int(x or z) for x, _, z in re.findall(self.MAP_IDS, xml, re.M)})
+        self.assertTrue(ours and their)
+        spare = max(ours + their)
+        to = {}
+        for k, i in enumerate(their):
+            if k < len(ours):
+                to[i] = ours[k]
+            else:
+                spare += 1
+                to[i] = spare
+
+        def renumber(m):
+            if m.group(1):
+                return "%d PostfixCount" % to[int(m.group(1))]
+            return "ElementMap %s %d " % (m.group(2), to[int(m.group(3))])
+
+        xml = re.sub(self.MAP_IDS, renumber, xml, flags=re.M)
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+            for n, data in entries:
+                z.writestr(n, xml.encode("utf-8") if n == "Document.xml" else data)
+
+        doc = self.track(FreeCAD.openDocument(path))
+        mine = {n: doc.getObject(n).Shape.ElementMap for n in ("First",) + names}
+        self.assertNotEqual(mine["Cut"], theirs["Cut"])
+        before = {o.Name for o in doc.Objects}
+        doc.mergeProject(archive)
+        merged = [o.Name for o in doc.Objects if o.Name not in before]
+        self.assertEqual(len(merged), 3, merged)
+        for name in merged:
+            src = re.sub(r"\d+$", "", name)
+            self.assertEqual(doc.getObject(name).Shape.ElementMap, theirs[src], name)
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (3, 4), last)
+        # The merged maps were numbered anew, apart from ours.
+        now = self.mapIds(path)
+        kept = {i for n in mine for i in now.get(n + ".xml", [])}
+        fresh = {i for n in merged for i in now.get(n + ".xml", [])}
+        self.assertTrue(kept & set(to.values()))
+        self.assertFalse(kept & fresh, (kept, fresh))
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        for n in mine:
+            self.assertEqual(doc.getObject(n).Shape.ElementMap, mine[n], n)
+        for name in merged:
+            src = re.sub(r"\d+$", "", name)
+            self.assertEqual(doc.getObject(name).Shape.ElementMap, theirs[src], name)
+
+    def testAChangeTheLogLeavesOutIsWritten(self):
+        # Sec 38.14: a property's status is saved with it and recorded by no
+        # transaction; the object is written all the same.
+        self.noCheck()
+        doc, path = self.saved("Status", boxes=3)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
+        doc.Box1.setEditorMode("Length", 1)
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 2), last)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
+        # The same after an open.
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Box1.getEditorMode("Length"), ["ReadOnly"])
+        doc.Box2.setEditorMode("Width", 2)
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 2), last)
+
+    def testAFolderOfUnknownOptionsIsWrittenWhole(self):
+        # Sec 38.14: a folder whose Document.xml does not say what wrote it
+        # -- another build, or one before the attribute -- is written whole at
+        # the first save after its open.
+        import re
+
+        self.noCheck()
+        doc, path = self.saved("Unknown", boxes=3)
+        FreeCAD.closeDocument(doc.Name)
+        xml = os.path.join(path, "Document.xml")
+        with open(xml, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(" FolderOptions=", text)
+        text = re.sub(r' FolderOptions="[^"]*"', "", text)
+        with open(xml, "w", encoding="utf-8") as f:
+            f.write(text)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 0)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
 
     def testADeflatedArchiveExtractedByHandOpensAsAFolder(self):
         # Sec 38.10: with BlobCompression "Deflate" every entry of the archive
@@ -12979,8 +13293,110 @@ class FolderSaveCases(unittest.TestCase):
         self.assertNotIn("<History file", open(os.path.join(path, "Document.xml")).read())
 
 
+    def testAProxysOwnStateIsWrittenNotKept(self):
+        # Sec 38.21 F1: a proxy's state is no property and goes in no row of
+        # the log (it never went into undo), but the file holds it: an object
+        # whose proxy changed is written, not kept, and kept again once it
+        # stays the same.
+        self.noCheck()
+        path = os.path.join(self.dir, "ProxyState")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("ProxyState"))
+        doc.UndoMode = 1
+
+        def make(d):
+            Proxy(d.addObject("App::FeaturePython", "Scripted"))
+            d.addObject("Part::Box", "Box")
+
+        self.edit(doc, "create", make)
+        doc.saveAs(path)
+        doc.Scripted.Proxy.Dictionary["n"] = 7
+        self.edit(doc, "longer", lambda d: setattr(d.Box, "Length", 20))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (2, 0), last)
+        self.edit(doc, "longer again", lambda d: setattr(d.Box, "Length", 30))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 1), last)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Scripted.Proxy.Dictionary, {"n": 7})
+
+    def testALinkIsWrittenWhenTheFileItLinksIntoMoves(self):
+        # Sec 38.21 F2: a save of the linked document elsewhere moves the
+        # path the link saves, with no change of the link's own: the linking
+        # object is written, not kept with the old path.
+        paths = {}
+        for name in ("LinkedB", "LinkedB2", "Linking"):
+            paths[name] = os.path.join(self.dir, name)
+            os.makedirs(paths[name])
+        target = self.track(FreeCAD.newDocument("LinkedB"))
+        target.addObject("Part::Box", "Target")
+        target.recompute()
+        target.saveAs(paths["LinkedB"])
+        doc = self.track(FreeCAD.newDocument("Linking"))
+        doc.UndoMode = 1
+
+        def make(d):
+            d.addObject("App::Link", "L").LinkedObject = target.Target
+            d.addObject("Part::Box", "Filler")
+
+        self.edit(doc, "create", make)
+        doc.saveAs(paths["Linking"])
+        target.saveAs(paths["LinkedB2"])
+        self.edit(doc, "longer", lambda d: setattr(d.Filler, "Length", 20))
+        doc.save()
+        with open(os.path.join(paths["Linking"], "L.xml")) as f:
+            self.assertIn("LinkedB2", f.read())
+
+    def testAVersionThatTravelsAgainComesBackIntoTheFolder(self):
+        # Sec 38.21 F3: retention left versions out of the folder's history at
+        # earlier saves; a limit raised since makes them travel again, and
+        # the folder's copy, brought up to date only by what changed, would
+        # never have them back: it is made whole.
+        import sqlite3
+
+        doc, path = self.saved("Travels", boxes=1)
+        doc.setHistoryRetention(snapshots=1)
+        for i in range(4):
+            self.edit(doc, "edit", lambda d, i=i: setattr(d.Box0, "Length", 20 + i))
+            doc.save()
+        doc.setHistoryRetention(snapshots=10)
+        self.edit(doc, "edit", lambda d: setattr(d.Box0, "Length", 40))
+        doc.save()
+        self.assertFalse(doc.getLastSaveHistory()["updated"])
+        con = sqlite3.connect("file:%s?mode=ro" % os.path.join(path, "History.db"), uri=True)
+        try:
+            held = con.execute("SELECT count(*) FROM version").fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(held, len(doc.getTransactionVersions()))
+
+    def testASaveRecordNamingAFileOutsideIsThrownAway(self):
+        # Sec 38.21 F4: a record beside a folder is moved in at the next open,
+        # its removals with it; one naming anything outside the folder was
+        # not written by a save, and the stage is thrown away instead.
+        import shutil
+
+        doc, path = self.saved("Outside")
+        FreeCAD.closeDocument(doc.Name)
+        victim = os.path.join(self.dir, "victim.txt")
+        with open(victim, "w") as f:
+            f.write("keep me")
+        stage = self.stage(path)
+        shutil.copytree(path, stage)
+        with open(os.path.join(stage, ".~commit"), "w") as f:
+            f.write("FreeCAD folder save 1\n")
+            f.write("remove ../victim.txt\n")
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertTrue(os.path.exists(victim))
+        self.assertFalse(os.path.exists(stage))
+        self.assertEqual(len(doc.Objects), 3)
+
+
 class TransactionTwoProcessCases(unittest.TestCase):
-    # Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8): a
+    # Two processes on one file (docs/TransactionLogJournal.md sec 29.7, 29.8): a
     # save first brings in and merges what another process saved into the
     # file since it was read here. The other process is a FreeCADCmd run.
 
@@ -13317,6 +13733,62 @@ class TransactionTwoProcessCases(unittest.TestCase):
         doc = self.track(FreeCAD.openDocument(path))
         self.assertEqual(doc.Box.Length.Value, 20)
 
+    def testAFolderSavedToItsHistoryElsewhereIsCopiedWhole(self):
+        # Sec 38.21 F6: another process saves the folder to its history alone,
+        # which keeps the save id; the copy this process would bring up to
+        # date is then not the one it recorded from, and is made whole.
+        path = os.path.join(self.dir, "HistoryElsewhere")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("HistoryElsewhere"))
+        doc.UndoMode = 1
+        self.edit(doc, "create", lambda d: d.addObject("Part::Box", "Box"))
+        doc.saveAs(path)
+        self.edit(doc, "longer", lambda d: setattr(d.Box, "Length", 20))
+        doc.save()
+        self.assertTrue(doc.getLastSaveHistory()["updated"])
+        self.other(
+            path,
+            "doc.Box.Width = 30\n"
+            "doc.recompute()\n"
+            "doc.commitTransaction()\n"
+            "doc.saveToLog('theirs')\n"
+            "print('saved', flush=True)\n"
+            "import os\n"
+            "os._exit(0)",
+        )
+        self.edit(doc, "higher", lambda d: setattr(d.Box, "Height", 5))
+        doc.save()
+        self.assertFalse(doc.getLastSaveHistory()["updated"])
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        names = [t["name"] for t in doc.getTransactionLog()]
+        self.assertIn("higher", names)
+
+    def testASaveAsAwayFromAPullConflictIsNotHeldByIt(self):
+        # Sec 38.21 F7: a pull that met a conflict is that file's; a save-as
+        # to another lets it go, the branch left in the log to merge by hand.
+        path = os.path.join(self.dir, "Held")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("Held"))
+        doc.UndoMode = 1
+        self.edit(doc, "create", lambda d: d.addObject("Part::Box", "Box"))
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        self.other(path, "doc.Box.Length = 30", mode=1)
+        self.edit(doc, "ours", lambda d: setattr(d.Box, "Length", 20))
+        with self.assertRaises(Exception):
+            doc.save()
+        self.assertTrue(doc.getLastSavePull()["pending"])
+        away = os.path.join(self.dir, "Away")
+        os.makedirs(away)
+        doc.saveAs(away)
+        self.assertEqual(doc.getLastSavePull()["pending"], "")
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(away))
+        self.assertEqual(doc.Box.Length.Value, 20)
+
     # The processes above run one after the other. Below they overlap: the
     # lock is what keeps one save out of another's look and write.
 
@@ -13517,205 +13989,497 @@ class TransactionTwoProcessCases(unittest.TestCase):
         # Each said who it is, though they opened at the same moment.
         self.assertEqual(len(told), 3, told)
 
-    # The processes above run one after the other. Below they overlap: the
-    # lock is what keeps one save out of another's look and write.
 
-    def spawn(self, path, code, tag):
-        # Another process that opens the file, says `<tag>.open`, runs
-        # `code`, says `<tag>.ready`, waits for `go`, saves, and prints the
-        # time its save ended and what it pulled.
+class TransactionAuditCases(unittest.TestCase):
+    # The defects the audit of 2026-10-27 found (docs/TransactionLogJournal.md sec
+    # 39), one test each that failed before its fix.
+
+    def setUp(self):
+        self.param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        self.mode = self.param.GetInt("TransactionLog", 2)
+        self.param.SetInt("TransactionLog", 2)
+        self.dir = tempfile.mkdtemp(prefix="fc-audit-")
+        self.docs = []
+
+    def tearDown(self):
+        import shutil
+
+        for name in self.docs:
+            if name in FreeCAD.listDocuments():
+                FreeCAD.closeDocument(name)
+        self.param.SetInt("TransactionLog", self.mode)
+        shutil.rmtree(self.dir, True)
+
+    def track(self, doc):
+        self.docs.append(doc.Name)
+        return doc
+
+    def commit(self, doc, name, change):
+        doc.openTransaction(name)
+        change()
+        doc.commitTransaction()
+
+    def made(self, name="Audit"):
+        doc = self.track(FreeCAD.newDocument(name))
+        doc.UndoMode = 1
+        self.commit(doc, "create", lambda: setattr(doc.addObject("App::FeatureTest", "Obj"), "Integer", 1))
+        return doc
+
+    def versions(self, doc):
+        return {v["num"]: v for v in doc.getTransactionVersions()}
+
+    def testADeletedBranchLeavesAVersionALinkPins(self):
+        # V1: 16.7 keeps a pinned version through a delete of its branch.
+        part = self.made("PinPart")
+        part.saveAs(os.path.join(self.dir, "pinpart.FCStd"))
+        part.createTransactionBranch("side")
+        self.commit(part, "side", lambda: setattr(part.Obj, "Integer", 2))
+        part.save()
+        asm = self.track(FreeCAD.newDocument("PinAsm"))
+        asm.UndoMode = 1
+        self.commit(asm, "link", lambda: setattr(asm.addObject("App::Link", "L"), "LinkedObject", part.Obj))
+        asm.saveAs(os.path.join(self.dir, "pinasm.FCStd"))
+        asm.openTransaction("pin")
+        pinned = asm.L.pinLink("LinkedObject")
+        asm.commitTransaction()
+        part.switchTransactionBranch("main")
+        part.deleteTransactionBranch("side")
+        self.assertIn(pinned, self.versions(part))
+        self.assertEqual(self.versions(part)[pinned]["kind"], "named")
+
+    def testATrimLeavesWhatAnOpenVersionStandsOn(self):
+        # V2: a version opened beside the document holds no branch; a trim
+        # that takes its row and version away is refused while it is open.
+        doc = self.made("Trim")
+        first = doc.snapshotTransactionLog()
+        self.commit(doc, "two", lambda: setattr(doc.Obj, "Integer", 2))
+        doc.snapshotTransactionLog()
+        self.commit(doc, "three", lambda: setattr(doc.Obj, "Integer", 3))
+        opened = self.track(doc.openTransactionVersion(first, False))
+        rows = [r["seq"] for r in doc.getTransactionLog()]
+        with self.assertRaises(ValueError):
+            doc.trimTransactionBranch("main")
+        now = [r["seq"] for r in doc.getTransactionLog()]
+        self.assertEqual(now[: len(rows)], rows)
+        self.assertIn(first, self.versions(doc))
+        FreeCAD.closeDocument(opened.Name)
+        self.assertGreater(doc.trimTransactionBranch("main"), 0)
+        self.assertEqual(doc.Obj.Integer, 3)
+
+    def testAMergeResultNamedAnotherDocumentLeavesItOpen(self):
+        # V3: `again` names a result this document made, nothing else.
+        doc = self.made("Merge")
+        doc.createTransactionBranch("side")
+        self.commit(doc, "side", lambda: setattr(doc.Obj, "Integer", 2))
+        doc.switchTransactionBranch("main")
+        self.commit(doc, "ours", lambda: setattr(doc.Obj, "Float", 2.5))
+        victim = self.track(FreeCAD.newDocument("Victim"))
+        victim.addObject("App::FeatureTest", "Precious")
+        result = doc.previewTransactionMergeResult("side", {}, "", 0, victim.Name)
+        if result["document"]:
+            self.track(result["document"])
+        self.assertIn(victim.Name, FreeCAD.listDocuments())
+
+    def testABranchOpenedBesideKeepsTheVersionItForksFrom(self):
+        # V4: the fork point of openTransactionBranch is named, as
+        # createTransactionBranch's is, so eviction leaves it.
+        doc = self.made("Fork")
+        self.commit(doc, "one", lambda: setattr(doc.Obj, "Integer", 2))
+        other = doc.openTransactionBranch("feature", False)
+        if other:
+            self.track(other)
+        fork = [b for b in doc.getTransactionBranches() if b["name"] == "feature"][0]
+        keep = self.param.GetInt("TransactionLogKeepVersions", 5)
+        for i in range(keep + 2):
+            self.commit(doc, "more %d" % i, lambda: setattr(doc.Obj, "Integer", 100 + i))
+            doc.snapshotTransactionLog()
+        self.assertTrue(fork["from_version"])
+        self.assertIn(fork["from_version"], self.versions(doc))
+
+    def testAVersionABranchStandsOnKeepsItsName(self):
+        # V5: a name keeps a version from eviction; one a branch was made
+        # from cannot be un-named.
+        doc = self.made("Name")
+        first = doc.snapshotTransactionLog()
+        doc.createTransactionBranch("side", first)
+        self.assertEqual(self.versions(doc)[first]["kind"], "named")
+        with self.assertRaises(ValueError):
+            doc.nameTransactionVersion(first, "")
+        self.assertEqual(self.versions(doc)[first]["kind"], "named")
+        # A version nothing stands on is un-named as before.
+        doc.switchTransactionBranch("main")
+        loose = doc.snapshotTransactionLog()
+        doc.nameTransactionVersion(loose, "mine")
+        doc.nameTransactionVersion(loose, "")
+        self.assertEqual(self.versions(doc)[loose]["kind"], "unnamed")
+
+    def testASaveOntoAFileAnotherDocumentHasOpenIsRefused(self):
+        # D1: a document opened from a folder reads its blobs where they
+        # are; another document saved over that folder took them away.
+        path = os.path.join(self.dir, "F")
+        os.makedirs(path)
+        a = self.track(FreeCAD.newDocument("A"))
+        a.addObject("Part::Box", "Box").Length = 7
+        a.recompute()
+        a.saveAs(path)
+        FreeCAD.closeDocument(a.Name)
+        a = self.track(FreeCAD.openDocument(path))
+        before = sorted(os.listdir(os.path.join(path, "blobs")))
+        b = self.track(FreeCAD.newDocument("B"))
+        b.addObject("Part::Cylinder", "Cylinder")
+        b.recompute()
+        with self.assertRaises(Exception):
+            b.saveAs(path)
+        with self.assertRaises(Exception):
+            b.saveCopy(path)
+        self.assertEqual(sorted(os.listdir(os.path.join(path, "blobs"))), before)
+        there = os.path.join(self.dir, "G")
+        os.makedirs(there)
+        a.saveAs(there)
+        self.assertAlmostEqual(a.Box.Shape.Volume, 700)
+
+    def testARecoveredDocumentPullsWhatWasSavedMeanwhile(self):
+        # D2: the first save of a document recovered from the log brings in
+        # what another process saved since, as any save does (29.8).
         import subprocess
 
-        script = os.path.join(self.dir, tag + ".py")
+        exe = consoleExe()
+        if not exe:
+            self.skipTest("no FreeCADCmd beside this build")
+        doc = self.made("Recovered")
+        self.commit(doc, "float", lambda: setattr(doc.Obj, "Float", 1.0))
+        path = os.path.join(self.dir, "recovered.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        script = os.path.join(self.dir, "killed.py")
         with open(script, "w") as f:
             f.write(
-                "import os, time, FreeCAD\n"
-                "d = %r\n"
-                "def say(name):\n"
-                "    open(os.path.join(d, name), 'w').close()\n"
-                "def wait(name):\n"
-                "    until = time.time() + 240\n"
-                "    while not os.path.exists(os.path.join(d, name)) and time.time() < until:\n"
-                "        time.sleep(0.005)\n"
+                "import os, FreeCAD\n"
                 "p = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')\n"
                 "p.SetInt('TransactionLog', 2)\n"
-                "wait('open')\n"
                 "doc = FreeCAD.openDocument(%r)\n"
                 "doc.UndoMode = 1\n"
-                "doc.SaveSchemaVersion = 5\n"
-                "say(%r + '.open')\n"
-                "doc.openTransaction(%r)\n"
-                "%s"
-                "doc.recompute()\n"
+                "doc.openTransaction('ours')\n"
+                "doc.Obj.Integer = 5\n"
                 "doc.commitTransaction()\n"
-                "say(%r + '.ready')\n"
-                "wait('go')\n"
-                "start = time.time()\n"
-                "doc.save()\n"
-                "end = time.time()\n"
-                "pull = doc.getLastSavePull()\n"
-                "print('saved %%.6f %%.6f rows %%d merged %%d' %% (start, end, pull['rows'],"
-                " pull['merged']), flush=True)\n"
-                "wait('close')\n"
-                "FreeCAD.closeDocument(doc.Name)\n"
-                % (self.dir, path, tag, tag, code if code.endswith("\n") else code + "\n", tag)
+                "doc.getTransactionLog()\n"
+                "print('dir', doc.TransientDir, flush=True)\n"
+                "os._exit(0)\n" % path
             )
-        return subprocess.Popen(
-            [self.exe, script], stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
+        out = subprocess.run([exe, script], capture_output=True, timeout=300)
+        text = out.stdout.decode("utf-8", "replace")
+        dirs = [l[4:].strip() for l in text.splitlines() if l.startswith("dir ")]
+        self.assertTrue(dirs, text + out.stderr.decode("utf-8", "replace"))
+        # Another process's save, made while the first lay dead
+        other = FreeCAD.openDocument(path)
+        other.UndoMode = 1
+        self.commit(other, "theirs", lambda: setattr(other.Obj, "Float", 2.5))
+        other.save()
+        FreeCAD.closeDocument(other.Name)
+        doc = self.track(FreeCAD.recoverDocument(dirs[0]))
+        self.assertEqual(doc.Obj.Integer, 5)
+        doc.save()
+        self.assertEqual(doc.Obj.Float, 2.5)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual((doc.Obj.Integer, doc.Obj.Float), (5, 2.5))
 
-    def say(self, name):
-        open(os.path.join(self.dir, name), "w").close()
+    def setOf(self, theirLib):
+        # Ours: Asm linking Part's Box. Theirs: a copy whose Asm also links a
+        # Bolt; with `theirLib` the Bolt is outside their top's folder.
+        import shutil
 
-    def waitFor(self, names, procs, seconds=240):
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        lib = os.path.join(self.dir, "lib") if theirLib else theirs
+        os.makedirs(ours)
+        part = self.track(FreeCAD.newDocument("SetPart"))
+        part.UndoMode = 1
+        self.commit(part, "box", lambda: part.addObject("Part::Box", "Box"))
+        part.recompute()
+        part.saveAs(os.path.join(ours, "Part.FCStd"))
+        asm = self.track(FreeCAD.newDocument("SetAsm"))
+        asm.UndoMode = 1
+        self.commit(asm, "link", lambda: setattr(asm.addObject("App::Link", "L"), "LinkedObject", part.Box))
+        asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+        FreeCAD.closeDocument(asm.Name)
+        FreeCAD.closeDocument(part.Name)
+        shutil.copytree(ours, theirs)
+        os.makedirs(lib, exist_ok=True)
+        bolt = self.track(FreeCAD.newDocument("SetBolt"))
+        cyl = bolt.addObject("Part::Cylinder", "Cyl")
+        bolt.recompute()
+        bolt.saveAs(os.path.join(lib, "Bolt.FCStd"))
+        asm = self.track(FreeCAD.openDocument(os.path.join(theirs, "Asm.FCStd")))
+        asm.addObject("App::Link", "L2").LinkedObject = cyl
+        asm.recompute()
+        asm.save()
+        for n in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(n)
+        return ours, theirs, lib
+
+    def testASetFileOutsideTheirFolderIsNotWrittenOverTheirs(self):
+        # L1: a file of theirs alone outside their top's folder goes under
+        # _external/ in ours, as an export lays it out -- never back over
+        # their own file.
+        ours, theirs, lib = self.setOf(True)
+        bolt = os.path.join(lib, "Bolt.FCStd")
+        was = open(bolt, "rb").read()
+        doc = self.track(FreeCAD.openDocument(os.path.join(ours, "Asm.FCStd")))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+            d.UndoMode = 1
+        row = [f for f in res["files"] if f["relative"].endswith("Bolt.FCStd")][0]
+        self.assertNotEqual(os.path.realpath(row["write_to"]), os.path.realpath(bolt))
+        self.assertEqual(os.path.realpath(row["write_to"]),
+                         os.path.realpath(os.path.join(ours, "_external", "Bolt.FCStd")))
+        # Named as their own file by hand, the write is refused.
+        row["write_to"] = bolt
+        m = doc.mergeLinkedSet(res["files"], overwrite=True, set=res["set"])
+        self.assertTrue(m["refused"])
+        self.assertEqual(open(bolt, "rb").read(), was)
+
+    def testAHeldPathLeavingTheFolderIsNotWritten(self):
+        # L2: a link's `heldpath` comes from the file; one with `..` is not
+        # written outside the transient directory's held/.
+        import re
+        import zipfile
+
+        bolt = self.track(FreeCAD.newDocument("Bolt"))
+        cyl = bolt.addObject("Part::Cylinder", "Cyl")
+        bolt.recompute()
+        bolt.saveAs(os.path.join(self.dir, "Bolt.FCStd"))
+        c = self.track(FreeCAD.newDocument("C"))
+        c.addObject("App::Link", "L").LinkedObject = cyl
+        c.recompute()
+        c.saveAs(os.path.join(self.dir, "C.FCStd"))
+        FreeCAD.closeDocument(c.Name)
+        FreeCAD.closeDocument(bolt.Name)
+        a = self.track(FreeCAD.newDocument("A"))
+        a.saveAs(os.path.join(self.dir, "A.FCStd"))
+        seq = a.keepTransactionSentFile(os.path.join(self.dir, "Bolt.FCStd"), "Bolt.FCStd", "x", "request")
+        digest = [f["hash"] for f in a.getTransactionSentFiles() if f["seq"] == seq][0]
+        os.makedirs(os.path.join(a.TransientDir, "held"), exist_ok=True)
+        evil = os.path.join(self.dir, "evil", "x.FCStd")
+        os.makedirs(os.path.dirname(evil))
+        crafted = os.path.join(self.dir, "C2.FCStd")
+        with zipfile.ZipFile(os.path.join(self.dir, "C.FCStd")) as zin, \
+                zipfile.ZipFile(crafted, "w") as zout:
+            for item in zin.infolist():
+                try:
+                    data = zin.read(item.filename)
+                except NotImplementedError:
+                    continue   # a member Python's zipfile cannot read: the history
+                item.compress_type = zipfile.ZIP_DEFLATED
+                if item.filename == "Document.xml":
+                    text = re.sub(r'<XLink file="[^"]*"',
+                                  '<XLink file="gone.FCStd" held="%s" heldpath="%s"'
+                                  % (digest, "../" * 12 + evil.lstrip("/")),
+                                  data.decode("utf-8"))
+                    data = text.encode("utf-8")
+                zout.writestr(item, data)
+        self.track(FreeCAD.openDocument(crafted))
+        self.assertFalse(os.path.exists(evil))
+
+    def testAPropertyRemovedAndAddedAgainComesBackFromTheLog(self):
+        # C1: a row that removes a dynamic property and adds one of its name
+        # and type: undone from the log, the object has it, with its value.
+        doc = self.track(FreeCAD.newDocument("Dyn"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        obj.addProperty("App::PropertyString", "Note", "Extra")
+        obj.Note = "first"
+        doc.commitTransaction()
+        integer = obj.Integer
+        doc.openTransaction("again")
+        obj.removeProperty("Note")
+        obj.Integer = 1
+        obj.addProperty("App::PropertyString", "Note", "Extra")
+        obj.Note = "second"
+        doc.commitTransaction()
+        seq = [r for r in doc.getTransactionLog() if r["kind"] == "user"][-1]["seq"]
+        ops = [o["op"] for o in doc.getTransactionOps(seq) if o["prop"] == "Note"]
+        self.assertLess(ops.index("delprop"), ops.index("addprop"))
+        self.assertTrue(doc.undoTransactionFromLog(seq))
+        self.assertIn("Note", obj.PropertiesList)
+        self.assertEqual(obj.Note, "first")
+        self.assertEqual(obj.Integer, integer)
+
+    def testARemovedRowsNumberIsNotGivenAgain(self):
+        # S2: rows a merge roll-back removed at the tip keep their numbers
+        # taken across a save-as, which reopens the store; other rows name
+        # rows by them.
+        doc = self.made("Seq")
+        doc.saveAs(os.path.join(self.dir, "a.FCStd"))
+        doc.createTransactionBranch("side")
+        self.commit(doc, "side", lambda: setattr(doc.Obj, "Integer", 2))
+        doc.switchTransactionBranch("main")
+        self.commit(doc, "main", lambda: setattr(doc.Obj, "Float", 3.0))
+        doc.mergeTransactionBranch("side")
+        doc.undo()
+        top = max(r["seq"] for r in doc.getTransactionLog())
+        self.assertTrue(doc.rollBackTransactionMerge())
+        self.assertLess(max(r["seq"] for r in doc.getTransactionLog()), top)
+        doc.saveAs(os.path.join(self.dir, "b.FCStd"))
+        self.commit(doc, "after", lambda: setattr(doc.Obj, "Integer", 7))
+        self.assertGreater(min(r["seq"] for r in doc.getTransactionLog()[-2:]), top)
+
+    def testUndoOfATakeTheirsLeavesTheSetPending(self):
+        # L4: Take theirs undone puts ours back and leaves their set to be
+        # taken again: pending, and their branch mergeable.
+        import shutil
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        for folder, kind, name in ((ours, "Part::Box", "Box"), (theirs, "Part::Cylinder", "Cyl")):
+            os.makedirs(folder)
+            part = self.track(FreeCAD.newDocument("TakePart"))
+            part.UndoMode = 1
+            part.openTransaction("make")
+            made = part.addObject(kind, name)
+            part.recompute()
+            part.commitTransaction()
+            part.saveAs(os.path.join(folder, "Part.FCStd"))
+            asm = self.track(FreeCAD.newDocument("TakeAsm"))
+            asm.UndoMode = 1
+            self.commit(asm, "link", lambda: setattr(asm.addObject("App::Link", "L"), "LinkedObject", made))
+            asm.saveAs(os.path.join(folder, "Asm.FCStd"))
+            FreeCAD.closeDocument(asm.Name)
+            FreeCAD.closeDocument(part.Name)
+        doc = self.track(FreeCAD.openDocument(os.path.join(ours, "Asm.FCStd")))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+            d.UndoMode = 1
+        partRow = [f for f in res["files"] if f["relative"].endswith("Part.FCStd")][0]
+        self.assertEqual(partRow["action"], "theirs")
+        m = doc.mergeLinkedSet(res["files"], set=res["set"])
+        self.assertFalse(m["refused"])
+        part = doc.L.LinkedObject.Document
+        self.assertEqual([o.Name for o in part.Objects], ["Cyl"])
+        self.assertEqual(len(doc.getLinkedSetImports()), 0)
+        for d in (doc, part):
+            if d.UndoCount:
+                d.undo()
+        self.assertEqual([o.Name for o in part.Objects], ["Box"])
+        self.assertEqual(len(doc.getLinkedSetImports()), 1)
+        branch = partRow["branch"]
+        self.assertGreater(len(part.previewTransactionMerge(branch)["changes"]), 0)
+
+    def twoSets(self):
+        # Ours: Asm linking Part's Box; theirs: Asm linking Part's Cyl. The
+        # parts share no object, so their pairing is a guess.
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        for folder, kind, name in ((ours, "Part::Box", "Box"), (theirs, "Part::Cylinder", "Cyl")):
+            os.makedirs(folder)
+            part = self.track(FreeCAD.newDocument("SetsPart"))
+            part.UndoMode = 1
+            part.openTransaction("make")
+            made = part.addObject(kind, name)
+            part.recompute()
+            part.commitTransaction()
+            part.saveAs(os.path.join(folder, "Part.FCStd"))
+            asm = self.track(FreeCAD.newDocument("SetsAsm"))
+            asm.UndoMode = 1
+            self.commit(asm, "link", lambda: setattr(asm.addObject("App::Link", "L"), "LinkedObject", made))
+            asm.saveAs(os.path.join(folder, "Asm.FCStd"))
+            FreeCAD.closeDocument(asm.Name)
+            FreeCAD.closeDocument(part.Name)
+        doc = self.track(FreeCAD.openDocument(os.path.join(ours, "Asm.FCStd")))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+            d.UndoMode = 1
+        return doc, res
+
+    def testUndoOfASetMergeTakesItsKeepOursBack(self):
+        # Sec 39.4 (user, 2026-10-27): the set merge is one step, so undoing
+        # it leaves every file undecided, Keep ours too; merged again, the
+        # file takes the new choice.
+        doc, res = self.twoSets()
+        row = [f for f in res["files"] if f["relative"].endswith("Part.FCStd")][0]
+        row["action"] = "ours"
+        m = doc.mergeLinkedSet(res["files"], set=res["set"])
+        self.assertFalse(m["refused"], m)
+        # Asm took theirs, whose link names their Cyl: ours has a Box, so the
+        # link resolves to nothing here; the part is found by its file.
+        part = [d for d in FreeCAD.listDocuments().values()
+                if os.path.realpath(d.FileName) == os.path.realpath(row["our_file"])][0]
+        branch = row["branch"]
+
+        def kept():
+            return [r["seq"] for r in part.getTransactionLog() if r["name"] == "Keep ours " + branch]
+
+        self.assertEqual(len(kept()), 1)
+        self.assertEqual([o.Name for o in part.Objects], ["Box"])
+        for d in (doc, part):
+            if d.UndoCount:
+                d.undo()
+        self.assertEqual(len(doc.getLinkedSetImports()), 1)
+        row["action"] = "theirs"
+        m = doc.mergeLinkedSet(res["files"], set=res["set"])
+        self.assertFalse(m["refused"], m)
+        self.assertEqual(kept(), [])
+        self.assertEqual([o.Name for o in part.Objects], ["Cyl"])
+
+    def testAWriteInNoTransactionIsNotClaimedStale(self):
+        # C2: Visibility is NoModify, so a write of it makes no row; the
+        # next version must hold the value written, not the one the log
+        # last recorded (the create's).
+        doc = self.made("Stale")
+
+        def visibility(num):
+            v = self.versions(doc)[num]
+            xml = [doc.getTransactionValue(h)[0] for e, h in v["manifest"] if e == "Document.xml"][0]
+            return xml[xml.index('name="Visibility"'):].split("/>")[0].split('value="')[1]
+
+        self.assertEqual(visibility(doc.snapshotTransactionLog()), 'true"')
+        doc.Obj.Visibility = False   # in no transaction
+        self.assertEqual(visibility(doc.snapshotTransactionLog()), 'false"')
+
+    def testAComputedValueAHandWriteReplacedOutlivesTheCacheBudget(self):
+        # C3: the value a recompute wrote, replaced by hand, is what undoing
+        # the hand write puts back; the cache budget does not drop it.
+        import Part
+
+        doc = self.track(FreeCAD.newDocument("Tier"))
+        doc.UndoMode = 1
+        self.commit(doc, "make", lambda: doc.addObject("Part::Box", "Box"))
+        doc.recompute()
+        self.commit(doc, "hand", lambda: setattr(doc.Box, "Shape", Part.makeSphere(2)))
+        doc.resolveTransactionLog()
+        hand = [r for r in doc.getTransactionLog() if r["kind"] == "user"][-1]["seq"]
+        before = [o for o in doc.getTransactionOps(hand) if o["prop"] == "Shape"][0]["before"]
+        for i in range(5):
+            self.commit(doc, "edit %d" % i, lambda: setattr(doc.Box, "Length", 11 + i))
+            doc.recompute()
+        doc.resolveTransactionLog()
+        doc.evictTransactionCache(size=1, values=0)
+        self.assertIsNotNone(doc.getTransactionValue(before))
+
+    def testAMarkerLineOfAnotherComputerNotSeenForLongIsDropped(self):
+        # D4: a process of another computer that ended without closing left
+        # its line; past FileOpenerExpiryDays it is taken as gone, while a
+        # line seen lately stays.
         import time
 
-        until = time.time() + seconds
-        while time.time() < until:
-            if all(os.path.exists(os.path.join(self.dir, n)) for n in names):
-                return
-            for p in procs:
-                if p.poll() is not None:
-                    out, err = p.communicate()
-                    self.fail("a process ended early: %s %s" % (out, err))
-            time.sleep(0.02)
-        self.fail("waited in vain for %s" % names)
-
-    def ended(self, procs):
-        outs = []
-        for p in procs:
-            out, err = p.communicate(timeout=300)
-            out = out.decode("utf-8", "replace")
-            err = err.decode("utf-8", "replace")
-            line = [l for l in out.splitlines() if l.startswith("saved ")]
-            self.assertTrue(line, out + err)
-            f = line[0].split()
-            outs.append(
-                {"start": float(f[1]), "end": float(f[2]), "rows": int(f[4]),
-                 "merged": int(f[6])}
-            )
-        return outs
-
-    def holdLock(self, path):
-        # The lock as SaveLock takes it: boost's file_lock, LockFileEx over
-        # the whole range on Windows, fcntl over the whole file elsewhere.
-        lockPath = os.path.join(os.path.dirname(path), ".~" + os.path.basename(path) + ".lock")
-        if not os.path.exists(lockPath):
-            open(lockPath, "w").close()
-        import sys
-
-        if sys.platform == "win32":
-            import ctypes
-            from ctypes import wintypes
-
-            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            k32.CreateFileW.restype = wintypes.HANDLE
-            k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
-                                        ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
-                                        wintypes.HANDLE]
-
-            class OVERLAPPED(ctypes.Structure):
-                _fields_ = [("Internal", ctypes.c_void_p), ("InternalHigh", ctypes.c_void_p),
-                            ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
-                            ("hEvent", wintypes.HANDLE)]
-
-            k32.LockFileEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
-                                       wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
-            k32.UnlockFileEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
-                                         wintypes.DWORD, ctypes.c_void_p]
-            k32.CloseHandle.argtypes = [wintypes.HANDLE]
-            # GENERIC_READ | GENERIC_WRITE, shared all ways, OPEN_EXISTING
-            h = k32.CreateFileW(lockPath, 0xC0000000, 7, None, 3, 0x80, None)
-            self.assertNotEqual(h, wintypes.HANDLE(-1).value, ctypes.get_last_error())
-            ov = OVERLAPPED()
-            # LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY
-            self.assertTrue(k32.LockFileEx(h, 3, 0, 0xFFFFFFFF, 0xFFFFFFFF, ctypes.byref(ov)))
-
-            def release():
-                k32.UnlockFileEx(h, 0, 0xFFFFFFFF, 0xFFFFFFFF, ctypes.byref(OVERLAPPED()))
-                k32.CloseHandle(h)
-
-        else:
-            import fcntl
-
-            fd = os.open(lockPath, os.O_RDWR)
-            fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-            def release():
-                fcntl.lockf(fd, fcntl.LOCK_UN)
-                os.close(fd)
-
-        return release
-
-    def testASaveWaitsForTheLockAnotherProcessHolds(self):
-        import time
-
-        doc, path = self.made("Held")
+        doc = self.made("Marker")
+        path = os.path.join(self.dir, "marker.FCStd")
+        doc.saveAs(path)
         FreeCAD.closeDocument(doc.Name)
-        with open(path, "rb") as f:
-            before = f.read()
-        release = self.holdLock(path)
-        p = self.spawn(path, "doc.Box.Length = 20", "w")
-        try:
-            self.say("open")
-            self.waitFor(["w.ready"], [p])
-            self.say("go")
-            # Held here: the other waits, and writes nothing.
-            time.sleep(3)
-            self.assertIsNone(p.poll())
-            with open(path, "rb") as f:
-                self.assertEqual(f.read(), before)
-        except BaseException:
-            p.kill()
-            release()
-            raise
-        freed = time.time()
-        release()
-        self.say("close")
-        (out,) = self.ended([p])
-        self.assertLess(out["start"], freed)
-        self.assertGreaterEqual(out["end"], freed)
+        marker = os.path.join(self.dir, ".~marker.FCStd.open")
+        now = time.time()
+        with open(marker, "w") as f:
+            f.write("gone-host 4242 %r\n" % (now - 40 * 86400))
+            f.write("live-host 4343 %r %r\n" % (now - 40 * 86400, now - 86400))
         doc = self.track(FreeCAD.openDocument(path))
-        self.assertEqual(doc.Box.Length.Value, 20)
-
-    def testSavesAtOnceInThreeProcessesLoseNothing(self):
-        doc, path = self.made("Crowd")
-        FreeCAD.closeDocument(doc.Name)
-        edits = [
-            ("a", "doc.Box.Length = 21\ndoc.addObject('Part::Sphere', 'SphereA')"),
-            ("b", "doc.Box.Width = 22\ndoc.addObject('Part::Cylinder', 'CylB')"),
-            ("c", "doc.Box.Height = 23\ndoc.addObject('Part::Cone', 'ConeC')"),
-        ]
-        procs = [self.spawn(path, code, tag) for tag, code in edits]
-        try:
-            # All open at once, then all save at once.
-            self.say("open")
-            self.waitFor([t + ".ready" for t, _ in edits], procs)
-            openers = FreeCAD.openDocument(path)
-            self.track(openers)
-            told = openers.getFileOpeners()
-            FreeCAD.closeDocument(openers.Name)
-            self.say("go")
-        except BaseException:
-            for p in procs:
-                p.kill()
-            raise
-        self.say("close")
-        outs = self.ended(procs)
-        # The first to write pulled nothing; each after it pulled and merged
-        # what was written before it.
-        outs.sort(key=lambda o: o["rows"])
-        self.assertEqual(outs[0]["rows"], 0, outs)
-        self.assertTrue(all(o["rows"] > 0 and o["merged"] for o in outs[1:]), outs)
-        doc = self.track(FreeCAD.openDocument(path))
-        self.assertEqual(
-            (doc.Box.Length.Value, doc.Box.Width.Value, doc.Box.Height.Value), (21, 22, 23)
-        )
-        for name in ("SphereA", "CylB", "ConeC"):
-            self.assertIsNotNone(doc.getObject(name), name)
-        self.assertAlmostEqual(doc.Box.Shape.Volume, 21 * 22 * 23, 6)
-        # Each said who it is, though they opened at the same moment.
-        self.assertEqual(len(told), 3, told)
+        openers = " ".join(doc.getFileOpeners())
+        self.assertNotIn("gone-host", openers)
+        self.assertIn("live-host", openers)
+        self.assertNotIn("gone-host", open(marker).read())
 
 
 class XLinkIntoUnsavedCases(unittest.TestCase):

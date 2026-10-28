@@ -54,7 +54,7 @@ namespace App
  * The mapped name names string ids by number, as text; nothing held
  * them, so a string table compacted while the element was gone dropped
  * what the reference names, and the element coming back was named anew
- * (docs/TransactionLog.md sec 27.75). The ids are the element map's for
+ * (docs/TransactionLogJournal.md sec 27.75). The ids are the element map's for
  * the element, which include the names it was made from, not only those
  * its text shows. They are saved beside the shadow and held again from
  * the numbers once the reference registers against its target: no
@@ -88,7 +88,7 @@ struct ShadowSub : std::pair<std::string, std::string>
     std::vector<long> savedIds;
 
     /** A reference whose names are another table's -- into another
-     * document, or through a link to one (docs/TransactionLog.md sec
+     * document, or through a link to one (docs/TransactionLogJournal.md sec
      * 27.76 item 5): the element part of 'first' with its string ids
      * imported into the owner's table. This is what the file keeps; the
      * working form, 'first', is looked up from it in the target's table
@@ -103,7 +103,7 @@ struct ShadowSub : std::pair<std::string, std::string>
     bool pending = false;
 
     /** The mapped name a file gave beside the element of an
-     * expression's path (docs/TransactionLog.md sec 31.22), until the
+     * expression's path (docs/TransactionLogJournal.md sec 31.22), until the
      * path registers. An expression says its element in its text, and
      * a path with no name beside it takes the one that element has
      * where it registers; with this, it registers as it was saved, as

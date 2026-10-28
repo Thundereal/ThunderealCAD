@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 31.16, 31.18: the faces of a shape
+# GUI check of docs/TransactionLogJournal.md sec 31.16, 31.18: the faces of a shape
 # painted by name -- the names on the object (ColoredElements), their
 # colours on its view provider (MappedColors) -- put back whole by what
 # puts a value back: an undo, a branch switched to, a merge that takes
@@ -643,7 +643,7 @@ def run():
         check("and drawn as the version had them (%r)" % shown(doc.Box), shown(doc.Box) == there)
         App.closeDocument(doc.Name)
 
-        # Painted on both branches (docs/TransactionLog.md sec 31.20): the
+        # Painted on both branches (docs/TransactionLogJournal.md sec 31.20): the
         # names and their looks are one thing, merged by name.
         def both(name):
             d = App.newDocument(name)

@@ -81,6 +81,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 
 #include <boost/regex.hpp>
 #include <algorithm>
+#include <filesystem>
 #include <random>
 #include <unordered_map>
 #include <unordered_set>
@@ -112,6 +113,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 
 #include "Document.h"
 #include "Actor.h"
+#include "ElementMap.h"
 #include "ElementNamingUtils.h"
 #include "private/DocumentP.h"
 #include "Application.h"
@@ -138,6 +140,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "TransactionMeasure.h"
 #include "PropertyElementAppearance.h"
 #include "PropertyHistory.h"
+#include "PropertyPythonObject.h"
 #include "TransactionLog.h"
 
 #include <nlohmann/json.hpp>
@@ -456,7 +459,7 @@ Property* addLoggedProperty(PropertyContainer& container, const std::string& pty
     return prop;
 }
 
-/// An object's touched state as the log records it (docs/TransactionLog.md
+/// An object's touched state as the log records it (docs/TransactionLogJournal.md
 /// sec 27.58): its bits and the names of its touched properties -- each
 /// property's Touched bit, not isTouched(): a link also reads as touched
 /// once its target's revision moved (PropertyLink::isTouched), which is the
@@ -502,7 +505,7 @@ void setPropertyTouched(Property& prop, bool touched)
     prop.setStatus(bit, true);
 }
 
-/// The touched state a run of log rows leaves (docs/TransactionLog.md sec
+/// The touched state a run of log rows leaves (docs/TransactionLogJournal.md sec
 /// 27.58), folded as the rows are crossed in either direction: a set taken
 /// back leaves the state it recorded before it, a set done leaves the
 /// property touched and its object too unless the property is an output, a
@@ -676,7 +679,7 @@ std::string touchedRecord(const std::map<long, TouchedState>& before,
     return j.dump();
 }
 
-/** An undo or redo of a logged step (docs/TransactionLog.md sec 27.63)
+/** An undo or redo of a logged step (docs/TransactionLogJournal.md sec 27.63)
  * leaves the touched state its rows record, as the walk does (sec 27.59):
  * the rows from the head back to the step's own, crossed back -- a redo's
  * step is the undo's row, so a redo is the undo taken back. Folded before
@@ -928,7 +931,7 @@ bool Document::_prepareRevert(int64_t seq, const std::string& name, ColdRevert& 
 
 void Document::_applyRevert(ColdRevert& revert)
 {
-    // docs/TransactionLog.md sec 24.3. In passes, so a value naming an
+    // docs/TransactionLogJournal.md sec 24.3. In passes, so a value naming an
     // object -- a link -- never restores before the object exists: first
     // the objects the row removed come back, then the dynamic properties it
     // removed, then every value, then what the row added goes.
@@ -980,6 +983,16 @@ void Document::_applyRevert(ColdRevert& revert)
     // in place it kept the removed one from coming back, and step 4 then
     // took it away as the row's addition: the object had no Offset at all.
     std::set<std::pair<const PropertyContainer*, std::string>> replaced;
+    // Removed and added again of the same type in the row (sec 39, C1):
+    // the one there is the row's addition, and takes the removed one's
+    // value back; step 4 leaves it.
+    std::set<std::pair<const PropertyContainer*, std::string>> added;
+    for (const LogOp* o : revert.ops) {
+        if (o->op == "addprop") {
+            if (auto container = opContainer(*this, *o))
+                added.emplace(container, o->prop);
+        }
+    }
     for (const LogOp* o : revert.ops) {
         if (o->op != "delprop")
             continue;
@@ -988,8 +1001,11 @@ void Document::_applyRevert(ColdRevert& revert)
             if (!container)
                 return;
             if (auto there = container->getPropertyByName(o->prop.c_str())) {
-                if (o->ptype == there->getTypeId().getName())
+                if (o->ptype == there->getTypeId().getName()) {
+                    if (added.count({container, o->prop}))
+                        replaced.emplace(container, o->prop);
                     return;
+                }
                 if (!container->removeDynamicProperty(o->prop.c_str()))
                     return;
                 replaced.emplace(container, o->prop);
@@ -1017,7 +1033,7 @@ void Document::_applyRevert(ColdRevert& revert)
                 // Touched once every value is in, not here: the ops come
                 // in no order (a hash map's), and a value written after the
                 // touch would record the object as touched before the row
-                // (docs/TransactionLog.md sec 33.5).
+                // (docs/TransactionLogJournal.md sec 33.5).
                 if (o->derived) {
                     if (auto obj = Base::freecad_dynamic_cast<DocumentObject>(container)) {
                         if (revert.touched.insert(obj->getID()).second)
@@ -1112,7 +1128,7 @@ bool Document::undoLogged(int64_t seq)
 bool Document::undoLogged(const std::vector<int64_t>& seqs)
 {
     OperationScope scope;   // sec 27.38
-    // docs/TransactionLog.md sec 24.4: a new transaction applying row
+    // docs/TransactionLogJournal.md sec 24.4: a new transaction applying row
     // `seq` reversed, refused when anything since changed what it touched.
     // Several rows (sec 33.13) are one such transaction: taken back newest
     // first, each from the state it left, and all of them or none.
@@ -1209,7 +1225,7 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
         }
         // As in _revertStep: the values of a row go back whole and in no
         // order, and object code working one of them out of the others on
-        // the way gets it wrong (docs/TransactionLog.md sec 33.12).
+        // the way gets it wrong (docs/TransactionLogJournal.md sec 33.12).
         Base::FlagToggler<bool> flag(d->undoing);
         _applyRevert(revert);
     }
@@ -1280,7 +1296,7 @@ const std::string& Document::undoRefusal() const
 
 bool Document::_revertStep(bool undo, Transaction* step)
 {
-    // docs/TransactionLog.md sec 30.10 item 3: someone has written since
+    // docs/TransactionLogJournal.md sec 30.10 item 3: someone has written since
     // the step, so its copies are of a state the document is no longer in.
     // It is taken back as a selective undo is (sec 24.4) -- the values read
     // from the log, refused when what the step left has changed since --
@@ -1360,7 +1376,7 @@ bool Document::_revertStep(bool undo, Transaction* step)
 
 std::vector<Transaction*> Document::_myRun(bool undo, int skip) const
 {
-    // docs/TransactionLog.md sec 33.4: an implicit step -- a write with no
+    // docs/TransactionLogJournal.md sec 33.4: an implicit step -- a write with no
     // transaction open, a recompute -- is no step of its own to whoever
     // undoes. It goes with the user's step it followed: one undo takes that
     // step and the implicit ones above it, one redo the step and the
@@ -1615,7 +1631,7 @@ bool Document::redo(int id)
 
 void Document::logInverse(const Transaction& applied, const char* kind, const ColdRevert* cold)
 {
-    // docs/TransactionLog.md sec 24.2: the record the undo (or redo) opened
+    // docs/TransactionLogJournal.md sec 24.2: the record the undo (or redo) opened
     // before applying collected the writes it made, which are the inverse
     // of what it applied. It is logged as a transaction of its own, naming
     // the row it inverts, before it becomes the redo (or undo) step.
@@ -1679,12 +1695,13 @@ void Document::_addOrRemoveProperty(TransactionalObject* obj, Property *prop, bo
 {
     if (d->bookkeeping)
         return;
+    noteSavedChange(obj);
     checkNotFrozen(add ? "add a property" : "remove a property");
     // A property never saved -- a cache like Part's shape cache, added when
     // a command's isActive() builds a link's shape -- is no change to the
     // document: it opens no transaction, where it opened the running
     // command's, which then committed as an undo step with nothing in it
-    // (docs/TransactionLog.md sec 27.17). One open already still records it.
+    // (docs/TransactionLogJournal.md sec 27.17). One open already still records it.
     // Prop_Transient is not one: its name and type are saved.
     const bool unsaved = prop && (prop->getType() & Prop_NoPersist);
     if(transactionsWanted() && !isPerformingTransaction() && !d->activeUndoTransaction
@@ -1706,7 +1723,7 @@ bool Document::isPerformingTransaction() const
 {
     // A switch or a crash recovery replaying rows puts the document back
     // into a recorded state, as an undo does, and object code must not
-    // react to it any more than to an undo (docs/TransactionLog.md sec
+    // react to it any more than to an undo (docs/TransactionLogJournal.md sec
     // 27.68). A replay records nothing already (transactionsWanted()). A
     // restore to a version is not one: it is a recorded step.
     return d->undoing || d->rollback || d->replaying || Transaction::isApplying();
@@ -1824,7 +1841,7 @@ int Document::_openTransaction(const char* name, int id, bool implicit)
         // An implicit transaction is not mirrored into the active document:
         // it stays out of the application's transaction as it does at commit,
         // and a mirror, not implicit itself, was never closed with it
-        // (docs/TransactionLog.md sec 24.13).
+        // (docs/TransactionLogJournal.md sec 24.13).
         auto &app = GetApplication();
         auto activeDoc = app.getActiveDocument();
         if(!implicit &&
@@ -1857,7 +1874,7 @@ bool Document::transactionsWanted() const
     // A document being made joins no transaction: its creation is not a
     // step of whatever command made it. With the log on, its Label joined
     // the command's transaction, and the restore that followed committed
-    // that transaction in every document (docs/TransactionLog.md sec 27.15).
+    // that transaction in every document (docs/TransactionLogJournal.md sec 27.15).
     if (d->replaying || testStatus(Initializing))
         return false;
     // Nor does one whose objects are being taken down, to be read in again
@@ -1874,7 +1891,7 @@ bool Document::transactionsWanted() const
 
 void Document::_openImplicitTransaction()
 {
-    // docs/TransactionLog.md sec 9.1: with the log on, a write that arrives
+    // docs/TransactionLogJournal.md sec 9.1: with the log on, a write that arrives
     // with no transaction active opens one of its own, named after the
     // invocation it happens in, and closed when that returns.
     if (DocumentParams::getTransactionLog() == 0 || testStatus(Initializing))
@@ -1943,7 +1960,7 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
                         // A view provider's property. With the log on, a
                         // saved one is document data like any other and is
                         // recorded whatever ViewObjectTransaction says
-                        // (docs/TransactionLog.md sec 24.10); one that is
+                        // (docs/TransactionLogJournal.md sec 24.10); one that is
                         // never saved is not.
                         short type = What->getContainer()->getPropertyType(What);
                         if (DocumentParams::getTransactionLog() != 0)
@@ -2064,7 +2081,7 @@ void Document::_commitTransaction(bool notify)
         Application::TransactionSignaller signaller(false,true);
         int id = d->activeUndoTransaction->getID();
         // Phase 0 of the transaction log: measure what this commit would
-        // write (docs/TransactionLog.md sec 15). A static bool test when off.
+        // write (docs/TransactionLogJournal.md sec 15). A static bool test when off.
         TransactionMeasure::checkEnvironment();
         if (TransactionMeasure::enabled())
             TransactionMeasure::onCommit(*this, *d->activeUndoTransaction);
@@ -2081,7 +2098,7 @@ void Document::_commitTransaction(bool notify)
             auto after = std::move(d->activeUndoTransaction->AfterLogRow);
             for (auto& write : after)
                 write(*log);
-            // The cadence of unnamed versions (docs/TransactionLog.md sec
+            // The cadence of unnamed versions (docs/TransactionLogJournal.md sec
             // 16.3): every N commits, or the first commit the autosave
             // interval after the last version (sec 25.3). Taken once the
             // commit is complete, below.
@@ -2126,7 +2143,7 @@ void Document::_commitTransaction(bool notify)
 
 bool Document::_coalesceStep(Transaction* later)
 {
-    // docs/TransactionLog.md sec 37.4 P4: a spinbox, a Python loop -- one
+    // docs/TransactionLogJournal.md sec 37.4 P4: a spinbox, a Python loop -- one
     // property written commit after commit makes two rows, a value, a blob
     // and a delta each time. Folded, the run is one row and one undo step:
     // the undo granularity is the trade, as ruled.
@@ -2324,7 +2341,7 @@ void Document::clearDocument()
     // The ids of a file are never handed out again (sec 27.40), which is
     // for its versions and branches. A temporary document has neither, and
     // emptied it is new: its ids start over, as they did before a document
-    // had a history (docs/TransactionLog.md sec 33.3).
+    // had a history (docs/TransactionLogJournal.md sec 33.3).
     // Its strings with them: they hold the ids of what was in it, and the
     // names made of them are to come out the same the next time.
     if (testStatus(TempDoc)) {
@@ -2407,7 +2424,7 @@ int Document::getAvailableRedos(int id) const
 void Document::setUndoMode(int iMode)
 {
     // An implicit transaction belongs to the mode it was opened in
-    // (docs/TransactionLog.md sec 24.13): writes made with undo off must not
+    // (docs/TransactionLogJournal.md sec 24.13): writes made with undo off must not
     // become an undo step because undo came on before the transaction closed.
     if (!d->iUndoMode != !iMode)
         commitImplicitTransaction();
@@ -2465,7 +2482,7 @@ void Document::onChanged(const Property* prop)
     signalChanged(*this, *prop);
 
     // Bookkeeping is no transaction, so the log never hears of it: what it
-    // holds for the property is stale from here (docs/TransactionLog.md sec
+    // holds for the property is stale from here (docs/TransactionLogJournal.md sec
     // 23.3), and the next snapshot serialises it afresh.
     if (d->bookkeeping && d->transactionLog)
         d->transactionLog->forgetValue(*prop);
@@ -2481,7 +2498,7 @@ void Document::onChanged(const Property* prop)
         App::GetApplication().signalShowHidden(*this);
     } else if (prop == &TransientDir) {
         // The history lives in its home's transient directory and moves
-        // with it (docs/TransactionLog.md sec 27.7).
+        // with it (docs/TransactionLogJournal.md sec 27.7).
         if (d->history && d->history->home() == this)
             d->history->setDirectory(TransientDir.getStrValue());
     } else if (prop == &FileName) {
@@ -2580,12 +2597,16 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
     // sec 14), which runs when the value is first read. It is the restore's
     // value, not a change -- no transaction is opened for it, and one that
     // is open does not take the unserved value as what was there before
-    // (docs/TransactionLog.md sec 30.8).
+    // (docs/TransactionLogJournal.md sec 30.8).
     if (!testStatus(Restoring)) {
         auto obj = Base::freecad_dynamic_cast<const DocumentObject>(Who);
         if (obj && obj->testStatus(ObjectStatus::Restore))
             return;
     }
+    // A value the file does not hold changes nothing in it (sec 38.14).
+    if (!(What->getType() & (Prop_Transient | Prop_NoPersist))
+            && !What->testStatus(Property::Transient) && !What->testStatus(Property::PropNoPersist))
+        noteSavedChange(Who);
     // Bookkeeping -- a compatibility name put on an object (sec 36.7) --
     // is no step and in no step that is open.
     if(!d->rollback && !d->bookkeeping) {
@@ -2593,6 +2614,15 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
         if (d->activeUndoTransaction)
             d->activeUndoTransaction->addObjectChange(Who, What);
     }
+    // A write in no transaction -- NoModify, Legacy, a view's derived size,
+    // bookkeeping -- is in no row: what the log holds for the property is
+    // stale from here, and the next snapshot serialises it afresh (sec 39.3,
+    // C2), as onChanged() does for the document's own bookkeeping.
+    // An undo, a replay or a checkout puts recorded values back, which the
+    // log follows itself.
+    if (d->transactionLog && !isPerformingTransaction()
+            && (d->bookkeeping || !d->activeUndoTransaction))
+        d->transactionLog->forgetValue(*What);
 }
 
 void Document::onBeforeChangeFreeze(const DocumentObject *Who)
@@ -2766,7 +2796,7 @@ Document::Document(const char* documentName)
     // rather than inherited -- Gui::Document warns explicitly, once, before
     // the first compact save of a file, and the choice is per document from
     // then on. A document restored from a file in an older format takes
-    // this one too, and says so (sec 27.62 of docs/TransactionLog.md); see
+    // this one too, and says so (sec 27.62 of docs/TransactionLogJournal.md); see
     // Restore().
     ADD_PROPERTY_TYPE(SaveSchemaVersion,(getCurrentSchemaVersion()),"Format",Prop_None,
             "Document schema version to write.\n"
@@ -2828,13 +2858,13 @@ Document::~Document()
     try {
         // The log first: its worker writes into the store and the blob
         // segments until its queue is empty, which since every commit
-        // writes its values (docs/TransactionLog.md sec 25.4) is often not
+        // writes its values (docs/TransactionLogJournal.md sec 25.4) is often not
         // yet the case here. Nothing makes another one afterwards.
         d->noLog = true;
         d->transactionLog.reset();
         // The history removes its directory, this one's transient directory
         // when this is its home, once the last document of the file lets go
-        // (docs/TransactionLog.md sec 27.7). A directory of this document's
+        // (docs/TransactionLogJournal.md sec 27.7). A directory of this document's
         // own goes now.
         bool shared = false;
         if (d->history) {
@@ -2967,6 +2997,11 @@ void Document::Save (Base::Writer &writer) const
     // know whether the element is there before it can read past it.
     if (getFileBlobManager().hasInlineBlobs())
         writer.Stream() << " Blobs=\"1\"";
+    // What decides the bytes of a save to a folder (sec 38.14): an open of
+    // the folder compares it with what its first save would use.
+    if (!d->folderNext.folder.empty())
+        writer.Stream() << " FolderOptions=\""
+                        << Property::encodeAttribute(d->folderNext.options) << '"';
     writer.Stream() << ">\n";
 
     writer.incInd();
@@ -2979,7 +3014,7 @@ void Document::Save (Base::Writer &writer) const
     // NOTE: DO NOT save the main string hasher as a file the reader serves
     // after the XML, because it is required by many objects, which assume
     // the string hasher is fully restored. The member of a schema-5 file
-    // (docs/TransactionLog.md sec 27.50) is read at its element instead.
+    // (docs/TransactionLogJournal.md sec 27.50) is read at its element instead.
     d->Hasher->setPersistenceFileName(nullptr);
 
     // Two passes, and the order between them is load-bearing: every object
@@ -3000,17 +3035,38 @@ void Document::Save (Base::Writer &writer) const
         for (auto o : d->objectArray)
             const_cast<Document*>(this)->carryObjectUid(o, o->getObjectUid());
     }
+    // The element maps each object's are numbered with, for a folder save
+    // to compare with what its file holds (sec 38.14).
+    const bool folderIds = d->folderKeeping || !d->folderNext.folder.empty();
+    d->folderMapIdsNow.clear();
+    // Each map is given the id it keeps (sec 38.15), whichever save this is.
+    Data::startElementMapNumbering();
     for (auto o : d->objectArray) {
         if (d->saveSeq) {
             d->saveSeq->next();
         }
-        o->beforeSave(writer);
+        if (!folderIds) {
+            o->beforeSave(writer);
+            continue;
+        }
+        std::vector<unsigned> ids;
+        {
+            Data::ElementMapIdCollector collect(ids);
+            o->beforeSave(writer);
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        if (!ids.empty())
+            d->folderMapIdsNow[o->getID()] = std::move(ids);
     }
     beforeSave(writer);
     // What each object refers to now, for the objects kept below (sec 38.12).
     if (d->folderKeeping || !d->folderNext.folder.empty()) {
         d->folderRefsNow = getFileBlobManager().referencesByObject();
         d->folderNext.refs = d->folderRefsNow;
+        // A change from here on is not in what this save writes for sure,
+        // and stays for the next (sec 38.14).
+        d->folderSaveGen = d->folderGen++;
     }
     const double tBefore = saveSplit();
 
@@ -3053,6 +3109,8 @@ void Document::Restore(Base::XMLReader &reader)
     long scheme = reader.getAttributeAsInteger("SchemaVersion");
     reader.DocumentSchema = scheme;
     d->fileSchema = scheme;
+    // What decided the bytes of the folder's save (sec 38.14).
+    d->folderRead.options = reader.getAttribute("FolderOptions", "");
     if (reader.hasAttribute("ProgramVersion")) {
         reader.ProgramVersion = reader.getAttribute("ProgramVersion");
     } else {
@@ -3164,7 +3222,7 @@ void Document::Restore(Base::XMLReader &reader)
     Label.setValue(DocLabel.c_str());
 
     // A file in an older format is this fork's own format from here on (user,
-    // 2026-09-28, docs/TransactionLog.md sec 27.62): the next plain Save
+    // 2026-09-28, docs/TransactionLogJournal.md sec 27.62): the next plain Save
     // writes the current schema, and the transaction log holds nothing else.
     // The user is told once, at the open; Save As with the standard format
     // still writes the old one for upstream. Whatever the file says it was
@@ -3256,6 +3314,126 @@ const Document::FolderSaveInfo& Document::lastFolderSave() const
     return d->folderInfo;
 }
 
+bool Document::keepViewFile(Base::Writer& writer, const DocumentObject* obj,
+                            const std::string& entry, const std::string& head) const
+{
+    // As an object's own file is kept (sec 38.12, Document::Save): nothing
+    // changed its view provider since the folder's last save, the file says
+    // the same outside its properties, and it is written under the name it
+    // was, with the data files its write added (sec 38.14).
+    if (!obj || !d->folderKeeping || d->folderNext.folder.empty())
+        return false;
+    const long id = obj->getID();
+    if (!d->folderViewsUnchanged.count(id) || d->folderDirtyViews.count(id))
+        return false;
+    auto files = d->folderLast.views.find(id);
+    auto was = d->folderLast.heads.find(id);
+    auto* folder = dynamic_cast<Base::FileWriter*>(&writer);
+    if (!folder || files == d->folderLast.views.end() || files->second.empty()
+            || files->second.front() != entry || was == d->folderLast.heads.end()
+            || was->second != head)
+        return false;
+    d->folderNext.views[id] = files->second;
+    d->folderNext.heads[id] = head;
+    if (d->folderChecking) {
+        d->folderWouldKeep.emplace_back(std::string(obj->getNameInDocument()) + " (view)",
+                                        files->second);
+        return false;
+    }
+    for (const auto& kept : files->second) {
+        folder->keepFile(kept);
+        d->folderKept.push_back(kept);
+    }
+    ++d->folderInfo.viewsKept;
+    return true;
+}
+
+void Document::viewFileWritten(Base::Writer& writer, const DocumentObject* obj,
+                               const std::string& entry, const std::string& head,
+                               std::size_t before) const
+{
+    if (!obj || d->folderNext.folder.empty())
+        return;
+    std::vector<std::string> files {entry};
+    for (std::size_t i = before; i < writer.fileCount(); ++i)
+        files.push_back(writer.fileNameAt(i));
+    d->folderNext.views[obj->getID()] = std::move(files);
+    d->folderNext.heads[obj->getID()] = head;
+    ++d->folderInfo.viewsWritten;
+}
+
+void Document::viewFileRead(const DocumentObject* obj, const std::string& entry,
+                            const std::string& head)
+{
+    // Only while an open of a folder gathers what it reads.
+    if (!obj || d->folderRead.entries.empty() || d->restoreWatch)
+        return;
+    d->folderRead.views[obj->getID()] = {entry};
+    d->folderRead.heads[obj->getID()] = head;
+}
+
+void Document::noteSavedChange(const TransactionalObject* who)
+{
+    if (!who)
+        return;
+    auto obj = Base::freecad_dynamic_cast<const DocumentObject>(who);
+    const bool view = !obj;
+    if (view)
+        obj = who->getTransactionOwner();
+    if (!obj || obj->getDocument() != this)
+        return;
+    // What a restore reads is what the file holds: an object being read, or
+    // any of it before the read is done.
+    if (obj->testStatus(ObjectStatus::Restore) || (testStatus(Restoring) && !d->restoreWatch))
+        return;
+    (view ? d->folderDirtyViews : d->folderDirty)[obj->getID()] = d->folderGen;
+}
+
+void Document::_takeFolderRead()
+{
+    auto& fr = d->folderRead;
+    if (!fr.readDone || !fr.afterDone)
+        return;
+    DocumentP::FolderRead read = std::move(fr);
+    fr = DocumentP::FolderRead();
+    // The folder read here as its own save left it, its version in the log,
+    // and a document of the file, whole (sec 38.14).
+    TransactionLog* log = getTransactionLog();
+    if (read.folder.empty() || !read.version || read.options.empty() || !log
+            || !log->hasVersion(read.version) || testStatus(PartialDoc)
+            || testStatus(VersionDoc) || testStatus(TempDoc) || testStatus(RestoreError)) {
+        FC_LOG("open " << getName() << ": nothing to keep from, folder '" << read.folder
+               << "', version " << read.version << ", options '" << read.options << "'");
+        return;
+    }
+    DocumentP::FolderState last;
+    last.folder = std::move(read.folder);
+    last.seq = log->head();
+    last.version = read.version;
+    last.options = std::move(read.options);
+    last.stamp = read.stamp;
+    last.refs = std::move(read.refs);
+    last.refsRead = true;
+    last.mapIds = std::move(read.mapIds);
+    last.files = std::move(read.files);
+    last.views = std::move(read.views);
+    last.heads = std::move(read.heads);
+    // What each object's proxies saved as, read back (sec 38.21 F1): the
+    // restore gave them what the file holds. One whose dumps() does not give
+    // back what its loads() took is written by the first save.
+    for (auto obj : d->objectArray) {
+        if (!last.files.count(obj->getID()))
+            continue;
+        std::string proxy = PropertyPythonObject::stateOf(*obj);
+        if (!proxy.empty())
+            last.proxies[obj->getID()] = std::move(proxy);
+    }
+    FC_LOG("open " << getName() << ": " << last.files.size() << " object files, "
+           << last.views.size() << " view files, " << d->folderDirty.size() << " objects and "
+           << d->folderDirtyViews.size() << " view providers changed by the restore");
+    d->folderLast = std::move(last);
+}
+
 const char* Document::historyFileName()
 {
     return "History.db";
@@ -3264,7 +3442,7 @@ const char* Document::historyFileName()
 namespace {
 
 /// The bytes of the file's string table, as the writer asks for the member
-/// after Document.xml (docs/TransactionLog.md sec 27.50 item 1).
+/// after Document.xml (docs/TransactionLogJournal.md sec 27.50 item 1).
 class StringTableMember: public Base::Persistence
 {
 public:
@@ -3319,7 +3497,7 @@ std::unique_ptr<std::istream> openMember(Base::XMLReader& reader, const std::str
 
 void Document::_saveStringTable(Base::Writer& writer)
 {
-    // docs/TransactionLog.md sec 27.50, 27.51. A save compacts first (Q3):
+    // docs/TransactionLogJournal.md sec 27.50, 27.51. A save compacts first (Q3):
     // what memory holds, and every string a retained version or value of
     // the log uses, stays. A snapshot is no save and drops nothing.
     if (!d->snapshotting)
@@ -3389,7 +3567,7 @@ void Document::_restoreStringTable(Base::XMLReader& reader, StringHasher& read)
 
 std::size_t Document::_compactStrings()
 {
-    // docs/TransactionLog.md sec 27.50 item 4, 27.51 Q3 and Q4: a string
+    // docs/TransactionLogJournal.md sec 27.50 item 4, 27.51 Q3 and Q4: a string
     // stays while memory holds it, or a retained version or value uses it
     // (the ranges beside each in the store) -- and what a kept one is built
     // from stays with it. Only the file's hasher is the log's to judge.
@@ -4140,23 +4318,71 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
             // of it was what left a long-named object writing nothing.
             const std::string& entry = writer.addFile(name+".xml",this);
             d->splitXmlEntries[Base::FileInfo(entry).fileNamePure()] = *it;
-            // S2b (docs/TransactionLog.md sec 38.12): an object nothing
+            // S2b (docs/TransactionLogJournal.md sec 38.12): an object nothing
             // changed since the folder's last save, which refers to the
             // blobs it did and is written under the name it was, is kept as
             // the folder has it, with the data files its write added.
             const long id = (*it)->getID();
             d->folderEntryOf[id] = entry;
-            if (d->folderKeeping && d->folderUnchanged.count(id)) {
+            // A proxy's own state is no property and goes in no row of the
+            // log, as it never went into undo (user, 2026-10-26); it is in
+            // the file, so its file is kept only while it is what it was
+            // (sec 38.21 F1).
+            std::string proxy;
+            if (!d->folderNext.folder.empty()) {
+                proxy = PropertyPythonObject::stateOf(**it);
+                if (!proxy.empty())
+                    d->folderNext.proxies[id] = proxy;
+            }
+            if (d->folderKeeping && d->folderUnchanged.count(id) && !d->folderDirty.count(id)) {
                 auto files = d->folderLast.files.find(id);
                 auto was = d->folderLast.refs.find(id);
                 auto now = d->folderRefsNow.find(id);
-                const bool sameRefs = (was == d->folderLast.refs.end()
-                                       ? now == d->folderRefsNow.end()
-                                       : now != d->folderRefsNow.end() && was->second == now->second);
+                bool sameRefs = (was == d->folderLast.refs.end()
+                                 ? now == d->folderRefsNow.end()
+                                 : now != d->folderRefsNow.end() && was->second == now->second);
+                // After an open (sec 38.14): every blob a property was handed
+                // from the folder is the one it refers to now. One it was not
+                // handed -- a stock material card, written by its hash -- is
+                // the property's value, which nothing changed.
+                if (d->folderLast.refsRead) {
+                    std::map<std::string, std::string> nowByName;
+                    if (now != d->folderRefsNow.end()) {
+                        for (const auto& ref : now->second) {
+                            const auto space = ref.find(' ');
+                            nowByName[ref.substr(space + 1)] = ref.substr(0, space);
+                        }
+                    }
+                    sameRefs = true;
+                    if (was != d->folderLast.refs.end()) {
+                        for (const auto& ref : was->second) {
+                            const auto space = ref.find(' ');
+                            auto it = nowByName.find(ref.substr(space + 1));
+                            if (it == nowByName.end() || it->second != ref.substr(0, space)) {
+                                sameRefs = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                // Its element maps numbered as its file has them: a save
+                // numbers them across every object (sec 38.14).
+                auto idsWas = d->folderLast.mapIds.find(id);
+                auto idsNow = d->folderMapIdsNow.find(id);
+                const bool sameIds = (idsWas == d->folderLast.mapIds.end()
+                                      ? idsNow == d->folderMapIdsNow.end()
+                                      : idsNow != d->folderMapIdsNow.end()
+                                            && idsWas->second == idsNow->second);
+                auto proxyWas = d->folderLast.proxies.find(id);
+                const bool sameProxy = proxyWas == d->folderLast.proxies.end()
+                    ? proxy.empty()
+                    : proxyWas->second == proxy;
                 auto* folder = dynamic_cast<Base::FileWriter*>(&writer);
-                if (folder && sameRefs && files != d->folderLast.files.end()
+                if (folder && sameRefs && sameIds && sameProxy && files != d->folderLast.files.end()
                         && !files->second.empty() && files->second.front() == entry) {
                     d->folderNext.files[id] = files->second;
+                    if (idsWas != d->folderLast.mapIds.end())
+                        d->folderNext.mapIds[id] = idsWas->second;
                     if (d->folderChecking) {
                         d->folderWouldKeep.emplace_back((*it)->getNameInDocument(), files->second);
                     }
@@ -4168,6 +4394,19 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
                         ++d->folderInfo.kept;
                     }
                 }
+                else {
+                    FC_LOG("save " << (*it)->getFullName() << ": written, "
+                                   << (!folder           ? "not a folder"
+                                       : !sameRefs       ? "blobs differ"
+                                       : !sameIds        ? "element map ids differ"
+                                       : !sameProxy      ? "its proxy's state differs"
+                                                         : "entry differs"));
+                }
+            }
+            else if (d->folderKeeping) {
+                FC_LOG("save " << (*it)->getFullName() << ": written, "
+                               << (!d->folderUnchanged.count(id) ? "changed in the log"
+                                                                 : "a change noted"));
             }
             writer.Stream() << "file=\"" << entry << "\" ";
         }
@@ -4291,8 +4530,18 @@ void Document::SaveDocFile(Base::Writer &writer) const {
                         << "\" FileVersion=\"" << writer.getFileVersion()
                         << "\">\n";
         const std::size_t before = writer.fileCount();
-        writeObject(writer,obj);
+        std::vector<unsigned> ids;
+        {
+            Data::ElementMapIdCollector collect(ids);
+            writeObject(writer,obj);
+        }
         writer.Stream() << "</Document>\n";
+        if (!d->folderNext.folder.empty()) {
+            std::sort(ids.begin(), ids.end());
+            ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+            if (!ids.empty())
+                d->folderNext.mapIds[obj->getID()] = std::move(ids);
+        }
         // The entries this object's write made, its own first, for the next
         // save of the folder to keep (sec 38.12).
         if (!d->folderNext.folder.empty()) {
@@ -4318,7 +4567,21 @@ void Document::RestoreDocFile(Base::Reader &reader) {
     if(!xmlReader.FileVersion)
         xmlReader.FileVersion = reader.getFileVersion();
     xmlReader.readElement("Object");
-    readObject(xmlReader);
+    // What element maps the object's file holds, for an open of a folder
+    // (sec 38.14).
+    const bool gather = !d->folderRead.entries.empty() && !d->restoreWatch;
+    DocumentObject* obj =
+        gather ? getObject(xmlReader.getName(xmlReader.getAttribute("name"))) : nullptr;
+    std::vector<unsigned> ids;
+    {
+        Data::ElementMapIdCollector collect(ids);
+        readObject(xmlReader);
+    }
+    if (obj && !ids.empty()) {
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        d->folderRead.mapIds[obj->getID()] = std::move(ids);
+    }
 }
 
 void Document::readObject(Base::XMLReader &reader) {
@@ -4579,8 +4842,11 @@ Document::readObjects(Base::XMLReader& reader)
             }
 
             const char *file = reader.getAttribute("file","");
-            if(file && file[0])
+            if(file && file[0]) {
                 reader.addFile(file, this);
+                if (obj && !testStatus(Status::Importing))
+                    d->folderRead.entries[file] = obj->getID();
+            }
         }
         catch (const Base::Exception& e) {
             Base::Console().Error("Cannot create object '%s': (%s)\n", name.c_str(), e.what());
@@ -4777,7 +5043,7 @@ Document::ImportClashScope* Document::ImportClashScope::current()
 
 std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<DocumentObject*> objs)
 {
-    // docs/TransactionLog.md sec 36.4. Each clash came in as a copy, under
+    // docs/TransactionLogJournal.md sec 36.4. Each clash came in as a copy, under
     // a UID of its own: duplicated, it stays so. Assigned, what refers to
     // the copy among the objects brought refers to the live one, the live
     // one takes the copy's state, and the copy goes.
@@ -5136,6 +5402,25 @@ static std::string checkFileName(const char *file, long schema) {
     return fn;
 }
 
+namespace {
+
+/// Another document of this process that is the file at `file` (sec 39,
+/// D1): a save over it would take away what that one reads where it is --
+/// a folder's blob files -- and its history is the file's one (27.5).
+void refuseOtherDocumentOfFile(const Document* self, const std::string& file)
+{
+    const std::string canonical = FileHistory::canonicalPath(file);
+    for (auto doc : GetApplication().getDocuments()) {
+        if (doc != self && !doc->testStatus(Document::VersionDoc)
+                && !doc->testStatus(Document::TempDoc) && doc->FileName.getStrValue().size()
+                && FileHistory::canonicalPath(doc->FileName.getStrValue()) == canonical)
+            THROWM(Base::FileException, (std::string("document ") + doc->Label.getValue()
+                                            + " has '" + file + "' open: close it first").c_str());
+    }
+}
+
+}   // namespace
+
 bool Document::saveAs(const char* _file)
 {
     std::string file = checkFileName(_file, getSaveSchemaVersion());
@@ -5145,6 +5430,7 @@ bool Document::saveAs(const char* _file)
     // picked in a dialog under this guest is blessed and passes.
     // checkFileName may have appended .FCStd: gate what will be written.
     ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, file);
+    refuseOtherDocumentOfFile(this, file);
     Base::FileInfo fi(file.c_str());
     if (this->FileName.getStrValue() != file) {
         Base::FlagToggler<> quiet(d->bookkeeping, false);
@@ -5164,6 +5450,7 @@ bool Document::saveCopy(const char* _file, bool withHistory) const
     std::string file = checkFileName(_file, getSaveSchemaVersion());
     // a copy is a host file written by path, exactly as saveAs (7.29)
     ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, file);
+    refuseOtherDocumentOfFile(this, file);
     if (this->FileName.getStrValue() != file) {
         struct Guard
         {
@@ -5183,7 +5470,7 @@ bool Document::saveCopy(const char* _file, bool withHistory) const
 bool Document::save ()
 {
     if (testStatus(Document::VersionDoc)) {
-        // Read-only as a partial document is (docs/TransactionLog.md sec
+        // Read-only as a partial document is (docs/TransactionLogJournal.md sec
         // 27.5 ruling 4); the Gui offers to save it anyway, with a warning.
         FC_ERR("'" << Label.getValue() << "' is a version of a file and cannot be saved");
         return false;
@@ -5213,15 +5500,18 @@ bool Document::save ()
             FileName.setValue(target);
             Uid.touch(); // a different file: rename the transient directory, as saveAs does
         }
-        // Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8):
+        // Two processes on one file (docs/TransactionLogJournal.md sec 29.7, 29.8):
         // from the look at the file to the write, under the lock beside it,
         // so that no other save falls between. A file another process wrote
         // since this document read or wrote it is brought in and merged
         // first. The file as it was left costs one stat.
         const std::string file = FileName.getStrValue();
+        // The lock is taken whether or not this save pulls (sec 38.21 F8): a
+        // lock is advisory, and one save without it writes between another
+        // save's look and its write.
         const bool pulling = DocumentParams::getTransactionLogPullOnSave() && getTransactionLog();
         std::unique_ptr<SaveLock> lock;
-        if (pulling) {
+        if (!SaveLock::heldHere(file)) {
             lock = std::make_unique<SaveLock>(file);
             std::string holder;
             if (!lock->lock(60000, &holder))
@@ -5234,6 +5524,18 @@ bool Document::save ()
         if (pulling && Base::FileInfo(file).isDir())
             FolderSave::recover(file);
         d->lastPull = SavePull();
+        // A pull left to merge is that file's: a save to another, or to it
+        // gone since, has no other save to take in, and lets the merge go
+        // (sec 38.21 F7). The branch stays in the log, to merge by hand; a
+        // save-as away from a conflict is not held by it.
+        if (!d->pullBranch.empty()
+                && (d->pullFile != file || !Base::FileInfo(file).exists())) {
+            FC_WARN("'" << Label.getValue() << "': branch '" << d->pullBranch << "', what "
+                    << d->pullFile << " brought, is left to merge by hand: this save is not "
+                    "to that file");
+            d->pullBranch.clear();
+            d->pullFile.clear();
+        }
         if (pulling && (!d->pullBranch.empty() || isFileChangedElsewhere()))
             _pullFromDisk(file);
         {
@@ -5308,6 +5610,9 @@ void Document::_noteDiskState(const std::string& file)
         for (const auto& other : FileOpeners::add(file))
             Base::Console().Warning("'%s' is also open in %s\n", Label.getValue(),
                                     FileOpeners::describe(other).c_str());
+    }
+    else {
+        FileOpeners::add(file);   // seen again (sec 39.3, D4)
     }
 }
 
@@ -5407,8 +5712,10 @@ void Document::_pullFromDisk(const std::string& file)
     const ImportResult imported = importFork(copy);
     d->lastPull.pulled = true;
     d->lastPull.rows = imported.rows;
-    if (!imported.branch.empty() && (imported.rows || imported.stoppedAt))
+    if (!imported.branch.empty() && (imported.rows || imported.stoppedAt)) {
         d->pullBranch = imported.branch;
+        d->pullFile = file;
+    }
     d->lastPull.branch = d->pullBranch;
     if (imported.stoppedAt)
         FC_WARN("'" << Label.getValue() << "': what another process saved came only in part: "
@@ -5432,6 +5739,7 @@ void Document::_pullFromDisk(const std::string& file)
         d->lastPull.merged = true;
         d->lastPull.unchanged = merged.unchanged;
         d->pullBranch.clear();
+        d->pullFile.clear();
     }
     d->lastPull.seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -5863,7 +6171,7 @@ bool Document::saveToFile(const char* filename) const
     Base::FileInfo tmp(fn);
 
     // A folder is written into a stage beside it and moved in whole
-    // (docs/TransactionLog.md sec 38), under its lock: save() holds it
+    // (docs/TransactionLogJournal.md sec 38), under its lock: save() holds it
     // already when it pulls; a save-as, or a save with the pull off, takes it
     // here.
     std::unique_ptr<SaveLock> folderLock;
@@ -6007,6 +6315,17 @@ bool Document::saveToFile(const char* filename) const
         d->folderLast = archive ? DocumentP::FolderState() : d->folderNext;
         if (!d->folderLast.folder.empty())
             d->folderLast.stamp = DiskStamp::of(d->folderLast.folder);
+        // What changed before this save is in it (sec 38.14).
+        if (d->folderSaveGen) {
+            for (auto* dirty : {&d->folderDirty, &d->folderDirtyViews}) {
+                for (auto it = dirty->begin(); it != dirty->end();) {
+                    if (it->second <= d->folderSaveGen)
+                        it = dirty->erase(it);
+                    else
+                        ++it;
+                }
+            }
+        }
     }
 
     signalFinishSave(*this, filename);
@@ -6131,7 +6450,7 @@ void Document::save(Base::Writer &writer, bool archive) const {
     TransactionLog* log = writer.getSchemaVersion() >= getCurrentSchemaVersion()
         ? getTransactionLog() : nullptr;
     // The string table as a member of its own from schema 5 on, where the
-    // content is archive entries (docs/TransactionLog.md sec 27.50 item 1).
+    // content is archive entries (docs/TransactionLogJournal.md sec 27.50 item 1).
     // It is the file's, not a version's: the log keeps it once (item 2).
     struct TableGuard
     {
@@ -6156,12 +6475,14 @@ void Document::save(Base::Writer &writer, bool archive) const {
         writer.beginCapture();
     }
 
-    // S2b (docs/TransactionLog.md sec 38.12): a save to the folder this
+    // S2b (docs/TransactionLogJournal.md sec 38.12): a save to the folder this
     // document saved last, with the same options and no other save of it
     // in between, keeps the files of the objects the log says nothing
     // changed since -- decided object by object in Document::Save.
     d->folderNext = DocumentP::FolderState();
     d->folderUnchanged.clear();
+    d->folderViewsUnchanged.clear();
+    d->folderSaveGen = 0;
     d->folderKeeping = false;
     d->folderChecking = false;
     d->folderEntryOf.clear();
@@ -6172,26 +6493,39 @@ void Document::save(Base::Writer &writer, bool archive) const {
     auto* folderWriter = archive ? nullptr : dynamic_cast<Base::FileWriter*>(&writer);
     if (log && folderWriter && writer.isSplitXML() && !folderWriter->getStageDir().empty()) {
         std::ostringstream options;
+        // The build too (sec 38.14): an open keeps from a folder only what
+        // this same build wrote.
         options << writer.getSchemaVersion() << ' ' << writer.getFileVersion() << ' '
                 << writer.isForceXML() << ' ' << PreferBinary.getValue() << ' '
-                << writer.getMode("BinaryBrep");
+                << writer.getMode("BinaryBrep") << ' ' << programVersionAttribute();
         d->folderNext.folder = FileHistory::canonicalPath(folderWriter->getDirName());
         d->folderNext.seq = log->head();
         d->folderNext.options = options.str();
         const auto& last = d->folderLast;
         std::set<long> changed;
+        std::set<long> changedViews;
         if (last.folder == d->folderNext.folder && last.options == d->folderNext.options
                 && last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp)
-                && log->hasVersion(last.version) && log->objectsChangedSince(last.seq, changed)) {
+                && log->hasVersion(last.version)
+                && log->objectsChangedSince(last.seq, changed, &changedViews)) {
             for (auto obj : d->objectArray) {
                 if (!changed.count(obj->getID()))
                     d->folderUnchanged.insert(obj->getID());
+                if (!changedViews.count(obj->getID()))
+                    d->folderViewsUnchanged.insert(obj->getID());
             }
             d->folderKeeping = true;
             // Everything written anyway, and what would have been kept
             // compared with the folder's file (sec 38.12): the gates' check.
             d->folderChecking = std::getenv("FC_FOLDER_SAVE_CHECK") != nullptr;
             d->folderInfo.checked = d->folderChecking;
+        }
+        else if (!last.folder.empty()) {
+            FC_LOG("save " << getName() << ": nothing kept, folder "
+                   << (last.folder == d->folderNext.folder) << ", options "
+                   << (last.options == d->folderNext.options) << ", stamp "
+                   << (last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp))
+                   << ", version " << log->hasVersion(last.version));
         }
     }
 
@@ -6233,7 +6567,7 @@ void Document::save(Base::Writer &writer, bool archive) const {
     if (log) {
         writer.setEntrySink(nullptr);
         writer.setPropertySink(nullptr);
-        // Named as the archive names them (docs/TransactionLog.md sec
+        // Named as the archive names them (docs/TransactionLogJournal.md sec
         // 23.16), which is what pairs a property's file with its next one.
         TransactionLog::Blobs blobs = getFileBlobManager().versionEntries();
         TransactionLog::Captures entries = std::move(d->captures);
@@ -6276,7 +6610,7 @@ void Document::restore (const char *filename,
         filename = FileName.getValue();
     Base::FileInfo fi(filename);
     const bool folder = fi.isDir();
-    // A folder whose last save was cut short (docs/TransactionLog.md sec
+    // A folder whose last save was cut short (docs/TransactionLogJournal.md sec
     // 38): a whole save beside it is moved in, a part of one thrown away,
     // under its lock so that no live save of it is taken for either.
     if (folder && FolderSave::pending(filename)) {
@@ -6307,7 +6641,7 @@ void Document::restore (const char *filename,
                         "thrown away; the folder is the save before it");
         }
         else if (!held) {
-            // No lock can be made beside it: read-only (docs/TransactionLog.md
+            // No lock can be made beside it: read-only (docs/TransactionLogJournal.md
             // sec 38.9). The stage cannot be settled here, so what is read may
             // be the save before it, or some of each when its record is there.
             FC_WARN("'" << filename << "': a save of it was cut short and cannot be finished"
@@ -6315,7 +6649,7 @@ void Document::restore (const char *filename,
         }
     }
     // The document's own folder has its blobs read where they are, not
-    // copied (docs/TransactionLog.md sec 38.9). Its open marker goes up
+    // copied (docs/TransactionLogJournal.md sec 38.9). Its open marker goes up
     // before a byte is read, so that a save in another process from here on
     // leaves every blob file it finds alone.
     struct InPlaceGuard
@@ -6343,7 +6677,7 @@ void Document::restore (const char *filename,
                                         FileOpeners::describe(other).c_str());
         }
     }
-    // The file as it is before a byte of it is read (docs/TransactionLog.md
+    // The file as it is before a byte of it is read (docs/TransactionLogJournal.md
     // sec 29.8): what a save later compares the file on disk with.
     d->readStamp = DiskStamp::of(filename);
     const DiskStamp readStart = d->readStamp;
@@ -6365,7 +6699,7 @@ void Document::restore (const char *filename,
     d->archiveReader.reset();
     d->deferServeSeq.reset();
 
-    // The log's version 1 is the file as found (docs/TransactionLog.md sec
+    // The log's version 1 is the file as found (docs/TransactionLogJournal.md sec
     // 16.6): tap Document.xml on its way through the parser, which has to
     // be in place before the XML reader takes its first chunk. Ended by
     // restore(XMLReader&) once the element is parsed, and read there.
@@ -6451,6 +6785,14 @@ void Document::restore (const char *filename,
     if (folder && readStart.valid() && !DiskStamp::of(filename).sameAs(readStart)) {
         FC_WARN("'" << filename << "' was saved by another process while it was read: "
                 "what is open may be some of each save. Close it and open it again.");
+    }
+    // The document's own folder, read whole and undisturbed, is what its
+    // first save keeps from (sec 38.14).
+    else if (folder && readStart.valid() && inPlaceGuard.blobs) {
+        d->folderRead.folder = FileHistory::canonicalPath(filename);
+        d->folderRead.stamp = readStart;
+        d->folderRead.readDone = true;
+        _takeFolderRead();
     }
 
     // The index holds the file open, and on Windows an open file cannot be
@@ -6658,6 +7000,14 @@ void Document::restore(Base::XMLReader &reader,
 
     clearUndos();
     d->files.clear();
+    // What a save of a folder keeps from is of the content this replaces
+    // (sec 38.14); what this read finds is gathered afresh.
+    d->folderLast = DocumentP::FolderState();
+    d->folderRead = DocumentP::FolderRead();
+    d->folderDirty.clear();
+    d->folderDirtyViews.clear();
+    d->restoreWatch = false;
+    getFileBlobManager().takeRestoredReferences();
     // Stale parked entries must never resolve against the new objects
     // (same names, different content). The archive index itself is
     // managed by the caller that installed it.
@@ -6741,6 +7091,35 @@ void Document::restore(Base::XMLReader &reader,
     // -- take theirs straight from the store, which holds it until
     // afterRestore() lets go.
     getFileBlobManager().dispatchPending();
+    // The file is read: what changes from here on is not what it holds
+    // (sec 38.14).
+    d->restoreWatch = true;
+
+    // The entries each object and view provider read (sec 38.14): its own
+    // first, then the data files its properties asked for.
+    if (!d->folderRead.entries.empty()) {
+        auto& fr = d->folderRead;
+        for (const auto& e : reader.getFileList()) {
+            auto it = e.Object == this ? fr.entries.find(e.FileName) : fr.entries.end();
+            if (it != fr.entries.end())
+                fr.files[it->second].insert(fr.files[it->second].begin(), e.FileName);
+        }
+        for (const auto& e : reader.getFileList()) {
+            auto prop = dynamic_cast<Property*>(e.Object);
+            auto container = prop ? prop->getContainer() : nullptr;
+            if (auto obj = Base::freecad_dynamic_cast<DocumentObject>(container)) {
+                auto files = fr.files.find(obj->getID());
+                if (files != fr.files.end())
+                    files->second.push_back(e.FileName);
+            }
+            else if (auto view = dynamic_cast<TransactionalObject*>(container)) {
+                auto owner = view->getTransactionOwner();
+                auto files = owner ? fr.views.find(owner->getID()) : fr.views.end();
+                if (files != fr.views.end())
+                    files->second.push_back(e.FileName);
+            }
+        }
+    }
 
     // The default stand-ins have served their purpose and nothing points at
     // them any more -- including the reader, which has just drained whatever
@@ -6757,7 +7136,7 @@ void Document::restore(Base::XMLReader &reader,
         Base::Console().Error("There were errors while loading the file. Some data might have been modified or not recovered at all. Look above for more specific information about the objects involved.\n");
     }
 
-    // The history initialised from the file (docs/TransactionLog.md sec
+    // The history initialised from the file (docs/TransactionLogJournal.md sec
     // 16.6): version 1 is Document.xml as tapped plus every blob the file
     // carried, now that readFiles() has them in the store. Not for a
     // Document.xml the loader could not read -- that is no version to go
@@ -6796,12 +7175,17 @@ void Document::restore(Base::XMLReader &reader,
             TransactionLog::Blobs blobs =
                 TransactionLog::versionBlobs(entries, getFileBlobManager().restoredEntries());
             addUntappedMembers(FileName.getValue(), entries);
-            if (log->onRestore(FileName.getValue(), entries, blobs, reader.DocumentSchema))
+            const int64_t version =
+                log->onRestore(FileName.getValue(), entries, blobs, reader.DocumentSchema);
+            if (version) {
                 noteVersionTaken();
+                // The folder as found, which its first save keeps from.
+                d->folderRead.version = version;
+            }
         }
     }
     // Undo reaches back to here and no further, whatever branch the
-    // document is later switched to (docs/TransactionLog.md sec 26.4).
+    // document is later switched to (docs/TransactionLogJournal.md sec 26.4).
     if (auto log = getTransactionLog())
         d->undoFloor = log->lastSeq();
 
@@ -6848,7 +7232,7 @@ void Document::embedHistory(bool archive, Base::FileWriter* folder)
     auto history = Base::freecad_dynamic_cast<PropertyHistory>(getPropertyByName("History"));
     auto version = Base::freecad_dynamic_cast<PropertyString>(getPropertyByName("Version"));
     // With the history when the preference says so, and always for a file
-    // another document pins a version of (docs/TransactionLog.md sec 27.5
+    // another document pins a version of (docs/TransactionLogJournal.md sec 27.5
     // ruling 1): the pinned version must travel.
     TransactionLog* log = archive && !d->savingWithoutHistory ? getTransactionLog() : nullptr;
     if (log && DocumentParams::getTransactionLog() != 2 && !isPinned())
@@ -6938,7 +7322,7 @@ void Document::embedHistory(bool archive, Base::FileWriter* folder)
         if (!history) {
             history = Base::freecad_dynamic_cast<PropertyHistory>(addDynamicProperty(
                 "App::PropertyHistory", "History", "Base",
-                "The embedded transaction log (docs/TransactionLog.md sec 16.4)",
+                "The embedded transaction log (docs/TransactionLogJournal.md sec 16.4)",
                 Prop_Hidden | Prop_ReadOnly));
             if (history)
                 history->setStatus(Property::NoModify, true);
@@ -7037,7 +7421,31 @@ int64_t Document::snapshotToLog()
 bool Document::nameLogVersion(int64_t num, const std::string& name)
 {
     TransactionLog* log = getTransactionLog();
-    if (!log || !log->store().nameVersion(num, name))
+    if (!log)
+        return false;
+    // A name is what keeps a version from eviction (16.3). One something
+    // stands on keeps it (sec 39, V5): a pin from another file, a branch
+    // forked from it, or a trim's start, whose rows are gone.
+    if (name.empty()) {
+        auto& store = log->store();
+        LogVersion v;
+        if (store.getVersion(num, v)) {
+            const char* why = nullptr;
+            if (TransactionLog::pinnedVersions(store).count(num))
+                why = "a link of another file pins it";
+            for (const auto& b : store.branches()) {
+                if (!why && b.fromVersion == num)
+                    why = "a branch was made from it";
+            }
+            const auto at = store.transactions(v.seq, 1);
+            if (!why && v.seq > 0 && (at.empty() || at.front().seq != v.seq))
+                why = "the history before it was trimmed";
+            if (why)
+                THROWM(Base::ValueError, "version " + std::to_string(num)
+                                             + " keeps its name: " + why);
+        }
+    }
+    if (!log->store().nameVersion(num, name))
         return false;
     // The panels of the file's documents show the names; with the log
     // embedded, a name reaches the file by a save (32.11).
@@ -7084,7 +7492,7 @@ int64_t Document::_snapshotToLog(const char* kind)
         // the claimed bodies too.
         d->captures.clear();
         // The log's table stands for the one a save writes as a member
-        // (docs/TransactionLog.md sec 27.50 item 2).
+        // (docs/TransactionLogJournal.md sec 27.50 item 2).
         Base::FlagToggler<> tableAsMember(d->tableAsMember, false);
         writer.setPropertySink(log->beginSnapshot(true));
         writer.setEntrySink([this](const std::string& name, Base::EntryCapture capture) {
@@ -7234,7 +7642,7 @@ void copyBlob(FileBlobManager& manager, const FileBlobManager& from, const FileB
 void Document::_applyVersion(Document& version, bool views,
                              const std::map<std::string, std::string>* names)
 {
-    // docs/TransactionLog.md sec 24.5, in the passes of 24.3: what the
+    // docs/TransactionLogJournal.md sec 24.5, in the passes of 24.3: what the
     // version lacks goes, what it has comes (under its id and name), the
     // dynamic properties follow, then every value that differs.
     auto guarded = [&](const std::string& what, const std::function<void()>& fn) {
@@ -7432,7 +7840,7 @@ void Document::_applyVersion(Document& version, bool views,
 
 namespace {
 
-/// The states a branch's history passes through (docs/TransactionLog.md
+/// The states a branch's history passes through (docs/TransactionLogJournal.md
 /// sec 26): 0, every row on the chain ending at `head`, and the parent of
 /// its oldest -- where a trim (16.7) cut it, the version that anchors what
 /// is left is at that row, which is gone.
@@ -7493,15 +7901,26 @@ bool versionReaching(TransactionStore& store, int64_t seq, LogVersion& anchor)
 
 bool Document::recoverFromLog(const std::string& oldDir)
 {
-    // docs/TransactionLog.md sec 25.2.
+    // docs/TransactionLogJournal.md sec 25.2.
     if (!d->objectArray.empty())
         THROWM(Base::RuntimeError, "recovery needs an empty document");
     TransactionLog* log = getTransactionLog();
     if (!log)
         THROWM(Base::RuntimeError, "recovery needs the transaction log");
+    // Where the time goes, logged at the end (sec 38.17, Q7e).
+    using Clock = std::chrono::steady_clock;
+    auto phase = Clock::now();
+    auto split = [&phase]() {
+        const auto now = Clock::now();
+        const double secs = std::chrono::duration<double>(now - phase).count();
+        phase = now;
+        return secs;
+    };
+    double tTakeOver = 0, tMaterialise = 0, tRestore = 0, tReplay = 0, tUndo = 0;
     TransactionLog::RecoverInfo info;
     if (!log->recover(oldDir, info))
         return false;
+    tTakeOver = split();
     auto& manager = getFileBlobManager();
     std::unique_ptr<void, std::function<void(void*)>> ending(
         &manager, [](void* m) { static_cast<FileBlobManager*>(m)->endRecovery(); });
@@ -7528,15 +7947,20 @@ bool Document::recoverFromLog(const std::string& oldDir)
         if (haveAnchor) {
             // Materialised outside this document's transient directory: the
             // restore takes the version's Uid and renames it.
+            split();
             const std::string dir = _materialiseVersion(anchor.num, oldDir + "/checkout");
+            tMaterialise = split();
             Base::FlagToggler<> guard(d->checkingOut);
             restore(dir.c_str(), false);
             Base::FileInfo(dir).deleteDirectoryRecursive();
+            tRestore = split();
         }
         FileName.setValue(info.fileName);
         if (!info.label.empty())
             Label.setValue(info.label);
+        split();
         rows = _replayLog(haveAnchor ? anchor.seq : 0, last);
+        tReplay = split();
     }
     // The replay ended before an incomplete row (sec 25.2 item 3): the
     // document is the state at `last`, so that is the head -- the rows
@@ -7551,6 +7975,33 @@ bool Document::recoverFromLog(const std::string& oldDir)
             log->store().removeTransactions(skipped);
     }
     _rebuildUndoFromLog();
+    tUndo = split();
+    // The file as it is now is what the next save compares (sec 29.8), and
+    // this process has it open (sec 39, D2). A save this history made is
+    // where it was left; any other -- another process saved meanwhile, or a
+    // copy of the file was put there -- is moved, so the first save pulls.
+    const std::string file = FileName.getStrValue();
+    if (!file.empty() && DiskStamp::of(file).valid()) {
+        FileHistory::Saved saved;
+        int64_t savedVersion = 0, savedSeq = 0;
+        const bool ours = FileHistory::savedAs(file, saved) && saved.history
+            && TransactionLog::savedAt(log->store(), saved.saveId, savedVersion, savedSeq);
+        _noteDiskState(file);
+        if (ours) {
+            d->diskSeq = savedSeq;
+            d->diskSaveId = saved.saveId;
+        }
+        else {
+            d->diskSeq = haveAnchor ? anchor.seq : 0;
+            d->movedStamp = d->diskStamp;
+            d->diskStamp.mtime -= 1;   // valid, and not the file's
+            d->diskSaveId.clear();
+        }
+    }
+    FC_LOG("recover " << getName() << ": " << rows << " rows after version "
+                      << (haveAnchor ? anchor.num : 0) << "; take over " << tTakeOver
+                      << "s, materialise " << tMaterialise << "s, restore " << tRestore
+                      << "s, replay " << tReplay << "s, undo " << tUndo << "s");
 
     std::string from;
     for (char c : oldDir) {
@@ -7954,7 +8405,7 @@ bool Document::restoreVersion(int64_t num)
 bool Document::restoreVersion(int64_t num, const std::map<std::string, std::string>& names)
 {
     OperationScope scope;   // sec 27.38
-    // docs/TransactionLog.md sec 24.5: a restore to version N is one
+    // docs/TransactionLogJournal.md sec 24.5: a restore to version N is one
     // forward transaction that makes the document what N was -- undoable,
     // logged, and the document never reloaded.
     checkNotFrozen("restore a version");
@@ -8253,9 +8704,145 @@ bool findHistoryElement(const std::string& xml, size_t& from, size_t& to)
 
 } // namespace
 
+void Document::_saveFolderHistory(const std::string& file, std::string xml,
+                                  const std::string& saveId, const std::string& saveDate,
+                                  size_t hFrom, size_t hTo)
+{
+    // docs/TransactionLogJournal.md sec 38.13: the history of a folder saved alone.
+    // What changes is History.db, the History element of Document.xml (the
+    // blobs the history keeps), the blob index, and the blob files the
+    // history now keeps or no longer does; all of it staged and committed
+    // as a save of the folder is (38.8), under its lock.
+    TransactionLog* log = getTransactionLog();
+    std::unique_ptr<SaveLock> lock;
+    if (!SaveLock::heldHere(file)) {
+        lock = std::make_unique<SaveLock>(file);
+        std::string holder;
+        if (!lock->lock(60000, &holder))
+            THROWM(Base::FileException, ("'" + file + "' is being saved by " + holder
+                                         + "; nothing was written").c_str(),
+                   Base::FileInfo(file));
+    }
+    const std::string native = FileHistory::canonicalPath(file);
+    const std::string stage = FolderSave::freshStage(native);
+    struct StageGuard
+    {
+        std::string folder;
+        bool done {false};
+        ~StageGuard()
+        {
+            if (done)
+                return;
+            try {
+                FolderSave::recover(folder);
+            }
+            catch (...) {
+            }
+        }
+    } stageGuard {native};
+
+    const std::string name = historyFileName();
+    TransactionLog::Embedded copy = log->embedFolderForFile(saveDate, saveId, native,
+                                                            stage + "/" + name,
+                                                            native + "/" + name,
+                                                            SaveTrigger::current());
+    auto& manager = getFileBlobManager();
+    std::ostringstream element;
+    element << "<History file=\"" << Property::encodeAttribute(name) << "\" count=\""
+            << copy.blobs.size() << "\">\n";
+    std::vector<FileBlobHandle> blobs;
+    for (const auto& b : copy.blobs) {
+        auto blob = manager.find(b.first);
+        if (!blob) {
+            FC_WARN("history of " << getName() << ": blob " << b.first << " is not in the store");
+            continue;
+        }
+        blobs.push_back(blob);
+        element << "  <Blob hash=\"" << b.first << "\" ext=\"" << Property::encodeAttribute(b.second)
+                << "\"/>\n";
+    }
+    element << "</History>";
+    const std::string oldElement = xml.substr(hFrom, hTo - hFrom);
+    const std::string outside = xml.substr(0, hFrom) + xml.substr(hTo);
+    xml.replace(hFrom, hTo - hFrom, element.str());
+
+    // The blob files, by the folder's index, as the archive's members are
+    // (saveToLog): a file only the old history named goes unless the new one
+    // keeps it, and what the new one keeps that the folder lacks is added.
+    // Not while another process has the folder open, which may read any of
+    // them where it is (38.9): they stay, listed.
+    bool hasIndex = false;
+    std::map<std::string, BlobIndexEntry> members = FileBlobManager::archiveBlobIndex(native, &hasIndex);
+    std::string gui;
+    FileBlobManager::readArchiveMember(native, "GuiDocument.xml", gui);
+    for (auto& m : members) {
+        const std::string& hash = m.second.hash;
+        if (m.second.referrers.empty() && oldElement.find(hash) != std::string::npos
+                && outside.find(hash) == std::string::npos && gui.find(hash) == std::string::npos)
+            m.second.referrers.push_back(FileBlobManager::historyReferrer());
+    }
+    std::set<std::string> kept;
+    for (const auto& blob : blobs)
+        kept.insert(blob->hash());
+    const bool alone = FileOpeners::others(native).empty();
+    const std::string& historyRef = FileBlobManager::historyReferrer();
+    const std::string prefix = FileBlobManager::archivePrefix();
+    std::vector<std::string> removals;
+    std::set<std::string> held;
+    for (auto it = members.begin(); it != members.end();) {
+        const auto& refs = it->second.referrers;
+        const bool onlyHistory = !refs.empty()
+            && std::all_of(refs.begin(), refs.end(),
+                           [&historyRef](const std::string& r) { return r == historyRef; });
+        if (alone && onlyHistory && !kept.count(it->second.hash)) {
+            manager.copyIn(native + "/" + prefix + it->first);
+            removals.push_back(prefix + it->first);
+            it = members.erase(it);
+            continue;
+        }
+        held.insert(it->second.hash);
+        ++it;
+    }
+    auto put = [&stage](const std::string& rel, const std::string& bytes) {
+        Base::FileInfo fi(stage + "/" + rel);
+        Base::FileInfo(fi.dirPath()).createDirectories();
+        Base::ofstream out(fi, std::ios::out | std::ios::binary | std::ios::trunc);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        if (!out)
+            THROWM(Base::FileException, "cannot write", fi);
+    };
+    for (const auto& blob : blobs) {
+        if (!held.insert(blob->hash()).second)
+            continue;
+        std::string bytes;
+        if (!blob->read(bytes))
+            THROWM(Base::FileException, ("cannot read blob " + blob->hash()).c_str());
+        const std::string ext = blob->extension();
+        const std::string member = blob->hash() + (ext.empty() ? "" : "." + ext);
+        members[member] = BlobIndexEntry {blob->hash(), {historyRef}};
+        put(prefix + member, bytes);
+    }
+    put("Document.xml", xml);
+    if (hasIndex)
+        put(prefix + FileBlobManager::indexName(), FileBlobManager::indexText(members));
+
+    // Only a folder this document last wrote stays one it keeps from: one
+    // another process saved since is not, whatever this commit does to it
+    // (sec 38.21 F5).
+    const bool ours = d->folderLast.folder == native && d->folderLast.stamp.valid()
+        && DiskStamp::of(native).sameAs(d->folderLast.stamp);
+    FolderSave::commit(native, removals);
+    stageGuard.done = true;
+    log->folderSaved(native, saveId);
+    // The folder as this commit left it is still the one the next save of it
+    // keeps unchanged objects from (38.12).
+    if (ours)
+        d->folderLast.stamp = DiskStamp::of(native);
+}
+
 int64_t Document::saveToLog(const char* name)
 {
-    // docs/TransactionLog.md sec 27.22, 27.28.
+    // docs/TransactionLogJournal.md sec 27.22, 27.28.
     checkNotFrozen("save to the log");
     TransactionLog* log = getTransactionLog();
     if (!log)
@@ -8263,13 +8850,33 @@ int64_t Document::saveToLog(const char* name)
     std::string file = FileName.getStrValue();
     FileHistory::splitVersion(file);
     Base::FileInfo fi(file);
-    if (file.empty() || !fi.isFile())
+    // A folder takes the history alone too (sec 38.13): its History.db and
+    // what Document.xml says of it, through the folder's stage.
+    const bool folder = !file.empty() && fi.isDir();
+    if (file.empty() || (!fi.isFile() && !folder))
         THROWM(Base::RuntimeError,
                "'" + Label.getStrValue() + "' has no file to save its history into");
     if (DocumentParams::getTransactionLog() != 2 && log->store().getMeta("pins").empty()
             && PropertyXLink::getPinsTo(file).empty())
         THROWM(Base::RuntimeError,
                "the file does not carry its history: saving to the history alone would lose it");
+
+    // From the read of the file to its rewrite under the save lock, as a
+    // save is (sec 38.21 F5): another process's save in between would be
+    // written over, and a folder's Document.xml read before it would name
+    // files that save removed. A folder's save cut short is settled first,
+    // so the read is of the folder as it is.
+    std::unique_ptr<SaveLock> lock;
+    if (!SaveLock::heldHere(file)) {
+        lock = std::make_unique<SaveLock>(file);
+        std::string holder;
+        if (!lock->lock(60000, &holder))
+            THROWM(Base::FileException, ("'" + file + "' is being saved by " + holder
+                                         + "; nothing was written").c_str(),
+                   Base::FileInfo(file));
+    }
+    if (folder)
+        FolderSave::recover(file);
 
     // The file's own guard, which it keeps: the save id and the date its
     // document says it was saved with (sec 16.4).
@@ -8286,6 +8893,10 @@ int64_t Document::saveToLog(const char* name)
     size_t hFrom = 0, hTo = 0;
     if (saveId.empty() || !findHistoryElement(xml, hFrom, hTo))
         THROWM(Base::RuntimeError, "the file carries no history: save it with its history first");
+    // A folder saved before its history was a file of its own (38.9)
+    // carries it as a blob: a save of the folder makes it one.
+    if (folder && xml.substr(hFrom, hTo - hFrom).find(" file=\"") == std::string::npos)
+        THROWM(Base::RuntimeError, "the folder keeps its history as a blob: save it once first");
 
     // Nothing of any document of the file may still be parked in the
     // archive being replaced (as for a save, saveToFile()).
@@ -8301,9 +8912,19 @@ int64_t Document::saveToLog(const char* name)
     // Kept: a version the file does not hold must travel in its history.
     log->store().nameVersion(num, name && name[0] ? name : "Saved to history");
 
+    if (folder) {
+        _saveFolderHistory(file, xml, saveId, saveDate, hFrom, hTo);
+        noteVersionTaken();
+        if (testStatus(VersionDoc)) {
+            d->versionTail = num;
+            refreshVersionNames();
+        }
+        return num;
+    }
+
     FC_TIME_INIT(tEmbed);
     // The history, as the file will carry it.
-    TransactionLog::Embedded copy = log->embedForFile(saveDate, saveId);
+    TransactionLog::Embedded copy = log->embedForFile(saveDate, saveId, SaveTrigger::current());
     auto& manager = getFileBlobManager();
     FileBlobHandle db = manager.adoptFile(copy.path.c_str(), "db");
     if (!db)
@@ -8394,8 +9015,20 @@ int64_t Document::saveToLog(const char* name)
         Base::FileInfo(tmp).deleteFile();
         throw;
     }
-    if (!fi.deleteFile() || !Base::FileInfo(tmp).renameFile(file.c_str()))
-        THROWM(Base::FileException, ("cannot replace '" + file + "'").c_str());
+    // Renamed over the file in one step, which replaces it on every system
+    // (MoveFileEx on Windows): no moment without a file of that name, as a
+    // delete first left (sec 39, D3).
+    std::error_code renamed;
+#ifdef FC_OS_WIN32
+    std::filesystem::rename(QString::fromUtf8(tmp.c_str()).toStdWString(),
+                            QString::fromUtf8(file.c_str()).toStdWString(), renamed);
+#else
+    std::filesystem::rename(tmp, file, renamed);
+#endif
+    if (renamed) {
+        Base::FileInfo(tmp).deleteFile();
+        THROWM(Base::FileException, ("cannot replace '" + file + "': " + renamed.message()).c_str());
+    }
     Base::FileInfo(copy.path).deleteFile();
     FC_LOG("saveToLog " << getName() << ": snapshot " << FC_DURATION(tEmbed - tSnap).count()
            << "s, history " << FC_DURATION(tIndex - tEmbed).count()
@@ -8413,7 +9046,7 @@ int64_t Document::saveToLog(const char* name)
 
 int64_t Document::saveVersionAsFile()
 {
-    // docs/TransactionLog.md sec 27.5 ruling 4, 27.16.
+    // docs/TransactionLogJournal.md sec 27.5 ruling 4, 27.16.
     if (!testStatus(VersionDoc))
         THROWM(Base::RuntimeError, "'" + Label.getStrValue() + "' is not a version of a file");
     checkNotFrozen("save");
@@ -8466,7 +9099,7 @@ int64_t Document::saveVersionAsFile()
 int64_t Document::pinLink(PropertyXLink& link, int64_t version)
 {
     OperationScope scope;   // sec 27.38
-    // docs/TransactionLog.md sec 16.5, 27.6 Q3, 27.7.
+    // docs/TransactionLogJournal.md sec 16.5, 27.6 Q3, 27.7.
     auto owner = Base::freecad_dynamic_cast<DocumentObject>(link.getContainer());
     if (!owner || !owner->isAttachedToDocument())
         THROWM(Base::RuntimeError, "the link has no owner");
@@ -8576,7 +9209,7 @@ Document* Document::openFileBranch(const std::shared_ptr<FileHistory>& history,
                                    const std::string& branch, int64_t num, bool createView,
                                    const std::vector<std::string>& objNames)
 {
-    // docs/TransactionLog.md sec 27.23, 27.24.
+    // docs/TransactionLogJournal.md sec 27.23, 27.24.
     if (!history)
         THROWM(Base::RuntimeError, "no file history");
     if (branch.empty())
@@ -8639,7 +9272,7 @@ void Document::_joinHistory(const std::shared_ptr<FileHistory>& history)
 
 Document* Document::openVersion(int64_t num, bool createView)
 {
-    // docs/TransactionLog.md sec 27.5 ruling 3, 27.7.
+    // docs/TransactionLogJournal.md sec 27.5 ruling 3, 27.7.
     if (!getTransactionLog())
         THROWM(Base::RuntimeError, "no transaction log");
     getFileHistory();
@@ -8648,7 +9281,7 @@ Document* Document::openVersion(int64_t num, bool createView)
 
 void Document::refreshVersionNames()
 {
-    // docs/TransactionLog.md sec 27.23.
+    // docs/TransactionLogJournal.md sec 27.23.
     TransactionLog* log = getTransactionLog();
     std::vector<Document*> docs = log ? log->documents() : std::vector<Document*> {this};
     for (auto doc : docs) {
@@ -8873,7 +9506,7 @@ void Document::_leaveBranch()
 
 namespace {
 
-/// The net effect of a run of log rows (docs/TransactionLog.md sec 27.34):
+/// The net effect of a run of log rows (docs/TransactionLogJournal.md sec 27.34):
 /// for every object, dynamic property and value they touched, where it ends.
 struct LogFold
 {
@@ -9105,7 +9738,7 @@ bool openRecordJumps(TransactionStore& store, const std::vector<LogVersion>& ver
 bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
                              TransactionLog* through, std::set<long>* letGo)
 {
-    // docs/TransactionLog.md sec 27.25 item 1, 27.34. From the state at row
+    // docs/TransactionLogJournal.md sec 27.25 item 1, 27.34. From the state at row
     // `fromHead` to the state at `toSeq` by the rows between them: those on
     // `fromHead`'s chain after the two chains meet, taken back, then those on
     // `toSeq`'s chain after it, taken forward -- folded into where every
@@ -9406,7 +10039,14 @@ void Document::_checkoutHead(int64_t fromHead)
         _readVersion(anchor.num, [this](Document& version) { _applyVersion(version, true); });
     }
     else {
-        // No version on the chain: every object's create is in its rows.
+        // No version on the chain: every object's create is in its rows --
+        // when they reach back to the start. A chain hanging off a row that
+        // is gone with no version there would empty the document and
+        // replay part of a history (sec 39, V2): refused, nothing touched.
+        const auto rows = store.chain(log->head());
+        if (!rows.empty() && rows.front().parent != 0)
+            THROWM(Base::RuntimeError, "the history at row " + std::to_string(log->head())
+                                           + " does not reach back to a version or the start");
         std::vector<std::string> names;
         for (auto obj : getObjects())
             names.emplace_back(obj->getNameInDocument());
@@ -9426,7 +10066,7 @@ void Document::_arriveOnBranch()
 
 int64_t Document::createBranch(const std::string& name, int64_t version, int64_t seq)
 {
-    // docs/TransactionLog.md sec 17.1, 26: a new branch from a version, a
+    // docs/TransactionLogJournal.md sec 17.1, 26: a new branch from a version, a
     // row, or the current head, and the document switched to it.
     checkNotFrozen("create a branch");
     TransactionLog* log = getTransactionLog();
@@ -9537,7 +10177,7 @@ int64_t Document::createBranch(const std::string& name, int64_t version, int64_t
 bool Document::switchBranch(const std::string& name)
 {
     OperationScope scope;   // sec 27.38
-    // docs/TransactionLog.md sec 17.1, 26: the document becomes the head of
+    // docs/TransactionLogJournal.md sec 17.1, 26: the document becomes the head of
     // another branch, in place; not an undo step (26.4) -- each branch has
     // its own steps, since this document was opened.
     checkNotFrozen("switch branch");
@@ -9597,7 +10237,7 @@ struct Shared
     std::set<int64_t> forks;
 };
 
-/** The net change of a run of rows (docs/TransactionLog.md sec 16.7, squash;
+/** The net change of a run of rows (docs/TransactionLogJournal.md sec 16.7, squash;
  * sec 28.2 item 3, one side of a merge): where every object and property
  * the rows touched stood before the first and stands after the last. Rows
  * are added oldest first.
@@ -9953,7 +10593,7 @@ void fileBranchesChanged(TransactionLog* log)
 void Document::setBranchAccess(const std::string& kind, const std::string& name,
                                const std::string& branchName, bool write, int64_t fromVersion)
 {
-    // docs/TransactionLog.md sec 32.25
+    // docs/TransactionLogJournal.md sec 32.25
     TransactionLog* log = getTransactionLog();
     if (!log)
         THROWM(Base::RuntimeError, "the document keeps no transaction log");
@@ -9999,7 +10639,7 @@ bool Document::clearBranchAccess(const std::string& kind, const std::string& nam
 
 void Document::addUserGroup(const std::string& group)
 {
-    // docs/TransactionLog.md sec 32.32
+    // docs/TransactionLogJournal.md sec 32.32
     TransactionLog* log = getTransactionLog();
     if (!log)
         THROWM(Base::RuntimeError, "the document keeps no transaction log");
@@ -10012,7 +10652,7 @@ void Document::addUserGroup(const std::string& group)
 void Document::setUserGroup(const std::string& kind, const std::string& name,
                             const std::string& group)
 {
-    // docs/TransactionLog.md sec 32.32: a group is a user, and a user is in
+    // docs/TransactionLogJournal.md sec 32.32: a group is a user, and a user is in
     // one by naming it its parent
     TransactionLog* log = getTransactionLog();
     if (!log)
@@ -10061,7 +10701,7 @@ Document::userGroups(const std::string& kind, const std::string& name)
 int64_t Document::requestMerge(const std::string& source, const std::string& target,
                                const std::string& note)
 {
-    // docs/TransactionLog.md sec 32.25
+    // docs/TransactionLogJournal.md sec 32.25
     TransactionLog* log = getTransactionLog();
     if (!log)
         THROWM(Base::RuntimeError, "the document keeps no transaction log");
@@ -10148,7 +10788,7 @@ bool Document::renameBranch(const std::string& name, const std::string& newName)
 size_t Document::trimBranch(const std::string& name, int64_t version, bool bridge)
 {
     OperationScope scope;   // sec 27.38
-    // docs/TransactionLog.md sec 16.7, "trim a branch".
+    // docs/TransactionLogJournal.md sec 16.7, "trim a branch".
     TransactionLog* log = getTransactionLog();
     if (!log)
         return 0;
@@ -10182,11 +10822,17 @@ size_t Document::trimBranch(const std::string& name, int64_t version, bool bridg
         if (!atHead)
             THROWM(Base::RuntimeError, "branch '" + name + "' has no version at its head");
     }
-    if (keep.kind != "named")
-        store.nameVersion(keep.num, "trim " + name);
-
     log->resolvePending();
     TrimPlan plan = planTrim(store, branch, keep, bridge);
+    // Nor what another document of the file stands on: a version opened
+    // beside this one holds no branch, and would be left on a row or a
+    // version that is gone (sec 39, V2).
+    if (Document* other = log->otherStandingOn(
+                {plan.rows.begin(), plan.rows.end()}, {plan.versions.begin(), plan.versions.end()}))
+        THROWM(Base::ValueError, std::string("document ") + other->getName()
+                                     + " stands on what the trim takes away: close it first");
+    if (keep.kind != "named")
+        store.nameVersion(keep.num, "trim " + name);
     const std::set<long> named = _objectIdsOfRows(plan.rows);
     applyTrim(store, plan, name);
     const auto& span = plan.span;
@@ -10222,7 +10868,7 @@ size_t Document::trimBranch(const std::string& name, int64_t version, bool bridg
 size_t Document::deleteBranch(const std::string& name)
 {
     OperationScope scope;   // sec 27.38
-    // docs/TransactionLog.md sec 16.7, "delete a branch".
+    // docs/TransactionLogJournal.md sec 16.7, "delete a branch".
     TransactionLog* log = getTransactionLog();
     if (!log)
         return 0;
@@ -10271,17 +10917,25 @@ size_t Document::deleteBranch(const std::string& name)
     }
     // Its versions, and any other taken at one of its own rows; a version
     // another branch forked from stays, named (sec 16.7).
+    // So does one a link of another file pins, and one at a row another
+    // branch's history holds -- merged into it -- named (16.7, sec 39 V1).
+    const std::set<int64_t> pinned = TransactionLog::pinnedVersions(store);
     std::vector<int64_t> versions;
     size_t kept = 0;
     for (const auto& v : store.versions()) {
         if (v.branch != branch.id && !gone.count(v.seq))
             continue;
-        if (shared.forks.count(v.num)) {
+        if (shared.forks.count(v.num) || pinned.count(v.num) || held.count(v.seq)) {
+            if (v.kind != "named")
+                store.nameVersion(v.num, "kept from " + name);
             ++kept;
             continue;
         }
         versions.push_back(v.num);
     }
+    if (Document* other = log->otherStandingOn(gone, {versions.begin(), versions.end()}))
+        THROWM(Base::ValueError, std::string("document ") + other->getName()
+                                     + " stands on what the delete takes away: close it first");
     const std::set<long> named = _objectIdsOfRows(rows);
     store.removeTransactions(rows);
     if (!versions.empty())
@@ -10308,7 +10962,7 @@ size_t Document::deleteBranch(const std::string& name)
 
 size_t Document::squashVersions(int64_t from, int64_t to)
 {
-    // docs/TransactionLog.md sec 16.7, "squash": the row `to` names is
+    // docs/TransactionLogJournal.md sec 16.7, "squash": the row `to` names is
     // rewritten as the net change since `from`, the rows between go, so
     // no seq changes -- the rows after it, and a branch forked at it,
     // still follow it.
@@ -10356,6 +11010,9 @@ size_t Document::squashVersions(int64_t from, int64_t to)
         evict.push_back(v.num);
     }
 
+    if (Document* other = log->otherStandingOn(inside, {evict.begin(), evict.end()}))
+        THROWM(Base::ValueError, std::string("document ") + other->getName()
+                                     + " stands on what the squash takes away: close it first");
     std::vector<LogOp> ops = netOps(store, path);
 
     LogTransaction t = path.back();
@@ -10543,7 +11200,7 @@ bool pathBetween(TransactionStore& store, const std::vector<LogVersion>& version
 }
 
 /// The net change from the state at row `from` to the state at row `to`
-/// (docs/TransactionLog.md sec 28.2 item 3), through the rows between them.
+/// (docs/TransactionLogJournal.md sec 28.2 item 3), through the rows between them.
 /// False, with `why`, when the log's rows do not say.
 bool diffRows(TransactionStore& store, const std::vector<LogVersion>& versions, int64_t from,
               int64_t to, NetChange& net, std::string& why)
@@ -10629,16 +11286,30 @@ std::vector<int64_t> undoneMergeAtHead(TransactionLog& log, int64_t& before,
     if (t.kind != "undo")
         return {};
     LogTransaction merge = t;
-    for (int guard = 0; guard < 64 && merge.kind != "merge"; ++guard) {
+    for (int guard = 0; guard < 64 && merge.kind != "merge" && merge.kind != "restore"; ++guard) {
         if ((merge.kind != "undo" && merge.kind != "redo") || merge.inverts <= 0
                 || !row(merge.inverts, merge))
             return {};
     }
-    if (merge.kind != "merge" || merge.parent <= 0)
+    if ((merge.kind != "merge" && merge.kind != "restore") || merge.parent <= 0)
         return {};
     const std::vector<LogTransaction> rows = store.chain(head, merge.seq);
     if (rows.empty() || rows.front().seq != merge.seq)
         return {};
+    // A set's Take theirs (sec 35 L6) is a restore to their head and, next,
+    // a record with no ops that takes their branch in: undone, it is a
+    // merge undone (sec 39, L4). A restore alone is not.
+    if (merge.kind == "restore") {
+        bool taken = false;
+        for (const auto& r : rows) {
+            if (r.parent == merge.seq) {
+                taken = r.kind == "merge" && r.mergeFrom > 0 && store.ops(r.seq).empty();
+                break;
+            }
+        }
+        if (!taken)
+            return {};
+    }
     // Each row after the merge is its recompute, a record, or one more turn
     // of its own undo and redo -- and the turns leave it undone.
     std::set<int64_t> turns {merge.seq};
@@ -10744,7 +11415,7 @@ bool sameLinkValue(TransactionLog& log, const std::string& ptype, const std::str
     return comparable(va.fragment) == comparable(vb.fragment);
 }
 
-/// Two logged values the same once read back (docs/TransactionLog.md sec
+/// Two logged values the same once read back (docs/TransactionLogJournal.md sec
 /// 37.10): each read into a property of its type, as a restore reads it, and
 /// the two compared. A value replayed from another copy's log is written by
 /// a property that read it, and need not be the same text: a placement's
@@ -10937,7 +11608,7 @@ bool holdsExpressions(const std::string& ptype)
 
 /** Before a merge, everything an expression names by its place in a list
  * is given a name, and the expressions say the name (a ruling, docs/
- * TransactionLog.md sec 31.11). A merge moves things to other places; a
+ * TransactionLogJournal.md sec 31.11). A merge moves things to other places; a
  * name goes with the thing.
  *
  * For each object that says it has such places (getMergePlaces) and whose
@@ -11222,7 +11893,7 @@ void namePlaces(Document& doc, TransactionLog& log, MergePlan& plan)
     }
 }
 
-/** Ours, for a merge with no base (docs/TransactionLog.md sec 30.22). An
+/** Ours, for a merge with no base (docs/TransactionLogJournal.md sec 30.22). An
  * independent branch -- a file that shares no history with this one,
  * brought as what it is -- has made everything it holds, and there is no
  * state the two started from to say what ours did. So ours is what the
@@ -11286,7 +11957,7 @@ void independentOurs(Document& doc, TransactionLog& log, MergePlan& plan)
     }
 }
 
-/** Ours, for rows picked out of the log (docs/TransactionLog.md sec 31.12).
+/** Ours, for rows picked out of the log (docs/TransactionLogJournal.md sec 31.12).
  * The rows say what each value was before them and what they made it; the
  * document says what it is here. Where it is still what it was before the
  * rows, they are taken; where it is what they made it, there is nothing to
@@ -11378,7 +12049,7 @@ void pickedOurs(Document& doc, TransactionLog& log, MergePlan& plan)
 }
 
 /** A property both sides changed, merged by the things it holds
- * (docs/TransactionLog.md sec 31.8). `c` is the conflict: its base, ours
+ * (docs/TransactionLogJournal.md sec 31.8). `c` is the conflict: its base, ours
  * and theirs. Each value is taken apart by the property (splitSaved), and
  * the things are weighed as sec 28 weighs properties: what one side alone
  * added, changed or removed is that side's. What both changed, and
@@ -11538,7 +12209,7 @@ struct UnitValue
 
 /// A unit's member (DocumentObject::getMergeUnit) is a property of the
 /// object, or -- `view:` before its name -- one of its view provider's
-/// (docs/TransactionLog.md sec 31.20): the look of each element an object
+/// (docs/TransactionLogJournal.md sec 31.20): the look of each element an object
 /// names is one thing with the names.
 bool unitOfView(const std::string& member)
 {
@@ -11561,7 +12232,7 @@ NetChange::Key unitKey(long cid, const std::string& member)
     return NetChange::Key {unitKind(member), cid, unitProp(member)};
 }
 
-/** A unit both sides changed, merged by its object (docs/TransactionLog.md
+/** A unit both sides changed, merged by its object (docs/TransactionLogJournal.md
  * sec 31.10). `states` has the properties either side changed; the rest of
  * the unit is as the document holds it, for all three. The object is given
  * each as it is saved, and each side's rows to say who wrote a thing last;
@@ -12494,7 +13165,7 @@ void planWeigh(Document& doc, TransactionLog& logRef, MergePlan& plan)
 
 Document::MergePreview Document::previewMerge(const std::string& branch, int64_t version)
 {
-    // docs/TransactionLog.md sec 28.2 item 9: read only, but for an implicit
+    // docs/TransactionLogJournal.md sec 28.2 item 9: read only, but for an implicit
     // transaction, which is committed so the rows say what the document is.
     if (d->activeUndoTransaction)
         commitImplicitTransaction();
@@ -12772,6 +13443,84 @@ Document::UndoneMerge Document::rollBackMerge()
     return out;
 }
 
+int Document::rollBackSetDecision(int step)
+{
+    TransactionLog* log = getTransactionLog();
+    if (!log || step <= 0 || log->detached())
+        return 0;
+    if (d->activeUndoTransaction)
+        commitImplicitTransaction();
+    log->resolvePending();
+    log->flush();
+    auto& store = log->store();
+    const int64_t head = log->head();
+    const auto chain = store.chain(head);
+    auto stepOf = [](const LogTransaction& t) {
+        const auto j = nlohmann::json::parse(t.script, nullptr, false);
+        return j.is_object() && j.contains("set") && j["set"].is_object()
+            ? j["set"].value("step", 0) : 0;
+    };
+    // From the head back to the record, over rows that changed nothing.
+    int64_t record = 0;
+    bool since = false;
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        const bool changed = !store.ops(it->seq).empty();
+        if (!changed && it->kind == "merge" && it->mergeFrom > 0 && stepOf(*it) == step) {
+            record = it->seq;
+            break;
+        }
+        since = since || changed;
+    }
+    if (!record)
+        return 0;
+    std::vector<int64_t> seqs;
+    int64_t before = 0;
+    for (const auto& t : chain) {
+        if (t.seq == record)
+            before = t.parent;
+        if (t.seq >= record)
+            seqs.push_back(t.seq);
+    }
+    if (since || log->othersStandOn(seqs))
+        return -1;
+    const std::set<int64_t> gone(seqs.begin(), seqs.end());
+    std::vector<int64_t> evict;
+    for (const auto& v : store.versions()) {
+        if (!gone.count(v.seq))
+            continue;
+        if (v.kind != "unnamed")
+            return -1;
+        evict.push_back(v.num);
+    }
+    for (const auto& b : store.branches()) {
+        if (b.id != log->branch() && (gone.count(b.fromSeq) || gone.count(b.head)))
+            return -1;
+    }
+    FC_LOG(getName() << ": the set's Keep ours at row " << record << " taken back, "
+                     << seqs.size() << " row(s)");
+    clearUndos();
+    _clearRedos();
+    store.forwardBranch(log->branch(), before, {});
+    log->moveHead(before);
+    // Records only: the document is as it was. What they said of the
+    // touched state is folded back all the same.
+    try {
+        _followHead(head);
+    }
+    catch (Base::Exception& e) {
+        FC_WARN(getName() << ": the Keep ours taken back without following the rows: "
+                          << e.what());
+        log->forgetLiveValues();
+    }
+    if (!evict.empty())
+        store.evictVersions(evict);
+    store.removeTransactions(seqs);
+    _arriveOnBranch();
+    refreshVersionNames();
+    signalBranchesChanged(*this);
+    return 1;
+}
+
 bool Document::_rollBackUndoneMerge()
 {
     // Sec 31.21: the branch put back on the row it was merged on, the
@@ -12909,7 +13658,7 @@ Document::MergeResult Document::_merge(const std::string& branch,
                                        const std::string& again)
 {
     OperationScope scope;   // sec 27.38
-    // docs/TransactionLog.md sec 28: theirs' changes since the base, less
+    // docs/TransactionLogJournal.md sec 28: theirs' changes since the base, less
     // what ours changed too, as one transaction on ours.
     checkNotFrozen("merge a branch");
     MergeResult result;
@@ -13305,7 +14054,9 @@ Document::MergeResult Document::_merge(const std::string& branch,
             outcome->reused = true;
         }
         else {
-            if (back)
+            // Only a result made here, of this document; a name that is any
+            // other document is left open (sec 39, V3).
+            if (back && known != results.end() && known->second.of == getName())
                 GetApplication().closeDocument(again.c_str());
             // Named as no other was: what shows its values knows them by it
             static int made = 0;
@@ -13713,7 +14464,7 @@ Document::MergeResult Document::_merge(const std::string& branch,
 
 namespace {
 
-/// The copy of a file an import reads (docs/TransactionLog.md sec 30.13):
+/// The copy of a file an import reads (docs/TransactionLogJournal.md sec 30.13):
 /// its history, opened without its document, and the branch asked for.
 /// A file with no history has none of that, and `saved` -- what the file
 /// says of the save it is from (sec 30.19).
@@ -13876,7 +14627,7 @@ std::vector<MadeObject> madeBy(TransactionStore& store, const LogTransaction& t)
     return out;
 }
 
-/** What two copies of a file hold of each other's (docs/TransactionLog.md
+/** What two copies of a file hold of each other's (docs/TransactionLogJournal.md
  * sec 30.33). One row -- one identity (sec 30.12) -- made the same objects
  * wherever it is held: in the copy that wrote it, under the ids that copy
  * gave them, and in a copy that replayed it, under ids of its own (sec
@@ -13973,7 +14724,7 @@ std::vector<LogTransaction> replayedRows(TransactionStore& store, int64_t head)
 }
 
 /** Whether every number in the history of `head` is one the rows of the
- * two stores can account for (docs/TransactionLog.md sec 31.15). What
+ * two stores can account for (docs/TransactionLogJournal.md sec 31.15). What
  * `scan` took from a file comes in a row it replayed, and `other` knows
  * the row or it does not. A row it does not know is of a third file --
  * whose merges may hold what `other` made, under numbers no row of
@@ -14015,7 +14766,7 @@ struct SameValue
 };
 
 /** The values two copies of a file hold of each other's rows
- * (docs/TransactionLog.md sec 31.15). A row replayed (sec 30.15) puts its
+ * (docs/TransactionLogJournal.md sec 31.15). A row replayed (sec 30.15) puts its
  * values back as they were saved, and the row keeps its identity: so the
  * value a row set is one value in the store that wrote the row and in the
  * store that replayed it, however many copies it came through -- each
@@ -14196,7 +14947,7 @@ std::vector<Document::ForkBranch> Document::forkBranches(const std::string& path
 Document* Document::_importReplay(int64_t base, const std::string& stem, LogBranch& mine,
                                   bool& scratch)
 {
-    // docs/TransactionLog.md sec 30.15 step 4: the document the rows are
+    // docs/TransactionLogJournal.md sec 30.15 step 4: the document the rows are
     // replayed in -- the one holding the branch, or one of its own, at the
     // row both hold, closed when the import is done.
     TransactionLog* log = getTransactionLog();
@@ -14337,7 +15088,7 @@ void Document::_finishImport(Document* replay, bool scratch, int64_t branch,
 
 std::string Document::importLinksOnly(int64_t base, const std::string& file)
 {
-    // docs/TransactionLog.md sec 35.15 G1: their file is ours at `base`; the
+    // docs/TransactionLogJournal.md sec 35.15 G1: their file is ours at `base`; the
     // branch is for its links, which the set's import relinks.
     OperationScope scope;   // sec 27.38
     checkNotFrozen("import a file's history");
@@ -14387,7 +15138,7 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
                                   std::map<std::string, std::string>& renamed,
                                   const Document* kin, const std::map<long, long>* paired)
 {
-    // docs/TransactionLog.md sec 30.19 G3, G7, G8: this document made what
+    // docs/TransactionLogJournal.md sec 30.19 G3, G7, G8: this document made what
     // `from` -- a document of another copy of the file -- is, recorded
     // into the open transaction. As _applyVersion() does for a version of
     // this file, but nothing here may be taken for the same by its number
@@ -14625,7 +15376,7 @@ bool Document::_importStateRow(Document& from, const std::string& file,
                                std::map<std::string, std::string>& names, ImportResult& result,
                                const Document* kin, const std::map<long, long>* same)
 {
-    // docs/TransactionLog.md sec 30.19: one row, the difference between
+    // docs/TransactionLogJournal.md sec 30.19: one row, the difference between
     // this document and the file as found; one author, the file (G4).
     TransactionLog* rlog = getTransactionLog();
     const std::string who = from.LastModifiedBy.getValue();
@@ -14714,7 +15465,7 @@ Document::ImportResult Document::_importState(const std::string& path, const std
                                               const std::string& saveId, const std::string& hash,
                                               const std::string& sender, int64_t baseSeq)
 {
-    // docs/TransactionLog.md sec 30.19: a file with no history. Its
+    // docs/TransactionLogJournal.md sec 30.19: a file with no history. Its
     // `Version` names the save it is from (G1); the state at that save's
     // row is the base, and the file as found comes as one row on a branch
     // from there -- or, brought before (G5), as one more on the branch it
@@ -14902,7 +15653,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
     // and their links come mapped to this file's folder.
     SideDocuments side;
     PropertyXLink::ImportPaths paths(path, FileName.getStrValue());
-    // docs/TransactionLog.md sec 30.13, 30.14: replay, always (F1).
+    // docs/TransactionLogJournal.md sec 30.13, 30.14: replay, always (F1).
     checkNotFrozen("import a file's history");
     TransactionLog* log = getTransactionLog();
     if (!log)
@@ -15901,7 +16652,7 @@ int64_t keptSentFile(Document& doc, const FileBlobHandle& blob, const std::strin
 int64_t Document::keepSentFile(const std::string& bytes, const std::string& name,
                                const std::string& sender, const std::string& senderKind)
 {
-    // docs/TransactionLog.md sec 30.29. H6 holds: the bytes are taken as
+    // docs/TransactionLogJournal.md sec 30.29. H6 holds: the bytes are taken as
     // they are, one blob, and nothing here looks inside them.
     checkNotFrozen("keep a sent file");
     TransactionLog* log = getTransactionLog();
@@ -16130,7 +16881,7 @@ void Document::_releaseSentFiles()
 
 std::vector<Document::ImportRequest> Document::importRequests(bool preview)
 {
-    // docs/TransactionLog.md sec 30.20 H1: a request is an import branch
+    // docs/TransactionLogJournal.md sec 30.20 H1: a request is an import branch
     // the branch this document is on has not taken. Nothing records that:
     // the branch's mark says it came from a file, and this branch's history
     // says what of it is here.
@@ -16216,7 +16967,7 @@ void Document::_followHead(int64_t from)
 Document* Document::openNewBranch(const std::string& name, bool createView)
 {
     OperationScope scope;   // sec 27.38
-    // docs/TransactionLog.md sec 30.3 S.a: a branch made at this
+    // docs/TransactionLogJournal.md sec 30.3 S.a: a branch made at this
     // document's head and opened in a second document of the file, this
     // one staying where it is. Neither follows the other: one is merged
     // into the other when that is asked for.
@@ -16312,7 +17063,7 @@ void Document::noteVersionTaken()
 
 namespace {
 
-/** The archive members no reader taps, for version 1 (docs/TransactionLog.md
+/** The archive members no reader taps, for version 1 (docs/TransactionLogJournal.md
  * sec 27.46): a file written before schema 5 keeps its shapes and other
  * attachments at the top of the archive, and without them the version's
  * Document.xml names files it does not carry. Everything but the entries
@@ -16400,6 +17151,10 @@ bool Document::afterRestore(bool checkPartial) {
             && !testStatus(PartialDoc) && !testStatus(VersionDoc) && !testStatus(TempDoc))
         _noteDiskState(FileName.getStrValue());
     d->readStamp = DiskStamp();
+    // The blobs each object was handed, now that every referrer has turned up.
+    d->folderRead.refs = getFileBlobManager().takeRestoredReferences();
+    d->folderRead.afterDone = true;
+    _takeFolderRead();
     return true;
 }
 
@@ -16645,7 +17400,7 @@ FileHistory& Document::getFileHistory() const
     // Created on demand rather than in the constructor: the history lives in
     // TransientDir, which is not set up yet at that point. A file another
     // document of this process has open already has its history, which
-    // this one joins: one log per file (docs/TransactionLog.md sec 27.5).
+    // this one joins: one log per file (docs/TransactionLogJournal.md sec 27.5).
     if (!d->history) {
         if (!testStatus(VersionDoc) && !FileName.getStrValue().empty()) {
             if (auto existing = FileHistory::find(FileName.getStrValue())) {
@@ -17188,7 +17943,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
     RecomputeCounter counter;
     // A recompute is an invocation of its own: writes made by execute()
     // with no transaction active group under one implicit transaction
-    // that closes with the recompute (docs/TransactionLog.md sec 9.1).
+    // that closes with the recompute (docs/TransactionLogJournal.md sec 9.1).
     Application::InvocationScope scope("recompute");
     const auto recomputeClock = std::chrono::steady_clock::now();
 
@@ -17206,7 +17961,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
             FC_WARN("Please reload partial document '" << Label.getValue() << "' for recomputation.");
         return 0;
     }
-    // A pinned version is as it was saved (docs/TransactionLog.md sec 27.22).
+    // A pinned version is as it was saved (docs/TransactionLogJournal.md sec 27.22).
     if (testStatus(Document::FrozenVersion)) {
         FC_LOG("pinned version '" << Label.getValue() << "' is not recomputed");
         return 0;
@@ -17234,7 +17989,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
 
     Base::ObjectStatusLocker<Document::Status, Document> exe(Document::Recomputing, this);
     // Every object's touched state before anything here changes it, for the
-    // recompute record (docs/TransactionLog.md sec 27.58). Asked without
+    // recompute record (docs/TransactionLogJournal.md sec 27.58). Asked without
     // making the log, which is made where it always was, after the
     // recompute: made here, its end-of-process flush was registered before
     // the statics OCCT makes on first use in the recompute, and ran after
@@ -17315,7 +18070,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
     std::set<App::DocumentObject *> filter;
     size_t idx = 0;
 
-    // For the recompute record (docs/TransactionLog.md sec 27.53): each
+    // For the recompute record (docs/TransactionLogJournal.md sec 27.53): each
     // object this recompute made up to date or failed on, once, with the
     // seconds its execute() took -- not every object it looked at.
     std::vector<std::pair<App::DocumentObject*, double>> done;
@@ -17449,7 +18204,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
     if (aborted)
         THROW(Base::AbortException);
 
-    // The recompute record (docs/TransactionLog.md sec 11), read here, before
+    // The recompute record (docs/TransactionLogJournal.md sec 11), read here, before
     // anything else runs: with undo off both the commit below and an observer
     // of signalRecomputed -- a Python one that clears the document, in
     // CAMTests.TestPathHelix -- delete objects topoSortedObjects still points
@@ -18138,7 +18893,7 @@ void Document::addObject(DocumentObject* pcObject, const char* pObjectName, bool
 
 void Document::_giveObjectUid(DocumentObject* pcObject, bool freshId, const std::string& name)
 {
-    // docs/TransactionLog.md sec 36.3: one UID, one id. An object made
+    // docs/TransactionLogJournal.md sec 36.3: one UID, one id. An object made
     // under an id the file knows has that id's UID; under one it does not
     // know, the UID it carries or was saved with, else -- an object of a
     // file from before UIDs -- one derived from the file (U3). A new id
@@ -18900,7 +19655,7 @@ void collectObjectIds(const std::string& xml, std::unordered_set<long>& ids)
 
 Document::CompactResult Document::compactFileState()
 {
-    // docs/TransactionLog.md sec 27.47. What the retained history can reach
+    // docs/TransactionLogJournal.md sec 27.47. What the retained history can reach
     // is a version plus the ops after it, so an object alive anywhere in it
     // is in a version's object list or named by an op: those, and what the
     // documents of the file hold now, are the objects still referred to.
@@ -18966,7 +19721,7 @@ std::set<long> Document::_objectIdsOfRows(const std::vector<int64_t>& rows)
 
 Document::CompactEstimate Document::_noteDroppedRows(const std::set<long>& named)
 {
-    // docs/TransactionLog.md sec 27.48.
+    // docs/TransactionLogJournal.md sec 27.48.
     CompactEstimate estimate;
     TransactionLog* log = getTransactionLog();
     if (!log)

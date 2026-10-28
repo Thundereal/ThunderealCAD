@@ -59,7 +59,7 @@ DOC = "SandboxBridgeServe"
 OTHER = "SandboxBridgeOther"
 EDIT = "c2-bridge-edit"
 EDIT2 = "c3-bridge-edit-two"
-# Only a user who is known may write (docs/TransactionLog.md sec 30.6 U4,
+# Only a user who is known may write (docs/TransactionLogJournal.md sec 30.6 U4,
 # U6): an edit token alone is an open invitation and admits to look. These
 # two are invitations issued to one name each, which is what lets a client
 # with no verified identity write.

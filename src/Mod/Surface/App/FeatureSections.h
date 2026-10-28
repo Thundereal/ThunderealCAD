@@ -27,6 +27,8 @@
 #include <Mod/Part/App/FeaturePartSpline.h>
 #include <Mod/Surface/SurfaceGlobal.h>
 
+#include "EdgeConditions.h"
+
 
 namespace Surface
 {
@@ -39,6 +41,19 @@ public:
     Sections();
 
     App::PropertyLinkSubList NSections;
+    /// Curves across the sections, each crossing every one: the loft
+    /// follows them, as a network of the two (docs/Surface.md sec 5.1)
+    App::PropertyLinkSubList Guides;
+
+    /// The edge conditions at the first and last section (docs/Surface.md
+    /// sec 5.1); the loft's sides are free
+    App::PropertyEnumeration FirstSectionContinuity;
+    App::PropertyFloatConstraint FirstSectionWeight;
+    App::PropertyLinkSub FirstSectionSupport;
+    App::PropertyEnumeration LastSectionContinuity;
+    App::PropertyFloatConstraint LastSectionWeight;
+    App::PropertyLinkSub LastSectionSupport;
+    App::PropertyStringList Achieved;  // Output
 
     // recalculate the feature
     App::DocumentObjectExecReturn* execute() override;

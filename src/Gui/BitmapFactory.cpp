@@ -33,6 +33,7 @@
 # include <QImageReader>
 # include <QPainter>
 # include <QPalette>
+# include <QRegularExpression>
 # include <QString>
 # include <QSvgRenderer>
 # include <QStyleOption>
@@ -154,6 +155,15 @@ public:
     // The xpmCache above cannot serve these because it is not size aware.
     using SvgKey = std::tuple<std::string, qreal, qreal, std::map<unsigned long, unsigned long>>;
     std::map<SvgKey, QPixmap> svgCache;
+
+    // Icons drawn with some colours substituted, by setIconColorMapping(); the
+    // pixmap is drawn on first use.
+    struct ColoredIcon
+    {
+        std::map<unsigned long, unsigned long> mapping;
+        QPixmap pixmap;
+    };
+    std::map<std::string, ColoredIcon> coloredIcons;
 };
 }
 
@@ -287,6 +297,113 @@ void BitmapFactoryInst::addPixmapToCache(const char* name,
     }
 }
 
+void BitmapFactoryInst::setIconColorMapping(
+    const char* name,
+    const std::map<unsigned long, unsigned long>& colorMapping)
+{
+    if (!name || *name == '\0') {
+        return;
+    }
+    std::string _name;
+    adjustIconName(_name, name);
+    if (colorMapping.empty()) {
+        d->coloredIcons.erase(name);
+        return;
+    }
+    auto& entry = d->coloredIcons[name];
+    if (entry.mapping != colorMapping) {
+        entry.mapping = colorMapping;
+        entry.pixmap = QPixmap();
+    }
+}
+
+namespace
+{
+// An SVG's text with every #rrggbb the mapping names substituted, not only the
+// ':#rrggbb;' that pixmapFromSvg()'s mapping replaces: a colour ending a style,
+// or in an attribute, would stay as it was.
+QString mapSvgColors(const QString& contents, const std::map<unsigned long, unsigned long>& mapping)
+{
+    static const QRegularExpression hex(QStringLiteral("#([0-9a-fA-F]{6})(?![0-9a-fA-F])"));
+    QString out;
+    out.reserve(contents.size());
+    qsizetype last = 0;
+    auto matches = hex.globalMatch(contents);
+    while (matches.hasNext()) {
+        auto match = matches.next();
+        auto found = mapping.find(match.captured(1).toULong(nullptr, 16));
+        if (found == mapping.end()) {
+            continue;
+        }
+        out.append(QStringView(contents).mid(last, match.capturedStart() - last));
+        out.append(QStringLiteral("#%1").arg(found->second, 6, 16, QChar::fromLatin1('0')));
+        last = match.capturedEnd();
+    }
+    out.append(QStringView(contents).mid(last));
+    return out;
+}
+
+// What iconVariantName() appends to a name while a mapping is set for it
+const QLatin1String ColorMappingTag("#cm");
+}  // namespace
+
+QString BitmapFactoryInst::iconVariantName(const char* name) const
+{
+    QString plain = QString::fromUtf8(name ? name : "");
+    if (!name || d->coloredIcons.empty()) {
+        return plain;
+    }
+    auto it = d->coloredIcons.find(name);
+    if (it == d->coloredIcons.end()) {
+        return plain;
+    }
+    // FNV-1a over the pairs: the same mapping, the same name, run to run
+    uint64_t h = 1469598103934665603ULL;
+    for (const auto& [from, to] : it->second.mapping) {
+        for (unsigned long v : {from, to}) {
+            for (int i = 0; i < 4; ++i) {
+                h = (h ^ ((v >> (8 * i)) & 0xff)) * 1099511628211ULL;
+            }
+        }
+    }
+    return plain + ColorMappingTag + QString::number(h, 16);
+}
+
+bool BitmapFactoryInst::findColoredIcon(const char* name, QPixmap& icon) const
+{
+    if (d->coloredIcons.empty()) {
+        return false;
+    }
+    auto it = d->coloredIcons.find(name);
+    if (it == d->coloredIcons.end()) {
+        return false;
+    }
+    auto& entry = it->second;
+    if (entry.pixmap.isNull()) {
+        // the SVG, by the lookup pixmap() uses
+        QString fn = QString::fromUtf8(name);
+        QString path;
+        for (const QString& candidate : {fn,
+                                         QStringLiteral("icons:") + fn,
+                                         QStringLiteral("icons:") + fn + QStringLiteral(".svg")}) {
+            QFileInfo fi(candidate);
+            if (fi.exists() && fi.isFile()
+                && fi.suffix().compare(QStringLiteral("svg"), Qt::CaseInsensitive) == 0) {
+                path = fi.filePath();
+                break;
+            }
+        }
+        QFile file(path);
+        if (path.isEmpty() || !file.open(QFile::ReadOnly | QFile::Text)) {
+            return false;
+        }
+        QString out = mapSvgColors(QString::fromUtf8(file.readAll()), entry.mapping);
+        entry.pixmap = pixmapFromSvg(out.toUtf8(), QSizeF(64, 64));
+    }
+    icon = entry.pixmap;
+    return !icon.isNull();
+}
+
 const char *BitmapFactoryInst::getIconPath(const char *name) const
 {
     std::string _name;
@@ -382,6 +499,11 @@ QIcon BitmapFactoryInst::iconFromTheme(const char* name, bool silent, const QIco
     std::string _name;
     adjustIconName(_name, name);
 
+    QPixmap colored;
+    if (findColoredIcon(name, colored)) {
+        return colored;
+    }
+
     bool searched = false;
     auto it = d->xpmCache.find(name);
     if (it != d->xpmCache.end()) {
@@ -427,6 +549,20 @@ QByteArray BitmapFactoryInst::iconSource(const char* name, int size, QString& fo
     if (!name || *name == '\0')
         return QByteArray();
     QString fn = QString::fromUtf8(name);
+    // a variant name (iconVariantName): the icon in the colours its mapping
+    // gives, while it is set
+    const std::map<unsigned long, unsigned long>* mapping = nullptr;
+    std::string plain;
+    const qsizetype tag = fn.indexOf(ColorMappingTag);
+    if (tag > 0) {
+        fn.truncate(tag);
+        plain = fn.toStdString();
+        name = plain.c_str();
+        auto it = d->coloredIcons.find(plain);
+        if (it != d->coloredIcons.end()) {
+            mapping = &it->second.mapping;
+        }
+    }
     // an SVG file, by the lookup pixmap() uses: a path as given, an
     // override's file, a name in the icons search paths with or
     // without its suffix
@@ -449,6 +585,9 @@ QByteArray BitmapFactoryInst::iconSource(const char* name, int size, QString& fo
         QFile file(iconPath);
         if (file.open(QIODevice::ReadOnly)) {
             format = QStringLiteral("svg");
+            if (mapping) {
+                return mapSvgColors(QString::fromUtf8(file.readAll()), *mapping).toUtf8();
+            }
             return file.readAll();
         }
     }
@@ -501,6 +640,9 @@ QPixmap BitmapFactoryInst::pixmap(const char* name,
     adjustIconName(_name, name);
 
     QPixmap icon;
+    if (findColoredIcon(name, icon)) {
+        return icon;
+    }
     if (findPixmapInCache(name, icon, original, iconpath))
         return icon;
 

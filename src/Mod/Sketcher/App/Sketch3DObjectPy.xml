@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenerateModel xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="generateMetaModel_Module.xsd">
+  <PythonExport
+    Father="PartFeaturePy"
+    Name="Sketch3DObjectPy"
+    Twin="Sketch3DObject"
+    TwinPointer="Sketch3DObject"
+    Include="Mod/Sketcher/App/Sketch3DObject.h"
+    Namespace="Sketcher"
+    FatherInclude="Mod/Part/App/PartFeaturePy.h"
+    FatherNamespace="Part">
+    <Documentation>
+      <Author Licence="LGPL" Name="Zheng Lei" EMail="realthunder.dev@gmail.com" />
+      <UserDocu>A 3D sketch: constrained geometry in 3D, in an attachable frame of its own.
+
+Geometry ids: 0 and up are the sketch's own geometry; -1, -2, -3 are the frame's
+X, Y and Z axes (-1 start is the origin), -4, -5, -6 its XY, YZ and ZX planes, and
+-7 and down the external references in the order they were added.</UserDocu>
+    </Documentation>
+    <Methode Name="solve">
+      <Documentation>
+        <UserDocu>solve() -> int
+
+Solve the sketch and update the geometry. Returns 0 on success, -1 if the solver
+fails, -3 for conflicting constraints, -4 for redundant ones (the geometry is still
+updated) and -5 for constraints a 3D sketch cannot solve.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="addGeometry">
+      <Documentation>
+        <UserDocu>addGeometry(geo, construction=False) -> int or tuple
+
+Add a Part.Point, LineSegment, Circle, ArcOfCircle, BSplineCurve or Plane (a fixed
+workplane, always construction), or a list of them. Returns the index or indices.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="delGeometry">
+      <Documentation>
+        <UserDocu>delGeometry(index): remove a geometry and the constraints on it.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="addConstraint">
+      <Documentation>
+        <UserDocu>addConstraint(Sketcher.Constraint or list) -> int or tuple
+
+Types and their 3D meaning: Coincident; PointOnObject (on a line, circle, arc,
+spline, plane or external edge); AlongX / AlongY / AlongZ (a line, or two points);
+Parallel and Perpendicular (lines, or a line and a plane); Tangent (two lines:
+collinear; end to end: joined and tangent); Equal; Symmetric about a point (the
+midpoint); Distance (a line, two points, a point and a line or plane); DistanceX /
+DistanceY / DistanceZ; Angle (two lines); Radius; Diameter; Block; and the B-spline
+internal alignments.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="delConstraint">
+      <Documentation>
+        <UserDocu>delConstraint(index)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setDatum">
+      <Documentation>
+        <UserDocu>setDatum(index or name, value or Quantity): set a dimension and solve.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getDatum" Const="true">
+      <Documentation>
+        <UserDocu>getDatum(index or name) -> Quantity</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setDriving">
+      <Documentation>
+        <UserDocu>setDriving(index, bool): a driving dimension, or a reference that measures.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="renameConstraint">
+      <Documentation>
+        <UserDocu>renameConstraint(index, name): a name an expression can use; '' unnames it</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setConstruction">
+      <Documentation>
+        <UserDocu>setConstruction(index, bool)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="addExternal">
+      <Documentation>
+        <UserDocu>addExternal(obj, subname) -> int
+
+Refer to a model vertex, edge or planar face, or a datum, taken as it is (no
+projection). Returns its geometry id.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="delExternal">
+      <Documentation>
+        <UserDocu>delExternal(geoId): remove an external reference and the constraints on it.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="fillet">
+      <Documentation>
+        <UserDocu>fillet(geo1, pos1, geo2, pos2, radius) -> int
+
+A corner fillet: the arc tangent to two lines whose given ends meet, in their
+plane, the lines trimmed back to it. Returns the arc's geometry id.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="movePoint">
+      <Documentation>
+        <UserDocu>movePoint(geoId, pos, Vector, relative=False) -> int
+
+Drag a point (pos 1 start, 2 end, 3 centre) or a whole curve (pos 0) with the
+constraints kept. Returns 0 when it solved.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Attribute Name="DoF" ReadOnly="true">
+      <Documentation>
+        <UserDocu>The degrees of freedom the last solve left.</UserDocu>
+      </Documentation>
+      <Parameter Name="DoF" Type="Long"/>
+    </Attribute>
+    <Attribute Name="Conflicting" ReadOnly="true">
+      <Documentation>
+        <UserDocu>Indices of conflicting constraints.</UserDocu>
+      </Documentation>
+      <Parameter Name="Conflicting" Type="List"/>
+    </Attribute>
+    <Attribute Name="Redundant" ReadOnly="true">
+      <Documentation>
+        <UserDocu>Indices of redundant constraints.</UserDocu>
+      </Documentation>
+      <Parameter Name="Redundant" Type="List"/>
+    </Attribute>
+    <Attribute Name="PartiallyRedundant" ReadOnly="true">
+      <Documentation>
+        <UserDocu>Indices of partly redundant constraints.</UserDocu>
+      </Documentation>
+      <Parameter Name="PartiallyRedundant" Type="List"/>
+    </Attribute>
+    <Attribute Name="Malformed" ReadOnly="true">
+      <Documentation>
+        <UserDocu>Indices of constraints a 3D sketch cannot solve.</UserDocu>
+      </Documentation>
+      <Parameter Name="Malformed" Type="List"/>
+    </Attribute>
+  </PythonExport>
+</GenerateModel>

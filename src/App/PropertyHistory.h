@@ -32,7 +32,7 @@
 namespace App
 {
 
-/** The embedded transaction log (docs/TransactionLog.md sec 16.4).
+/** The embedded transaction log (docs/TransactionLogJournal.md sec 16.4).
  *
  * A document-level dynamic property, present in `embedded` mode, holding
  * the log database as one blob and a handle on every blob the retained
@@ -70,7 +70,7 @@ public:
                   const std::vector<std::string>& exts);
     /** A document saved as a folder keeps its database as a file of its
      * own beside Document.xml, `name`, brought up to date at each save
-     * rather than written anew (docs/TransactionLog.md sec 38.9); `dir` is
+     * rather than written anew (docs/TransactionLogJournal.md sec 38.9); `dir` is
      * the folder. The blobs are as setValue() has them.
      */
     void setFile(const std::string& name, const std::string& dir,

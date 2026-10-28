@@ -37,7 +37,7 @@ namespace Gui
 {
 
 /** Objects brought into a document -- pasted, merged, dropped -- of which a
- * live object there has the UID (docs/TransactionLog.md sec 36.4): a list,
+ * live object there has the UID (docs/TransactionLogJournal.md sec 36.4): a list,
  * each row Assign (the live object takes the state brought) or Duplicate (a
  * new object, as a paste was), with Assign all and Duplicate all. Sets each
  * clash's `assign`; false when cancelled.
@@ -49,7 +49,7 @@ GuiExport bool askImportClashes(std::vector<App::Document::ImportClash>& clashes
 
 /** What a paste into `doc` takes of the objects `brought` -- objects of
  * another document: a scratch import of what is pasted, or the source of a
- * copy -- asked before anything is imported (docs/TransactionLog.md sec
+ * copy -- asked before anything is imported (docs/TransactionLogJournal.md sec
  * 37.9, 37.7 item 13). Each is paired with `doc`'s object of its UID and
  * type; with none paired nothing is asked and `takes` stays empty. Asked in
  * the dependency dialog (DlgObjectSelection::setPaste): a check leaves an

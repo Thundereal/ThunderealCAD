@@ -48,7 +48,7 @@ import wsclient
 from wsclient import free_port
 
 # The browser acts on the document, so it is someone: the holder of an
-# invitation issued to its name (docs/TransactionLog.md sec 30.6 U4, U6).
+# invitation issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).
 TOKEN = "toolbar-browser-invite"
 CLIENT = "toolbar-browser"
 
@@ -92,7 +92,9 @@ def browser_safe(name):
     return (name.startswith("Sketcher_Create")
             or name in ("Sketcher_External", "Sketcher_Defining", "Sketcher_Intersection",
                         "Sketcher_IntersectionDefining", "Sketcher_CarbonCopy")
-            or name in DIALOG_FREE_CONSTRAINTS)
+            or name in DIALOG_FREE_CONSTRAINTS
+            or name in SKETCH3D_COMMANDS
+            or name in SURFACE_COMMANDS)
 
 
 DIALOG_FREE_CONSTRAINTS = {"Sketcher_" + n for n in (
@@ -104,6 +106,18 @@ DIALOG_FREE_CONSTRAINTS = {"Sketcher_" + n for n in (
     "Dimension", "ConstrainDistance", "ConstrainDistanceX", "ConstrainDistanceY",
     "ConstrainRadius", "ConstrainDiameter", "ConstrainRadiam", "ConstrainAngle",
     "ChangeDimensionConstraint", "ConstrainSnellsLaw")}
+
+SKETCH3D_COMMANDS = {"Sketcher_" + n for n in (
+    "Sketch3DCyclePlane", "Sketch3DLockHeight", "Sketch3DResetManipulator",
+    "Sketch3DKeepPlane", "Sketch3DRotationHandles", "Sketch3DSplineOnFace",
+    "Constrain3DAlongX", "Constrain3DAlongY", "Constrain3DAlongZ",
+    "ConstrainDistanceZ", "Constrain3DSmooth")}
+
+SURFACE_COMMANDS = {"Surface_Network", "Surface_Trim", "Surface_Split", "Surface_Untrim",
+                    "Surface_ExtendEdges", "Surface_BlendSurface", "Surface_TwoRailSweep",
+                    "Surface_PipeShell", "Surface_EdgeContinuity", "Surface_Isocurve",
+                    "Surface_CurveOnSurface", "Surface_IntersectionCurve",
+                    "Surface_JoinCurves", "Surface_ExtendCurve"}
 
 
 class Run(threading.Thread):

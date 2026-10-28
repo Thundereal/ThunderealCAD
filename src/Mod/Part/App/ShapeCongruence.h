@@ -101,7 +101,7 @@ public:
      * \a own, when given, holds \a shape's invariants from one find to the
      * next: a property keeps them while its shape does not change, so a
      * save of a shape it saved before computes none of them
-     * (docs/TransactionLog.md sec 38.11). \a last, when given, is the match
+     * (docs/TransactionLogJournal.md sec 38.11). \a last, when given, is the match
      * the previous find of the same shape made: if the shape it matched is
      * stored again, the motion to it is the one found then.
      */

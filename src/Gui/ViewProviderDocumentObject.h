@@ -95,7 +95,7 @@ public:
 
     /** @name A property at two states, shown over the object
      *
-     * docs/TransactionLog.md sec 32.9. A value the transaction log holds is
+     * docs/TransactionLogJournal.md sec 32.9. A value the transaction log holds is
      * named by its ref -- a row's op has the value before and after it, a
      * merge's preview the value at the base and at each side -- and an
      * empty ref is the value the object has now. The ref "-" is no value:
@@ -147,7 +147,7 @@ public:
     void setValueChangeRow(long long row) { _valueChangeRow = row; }
     /** The value the next ViewProvider::ValueDiff edit of this object shows
      * against what the object has now, in place of a row's change: a value
-     * the log keeps in the file, by its ref (docs/TransactionLog.md sec
+     * the log keeps in the file, by its ref (docs/TransactionLogJournal.md sec
      * 32.12, 32.27), with the row it was kept at. Spent as
      * setValueChangeRow() is; it goes before a row.
      */
@@ -413,7 +413,7 @@ protected:
     bool isAttachedToDocument() const override;
     const char* detachFromDocument() override;
     /// Its object: how the transaction log names this view provider
-    /// (docs/TransactionLog.md sec 24.9).
+    /// (docs/TransactionLogJournal.md sec 24.9).
     const App::DocumentObject* getTransactionOwner() const override { return pcObject; }
 
     /// get called when a property status has changed

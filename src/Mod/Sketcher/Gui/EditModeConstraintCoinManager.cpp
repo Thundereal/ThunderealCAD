@@ -1446,6 +1446,11 @@ Restart:
                 case None:
                 case InternalAlignment:
                 case NumConstraintTypes:
+                case AlongX:  // 3D sketch only, never in a 2D sketch
+                case AlongY:
+                case AlongZ:
+                case DistanceZ:
+                case Smooth:
                     break;
             }
         }

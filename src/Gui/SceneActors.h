@@ -45,7 +45,7 @@ namespace Gui
 {
 
 /** The connections of the scene server as actors of the transaction log
- * (docs/TransactionLog.md sec 30.3 S.b, 30.6): who a client is, set as the
+ * (docs/TransactionLogJournal.md sec 30.3 S.b, 30.6): who a client is, set as the
  * App::ActorScope for as long as the Gui replays its event or runs its
  * operation, so the rows it makes name it as their author; and its coming
  * and going recorded in the log of the document it joined. GUI thread.

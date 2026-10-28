@@ -1359,16 +1359,73 @@ public:
     //@{
     /// Accessor for parameter MatcapPreset
     ///
-    /// Which matcap to shade with, computed in the shader. Studio: soft key
-    /// light with a rim. Clay: matte, the most neutral read of form. Metal:
-    /// banded, exaggerates curvature. Pearl: warm and cool, shows shallow
-    /// undulation. Zebra: black and white stripes that step at an angle, kink
-    /// at a tangent seam and run through where curvature is continuous.
+    /// Which matcap to shade with. Studio: a soft key light. Clay: matte,
+    /// form alone. Metal: banded, exaggerates curvature. Pearl: warm and cool,
+    /// shows undulation. Zebra: stripes that step at a crease, kink at a
+    /// tangent seam and run through where curvature is continuous. Draft:
+    /// green released, yellow too steep, red undercut along MatcapDirection.
+    /// Curvature: blue negative, green flat, red positive.
     static const long & getMatcapPreset();
     static const long & defaultMatcapPreset();
     static void removeMatcapPreset();
     static void setMatcapPreset(const long &v);
     static const char *docMatcapPreset();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter MatcapFixed
+    ///
+    /// Zebra matcap only: the room of stripes looked at along the view's
+    /// MatcapDirection instead of the camera, so the stripes stay where they
+    /// are on the surface as the view turns -- follow one across an edge by
+    /// turning the model.
+    static const bool & getMatcapFixed();
+    static const bool & defaultMatcapFixed();
+    static void removeMatcapFixed();
+    static void setMatcapFixed(const bool &v);
+    static const char *docMatcapFixed();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter MatcapCurvature
+    ///
+    /// Curvature matcap only: which curvature it colours. Gaussian: the
+    /// product of the two principal ones, negative at a saddle. Mean: their
+    /// average. Least and Greatest: each of them.
+    static const long & getMatcapCurvature();
+    static const long & defaultMatcapCurvature();
+    static void removeMatcapCurvature();
+    static void setMatcapCurvature(const long &v);
+    static const char *docMatcapCurvature();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter MatcapCurvatureRange
+    ///
+    /// Curvature matcap only: the curvature, in 1/mm, the colours saturate
+    /// at -- red at it, blue at its negative. 0.1 is a radius of 10 mm.
+    static const double & getMatcapCurvatureRange();
+    static const double & defaultMatcapCurvatureRange();
+    static void removeMatcapCurvatureRange();
+    static void setMatcapCurvatureRange(const double &v);
+    static const char *docMatcapCurvatureRange();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter MatcapDraftAngle
+    ///
+    /// Draft matcap only: the least draft, in degrees. A face drafted more
+    /// than this along the pull is released (green), less than its negative
+    /// is an undercut (red), and between the two it is too steep (yellow).
+    static const double & getMatcapDraftAngle();
+    static const double & defaultMatcapDraftAngle();
+    static void removeMatcapDraftAngle();
+    static void setMatcapDraftAngle(const double &v);
+    static const char *docMatcapDraftAngle();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)

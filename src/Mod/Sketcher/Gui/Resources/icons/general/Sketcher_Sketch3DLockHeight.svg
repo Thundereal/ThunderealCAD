@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by make_sketch3d_icons.py: change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Lock height</title>
+  <polygon points="4.00,48.00 23.05,59.00 43.84,47.00 24.78,36.00" fill="#4dd0e1" fill-opacity="0.85" stroke="#00838f" stroke-width="2.5" stroke-linejoin="round"/>
+  <polyline points="26.00,47.00 26.00,14.00" fill="none" stroke="#00292d" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <polyline points="26.00,47.00 26.00,14.00" fill="none" stroke="#204a87" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <polygon points="26.00,8.00 31.58,17.00 20.42,17.00" fill="#4dd0e1" stroke="#00292d" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M41.5,26.0 v-5 a4.5,4.5 0 0 1 9,0 v5" fill="none" stroke="#00292d" stroke-width="3.2"/>
+  <rect x="38.0" y="26.0" width="16" height="13" rx="1.5" fill="#00acc1" stroke="#00292d" stroke-width="2"/>
+  <rect x="41.0" y="30.0" width="10" height="2" fill="#4dd0e1"/>
+</svg>

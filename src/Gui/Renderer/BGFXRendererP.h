@@ -5522,6 +5522,7 @@ public:
         fn(u_outputParams, LifeProgram);
         fn(u_colorSpace, LifeProgram);
         fn(u_matcapParams, LifeProgram);
+        fn(u_matcapDir, LifeProgram);
         fn(u_envSH, LifeProgram);
         fn(s_texBump, LifeProgram);
         fn(u_bumpParams, LifeProgram);
@@ -7720,6 +7721,7 @@ public:
     bgfx::UniformHandle u_outputParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_colorSpace = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_matcapParams = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_matcapDir = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_envSH = BGFX_INVALID_HANDLE;
     float envSH[kEnvSH][4];
     /// User environment image the built cubemap came from (null = the
@@ -7747,6 +7749,9 @@ public:
     int matcapPreset = 0;
     float matcapTint = 0.0f;
     float matcapStripes = 6.0f;
+    /// The matcap's world direction (xyz) and, by preset, the fixed
+    /// zebra's switch or the draft's least angle in radians (w)
+    float matcapDir[4] = {0.0f, 0.0f, 1.0f, 0.0f};
     float pbrMetallic = 0.0f;
     // Read the Phong specular colour as PBR material data where nothing
     // states a metalness (PBRConfig::fromSpecular).

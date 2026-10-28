@@ -25,6 +25,7 @@ set(Sketcher_TestScripts
     SketcherTests/TestSketchExternalTypes.py
     SketcherTests/TestSketcherText.py
     SketcherTests/TestSketchRadiusDiameter.py
+    SketcherTests/TestSketch3D.py
 )
 
 if(BUILD_GUI)

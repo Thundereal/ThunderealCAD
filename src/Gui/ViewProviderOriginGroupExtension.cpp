@@ -203,7 +203,7 @@ void ViewProviderOriginGroupExtension::updateOriginSize () {
               || owner->testStatus(App::ObjectStatus::Remove)
               || owner->getDocument()->isPerformingTransaction())
         return;
-    // Fitted to the model, not edited (docs/TransactionLog.md sec 24.10).
+    // Fitted to the model, not edited (docs/TransactionLogJournal.md sec 24.10).
     App::DerivedViewWrites derived;
 
     auto* group = owner->getExtensionByType<App::OriginGroupExtension>();

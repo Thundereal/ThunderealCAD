@@ -79,6 +79,12 @@ Params = [
               "tool extracts deflate, and the extracted folder opens as the\n"
               "document; zstd reads back about twice as fast. Has no effect on a\n"
               "document saved as a directory."),
+    ParamBool('FolderSaveSync', True,
+        title = 'Sync a directory save to disk',
+        doc = "Flush the files a save of a document kept as a directory changed to\n"
+              "the disk before the save counts as done, so that a power loss leaves\n"
+              "the previous save or this one, whole. Costs a disk flush per changed\n"
+              "file; turn it off on a slow network drive."),
     ParamBool('SplitXML', True,
         title = 'Split XML',
         doc = "Give each object an XML file of its own in new documents saved as a\n"
@@ -129,7 +135,7 @@ Params = [
             'it is kept as a file of its own.'),
     ParamInt('BlobAppendSize', 1024,
         doc='How full, in KB, the pack store segment new content is added to\n'
-            'may be before the next batch starts another (docs/TransactionLog.md\n'
+            'may be before the next batch starts another (docs/TransactionLogJournal.md\n'
             'sec 37.4 P8): adding rewrites that segment whole, so this bounds\n'
             'what a commit writes besides its own content. The small segments\n'
             'left behind are merged in the background. At most BlobSegmentSize.'),
@@ -202,7 +208,7 @@ Params = [
     # rather than what it is. With this on, curves on surfaces that no
     # face of the saved shape carries are left out and those flags are
     # written as constants, so an unchanged shape saves to the same bytes
-    # (docs/TransactionLog.md sec 23.12). Nothing the shape needs is
+    # (docs/TransactionLogJournal.md sec 23.12). Nothing the shape needs is
     # lost. Needs the realthunder OCCT fork; ignored without it.
     ParamBool('StableShapeBytes', True,
         doc='Write a shape\'s file from the shape alone, not from what was\n'
@@ -319,7 +325,7 @@ Params = [
         doc = "Record a recompute started with the Refresh command as an undo step.\n"
               "When off, refreshing leaves the undo and redo history alone."),
     ParamInt('TransactionLog', 2,
-        doc='Transaction log mode (docs/TransactionLog.md sec 13.3, 27.5). The\n'
+        doc='Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n'
             'log is always on; what this chooses is whether a save writes the\n'
             'history into the file: 2 (the default) writes it, 1 keeps it in\n'
             'the document transient directory only, where it dies with the\n'
@@ -344,7 +350,7 @@ Params = [
             'a branch. 0 keeps all.'),
     ParamInt('TransactionLogCacheSize', 256,
         doc='The budget of the transaction log cache tier, in MB (docs/\n'
-            'TransactionLog.md sec 37.13): the shapes recomputes wrote that only\n'
+            'TransactionLogJournal.md sec 37.13): the shapes recomputes wrote that only\n'
             'the history holds. Past it the oldest go, the quickest to recompute\n'
             'first, down to three quarters; an undo onto one recomputes it. The\n'
             'newest of each property and what a version lists stay. 0 for none.'),
@@ -352,31 +358,37 @@ Params = [
         doc='The same budget as TransactionLogCacheSize, in values. 0 sets none.'),
     ParamBool('TransactionLogPullOnSave', True,
         doc='A save first brings in what another process saved into the file\n'
-            'since it was read here, and merges it (docs/TransactionLog.md sec\n'
-            '29.8); a conflict stops the save at the merge. Off, the save takes\n'
-            'no lock and writes over the file as before.'),
+            'since it was read here, and merges it (docs/TransactionLogJournal.md sec\n'
+            '29.8); a conflict stops the save at the merge. Off, the save\n'
+            'writes over the file as before. The save lock is taken either way.'),
+    ParamInt('FileOpenerExpiryDays', 30,
+        doc='A line of the open marker beside a file (.~<name>.open) that names\n'
+            'a process of another computer and was not seen -- opened or saved --\n'
+            'for this many days is taken as gone (docs/TransactionLogJournal.md\n'
+            'sec 39.3): one that ended without closing left the folder never\n'
+            'alone again. 0 keeps every line.'),
     ParamInt('TransactionLogCoalesceSeconds', 3,
         doc='A commit that writes by hand the one property the commit before\n'
             'it wrote, by the same author under the same name and within this\n'
             'many seconds of it, is folded into it: one row of the transaction\n'
             'log and one undo step for the run, as a spinbox or a Python loop\n'
-            'makes it (docs/TransactionLog.md sec 37.4 P4). 0 never folds.'),
+            'makes it (docs/TransactionLogJournal.md sec 37.4 P4). 0 never folds.'),
     ParamInt('TransactionLogKeepNamed', 10,
         doc='How many named versions a saved file carries in its history\n'
-            '(docs/TransactionLog.md sec 37.4 P1), the newest first, for a file\n'
+            '(docs/TransactionLogJournal.md sec 37.4 P1), the newest first, for a file\n'
             'that does not say (Document.setHistoryRetention): rows older than\n'
             'the oldest version the file carries are left out of it. A version\n'
             'a branch forked from and a pinned one always travel. 0 carries\n'
             'every named version; below 0 carries the whole history.'),
     ParamInt('TransactionLogCompactSize', 256,
         doc='When the file-scope state of the transaction log is compacted on\n'
-            'its own (docs/TransactionLog.md sec 27.48, 27.49), in KB: after a\n'
+            'its own (docs/TransactionLogJournal.md sec 27.48, 27.49), in KB: after a\n'
             'trim, a branch deletion or a squash, once the names estimated to be\n'
             'referred to by nothing and the strings of the file hasher nothing\n'
             'holds come to this many bytes together. 0 never.'),
     ParamInt('ClosePinnedVersion', 0,
         doc='When the last link pinned to a version of a file goes, what\n'
-            'happens to the document that showed it (docs/TransactionLog.md\n'
+            'happens to the document that showed it (docs/TransactionLogJournal.md\n'
             'sec 27.21 Q5): 0 ask, 1 close it, 2 keep it open. With no Gui to\n'
             'ask, 0 keeps it open.'),
     ParamInt('TransactionLogDeltaHops', 8,
@@ -395,7 +407,7 @@ Params = [
             'on in a debug build.'),
     ParamInt('MergeConflictSide', 0,
         doc='The side a conflict starts on when a merge, or rows applied, are\n'
-            'previewed (docs/TransactionLog.md sec 32.17): 0 ours (the default),\n'
+            'previewed (docs/TransactionLogJournal.md sec 32.17): 0 ours (the default),\n'
             '1 theirs, 2 none -- it is asked. A side is what the dialog starts\n'
             'each conflict on, and what is merged unless another is picked.\n'
             'Asked, nothing is merged or shown until each conflict has a side.\n'

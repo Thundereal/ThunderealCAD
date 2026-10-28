@@ -51,7 +51,7 @@ PROPERTY_SOURCE(Assembly::ViewGroup, App::DocumentObjectGroup)
 
 namespace
 {
-/// An assembly's group owns what it holds (docs/TransactionLog.md sec 37.9)
+/// An assembly's group owns what it holds (docs/TransactionLogJournal.md sec 37.9)
 std::vector<App::DocumentObject*> heldObjects(const App::DocumentObjectGroup& group)
 {
     auto owned = group.App::DocumentObject::getOwnedObjects();

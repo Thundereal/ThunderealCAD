@@ -32,8 +32,10 @@
 
 #include "Mod/Surface/App/Blending/BlendCurve.h"
 #include "Mod/Surface/App/Blending/BlendPoint.h"
+#include <App/Document.h>
 #include <Base/Tools.h>
 
+#include "../ElementNames.h"
 #include "FeatureBlendCurve.h"
 
 
@@ -192,7 +194,19 @@ App::DocumentObjectExecReturn* FeatureBlendCurve::execute()
     Handle(Geom_BezierCurve) bc(curve.compute());
     BRepBuilderAPI_MakeEdge mkEdge(bc);
 
-    Shape.setValue(mkEdge.Edge());
+    // generated from the two edges it joins
+    std::vector<Part::TopoShape> sources;
+    Part::ShapeMapper mapper;
+    for (auto link : {&StartEdge, &EndEdge}) {
+        const auto& subs = link->getSubValues();
+        sources.push_back(Feature::getTopoShape(link->getValue(),
+                                                subs.empty() ? "" : subs[0].c_str(),
+                                                /*needSubElement*/ true));
+        mapper.populate(true, sources.back(), {Part::TopoShape(mkEdge.Edge())});
+    }
+    Part::TopoShape result(0, getDocument()->getStringHasher());
+    result.makESHAPE(mkEdge.Edge(), mapper, sources, Surface::OpCodes::BlendCurve);
+    Shape.setValue(result);
 
     return StdReturn;
 }

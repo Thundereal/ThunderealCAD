@@ -304,7 +304,7 @@ const char* App::setPairingName(SetPairing pairing)
 
 SetImportPlan App::planSetImport(Document& ourTop, const std::string& theirTop)
 {
-    // docs/TransactionLog.md sec 35 L2, L3, 35.6 Q1.
+    // docs/TransactionLogJournal.md sec 35 L2, L3, 35.6 Q1.
     const std::string topKey = keyOf(theirTop);
     if (!QFileInfo(qs(topKey)).isFile())
         THROWM(Base::FileException, "no such file", theirTop.c_str());
@@ -768,7 +768,7 @@ void closeOpened(const std::set<Document*>& before)
 
 SetImportResult App::importSet(const SetImportPlan& plan)
 {
-    // docs/TransactionLog.md sec 35 L4.
+    // docs/TransactionLogJournal.md sec 35 L4.
     // The documents this opens -- branches' tips, to replay into and to
     // relink -- it fills in itself, as a load does: what the Gui still fills
     // in of them is their views, and their changes are the program's, not
@@ -853,8 +853,16 @@ SetImportResult App::importSet(const SetImportPlan& plan)
         r.relative = f.relative;
         r.pairing = f.pairing;
         r.action = defaultSetMergeAction(f);
-        if (!f.ours && !f.ambiguous)
-            r.writeTo = ss(QDir::cleanPath(ourDir.absoluteFilePath(qs(f.relative))));
+        if (!f.ours && !f.ambiguous) {
+            // Under our folder: a file outside theirs -- a library beside
+            // both -- goes under _external/, as the export lays it out,
+            // never up to where their own file is (sec 39, L1).
+            const QString rel = QDir::cleanPath(qs(f.relative));
+            const bool outside = QDir::isAbsolutePath(rel) || rel == QStringLiteral("..")
+                || rel.startsWith(QStringLiteral("../"));
+            r.writeTo = ss(QDir::cleanPath(ourDir.absoluteFilePath(
+                outside ? QStringLiteral("_external/") + QFileInfo(rel).fileName() : rel)));
+        }
         if (!f.ours) {
             // Held at its turn: after the files it links (G4)
             if (!f.ambiguous && plan.ourTop && plan.ourTop->getTransactionLog())
@@ -995,16 +1003,63 @@ namespace
 /// The branch `branch` of `doc`'s file taken in as merged, by a record with
 /// no ops whose second parent is its head: not asked again, and what is held
 /// for it let go. No undo step.
-void recordTaken(Document& doc, const std::string& branch, const char* how)
+void recordTaken(Document& doc, const std::string& branch, const char* how, int step)
 {
     TransactionLog* log = doc.getTransactionLog();
     LogBranch b;
     if (!log || !log->store().findBranch(branch, b))
         return;
     nlohmann::json j;
-    j["set"] = {{"branch", branch}, {"action", how}};
+    // The set's step: undone, the decision is taken back with it (sec 39.4)
+    j["set"] = {{"branch", branch}, {"action", how}, {"step", step}};
     log->record("merge", std::string(how) + " " + branch, j.dump(), b.head);
     log->flush();
+}
+
+/// Whether step `tid` stands undone at `doc`'s head (sec 39, L4): a row of
+/// it on the chain, taken back by an undo no redo took back again.
+bool stepUndone(Document& doc, int tid)
+{
+    TransactionLog* log = doc.getTransactionLog();
+    if (!log || tid <= 0)
+        return false;
+    log->flush();
+    const auto rows = log->store().chain(log->head());
+    std::set<int64_t> turns;
+    for (const auto& t : rows) {
+        if (t.id == tid && t.kind != "undo" && t.kind != "redo")
+            turns.insert(t.seq);
+    }
+    int undone = 0;
+    for (const auto& t : rows) {
+        if ((t.kind == "undo" || t.kind == "redo") && turns.count(t.inverts)) {
+            turns.insert(t.seq);
+            undone += t.kind == "undo" ? 1 : -1;
+        }
+    }
+    return undone > 0;
+}
+
+/// Whether the merge a set's "Merged set" record names stands undone (sec
+/// 39, L4): its step undone in the top or in any file it changed.
+bool setMergeUndone(Document& top, const nlohmann::json& set)
+{
+    const int step = set.value("step", 0);
+    if (!step)
+        return false;
+    if (stepUndone(top, step))
+        return true;
+    for (const auto& file : set.value("changed", nlohmann::json::array())) {
+        if (!file.is_string())
+            continue;
+        for (auto doc : GetApplication().getDocuments()) {
+            if (!doc->testStatus(Document::VersionDoc)
+                    && keyOf(doc->FileName.getStrValue()) == file.get<std::string>()
+                    && stepUndone(*doc, step))
+                return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace
@@ -1188,7 +1243,7 @@ App::previewSetReferences(Document& ourTop, const std::vector<SetMergeFile>& fil
 SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& files,
                              const SetMergeOptions& options)
 {
-    // docs/TransactionLog.md sec 35 L6. The branches' documents it opens it
+    // docs/TransactionLogJournal.md sec 35 L6. The branches' documents it opens it
     // changes itself, as importSet() does.
     Document::UserEditSuspend suspend;
     auto& app = GetApplication();
@@ -1209,8 +1264,40 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
         return app.openDocument(file.c_str(), false);
     };
 
+    // The set merged before and that merge undone: each file's Keep ours
+    // of it is taken back, so that every file is asked again (user,
+    // 2026-10-27, sec 39.4). One worked on since keeps it, and a Merge of
+    // it is refused below: it would bring nothing.
+    std::set<std::size_t> declined;
+    if (!options.set.empty()) {
+        int step = 0;
+        if (TransactionLog* log = ourTop.getTransactionLog()) {
+            log->flush();
+            for (const auto& t : log->store().history(log->head())) {
+                if (t.kind != "set")
+                    continue;
+                const auto j = nlohmann::json::parse(t.script, nullptr, false);
+                if (j.is_object() && j.contains("set") && j["set"].is_object()
+                        && j["set"].value("merged", false)
+                        && j["set"].value("id", std::string()) == options.set)
+                    step = setMergeUndone(ourTop, j["set"]) ? j["set"].value("step", 0) : 0;
+            }
+        }
+        for (std::size_t i = 0; step && i < files.size(); ++i) {
+            if (files[i].ourFile.empty() || files[i].branch.empty())
+                continue;
+            Document* ours = docOf(files[i].ourFile);
+            if (ours && ours->rollBackSetDecision(step) < 0)
+                declined.insert(i);
+        }
+    }
+
     // Nothing moves until all of it can: conflicts with no side, a file to
-    // be written that is there.
+    // be written that is there -- and never one of their set, which a write
+    // would take the history and the links of (sec 39, L1).
+    std::set<std::string> theirFiles;
+    for (const auto& f : files)
+        theirFiles.insert(FileHistory::canonicalPath(f.theirs));
     for (std::size_t i = 0; i < files.size(); ++i) {
         const auto& f = files[i];
         auto& r = result.files[i];
@@ -1219,8 +1306,14 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                 r.error = "no file is held for it";
             else if (f.writeTo.empty())
                 r.error = "no place to write it";
+            else if (theirFiles.count(FileHistory::canonicalPath(f.writeTo)))
+                r.error = "'" + f.writeTo + "' is a file of their set";
             else if (!options.overwrite && QFileInfo::exists(qs(f.writeTo)))
                 r.error = "'" + f.writeTo + "' is there";
+        }
+        else if (f.action == SetMergeAction::Merge && declined.count(i)) {
+            r.error = "Keep ours took its branch in, and the file was changed since: "
+                      "Take theirs, or pick the branch's rows";
         }
         else if (f.action == SetMergeAction::Merge && !f.branch.empty()) {
             Document* ours = docOf(f.ourFile);
@@ -1395,11 +1488,11 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                         // ours that held them goes in this row.
                         ours->restoreVersion(num, ours->importedNames(f.branch));
                         r.seq = ours->getTransactionLog() ? ours->getTransactionLog()->lastSeq() : 0;
-                        recordTaken(*ours, f.branch, "Take theirs");
+                        recordTaken(*ours, f.branch, "Take theirs", tid);
                         break;
                     }
                     case SetMergeAction::KeepOurs:
-                        recordTaken(*ours, f.branch, "Keep ours");
+                        recordTaken(*ours, f.branch, "Keep ours", tid);
                         break;
                     default:
                         break;
@@ -1433,11 +1526,20 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                 checkReferences(doc, now, r.references);
         }
     }
-    // Q9: the set no longer pending.
+    // Q9: the set no longer pending -- while its step stands: the step and
+    // the files it changed, so an undo of it makes it pending again (sec 39,
+    // L4).
     if (!options.set.empty()) {
         if (TransactionLog* log = ourTop.getTransactionLog()) {
             nlohmann::json j;
             j["set"] = {{"id", options.set}, {"merged", true}};
+            auto changed = nlohmann::json::array();
+            for (std::size_t i = 0; i < files.size(); ++i) {
+                if (result.files[i].undoId)
+                    changed.push_back(keyOf(files[i].ourFile));
+            }
+            j["set"]["step"] = result.transaction;
+            j["set"]["changed"] = changed;
             log->record("set", "Merged set", j.dump());
             log->flush();
         }
@@ -1462,8 +1564,11 @@ std::vector<PendingSet> App::pendingSets(Document& ourTop)
         if (!j.is_object() || !j.contains("set") || !j["set"].is_object())
             continue;
         const auto& set = j["set"];
-        if (set.value("merged", false))
-            merged.insert(set.value("id", std::string()));
+        if (set.value("merged", false)) {
+            // A merge whose step was undone leaves the set pending (L4).
+            if (!setMergeUndone(ourTop, set))
+                merged.insert(set.value("id", std::string()));
+        }
         else
             imports.emplace_back(t, set);
     }

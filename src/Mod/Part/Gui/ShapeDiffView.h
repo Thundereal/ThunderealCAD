@@ -47,7 +47,7 @@ namespace PartGui
 class ViewProviderPartExt;
 
 /** Two states of an object's shape, drawn over the object
- * (docs/TransactionLog.md sec 32.9).
+ * (docs/TransactionLogJournal.md sec 32.9).
  *
  * What Part::ShapeDiff says of the two is drawn as PartDesign's preview of a
  * feature is: the faces of each kind are a shape of their own, shown by a

@@ -39,6 +39,7 @@
 #endif
 
 #include <App/DocumentObject.h>
+#include <App/Expression.h>
 #include <App/ExpressionParser.h>
 
 #include "DatumValueEditor.h"
@@ -354,16 +355,67 @@ bool DatumValueEditor::read(Entry& entry, QString* why) const
         entry.expression = check.expression;
         return true;
     }
-    QString copy = text;
-    int pos = 0;
-    if (text.isEmpty() || parser->validate(copy, pos) != QValidator::Acceptable) {
+    if (text.isEmpty() || !parseValue(text, entry.value)) {
         if (why) {
             *why = tr("Not a value");
         }
         return false;
     }
     entry.isExpression = false;
-    entry.value = parser->valueFromText(text);
+    return true;
+}
+
+QString DatumValueEditor::text() const
+{
+    return line ? line->text() : QString();
+}
+
+void DatumValueEditor::setText(const QString& text)
+{
+    if (line) {
+        line->setText(text);
+        line->setCursorPosition(int(text.size()));
+    }
+}
+
+bool DatumValueEditor::parseValue(const QString& text, Base::Quantity& value) const
+{
+    QString copy = text.trimmed();
+    copy.remove(QLocale().groupSeparator());
+    Base::Quantity quantity;
+    bool ok = false;
+    try {
+        quantity = Base::Quantity::parse(copy.toStdString());
+        ok = true;
+    }
+    catch (const Base::Exception&) {
+    }
+    if (!ok) {
+        // "1mm/10", "1mm+2mm": what the spin box takes beyond the quantity parser
+        try {
+            auto expr = App::ExpressionParser::parse(nullptr, copy.toUtf8().constData());
+            if (App::isSimpleExpression(expr.get())) {
+                quantity = App::anyToQuantity(expr->getValueAsAny());
+                ok = true;
+            }
+        }
+        catch (const Base::Exception&) {
+        }
+    }
+    if (!ok || !std::isfinite(quantity.getValue())) {
+        return false;
+    }
+    if (quantity.getUnit().isEmpty() && !target.unit.isEmpty()) {
+        // a bare number, in the unit the line shows
+        double factor = 1.0;
+        std::string unitString;
+        Base::Quantity(1.0, target.unit).getUserString(factor, unitString);
+        quantity = Base::Quantity(quantity.getValue() * factor, target.unit);
+    }
+    if (quantity.getUnit() != target.unit) {
+        return false;
+    }
+    value = quantity;
     return true;
 }
 
@@ -417,9 +469,8 @@ void DatumValueEditor::checkText()
         level = int(check.level);
     }
     else if (!text.isEmpty()) {
-        QString copy = text;
-        int pos = 0;
-        if (parser->validate(copy, pos) != QValidator::Acceptable) {
+        Base::Quantity value;
+        if (!parseValue(text, value)) {
             message = tr("Not a value");
             level = 3;
         }
@@ -472,10 +523,8 @@ void DatumValueEditor::toggleMeasure()
     const QString text = line->text();
     if (text == ownText && !text.trimmed().startsWith(QLatin1Char('='))
         && target.measureFactor > 0.0) {
-        QString copy = text;
-        int pos = 0;
-        if (parser->validate(copy, pos) == QValidator::Acceptable) {
-            const Base::Quantity now = parser->valueFromText(text);
+        Base::Quantity now;
+        if (parseValue(text, now)) {
             const double factor = next == 1 ? target.measureFactor : 1.0 / target.measureFactor;
             ownText = parser->textFromValue(Base::Quantity(now.getValue() * factor, now.getUnit()));
             line->setText(ownText);

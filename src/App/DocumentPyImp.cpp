@@ -44,6 +44,7 @@
 #include "DocumentPy.h"
 #include "DocumentSettings.h"
 #include "DocumentSettingsPy.h"
+#include "ExpressionSecurityRuntime.h"
 #include "ExportSet.h"
 #include "ImportSet.h"
 #include "GeoFeature.h"
@@ -1358,7 +1359,7 @@ PyObject* DocumentPy::undoTransactionFromLog(PyObject *args)
     if (!PyArg_ParseTuple(args, "O", &arg))
         return nullptr;
     PY_TRY {
-        // One row, or several as one step (docs/TransactionLog.md sec 33.13).
+        // One row, or several as one step (docs/TransactionLogJournal.md sec 33.13).
         if (PyLong_Check(arg)) {
             const long long seq = PyLong_AsLongLong(arg);
             if (seq == -1 && PyErr_Occurred())
@@ -2377,6 +2378,9 @@ std::vector<App::SetMergeFile> setMergeFilesOf(PyObject* list)
         f.ourFile = text(d, "our_file");
         f.branch = text(d, "branch");
         f.writeTo = text(d, "write_to");
+        // A host file written by path, as saveCopy (sec 39, L3)
+        if (!f.writeTo.empty())
+            ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, f.writeTo);
         f.fallback = text(d, "fallback");
         if (d.hasKey("held"))
             f.held = Py::Long(d.getItem("held")).as_long_long();
@@ -2557,6 +2561,8 @@ PyObject* DocumentPy::getLastFolderSave(PyObject *args)
         Py::Dict d;
         d.setItem("written", Py::Long(info.written));
         d.setItem("kept", Py::Long(info.kept));
+        d.setItem("viewsWritten", Py::Long(info.viewsWritten));
+        d.setItem("viewsKept", Py::Long(info.viewsKept));
         d.setItem("checked", Py::Boolean(info.checked));
         Py::List differed;
         for (const auto& name : info.differed)
@@ -2604,6 +2610,8 @@ PyObject* DocumentPy::keepTransactionSentFile(PyObject *args)
     const std::string file(path);
     PyMem_Free(path);
     PY_TRY {
+        // A host file read by path (sec 39, L3)
+        ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsRead, file);
         Base::FileInfo fi(file);
         Base::ifstream in(fi, std::ios::in | std::ios::binary);
         if (!in)
@@ -2656,6 +2664,8 @@ PyObject* DocumentPy::writeTransactionSentFile(PyObject *args)
     const std::string file(path);
     PyMem_Free(path);
     PY_TRY {
+        // A host file written by path, as saveAs (sec 39, L3)
+        ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, file);
         getDocumentPtr()->writeSentFile(seq, file);
         Py_Return;
     } PY_CATCH;

@@ -124,7 +124,7 @@ public:
         return "Gui::ViewProviderCoordinateSystem";
     }
 
-    /// The axes, planes and point are owned (docs/TransactionLog.md sec
+    /// The axes, planes and point are owned (docs/TransactionLogJournal.md sec
     /// 37.9): pasted onto a live system, each is the live one of its Role,
     /// kept as it is -- their state is fixed by the system's.
     std::vector<DocumentObject*> getOwnedObjects() const override;

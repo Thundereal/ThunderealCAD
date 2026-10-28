@@ -220,6 +220,16 @@ void Constraint2LinesByAngle(int geoId1, int geoId2, double angle, App::Document
  */
 QMap<QString, QString> findAvailableFontFiles();
 
+/** Whether the 3D view's background, as the View preferences set it, is light: its
+ * colour's luminance, a gradient's averaged over its colours, above 0.35. A sketch's
+ * dimensions, constraint symbols and their border then take their colours for a light
+ * background (the *Light preferences), dark on a light halo where light teal or red on
+ * a dark border is too heavy.
+ */
+bool viewBackgroundIsLight();
+/// A View preference the answer above depends on.
+bool isViewBackgroundParameter(const char* name);
+
 }  // namespace SketcherGui
 
 /// converts a 2D vector into a 3D vector in the XY plane

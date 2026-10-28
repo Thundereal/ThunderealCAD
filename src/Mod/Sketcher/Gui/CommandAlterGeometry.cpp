@@ -41,6 +41,7 @@
 #include "GeometryCreationMode.h"
 #include "Utils.h"
 #include "ViewProviderSketch.h"
+#include "ViewProviderSketch3D.h"
 
 
 using namespace std;
@@ -191,6 +192,13 @@ void CmdSketcherToggleConstruction::updateAction(int mode)
 void CmdSketcherToggleConstruction::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    // A 3D sketch: what its tools make next (selecting geometry is not there yet).
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->setConstructionMode(!vp3->constructionMode());
+        updateToggleConstructionCommands(vp3->constructionMode() ? GeometryCreationMode::Construction
+                                                                 : GeometryCreationMode::Normal);
+        return;
+    }
     // Option A: nothing is selected change creation mode from/to construction
     if (Gui::Selection().countObjectsOfType(Sketcher::SketchObject::getClassTypeId()) == 0) {
 
@@ -301,7 +309,7 @@ void CmdSketcherToggleConstruction::activated(int iMsg)
 
 bool CmdSketcherToggleConstruction::isActive()
 {
-    return isAlterGeoActive(getActiveGuiDocument());
+    return isAlterGeoActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 }  // namespace SketcherGui

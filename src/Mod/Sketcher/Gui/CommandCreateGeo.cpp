@@ -53,6 +53,7 @@
 #include "CircleEllipseConstructionMethod.h"
 #include "Utils.h"
 #include "ViewProviderSketch.h"
+#include "ViewProviderSketch3D.h"
 
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
@@ -129,12 +130,16 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreateLine, "Sketcher_CreateLine")
 void CmdSketcherCreateLine::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Line);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerLine());
 }
 
 bool CmdSketcherCreateLine::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 
@@ -314,12 +319,16 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreatePolyline, "Sketcher_CreatePolyline")
 void CmdSketcherCreatePolyline::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Polyline);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerLineSet());
 }
 
 bool CmdSketcherCreatePolyline::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 
@@ -346,12 +355,16 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreateArc, "Sketcher_CreateArc")
 void CmdSketcherCreateArc::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Arc);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerArc());
 }
 
 bool CmdSketcherCreateArc::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 
@@ -378,6 +391,10 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreate3PointArc, "Sketcher_Create3PointArc
 void CmdSketcherCreate3PointArc::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Arc3Point);
+        return;
+    }
     ActivateHandler(
         getActiveGuiDocument(),
         new DrawSketchHandlerArc(ConstructionMethods::CircleEllipseConstructionMethod::ThreeRim));
@@ -385,7 +402,7 @@ void CmdSketcherCreate3PointArc::activated(int iMsg)
 
 bool CmdSketcherCreate3PointArc::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 DEF_STD_CMD_AU(CmdSketcherCreateArcOfEllipse)
@@ -521,12 +538,16 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreateCircle, "Sketcher_CreateCircle")
 void CmdSketcherCreateCircle::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Circle);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerCircle());
 }
 
 bool CmdSketcherCreateCircle::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 // ======================================================================================
@@ -552,6 +573,10 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreate3PointCircle, "Sketcher_Create3Point
 void CmdSketcherCreate3PointCircle::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Circle3Point);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(),
                     new DrawSketchHandlerCircle(
                         ConstructionMethods::CircleEllipseConstructionMethod::ThreeRim));
@@ -559,7 +584,7 @@ void CmdSketcherCreate3PointCircle::activated(int iMsg)
 
 bool CmdSketcherCreate3PointCircle::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 
@@ -680,6 +705,10 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreateBSpline, "Sketcher_CreateBSpline")
 void CmdSketcherCreateBSpline::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::BSplineControl);
+        return;
+    }
     ActivateHandler(
         getActiveGuiDocument(),
         new DrawSketchHandlerBSpline(
@@ -688,7 +717,7 @@ void CmdSketcherCreateBSpline::activated(int iMsg)
 
 bool CmdSketcherCreateBSpline::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 /// @brief Macro that declares a new sketcher command class 'CmdSketcherCreateBSpline'
@@ -756,6 +785,10 @@ void CmdSketcherCreateBSplineByInterpolation::activated(int iMsg)
     // This command had a handler of its own from before the tools were
     // rebuilt on controllers: no tool widget, no on-view parameters, and
     // only the polygon through the knots drawn while they were placed.
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::BSplineThrough);
+        return;
+    }
     ActivateHandler(
         getActiveGuiDocument(),
         new DrawSketchHandlerBSpline(ConstructionMethods::BSplineConstructionMethod::Knots));
@@ -763,7 +796,7 @@ void CmdSketcherCreateBSplineByInterpolation::activated(int iMsg)
 
 bool CmdSketcherCreateBSplineByInterpolation::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 /// @brief Macro that declares a new sketcher command class
@@ -852,12 +885,16 @@ CmdSketcherCreatePoint::CmdSketcherCreatePoint()
 void CmdSketcherCreatePoint::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Point);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerPoint());
 }
 
 bool CmdSketcherCreatePoint::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 // ======================================================================================
@@ -881,6 +918,13 @@ CmdSketcherCreateFillet::CmdSketcherCreateFillet()
 void CmdSketcherCreateFillet::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        QString why;
+        if (!vp3->filletSelection(&why) && !why.isEmpty()) {
+            Gui::getMainWindow()->showMessage(why, 5000);
+        }
+        return;
+    }
     ActivateHandler(
         getActiveGuiDocument(),
         new DrawSketchHandlerFillet(ConstructionMethods::FilletConstructionMethod::Fillet));
@@ -888,7 +932,7 @@ void CmdSketcherCreateFillet::activated(int iMsg)
 
 bool CmdSketcherCreateFillet::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 // ======================================================================================

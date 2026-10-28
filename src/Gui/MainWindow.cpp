@@ -951,7 +951,7 @@ bool MainWindow::setupSelectionView()
 
 bool MainWindow::setupTransactionLogView()
 {
-    // The transaction log browser (docs/TransactionLog.md sec 22.2)
+    // The transaction log browser (docs/TransactionLogJournal.md sec 22.2)
     if (d->hiddenDockWindows.find("Std_TransactionLogView") == std::string::npos) {
         auto view = new DockWnd::TransactionLogView(nullptr, this);
         view->setObjectName

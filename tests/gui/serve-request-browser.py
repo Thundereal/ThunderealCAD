@@ -1,7 +1,7 @@
 """A real browser sends a copy larger than one message carries, in pieces,
 and goes on with it when its connection drops in the middle.
 
-The browser half of docs/TransactionLog.md sec 32.36 and 32.37.
+The browser half of docs/TransactionLogJournal.md sec 32.36 and 32.37.
 scripts/transaction-log-request-check.py checks the ops -- `upload.begin`,
 `upload.piece`, the op naming the upload, and every refusal -- from the
 host's own Python. What it cannot check is the page (web/src/control.ts

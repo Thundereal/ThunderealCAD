@@ -154,7 +154,7 @@ public:
     JointGroup* getJointGroup() const;
     ViewGroup* getExplodedViewGroup() const;
 
-    /** What an assembly owns (docs/TransactionLog.md sec 37.9): its origin
+    /** What an assembly owns (docs/TransactionLogJournal.md sec 37.9): its origin
      * (as a part's), and its joint, view and BOM groups, which deleting it
      * deletes with their content (ViewProviderAssembly::onDelete). Pasted
      * onto a live assembly, each group stands for the live one's of its

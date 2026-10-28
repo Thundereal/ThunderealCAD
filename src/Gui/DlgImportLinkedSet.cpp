@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <algorithm>
 # include <set>
 # include <QComboBox>
 # include <QDialogButtonBox>
@@ -74,6 +75,15 @@ QString qs(const std::string& s)
 std::string ss(const QString& s)
 {
     return s.toUtf8().constData();
+}
+
+// A line edit's size hint is the same whatever it holds, and the column is
+// sized to its contents: wide enough for the path, up to sixty characters
+void fitToPath(QLineEdit* edit)
+{
+    const QFontMetrics fm = edit->fontMetrics();
+    edit->setMinimumWidth(std::min(fm.horizontalAdvance(edit->text()), fm.averageCharWidth() * 60)
+                          + fm.averageCharWidth() * 2);
 }
 
 }  // namespace
@@ -235,6 +245,7 @@ void DlgImportLinkedSet::readSet()
         writeTo->setObjectName(QStringLiteral("writeTo%1").arg(row));
         writeTo->setText(QDir::toNativeSeparators(
             QDir::cleanPath(ourDir.absoluteFilePath(qs(f.relative)))));
+        fitToPath(writeTo);
         _files->setItemWidget(item, WriteTo, writeTo);
         fillActions(item, f.ours != nullptr, f.certain());
         // Paired by hand: certain, so merged by default.
@@ -307,6 +318,7 @@ void DlgImportLinkedSet::resume(const App::PendingSet& set)
         auto writeTo = new QLineEdit(_files);
         writeTo->setObjectName(QStringLiteral("writeTo%1").arg(row));
         writeTo->setText(QDir::toNativeSeparators(qs(f.writeTo)));
+        fitToPath(writeTo);
         _files->setItemWidget(item, WriteTo, writeTo);
         fillActions(item, !f.ourFile.empty(), true);
         const int at = action->findData(int(f.action));

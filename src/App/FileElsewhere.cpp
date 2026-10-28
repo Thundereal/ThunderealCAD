@@ -23,6 +23,8 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <algorithm>
+# include <atomic>
 # include <chrono>
 # include <cstdio>
 # include <ctime>
@@ -31,14 +33,18 @@
 # include <set>
 # include <sstream>
 # include <thread>
+# include <vector>
 #endif
 
 #ifdef _WIN32
+# include <io.h>
 # include <windows.h>
 #else
 # include <cerrno>
 # include <csignal>
+# include <fcntl.h>
 # include <sys/stat.h>
+# include <unistd.h>
 #endif
 
 #include <boost/interprocess/exceptions.hpp>
@@ -54,10 +60,15 @@
 #include <QSaveFile>
 #include <QSysInfo>
 
+#include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
 
+#include "DocumentParams.h"
 #include "FileElsewhere.h"
+#include "FileHistory.h"
+
+FC_LOG_LEVEL_INIT("App", true, true)
 
 using namespace App;
 
@@ -66,7 +77,10 @@ namespace
 
 std::string beside(const std::string& file, const char* suffix)
 {
-    QFileInfo fi(QString::fromStdString(file));
+    // Beside the file however it is spelled (sec 38.21 P): through a link,
+    // or with a slash after a folder's name, every process names the same
+    // lock, marker and stage.
+    QFileInfo fi(QString::fromStdString(FileHistory::canonicalPath(file)));
     return QDir(fi.absolutePath())
         .filePath(QStringLiteral(".~") + fi.fileName() + QString::fromLatin1(suffix))
         .toStdString();
@@ -110,14 +124,21 @@ double nowSeconds()
     return duration<double>(system_clock::now().time_since_epoch()).count();
 }
 
-/// The marker's lines, those of gone processes of this host left out.
-std::vector<FileOpener> readMarker(const std::string& marker)
+/// The marker's lines, those of gone processes of this host left out --
+/// and those of another host not seen for FileOpenerExpiryDays, which a
+/// process there that ended without closing left (sec 39.3, D4): kept, the
+/// folder was never alone again, its blob files never pruned. They go into
+/// `expired` when asked.
+std::vector<FileOpener> readMarker(const std::string& marker,
+                                   std::vector<FileOpener>* expired = nullptr)
 {
     std::vector<FileOpener> out;
     QFile in(QString::fromStdString(marker));
     if (!in.open(QIODevice::ReadOnly | QIODevice::Text))
         return out;
     const std::string host = thisHost();
+    const long days = DocumentParams::getFileOpenerExpiryDays();
+    const double now = nowSeconds();
     std::istringstream lines(in.readAll().toStdString());
     std::string line;
     while (std::getline(lines, line)) {
@@ -125,8 +146,16 @@ std::vector<FileOpener> readMarker(const std::string& marker)
         FileOpener o;
         if (!(fields >> o.host >> o.pid >> o.since))
             continue;
+        // Last seen: a line written before it was kept is seen when opened.
+        if (!(fields >> o.seen))
+            o.seen = o.since;
         if (o.host == host && !alive(o.pid))
             continue;
+        if (o.host != host && days > 0 && now - o.seen > days * 86400.0) {
+            if (expired)
+                expired->push_back(o);
+            continue;
+        }
         out.push_back(o);
     }
     return out;
@@ -141,7 +170,7 @@ void writeMarker(const std::string& marker, const std::vector<FileOpener>& opene
     std::ostringstream text;
     text.precision(17);
     for (const auto& o : openers)
-        text << o.host << ' ' << o.pid << ' ' << o.since << '\n';
+        text << o.host << ' ' << o.pid << ' ' << o.since << ' ' << o.seen << '\n';
     const std::string bytes = text.str();
     for (int attempt = 0; attempt < 50; ++attempt) {
         if (attempt)
@@ -391,16 +420,24 @@ std::vector<FileOpener> FileOpeners::add(const std::string& file)
     MarkerLock lock(file);
     std::vector<FileOpener> all;
     std::vector<FileOpener> others;
-    for (const auto& o : readMarker(marker)) {
-        if (isMe(o))
-            continue;
-        all.push_back(o);
-        others.push_back(o);
-    }
+    std::vector<FileOpener> expired;
     FileOpener me;
     me.host = thisHost();
     me.pid = thisPid();
     me.since = nowSeconds();
+    for (const auto& o : readMarker(marker, &expired)) {
+        if (isMe(o)) {
+            me.since = o.since;   // opened then; seen now
+            continue;
+        }
+        all.push_back(o);
+        others.push_back(o);
+    }
+    for (const auto& o : expired)
+        Base::Console().Warning("'%s': %s was not seen for %ld days: taken as gone\n",
+                                file.c_str(), describe(o).c_str(),
+                                DocumentParams::getFileOpenerExpiryDays());
+    me.seen = nowSeconds();
     all.push_back(me);
     writeMarker(marker, all);
     return others;
@@ -469,6 +506,67 @@ bool sameBytes(const QString& a, const QString& b)
     return true;
 }
 
+/// Flush `path`'s bytes to the disk (docs/TransactionLogJournal.md sec 38.16, Q5).
+/// Opened for writing: Windows flushes only a handle that may write.
+bool syncFile(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadWrite))
+        return false;
+#ifdef _WIN32
+    return FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(f.handle()))) != 0;
+#else
+    return ::fsync(f.handle()) == 0;
+#endif
+}
+
+/// syncFile() each of `paths`, several at a time when they are many: a
+/// journal takes the flushes that come together in one commit, which made
+/// 600 files 55 ms on 64 threads against 270 ms one by one (sec 38.16).
+/// The first that failed, or empty.
+QString syncFiles(const QStringList& paths)
+{
+    const int count = static_cast<int>(paths.size());
+    const int threads = std::min(32, count / 4);
+    std::atomic<int> next {0};
+    std::atomic<int> failed {-1};
+    auto work = [&]() {
+        for (int i = next++; i < count; i = next++) {
+            if (!syncFile(paths[i])) {
+                int none = -1;
+                failed.compare_exchange_strong(none, i);
+            }
+        }
+    };
+    if (threads < 2) {
+        work();
+    }
+    else {
+        std::vector<std::thread> pool;
+        pool.reserve(threads);
+        for (int t = 0; t < threads; ++t)
+            pool.emplace_back(work);
+        for (auto& t : pool)
+            t.join();
+    }
+    return failed < 0 ? QString() : paths[failed];
+}
+
+/// Make what `dir` lists durable, where that is a step of its own; on
+/// Windows a file's flush covers its entry.
+void syncDir(const QString& dir)
+{
+#ifndef _WIN32
+    const int fd = ::open(QFile::encodeName(dir).constData(), O_RDONLY);
+    if (fd >= 0) {
+        ::fsync(fd);
+        ::close(fd);
+    }
+#else
+    (void)dir;
+#endif
+}
+
 /// The staged files, relative to the stage, the record left out.
 QStringList stagedFiles(const QString& stage)
 {
@@ -499,8 +597,9 @@ bool moveOver(const QString& from, const QString& to, std::string& why)
     return false;
 }
 
-/// Move a recorded stage in. False when it has no record.
-bool rollForward(const QString& folder, const QString& stage)
+/// Move a recorded stage in. False when it has no record. With `sync`, the
+/// folder's entries are made durable before the record goes.
+bool rollForward(const QString& folder, const QString& stage, bool sync)
 {
     QFile record(QDir(stage).filePath(QLatin1String(commitName)));
     if (!record.open(QIODevice::ReadOnly | QIODevice::Text))
@@ -517,8 +616,22 @@ bool rollForward(const QString& folder, const QString& stage)
                 return false;
             continue;
         }
-        if (line.startsWith(QLatin1String("remove ")))
-            removals.push_back(line.mid(7));
+        if (line.startsWith(QLatin1String("remove "))) {
+            // A name in the folder, as commit() writes it (sec 38.21 F4): a
+            // record naming anything outside it was not written by a save,
+            // and is taken for no record, so the stage is thrown away.
+            const QString rel = line.mid(7);
+            const QString clean = QDir::cleanPath(rel);
+            if (rel.isEmpty() || QDir::isAbsolutePath(rel) || clean == QLatin1String("..")
+                    || clean.startsWith(QLatin1String("../")) || rel.contains(QLatin1Char('\\'))
+                    || rel.contains(QLatin1Char(':'))) {
+                FC_WARN("the save record beside '" << folder.toStdString()
+                        << "' names a file outside it, '" << rel.toStdString()
+                        << "'; the stage is thrown away");
+                return false;
+            }
+            removals.push_back(rel);
+        }
     }
     record.close();
 
@@ -530,8 +643,10 @@ bool rollForward(const QString& folder, const QString& stage)
     if (files.removeAll(docXml))
         files.push_back(docXml);
     QDir target(folder);
+    std::set<QString> moved;
     for (const QString& rel : files) {
         const QString to = target.filePath(rel);
+        moved.insert(QFileInfo(to).absolutePath());
         target.mkpath(QFileInfo(to).absolutePath());
         std::string why;
         if (!moveOver(QDir(stage).filePath(rel), to, why)) {
@@ -542,6 +657,10 @@ bool rollForward(const QString& folder, const QString& stage)
                        .c_str(),
                    Base::FileInfo(folder.toStdString()));
         }
+    }
+    if (sync) {
+        for (const QString& dir : moved)
+            syncDir(dir);
     }
     for (const QString& rel : removals)
         QFile::remove(target.filePath(rel));
@@ -571,7 +690,8 @@ int FolderSave::recover(const std::string& folder)
         return 0;
     QFileInfo fi(QString::fromStdString(folder));
     const QString canonical = fi.canonicalFilePath();
-    if (rollForward(canonical.isEmpty() ? fi.absoluteFilePath() : canonical, stage))
+    if (rollForward(canonical.isEmpty() ? fi.absoluteFilePath() : canonical, stage,
+                    App::DocumentParams::getFolderSaveSync()))
         return 1;
     QDir(stage).removeRecursively();
     return -1;
@@ -606,6 +726,30 @@ void FolderSave::commit(const std::string& folder, const std::vector<std::string
             QFile::remove(staged);
     }
 
+    // Q5 (sec 38.16): what is moved in is on the disk before the record
+    // says the stage is whole, so that a power loss leaves either the
+    // previous save or this one. A file that cannot be flushed fails the
+    // save with the folder as it was.
+    const bool sync = App::DocumentParams::getFolderSaveSync();
+    if (sync) {
+        std::set<QString> dirs {stage};
+        QStringList staged;
+        for (const QString& rel : stagedFiles(stage)) {
+            staged.push_back(QDir(stage).filePath(rel));
+            dirs.insert(QFileInfo(staged.back()).absolutePath());
+        }
+        const QString failed = syncFiles(staged);
+        if (!failed.isEmpty()) {
+            THROWM(Base::FileException,
+                   ("cannot flush '" + QDir(stage).relativeFilePath(failed).toStdString()
+                    + "' of the folder's save to the disk; nothing was moved in")
+                       .c_str(),
+                   Base::FileInfo(folder));
+        }
+        for (const QString& dir : dirs)
+            syncDir(dir);
+    }
+
     QSaveFile record(QDir(stage).filePath(QLatin1String(commitName)));
     if (!record.open(QIODevice::WriteOnly | QIODevice::Text)) {
         THROWM(Base::FileException, "cannot write the record of the folder's save",
@@ -622,5 +766,10 @@ void FolderSave::commit(const std::string& folder, const std::vector<std::string
         THROWM(Base::FileException, "cannot write the record of the folder's save",
                Base::FileInfo(folder));
     }
-    rollForward(target, stage);
+    // The record is in, so the save goes in below whatever this answers.
+    if (sync) {
+        syncFile(QDir(stage).filePath(QLatin1String(commitName)));
+        syncDir(stage);
+    }
+    rollForward(target, stage, sync);
 }

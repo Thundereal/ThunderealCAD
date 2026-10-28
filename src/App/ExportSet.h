@@ -34,7 +34,7 @@ namespace App
 {
 class Document;
 
-/** A set of linked files written to a folder (docs/TransactionLog.md sec 35
+/** A set of linked files written to a folder (docs/TransactionLogJournal.md sec 35
  * L7, "pack and go"): the top document and every document its links reach,
  * each as a file of its own, the links between them written to those files.
  */

@@ -42,7 +42,7 @@ class Document;
 class FileBlobManager;
 class TransactionLogCore;
 
-/** What the documents of one physical file share (docs/TransactionLog.md
+/** What the documents of one physical file share (docs/TransactionLogJournal.md
  * sec 27.5, 27.7): one log per file, where it used to be one document per
  * file, and 16.2's one blob manager per history.
  *
@@ -64,7 +64,7 @@ public:
     /// A history in `home`'s transient directory, not yet registered.
     static std::shared_ptr<FileHistory> create(Document& home);
     /** The history of the file at `path` with no document of it open
-     * (docs/TransactionLog.md sec 27.13): the one registered, or else the
+     * (docs/TransactionLogJournal.md sec 27.13): the one registered, or else the
      * one embedded in the file, read straight out of the archive -- its
      * blobs split into a store of its own, the copy adopted under the guard
      * of 16.4 (closed branches when the file was edited elsewhere), and the
@@ -97,7 +97,7 @@ public:
     /// first document's log and kept for as long as the history is.
     std::shared_ptr<TransactionLogCore>& logCore() { return _logCore; }
 
-    /** The file's object ids (docs/TransactionLog.md sec 27.40 item 1): the
+    /** The file's object ids (docs/TransactionLogJournal.md sec 27.40 item 1): the
      * last id any document of the file handed out or found. Every document
      * of the file allocates from it, so no two objects of the file, in any
      * version or branch, share an id -- and a reopen does not hand out a
@@ -112,7 +112,7 @@ public:
     }
     long nextObjectId() { return ++_lastObjectId; }
 
-    /** The file's object names (docs/TransactionLog.md sec 27.40 item 3,
+    /** The file's object names (docs/TransactionLogJournal.md sec 27.40 item 3,
      * 27.41 Q3): one to one, object id <-> name, over every version and
      * branch, and never freed. A new object takes no name the table gives
      * another id; an object coming back -- undo, a version, a branch --
@@ -141,7 +141,7 @@ public:
         _idOfName.emplace(name, id);
         _nameOfId.emplace(id, name);
     }
-    /** The file's object UIDs (docs/TransactionLog.md sec 36.3): one to
+    /** The file's object UIDs (docs/TransactionLogJournal.md sec 36.3): one to
      * one, object id <-> UID, over every version and branch. An object made
      * under an id the file knows has its UID; one brought with a UID the
      * file knows comes back under its id.
@@ -167,7 +167,7 @@ public:
         _uidOfId.emplace(id, uid);
     }
     /// `id` has `uid` in place of what it was noted with: an object read
-    /// before its own UID was (docs/TransactionLog.md sec 36.7).
+    /// before its own UID was (docs/TransactionLogJournal.md sec 36.7).
     void renoteObjectUid(long id, const std::string& uid)
     {
         if (uid.empty() || id <= 0 || _idOfUid.count(uid))
@@ -190,7 +190,7 @@ public:
         if (_fileUid.empty())
             _fileUid = uid;
     }
-    /** The last geometry id of each object, file wide (docs/TransactionLog.md
+    /** The last geometry id of each object, file wide (docs/TransactionLogJournal.md
      * sec 27.40 item 4, 27.41 Q5): a sketch edited in two branches, or
      * reopened after a deletion, mints no id twice. `floor` is the largest
      * id the object holds itself.
@@ -210,7 +210,7 @@ public:
     const std::unordered_map<long, long>& lastGeoIds() const { return _lastGeoIds; }
 
     /** The object ids, the names and the geometry ids start over
-     * (docs/TransactionLog.md sec 33.3): for a temporary document emptied
+     * (docs/TransactionLogJournal.md sec 33.3): for a temporary document emptied
      * to be filled again. It has no version and no branch an id could be
      * found again in, and what is copied into it has to come out with the
      * same ids, and so the same element names, every time.
@@ -226,14 +226,14 @@ public:
     }
 
     /** The bytes of name and geometry-id entries estimated to be referred
-     * to by nothing since the last compaction (docs/TransactionLog.md sec
+     * to by nothing since the last compaction (docs/TransactionLogJournal.md sec
      * 27.48, 27.49): what trimming, deleting a branch and squashing left
      * behind. Kept in the store's meta by the log; compaction resets it.
      */
     std::size_t compactEstimate() const { return _compactEstimate; }
     void setCompactEstimate(std::size_t n) { _compactEstimate = n; }
 
-    /** Compaction (docs/TransactionLog.md sec 27.47): forget the name and
+    /** Compaction (docs/TransactionLogJournal.md sec 27.47): forget the name and
      * the last geometry id of every object not in `used`. The counters stay
      * where they are. Returns the ids forgotten, and in `names` how many
      * names went.
@@ -291,7 +291,7 @@ public:
     }
 
     /** The string tables, by content hash, this history's hasher has taken
-     * in (docs/TransactionLog.md sec 27.50 item 3): a document of the file
+     * in (docs/TransactionLogJournal.md sec 27.50 item 3): a document of the file
      * reads a table at most once.
      */
     void noteTable(const std::string& hash) { _tables.insert(hash); }
@@ -320,7 +320,7 @@ public:
     /// The canonical form of `path` the registry keys by.
     static std::string canonicalPath(const std::string& path);
     /// What a file says of the save it is from, with nothing of a history
-    /// read (docs/TransactionLog.md sec 30.19).
+    /// read (docs/TransactionLogJournal.md sec 30.19).
     struct Saved
     {
         /// Its `Version`: the number the save became, and the save's id.
@@ -340,7 +340,7 @@ public:
         std::string branch; ///< empty for a version (the frozen instance)
         int64_t version = 0; ///< 0 for a branch's tip
     };
-    /** The name of a document of a file (docs/TransactionLog.md sec 27.23,
+    /** The name of a document of a file (docs/TransactionLogJournal.md sec 27.23,
      * 27.24): after the file, `@v<num>` (a version, the frozen instance a
      * pin shows), `@<branch>@v<num>` (an editable instance at a version) or
      * `@<branch>@` (a branch's tip). The file is the longest prefix that is

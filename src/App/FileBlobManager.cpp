@@ -412,7 +412,7 @@ bool decodeMember(const BlobRawMember& member, std::string& bytes)
 
 /// Compress content into a member named \a name: zstd at level 3 where the
 /// build has it (sec 15.7), else deflate. `portable`: deflate at its fastest
-/// level, which any zip tool reads (docs/TransactionLog.md sec 38.10).
+/// level, which any zip tool reads (docs/TransactionLogJournal.md sec 38.10).
 std::shared_ptr<BlobRawMember> encodeMember(const std::string& bytes, const std::string& name,
                                             bool portable = false)
 {
@@ -2028,6 +2028,27 @@ bool FileBlobManager::readArchiveMember(const std::string& path, const std::stri
 std::map<std::string, BlobIndexEntry> FileBlobManager::archiveBlobIndex(const std::string& path,
                                                                       bool* hasIndex)
 {
+    // A document saved as a folder (docs/TransactionLogJournal.md sec 38.13): its
+    // blobs are files, named as the members would be.
+    if (Base::FileInfo(path).isDir()) {
+        const std::string dir = path + "/" + archivePrefix();
+        const auto listed = readIndex(dir + indexName());
+        if (hasIndex)
+            *hasIndex = Base::FileInfo(dir + indexName()).exists();
+        std::map<std::string, BlobIndexEntry> out;
+        QDir source(QString::fromUtf8(dir.c_str()));
+        for (const QFileInfo& info : source.entryInfoList(QDir::Files)) {
+            const std::string member = info.fileName().toUtf8().constData();
+            if (member == indexName())
+                continue;
+            auto it = listed.find(member);
+            if (it != listed.end() && !it->second.hash.empty())
+                out[member] = it->second;
+            else
+                out[member].hash = hashFile(info.absoluteFilePath().toUtf8().constData());
+        }
+        return out;
+    }
     BlobArchive archive(path, false);
     const std::string prefix = archivePrefix();
     const std::string index = prefix + indexName();
@@ -2285,6 +2306,21 @@ void FileBlobManager::holdFolderBlobs(const std::string& folder)
     restoreFromDirectory(folder + "/" + archivePrefix(), true);
 }
 
+std::map<long, std::vector<std::string>> FileBlobManager::takeRestoredReferences()
+{
+    std::map<long, std::vector<std::string>> out;
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        out.swap(_restoredRefs);
+    }
+    for (auto& entry : out) {
+        std::sort(entry.second.begin(), entry.second.end());
+        entry.second.erase(std::unique(entry.second.begin(), entry.second.end()),
+                           entry.second.end());
+    }
+    return out;
+}
+
 std::map<long, std::vector<std::string>> FileBlobManager::referencesByObject() const
 {
     std::map<long, std::vector<std::string>> out;
@@ -2407,6 +2443,19 @@ void FileBlobManager::hold(FileBlobHandle blob)
     slot = std::move(blob);
 }
 
+void FileBlobManager::noteRestored(BlobReferrerProperty* referrer, const FileBlobHandle& blob)
+{
+    auto prop = dynamic_cast<Property*>(referrer);
+    if (auto obj = Base::freecad_dynamic_cast<DocumentObject>(prop ? prop->getContainer()
+                                                                   : nullptr)) {
+        std::string name = obj->getNameInDocument() ? obj->getNameInDocument() : "";
+        name += '.';
+        name += prop->getName() ? prop->getName() : "";
+        std::lock_guard<std::mutex> guard(_mutex);
+        _restoredRefs[obj->getID()].push_back(blob->hash() + " " + name);
+    }
+}
+
 void FileBlobManager::addPendingReferrer(const std::string& hash, BlobReferrerProperty* prop)
 {
     if (hash.empty() || !prop) {
@@ -2417,6 +2466,7 @@ void FileBlobManager::addPendingReferrer(const std::string& hash, BlobReferrerPr
     if (auto blob = find(hash)) {
         FC_TRACE("referrer served at once from " << hash);
         prop->assignRestoredBlob(blob);
+        noteRestored(prop, blob);
         return;
     }
     FC_TRACE("referrer queued for " << hash);
@@ -2514,6 +2564,7 @@ void FileBlobManager::dispatchPending()
         }
         if (blob) {
             entry.second->assignRestoredBlob(blob);
+            noteRestored(entry.second, blob);
         }
         else {
             auto& counts = missing[entry.first];
@@ -3317,7 +3368,7 @@ void FileBlobManager::flushLocked()
     const uint64_t cap = segmentCap();
     // Adding to a segment rewrites it whole: past this, the batch starts a
     // new one rather than copy the old one's members again (sec 37.4 P8 of
-    // docs/TransactionLog.md); maintain() merges the small ones.
+    // docs/TransactionLogJournal.md); maintain() merges the small ones.
     const uint64_t append = appendCap();
     for (;;) {
         std::vector<std::shared_ptr<const BlobRawMember>> batch;
@@ -3470,7 +3521,7 @@ void FileBlobManager::maintain()
     // sizes merge, the smallest first: a group goes only when none of it is
     // more than half of it, so a merged segment is not written again for
     // every small one a batch leaves after it (sec 37.4 P8 of
-    // docs/TransactionLog.md) -- each byte is merged a logarithmic number of
+    // docs/TransactionLogJournal.md) -- each byte is merged a logarithmic number of
     // times.
     std::stable_sort(small.begin(), small.end(),
                      [](const Plan* a, const Plan* b) { return a->live < b->live; });

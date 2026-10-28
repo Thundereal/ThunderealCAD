@@ -34,6 +34,8 @@
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/PartGlobal.h>
 
+#include "ViewProviderCurvatureComb.h"
+
 
 class TopoDS_Shape;
 class TopoDS_Edge;
@@ -405,7 +407,7 @@ public:
 
     /** @name The shape at two states, shown over the object
      *
-     * docs/TransactionLog.md sec 32.9: a shape property's two values, read
+     * docs/TransactionLogJournal.md sec 32.9: a shape property's two values, read
      * from the log with their names, compared (Part::ShapeDiff) and drawn.
      * Gone when the object's own shape changes while it is one of the two.
      *
@@ -1017,6 +1019,9 @@ private:
     static const char* DrawStyleEnums[];
 
     Part::TopoShape cachedShape;
+
+    /// The curvature comb, for any Part object (docs/Surface.md sec 7)
+    ViewProviderCurvatureCombExtension combExtension;
 };
 
 }

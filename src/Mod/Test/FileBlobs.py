@@ -64,7 +64,7 @@ BLOB_INDEX = "Content.xml"
 
 def logIsOn():
     """The transaction log keeps what a document drops, as its history
-    (docs/TransactionLog.md sec 23.16), so nothing dies with it on."""
+    (docs/TransactionLogJournal.md sec 23.16), so nothing dies with it on."""
     params = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
     return params.GetInt("TransactionLog", 2) != 0
 
@@ -676,7 +676,7 @@ class BlobSaveOptionCases(BlobTestCase):
         reopened = self.openDocument(project)
         self.assertContent(reopened.getObject("File1"), b"shared")
         self.assertContent(reopened.getObject("File2"), b"shared")
-        # Read in the folder, not copied into the store (TransactionLog.md
+        # Read in the folder, not copied into the store (TransactionLogJournal.md
         # sec 38.9): one file for both.
         self.assertEqual(self.storedBlobs(reopened), [])
         self.assertEqual(reopened.getObject("File1").File, reopened.getObject("File2").File)
@@ -1555,7 +1555,7 @@ class BlobPackStoreCases(BlobTestCase):
         self.assertFalse([n for n in self.segments(doc) if n.endswith(".tmp")])
 
     def testASaveRewritesNoMoreThanTheAppendCap(self):
-        # docs/TransactionLog.md sec 37.4 P8: adding to a segment rewrites it
+        # docs/TransactionLogJournal.md sec 37.4 P8: adding to a segment rewrites it
         # whole, so past BlobAppendSize the batch starts a new one; what a
         # save writes is its content and at most that much of the old.
         self.params.SetInt("BlobSegmentSize", 64)

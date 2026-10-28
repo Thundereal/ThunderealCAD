@@ -2,7 +2,7 @@
 back and applied, versions, branches, requests to merge -- each within what
 it may of the branch.
 
-docs/TransactionLog.md sec 32.22, 32.25. The log's panel in a browser lists
+docs/TransactionLogJournal.md sec 32.22, 32.25. The log's panel in a browser lists
 what the host answers (sec 32.21, tests/gui/serve-log.py); this is what it
 does with it, each an op the host does or refuses with the reason
 (Gui/SceneLog.cpp):

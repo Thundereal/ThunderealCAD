@@ -1,4 +1,4 @@
-"""A drag out of an Auto Delete link group is a move (docs/TransactionLog.md sec 37.12).
+"""A drag out of an Auto Delete link group is a move (docs/TransactionLogJournal.md sec 37.12).
 
 A link group in Auto Delete mode removes an element taken out of its list:
 that is what the mode is for, and a removal by the API keeps doing it. The

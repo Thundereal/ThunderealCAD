@@ -51,7 +51,7 @@ struct Actor;
  * (PropertyLinkBase::updateElementReferences); a shape its object's
  * placement is laid on. A transaction records such a write as followed:
  * kept as a value set by hand is, and no change to a merge
- * (docs/TransactionLog.md sec 31.25, 31.26).
+ * (docs/TransactionLogJournal.md sec 31.25, 31.26).
  */
 class AppExport TransactionFollowing
 {
@@ -89,7 +89,7 @@ public:
     // the utf-8 name of the transaction
     std::string Name;
     /** Opened by the document itself because a write arrived with no
-     * transaction active and the log is on (docs/TransactionLog.md sec
+     * transaction active and the log is on (docs/TransactionLogJournal.md sec
      * 9.1). Closed when the invocation that opened it returns
      * (Application::InvocationScope), by the next explicit transaction,
      * or by a save or close. `Origin` names the invocation.
@@ -97,7 +97,7 @@ public:
     bool Implicit {false};
     std::string Origin;
     /// The row the transaction log wrote for this transaction (its seq),
-    /// 0 when none was written (docs/TransactionLog.md sec 24.2).
+    /// 0 when none was written (docs/TransactionLogJournal.md sec 24.2).
     int64_t LogSeq {0};
     /// For a transaction the document makes to undo a log row (sec 24.4):
     /// the kind the log records ("undo") and the row it inverts.
@@ -109,13 +109,13 @@ public:
     /// The row's script (sec 27.63): an undo's, a redo's or a restore's
     /// record of the touched state it changed.
     std::string LogScript;
-    /// Who opened it (docs/TransactionLog.md sec 30.3 S.b), null for the
+    /// Who opened it (docs/TransactionLogJournal.md sec 30.3 S.b), null for the
     /// desktop user: the actor of the thread when it was made, kept so a
     /// row written later -- at the event loop, by whoever closes it -- is
     /// still its author's.
     std::shared_ptr<const Actor> Author;
     /** The state of the document's values this step was made in and the
-     * one it left (docs/TransactionLog.md sec 30.10): tokens of the
+     * one it left (docs/TransactionLogJournal.md sec 30.10): tokens of the
      * document, a new one for every change. A step can be applied from its
      * copies only while the document is in the state it left; an undo's
      * redo step has the two the other way round. 0 is no known state.
@@ -123,7 +123,7 @@ public:
     int64_t StateBefore {0};
     int64_t StateAfter {0};
     /** Log writes held until this transaction's own row is written
-     * (docs/TransactionLog.md sec 27.59): a recompute run while it is open
+     * (docs/TransactionLogJournal.md sec 27.59): a recompute run while it is open
      * comes after its writes, and its record must follow its row. Dropped
      * with the transaction when it is aborted.
      */
@@ -137,7 +137,7 @@ public:
      * writes a reference outside the update that follows it.
      */
     void inheritDerived(const Transaction& from);
-    /** The one property this transaction wrote by hand (docs/TransactionLog.md
+    /** The one property this transaction wrote by hand (docs/TransactionLogJournal.md
      * sec 37.4 P4): every other write was a recompute's or followed another
      * value, no object came or went, no freeze changed. False otherwise.
      */
@@ -159,7 +159,7 @@ public:
     void inheritDerived(
         const std::function<bool(const TransactionalObject*, const Property*)>& derived,
         const std::function<bool(const TransactionalObject*, const Property*)>& followed);
-    /** Past the hot window (docs/TransactionLog.md sec 24.3): the step's
+    /** Past the hot window (docs/TransactionLogJournal.md sec 24.3): the step's
      * copies are gone and only its id, name and LogSeq are left. Applying
      * it reverts that log row from the log (Document::revertFromLog).
      */
@@ -255,25 +255,25 @@ protected:
         const Property *propertyOrig = nullptr;
         /// The first write of this transaction happened while the owning
         /// object was recomputing, i.e. the value is the object's own
-        /// output (docs/TransactionLog.md sec 10). Recorded here because
+        /// output (docs/TransactionLogJournal.md sec 10). Recorded here because
         /// only the write site can tell; a commit-time reader cannot.
         bool derived = false;
         /// The first write of this transaction was made inside a
         /// TransactionFollowing: the value follows another -- the shape of
         /// the object a reference names, the placement of a shape's own
-        /// object -- and is no change to a merge (docs/TransactionLog.md
+        /// object -- and is no change to a merge (docs/TransactionLogJournal.md
         /// sec 31.25, 31.26). Never with `derived`; a write by hand later
         /// in the transaction takes it off again.
         bool followed = false;
         /// Set by the transaction log when it hands `property` to its
-        /// writer thread (docs/TransactionLog.md sec 20.2, decision 4):
+        /// writer thread (docs/TransactionLogJournal.md sec 20.2, decision 4):
         /// the copy is then co-owned, and outlives this record until it
         /// is serialised. While set, `property` is not deleted here.
         std::shared_ptr<Property> shared;
         /// The log's hash of `property` when it was adopted from
         /// TransactionCopyCache: filled by the log's worker when it wrote
         /// the copy as an after value, so the before value it now is need
-        /// not be serialised again (docs/TransactionLog.md sec 25.4).
+        /// not be serialised again (docs/TransactionLogJournal.md sec 25.4).
         std::shared_ptr<std::string> logHash;
         /// The touched state before the first write of this transaction,
         /// for the log (sec 27.58): the property's Touched bit and its
@@ -348,7 +348,7 @@ public:
 };
 
 /** The after values a transaction log copied at commit, kept for the next
- * write (docs/TransactionLog.md sec 25.4).
+ * write (docs/TransactionLogJournal.md sec 25.4).
  *
  * The log copies every property a commit set so its worker can write the
  * value at once. The next transaction to write that property would copy it
@@ -408,7 +408,7 @@ public:
     static bool addPendingRemove(TransactionalObject *);
     /** Run `fn` once the outermost guard has touched what the transactions
      * applied under it wrote, before it signals the undo or redo; at once
-     * when no guard is active (docs/TransactionLog.md sec 27.63: the
+     * when no guard is active (docs/TransactionLogJournal.md sec 27.63: the
      * touched state an undo leaves is set after those touches).
      */
     static void afterTouches(std::function<void()> fn);

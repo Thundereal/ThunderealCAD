@@ -332,7 +332,7 @@ bool MDIView::onMsg(const char* pMsg,const char** ppReturn)
         return false;
 
     // The user's own undo: a step refused is said and may be gone past
-    // (docs/TransactionLog.md sec 33.11).
+    // (docs/TransactionLogJournal.md sec 33.11).
     if(strcmp("Undo",pMsg) == 0 ) {
         getGuiDocument()->undo(1, true);
         return true;

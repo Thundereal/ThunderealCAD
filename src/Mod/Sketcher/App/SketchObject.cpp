@@ -262,7 +262,7 @@ std::vector<std::string> SketchObject::getMergeUnit(const char* prop) const
     // in ExternalGeo below zero. A merge that took one side's Constraints
     // and kept the other's Geometry left a constraint on a line that is
     // gone, or on the line that moved into its place
-    // (docs/TransactionLog.md sec 31.1).
+    // (docs/TransactionLogJournal.md sec 31.1).
     static const std::vector<std::string> unit {"Geometry", "Constraints", "ExternalGeo",
                                                 "ExternalGeometry"};
     if (prop && std::find(unit.begin(), unit.end(), prop) != unit.end())
@@ -938,7 +938,7 @@ unsigned int SketchObject::getMemSize() const
 
 void SketchObject::Save(Writer& writer) const
 {
-    // A save writes the value as it is (docs/TransactionLog.md 23.6). The
+    // A save writes the value as it is (docs/TransactionLogJournal.md 23.6). The
     // RefIndex an export needs is not written into the geometry: it rides on
     // the writer for the duration of this Save, and the extension asks for it.
     std::unique_ptr<ExternalGeometryExtension::ExportRefIndex> exportIndex;
@@ -1020,7 +1020,7 @@ void SketchObject::onChanged(const App::Property* prop)
     if (prop == &Geometry) {
         // What is written to the geometry below -- migrated state, a missing
         // id -- is a change to the value, so it goes through the property
-        // (docs/TransactionLog.md 23.6). The guard marks the property on the
+        // (docs/TransactionLogJournal.md 23.6). The guard marks the property on the
         // first write only; a nested change inside hasSetValue() folds into
         // the change that is being signalled.
         Part::PropertyGeometryList::atomic_change guard(Geometry, false);

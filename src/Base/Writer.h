@@ -55,7 +55,7 @@ class Persistence;
 class SequencerLauncher;
 
 /** One archive entry as the transaction log captures it
- * (docs/TransactionLog.md sec 23.3): the bytes in order, cut at every
+ * (docs/TransactionLogJournal.md sec 23.3): the bytes in order, cut at every
  * property body a container wrote through the writer's property sink.
  *
  * A `Text` segment is literal bytes. A `Count` segment stands where a
@@ -88,7 +88,7 @@ struct BaseExport EntryCapture
     };
     std::vector<Segment> segments;
     /** Not written by this save: the entry is the one version `keepFrom` of
-     * the transaction log has under the same name (docs/TransactionLog.md
+     * the transaction log has under the same name (docs/TransactionLogJournal.md
      * sec 38.12, an unchanged object of a folder save). 0 for a written one.
      */
     int64_t keepFrom {0};
@@ -102,7 +102,7 @@ struct BaseExport EntryCapture
 };
 
 /** What decides, per property, whether the writer's loop serialises it
- * (docs/TransactionLog.md sec 23.3). Record mode claims nothing and the
+ * (docs/TransactionLogJournal.md sec 23.3). Record mode claims nothing and the
  * capture carries every body; compose mode claims what its owner already
  * holds by `key`, and a claimed body is left out of the capture unless
  * verify() asks for it to be written anyway, for comparison.
@@ -364,7 +364,7 @@ public:
      * Every byte written to Stream() between beginTap() and endTap() is
      * also handed to the sink, in order. The bytes still reach the stream
      * unchanged; the tap only observes. It is how a save hashes one entry
-     * (Document.xml, docs/TransactionLog.md sec 11) as it streams out
+     * (Document.xml, docs/TransactionLogJournal.md sec 11) as it streams out
      * without writing it twice. putNextEntry() ends a tap left open.
      */
     //@{
@@ -374,7 +374,7 @@ public:
     bool isTapping() const { return static_cast<bool>(tapBuf); }
 
     /** Hand the capture of every entry writeFiles() serves to `sink`, by
-     * name: the version manifest's XML entries (docs/TransactionLog.md sec
+     * name: the version manifest's XML entries (docs/TransactionLogJournal.md sec
      * 16.1, 23.3). The writers serve each entry through writeEntry(), which
      * captures it when a sink is set. Blob entries are the manager's, not
      * these. An entry written outside writeFiles() (Document.xml) is
@@ -556,7 +556,7 @@ private:
  * Every entry streams into a sink that discards it, so a document can be
  * serialised for the side effects of a save -- the blobs made, the taps
  * fed, the entries served -- without an archive: the transaction log's
- * snapshot between saves (docs/TransactionLog.md sec 16.3) is one.
+ * snapshot between saves (docs/TransactionLogJournal.md sec 16.3) is one.
  */
 class BaseExport NullWriter: public Writer
 {
@@ -612,7 +612,7 @@ public:
 
     /** Write every entry into `dir` instead, laid out as in the directory
      * itself, for the caller to move in once the save is whole
-     * (docs/TransactionLog.md sec 38). Empty, the default, writes in place.
+     * (docs/TransactionLogJournal.md sec 38). Empty, the default, writes in place.
      */
     void setStageDir(const std::string& dir)
     {
@@ -635,7 +635,7 @@ public:
 
     /** A file of the directory this save keeps as it is: not written, and
      * still one of the save's files, so nothing removes it
-     * (docs/TransactionLog.md sec 38.12). Registered by addFile() or not --
+     * (docs/TransactionLogJournal.md sec 38.12). Registered by addFile() or not --
      * a data file the unwritten object's last write added.
      */
     void keepFile(const std::string& name);

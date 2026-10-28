@@ -1398,7 +1398,7 @@ std::vector<std::string> ShapeRefSet::fileTable(const std::string& bytes)
 namespace
 {
 /// What a holder of a stored shape file has to hold with it (sec 23.16 of
-/// docs/TransactionLog.md), registered with the blob manager at load.
+/// docs/TransactionLogJournal.md), registered with the blob manager at load.
 struct RegisterSourceReader
 {
     RegisterSourceReader()

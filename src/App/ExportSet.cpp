@@ -198,7 +198,7 @@ const char* App::exportSetManifestName()
 
 ExportSetResult App::planLinkedSet(Document& top, const ExportSetOptions& options)
 {
-    // docs/TransactionLog.md sec 35 L7.
+    // docs/TransactionLogJournal.md sec 35 L7.
     const std::string topFile = top.FileName.getStrValue();
     FileHistory::NameParts topParts;
     if (topFile.empty())

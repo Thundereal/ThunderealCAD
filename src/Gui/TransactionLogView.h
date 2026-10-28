@@ -61,7 +61,7 @@ namespace DockWnd {
 
 class TransactionDiffBar;
 
-/** The transaction log browser (docs/TransactionLog.md sec 22.2).
+/** The transaction log browser (docs/TransactionLogJournal.md sec 22.2).
  *
  * A dockable, read-only view of the active document's log as the store
  * holds it: the transaction rows, the ops of the selected transaction,
@@ -115,40 +115,40 @@ private Q_SLOTS:
     /// Say which open documents' files another process has written.
     void checkDisks();
     void applyVisibility();
-    /// Lay the graph out over the rows shown (docs/TransactionLog.md sec 26).
+    /// Lay the graph out over the rows shown (docs/TransactionLogJournal.md sec 26).
     void layoutGraph();
     /// The transaction row's context menu, at `global`.
     void transactionMenu(QTreeWidgetItem* item, const QPoint& global);
 
 public Q_SLOTS:
     /// Merge branch `name` into the one the document is on
-    /// (docs/TransactionLog.md sec 28): the preview in a dialog where each
+    /// (docs/TransactionLogJournal.md sec 28): the preview in a dialog where each
     /// conflict gets a side, then the merge.
     void mergeBranch(const QString& name);
     /// A save of document `doc` stopped at the merge of what another process
-    /// saved into its file (docs/TransactionLog.md sec 29.8): the panel shows
+    /// saved into its file (docs/TransactionLogJournal.md sec 29.8): the panel shows
     /// that document and puts branch `branch` to mergeBranch().
     void mergeSaved(const QString& doc, const QString& branch);
     /// Apply log rows to the branch the document is on, as a step of its
-    /// own (docs/TransactionLog.md sec 31.12): `seqs` is their numbers,
+    /// own (docs/TransactionLogJournal.md sec 31.12): `seqs` is their numbers,
     /// comma-separated. The preview, a side for each conflict, the pick.
     void applyRows(const QString& seqs);
     /// Undo rows of the branch the document is on as one step
-    /// (docs/TransactionLog.md sec 24.4, 33.13): `seqs` is their numbers,
+    /// (docs/TransactionLogJournal.md sec 24.4, 33.13): `seqs` is their numbers,
     /// comma-separated. A refusal is said in the status line.
     void undoRows(const QString& seqs);
     /// Roll back the merge undone at the head of the branch the document
-    /// is on (docs/TransactionLog.md sec 31.21, 31.23): asked first, since
+    /// is on (docs/TransactionLogJournal.md sec 31.21, 31.23): asked first, since
     /// the rows leave the log and the merge can no longer be redone.
     void rollBackMerge();
-    /** Squash the rows up to version `version` (docs/TransactionLog.md
+    /** Squash the rows up to version `version` (docs/TransactionLogJournal.md
      * sec 16.7): the version to squash from is chosen from those behind it
      * on its history, and after a confirmation the rows between the two
      * become one. A refusal of the log's is shown in the status line.
      */
     void squashTo(qlonglong version);
     /** Bring another copy of this file in as a branch, then merge it
-     * (docs/TransactionLog.md sec 30.13, 30.14): the copy's rows since the
+     * (docs/TransactionLogJournal.md sec 30.13, 30.14): the copy's rows since the
      * two parted are imported as a branch named after it, and that branch
      * is put to mergeBranch() -- the preview, a side for each conflict, the
      * merge, or nothing. `branch` names the copy's branch; empty, the one
@@ -157,7 +157,7 @@ public Q_SLOTS:
      */
     void importFile(const QString& path, const QString& branch);
     /** Bring in a file a client of the served document sent
-     * (docs/TransactionLog.md sec 30.20 H6, 30.23): request `id` of
+     * (docs/TransactionLogJournal.md sec 30.20 H6, 30.23): request `id` of
      * Gui::SceneRequests, which until now was kept and not read. It is
      * imported as importFile() imports any file, the import's record naming
      * who sent it, and put to the merge; the file itself is then dropped.
@@ -182,7 +182,7 @@ public Q_SLOTS:
      */
     void bringAgain(const QString& branch, const QString& from);
     /** Keep in the file a value a recompute wrote, which a save otherwise
-     * leaves out of the history (docs/TransactionLog.md sec 32.11): the one
+     * leaves out of the history (docs/TransactionLogJournal.md sec 32.11): the one
      * property `prop` of object `cid` has at row `seq` -- every such
      * property of it where `prop` is empty -- or let it go again.
      */
@@ -224,7 +224,7 @@ private:
     void previewRequestsNow();
     /// The value behind `ref` as the store holds it, under `label`.
     QString valueText(const QString& label, const QString& ref) const;
-    /// The branch switcher's items (docs/TransactionLog.md sec 26).
+    /// The branch switcher's items (docs/TransactionLogJournal.md sec 26).
     void refreshBranches();
     /// The request list (sec 30.20 H2): files sent and not read, and the
     /// branches an import made that this branch has not taken.
@@ -244,7 +244,7 @@ private:
     void createBranch(int64_t version, int64_t seq);
     void showManifest(int64_t num);
     /** Show a merge's preview beside the document, which stays in reach,
-     * and wait for its answer (docs/TransactionLog.md sec 32.15). `said`
+     * and wait for its answer (docs/TransactionLogJournal.md sec 32.15). `said`
      * is what the preview says and `preview` makes it again: asked when
      * the document changes, and where it then says another thing, `stale`
      * is called. Returns the dialog's result -- rejected where the

@@ -286,7 +286,7 @@ DatumElement* LocalCoordinateSystem::createDatum(const SetupData& data)
 {
     App::Document* doc = getDocument();
     std::string objName = doc->getUniqueObjectName(data.role);
-    // A UID of its system's and its Role (docs/TransactionLog.md sec 37.10
+    // A UID of its system's and its Role (docs/TransactionLogJournal.md sec 37.10
     // (a)): an origin makes its features when first asked, so two copies of
     // a file each make them, and the same plane must be the same object to
     // a merge of the two, by its UID.
@@ -339,7 +339,7 @@ void LocalCoordinateSystem::initObjects() const
     // Nor in a version read to be compared or applied (a merge's base, a
     // restore's whole read): what it holds is the version's, and features
     // made there were brought into the document as objects of their own
-    // (docs/TransactionLog.md sec 37.10).
+    // (docs/TransactionLogJournal.md sec 37.10).
     if (getDocument()->testStatus(App::Document::TempDoc)
         && getDocument()->testStatus(App::Document::VersionDoc)) {
         return;

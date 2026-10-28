@@ -1247,7 +1247,7 @@ TEST_F(SceneServerWire, aHostGrantMakesAHostOnlyOfTheIdentityItNames)
 }
 
 /// Only someone known may write (docs/ShareAccess.md sec 2.3,
-/// docs/TransactionLog.md sec 30.6 U4 and U6): a verified identity, or the
+/// docs/TransactionLogJournal.md sec 30.6 U4 and U6): a verified identity, or the
 /// holder of an invitation issued to its one name. Anyone else a grant
 /// admits may look, whatever the grant says; the shared token is an open
 /// invitation; an invitation does not follow a rename; and the host cannot
@@ -1377,7 +1377,7 @@ TEST_F(SceneServerWire, onlySomeoneKnownMayWrite)
     EXPECT_FALSE(server.setClientAccess(info.id, Render::ClientAccess::Edit));
 }
 
-/// A grant may count the browsers it is for (docs/TransactionLog.md sec
+/// A grant may count the browsers it is for (docs/TransactionLogJournal.md sec
 /// 30.32): a hello says which browser it is by an id the browser keeps,
 /// the first of them are enrolled and are someone known, and any other is
 /// refused -- or falls to a lesser grant on the same token. The record of
@@ -1559,7 +1559,7 @@ TEST_F(SceneServerWire, aGrantCountsTheBrowsersItIsFor)
     }
 }
 
-/// docs/TransactionLog.md sec 30.40: a grant that counts its browsers is
+/// docs/TransactionLogJournal.md sec 30.40: a grant that counts its browsers is
 /// asked of a plain request too. The first load of a page comes before
 /// its hello, so a request that said nothing of who it is read the whole
 /// scene for a browser the hello then refused.

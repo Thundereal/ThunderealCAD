@@ -474,10 +474,17 @@ std::string FileHistory::canonicalPath(const std::string& path)
     // long form here alone mixed the two spellings into saved links.
     if (path.empty())
         return path;
-    QFileInfo info(QString::fromUtf8(path.c_str()));
+    QFileInfo info(QDir::cleanPath(QString::fromUtf8(path.c_str())));
     QString canonical = info.canonicalFilePath();
-    if (canonical.isEmpty())
-        canonical = QDir::cleanPath(info.absoluteFilePath());
+    if (canonical.isEmpty()) {
+        // Not there yet (a save-as's target): its folder resolved, so that
+        // the name it is known by before it exists is the one after (sec
+        // 38.21 P).
+        const QString clean = QDir::cleanPath(info.absoluteFilePath());
+        const QFileInfo abs(clean);
+        const QString dir = QDir(abs.absolutePath()).canonicalPath();
+        canonical = dir.isEmpty() ? clean : QDir(dir).filePath(abs.fileName());
+    }
     return canonical.toUtf8().constData();
 }
 

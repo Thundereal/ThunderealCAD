@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenerateModel xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="generateMetaModel_Module.xsd">
+  <PythonExport
+    Father="ViewProviderPartExtPy"
+    Name="ViewProviderSketch3DPy"
+    Twin="ViewProviderSketch3D"
+    TwinPointer="ViewProviderSketch3D"
+    Include="Mod/Sketcher/Gui/ViewProviderSketch3D.h"
+    Namespace="SketcherGui"
+    FatherInclude="Mod/Part/Gui/ViewProviderPartExtPy.h"
+    FatherNamespace="PartGui">
+    <Documentation>
+      <Author Licence="LGPL" Name="Zheng Lei" EMail="realthunder.dev@gmail.com" />
+      <UserDocu>The 3D sketch's view provider. In its edit, the manipulator and the input
+the mouse goes through, in view coordinates (Coin's: origin bottom left).</UserDocu>
+    </Documentation>
+    <Methode Name="getManipulator" Const="true">
+      <Documentation>
+        <UserDocu>getManipulator() -> dict: Origin, Rotation, Plane ('XY', 'YZ', 'ZX'),
+HeightLock, HeightBase, RotationHandles, WorkingPlane (a Placement in the sketch's frame).
+None outside an edit.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setManipulator">
+      <Documentation>
+        <UserDocu>setManipulator(origin: Vector, rotation: Rotation)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="cycleWorkingPlane">
+      <Documentation>
+        <UserDocu>cycleWorkingPlane(): XY -> YZ -> ZX</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="toggleHeightLock">
+      <Documentation>
+        <UserDocu>toggleHeightLock(): keep the in-plane position under the pointer, move
+along the plane's normal</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="resetManipulator">
+      <Documentation>
+        <UserDocu>resetManipulator(): the sketch frame's orientation, plane XY</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setRotationHandles">
+      <Documentation>
+        <UserDocu>setRotationHandles(shown: bool)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="pointAt" Const="true">
+      <Documentation>
+        <UserDocu>pointAt(x, y) -> Vector or None: where a click there lands, in the
+sketch's frame</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="toView" Const="true">
+      <Documentation>
+        <UserDocu>toView(point: Vector) -> (x, y) or None: a point of the sketch's frame
+in view coordinates</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="press">
+      <Documentation>
+        <UserDocu>press(x, y, ctrl=False) -> bool: a left press there, as the mouse gives it;
+whether the edit took it</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="dragTo">
+      <Documentation>
+        <UserDocu>dragTo(x, y) -> bool: the pointer moved there with the left button held</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="release">
+      <Documentation>
+        <UserDocu>release(x, y) -> bool: the left button let go; whether a drag ended</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="keepPlane">
+      <Documentation>
+        <UserDocu>keepPlane() -> int: the working plane stored as a fixed workplane, made the
+active kept plane; its geometry id</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="activateKeptPlane">
+      <Documentation>
+        <UserDocu>activateKeptPlane(geoId): a stored workplane as the working and kept plane; -1 lets go</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="activeKeptPlane" Const="true">
+      <Documentation>
+        <UserDocu>activeKeptPlane() -> int, or -1</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="move">
+      <Documentation>
+        <UserDocu>move(x, y) -> bool: the pointer moved there</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="pressRight">
+      <Documentation>
+        <UserDocu>pressRight(x, y) -> bool: a right press there: finishes the tool's placing</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="startTool">
+      <Documentation>
+        <UserDocu>startTool(name): 'Point', 'Line', 'Polyline', 'BSplineThrough', 'BSplineControl',
+'Circle', 'Circle3Point', 'Arc', 'Arc3Point'
+-- what the Sketcher's creation commands start in a 3D sketch's edit</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="activeTool" Const="true">
+      <Documentation>
+        <UserDocu>activeTool() -> str: the tool's name, or 'None'</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="finishTool">
+      <Documentation>
+        <UserDocu>finishTool(): what Escape does: makes what is placed, or ends the tool</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="cancelTool">
+      <Documentation>
+        <UserDocu>cancelTool(): ends the tool, dropping points not yet made</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="placedCount" Const="true">
+      <Documentation>
+        <UserDocu>placedCount() -> int: points placed and not yet made into geometry</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setConstructionMode">
+      <Documentation>
+        <UserDocu>setConstructionMode(bool): the tools make construction geometry</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="constructionMode" Const="true">
+      <Documentation>
+        <UserDocu>constructionMode() -> bool</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="select">
+      <Documentation>
+        <UserDocu>select(geoId, pos=0, toggle=True): a point (pos 1 start, 2 end, 3 centre) or a curve (pos 0)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="selectConstraint">
+      <Documentation>
+        <UserDocu>selectConstraint(index, toggle=True)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="clearSelection">
+      <Documentation>
+        <UserDocu>clearSelection()</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getSelection" Const="true">
+      <Documentation>
+        <UserDocu>getSelection() -> ([(geoId, pos)], [constraint index])</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="constrain">
+      <Documentation>
+        <UserDocu>constrain(type) -> bool: a constraint of type ('Coincident', 'Distance', 'AlongZ', ...)
+made from the selection, as the Sketcher's command does it; ValueError says why not</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="deleteSelection">
+      <Documentation>
+        <UserDocu>deleteSelection(): the selected constraints, else the selected geometry</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="editDatum">
+      <Documentation>
+        <UserDocu>editDatum(index) -> bool: the in-view editor on a dimension</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="isEditingDatum" Const="true">
+      <Documentation>
+        <UserDocu>isEditingDatum() -> bool</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="finishDatumEdit">
+      <Documentation>
+        <UserDocu>finishDatumEdit(accept=True)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="startTypedPlacement">
+      <Documentation>
+        <UserDocu>startTypedPlacement(text) -> bool: what a number typed while placing points does: the
+entry for a length (one value) or offsets (dx, dy, dz), text its first characters</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="isTypingPlacement" Const="true">
+      <Documentation>
+        <UserDocu>isTypingPlacement() -> bool</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="turnByRing">
+      <Documentation>
+        <UserDocu>turnByRing(axis, degrees): the manipulator turned about its own axis 0, 1 or 2 as a ring
+drag turns it, and the angle's entry opened as at the drag's end</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="isTypingTurn" Const="true">
+      <Documentation>
+        <UserDocu>isTypingTurn() -> bool</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getLabelPlane" Const="true">
+      <Documentation>
+        <UserDocu>getLabelPlane(index) -> Placement or None: the plane a dimension's label is drawn in</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getIcons" Const="true">
+      <Documentation>
+        <UserDocu>getIcons() -> [(constraint index, x, y)]: the icons drawn for the constraints without a
+value, where they are in view coordinates</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getLabels" Const="true">
+      <Documentation>
+        <UserDocu>getLabels() -> {constraint index: text}: the dimension labels drawn</UserDocu>
+      </Documentation>
+    </Methode>
+  </PythonExport>
+</GenerateModel>

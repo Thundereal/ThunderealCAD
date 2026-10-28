@@ -73,6 +73,7 @@
 #include "Groups.h"
 #include "Joint.h"
 #include "JointPy.h"
+#include "Physics.h"
 
 using namespace Assembly;
 
@@ -447,12 +448,21 @@ JointSide Joint::getSide(int side) const
         res.shape = target;
         return res;
     }
+    return resolveBinding(getContainer(),
+                          getBinding(side),
+                          (side == 1 ? Placement1 : Placement2).getValue());
+}
+
+JointSide Joint::resolveBinding(App::Part* container,
+                                Part::ElementBinding* binding,
+                                const Base::Placement& lastLocal)
+{
     JointSide res;
-    res.binding = getBinding(side);
+    res.binding = binding;
     if (!res.binding) {
         return res;
     }
-    res.component = componentOfBinding(getContainer(), res.binding, &res.placement);
+    res.component = componentOfBinding(container, res.binding, &res.placement);
 
     auto obj = res.binding->Element.getValue();
     const auto& subs = res.binding->Element.getSubValues();
@@ -465,7 +475,7 @@ JointSide Joint::getSide(int side) const
     // is reached through the component, which places it where it is now.
     App::DocumentObject* geomObj = obj;
     std::string geomSub = sub;
-    if (!directChild(getContainer(), obj)) {
+    if (!directChild(container, obj)) {
         auto element = resolveElement(obj, sub);
         if (element && !element->Detach.getValue() && element->Target.getValue()) {
             geomObj = element->Target.getValue();
@@ -476,7 +486,7 @@ JointSide Joint::getSide(int side) const
     // An element of an array (componentOf()) through the element itself: the
     // array's shape caches its elements where they were, which a solve, that
     // moves an element without a recompute, makes stale
-    if (res.component && res.component != geomObj && directChild(getContainer(), geomObj)
+    if (res.component && res.component != geomObj && directChild(container, geomObj)
         && isElementLinkGroup(geomObj)) {
         auto dot = geomSub.find('.');
         if (dot != std::string::npos) {
@@ -534,8 +544,7 @@ JointSide Joint::getSide(int side) const
         // solve since makes stale: the frame is the last one the geometry
         // gave, relative to the component as execute() keeps it, and the
         // copy goes with it
-        const auto& local = side == 1 ? Placement1 : Placement2;
-        const Base::Placement now = res.placement * local.getValue();
+        const Base::Placement now = res.placement * lastLocal;
         res.shape.transformShape((now * res.frame.inverse()).toMatrix(), false);
         res.frame = now;
     }
@@ -909,21 +918,19 @@ void Joint::updateInstances()
     }
 }
 
-namespace
+bool Joint::isBindingUsedByAnother(const Part::ElementBinding* binding,
+                                   const App::DocumentObject* owner)
 {
-bool isUsedByAnotherJoint(const Part::ElementBinding* link, const Joint* joint)
-{
-    for (auto user : link->getInList()) {
-        if (user != joint && user->isDerivedFrom<Joint>()) {
+    for (auto user : binding->getInList()) {
+        if (user != owner
+            && (user->isDerivedFrom<Joint>() || user->isDerivedFrom<SpringDamper>())) {
             return true;
         }
     }
     return false;
 }
 
-/// Delete an element binding, and the convenience element it used when no
-/// other element binding of the assembly uses that one
-void removeBinding(App::Part* assembly, Part::ElementBinding* link)
+void Joint::removeBinding(App::Part* assembly, Part::ElementBinding* link)
 {
     auto doc = link->getDocument();
     Part::Element* convenience = nullptr;
@@ -952,7 +959,6 @@ void removeBinding(App::Part* assembly, Part::ElementBinding* link)
     }
     doc->removeObject(convenience->getNameInDocument());
 }
-}  // namespace
 
 Part::ElementBinding* Joint::setSide(int side,
                                      App::DocumentObject* component,
@@ -974,7 +980,7 @@ void Joint::clearSide(int side)
 {
     auto old = getBinding(side);
     (side == 1 ? Binding1 : Binding2).setValue(nullptr);
-    if (old && !old->isRemoving() && !isUsedByAnotherJoint(old, this)) {
+    if (old && !old->isRemoving() && !isBindingUsedByAnother(old, this)) {
         removeBinding(getContainer(), old);
     }
 }
@@ -1023,7 +1029,7 @@ void Joint::unsetupObject()
         if (!link || link->isRemoving()) {
             continue;
         }
-        if (!isUsedByAnotherJoint(link, this)) {
+        if (!isBindingUsedByAnother(link, this)) {
             links.emplace_back(link);
         }
     }

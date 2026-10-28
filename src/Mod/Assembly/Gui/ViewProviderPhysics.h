@@ -58,7 +58,8 @@ public:
 
 /** A spring and damper, drawn as a coil between its ends, in the assembly's
  * coordinates; redrawn as its ends' components move -- dragged, solved, or
- * played back.
+ * played back. It claims the element bindings the spring owns, and a
+ * double click opens the spring's task panel (CommandCreateSpring.py).
  */
 class AssemblyGuiExport ViewProviderSpringDamper: public Gui::ViewProviderDocumentObject
 {
@@ -73,6 +74,8 @@ public:
     std::vector<std::string> getDisplayModes() const override;
     void setDisplayMode(const char* mode) override;
     QIcon getIcon() const override;
+    std::vector<App::DocumentObject*> claimChildren() const override;
+    bool doubleClicked() override;
 
 private:
     void redraw();

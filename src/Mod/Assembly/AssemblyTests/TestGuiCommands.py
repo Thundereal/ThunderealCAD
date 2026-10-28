@@ -33,6 +33,7 @@ and counted, any other is rejected and fails the test.
 
 import ast
 import os
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -159,6 +160,8 @@ class TestGuiCommands(unittest.TestCase):
                 if Gui.Control.activeDialog():
                     Gui.Control.closeDialog()
             JointObject.activeTask = None
+            if "CommandCreateSpring" in sys.modules:
+                sys.modules["CommandCreateSpring"].activeTask = None
             Gui.Selection.clearSelection()
             gdoc = Gui.getDocument(self.doc.Name)
             if gdoc.getInEdit():
@@ -563,6 +566,111 @@ class TestGuiCommands(unittest.TestCase):
         sims = self.proxies("Simulation")
         self.assertEqual(len(sims), 1)
         self.assertEqual(sims[0].TypeId, "Assembly::SimulationPython")
+        self.assertClean()
+
+    # ------------------------------------------------------------ springs
+
+    def springs(self):
+        return [o for o in self.doc.Objects if o.isDerivedFrom("Assembly::SpringDamper")]
+
+    def assertEnds(self, spring):
+        """End 1 on the middle of the box's top face, end 2 on the centre of the
+        first cylinder's top (Face3; Face2 is its bottom)"""
+        self.assertIsNotNone(spring.Binding1)
+        self.assertIsNotNone(spring.Binding2)
+        self.assertEqual(spring.Component1, self.box)
+        self.assertEqual(spring.Component2, self.cyl1)
+        self.assertLess((spring.getEndPoint(1) - App.Vector(5, 5, 10)).Length, 1e-7)
+        self.assertLess((spring.getEndPoint(2) - App.Vector(30, 0, 10)).Length, 1e-7)
+
+    def test_spring_from_two_picked_faces(self):
+        """Picked first, the command puts the ends on them and opens the
+        panel; OK keeps the spring, free at the distance between them"""
+        import CommandCreateSpring
+
+        # Where the cursor was, as a click selects them
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face6", 5, 5, 10)
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Cyl1.Face3", 30, 0, 10)
+        self.run_command("Assembly_CreateSpring")
+        task = CommandCreateSpring.activeTask
+        self.assertIsInstance(task, CommandCreateSpring.TaskSpring)
+        self.accept_task()
+        springs = self.springs()
+        self.assertEqual(len(springs), 1)
+        spring = springs[0]
+        self.assertEnds(spring)
+        length = (spring.getEndPoint(2) - spring.getEndPoint(1)).Length
+        self.assertAlmostEqual(spring.FreeLength.Value, length, places=6)
+        # Its element bindings under it in the tree
+        self.assertEqual(
+            set(spring.ViewObject.claimChildren()), {spring.Binding1, spring.Binding2}
+        )
+        self.assertClean()
+
+    def pickInPanel(self):
+        import CommandCreateSpring
+
+        self.run_command("Assembly_CreateSpring")
+        task = CommandCreateSpring.activeTask
+        self.assertIsInstance(task, CommandCreateSpring.TaskSpring)
+        self.assertEqual(task.armed, 1)
+        # As the 3D view picks them: the cursor over each face's middle
+        Gui.Selection.addSelection(
+            self.doc.Name, self.assembly.Name, "Box.Face6", 5, 5, 10
+        )
+        _process()
+        self.assertEqual(task.armed, 2)
+        Gui.Selection.addSelection(
+            self.doc.Name, self.assembly.Name, "Cyl1.Face3", 30, 0, 10
+        )
+        _process()
+        self.assertIsNone(task.armed)
+        self.assertEqual(Gui.Selection.getSelectionEx("", 0), [])
+        return task
+
+    def test_spring_picked_in_the_panel(self):
+        task = self.pickInPanel()
+        # The second end made free, then picked again
+        task.onFree(2)
+        self.assertIsNone(task.spring.Binding2)
+        task.arm(2)
+        Gui.Selection.addSelection(
+            self.doc.Name, self.assembly.Name, "Cyl1.Face3", 30, 0, 10
+        )
+        _process()
+        self.accept_task()
+        springs = self.springs()
+        self.assertEqual(len(springs), 1)
+        self.assertEnds(springs[0])
+        bindings = [o for o in self.doc.Objects if o.isDerivedFrom("Part::ElementBinding")]
+        self.assertEqual(len(bindings), 2)
+        self.assertClean()
+
+    def test_spring_cancelled(self):
+        """Cancel deletes the spring the command made, and its bindings"""
+        task = self.pickInPanel()
+        task.reject()
+        _process()
+        self.assertFalse(Gui.Control.activeDialog())
+        self.assertEqual(self.springs(), [])
+        bindings = [o for o in self.doc.Objects if o.isDerivedFrom("Part::ElementBinding")]
+        self.assertEqual(bindings, [])
+        self.assertClean()
+
+    def test_spring_edited_by_double_click(self):
+        import CommandCreateSpring
+
+        self.pickInPanel()
+        self.accept_task()
+        spring = self.springs()[0]
+        self.assertTrue(spring.ViewObject.doubleClicked())
+        _process()
+        task = CommandCreateSpring.activeTask
+        self.assertIsInstance(task, CommandCreateSpring.TaskSpring)
+        self.assertIsNone(task.armed)
+        task.onOffset(1, App.Units.Quantity("2 mm"))
+        self.accept_task()
+        self.assertLess((spring.getEndPoint(1) - App.Vector(5, 5, 12)).Length, 1e-7)
         self.assertClean()
 
     def test_export_asmt(self):

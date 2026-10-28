@@ -207,6 +207,16 @@ public:
     /// The frame of side 1 or 2 in the container now: getStoredSide()'s
     /// when the joint is up to date, getSide()'s when not
     Base::Placement getFrame(int side) const;
+    /** What an element binding of \a container resolves to now, as a side of
+     * a joint that is no multiplied joint's instance: the element through its
+     * component when that resolves, the binding's stored copy when not
+     *
+     * @param lastLocal: the frame relative to the component when it last
+     *                   resolved, which places the stored copy
+     */
+    static JointSide resolveBinding(App::Part* container,
+                                    Part::ElementBinding* binding,
+                                    const Base::Placement& lastLocal);
     /// The assembly holding the joint
     AssemblyObject* getAssembly() const;
 
@@ -240,6 +250,14 @@ public:
     /// Unset side 1 or 2, deleting its element binding unless another joint
     /// uses it
     void clearSide(int side);
+
+    /// Whether a user other than \a owner, a joint or a spring, uses the
+    /// element binding
+    static bool isBindingUsedByAnother(const Part::ElementBinding* binding,
+                                       const App::DocumentObject* owner);
+    /// Delete an element binding, and the convenience element it used when no
+    /// other element binding of the assembly uses that one
+    static void removeBinding(App::Part* assembly, Part::ElementBinding* binding);
 
     /** Make a side of a joint from a pick (docs/AssemblyObjectModel.md sec 7.1)
      *

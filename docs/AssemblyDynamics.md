@@ -275,7 +275,52 @@ Phase D1 is under way (2026-10-28):
   The static run's reactions take the two-pass assembly too: from rest, a
   Position motion's rate had read as an impulse; now its inertia counts,
   which a slow sweep's is small.
-- Next of the leftovers: a spring's end on an element rather than a point.
+- Built: a spring's ends on elements. `SpringDamper::Binding1/2`: an end on
+  an element is the origin of the element's frame, the offsets applied, as
+  a joint's side is -- through an element binding the spring owns, a child
+  of the assembly made by `Joint::makeSide()` (the element found or
+  declared, and shared; the binding new), claimed in the tree by the
+  spring's view and deleted with it (`Joint::removeBinding()`, the
+  convenience element too when nothing else binds to it). The end's
+  Component and Point are then output and read-only: the component the
+  binding is on, set with the binding, and the point in its coordinates,
+  taken at each recompute (`Joint::resolveBinding()`, `getSide()`'s core
+  made static), so a solve moving the component needs no recompute and a
+  binding that does not resolve (a child not loaded) keeps the point it
+  last had. Without a binding the end is the free point it was; making an
+  end free leaves it where it is. `getEnd()` / `getEndPoint()` give an end
+  either way, for the builder (`addForces()`) and the coil. Python:
+  `setEnd(side, component, subname, vertex="")`, `clearEnd(side)`,
+  `getEnd(side)`, `getEndPoint(side)` (`SpringDamper.pyi`).
+  - Task panel (`CommandCreateSpring.TaskSpring`): each end picked in the
+    3D view as a joint's side is (the vertex nearest the cursor, or the
+    element's own frame: a face's middle, a circle's centre), a dashed
+    line from the other end to where the hovered element would put it,
+    Pick and Free per end, an offset along the element's normal (the
+    binding's `Offset`); stiffness, free length with "Current length",
+    preload and damping. The free length follows the distance between the
+    ends until it is edited. The command opens it (ends already picked go
+    to the ends), and so does a double click on a spring; Cancel undoes
+    the whole edit, a new spring with it.
+  - Found on the way: a side on an element its component declares (an
+    App::Part, a Body, a sub-assembly: "$$Elements.$X.") was framed as a
+    whole object -- the path names no sub-element -- so every such joint's
+    frame was the element's placement, the identity, rather than its
+    face's. `resolveBinding()` now frames it by its geometry when the
+    element's chain of targets ends at a named sub-element.
+  - Tests (`TestSpringEnds`, 13): ends on faces, read-only while bound;
+    following a resize, a face a fillet renames (a body in a part), a
+    vertex, the binding's offset, and the component moved without a
+    recompute; a re-pick deleting the old binding; Free keeping the end;
+    two springs sharing one element with their own offsets, the element
+    going with the last; delete and undo; `makeSpring()` with either kind
+    of end; save and restore; an end on a child not loaded staying on the
+    link. TestDynamics: the oscillator with its ends on the faces swings
+    as with the points (1e-9 mm). TestElementJoint: a joint through two
+    components that declare elements frames the faces as convenience
+    elements do. GUI (TestGuiCommands): the command on two picked faces,
+    picking in the panel, Free and re-pick, Cancel, and a double click.
+- D1's leftovers are all built; next in the phase table is D2, contact.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

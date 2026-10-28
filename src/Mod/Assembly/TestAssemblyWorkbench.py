@@ -68,6 +68,7 @@ from AssemblyTests.TestInterference import (
 from AssemblyTests.TestImportAsm3 import TestImportAsm3
 from AssemblyTests.TestMassProperties import TestMassProperties
 from AssemblyTests.TestDynamics import TestDynamics
+from AssemblyTests.TestSpringEnds import TestSpringEnds, TestSpringEndOnAnUnloadedChild
 from AssemblyTests.TestMultiplyJoint import TestMultiplyJoint
 from AssemblyTests.TestFreeze import TestFreeze
 from AssemblyTests.TestAssemblyExport import TestAssemblyExport
@@ -118,6 +119,8 @@ True if TestDragCollision else False
 True if TestImportAsm3 else False
 True if TestMassProperties else False
 True if TestDynamics else False
+True if TestSpringEnds else False
+True if TestSpringEndOnAnUnloadedChild else False
 True if TestMultiplyJoint else False
 True if TestFreeze else False
 True if TestAssemblyExport else False

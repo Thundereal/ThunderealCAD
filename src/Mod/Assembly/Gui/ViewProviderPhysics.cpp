@@ -38,6 +38,8 @@
 #include <App/PropertyGeo.h>
 #include <Base/Placement.h>
 #include <Gui/BitmapFactory.h>
+#include <Gui/Command.h>
+#include <Mod/Part/App/FeatureElement.h>
 
 #include <Mod/Assembly/App/Physics.h>
 
@@ -63,20 +65,6 @@ PROPERTY_SOURCE(AssemblyGui::ViewProviderSpringDamper, Gui::ViewProviderDocument
 
 namespace
 {
-
-// The object's placement in its assembly: its own and its containers', up to
-// the assembly
-Base::Placement placementIn(const App::DocumentObject* assembly, App::DocumentObject* obj)
-{
-    Base::Placement placement;
-    for (auto* step = obj; step && step != assembly;
-         step = App::GeoFeatureGroupExtension::getGroupOfObject(step)) {
-        if (auto* prop = step->getPlacementProperty()) {
-            placement = prop->getValue() * placement;
-        }
-    }
-    return placement;
-}
 
 // Whether obj is the component or one of its containers up to the assembly
 bool holds(const App::DocumentObject* assembly,
@@ -142,6 +130,34 @@ QIcon ViewProviderSpringDamper::getIcon() const
     return Gui::BitmapFactory().pixmap("Assembly_SpringDamper.svg");
 }
 
+std::vector<App::DocumentObject*> ViewProviderSpringDamper::claimChildren() const
+{
+    std::vector<App::DocumentObject*> children;
+    if (auto* spring = freecad_cast<Assembly::SpringDamper*>(getObject())) {
+        for (int side : {1, 2}) {
+            if (auto* binding = spring->getBinding(side)) {
+                children.push_back(binding);
+            }
+        }
+    }
+    return children;
+}
+
+bool ViewProviderSpringDamper::doubleClicked()
+{
+    auto* obj = getObject();
+    if (!obj || !obj->isAttachedToDocument()) {
+        return false;
+    }
+    Gui::Command::doCommand(Gui::Command::Gui,
+                            "import CommandCreateSpring\n"
+                            "CommandCreateSpring.editSpring("
+                            "App.getDocument('%s').getObject('%s'))",
+                            obj->getDocument()->getName(),
+                            obj->getNameInDocument());
+    return true;
+}
+
 void ViewProviderSpringDamper::updateData(const App::Property* prop)
 {
     ViewProviderDocumentObject::updateData(prop);
@@ -156,8 +172,9 @@ void ViewProviderSpringDamper::onChangedObject(const App::DocumentObject& obj,
         return;
     }
     auto* assembly = App::GeoFeatureGroupExtension::getGroupOfObject(spring);
-    if (holds(assembly, spring->Component1.getValue(), &obj)
-        || holds(assembly, spring->Component2.getValue(), &obj)) {
+    Base::Vector3d point;
+    if (holds(assembly, spring->getEnd(1, point), &obj)
+        || holds(assembly, spring->getEnd(2, point), &obj)) {
         redraw();
     }
 }
@@ -168,16 +185,8 @@ void ViewProviderSpringDamper::redraw()
     if (!spring || !coords) {
         return;
     }
-    auto* assembly = App::GeoFeatureGroupExtension::getGroupOfObject(spring);
-    auto end = [&](App::DocumentObject* component, const Base::Vector3d& point) {
-        Base::Vector3d out = point;
-        if (component) {
-            placementIn(assembly, component).multVec(point, out);
-        }
-        return out;
-    };
-    const Base::Vector3d a = end(spring->Component1.getValue(), spring->Point1.getValue());
-    const Base::Vector3d b = end(spring->Component2.getValue(), spring->Point2.getValue());
+    const Base::Vector3d a = spring->getEndPoint(1);
+    const Base::Vector3d b = spring->getEndPoint(2);
     Base::Vector3d axis = b - a;
     const double length = axis.Length();
     std::vector<SbVec3f> points;

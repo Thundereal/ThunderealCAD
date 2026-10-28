@@ -1645,10 +1645,13 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         Solver::ForceElement force;
         force.source = model.addSource(name);
         force.kind = Solver::ForceKind::SpringDamper;
-        force.frameI =
-            frameAt(spring->Component1.getValue(), spring->Point1.getValue(), name + "-1");
-        force.frameJ =
-            frameAt(spring->Component2.getValue(), spring->Point2.getValue(), name + "-2");
+        // An end on an element is the point its last recompute took
+        Base::Vector3d point1;
+        Base::Vector3d point2;
+        auto* component1 = spring->getEnd(1, point1);
+        auto* component2 = spring->getEnd(2, point2);
+        force.frameI = frameAt(component1, point1, name + "-1");
+        force.frameJ = frameAt(component2, point2, name + "-2");
         force.k = spring->Stiffness.getValue();
         force.rest = spring->FreeLength.getValue();
         force.preload = spring->Preload.getValue();

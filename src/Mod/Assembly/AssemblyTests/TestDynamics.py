@@ -195,10 +195,11 @@ class TestDynamics(unittest.TestCase):
     MASS = 1000 * 2.7e-6  # a 10 mm cube of the default aluminium, kg
     K = 10.0  # N/m, the same number in mN/mm
 
-    def oscillator(self, damping=0.0, listed=True):
+    def oscillator(self, damping=0.0, listed=True, onFaces=False):
         """A 10 mm cube on a vertical slider over a grounded one, a spring
         from the grounded one's top to its bottom, free at 4 mm; started at
-        2 mm, without gravity: it swings about 4 mm by 2."""
+        2 mm, without gravity: it swings about 4 mm by 2. With onFaces, the
+        spring's ends are on the faces rather than points."""
         base = self.box("Base", (10, 10, 10), (0, 0, 0))
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
         JointObject.GroundedJoint(ground, base)
@@ -209,10 +210,14 @@ class TestDynamics(unittest.TestCase):
         self.assertEqual(self.assembly.solve(), 0)
         physics = self.assembly.getGroup("Physics", True)
         spring = physics.newObject("Assembly::SpringDamper", "Spring")
-        spring.Component1 = base
-        spring.Point1 = App.Vector(5, 5, 10)
-        spring.Component2 = block
-        spring.Point2 = App.Vector(5, 5, 0)
+        if onFaces:
+            spring.setEnd(1, base, "Face6")
+            spring.setEnd(2, block, "Face5")
+        else:
+            spring.Component1 = base
+            spring.Point1 = App.Vector(5, 5, 10)
+            spring.Component2 = block
+            spring.Point2 = App.Vector(5, 5, 0)
         spring.Stiffness = "%g N/m" % self.K
         spring.FreeLength = 4.0
         spring.Damping = damping
@@ -268,6 +273,16 @@ class TestDynamics(unittest.TestCase):
         decrement = 2 * math.pi * zeta / math.sqrt(1 - zeta * zeta)
         for a, b in zip(peaks, peaks[1:]):
             self.assertAlmostEqual(math.log(a / b), decrement, delta=decrement * 1e-2)
+
+    def test_spring_ends_on_faces(self):
+        """Its ends on the faces, the cube swings as with the points."""
+        points = self.oscillator()
+        App.closeDocument(self.doc.Name)
+        self.setUp()
+        faces = self.oscillator(onFaces=True)
+        self.assertEqual(len(faces), len(points))
+        for (time, a), (_, b) in zip(points, faces):
+            self.assertAlmostEqual(a, b, delta=1e-9, msg=time)
 
     def test_spring_not_listed(self):
         """A spring the study does not list does nothing."""

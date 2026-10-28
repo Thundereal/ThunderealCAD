@@ -33,6 +33,7 @@ generate_from_py(ViewGroup)
 generate_from_py(SimulationGroup)
 generate_from_py(SnapshotGroup)
 generate_from_py(Joint)
+generate_from_py(SpringDamper)
 generate_from_py(AssemblyGroup)
 
 
@@ -55,6 +56,8 @@ SET(Python_SRCS
     SnapshotGroupPyImp.cpp
     Joint.pyi
     JointPyImp.cpp
+    SpringDamper.pyi
+    SpringDamperPyImp.cpp
     AssemblyGroup.pyi
     AssemblyGroupPyImp.cpp
 )

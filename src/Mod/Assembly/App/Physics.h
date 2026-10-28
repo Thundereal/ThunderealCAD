@@ -36,6 +36,16 @@
 
 #include <Mod/Assembly/AssemblyGlobal.h>
 
+namespace App
+{
+class Part;
+}
+
+namespace Part
+{
+class ElementBinding;
+}
+
 namespace Assembly
 {
 
@@ -88,6 +98,14 @@ using MassOverridePython = App::FeaturePythonT<MassOverride>;
  * (no component: the point in the assembly's coordinates). Its force along
  * the line between them, pushing them apart when positive:
  * Preload - Stiffness (length - FreeLength) - Damping d(length)/dt.
+ *
+ * An end is on an element when it has an element binding: the origin of the
+ * element's frame, the offsets applied, as a joint's side is
+ * (docs/AssemblyObjectModel.md sec 7.1). The spring owns the binding, a
+ * child of the assembly, as a joint owns its sides; the element it binds to
+ * may be shared. The end's Component and Point are then its output, the
+ * point following the geometry at each recompute. Without a binding the end
+ * is the free point they give.
  */
 class AssemblyExport SpringDamper: public PhysicsItem
 {
@@ -101,6 +119,9 @@ public:
     App::PropertyVectorDistance Point1;
     App::PropertyLink Component2;
     App::PropertyVectorDistance Point2;
+    /// The element binding of each end, or none for a free point
+    App::PropertyLink Binding1;
+    App::PropertyLink Binding2;
     App::PropertyStiffness Stiffness;
     /// 0: the length when the run starts
     App::PropertyLength FreeLength;
@@ -109,10 +130,47 @@ public:
     /// A force over a speed, kg/s (N s / m)
     App::PropertyQuantity Damping;
 
+    App::DocumentObjectExecReturn* execute() override;
+    short mustExecute() const override;
+    void onChanged(const App::Property* prop) override;
+    void onDocumentRestored() override;
+    void unsetupObject() override;
+    PyObject* getPyObject() override;
+
     const char* getViewProviderName() const override
     {
         return "AssemblyGui::ViewProviderSpringDamper";
     }
+
+    /// The assembly the spring is in, which holds its element bindings
+    App::Part* getContainer() const;
+    /// The element binding of end 1 or 2, or null for a free point
+    Part::ElementBinding* getBinding(int side) const;
+    /** The component end 1 or 2 is on, null for the ground, and the end in
+     * its coordinates (the assembly's for the ground)
+     *
+     * @param placement: optionally, the component's placement in the
+     *                   assembly's coordinate system
+     */
+    App::DocumentObject*
+    getEnd(int side, Base::Vector3d& point, Base::Placement* placement = nullptr) const;
+    /// End 1 or 2 in the assembly's coordinate system now
+    Base::Vector3d getEndPoint(int side) const;
+    /** Put end 1 or 2 on an element picked as a joint's side is
+     * (Joint::makeSide()), deleting its old element binding
+     *
+     * @return the new element binding
+     */
+    Part::ElementBinding* setEnd(int side,
+                                 App::DocumentObject* component,
+                                 const char* subname,
+                                 const char* vertex = nullptr);
+    /// Make end 1 or 2 a free point where it is, deleting its element binding
+    void clearEnd(int side);
+
+private:
+    /// Component and Point are an end's output while it has a binding
+    void updateEditable();
 };
 
 using SpringDamperPython = App::FeaturePythonT<SpringDamper>;

@@ -22,7 +22,12 @@ Claims:
     it, keeps it preselected;
   - clicked, it is selected, keeps its size, and the selection colour runs
     along all four sides;
-  - the pointer taken far off, nothing is preselected.
+  - the pointer taken far off, nothing is preselected;
+  - an origin axis preselected, and then selected, is in that colour along
+    its length clear of the plane's edge (which lies on it from the top, and
+    is drawn over it, the OpenGL renderer as the backend): on the bgfx backend the dashed copy of a datum's lines
+    drawn through what is in front lay over the coloured line, the colour
+    only between the dashes (the reporter: "yes fix the bgfx").
 """
 import os
 import time
@@ -110,8 +115,18 @@ def dump(name):
     try:
         view().saveRenderDump(path, metadata=False)
     except RuntimeError:
-        # no render engine (Render/Type Legacy): what the screen shows of the
-        # view, the window in front
+        # no render engine (Render/Type Legacy): the GL view's own frame
+        # buffer, whatever window is in front; else what the screen shows
+        gl = [c for c in view().graphicsView().findChildren(QtWidgets.QWidget)
+              if c.metaObject().className() == "QOpenGLWidget"
+              or c.inherits("QOpenGLWidget")]
+        if not gl and view().graphicsView().inherits("QOpenGLWidget"):
+            gl = [view().graphicsView()]
+        if gl:
+            pump(0.3)
+            # QWidget.grab() of a GL widget reads its frame buffer
+            gl[0].grab().save(path)
+            return QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB32)
         mw().raise_()
         mw().activateWindow()
         pump(0.5)
@@ -120,6 +135,9 @@ def dump(name):
         g = w.mapToGlobal(QtCore.QPoint(0, 0))
         screen = QtGui.QGuiApplication.screenAt(g) or QtGui.QGuiApplication.primaryScreen()
         sg = screen.geometry()
+        over = QtWidgets.QApplication.widgetAt(g + QtCore.QPoint(w.width() // 2, w.height() // 2))
+        if over is None or over.window() != mw():
+            note("INFO %s: another window is in front of the view, the grab is not of it" % name)
         screen.grabWindow(0, g.x() - sg.x(), g.y() - sg.y(), w.width(), w.height()).save(path)
     return QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB32)
 
@@ -292,6 +310,74 @@ def click():
     check("the pointer taken off, nothing is preselected", presel() is None, presel())
 
 
+def axis():
+    """The X axis: hovered, then clicked, coloured along its length"""
+    FreeCADGui.Selection.clearSelection()
+    move(5, 5)
+    width, height = view().getSize()
+    hits = [(x, y) for y in range(0, height, 2) for x in range(0, width, 2)
+            if (picked(x, y) or "").startswith("X_Axis")]
+    if not check("the X axis is somewhere to point at", len(hits) > 4, len(hits)):
+        return
+    # the axis's own pixels: its row, from the picks
+    ys = sorted(h[1] for h in hits)
+    row = ys[len(ys) // 2]
+    xs = sorted(h[0] for h in hits if abs(h[1] - row) <= 1)
+    spot = (xs[len(xs) // 2], row)
+    glide((spot[0], spot[1] + 40), spot, 6)
+    for dy in range(-3, 4):
+        move(spot[0], row + dy)
+        if "X_Axis" in (presel() or ""):
+            spot = (spot[0], row + dy)
+            break
+    check("the pointer on the X axis preselects it", "X_Axis" in (presel() or ""), presel())
+
+    # the axis as it is drawn at rest, in its own red, near its row: the
+    # part clear of the side-on XZ plane's edge, which lies on it to the
+    # plane's corner and is drawn over it on both renderers
+    move(5, 5)
+    rest = dump("5-axis-rest")
+    hr = rest.height()
+    red = [x for x in range(rest.width())
+           if any(near_colour(rest.pixel(x, hr - 1 - row + dy), (255, 0, 0))
+                  for dy in range(-3, 4) if 0 <= hr - 1 - row + dy < hr)]
+    # the line's own run: its red label lies past its end
+    run = red[:1]
+    for x in red[1:]:
+        if x - run[-1] > 2:
+            break
+        run.append(x)
+    red = run
+    note("INFO the X axis drawn in red at rest from x %s to %s" % (
+        red and min(red), red and max(red)))
+    move(*spot)
+
+    def along(img, rgb):
+        h = img.height()
+        cols = red
+        lit = 0
+        for x in cols:
+            if any(near_colour(img.pixel(x, h - 1 - row + dy), rgb) for dy in range(-3, 4)
+                   if 0 <= h - 1 - row + dy < h):
+                lit += 1
+        return lit, len(cols)
+
+    lit, n = along(dump("5-axis-preselected"), colour("HighlightColor", 0xE1E114FF))
+    check("the X axis preselected is in the preselection colour along its length",
+          n > 0 and lit >= 0.9 * n, "%d of %d columns" % (lit, n))
+    win = mw().windowHandle()
+    QtTest.QTest.mouseClick(win, Qt.LeftButton, Qt.NoModifier, to_window(*spot))
+    pump(0.5)
+    move(5, 5)
+    pump(0.5)
+    sel = [o.Name for o in FreeCADGui.Selection.getSelection()]
+    check("clicked, the X axis is selected", any(n.startswith("X_Axis") for n in sel), sel)
+    lit, n = along(dump("6-axis-selected"), colour("SelectionColor", 0x1CAD1CFF))
+    check("the X axis selected is in the selection colour along its length",
+          n > 0 and lit >= 0.9 * n, "%d of %d columns" % (lit, n))
+    FreeCADGui.Selection.clearSelection()
+
+
 def box_face():
     """For the eye: the box's top face preselected and selected, under the
     same settings, beside the plane's pictures (crops of both saved)"""
@@ -339,5 +425,5 @@ def advance():
     QtCore.QTimer.singleShot(1500, advance)
 
 
-STEPS[:] = [start, find_plane, hover_edge, across, click, box_face]
+STEPS[:] = [start, find_plane, hover_edge, across, click, axis, box_face]
 QtCore.QTimer.singleShot(3000, advance)

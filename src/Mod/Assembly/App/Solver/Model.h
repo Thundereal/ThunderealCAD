@@ -384,8 +384,7 @@ AssemblyExport bool sameExceptDragWeights(const Model& a, const Model& b);
  * drivers' formulas that give a length, a force (a force scales as a length
  * when mass and time stay) or a torque (as a length squared), and the
  * dynamics block's centres, inertias (times length^2), gravity and force
- * elements. Masses, times and angles stay. Not scaled: the curves -- a run
- * that scales refuses a model that has them.
+ * elements, and the curves (scaledCurve()). Masses, times and angles stay.
  */
 AssemblyExport Model scaled(const Model& model, double length);
 

@@ -242,8 +242,40 @@ Phase D1 is under way (2026-10-28):
   periods of pi sqrt(I / k) (1e-3), its torque -k (turn - 0.1); with
   gravity, a static study holds it where k turn = m g d cos(turn) (1e-6
   rad); on no such joint it does nothing.
-- Next of the leftovers: cams (curve scaling), a spring's end on an
-  element rather than a point.
+- Built: cams in dynamic and static runs, which refused them. `scaled()`
+  now scales the curves too (`scaledCurve()`, Curve.h: the point and both
+  derivatives times the factor, the parameter kept; the projection's
+  tolerances are relative to the parameter, so a curve in metres projects
+  as one in mm did). Test (TestCamJoint): the disk cam driven at 10 rad/s
+  in a Dynamic study without gravity -- the follower keeps the lift (1e-6
+  mm), and the cam joint's reaction on the cam is minus the follower's
+  mass times its acceleration along the slider (2e-3 of the largest), a
+  point follower and a roller.
+  That test found the start of a dynamic run wrong when something moves
+  there, in three ways, each fixed:
+  - The start's accelerations came from one FULL assembly pass, whose
+    velocity projection takes the jump from rest to the motions' speeds
+    over its own step of 1e-6 s: the cam's start read ten thousand times
+    its force. Now positions and velocities are projected first, then the
+    FULL pass (`assembleFull`), the 2e-6 s of acceleration the two
+    projections add to the velocities taken back.
+  - Chrono's assembly analysis has no accelerations that motion gives (its
+    velocity projection holds the positions): HHT started from them, and a
+    whole step left the velocities off, the cam's force 15% off at the
+    first frame, 1.5% at the second. The run now starts in steps growing
+    from h / 1024 (64 of them, then h / 16 ... h / 2, together the first
+    step): 0.5% at the first frame, 0.06% at the second, 1e-5 from the
+    third.
+  - The start's reactions are read after 32 and after 64 of those smallest
+    steps, a line through the two taken back to the start (0.08% on the
+    cam); what the state alone gives (a spring's force, length, angle) is
+    read at the start itself. A probe step whose state was put back did
+    not do: HHT's multipliers carry a quarter of the step before's, and the
+    probe disturbed the start for the later frames.
+  The static run's reactions take the two-pass assembly too: from rest, a
+  Position motion's rate had read as an impulse; now its inertia counts,
+  which a slow sweep's is small.
+- Next of the leftovers: a spring's end on an element rather than a point.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

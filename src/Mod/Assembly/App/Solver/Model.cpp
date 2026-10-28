@@ -180,6 +180,9 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             driver.rotation = scaledFormula(driver.rotation, length * length);
         }
     }
+    for (auto& curve : out.curves) {
+        curve.geometry = scaledCurve(curve.geometry, length);
+    }
     for (auto& limit : out.limits) {
         if (limit.kind == LimitKind::TranslationZ) {
             if (limit.min) {

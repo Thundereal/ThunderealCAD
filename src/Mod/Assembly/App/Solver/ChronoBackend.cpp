@@ -2519,12 +2519,6 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     if (!model.dynamics) {
         return refuse("the model has no masses");
     }
-    for (const auto& joint : model.joints) {
-        if (joint.kind == JointKind::PointOnCurve) {
-            return refuse("the cam " + model.sourceName(joint.source)
-                          + " is not run by a dynamic analysis yet");
-        }
-    }
     if (spec.analysis == Analysis::Static) {
         for (const auto& driver : model.drivers) {
             if (driver.rotationControl == MotorControl::Speed
@@ -2999,6 +2993,28 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     // stable or not. This descends, and its reactions are the acceleration
     // analysis's at rest.
     const bool statics = spec.analysis == Analysis::Static;
+    // The accelerations and the reactions at the current state, from
+    // velocities made consistent first: a single FULL pass projects them
+    // and differentiates the jump over its own step of 1e-6 s, so a motion
+    // starting to move (or a Position motion's rate after a static rest)
+    // read as an impulse -- the cam's start, ten thousand times its force
+    auto assembleFull = [&]() {
+        sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::POSITION)
+                       | static_cast<int>(ch::AssemblyAnalysis::Level::VELOCITY));
+        sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::FULL));
+        // Each velocity projection is a step of 1e-6 s under the forces: two
+        // left the velocities 2e-6 s of acceleration off, the rack 1.4e-3 mm
+        // off after 0.1 s. Taken back by the accelerations the second kept.
+        constexpr double projectionStep = 1e-6;
+        for (const auto& body : run.d->bodies) {
+            if (body->IsFixed()) {
+                continue;
+            }
+            body->SetPosDt(body->GetPosDt() - 2.0 * projectionStep * body->GetPosDt2());
+            body->SetAngVelLocal(body->GetAngVelLocal()
+                                 - 2.0 * projectionStep * body->GetAngAccLocal());
+        }
+    };
     const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
     const int maxRelaxSteps = 50000;
     auto kinetic = [&]() {
@@ -3062,7 +3078,9 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
             if (still) {
                 sys.SetChTime(time);
                 // The accelerations at rest, near none, and the reactions
-                sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::FULL));
+                // (a Position motion's rate counts there, its inertia: a
+                // slow sweep's is small)
+                assembleFull();
                 toRest();
                 return true;
             }
@@ -3077,9 +3095,62 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         // given, and from rest that was none, the run lagging a part of a
         // step behind -- the pendulum's period long by 0.2% at 1 ms, the
         // error first order in the step
-        sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::FULL));
+        assembleFull();
+        auto stepOnce = [&](double dt) {
+            sys.DoStepDynamics(dt);
+            // The neutral links count their turns from the angles last
+            // committed: a pinion past half a turn read as the other way
+            // round, the rack jumping a pitch
+            run.d->commitAngles();
+            handleStops(dt, true);
+        };
+        // A dynamic run starts in steps growing from a thousandth of one:
+        // 64 of h / 1024, then h / 16, h / 8, h / 4, h / 2, together the
+        // first step. HHT starts from the accelerations it is given, the
+        // assembly analysis's, which have none that motion gives (its
+        // velocity projection holds the positions); a whole step from them
+        // left the velocities off, a cam's force 15% off at the first frame
+        // and 1.5% at the second. The start's reactions (a joint's, a
+        // motor's effort) are those after 32 and after 64 of the smallest
+        // taken back to the start, a line through the two: the transient
+        // gone by then, as measured on the cam, and the 60 us the reading is
+        // late (0.2% of its force) taken out. What the state alone gives (a
+        // spring's force, length, angle) is read at the start itself: a line
+        // through a quadratic path misses it by a t1 t2 / 2.
+        const int tinySteps = 64;
+        const double tiny = h / 1024.0;
         for (std::size_t k = 0; k <= steps; ++k) {
             const double time = spec.tStart + static_cast<double>(k) * spec.tOutput;
+            if (!statics && k == 0) {
+                const std::vector<BodyPose> poses = posesNow();
+                const std::vector<double> start = channels.empty() ? std::vector<double>()
+                                                                   : valuesNow();
+                std::vector<double> half;
+                for (int i = 0; i < tinySteps; ++i) {
+                    stepOnce(tiny);
+                    if (i + 1 == tinySteps / 2 && !channels.empty()) {
+                        half = valuesNow();
+                    }
+                }
+                if (!channels.empty()) {
+                    std::vector<double> values = valuesNow();
+                    std::size_t v = 0;
+                    for (const auto& channel : channels) {
+                        const bool reaction = channel.quantity == "Force"
+                            || channel.quantity == "Torque" || channel.quantity == "MotorTorque"
+                            || channel.quantity == "MotorForce";
+                        for (int c = 0; c < channel.width && v < values.size(); ++c, ++v) {
+                            values[v] = reaction ? 2.0 * half[v] - values[v] : start[v];
+                        }
+                    }
+                    sink.values(values);
+                }
+                if (!sink.frame(time, poses)) {
+                    status = Status::Cancelled;
+                    break;
+                }
+                continue;
+            }
             if (statics) {
                 if (!settle(time)) {
                     Base::Console().error(
@@ -3092,14 +3163,17 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
                     break;
                 }
             }
-            else if (k > 0) {
-                for (int s = 0; s < sub; ++s) {
-                    sys.DoStepDynamics(h);
-                    // The neutral links count their turns from the angles
-                    // last committed: a pinion past half a turn read as
-                    // the other way round, the rack jumping a pitch
-                    run.d->commitAngles();
-                    handleStops(h, true);
+            else {
+                int s = 0;
+                if (k == 1) {
+                    // The rest of the first step
+                    for (double part = tinySteps * tiny; part < h; part *= 2.0) {
+                        stepOnce(part);
+                    }
+                    s = 1;
+                }
+                for (; s < sub; ++s) {
+                    stepOnce(h);
                 }
             }
             if (!channels.empty()) {

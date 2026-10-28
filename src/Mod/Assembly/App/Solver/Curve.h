@@ -96,6 +96,11 @@ private:
     mutable Base::Vector3d referenceDirection;
 };
 
+// The curve with its lengths times a factor, its parameter kept: its points
+// and both derivatives scaled (Solver::scaled(), a run in SI). Null for null.
+AssemblyExport std::shared_ptr<const CurveGeometry>
+scaledCurve(std::shared_ptr<const CurveGeometry> curve, double factor);
+
 // The curve at any parameter: wrapped by the period when closed, extended
 // along the end tangents when open.
 AssemblyExport CurvePoint evaluateCurve(const CurveGeometry& curve, double u);

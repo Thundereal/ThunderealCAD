@@ -72,6 +72,64 @@ constexpr int searchSamples = 128;
 
 CurveGeometry::~CurveGeometry() = default;
 
+namespace
+{
+
+class ScaledCurve: public CurveGeometry
+{
+public:
+    ScaledCurve(std::shared_ptr<const CurveGeometry> base, double factor)
+        : base(std::move(base))
+        , factor(factor)
+    {}
+
+    double first() const override
+    {
+        return base->first();
+    }
+    double last() const override
+    {
+        return base->last();
+    }
+    bool closed() const override
+    {
+        return base->closed();
+    }
+    CurvePoint evaluate(double u) const override
+    {
+        const CurvePoint c = base->evaluate(u);
+        return {c.p * factor, c.d1 * factor, c.d2 * factor};
+    }
+    Base::Vector3d planeNormal() const override
+    {
+        return base->planeNormal();
+    }
+    std::string describe() const override
+    {
+        return "scaled " + std::to_string(factor) + " " + base->describe();
+    }
+    bool same(const CurveGeometry& other) const override
+    {
+        const auto* scaled = dynamic_cast<const ScaledCurve*>(&other);
+        return scaled && scaled->factor == factor && base->same(*scaled->base);
+    }
+
+private:
+    std::shared_ptr<const CurveGeometry> base;
+    double factor;
+};
+
+}  // namespace
+
+std::shared_ptr<const CurveGeometry>
+Assembly::Solver::scaledCurve(std::shared_ptr<const CurveGeometry> curve, double factor)
+{
+    if (!curve || factor == 1.0) {
+        return curve;
+    }
+    return std::make_shared<ScaledCurve>(std::move(curve), factor);
+}
+
 const Base::Vector3d& CurveGeometry::reference() const
 {
     if (!haveReference) {

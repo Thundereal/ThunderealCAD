@@ -381,6 +381,56 @@ class TestCamJoint(CamMechanism, JointTestBase):
                 lifts = [profile_lift(curve, RATE * T_STEP * k) for k in range(21)]
                 self.assertGreater(max(lifts) - min(lifts), RISE - 0.1)
 
+    def test_disk_cam_dynamics(self):
+        """A Dynamic study of the disk cam driven at RATE, without gravity: the
+        follower keeps the lift, and the cam pushes it along the slider by its
+        mass times its acceleration there -- the cam joint's reaction on the
+        cam, its first reference, the opposite -- at the start too, moving
+        already there."""
+        if "Chrono" not in self.backends():
+            self.skipTest("the Chrono backend is not built")
+        step = 0.01
+        for roller in (0.0, ROLLER):
+            with self.subTest(roller=roller):
+                self.tearDown()
+                self.setUp()
+                cam, rev, f = self.disk_mechanism(roller)
+                sims = self.assembly.getGroup("Simulations", True)
+                sim = sims.newObject("Assembly::Simulation", "Simulation")
+                sim.AnalysisType = "Dynamic"
+                sim.GravityEnabled = False
+                sim.TimeEnd = 1.0
+                sim.TimeStepOutput = step
+                motion = sim.newObject("Assembly::Motion", "Motion")
+                motion.Joint = rev
+                motion.MotionType = "Angular"
+                motion.Formula = "%g*time" % RATE
+                self.doc.recompute()
+                self.assertEqual(self.assembly.generateSimulation(sim), 0)
+                results = self.assembly.getSimulationResults()
+                forces = [
+                    c["Values"]
+                    for c in results["Channels"]
+                    if c["Name"].startswith("Cam") and c["Quantity"] == "Force"
+                ][0]
+                mass = f.Shape.Volume * 2.7e-6  # kg, the default aluminium
+                e = 1e-4
+
+                def accel(theta):
+                    lift = lambda th: disk_lift(th, roller)
+                    return (lift(theta + e) - 2 * lift(theta) + lift(theta - e)) / e**2 * RATE**2
+
+                biggest = max(abs(mass * accel(RATE * step * k)) for k in range(101))
+                for k in range(self.assembly.numberOfFrames()):
+                    self.assembly.updateForFrame(k)
+                    theta = RATE * step * k
+                    self.assertAlmostEqual(
+                        f.Placement.Base.y, disk_lift(theta, roller), delta=1e-6, msg=k
+                    )
+                    self.assertAlmostEqual(
+                        forces[k].y, -mass * accel(theta), delta=biggest * 2e-3, msg=k
+                    )
+
 
 class TestSimulationMotions(CamMechanism, JointTestBase):
     """Which children of a Simulation are its motions (docs/AssemblyDynamics.md sec 1)."""

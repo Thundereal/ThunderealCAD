@@ -8190,3 +8190,17 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - origin-plane-highlight.py 14/14 bgfx and OpenGL (picture from
   QWidget.grab of the GL widget: screen grabs caught the reporter's own
   windows); staged copy, the axis 4 of 14 columns.
+
+### 2026-10-28 evening: entry 236 -- COMMITTED `6669972af0`, not pushed, not staged
+
+- Pushed before it, on the reporter's word: ef7af542e0..c30ae593fa.
+- 236: a placement change in the edit made Gui::Document put the whole
+  editing transform (the new placement in it) on the editing root, over
+  the gizmo frame (editing transform less own placement): handles had the
+  placement twice. GizmoContainer sets its frame back on
+  signalEditingTransformChanged; getWorldMatrix() is that frame from the
+  edit path (it multiplied the editing transform on once more: labels).
+- Audit: all PD gizmo panels go through GizmoContainer, so one fix.
+- pd-box-handles-follow-attachment.py (offscreen; handles read via
+  getAuxSceneGraph with SoBaseKit.setSearchingChildren): 5/5; staged copy
+  fails attached-in-edit (every handle), passes reopened.

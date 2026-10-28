@@ -87,6 +87,7 @@ SET(Solver_SRCS
     Solver/Registry.h
     Solver/RigidGroups.cpp
     Solver/RigidGroups.h
+    Solver/Units.h
 )
 # The Chrono backend (sec 6.15), only with BUILD_ASSEMBLY_CHRONO: Chrono's
 # headers and defines go to its source alone (src/3rdParty/ChronoCore.cmake).

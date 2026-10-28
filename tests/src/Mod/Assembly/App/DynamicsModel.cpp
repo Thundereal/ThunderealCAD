@@ -11,9 +11,11 @@
 #include <numbers>
 
 #include <Base/Placement.h>
+#include <Base/Quantity.h>
 #include <Mod/Assembly/App/Solver/Backend.h>
 #include <Mod/Assembly/App/Solver/Model.h>
 #include <Mod/Assembly/App/Solver/RigidGroups.h>
+#include <Mod/Assembly/App/Solver/Units.h>
 
 using namespace Assembly::Solver;
 
@@ -196,4 +198,46 @@ TEST(DynamicsModel, sameNeedsTheSameBlock)  // NOLINT
     EXPECT_TRUE(sameExceptDragWeights(a, b));
     a.dynamics->inertias.push_back(box(0, 1.0, 1, 1, 1, Base::Vector3d()));
     EXPECT_FALSE(sameExceptDragWeights(a, b));
+}
+
+// The unit contract (sec 8.1), against FreeCAD's units: one SI unit, parsed,
+// is the factor's inverse in internal units
+TEST(DynamicsModel, unitFactorsAreFreeCADs)  // NOLINT
+{
+    auto internal = [](const char* text) {
+        return Base::Quantity::parse(text).getValue();
+    };
+    const struct
+    {
+        const char* unit;
+        double factor;
+    } checks[] = {
+        {"1 m", SI::length},
+        {"1 kg", SI::mass},
+        {"1 s", SI::time},
+        {"1 m/s", SI::velocity},
+        {"1 m/s^2", SI::acceleration},
+        {"1 N", SI::force},
+        {"1 N*m", SI::torque},
+        {"1 J", SI::energy},
+        {"1 W", SI::power},
+        {"1 N/m", SI::linearStiffness},
+        {"1 N*s/m", SI::linearDamping},
+        {"1 kg*m^2", SI::inertia},
+        {"1 kg/m^3", SI::density},
+        {"1 Pa", SI::pressure},
+    };
+    for (const auto& check : checks) {
+        EXPECT_NEAR(internal(check.unit) * check.factor, 1.0, 1e-12) << check.unit;
+    }
+    // The torsional ones: a torque per radian, a torque per radian per second
+    EXPECT_NEAR(internal("1 N*m") * SI::torsionalStiffness, 1.0, 1e-12);
+    EXPECT_NEAR(internal("1 N*m*s") * SI::torsionalDamping, 1.0, 1e-12);
+    // The impact stiffness: N/m for an exponent of 1, N/m^2 for 2, and the
+    // 1.5 of a Hertzian contact between the two
+    EXPECT_NEAR(internal("1 N/m") * SI::impactStiffness(1.0), 1.0, 1e-12);
+    EXPECT_NEAR(internal("1 N/m^2") * SI::impactStiffness(2.0), 1.0, 1e-12);
+    EXPECT_NEAR(SI::impactStiffness(1.5), 1e-3 / std::pow(1e-3, 1.5), 1e-6);
+    EXPECT_NEAR(SI::impactStiffness(1.5), std::sqrt(1e3), 1e-9);
+    EXPECT_NEAR(internal("1 N*s/m") * SI::impactDamping, 1.0, 1e-12);
 }

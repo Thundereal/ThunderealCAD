@@ -46,7 +46,16 @@ way:
   the records. Tests: `DynamicsModel.*` (gtest, a session that keeps the
   model it is given checks the bundling) and `TestMassProperties.
   test_body_inertias`.
-- Not yet: the unit contract's conversions; the Mass Properties table.
+- Built: the unit contract's factors (`Solver/Units.h`, namespace
+  `Solver::SI`): internal units times the factor is SI, the table of sec 8.1
+  and velocity, acceleration, energy, power and the dampings beside it, and
+  `impactStiffness(e)` = force / length^e, the Adams scaling, with
+  `impactDamping`. The test (`DynamicsModel.unitFactorsAreFreeCADs`) checks
+  each against FreeCAD's own units -- one SI unit parsed by
+  `Base::Quantity` is the factor's inverse -- so the table cannot drift
+  from them. Chrono's kinematic solves keep mm, their tolerances set for it;
+  the dynamics D1 adds convert.
+- Not yet: the Mass Properties table.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

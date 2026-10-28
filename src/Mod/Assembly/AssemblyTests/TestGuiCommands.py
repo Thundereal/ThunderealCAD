@@ -458,17 +458,32 @@ class TestGuiCommands(unittest.TestCase):
         def tree_icon():
             j.ViewObject.signalChangeIcon()
             _process()
-            # The tree makes a group's items when it is expanded: the joint's
-            # is not there under a collapsed Joints group
-            for tree in Gui.getMainWindow().findChildren(QtWidgets.QTreeWidget):
-                if tree.isVisible():
+            # The tree makes a group's items when it is expanded, a level at
+            # a time: the joint's is not there under a collapsed Joints group
+            trees = Gui.getMainWindow().findChildren(QtWidgets.QTreeWidget)
+            for _ in range(6):
+                for tree in trees:
+                    found = tree.findItems(
+                        j.Label, QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive
+                    )
+                    if found:
+                        return found[0].icon(0).pixmap(QtCore.QSize(64, 32)).toImage()
+                for tree in trees:
                     tree.expandAll()
-            _process()
-            for tree in Gui.getMainWindow().findChildren(QtWidgets.QTreeWidget):
-                found = tree.findItems(j.Label, QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive)
-                if found:
-                    return found[0].icon(0).pixmap(QtCore.QSize(64, 32)).toImage()
-            self.fail("joint not in the tree")
+                _process()
+
+            def walk(item, depth=1):
+                out = ["  " * depth + item.text(0)]
+                for i in range(item.childCount()):
+                    out += walk(item.child(i), depth + 1)
+                return out
+
+            seen = []
+            for tree in trees:
+                seen.append("%s visible %s" % (tree.objectName(), tree.isVisible()))
+                for i in range(tree.topLevelItemCount()):
+                    seen += walk(tree.topLevelItem(i))
+            self.fail("joint %r not in the tree:\n%s" % (j.Label, "\n".join(seen)))
 
         with_overlay = tree_icon()
         with mock.patch.object(type(j.ViewObject.Proxy), "getOverlayIcons", lambda s: {}):

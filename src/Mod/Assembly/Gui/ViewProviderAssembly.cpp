@@ -214,16 +214,22 @@ void ViewProviderAssembly::showCollisionMarkers()
     auto* pick = new SoPickStyle;
     pick->style = SoPickStyle::UNPICKABLE;
     markerGroup->addChild(pick);
-    auto* material = new SoMaterial;
-    material->diffuseColor.setValue(1.0F, 0.1F, 0.05F);
-    material->emissiveColor.setValue(0.6F, 0.0F, 0.0F);
-    markerGroup->addChild(material);
+    // Red for a collision, amber for components that only touch
+    auto* collision = new SoMaterial;
+    collision->diffuseColor.setValue(1.0F, 0.1F, 0.05F);
+    collision->emissiveColor.setValue(0.6F, 0.0F, 0.0F);
+    collision->ref();
+    auto* contact = new SoMaterial;
+    contact->diffuseColor.setValue(1.0F, 0.65F, 0.0F);
+    contact->emissiveColor.setValue(0.6F, 0.35F, 0.0F);
+    contact->ref();
     // In units of the auto zoom's, about 1.5% of the view's height: the head
     // 2.4 long, its tip at where the two met, the shaft 3.6 behind it
     constexpr float headLength = 2.4F;
     constexpr float shaftLength = 3.6F;
     for (const auto& marker : markers) {
         auto* arrow = new SoSeparator;
+        arrow->addChild(marker.contact ? contact : collision);
         auto* at = new SoTranslation;
         at->translation.setValue(Base::convertTo<SbVec3f>(marker.centre));
         arrow->addChild(at);
@@ -253,6 +259,8 @@ void ViewProviderAssembly::showCollisionMarkers()
         arrow->addChild(shaft);
         markerGroup->addChild(arrow);
     }
+    collision->unref();
+    contact->unref();
 }
 
 QIcon ViewProviderAssembly::getIcon() const

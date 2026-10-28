@@ -112,7 +112,9 @@ found them: stopped, where they meet; highlighting, where they last crossed.
 **Check Interference** marks its interferences the same way, one for each
 pair (over frames, at the frame its row shows), pointing into Object2; a
 pair marked at the same place already is not marked again, so running the
-check again where nothing moved adds nothing. Contacts are not marked.
+check again where nothing moved adds nothing. With contacts asked for, the
+pairs that only touch are marked too, in amber, at the middle of where they
+touch.
 
 The marks stay after the drag or the check, in the assembly they were made
 in, until **Clear Collision Markers** (`Assembly_ClearCollisionMarkers`, on
@@ -131,11 +133,19 @@ assembly of the document. They are not saved. Where
   middle of the common part of their boxes, the direction between the boxes.
 - Exact: the centre of mass of the solid in common, the direction from the
   centre of the box of the one hit to the other's.
+- A contact, in both modes (`contactOf()`; Exact meshes the two for it, at a
+  tolerance of at least twice the meshes' error): the middle of the vertices
+  of each mesh within the tolerance of a triangle of the other's. The
+  direction is the normal of the hit component's triangles that lie face to
+  face with the other's -- parallel, within the tolerance, and overlapping
+  by more than it -- not those of faces meeting only at an edge, as the
+  sides of two blocks one on the other; turned out of the hit one as above.
+  A pin in its hole is touched all round: the direction says little there.
 
 From Python: `getCollisionMarkers()` (dicts of `First`, `Second`, `Centre`,
-`Direction`), `addCollisionMarker(first, second, centre, direction)`,
-`clearCollisionMarkers()`; `findInterferences()` gives each interference
-its `Centre` and `Direction` (None for a contact).
+`Direction`), `addCollisionMarker(first, second, centre, direction, contact=False)`,
+`clearCollisionMarkers()`; `findInterferences()` gives each result its
+`Centre` and `Direction`.
 
 ## What is checked
 

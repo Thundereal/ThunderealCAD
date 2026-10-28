@@ -294,15 +294,20 @@ class TaskCheckInterference:
                 kind, amount = self.describe(result, mode)
                 self.addItem(self.table, index, result, [kind, amount])
             self.table.setRootIsDecorated(False)
-            marked = [r for r in self.results if r["Kind"] == "Interference"]
+            marked = self.results
         else:
             marked = [self.results[i] for i in self.listByPair(mode)]
             self.table.setRootIsDecorated(True)
-        # Where they meet, marked as a drag's collisions are, until cleared
+        # Where they meet, marked as a drag's collisions are, until cleared;
+        # contacts in amber
         for result in marked:
-            if result["Kind"] == "Interference" and result["Centre"] is not None:
+            if result["Centre"] is not None:
                 self.assembly.addCollisionMarker(
-                    result["Object1"], result["Object2"], result["Centre"], result["Direction"]
+                    result["Object1"],
+                    result["Object2"],
+                    result["Centre"],
+                    result["Direction"],
+                    result["Kind"] == "Contact",
                 )
         for column in range(4):
             self.table.resizeColumnToContents(column)

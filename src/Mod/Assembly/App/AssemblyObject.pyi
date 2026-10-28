@@ -249,7 +249,9 @@ class AssemblyObject(Part):
 
         Returns: a list of dicts: First, Second (the objects, None when gone),
         Centre (where they met, in the assembly's coordinates), Direction (a
-        unit vector out of the component hit, towards the other).
+        unit vector out of the component hit, towards the other), Contact
+        (True for components that only touch: the interference check's
+        contacts).
         """
         ...
 
@@ -258,12 +260,18 @@ class AssemblyObject(Part):
         ...
 
     def addCollisionMarker(
-        self, first: DocumentObject, second: DocumentObject, centre: Any, direction: Any, /
+        self,
+        first: DocumentObject,
+        second: DocumentObject,
+        centre: Any,
+        direction: Any,
+        contact: bool = False,
+        /,
     ) -> None:
         """
-        A marker of where two components collide, as getCollisionMarkers()
-        has them, unless the pair has one there already (the interference
-        check's, from a result's Centre and Direction).
+        A marker of where two components collide, or with contact, touch, as
+        getCollisionMarkers() has them, unless the pair has one there already
+        (the interference check's, from a result's Centre and Direction).
         """
         ...
 
@@ -350,10 +358,12 @@ class AssemblyObject(Part):
         Distance (contacts, mm; Fast gives the tolerance), Tolerance (the one
         the pair was judged with) and Overlap (Exact: the solid in common, in
         the assembly's coordinates; else None); with frames, also Frame and
-        Time (s). An interference has Centre, where the two meet, and
-        Direction, a unit vector out of Object2 towards Object1 (Fast: at the
+        Time (s). Each has Centre, where the two meet, and Direction, a unit
+        vector out of Object2 towards Object1 (an interference, Fast: at the
         middle of the curve along which their meshes cross; Exact: at the
-        centre of mass of the solid in common); a contact has None for both.
+        centre of mass of the solid in common. A contact: the middle of the
+        vertices of either mesh near the other, Exact meshing them for it);
+        None when not found.
         """
         ...
 

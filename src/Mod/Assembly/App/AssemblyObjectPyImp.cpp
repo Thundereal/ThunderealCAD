@@ -386,6 +386,7 @@ PyObject* AssemblyObjectPy::getCollisionMarkers(PyObject* args) const
         entry.setItem("Second", object(marker.second));
         entry.setItem("Centre", Py::Vector(marker.centre));
         entry.setItem("Direction", Py::Vector(marker.direction));
+        entry.setItem("Contact", Py::Boolean(marker.contact));
         ret.append(entry);
     }
     return Py::new_reference_to(ret);
@@ -397,8 +398,9 @@ PyObject* AssemblyObjectPy::addCollisionMarker(PyObject* args)
     PyObject* second {};
     PyObject* centre {};
     PyObject* direction {};
+    PyObject* contact = Py_False;
     if (!PyArg_ParseTuple(args,
-                          "O!O!O!O!",
+                          "O!O!O!O!|O!",
                           &App::DocumentObjectPy::Type,
                           &first,
                           &App::DocumentObjectPy::Type,
@@ -406,14 +408,17 @@ PyObject* AssemblyObjectPy::addCollisionMarker(PyObject* args)
                           &Base::VectorPy::Type,
                           &centre,
                           &Base::VectorPy::Type,
-                          &direction)) {
+                          &direction,
+                          &PyBool_Type,
+                          &contact)) {
         return nullptr;
     }
     getAssemblyObjectPtr()->addCollisionMarker(
         static_cast<App::DocumentObjectPy*>(first)->getDocumentObjectPtr(),
         static_cast<App::DocumentObjectPy*>(second)->getDocumentObjectPtr(),
         *static_cast<Base::VectorPy*>(centre)->getVectorPtr(),
-        *static_cast<Base::VectorPy*>(direction)->getVectorPtr());
+        *static_cast<Base::VectorPy*>(direction)->getVectorPtr(),
+        contact == Py_True);
     Py_Return;
 }
 

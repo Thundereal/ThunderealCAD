@@ -117,24 +117,30 @@ class TestInterference(unittest.TestCase):
     def test_touch(self):
         """Where an interference meets, in both modes: A and B, sunk 2 mm into
         each other along x, meet in the middle of their common slab, the
-        direction out of B, Object2, towards A; a contact has none. Marked,
-        the same place twice is one marker."""
+        direction out of B, Object2, towards A. Where contacts touch: C on A's
+        face and on 2 mm of B's, in the middle of each. Marked, the same place
+        twice is one marker."""
         for mode in ("Exact", "Fast"):
             with self.subTest(mode=mode):
                 results = self.assembly.findInterferences(
                     mode=mode, tolerance=0.01, contacts=True
                 )
                 for r in results:
-                    if r["Kind"] == "Contact":
-                        self.assertIsNone(r["Centre"])
-                        self.assertIsNone(r["Direction"])
-                    else:
-                        self.assertIsNotNone(r["Centre"])
-                (ab,) = [r for r in results if (r["Object1"].Name, r["Object2"].Name) == ("A", "B")]
-                for got, want in zip(ab["Centre"], (9.0, 5.0, 5.0)):
-                    self.assertAlmostEqual(got, want, places=6)
-                for got, want in zip(ab["Direction"], (-1.0, 0.0, 0.0)):
-                    self.assertAlmostEqual(got, want, places=6)
+                    self.assertIsNotNone(r["Centre"])
+                    self.assertIsNotNone(r["Direction"])
+
+                def where(names, centre, direction):
+                    (r,) = [r for r in results if (r["Object1"].Name, r["Object2"].Name) == names]
+                    for got, want in zip(r["Centre"], centre):
+                        self.assertAlmostEqual(got, want, places=6)
+                    for got, want in zip(r["Direction"], direction):
+                        self.assertAlmostEqual(got, want, places=6)
+                    return r
+
+                ab = where(("A", "B"), (9.0, 5.0, 5.0), (-1.0, 0.0, 0.0))
+                # C on y = 10: out of C, down to A and B
+                where(("A", "C"), (5.0, 10.0, 5.0), (0.0, -1.0, 0.0))
+                where(("B", "C"), (9.0, 10.0, 5.0), (0.0, -1.0, 0.0))
 
                 self.assembly.clearCollisionMarkers()
                 for _ in range(2):
@@ -145,6 +151,14 @@ class TestInterference(unittest.TestCase):
                 self.assertEqual(len(markers), 1)
                 self.assertEqual(markers[0]["First"], self.A)
                 self.assertEqual(markers[0]["Centre"], ab["Centre"])
+                self.assertFalse(markers[0]["Contact"])
+                # The same place as a contact: a marker of its own
+                self.assembly.addCollisionMarker(
+                    ab["Object1"], ab["Object2"], ab["Centre"], ab["Direction"], True
+                )
+                self.assertEqual(
+                    [m["Contact"] for m in self.assembly.getCollisionMarkers()], [False, True]
+                )
                 self.assembly.clearCollisionMarkers()
 
     def test_tolerance(self):

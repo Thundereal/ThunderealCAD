@@ -630,6 +630,179 @@ bool meshesCross(Component& ca, Component& cb, double tol)
     return false;
 }
 
+// The point of triangle t nearest to p (Ericson, Real-Time Collision
+// Detection, 5.1.5)
+Vec nearestOnTriangle(const Vec& p, const Vec (&t)[3])
+{
+    const Vec ab = t[1] - t[0];
+    const Vec ac = t[2] - t[0];
+    const Vec ap = p - t[0];
+    const double d1 = dot(ab, ap);
+    const double d2 = dot(ac, ap);
+    if (d1 <= 0.0 && d2 <= 0.0) {
+        return t[0];
+    }
+    const Vec bp = p - t[1];
+    const double d3 = dot(ab, bp);
+    const double d4 = dot(ac, bp);
+    if (d3 >= 0.0 && d4 <= d3) {
+        return t[1];
+    }
+    const double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
+        return t[0] + ab * (d1 / (d1 - d3));
+    }
+    const Vec cp = p - t[2];
+    const double d5 = dot(ab, cp);
+    const double d6 = dot(ac, cp);
+    if (d6 >= 0.0 && d5 <= d6) {
+        return t[2];
+    }
+    const double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
+        return t[0] + ac * (d2 / (d2 - d6));
+    }
+    const double va = d3 * d6 - d5 * d4;
+    if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
+        return t[1] + (t[2] - t[1]) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    }
+    const double denominator = 1.0 / (va + vb + vc);
+    return t[0] + ab * (vb * denominator) + ac * (vc * denominator);
+}
+
+// Whether triangles p and t lie face to face: parallel, p within tol of t's
+// plane, and, seen along its normal, overlapping by more than tol (no edge of
+// either separates them, by the separating axis test). Faces that only meet
+// at an edge or a corner -- the sides of two blocks one on the other, which
+// share an edge and may share a plane -- do not.
+bool faceToFace(const Vec (&p)[3], const Vec (&t)[3], double tol)
+{
+    const Vec np = cross(p[1] - p[0], p[2] - p[0]);
+    const Vec nt = cross(t[1] - t[0], t[2] - t[0]);
+    const double sp = std::sqrt(dot(np, np));
+    const double st = std::sqrt(dot(nt, nt));
+    if (sp <= 0.0 || st <= 0.0 || std::abs(dot(np, nt)) < 0.98 * sp * st) {
+        return false;
+    }
+    const Vec n = nt * (1.0 / st);
+    for (const Vec& v : p) {
+        if (std::abs(dot(n, v - t[0])) > tol) {
+            return false;
+        }
+    }
+    for (const auto* triangle : {&p, &t}) {
+        for (int i = 0; i < 3; ++i) {
+            const Vec edge = (*triangle)[(i + 1) % 3] - (*triangle)[i];
+            const Vec axis = cross(n, edge);
+            const double size = std::sqrt(dot(axis, axis));
+            if (size <= 0.0) {
+                continue;
+            }
+            double lowP = 1e300;
+            double highP = -1e300;
+            double lowT = 1e300;
+            double highT = -1e300;
+            for (int k = 0; k < 3; ++k) {
+                const double a = dot(axis, p[k]) / size;
+                const double b = dot(axis, t[k]) / size;
+                lowP = std::min(lowP, a);
+                highP = std::max(highP, a);
+                lowT = std::min(lowT, b);
+                highT = std::max(highT, b);
+            }
+            if (highP < lowT + tol || highT < lowP + tol) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Where two components that touch meet, into result's touch: the middle of
+// the vertices of each mesh within tol of a triangle of the other's, each
+// vertex once; the direction, the normals of the triangles of `hit` that lie
+// face to face with one of the other's, turned to agree and then to point out
+// of `hit` (a step along it leaves it; else the way from hit's box to the
+// other's). With no vertex near (an edge across a face), the middle of the
+// common part of the boxes.
+void contactOf(Component& other, Component& hit, double tol, InterferenceResult& result)
+{
+    std::set<std::array<double, 3>> seen;
+    Vec sum(0.0, 0.0, 0.0);
+    Vec normal(0.0, 0.0, 0.0);
+    int pairs = 0;
+    for (const auto& io : other.instances) {
+        for (const auto& ih : hit.instances) {
+            if (!io.geometry || !ih.geometry || !boxesNear(io.box, ih.box, tol)) {
+                continue;
+            }
+            const Vec origin = apply(io.trsf, Vec(0.0, 0.0, 0.0));
+            visitNearTriangles(io, ih, tol, [&](const Vec(&po)[3], const Vec(&ph)[3], int, int) {
+                bool touching = false;
+                auto add = [&](const Vec& vertex, const Vec(&triangle)[3]) {
+                    const Vec gap = vertex - nearestOnTriangle(vertex, triangle);
+                    if (dot(gap, gap) > tol * tol) {
+                        return;
+                    }
+                    touching = true;
+                    const Vec at = apply(io.trsf, vertex);
+                    if (seen.insert({at.x(), at.y(), at.z()}).second) {
+                        sum = sum + at;
+                    }
+                };
+                for (const Vec& vertex : po) {
+                    add(vertex, ph);
+                }
+                for (const Vec& vertex : ph) {
+                    add(vertex, po);
+                }
+                if (touching && faceToFace(po, ph, tol)) {
+                    Vec unit = apply(io.trsf, cross(ph[1] - ph[0], ph[2] - ph[0])) - origin;
+                    const double size = std::sqrt(dot(unit, unit));
+                    if (size > 0.0) {
+                        unit = unit * ((dot(unit, normal) < 0.0 ? -1.0 : 1.0) / size);
+                        normal = normal + unit;
+                    }
+                }
+                return ++pairs >= maxTouchPairs;
+            });
+        }
+    }
+
+    const Bnd_Box& bo = exactBox(other);
+    const Bnd_Box& bh = exactBox(hit);
+    if (seen.empty() && (bo.IsVoid() || bh.IsVoid())) {
+        return;
+    }
+    double ox0 {}, oy0 {}, oz0 {}, ox1 {}, oy1 {}, oz1 {};
+    double hx0 {}, hy0 {}, hz0 {}, hx1 {}, hy1 {}, hz1 {};
+    if (!bo.IsVoid() && !bh.IsVoid()) {
+        bo.Get(ox0, oy0, oz0, ox1, oy1, oz1);
+        bh.Get(hx0, hy0, hz0, hx1, hy1, hz1);
+    }
+    const Vec boxes(ox0 + ox1 - hx0 - hx1, oy0 + oy1 - hy0 - hy1, oz0 + oz1 - hz0 - hz1);
+    const Vec centre = !seen.empty() ? sum * (1.0 / static_cast<double>(seen.size()))
+                                     : Vec(0.5 * (std::max(ox0, hx0) + std::min(ox1, hx1)),
+                                           0.5 * (std::max(oy0, hy0) + std::min(oy1, hy1)),
+                                           0.5 * (std::max(oz0, hz0) + std::min(oz1, hz1)));
+    if (dot(normal, normal) <= 0.0) {
+        normal = boxes;
+    }
+    const double size = std::sqrt(dot(normal, normal));
+    if (size > 0.0) {
+        normal = normal * (1.0 / size);
+        const double step = 3.0 * tol;
+        const bool ahead = hit.contains(pointOf(centre + normal * step), tol);
+        const bool behind = hit.contains(pointOf(centre - normal * step), tol);
+        if ((ahead && !behind) || (ahead == behind && dot(normal, boxes) < 0.0)) {
+            normal = normal * -1.0;
+        }
+    }
+    result.touched = true;
+    result.touchCentre = Base::Vector3d(centre.x(), centre.y(), centre.z());
+    result.touchNormal = Base::Vector3d(normal.x(), normal.y(), normal.z());
+}
+
 // Whether `inner` is inside `outer`, by more than tol: the one inside the
 // other, which no crossing shows -- nor do two copies of a part in the same
 // place, whose surfaces coincide. With no crossing, inner is wholly inside or
@@ -758,6 +931,39 @@ void place(Component& component, const Base::Placement& move, bool fast)
     component.box = move.isIdentity() ? component.baseBox : component.baseBox.Transformed(moving);
 }
 
+// An Exact component as Fast has it, where it is checked: its solids' contact
+// geometry, made by the cache (once for each solid), for where a contact
+// touches
+Component meshedCopy(const Component& exact)
+{
+    Component fast;
+    fast.obj = exact.obj;
+    for (const auto& instance : exact.instances) {
+        Instance copy;
+        copy.base = instance.base;
+        gp_Trsf located = instance.shape.Location().Transformation();
+        TopoDS_Shape solid = instance.shape;
+        if (std::abs(located.ScaleFactor() - 1.0) > 1e-12 || located.IsNegative()) {
+            // Scaled or mirrored: its own geometry, not shared
+            solid =
+                BRepBuilderAPI_Transform(instance.shape.Located(TopLoc_Location()), located, true)
+                    .Shape();
+            located = gp_Trsf();
+        }
+        copy.geometry = ContactGeometryCache::instance().get(solid, 0.0);
+        if (!copy.geometry) {
+            continue;
+        }
+        copy.now = located;
+        copy.trsf = located;
+        copy.inverse = located.Inverted();
+        copy.box = copy.geometry->box().Transformed(located);
+        fast.deflection = std::max(fast.deflection, copy.geometry->deflection());
+        fast.instances.push_back(std::move(copy));
+    }
+    return fast;
+}
+
 // The pair where its components are: true, with `result` filled, when they
 // interfere, or touch and contacts are asked for
 bool checkPair(Component& a,
@@ -856,6 +1062,14 @@ bool checkPair(Component& a,
             if (distance.IsDone() && distance.Value() <= tol + Precision::Confusion()) {
                 result.kind = InterferenceResult::Kind::Contact;
                 result.distance = distance.Value();
+                // Where they touch: as Fast finds it, on the solids' meshes,
+                // within the tolerance and at least twice their error
+                Component meshedA = meshedCopy(a);
+                Component meshedB = meshedCopy(b);
+                contactOf(meshedA,
+                          meshedB,
+                          std::max(tol, 2.0 * std::max(meshedA.deflection, meshedB.deflection)),
+                          result);
                 return true;
             }
         }
@@ -1035,6 +1249,17 @@ struct Scene
                             FC_WARN("Where " << a.obj->getFullName() << " and "
                                              << b.obj->getFullName()
                                              << " meet was not found: " << e.GetMessageString());
+                        }
+                    }
+                    else if (fast && result.kind == InterferenceResult::Kind::Contact) {
+                        const bool aHit = b.moved && !a.moved;
+                        try {
+                            contactOf(aHit ? b : a, aHit ? a : b, pairTol, result);
+                        }
+                        catch (const Standard_Failure& e) {
+                            FC_WARN("Where " << a.obj->getFullName() << " and "
+                                             << b.obj->getFullName()
+                                             << " touch was not found: " << e.GetMessageString());
                         }
                     }
                 }

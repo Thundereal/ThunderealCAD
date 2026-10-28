@@ -959,12 +959,13 @@ void AssemblyObject::markDragCollisions()
 void AssemblyObject::addCollisionMarker(App::DocumentObject* first,
                                         App::DocumentObject* second,
                                         const Base::Vector3d& centre,
-                                        const Base::Vector3d& direction)
+                                        const Base::Vector3d& direction,
+                                        bool contact)
 {
     // Checked again where nothing moved: the same marker
     for (const auto& marker : collisionMarkers) {
         if (marker.first.getObject() == first && marker.second.getObject() == second
-            && marker.centre.IsEqual(centre, 1e-9)) {
+            && marker.centre.IsEqual(centre, 1e-9) && marker.contact == contact) {
             return;
         }
     }
@@ -973,6 +974,7 @@ void AssemblyObject::addCollisionMarker(App::DocumentObject* first,
     marker.second = second;
     marker.centre = centre;
     marker.direction = direction;
+    marker.contact = contact;
     // Of no drag
     marker.watch = 0;
     collisionMarkers.push_back(marker);

@@ -101,13 +101,19 @@ struct InterferenceResult
     // Over a simulation's frames: the frame and its time (s); -1 otherwise
     long frame = -1;
     double time = 0.0;
-    // Interference: where the two meet, and the direction there out of the
-    // component hit, towards the other; the one hit is the one that did not
-    // move since the last check, else second. Fast: the middle of the curve
-    // along which their meshes cross, each crossing weighted by its length,
-    // or, one inside the other, of the common part of their boxes. Exact: the
-    // centre of mass of the solid in common, the direction from the centre of
-    // the box of the one hit to the other's. In the assembly's coordinates.
+    // Where the two meet, and the direction there out of the component hit,
+    // towards the other; the one hit is the one that did not move since the
+    // last check, else second. In the assembly's coordinates.
+    // - Interference, Fast: the middle of the curve along which their meshes
+    //   cross, each crossing weighted by its length, or, one inside the
+    //   other, of the common part of their boxes. Exact: the centre of mass of
+    //   the solid in common, the direction from the centre of the box of the
+    //   one hit to the other's.
+    // - Contact: the middle of the vertices of each mesh within the tolerance
+    //   of the other's triangles, the direction the normal of the triangles of
+    //   the one hit that lie face to face with the other's. Exact meshes the
+    //   two for it (ContactGeometryCache), the tolerance at least twice the
+    //   meshes' error.
     bool touched = false;
     Base::Vector3d touchCentre;
     Base::Vector3d touchNormal;

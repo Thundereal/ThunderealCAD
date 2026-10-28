@@ -191,18 +191,21 @@ public:
         Base::Vector3d direction;
         // The watch (beginCollisionWatch()) that found it
         int watch = 0;
+        // Of components that only touch (the interference check's contacts)
+        bool contact = false;
     };
     const std::vector<CollisionMarker>& getCollisionMarkers() const
     {
         return collisionMarkers;
     }
     void clearCollisionMarkers();
-    // A marker of a collision found elsewhere (the interference check's),
-    // unless the pair has one there already
+    // A marker of a collision found elsewhere (the interference check's), or
+    // of a contact, unless the pair has one there already
     void addCollisionMarker(App::DocumentObject* first,
                             App::DocumentObject* second,
                             const Base::Vector3d& centre,
-                            const Base::Vector3d& direction);
+                            const Base::Vector3d& direction,
+                            bool contact = false);
     // The markers added, moved or cleared
     fastsignals::signal<void()> signalCollisionMarkers;
     // The triangles of a component the watch checks, or of some of its faces,

@@ -275,13 +275,17 @@ void Application::unbindActiveTransaction(Document *doc, bool abort)
 }
 
 int Application::setActiveTransaction(const char *name, bool persist) {
+    return setActiveTransaction(name, persist, nullptr);
+}
+
+int Application::setActiveTransaction(const char *name, bool persist, const Document *doc) {
     if(!name || !name[0])
         name = "Command";
 
-    // A document's own while it is bound and active, else the
+    // A document's own while it is bound and active (or named), else the
     // application's; looked up by its document again after the commits
     // below, which may run anything
-    BoundTransaction *bound = _boundTransaction();
+    BoundTransaction *bound = _boundTransaction(doc);
     const Document *boundDoc = nullptr;
     if (bound) {
         for (auto &v : _boundTransactions) {
@@ -291,9 +295,10 @@ int Application::setActiveTransaction(const char *name, bool persist) {
     }
 
     int activeId = 0;
-    getActiveTransaction(&activeId);
+    getActiveTransaction(&activeId, doc);
+    bool &tmpName = bound ? bound->tmpName : _activeTransactionTmpName;
     if(_activeTransactionGuard>0 && activeId) {
-        if(_activeTmpName()) {
+        if(tmpName) {
             FC_LOG("transaction rename to '" << name << "'");
             for(auto &v : DocMap)
                 v.second->renameTransaction(name,activeId);

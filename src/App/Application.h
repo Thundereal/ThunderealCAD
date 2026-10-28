@@ -242,6 +242,12 @@ public:
      * transactions will share the same ID, and will be undo/redo together.
      */
     int setActiveTransaction(const char *name, bool persist=false);
+    /** setActiveTransaction() for a change about to be made to \a doc:
+     * \a doc's bound one (bindActiveTransaction) when it is bound, else as
+     * for no document. For a caller that knows its document and may run
+     * before its view is activated (a panel's event).
+     */
+    int setActiveTransaction(const char *name, bool persist, const Document *doc);
     /// Return the current active transaction name and ID
     const char *getActiveTransaction(int *tid=nullptr) const;
     /** The active transaction a change to \a doc goes in.

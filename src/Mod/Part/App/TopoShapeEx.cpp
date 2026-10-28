@@ -3264,9 +3264,29 @@ TopoShape &TopoShape::makEThicken(const TopoShape &source, double thickness, dou
     mkOffset.Initialize(source.getShape(), thickness, tol, BRepOffset_Skin,
             intersection, false, GeomAbs_JoinType(join), true);
     mkOffset.MakeOffsetShape();
-    if(!mkOffset.IsDone() || mkOffset.Shape().IsNull())
+    if(!mkOffset.IsDone() || mkOffset.Shape().IsNull()) {
+        const char *why = nullptr;
+        switch(mkOffset.Error()) {
+        case BRepOffset_BadNormalsOnGeometry:
+            why = "a face has no normal somewhere";
+            break;
+        case BRepOffset_C0Geometry:
+            why = "a face is not smooth (C0): split it at its creases";
+            break;
+        case BRepOffset_NotConnectedShell:
+            why = "the faces are not one connected piece";
+            break;
+        case BRepOffset_MixedConnectivity:
+            why = "faces meet partly smoothly and partly at an angle along one edge";
+            break;
+        default:
+            break;
+        }
+        if(why)
+            FC_THROWM(Base::CADKernelError, "Thicken failed: " << why);
         FC_THROWM(Base::CADKernelError, "Thicken failed (offset error "
                 << int(mkOffset.Error()) << ")");
+    }
     return makESHAPE(mkOffset.Shape(), MapperOffset(mkOffset), {source}, op);
 }
 

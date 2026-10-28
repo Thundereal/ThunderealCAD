@@ -124,10 +124,14 @@ App::DocumentObjectExecReturn* Thicken::execute()
             }
             sewer.Perform();
             skin.makEShape(sewer, faces, Part::OpCodes::Sewing);
-            if (skin.countSubShapes(TopAbs_SHELL) > 1) {
+            // one shell of all of them, or they do not meet
+            if (skin.countSubShapes(TopAbs_SHELL) != 1
+                || skin.getSubTopoShape(TopAbs_SHELL, 1).countSubShapes(TopAbs_FACE)
+                    != (int)faces.size()) {
                 return new App::DocumentObjectExecReturn(
-                    "The faces to thicken do not make one piece");
+                    "The faces to thicken do not make one piece: they have to meet at their edges");
             }
+            skin = skin.getSubTopoShape(TopAbs_SHELL, 1);
         }
 
         const auto join =

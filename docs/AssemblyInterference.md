@@ -122,6 +122,22 @@ check again where nothing moved adds nothing. With contacts asked for, the
 pairs that only touch are marked too, in amber, at the middle of where they
 touch.
 
+In edit, a marker answers the mouse: over its arrow, the faces where the two
+met are drawn over everything in the preselection's colour, and a tooltip
+says what it marks -- a collision and its volume in common (Exact), a
+contact and the area the two touch over, or a pair closer than its
+clearance and how close; a click selects those faces. The arrows are picked
+on their own, by a ray through the camera, the assembly's placement and
+them (`hoverCollisionMarker()`), so a part in front does not hide one. The
+faces (`InterferenceResult::faceNames1`/`2`, `Faces1`/`Faces2` of
+`findInterferences()`, by their names from the assembly, "A.B.Face3"): for
+an interference, Fast's that cross the other, Exact's in the solid in
+common (those the boolean keeps, whole or split, so a face only partly in
+it is all lit); for a contact or a clearance, those lying face to face.
+The area: the face to face triangles' overlap, each pair's seen along the
+one's normal and clipped to the other (Sutherland-Hodgman), summed --
+nothing more than the contact's own search costs.
+
 The marks stay after the drag or the check, in the assembly they were made
 in, until **Clear Collision Markers** (`Assembly_ClearCollisionMarkers`, on
 the tool bar) removes them -- the edited assembly's, else those of every
@@ -149,7 +165,9 @@ assembly of the document. They are not saved. Where
   A pin in its hole is touched all round: the direction says little there.
 
 From Python: `getCollisionMarkers()` (dicts of `First`, `Second`, `Centre`,
-`Direction`), `addCollisionMarker(first, second, centre, direction, contact=False)`,
+`Direction`, `Kind`, `Volume`, `Area`, `Distance`, `Clearance`, `Faces1`,
+`Faces2`, `FromDrag`), `addCollisionMarker(result)` (a result of
+`findInterferences()`),
 `clearCollisionMarkers(checksOnly=False)`; `findInterferences()` gives each result its
 `Centre` and `Direction`.
 
@@ -381,8 +399,6 @@ at a point.
 
 ## Not done
 
-- In Check Interference, the faces that cross or touch highlighted (a drag
-  has them), the touching area measured.
 - The solid two components have in common drawn over everything from the
   meshes, and Fast measuring it.
 - The work in a worker or another process (`docs/ComputeBoundaries.md`), and

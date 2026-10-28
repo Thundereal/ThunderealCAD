@@ -132,6 +132,15 @@ struct InterferenceResult
     // when none cross (one inside the other).
     std::vector<std::pair<int, int>> touchFaces1;
     std::vector<std::pair<int, int>> touchFaces2;
+    // The faces of first and of second where they meet, by their names from
+    // the assembly ("A.B.Face3"), to pick: those that cross (Fast) or are
+    // in the solid in common (Exact) for an interference, those face to face
+    // for a contact or a clearance
+    std::vector<std::string> faceNames1;
+    std::vector<std::string> faceNames2;
+    // Contact, Clearance: the area the two lie face to face over (mm^2), as
+    // their meshes' triangles do
+    double touchArea = 0.0;
 };
 
 // The components of the assembly (getAssemblyComponents()), each with its

@@ -977,6 +977,13 @@ void AssemblyObject::markDragCollisions()
         }
         it->centre = hit.touchCentre;
         it->direction = hit.touchNormal;
+        it->kind = hit.kind;
+        it->volume = hit.volume;
+        it->area = hit.touchArea;
+        it->distance = hit.distance;
+        it->clearance = hit.clearance;
+        it->faces1 = hit.faceNames1;
+        it->faces2 = hit.faceNames2;
         changed = true;
     }
     if (changed) {
@@ -984,25 +991,27 @@ void AssemblyObject::markDragCollisions()
     }
 }
 
-void AssemblyObject::addCollisionMarker(App::DocumentObject* first,
-                                        App::DocumentObject* second,
-                                        const Base::Vector3d& centre,
-                                        const Base::Vector3d& direction,
-                                        bool contact)
+void AssemblyObject::addCollisionMarker(const InterferenceResult& result)
 {
     // Checked again where nothing moved: the same marker
     for (const auto& marker : collisionMarkers) {
-        if (marker.first.getObject() == first && marker.second.getObject() == second
-            && marker.centre.IsEqual(centre, 1e-9) && marker.contact == contact) {
+        if (marker.first.getObject() == result.first && marker.second.getObject() == result.second
+            && marker.centre.IsEqual(result.touchCentre, 1e-9) && marker.kind == result.kind) {
             return;
         }
     }
     CollisionMarker marker;
-    marker.first = first;
-    marker.second = second;
-    marker.centre = centre;
-    marker.direction = direction;
-    marker.contact = contact;
+    marker.first = result.first;
+    marker.second = result.second;
+    marker.centre = result.touchCentre;
+    marker.direction = result.touchNormal;
+    marker.kind = result.kind;
+    marker.volume = result.volume;
+    marker.area = result.touchArea;
+    marker.distance = result.distance;
+    marker.clearance = result.clearance;
+    marker.faces1 = result.faceNames1;
+    marker.faces2 = result.faceNames2;
     // Of no drag
     marker.watch = 0;
     collisionMarkers.push_back(marker);

@@ -287,6 +287,13 @@ public:
     // size on screen however far the view is zoomed
     Gui::So3DAnnotation* markerGroup = nullptr;
     fastsignals::scoped_connection connectCollisionMarkers;
+    // In edit, an arrow the mouse is over highlights the faces where the two
+    // met, and a click selects them: the arrows, picked alone; the faces of
+    // the one hovered (its index, -1 for none), drawn over everything
+    SoSeparator* markerArrows = nullptr;
+    SoSeparator* markerHover = nullptr;
+    int hoveredMarker = -1;
+    bool markerPressed = false;
     SoFieldSensor* translationSensor = nullptr;
     SoFieldSensor* rotationSensor = nullptr;
 
@@ -296,6 +303,12 @@ public:
 
 private:
     void showCollisionMarkers();
+    // The arrow under the cursor, hovered: its faces drawn, its tooltip
+    // shown; true when there is one
+    bool hoverCollisionMarker(const SbVec2s& cursorPos, Gui::ViewerContext* viewer);
+    void showMarkerFaces(int index);
+    QString markerText(int index) const;
+    void selectMarkerFaces(int index);
     void showDragStopped();
     void showDragCollisions();
     void clearDragCollisions();

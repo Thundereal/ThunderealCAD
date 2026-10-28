@@ -386,7 +386,28 @@ PyObject* AssemblyObjectPy::getCollisionMarkers(PyObject* args) const
         entry.setItem("Second", object(marker.second));
         entry.setItem("Centre", Py::Vector(marker.centre));
         entry.setItem("Direction", Py::Vector(marker.direction));
-        entry.setItem("Contact", Py::Boolean(marker.contact));
+        entry.setItem("Contact", Py::Boolean(marker.kind == InterferenceResult::Kind::Contact));
+        const char* kind = "Interference";
+        if (marker.kind == InterferenceResult::Kind::Contact) {
+            kind = "Contact";
+        }
+        else if (marker.kind == InterferenceResult::Kind::Clearance) {
+            kind = "Clearance";
+        }
+        entry.setItem("Kind", Py::String(kind));
+        entry.setItem("Volume", Py::Float(marker.volume));
+        entry.setItem("Area", Py::Float(marker.area));
+        entry.setItem("Distance", Py::Float(marker.distance));
+        entry.setItem("Clearance", Py::Float(marker.clearance));
+        entry.setItem("FromDrag", Py::Boolean(marker.watch != 0));
+        for (const auto& [key, names] :
+             {std::pair {"Faces1", &marker.faces1}, std::pair {"Faces2", &marker.faces2}}) {
+            Py::List list;
+            for (const auto& name : *names) {
+                list.append(Py::String(name));
+            }
+            entry.setItem(key, list);
+        }
         ret.append(entry);
     }
     return Py::new_reference_to(ret);
@@ -394,32 +415,64 @@ PyObject* AssemblyObjectPy::getCollisionMarkers(PyObject* args) const
 
 PyObject* AssemblyObjectPy::addCollisionMarker(PyObject* args)
 {
-    PyObject* first {};
-    PyObject* second {};
-    PyObject* centre {};
-    PyObject* direction {};
-    PyObject* contact = Py_False;
-    if (!PyArg_ParseTuple(args,
-                          "O!O!O!O!|O!",
-                          &App::DocumentObjectPy::Type,
-                          &first,
-                          &App::DocumentObjectPy::Type,
-                          &second,
-                          &Base::VectorPy::Type,
-                          &centre,
-                          &Base::VectorPy::Type,
-                          &direction,
-                          &PyBool_Type,
-                          &contact)) {
+    PyObject* dict {};
+    if (!PyArg_ParseTuple(args, "O!", &PyDict_Type, &dict)) {
         return nullptr;
     }
-    getAssemblyObjectPtr()->addCollisionMarker(
-        static_cast<App::DocumentObjectPy*>(first)->getDocumentObjectPtr(),
-        static_cast<App::DocumentObjectPy*>(second)->getDocumentObjectPtr(),
-        *static_cast<Base::VectorPy*>(centre)->getVectorPtr(),
-        *static_cast<Base::VectorPy*>(direction)->getVectorPtr(),
-        contact == Py_True);
-    Py_Return;
+    PY_TRY
+    {
+        Py::Dict entry(dict);
+        auto object = [&](const char* key) -> App::DocumentObject* {
+            Py::Object value = entry.getItem(key);
+            if (!PyObject_TypeCheck(value.ptr(), &App::DocumentObjectPy::Type)) {
+                throw Py::TypeError(std::string(key) + " is not a document object");
+            }
+            return static_cast<App::DocumentObjectPy*>(value.ptr())->getDocumentObjectPtr();
+        };
+        auto vector = [&](const char* key) {
+            Py::Object value = entry.getItem(key);
+            if (!PyObject_TypeCheck(value.ptr(), &Base::VectorPy::Type)) {
+                throw Py::TypeError(std::string(key) + " is not a vector");
+            }
+            return *static_cast<Base::VectorPy*>(value.ptr())->getVectorPtr();
+        };
+        auto number = [&](const char* key) {
+            return entry.hasKey(key) ? static_cast<double>(Py::Float(entry.getItem(key))) : 0.0;
+        };
+        auto names = [&](const char* key) {
+            std::vector<std::string> list;
+            if (entry.hasKey(key)) {
+                Py::Sequence seq(entry.getItem(key));
+                for (Py::Sequence::iterator it = seq.begin(); it != seq.end(); ++it) {
+                    list.push_back(Py::String(*it).as_std_string("utf-8"));
+                }
+            }
+            return list;
+        };
+        InterferenceResult result;
+        result.first = object("Object1");
+        result.second = object("Object2");
+        result.touched = true;
+        result.touchCentre = vector("Centre");
+        result.touchNormal = vector("Direction");
+        const std::string kind =
+            entry.hasKey("Kind") ? Py::String(entry.getItem("Kind")).as_std_string("utf-8") : "";
+        if (kind == "Contact") {
+            result.kind = InterferenceResult::Kind::Contact;
+        }
+        else if (kind == "Clearance") {
+            result.kind = InterferenceResult::Kind::Clearance;
+        }
+        result.volume = number("Volume");
+        result.touchArea = number("Area");
+        result.distance = number("Distance");
+        result.clearance = number("Clearance");
+        result.faceNames1 = names("Faces1");
+        result.faceNames2 = names("Faces2");
+        getAssemblyObjectPtr()->addCollisionMarker(result);
+        Py_Return;
+    }
+    PY_CATCH
 }
 
 PyObject* AssemblyObjectPy::clearCollisionMarkers(PyObject* args)
@@ -567,6 +620,15 @@ PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) co
             }
             entry.setItem("Kind", Py::String(kind));
             entry.setItem("Clearance", Py::Float(result.clearance));
+            entry.setItem("Area", Py::Float(result.touchArea));
+            for (const auto& [key, names] : {std::pair {"Faces1", &result.faceNames1},
+                                             std::pair {"Faces2", &result.faceNames2}}) {
+                Py::List list;
+                for (const auto& name : *names) {
+                    list.append(Py::String(name));
+                }
+                entry.setItem(key, list);
+            }
             entry.setItem("Volume", Py::Float(result.volume));
             entry.setItem("Distance", Py::Float(result.distance));
             entry.setItem("Tolerance", Py::Float(result.tolerance));

@@ -207,8 +207,18 @@ public:
         Base::Vector3d direction;
         // The watch (beginCollisionWatch()) that found it
         int watch = 0;
-        // Of components that only touch (the interference check's contacts)
-        bool contact = false;
+        // What it marks, as the check had it (InterferenceResult): a
+        // collision, a contact (components that only touch) or a pair
+        // closer than its clearance, its volume (Exact), area, distance
+        // and the clearance asked of it; the faces where the two meet, by
+        // their names from the assembly ("A.B.Face3")
+        InterferenceResult::Kind kind = InterferenceResult::Kind::Interference;
+        double volume = 0.0;
+        double area = 0.0;
+        double distance = 0.0;
+        double clearance = 0.0;
+        std::vector<std::string> faces1;
+        std::vector<std::string> faces2;
     };
     const std::vector<CollisionMarker>& getCollisionMarkers() const
     {
@@ -217,13 +227,10 @@ public:
     // All of them, or with checks only, those of no drag (the interference
     // check's)
     void clearCollisionMarkers(bool checksOnly = false);
-    // A marker of a collision found elsewhere (the interference check's), or
-    // of a contact, unless the pair has one there already
-    void addCollisionMarker(App::DocumentObject* first,
-                            App::DocumentObject* second,
-                            const Base::Vector3d& centre,
-                            const Base::Vector3d& direction,
-                            bool contact = false);
+    // A marker of what the interference check found, a collision, a contact
+    // or a clearance, where the result's touch is, unless the pair has one of
+    // that kind there already
+    void addCollisionMarker(const InterferenceResult& result);
     // The markers added, moved or cleared
     fastsignals::signal<void()> signalCollisionMarkers;
     // The triangles of a component the watch checks, or of some of its faces,

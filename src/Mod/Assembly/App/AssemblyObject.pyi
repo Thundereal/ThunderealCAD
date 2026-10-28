@@ -249,9 +249,11 @@ class AssemblyObject(Part):
 
         Returns: a list of dicts: First, Second (the objects, None when gone),
         Centre (where they met, in the assembly's coordinates), Direction (a
-        unit vector out of the component hit, towards the other), Contact
-        (True for components that only touch: the interference check's
-        contacts).
+        unit vector out of the component hit, towards the other), Kind
+        ("Interference", "Contact" or "Clearance", as findInterferences()
+        has them) and Contact (Kind is "Contact"), Volume, Area, Distance,
+        Clearance, Faces1 and Faces2 (as findInterferences() has them),
+        FromDrag (a drag's, not the check's).
         """
         ...
 
@@ -262,17 +264,14 @@ class AssemblyObject(Part):
 
     def addCollisionMarker(
         self,
-        first: DocumentObject,
-        second: DocumentObject,
-        centre: Any,
-        direction: Any,
-        contact: bool = False,
+        result: dict,
         /,
     ) -> None:
         """
-        A marker of where two components collide, or with contact, touch, as
-        getCollisionMarkers() has them, unless the pair has one there already
-        (the interference check's, from a result's Centre and Direction).
+        A marker of a result of findInterferences() (a dict with Object1,
+        Object2, Centre, Direction and Kind; Volume, Area, Distance,
+        Clearance, Faces1, Faces2 if it has them), unless the pair has one
+        of that kind there already.
         """
         ...
 
@@ -363,7 +362,11 @@ class AssemblyObject(Part):
         Returns: a list of dicts, one per pair (and frame): Object1, Object2, Kind
         ("Interference", "Contact", or "Clearance": closer than the clearance
         the rules ask of the pair, which Clearance gives, in mm, 0 for none,
-        and not overlapping), Volume (Exact, mm^3; 0 in Fast),
+        and not overlapping), Volume (Exact, mm^3; 0 in Fast), Area (a contact's
+        or a clearance's: the area the two lie face to face over, mm^2, from
+        their meshes), Faces1 and Faces2 (the faces of each where they meet,
+        by their names from the assembly, "A.B.Face3": crossing, or in the
+        solid in common, for an interference; face to face for a contact),
         Distance (contacts, mm; Fast gives the tolerance), Tolerance (the one
         the pair was judged with) and Overlap (Exact: the solid in common, in
         the assembly's coordinates; else None); with frames, also Frame and

@@ -340,13 +340,7 @@ class TaskCheckInterference:
         self.assembly.clearCollisionMarkers(True)
         for result in marked:
             if result["Centre"] is not None:
-                self.assembly.addCollisionMarker(
-                    result["Object1"],
-                    result["Object2"],
-                    result["Centre"],
-                    result["Direction"],
-                    result["Kind"] == "Contact",
-                )
+                self.assembly.addCollisionMarker(result)
         for column in range(4):
             self.table.resizeColumnToContents(column)
 

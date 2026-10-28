@@ -142,20 +142,31 @@ class TestInterference(unittest.TestCase):
                 where(("A", "C"), (5.0, 10.0, 5.0), (0.0, -1.0, 0.0))
                 where(("B", "C"), (9.0, 10.0, 5.0), (0.0, -1.0, 0.0))
 
+                # The faces where they meet: A's at x = 10 and B's at x = 8
+                # cross the other, or are in the solid in common
+                self.assertIn("A.Face2", ab["Faces1"])
+                self.assertIn("B.Face1", ab["Faces2"])
+                # C lies face to face with A over 10 x 10, with B over 2 x 10
+                ac = [r for r in results if (r["Object1"].Name, r["Object2"].Name) == ("A", "C")]
+                self.assertAlmostEqual(ac[0]["Area"], 100.0, places=6)
+                self.assertEqual(ac[0]["Faces1"], ["A.Face4"])
+                self.assertEqual(ac[0]["Faces2"], ["C.Face3"])
+                bc = [r for r in results if (r["Object1"].Name, r["Object2"].Name) == ("B", "C")]
+                self.assertAlmostEqual(bc[0]["Area"], 20.0, places=6)
+
                 self.assembly.clearCollisionMarkers()
                 for _ in range(2):
-                    self.assembly.addCollisionMarker(
-                        ab["Object1"], ab["Object2"], ab["Centre"], ab["Direction"]
-                    )
+                    self.assembly.addCollisionMarker(ab)
                 markers = self.assembly.getCollisionMarkers()
                 self.assertEqual(len(markers), 1)
                 self.assertEqual(markers[0]["First"], self.A)
                 self.assertEqual(markers[0]["Centre"], ab["Centre"])
+                self.assertEqual(markers[0]["Kind"], "Interference")
+                self.assertEqual(markers[0]["Faces1"], ab["Faces1"])
                 self.assertFalse(markers[0]["Contact"])
+                self.assertFalse(markers[0]["FromDrag"])
                 # The same place as a contact: a marker of its own
-                self.assembly.addCollisionMarker(
-                    ab["Object1"], ab["Object2"], ab["Centre"], ab["Direction"], True
-                )
+                self.assembly.addCollisionMarker(dict(ab, Kind="Contact"))
                 self.assertEqual(
                     [m["Contact"] for m in self.assembly.getCollisionMarkers()], [False, True]
                 )

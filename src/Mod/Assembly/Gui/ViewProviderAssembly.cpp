@@ -24,7 +24,9 @@
 
 #include <Mod/Assembly/App/AssemblyParams.h>
 #include <boost/core/ignore_unused.hpp>
+#include <QCursor>
 #include <QMessageBox>
+#include <QToolTip>
 #include <QTimer>
 #include <QMenu>
 #include <QString>
@@ -32,7 +34,12 @@
 #include <sstream>
 #include <iostream>
 #include <Inventor/nodes/SoCone.h>
+#include <Inventor/actions/SoRayPickAction.h>
+#include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoCoordinate3.h>
+#include <Inventor/nodes/SoIndexedFaceSet.h>
+#include <Inventor/SoPickedPoint.h>
+#include <Inventor/SoRenderManager.h>
 #include <Inventor/nodes/SoCylinder.h>
 #include <Inventor/nodes/SoFaceSet.h>
 #include <Inventor/nodes/SoMaterial.h>
@@ -208,12 +215,22 @@ void ViewProviderAssembly::showCollisionMarkers()
         pcRoot->addChild(markerGroup);
     }
     markerGroup->removeAllChildren();
+    markerArrows = nullptr;
+    markerHover = nullptr;
+    hoveredMarker = -1;
     if (markers.empty()) {
         return;
     }
+    // Not picked by the selection: hoverCollisionMarker() picks the arrows
     auto* pick = new SoPickStyle;
     pick->style = SoPickStyle::UNPICKABLE;
     markerGroup->addChild(pick);
+    markerHover = new SoSeparator;
+    markerGroup->addChild(markerHover);
+    markerArrows = new SoSeparator;
+    // Picked with the auto zoom's scale, which a cached box does not have
+    markerArrows->pickCulling = SoSeparator::OFF;
+    markerGroup->addChild(markerArrows);
     // Red for a collision, amber for components that only touch
     auto* collision = new SoMaterial;
     collision->diffuseColor.setValue(1.0F, 0.1F, 0.05F);
@@ -229,7 +246,9 @@ void ViewProviderAssembly::showCollisionMarkers()
     constexpr float shaftLength = 3.6F;
     for (const auto& marker : markers) {
         auto* arrow = new SoSeparator;
-        arrow->addChild(marker.contact ? contact : collision);
+        arrow->pickCulling = SoSeparator::OFF;
+        arrow->addChild(marker.kind == Assembly::InterferenceResult::Kind::Contact ? contact
+                                                                                   : collision);
         auto* at = new SoTranslation;
         at->translation.setValue(Base::convertTo<SbVec3f>(marker.centre));
         arrow->addChild(at);
@@ -257,10 +276,209 @@ void ViewProviderAssembly::showCollisionMarkers()
         shaft->height = shaftLength;
         shaft->radius = 0.35F;
         arrow->addChild(shaft);
-        markerGroup->addChild(arrow);
+        markerArrows->addChild(arrow);
     }
     collision->unref();
     contact->unref();
+}
+
+bool ViewProviderAssembly::hoverCollisionMarker(const SbVec2s& cursorPos,
+                                                Gui::ViewerContext* viewer)
+{
+    int index = -1;
+    if (markerArrows && markerArrows->getNumChildren() > 0) {
+        auto* camera = viewer->getSoRenderManager()->getCamera();
+        if (camera) {
+            // The arrows alone, where the view has them: under the camera
+            // and the assembly's placement
+            auto* root = new SoSeparator;
+            root->ref();
+            root->addChild(camera);
+            auto* placed = new SoTransform;
+            const Base::Placement global =
+                App::GeoFeature::getGlobalPlacement(getObject<AssemblyObject>());
+            double q0 {}, q1 {}, q2 {}, q3 {};
+            global.getRotation().getValue(q0, q1, q2, q3);
+            placed->translation.setValue(Base::convertTo<SbVec3f>(global.getPosition()));
+            placed->rotation.setValue(static_cast<float>(q0),
+                                      static_cast<float>(q1),
+                                      static_cast<float>(q2),
+                                      static_cast<float>(q3));
+            root->addChild(placed);
+            root->addChild(markerArrows);
+            SoRayPickAction pick(viewer->getViewportRegion());
+            pick.setPoint(cursorPos);
+            pick.setRadius(viewer->getPickRadius());
+            pick.apply(root);
+            if (const SoPickedPoint* point = pick.getPickedPoint()) {
+                const SoPath* path = point->getPath();
+                for (int i = 0; i + 1 < path->getLength(); ++i) {
+                    if (path->getNode(i) == markerArrows) {
+                        index = markerArrows->findChild(path->getNode(i + 1));
+                        break;
+                    }
+                }
+            }
+            root->unref();
+        }
+    }
+    if (index != hoveredMarker) {
+        hoveredMarker = index;
+        showMarkerFaces(index);
+        if (index >= 0) {
+            QToolTip::showText(QCursor::pos(), markerText(index));
+        }
+        else {
+            QToolTip::hideText();
+        }
+    }
+    return index >= 0;
+}
+
+void ViewProviderAssembly::showMarkerFaces(int index)
+{
+    if (!markerHover) {
+        return;
+    }
+    markerHover->removeAllChildren();
+    const auto& markers = getObject<AssemblyObject>()->getCollisionMarkers();
+    if (index < 0 || index >= static_cast<int>(markers.size())) {
+        return;
+    }
+    auto* assembly = getObject<AssemblyObject>();
+    const auto& marker = markers[index];
+    // The faces in the assembly's coordinates, meshed as they are shown
+    std::vector<Base::Vector3d> points;
+    std::vector<int32_t> indices;
+    for (const auto* names : {&marker.faces1, &marker.faces2}) {
+        for (const auto& name : *names) {
+            Part::TopoShape face;
+            try {
+                face = Part::Feature::getTopoShape(assembly,
+                                                   name.c_str(),
+                                                   true,
+                                                   nullptr,
+                                                   nullptr,
+                                                   true,
+                                                   false);
+            }
+            catch (const Base::Exception&) {
+                continue;
+            }
+            if (face.isNull()) {
+                continue;
+            }
+            std::vector<Base::Vector3d> facePoints;
+            std::vector<Data::ComplexGeoData::Facet> facets;
+            face.getFaces(facePoints, facets, 0.1);
+            const auto offset = static_cast<int32_t>(points.size());
+            points.insert(points.end(), facePoints.begin(), facePoints.end());
+            for (const auto& facet : facets) {
+                indices.insert(indices.end(),
+                               {offset + static_cast<int32_t>(facet.I1),
+                                offset + static_cast<int32_t>(facet.I2),
+                                offset + static_cast<int32_t>(facet.I3),
+                                -1});
+            }
+        }
+    }
+    if (points.empty()) {
+        return;
+    }
+    auto* hints = new SoShapeHints;
+    hints->vertexOrdering = SoShapeHints::UNKNOWN_ORDERING;
+    markerHover->addChild(hints);
+    // The preselection's colour, see-through: the faces are inside the parts
+    auto* material = new SoMaterial;
+    const unsigned long rgba = Gui::ViewParams::getHighlightColor();
+    const SbColor colour(static_cast<float>((rgba >> 24) & 0xff) / 255.0F,
+                         static_cast<float>((rgba >> 16) & 0xff) / 255.0F,
+                         static_cast<float>((rgba >> 8) & 0xff) / 255.0F);
+    material->diffuseColor.setValue(colour);
+    material->emissiveColor.setValue(colour * 0.5F);
+    material->transparency.setValue(0.3F);
+    markerHover->addChild(material);
+    auto* coords = new SoCoordinate3;
+    coords->point.setNum(static_cast<int>(points.size()));
+    SbVec3f* out = coords->point.startEditing();
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        out[i] = Base::convertTo<SbVec3f>(points[i]);
+    }
+    coords->point.finishEditing();
+    markerHover->addChild(coords);
+    auto* faces = new SoIndexedFaceSet;
+    faces->coordIndex.setValues(0, static_cast<int>(indices.size()), indices.data());
+    markerHover->addChild(faces);
+}
+
+QString ViewProviderAssembly::markerText(int index) const
+{
+    const auto& markers = getObject<AssemblyObject>()->getCollisionMarkers();
+    if (index < 0 || index >= static_cast<int>(markers.size())) {
+        return {};
+    }
+    const auto& marker = markers[index];
+    auto label = [](const App::DocumentObjectT& ref) {
+        auto* obj = ref.getObject();
+        return obj ? QString::fromUtf8(obj->Label.getValue()) : tr("(deleted)");
+    };
+    const QString first = label(marker.first);
+    const QString second = label(marker.second);
+    QString text;
+    using Kind = Assembly::InterferenceResult::Kind;
+    if (marker.kind == Kind::Contact) {
+        text = tr("%1 touches %2").arg(first, second);
+        if (marker.area > 0.0) {
+            text += QLatin1String("\n") + tr("Over %1 mm^2").arg(marker.area, 0, 'g', 4);
+        }
+    }
+    else if (marker.kind == Kind::Clearance) {
+        text = tr("%1 and %2 are closer than %3 mm")
+                   .arg(first, second)
+                   .arg(marker.clearance, 0, 'g', 4);
+        if (marker.distance > 0.0 && marker.distance < marker.clearance) {
+            text += QLatin1String("\n") + tr("%1 mm apart").arg(marker.distance, 0, 'g', 4);
+        }
+        if (marker.area > 0.0) {
+            text += QLatin1String("\n") + tr("Over %1 mm^2").arg(marker.area, 0, 'g', 4);
+        }
+    }
+    else {
+        text = marker.watch != 0 ? tr("%1 collided with %2 while dragging").arg(first, second)
+                                 : tr("%1 interferes with %2").arg(first, second);
+        if (marker.volume > 0.0) {
+            text += QLatin1String("\n") + tr("%1 mm^3 in common").arg(marker.volume, 0, 'g', 4);
+        }
+    }
+    if (!marker.faces1.empty() || !marker.faces2.empty()) {
+        text += QLatin1String("\n") + tr("Click to select the faces");
+    }
+    return text;
+}
+
+void ViewProviderAssembly::selectMarkerFaces(int index)
+{
+    auto* assembly = getObject<AssemblyObject>();
+    const auto& markers = assembly->getCollisionMarkers();
+    if (index < 0 || index >= static_cast<int>(markers.size())) {
+        return;
+    }
+    // Through the assembly from the document's root
+    App::DocumentObject* root = assembly;
+    std::string prefix;
+    const auto parents = assembly->getParents();
+    if (!parents.empty()) {
+        root = parents.front().first;
+        prefix = parents.front().second;
+    }
+    Gui::Selection().clearSelection();
+    for (const auto* names : {&markers[index].faces1, &markers[index].faces2}) {
+        for (const auto& name : *names) {
+            Gui::Selection().addSelection(root->getDocument()->getName(),
+                                          root->getNameInDocument(),
+                                          (prefix + name).c_str());
+        }
+    }
 }
 
 QIcon ViewProviderAssembly::getIcon() const
@@ -705,6 +923,11 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
         return false;
     }
 
+    // Over a collision marker: its faces highlighted, its tooltip shown
+    if (!partMoving && !canStartDragging) {
+        hoverCollisionMarker(cursorPos, viewer);
+    }
+
     // Initialize or cancel the dragging of parts
     if (canStartDragging) {
         canStartDragging = false;
@@ -1090,6 +1313,18 @@ bool ViewProviderAssembly::mouseButtonPressed(
     }
 
     // Left Mouse button ****************************************************
+    // On a collision marker: its faces selected
+    if (Button == 1 && pressed && hoveredMarker >= 0) {
+        selectMarkerFaces(hoveredMarker);
+        markerPressed = true;
+        return true;
+    }
+    // and its release too, which the navigation takes for a click on nothing
+    // and clears the selection with
+    if (Button == 1 && !pressed && markerPressed) {
+        markerPressed = false;
+        return true;
+    }
     if (Button == 1) {
         if (pressed && !getDraggerVisibility()) {
             // Check for double-click

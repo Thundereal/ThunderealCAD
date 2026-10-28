@@ -118,6 +118,9 @@ struct Instance
 struct Component
 {
     App::DocumentObject* obj = nullptr;
+    // Its shape and path from the assembly ("A.B.Obj."), to name its faces
+    Part::TopoShape shape;
+    std::string path;
     // What the assembly's rules may name it by: its name, its containers' up
     // to the assembly, and those of the groups each is in
     std::vector<std::string> names;
@@ -249,6 +252,38 @@ namesOf(const AssemblyObject* assembly, App::DocumentObject* obj, bool& hidden)
              && !group->hasExtension(App::GeoFeatureGroupExtension::getExtensionClassTypeId());
              group = App::GroupExtension::getGroupOfObject(group)) {
             add(group);
+        }
+    }
+    return names;
+}
+
+// The name a face of a component's solid goes by from the assembly,
+// "A.B.Face3": the k-th face of the instance's solid (the contact mesh's face
+// k), found in the component's shape; empty when not found
+std::string faceName(const Component& component, std::size_t instance, int k)
+{
+    if (instance >= component.instances.size() || k < 0) {
+        return {};
+    }
+    int i = 0;
+    for (TopExp_Explorer it(component.instances[instance].base, TopAbs_FACE); it.More();
+         it.Next(), ++i) {
+        if (i == k) {
+            const int index = component.shape.findShape(it.Current());
+            return index > 0 ? component.path + "Face" + std::to_string(index) : std::string();
+        }
+    }
+    return {};
+}
+
+std::vector<std::string> faceNames(const Component& component,
+                                   const std::vector<std::pair<int, int>>& faces)
+{
+    std::vector<std::string> names;
+    for (const auto& [instance, k] : faces) {
+        auto name = faceName(component, static_cast<std::size_t>(instance), k);
+        if (!name.empty()) {
+            names.push_back(std::move(name));
         }
     }
     return names;
@@ -812,6 +847,63 @@ bool faceToFace(const Vec (&p)[3], const Vec (&t)[3], double tol)
     return true;
 }
 
+// The area triangles p and t lying face to face (faceToFace()) overlap by:
+// p seen along t's normal, clipped to t (Sutherland-Hodgman)
+double overlapArea(const Vec (&p)[3], const Vec (&t)[3])
+{
+    const Vec n = cross(t[1] - t[0], t[2] - t[0]);
+    const double size = std::sqrt(dot(n, n));
+    const Vec e = t[1] - t[0];
+    const double length = std::sqrt(dot(e, e));
+    if (size <= 0.0 || length <= 0.0) {
+        return 0.0;
+    }
+    const Vec u = e * (1.0 / length);
+    const Vec v = cross(n * (1.0 / size), u);
+    using Point = std::array<double, 2>;
+    auto flat = [&](const Vec& q) {
+        return Point {dot(q - t[0], u), dot(q - t[0], v)};
+    };
+    std::vector<Point> polygon {flat(p[0]), flat(p[1]), flat(p[2])};
+    // t is counterclockwise in (u, v): n = u x v
+    const Point corners[3] = {flat(t[0]), flat(t[1]), flat(t[2])};
+    for (int i = 0; i < 3 && !polygon.empty(); ++i) {
+        const Point& a = corners[i];
+        const Point& b = corners[(i + 1) % 3];
+        auto inside = [&](const Point& q) {
+            return (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) >= 0.0;
+        };
+        auto meet = [&](const Point& q, const Point& r) {
+            const double dq = (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]);
+            const double dr = (b[0] - a[0]) * (r[1] - a[1]) - (b[1] - a[1]) * (r[0] - a[0]);
+            const double s = dq / (dq - dr);
+            return Point {q[0] + s * (r[0] - q[0]), q[1] + s * (r[1] - q[1])};
+        };
+        std::vector<Point> clipped;
+        for (std::size_t j = 0; j < polygon.size(); ++j) {
+            const Point& q = polygon[j];
+            const Point& r = polygon[(j + 1) % polygon.size()];
+            if (inside(q)) {
+                clipped.push_back(q);
+                if (!inside(r)) {
+                    clipped.push_back(meet(q, r));
+                }
+            }
+            else if (inside(r)) {
+                clipped.push_back(meet(q, r));
+            }
+        }
+        polygon = std::move(clipped);
+    }
+    double twice = 0.0;
+    for (std::size_t j = 0; j < polygon.size(); ++j) {
+        const Point& q = polygon[j];
+        const Point& r = polygon[(j + 1) % polygon.size()];
+        twice += q[0] * r[1] - r[0] * q[1];
+    }
+    return 0.5 * std::abs(twice);
+}
+
 // Where two components that touch meet, into result's touch: the middle of
 // the vertices of each mesh within tol of a triangle of the other's, each
 // vertex once; the direction, the normals of the triangles of `hit` that lie
@@ -830,6 +922,7 @@ void contactOf(Component& other,
     std::set<std::pair<int, int>> facingOther;
     std::set<std::pair<int, int>> facingHit;
     std::set<std::array<double, 3>> seen;
+    double area = 0.0;
     Vec sum(0.0, 0.0, 0.0);
     Vec normal(0.0, 0.0, 0.0);
     int pairs = 0;
@@ -865,6 +958,7 @@ void contactOf(Component& other,
                         add(vertex, po);
                     }
                     if (touching && faceToFace(po, ph, tol)) {
+                        area += overlapArea(po, ph);
                         facingOther.emplace(static_cast<int>(no),
                                             io.geometry->triangles().GetFaceID(indexO));
                         facingHit.emplace(static_cast<int>(nh),
@@ -915,6 +1009,7 @@ void contactOf(Component& other,
     result.touchNormal = Base::Vector3d(normal.x(), normal.y(), normal.z());
     otherFaces.assign(facingOther.begin(), facingOther.end());
     hitFaces.assign(facingHit.begin(), facingHit.end());
+    result.touchArea = area;
 }
 
 // Whether `inner` is inside `outer`, by more than tol: the one inside the
@@ -1147,6 +1242,24 @@ bool checkPair(Component& a,
                 result.kind = InterferenceResult::Kind::Interference;
                 result.volume = volume;
                 result.overlap = Part::TopoShape(overlap);
+                // The faces of each in the solid in common: those the
+                // boolean kept, whole or split
+                for (const auto& [component, names] :
+                     {std::pair {&a, &result.faceNames1}, std::pair {&b, &result.faceNames2}}) {
+                    for (std::size_t i = 0; i < component->instances.size(); ++i) {
+                        int k = 0;
+                        for (TopExp_Explorer it(component->instances[i].shape, TopAbs_FACE);
+                             it.More();
+                             it.Next(), ++k) {
+                            if (!common.IsDeleted(it.Current())) {
+                                auto name = faceName(*component, i, k);
+                                if (!name.empty()) {
+                                    names->push_back(std::move(name));
+                                }
+                            }
+                        }
+                    }
+                }
                 // Where they meet: the middle of the solid in common, and
                 // out of b, the one hit, towards a
                 const gp_Pnt centre = props.CentreOfMass();
@@ -1266,6 +1379,8 @@ struct Scene
             Component component;
             component.obj = obj;
             component.names = std::move(names);
+            component.shape = shape;
+            component.path = path;
             component.now = placementIn(assembly, obj, -1);
             BRep_Builder builder;
             TopoDS_Compound bases;
@@ -1482,6 +1597,10 @@ struct Scene
                                              << b.obj->getFullName()
                                              << " touch was not found: " << e.GetMessageString());
                         }
+                    }
+                    if (result.faceNames1.empty() && result.faceNames2.empty()) {
+                        result.faceNames1 = faceNames(a, result.touchFaces1);
+                        result.faceNames2 = faceNames(b, result.touchFaces2);
                     }
                 }
                 result.frame = frame;

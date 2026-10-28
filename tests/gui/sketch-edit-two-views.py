@@ -2,27 +2,29 @@
 (docs/HandsOnQueue.md entry 232, the Sketcher round).
 
 A sketch's edit holds no transaction: each tool's change is a step of its
-own, and the steps opened while the edit is the one worked in are its own.
-Its Cancel takes back those and no other view's; where something of them
-was changed since by another view's step, the user picks "Undo anyway",
-"Skip" or "Keep" (the reporter's ruling). Its OK ends its own edit only.
+own. Which steps are its own is said by the code that opens them
+(Gui::EditStepScope): a Sketcher command run in the edit's window, an event
+to its view or its panel; and any step that changes the sketch, whoever
+makes it, as no other edit may. Its Cancel takes back those and no other.
+Its OK ends its own edit only.
 
-Two sketches, A and B, two 3D windows: A in edit in the first, B in the
-second. A step stands for a tool's change -- a transaction opened, a line
-added, committed -- made with the window of the edit active, as a tool's
-is.
+Two sketches, A with two lines and B with one, two 3D windows: A in edit in
+the first, B in the second. An edit's step is Sketcher_DeleteAllGeometry run in
+its window. A change made from a timer -- this script runs in one -- is
+nobody's, whichever window is active -- it stands for another view's panel
+writing late, after the user has clicked into the sketch's window -- unless
+it changes a sketch in edit.
 
 Claims:
   - both are in edit at once, each window answering its own, each with
-    its dialog;
+    its dialog, the tree marking both;
   - A is not put in edit in the second window as well;
-  - Cancel of B, with a step of A's after its own, takes back B's lines
-    and keeps A's; A stays in edit;
-  - with B's lines changed since by A's edit, Cancel asks: "Skip" leaves
-    them, "Undo anyway" takes B back to none;
-  - OK of A keeps its lines and ends its edit;
-  - the tree marks each sketch in edit, and drops only the mark of the
-    edit that ends.
+  - Cancel of B, with a step of A's after its own and a timer's change to
+    A made with B's window active, takes back B's step only: A's step and
+    the change to A stay; A stays in edit, the tree marks A only;
+  - a timer's change to B while B is in edit, made with A's window
+    active, is B's: Cancel of B takes it back with B's step;
+  - OK of A keeps what it did and ends its edit, its tree mark with it.
 """
 import os
 import traceback
@@ -92,8 +94,34 @@ def edit(gdoc, view, obj):
     return ok
 
 
-def step(doc, view, name, sketch, y):
-    """A tool's change in `view`: a line added to `sketch`, one step."""
+def click_later(name, text):
+    """Click `text` in the modal box `name` (objectName, or its text) once
+    it is up."""
+    def click():
+        for w in QtWidgets.QApplication.topLevelWidgets():
+            if isinstance(w, QtWidgets.QMessageBox) and w.isVisible() \
+                    and (w.objectName() == name or w.text() == name):
+                for b in w.buttons():
+                    if b.text().replace("&", "") == text:
+                        state["asked"] = True
+                        b.click()
+                        return
+        QtCore.QTimer.singleShot(100, click)
+    state["asked"] = False
+    QtCore.QTimer.singleShot(200, click)
+
+
+def delete_all(view):
+    """The edit's step: Sketcher_DeleteAllGeometry run in `view`'s window."""
+    activate(view)
+    click_later("Delete all geometry and constraints?", "Yes")
+    FreeCADGui.runCommand("Sketcher_DeleteAllGeometry")
+    settle(500)
+    return state["asked"]
+
+
+def timer_change(doc, view, name, sketch, y):
+    """A change from a timer -- nobody's -- with `view` active."""
     activate(view)
     doc.openTransaction(name)
     sketch.addGeometry(Part.LineSegment(V(0, y, 0), V(10, y, 0)))
@@ -102,19 +130,8 @@ def step(doc, view, name, sketch, y):
     settle(200)
 
 
-def answer_later(text):
-    """Click `text` in the Cancel question once it is up (it is modal)."""
-    def click():
-        for w in QtWidgets.QApplication.topLevelWidgets():
-            if w.objectName() == "CancelOwnSteps" and w.isVisible():
-                for b in w.buttons():
-                    if b.text() == text:
-                        state["asked"] = True
-                        b.click()
-                        return
-        QtCore.QTimer.singleShot(100, click)
-    state["asked"] = False
-    QtCore.QTimer.singleShot(200, click)
+def ys(sketch):
+    return sorted(round(g.StartPoint.y, 3) for g in sketch.Geometry)
 
 
 def cancel(view):
@@ -128,8 +145,11 @@ def run():
         VIEW.SetBool("PerViewEdit", True)
         doc = FreeCAD.newDocument("SketchTwoViews")
         a = doc.addObject("Sketcher::SketchObject", "A")
+        for y in (0, 5):
+            a.addGeometry(Part.LineSegment(V(0, y, 0), V(10, y, 0)))
         b = doc.addObject("Sketcher::SketchObject", "B")
         b.Placement = FreeCAD.Placement(V(0, 0, 20), FreeCAD.Rotation())
+        b.addGeometry(Part.LineSegment(V(0, 1, 0), V(10, 1, 0)))
         doc.recompute()
         doc.UndoMode = 1
         doc.clearUndos()
@@ -170,41 +190,37 @@ def run():
         check("and B's edit there is left as it was", in_edit(gdoc, v2) == "B",
               in_edit(gdoc, v2))
 
-        # B's step between two of A's
-        step(doc, v1, "A line 1", a, 0)
-        step(doc, v2, "B line 1", b, 0)
-        step(doc, v1, "A line 2", a, 5)
-        check("the lines are the sketches'", (a.GeometryCount, b.GeometryCount) == (2, 1),
-              (a.GeometryCount, b.GeometryCount))
+        # B's step, then A's, then a timer's change to A with B's window
+        # active: the timer's is not B's
+        check("B's command runs in its window", delete_all(v2))
+        check("A's command runs in its window", delete_all(v1))
+        timer_change(doc, v2, "late write", a, 20)
+        check("each did what it does", (ys(a), ys(b)) == ([20.0], []), (ys(a), ys(b)))
         cancel(v2)
-        check("Cancel of B takes back its line", b.GeometryCount == 0, b.GeometryCount)
-        check("and keeps A's, though one came after", a.GeometryCount == 2, a.GeometryCount)
+        check("Cancel of B takes back its step", ys(b) == [1.0], ys(b))
+        check("and keeps A's step and the timer's change, made in B's window",
+              ys(a) == [20.0], ys(a))
         check("A stays in edit, B does not",
               (in_edit(gdoc, v1), in_edit(gdoc, v2)) == ("A", None),
               (in_edit(gdoc, v1), in_edit(gdoc, v2)))
         check("and the tree marks A only", (marked("A"), marked("B")) == (True, False),
               (marked("A"), marked("B")))
 
-        for choice, expected in (("Skip", 2), ("Undo anyway", 0)):
-            edit(gdoc, v2, b)
-            step(doc, v2, "B line", b, 10)
-            # A's edit changes B's lines over it
-            step(doc, v1, "A on B", b, 15)
-            answer_later(choice)
-            cancel(v2)
-            check("Cancel asks what to do with the change made since (%s)" % choice,
-                  state["asked"])
-            check("%s: B has %d lines" % (choice, expected), b.GeometryCount == expected,
-                  b.GeometryCount)
-            if b.GeometryCount:
-                doc.openTransaction("clear B")
-                b.deleteAllGeometry()
-                doc.commitTransaction()
+        # A change to the sketch in edit is the edit's, whoever makes it --
+        # a pick in the tree, the property editor, a script -- here one
+        # from a timer, with the other window active
+        edit(gdoc, v2, b)
+        delete_all(v2)
+        timer_change(doc, v1, "a script's", b, 15)
+        check("B's step and the change to B are made", ys(b) == [15.0], ys(b))
+        cancel(v2)
+        check("Cancel of B takes back both", ys(b) == [1.0], ys(b))
+        check("and A's lines are as they were", ys(a) == [20.0], ys(a))
 
         activate(v1)
         FreeCADGui.Control.activeTaskDialog(view=v1).accept()
         settle(1000)
-        check("OK of A keeps its lines", a.GeometryCount == 2, a.GeometryCount)
+        check("OK of A keeps what it did", ys(a) == [20.0], ys(a))
         check("and ends its edit", in_edit(gdoc, v1) is None)
         check("its tree mark with it", not marked("A"))
     except Exception:

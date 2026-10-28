@@ -266,6 +266,8 @@ public:
      * edit of the document (docs/HandsOnQueue.md entry 232).
      */
     bool editHoldsTransaction(int ModNum) const override;
+    /// The Sketcher's commands, but those that start or end an edit
+    bool editOwnsCommand(const char* name) const override;
     /** Turn the views' own selection on or off for the whole session.
      *
      * Entering the edit turns it off in every view (the initiator through
@@ -568,7 +570,8 @@ protected:
     /// (0: none), for cancelEditing()
     std::string editBackup;
     int editUndoMark = 0;
-    /// The undo steps opened while this edit was the one worked in: what
+    /// The undo steps this edit opened (Gui::Document::editStepsOf(),
+    /// kept across its sessions under the same task panel): what
     /// cancelEditing() takes back with PerViewEdit on, where another
     /// view's edit may have made steps between them (entry 232)
     std::vector<int> editOwnSteps;
@@ -626,7 +629,6 @@ protected:
 
 protected:
     fastsignals::connection connectAbortTransaction;
-    fastsignals::connection connectOpenTransaction;
     fastsignals::connection connectUndoDocument;
     fastsignals::connection connectRedoDocument;
     fastsignals::connection connectSolverUpdate;

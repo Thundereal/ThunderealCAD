@@ -9512,15 +9512,6 @@ bool ViewProviderSketch::setEdit(int ModNum)
         editBackup = backup.str();
         editUndoMark = sketch->getDocument()->getTransactionID(true, 0);
         editOwnSteps.clear();
-        // A step opened while this edit is the one worked in is its own:
-        // its events are handled as its view (docs/HandsOnQueue.md entry 232)
-        connectOpenTransaction.disconnect();
-        connectOpenTransaction = sketch->getDocument()->signalOpenTransaction.connect(
-            [this](const App::Document& doc, std::string) {
-                Gui::Document* gdoc = getDocument();
-                if (edit && gdoc && gdoc->getInEdit() == this)
-                    editOwnSteps.push_back(doc.getBookedTransactionID());
-            });
     }
 
     // clear the selection (convenience)
@@ -10179,9 +10170,19 @@ void ViewProviderSketch::unsetEdit(int ModNum)
     if (ModNum == Transform || ModNum == TransformAt)
         return inherited::unsetEdit(ModNum);
 
-    // leaving is a click elsewhere: a value being typed is taken
-    if (datumEdit)
+    // leaving is a click elsewhere: a value being typed is taken, as a
+    // step of this edit's
+    if (datumEdit) {
+        Gui::EditStepScope scope(this);
         datumEdit->finish(true, false);
+    }
+
+    // The steps of the session ending, kept for cancelEditing(): another
+    // may follow under the same task panel (docs/HandsOnQueue.md entry 232)
+    if (Gui::Document* gdoc = getDocument()) {
+        for (int tid : gdoc->editStepsOf(this))
+            editOwnSteps.push_back(tid);
+    }
 
     Workbench::leaveEditMode();
 
@@ -10286,7 +10287,6 @@ void ViewProviderSketch::cancelEditing()
     // Left as any edit is, then reverted: nothing of the edit is torn down
     // while an undo runs through it.
     resetOwnEdit();
-    connectOpenTransaction.disconnect();
     App::GetApplication().closeActiveTransaction();
 
     // How many undos back to where the edit began; -1 when the history no
@@ -10341,6 +10341,18 @@ void ViewProviderSketch::resetOwnEdit()
     Gui::ViewerScope scope(gdoc->editingViewerOf(this));
     Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()",
                             gdoc->getDocument()->getName());
+}
+
+bool ViewProviderSketch::editOwnsCommand(const char* name) const
+{
+    // The Sketcher's commands work on the sketch in edit, but those that
+    // start or end an edit, or make another sketch
+    static const std::set<std::string_view> others {
+        "Sketcher_NewSketch", "Sketcher_EditSketch", "Sketcher_LeaveSketch",
+        "Sketcher_MirrorSketch", "Sketcher_MergeSketches",
+    };
+    std::string_view n(name ? name : "");
+    return n.starts_with("Sketcher_") && !others.count(n);
 }
 
 bool ViewProviderSketch::editHoldsTransaction(int ModNum) const

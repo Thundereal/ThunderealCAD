@@ -70,6 +70,7 @@
 # include <BRepMesh_IncrementalMesh.hxx>
 # include <BRepMesh_Triangle.hxx>
 # include <BRepMesh_Edge.hxx>
+# include <BRepOffset_MakeOffset.hxx>
 # include <BRepOffsetAPI_MakeThickSolid.hxx>
 # include <BRepOffsetAPI_MakeOffsetShape.hxx>
 # include <BRepOffsetAPI_MakeOffset.hxx>
@@ -3217,6 +3218,56 @@ TopoShape &TopoShape::makEThickSolid(const TopoShape &shape,
         GeomAbs_JoinType(join));
 #endif
     return makEShape(mkThick,shape,op);
+}
+
+namespace {
+/// The history of an offset, for naming its result's elements
+struct MapperOffset: TopoShape::Mapper {
+    BRepOffset_MakeOffset &maker;
+    explicit MapperOffset(BRepOffset_MakeOffset &maker)
+        :maker(maker)
+    {}
+    const std::vector<TopoDS_Shape> &generated(const TopoDS_Shape &s) const override {
+        _res.clear();
+        try {
+            for (TopTools_ListIteratorOfListOfShape it(maker.Generated(s)); it.More(); it.Next())
+                _res.push_back(it.Value());
+        } catch (Standard_Failure &) {
+        }
+        return _res;
+    }
+    const std::vector<TopoDS_Shape> &modified(const TopoDS_Shape &s) const override {
+        _res.clear();
+        try {
+            for (TopTools_ListIteratorOfListOfShape it(maker.Modified(s)); it.More(); it.Next())
+                _res.push_back(it.Value());
+        } catch (Standard_Failure &) {
+        }
+        return _res;
+    }
+};
+} // anonymous namespace
+
+TopoShape &TopoShape::makEThicken(const TopoShape &source, double thickness, double tol,
+        JoinType join, bool intersection, const char *op)
+{
+    if(!op) op = Part::OpCodes::Thicken;
+    if(source.isNull())
+        HANDLE_NULL_SHAPE;
+    if(join != JoinType::Arc && join != JoinType::Intersection)
+        join = JoinType::Arc;
+    if(fabs(thickness) <= 2*tol)
+        FC_THROWM(Base::ValueError, "Thickness too small");
+
+    // the way OCCT's thickshell does it: an offset of the skin, thickening
+    BRepOffset_MakeOffset mkOffset;
+    mkOffset.Initialize(source.getShape(), thickness, tol, BRepOffset_Skin,
+            intersection, false, GeomAbs_JoinType(join), true);
+    mkOffset.MakeOffsetShape();
+    if(!mkOffset.IsDone() || mkOffset.Shape().IsNull())
+        FC_THROWM(Base::CADKernelError, "Thicken failed (offset error "
+                << int(mkOffset.Error()) << ")");
+    return makESHAPE(mkOffset.Shape(), MapperOffset(mkOffset), {source}, op);
 }
 
 TopoShape &TopoShape::makEWires(const TopoShape &shape,

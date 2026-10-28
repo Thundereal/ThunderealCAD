@@ -1572,6 +1572,26 @@ public:
                 offsetMode,join,op);
     }
 
+    /** Make a solid of a face, or of an open shell, and its offset
+     *
+     * The walls between them are the offsets of its free edges: OCCT's
+     * thickening (BRepOffset_MakeOffset, Thickening). The faces and edges of
+     * the result are named from the source's.
+     *
+     * @param source: a face, or a shell
+     * @param thickness: how far the offset is, along the faces' normals;
+     *                   negative for the other side
+     * @param tol: tolerance criterion for coincidence in generated shapes
+     * @param join: JoinType::Arc or JoinType::Intersection, across the
+     *              edges between the faces
+     * @param intersection: whether to check intersection in all parallels
+     * @param op: optional string to be encoded into topo naming
+     *
+     * @return The TopoShape itself, the solid in it
+     */
+    TopoShape &makEThicken(const TopoShape &source, double thickness, double tol,
+            JoinType join = JoinType::Arc, bool intersection = false, const char *op=nullptr);
+
     /** Make reolved shell around a basis shape
      *
      * @param base: the base shape

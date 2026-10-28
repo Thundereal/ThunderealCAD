@@ -56,7 +56,13 @@ import FreeCAD
 import FreeCADGui
 from PySide import QtCore
 
+import wsclient
 from wsclient import free_port
+
+# The two browsers, each invited by name (docs/TransactionLogJournal.md
+# sec 30.6 U6); the driver puts the name on each page's URL.
+TOKEN = "peersel-browser-invite"
+CLIENTS = ("peersel-picker", "peersel-watcher")
 
 clock = time.perf_counter
 
@@ -203,8 +209,15 @@ def build():
             return
         http_port = serve_viewer()
         note("viewer on %d, scene on %d" % (http_port, port))
+        # Each browser is somebody, on an invitation to its own name: a
+        # page nobody invited is view-only (260090cd5d), and a view-only
+        # client's pick goes nowhere. The driver adds the name
+        # (&client=peersel-picker, peersel-watcher).
+        FreeCADGui.serveSetGrants(
+            [wsclient.invitation(TOKEN, name)[0] for name in CLIENTS]
+            + [wsclient.invitation(TOKEN, CLIENTS[0])[1]])
         url = ("http://127.0.0.1:%d/fcviewer.html?scene=http://127.0.0.1:%d"
-               % (http_port, port))
+               "&token=%s" % (http_port, port, TOKEN))
         state["run"] = Run(url)
         state["t0"] = clock()
         state["run"].start()

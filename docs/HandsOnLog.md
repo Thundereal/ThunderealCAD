@@ -8157,3 +8157,23 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - Diagnostics only, not committed: QTest moves on the real screen do not
   move the system pointer, by which OverlayManager decides; the pointer
   test uses QCursor.setPos and puts it back.
+
+### 2026-10-28 afternoon: entry 235 -- COMMITTED `80337cf262`, not pushed, not staged; 238 measured (`98a1ffb0a0`)
+
+- 235: origin plane kept its rest size (the quarter, 7e1824d01d's switch
+  out); its face picked first while hovered or selected
+  (SoFCLatePickGroup::setPickFirst, asked ahead with the highlight path);
+  lit as a face element: getDetailPath() answers the face, SoFCFaceSet
+  (partIndex, one part), preselection keeps that detail, unlit faces
+  outlined in the highlight colour (was black).
+- What broke the colour (the reporter asked): on bgfx the dashed through-
+  copy of datum lines (1109842583, entry 99) lies over the highlighted
+  lines -- blue only between dashes; the OpenGL path drew them solid.
+  Seen on the staged d04054d9b0, both paths. The plane no longer depends
+  on the lines; a datum AXIS on bgfx still has the dashed overlay: not
+  fixed, reported.
+- origin-plane-highlight.py 9/9 bgfx, 9/9 OpenGL (Render/Type Legacy,
+  screen grab), the reporter's cfg; the staged copy fails 7.
+- 238: overlay bars about 1 percent of a page pan (temporary trace, not
+  committed); staged vs dev medians 9.9/9.7 ms 3D, 25.5/16.1 ms page.
+  Start lag or trailing not measured; asked through the note-taker.

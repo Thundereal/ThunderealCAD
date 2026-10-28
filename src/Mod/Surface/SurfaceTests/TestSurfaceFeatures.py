@@ -163,6 +163,27 @@ class TestSurfaceFeatures(unittest.TestCase):
         self.recompute(s)
         self.assertEqual(edgeOn(s.Shape, s3), h.Ref[1][0])
 
+    def testSectionsTheOtherWayRound(self):
+        # a section given the other way round from the one before is turned:
+        # lofted as given, the face between two lines drawn opposite ways
+        # was twisted into a bow tie of half the area
+        a = self.doc.addObject("Part::Line", "A")
+        a.X1, a.Y1, a.Z1, a.X2, a.Y2, a.Z2 = 0, 0, 0, 10, 0, 0
+        b = self.doc.addObject("Part::Line", "B")
+        b.X1, b.Y1, b.Z1, b.X2, b.Y2, b.Z2 = 10, 0, 5, 0, 0, 5
+        c = spline(self.doc, "c", (0, 0, 10), (5, 0, 11), (10, 0, 10))
+        s = self.doc.addObject("Surface::Sections", "Sec")
+        s.NSections = [(a, "Edge1"), (b, "Edge1"), (c, "Edge1")]
+        self.recompute(s)
+        face = s.Shape.Faces[0]
+        # flat in y = 0, from x = 0 to 10, as high as the sections
+        flat = Part.Face(Part.makePolygon([V(0, 0, 0), V(10, 0, 0), V(10, 0, 10), V(0, 0, 10), V(0, 0, 0)]))
+        self.assertGreater(face.Area, 0.95 * flat.Area)
+        for o in (a, b, c):
+            self.assertLess(face.distToShape(o.Shape)[0], 1e-6, o.Name)
+        bb = face.BoundBox
+        self.assertLess(bb.YLength, 1e-6)
+
     # -- Extend ---------------------------------------------------------------
 
     def testExtendNames(self):

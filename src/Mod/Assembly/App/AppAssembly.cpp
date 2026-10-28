@@ -35,6 +35,7 @@
 #include "AssemblyGroup.h"
 #include "Grounding.h"
 #include "Joint.h"
+#include "Physics.h"
 #include "Simulation.h"
 #include "Views.h"
 #include "Solver/OndselBackend.h"
@@ -127,6 +128,9 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::ExplodedViewStepPython::init();
     Assembly::Snapshot::init();
     Assembly::SnapshotPython::init();
+    Assembly::PhysicsItem::init();
+    Assembly::MassOverride::init();
+    Assembly::MassOverridePython::init();
 
     // The solver backends (docs/AssemblySolverInterface.md sec 4.3).
     Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::OndselBackend>());

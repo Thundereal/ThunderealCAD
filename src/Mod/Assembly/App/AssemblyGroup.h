@@ -45,6 +45,7 @@ public:
     AssemblyGroup();
 
     static const char* JointsRole;
+    static const char* PhysicsRole;
     static const char* SimulationsRole;
     static const char* ViewsRole;
 

@@ -19,10 +19,21 @@ way:
   material**: every shape has it until one is chosen, and its density,
   1 kg/m^3 (`Standard/Default.FCMat`), is a placeholder -- taken at its word,
   every unchosen part weighed a thousandth of water.
-- Not yet: the Physics group and `MassOverride` (a C++ object, as
-  `docs/AssemblyObjectModel.md` decision 0 has every Physics item, not the
-  Python feature sec 5.2 sketches); the neutral `Inertia`; the unit
-  contract's conversions; the Mass Properties table.
+- Built: the Physics group and `MassOverride` (`App/Physics.{h,cpp}`). C++
+  objects, as `docs/AssemblyObjectModel.md` decision 0 has every Physics
+  item, not the Python features sec 5.2 sketches: `PhysicsItem`, which the
+  Physics aux group (`AssemblyGroup::PhysicsRole`, made on demand:
+  `getGroup("Physics", True)`) shows, and `MassOverride` on it --
+  `Component` (sec 5.2's `Part`, renamed: a component may be a link or a
+  sub-assembly), `Mode` {Density, Mass, Full}, `Density`, `Mass`,
+  `CenterOfMass` (the component's frame), `Inertia` (six floats, kg mm^2,
+  the component's axes: there is no inertia unit to type them with).
+  Density: the shape at that density. Mass: the shape's centre, its inertia
+  scaled to that mass. Full: nothing from the shape, the centre and the
+  inertia turned into the assembly's frame (R I R^T). The last of several
+  overrides of a component is used, with a warning.
+- Not yet: the neutral `Inertia`; the unit contract's conversions; the Mass
+  Properties table.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

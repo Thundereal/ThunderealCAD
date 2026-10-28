@@ -124,6 +124,8 @@ SET(Assembly_SRCS
     Joint.h
     MassProperties.cpp
     MassProperties.h
+    Physics.cpp
+    Physics.h
     Simulation.cpp
     Simulation.h
     Views.cpp

@@ -39,6 +39,7 @@ using namespace Assembly;
 PROPERTY_SOURCE(Assembly::AssemblyGroup, App::PartAuxGroup)
 
 const char* AssemblyGroup::JointsRole = "Joints";
+const char* AssemblyGroup::PhysicsRole = "Physics";
 const char* AssemblyGroup::SimulationsRole = "Simulations";
 const char* AssemblyGroup::ViewsRole = "Views";
 

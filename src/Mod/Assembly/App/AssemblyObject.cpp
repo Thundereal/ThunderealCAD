@@ -69,6 +69,7 @@
 #include "AssemblyGroup.h"
 #include "Grounding.h"
 #include "Joint.h"
+#include "Physics.h"
 #include "Simulation.h"
 #include "Views.h"
 #include "Solver/Backend.h"
@@ -2101,6 +2102,9 @@ bool AssemblyObject::isAuxGroupAllowed(const App::AuxGroup* group,
             || obj->isDerivedFrom<RigidGroup>()
             || proxyClassIn(obj, "JointObject", {"Joint", "GroundedJoint", "RigidGroupJoint"});
     }
+    if (role == AssemblyGroup::PhysicsRole) {
+        return obj->isDerivedFrom<PhysicsItem>();
+    }
     if (role == AssemblyGroup::SimulationsRole) {
         return obj->isDerivedFrom<Simulation>()
             || proxyClassIn(obj, "CommandCreateSimulation", {"Simulation"});
@@ -2143,11 +2147,15 @@ App::DocumentObject* AssemblyObject::getAssemblyGroup(const char* role, bool cre
         legacy = ViewGroup::getClassTypeId();
         label = "Exploded Views";
     }
+    else if (strcmp(role, AssemblyGroup::PhysicsRole) == 0) {
+        // New with the dynamics phase: upstream has none
+        label = "Physics";
+    }
     else {
         return nullptr;
     }
     for (auto child : Group.getValues()) {
-        if (child && child->getTypeId() == legacy) {
+        if (child && !legacy.isBad() && child->getTypeId() == legacy) {
             return child;
         }
     }

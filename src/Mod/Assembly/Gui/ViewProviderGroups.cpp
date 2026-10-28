@@ -84,6 +84,9 @@ QIcon ViewProviderAssemblyGroup::getIcon() const
     if (role == Assembly::AssemblyGroup::ViewsRole) {
         return Gui::BitmapFactory().pixmap("Assembly_ExplodedViewGroup.svg");
     }
+    if (role == Assembly::AssemblyGroup::PhysicsRole) {
+        return Gui::BitmapFactory().pixmap("Assembly_PhysicsGroup.svg");
+    }
     return Gui::ViewProviderAuxGroup::getIcon();
 }
 

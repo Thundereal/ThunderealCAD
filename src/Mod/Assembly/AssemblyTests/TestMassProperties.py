@@ -2,6 +2,8 @@
 """Mass properties (docs/AssemblyDynamics.md sec 5.2, phase D0):
 AssemblyObject.getMassProperties on boxes whose answers are closed form."""
 
+import os
+import tempfile
 import unittest
 
 import FreeCAD as App
@@ -167,3 +169,88 @@ class TestMassProperties(unittest.TestCase):
         self.assertEqual(components["Cube"]["Origin"], "Assumed")
         self.assertEqual(components["Cube"]["Material"], "Steel-Generic")
         self.assertAlmostEqual(components["Cube"]["Mass"], 1000 * 7.9e-6, places=12)
+
+    def override(self, component, mode):
+        """A mass override of the component, made in the Physics group."""
+        physics = self.assembly.getGroup("Physics", True)
+        given = physics.newObject("Assembly::MassOverride", "MassOverride")
+        given.Component = component
+        given.Mode = mode
+        return given
+
+    def test_physics_group(self):
+        """Overrides are shown in the assembly's Physics group, and are no
+        components."""
+        cube = self.box("Cube", (10, 10, 10), (0, 0, 0))
+        given = self.override(cube, "Density")
+        physics = self.assembly.getGroup("Physics")
+        self.assertIsNotNone(physics)
+        self.assertEqual(physics.Role, "Physics")
+        self.assertIn(given, physics.Group)
+        components, _ = self.props()
+        self.assertEqual(sorted(components), ["Cube"])
+
+    def test_override_density(self):
+        """Density: the shape at the given density, whatever the material."""
+        cube = self.box("Cube", (10, 10, 10), (0, 0, 0))
+        given = self.override(cube, "Density")
+        given.Density = "7900 kg/m^3"
+        components, total = self.props()
+        props = components["Cube"]
+        self.assertEqual(props["Origin"], "Override")
+        mass = 1000 * 7.9e-6
+        self.assertAlmostEqual(props["Mass"], mass, places=12)
+        self.assertAlmostEqual(props["Density"], 7.9e-6, places=15)
+        self.assertTupleAlmost(props["Inertia"], boxInertia(mass, 10, 10, 10))
+        self.assertEqual(total["Origin"], "Override")
+
+    def test_override_mass(self):
+        """Mass: the shape's centre, its inertia scaled to the given mass."""
+        cube = self.box("Cube", (10, 10, 10), (0, 0, 0))
+        given = self.override(cube, "Mass")
+        given.Mass = "1 kg"
+        components, _ = self.props()
+        props = components["Cube"]
+        self.assertEqual(props["Origin"], "Override")
+        self.assertAlmostEqual(props["Mass"], 1.0, places=12)
+        self.assertTupleAlmost(props["CenterOfMass"], (5.0, 5.0, 5.0))
+        self.assertTupleAlmost(props["Inertia"], boxInertia(1.0, 10, 10, 10))
+
+    def test_override_full(self):
+        """Full: the given mass, centre and inertia, in the component's
+        frame -- turned a quarter about z, its x along the assembly's y."""
+        cube = self.box("Cube", (10, 10, 10), (100, 0, 0))
+        cube.Placement.Rotation = App.Rotation(App.Vector(0, 0, 1), 90)
+        given = self.override(cube, "Full")
+        given.Mass = "2 kg"
+        given.CenterOfMass = App.Vector(1, 2, 3)
+        given.Inertia = [10.0, 20.0, 30.0, 4.0, 0.0, 0.0]
+        components, _ = self.props()
+        props = components["Cube"]
+        self.assertEqual(props["Origin"], "Override")
+        self.assertAlmostEqual(props["Mass"], 2.0, places=12)
+        # (1, 2, 3) turned: (-2, 1, 3), at (100, 0, 0)
+        self.assertTupleAlmost(props["CenterOfMass"], (98.0, 1.0, 3.0))
+        # x and y swapped, the product xy's sign turned
+        self.assertTupleAlmost(props["Inertia"], (20.0, 10.0, 30.0, -4.0, 0.0, 0.0))
+
+    def test_saved(self):
+        """An override and its Physics group are saved and restored."""
+        cube = self.box("Cube", (10, 10, 10), (0, 0, 0))
+        given = self.override(cube, "Mass")
+        given.Mass = "3 kg"
+        before, _ = self.props()
+        path = os.path.join(tempfile.mkdtemp(), "MassOverride.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.assembly = self.doc.getObject("Assembly")
+        physics = self.assembly.getGroup("Physics")
+        self.assertIsNotNone(physics)
+        (given,) = physics.Group
+        self.assertEqual(given.TypeId, "Assembly::MassOverride")
+        self.assertEqual(given.Mode, "Mass")
+        self.assertEqual(given.Component, self.doc.getObject("Cube"))
+        after, _ = self.props()
+        self.assertAlmostEqual(after["Cube"]["Mass"], 3.0, places=12)
+        self.assertTupleAlmost(after["Cube"]["Inertia"], before["Cube"]["Inertia"])

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- A weight: the Physics group's mass, springs and contacts -->
+  <circle cx="32" cy="15" r="8" fill="none" stroke="#2e3436" stroke-width="5"/>
+  <circle cx="32" cy="15" r="8" fill="none" stroke="#888a85" stroke-width="2.5"/>
+  <path d="M 16,24 L 48,24 L 58,58 L 6,58 Z" fill="#555753" stroke="#2e3436" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M 19,28 L 45,28 L 47,34 L 17,34 Z" fill="#888a85"/>
+  <!-- Motion: a blue arc -->
+  <path d="M 22,46 Q 32,38 42,46" fill="none" stroke="#729fcf" stroke-width="4" stroke-linecap="round"/>
+</svg>

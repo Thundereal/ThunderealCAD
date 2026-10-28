@@ -21,8 +21,10 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
+#include <map>
 
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -45,6 +47,7 @@
 #include "AssemblyObject.h"
 #include "AssemblyUtils.h"
 #include "MassProperties.h"
+#include "Physics.h"
 
 using namespace Assembly;
 
@@ -114,6 +117,47 @@ void collect(App::DocumentObject* obj,
     for (const auto& sub : obj->getSubObjects()) {
         collect(obj->getSubObject(sub.c_str()), path + sub, leaves, depth + 1);
     }
+}
+
+// The object's placement in the assembly: its own and its containers'
+Base::Placement placementIn(const AssemblyObject* assembly, App::DocumentObject* obj)
+{
+    Base::Placement placement;
+    for (auto* step = obj; step && step != assembly;
+         step = App::GeoFeatureGroupExtension::getGroupOfObject(step)) {
+        if (auto* prop = step->getPlacementProperty()) {
+            placement = prop->getValue() * placement;
+        }
+    }
+    return placement;
+}
+
+// An inertia along a frame's axes, along those the frame is turned into:
+// R I R^T
+std::array<double, 6> turned(const std::array<double, 6>& inertia, const Base::Rotation& rotation)
+{
+    const double i[3][3] = {{inertia[0], inertia[3], inertia[4]},
+                            {inertia[3], inertia[1], inertia[5]},
+                            {inertia[4], inertia[5], inertia[2]}};
+    double r[3][3];
+    for (int c = 0; c < 3; ++c) {
+        Base::Vector3d axis(c == 0 ? 1.0 : 0.0, c == 1 ? 1.0 : 0.0, c == 2 ? 1.0 : 0.0);
+        axis = rotation.multVec(axis);
+        r[0][c] = axis.x;
+        r[1][c] = axis.y;
+        r[2][c] = axis.z;
+    }
+    double out[3][3] {};
+    for (int a = 0; a < 3; ++a) {
+        for (int b = 0; b < 3; ++b) {
+            for (int k = 0; k < 3; ++k) {
+                for (int l = 0; l < 3; ++l) {
+                    out[a][b] += r[a][k] * i[k][l] * r[b][l];
+                }
+            }
+        }
+    }
+    return {out[0][0], out[1][1], out[2][2], out[0][1], out[0][2], out[1][2]};
 }
 
 // The mass properties of the solids of a shape, in its coordinates, at this
@@ -222,9 +266,40 @@ std::vector<MassProperties> Assembly::massPropertiesOf(const AssemblyObject* ass
     }
     std::string assumedName;
     const double assumed = defaultDensity(&assumedName);
+    // The overrides, by component: the last of several
+    std::map<App::DocumentObject*, MassOverride*> overrides;
+    for (auto* child : assembly->Group.getValues()) {
+        if (auto* given = Base::freecad_dynamic_cast<MassOverride>(child)) {
+            if (auto* target = given->Component.getValue()) {
+                if (overrides.count(target)) {
+                    FC_WARN(target->getFullName() << " has more than one mass override; "
+                                                  << given->getFullName() << " is used");
+                }
+                overrides[target] = given;
+            }
+        }
+    }
     for (auto* obj : getAssemblyComponents(assembly)) {
         MassProperties component;
         component.obj = obj;
+        auto overridden = overrides.find(obj);
+        MassOverride* given = overridden != overrides.end() ? overridden->second : nullptr;
+        const int mode = given ? given->Mode.getValue() : -1;
+        // Full: nothing from the shape
+        if (mode == 2) {
+            const Base::Placement placement = placementIn(assembly, obj);
+            component.origin = MassProperties::Origin::Override;
+            component.mass = std::max(given->Mass.getValue(), 0.0);
+            placement.multVec(given->CenterOfMass.getValue(), component.com);
+            std::array<double, 6> inertia {};
+            const auto& values = given->Inertia.getValues();
+            for (std::size_t i = 0; i < inertia.size() && i < values.size(); ++i) {
+                inertia[i] = values[i];
+            }
+            component.inertia = turned(inertia, placement.getRotation());
+            results.push_back(std::move(component));
+            continue;
+        }
         const std::string path = pathFrom(assembly, obj);
         std::vector<std::pair<Part::Feature*, std::string>> leaves;
         if (!path.empty()) {
@@ -243,7 +318,12 @@ std::vector<MassProperties> Assembly::massPropertiesOf(const AssemblyObject* ass
             catch (const Base::Exception&) {
                 density = 0.0;
             }
-            if (density <= 0.0) {
+            if (mode == 0) {
+                // Density: the override's, whatever the material
+                density = std::max(given->Density.getValue(), 0.0);
+                material.clear();
+            }
+            else if (density <= 0.0) {
                 density = assumed;
                 material = assumedName;
                 anyAssumed = true;
@@ -290,6 +370,28 @@ std::vector<MassProperties> Assembly::massPropertiesOf(const AssemblyObject* ass
         if (component.mass > 0.0) {
             component.origin =
                 anyAssumed ? MassProperties::Origin::Assumed : MassProperties::Origin::Shape;
+        }
+        if (mode == 0) {
+            component.origin = MassProperties::Origin::Override;
+            component.density = std::max(given->Density.getValue(), 0.0);
+        }
+        else if (mode == 1) {
+            // Mass: the shape's centre, its inertia scaled with the mass; no
+            // solid to scale, the mass at the component's origin
+            const double mass = std::max(given->Mass.getValue(), 0.0);
+            if (component.mass > 0.0) {
+                const double scale = mass / component.mass;
+                for (auto& value : component.inertia) {
+                    value *= scale;
+                }
+            }
+            else {
+                component.com = placementIn(assembly, obj).getPosition();
+            }
+            component.mass = mass;
+            component.density = component.volume > 0.0 ? mass / component.volume : 0.0;
+            component.material.clear();
+            component.origin = MassProperties::Origin::Override;
         }
         results.push_back(std::move(component));
     }

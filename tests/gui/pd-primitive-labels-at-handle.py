@@ -10,7 +10,9 @@ Claims, a box and then a cylinder in their edits:
   - Tab, the first value's handle active: its label alone is shown;
   - that label has no ground under its text by default (the reporter: "Add
     label background transparency setting, default 0"); with the setting at
-    40 percent, the next edit's label has one that opaque.
+    40 percent, the next edit's label has one that opaque;
+  - it has the outline a sketch's on-view parameters have (the reporter:
+    "show the outline"), ConstraintOutlineWidth, 1 px by default.
 Runs offscreen as well.
 """
 import os
@@ -81,7 +83,9 @@ def labels():
         text = str(text).strip().strip('"')
         if shown(p):
             alpha = label.getField("backgroundAlpha")
-            out.append((text, float(alpha.getValue()) if alpha else None))
+            width = label.getField("outlineWidth")
+            out.append((text, float(alpha.getValue()) if alpha else None,
+                        float(width.getValue()) if width else None))
     return out
 
 
@@ -115,6 +119,9 @@ def try_feature(obj, name, first, opacity=0):
         want = (opacity * 255 // 100) / 255
         check("%s: the label's ground at the setting's %d%%" % (name, opacity),
               alpha is not None and abs(alpha - want) < 1e-3, (alpha, want))
+        width = now[0][2]
+        check("%s: the label has the sketch's outline, 1 px by default" % name,
+              width == 1.0, width)
     key(Qt.Key_Escape)
     gdoc.resetEdit()
     pump(30)

@@ -65,6 +65,7 @@
 #include "SpinBox.h"
 #include "Tree.h"
 #include "TreeParams.h"
+#include "Utilities.h"
 #include "ViewerContext.h"
 #include "ViewProvider.h"
 #include "Inventor/Draggers/Gizmo.h"
@@ -862,6 +863,24 @@ void setGround(EditableDatumLabel* label)
     label->label->backgroundAlpha = float(ground.alphaF());
 }
 
+/** The border a sketch's dimensions and its on-view parameters have, so a
+ * value reads on any background without a ground (the reporter: "show the
+ * outline"). The Sketcher's preferences, kept in the View group; their
+ * defaults repeated here (Sketcher::SketcherParams), which Gui cannot reach.
+ */
+void setOutline(EditableDatumLabel* label)
+{
+    auto grp =
+        App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/View");
+    const unsigned long packed = viewBackgroundIsLight()
+        ? grp->GetUnsigned("ConstrainedOutlineColorLight", 0xFFF4F2FF)
+        : grp->GetUnsigned("ConstrainedOutlineColor", 0x280000FF);
+    SbColor outline;
+    float transparency {};
+    outline.setPackedValue(uint32_t(packed), transparency);
+    label->setOutline(outline, float(std::max<long>(0, grp->GetInt("ConstraintOutlineWidth", 1))));
+}
+
 }  // namespace
 
 void OnViewValueSet::makeLabels()
@@ -875,6 +894,7 @@ void OnViewValueSet::makeLabels()
         label->setPoints(SbVec3f(0, 0, 0), SbVec3f(0, 0, 0));
         label->setPickable(true);
         setGround(label.get());
+        setOutline(label.get());
         connect(label.get(), &EditableDatumLabel::clicked, this, &OnViewValueSet::onLabelClicked);
         entry->label = std::move(label);
     }

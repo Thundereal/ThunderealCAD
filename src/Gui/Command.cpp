@@ -40,6 +40,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/replace.hpp>
+#include <optional>
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
@@ -607,6 +608,16 @@ void Command::_invoke(int id, bool disablelog)
         if (isActive()) {
             auto manager = getGuiApplication()->macroManager();
             auto editStarts = getGuiApplication()->editStartCount();
+
+            // A command of the edit in the active view works on it: what it
+            // opens is a step of that edit's own (docs/HandsOnQueue.md entry
+            // 232)
+            std::optional<EditStepScope> editStep;
+            if (Gui::Document *gdoc = getGuiApplication()->activeDocument()) {
+                ViewProvider *vp = gdoc->getInEdit();
+                if (vp && vp->editOwnsCommand(sName))
+                    editStep.emplace(vp);
+            }
 
             if (!logdisabler) {
                 activated(id);

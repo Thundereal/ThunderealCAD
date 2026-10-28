@@ -67,6 +67,37 @@ class Application;
 class DocumentPy;
 class TransactionViewProvider;
 
+/** Whose edit a transaction opened now is a step of (docs/HandsOnQueue.md
+ * entry 232): while one stands, a document opening a transaction counts it
+ * a step of \a vp's edit, where \a vp is in edit in it
+ * (Document::editStepsOf()). A null one stands for nobody's: what runs in
+ * it -- a timer, a queued call -- is no edit's, whatever scope it runs
+ * inside, but for a ViewerScope opened in it: the view that names says,
+ * as for a client's operation, which arrives as a queued call. The
+ * innermost counts. Where none stands, the view a ViewerScope names says;
+ * else nobody.
+ */
+class GuiExport EditStepScope
+{
+public:
+    explicit EditStepScope(const ViewProvider *vp);
+    ~EditStepScope();
+    EditStepScope(const EditStepScope&) = delete;
+    EditStepScope& operator=(const EditStepScope&) = delete;
+
+    /// Whether one stands, and whose: null for nobody's
+    static bool isSet();
+    static const ViewProvider *current();
+    /// The view a ViewerScope opened inside the innermost one names, or
+    /// null: what says whose a step is in a null one
+    static ViewerContext *viewerInside();
+
+private:
+    const ViewProvider *previous;
+    bool wasSet;
+    ViewerContext *previousViewer;
+};
+
 /** The Gui Document
  *  This is the document on GUI level. Its main responsibility is keeping
  *  track off open windows for a document and warning on unsaved closes.
@@ -481,6 +512,13 @@ public:
      * refused.
      */
     bool undoOwnSteps(const std::vector<int>& tids);
+    /** The undo steps of \a vp's edit here, in the order they were
+     * opened: those opened while an EditStepScope of it stood, or with
+     * none, in the view its edit runs in; and those that changed the object
+     * in edit, whoever made them (docs/HandsOnQueue.md entry 232). Empty
+     * when it is not in edit here.
+     */
+    std::vector<int> editStepsOf(const ViewProvider *vp) const;
     /// The view \a vp is in edit in, null for none
     ViewerContext *editingViewerOf(const ViewProvider *vp) const;
     /// Whether an edit was started in \a viewer (it is the initiator)

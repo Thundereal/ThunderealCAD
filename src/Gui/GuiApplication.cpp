@@ -70,6 +70,9 @@
 
 #include "GuiApplication.h"
 #include "Application.h"
+#include "Control.h"
+#include "Document.h"
+#include "View3DInventorViewer.h"
 #include "MainWindow.h"
 #include "RenderParams.h"
 #include "SpaceballEvent.h"
@@ -77,6 +80,22 @@
 
 
 using namespace Gui;
+
+namespace {
+/// The view provider in edit an event to \a obj works on: that of the
+/// edit's dialog it is part of, else that of the editing 3D view it is in
+/// -- an editor laid over the view (docs/HandsOnQueue.md entry 232)
+ViewProvider *editOfReceiver(QObject *obj)
+{
+    if (ViewProvider *vp = Control().editViewProviderOf(obj))
+        return vp;
+    for (QObject *o = obj; o; o = o->parent()) {
+        if (auto viewer = dynamic_cast<View3DInventorViewer*>(o))
+            return viewer->getEditingViewProvider();
+    }
+    return nullptr;
+}
+}
 
 namespace {
 #if defined(__linux__)
@@ -491,6 +510,30 @@ bool GUIApplication::notify (QObject * receiver, QEvent * event)
     std::optional<App::ActorScope> own;
     if (event->spontaneous() && App::ActorScope::current())
         own.emplace(std::shared_ptr<const App::Actor>());
+    // Whose edit what this event opens is a step of (docs/HandsOnQueue.md
+    // entry 232): input to an edit's dialog is that edit's; a timer or a
+    // queued call is nobody's, even run inside an edit's event -- a menu's
+    // or a dialog's loop.
+    std::optional<EditStepScope> editStep;
+    switch (event->type()) {
+    case QEvent::Timer:
+    case QEvent::MetaCall:
+        editStep.emplace(nullptr);
+        break;
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::KeyPress:
+    case QEvent::KeyRelease:
+    case QEvent::Wheel:
+    case QEvent::ContextMenu:
+    case QEvent::FocusOut:
+        if (ViewProvider *vp = editOfReceiver(receiver))
+            editStep.emplace(vp);
+        break;
+    default:
+        break;
+    }
     try {
 #if defined(_MSC_VER)
         return guardedDispatch(this, receiver, event);

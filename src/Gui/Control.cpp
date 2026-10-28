@@ -45,6 +45,7 @@
 #include "Selection.h"
 #include "Tree.h"
 #include "ViewParams.h"
+#include "ViewerContext.h"
 #include "TaskView/TaskView.h"
 
 
@@ -662,6 +663,20 @@ void ControlSingleton::destruct ()
 
 // -------------------------------------------
 
+
+Gui::ViewProvider* ControlSingleton::editViewProviderOf(const QObject *obj) const
+{
+    for (const QObject *o = obj; o; o = o->parent()) {
+        for (const OpenDialog &open : openDialogs) {
+            const auto &content = open.dialog->getDialogContent();
+            if (std::find(content.begin(), content.end(), o) == content.end())
+                continue;
+            ViewerContext *viewer = open.dialog->owner().context();
+            return viewer ? viewer->getEditingViewProvider() : nullptr;
+        }
+    }
+    return nullptr;
+}
 
 #include "moc_Control.cpp"
 

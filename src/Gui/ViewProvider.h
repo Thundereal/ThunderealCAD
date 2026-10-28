@@ -635,6 +635,15 @@ public:
         (void)ModNum;
         return true;
     }
+    /** Whether the command \a name, run while this is in edit in the
+     * active view, works on this edit: what it opens is a step of the
+     * edit's own (Gui::EditStepScope, docs/HandsOnQueue.md entry 232).
+     */
+    virtual bool editOwnsCommand(const char *name) const
+    {
+        (void)name;
+        return false;
+    }
     virtual bool undoRedoInEdit(bool redo)
     {
         (void)redo;

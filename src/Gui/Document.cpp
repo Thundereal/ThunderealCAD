@@ -153,6 +153,8 @@ struct EditSession
     QPointer<MDIView> selectionView;
     std::set<const App::DocumentObject*> objs;
     bool wantsRestore = false;
+    /// The undo steps this edit opened (Document::editStepsOf())
+    std::vector<int> steps;
     /// Being ended (Document::_resetEditSession): what its edit mode does
     /// on the way out -- deleting the edited object -- does not end it
     /// again
@@ -465,6 +467,7 @@ struct DocumentP
     Connection connectRecomputed;
     Connection connectSkipRecompute;
     Connection connectTransactionAppend;
+    Connection connectOpenTransaction;
     Connection connectTransactionRemove;
     Connection connectPinsReleased;
     Connection connectLogKept;
@@ -580,6 +583,24 @@ Document::Document(App::Document* pcDocument,Application * app)
 
     d->connectTransactionAppend = pcDocument->signalTransactionAppend.connect
         (std::bind(&Gui::Document::slotTransactionAppend, this, sp::_1, sp::_2));
+    // A step of an edit's own, where the code running says whose
+    // (EditStepScope, docs/HandsOnQueue.md entry 232)
+    d->connectOpenTransaction = pcDocument->signalOpenTransaction.connect(
+        [this](const App::Document &doc, std::string) {
+            EditSession *s = nullptr;
+            if (!EditStepScope::isSet())
+                s = d->sessionOf(ViewerContext::current());
+            else if (const ViewProvider *vp = EditStepScope::current()) {
+                for (auto &session : d->_editSessions) {
+                    if (session->viewProvider == vp)
+                        s = session.get();
+                }
+            }
+            else
+                s = d->sessionOf(EditStepScope::viewerInside());
+            if (s)
+                s->steps.push_back(doc.getBookedTransactionID());
+        });
     d->connectTransactionRemove = pcDocument->signalTransactionRemove.connect
         (std::bind(&Gui::Document::slotTransactionRemove, this, sp::_1, sp::_2));
     d->connectPinsReleased = pcDocument->signalPinsReleased.connect
@@ -692,6 +713,7 @@ Document::~Document()
     d->connectRecomputed.disconnect();
     d->connectSkipRecompute.disconnect();
     d->connectTransactionAppend.disconnect();
+    d->connectOpenTransaction.disconnect();
     d->connectTransactionRemove.disconnect();
     d->connectLogKept.disconnect();
     d->connectBranches.disconnect();
@@ -1588,6 +1610,53 @@ bool Document::undoOwnSteps(const std::vector<int>& tids)
     return true;
 }
 
+std::vector<int> Document::editStepsOf(const ViewProvider *vp) const
+{
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp)
+            return s->steps;
+    }
+    return {};
+}
+
+namespace {
+const ViewProvider *editStepOwner = nullptr;
+bool editStepSet = false;
+/// The view scoped when the innermost EditStepScope was opened
+ViewerContext *editStepViewer = nullptr;
+}
+
+EditStepScope::EditStepScope(const ViewProvider *vp)
+    : previous(editStepOwner), wasSet(editStepSet), previousViewer(editStepViewer)
+{
+    editStepOwner = vp;
+    editStepSet = true;
+    editStepViewer = ViewerContext::current();
+}
+
+EditStepScope::~EditStepScope()
+{
+    editStepOwner = previous;
+    editStepSet = wasSet;
+    editStepViewer = previousViewer;
+}
+
+ViewerContext *EditStepScope::viewerInside()
+{
+    ViewerContext *current = ViewerContext::current();
+    return current != editStepViewer ? current : nullptr;
+}
+
+bool EditStepScope::isSet()
+{
+    return editStepSet;
+}
+
+const ViewProvider *EditStepScope::current()
+{
+    return editStepOwner;
+}
+
 void Document::resetEditOf(const ViewProvider *vp)
 {
     for (auto &s : d->_editSessions) {
@@ -1991,6 +2060,23 @@ void Document::beforeDelete() {
 
 void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Property& Prop)
 {
+    // A change to an object in edit is a step of that edit's, whoever makes
+    // it -- a pick in the tree, the property editor, a script -- as nobody
+    // else may edit it (docs/HandsOnQueue.md entry 232). Not a recompute's
+    // output, nor an undo's replay.
+    if (!d->_editSessions.empty() && d->_pcDocument->hasPendingTransaction()
+            && !d->_pcDocument->testStatus(App::Document::Recomputing)
+            && !d->_pcDocument->isPerformingTransaction()) {
+        for (auto &s : d->_editSessions) {
+            auto vpd = dynamic_cast<ViewProviderDocumentObject*>(s->viewProvider);
+            if (!vpd || vpd->getObject() != &Obj)
+                continue;
+            const int tid = d->_pcDocument->getBookedTransactionID();
+            if (tid && std::find(s->steps.begin(), s->steps.end(), tid) == s->steps.end())
+                s->steps.push_back(tid);
+        }
+    }
+
     // A change made while the drain still owes this document its records:
     // the record, replayed later (phase three), would put the file's
     // visibility back. Kept, and re-applied after it.

@@ -45,6 +45,7 @@ namespace App
 
 namespace Gui
 {
+class ViewProvider;
 namespace TaskView
 {
     class TaskDialog;
@@ -86,6 +87,12 @@ public:
     /// The dialog of \a owner's view, or null. A dialog that has no owner
     /// is everybody's.
     Gui::TaskView::TaskDialog* activeDialog(const TaskOwner &owner) const;
+    /** The view provider in edit whose dialog \a obj is part of -- a widget
+     * of the dialog's content, at any depth -- or null: whose edit an
+     * event to it works on (Gui::EditStepScope, docs/HandsOnQueue.md
+     * entry 232).
+     */
+    Gui::ViewProvider* editViewProviderOf(const QObject *obj) const;
     /** Whether showDialog() for \a owner would show a dialog, or refuse.
      *
      * For a caller that has to know before it builds the dialog. Null is

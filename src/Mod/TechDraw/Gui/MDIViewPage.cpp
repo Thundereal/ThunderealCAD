@@ -1314,7 +1314,10 @@ Py::Object MDIViewPagePy::getPage(const Py::Tuple& args)
 
 Py::Object MDIViewPagePy::cast_to_base(const Py::Tuple&)
 {
-    return Py::asObject(base);
+    // A reference of the caller's own: asObject() took over the one this
+    // holds, and every call -- each MainWindow.setActiveWindow() of a page
+    // view -- dropped one, until the base was freed under this
+    return Py::Object(base);
 }
 
 #include <Mod/TechDraw/Gui/moc_MDIViewPage.cpp>

@@ -477,11 +477,11 @@ std::vector<std::string> AssemblyObject::getSubObjects(int reason) const
 namespace
 {
 // A component as the Parts group takes it: not a joint's element binding, nor a
-// group, nor anything without a place of its own
+// group, nor anything without a place of its own, nor a simulation's own (a trace)
 bool isComponentObject(const App::DocumentObject* obj)
 {
     return obj && !obj->isDerivedFrom<::Part::ElementBinding>()
-        && !obj->isDerivedFrom<::Part::Element>()
+        && !obj->isDerivedFrom<::Part::Element>() && !isStudyChild(obj)
         && !App::GeoFeatureGroupExtension::isNonGeoGroup(obj)
         && (obj->isDerivedFrom<App::GeoFeature>()
             || obj->hasExtension(App::LinkBaseExtension::getExtensionClassTypeId()));
@@ -746,6 +746,7 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
     objectPartMap.clear();
     trajectory.reset();
     trajectoryParts.clear();
+    trajectorySimulation.reset();
 
     motions = getMotionsFromSimulation(sim);
 
@@ -862,6 +863,7 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 
     trajectory = std::make_unique<Solver::Trajectory>(std::move(sink.frames));
     trajectoryParts = objectPartMap;
+    trajectorySimulation = sim;
     motions.clear();
 
     return 0;

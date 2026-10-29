@@ -141,6 +141,12 @@ public:
     {
         return trajectory.get();
     }
+    // The simulation the last frames are of; null before one, or once it is
+    // deleted
+    App::DocumentObject* lastSimulation() const
+    {
+        return *trajectorySimulation;
+    }
     void preDrag(std::vector<App::DocumentObject*> dragParts);
     /* One drag step: solves for the Placement the caller wrote on the dragged parts.
     Returns false when no drag is in progress or the step failed; a failed step leaves
@@ -552,6 +558,7 @@ private:
     // not disturb it.
     std::unique_ptr<Solver::Trajectory> trajectory;
     std::unordered_map<App::DocumentObject*, MbDPartData> trajectoryParts;
+    App::DocumentObjectWeakPtrT trajectorySimulation {nullptr};
 
 
     std::unordered_map<App::DocumentObject*, MbDPartData> objectPartMap;

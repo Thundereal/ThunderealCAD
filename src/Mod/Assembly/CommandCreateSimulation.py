@@ -1077,6 +1077,32 @@ SLOPE defines the steepness of the transition between 0 and H1 and H2 to 0 about
         return self.dialog.exec()
 
 
+def selectedPoint(assembly):
+    """Not upstream: the component of the assembly the selection picks, and
+    the point picked in the component's coordinates -- a vertex's own point,
+    else where the pick hit; None without one"""
+    if not App.GuiUp:
+        return None
+    for sel in Gui.Selection.getSelectionEx("", 0):
+        picks = list(sel.PickedPoints)
+        shapes = list(sel.SubObjects)
+        for k, sub in enumerate(sel.SubElementNames):
+            part, element = UtilsAssembly.getComponentReference(assembly, sel.Object, sub)
+            if part is None:
+                continue
+            name = element.split(".")[-1]
+            if name.startswith("Vertex") and k < len(shapes):
+                where = shapes[k].Point
+            elif k < len(picks):
+                where = picks[k]
+            else:
+                continue
+            # Global, through the assembly into the component's coordinates
+            toPart = assembly.getGlobalPlacement().multiply(part.Placement)
+            return part, toPart.inverse().multVec(where)
+    return None
+
+
 ########### Initial velocity #############
 # Not upstream (docs/AssemblyDynamics.md sec 5.2's InitialCondition): a
 # Dynamic study's start velocity, a child of the Simulation as a motion is
@@ -1398,9 +1424,20 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             translate("Assembly", "Add an initial velocity: a joint's rate or a component's")
         )
         self.addInitialButton.clicked.connect(self.addInitialClicked)
+        # Not upstream: a point's path over the run (SimulationTrace)
+        self.addTraceButton = QtWidgets.QToolButton()
+        self.addTraceButton.setText(translate("Assembly", "Trace"))
+        self.addTraceButton.setToolTip(
+            translate(
+                "Assembly",
+                "Trace the path of a point over the run: select a vertex of a part first",
+            )
+        )
+        self.addTraceButton.clicked.connect(self.addTraceClicked)
         buttons = self.form.findChild(QtWidgets.QVBoxLayout, "motion_buttonsLayout")
         if buttons is not None:
             buttons.insertWidget(1, self.addInitialButton)
+            buttons.insertWidget(2, self.addTraceButton)
         self.form.RemoveButton.clicked.connect(self.deleteSelectedMotions)
         self.form.groupBox_player.hide()
         self.form.SaveAnimationButton.clicked.connect(self.saveAnimation)
@@ -1699,7 +1736,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         row = self.form.motionList.row(item)
         if row < len(self.simFeaturePy.Group):
             motion = self.simFeaturePy.Group[row]
-            motion.ViewObject.Proxy.openEditDialog()
+            # Not upstream: a trace has no dialog
+            proxy = getattr(motion.ViewObject, "Proxy", None)
+            if hasattr(proxy, "openEditDialog"):
+                proxy.openEditDialog()
             self.onMotionsChanged()
 
     def createSimulationObject(self):
@@ -1739,6 +1779,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.runMessage.show()
             return
         nFrms = self.assembly.numberOfFrames()
+        # Not upstream: the study's traces follow its run
+        import SimulationTrace
+
+        SimulationTrace.updateTraces(self.simFeaturePy)
         self.fillResults()
         self.form.frameSlider.setMaximum(nFrms - 1)
         self.setFrameValue(nFrms - 1)
@@ -1915,6 +1959,23 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def stopAnimation(self):
         self.animationTimer.stop()
+
+    def addTraceClicked(self):
+        """A trace of the selected point: a vertex of a component, or where
+        a pick hit one"""
+        import SimulationTrace
+
+        picked = selectedPoint(self.assembly)
+        if picked is None:
+            QMessageBox.information(
+                self.form,
+                translate("Assembly", "Trace"),
+                translate("Assembly", "Select a vertex of a part to trace its path."),
+            )
+            return
+        part, point = picked
+        SimulationTrace.newTrace(self.simFeaturePy, part, point)
+        self.onMotionsChanged()
 
     def addInitialClicked(self):
         dialog = InitialConditionDialog(self.assembly)

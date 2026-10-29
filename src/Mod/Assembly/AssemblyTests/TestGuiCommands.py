@@ -676,6 +676,37 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
+    def test_trace_button(self):
+        """The panel's Trace button traces the selected vertex: a trace of
+        its part, the point in the part's coordinates; with nothing
+        selected it says what to select"""
+        import CommandCreateSimulation
+        import SimulationTrace
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        Gui.Selection.clearSelection()
+        self.select(self.cyl1, "Vertex1")
+        part, point = CommandCreateSimulation.selectedPoint(self.assembly)
+        self.assertEqual(part, self.cyl1)
+        want = self.cyl1.Placement.inverse().multVec(self.cyl1.Shape.Vertexes[0].Point)
+        self.assertLess((point - want).Length, 1e-9)
+        panel.addTraceButton.click()
+        traces = [o for o in sim.Group if SimulationTrace.isTrace(o)]
+        self.assertEqual(len(traces), 1)
+        self.assertEqual(traces[0].Part, self.cyl1)
+        self.assertLess((traces[0].Point - want).Length, 1e-9)
+        listed = panel.form.motionList
+        self.assertIn(traces[0].Label, [listed.item(i).text() for i in range(listed.count())])
+        Gui.Selection.clearSelection()
+        self.accept_task()
+        self.assertClean()
+
     def test_kinematic_reactions_check(self):
         """The Reactions check shows for a Kinematic study, sets Reactions,
         and with it the study takes gravity and the elements as a Dynamic

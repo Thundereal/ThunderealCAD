@@ -911,6 +911,10 @@ def getMovablePartsWithin(group, partsAsSolid=False):
 def getSubMovingParts(obj, partsAsSolid):
     if obj is None or isSuppressedLinkElement(obj):
         return []
+    # Not upstream: what a simulation holds (a trace) is the study's
+    parent = obj.getParentGroup()
+    if parent is not None and parent.isDerivedFrom("Assembly::Simulation"):
+        return []
 
     if isLinkArray(obj) or obj.isDerivedFrom("Part::Feature"):
         return [obj]

@@ -43,6 +43,7 @@
 #include <App/Application.h>
 #include <App/Datums.h>
 #include <App/Document.h>
+#include <App/GroupExtension.h>
 #include <App/ElementNamingUtils.h>
 #include <App/DocumentObject.h>
 #include <App/PropertyStandard.h>
@@ -62,6 +63,7 @@
 #include "AssemblyObject.h"
 #include "AssemblyLink.h"
 #include "Joint.h"
+#include "Simulation.h"
 #include <Mod/Part/App/FeatureElement.h>
 
 #include "Groups.h"
@@ -1085,8 +1087,10 @@ void collectComponentsRecursively(
             continue;
         }
         // A joint's element bindings are children of the assembly, and shapes,
-        // but no components: counted, each added six freedoms to the DoF
-        if (obj->isDerivedFrom<Part::ElementBinding>() || obj->isDerivedFrom<Part::Element>()) {
+        // but no components: counted, each added six freedoms to the DoF. Nor
+        // is what a simulation holds (a trace).
+        if (obj->isDerivedFrom<Part::ElementBinding>() || obj->isDerivedFrom<Part::Element>()
+            || isStudyChild(obj)) {
             continue;
         }
 
@@ -1148,6 +1152,12 @@ void collectComponentsRecursively(
     }
 }
 }  // namespace
+
+bool isStudyChild(const App::DocumentObject* obj)
+{
+    auto* group = obj ? App::GroupExtension::getGroupOfObject(obj) : nullptr;
+    return group && group->isDerivedFrom<Simulation>();
+}
 
 std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* assembly)
 {

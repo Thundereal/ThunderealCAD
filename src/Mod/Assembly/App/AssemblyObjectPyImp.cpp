@@ -229,7 +229,38 @@ PyObject* AssemblyObjectPy::getSimulationResults(PyObject* args) const
         Py::Dict ret;
         ret.setItem("Times", times);
         ret.setItem("Channels", channels);
+        App::DocumentObject* sim = getAssemblyObjectPtr()->lastSimulation();
+        ret.setItem("Simulation", sim ? Py::asObject(sim->getPyObject()) : Py::None());
         return Py::new_reference_to(ret);
+    }
+    PY_CATCH
+}
+
+PyObject* AssemblyObjectPy::getSimulationPlacements(PyObject* args, PyObject* kwds) const
+{
+    PyObject* pyObj {};
+    static const std::array<const char*, 2> keywords {"obj", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args,
+                                             kwds,
+                                             "O!",
+                                             keywords,
+                                             &App::DocumentObjectPy::Type,
+                                             &pyObj)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto* obj = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
+        const AssemblyObject* assembly = getAssemblyObjectPtr();
+        Py::List placements;
+        Base::Placement placement;
+        for (std::size_t i = 0; i < assembly->numberOfFrames(); ++i) {
+            if (!assembly->placementAtFrame(obj, i, placement)) {
+                return Py::new_reference_to(Py::List());
+            }
+            placements.append(Py::asObject(new Base::PlacementPy(new Base::Placement(placement))));
+        }
+        return Py::new_reference_to(placements);
     }
     PY_CATCH
 }

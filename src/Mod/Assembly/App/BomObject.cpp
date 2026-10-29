@@ -46,6 +46,7 @@
 
 #include "AssemblyObject.h"
 #include "AssemblyLink.h"
+#include "AssemblyUtils.h"
 #include "BomObject.h"
 #include "BomObjectPy.h"
 
@@ -210,6 +211,10 @@ void BomObject::addObjectChildrenToBom(
 
         if (!child->isDerivedFrom<AssemblyObject>() && !child->isDerivedFrom<App::Part>()
             && !(child->isDerivedFrom<Part::Feature>() && !onlyParts.getValue())) {
+            continue;
+        }
+        // Not upstream: a simulation's trace is no part
+        if (isStudyChild(child)) {
             continue;
         }
 

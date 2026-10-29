@@ -543,6 +543,45 @@ Phase D1 is under way (2026-10-28):
   - Tests: TestDynamics, the pendulum's run to a CSV file read back exactly
     and to a sheet, and nothing from a kinematic run; TestGuiCommands, the
     To Spreadsheet button.
+- Built: traces (sec 8.5's `TraceCurve`). `SimulationTrace.py`: a
+  `Part::FeaturePython` with `TraceCurve` as its proxy, a child of the
+  Simulation as its motions are (sec 5.2's table put it in the assembly;
+  under its study it goes with it); `Part`, `Point` (in the part's
+  coordinates) and `Relative` (empty: the assembly's coordinates; a part:
+  the path as seen riding on it, in its coordinates, the feature placed
+  where that part is -- a cam's profile from its follower). No
+  `Simulation` link: the parent is the study. Its shape is a B-spline
+  through the point at every frame of the last run of its study, periodic
+  when the path ends where it began, consecutive repeats dropped; a vertex
+  for a point that never moves.
+  - What a simulation holds is never a component (`isStudyChild()`):
+    an object in a plain group of an App::Part is in the Part's Group too,
+    so a trace was one of the assembly's shapes: it was listed as a
+    movable part (seen), and the collectors behind the mass properties,
+    the DoF and the BOM take any shape there. `getAssemblyComponents()`,
+    the Parts group's `isComponentObject()`, the BOM and
+    `UtilsAssembly.getSubMovingParts` now leave a Simulation's children
+    out.
+  - The frames come from `AssemblyObject.getSimulationPlacements(obj)`
+    (new: each frame's Placement of a component, as playback writes it,
+    the document left alone) and `getSimulationResults()["Simulation"]`
+    (new: the study the stored frames are of). A trace recomputed without
+    a run of its own study -- a file just opened (results are not stored
+    yet, sec 8.4), or another study run since -- keeps the curve it has.
+  - The panel's "Trace" button, beside "v0", traces the selected vertex
+    (or where a pick hit a part); a run remakes its study's traces
+    (`updateTraces`). The motion list shows them; a double click on one
+    does nothing.
+  - Not built: Inventor's 2D/3D sketch output; the workbench tool of sec
+    9's row (the panel's button stands for it).
+  - Tests: TestDynamics -- not a movable part nor in the mass
+    properties' components; the rod's tip over the swing through its every
+    frame (1e-7 mm) and on the 100 mm circle about the hinge (0.01 mm
+    between frames); riding on the rod itself, one point; another study's
+    run leaving it as it was and its own run remaking it; a full driven
+    turn closed and periodic, 2 pi 100 long to 1e-3 (the Ondsel input
+    frame found through this one). TestGuiCommands: the vertex pick in the
+    part's coordinates, and the button.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

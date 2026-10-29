@@ -191,6 +191,11 @@ AssemblyExport JointGroup* getJointGroup(const App::Part* part);
 
 AssemblyExport std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* assembly);
 
+// An object a simulation holds -- its motions, initial velocities, traces: the
+// study's, never a component, though it is in the assembly's Group as an
+// object in a plain group of an App::Part is, and a trace is a shape
+AssemblyExport bool isStudyChild(const App::DocumentObject* obj);
+
 // getters to get from properties
 AssemblyExport void setJointActivated(const App::DocumentObject* joint, bool val);
 AssemblyExport bool getJointActivated(const App::DocumentObject* joint);

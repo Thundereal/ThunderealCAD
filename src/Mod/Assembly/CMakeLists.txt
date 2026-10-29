@@ -32,6 +32,7 @@ set(Assembly_Scripts
     CommandCreateSpring.py
     CommandCreateLoad.py
     CommandCreateBushing.py
+    SimulationTrace.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
     CommandConvertAsm3.py

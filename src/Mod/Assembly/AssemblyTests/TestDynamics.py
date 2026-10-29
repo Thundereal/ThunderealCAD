@@ -385,6 +385,80 @@ class TestDynamics(unittest.TestCase):
         self.assertFalse(Sim.exportResultsCsv(self.assembly, path))
         self.assertFalse(os.path.exists(path))
 
+    def test_trace(self):
+        """The rod's tip traced over the swing (docs/AssemblyDynamics.md sec
+        8.5): a curve through its position at every frame, on the circle of
+        100 mm about the hinge; traced riding on the rod itself, one point
+        in the rod's coordinates; another study's run leaves it as it was,
+        and its own study's run again makes it again."""
+        import Part
+
+        import SimulationTrace
+
+        rod = self.pendulum()
+        sim, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        placements = self.assembly.getSimulationPlacements(rod)
+        self.assertEqual(len(placements), self.assembly.numberOfFrames())
+        self.assertEqual(self.assembly.getSimulationResults()["Simulation"], sim)
+        tip = App.Vector(100, 5, 5)
+        trace = SimulationTrace.newTrace(sim, rod, tip)
+        self.assertIn(trace, sim.Group)
+        # The study's, not a component
+        import UtilsAssembly
+
+        self.assertNotIn(trace, UtilsAssembly.getMovablePartsWithin(self.assembly))
+        components = [c["Object"] for c in self.assembly.getMassProperties()["Components"]]
+        self.assertEqual(sorted(o.Name for o in components), ["Base", "Rod"])
+        self.assertEqual(len(trace.Shape.Edges), 1)
+        edge = trace.Shape.Edges[0]
+        hinge = App.Vector(10, 5, 5)
+        for k, placement in enumerate(placements):
+            point = placement.multVec(tip)
+            self.assertLess(edge.distToShape(Part.Vertex(point))[0], 1e-7, k)
+        for point in edge.discretize(50):
+            self.assertAlmostEqual((point - hinge).Length, 100, delta=0.01)
+        # It swung through more than a quarter turn
+        self.assertLess(edge.BoundBox.ZMin, 5 - 99)
+
+        riding = SimulationTrace.newTrace(sim, rod, tip, relative=rod)
+        self.assertEqual(riding.Shape.ShapeType, "Vertex")
+        self.assertLess((riding.Shape.Vertexes[0].Point - rod.Placement.multVec(tip)).Length, 1e-9)
+
+        # Another study's run: the trace keeps its curve
+        length = edge.Length
+        other, result = self.simulate(0.05, 1e-2)
+        self.assertEqual(result, 0)
+        SimulationTrace.updateTraces(sim)
+        trace.touch()
+        trace.recompute()
+        self.assertAlmostEqual(trace.Shape.Edges[0].Length, length, delta=1e-9)
+        # Its own study again, shorter: the curve follows
+        sim.TimeEnd = 0.1
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        SimulationTrace.updateTraces(sim)
+        self.assertLess(trace.Shape.Edges[0].Length, length * 0.5)
+
+    def test_trace_closed(self):
+        """A full turn of the rod, driven: the tip's trace is a closed,
+        periodic curve -- the start's frame (which a kinematic run may give
+        twice) counted once."""
+        import SimulationTrace
+
+        self.assertIsNotNone(
+            self.driven("Position", "6.283185307179586*time", analysis="Kinematic")
+        )
+        rod = self.doc.getObject("Rod")
+        sim = self.assembly.getSimulationResults()["Simulation"]
+        sim.TimeEnd = 1.0
+        sim.TimeStepOutput = 0.05
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        trace = SimulationTrace.newTrace(sim, rod, App.Vector(100, 5, 5))
+        edge = trace.Shape.Edges[0]
+        self.assertTrue(edge.Curve.isPeriodic())
+        self.assertTrue(edge.isClosed())
+        self.assertAlmostEqual(edge.Length, 2 * math.pi * 100, delta=2 * math.pi * 100 * 1e-3)
+
     def test_motor_torque(self):
         """A Speed motion holding the rod still at horizontal applies its
         weight's torque about the hinge, m g d; an Effort motion of that torque

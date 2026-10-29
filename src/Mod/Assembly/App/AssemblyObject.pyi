@@ -97,7 +97,22 @@ class AssemblyObject(Part):
         turn as its limits read it), a torsion spring's. Unique is False
         for a reaction a redundant joint shares with other joints: the run
         took out the equations that repeat others, and the values are one
-        split of the load among them, not the only one.
+        split of the load among them, not the only one. Simulation: the
+        study the frames are of (None before a run, or once it is deleted).
+        """
+        ...
+
+    @constmethod
+    def getSimulationPlacements(self, obj: Any) -> list:
+        """
+        The Placement the last simulation gives obj at each of its frames, as
+        playback writes it; the document is left as it is.
+
+        Args:
+            obj: a component the simulation moves.
+
+        Returns: a list of Placements, one per frame (numberOfFrames());
+        empty when the simulation does not move obj, or there is none.
         """
         ...
 

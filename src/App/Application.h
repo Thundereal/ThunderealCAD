@@ -285,6 +285,29 @@ public:
      * aborted
      */
     void closeActiveTransaction(bool abort=false, int id=0);
+    /** The document of the view the input being handled went to
+     * (docs/MultiViewEdit.md sec 12.2 rule 4).
+     *
+     * The Gui sets it as an input event arrives and clears it once the
+     * work the event queued has run. A step opened meanwhile is listed in
+     * that document too -- as an empty `-> <name>` where it changes only
+     * others -- so an in-place edit of a linked document is undone from
+     * the document worked in. Null, as for a timer, a script, FreeCADCmd:
+     * a step is listed only in the documents it changes.
+     */
+    void setInputDocument(Document *doc);
+    Document *getInputDocument() const;
+    /// The document the step \a id is listed in besides those it changes
+    /// (setInputDocument() as it was opened), or null
+    Document *getListingDocument(int id) const;
+    /** The step a change to \a doc joins where getActiveTransaction() names
+     * none and \a doc is not bound: the step set active last, while \a doc
+     * is recomputing and a document it depends on has that step open. An
+     * edit's bound step takes in the recompute it causes in a document
+     * that is not bound (sec 12.2 rule 2); a change made to \a doc
+     * directly is not the step's. Returns its name, null for none.
+     */
+    const char *getOpenStep(int *tid, const Document *doc) const;
     //@}
 
     /** @name Signals of the Application */
@@ -802,14 +825,22 @@ private:
     int _activeTransactionGuard{0};
     std::vector<const char*> _invocations;
     bool _activeTransactionTmpName{false};
+    /// Where the application's active transaction is listed (getListingDocument)
+    Document *_activeTransactionListing{nullptr};
+    Document *_inputDocument{nullptr};
 
     /// A document's own active transaction (bindActiveTransaction)
     struct BoundTransaction {
         std::string name;
         int id = 0;
         bool tmpName = false;
+        Document *listing = nullptr;
     };
     std::map<const Document*, BoundTransaction> _boundTransactions;
+    /// The step set active last (getOpenStep)
+    BoundTransaction _lastStep;
+    /// Whether some document has the step \a id open
+    bool _isStepOpen(int id) const;
     /// The binding a call made for \a doc acts on, null for the
     /// application's own: \a doc's, else the active document's
     BoundTransaction *_boundTransaction(const Document *doc = nullptr);

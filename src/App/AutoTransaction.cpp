@@ -239,8 +239,10 @@ void Application::bindActiveTransaction(Document *doc)
         bound.name = _activeTransactionName;
         bound.id = _activeTransactionID;
         bound.tmpName = _activeTransactionTmpName;
+        bound.listing = _activeTransactionListing;
         _activeTransactionID = 0;
         _activeTransactionTmpName = false;
+        _activeTransactionListing = nullptr;
     }
     FC_LOG("bind active transaction of " << doc->getName() << " '" << bound.name
            << "' " << bound.id);
@@ -263,6 +265,7 @@ void Application::unbindActiveTransaction(Document *doc, bool abort)
         _activeTransactionID = id;
         _activeTransactionName = it->second.name;
         _activeTransactionTmpName = it->second.tmpName;
+        _activeTransactionListing = it->second.listing;
         _boundTransactions.erase(it);
         closeActiveTransaction(abort, id);
         return;
@@ -331,10 +334,17 @@ int Application::setActiveTransaction(const char *name, bool persist, const Docu
                 bound = &it->second;
         }
         activeId = Transaction::getNewID();
-        if (bound)
+        // Listed where the input that opened it went (sec 12.2 rule 4)
+        if (bound) {
             bound->id = activeId;
-        else
+            bound->listing = _inputDocument;
+        }
+        else {
             _activeTransactionID = activeId;
+            _activeTransactionListing = _inputDocument;
+        }
+        _lastStep.id = activeId;
+        _lastStep.listing = _inputDocument;
     }
     if (bound) {
         bound->tmpName = false;
@@ -344,9 +354,72 @@ int Application::setActiveTransaction(const char *name, bool persist, const Docu
         _activeTransactionTmpName = false;
         _activeTransactionName = name;
     }
+    if (_lastStep.id == activeId)
+        _lastStep.name = name;
     if(persist)
         AutoTransaction::setEnable(false);
     return activeId;
+}
+
+void Application::setInputDocument(Document *doc)
+{
+    _inputDocument = doc;
+}
+
+Document *Application::getInputDocument() const
+{
+    return _inputDocument;
+}
+
+Document *Application::getListingDocument(int id) const
+{
+    if (!id)
+        return nullptr;
+    if (id == _activeTransactionID)
+        return _activeTransactionListing;
+    for (auto &v : _boundTransactions) {
+        if (v.second.id == id)
+            return v.second.listing;
+    }
+    return id == _lastStep.id ? _lastStep.listing : nullptr;
+}
+
+bool Application::_isStepOpen(int id) const
+{
+    for (auto &v : DocMap) {
+        if (v.second->hasPendingTransaction() && v.second->getTransactionID(true) == id)
+            return true;
+    }
+    return false;
+}
+
+const char *Application::getOpenStep(int *tid, const Document *doc) const
+{
+    if (tid)
+        *tid = 0;
+    // A bound document's changes are its own edit's, never another's
+    if (!doc || isActiveTransactionBound(doc) || !_lastStep.id)
+        return nullptr;
+    // Only what the step causes: a recompute of this document, from a
+    // document the step is open in. A change made to it directly is not
+    // the step's, whatever else is open.
+    if (!doc->testStatus(Document::Recomputing))
+        return nullptr;
+    auto deps = const_cast<Document*>(doc)->getDependentDocuments(false);
+    bool caused = false;
+    for (auto dep : deps) {
+        if (dep != doc && dep->hasPendingTransaction()
+                && dep->getTransactionID(true) == _lastStep.id)
+        {
+            caused = true;
+            break;
+        }
+    }
+    if (!caused)
+        return nullptr;
+    if (tid)
+        *tid = _lastStep.id;
+    return _lastStep.name.c_str();
 }
 
 const char *Application::getActiveTransaction(int *id) const {
@@ -369,15 +442,7 @@ const char *Application::getActiveTransaction(int *id, const Document *doc) cons
 
 void Application::closeActiveTransaction(bool abort, int id) {
     OperationScope scope;   // sec 27.38
-    auto stillOpen = [this](int tid) {
-        for (auto &v : DocMap) {
-            if (v.second->hasPendingTransaction() && v.second->getTransactionID(true) == tid)
-                return true;
-        }
-        return false;
-    };
-
-    if (abort && id && !stillOpen(id)) {
+    if (abort && id && !_isStepOpen(id)) {
         // An explicit id may name a transaction that has already been closed --
         // cancelling a transformation task does exactly that, and undoing it is how
         // the object gets back to where it started. Only a closed one may take this

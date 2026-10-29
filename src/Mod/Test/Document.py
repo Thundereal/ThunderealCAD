@@ -1569,6 +1569,25 @@ class UndoRedoCases(unittest.TestCase):
         FreeCAD.closeDocument("UndoTest")
 
 
+class _IntegerCopy:
+    """A copy of another document's object's Integer, through an XLink"""
+
+    def __init__(self, obj):
+        obj.addProperty("App::PropertyXLink", "Src")
+        obj.addProperty("App::PropertyInteger", "Integer")
+        obj.Proxy = self
+
+    def execute(self, obj):
+        if obj.Src:
+            obj.Integer = obj.Src.Integer
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+
 class BoundTransactionCases(unittest.TestCase):
     """A document's own active transaction while it is in edit
     (App.bindActiveTransaction; docs/HandsOnQueue.md entry 232): several
@@ -1676,6 +1695,51 @@ class BoundTransactionCases(unittest.TestCase):
         self.assertFalse(c.HasPendingTransaction, "committed with the edit's step")
         self.assertEqual(c.UndoNames, ["Edit"])
         self.assertEqual(a.UndoNames, ["Edit"])
+
+    def testAnUnboundDocumentJoinsTheStepOpenedLast(self):
+        # The recompute an edit's step causes in a document that is not
+        # bound joins that step, whichever document is active; a change
+        # made to that document directly does not (docs/MultiViewEdit.md
+        # sec 12.2 rule 2)
+        a, objA = self.make("BoundLastA")
+        c, objC = self.make("BoundLastC")
+        d = tempfile.mkdtemp()
+        a.saveAs(os.path.join(d, "boundlasta.FCStd"))
+        copy = c.addObject("App::FeaturePython", "Copy")
+        _IntegerCopy(copy)
+        copy.Src = objA
+        c.saveAs(os.path.join(d, "boundlastc.FCStd"))
+        c.recompute()
+        c.clearUndos()
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.bindActiveTransaction(a)
+        FreeCAD.setActiveTransaction("Edit")
+        FreeCAD.setActiveDocument(c.Name)
+        objA.Integer = 1
+        self.assertIsNone(FreeCAD.getActiveTransaction(c))
+        # A direct change is a step of its own (an implicit one), not "Edit"
+        objC.Integer = 1
+        c.commitTransaction()
+        self.assertEqual(c.UndoNames, [], "a direct change is not the edit's")
+        c.recompute()
+        self.assertEqual(copy.Integer, 1)
+        self.assertTrue(c.HasPendingTransaction, "the recompute it causes is")
+        FreeCAD.unbindActiveTransaction(a)
+        self.assertFalse(c.HasPendingTransaction, "committed with the edit's step")
+        self.assertEqual(c.UndoNames, ["Edit"])
+        self.assertEqual(a.UndoNames, ["Edit"])
+
+    def testAStepWithNoInputIsListedOnlyWhereItChanges(self):
+        # No input opened it -- a script: the active document has no claim
+        # on it, and no empty step of it is put there (sec 12.2 rule 4)
+        a, objA = self.make("ListedA")
+        b, objB = self.make("ListedB")
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.setActiveTransaction("Script")
+        objB.Integer = 1
+        FreeCAD.closeActiveTransaction()
+        self.assertEqual(a.UndoNames, [])
+        self.assertEqual(b.UndoNames, ["Script"])
 
     def mineAndTheirs(self, name):
         # A step of mine, then one of another edit's over part of it

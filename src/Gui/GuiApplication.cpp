@@ -101,6 +101,79 @@ ViewProvider *editOfReceiver(QObject *obj)
     }
     return nullptr;
 }
+
+/// The document an input to \a receiver is to (docs/MultiViewEdit.md sec
+/// 12.2 rule 4): of the view it is in, else of the view the dialog it is
+/// part of belongs to, else of the view handled now -- a menu's, a
+/// toolbar's, the console's.
+App::Document *inputDocumentOf(QObject *receiver)
+{
+    for (QObject *o = receiver; o; o = o->parent()) {
+        if (auto view = qobject_cast<MDIView*>(o)) {
+            Gui::Document *doc = view->getGuiDocument();
+            return doc ? doc->getDocument() : nullptr;
+        }
+    }
+    TaskOwner owner = Control().ownerOfContent(receiver);
+    if (owner.isNull())
+        owner = TaskOwner::current();
+    Gui::Document *doc = owner.document();
+    return doc ? doc->getDocument() : nullptr;
+}
+
+int notifyDepth = 0;
+
+struct NotifyDepth
+{
+    NotifyDepth() { ++notifyDepth; }
+    ~NotifyDepth() { --notifyDepth; }
+};
+
+/** An input being handled: the application's input document while it is
+ * (App::Application::setInputDocument). Qt hands a widget's input on from
+ * its window, one inside the other: the innermost names the document, and
+ * the outermost ends it. One the event loop delivered keeps it until the
+ * work it queued has run; one sent from another event's handling -- a
+ * test's timer -- gives back what was there when it returns.
+ */
+class InputDocumentScope
+{
+public:
+    explicit InputDocumentScope(QObject *receiver)
+        : outer(current)
+    {
+        if (auto prevDoc = App::GetApplication().getInputDocument())
+            prev = prevDoc->getName();
+        current = this;
+        App::GetApplication().setInputDocument(inputDocumentOf(receiver));
+        ++serial;
+    }
+    ~InputDocumentScope()
+    {
+        current = outer;
+        if (outer)
+            return;
+        if (notifyDepth > 1) {
+            App::GetApplication().setInputDocument(
+                prev.empty() ? nullptr : App::GetApplication().getDocument(prev.c_str()));
+            return;
+        }
+        // After the 0-timers its work queued, which were queued first
+        const int mine = serial;
+        QTimer::singleShot(0, [mine]() {
+            if (serial == mine)
+                App::GetApplication().setInputDocument(nullptr);
+        });
+    }
+    InputDocumentScope(const InputDocumentScope&) = delete;
+    InputDocumentScope& operator=(const InputDocumentScope&) = delete;
+
+private:
+    static inline InputDocumentScope *current = nullptr;
+    static inline int serial = 0;
+    InputDocumentScope *outer;
+    std::string prev;
+};
 }
 
 namespace {
@@ -509,6 +582,7 @@ bool GUIApplication::notify (QObject * receiver, QEvent * event)
         return false;
     }
     SlowDispatchTrace slowTrace(receiver, event);
+    NotifyDepth depth;
     // The desktop user's own input is the desktop user's
     // (docs/TransactionLogJournal.md sec 30.3 S.b): an event the window system
     // delivers while a client's operation spins an event loop of its own --
@@ -536,6 +610,24 @@ bool GUIApplication::notify (QObject * receiver, QEvent * event)
     case QEvent::FocusOut:
         if (ViewProvider *vp = editOfReceiver(receiver))
             editStep.emplace(vp);
+        break;
+    default:
+        break;
+    }
+    // Where a step it opens is listed (docs/MultiViewEdit.md sec 12.2 rule 4)
+    std::optional<InputDocumentScope> input;
+    switch (event->type()) {
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::KeyPress:
+    case QEvent::KeyRelease:
+    case QEvent::Wheel:
+    case QEvent::ContextMenu:
+    case QEvent::Shortcut:
+    case QEvent::ShortcutOverride:
+    case QEvent::Drop:
+        input.emplace(receiver);
         break;
     default:
         break;

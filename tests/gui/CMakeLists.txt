@@ -510,6 +510,12 @@ fc_add_gui_test(GuiSketchEditTwoViews_tests_run sketch-edit-two-views.py
 fc_add_gui_test(GuiTdEditTwoPages_tests_run td-edit-two-pages.py
                 --timeout 300)
 
+# A linked pair changed in one step undoes together however the step was
+# opened, and a step is listed in the document of the view its input went
+# to, not in the active one (docs/MultiViewEdit.md sec 12.2 rules 2, 4).
+fc_add_gui_test(GuiXdocUndoPair_tests_run xdoc-undo-pair.py
+                --timeout 180)
+
 # An edit started after the main window is activated again, or with
 # another document's view the active one, is bound to the 3D view: the
 # split-view container (Gui::ViewArea) was handed out as the active view

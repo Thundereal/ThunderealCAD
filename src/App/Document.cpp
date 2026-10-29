@@ -1884,21 +1884,24 @@ int Document::_openTransaction(const char* name, int id, bool implicit)
 
         signalOpenTransaction(*this, name);
 
-        // An implicit transaction is not mirrored into the active document:
-        // it stays out of the application's transaction as it does at commit,
-        // and a mirror, not implicit itself, was never closed with it
-        // (docs/TransactionLogJournal.md sec 24.13).
-        auto &app = GetApplication();
-        auto activeDoc = app.getActiveDocument();
-        if(!implicit &&
-           activeDoc &&
-           activeDoc!=this &&
-           !activeDoc->hasPendingTransaction())
+        // Listed, as an empty step of the same id, in the document of the
+        // view the input that opened it went to (docs/MultiViewEdit.md sec
+        // 12.2 rule 4): an in-place edit of a linked document is undone
+        // from the document worked in. Not the active document: a script's
+        // step, a served branch's, has no claim on it (sec 11). An implicit
+        // transaction is not listed: it stays out of the application's
+        // transaction as it does at commit, and a listing, not implicit
+        // itself, was never closed with it (docs/TransactionLogJournal.md
+        // sec 24.13).
+        auto listing = implicit ? nullptr : GetApplication().getListingDocument(id);
+        if(listing &&
+           listing!=this &&
+           !listing->hasPendingTransaction())
         {
             std::string aname("-> ");
             aname += d->activeUndoTransaction->Name;
-            FC_LOG("auto transaction " << getName() << " -> " << activeDoc->getName());
-            activeDoc->_openTransaction(aname.c_str(),id);
+            FC_LOG("auto transaction " << getName() << " -> " << listing->getName());
+            listing->_openTransaction(aname.c_str(),id);
         }
         return id;
     }
@@ -1994,6 +1997,12 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
             if(!testStatus(Restoring) || testStatus(Importing)) {
                 int tid=0;
                 const char *name = GetApplication().getActiveTransaction(&tid, this);
+                // None for this document: a recompute here that a step open
+                // in a document it depends on causes joins that step -- an
+                // edit's, of a linked document (docs/MultiViewEdit.md sec
+                // 12.2 rule 2)
+                if (!name)
+                    name = GetApplication().getOpenStep(&tid, this);
                 bool ignore = false;
                 if(What) {
                     // Legacy: a name over a value kept elsewhere, and the

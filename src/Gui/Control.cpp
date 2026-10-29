@@ -664,23 +664,27 @@ void ControlSingleton::destruct ()
 // -------------------------------------------
 
 
-Gui::ViewProvider* ControlSingleton::editViewProviderOf(const QObject *obj) const
+TaskOwner ControlSingleton::ownerOfContent(const QObject *obj) const
 {
     for (const QObject *o = obj; o; o = o->parent()) {
         for (const OpenDialog &open : openDialogs) {
             const auto &content = open.dialog->getDialogContent();
-            if (std::find(content.begin(), content.end(), o) == content.end())
-                continue;
-            const TaskOwner &owner = open.dialog->owner();
-            if (ViewerContext *viewer = owner.context())
-                return viewer->getEditingViewProvider();
-            // A view of its own an edit runs in: a TechDraw page's
-            MDIView *view = owner.mdiView();
-            Gui::Document *doc = view ? view->getGuiDocument() : nullptr;
-            return doc ? doc->editViewProviderIn(view) : nullptr;
+            if (std::find(content.begin(), content.end(), o) != content.end())
+                return open.dialog->owner();
         }
     }
-    return nullptr;
+    return TaskOwner();
+}
+
+Gui::ViewProvider* ControlSingleton::editViewProviderOf(const QObject *obj) const
+{
+    const TaskOwner owner = ownerOfContent(obj);
+    if (ViewerContext *viewer = owner.context())
+        return viewer->getEditingViewProvider();
+    // A view of its own an edit runs in: a TechDraw page's
+    MDIView *view = owner.mdiView();
+    Gui::Document *doc = view ? view->getGuiDocument() : nullptr;
+    return doc ? doc->editViewProviderIn(view) : nullptr;
 }
 
 #include "moc_Control.cpp"

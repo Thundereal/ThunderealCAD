@@ -154,9 +154,14 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
 // --- TKOffset: the fork's offset fix level ------------------------------
 
 /// The OCCT fork's offset fix level a new object of a feature that offsets
-/// is made at (its _OffsetFixLevel): the highest this FreeCAD knows.
-///  1 -- the filleted B-spline dome outward with the Intersection join (the
-///       fork's tests/fork/thickness/models/Thickness.md sec 31)
+/// is made at (its _OffsetFixLevel): the highest this FreeCAD knows. A
+/// correction of the fork's that moves the shapes it changes no further than
+/// their tolerances is made at every level and needs none.
+///  1 -- makes nothing differently now: it brought the filleted B-spline
+///       dome outward with the Intersection join (the fork's
+///       tests/fork/thickness/models/Thickness.md sec 31), made at every
+///       level since (sec 32). Objects made at 1 keep it, so the next level
+///       is 2.
 constexpr int OCCTOffsetFixLevelLatest = 1;
 
 /// Sets, for the calling thread, the OCCT fork's offset fix level

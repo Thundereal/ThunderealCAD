@@ -73,6 +73,49 @@ class AssemblyObject(Part):
         """
         ...
 
+    def startSimulation(self, sim, /) -> int:
+        """
+        Starts sim's run on a worker thread (docs/AssemblyDynamics.md sec 4):
+        the model built now, from the document, as generateSimulation()
+        builds it; the run on a session of its own, so the document can be
+        used meanwhile. A run going is cancelled first.
+
+        Args:
+            sim: a Simulation.
+
+        Returns: 0 once it started, else generateSimulation()'s code.
+        """
+        ...
+
+    @constmethod
+    def getSimulationProgress(self) -> dict:
+        """
+        How the run started by startSimulation() is going.
+
+        Returns: a dict: Running (started, not done), Done (done, its frames
+        not taken yet: finishSimulation()), Time (s, of the last frame made)
+        and Frames (made so far).
+        """
+        ...
+
+    def cancelSimulation(self) -> None:
+        """
+        Asks the run going to stop at its next frame. An OndselSolver run
+        (a kinematic one) makes all its frames before it hands over the
+        first, and stops only then.
+        """
+        ...
+
+    def finishSimulation(self) -> int:
+        """
+        Waits for the run started by startSimulation() and takes its frames,
+        as generateSimulation() does.
+
+        Returns: generateSimulation()'s code; -7 when the run was cancelled
+        (no frames are kept then); -1 when there was none.
+        """
+        ...
+
     @constmethod
     def numberOfFrames(self) -> int:
         """Return Number of frames"""

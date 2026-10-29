@@ -170,6 +170,55 @@ PyObject* AssemblyObjectPy::updateForFrame(PyObject* args) const
     Py_Return;
 }
 
+PyObject* AssemblyObjectPy::startSimulation(PyObject* args)
+{
+    PyObject* pyObj {};
+    if (!PyArg_ParseTuple(args, "O!", &App::DocumentObjectPy::Type, &pyObj)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto* sim = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
+        return Py::new_reference_to(Py::Long(getAssemblyObjectPtr()->startSimulation(sim)));
+    }
+    PY_CATCH
+}
+
+PyObject* AssemblyObjectPy::getSimulationProgress(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    const auto progress = getAssemblyObjectPtr()->simulationProgress();
+    Py::Dict ret;
+    ret.setItem("Running", Py::Boolean(progress.running));
+    ret.setItem("Done", Py::Boolean(progress.done));
+    ret.setItem("Time", Py::Float(progress.time));
+    ret.setItem("Frames", Py::Long(static_cast<long>(progress.frames)));
+    return Py::new_reference_to(ret);
+}
+
+PyObject* AssemblyObjectPy::cancelSimulation(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    getAssemblyObjectPtr()->cancelSimulation();
+    Py_Return;
+}
+
+PyObject* AssemblyObjectPy::finishSimulation(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        return Py::new_reference_to(Py::Long(getAssemblyObjectPtr()->finishSimulation()));
+    }
+    PY_CATCH
+}
+
 PyObject* AssemblyObjectPy::numberOfFrames(PyObject* args) const
 {
     if (!PyArg_ParseTuple(args, "")) {

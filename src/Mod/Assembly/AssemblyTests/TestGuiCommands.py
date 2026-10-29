@@ -676,6 +676,54 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
+    def test_run_on_a_worker(self):
+        """Generate runs the study on a worker thread: the panel shows its
+        progress and a Cancel, then the player; cancelled, it says so and
+        keeps no frames"""
+        import time
+
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.TimeEnd = 0.2
+        self.doc.recompute()
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+
+        def wait(until, limit=60.0):
+            start = time.monotonic()
+            while not until():
+                self.assertLess(time.monotonic() - start, limit)
+                _process(1)
+                time.sleep(0.01)
+
+        panel.form.RunKinematicsButton.click()
+        wait(lambda: not panel.runPoll.isActive())
+        self.assertFalse(panel.runMessage.isVisibleTo(panel.form), panel.runMessage.text())
+        self.assertTrue(panel.form.groupBox_player.isVisibleTo(panel.form))
+        self.assertGreater(self.assembly.numberOfFrames(), 1)
+        self.assertTrue(panel.form.RunKinematicsButton.isEnabled())
+        self.assertFalse(panel.runRow.isVisibleTo(panel.form))
+
+        sim.AnalysisType = "Dynamic"
+        sim.TimeEnd = 10000
+        self.doc.recompute()
+        panel.form.RunKinematicsButton.click()
+        self.assertTrue(panel.runRow.isVisibleTo(panel.form))
+        self.assertFalse(panel.form.RunKinematicsButton.isEnabled())
+        wait(lambda: self.assembly.getSimulationProgress()["Frames"] >= 2)
+        panel.runCancelButton.click()
+        wait(lambda: not panel.runPoll.isActive(), limit=10.0)
+        self.assertIn("cancelled", panel.runMessage.text())
+        self.assertEqual(self.assembly.numberOfFrames(), 0)
+        self.assertTrue(panel.form.RunKinematicsButton.isEnabled())
+        self.accept_task()
+        self.assertClean()
+
     def test_stale_results(self):
         """A study changed after its run: the panel says its results are
         stale and the tree's icon carries the recompute mark; run again,

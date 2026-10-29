@@ -475,6 +475,95 @@ class TestDynamics(unittest.TestCase):
         self.assertTrue(edge.isClosed())
         self.assertAlmostEqual(edge.Length, 2 * math.pi * 100, delta=2 * math.pi * 100 * 1e-3)
 
+    def waitForRun(self, until, limit=60.0):
+        """Polls the run on the worker thread until 'until(progress)'"""
+        import time
+
+        start = time.monotonic()
+        while True:
+            progress = self.assembly.getSimulationProgress()
+            if until(progress):
+                return progress
+            self.assertLess(time.monotonic() - start, limit, progress)
+            time.sleep(0.01)
+
+    def test_worker_run(self):
+        """A run on a worker thread (docs/AssemblyDynamics.md sec 4) makes
+        the frames a run here makes; its warnings reach a Python console
+        observer from there; the assembly solves meanwhile."""
+        rod = self.pendulum()
+        base = self.doc.getObject("Base")
+        # A second hinge on the axis: the run warns of its redundant rows
+        self.joint(
+            "Revolute",
+            (base, ["Face2"]),
+            plc(10, 0, 5, App.Vector(1, 0, 0), -90),
+            (rod, ["Face1"]),
+            plc(0, 0, 5, App.Vector(1, 0, 0), -90),
+        )
+        self.doc.recompute()
+        sim, result = self.simulate(0.1, 1e-2)
+        self.assertEqual(result, 0)
+        here = [self.assembly.getSimulationPlacements(rod)[k] for k in range(11)]
+        self.assembly.updateForFrame(0)
+
+        class Warnings:
+            def __init__(self):
+                self.messages = []
+
+            def __call__(self, notifier, msg, level):
+                if level == "Warning":
+                    self.messages.append(msg)
+
+        warnings = Warnings()
+        App.Console.AttachObserver(warnings)
+        try:
+            self.assertEqual(self.assembly.startSimulation(sim), 0)
+            self.assertEqual(self.assembly.solve(), 0)
+            progress = self.waitForRun(lambda p: p["Done"])
+            self.assertFalse(progress["Running"])
+            self.assertEqual(progress["Frames"], 11)
+            self.assertAlmostEqual(progress["Time"], 0.1, places=12)
+            self.assertEqual(self.assembly.finishSimulation(), 0)
+        finally:
+            App.Console.DetachObserver(warnings)
+        self.assertTrue(any("redundant" in m for m in warnings.messages), warnings.messages)
+        self.assertEqual(self.assembly.getSimulationResults()["Simulation"], sim)
+        there = self.assembly.getSimulationPlacements(rod)
+        self.assertEqual(len(there), 11)
+        for k, (a, b) in enumerate(zip(here, there)):
+            self.assertTrue(a.isSame(b, 1e-12), k)
+        self.assertFalse(self.assembly.getSimulationProgress()["Done"])
+        self.assertEqual(self.assembly.finishSimulation(), -1)
+
+    def test_worker_cancel(self):
+        """A long run on the worker thread, cancelled: it stops at its next
+        frame, keeps none, and a run after it runs whole."""
+        import time
+
+        self.pendulum()
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.TimeEnd = 1000
+        sim.TimeStepOutput = 0.01
+        self.doc.recompute()
+        self.assertEqual(self.assembly.startSimulation(sim), 0)
+        self.waitForRun(lambda p: p["Frames"] >= 3)
+        start = time.monotonic()
+        self.assembly.cancelSimulation()
+        self.waitForRun(lambda p: p["Done"], limit=5.0)
+        self.assertLess(time.monotonic() - start, 5.0)
+        self.assertEqual(self.assembly.finishSimulation(), -7)
+        self.assertEqual(self.assembly.numberOfFrames(), 0)
+        self.assertIsNone(self.assembly.getSimulationResults()["Simulation"])
+        sim.TimeEnd = 0.05
+        self.doc.recompute()
+        self.assertEqual(self.assembly.startSimulation(sim), 0)
+        # A run here cancels the one going first
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertEqual(self.assembly.numberOfFrames(), 6)
+
     def test_mass_properties_after_playback(self):
         """A played frame moves the rod without a recompute; the mass
         properties, which a dynamic run's inertias come from, are those of

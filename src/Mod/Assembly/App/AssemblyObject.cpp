@@ -33,6 +33,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <ranges>
+#include <atomic>
+#include <thread>
 
 // Reached transitively upstream, but not here.
 #include <Precision.hxx>
@@ -52,6 +54,7 @@
 #include <Base/Placement.h>
 #include <Base/Rotation.h>
 #include <Base/Tools.h>
+#include <Base/ConsoleContext.h>
 #include <Base/Interpreter.h>
 
 #include <Mod/Part/App/TopoShape.h>
@@ -344,6 +347,91 @@ AssemblyObject::AssemblyObject()
     lastDoF = numberOfComponents() * 6;
     signalSolverUpdate();
 }
+
+namespace
+{
+// Every frame a backend produces, kept so that playback needs no live
+// solver; for a run on a worker thread, how far it got, and whether to stop
+struct TrajectoryRecorder: Solver::TrajectorySink
+{
+    Solver::Trajectory frames;
+    std::size_t width = 0;
+    std::vector<double> pending;
+    std::atomic<bool> cancel {false};
+    std::atomic<std::size_t> count {0};
+    std::atomic<double> last {0.0};
+
+    bool frame(double time, const std::vector<Solver::BodyPose>& poses) override
+    {
+        if (cancel) {
+            return false;
+        }
+        if (frames.times.empty()) {
+            for (const auto& pose : poses) {
+                frames.bodies.push_back(pose.body);
+            }
+        }
+        else if (poses.size() != frames.bodies.size()) {
+            return false;
+        }
+        frames.times.push_back(time);
+        for (const auto& pose : poses) {
+            frames.poses.push_back(pose.placement);
+        }
+        frames.values.insert(frames.values.end(), pending.begin(), pending.end());
+        pending.clear();
+        last = time;
+        ++count;
+        return true;
+    }
+    void channels(const std::vector<Solver::Channel>& channels) override
+    {
+        frames.channels = channels;
+        for (const auto& channel : channels) {
+            width += channel.width;
+        }
+    }
+    void values(const std::vector<double>& values) override
+    {
+        pending = values;
+        pending.resize(width, 0.0);
+    }
+};
+}  // namespace
+
+struct AssemblyObject::SimulationRun
+{
+    TrajectoryRecorder sink;
+    std::unique_ptr<Solver::Session> session;
+    Solver::SimulationSpec spec;
+    Solver::Model model;
+    std::unordered_map<App::DocumentObject*, MbDPartData> parts;
+    App::DocumentObjectWeakPtrT sim {nullptr};
+    std::atomic<bool> done {false};
+    Solver::Status status = Solver::Status::Failed;
+    std::thread thread;
+
+    // A worker's warning reaches a Python observer under the GIL: the
+    // thread waiting for it must not hold it
+    void join()
+    {
+        if (!thread.joinable()) {
+            return;
+        }
+        if (Py_IsInitialized() && PyGILState_Check()) {
+            Base::PyGILStateRelease release;
+            thread.join();
+        }
+        else {
+            thread.join();
+        }
+    }
+    ~SimulationRun()
+    {
+        sink.cancel = true;
+        join();
+    }
+};
 
 AssemblyObject::~AssemblyObject() = default;
 
@@ -743,6 +831,10 @@ std::vector<std::tuple<std::string, Base::Vector3d, double, int, double>> Assemb
 
 int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 {
+    if (simulationRun) {
+        cancelSimulation();
+        finishSimulation();
+    }
     // The study the frames were of has none now
     if (auto* last = freecad_cast<Simulation*>(lastSimulation())) {
         last->ResultsStale.setValue(false);
@@ -835,59 +927,122 @@ int AssemblyObject::buildSimulation(App::DocumentObject* sim)
 
 int AssemblyObject::runSimulation(App::DocumentObject* sim)
 {
-    // Every frame the backend produces is kept here, so playback needs no
-    // live solver.
-    struct Recorder: Solver::TrajectorySink
-    {
-        Solver::Trajectory frames;
-        bool frame(double time, const std::vector<Solver::BodyPose>& poses) override
-        {
-            if (frames.times.empty()) {
-                for (const auto& pose : poses) {
-                    frames.bodies.push_back(pose.body);
-                }
-            }
-            else if (poses.size() != frames.bodies.size()) {
-                return false;
-            }
-            frames.times.push_back(time);
-            for (const auto& pose : poses) {
-                frames.poses.push_back(pose.placement);
-            }
-            frames.values.insert(frames.values.end(), pending.begin(), pending.end());
-            pending.clear();
-            return true;
-        }
-        void channels(const std::vector<Solver::Channel>& channels) override
-        {
-            frames.channels = channels;
-            for (const auto& channel : channels) {
-                width += channel.width;
-            }
-        }
-        void values(const std::vector<double>& values) override
-        {
-            pending = values;
-            pending.resize(width, 0.0);
-        }
-        std::size_t width = 0;
-        std::vector<double> pending;
-    } sink;
+    TrajectoryRecorder sink;
     if (!session || !simulationSpec
         || session->simulate(*simulationSpec, sink) != Solver::Status::Ok) {
         Base::Console().Error("Generation of simulation failed\n");
         motions.clear();
         return -1;
     }
-
-    trajectory = std::make_unique<Solver::Trajectory>(std::move(sink.frames));
-    trajectoryParts = objectPartMap;
-    trajectorySimulation = sim;
-    trajectoryModel = std::make_unique<Solver::Model>(*solverModel);
-    trajectorySpec = std::make_unique<Solver::SimulationSpec>(*simulationSpec);
+    keepFrames(sim, std::move(sink.frames), objectPartMap, *solverModel, *simulationSpec);
     resultsChanged = false;
     motions.clear();
+    return 0;
+}
 
+void AssemblyObject::keepFrames(App::DocumentObject* sim,
+                                Solver::Trajectory&& frames,
+                                const std::unordered_map<App::DocumentObject*, MbDPartData>& parts,
+                                const Solver::Model& model,
+                                const Solver::SimulationSpec& spec)
+{
+    trajectory = std::make_unique<Solver::Trajectory>(std::move(frames));
+    trajectoryParts = parts;
+    trajectorySimulation = sim;
+    trajectoryModel = std::make_unique<Solver::Model>(model);
+    trajectorySpec = std::make_unique<Solver::SimulationSpec>(spec);
+}
+
+int AssemblyObject::startSimulation(App::DocumentObject* sim)
+{
+    if (simulationRun) {
+        cancelSimulation();
+        finishSimulation();
+    }
+    if (auto* last = freecad_cast<Simulation*>(lastSimulation())) {
+        last->ResultsStale.setValue(false);
+    }
+    trajectory.reset();
+    trajectoryParts.clear();
+    trajectorySimulation.reset();
+    trajectoryModel.reset();
+    trajectorySpec.reset();
+
+    if (int built = buildSimulation(sim); built != 0) {
+        return built;
+    }
+    makeMbdModel();
+    motions.clear();
+    if (!session || !simulationSpec || !solverModel) {
+        Base::Console().Error("Generation of simulation failed\n");
+        return -1;
+    }
+    auto run = std::make_unique<SimulationRun>();
+    // The run's own: the assembly's next solve builds another
+    run->session = std::move(session);
+    loadedBodies = 0;
+    run->spec = *simulationSpec;
+    run->model = *solverModel;
+    run->parts = objectPartMap;
+    run->sim = sim;
+    SimulationRun* going = run.get();
+    run->thread = std::thread([going]() {
+        Base::ConsoleContext context("the simulation");
+        try {
+            going->status = going->session->simulate(going->spec, going->sink);
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("Assembly: the simulation failed: %s\n", e.what());
+            going->status = Solver::Status::Failed;
+        }
+        catch (...) {
+            going->status = Solver::Status::Failed;
+        }
+        going->done = true;
+    });
+    simulationRun = std::move(run);
+    return 0;
+}
+
+AssemblyObject::SimulationProgress AssemblyObject::simulationProgress() const
+{
+    SimulationProgress progress;
+    if (simulationRun) {
+        progress.done = simulationRun->done;
+        progress.running = !progress.done;
+        progress.time = simulationRun->sink.last;
+        progress.frames = simulationRun->sink.count;
+    }
+    return progress;
+}
+
+void AssemblyObject::cancelSimulation()
+{
+    if (simulationRun) {
+        simulationRun->sink.cancel = true;
+    }
+}
+
+int AssemblyObject::finishSimulation()
+{
+    if (!simulationRun) {
+        return -1;
+    }
+    simulationRun->join();
+    const std::unique_ptr<SimulationRun> run = std::move(simulationRun);
+    if (run->status == Solver::Status::Cancelled) {
+        Base::Console().message("Assembly: the simulation was cancelled\n");
+        return -7;
+    }
+    App::DocumentObject* sim = *run->sim;
+    if (run->status != Solver::Status::Ok || !sim) {
+        Base::Console().Error("Generation of simulation failed\n");
+        return -1;
+    }
+    keepFrames(sim, std::move(run->sink.frames), run->parts, run->model, run->spec);
+    // The document may have changed while it ran: looked at after the next
+    // recompute
+    resultsChanged = true;
     return 0;
 }
 

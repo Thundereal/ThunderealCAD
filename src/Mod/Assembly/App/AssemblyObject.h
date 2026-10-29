@@ -128,6 +128,26 @@ public:
     being in an active transaction (joint creation).*/
     int solve(bool enableRedo = false);
     int generateSimulation(App::DocumentObject* sim);
+    // A simulation run on a worker thread (docs/AssemblyDynamics.md sec 4,
+    // D1): the model built here, from the document, as generateSimulation()
+    // builds it; the run there, on a session of its own, so that a solve or a
+    // recompute meanwhile finds the assembly as it was. 0 once it started,
+    // else generateSimulation()'s code. A run going is cancelled first.
+    int startSimulation(App::DocumentObject* sim);
+    struct SimulationProgress
+    {
+        bool running = false;  // started and not done
+        bool done = false;     // done, its frames not taken yet
+        double time = 0.0;     // of the last frame made, s
+        std::size_t frames = 0;
+    };
+    SimulationProgress simulationProgress() const;
+    // Asks the run going to stop at its next frame (an OndselSolver run
+    // makes all of its frames before handing over the first)
+    void cancelSimulation();
+    // Waits for the run started and takes its frames as generateSimulation()
+    // does: its code, and -7 when it was cancelled (no frames are kept then)
+    int finishSimulation();
     int updateForFrame(size_t index);
     size_t numberOfFrames() const;
     // The last simulation's frame: its time (s), and the Placement it gives obj,
@@ -564,6 +584,15 @@ private:
     std::unique_ptr<Solver::Trajectory> trajectory;
     std::unordered_map<App::DocumentObject*, MbDPartData> trajectoryParts;
     App::DocumentObjectWeakPtrT trajectorySimulation {nullptr};
+    // The run going on a worker thread (startSimulation())
+    struct SimulationRun;
+    std::unique_ptr<SimulationRun> simulationRun;
+    // The frames of a run of sim, with what it was run from, kept
+    void keepFrames(App::DocumentObject* sim,
+                    Solver::Trajectory&& frames,
+                    const std::unordered_map<App::DocumentObject*, MbDPartData>& parts,
+                    const Solver::Model& model,
+                    const Solver::SimulationSpec& spec);
     // The model and the spec the last frames were run from, for the stale
     // flag; and whether the document changed since the flag was set
     std::unique_ptr<Solver::Model> trajectoryModel;

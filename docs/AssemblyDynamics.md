@@ -622,6 +622,45 @@ Phase D1 is under way (2026-10-28):
     gone, not stale; a kinematic study not stale on a mass change. The
     mass properties at two played frames, where the rod is (1e-9 mm).
     TestGuiCommands: the panel's line and the tree icon, on and off.
+- Built: the run on a worker thread, with cancel -- the last of D1's
+  leftovers. `AssemblyObject::startSimulation(sim)` builds the model on
+  the main thread, from the document, as `generateSimulation()` does, and
+  runs it on a `std::thread` with the session it was loaded into: the
+  assembly lets go of that session (its next solve builds another), so a
+  solve, a drag or a recompute meanwhile touches nothing the run uses, and
+  the run touches no document object (the formulas are the neutral
+  evaluator's trees, the curves OCCT geometry read only).
+  `simulationProgress()` gives how far it got (the time of its last frame,
+  the frames made), `cancelSimulation()` has the sink refuse the next
+  frame, which every backend takes as Cancelled, and `finishSimulation()`
+  joins it and takes its frames as a run here does (-7 when cancelled,
+  nothing kept). Python: `startSimulation`, `getSimulationProgress`,
+  `cancelSimulation`, `finishSimulation`; `generateSimulation()` stays as
+  it was, on the calling thread.
+  - The GIL: the console calls a Python observer from the worker under the
+    GIL, so whatever joins the worker on a thread that holds it --
+    `finishSimulation()` called from Python, the assembly's destructor --
+    lets go of it while it waits.
+  - The panel's Generate starts the run there and polls it every 50 ms: a
+    progress bar over the study's time and a Cancel, then the player as
+    before; "The simulation was cancelled." after a cancel. Closing the
+    panel cancels a run going.
+  - Not cancellable midway: an OndselSolver run (a kinematic one), which
+    makes all its frames inside `runKINEMATIC` before handing over the
+    first; it stops only then.
+  - Found on the way: a dynamic run whose joints tie nothing to the ground
+    crashed FreeCAD (an integer division by zero in Eigen's SparseLU,
+    `memInit` of a 0 x 0 matrix: Chrono's assembly of a system with no
+    free variable). `LUThenQR` takes the empty system as solved.
+  - Tests (TestDynamics): the pendulum on two hinges run there gives the
+    frames a run here gives (1e-12), its redundancy warning reaching a
+    Python observer from the worker, the assembly solving meanwhile; a
+    run of 1000 s cancelled after three frames, done within 5 s and
+    keeping nothing; a run here cancelling the one going; nothing to move,
+    six frames. TestGuiCommands: Generate's progress row, the player after
+    it, and Cancel on a long dynamic run.
+- D1 is built. D3 is next to be measured (above), before it is built or
+  D2 is taken up.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

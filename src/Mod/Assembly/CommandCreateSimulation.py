@@ -1565,6 +1565,25 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.runMessage.setStyleSheet("color: #c80000")
         self.runMessage.hide()
         self.form.layout().addWidget(self.runMessage)
+        # A run going: how far it got, and a Cancel
+        self.runRow = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(self.runRow)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.runProgress = QtWidgets.QProgressBar()
+        self.runProgress.setRange(0, 1000)
+        self.runProgress.setTextVisible(False)
+        row.addWidget(self.runProgress, 1)
+        self.runCancelButton = QPushButton(translate("Assembly", "Cancel"))
+        self.runCancelButton.setToolTip(
+            translate("Assembly", "Stop the simulation; it keeps no frames")
+        )
+        self.runCancelButton.clicked.connect(self.cancelRun)
+        row.addWidget(self.runCancelButton)
+        self.runRow.hide()
+        self.form.layout().addWidget(self.runRow)
+        self.runPoll = QtCore.QTimer()
+        self.runPoll.setInterval(50)
+        self.runPoll.timeout.connect(self.pollRun)
         # The stale flag (docs/AssemblyDynamics.md sec 8.4)
         self.staleMessage = QtWidgets.QLabel(
             translate(
@@ -1744,6 +1763,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def deactivate(self):
         self.animationTimer.stop()
+        # A run going is let go of
+        if self.runPoll.isActive():
+            self.endRun()
+            self.assembly.cancelSimulation()
+            self.assembly.finishSimulation()
         self.simFeaturePy.Proxy.setMotionsChangedCallback(None)
         self.simFeaturePy.Proxy.resultsStaleCallback = None
         if Gui.Control.activeDialog():
@@ -1796,19 +1820,58 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.form.motionList.addItem(motion.Label)
 
     def runKinematics(self):
-        # Not upstream: a run that fails says so, here as in the report
+        # Not upstream: a run that fails says so, here as in the report; it
+        # runs on a worker thread (docs/AssemblyDynamics.md sec 4), the panel
+        # showing how far it got, with a Cancel
         self.runMessage.hide()
         self.results = None
         self.resultsBox.hide()
-        if self.assembly.generateSimulation(self.simFeaturePy) != 0:
-            self.runMessage.setText(
-                translate(
-                    "Assembly",
-                    "The simulation was not generated: the report view says why.",
-                )
-            )
-            self.runMessage.show()
+        if self.runPoll.isActive():
             return
+        if self.assembly.startSimulation(self.simFeaturePy) != 0:
+            self.showRunFailed()
+            return
+        self.form.RunKinematicsButton.setEnabled(False)
+        self.runProgress.setValue(0)
+        self.runRow.show()
+        self.runPoll.start()
+
+    def showRunFailed(self, cancelled=False):
+        if cancelled:
+            text = translate("Assembly", "The simulation was cancelled.")
+        else:
+            text = translate(
+                "Assembly", "The simulation was not generated: the report view says why."
+            )
+        self.runMessage.setText(text)
+        self.runMessage.show()
+
+    def pollRun(self):
+        """Not upstream: the worker's progress, and its frames once it is done"""
+        progress = self.assembly.getSimulationProgress()
+        span = self.simValues.TimeEnd - self.simValues.TimeStart
+        done = (progress["Time"] - self.simValues.TimeStart) / span if span > 0 else 1.0
+        self.runProgress.setValue(int(1000 * min(max(done, 0.0), 1.0)))
+        if not progress["Done"]:
+            return
+        self.endRun()
+        code = self.assembly.finishSimulation()
+        if code != 0:
+            self.showRunFailed(cancelled=code == -7)
+            return
+        self.showRun()
+
+    def endRun(self):
+        self.runPoll.stop()
+        self.runRow.hide()
+        self.form.RunKinematicsButton.setEnabled(True)
+
+    def cancelRun(self):
+        self.assembly.cancelSimulation()
+
+    def showRun(self):
+        """The frames of the run just taken in: the traces, the results and
+        the player"""
         nFrms = self.assembly.numberOfFrames()
         # Not upstream: the study's traces follow its run
         import SimulationTrace

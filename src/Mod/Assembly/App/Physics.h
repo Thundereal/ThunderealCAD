@@ -426,7 +426,7 @@ public:
 
     const char* getViewProviderName() const override
     {
-        return "Gui::ViewProviderDocumentObject";
+        return "AssemblyGui::ViewProviderContactSet";
     }
 };
 

@@ -71,6 +71,7 @@ PyMOD_INIT_FUNC(AssemblyGui)
     AssemblyGui::ViewProviderFramedItem::init();
     AssemblyGui::ViewProviderAppliedLoad::init();
     AssemblyGui::ViewProviderBushing::init();
+    AssemblyGui::ViewProviderContactSet::init();
     AssemblyGui::ViewProviderGroupBase::init();
     AssemblyGui::ViewProviderBomGroup::init();
     AssemblyGui::ViewProviderAssemblyGroup::init();

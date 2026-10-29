@@ -161,7 +161,12 @@ class TestGuiCommands(unittest.TestCase):
                 if Gui.Control.activeDialog():
                     Gui.Control.closeDialog()
             JointObject.activeTask = None
-            for module in ("CommandCreateSpring", "CommandCreateLoad", "CommandCreateBushing"):
+            for module in (
+                "CommandCreateSpring",
+                "CommandCreateLoad",
+                "CommandCreateBushing",
+                "CommandCreateContact",
+            ):
                 if module in sys.modules:
                     sys.modules[module].activeTask = None
             Gui.Selection.clearSelection()
@@ -1109,6 +1114,88 @@ class TestGuiCommands(unittest.TestCase):
         self.assertFalse(Gui.Control.activeDialog())
         self.assertEqual(bushing.Other, self.cyl1)
         self.assertIsNotNone(bushing.Binding)
+        self.assertClean()
+
+    # ------------------------------------------------------------ contact sets
+
+    def contactSets(self):
+        return [o for o in self.doc.Objects if o.isDerivedFrom("Assembly::ContactSet")]
+
+    def test_contact_set_panel(self):
+        """Selected first, the components go in group A; the panel picks group
+        B, a component picked into it leaves group A, and one picked again
+        leaves the group; it takes the law; an edit cancelled leaves it as it
+        was; a new study ticks it"""
+        import CommandCreateContact
+
+        self.select(self.box, "Face6")
+        self.select(self.cyl1, "Face1")
+        self.run_command("Assembly_CreateContact")
+        task = CommandCreateContact.activeTask
+        self.assertIsInstance(task, CommandCreateContact.TaskContact)
+        self.assertIsNone(task.armed)
+        contact = task.contact
+        self.assertEqual(contact.GroupA, [self.box, self.cyl1])
+        task.arm("B")
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Cyl2.Face1", 0, 32, 5)
+        _process()
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Cyl1.Face1", 32, 0, 5)
+        _process()
+        self.assertEqual(contact.GroupA, [self.box])
+        self.assertEqual(contact.GroupB, [self.cyl2, self.cyl1])
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Cyl1.Face1", 32, 0, 5)
+        _process()
+        self.assertEqual(contact.GroupB, [self.cyl2])
+        self.assertEqual(task.armed, "B")
+        self.assertEqual(task.groups["B"][0].count(), 1)
+        self.assertEqual(Gui.Selection.getSelectionEx("", 0), [])
+        self.assertEqual(task.boxes["Stiffness"].value(), 1e5)
+        task.boxes["Stiffness"].setValue(2e4)
+        task.boxes["StaticFriction"].setValue(0.5)
+        self.accept_task()
+        self.assertEqual(self.contactSets(), [contact])
+        self.assertAlmostEqual(contact.Stiffness, 2e4, places=9)
+        self.assertAlmostEqual(contact.StaticFriction, 0.5, places=9)
+        self.assertEqual(contact.ViewObject.TypeId, "AssemblyGui::ViewProviderContactSet")
+        # Edited and cancelled
+        self.assertTrue(contact.ViewObject.doubleClicked())
+        _process()
+        task = CommandCreateContact.activeTask
+        self.assertIsInstance(task, CommandCreateContact.TaskContact)
+        task.groups["B"][0].selectAll()
+        task.onRemove("B")
+        self.assertEqual(contact.GroupB, [])
+        task.boxes["Exponent"].setValue(2.0)
+        task.reject()
+        _process()
+        self.assertFalse(Gui.Control.activeDialog())
+        self.assertEqual(contact.GroupB, [self.cyl2])
+        self.assertAlmostEqual(contact.Exponent, 1.5, places=9)
+        # A new study's elements
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sims = self.proxies("Simulation")
+        self.assertEqual(len(sims), 1)
+        self.assertIn(contact, sims[0].Elements)
+        self.assertClean()
+
+    def test_contact_set_needs_group_a(self):
+        """With nothing selected the panel picks group A; OK waits for it;
+        Cancel deletes the contact set"""
+        import CommandCreateContact
+
+        self.run_command("Assembly_CreateContact")
+        task = CommandCreateContact.activeTask
+        self.assertEqual(task.armed, "A")
+        task.arm(None)
+        self.assertFalse(task.accept())
+        _process()
+        self.assertTrue(Gui.Control.activeDialog())
+        self.assertEqual(task.armed, "A")
+        task.reject()
+        _process()
+        self.assertFalse(Gui.Control.activeDialog())
+        self.assertEqual(self.contactSets(), [])
         self.assertClean()
 
     def test_export_asmt(self):

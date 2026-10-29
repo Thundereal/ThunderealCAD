@@ -510,3 +510,25 @@ void ViewProviderBushing::makeLines(std::vector<SbVec3f>& points,
     push(0.0, 0.0, 0.5 * outer);
     counts.push_back(2);
 }
+
+PROPERTY_SOURCE(AssemblyGui::ViewProviderContactSet, Gui::ViewProviderDocumentObject)
+
+QIcon ViewProviderContactSet::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_Contact.svg");
+}
+
+bool ViewProviderContactSet::doubleClicked()
+{
+    auto* obj = getObject();
+    if (!obj || !obj->isAttachedToDocument()) {
+        return false;
+    }
+    Gui::Command::doCommand(Gui::Command::Gui,
+                            "import CommandCreateContact\n"
+                            "CommandCreateContact.editContactSet("
+                            "App.getDocument('%s').getObject('%s'))",
+                            obj->getDocument()->getName(),
+                            obj->getNameInDocument());
+    return true;
+}

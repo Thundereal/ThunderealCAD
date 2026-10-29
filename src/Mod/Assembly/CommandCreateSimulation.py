@@ -80,6 +80,7 @@ ResultQuantities = {
     "SpringAngle": (QT_TRANSLATE_NOOP("Assembly", "Spring angle"), 57.29577951308232, "deg"),
     "BushingForce": (QT_TRANSLATE_NOOP("Assembly", "Bushing force"), 1e-3, "N"),
     "BushingTorque": (QT_TRANSLATE_NOOP("Assembly", "Bushing torque"), 1e-6, "N m"),
+    "ContactForce": (QT_TRANSLATE_NOOP("Assembly", "Contact force"), 1e-3, "N"),
 }
 
 
@@ -302,7 +303,11 @@ class CommandCreateSimulation:
         assembly = UtilsAssembly.activeAssembly()
         joint_types = ["Revolute", "Slider", "Cylindrical"]
         joints = UtilsAssembly.getJointsOfType(assembly, joint_types)
-        return len(joints) > 0
+        if len(joints) > 0:
+            return True
+        # Not upstream: a dynamic or static run needs no joint to drive --
+        # parts falling onto one another by a contact set, a spring's pull
+        return any(o.isDerivedFrom("Assembly::PhysicsItem") for o in assembly.Group)
 
     def Activated(self):
         assembly = UtilsAssembly.activeAssembly()
@@ -1681,6 +1686,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             if o.isDerivedFrom("Assembly::SpringDamper")
             or o.isDerivedFrom("Assembly::TorsionSpring")
             or o.isDerivedFrom("Assembly::FramedItem")
+            or o.isDerivedFrom("Assembly::ContactSet")
         ]
 
     def fillElements(self):

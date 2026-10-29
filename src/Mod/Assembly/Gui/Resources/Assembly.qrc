@@ -32,6 +32,7 @@
         <file>icons/Assembly_TorsionSpring.svg</file>
         <file>icons/Assembly_AppliedLoad.svg</file>
         <file>icons/Assembly_Bushing.svg</file>
+        <file>icons/Assembly_Contact.svg</file>
         <file>icons/Assembly_DragCollision.svg</file>
         <file>icons/Assembly_ClearCollisionMarkers.svg</file>
         <file>icons/Assembly_JointGroup.svg</file>

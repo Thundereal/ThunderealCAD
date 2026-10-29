@@ -174,4 +174,16 @@ protected:
     const char* editCall() const override;
 };
 
+/** A contact set: its icon; a double click opens its task panel
+ * (CommandCreateContact.py). Its components show where it is.
+ */
+class AssemblyGuiExport ViewProviderContactSet: public Gui::ViewProviderDocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderContactSet);
+
+public:
+    QIcon getIcon() const override;
+    bool doubleClicked() override;
+};
+
 }  // namespace AssemblyGui

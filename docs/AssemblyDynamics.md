@@ -713,6 +713,16 @@ Phase D1 is under way (2026-10-28):
     `StaticFriction` below `StictionVelocity`, `DynamicFriction` above
     `FrictionVelocity`, STEPs between (defaults 1e5, 1.5, 10, 0.01 mm,
     0.3, 0.25, 0.1 and 10.16 mm/s).
+  - The command, Assembly_CreateContact (toolbar, after the bushing):
+    the components selected go in group A, and its panel (a double click
+    opens it too) picks either group in the 3D view -- a pick adds a
+    component, taking it out of the other group, and a pick of one
+    already in the group takes it out -- and takes the law. OK waits for
+    group A; Cancel undoes the edit, or deletes the set the command made.
+    A new study ticks it with the other elements, and its ContactForce
+    channel is "Contact force" in N in the results. The study command no
+    longer waits for a joint a motion can drive when the assembly has a
+    physics element: a drop test has none.
   - The geometry, sec 7.1's first rungs (`App/ContactShapes.cpp`): each
     solid of a component is the primitive it is -- a sphere, a box or a
     cylinder, recognised by its faces and checked by its volume -- or its
@@ -819,8 +829,9 @@ Phase D1 is under way (2026-10-28):
     landing on its cap, a tall one landing tilted and tipping onto its
     cap, one landing on its side and staying there; a solid that is
     neither refused; a set's pairs only.
-  - Not yet: the command and panel for contact sets (and ContactSet in
-    the study panel's elements), meshes (sec 7.1's rung 3a), curve
+  - Tests (TestGuiCommands): the panel's picks, law, OK and Cancel, and
+    a new study ticking the set; OK refused with group A empty.
+  - Not yet: meshes (sec 7.1's rung 3a), curve
     contact for cams (sec 7.4), stops, sensors, contact plots. A tumble
     is slow: the tall cylinder's 0.3 s takes about 20 s, in substeps of
     microseconds through each impact.

@@ -94,7 +94,10 @@ class AssemblyObject(Part):
         axis; "SpringForce" (mN, positive pushing the ends apart) or
         "SpringLength" (mm), a spring-damper's; "SpringTorque" (mN mm,
         positive turning the joint up) or "SpringAngle" (rad, the joint's
-        turn as its limits read it), a torsion spring's.
+        turn as its limits read it), a torsion spring's. Unique is False
+        for a reaction a redundant joint shares with other joints: the run
+        took out the equations that repeat others, and the values are one
+        split of the load among them, not the only one.
         """
         ...
 

@@ -164,11 +164,15 @@ struct SimulationSpec
 //   "BushingForce", "BushingTorque"  a bushing's on the body of its frame I
 //                      (its component), the torque about frame I's origin;
 //                      width 3
+// 'unique' is false for a reaction a redundant joint shares with others (sec
+// 6.1): the run took out the rows that repeat others, and what it reports is
+// one split of the load among the joints, not the only one.
 struct Channel
 {
     std::string source;  // the model's source name: the joint's, the spring's
     std::string quantity;
     int width = 1;
+    bool unique = true;
 };
 
 // Poses of the bodies at each output time; owned by the neutral layer, so

@@ -671,6 +671,42 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(obj.AngularVelocity, App.Vector(30, 0, 0))
         self.assertClean()
 
+    def test_results_not_unique(self):
+        """The Results box marks a redundant joint's reaction "(not unique)",
+        and says why in its tool tip; a unique one is listed plain"""
+        import CommandCreateSimulation
+        from PySide import QtCore, QtWidgets
+
+        class Results:
+            def getSimulationResults(self):
+                force = {"Object": None, "Quantity": "Force", "Values": []}
+                return {
+                    "Times": [],
+                    "Channels": [
+                        dict(force, Name="Revolute", Unique=False),
+                        dict(force, Name="Slider", Unique=True),
+                    ],
+                }
+
+        class Panel:
+            pass
+
+        panel = Panel()
+        panel.assembly = Results()
+        panel.resultCombo = QtWidgets.QComboBox()
+        panel.resultsBox = QtWidgets.QWidget()
+        panel.showResult = lambda: None
+        CommandCreateSimulation.TaskAssemblyCreateSimulation.fillResults(panel)
+        combo = panel.resultCombo
+        self.assertEqual(combo.count(), 2)
+        self.assertTrue(combo.itemText(0).startswith("Revolute: "))
+        self.assertTrue(combo.itemText(0).endswith(" (not unique)"))
+        self.assertIn("redundant", combo.itemData(0, QtCore.Qt.ToolTipRole))
+        self.assertNotIn("not unique", combo.itemText(1))
+        self.assertIsNone(combo.itemData(1, QtCore.Qt.ToolTipRole))
+        panel.resultCombo.deleteLater()
+        panel.resultsBox.deleteLater()
+
     # ------------------------------------------------------------ springs
 
     def springs(self):

@@ -1638,9 +1638,23 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             name = obj.Label if obj is not None else channel["Name"]
             quantity = ResultQuantities.get(channel["Quantity"], (channel["Quantity"], 1.0, ""))
             key = (channel["Name"], channel["Quantity"])
-            self.resultCombo.addItem(
-                "%s: %s" % (name, translate("Assembly", quantity[0])), key
-            )
+            text = "%s: %s" % (name, translate("Assembly", quantity[0]))
+            if not channel.get("Unique", True):
+                # A redundant joint's: one split of the load among the
+                # joints that share it
+                text += " " + translate("Assembly", "(not unique)")
+            self.resultCombo.addItem(text, key)
+            if not channel.get("Unique", True):
+                self.resultCombo.setItemData(
+                    self.resultCombo.count() - 1,
+                    translate(
+                        "Assembly",
+                        "The joint is redundant: other joints hold what some of its "
+                        "equations hold, and the run took those out. This is one split "
+                        "of the load among them, not the only one.",
+                    ),
+                    QtCore.Qt.ToolTipRole,
+                )
         at = self.resultCombo.findData(current) if current is not None else -1
         self.resultCombo.setCurrentIndex(max(0, at))
         self.resultCombo.blockSignals(False)

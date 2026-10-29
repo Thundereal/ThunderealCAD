@@ -220,6 +220,7 @@ PyObject* AssemblyObjectPy::getSimulationResults(PyObject* args) const
                 entry.setItem("Object", obj ? Py::asObject(obj->getPyObject()) : Py::None());
                 entry.setItem("Name", Py::String(name));
                 entry.setItem("Quantity", Py::String(channel.quantity));
+                entry.setItem("Unique", Py::Boolean(channel.unique));
                 entry.setItem("Values", values);
                 channels.append(entry);
                 offset += channel.width;

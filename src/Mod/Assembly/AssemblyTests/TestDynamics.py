@@ -1129,6 +1129,48 @@ class TestDynamics(unittest.TestCase):
         self.assembly.updateForFrame(0)
         self.assertAlmostEqual(block.Placement.Base.z, 12 - self.MASS * G / k, delta=1e-5)
 
+    def test_redundant_hinges(self):
+        """The rod on a second hinge on the same axis (docs/AssemblyDynamics.md
+        sec 6.1): the run takes out the equations that repeat the first's,
+        swings as on one hinge, and flags both hinges' reactions not unique;
+        together they are the one hinge's."""
+        rod = self.pendulum()
+        _, result = self.simulate(0.1, 1e-2)
+        self.assertEqual(result, 0)
+        single = self.frames(rod, 1e-2)
+        channels = self.assembly.getSimulationResults()["Channels"]
+        alone = [c for c in channels if c["Quantity"] == "Force"]
+        self.assertEqual(len(alone), 1)
+        self.assertTrue(alone[0]["Unique"])
+        base = self.doc.getObject("Base")
+        self.joint(
+            "Revolute",
+            (base, ["Face2"]),
+            plc(10, 0, 5, App.Vector(1, 0, 0), -90),
+            (rod, ["Face1"]),
+            plc(0, 0, 5, App.Vector(1, 0, 0), -90),
+        )
+        self.doc.recompute()
+        self.assembly.updateForFrame(0)
+        _, result = self.simulate(0.1, 1e-2)
+        self.assertEqual(result, 0)
+        both = self.frames(rod, 1e-2)
+        self.assertEqual(len(both), len(single))
+        for (time, centre, _), (_, centre2, _) in zip(single, both):
+            self.assertLess((centre - centre2).Length, 1e-6, time)
+        # It swings
+        self.assertLess(single[-1][1].z, 5 - 10)
+        channels = self.assembly.getSimulationResults()["Channels"]
+        forces = [c for c in channels if c["Quantity"] == "Force"]
+        self.assertEqual(len(forces), 2)
+        for c in channels:
+            if c["Quantity"] in ("Force", "Torque"):
+                self.assertFalse(c["Unique"], c["Name"])
+        weight = 100 * 10 * 10 * 2.7e-6 * G
+        for k, force in enumerate(alone[0]["Values"]):
+            together = forces[0]["Values"][k] + forces[1]["Values"][k]
+            self.assertLess((together - force).Length, weight * 1e-6, k)
+
     def test_bushing_not_listed(self):
         """A bushing the study does not list does nothing."""
         block = self.slider()

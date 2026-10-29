@@ -557,6 +557,10 @@ public:
         for (const auto& row : rows) {
             categories.push_back(row.category);
         }
+        kept.reserve(rows.size());
+        for (std::size_t r = 0; r < rows.size(); ++r) {
+            kept.push_back(r);
+        }
         std::vector<ch::ChVariables*> variables;
         for (ch::ChBody* body : bodies) {
             variables.push_back(&body->Variables());
@@ -580,6 +584,31 @@ public:
     const std::vector<eq::Category>& rowCategories() const
     {
         return categories;
+    }
+
+    // Takes out the rows 'drop' marks, by their index among the rows held
+    // now (a redundant joint's, docs/AssemblyDynamics.md sec 6.1): the link
+    // no longer holds them, and reports what the rest carry. Before the
+    // system is set up again.
+    void dropRows(const std::vector<char>& drop)
+    {
+        std::vector<std::size_t> keep;
+        std::vector<eq::Category> keepCategories;
+        for (std::size_t r = 0; r < kept.size(); ++r) {
+            if (r < drop.size() && drop[r]) {
+                continue;
+            }
+            keep.push_back(kept[r]);
+            keepCategories.push_back(categories[r]);
+        }
+        kept = std::move(keep);
+        categories = std::move(keepCategories);
+        constraints.resize(kept.size());
+        C.setZero(static_cast<Eigen::Index>(kept.size()));
+        reactions.setZero(static_cast<Eigen::Index>(kept.size()));
+        std::vector<eq::Equation> rows;
+        evaluate(rows, measured);
+        load(rows);
     }
 
     // The committed angles, and setting them back (a rejected step).
@@ -868,14 +897,18 @@ private:
     // frame.
     void load(const std::vector<eq::Equation>& rows)
     {
-        const std::size_t n = std::min(rows.size(), constraints.size());
+        const std::size_t n = std::min(kept.size(), constraints.size());
         for (std::size_t r = 0; r < n; ++r) {
-            C(static_cast<Eigen::Index>(r)) = rows[r].s.v;
+            if (kept[r] >= rows.size()) {
+                continue;
+            }
+            const eq::Equation& row = rows[kept[r]];
+            C(static_cast<Eigen::Index>(r)) = row.s.v;
             ch::ChConstraintNgeneric& c = constraints[r];
             for (std::size_t b = 0; b < bodies.size(); ++b) {
                 c.Get_Cq_N(b).setZero();
             }
-            const eq::Grad& g = rows[r].s.g;
+            const eq::Grad& g = row.s.g;
             for (int k = 0; k < g.n; ++k) {
                 const int b = g.body[k];
                 if (b < 0 || static_cast<std::size_t>(b) >= bodies.size()) {
@@ -898,6 +931,9 @@ private:
     eq::JointState state;
     std::array<double, 2> measured {};
     std::vector<eq::Category> categories;
+    // The equations held, by index among those evaluate() gives: all of
+    // them, unless a redundant joint's were taken out
+    std::vector<std::size_t> kept;
     std::vector<ch::ChConstraintNgeneric> constraints;
     ch::ChVectorDynamic<> C;
     ch::ChVectorDynamic<> reactions;
@@ -921,6 +957,14 @@ struct LinkRecord
     Owner owner = Owner::Joint;
     Id id = NoId;
     std::vector<Category> rows;  // one per constraint row, in Chrono's row order
+};
+
+// A constraint row's owner and category (the rank analysis)
+struct RowInfo
+{
+    Owner owner = Owner::Limit;
+    Id id = NoId;
+    Category category = Category::Essential;
 };
 
 std::vector<Category> mateRows(const ch::ChLinkMateGeneric& mate)
@@ -2013,6 +2057,208 @@ struct ChronoSession::Impl
         prepare();
     }
 
+    // ------------------------------------------------------------ rank
+
+    // Each constraint row's owner and category, from its link's offset
+    // (after prepare()).
+    std::vector<RowInfo> rowInfo(Eigen::Index rows) const
+    {
+        std::vector<RowInfo> info(static_cast<std::size_t>(rows));
+        for (const auto& record : links) {
+            const unsigned int offset = record.link->GetOffset_L();
+            for (std::size_t k = 0; k < record.rows.size(); ++k) {
+                const std::size_t r = offset + k;
+                if (r < info.size()) {
+                    info[r] = {record.owner, record.id, record.rows[k]};
+                }
+            }
+        }
+        return info;
+    }
+
+    // Which rows of J depend on none of the rows before them in OndselSolver's
+    // order (its categories, then model order), by Gram-Schmidt with
+    // reorthogonalisation (the Reference's); 'kept' counts them.
+    static std::vector<char>
+    independentRows(const MatX& J, const std::vector<RowInfo>& info, int& kept)
+    {
+        const Eigen::Index rows = J.rows();
+        const Eigen::Index cols = J.cols();
+        std::vector<int> order(static_cast<std::size_t>(rows));
+        for (Eigen::Index i = 0; i < rows; ++i) {
+            order[i] = static_cast<int>(i);
+        }
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            return static_cast<int>(info[a].category) < static_cast<int>(info[b].category);
+        });
+        std::vector<char> independent(static_cast<std::size_t>(rows), 0);
+        kept = 0;
+        if (cols > 0) {
+            MatX Q(cols, std::min(cols, rows) + 1);
+            VecX v(cols);
+            for (int i : order) {
+                if (kept >= cols) {
+                    break;
+                }
+                v = J.row(i).transpose();
+                const double norm0 = v.norm();
+                if (!(norm0 > rankTolerance)) {
+                    continue;
+                }
+                for (int pass = 0; pass < 2 && kept > 0; ++pass) {
+                    v -= Q.leftCols(kept) * (Q.leftCols(kept).transpose() * v);
+                }
+                const double rest = v.norm();
+                if (rest > rankTolerance * std::max(1.0, norm0)) {
+                    Q.col(kept++) = v / rest;
+                    independent[i] = 1;
+                }
+            }
+        }
+        return independent;
+    }
+
+    // What removeRedundant() did: the rows it took out, and per joint whether
+    // its reaction is no longer unique -- the joint's own rows taken out, or
+    // rows a taken out one repeated. 'conflicting': joints with a dependent
+    // row they do not satisfy; nothing is taken out then.
+    struct Redundancy
+    {
+        int removed = 0;
+        std::vector<char> notUnique;
+        std::vector<Id> conflicting;
+    };
+
+    // A dynamic or static run's redundant joints (docs/AssemblyDynamics.md
+    // sec 6.1): the joint rows that depend on the rows before them, in
+    // OndselSolver's order as analyse() finds them, are taken out of the
+    // system -- a mate's coordinate, a neutral link's equation, a link with
+    // no row left -- so that the choice is the same on every backend, and
+    // the solve is regular: Chrono's LU of a singular system leaves the
+    // multipliers at 1e19. The motion is the same; the reactions the rows
+    // shared are not unique. 'length' is a metre in the model's lengths
+    // (the conflict test's scale).
+    Redundancy removeRedundant(double length)
+    {
+        Redundancy out;
+        out.notUnique.assign(model.joints.size(), 0);
+        prepare();
+        ch::ChSparseMatrix Cq;
+        sys->GetConstraintJacobianMatrix(Cq);
+        const MatX J(Cq);
+        const ch::ChVectorDynamic<> c = constraints();
+        const std::vector<RowInfo> info = rowInfo(J.rows());
+        int kept = 0;
+        const std::vector<char> independent = independentRows(J, info, kept);
+        if (kept == J.rows()) {
+            return out;
+        }
+        // The rows each dependent one repeats: its combination of the
+        // independent rows
+        std::vector<Eigen::Index> basis;
+        for (Eigen::Index i = 0; i < J.rows(); ++i) {
+            if (independent[i]) {
+                basis.push_back(i);
+            }
+        }
+        MatX B(J.cols(), static_cast<Eigen::Index>(basis.size()));
+        for (std::size_t k = 0; k < basis.size(); ++k) {
+            B.col(static_cast<Eigen::Index>(k)) = J.row(basis[k]).transpose();
+        }
+        const Eigen::ColPivHouseholderQR<MatX> qr(B);
+        for (Eigen::Index i = 0; i < J.rows(); ++i) {
+            const RowInfo& row = info[i];
+            if (independent[i] || row.owner != Owner::Joint || row.id >= model.joints.size()) {
+                continue;
+            }
+            const double tolerance =
+                conflictTolerance * (row.category == Category::Displacement ? length : 1.0);
+            if (!(std::abs(c(i)) <= tolerance)) {
+                if (std::find(out.conflicting.begin(), out.conflicting.end(), row.id)
+                    == out.conflicting.end()) {
+                    out.conflicting.push_back(row.id);
+                }
+                continue;
+            }
+            out.notUnique[row.id] = 1;
+            const double norm = J.row(i).norm();
+            if (basis.empty() || !(norm > rankTolerance)) {
+                continue;
+            }
+            const VecX a = qr.solve(VecX(J.row(i).transpose()));
+            for (std::size_t k = 0; k < basis.size(); ++k) {
+                const auto at = static_cast<Eigen::Index>(k);
+                const RowInfo& other = info[basis[k]];
+                if (other.owner == Owner::Joint && other.id < model.joints.size()
+                    && std::abs(a(at)) * B.col(at).norm() > 1e-8 * norm) {
+                    out.notUnique[other.id] = 1;
+                }
+            }
+        }
+        if (!out.conflicting.empty()) {
+            return out;
+        }
+        for (auto& record : links) {
+            if (record.owner != Owner::Joint) {
+                continue;
+            }
+            const unsigned int offset = record.link->GetOffset_L();
+            std::vector<char> drop(record.rows.size(), 0);
+            int dropped = 0;
+            for (std::size_t k = 0; k < record.rows.size(); ++k) {
+                const std::size_t r = offset + k;
+                if (r < independent.size() && !independent[r]) {
+                    drop[k] = 1;
+                    ++dropped;
+                }
+            }
+            if (dropped == 0) {
+                continue;
+            }
+            if (static_cast<std::size_t>(dropped) == record.rows.size()) {
+                // Its reaction reads zero from then on
+                sys->RemoveLink(record.link);
+                record.rows.clear();
+            }
+            else if (auto mate = std::dynamic_pointer_cast<ch::ChLinkMateGeneric>(record.link)) {
+                std::array<bool, 6> flags {mate->IsConstrainedX(),
+                                           mate->IsConstrainedY(),
+                                           mate->IsConstrainedZ(),
+                                           mate->IsConstrainedRx(),
+                                           mate->IsConstrainedRy(),
+                                           mate->IsConstrainedRz()};
+                std::size_t k = 0;
+                for (bool& flag : flags) {
+                    if (flag) {
+                        flag = !(k < drop.size() && drop[k]);
+                        ++k;
+                    }
+                }
+                mate->SetConstrainedCoords(flags[0],
+                                           flags[1],
+                                           flags[2],
+                                           flags[3],
+                                           flags[4],
+                                           flags[5]);
+                record.rows = mateRows(*mate);
+            }
+            else if (auto neutralLink = std::dynamic_pointer_cast<NeutralLink>(record.link)) {
+                neutralLink->dropRows(drop);
+                record.rows.clear();
+                for (eq::Category category : neutralLink->rowCategories()) {
+                    record.rows.push_back(static_cast<Category>(category));
+                }
+            }
+            else {
+                // No other link has more than one row
+                continue;
+            }
+            out.removed += dropped;
+        }
+        prepare();
+        return out;
+    }
+
     // ------------------------------------------------------------ runs
 
     std::vector<BodyPose> posesNow() const
@@ -2388,58 +2634,11 @@ Diagnostics ChronoSession::analyse()
     const Eigen::Index rows = J.rows();
     const Eigen::Index cols = J.cols();
 
-    // Each row's owner and category, from its link's offset.
-    struct RowInfo
-    {
-        Owner owner = Owner::Limit;
-        Id id = NoId;
-        Category category = Category::Essential;
-    };
-    std::vector<RowInfo> info(static_cast<std::size_t>(rows));
-    for (const auto& record : d->links) {
-        const unsigned int offset = record.link->GetOffset_L();
-        for (std::size_t k = 0; k < record.rows.size(); ++k) {
-            const std::size_t r = offset + k;
-            if (r < info.size()) {
-                info[r] = {record.owner, record.id, record.rows[k]};
-            }
-        }
-    }
-
-    // OndselSolver's order: its categories, then model order.
-    std::vector<int> order(static_cast<std::size_t>(rows));
-    for (Eigen::Index i = 0; i < rows; ++i) {
-        order[i] = static_cast<int>(i);
-    }
-    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-        return static_cast<int>(info[a].category) < static_cast<int>(info[b].category);
-    });
-
-    // Gram-Schmidt with reorthogonalisation (the Reference's).
-    std::vector<char> independent(static_cast<std::size_t>(rows), 0);
+    // Each row's owner and category, from its link's offset; which depend
+    // on the rows before them in OndselSolver's order.
+    const std::vector<RowInfo> info = d->rowInfo(rows);
     int kept = 0;
-    if (cols > 0) {
-        MatX Q(cols, std::min(cols, rows) + 1);
-        VecX v(cols);
-        for (int i : order) {
-            if (kept >= cols) {
-                break;
-            }
-            v = J.row(i).transpose();
-            const double norm0 = v.norm();
-            if (!(norm0 > rankTolerance)) {
-                continue;
-            }
-            for (int pass = 0; pass < 2 && kept > 0; ++pass) {
-                v -= Q.leftCols(kept) * (Q.leftCols(kept).transpose() * v);
-            }
-            const double rest = v.norm();
-            if (rest > rankTolerance * std::max(1.0, norm0)) {
-                Q.col(kept++) = v / rest;
-                independent[i] = 1;
-            }
-        }
-    }
+    const std::vector<char> independent = Impl::independentRows(J, info, kept);
 
     // The rank by column-pivoted QR, rows scaled to unit length.
     int rank = 0;
@@ -2647,6 +2846,17 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     }
     if (!run.d->refused.empty()) {
         return refuse(run.d->refused);
+    }
+    // Redundant joints (sec 6.1): the rows that repeat others taken out, the
+    // reactions they shared reported as not unique
+    const ChronoSession::Impl::Redundancy redundancy = run.d->removeRedundant(SI::length);
+    if (!redundancy.conflicting.empty()) {
+        std::string names;
+        for (Id j : redundancy.conflicting) {
+            names += (names.empty() ? "" : ", ") + model.sourceName(model.joints[j].source);
+        }
+        return refuse("the joints " + names
+                      + " conflict with others: they cannot all hold where the run starts");
     }
     ch::ChSystemNSC& sys = *run.d->sys;
     for (std::size_t b = 0; b < n; ++b) {
@@ -2878,6 +3088,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         std::string source;
         std::vector<std::pair<const Joint*, std::shared_ptr<ch::ChLinkBase>>> links;
         std::vector<std::size_t> limits;  // its stops, by index in si.limits
+        bool unique = true;               // false: a redundant joint's (sec 6.1)
     };
     std::vector<Reaction> reactions;
     for (const auto& record : run.d->links) {
@@ -2894,6 +3105,9 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
             at = std::prev(reactions.end());
         }
         at->links.emplace_back(&joint, record.link);
+        if (redundancy.notUnique[record.id]) {
+            at->unique = false;
+        }
     }
     // A stop is its joint's: the limit's source is the joint's
     for (std::size_t k = 0; k < si.limits.size(); ++k) {
@@ -2908,9 +3122,21 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         at->limits.push_back(k);
     }
     std::vector<Channel> channels;
+    std::string notUnique;
     for (const auto& reaction : reactions) {
-        channels.push_back({reaction.source, "Force", 3});
-        channels.push_back({reaction.source, "Torque", 3});
+        channels.push_back({reaction.source, "Force", 3, reaction.unique});
+        channels.push_back({reaction.source, "Torque", 3, reaction.unique});
+        if (!reaction.unique) {
+            notUnique += (notUnique.empty() ? "" : ", ") + reaction.source;
+        }
+    }
+    if (redundancy.removed > 0) {
+        Base::Console().warning(
+            "Assembly: the %s analysis takes out %d equations of redundant joints, which repeat "
+            "what other joints hold; the reactions at %s are not unique\n",
+            kind,
+            redundancy.removed,
+            notUnique.c_str());
     }
     for (const auto& motor : rotationMotors) {
         channels.push_back({si.sourceName(motor.first), "MotorTorque", 1});
@@ -2937,6 +3163,10 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
                          const std::shared_ptr<ch::ChLinkBase>& base,
                          const ch::ChVector3d& about) -> ch::ChWrenchd {
         const ch::ChBody* bodyI = run.d->bodyOf(frameI).get();
+        // A redundant joint's link the run took out holds nothing
+        if (!base->GetSystem()) {
+            return {ch::VNULL, ch::VNULL};
+        }
         if (auto neutral = std::dynamic_pointer_cast<NeutralLink>(base)) {
             return neutral->wrenchOn(bodyI, about);
         }

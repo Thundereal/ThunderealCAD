@@ -7,8 +7,9 @@
 // coordinates against differences, the couplers it holds following drags
 // and kinematic runs with their turns counted, OndselSolver's branches kept,
 // the rank and DOF of hand-counted models against the Reference's, a gear,
-// limits, drags, the motors' functions against the evaluator, and the
-// kinematic run against the formulas and the Reference.
+// limits, drags, the motors' functions against the evaluator, the
+// kinematic run against the formulas and the Reference, and a dynamic run's
+// redundant rows taken out.
 
 #include <gtest/gtest.h>
 
@@ -21,6 +22,7 @@
 #include <GeomAPI_Interpolate.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_Circle.hxx>
+#include <Geom_Line.hxx>
 #include <NCollection_HArray1.hxx>
 #include <gp_Ax2.hxx>
 
@@ -1366,5 +1368,160 @@ TEST(ChronoBackend, farStartWithManyGroundedBodies)  // NOLINT
         const double mine = moved(start, poses[m].placement);
         const double theirs = moved(start, reference.poses()[m].placement);
         EXPECT_LE(mine, theirs * (1.0 + 1e-6) + 1e-12) << mine << " " << theirs;
+    }
+}
+
+namespace
+{
+
+// A box of mass m and edges a, b, c along its frame's x, y, z, its centre at com
+Inertia boxInertia(Id body, double m, double a, double b, double c, const Base::Vector3d& com)
+{
+    Inertia inertia;
+    inertia.body = body;
+    inertia.mass = m;
+    inertia.com = com;
+    inertia.inertia = {m * (b * b + c * c) / 12,
+                       m * (a * a + c * c) / 12,
+                       m * (a * a + b * b) / 12,
+                       0.0,
+                       0.0,
+                       0.0};
+    return inertia;
+}
+
+struct RunRecorder: TrajectorySink
+{
+    std::vector<std::vector<BodyPose>> frames;
+    std::vector<Channel> seen;
+    std::vector<std::vector<double>> rows;  // values(), per frame
+    bool frame(double, const std::vector<BodyPose>& poses) override
+    {
+        frames.push_back(poses);
+        return true;
+    }
+    void channels(const std::vector<Channel>& channels) override
+    {
+        seen = channels;
+    }
+    void values(const std::vector<double>& v) override
+    {
+        rows.push_back(v);
+    }
+};
+
+Status runDynamics(const Model& m, RunRecorder& out, double end = 0.1)
+{
+    SimulationSpec spec;
+    spec.analysis = Analysis::Dynamic;
+    spec.tEnd = end;
+    spec.tOutput = 0.01;
+    ChronoSession session;
+    if (session.load(m) != Status::Ok) {
+        return Status::Failed;
+    }
+    return session.simulate(spec, out);
+}
+
+}  // namespace
+
+// A dynamic run takes out the joint rows that repeat others, in
+// OndselSolver's order (docs/AssemblyDynamics.md sec 6.1): a door on two
+// coaxial hinges swings as on one, the two hinges' reactions add up to the
+// one's and are flagged not unique; a puck on a plane and on a line through
+// the plane's origin loses one of the line's two equations (a neutral link
+// held partly) and slides on as it was started; two Fixed joints that
+// disagree refuse the run.
+TEST(ChronoBackend, dynamicRunTakesOutRedundantRows)  // NOLINT
+{
+    auto door = [](bool twoHinges) {
+        Builder b;
+        const Id body = b.body("Door", at(0, 0, 10));
+        b.joint(JointKind::Revolute, b.frame(b.g, at(0, 0, 10)), b.frame(body, at(0, 0, 0)));
+        if (twoHinges) {
+            b.joint(JointKind::Revolute, b.frame(b.g, at(0, 0, 50)), b.frame(body, at(0, 0, 40)));
+        }
+        Dynamics dynamics;
+        dynamics.gravity = Base::Vector3d(0, -9806.65, 0);
+        dynamics.inertias.push_back(boxInertia(body, 0.5, 100, 10, 40, Base::Vector3d(50, 0, 20)));
+        b.m.dynamics = dynamics;
+        return b.m;
+    };
+    RunRecorder one;
+    RunRecorder two;
+    ASSERT_EQ(runDynamics(door(false), one), Status::Ok);
+    ASSERT_EQ(runDynamics(door(true), two), Status::Ok);
+    ASSERT_EQ(one.frames.size(), 11u);
+    ASSERT_EQ(two.frames.size(), one.frames.size());
+    ASSERT_EQ(one.seen.size(), 2u);
+    ASSERT_EQ(two.seen.size(), 4u);
+    EXPECT_TRUE(one.seen[0].unique);
+    for (const Channel& channel : two.seen) {
+        EXPECT_FALSE(channel.unique) << channel.source << " " << channel.quantity;
+    }
+    double turned = 0.0;
+    for (std::size_t f = 0; f < one.frames.size(); ++f) {
+        SCOPED_TRACE(f);
+        const Base::Placement& a = one.frames[f][1].placement;
+        const Base::Placement& b = two.frames[f][1].placement;
+        // moved() is squared: within 1e-8 mm
+        EXPECT_LT(moved(a, b), 1e-16);
+        turned = std::max(turned, std::abs(thez(a)));
+        // Forces on the ground (frame I's body): the two hinges' together
+        // are the one's
+        const Base::Vector3d single(one.rows[f][0], one.rows[f][1], one.rows[f][2]);
+        const Base::Vector3d sum(two.rows[f][0] + two.rows[f][6],
+                                 two.rows[f][1] + two.rows[f][7],
+                                 two.rows[f][2] + two.rows[f][8]);
+        EXPECT_LT((single - sum).Length(), 1e-6 * single.Length()) << single.Length();
+    }
+    // It swings
+    EXPECT_GT(turned, 0.05);
+
+    {
+        SCOPED_TRACE("a puck on a plane and a line");
+        Builder b;
+        const Id puck = b.body("Puck", at(0, 0, 0));
+        b.joint(JointKind::Planar, b.frame(b.g, at(0, 0, 0)), b.frame(puck, at(0, 0, 0)));
+        Handle(Geom_Line) line = new Geom_Line(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0));
+        const Id fj = b.frame(puck, at(0, 0, 0));
+        const Id id = b.joint(JointKind::PointOnCurve, b.frame(b.g, at(0, 0, 0)), fj);
+        Curve record;
+        record.source = b.m.joints[id].source;
+        record.geometry = Assembly::makeCurveGeometry(line, -1000.0, 1000.0);
+        b.m.joints[id].curve = b.m.addCurve(record);
+        Dynamics dynamics;
+        dynamics.inertias.push_back(boxInertia(puck, 0.2, 20, 20, 5, Base::Vector3d(3, 4, 1)));
+        InitialVelocity start;
+        start.kind = InitialVelocity::Kind::Body;
+        start.frameI = fj;
+        start.v = Base::Vector3d(100, 0, 0);
+        dynamics.initial.push_back(start);
+        b.m.dynamics = dynamics;
+        RunRecorder run;
+        ASSERT_EQ(runDynamics(b.m, run), Status::Ok);
+        ASSERT_EQ(run.frames.size(), 11u);
+        ASSERT_EQ(run.seen.size(), 4u);
+        for (const Channel& channel : run.seen) {
+            EXPECT_FALSE(channel.unique) << channel.source << " " << channel.quantity;
+        }
+        for (std::size_t f = 0; f < run.frames.size(); ++f) {
+            SCOPED_TRACE(f);
+            const Base::Placement want = at(100.0 * 0.01 * static_cast<double>(f), 0, 0);
+            EXPECT_LT(moved(run.frames[f][1].placement, want), 1e-18);
+        }
+    }
+    {
+        SCOPED_TRACE("two Fixed joints that disagree");
+        Builder b;
+        const Id body = b.body("B", at(0, 0, 10));
+        b.joint(JointKind::Fixed, b.frame(b.g, at(0, 0, 10)), b.frame(body, at(0, 0, 0)));
+        b.joint(JointKind::Fixed, b.frame(b.g, at(0, 0, 12)), b.frame(body, at(0, 0, 0)));
+        Dynamics dynamics;
+        dynamics.inertias.push_back(boxInertia(body, 1.0, 10, 10, 10, Base::Vector3d()));
+        b.m.dynamics = dynamics;
+        RunRecorder run;
+        EXPECT_EQ(runDynamics(b.m, run), Status::Unsupported);
+        EXPECT_TRUE(run.frames.empty());
     }
 }

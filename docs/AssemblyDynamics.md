@@ -446,6 +446,43 @@ Phase D1 is under way (2026-10-28):
     which needs no change (the origin to centre of mass conversion); a
     static study ignoring one; and the Speed motion from 2 mm open.
     TestGuiCommands: the dialog, a joint's rate and then a component's.
+- Built: redundancy removal, the `Remove` half of sec 6.1's redundancy.
+  Before a Dynamic or Static run the Chrono backend finds the joint rows
+  that depend on the rows before them -- the rank analysis `analyse()`
+  already made, in OndselSolver's order (its categories, then model order),
+  now shared as `rowInfo()` / `independentRows()` -- and takes them out:
+  a mate's coordinate through `SetConstrainedCoords`, a neutral link's
+  equation through `NeutralLink::dropRows`, a link with no row left removed
+  whole (its reaction then reads zero). The motion is the same, and the
+  solve is regular: before, the LU of the singular system left the
+  multipliers at 1e19 and LUThenQR's QR took over.
+  - The joints whose reactions are not unique are those whose rows were
+    taken out and those the taken-out rows repeat (each one's combination
+    of the independent rows). Their "Force" and "Torque" channels carry
+    `Channel::unique` = false, `getSimulationResults()` gives it as
+    `Unique`, and the panel's Results box lists them "(not unique)" with a
+    tool tip saying why. The run warns: "the dynamic analysis takes out 5
+    equations of redundant joints, which repeat what other joints hold;
+    the reactions at ... are not unique".
+  - A dependent row the start does not satisfy (1e-6 mm, or 1e-6 for an
+    angle's row) is a conflict: the run is refused, naming the joints.
+  - Not built: `RedundantJoints = Bushings` (the replacement of a
+    redundant joint by a bushing), and so no study property yet: removal
+    is what every run does.
+  - Sec 10's test row said a door on two coaxial revolutes has "one
+    revolute's 5 rows dependent". In OndselSolver's order the
+    displacement rows come first, so it is 2 of the first hinge's (its
+    tilts, which the two hinges' points fix between them) and 3 of the
+    second's; both hinges are redundant, as `analyse()` has always said
+    (`rankOnHandCountedModels`).
+  - Tests: C++ `ChronoBackend.dynamicRunTakesOutRedundantRows` -- the
+    door on two hinges swings as on one (1e-8 mm), the two reactions add
+    up to the one's (1e-6) and are flagged; a puck on a plane and on a
+    line through the plane's origin loses one of the line's two equations
+    (the neutral link held partly) and slides on as started (1e-9 mm);
+    two Fixed joints that disagree refuse the run. TestDynamics: the
+    pendulum on a second coaxial hinge, the same. TestGuiCommands: the
+    Results box's label and tool tip.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono
@@ -1719,7 +1756,7 @@ formula. Tolerances are stated per case and checked at h and h/4.
 | static equilibrium | a spring-loaded lever's angle | closed form |
 | motor modes | Speed: omega = const and the torque that takes against a damper; Effort: alpha = T / J | closed form |
 | stops | a pendulum against a limit: rebound speed = e x impact speed (Hard, NSC); Penalty: no penetration beyond F/k | closed form |
-| redundancy | a door on two coaxial revolutes: the run reports one revolute's 5 rows dependent, the motion equals the single-hinge case, and the vertical reaction splits are flagged not unique | -- |
+| redundancy | a door on two coaxial revolutes: the run reports 5 rows dependent (2 of one hinge's, 3 of the other's, in OndselSolver's order), the motion equals the single-hinge case, and the reactions are flagged not unique | -- |
 | cam-follower, persistent | a disk cam whose profile is a cycloidal rise: follower lift = the profile function to the projector tolerance | closed form (the cam built from the function) |
 | cam-follower, lift-off | a spring-loaded follower: lift-off at the speed where m a_min = -(k (x + x0) + m g); no lift-off below it | closed form |
 | bouncing ball | Restitution (NSC): apex heights h_n = e^(2n) h0; Impact (SMC): the measured coefficient within 5 % of the one the damping was set for | closed form |

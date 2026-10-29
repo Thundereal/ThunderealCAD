@@ -332,8 +332,9 @@ class TestThickness(unittest.TestCase):
     @unittest.skipUnless(Part.hasOCCTFunction("TKOffset", "BRepOffset_SetFixLevel"),
                          "needs the OCCT fork's BRepOffset_SetFixLevel (TKOffset)")
     def testNewThicknessIsMadeAtTheLatestOffsetFixLevel(self):
-        """The OCCT fork's offset fix level (BRepOffset_SetFixLevel): the dome
-        outward with the Intersection join is made from level 1"""
+        """The OCCT fork's offset fix level (BRepOffset_SetFixLevel): a new
+        thickness is at the latest; the dome outward with the Intersection
+        join is made"""
         thickness = self._domeThickness()
         self.assertGreaterEqual(thickness._OffsetFixLevel, 1)
         self.assertTrue(thickness.isValid())
@@ -343,10 +344,13 @@ class TestThickness(unittest.TestCase):
 
     @unittest.skipUnless(Part.hasOCCTFunction("TKOffset", "BRepOffset_SetFixLevel"),
                          "needs the OCCT fork's BRepOffset_SetFixLevel (TKOffset)")
-    def testThicknessFromBeforeTheOffsetFixLevelRecomputesAsItDid(self):
-        """A thickness saved before the level is at 0: refused, as it was"""
+    def testThicknessFromBeforeTheOffsetFixLevelMakesTheDomeToo(self):
+        """A thickness saved before the level is at 0: the dome is made there
+        too, the same (the OCCT fork's Thickness.md sec 32)"""
         thickness = self._domeThickness(level=0)
-        self.assertFalse(thickness.isValid())
+        self.assertTrue(thickness.isValid())
+        self.assertTrue(thickness.Shape.isValid())
+        self.assertAlmostEqual(thickness.Shape.Volume, 11009.9518, delta=11.0)
 
     def testNewThickenIsMadeAtTheLatestOffsetFixLevel(self):
         body = self.Doc.addObject("PartDesign::Body", "Body")

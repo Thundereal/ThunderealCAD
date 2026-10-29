@@ -121,7 +121,7 @@ public:
      */
     App::Document* openDocumentAsNew(const char* FileName);
     /** Recover the document of a crashed session from the transaction log it
-     * left in its transient directory `transientDir` (docs/TransactionLog.md
+     * left in its transient directory `transientDir` (docs/TransactionLogJournal.md
      * sec 25): a new document, rebuilt, that takes the log and the blobs
      * over. The directory is removed once it is done. Throws when there is
      * no log there, or the log is off in this session.
@@ -205,7 +205,7 @@ public:
     bool isClosingAll() const;
     //@}
 
-    /** @name Pinned versions no link pins any more (docs/TransactionLog.md sec 27.38) */
+    /** @name Pinned versions no link pins any more (docs/TransactionLogJournal.md sec 27.38) */
     //@{
     /** A frozen version opened for pins lost its last one (DocInfo::deinit).
      * Noted, not closed: the caller is inside the code that let go. The
@@ -480,7 +480,7 @@ public:
      * was made on, which is the one documents and their objects are used
      * from. True before there is an application. For code that may write
      * what only that thread may write -- a shape's element map, the
-     * document's string table (docs/TransactionLog.md sec 31.29).
+     * document's string table (docs/TransactionLogJournal.md sec 31.29).
      */
     static bool isMainThread();
     static void processCmdLineFiles();
@@ -581,7 +581,7 @@ public:
     /** One invocation of the application from outside: a Python call
      * from the console or a macro, a script file, a recompute. The
      * boundary at which an implicit transaction (Transaction::Implicit)
-     * is committed, docs/TransactionLog.md sec 9.1. Scopes nest; the
+     * is committed, docs/TransactionLogJournal.md sec 9.1. Scopes nest; the
      * outermost one closes. `origin` is recorded on the transactions the
      * scope closes.
      */
@@ -771,7 +771,7 @@ inline App::Application &GetApplication(){
  * a recompute, a pin set or cleared, a version restored, a branch changed.
  * When the outermost one ends, the pinned versions released inside it and
  * still unpinned are closed (Application::closeReleasedVersions(),
- * docs/TransactionLog.md sec 27.38).
+ * docs/TransactionLogJournal.md sec 27.38).
  */
 class AppExport OperationScope
 {

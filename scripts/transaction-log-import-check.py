@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 30.13-30.17: another copy of the
+# GUI check of docs/TransactionLogJournal.md sec 30.13-30.17: another copy of the
 # file brought in through the log panel's "Merge from file..." -- the copy's
 # rows as a branch named after it, each under its author, then the merge
 # dialog any branch gets, a side picked for a conflict, the view providers
@@ -23,7 +23,7 @@ lines = []
 
 
 def mergeDialog():
-    # The merge's preview is not modal (docs/TransactionLog.md sec 32.15): it
+    # The merge's preview is not modal (docs/TransactionLogJournal.md sec 32.15): it
     # is found among the windows. Anything modal instead is in its way.
     for w in QtWidgets.QApplication.topLevelWidgets():
         if w.objectName() == "TransactionMergeDialog" and w.isVisible():

@@ -1,5 +1,5 @@
 // Open the viewer page headless and send a file as a request through its
-// menu (docs/TransactionLog.md sec 30.23): the launcher's "Send my copy to
+// menu (docs/TransactionLogJournal.md sec 30.23): the launcher's "Send my copy to
 // merge..." row, the browser's own file chooser given a local file, and
 // what the page then tells its user.
 //

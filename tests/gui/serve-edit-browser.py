@@ -288,7 +288,7 @@ def build():
         state["http"] = serve_viewer()
         note("viewer on %d, scene on %d" % (state["http"], port))
         # The browser edits, so it is someone: the holder of an invitation
-        # issued to its name (docs/TransactionLog.md sec 30.6 U4, U6).
+        # issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).
         FreeCADGui.serveSetGrants(wsclient.invitation(TOKEN, CLIENT))
         url = ("http://127.0.0.1:%d/fcviewer.html?scene=http://127.0.0.1:%d"
                "&token=%s&client=%s" % (state["http"], port, TOKEN, CLIENT))

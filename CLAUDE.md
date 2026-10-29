@@ -80,6 +80,7 @@ Both suites are green -- Python 2628 OK, C++ 453/453 -- and `ENABLE_DEVELOPER_TE
 is safe to leave on. `FreeCADCmd -t 0` needs a pty; see the doc.
 
 - **C++ (GoogleTest)**: `tests/src/`, mirroring the source tree (`App/`, `Base/`, `Gui/`, `Mod/`, `Misc/`). Run via `ctest` in the build dir, or a test binary directly with `--gtest_filter='Suite.Case'`.
+- **GUI (`tests/gui/`)**: `scripts/gui-test.sh` under xvfb on Linux. **On Windows, `scripts/gui-test.cmd`, which runs the test on a hidden desktop by default** -- real GL/D3D, nothing on the user's screen. Use it, not `QT_QPA_PLATFORM=offscreen`: on Windows that platform has no OpenGL, so the 3D view never draws and render dumps time out (`docs/Testing.md`, "The GUI tests").
 - **Python**: the `Test` workbench at `src/Mod/Test/` (`TestApp.py`, `Document.py`, `BaseTests.py`, …) plus per-module tests. Run with `FreeCADCmd -t <TestModule>` or, in the Python console, `import Test; Test.runTestApp()`.
 
 ## Code style & conventions

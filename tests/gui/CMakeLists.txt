@@ -91,6 +91,118 @@ fc_add_gui_test(GuiServeMirrorPick_tests_run serve-mirror-pick.py
 fc_add_gui_test(GuiSketchEditRoot_tests_run sketch-edit-root.py
                 --timeout 180)
 
+# The 3D sketch's edit mode (docs/Sketch3D.md section 7, phase S2a): the
+# workbench and toolbars of a sketch edit, the edit scene, leaving, and
+# Create 3D Sketch into the active Body.
+fc_add_gui_test(GuiSketch3DEdit_tests_run sketch3d-edit.py
+                --timeout 180)
+# Its manipulator (S2b): where a click lands on the active plane, along an
+# axis and with the height locked; the plane handles; the switching commands.
+fc_add_gui_test(GuiSketch3DManipulator_tests_run sketch3d-manipulator.py
+                --timeout 180)
+# Its drawing tools (S2c): the Sketcher's commands in a 3D sketch's edit,
+# snapping with the constraints it implies, splines, construction, undo.
+fc_add_gui_test(GuiSketch3DTools_tests_run sketch3d-tools.py
+                --timeout 180)
+# Its constraints from the selection (S2d): the Sketcher's constraint
+# commands, the dimension labels and their in-view values, Delete.
+fc_add_gui_test(GuiSketch3DConstraints_tests_run sketch3d-constraints.py
+                --timeout 180)
+# The Surface workbench's Sew command (docs/Surface.md, U0): on the tool bar,
+# from selected faces or whole shapes, its gap readout, one undo step.
+fc_add_gui_test(GuiSurfaceSew_tests_run surface-sew.py
+                --timeout 180)
+# Its Blend Curve task panel (U0, upstream's): both edges shown, a value set
+# in it recomputed, an edge picked, Cancel and OK.
+fc_add_gui_test(GuiSurfaceBlendCurve_tests_run surface-blend-curve.py
+                --timeout 180)
+# Its Network command and task panel (U1): a whole 3D sketch sorted, the
+# families separated and corrected, curves and supports picked, edge
+# conditions set and read out, Cancel and OK.
+fc_add_gui_test(GuiSurfaceNetwork_tests_run surface-network.py
+                --timeout 180)
+# And from a browser's connection (sec 8): the command op runs it, the
+# panel is mirrored and worked -- separate, a continuity, a tolerance, OK
+# refused and taken, Cancel -- with no dialog at any point.
+fc_add_gui_test(GuiServeSurfaceNetwork_tests_run serve-surface-network.py
+                --timeout 240)
+# Its cutting commands and the Trim panel (U2): Extend edges, Split, Trim,
+# Untrim from the selection; the sides kept picked in the view and toggled,
+# OK and Cancel; a selection they cannot use said without a dialog.
+fc_add_gui_test(GuiSurfaceTrim_tests_run surface-trim.py
+                --timeout 180)
+# And from a browser's connection: the four on the allowlist, the three
+# without a panel saying an unusable selection without a dialog, Trim's
+# panel mirrored and cancelled.
+fc_add_gui_test(GuiServeSurfaceTrim_tests_run serve-surface-trim.py
+                --timeout 180)
+# Its U3 commands: Blend surface, Two-rail sweep and Pipeshell from the
+# selection, as one undo step each; a selection they cannot use said without
+# a dialog.
+fc_add_gui_test(GuiSurfaceSweeps_tests_run surface-sweeps.py
+                --timeout 180)
+# Its Edge continuity command (U4): a crease, a fillet's tangent edge, two
+# faces picked; a selection it cannot use said without a dialog.
+fc_add_gui_test(GuiSurfaceContinuity_tests_run surface-continuity.py
+                --timeout 180)
+# Its curve tools (U5): isocurves, a curve on a surface, an intersection,
+# curves joined and an edge extended from the selection, one undo step each;
+# a selection they cannot use said without a dialog.
+fc_add_gui_test(GuiSurfaceCurves_tests_run surface-curves.py
+                --timeout 180)
+# A client that drops with a task panel open, whose Cancel throws: the panel
+# is closed with the client's view, and the server lives on.
+fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py
+                --timeout 120)
+# Its drag and kept planes (S2e): a point and a curve dragged with the
+# constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
+fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py
+                --timeout 180)
+# Its icons: its own, and the Sketcher's tools drawn in its teal while it is in
+# edit, back to red on leaving.
+fc_add_gui_test(GuiSketch3DIcons_tests_run sketch3d-icons.py
+                --timeout 180)
+# Its circles and arcs (S3a): from the centre in the working plane, from three
+# points in their own plane, on a kept plane; coaxial, a line along an axis.
+fc_add_gui_test(GuiSketch3DArcs_tests_run sketch3d-arcs.py
+                --timeout 180)
+# Its workplanes solved for (S3b): Keep Plane blocked, Horizontal and Vertical
+# on a plane, Block freeing a plane, a free plane carrying its geometry,
+# symmetric about a plane, the angle of two planes.
+fc_add_gui_test(GuiSketch3DWorkplanes_tests_run sketch3d-workplanes.py
+                --timeout 180)
+# Its corner fillet (S3c): the Sketcher's Fillet on two lines, on their corner
+# point and as a tool, its radius typed next, one undo step.
+fc_add_gui_test(GuiSketch3DFillet_tests_run sketch3d-fillet.py
+                --timeout 180)
+# Its spline on a face (S3d): points clicked on a model face, the spline in the
+# face's (u, v) through them, following the face.
+fc_add_gui_test(GuiSketch3DFaceSpline_tests_run sketch3d-face-spline.py
+                --timeout 180)
+# Its continuity to model edges (S3e): Tangent of an end and a model edge,
+# Smooth (G2) of two ends.
+fc_add_gui_test(GuiSketch3DContinuity_tests_run sketch3d-continuity.py
+                --timeout 180)
+# Its constraints without a value (S2 leftover): icons in the view, a press
+# selecting them, Delete; the panel's constraint list; placed again on a turn.
+fc_add_gui_test(GuiSketch3DConstraintIcons_tests_run sketch3d-constraint-icons.py
+                --timeout 180)
+# Its typed values (S2 leftovers): a length or offsets while placing, a
+# dimension's kind in its entry, the manipulator's angle after a ring turn.
+fc_add_gui_test(GuiSketch3DTypedValues_tests_run sketch3d-typed-values.py
+                --timeout 180)
+# Its edit from a browser (S4), over a real socket: the edit op, a tool by
+# the command op, clicks, a typed length, a drag, its own commands on the
+# browser allowlist, resetEdit -- and no 3D view made for any of it.
+fc_add_gui_test(GuiServeSketch3DEdit_tests_run serve-sketch3d-edit.py
+                --timeout 240)
+# And from a real browser: the edit drawn in the page, its constraint icon in
+# its two colours (a BLEND texture), a line and a typed length through the
+# page's value editor, End edit's shortcut.
+# Needs the built viewer, node, PUPPETEER_PATH and CHROME; skips without.
+fc_add_gui_test(GuiServeSketch3DBrowser_tests_run serve-sketch3d-browser.py
+                --timeout 420)
+
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:
 # the `edit` op refused until a camera is stated, the sketch's graph
@@ -170,6 +282,110 @@ fc_add_gui_test(GuiFilletGroupsAndPreviewMenu_tests_run fillet-groups-and-previe
 fc_add_gui_test(GuiFilletCornerVertexPick_tests_run fillet-corner-vertex-pick.py
                 --timeout 200)
 
+# Entry 207, the hands-on of 2026-10-21: an object in error is revealed in
+# the tree along its object path, not under a row that only groups it.
+fc_add_gui_test(GuiTreeRevealObjectPath_tests_run tree-reveal-object-path.py
+                --timeout 200)
+
+# Entries 209 and 210, the hands-on of 2026-10-21: automatic colours stand
+# apart -- a fillet's edge groups, PartDesign's tag colours, the shapes'.
+fc_add_gui_test(GuiFilletGroupColorsApart_tests_run fillet-group-colors-apart.py
+                --timeout 200)
+fc_add_gui_test(GuiAutoColorsSpread_tests_run auto-colors-spread.py
+                --timeout 200)
+
+# Entries 209 and 211, the hands-on of 2026-10-21: an edit recomputes the
+# feature and what it needs only while that waits for the migration
+# recompute of an old file's restore.
+fc_add_gui_test(GuiEditMigrationRecompute_tests_run edit-migration-recompute.py
+                --timeout 200)
+
+# Entry 208, the hands-on of 2026-10-21: a task panel laid over its view
+# bands its lists as an overlaid dock does (193's painter).
+fc_add_gui_test(GuiOverlayListRowBandsInView_tests_run overlay-list-row-bands-in-view.py
+                --timeout 200)
+
+# The reporter, 2026-10-23: a dress-up's edge list sorts by the column whose
+# title is clicked; the feature's own order stays what it writes back.
+fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
+                --timeout 200)
+
+# Entry 214, a crash on stage28: a group typed into a fillet's Group cell
+# filled the list anew inside Qt's commit of it, the row deleted under the
+# commit (heap corruption). The edge's row is changed in place now.
+fc_add_gui_test(GuiDressUpTypedGroupKeepsRow_tests_run dressup-typed-group-keeps-row.py
+                --timeout 200)
+
+# The reporter, 2026-10-23: PartDesign task panels narrow with their dock
+# (buttons, check boxes, spin and combo boxes at a few letters' minimum), and
+# a dress-up's element column stays put while the others scroll sideways.
+fc_add_gui_test(GuiPdPanelWidthsStickyColumn_tests_run pd-panel-widths-sticky-column.py
+                --timeout 200)
+
+# Entry 213, the reporter 2026-10-23: a dress-up handle made active (a click
+# on it) selects its edge, as a click on the edge's row does.
+fc_add_gui_test(GuiDressUpHandleSelectsEdge_tests_run dressup-handle-selects-edge.py
+                --timeout 200)
+
+# Entry 220, the reporter 2026-10-23: a group box (a bare frame) in an
+# overlaid task panel is as see-through as the panel, not the theme's ground.
+fc_add_gui_test(GuiOverlayPanelGroupBoxSeeThrough_tests_run overlay-panel-groupbox-see-through.py
+                --timeout 200)
+
+# Entry 216: a projection group with Auto Distribution lays its views out,
+# and follows its X/Y spacing, without a toggle (its views project in
+# threads: the GUI's event loop).
+fc_add_gui_test(GuiTechDrawProjGroupAutoDistribute_tests_run techdraw-projgroup-auto-distribute.py
+                --timeout 200)
+
+# Entry 217: a tree pick of a TechDraw object (sync on) brings its page view
+# to the front, opening it if closed; a double click does so whatever the
+# sync.
+fc_add_gui_test(GuiTechDrawTreePickSwitchesPage_tests_run techdraw-tree-pick-switches-page.py
+                --timeout 200)
+
+# Entry 218: a tree hover (preselect) lights a dimension's label and a
+# balloon's, not only their lines.
+fc_add_gui_test(GuiTechDrawTreeHoverLightsLabel_tests_run techdraw-tree-hover-lights-label.py
+                --timeout 200)
+
+# Entry 219: a double click on a dimension while a projection group is in
+# edit ends the group's edit, its change kept, and edits the dimension.
+fc_add_gui_test(GuiTechDrawDimensionEditEndsGroupEdit_tests_run techdraw-dimension-edit-ends-group-edit.py
+                --timeout 200)
+
+# Entry 215: every change in a chamfer's panel an undo step of its own, as
+# the fillet's (entry 136); Cancel takes the edit back.
+fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py
+                --timeout 200)
+
+# Entries 221, 224: a TechDraw page view shows the spreadsheet's thin
+# overlaid scroll bars (General/HidePageScrollBars, off by default, hides
+# them, applied at once) and pans either way.
+fc_add_gui_test(GuiTechDrawPageOverlayScrollBars_tests_run techdraw-page-overlay-scroll-bars.py
+                --timeout 200)
+
+# Entry 222: a spreadsheet's scroll bars laid over the cells, out of the
+# overlaid docks' way, thin and fading.
+fc_add_gui_test(GuiSpreadsheetScrollBarsBesideOverlay_tests_run spreadsheet-scroll-bars-beside-overlay.py
+                --timeout 200)
+
+# Entry 225: every list in an overlaid panel takes the thin overlaid scroll
+# bars, a task panel's made later too, and gives them back when the panel
+# leaves overlay mode; the tree's hide option, on, keeps them off it.
+fc_add_gui_test(GuiOverlayDockAutoScrollBars_tests_run overlay-dock-auto-scroll-bars.py
+                --timeout 200)
+
+# Entry 226: a dress-up group's automatic colour by its id alone; an edge
+# typed into an existing group takes that group's colour.
+fc_add_gui_test(GuiDressUpGroupColorsKept_tests_run dressup-group-colors-kept.py
+                --timeout 200)
+
+# Entry 228: each fine undo step of a fillet's or chamfer's panel is named
+# for what it did.
+fc_add_gui_test(GuiPdUndoStepNames_tests_run pd-undo-step-names.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.
@@ -217,7 +433,7 @@ fc_add_gui_test(GuiServeLog_tests_run serve-log.py
                 --timeout 240)
 fc_add_gui_test(GuiServeLogBrowser_tests_run serve-log-browser.py
                 --timeout 600)
-# What the panel does with what it lists (docs/TransactionLog.md sec 32.22):
+# What the panel does with what it lists (docs/TransactionLogJournal.md sec 32.22):
 # rows taken back, versions, branches, each asked of the host by an editor,
 # a viewer and the host; and the same from the page in a real browser.
 fc_add_gui_test(GuiServeLogActs_tests_run serve-log-acts.py
@@ -225,7 +441,7 @@ fc_add_gui_test(GuiServeLogActs_tests_run serve-log-acts.py
 fc_add_gui_test(GuiServeLogActsBrowser_tests_run serve-log-acts-browser.py
                 --timeout 600)
 # A copy larger than one message of the socket carries, sent from the page
-# in pieces (docs/TransactionLog.md sec 32.36): the progress it says, and
+# in pieces (docs/TransactionLogJournal.md sec 32.36): the progress it says, and
 # the host's copy byte for byte.
 fc_add_gui_test(GuiServeRequestBrowser_tests_run serve-request-browser.py
                 --timeout 600)
@@ -1430,6 +1646,23 @@ fc_add_gui_test(GuiServeEmptyDocument_tests_run
 fc_add_gui_test(GuiMatcapZebra_tests_run
                 matcap-zebra.py
                 --timeout 180)
+# The surface analysis matcaps (docs/Surface.md sec 7, U4): draft colours a
+# frustum's released, steep and undercut faces; the zebra fixed to the model
+# keeps its stripes on a sphere as the view turns, and the camera's does not.
+fc_add_gui_test(GuiMatcapAnalysis_tests_run
+                matcap-analysis.py
+                --timeout 180)
+# And the curvature map (U4): a sphere's mean curvature bracketed, a
+# cylinder's Gaussian curvature zero, a saddle's negative.
+fc_add_gui_test(GuiCurvatureMap_tests_run
+                curvature-map.py
+                --timeout 180)
+# The curvature comb, an overlay of any Part object's view (U4): even teeth
+# on a circle, none on a line, the longest at an ellipse's ends, the scale,
+# a rebuild on a change, a cylinder's isocurves, off.
+fc_add_gui_test(GuiCurvatureComb_tests_run
+                curvature-comb.py
+                --timeout 180)
 
 # A task dialog belongs to the view it was opened for
 # (docs/TaskPanelPerView.md, milestone 1): what a dialog reports as its
@@ -2232,3 +2465,57 @@ fc_add_gui_test(GuiXLinkSnapshotSave_tests_run
 fc_add_gui_test(GuiCaptureWaitsForExactEdges_tests_run
                 capture-waits-for-exact-edges.py
                 --timeout 180)
+
+# File > Export with Linked Files (docs/TransactionLogJournal.md sec 35 L7): the
+# dialog lists the set, writes it into a new folder, and asks before
+# writing into one that is not empty.
+fc_add_gui_test(GuiExportLinkedSet_tests_run
+                export-linked-set.py
+                --timeout 180)
+
+# File > Import a Linked Set (docs/TransactionLogJournal.md sec 35 L6): the dialog
+# pairs another copy of the set with ours, imports it as branches and
+# merges it as one undo step.
+fc_add_gui_test(GuiImportLinkedSet_tests_run
+                import-linked-set.py
+                --timeout 180)
+fc_add_gui_test(GuiImportClash_tests_run
+                import-clash.py
+                --timeout 120)
+
+# A drag out of an Auto Delete link group (docs/TransactionLogJournal.md sec
+# 37.12): a move, not the removal the mode makes of an element taken out.
+fc_add_gui_test(GuiLinkGroupDragOut_tests_run
+                link-group-drag-out.py
+                --timeout 120)
+
+# A set's merge says first what will not resolve after it
+# (docs/TransactionLogJournal.md sec 35.6 Q4, 35.16 G5), and offers to merge
+# the file kept ours that it needs.
+fc_add_gui_test(GuiImportLinkedSetReferences_tests_run
+                import-linked-set-references.py
+                --timeout 180)
+
+# A linked set's import leaves its files to be saved (docs/TransactionLogJournal.md
+# sec 35.18): each file given a branch is marked modified.
+fc_add_gui_test(GuiSetImportMarksModified_tests_run
+                set-import-marks-modified.py
+                --timeout 180)
+
+# A paste assigned onto an object here takes the look brought too, unless
+# unchecked (docs/TransactionLogJournal.md sec 35.18).
+fc_add_gui_test(GuiPasteAssignLook_tests_run
+                paste-assign-look.py
+                --timeout 120)
+
+# A save merges what another process saved into the file, says it while
+# idle, and puts a conflict to the merge (docs/TransactionLogJournal.md sec 29.8).
+fc_add_gui_test(GuiSaveMergesAnotherProcess_tests_run
+                save-merges-another-process.py
+                --timeout 180)
+
+# The Assembly workbench's tests in the GUI (TestAssemblyWorkbench.py): the
+# panels, the tree and the 3D view the headless run skips.
+fc_add_gui_test(GuiAssemblyWorkbench_tests_run
+                assembly-workbench-suite.py
+                --timeout 1200)

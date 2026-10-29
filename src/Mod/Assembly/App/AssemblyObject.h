@@ -363,6 +363,19 @@ public:
      * child (ExportMode "Child Query") starts from this.
      */
     bool getChildDefaultExport(App::DocumentObject* obj, int reason) const override;
+
+    /** What an assembly owns (docs/TransactionLogJournal.md sec 37.9): a
+     * part's (its origin, its aux groups and its Elements group), and in a
+     * file not converted upstream's joint, view and BOM groups, which
+     * deleting it deletes with their content (not the simulation group,
+     * which stays). Pasted onto a live
+     * assembly, each of those stands for the live one's of its type and
+     * follows the assembly.
+     */
+    std::vector<App::DocumentObject*> getOwnedObjects() const override;
+    App::DocumentObject* getOwnedCounterpart(const App::DocumentObject* owned,
+                                             const App::DocumentObject* liveOwner,
+                                             App::OwnedPaste& how) const override;
     template<typename T>
     T* getGroup();
 

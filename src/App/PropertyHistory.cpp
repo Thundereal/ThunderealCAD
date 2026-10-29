@@ -64,6 +64,8 @@ void PropertyHistory::setValue(const FileBlobHandle& db, const std::vector<FileB
 {
     aboutToSetValue();
     _db = db;
+    _file.clear();
+    _dir.clear();
     _blobs = blobs;
     _entries.clear();
     if (db)
@@ -73,6 +75,34 @@ void PropertyHistory::setValue(const FileBlobHandle& db, const std::vector<FileB
             _entries.push_back({blobs[i]->hash(), i < exts.size() ? exts[i] : std::string()});
     }
     hasSetValue();
+}
+
+void PropertyHistory::setFile(const std::string& name, const std::string& dir,
+                              const std::vector<FileBlobHandle>& blobs,
+                              const std::vector<std::string>& exts)
+{
+    aboutToSetValue();
+    _db.reset();
+    _file = name;
+    _dir = dir;
+    _blobs = blobs;
+    _entries.clear();
+    // The database's place in the list, with no hash: it is no blob.
+    _entries.push_back({std::string(), ".db"});
+    for (size_t i = 0; i < blobs.size(); ++i) {
+        if (blobs[i])
+            _entries.push_back({blobs[i]->hash(), i < exts.size() ? exts[i] : std::string()});
+    }
+    hasSetValue();
+}
+
+std::string PropertyHistory::databasePath() const
+{
+    if (_db)
+        return _db->path();
+    if (_file.empty())
+        return {};
+    return _dir.empty() ? _file : _dir + "/" + _file;
 }
 
 void PropertyHistory::assignRestoredBlob(const FileBlobHandle& blob)
@@ -108,19 +138,26 @@ void PropertyHistory::collectBlobs(FileBlobManager& manager, const DocumentObjec
 
 void PropertyHistory::Save(Base::Writer& writer) const
 {
-    if (writer.getSchemaVersion() < 5 || !_db) {
+    if (writer.getSchemaVersion() < 5 || isEmpty()) {
         // No store to put the files in: the history is not written, and
         // the file is a document without one (13.3, save without history).
         writer.Stream() << writer.ind() << "<History/>\n";
         return;
     }
-    blobManager().noteReferenced(_db, [this]() {
-        BlobReferrer r = FileBlobManager::referrerOf(this);
-        r.ext = ".db";
-        return r;
-    }());
-    writer.Stream() << writer.ind() << "<History db=\"" << _db->hash() << "\" count=\""
-                    << _blobs.size() << "\">\n";
+    if (_db) {
+        blobManager().noteReferenced(_db, [this]() {
+            BlobReferrer r = FileBlobManager::referrerOf(this);
+            r.ext = ".db";
+            return r;
+        }());
+        writer.Stream() << writer.ind() << "<History db=\"" << _db->hash() << "\" count=\""
+                        << _blobs.size() << "\">\n";
+    }
+    else {
+        // The folder form: a file beside Document.xml, by name (sec 38.9).
+        writer.Stream() << writer.ind() << "<History file=\"" << encodeAttribute(_file)
+                        << "\" count=\"" << _blobs.size() << "\">\n";
+    }
     for (const auto& b : _blobs) {
         std::string ext;
         for (const auto& e : _entries) {
@@ -139,11 +176,23 @@ void PropertyHistory::Restore(Base::XMLReader& reader)
 {
     reader.readElement("History");
     _db.reset();
+    _file.clear();
+    _dir.clear();
     _blobs.clear();
     _entries.clear();
-    if (!reader.hasAttribute("db"))
+    std::string db;
+    if (reader.hasAttribute("db")) {
+        db = reader.getAttribute("db");
+    }
+    else if (reader.hasAttribute("file")) {
+        // The folder form (sec 38.9): the file is read where the folder is.
+        _file = reader.getAttribute("file");
+        if (auto source = reader.getReader())
+            _dir = source->getDirectory();
+    }
+    else {
         return;
-    const std::string db = reader.getAttribute("db");
+    }
     const int count = static_cast<int>(reader.getAttributeAsInteger("count", "0"));
     _entries.push_back({db, ".db"});
     for (int i = 0; i < count; ++i) {
@@ -152,13 +201,15 @@ void PropertyHistory::Restore(Base::XMLReader& reader)
     }
     reader.readEndElement("History");
     // A version says what history its file carried when it was taken, and
-    // carries none of it (docs/TransactionLog.md sec 27.29): a document
+    // carries none of it (docs/TransactionLogJournal.md sec 27.29): a document
     // read from one has its file's log -- joined, or being recovered from.
     // There is nothing to wait for, and the manager would say that a file
     // is missing of every version opened.
     if (auto doc = Base::freecad_dynamic_cast<Document>(getContainer())) {
         if (doc->isReplaying()) {
             _entries.clear();
+            _file.clear();
+            _dir.clear();
             return;
         }
     }
@@ -170,10 +221,10 @@ void PropertyHistory::Restore(Base::XMLReader& reader)
 
 PyObject* PropertyHistory::getPyObject()
 {
-    if (!_db)
+    if (isEmpty())
         return Py::new_reference_to(Py::None());
     Py::Dict dict;
-    dict.setItem("db", Py::String(_db->path()));
+    dict.setItem("db", Py::String(databasePath()));
     Py::List blobs;
     for (const auto& b : _blobs)
         blobs.append(Py::String(b->path()));
@@ -190,6 +241,8 @@ Property* PropertyHistory::Copy() const
 {
     auto p = new PropertyHistory();
     p->_db = _db;
+    p->_file = _file;
+    p->_dir = _dir;
     p->_blobs = _blobs;
     p->_entries = _entries;
     return p;
@@ -202,6 +255,8 @@ void PropertyHistory::Paste(const Property& from)
         THROWM(Base::TypeError, "Incompatible property to paste to");
     aboutToSetValue();
     _db = p->_db;
+    _file = p->_file;
+    _dir = p->_dir;
     _blobs = p->_blobs;
     _entries = p->_entries;
     hasSetValue();
@@ -217,7 +272,7 @@ bool PropertyHistory::isSame(const Property& other) const
     auto p = Base::freecad_dynamic_cast<const PropertyHistory>(&other);
     if (!p)
         return false;
-    if (_entries.size() != p->_entries.size())
+    if (_entries.size() != p->_entries.size() || _file != p->_file)
         return false;
     for (size_t i = 0; i < _entries.size(); ++i) {
         if (_entries[i].hash != p->_entries[i].hash)

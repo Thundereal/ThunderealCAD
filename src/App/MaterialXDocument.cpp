@@ -157,7 +157,7 @@ FileBlobHandle MaterialXDocument::store(FileBlobManager &manager) const
     // Handed to the store as bytes: adoptBytes() hashes them and shares an
     // existing blob when the same manifest is already there. Not through a
     // scratch file, whose one name the transaction log's worker and the main
-    // thread could both write (docs/TransactionLog.md sec 27.73).
+    // thread could both write (docs/TransactionLogJournal.md sec 27.73).
     try {
         return manager.adoptBytes(text, "manifest");
     }

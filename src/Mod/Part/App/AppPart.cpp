@@ -109,6 +109,8 @@
 #include "LinePy.h"
 #include "LineSegmentPy.h"
 #include "OffsetCurvePy.h"
+#include "CurveOnSurfacePy.h"
+#include "GeomCurveOnSurface.h"
 #include "OffsetSurfacePy.h"
 #include "ParabolaPy.h"
 #include "Part2DObject.h"
@@ -211,12 +213,7 @@ PyObject* Part::PartExceptionOCCRangeError;
 PyObject* Part::PartExceptionOCCConstructionError;
 PyObject* Part::PartExceptionOCCDimensionError;
 
-namespace Part {
-// AppPartPy.cpp: hands the fillet corner plate fallback to the OCCT fork
-PartExport bool setOCCTPlateG0FallbackRatio(double ratio);
-// AppPartPy.cpp: hands the fillet corner setback fallback to the OCCT fork
-PartExport bool setOCCTCornerSetbackFallback(double multiple);
-}
+#include "OCCTFork.h" // the fillet settings handed to the OCCT fork
 
 PyMOD_INIT_FUNC(Part)
 {
@@ -342,6 +339,7 @@ PyMOD_INIT_FUNC(Part)
     Base::Interpreter().addType(&Part::BezierCurvePy        ::Type,partModule,"BezierCurve");
     Base::Interpreter().addType(&Part::BSplineCurvePy       ::Type,partModule,"BSplineCurve");
     Base::Interpreter().addType(&Part::OffsetCurvePy        ::Type,partModule,"OffsetCurve");
+    Base::Interpreter().addType(&Part::CurveOnSurfacePy     ::Type,partModule,"CurveOnSurface");
 
     Base::Interpreter().addType(&Part::PlanePy              ::Type,partModule,"Plane");
     Base::Interpreter().addType(&Part::CylinderPy           ::Type,partModule,"Cylinder");
@@ -569,6 +567,7 @@ PyMOD_INIT_FUNC(Part)
     Part::GeomLine                	::init();
     Part::GeomLineSegment         	::init();
     Part::GeomOffsetCurve         	::init();
+    Part::GeomCurveOnSurface        ::init();
     Part::GeomSurface             	::init();
     Part::GeomBezierSurface       	::init();
     Part::GeomBSplineSurface      	::init();

@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 32.25, the desktop's side: who may
+# GUI check of docs/TransactionLogJournal.md sec 32.25, the desktop's side: who may
 # what of a branch is said in the log panel's "Access..." dialog -- the users
 # the log knows that are not the desktop's own, read or write, the branch,
 # and for a write the version it starts at -- "Serve branch..." makes a

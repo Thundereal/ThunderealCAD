@@ -646,6 +646,13 @@ void EditableDatumLabel::setPlacement(const Base::Placement& plc)
     label->norm.setValue(SbVec3f(float(RN.x), float(RN.y), float(RN.z)));
 }
 
+void EditableDatumLabel::setOutline(SbColor color, float width)
+{
+    // the label's look alone: no part of the state a client is told of
+    label->outlineColor = color;
+    label->outlineWidth = width;
+}
+
 // NOLINTNEXTLINE
 void EditableDatumLabel::setColor(SbColor color)
 {

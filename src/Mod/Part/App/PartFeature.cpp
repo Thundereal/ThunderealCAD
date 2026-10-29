@@ -388,7 +388,7 @@ App::DocumentObjectExecReturn *Feature::recompute()
     // An algorithm refused to change a frozen input, and the feature took
     // it as a failure (most turn the OCCT exception into an error message):
     // once more, on copies of the inputs, which are the algorithm's to
-    // change (docs/TransactionLog.md sec 27.82). Counted, not caught: the
+    // change (docs/TransactionLogJournal.md sec 27.82). Counted, not caught: the
     // refusal seldom reaches here as an exception.
     //
     // A feature that reports no error is run again as well (sec 33.6). The
@@ -609,7 +609,7 @@ Feature::getExportElementName(TopoShape shape, const char *name) const
                     // copy of the shape. Then the name is made and not set:
                     // it waits beside the map, is found there by whoever
                     // asks, and is taken in by the main thread once nobody
-                    // holds the map (docs/TransactionLog.md sec 31.31). The
+                    // holds the map (docs/TransactionLogJournal.md sec 31.31). The
                     // string table the name is hashed into has a lock.
                     if (App::Application::isMainThread() && !shape.isElementMapHeld()) {
                         mapped.name = shape.setElementComboName(
@@ -1374,7 +1374,7 @@ static TopoShape _getTopoShape(const App::DocumentObject *obj, const char *subna
             shape.transformShape(mat*linkMat,false,true);
         else
             shape.transformShape(linkMat,false,true);
-        // A crossing names its document (docs/TransactionLog.md sec 27.76
+        // A crossing names its document (docs/TransactionLogJournal.md sec 27.76
         // item 4).
         if (linked->getDocument() != owner->getDocument())
             shape.reTagElementMap(tag, hasher,
@@ -2004,7 +2004,7 @@ void Feature::onChanged(const App::Property* prop)
         Base::ObjectStatusLocker<App::Property::Status, App::Property> guard(
                 App::Property::NoRecompute, &this->Shape);
         // Nobody sets this shape: it follows the property just written
-        // (docs/TransactionLog.md sec 31.26)
+        // (docs/TransactionLogJournal.md sec 31.26)
         App::TransactionFollowing following;
         // The same shape moved: its elements' looks stay what they are, and
         // mapping them again for each part a solve moves was a quarter of an
@@ -2599,18 +2599,34 @@ void Feature::restoreShapeContents() {
     }
     else if (auto ownerProp = get_ShapeContentOwnerProperty()) {
         if (auto owner = Base::freecad_dynamic_cast<Feature>(ownerProp->getValue())) {
+            // A copy of a content takes the shape of the content it is a copy
+            // of, which it names by its UID (docs/TransactionLogJournal.md sec 36.7):
+            // the one it was brought with, kept in _SourceUUID for its reopen
             auto propSource = Base::freecad_dynamic_cast<App::PropertyUUID>(
-                    this->getPropertyByName("_SourceUUID"));
+                    this->getDynamicPropertyByName("_SourceUUID"));
+            // kept or not: a content brought with its UID kept finds the
+            // one it was copied from by it as well (`obj != this` below)
+            std::string source = getDocument()->getBroughtObjectUid(this);
+            if (!source.empty() && !propSource
+                    && !this->getDynamicPropertyByName("_SourceUUID"))
+                propSource = static_cast<App::PropertyUUID*>(addDynamicProperty(
+                        "App::PropertyUUID", "_SourceUUID", nullptr, nullptr,
+                        App::Prop_Output | App::Prop_Hidden));
+            if (propSource) {
+                if (!source.empty())
+                    propSource->setValue(source);
+                source = propSource->getValueStr();
+            }
             auto propContents = owner->getShapeContentsProperty();
-            if (propSource && propContents) {
+            // The owner's shape may be still to come from the file, and its
+            // contents have theirs once it is in
+            if (!source.empty() && propContents)
+                (void)owner->Shape.getShape();
+            if (!source.empty() && propContents) {
                 for (auto obj : propContents->getValues()) {
-                    if (auto propUUID = Base::freecad_dynamic_cast<App::PropertyUUID>(
-                            obj->getPropertyByName("_ObjectUUID")))
-                    {
-                        if (propUUID->getValue() == propSource->getValue()) {
-                            if (auto feat = Base::freecad_dynamic_cast<Feature>(obj)) {
-                                this->Shape.setValue(feat->Shape.getValue());
-                            }
+                    if (obj != this && obj->getObjectUid() == source) {
+                        if (auto feat = Base::freecad_dynamic_cast<Feature>(obj)) {
+                            this->Shape.setValue(feat->Shape.getValue());
                         }
                         break;
                     }

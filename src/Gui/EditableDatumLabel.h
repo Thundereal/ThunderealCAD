@@ -89,6 +89,8 @@ public:
     void setSpinboxValue(double val, const Base::Unit& unit = Base::Unit::Length);
     void setPlacement(const Base::Placement& plc);
     void setColor(SbColor color);
+    /// A border round the number and its lines, width pixels in color; 0 for none
+    void setOutline(SbColor color, float width);
     /// the colour of a parameter the user has given a value
     void setActivatedColor();
     /// the colour of one still taking its value from the pointer

@@ -128,7 +128,7 @@ its level.
 
 ### 2.3 Who may write: someone known
 
-Added 2026-10-04, with the transaction log's authors (docs/TransactionLog.md sec 30.6
+Added 2026-10-04, with the transaction log's authors (docs/TransactionLogJournal.md sec 30.6
 U4 and U6, 30.9, 30.11). What a connection writes is recorded under who it is, so a
 connection that is nobody does not write. **Sec 2.2's rule for a host, extended to
 edit:**
@@ -172,7 +172,7 @@ person a served scene is started for -- the demo recipes of `docs/Sandbox.md`, a
 tunnel -- `FC_SERVE_INVITE=<name>` does the same with no grant list: the link is
 `?token=<secret>&client=<name>`.
 
-**From the sharing panel** (2026-10-05, docs/TransactionLog.md sec 30.26, 30.32). The
+**From the sharing panel** (2026-10-05, docs/TransactionLogJournal.md sec 30.26, 30.32). The
 Invite row follows the door. Behind a sign-in door it takes an identity, as it did.
 Behind none it takes a name and a count of browsers, and makes a grant with a token of
 its own that counts them (sec 2.5); the link that carries the token is put on the
@@ -185,7 +185,7 @@ the name gets.
 
 ### 2.5 A grant that counts its browsers
 
-Added 2026-10-05 (docs/TransactionLog.md sec 30.32; numbered after 2.4, read with
+Added 2026-10-05 (docs/TransactionLogJournal.md sec 30.32; numbered after 2.4, read with
 2.3). **A token is half of who its holder is; the browser keeps the other half.** The
 viewer makes an id once, keeps it (`localStorage`), and says it in every hello. The
 host knows a browser by a hash of that id, and keeps a **record** of every browser an
@@ -212,11 +212,11 @@ was first opened in and in no other, each is a row the host can act on, and each
 one's writes are its own. A plain request -- the first load, the polling route, a
 blob -- says which browser it is in a header, `X-FC-Device`, and is judged as a hello
 is: a browser the grant has, or has room for, reads; one that says nothing, and one
-past the count, reads nothing of the scene (docs/TransactionLog.md sec 30.40).
+past the count, reads nothing of the scene (docs/TransactionLogJournal.md sec 30.40).
 
 ### 2.4 What a client may send: files
 
-Added 2026-10-05 (docs/TransactionLog.md sec 30.23). Two control ops carry
+Added 2026-10-05 (docs/TransactionLogJournal.md sec 30.23). Two control ops carry
 a file from a browser to the host, and both go one way only: the client
 sends a name and bytes, the host alone decides where they land, and no op
 lists a directory, reads a host file or takes a path from a client.
@@ -231,7 +231,7 @@ lists a directory, reads a host file or takes a path from a client.
   log -- a row under the sender and the bytes as one blob, saved with the
   history, so it waits across a restart -- and let go once the branch it
   was brought in to is merged or deleted, or when it is dropped unread
-  (docs/TransactionLog.md sec 30.29).
+  (docs/TransactionLogJournal.md sec 30.29).
 
 Both are for a connection that may edit (sec 2.3), and both are under one
 limit: **the preference `UploadLimitMB`** of `BaseApp/Preferences/SceneShare`,
@@ -239,7 +239,7 @@ limit: **the preference `UploadLimitMB`** of `BaseApp/Preferences/SceneShare`,
 read at each upload. It cannot be raised past 1 GB. One frame of the
 socket carries 46 MB once the bytes are base64; a larger file is sent in
 pieces (`upload.begin`, `upload.piece`, then the op naming the upload,
-docs/TransactionLog.md sec 32.36), held for the connection that began it
+docs/TransactionLogJournal.md sec 32.36), held for the connection that began it
 until the op takes it.
 
 The dialog that starts a share and the sharing panel both have the control
@@ -291,7 +291,7 @@ origin in a header:
 in a header.** Build to that and the front door is swappable.
 
 **Only a door that signs people in is believed about who they are** (2026-10-05,
-docs/TransactionLog.md sec 30.26). Trusting the proxy is two things: its word for the
+docs/TransactionLogJournal.md sec 30.26). Trusting the proxy is two things: its word for the
 client's address, and its word for the client's identity. A quick tunnel, or a reverse
 proxy that only carries traffic, passes on whatever headers the client wrote, so a
 client that sends `X-Forwarded-Email` itself would be a verified identity -- an editor

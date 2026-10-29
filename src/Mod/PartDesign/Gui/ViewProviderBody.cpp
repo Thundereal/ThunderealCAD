@@ -41,6 +41,7 @@
 #include <Base/Tools.h>
 #include <Gui/ActionFunction.h>
 #include <Gui/Application.h>
+#include <Base/AutoColor.h>
 #include <Gui/Command.h>
 #include <Gui/Document.h>
 #include <Gui/MDIView.h>
@@ -412,32 +413,24 @@ unsigned long ViewProviderBody::generateIconColor(App::DocumentObject *feat) con
     }
     if (colors.size()==3 && solid_count <= 1)
         return 0;
-    std::vector<SbVec3f> hsvs;
+    // The hue farthest from those the body's solids wear already -- and the
+    // green taken besides; black and white have none -- as the dress-up
+    // groups pick theirs (Base::farthestHue, docs/HandsOnQueue.md entry 210).
+    // A random hue, retried until not near one in use, could still land
+    // next to one.
+    std::vector<float> taken;
     for (unsigned long color : colors) {
         SbColor c;
         float t;
         c.setPackedValue(color, t);
-        hsvs.emplace_back();
-        c.getHSVValue(hsvs.back()[0], hsvs.back()[1], hsvs.back()[2]);
-    }
-    float h, s, v;
-    for(int retry=0; retry<100; ++retry) {
-        h = ((float)rand())/(float(RAND_MAX));
-        s = 1.0;
-        v = ((float)rand())/(float(RAND_MAX)) * 0.5f + 0.25f;
-        bool done = true;
-        for (auto hsv : hsvs) {
-            if(fabs(h-hsv[0]) + fabs(v-hsv[2]) < 0.2f) {
-                done = false;
-                break;
-            }
-        }
-        if (done)
-            break;
+        float h, s, v;
+        c.getHSVValue(h, s, v);
+        if (s > 0.25f)
+            taken.push_back(h);
     }
     float t = 0.0f;
     SbColor c;
-    c.setHSVValue(h, s, v);
+    c.setHSVValue(Base::farthestHue(taken), 1.0f, 0.6f);
     return c.getPackedValue(t);
 }
 

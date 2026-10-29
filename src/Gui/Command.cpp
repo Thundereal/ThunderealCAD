@@ -2465,6 +2465,12 @@ void CommandManager::updateCommands(const char* sContext, int mode)
         signalChanged();
 }
 
+int CommandManager::getCommandMode(const char* sContext) const
+{
+    auto it = _sCurrentCommandModes.find(sContext);
+    return it == _sCurrentCommandModes.end() ? -1 : it->second;
+}
+
 const Command* Gui::CommandManager::checkAcceleratorForConflicts(const char* accel, const Command* ignore) const
 {
     if (!accel || accel[0] == '\0')

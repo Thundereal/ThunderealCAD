@@ -23,6 +23,7 @@
 
 #include "PreCompiled.h"
 
+#include <optional>
 #include <algorithm>
 
 #include <QDir>
@@ -38,6 +39,7 @@
 #include <Base/Tools.h>
 
 #include "PropertyLinks.h"
+#include "ExportSet.h"
 #include "Application.h"
 #include "TransactionValue.h"
 #include "FileHistory.h"
@@ -299,6 +301,9 @@ enum class Following {
     No,     ///< as ever: searched by geometry, else marked missing
     Names,  ///< left as it is, and said in followMissed
     Mark,   ///< marked missing, nothing searched
+    /// As No, and an element no mapped name says -- of a shape nobody
+    /// named, an import's -- is searched by geometry too (sec 31.34)
+    Unnamed,
 };
 thread_local Following following = Following::No;
 thread_local bool followMissed = false;
@@ -330,7 +335,9 @@ void PropertyLinkBase::followElementReferences(const ElementEvidence &evidence)
         auto geo = Base::freecad_dynamic_cast<GeoFeature>(feature);
         if (geo && evidence && evidence(geo, this)) {
             // The feature has what this was written against: as any
-            // reference whose element went
+            // reference whose element went, and one that no name says, by
+            // the geometry its number had there (sec 31.34)
+            FollowingScope search(Following::Unnamed);
             updateElementReference(feature, false, true);
         }
         else {
@@ -347,7 +354,7 @@ void PropertyLinkBase::updateElementReferences(DocumentObject *feature, bool rev
     if(it == _ElementRefMap.end())
         return;
     // What is written from here on follows the feature's shape: nobody
-    // sets it (docs/TransactionLog.md sec 31.25)
+    // sets it (docs/TransactionLogJournal.md sec 31.25)
     TransactionFollowing scope;
     std::vector<PropertyLinkBase*> props;
     props.reserve(it->second.size());
@@ -424,7 +431,7 @@ static bool translateElement(const char *element, const StringHasher &from, Stri
 }
 
 /// A reference across tables keeps 'first' imported into the owner's table:
-/// what the file stores (docs/TransactionLog.md sec 27.76 item 5).
+/// what the file stores (docs/TransactionLogJournal.md sec 27.76 item 5).
 static void storeShadow(PropertyLinkBase::ShadowSub &shadow, StringHasher &owner,
                         const StringHasher &target)
 {
@@ -437,7 +444,7 @@ static void storeShadow(PropertyLinkBase::ShadowSub &shadow, StringHasher &owner
     }
 }
 
-/** A restored reference across tables (docs/TransactionLog.md sec 27.76 item
+/** A restored reference across tables (docs/TransactionLogJournal.md sec 27.76 item
  * 5) takes its working form, 'first', from what the file stored: the stored
  * name looked up by content in the target's table, which the target may have
  * compacted or re-minted since. The ids read are held in the owner's table.
@@ -504,7 +511,7 @@ static bool lookupShadow(DocumentObject *obj, std::string &sub,
 }
 
 /** Hold the string ids of the element 'shadow' names in 'geo'
- * (docs/TransactionLog.md sec 27.75). 'element' is the element part of the
+ * (docs/TransactionLogJournal.md sec 27.75). 'element' is the element part of the
  * resolved new style name, null while the element is missing: a missing
  * reference keeps what it holds, which is the point. An element the
  * reference moved to takes the map's ids. Otherwise the ids a file gave are
@@ -676,6 +683,7 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         _ElementRefMap[geo].insert(this);
 
     bool missing = GeoFeature::hasMissingElement(elementName.second.c_str());
+    bool unnamed = false;
     if (!missing && Data::hasMissingElement(element)) {
         // The sub-name is itself the missing marker ('?Face3', what a
         // missing reference reads as once it has been saved and restored).
@@ -705,13 +713,26 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         // the search below is what the restore is for (TopoNamingEnhance.md
         // 7.16).
         if (elementName.first.empty() && !(restoring && !found)) {
-            shadow.second.swap(elementName.second);
-            return false;
+            // No name says the element -- a shape nobody named, an
+            // import's (sec 31.34). In a merge its number is theirs': said
+            // as a name missed is, so that what it was written against is
+            // had, and then searched for by geometry as a missing one is.
+            const bool merged = feature == geo && !GeoFeature::hasMissingElement(sub.c_str());
+            if (following == Following::Names && merged) {
+                followMissed = true;
+                return false;
+            }
+            if (following != Following::Unnamed || !merged) {
+                shadow.second.swap(elementName.second);
+                return false;
+            }
+            unnamed = true;
+            missing = true;
         }
         // Unchanged, unless it is a missing reference being restored: the
         // XML pass may have resolved it before the shapes arrived, and the
         // request below is what the restore is for.
-        if(shadow==elementName && !(restoring && missing)) {
+        if(shadow==elementName && !(restoring && missing) && !unnamed) {
             holdShadowIDs(shadow, geo, missing ? nullptr : shadowElement(shadow), false, hasher);
             return false;
         }
@@ -762,6 +783,14 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
                             << oldName << " -> " << newName);
                 }
             }
+            // Not found, an unnamed one is marked as a missed name is: left
+            // as its number, it is some other element of this shape
+            else if (unnamed) {
+                std::string marked(subname, strlen(subname) - strlen(element));
+                marked += Data::missingPrefix();
+                marked += element;
+                elementName.second = marked;
+            }
             // Note: the following code proves to be too risky. There is no way
             // (so far) to ensure the recompute do not change the geometry. If
             // the geometry does remain the same, the above geometry search
@@ -795,8 +824,30 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         }
     }
 
+    // A reference put right with no signal -- a restore's (docs/
+    // TransactionLogJournal.md sec 38.14) -- is still a change to what the file
+    // holds, which a folder's next save must not keep the old file over.
+    struct NoteChange
+    {
+        PropertyLinkBase* prop;
+        const std::string& sub;
+        const ShadowSub& shadow;
+        std::string subWas;
+        ShadowSub shadowWas;
+        ~NoteChange()
+        {
+            if (sub == subWas && shadow == shadowWas)
+                return;
+            auto obj = freecad_dynamic_cast<DocumentObject>(prop->getContainer());
+            if (obj && obj->getDocument())
+                obj->getDocument()->noteSavedChange(obj);
+        }
+    };
+    std::optional<NoteChange> noteChange;
     if(notify)
         aboutToSetValue();
+    else
+        noteChange.emplace(NoteChange {this, sub, shadow, sub, shadow});
 
     auto updateSub = [&](const std::string &newSub) {
         if (sub != newSub) {
@@ -824,6 +875,9 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         holdShadowIDs(shadow, geo, shadowElement(shadow), true, hasher);
         if(shadow.first.size() && Data::hasMappedElementName(sub.c_str()))
             updateSub(shadow.first);
+        // Found by geometry with no name (sec 31.34): its number is all
+        else if (unnamed)
+            updateSub(shadow.second);
     }
 
     if(reverse) {
@@ -1949,7 +2003,7 @@ bool PropertyLinkSub::referenceChanged() const {
 }
 
 /// A sub-object path read from a value of another copy of the file names
-/// its element in that copy's string table (docs/TransactionLog.md sec
+/// its element in that copy's string table (docs/TransactionLogJournal.md sec
 /// 30.16): taken into this file's, where a restore is reading one.
 static std::string importSubStrings(std::string sub)
 {
@@ -2242,7 +2296,7 @@ static bool allOf(const Data::ElementIDRefs &sids, const StringHasherRef &hasher
 
 /** The string ids a shadow holds, written beside it as the element map
  * writes its own (hex, space separated), and noted for a transaction-log
- * capture of the value (sec 27.50 item 4): docs/TransactionLog.md sec
+ * capture of the value (sec 27.50 item 4): docs/TransactionLogJournal.md sec
  * 27.75. Ids read and not yet held go out as they came in.
  *
  * Only the owner's table's: a reference across tables (sec 27.76 item 5)
@@ -2332,7 +2386,7 @@ static void markShadowIDs(const std::vector<PropertyLinkBase::ShadowSub> &shadow
 }
 
 /// Whether a link target is written: in the document, or removed while a
-/// transaction-log capture holds the name it had (docs/TransactionLog.md sec
+/// transaction-log capture holds the name it had (docs/TransactionLogJournal.md sec
 /// 24.3, 27.67) -- a value of an object removed with its target.
 static bool isSavedTarget(const DocumentObject* obj)
 {
@@ -3780,7 +3834,7 @@ DocInfoMap _DocInfoMap;
 namespace {
 
 /// The file a link's owner is a document of: its FileName, or the file a
-/// version document is of (docs/TransactionLog.md sec 27.20); empty when
+/// version document is of (docs/TransactionLogJournal.md sec 27.20); empty when
 /// the owner is not saved.
 std::string ownFileOf(const DocumentObject* owner)
 {
@@ -3815,7 +3869,7 @@ public:
     std::string myPath;
     App::Document *pcDoc{nullptr};
     std::set<PropertyXLink*> links;
-    /// For a pinned link's DocInfo (docs/TransactionLog.md sec 27.7), keyed
+    /// For a pinned link's DocInfo (docs/TransactionLogJournal.md sec 27.7), keyed
     /// `<file>@v<num>`: the version, and the file's history, kept open until
     /// the version's document has it.
     int64_t version {0};
@@ -4189,7 +4243,7 @@ public:
     static DocInfoPtr get(const char *filename,
             App::Document *pDoc,PropertyXLink *l, const char *objName)
     {
-        // A version document is named `<file>@v<num>` (docs/TransactionLog.md
+        // A version document is named `<file>@v<num>` (docs/TransactionLogJournal.md
         // sec 27.7): a link to it is pinned to that version, and the path it
         // keeps is the file's.
         std::string plain(filename ? filename : "");
@@ -4278,6 +4332,16 @@ public:
                             info->attach(doc);
                     }
                 }
+            }
+            else if (objName && *objName
+                     && info->pcDoc->testStatus(App::Document::VersionDoc)
+                     && info->pcDoc->testStatus(App::Document::PartialDoc)) {
+                // A version read in part for other links (TransactionLog sec
+                // 35 L8), without this one's object: read again, with it.
+                auto obj = info->pcDoc->getObject(objName);
+                if (!obj || obj->testStatus(App::PartialObject))
+                    App::GetApplication().addPendingDocument(
+                        info->pcDoc->FileName.getValue(), objName, false);
             }
         } else {
             info = std::make_shared<DocInfo>();
@@ -4382,7 +4446,10 @@ public:
                     return;
                 }
             }
-            if (l->testFlag(PropertyLinkBase::LinkSilentRestore)
+            // An import's link to a file that is not there is broken, as at
+            // an open (TransactionLog sec 35 L1), not a stop.
+            if ((l->testFlag(PropertyLinkBase::LinkSilentRestore)
+                        || PropertyXLink::ImportPaths::covering(*l))
                     && !QFileInfo(QString::fromUtf8(myPath.c_str())).exists()) {
                 FC_LOG("document file does not exists: " << filePath());
                 return;
@@ -4521,7 +4588,13 @@ public:
         // time stamp changed, touch the linking document.
         std::set<Document*> docs;
         for(auto link : links) {
-            auto linkdoc = static_cast<DocumentObject*>(link->getContainer())->getDocument();
+            auto owner = static_cast<DocumentObject*>(link->getContainer());
+            auto linkdoc = owner->getDocument();
+            // What the link saves -- the file's path and stamp -- moved
+            // with no change of its own: a folder save writes the owner
+            // again rather than keep its file (TransactionLog sec 38.21 F2).
+            if (linkdoc)
+                linkdoc->noteSavedChange(owner);
             auto ret = docs.insert(linkdoc);
             if(ret.second) {
                 // This will signal the Gui::Document to call setModified();
@@ -4844,6 +4917,14 @@ void PropertyXLink::setValue(App::DocumentObject *lValue,
 
     aboutToSetValue();
 
+    // Held (sec 35 L5) while it is to the held file.
+    if (!_heldHash.empty()) {
+        const std::string tail = "/held/" + _heldPath;
+        const std::string file = lValue ? lValue->getDocument()->FileName.getStrValue() : "";
+        if (file.size() < tail.size() || file.compare(file.size() - tail.size(), tail.size(), tail))
+            _heldHash.clear(), _heldPath.clear();
+    }
+
     DocInfoPtr info;
     const char *name = "";
     if(lValue) {
@@ -4945,7 +5026,7 @@ void PropertyXLink::setValue(std::string &&filename, std::string &&name,
     if(pObject) {
         // Through the DocInfo just found, not one derived again from the
         // document's name: a version document saved as its file keeps the
-        // name of the version it was opened at (docs/TransactionLog.md sec
+        // name of the version it was opened at (docs/TransactionLogJournal.md sec
         // 27.16), and that name would pin the link back to it.
         if (info && docInfo != info) {
             if (docInfo)
@@ -5005,7 +5086,7 @@ void PropertyXLink::setPin(int64_t version, const std::string& uuid)
     if (!owner || !owner->isAttachedToDocument())
         THROWM(Base::RuntimeError, "invalid container")
     // The file linked, whatever its document is now -- the file itself, or
-    // a version of it (docs/TransactionLog.md sec 27.7).
+    // a version of it (docs/TransactionLogJournal.md sec 27.7).
     std::string file;
     if (docInfo)
         file = docInfo->myPath;
@@ -5045,6 +5126,33 @@ void PropertyXLink::setPin(int64_t version, const std::string& uuid)
         return;
     }
     setValue(std::move(file), std::move(name), std::move(subs), std::move(shadows));
+    hasSetValue();
+}
+
+void PropertyXLink::setPlainFile(const std::string& path)
+{
+    OperationScope scope;   // sec 27.38
+    auto owner = dynamic_cast<DocumentObject*>(getContainer());
+    if (!owner || !owner->isAttachedToDocument())
+        THROWM(Base::RuntimeError, "invalid container")
+    std::string name = _pcLink && _pcLink->isAttachedToDocument()
+        ? std::string(_pcLink->getNameInDocument()) : objectName;
+    if (name.empty() || path.empty())
+        return;
+    std::vector<std::string> subs(_SubList);
+    std::vector<ShadowSub> shadows(_ShadowSubList);
+    aboutToSetValue();
+    _pinVersion = 0;
+    _pinUuid.clear();
+    _liveBranch.clear();
+    _heldHash.clear();
+    _heldPath.clear();
+    clearLibraryForm();
+    if (docInfo) {
+        docInfo->remove(this);
+        docInfo.reset();
+    }
+    setValue(std::string(path), std::move(name), std::move(subs), std::move(shadows));
     hasSetValue();
 }
 
@@ -5369,7 +5477,7 @@ void PropertyXLink::Save (Base::Writer &writer) const {
     auto owner = dynamic_cast<const DocumentObject *>(getContainer());
     // A detached copy -- a before value the undo system took, a value the
     // transaction log copies at commit -- has no owner; it writes relative
-    // to the document the log's capture is for (docs/TransactionLog.md sec
+    // to the document the log's capture is for (docs/TransactionLogJournal.md sec
     // 27.67). It holds no _pcLink, only the names copyTo() kept.
     const Document* ownerDoc = owner ? owner->getDocument() : capturingDocument();
     if(!ownerDoc)
@@ -5459,11 +5567,31 @@ void PropertyXLink::Save (Base::Writer &writer) const {
                 }
             }
         }
+        // A set exported (TransactionLog sec 35 L7): a link to a document of
+        // the set names that document's copy, as a plain link.
+        std::string setPath;
+        {
+            const Document* target = docInfo && docInfo->pcDoc ? docInfo->pcDoc
+                : (_pcLink ? _pcLink->getDocument() : nullptr);
+            if (target && target != ownerDoc)
+                setPath = ExportSetPaths::pathTo(ownerDoc, target);
+        }
+        const bool plain = !setPath.empty();
+        if (plain)
+            path = setPath.c_str();
+        // A link of the copy to a document left out of the set -- a file in
+        // a library (LibraryPaths.md step 4), or one not open -- names its
+        // file in full: the copy is not where its owner is. A library link
+        // keeps its library and resolves through it first.
+        else if (docInfo && ExportSetPaths::writingCopyOf(ownerDoc)) {
+            _path = docInfo->filePath();
+            path = _path.c_str();
+        }
         // A pin or a live branch of the owner's own file is saved with no
         // file: "this document's file", whatever it is called after a Save
         // As (sec 27.20, 27.21 Q2). A FreeCAD that does not know the pin
         // reads a local link.
-        if (!exporting && docInfo && (_pinVersion > 0 || !_liveBranch.empty()) && _selfFile)
+        else if (!exporting && docInfo && (_pinVersion > 0 || !_liveBranch.empty()) && _selfFile)
             path = "";
         writer.Stream() << writer.ind()
             << "<XLink file=\"" << encodeAttribute(path)
@@ -5481,19 +5609,26 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         // snapshot.
         if (!snapshot.empty())
             writer.Stream() << "\" snapshot=\"" << _pcLink->getDocument()->Uid.getValueStr();
-        if (!_libName.empty() && !_libFile.empty() && *path) {
+        if (!plain && !_libName.empty() && !_libFile.empty() && *path) {
             writer.Stream() << "\" lib=\"" << encodeAttribute(_libName)
                             << "\" libfile=\"" << encodeAttribute(_libFile);
         }
-        // Pinned (docs/TransactionLog.md sec 16.5, 27): absent otherwise,
+        // Held (sec 35 L5): the file is written again from the log where the
+        // path is gone. Absent otherwise; a FreeCAD that does not know it
+        // finds the file or not.
+        if (!plain && !_heldHash.empty()) {
+            writer.Stream() << "\" held=\"" << encodeAttribute(_heldHash)
+                            << "\" heldpath=\"" << encodeAttribute(_heldPath);
+        }
+        // Pinned (docs/TransactionLogJournal.md sec 16.5, 27): absent otherwise,
         // and a FreeCAD that does not know them resolves the file.
-        if (_pinVersion > 0) {
+        if (!plain && _pinVersion > 0) {
             writer.Stream() << "\" version=\"" << _pinVersion;
             if (!_pinUuid.empty())
                 writer.Stream() << "\" vuuid=\"" << encodeAttribute(_pinUuid);
         }
         // Live to a branch of the file (sec 27.23): whatever holds it.
-        else if (!_liveBranch.empty()) {
+        else if (!plain && !_liveBranch.empty()) {
             writer.Stream() << "\" branch=\"" << encodeAttribute(_liveBranch);
         }
     }
@@ -5556,6 +5691,176 @@ void PropertyXLink::Save (Base::Writer &writer) const {
     }
 }
 
+namespace {
+thread_local PropertyXLink::ImportPaths* _ImportPaths = nullptr;
+thread_local PropertyXLink::ImportSetLinks* _ImportSetLinks = nullptr;
+
+std::string folderOf(const std::string& file)
+{
+    return QFileInfo(QString::fromUtf8(file.c_str())).absolutePath().toUtf8().constData();
+}
+
+/** The file of theirs a set import holds by `hash` (sec 35 L5), written to
+ * `held/<heldPath>` in the transient directory of the document whose log
+ * holds it -- `owner` first, then every open one -- unless it is there
+ * already. Its path; empty when no document holds it.
+ */
+std::string writeHeldFile(const std::string& hash, const std::string& heldPath,
+                          App::Document* owner)
+{
+    // The path comes from a file: one with no way out of held/ -- not
+    // absolute, no `..`, no `\` or `:` -- as the import makes it (holdAlone)
+    // and as a save record's lines are taken (sec 39, L2).
+    if (heldPath.empty() || heldPath.front() == '/'
+            || heldPath.find_first_of("\\:") != std::string::npos) {
+        FC_WARN("the held file '" << heldPath << "' is not a path under held/: not written");
+        return {};
+    }
+    for (const QString& part : QString::fromUtf8(heldPath.c_str()).split(QLatin1Char('/'))) {
+        if (part == QStringLiteral("..")) {
+            FC_WARN("the held file '" << heldPath << "' leaves held/: not written");
+            return {};
+        }
+    }
+    std::vector<App::Document*> docs;
+    if (owner)
+        docs.push_back(owner);
+    for (auto doc : GetApplication().getDocuments()) {
+        if (doc != owner)
+            docs.push_back(doc);
+    }
+    for (auto doc : docs) {
+        if (!doc->getTransactionLog())
+            continue;
+        for (const auto& f : doc->sentFiles()) {
+            if (f.hash != hash)
+                continue;
+            const std::string path = doc->TransientDir.getStrValue() + "/held/" + heldPath;
+            if (!QFileInfo::exists(QString::fromUtf8(path.c_str()))) {
+                QDir().mkpath(QFileInfo(QString::fromUtf8(path.c_str())).absolutePath());
+                try {
+                    doc->writeSentFile(f.seq, path);
+                }
+                catch (Base::Exception& e) {
+                    FC_ERR("cannot write the held file " << path << ": " << e.what());
+                    return {};
+                }
+            }
+            return path;
+        }
+    }
+    return {};
+}
+
+/// A full path, cleaned, the one key of a file.
+std::string fileKey(const QString& path)
+{
+    const QFileInfo info(path);
+    const QString canonical = info.canonicalFilePath();
+    return (canonical.isEmpty() ? QDir::cleanPath(info.absoluteFilePath()) : canonical)
+        .toUtf8().constData();
+}
+} // namespace
+
+PropertyXLink::ImportSetLinks::ImportSetLinks()
+    : _outer(_ImportSetLinks)
+{
+    _ImportSetLinks = this;
+}
+
+PropertyXLink::ImportSetLinks::~ImportSetLinks()
+{
+    _ImportSetLinks = _outer;
+}
+
+void PropertyXLink::ImportSetLinks::add(const std::string& theirs, const Target& target)
+{
+    if (_ImportSetLinks)
+        _ImportSetLinks->_targets[fileKey(QString::fromUtf8(theirs.c_str()))] = target;
+}
+
+const PropertyXLink::ImportSetLinks::Target*
+PropertyXLink::ImportSetLinks::find(const std::string& theirs)
+{
+    if (!_ImportSetLinks)
+        return nullptr;
+    auto it = _ImportSetLinks->_targets.find(fileKey(QString::fromUtf8(theirs.c_str())));
+    return it == _ImportSetLinks->_targets.end() ? nullptr : &it->second;
+}
+
+PropertyXLink::ImportPaths::ImportPaths(const std::string& theirFile, const std::string& ourFile)
+    : _theirDir(folderOf(theirFile))
+    , _ourDir(folderOf(ourFile))
+    , _outer(_ImportPaths)
+{
+    _ImportPaths = this;
+}
+
+PropertyXLink::ImportPaths::~ImportPaths()
+{
+    _ImportPaths = _outer;
+}
+
+void PropertyXLink::ImportPaths::into(const App::Document* doc)
+{
+    if (_ImportPaths)
+        _ImportPaths->_into = doc;
+}
+
+void PropertyXLink::ImportPaths::intoFile(const std::string& file)
+{
+    if (_ImportPaths)
+        _ImportPaths->_intoFile = FileHistory::canonicalPath(file);
+}
+
+const PropertyXLink::ImportPaths* PropertyXLink::ImportPaths::covering(const PropertyXLink& link)
+{
+    if (!_ImportPaths || (!_ImportPaths->_into && _ImportPaths->_intoFile.empty()))
+        return nullptr;
+    auto owner = Base::freecad_dynamic_cast<const DocumentObject>(link.getContainer());
+    if (!owner || !owner->getDocument())
+        return nullptr;
+    if (_ImportPaths->_into)
+        return owner->getDocument() == _ImportPaths->_into ? _ImportPaths : nullptr;
+    return FileHistory::canonicalPath(owner->getDocument()->FileName.getStrValue())
+            == _ImportPaths->_intoFile
+        ? _ImportPaths
+        : nullptr;
+}
+
+std::string PropertyXLink::ImportPaths::map(const std::string& file, Mapped* mapped) const
+{
+    QString path = QString::fromUtf8(file.c_str());
+    if (path.startsWith(QStringLiteral("https://")))
+        return file;
+    const bool absolute = QFileInfo(path).isAbsolute();
+    path = QDir::cleanPath(path);
+    const QString theirs = absolute
+        ? path : QDir(QString::fromUtf8(_theirDir.c_str())).absoluteFilePath(path);
+    // A file of their set paired with ours (sec 35 L4): ours, relative as a
+    // link is written.
+    if (auto target = ImportSetLinks::find(theirs.toUtf8().constData())) {
+        if (mapped) {
+            mapped->set = true;
+            mapped->branch = target->branch;
+            mapped->version = target->version;
+            mapped->held = target->held;
+            mapped->heldPath = target->heldPath;
+        }
+        // Held: where it is written, which is no place relative to ours.
+        if (!target->held.empty())
+            return target->file;
+        return QDir(QString::fromUtf8(_ourDir.c_str()))
+            .relativeFilePath(QString::fromUtf8(target->file.c_str())).toUtf8().constData();
+    }
+    if (absolute)
+        return file;
+    const QString ours = QDir(QString::fromUtf8(_ourDir.c_str())).absoluteFilePath(path);
+    if (QFileInfo::exists(ours) || !QFileInfo::exists(theirs))
+        return file;
+    return QDir::cleanPath(theirs).toUtf8().constData();
+}
+
 void PropertyXLink::Restore(Base::XMLReader &reader)
 {
     // read my element
@@ -5565,6 +5870,12 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
         stampAttr = reader.getAttribute("stamp");
     if(reader.hasAttribute("file"))
         file = reader.getAttribute("file");
+    // Their link, brought into this file by an import (TransactionLog sec 35 L1).
+    ImportPaths::Mapped setTarget;
+    if (!file.empty()) {
+        if (auto paths = ImportPaths::covering(*this))
+            file = paths->map(file, &setTarget);
+    }
 
     this->resolveMode = PathResolveMode::Dynamic;
     if(reader.hasAttribute("resolve")) {
@@ -5584,6 +5895,29 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
         ? std::atoll(reader.getAttribute("version")) : 0;
     _pinUuid = reader.hasAttribute("vuuid") ? reader.getAttribute("vuuid") : "";
     _liveBranch = reader.hasAttribute("branch") ? reader.getAttribute("branch") : "";
+    // To a file of a set, paired with ours (sec 35 L4): what their file is
+    // here, whatever pin or branch their link had of theirs.
+    if (setTarget.set) {
+        _liveBranch = setTarget.branch;
+        _pinVersion = setTarget.branch.empty() ? setTarget.version : 0;
+        _pinUuid.clear();
+    }
+    // A file of theirs a set import holds (sec 35 L5): written again from
+    // the log that holds it when it is not where the link last saw it.
+    _heldHash = setTarget.set ? setTarget.held
+        : (reader.hasAttribute("held") ? reader.getAttribute("held") : "");
+    _heldPath = setTarget.set ? setTarget.heldPath
+        : (reader.hasAttribute("heldpath") ? reader.getAttribute("heldpath") : "");
+    if (!setTarget.set && !_heldHash.empty() && !_heldPath.empty()
+            && !QFileInfo::exists(QString::fromUtf8(file.c_str()))) {
+        auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
+        const std::string written =
+            writeHeldFile(_heldHash, _heldPath, ownerObj ? ownerObj->getDocument() : nullptr);
+        if (!written.empty())
+            file = written;
+        else
+            FC_WARN(getFullName() << ": the held file " << _heldPath << " is held by no open document");
+    }
     // No file with a pin or a branch: the owner's own file (sec 27.20). Not
     // saved (a copy being pasted into a new document): a local link.
     const bool self = file.empty() && (_pinVersion > 0 || !_liveBranch.empty());
@@ -5594,7 +5928,8 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
     // folder for the name, then the system's, then the old path.
     clearLibraryForm();
     std::string libReport;
-    if (!self && !file.empty() && reader.hasAttribute("lib") && reader.hasAttribute("libfile")) {
+    if (!self && !setTarget.set && !file.empty() && reader.hasAttribute("lib")
+            && reader.hasAttribute("libfile")) {
         std::string libName = reader.getAttribute("lib");
         std::string libFile = reader.getAttribute("libfile");
         auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
@@ -5820,7 +6155,7 @@ void PropertyXLink::copyTo(PropertyXLink &other,
         other.objectName = linked->getNameInDocument();
         other.docInfo.reset();
         // Kept for Paste(): the document may be gone by then -- a pinned
-        // version is closed when its last pin goes (docs/TransactionLog.md
+        // version is closed when its last pin goes (docs/TransactionLogJournal.md
         // sec 27.38), and an undo that pins again must find it by file.
         other.filePath = linked == _pcLink ? filePath : std::string();
     }else{
@@ -5839,6 +6174,8 @@ void PropertyXLink::copyTo(PropertyXLink &other,
     other._pinVersion = _pinVersion;
     other._pinUuid = _pinUuid;
     other._liveBranch = _liveBranch;
+    other._heldHash = _heldHash;
+    other._heldPath = _heldPath;
     other._selfFile = _selfFile;
     other._libName = _libName;
     other._libFile = _libFile;
@@ -5873,7 +6210,7 @@ bool PropertyXLink::isSame(const Property &other) const
         && filePath == o.filePath
         && _SubList == o._SubList
         && _pinVersion == o._pinVersion && _pinUuid == o._pinUuid
-        && _liveBranch == o._liveBranch;
+        && _liveBranch == o._liveBranch && _heldHash == o._heldHash;
 }
 
 Property *PropertyXLink::Copy() const
@@ -5893,6 +6230,8 @@ void PropertyXLink::Paste(const Property &from)
     _pinVersion = other._pinVersion;
     _pinUuid = other._pinUuid;
     _liveBranch = other._liveBranch;
+    _heldHash = other._heldHash;
+    _heldPath = other._heldPath;
     _selfFile = other._selfFile;
     _libName = other._libName;
     _libFile = other._libFile;
@@ -6075,6 +6414,38 @@ PropertyXLink::getDocumentOutList(App::Document *doc) {
     forEachUntracked([&](App::Document* owner, App::Document* linked) {
         if (!doc || owner == doc)
             ret[owner].insert(linked);
+    });
+    return ret;
+}
+
+std::map<App::Document*, PropertyXLink::LinkedDocument>
+PropertyXLink::getLinkedDocuments(App::Document* doc)
+{
+    std::map<App::Document*, LinkedDocument> ret;
+    for (auto& v : _DocInfoMap) {
+        for (auto link : v.second->links) {
+            if (!v.second->pcDoc
+                    || link->getScope() == LinkScope::Hidden
+                    || link->testStatus(Property::PropTransient)
+                    || link->testStatus(Property::Transient)
+                    || link->testStatus(Property::PropNoPersist))
+                continue;
+            auto obj = dynamic_cast<App::DocumentObject*>(link->getContainer());
+            if (!obj || !obj->isAttachedToDocument() || obj->getDocument() != doc)
+                continue;
+            auto& linked = ret[v.second->pcDoc];
+            if (link->_libName.empty())
+                linked.library = false;
+            else if (linked.libName.empty()) {
+                linked.libName = link->_libName;
+                linked.libFile = link->_libFile;
+            }
+        }
+    }
+    // Set with no file: never a library link.
+    forEachUntracked([&](App::Document* owner, App::Document* linked) {
+        if (owner == doc)
+            ret[linked].library = false;
     });
     return ret;
 }

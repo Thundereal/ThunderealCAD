@@ -719,7 +719,7 @@ double areaOf(const TopoDS_Shape& face)
  * A plane is its boundary. A cylinder, a cone, a sphere and a torus are their
  * boundary and a radius or two. Anything else is asked for its area, which is
  * the one thing here that costs: 0.4 ms a pair on the model of
- * docs/TransactionLog.md sec 32.6, where every face asked it.
+ * docs/TransactionLogJournal.md sec 32.6, where every face asked it.
  */
 bool surfaceAgrees(const TopoDS_Shape& a, const TopoDS_Shape& b, double tolerance)
 {

@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 32.9: a shape at two states of the
+# GUI check of docs/TransactionLogJournal.md sec 32.9: a shape at two states of the
 # log, shown over its object in the 3D view -- asked of the view provider, from
 # an op of a row in the log panel, and from a change in the merge dialog.
 # One GUI run in a fresh user home, given this script at startup:
@@ -21,7 +21,7 @@ lines = []
 
 
 def mergeDialog():
-    # The merge's preview is not modal (docs/TransactionLog.md sec 32.15): it
+    # The merge's preview is not modal (docs/TransactionLogJournal.md sec 32.15): it
     # is found among the windows. Anything modal instead is in its way.
     for w in QtWidgets.QApplication.topLevelWidgets():
         if w.objectName() == "TransactionMergeDialog" and w.isVisible():

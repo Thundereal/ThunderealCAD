@@ -485,14 +485,15 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
-    /// Accessor for parameter HideScrollBar
+    /// Accessor for parameter HideScrollBarInOverlay
     ///
-    /// Hide tree view scroll bar in dock overlay.
-    static const bool & getHideScrollBar();
-    static const bool & defaultHideScrollBar();
-    static void removeHideScrollBar();
-    static void setHideScrollBar(const bool &v);
-    static const char *docHideScrollBar();
+    /// Hide tree view scroll bar in dock overlay. Off, the tree shows thin
+    /// scroll bars laid over it there, as the other lists do.
+    static const bool & getHideScrollBarInOverlay();
+    static const bool & defaultHideScrollBarInOverlay();
+    static void removeHideScrollBarInOverlay();
+    static void setHideScrollBarInOverlay(const bool &v);
+    static const char *docHideScrollBarInOverlay();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)

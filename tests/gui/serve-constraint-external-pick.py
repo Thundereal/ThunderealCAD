@@ -207,7 +207,7 @@ class Client(threading.Thread):
         desktop_left.wait(30.0)
         ws.drain(0.5)
         # What the first run made is this client's step, whoever's tool it
-        # clicked for (docs/TransactionLog.md sec 30.10), so it is this
+        # clicked for (docs/TransactionLogJournal.md sec 30.10), so it is this
         # client that takes it back, for the second to start as the first.
         self.undo1_reply = ws.op('{"id":15,"op":"undo"}')
         ws.drain(0.5)
@@ -300,7 +300,7 @@ def sample():
     return {"ext": external_geometry(),
             "cons": [(c.Type, c.First, c.Second) for c in sk.Constraints],
             # the client's steps: its clicks made them, in whoever's session
-            # and with whoever's tool (docs/TransactionLog.md sec 30.10)
+            # and with whoever's tool (docs/TransactionLogJournal.md sec 30.10)
             "undo": wsclient.client_undos(state["doc"]), "mode": mode()}
 
 

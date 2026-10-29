@@ -184,7 +184,7 @@ const App::FileBlobHandle& PropertyMaterial::ensureBlob() const
     // two properties holding the same card -- a live one on the main thread
     // and the transaction log's copy of it on its worker -- chose the same
     // scratch name, and one's adoption removed the file the other was about
-    // to adopt (docs/TransactionLog.md sec 27.73). adoptBytes() hashes them
+    // to adopt (docs/TransactionLogJournal.md sec 27.73). adoptBytes() hashes them
     // itself and shares an existing blob when the content is already stored,
     // so the store stays the authority on identity and this hash is only a
     // shortcut past the encoding below.

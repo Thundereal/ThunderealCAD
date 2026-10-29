@@ -86,13 +86,33 @@ list(APPEND FreeCADApp_LIBS
         ${ZLIB_LIBRARIES}
 )
 
-# The transaction log's store (docs/TransactionLog.md sec 13).
-find_package(SQLite3 REQUIRED)
+# The transaction log's store (docs/TransactionLogJournal.md sec 13).
+# 3.38: json_extract/json_valid built in (TransactionStoreSQLite.cpp reads
+# object UIDs out of op metadata with them); upsert (3.24) and VACUUM INTO
+# (3.27) come with it.
+find_package(SQLite3 3.38 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 list(APPEND FreeCADApp_LIBS ${SQLite3_LIBRARIES})
 
+# The history a folder holds is brought up to date at a save by what changed
+# since the last one (docs/TransactionLogJournal.md sec 38.9), which SQLite's
+# session extension records. A library built without it -- conda-forge's
+# has it on Linux and Windows -- makes every save copy the history whole.
+include(CheckSymbolExists)
+set(CMAKE_REQUIRED_INCLUDES ${SQLite3_INCLUDE_DIRS})
+set(CMAKE_REQUIRED_LIBRARIES ${SQLite3_LIBRARIES})
+set(CMAKE_REQUIRED_DEFINITIONS -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK)
+check_symbol_exists(sqlite3session_create "sqlite3.h" FC_SQLITE_HAS_SESSION)
+unset(CMAKE_REQUIRED_INCLUDES)
+unset(CMAKE_REQUIRED_LIBRARIES)
+unset(CMAKE_REQUIRED_DEFINITIONS)
+if(FC_SQLITE_HAS_SESSION)
+    set_property(SOURCE TransactionStoreSQLite.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+                 FC_SQLITE_SESSION SQLITE_ENABLE_SESSION SQLITE_ENABLE_PREUPDATE_HOOK)
+endif()
+
 # zstd is optional and only used by the transaction-log measurement
-# (TransactionMeasure.cpp, docs/TransactionLog.md sec 15 phase 0), which
+# (TransactionMeasure.cpp, docs/TransactionLogJournal.md sec 15 phase 0), which
 # compares it against zlib. Nothing is stored with it yet.
 find_path(ZSTD_INCLUDE_DIR zstd.h)
 find_library(ZSTD_LIBRARY NAMES zstd)
@@ -441,8 +461,11 @@ SET(Document_CPP_SRCS
     UnitsParams.cpp
     SandboxParams.cpp
     FileBlobManager.cpp
+    FileElsewhere.cpp
     FileHistory.cpp
     LibraryPaths.cpp
+    ExportSet.cpp
+    ImportSet.cpp
     FileSet.cpp
     GroupParams.cpp
     DocumentObject.cpp
@@ -532,8 +555,11 @@ SET(Document_HPP_SRCS
     SandboxParams.h
     FileBlob.h
     FileBlobManager.h
+    FileElsewhere.h
     FileHistory.h
     LibraryPaths.h
+    ExportSet.h
+    ImportSet.h
     FileSet.h
     GroupParams.h
     DocumentObject.h
@@ -638,6 +664,7 @@ SET(Properties_HPP_SRCS
     PropertyGeo.h
     PropertyElementAppearance.h
     PropertyLinks.h
+    ShadowSub.h
     PropertyPythonObject.h
     PropertyStandard.h
     PropertyAppearance.h

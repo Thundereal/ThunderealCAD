@@ -1539,6 +1539,23 @@ bool BGFXRenderer::Private::render(const QColor &col,
     view->matcapPreset = matcapconf.preset;
     view->matcapTint = matcapconf.tint;
     view->matcapStripes = float(matcapconf.stripes);
+    {
+        const float* d = matcapconf.direction;
+        float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        for (int i = 0; i < 3; ++i)
+            view->matcapDir[i] = len > 1e-6f ? d[i] / len : (i == 2 ? 1.0f : 0.0f);
+        // by preset: the draft's least angle, or the zebra's switch
+        view->matcapDir[3] = matcapconf.preset == 5
+            ? matcapconf.angle * 3.14159265f / 180.0f
+            : (matcapconf.fixed ? 1.0f : 0.0f);
+        // the curvature preset has no direction: its kind and range instead
+        if (matcapconf.preset == 6) {
+            view->matcapDir[0] = float(matcapconf.curvature);
+            view->matcapDir[1] = std::max(matcapconf.range, 1e-9f);
+            view->matcapDir[2] = 0.0f;
+            view->matcapDir[3] = 0.0f;
+        }
+    }
     view->bumpScale = bumpconf.scale;
     view->bumpParallax = bumpconf.parallax;
 
@@ -6399,6 +6416,54 @@ bool BGFXRenderer::Private::render(const QColor &col,
                              sceneNoSeam(draw));
             }
         }
+        // The coloured copies of this order's lines -- of the preselected
+        // object, of a selected one -- over its plain ones, as GL ends
+        // with them: drawn in the passes above, a datum's lines were
+        // covered here by the dashed copy of them drawn through what is
+        // in front (an SoFCPathAnnotation of priority -1, entry 99), the
+        // highlight showing only between the dashes (docs/HandsOnQueue.md
+        // entry 235)
+        for (const auto &draw : highlight) {
+            if (!isTriangle(draw) && draw.material.ontoplayer == layer)
+                view->submit(draw, viewMat);
+        }
+        for (const auto &sel : selections) {
+            for (const auto &draw : sel.second) {
+                if (!isTriangle(draw) && !isDup(draw)
+                        && draw.material.ontoplayer == layer)
+                    view->submit(draw, viewMat);
+            }
+        }
+    }
+    // ... and their solid lines again over every order's plain ones: a
+    // datum's line coincides with another's (an axis with the edge of the
+    // plane through it, seen side on), whose dashed copy covered the
+    // coloured line between its own dashes. Where visible, as the passes
+    // above drew them; the preselection's lines are drawn after this
+    // anyway unless they are whole on top.
+    if (!onTopLayers.empty()) {
+        if (hlWholeOnTop) {
+            for (const auto &draw : highlight) {
+                if (!isTriangle(draw) && draw.partIndex < 0
+                        && draw.material.ontoplayer == 0)
+                    view->submit(draw, viewMat, BGFXView::PassLineSolid);
+            }
+        }
+        // routed as step 6 routes the selections' fills
+        for (const auto &sel : selections) {
+            view->ontop = sel.first > 0;
+            view->selPass = sel.first <= 0;
+            for (const auto &draw : sel.second) {
+                if (isTriangle(draw) || isDup(draw) || draw.material.ontoplayer != 0)
+                    continue;
+                if (sel.first > 0)
+                    view->submit(draw, viewMat, BGFXView::PassLineSolid);
+                else
+                    view->submit(draw, viewMat);
+            }
+        }
+        view->ontop = true;
+        view->selPass = false;
     }
 
     // 6. Single-part selection fills (e.g. the selected face), matching

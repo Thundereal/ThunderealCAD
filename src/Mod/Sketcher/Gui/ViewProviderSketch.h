@@ -818,6 +818,9 @@ protected:
     static SbColor FullyConstrainedColor;
     static SbColor ConstrDimColor;
     static SbColor ConstrIcoColor;
+    /// The border round dimensions and constraint icons, and its width in pixels
+    static SbColor ConstrOutlineColor;
+    static int ConstrOutlineWidth;
     static SbColor NonDrivingConstrDimColor;
     static SbColor ExprBasedConstrDimColor;
     static SbColor PreselectColor;

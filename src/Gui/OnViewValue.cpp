@@ -47,7 +47,9 @@
 #include <App/DocumentObject.h>
 #include <App/Expression.h>
 #include <App/PropertyUnits.h>
+#include <Base/Color.h>
 #include <Base/Console.h>
+#include <Base/Parameter.h>
 #include <Base/Placement.h>
 #include <Base/Quantity.h>
 
@@ -61,6 +63,9 @@
 #include "QuantitySpinBox.h"
 #include "SoDatumLabel.h"
 #include "SpinBox.h"
+#include "Tree.h"
+#include "TreeParams.h"
+#include "Utilities.h"
 #include "ViewerContext.h"
 #include "ViewProvider.h"
 #include "Inventor/Draggers/Gizmo.h"
@@ -95,6 +100,28 @@ SbColor expressionColor()
     color.setPackedValue(uint32_t(hGrp->GetUnsigned("ExprBasedConstrDimColor", 0xFF7F00FF)),
                          transparency);
     return color;
+}
+
+/// The sketcher's colour of a dimension (EditableDatumLabel::initColors)
+SbColor dimensionColor()
+{
+    auto hGrp = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/View");
+    SbColor color;
+    float transparency = 0.f;
+    color.setPackedValue(uint32_t(hGrp->GetUnsigned("ConstrainedDimColor", 0xFF2600FF)),
+                         transparency);
+    return color;
+}
+
+/** A value's text colour on the view's background: a little darker on a
+ * light one, where the light outline alone does not set it off (the
+ * reporter: "darken in light theme, only a bit"). The sketch has *Light
+ * colours of its own for it; these values keep theirs, darkened.
+ */
+SbColor onBackground(const SbColor& color)
+{
+    return viewBackgroundIsLight() ? SbColor(color * 0.8f) : color;
 }
 
 /// A key that starts a number
@@ -591,6 +618,9 @@ void OnViewValueSet::clearHandles(int index)
         if (handle == activeHandle) {
             activeHandle = nullptr;
         }
+        if (handle == namedHandle) {
+            namedHandle = nullptr;
+        }
         handle->setReleaseCallback(nullptr);
         handle->setMenu(nullptr);
         handle->setDragCallback(nullptr);
@@ -802,6 +832,79 @@ void OnViewValueSet::attachToEdit(const ViewProvider* vp, const GizmoContainer* 
     refresh();
 }
 
+namespace {
+
+/// Where the label ground's opacity is kept, with the gizmos' settings
+ParameterGrp::handle groundParams()
+{
+    return App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Gui/Gizmos");
+}
+
+/// The label ground's opacity, in percent: 0, the default, for none
+int groundOpacity()
+{
+    return std::clamp(int(groundParams()->GetInt("OnViewLabelBackgroundOpacity", 0)), 0, 100);
+}
+
+/** The ground under a value's label: the tree's item ground as the tree
+ * paints it (docs/HandsOnQueue.md entry 240, the reporter: "add some
+ * transparent background for each on view lable, using the same background
+ * color from tree item"), else the tree's item background setting, else the
+ * window's base colour; as opaque as the setting says, none by default (the
+ * reporter: "Add label background transparency setting, default 0. ...
+ * another branch added label outline, which should be enough for
+ * readability").
+ */
+QColor labelGround()
+{
+    QColor colour;
+    if (auto tree = TreeWidget::instance()) {
+        const QBrush brush = tree->effectiveOverlayItemBackground();
+        if (brush.style() != Qt::NoBrush) {
+            colour = brush.color();
+        }
+    }
+    if (!colour.isValid() && TreeParams::getItemBackground()) {
+        Base::Color stored;
+        stored.setPackedValue(TreeParams::getItemBackground());
+        colour = QColor::fromRgbF(stored.r, stored.g, stored.b, stored.a);
+    }
+    if (!colour.isValid()) {
+        colour = QApplication::palette().color(QPalette::Base);
+    }
+    colour.setAlpha(groundOpacity() * 255 / 100);
+    return colour;
+}
+
+void setGround(EditableDatumLabel* label)
+{
+    const QColor ground = labelGround();
+    label->label->backgroundColor.setValue(
+        float(ground.redF()), float(ground.greenF()), float(ground.blueF()));
+    label->label->backgroundAlpha = float(ground.alphaF());
+}
+
+/** The border a sketch's dimensions and its on-view parameters have, so a
+ * value reads on any background without a ground (the reporter: "show the
+ * outline"). The Sketcher's preferences, kept in the View group; their
+ * defaults repeated here (Sketcher::SketcherParams), which Gui cannot reach.
+ */
+void setOutline(EditableDatumLabel* label)
+{
+    auto grp =
+        App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/View");
+    const unsigned long packed = viewBackgroundIsLight()
+        ? grp->GetUnsigned("ConstrainedOutlineColorLight", 0xFFF4F2FF)
+        : grp->GetUnsigned("ConstrainedOutlineColor", 0x280000FF);
+    SbColor outline;
+    float transparency {};
+    outline.setPackedValue(uint32_t(packed), transparency);
+    label->setOutline(outline, float(std::max<long>(0, grp->GetInt("ConstraintOutlineWidth", 1))));
+}
+
+}  // namespace
+
 void OnViewValueSet::makeLabels()
 {
     for (auto& entry : entries) {
@@ -812,6 +915,8 @@ void OnViewValueSet::makeLabels()
         label->setLabelType(SoDatumLabel::TEXT, EditableDatumLabel::Function::Dimensioning);
         label->setPoints(SbVec3f(0, 0, 0), SbVec3f(0, 0, 0));
         label->setPickable(true);
+        setGround(label.get());
+        setOutline(label.get());
         connect(label.get(), &EditableDatumLabel::clicked, this, &OnViewValueSet::onLabelClicked);
         entry->label = std::move(label);
     }
@@ -970,10 +1075,10 @@ void OnViewValueSet::updateLabel(int index)
                 text += QStringLiteral(" = ") + QString::fromStdString(info.expression->toString());
             }
         }
-        entry->label->setColor(expressionColor());
+        entry->label->setColor(onBackground(expressionColor()));
     }
     else {
-        entry->label->setActivatedColor();
+        entry->label->setColor(onBackground(dimensionColor()));
     }
     entry->label->label->string = text.toUtf8().constData();
 }
@@ -1031,12 +1136,15 @@ void OnViewValueSet::setActive(int index, Gizmo* handle)
         endTyping(false);
     }
     const bool changed = index != active;
+    Gizmo* const oldNamed = namedHandle;
     active = index;
     activeHandle = nullptr;
+    namedHandle = nullptr;
     if (active >= 0) {
         const auto& handles = entries[active]->handles;
         if (handle && std::find(handles.begin(), handles.end(), handle) != handles.end()) {
             activeHandle = handle;
+            namedHandle = handle;
         }
         else if (!handles.empty()) {
             activeHandle = handles.front();
@@ -1050,6 +1158,9 @@ void OnViewValueSet::setActive(int index, Gizmo* handle)
     }
     if (changed) {
         Q_EMIT activeChanged(active);
+    }
+    if (namedHandle != oldNamed) {
+        Q_EMIT activeHandleChanged(namedHandle);
     }
 }
 
@@ -1269,6 +1380,25 @@ void OnViewValueSet::addSettingsMenu(QMenu& menu)
     settings->addAction(fieldRow(settings, tr("Coarse rotation step (degrees)"), rotation));
     connect(rotation, qOverload<int>(&QSpinBox::valueChanged), [](int v) {
         MiscParams::setCoarseRotationSnapMultiplier(v);
+    });
+
+    // the values' labels' ground, the tree's item colour (entry 240): its
+    // opacity, none by default, the labels shown taking it at once
+    auto ground = new QSpinBox;
+    ground->setObjectName(QStringLiteral("OnViewSettingLabelBackgroundOpacity"));
+    ground->setRange(0, 100);
+    ground->setSuffix(QStringLiteral(" %"));
+    ground->setValue(groundOpacity());
+    ground->setToolTip(tr("How opaque the ground under a value's label is, in the tree's "
+                          "item colour; 0 for none"));
+    settings->addAction(fieldRow(settings, tr("Label background opacity"), ground));
+    connect(ground, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        groundParams()->SetInt("OnViewLabelBackgroundOpacity", v);
+        for (auto& entry : entries) {
+            if (entry->label) {
+                setGround(entry->label.get());
+            }
+        }
     });
 }
 

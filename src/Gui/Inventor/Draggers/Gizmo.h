@@ -42,6 +42,7 @@
 #include <Base/Color.h>
 #include <Base/Matrix.h>
 #include <Base/Placement.h>
+#include <fastsignals/signal.h>
 #include <Gui/DocumentObserver.h>
 #include <Gui/InputHint.h>
 
@@ -497,9 +498,11 @@ public:
     /// Take out and delete a gizmo of this container
     void removeGizmo(Gui::Gizmo* gizmo);
     void attachViewer(Gui::ViewerContext* viewer, Base::Placement& origin);
-    /** The gizmos' frame in world coordinates: the document's editing
-     * transform and the offset from it attachViewer() was given -- where a
-     * value's label beside its handle goes (OnViewValueSet::placeAnchors)
+    /** The gizmos' frame in world coordinates: where the edited object's
+     * parent puts it, the editing transform less the object's own
+     * placement, as attachViewer() was given it; where a value's label
+     * beside its handle goes (OnViewValueSet::placeAnchors). Worked out
+     * from the edit as it is now, the object's placement included.
      */
     Base::Matrix4D getWorldMatrix() const;
     void setUpAutoScale(SoCamera* cameraIn);
@@ -544,8 +547,15 @@ private:
     SoFieldSensor cameraSensor;
     SoFieldSensor cameraPositionSensor;
     WeakPtrT<ViewProviderDragger> viewProvider;
-    /// The offset from the editing transform attachViewer() was given
+    /// The gizmos' frame attachViewer() was given (getWorldMatrix())
     Base::Matrix4D origin;
+    /** The document setting the editing transform again -- the edited
+     * object's placement changed in the edit -- sets it whole on the
+     * editing root, the object's placement included, which the gizmos'
+     * frame is less: the frame is set back (docs/HandsOnQueue.md entry 236)
+     */
+    fastsignals::scoped_connection connEditingTransform;
+    void onEditingTransformChanged();
     /// addCross()'s crosses: where each stands, and its transform, which
     /// the camera callbacks scale and turn as they do the gizmos
     std::vector<std::pair<SbVec3f, SoTransform*>> crosses;

@@ -175,6 +175,12 @@
 # include <BRepLProp_SLProps.hxx>
 # include <BRepGProp_Face.hxx>
 #endif
+
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <Message_ProgressIndicator.hxx>
+#include <Message_ProgressScope.hxx>
+#include <chrono>
 #include <ShapeAnalysis_FreeBoundsProperties.hxx>
 #include <ShapeAnalysis_FreeBoundData.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
@@ -1184,7 +1190,7 @@ void TopoShape::mapSubElement(const std::vector<TopoShape> &shapes, const char *
                     offset += count;
                     child.count = count;
                     // A child from another table is imported, cached per
-                    // source map (docs/TransactionLog.md sec 27.76 item 2).
+                    // source map (docs/TransactionLogJournal.md sec 27.76 item 2).
                     child.elementMap = Data::translateElementMap(s.elementMap(), s.Hasher, Hasher);
                     child.tag = s.Tag;
                     if (op)
@@ -1212,7 +1218,7 @@ void TopoShape::copyElementMap(const TopoShape &s, const char *op)
     if (s.isNull() || isNull())
         return;
     // The names of a shape of another table come in with this table's ids,
-    // not as text naming the other's (docs/TransactionLog.md sec 27.76 item
+    // not as text naming the other's (docs/TransactionLogJournal.md sec 27.76 item
     // 2); the ids the op's own postfix names -- the external marker's
     // document, item 4 -- are this table's, and the children hold them.
     auto elementMap = Data::translateElementMap(s.elementMap(), s.Hasher, Hasher);
@@ -1278,7 +1284,7 @@ void TopoShape::mapSubElement(const TopoShape &other, const char *op, bool force
         {TopAbs_VERTEX,TopAbs_EDGE,TopAbs_FACE};
 
     // A shape of another table has its names imported into this one's
-    // (docs/TransactionLog.md sec 27.76 item 2): this shape keeps its table,
+    // (docs/TransactionLogJournal.md sec 27.76 item 2): this shape keeps its table,
     // where it used to take the other's, or keep the other's ids as text.
     auto checkHasher = [this](const TopoShape &other) {
         if(!Hasher)
@@ -1354,7 +1360,7 @@ void TopoShape::mapSubElement(const TopoShape &other, const char *op, bool force
         }
         // A thawed copy (the OCCT fork's TopoDS_TShape::Thawed): an algorithm
         // copied a frozen sub-shape of other's where it would have changed it
-        // in place (docs/TransactionLog.md sec 23.15), and the copy is named
+        // in place (docs/TransactionLogJournal.md sec 23.15), and the copy is named
         // as the original would have been. The original may be a thawed copy
         // itself, of something other has.
         for (int idx = 1; idx <= shapeMap.count(); ++idx) {
@@ -2583,7 +2589,7 @@ TopoShape &TopoShape::makEPrismUntil(const TopoShape &_base,
     // extrusion to work around: retrying on the original until face, or on
     // a base of our own, gave a prism up to the wrong place. It is passed
     // on, and the feature recomputes on copies (Part::Feature::recompute(),
-    // docs/TransactionLog.md sec 27.82, 33.6).
+    // docs/TransactionLogJournal.md sec 27.82, 33.6).
     auto refusedFrozen = [refused = raisedOCCTLockedShapes()]() {
         return !ThawInputs::active() && raisedOCCTLockedShapes() != refused;
     };
@@ -3251,7 +3257,7 @@ struct EdgePoints {
 // when <reverse> is set, and handed over as it is otherwise -- for a caller that
 // gives the run to BRepBuilderAPI_MakeWire, which orients an edge itself and
 // keeps its curve: a sketch's edge keeps its geometry's direction, which its
-// external geometry and constraints on its ends read (docs/TransactionLog.md
+// external geometry and constraints on its ends read (docs/TransactionLogJournal.md
 // sec 27.87).
 static std::deque<TopoShape>
 extractRun(std::list<TopoShape>& edges,
@@ -4320,7 +4326,7 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
 
     std::map<Data::IndexedName, std::map<NameKey,NameInfo> > newNames;
     // Names of an input of another table come in with this one's ids
-    // (docs/TransactionLog.md sec 27.76 item 2).
+    // (docs/TransactionLogJournal.md sec 27.76 item 2).
     App::StringHasher::ImportMemo importMemo;
 
     // First, collect names from other shapes that generates or modifies the
@@ -4772,7 +4778,7 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                 // Cleared here, not only in the branch below: the stream still
                 // holds the last encode of the passes before, which a single
                 // lower name would otherwise carry into this one's name
-                // (docs/TransactionLog.md sec 27.77).
+                // (docs/TransactionLogJournal.md sec 27.77).
                 ss.str("");
                 if(names.size() == 1)
                     ss << lowerPostfix();
@@ -5144,18 +5150,6 @@ TopoShape &TopoShape::removEShape(const TopoShape &shape, const std::vector<Topo
 }
 
 namespace {
-// BRepFilletAPI_SetSetback of the OCCT fork's TKFillet
-typedef void (*FuncSetFilletSetback)(BRepFilletAPI_MakeFillet &,
-                                     const TopoDS_Vertex &,
-                                     const TopoDS_Edge *,
-                                     double);
-
-// BRepFilletAPI_SetFaceDepth of the OCCT fork's TKFillet
-typedef void (*FuncSetFilletFaceDepth)(BRepFilletAPI_MakeFillet &,
-                                       const TopoDS_Vertex &,
-                                       const TopoDS_Face &,
-                                       double);
-
 // Whether a fillet contour of mkFillet ends at the vertex, the one holding
 // edge if given
 bool filletEndsAt(const BRepFilletAPI_MakeFillet &mkFillet,
@@ -5172,18 +5166,16 @@ bool filletEndsAt(const BRepFilletAPI_MakeFillet &mkFillet,
 }
 
 // Hands the setback corners to mkFillet, after its edges are added. The
-// setbacks are the OCCT fork's (docs/CornerBlending.md), looked up at run
-// time like its fallback settings; asking for one without the fork throws
-// rather than build a different shape.
+// setbacks are the OCCT fork's (docs/CornerBlending.md), reached through
+// OCCTFork.h's run-time lookups like its fallback settings; asking for one
+// without the fork throws rather than build a different shape.
 void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
                       const TopoShape &shape,
                       const TopoShape::FilletCorners &corners)
 {
     if (corners.empty())
         return;
-    static const auto setSetback =
-        (FuncSetFilletSetback)lookUpTKFillet("BRepFilletAPI_SetSetback");
-    if (!setSetback)
+    if (!lookUpTKFillet("BRepFilletAPI_SetSetback"))
         FC_THROWM(Base::CADKernelError, "fillet corner setback needs the OCCT fork");
 
     for (const auto &corner : corners) {
@@ -5203,7 +5195,7 @@ void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
             FC_THROWM(Base::CADKernelError, "no fillet ends at corner Vertex" << vindex);
         }
         if (corner.setback >= 0.0)
-            setSetback(mkFillet, TopoDS::Vertex(vertex), nullptr, corner.setback);
+            setOCCTFilletSetback(mkFillet, TopoDS::Vertex(vertex), nullptr, corner.setback);
         for (const auto &v : corner.edges) {
             const auto &shapeEdge = v.first;
             if (shapeEdge.IsNull())
@@ -5226,7 +5218,7 @@ void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
                 FC_WARN("fillet corner Vertex" << vindex << ": " << error.str() << ", skipped");
                 continue;
             }
-            setSetback(mkFillet, TopoDS::Vertex(vertex), &edge, v.second);
+            setOCCTFilletSetback(mkFillet, TopoDS::Vertex(vertex), &edge, v.second);
         }
         if (corner.faces.empty())
             continue;
@@ -5237,9 +5229,7 @@ void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
             FC_WARN("fillet corner Vertex" << vindex << ": not set back, face depths skipped");
             continue;
         }
-        static const auto setFaceDepth =
-            (FuncSetFilletFaceDepth)lookUpTKFillet("BRepFilletAPI_SetFaceDepth");
-        if (!setFaceDepth)
+        if (!lookUpTKFillet("BRepFilletAPI_SetFaceDepth"))
             FC_THROWM(Base::CADKernelError, "fillet corner face depth needs a newer OCCT fork");
         for (const auto &v : corner.faces) {
             const auto &shapeFace = v.first;
@@ -5261,7 +5251,8 @@ void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
                         << " does not touch it, skipped");
                 continue;
             }
-            setFaceDepth(mkFillet, TopoDS::Vertex(vertex), TopoDS::Face(shapeFace), v.second);
+            setOCCTFilletFaceDepth(mkFillet, TopoDS::Vertex(vertex), TopoDS::Face(shapeFace),
+                                   v.second);
         }
     }
 }
@@ -5305,7 +5296,8 @@ TopoShape &TopoShape::makEFillet(const TopoShape &shape,
     if(edges.empty())
         HANDLE_NULL_INPUT;
 
-    BRepFilletAPI_MakeFillet mkFillet(shape.getShape());
+    // The radius law of each edge; empty for an edge suppressed
+    std::vector<std::vector<gp_Pnt2d>> laws(edges.size());
     int i = -1;
     for(auto &e : edges) {
         ++i;
@@ -5343,28 +5335,33 @@ TopoShape &TopoShape::makEFillet(const TopoShape &shape,
             // it as suppressing the current edge for fillet
             continue;
         }
-        std::size_t count = edgeSegments.size();
+        auto &law = laws[i];
         if (edgeSegments.front().param > Precision::Confusion())
-            ++count;
-        if (1.0 - edgeSegments.back().param > Precision::Confusion())
-            ++count;
-        TColgp_Array1OfPnt2d UandR(1, count);
-        int j=1;
-        if (edgeSegments.front().param > Precision::Confusion())
-            UandR.SetValue(j++, gp_Pnt2d(0.0,
-                        defaultRadius>0.0?defaultRadius:edgeSegments.front().radius));
+            law.emplace_back(0.0, defaultRadius>0.0?defaultRadius:edgeSegments.front().radius);
         for (const auto &segment : edgeSegments) {
             double t = segment.param;
             if (t < 0.0)
                 t = 0.0;
             else if (t > 1.0)
                 t = 1.0;
-            UandR.SetValue(j++, gp_Pnt2d(t, segment.radius));
+            law.emplace_back(t, segment.radius);
         }
         if (1.0 - edgeSegments.back().param > Precision::Confusion())
-            UandR.SetValue(j++, gp_Pnt2d(1.0, edgeSegments.back().radius));
-        mkFillet.Add(UandR, TopoDS::Edge(edge));
+            law.emplace_back(1.0, edgeSegments.back().radius);
     }
+    auto add = [&](BRepFilletAPI_MakeFillet &mk, std::size_t k) {
+        if (laws[k].empty())
+            return false;
+        TColgp_Array1OfPnt2d UandR(1, static_cast<int>(laws[k].size()));
+        int j = 1;
+        for (const auto &p : laws[k])
+            UandR.SetValue(j++, p);
+        mk.Add(UandR, TopoDS::Edge(edges[k].getShape()));
+        return true;
+    };
+    BRepFilletAPI_MakeFillet mkFillet(shape.getShape());
+    for (std::size_t k = 0; k < edges.size(); ++k)
+        add(mkFillet, k);
     setFilletCorners(mkFillet, shape, corners);
     if (partial) {
         partial->failed.clear();
@@ -5372,15 +5369,39 @@ TopoShape &TopoShape::makEFillet(const TopoShape &shape,
         // Built; the contours whose fillet failed are left out and the rest
         // built again, until it is done or none is left
         for (std::size_t round = 0; ; ++round) {
-            mkFillet.Build();
-            if (mkFillet.IsDone() || mkFillet.NbFaultyContours() == 0
-                    || round >= edges.size())
+            try {
+                mkFillet.Build();
+            }
+            catch (Standard_Failure &) {
+            }
+            if (mkFillet.IsDone() || round >= edges.size())
                 break;
             std::vector<TopoDS_Edge> dropped;
             for (int i = 1; i <= mkFillet.NbFaultyContours(); ++i) {
                 const int contour = mkFillet.FaultyContour(i);
                 for (int j = 1; j <= mkFillet.NbEdges(contour); ++j)
                     dropped.push_back(mkFillet.Edge(contour, j));
+            }
+            if (dropped.empty()) {
+                // Refused with no contour to blame -- its result was invalid
+                // (the OCCT fork refuses such a result): each edge still in by
+                // itself, those that fail alone left out, as makEChamfer does
+                for (std::size_t k = 0; k < edges.size(); ++k) {
+                    const auto &edge = TopoDS::Edge(edges[k].getShape());
+                    if (laws[k].empty() || !mkFillet.Contour(edge))
+                        continue;
+                    BRepFilletAPI_MakeFillet one(shape.getShape());
+                    add(one, k);
+                    try {
+                        one.Build();
+                    }
+                    catch (Standard_Failure &) {
+                    }
+                    if (!one.IsDone())
+                        dropped.push_back(edge);
+                }
+                if (dropped.empty())
+                    break;
             }
             for (const auto &e : dropped) {
                 for (std::size_t k = 0; k < edges.size(); ++k) {
@@ -5845,6 +5866,344 @@ TopoShape &TopoShape::makEDefeaturing(const TopoShape &shape,
     return makEShape(mkDefeaturing,shape,op);
 }
 
+namespace {
+// A progress indicator that breaks off what it is given after a time: a
+// fallback's defeaturing of B-spline faces, or its check, can run minutes to
+// no end (#273's Fillet001, two faces 0.3 wide at an edge: 130 s, nothing
+// taken out), and a fillet that fails is not to take minutes failing
+class Deadline : public Message_ProgressIndicator
+{
+public:
+    explicit Deadline(double seconds)
+        : end(std::chrono::steady_clock::now()
+              + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                    std::chrono::duration<double>(seconds)))
+    {}
+    bool UserBreak() override
+    {
+        return std::chrono::steady_clock::now() > end;
+    }
+    void Show(const Message_ProgressScope &, const bool) override
+    {}
+private:
+    std::chrono::steady_clock::time_point end;
+};
+// what one defeaturing or check of a fallback may take
+const double FallbackSeconds = 3.0;
+
+bool isElementary(const TopoDS_Shape &face)
+{
+    switch (BRepAdaptor_Surface(TopoDS::Face(face), false).GetType()) {
+    case GeomAbs_Plane:
+    case GeomAbs_Cylinder:
+    case GeomAbs_Cone:
+    case GeomAbs_Sphere:
+    case GeomAbs_Torus:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Whether a face and the faces beside it (across its edges) are all planes,
+// cylinders, cones, spheres or tori: what a fallback may take out. Taking a
+// face out extends its neighbours over it, and with B-splines there the
+// boolean doing it can run minutes on one pair of an edge and a face --
+// past any time limit (#273's Fillet001, two faces 0.3 wide: 130 s)
+bool isElementaryAround(const TopoDS_Shape &face,
+                        const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces)
+{
+    if (!isElementary(face))
+        return false;
+    for (TopExp_Explorer xp(face, TopAbs_EDGE); xp.More(); xp.Next()) {
+        const int k = edgeFaces.FindIndex(xp.Current());
+        if (!k)
+            continue;
+        for (const auto &other : edgeFaces(k)) {
+            if (!other.IsSame(face) && !isElementary(other))
+                return false;
+        }
+    }
+    return true;
+}
+} // anonymous namespace
+
+bool TopoShape::isMadeClean(const TopoDS_Shape &shape, const TopoDS_Shape &source)
+{
+    if (shape.IsNull() || !BRepCheck_Analyzer(shape).IsValid())
+        return false;
+    TopTools_IndexedMapOfShape old;
+    TopExp::MapShapes(source, TopAbs_FACE, old);
+    std::vector<TopoDS_Shape> made;
+    for (TopExp_Explorer xp(shape, TopAbs_FACE); xp.More(); xp.Next()) {
+        if (!old.Contains(xp.Current()))
+            made.push_back(xp.Current());
+    }
+    try {
+        Handle(Deadline) deadline = new Deadline(FallbackSeconds);
+        return made.empty() || Part::RegionBooleanCheck(shape, made, deadline->Start()).empty();
+    }
+    catch (Standard_Failure &) {
+        return false;
+    }
+}
+
+bool TopoShape::makESliverFree(const TopoShape &shape,
+                               const std::vector<TopoShape> &edges,
+                               double maxWidth,
+                               Handle(BRepTools_History) *history,
+                               std::vector<TopoShape> *removed,
+                               const char *op)
+{
+    if(!op) op = Part::OpCodes::Defeaturing;
+    if (shape.isNull() || edges.empty() || maxWidth <= 0.0)
+        return false;
+
+    TopTools_IndexedMapOfShape vertices, edgeMap;
+    for (const auto &e : edges) {
+        if (e.isNull())
+            continue;
+        edgeMap.Add(e.getShape());
+        TopExp::MapShapes(e.getShape(), TopAbs_VERTEX, vertices);
+    }
+
+    // The faces at those vertices narrower than maxWidth, none of them
+    // holding one of the edges
+    std::vector<TopoDS_Shape> slivers;
+    double bound = 0.0;
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape.getShape(), TopAbs_FACE, faces);
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(shape.getShape(), TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    for (int i = 1; i <= faces.Extent(); ++i) {
+        const TopoDS_Shape &face = faces(i);
+        bool touches = false, holds = false;
+        for (TopExp_Explorer xp(face, TopAbs_VERTEX); xp.More() && !touches; xp.Next())
+            touches = vertices.Contains(xp.Current());
+        for (TopExp_Explorer xp(face, TopAbs_EDGE); xp.More() && !holds; xp.Next())
+            holds = edgeMap.Contains(xp.Current());
+        if (!touches || holds)
+            continue;
+        GProp_GProps area, perimeter;
+        BRepGProp::SurfaceProperties(face, area);
+        BRepGProp::LinearProperties(face, perimeter);
+        if (perimeter.Mass() <= Precision::Confusion())
+            continue;
+        double width = 2.0 * area.Mass() / perimeter.Mass();
+        if (width >= maxWidth || !isElementaryAround(face, edgeFaces))
+            continue;
+        slivers.push_back(face);
+        bound += width * area.Mass();
+    }
+    if (slivers.empty())
+        return false;
+
+    BRepAlgoAPI_Defeaturing mkDefeaturing;
+    mkDefeaturing.SetRunParallel(true);
+    mkDefeaturing.SetToFillHistory(true);
+    mkDefeaturing.SetShape(shape.getShape());
+    for (const auto &face : slivers)
+        mkDefeaturing.AddFaceToRemove(face);
+    try {
+        Handle(Deadline) deadline = new Deadline(FallbackSeconds);
+        mkDefeaturing.Build(deadline->Start());
+    }
+    catch (Standard_Failure &) {
+        return false;
+    }
+    if (!mkDefeaturing.IsDone() || mkDefeaturing.Shape().IsNull())
+        return false;
+    for (const auto &face : slivers) {
+        if (!mkDefeaturing.IsDeleted(face))
+            return false;
+    }
+    TopoShape result(mkDefeaturing.Shape());
+    if (!isMadeClean(result.getShape(), shape.getShape()))
+        return false;
+    if (shape.hasSubShape(TopAbs_SOLID)) {
+        GProp_GProps before, after;
+        BRepGProp::VolumeProperties(shape.getShape(), before);
+        BRepGProp::VolumeProperties(result.getShape(), after);
+        if (std::abs(after.Mass() - before.Mass()) > bound + Precision::Confusion())
+            return false;
+    }
+
+    if (removed) {
+        removed->clear();
+        for (const auto &face : slivers)
+            removed->push_back(TopoShape(face));
+    }
+    if (history)
+        *history = mkDefeaturing.History();
+    makEShape(mkDefeaturing,shape,op);
+    return true;
+}
+
+bool TopoShape::makEFeatureFree(const TopoShape &shape,
+                                const std::vector<TopoShape> &edges,
+                                double reach,
+                                Handle(BRepTools_History) *history,
+                                std::vector<TopoShape> *removed,
+                                TopoShape *pockets,
+                                TopoShape *bosses,
+                                const char *op)
+{
+    if(!op) op = Part::OpCodes::Defeaturing;
+    if (shape.isNull() || edges.empty() || reach <= 0.0)
+        return false;
+    // at most this many faces to a feature, all within this many reaches
+    const int maxFaces = 12;
+    const double farFactor = 4.0;
+
+    TopTools_IndexedMapOfShape vertices, edgeMap;
+    BRep_Builder builder;
+    TopoDS_Compound edgeComp;
+    builder.MakeCompound(edgeComp);
+    for (const auto &e : edges) {
+        if (e.isNull())
+            continue;
+        edgeMap.Add(e.getShape());
+        TopExp::MapShapes(e.getShape(), TopAbs_VERTEX, vertices);
+        builder.Add(edgeComp, e.getShape());
+    }
+    if (edgeMap.IsEmpty())
+        return false;
+
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape.getShape(), TopAbs_FACE, faces);
+    const int n = faces.Extent();
+    // the faces that hold an edge or touch one of its vertices: no feature's
+    std::vector<bool> excluded(n + 1, false);
+    for (int i = 1; i <= n; ++i) {
+        for (TopExp_Explorer xp(faces(i), TopAbs_EDGE); xp.More() && !excluded[i]; xp.Next())
+            excluded[i] = edgeMap.Contains(xp.Current());
+        for (TopExp_Explorer xp(faces(i), TopAbs_VERTEX); xp.More() && !excluded[i]; xp.Next())
+            excluded[i] = vertices.Contains(xp.Current());
+    }
+    // The distance of a face from the edges: past four reaches by their
+    // boxes, the boxes' gap does -- an exact distance to a B-spline face can
+    // take seconds, and all the faces are asked
+    Bnd_Box edgeBox;
+    BRepBndLib::Add(edgeComp, edgeBox);
+    std::vector<double> distance(n + 1, -1.0);
+    auto distanceOf = [&](int i) {
+        if (distance[i] < 0.0) {
+            Bnd_Box faceBox;
+            BRepBndLib::Add(faces(i), faceBox);
+            const double gap = faceBox.Distance(edgeBox);
+            if (gap > farFactor * reach) {
+                distance[i] = gap;
+            }
+            else {
+                BRepExtrema_DistShapeShape dist(faces(i), edgeComp);
+                distance[i] = dist.IsDone() ? dist.Value() : Precision::Infinite();
+            }
+        }
+        return distance[i];
+    };
+    // the faces beside each face, across its edges
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(shape.getShape(), TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+
+    // The features: each face within reach grown over its neighbours, the
+    // excluded faces its border
+    std::vector<bool> seen(n + 1, false);
+    std::vector<std::vector<int>> features;
+    for (int seed = 1; seed <= n; ++seed) {
+        if (seen[seed] || excluded[seed] || distanceOf(seed) >= reach)
+            continue;
+        std::vector<int> feature, stack{seed};
+        bool small = true;
+        while (!stack.empty()) {
+            int i = stack.back();
+            stack.pop_back();
+            if (seen[i])
+                continue;
+            seen[i] = true;
+            feature.push_back(i);
+            if (static_cast<int>(feature.size()) > maxFaces || distanceOf(i) > farFactor * reach
+                    || !isElementaryAround(faces(i), edgeFaces))
+                small = false;
+            for (TopExp_Explorer xp(faces(i), TopAbs_EDGE); xp.More(); xp.Next()) {
+                const int k = edgeFaces.FindIndex(xp.Current());
+                if (!k)
+                    continue;
+                for (const auto &other : edgeFaces(k)) {
+                    const int j = faces.FindIndex(other);
+                    if (j && !seen[j] && !excluded[j])
+                        stack.push_back(j);
+                }
+            }
+        }
+        if (small)
+            features.push_back(std::move(feature));
+    }
+    if (features.empty())
+        return false;
+
+    auto takeOut = [&](const std::vector<int> &which, BRepAlgoAPI_Defeaturing &mk) {
+        mk.SetRunParallel(true);
+        mk.SetToFillHistory(true);
+        mk.SetShape(shape.getShape());
+        for (int i : which)
+            mk.AddFaceToRemove(faces(i));
+        try {
+            Handle(Deadline) deadline = new Deadline(FallbackSeconds);
+            mk.Build(deadline->Start());
+        }
+        catch (Standard_Failure &) {
+            return false;
+        }
+        if (!mk.IsDone() || mk.Shape().IsNull())
+            return false;
+        for (int i : which) {
+            if (!mk.IsDeleted(faces(i)))
+                return false;
+        }
+        return isMadeClean(mk.Shape(), shape.getShape());
+    };
+    // each by itself, then those that come out clean together
+    std::vector<int> kept;
+    for (const auto &feature : features) {
+        BRepAlgoAPI_Defeaturing mk;
+        if (takeOut(feature, mk))
+            kept.insert(kept.end(), feature.begin(), feature.end());
+    }
+    if (kept.empty())
+        return false;
+    BRepAlgoAPI_Defeaturing mkDefeaturing;
+    if (!takeOut(kept, mkDefeaturing))
+        return false;
+
+    TopoShape freed(0, Hasher);
+    freed.makEShape(mkDefeaturing, shape, op);
+    if (pockets || bosses) {
+        // what the features took away and added: the shape without them
+        // and the shape, the one less the other
+        try {
+            if (pockets)
+                pockets->makEBoolean(Part::OpCodes::Cut, {freed, shape});
+            if (bosses)
+                bosses->makEBoolean(Part::OpCodes::Cut, {shape, freed});
+        }
+        catch (Base::Exception &) {
+            return false;
+        }
+        catch (Standard_Failure &) {
+            return false;
+        }
+    }
+    if (removed) {
+        removed->clear();
+        for (int i : kept)
+            removed->push_back(TopoShape(faces(i)));
+    }
+    if (history)
+        *history = mkDefeaturing.History();
+    *this = freed;
+    return true;
+}
+
 // deprecated, see Part::Feature::getRelatedElements()
 #if 0
 const std::vector<Data::MappedElement> &
@@ -6211,7 +6570,7 @@ TopoShape & TopoShape::makEBSplineFace(const std::vector<TopoShape> &input,
 
         TopoShape s;
         s.makESHAPE(comp, mapper, edges, Part::OpCodes::Split);
-        return makEBSplineFace(s, style, op);
+        return makEBSplineFace(s, style, keepBezier, op);
     }
 
     if (edges.size() < 2 || edges.size() > 4)
@@ -6294,6 +6653,18 @@ TopoShape & TopoShape::makEBSplineFace(const std::vector<TopoShape> &input,
                     if (spline.IsNull())
                         throw Standard_Failure("A curve was not a B-spline and could not be converted into one.");
                     curves.push_back(spline);
+                }
+            }
+        }
+
+        // Coons wants 4 poles a side, which OCCT's Bezier filling sees to by
+        // raising the degree and its B-spline filling refuses; raise it here,
+        // on copies, as the curves may be the input edges' own
+        if (fstyle == GeomFill_CoonsStyle) {
+            for (auto &curve : curves) {
+                if (curve->Degree() < 3) {
+                    curve = Handle(Geom_BSplineCurve)::DownCast(curve->Copy());
+                    curve->IncreaseDegree(3);
                 }
             }
         }

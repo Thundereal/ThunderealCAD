@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 27.16: links pinned to a version
+# GUI check of docs/TransactionLogJournal.md sec 27.16: links pinned to a version
 # of another file through the Gui -- the Std_LinkPin picker and
 # Std_LinkUnpin, undo and redo of both, a version document saved over its
 # file with the warning, and re-pinning after it. One GUI run in a fresh

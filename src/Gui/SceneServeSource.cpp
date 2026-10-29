@@ -629,7 +629,7 @@ public:
         return mirror.get();
     }
     /// The connections whose login this document's log has recorded
-    /// (docs/TransactionLog.md sec 30.6), kept level with the roster.
+    /// (docs/TransactionLogJournal.md sec 30.6), kept level with the roster.
     SceneActors::Logins logins;
 
     /// Adopt what a client stated, building its mirror on first sight.
@@ -779,7 +779,7 @@ public:
             json += ",\"session\":" + std::to_string(editSession);
         // Which edit it is, for a client that does something of its own
         // for one: the last change of an object (ViewProvider::ValueDiff,
-        // docs/TransactionLog.md sec 32.19) is looked at and worked from
+        // docs/TransactionLogJournal.md sec 32.19) is looked at and worked from
         // its panel -- nothing in the view is the tool's to be clicked, so
         // the pointer stays the client's camera's.
         if (editing && doc) {
@@ -1917,7 +1917,7 @@ void SceneServeSource::installHandlers()
             for (const auto &r : reqs) {
                 if (!self)
                     return;
-                // What a client does is the client's (docs/TransactionLog.md
+                // What a client does is the client's (docs/TransactionLogJournal.md
                 // sec 30.3 S.b): a pick may run a command.
                 App::ActorScope actor(SceneActors::of(r.client));
                 self->pickAndSelect(SbVec3f(r.origin[0], r.origin[1], r.origin[2]),
@@ -2027,7 +2027,7 @@ void SceneServeSource::installHandlers()
 
     // A viewer that leaves takes its served viewport and its mirror with
     // it -- the session is the expensive part, and nobody is looking.
-    // Who came and who left, into the document's log (docs/TransactionLog.md
+    // Who came and who left, into the document's log (docs/TransactionLogJournal.md
     // sec 30.6 U2): a login is a row, view-only ones too, and leaving
     // closes the session.
     server.setRosterNotifier([self]() {
@@ -2456,7 +2456,7 @@ void SceneServeSource::unserve(Document *doc)
 {
     auto &order = serveOrder();
     order.erase(std::remove(order.begin(), order.end(), doc), order.end());
-    // No longer served: nobody is logged in to it (docs/TransactionLog.md
+    // No longer served: nobody is logged in to it (docs/TransactionLogJournal.md
     // sec 30.6 U2). Here and not in the destructor, where the document may
     // be gone; the caller's is alive.
     auto it = servedDocuments().find(doc);

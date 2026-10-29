@@ -161,7 +161,7 @@ const askName = () => {
 };
 
 // A copy of the document, edited elsewhere, offered to whoever is sharing
-// it (docs/TransactionLog.md sec 30.23). The browser's own picker chooses
+// it (docs/TransactionLogJournal.md sec 30.23). The browser's own picker chooses
 // the file; the host keeps it unread until its owner brings it in.
 // How far a copy being sent has got, said while it goes: one larger than a
 // message carries goes in pieces (sec 32.36) and takes a while.
@@ -233,7 +233,7 @@ const [cardOpen, setCardOpen] = createSignal(false);
 const [sheetOpen, setSheetOpen] = createSignal(
   new URLSearchParams(location.search).has('sheet'));
 
-// The transaction log's panel (docs/TransactionLog.md sec 32.21): the page's
+// The transaction log's panel (docs/TransactionLogJournal.md sec 32.21): the page's
 // own card of the served document's history. `?log` is the viewer's console
 // overlay, so on load it is `?history`.
 const [logOpen, setLogOpen] = createSignal(
@@ -365,7 +365,7 @@ const [taskPanelOpen, setTaskPanelOpen] = createSignal(
 
 // An edit that is worked from its panel and from nothing in the view --
 // the last change of an object, its slider and what was found
-// (docs/TransactionLog.md sec 32.19; Gui::ViewProvider::ValueDiff) --
+// (docs/TransactionLogJournal.md sec 32.19; Gui::ViewProvider::ValueDiff) --
 // brings the card up with it, and takes it away again if it did.
 let panelOpenedForEdit = false;
 // The tool bars' place, told to the host while this client edits

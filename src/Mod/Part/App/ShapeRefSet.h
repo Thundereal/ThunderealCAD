@@ -411,7 +411,7 @@ public:
      * Only the header is parsed: the banner, then the table if there is one.
      * What App::FileBlob::sources() answers for a `.brp` blob, so that a
      * holder of the file -- the transaction log -- also holds what it
-     * borrows from (docs/TransactionLog.md sec 23.16). Empty for a plain
+     * borrows from (docs/TransactionLogJournal.md sec 23.16). Empty for a plain
      * BRep and for anything this build cannot read.
      */
     static std::vector<std::string> fileTable(const std::string& bytes);

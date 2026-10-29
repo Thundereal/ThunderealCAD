@@ -120,11 +120,17 @@ public:
     Gui::MDIView* getMDIView() const override;
     /// The page's view, opened if it is not
     Gui::MDIView* getOrCreateMDIView() override;
+    /// Shown in its page view, opened when it is closed (entry 217)
+    bool hasOwnView() const override
+    {
+        return true;
+    }
 
     bool getFrameState();
     void setFrameState(bool state);
     void toggleFrameState();
     void setTemplateMarkers(bool state);
+    void refreshFrames();
 
     bool canDelete(App::DocumentObject* obj) const override;
 
@@ -149,6 +155,8 @@ private:
     std::string m_pageName;
     /// Inside finishRestoring(): a Visibility set there opens no view
     bool m_finishingRestore = false;
+    /// Inside setFrameState(): ShowFrames set without a refresh
+    bool m_quietFrames = false;
     // A Qt child of m_mdiView, deleted with it whichever way that goes
     QPointer<QGVPage> m_graphicsView;
     QGSPage* m_graphicsScene;

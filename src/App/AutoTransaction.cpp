@@ -24,6 +24,7 @@
 
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
+#include <optional>
 
 #include "AutoTransaction.h"
 #include "Application.h"
@@ -146,6 +147,10 @@ void AutoTransaction::setEnable(bool enable) {
     }
 }
 
+bool AutoTransaction::isEnabled() {
+    return GetApplication()._activeTransactionGuard > 0;
+}
+
 Application::InvocationScope::InvocationScope(const char* origin)
 {
     GetApplication()._invocations.push_back(origin ? origin : "");
@@ -237,8 +242,16 @@ void Application::closeActiveTransaction(bool abort, int id) {
         // would announce itself as a commit and come to rest on the redo stack
         // rather than being discarded, which is not what aborting means.
         TransactionSignaller signaller(abort,false);
-        TransactionGuard guard(TransactionGuard::Abort);
+        // No guard around a document with a log: its undo(id) holds its own
+        // and lets go of it around a step that goes through the log, which
+        // refuses under one -- a step another actor wrote past (sec 30.10,
+        // 37.7 item 3). Without the log, one guard for them all as before.
+        std::optional<TransactionGuard> guard;
         for(auto &v : DocMap) {
+            if (v.second->getTransactionLog())
+                guard.reset();
+            else if (!guard)
+                guard.emplace(TransactionGuard::Abort);
             v.second->undo(id);
         }
         return;

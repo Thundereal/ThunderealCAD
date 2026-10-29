@@ -74,6 +74,13 @@ public:
     void extensionOnChanged(const Property* p) override;
 
     virtual bool extensionGetSubObjects(std::vector<std::string> &ret, int reason) const override;
+
+    /// The Origin is owned (sec 37.9): pasted onto a live owner, the live
+    /// owner's origin is kept
+    void extensionGetOwnedObjects(std::vector<DocumentObject*>& owned) const override;
+    DocumentObject* extensionGetOwnedCounterpart(const DocumentObject* owned,
+                                                 const DocumentObject* liveOwner,
+                                                 OwnedPaste& how) const override;
 protected:
     /// Checks integrity of the Origin
     App::DocumentObjectExecReturn *extensionExecute () override;

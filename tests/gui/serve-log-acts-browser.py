@@ -1,7 +1,7 @@
 """A real browser acts on the transaction log from its own panel: rows taken
 back, a version, branches -- in a document served to it from a branch.
 
-The browser half of docs/TransactionLog.md sec 32.22 and 32.23. tests/gui/
+The browser half of docs/TransactionLogJournal.md sec 32.22 and 32.23. tests/gui/
 serve-log-acts.py checks the ops against synthetic socket clients: each
 act, each refusal, who may. What no synthetic client can check is the page
 (web/src/logpanel.tsx): that the rows chosen have their acts, that an act
@@ -95,7 +95,7 @@ OBJ = "Cut"
 SETTLE_MS = 9000
 RUN_WAIT_S = 300
 # The browser acts on the document, so it is someone: the holder of an
-# invitation issued to its name (docs/TransactionLog.md sec 30.6 U4, U6).
+# invitation issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).
 TOKEN = "log-acts-invite"
 CLIENT = "log-acts"
 

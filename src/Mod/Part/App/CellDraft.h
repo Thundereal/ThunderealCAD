@@ -28,6 +28,7 @@
 
 #include <BRepBuilderAPI_MakeShape.hxx>
 #include <BRepTools_History.hxx>
+#include <Message_ProgressRange.hxx>
 #include <TopTools_DataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
@@ -223,6 +224,15 @@ private:
     TopoDS_Face myErrorNeighbour;
     std::string myErrorMessage;
 };
+
+/** The boolean argument check's self-intersection and curve-on-surface tests
+ * (BOPAlgo_ArgumentAnalyzer) of \a faces, faces of \a shape, against the rest
+ * of it -- the rest not checked against itself, which on a large shape of
+ * B-splines takes minutes. Empty when they pass, else what failed.
+ */
+PartExport std::string RegionBooleanCheck(const TopoDS_Shape& shape,
+                                          const std::vector<TopoDS_Shape>& faces,
+                                          const Message_ProgressRange& range = Message_ProgressRange());
 
 }  // namespace Part
 

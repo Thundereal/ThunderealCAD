@@ -37,7 +37,7 @@ class PropertyElementAppearance;
 
 /** The looks of an object's elements, merged by what they are given to
  *
- * docs/ShapeAppearanceDesign.md sec 14.6.5, docs/TransactionLog.md sec
+ * docs/ShapeAppearanceDesign.md sec 14.6.5, docs/TransactionLogJournal.md sec
  * 31.20. What DocumentObject::mergeUnit() does for a unit that is one
  * PropertyElementAppearance, whatever holds it: a shape's, whose names are
  * its elements', a link's or an App::Part's, whose names are paths.

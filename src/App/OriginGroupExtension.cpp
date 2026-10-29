@@ -50,6 +50,25 @@ OriginGroupExtension::OriginGroupExtension () {
 
 OriginGroupExtension::~OriginGroupExtension () = default;
 
+void OriginGroupExtension::extensionGetOwnedObjects(std::vector<DocumentObject*>& owned) const
+{
+    if (auto origin = Origin.getValue())
+        owned.push_back(origin);
+}
+
+DocumentObject* OriginGroupExtension::extensionGetOwnedCounterpart(
+    const DocumentObject* owned, const DocumentObject* liveOwner, OwnedPaste& how) const
+{
+    if (!owned || owned != Origin.getValue() || !liveOwner)
+        return nullptr;
+    auto ext = liveOwner->getExtensionByType<OriginGroupExtension>(true);
+    if (!ext)
+        return nullptr;
+    // An origin's state is fixed: the live owner keeps its own (sec 37.9)
+    how = OwnedPaste::KeepLive;
+    return ext->Origin.getValue();
+}
+
 App::Origin *OriginGroupExtension::getOrigin () const {
     App::DocumentObject *originObj = Origin.getValue ();
 

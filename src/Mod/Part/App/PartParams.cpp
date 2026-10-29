@@ -22,15 +22,9 @@
 
 #include "PreCompiled.h"
 
-namespace Part {
-// AppPartPy.cpp: the OCCT fork's extension version, -1 without the fork.
-// ImmutableShapeValues defaults to it.
-PartExport int initOCCTExtension();
-// AppPartPy.cpp: hands FilletPlateG0FallbackRatio to the OCCT fork's fillet.
-PartExport bool setOCCTPlateG0FallbackRatio(double ratio);
-// AppPartPy.cpp: hands FilletCornerSetbackFallback to the OCCT fork's fillet.
-PartExport bool setOCCTCornerSetbackFallback(double multiple);
-}
+// OCCTFork.h: the OCCT fork's extension version (ImmutableShapeValues
+// defaults to it) and the fillet settings handed to the fork
+#include "OCCTFork.h"
 
 /*[[[cog
 import PartParams
@@ -688,7 +682,7 @@ static const App::ParamRegistry::Registrar _PartParamsRegistrar({
         .setDoc("Freeze a shape property's value when it is set: every TShape gets the\n"
 "OCCT fork's Immutable flag, so a later edit of its geometry, tolerance\n"
 "or topology throws instead of changing the value behind the property\n"
-"(docs/TransactionLog.md sec 23.6, 23.12). Unless set, on exactly when\n"
+"(docs/TransactionLogJournal.md sec 23.6, 23.12). Unless set, on exactly when\n"
 "the OCCT loaded at run time is the fork at extension version 2 or\n"
 "later, which is where the flag is honoured."),
     App::ParamInfo("Part", "PartParams", "User parameter:BaseApp/Preferences/Mod/Part", "FilletPlateG0FallbackRatio", "FilletPlateG0FallbackRatio", App::ParamInfo::Float, 0.01)
@@ -1533,7 +1527,7 @@ const char *PartParams::docImmutableShapeValues() {
 "Freeze a shape property's value when it is set: every TShape gets the\n"
 "OCCT fork's Immutable flag, so a later edit of its geometry, tolerance\n"
 "or topology throws instead of changing the value behind the property\n"
-"(docs/TransactionLog.md sec 23.6, 23.12). Unless set, on exactly when\n"
+"(docs/TransactionLogJournal.md sec 23.6, 23.12). Unless set, on exactly when\n"
 "the OCCT loaded at run time is the fork at extension version 2 or\n"
 "later, which is where the flag is honoured.");
 }

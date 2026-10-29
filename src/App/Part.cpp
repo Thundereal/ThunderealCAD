@@ -27,6 +27,7 @@
 
 #include "Application.h"
 #include "Document.h"
+#include "DocumentObjectExtension.h"
 #include "DocumentObserver.h"
 #include "Link.h"
 #include "LinkAppearance.h"
@@ -53,10 +54,9 @@ Part::Part()
     ADD_PROPERTY_TYPE(Material, (nullptr), 0, App::Prop_None, "The Material for this Part");
     ADD_PROPERTY_TYPE(Meta, (), "Part", App::Prop_None, "Map with additional meta information");
 
-    // create the uuid for the document
-    Base::Uuid id;
+    // No Uid of its own: the part's is the object's (getObjectUid(),
+    // docs/TransactionLogJournal.md sec 36.7), and Python's Uid answers it
     ADD_PROPERTY_TYPE(Id, (""), "Part", App::Prop_None, "ID (Part-Number) of the Item");
-    ADD_PROPERTY_TYPE(Uid, (id), "Part", App::Prop_None, "UUID of the Item");
 
     // license stuff (leave them empty to avoid confusion with imported 3rd party STEP/IGES files)
     ADD_PROPERTY_TYPE(License, (""), "Part", App::Prop_None, "License string of the Item");
@@ -319,6 +319,33 @@ AuxGroup *Part::getElementsGroup(bool create)
     return group;
 }
 
+std::vector<DocumentObject*> Part::getOwnedObjects() const
+{
+    auto owned = GeoFeature::getOwnedObjects();
+    for (auto child : Group.getValues()) {
+        auto group = Base::freecad_dynamic_cast<AuxGroup>(child);
+        if (group && group->getOwner() == this && !group->getRole().empty())
+            owned.push_back(group);
+    }
+    if (auto elements = Base::freecad_dynamic_cast<AuxGroup>(Elements.getValue()))
+        owned.push_back(elements);
+    return owned;
+}
+
+DocumentObject* Part::getOwnedCounterpart(const DocumentObject* owned,
+                                          const DocumentObject* liveOwner,
+                                          OwnedPaste& how) const
+{
+    auto group = Base::freecad_dynamic_cast<const AuxGroup>(owned);
+    auto live = Base::freecad_dynamic_cast<const Part>(liveOwner);
+    if (!group || !live || group->getOwner() != this)
+        return GeoFeature::getOwnedCounterpart(owned, liveOwner, how);
+    how = OwnedPaste::FollowOwner;
+    if (group == Elements.getValue())
+        return live->Elements.getValue();
+    return live->getAuxGroup(group->getRole().c_str());
+}
+
 int Part::getAuxGroupRank(const AuxGroup *group)
 {
     static const char *roles[] = {"Elements", "Joints", "Physics", "Simulations", "Views"};
@@ -356,6 +383,12 @@ void Part::handleChangedPropertyType(Base::XMLReader &reader, const char *TypeNa
     } else {
         App::GeoFeature::handleChangedPropertyType(reader, TypeName, prop);
     }
+}
+
+void Part::handleChangedPropertyName(Base::XMLReader &reader, const char *TypeName, const char *PropName)
+{
+    if (!restoreUidProperty(reader, TypeName, PropName))
+        App::GeoFeature::handleChangedPropertyName(reader, TypeName, PropName);
 }
 
 // Python feature ---------------------------------------------------------

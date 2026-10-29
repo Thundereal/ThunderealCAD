@@ -1,12 +1,70 @@
 # An append-only transaction log, and undo as a forward operation
 
-Status (2026-09-22): **design complete; implementation starts with
-phase 0.** Development is on branch `Transaction`. Sections 1 to 7 are the idea as recorded on 2026-09-18 and
-are kept as written; the design that answers them starts at section 8,
-and section 8.1 is the summary; sections 16 and 17 (versions, branches)
-were decided on 2026-09-22 and section 18 lists what the audit of the
-same day left open. Phase 0 (section 15) is a measurement and comes
-before any store is written.
+Status (2026-10-21): **built and in use on branch `Transaction`**,
+audited whole (sec 37). This document is the design, the rulings and the
+build log in one, written forward: a later section can change what an
+earlier one says, and says so where it does. The newest ruling on a
+question is the one that holds.
+
+## How to read this document
+
+- **The idea and the design** are sections 1-14: 1-7 the idea as the
+  user recorded it (kept as written), 8.1 the design summary, 9 the
+  record model, 10 what is and is not logged, 11-12 pseudo transactions
+  and undo over the log, 13 the store, 14 performance.
+- **The rulings** on each part are the `(user, ...)` and `(rulings ...)`
+  sections: 16 versions, 17 branches, 23 entities, 24 undo, 30 the shared
+  head, 35 linked sets, 36 object UIDs. Section 27, "pinned links", grew
+  into the running ledger of rulings and measurements from 2026-09-25 on
+  (27.1-27.71); grep `### 27.` for a number cited elsewhere.
+- **What is built** is said in the "as built" blocks at the end of each
+  design section and in the audit, sec 37; **what is open** is 37.2
+  (left as found; elaborated in 37.7; built in 37.8-37.12, nothing left), the
+  "Not built" lines of 35.11 and 36.6, 34 (held), and 38 (S1 built in
+  38.8; S2, S3 and the questions open).
+- **The design as it stands**, without the history, is
+  `docs/TransactionLogDesign.md`; this document is the journal it was
+  built from.
+- A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
+  found with `grep -n '^### 27.22\|^## 36' docs/TransactionLogJournal.md`.
+
+## Contents
+
+| Sec | What | State |
+|----:|------|-------|
+| 1-7 | The idea: an append-only log, undo as a forward step, the multi-client substrate; open questions; what it is not | as recorded 2026-09-18 |
+| 8 | Design summary (8.1) and the shape of the answer | ruled 2026-09-21 |
+| 9 | The record model: transactions, ops, values by hash | built |
+| 10 | The filter: derived values (Shape) and the cache tier | built; the cache tier's budget built (37.13) |
+| 11 | Pseudo transactions: recompute, save, snapshot rows | built |
+| 12 | Undo over the log: the inverse as a row | built |
+| 13 | The store: SQLite, WAL, one file per history, the embedded copy (13.3) | built; the copy's bound 37.5 P1 |
+| 14 | Performance and migration; the store is versioned (27.55) | built |
+| 15 | Phases 0-8, the order of building | done through 8 |
+| 16 | Versions: snapshots, named versions, retention, trim, squash | ruled; count-only retention, 5 kept (37.5 P6) |
+| 17 | Branches: in place, one document per branch | ruled, built |
+| 18 | Audit rulings of 2026-09-22 | closed |
+| 19 | Survey sources | reference |
+| 20 | Phase 0 results: the measurements the design rests on | measured |
+| 21 | Phase 1 as built: logging, the worker, the Gui panel | built |
+| 22 | The end state, the browser as a development tool | vision |
+| 23 | Entities: composites, parts, deltas, blobs, supersede (23.2) | built |
+| 24 | Phase 3: undo over the log, selective undo, the hot window | built |
+| 25 | Phase 7: crash recovery from the log | built |
+| 26 | Phase 4: branches as built, switching, the tip rule | built |
+| 27 | Phase 5: pinned links -- and the ledger of every later ruling and measurement (27.1-27.71): frozen versions, schema 4/5, trim, squash, the store version, the embed's cost | built; read by number |
+| 28 | Phase 6: merge | built |
+| 29 | Concurrent writers: one connection per file, sessions; two processes on one file (29.7, 29.8) | built; two processes as a pull in every save, folders too (29.8) |
+| 30 | A shared head, explicit branches, forks, actors and access | ruled, built |
+| 31 | Phase 8: a value that is many things (survey and questions); what it left, checked and finished (31.34) | built |
+| 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
+| 33 | What the merge into LinkVibe exposed | fixed |
+| 34 | Held: what Scion's design suggests | held |
+| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
+| 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
+| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20), an audit of the folder and two-process code (38.21), its fixes and the merge's GUI failures (38.22), a view cell's handles keep their corners over laid-over bars (38.23) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
+| 39 | Audit of the whole implementation (2026-10-27): sixteen fixed (39.1), the rest left (39.2); the design document `docs/TransactionLogDesign.md` written beside this journal | fixed |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -11737,6 +11795,314 @@ file, are the same mechanism with more under it: a document per client
 (`docs/ThinClient.md` 8.12, `docs/MultiViewEdit.md` sec 10), and the store
 and its allocators shared across processes (27.41 Q6).
 
+### 29.7 Two processes on one file: survey, a probe, questions (2026-10-23)
+
+29.4 Q1 left two processes for later. Surveyed now; not built.
+
+**What happens today.** A process copies the file's history out at open,
+into a transient directory of its own (`<exe>_Doc_<uuid>_<hash>_<pid>`).
+The store, its counters and every allocator belong to that process.
+Nothing notices a second process on the file: there is no lock, and a
+save does not look at the file before writing it. When both save, the
+last save wins, as it always has for an FCStd, and its history wins with
+it. The other process's edits and rows are then in neither the file nor
+its history, only in the transient directory of a process that may have
+closed since.
+
+**The probe** (`~/.cache/lv-merge/probe29/two.py`, four FreeCADCmd
+processes, env `PROBE_ROLE`): a `.TStd` holding a box. A and B both open
+it. A makes the box longer and adds a cylinder. B makes it wider, adds a
+sphere and saves. A then copies the file as it is now on disk, imports the
+copy as a fork (30.13), merges it (28), and saves.
+
+- **With the history in the file it works, by hand.** The import brought
+  B's two rows in 34 ms, the merge was clean in 13 ms, and the save took
+  19 ms. Reopened, the file has the box at 20 x 30 x 10 with the cylinder
+  and the sphere. Its history has A's rows on `main`, B's on a branch,
+  and the merge.
+- **B's rows are named after the copy**: branch `disk-copy`, author
+  `host (disk-copy)`. That is because `openFork` refuses the document's
+  own file, so the import had to read a copy.
+- **Without the history in the file**, the same run brings the file as one
+  row from nothing (30.22). Every property either side changed is then a
+  conflict with no base: here the box's length and its width. That is an
+  `.FCStd`, which saves at schema 4 and carries no history, or any file
+  saved with the mode at 1. The first run of the probe hit this because
+  the user's `user.cfg` has `TransactionLog` at 1.
+- **Two races.** B can save again between A's read of the file and A's
+  write, and that save is lost. And B's document is now behind the file:
+  if B saves again without pulling, A's merge is overwritten. So the pull
+  has to be in every save, on both sides.
+
+**Two shapes.**
+
+- **(a) The file is the meeting point: a pull in every save.**
+  1. A save first looks at the file on disk. If it is no longer the save
+     this document last read or wrote (the save id in `Version`, 16.4),
+     another process has saved it.
+  2. The file's history is then imported as a branch and merged, which is
+     29.2's pull.
+  3. Only a clean merge is written. A conflict stops the save and opens
+     the picker, as in 29.4 Q4.
+
+  The read, merge and write run under a lock file beside the document, so
+  no third save can fall between them. The allocators need nothing,
+  because the replay gives what the other process made new ids here
+  (30.13). This works for two processes on one machine, two machines on a
+  shared folder, and a file synced by a cloud folder. A save that finds
+  the file unmoved costs nothing; one that finds it moved costs an import
+  and a merge, about 50 ms in the probe.
+- **(b) One live store shared by the processes**: 29.2 to the letter, a
+  push after every operation.
+  - The store moves out of the transient directory to a place every
+    process finds (13.3's `local`, `<user-data>/history/<Uid>/`). Each
+    process opens it; SQLite's WAL with the busy timeout (37.7 item 7)
+    takes the connections.
+  - Every allocator reserves blocks from the store (27.41 Q6): seqs,
+    version numbers, object ids and names, geometry ids, string ids.
+  - Every copy the core keeps of the store's state (the next seq, the live
+    values, the anchors, the strings written) is checked against the
+    store's `data_version` before use.
+  - A process learns that the target moved by polling.
+
+  This works on one machine only, since SQLite over a network share is not
+  safe. It means rewriting the core's assumption that it is the only
+  writer, and what it buys is live co-editing between processes. The
+  shared session (ThinClient 8.11) already gives that to anyone who
+  connects to one process.
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q1 | Which shape | **(a)**. (b) only if live co-editing between processes is ever asked for that a shared session cannot give. |
+| Q2 | When a process pulls | **At every save**, and only then. A process that sees the file change while it is idle (a file watcher) says so in the status line and the panel, and pulls nothing until it saves. A pull is a merge, so it is an undo step, and an automatic one would rewrite the document under the user. |
+| Q3 | A file with no history in it (an `.FCStd` at schema 4, or the mode at 1) | **The process keeps its own base.** The `version` table already records each save's `Document.xml` hash. The file on disk is compared with the save this process last read or wrote and brought as one row against it (30.19). Without this, two processes on a plain `.FCStd` see a conflict wherever both changed anything. |
+| Q4 | What the other process's rows are known by | **A branch named after the session that saved them** (its user, and its host when that is recorded, 30.6), extended by later pulls from the same session. The rows are kept: they are the history, the way an imported fork's are. |
+| Q5 | The lock | **A lock file beside the document, held only through the pull and the write.** A process that finds it waits, as a second SQLite connection does, then pulls. Also written at open, and read only to tell the user: the second process to open the file says "also open in <host> since <time>", and blocks nothing. |
+
+If (a) is ruled, the build order: the save detects a moved file and takes
+the lock; the pull at save, through the fork import of the document's own
+file under the session's name; a conflict stops the save at the picker;
+Q3's base for a file without history; the idle notice. Tests are a Python
+case that drives two FreeCADCmd processes, and a gtest of the lock.
+
+### 29.8 Two processes on one file, as built (2026-10-24)
+
+**Rulings (user, 2026-10-24): Q1-Q5 as recommended**, with one addition: a
+save with no second writer must not be slowed down.
+
+**How a save tells that another process wrote the file.** The document
+keeps a stamp of the file as it last read or wrote it: size, mtime in ns
+and inode (`App::DiskStamp`, `FileElsewhere.h`). That is one `stat`, taken
+as a restore starts and kept once it is done, and taken again after each
+save. A save compares the file with the stamp.
+
+- **Same stamp:** nobody wrote the file, and the save goes on as before.
+- **Different stamp, and the document wrote the history into the file:**
+  the file's `Version` is read. If the save id is still this document's,
+  the file was only touched (a sync tool, a backup, `touch`). That stamp
+  is remembered as a touch and nothing is pulled.
+- **Otherwise another process saved the file.** That stamp is remembered
+  too, so the idle check below reads the archive once, not every time.
+
+A save id counts only when the file carries the history. A save that leaves
+the history out writes whatever `Version` the document had from before, and
+two processes could both write the same stale id.
+`Document::isFileChangedElsewhere()`; Python `isFileChangedElsewhere()`.
+
+**The lock (Q5)**: `.~<name>.lock` beside the file, held from that look to
+the end of the write (`App::SaveLock`). A save that finds it held waits up
+to 60 s, then fails with "being saved by another process (it is open in
+<host> (pid N) since <time>)", nothing written.
+- **It is boost's `file_lock`**, portable code with no platform branch of
+  ours: fcntl on POSIX, `LockFileEx` on Windows. The system lets it go when
+  the process ends, however it ends, so no lock is ever left stale. The
+  lock file is empty and never written; on Windows a held one cannot even
+  be read, so who holds it is told from the marker below.
+- **An fcntl lock is the process's**, not the handle's: a second lock taken
+  in the same process would succeed. So the lock files a `SaveLock` of
+  this process holds are also kept in a set, and a second one here waits
+  as one in another process would. And no other code may open and close
+  the lock file while it is held, since closing any handle of it lets the
+  process's lock go: the file is made, when missing, before the lock.
+- **Not QLockFile.** QLockFile was the first build. Measured here, a lock
+  and unlock took 1.46 ms (median of 400), most likely because it syncs
+  the file to disk. On a 30 ms schema-4 save that read as 2.6 ms slower
+  (the table below). A hand-written `flock`/`LockFileEx` replaced
+  it first, at 1.6 us; boost then replaced that, at 2.0 us, for the
+  portability (`~/.cache/lv-merge/probe29/bench/lockbench.cpp`).
+- **The name is checked after the lock.** The last process to close the
+  document deletes the lock file, and another may have opened the old one
+  in between. The file's stamp (size, time, inode, as below) is taken
+  before the lock and again after; a lock file made anew has another, and
+  the save tries again.
+
+**The marker (Q5)**: `.~<name>.open`, one line per process that has the
+file open (host, pid, time).
+- **When it is written:** at open, and at a save to a new name.
+- **What it tells:** a process that finds others there warns "'X' is also
+  open in <host> (pid N) since <time>". Python `getFileOpeners()`.
+- **When lines go:** this process's line goes at close. Lines of gone
+  processes of this host are dropped whenever the marker is read. The
+  last process to close the file removes the marker and the lock file.
+- It is written whole and renamed into place (QSaveFile), and it blocks
+  nothing.
+
+**The pull (Q1, Q2)**, `Document::_pullFromDisk`, run at the start of
+`save()` under the lock:
+1. **The file is copied** into `<TransientDir>/pull/<n>/`. `openFork`
+   refuses the document's own file, and a history read from a path is the
+   one read from that path, so each pull gets a copy of its own.
+2. **The copy is brought in by `importFork`**, under the name the pull
+   gives it (Q4): `<file> saved elsewhere`, or `<file> saved by <author>`
+   when the file's `LastModifiedBy` names someone. The authors of the rows
+   follow, `host (<file> saved elsewhere)`.
+3. **The branch is merged (28).** If the merge is clean, the save writes.
+4. **If the merge conflicts, the save stops**: nothing written,
+   `signalSaveMergeConflict(doc, branch)`, and a `Base::RuntimeError` that
+   names the branch. The branch is kept as pending, and the next save
+   merges it again with nothing new to bring. A conflict picked in the
+   meantime has already been merged, so that save writes.
+5. **After the write, the branch is closed** (`closed` set); its rows stay.
+
+**What the next pull comes as.** The other process's next rows start from
+the merge this save wrote, so the import never continues the branch. Under
+F7 (30.14) a later import continues a branch only when nothing moved on
+this side since. Each pull after a save here therefore comes as a branch of
+its own: `<file> saved elsewhere`, then `~2`, and so on. That is why a
+finished one is closed: it stays in the history, out of the way. An import
+for a pull also never extends a closed branch.
+
+**A file without history (Q3).** The base is the row the document's log
+was at when it last read or wrote the file. It is kept in memory, with no
+flush and no meta write in the save, and passed to `_importState` as the
+row to start from where the file names no save. The file then comes as one
+row against that state (30.19), so two processes on an `.FCStd` merge by
+what each changed.
+
+Building it showed a gap in `_importReplay` (30.15). A base at the
+`restore` row of an open could not be reached: the version of an open is
+recorded at that row's parent, and moving along a row that carries no ops
+failed. Rows with no ops between the version and the base change nothing,
+so they are no longer moved along.
+
+**Gui.**
+- **The idle notice (Q2).** The log panel stats each open document's file
+  every 3 s (`checkDisks`). It says once, in the status bar and the report
+  view, "<doc> was saved by another process: its changes are merged in at
+  the next save here". Its status line says so too, or "a save waits on
+  the merge of <branch>".
+- **A conflicted save.** `Gui::Document` hands the branch to the panel
+  (`mergeSaved`, queued so it runs once the save has returned). The panel
+  attaches to that document and opens the merge to pick. `Gui::Document`
+  does not show its "Saving document failed" box in that case; the report
+  view has the reason.
+
+**The preference.** `TransactionLogPullOnSave`, default on. Off, a save
+takes no lock, looks at nothing and writes over the file as before.
+
+**What a save with nobody else costs.** Measured with
+`~/.cache/lv-merge/probe29/savetime.py`: 60 boxes, a small edit before each
+save so that it writes, saves alternating with the preference on and off,
+40 of each.
+
+| Mode, schema | File | On, median | Off, median |
+| --- | --- | --- | --- |
+| 2 (embedded), 5 | 90 KB | 46.75 ms | 46.23 ms |
+| 2, 4 | 61 KB | 30.16 ms | 30.26 ms |
+| 1 (session), 5 | 31 KB | 20.61 ms | 20.55 ms |
+| 1, 4 | 61 KB | 31.25 ms | 31.20 ms |
+
+That is with boost's lock. Three medians are within 0.1 ms of the other,
+either way; the first row is 0.5 ms apart, and its minimums go the other
+way (39.38 on, 41.04 off), which shows the scatter. With the hand-written
+lock the same rows were 45.45/47.17, 31.45/31.34, 21.36/21.29 and
+31.24/31.10. The look alone (`isFileChangedElsewhere()` on an unmoved file)
+is 1.5 us. With QLockFile the schema-4 rows were 33.08 against 30.44 ms and
+33.52 against 30.81 ms.
+
+**A pull costs**, in the driven test, 0.18 s for an import and merge of one
+row with a recompute. That is only on the save that finds the file moved.
+
+**A document saved as a folder** (built 2026-10-24, user: "do the
+documents saved as folder"; the history in it, user: "go", the same day).
+- *It carries the history now.* Until this, a folder save never did:
+  `embedHistory` was asked for an archive only, a gate from the first
+  build of the embedded history (16.4) with no ruling behind it. A folder
+  save already wrote its blobs as files under `blobs/`, and the history's
+  database is one more: the gate is now that the blob store writes entries
+  (`BlobFormat::Entries`), an archive or a folder, not inline XML. So a
+  folder keeps its rows across a close, and a version another document
+  pins travels with it as 27.5 ruling 1 has it -- before, a pinned folder
+  lost the version at its next save with the preference off.
+- *Read as a file is.* `FileHistory::openFile`, `readTable` and `savedAs`,
+  `FileBlobManager::splitArchive` and `readArchiveMember` take a folder:
+  its entries are its files, named relative to it, and its blobs are read
+  as an open of the folder reads them (`restoreFromDirectory`). A folder
+  pulled at a save is then imported by its history, as a `.TStd` is, and a
+  folder saved without it (mode 1, or by an older build) comes as a state
+  against what this process left (Q3).
+- *The stamp* is its `Document.xml`. A folder save writes into the folder
+  in place -- no temporary folder renamed over it, unlike an archive -- so
+  `Document.xml` keeps its inode and the stamp moves by its time and size.
+  The touched-only check reads its save id as for a file.
+- *The lock and the marker* are beside the folder, `.~<folder>.lock` and
+  `.~<folder>.open`.
+- *The pull* copies the folder whole into `<TransientDir>/pull/<n>/`
+  (QDirIterator, every file and hidden file).
+- *Side effects:* `importFork` of a folder works, as a file with history or
+  without it; it failed before with "no such file".
+- *Not built:* the save of the history alone (27.29), which rewrites the
+  archive in place, still refuses a folder ("has no file to save its
+  history into"). Built in 38.13.
+- *Not safe against a crash* (until 38.8): a folder save killed part way
+  could leave a folder that does not open, or one that opens as a mix of
+  two saves with no word. Sec 38 measured it; 38.8 builds the fix.
+
+**The second pull of a file without history** extended the first pull's
+branch, which is closed once its save is written, and failed with "branch
+'X saved elsewhere' is closed". The folder test found it; a plain `.FCStd`
+met it the same way, and its test only did one round. `_importState` now
+starts a branch of its own (`~2`) when the branch the state was brought on
+is a pull's and closed, as F7 has it for a file with history.
+
+**Not built.**
+- *Windows* is not run: there is no Windows box here. The lock is boost's
+  there too, a lock file being deleted is waited on, and the lock file is
+  not marked hidden, as the hand-written one was.
+
+**Tests.**
+- gtest `FileElsewhereTest`: the stamp tells a write by rename and one in
+  place; a lock is held against a second lock in this process, and
+  against one in a forked child until the child lets it go; a lock
+  whose holder died (a forked child) is taken; the marker tells another
+  host's line, drops a gone process of this host, and goes with the lock
+  file at the last close.
+- Python `TransactionTwoProcessCases`, the other process a FreeCADCmd run:
+  - a clean merge, then a second pull as a branch of its own with the
+    first closed;
+  - a conflict that writes nothing until picked;
+  - a save with nobody else, and a file only touched, pulls nothing;
+  - an `.FCStd` at schema 4 merges against what this process left, and a
+    second pull comes as a branch of its own;
+  - a folder keeps its history across a reopen, and another process's save
+    of it comes by that history, one row;
+  - a folder merges twice and keeps its folder;
+  - a folder the other saves without history, in conflict, writes nothing
+    until picked.
+- Python `testAPinnedFolderKeepsItsVersion` (`TransactionBranchCases`): a
+  folder pinned by another document keeps `blobs/History.db` saved with
+  the preference off, and the pin opens the version after a reopen.
+- Driven `GuiSaveMergesAnotherProcess`: the idle notice in the status bar
+  and the panel; a clean merge at save; a conflicted save with no error
+  box, the merge opened with the conflict, then written as picked.
+- *The other process's script gets a name of its own each run.* FreeCADCmd
+  imports it, so Python caches its bytecode, and checks the cache by the
+  source's size and its mtime in whole seconds. `doc.Box.Width = 30` and
+  `doc.Box.Height = 5` are the same size: written within one second, the
+  second run ran the first script again. The plain-file test's second
+  round lost its Height that way, at random, which looked for a while like
+  a lost write in the product.
+
 ## 30. A shared head, explicit branches, forks (rulings and plan, 2026-10-04)
 
 Section 29 was built and the user then named what 17.5 missed: if every
@@ -17532,6 +17898,44 @@ Nothing to change. Kept as gtest
 `PropertyShapeImmutableTest.DISABLED_aHoldOfAMapByItsDepth`, which also
 asserts what it holds is held and let go of.
 
+### 31.34 What sec 31 left, checked and finished (user: "do sec31", 2026-10-23)
+
+31.20 and 31.22 left five things. Four were written before the look moved
+onto the object (docs/ShapeAppearanceDesign.md sec 14.6: a look is a value
+of the object, `ElementAppearance`, merged by `ElementAppearanceMerge`), so
+each was probed first (`~/.cache/lv-merge/probe31/`); one was still so, and
+is built.
+
+| Left | Probed | Now |
+| --- | --- | --- |
+| An object's own look changed by theirs while ours painted a face: theirs' left out (31.20) | `p1b.py`, and with the Gui up `p1gui.py`: theirs makes a box red, ours paints `Face6` green | **closed by 14.6.** One change, `Box.ElementAppearance` merged; stated and drawn: five faces red, `Face6` green; one undo takes theirs back. The per-face list `updateColors()` wrote is no longer a value of the view provider to tell apart |
+| Faces given a look by number -- a script, an importer -- looked up at merge time (31.17 Q2, `TransactionLogMergeFaceLoss`) | `p12.py`: theirs writes `ShapeAppearance` per face by index, ours drills the cut (six faces become seven) | **closed by 14.6.** A write by number is taken apart when it is written (`writeFaces()`): the face is named then (`Face2`), and after the merge it is `Face6`, the same face. The lookup at merge time, and its threshold, have nothing left to do |
+| A look that names a texture: its claim on the content not carried by a value put back as text | `p3.py`: theirs gives `Face6` a texture whose image is in the file store (`insertTextureFile`), ours paints another face | **holds.** Merged, undone and redone, switched away and back, saved and reopened: the texture's content is there (`getTextureFile`). The value restores its blobs (`restoreBlobsOf`) as it lands |
+| `App::Part`'s and a link's `ColoredElements` by their own rule | -- | **closed by 14.6.10**: a link and a part have an `ElementAppearance`, merged as any object's (`ElementAppearanceLinkMergeTest`) |
+| A reference into a shape with no element map -- an import's -- not followed (31.22: "no name, and nothing is searched for it") | `p5.py`: a `Part::Feature` given a box; theirs attaches a plane to its top, `Face6`; ours replaces the shape with the box drilled through, where the top is `Face3` and `Face6` the drill's bottom | **was so**: the plane was put on the drill's bottom (z 0), nothing asked, nothing failed. **Built**, below |
+
+**Built: an unnamed reference followed by geometry in a merge.** A
+reference with no mapped name never "missed" by name -- ours' shape has a
+`Face6` too -- so the merge's follow (31.22) left it as it was. Now, in
+`followElementReferences`' first pass, a reference the shape names no
+element for is said as missed, as a name missed is
+(`_updateElementReference`, `Following::Names`); where the feature has
+what it was written against (the merge's `writtenAgainst`: theirs' value
+of the shape, else the base's where ours changed it), the second pass
+(`Following::Unnamed`) searches it by geometry in that shape, as a
+missing reference is: found, its number is the one found (`Face6` ->
+`Face3`, with the warning any found reference gives); not found, it is
+marked missing (`?Face6`) rather than left on another face, and the object
+attached to it says it cannot be placed (`failed`). Where neither side
+changed the shape, nothing is searched. The search's own rule stays: a
+shape with one face of the kind wanted gives that one (a sphere is taken
+for a box's top), as for a name.
+
+Test `testAReferenceToAShapeNobodyNamedIsFoundByGeometry`: the drilled
+case on `Face3`, the plane on the top, undone; a short cylinder for a top
+that is nowhere, `?Face6` and the plane failed. On the code before, the
+plane stays on `Face6`.
+
 ## 32. A shape diff: seeing what a merge or a pick would take (plan, 2026-10-06)
 
 **Asked (user):** "also plan for another feature. shape diff tool, so that
@@ -18113,10 +18517,13 @@ pin".
 save writes into the file (`dropTier`, 13.3) leaves out a cache-tier
 value that no kept version's manifest reaches **and that no kept delta
 is based on** -- and a value is stored as a delta on the one after it.
-So a save does not take a run of shapes at once: of a cut made taller
-four times, saved, closed and opened, the first is gone and the other
-three are there; the box's four are all there. Each save and reopen
-takes the oldest again. A trim takes them all.
+(As first built, "kept delta" was read as every delta an op reached,
+which in a chain of reverse deltas is every entity but the oldest: of a
+cut made taller four times, saved, closed and opened, the first was gone
+and the other three were there, and each save took the oldest again.
+Corrected 2026-10-21, sec 37.4: the bases are followed from what is kept,
+so a save takes the whole run but what a kept version lists.) A trim
+takes them all.
 
 **Kept** is the log's word for it; a link is *pinned* to a version
 (27.16), which is another thing. Two tables of the store:
@@ -21151,8 +21558,13 @@ for assemblies -- and first a design that says what is still lacking:
 for example exporting every linked file without history to a folder,
 and partial loading of documents on another branch or a pinned version.
 
-Nothing of this is built. The survey's measurements were run, and
-found one bug, fixed (item 6 c).
+Nothing of this was built at first. The survey's measurements were run,
+and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
+2026-10-19); L8 for frozen versions (35.8, 2026-10-19); L7 in App (35.9,
+2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20); L4,
+the set imported as branches linked to each other (35.11, 2026-10-20); L5,
+their files alone held (35.12, 2026-10-20); L6, the set's merge and its
+dialog (35.13, 2026-10-20); Q9, the set's record (35.14, 2026-10-20).**
 
 ### 35.1 The case
 
@@ -21595,3 +22007,4441 @@ action chosen. A library part in two sets is two branches with two set
 names, never one.
 
 Proposed: **(c)**.
+
+### 35.7 L1 built: one file to a branch, with its links (2026-10-19)
+
+Started on the user's say-so ("start sec 35", 2026-10-19), first in the
+build order (35.5). The probe of 35.2 item 6, run again before the work,
+gave what it gave on 10-17: (a) refused, "Owner document not saved", and
+their `Part.FCStd` and `Bolt.FCStd` left open; (b) stopped at row 4, their
+`Bolt.FCStd` looked for in our folder. Four things were lacking:
+
+1. **The import's document had no name.** A file with no history, or
+   none shared, comes on a branch from nothing (30.22), replayed in a new
+   document of this file that had no file name, so a relative link given
+   to it had nothing to resolve against (`DocInfo::getDocPath`). It is
+   now named as a live branch link names a branch's document (27.23),
+   `<our file>@<branch>@` (`_importReplay`); a relative link resolves
+   against our folder, as in any branch's document.
+2. **Their paths are theirs.** A value of theirs names a file relative
+   to their folder. `PropertyXLink::ImportPaths`, a scope `importFork`
+   opens, maps it as the link is restored into the import's document
+   (`into()`; their own file, opened to be read, is not mapped): to ours
+   at the same relative path when our folder has that file -- identity,
+   for one file -- else to their file by its full path. A file only they
+   have is linked where it is until L5 stages it.
+3. **A missing file stopped the import.** A value restored outside a
+   document's restore opens a linked file at once, and a file that is
+   not there threw (`Application::addPendingDocument`). Under the scope a
+   link to a file neither folder has is broken, as at an open
+   (`DocInfo::init`, with `LinkSilentRestore`).
+4. **What the import opened stayed open.** `importFork` notes the open
+   documents first and closes, after, every one it opened that no
+   document staying open links to (`SideDocuments`).
+
+And one in the merge, found by test (a): **a link's stamp is not the
+link.** `stamp` is when the link last saw its file; two copies of one
+file link the same box with stamps of their own, and the merge called
+that a conflict. `sameLinkValue` now compares link values without
+stamps, as it already left out a library link's `file` and `stamp`
+(`LibraryPaths::comparableSaved`).
+
+**Tests** (`Document.py`, `TransactionBranchCases`): the probe as
+`assemblyCopies(log)` -- `Asm` linking `Part`'s box in our folder, a copy
+in theirs whose box is longer and whose `Asm` links a new `Bolt` too --
+and `importedAssembly(log)`, run for (a) with no history
+(`testAFileWithLinksAndNoHistoryComesWithThem`) and (b) with it
+(`testAFileWithLinksAndHistoryComesWithThem`). Each: the import does not
+stop, comes independent for (a) only, leaves the same documents open as
+before it, and merges; then `L` links our `Part`, `L2` their `Bolt`, and
+our box is as it was -- their longer box is in their `Part`, another
+file, which L2 to L5 bring.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3809 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293. Next in 35.5: L8, then
+L7 (the export, which LibraryPaths step 4 waits for).
+
+### 35.8 L8 built for frozen versions; branch tips moved to L4 (2026-10-19)
+
+**Frozen versions, as a plain file is read for links.** The name a pin
+resolves to, `<file>@v<num>`, went through `parseName` in
+`Application::openDocumentPrivate`, which handed the objects the links
+asked for to nothing: every pin opened its version whole. Now the names
+go through `openFileBranch` and `openFileVersion` to
+`_openVersionDocument` and `_restoreAsVersion`, and the version's
+materialised directory is restored with them -- the restore a plain file
+has (`restore(dir, false, objNames)`): those objects and what they
+depend on, the document `PartialDoc` as well as `FrozenVersion`.
+
+- **Asked for more.** A link wanting an object the version has not read
+  asks for it: at the link's restore (`DocInfo::get`, for a version
+  document read in part -- plain files keep what they had) and through
+  the existing reload of a partial document (`restoreDocument`). The
+  name reaches `openDocumentPrivate`, which returns the open version when
+  it has every object asked for, and else `openFileVersion` reads it
+  again with what it had and what is asked.
+- **Asked for whole.** The version opened by its own name (a main
+  document), or by anything calling `openFileVersion` with no names, is
+  read again whole when only a part of it is open.
+- **The preference.** `NoPartialLoading` reads versions whole, as it
+  reads files.
+
+**Measured** (`~/.cache/lv-merge/probe/l8/measure.py`): a part of 600
+cylinders, an assembly pinning one of them at version 1 and another at
+version 2, opened with partial loading on and off, twice each:
+
+| | open | RSS | objects read |
+| --- | --- | --- | --- |
+| partial | 0.27 s | +36 MB | 1 and 1 |
+| whole | 0.35 to 0.37 s | +83 MB | 600 and 600 |
+
+Both pins resolve either way. What is left of the time is the version's
+materialisation: every entry is still written to the checkout directory
+before the restore reads what it needs. Writing only those is the next
+gain, if a larger part asks for it.
+
+**Branch tips: moved to L4.** A tip opened for a live link is a version
+document that takes its branch with `switchBranch`, which refuses a
+partial document (`_checkBranchable`); a partial tip needs a way to take
+the branch at its head without a switch. Q7 -- the tip read whole when
+the user turns to edit it -- wants a Gui hook at the start of an edit,
+which reloads the document the edit is about to begin in. And nothing
+opens tips through links yet: that is L4's set of branch links, where
+both can be built and measured on the case they serve.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testAPinnedVersionIsReadInPartForItsLinks` -- a part of four objects,
+`Top` depending on `Base`, two assemblies pinning `Top` and `Other` at
+one version, the part moved on: the first assembly opened reads
+`Base` and `Top` only, the second reads the version again with `Other`
+too and both links hold, and the version opened by its name is read
+whole with the pins on it.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3810 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293. Next in 35.5: L7.
+
+### 35.9 L7 built in App: the set, exported to a folder (2026-10-19)
+
+`App::exportLinkedSet(top, folder, options)` (`src/App/ExportSet.cpp`),
+`Document.exportLinkedSet(folder, withHistory=False, overwrite=False)` in
+Python:
+
+- **The set**: the top and every document its links reach, transitively
+  (`PropertyXLink::getDocumentOutList`). One read in part -- a pinned
+  version (L8), or a plain file opened for links -- is read again whole
+  first: a copy is of the whole file. A document of the set with no file
+  is refused, naming it.
+- **The layout** (Q6): a file inside the top's folder at its path
+  relative to the top; one outside under `_external/`, by its name.
+- **A version or a branch** (Q5) is a file of its own beside its file:
+  `part.v3.FCStd`, `part.side.FCStd`, `part.side.v3.FCStd` for an
+  editable instance at a version. A branch's name is made a file name:
+  what is not a letter, a digit, `-` or `_` becomes `_`. Two that would
+  take one name are told apart by `~2`, `~3`.
+- **The links** (`ExportSetPaths`, read by `PropertyXLink::Save`): while
+  a copy is written, a link of it to a document of the set names that
+  document's copy, relative to its own, and as a plain link -- no
+  `version`, no `branch`, no library -- so the set opens in any FreeCAD,
+  upstream's included.
+- **Each copy** by `saveCopy(path, withHistory)`: without history by
+  default, which keeps a save id of its own (30.19 G2).
+- **The manifest**, `FreeCAD-set.json`: `top`, `history`, and per file
+  `path`, `file` (the file here), `branch`, `version`, `save_id`, `uid`
+  -- what L3 item 3 pairs a file brought back with.
+- **A folder not empty** is refused unless `overwrite`.
+
+Found on the way, a bug of L1's: `SideDocuments` ranged over
+`getDocumentInList(doc)[doc]`, an element of a temporary map, which
+dangles before the loop starts -- the same form here hung the export in
+a loop. Both now hold the map first.
+
+**The Gui** (File > Export with Linked Files..., `Std_ExportLinkedSet`,
+`DlgExportLinkedSet`): the set as `planLinkedSet()` lists it -- each
+document, what it is (the file, a pinned version, a branch, a branch at a
+version) and the name it will be written under -- the folder (beside the
+document, `<name>-set`, by default), and "With history". A folder not
+empty is asked about first. The export runs as a Python command, so a
+macro records it. A document never saved is told to save first: its set
+is laid out relative to its folder.
+
+**Not built yet**: zipped output. LibraryPaths step 4, the export's
+option for library files, is built (2026-10-20, LibraryPaths.md sec 14):
+`keepLibraries` leaves a file only library links reach in its library.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testALinkedSetIsExportedToAFolder` -- an assembly with a plain link, a
+pin, a live link to a branch's document and a link to a file outside its
+folder: exported, the five files named as above, the manifest saying
+what each is of, no `version`/`branch` attribute in the copy; a second
+export into the folder refused, then allowed with `overwrite`; the set
+opened with the log off, every link to its copy with its value. Then the
+assembly reopened, its pin read in part, and exported again: the
+version's copy holds the object the pin had not read. Driven
+(`tests/gui/export-linked-set.py`, `GuiExportLinkedSet_tests_run`): the
+dialog lists the three files of an assembly with a plain link and a pin,
+writes them and the manifest into a new folder, and into the same folder
+again asks first and writes when told to.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3811 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293 (before the Gui).
+
+**Gates with the Gui** (2026-10-20): 24 Gui checks clean; Python 3811
+OK, freeze on and off; gtest 991/991 both ways; driven 294/294.
+
+### 35.10 L2 and L3 built: their set read and paired, nothing imported (2026-10-20)
+
+The first of 35.5 step 4, on the user's "continue": what an import of a
+set will bring and where, before anything is brought.
+`App::planSetImport(ourTop, theirTop)` (`src/App/ImportSet.cpp`), in
+Python `Document.planLinkedSetImport(path)`.
+
+- **Their set (L2)** is read from their files, none opened: each
+  `Document.xml` read out of its archive and its `<XLink>` elements --
+  every external link is saved as one, alone or in a list -- taken for the
+  files they name: through `lib`/`libfile` when a library of that name is
+  here, else by `file`, relative to the owner's folder. A link to the
+  owner's own file is no file of the set. Their top last, each file after
+  the files it links. A file theirs links that is one of ours -- the same
+  file on disk, a library both use -- is **shared**, nothing to bring, and
+  not read further; one that is not there is **missing**.
+- **Ours** are the documents our top's links reach, by their file; a
+  version's or a branch's document stands for no file of its own.
+- **Paired (L3, Q1)** by the first that answers: (1) a history both hold
+  and (2) a save of ours a copy without history names, both by
+  `forkBranches` -- a branch of theirs that is not independent; which of
+  the two by whether their file carries a history; (3) our manifest beside
+  their top, which names our file for their path; (4) the `Uid` read from
+  both files, never from an open document (35.2 item 8); (5) the same path
+  under the top; else (6) none. Where two of ours answer one signal alike
+  the file is paired with none and marked **ambiguous**, for the user to
+  say -- a weaker signal does not break the tie. The manifest's `branch`
+  and `version` are given whatever paired the file: `Part.v3.FCStd` is our
+  `Part` at v3.
+
+**Found on the way, a loss of history: a file opened for a link.** The
+first test paired our `Part` by its Uid, though both copies held its
+history: our `Part`, opened by the assembly's link, had an empty log. A
+file read for the objects a link asks for (16.1) was never tapped -- a
+partial document is not snapshotted -- and when those objects were all of
+them the document was not partial at all: editable, saved as the file,
+and its save wrote a fresh history over the file's. Measured: a part of 7
+rows opened through an assembly, edited and saved, reopened with 3. The
+tap now runs for such a read too, and what it took is let go only when
+the document is left partial (`Document::restore`); the part keeps its 7
+rows and the edit after them.
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testAFileOpenedForALinkKeepsItsHistory` (the loss above);
+`testASetIsPairedByTheHistoryBothHold` -- 35.2 item 6's copies made in
+transactions (`assemblyCopies(log, rows=True)`): nothing opened, their top
+last, `Asm` and `Part` by the history, their `Bolt` none;
+`testASetWithNoHistoryIsPairedByAGuess` -- with no log, both by the Uid,
+none certain; `testTwoOfOursAlikePairNone` -- `Part2.FCStd` a copy of
+`Part.FCStd`, both linked: their copies of either ambiguous, paired with
+none; `testAnExportedSetComesBackPaired` -- our set exported (L7), their
+`Part` edited with the log off: `Asm` and `Part` by the save each names,
+`Part.v1.FCStd` certain, ours, at version 1.
+
+**Next**: L4, the paired files imported as branches of ours and their
+links to them made branch links; then L5, their files alone held.
+
+### 35.11 L4 built: their set as branches of ours, linked to each other (2026-10-20)
+
+`App::importSet(plan)` (`src/App/ImportSet.cpp`), in Python
+`Document.importLinkedSet(path, pairs=None)`: the plan of 35.10 made, the
+pairs changed by hand where `pairs` says (`App::pairByHand`, pairing
+`user`, certain), and each paired file imported into its document of ours
+by `importFork` -- the files each links first, so a branch is there before
+a link names it. Nothing is merged; a file of theirs alone is not brought
+(L5), and links to it stay theirs, as L1 left them.
+
+- **Their links in the rows brought** (`PropertyXLink::ImportSetLinks`, a
+  scope `ImportPaths::map` reads): a link to a paired file of theirs is
+  restored as a link to ours -- live to the branch that file came to; when
+  it brought nothing new, to what the manifest says it was (a branch, or
+  pinned at the version, so `Part.v1.FCStd` is our `Part` at v1 again);
+  else plain. Whatever pin or branch their link had of theirs is dropped,
+  and its library form with it.
+- **The links the copies had in common.** A link set before the copies
+  parted is in the base, not in a row brought, and stays a plain link to
+  our file: the top's branch then shows our part, not theirs. Found by the
+  first test, whose box came back 10 long, not their 25. After the import,
+  each branch made is opened for editing, every link of it to a file of
+  the set as it is here pointed at what that file came as (keyed by the
+  file and the version or branch it links), and that is one row of the
+  branch, "Link their set" -- what `relinked` counts. A file with no
+  history in common came whole as one row and needs none.
+- **What the import opened** -- branches' documents, tips their links
+  pulled in -- is closed after it, unless a document open before links it.
+
+**Not built yet**:
+
+- a link inside a list (`PropertyXLinkSubList`, a container's links) is
+  left out of the relink row: only a property that is a link is;
+- a file of theirs that brought nothing new but links one that did -- an
+  unchanged sub-assembly over a changed part -- is given no branch, so the
+  top's branch shows our sub-assembly and our part under it;
+- a branch tip read in part for its links (moved here from L8, 35.8): the
+  tips open whole;
+- the set's record (Q9) and its dialog (L6).
+
+### 35.12 L5 built: a file of theirs alone, held (2026-10-20)
+
+The two details Q2 (c) left open were put to the user and agreed ("agree,
+do it", 2026-10-20): the file written to the transient directory lasts the
+session only, so a link to it carries what writes it again; and what holds
+it when the top brings nothing new.
+
+- **Held** (`importSet`, before any file is imported): each file of the
+  plan paired with none -- not one marked ambiguous, which waits for the
+  user -- is kept in our top's log by `keepSentFileAt`, its sender their
+  top's file name, its kind `set` (so the requests list tells it from a
+  file a person sent), and written to `<top's TransientDir>/held/<set
+  id>/<its path in their set>` -- `..` made `_up` -- so links between their
+  files alone hold as they did. The set id is new per import. Never written
+  into our folder.
+- **Linked** (`ImportSetLinks` again): a link in the rows brought to such
+  a file is to the file written, by its full path, and **held**: saved
+  with `held="<the bytes' hash>"` and `heldpath="<set id>/<path>"` beside
+  `file`. At a restore where `file` is not there -- another session, the
+  transient directory gone with the document -- the bytes are written
+  again from the log that holds them, the owner's first and then any open
+  document's, under that document's transient directory, and the link
+  resolves there (`writeHeldFile`, as a snapshot link does, LibraryPaths
+  sec 12). A FreeCAD that does not know the attributes finds the file or
+  not. Set to anything else, a link is no longer held.
+- **For the top's branch** (`Document::holdSentFileFor`): once the top is
+  imported, each held file is held for the top's branch, as a sent file
+  brought in is for its branch (30.29): let go when that branch is merged
+  into ours or deleted. With no branch of the top -- it brought nothing
+  new -- it waits as a sent file does, until dropped.
+
+**Not built yet**: a file of theirs alone that links one of theirs paired
+with ours links their file as it was, not ours (the copy written is
+theirs, untouched); at the merge (L6) it is written where the user says
+and its links made ours.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testTheirFileAloneIsHeldForTheTopsBranch` -- their `Bolt` held, kind
+`set`, for the top's branch, nothing written into our folder; our top
+saved and every document closed, which takes the written file with the
+transient directory; reopened, the top's branch's link to `Cyl` resolves
+to the file written again; the branch deleted, the file is let go.
+`testASetComesAsBranchesLinkedToEachOther` now finds `L2` at the held
+file.
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testASetComesAsBranchesLinkedToEachOther` -- 35.2 item 6's copies with
+rows: `Part` and `Asm` branches, one relink row on `Asm`'s, their `Bolt`
+not brought, the same documents open after as before, ours unchanged;
+their top's branch opened, its link reaches their longer box through our
+`Part`'s branch, and `L2` their `Bolt`. `testAnExportedSetIsBroughtBack` --
+35.5's round trip: our set exported (L7) with a live link and a pin,
+their `Part` changed and their `Asm` given an object with the log off,
+brought back: the top's branch has the object, its live link shows their
+`Part` through its branch, and its pin our `Part` at v1.
+
+### 35.13 L6 built: the set's merge, one undo step, its dialog (2026-10-20)
+
+On the user's "push and continue" (2026-10-20). `App::mergeSet(ourTop,
+files, options)` (`src/App/ImportSet.cpp`), in Python
+`Document.mergeLinkedSet(files, overwrite=False, name=...)`. `files` is
+what `importLinkedSet` returns, which now gives each file its default
+action and, for a file alone, `write_to`.
+
+- **The actions** (Q8): `merge` (`mergeBranch`, with the file's `picks`
+  and `fallback`), `theirs` (Take theirs), `ours` (Keep ours), `write` (a
+  file of theirs alone written where `write_to` says), `drop`. By default:
+  Merge for a file paired with certainty (Q1 items 1 to 3, and by hand),
+  Take theirs for one paired by a guess (Uid, path), Write for a file
+  alone, at its path in their set under our top's folder (Q2).
+- **Nothing moves until all of it can**: a Merge whose preview has a
+  conflict with no pick and no fallback, or a Write to a file that is
+  there without `overwrite`, refuses the whole -- `refused`, the file's
+  `error` saying why.
+- **Then, in order**: the files alone written (`writeSentFile`); each
+  branch given a row, "Link our set", making its links to the set's
+  branches plain links to ours and its held links links to the files
+  written -- by name (`PropertyXLink::setPlainFile`), since an object of
+  theirs is ours only once its file is merged, and before the step, so
+  no row of a branch is in it; and each file merged, taken or kept, the
+  files each links first.
+- **One undo step across the documents (Q3)**: the step is held open as a
+  command holds its own (`AutoTransaction`), and under a `SetMergeScope` a
+  merge and a restore of a version open their transaction under the
+  application's -- or go into the one open already, which a change of a
+  file it links opened in this document -- and a merge writes its row
+  where it could take the other branch's rows as they are (a
+  fast-forward writes none, and would be as many undo steps as rows).
+  Every file's `undo_id` is the step's `transaction`; the Gui undoes and
+  redoes it across the documents as any step with one id.
+- **Take theirs** (Q8): a version taken at the branch's head, and ours
+  restored to it (`restoreVersion`): one row, ours' objects removed and
+  theirs made, ours kept in the history. Then a record with no ops whose
+  second parent is the branch's head takes the branch in, so it is not
+  asked again and what is held for it is let go. **Keep ours** is that
+  record alone.
+
+**Found on the way**: a document commit under the application's active
+transaction closes it -- the branch's relink row did, and the files after
+it got undo steps of their own; the step is held open now, and the rows
+of branches are written before it. A change a file's merge makes to
+another document through a link opens that document's transaction under
+the step's id, and a restore there then refused ("inside a transaction")
+or, opening one more under the id, threw "invalid transaction id"; the
+restore and the merge go into the one open.
+
+**Not built yet**:
+
+- **Their names under Take theirs.** Q8 says theirs are made "under their
+  names -- free once ours are gone". They come under the names the import
+  gave them (P4): their `L`, a name ours had when the branch was made, is
+  `L001` after the take. Giving the names back means renaming in the
+  restore -- the object and every reference to it -- which is not built;
+  a link from outside the set to `Asm#L` breaks where it would have held.
+  **Built since, by sec 36 U7 (2026-10-21).**
+- the Q4 preview (references that will not resolve, on the top's line);
+- the set's record (Q9) -- built since, 35.14;
+- the Import and the Merge are not recorded as a macro: they call App,
+  not a Python command, the plan and the pairs being more than a line.
+
+**The Gui** (File > Import a Linked Set..., `Std_ImportLinkedSet`,
+`DlgImportLinkedSet`), for a document with a file and its history: their
+top chosen and read, each file of theirs listed with what of ours it is
+paired with -- a list of our set's documents and "none", changeable -- how
+(a guess said so, two of ours alike said so), its action and, for one
+alone, where it is written; Import brings them in with the pairing as
+listed, and says per file what it came as (a branch, nothing new, held);
+Merge merges with the actions as listed, and asks before writing over a
+file that is there. Changing a file's pair to one of ours makes it
+Merge by default, to none Write.
+
+**Found on the way, in the Gui**: the documents the import and the merge
+open -- branches' tips -- carry LiveImport while the Gui fills in their
+views, and a change to them inside the command was refused ("still being
+filled in"): the relink row of the top's branch, a shape written in a
+part's. Their objects are read when `openDocument` returns; they are the
+program's to change, as a load's are, and `importSet` and `mergeSet` run
+under `Document::UserEditSuspend`.
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testASetIsMergedAsOneStep` -- 35.2 item 6's copies: the default actions
+Merge, Merge, Write; refused while a file is where `Bolt` would go, our
+`Asm` unchanged; with `overwrite`, both merged under the step's id, their
+`Bolt` written beside our `Asm` and `L2` linked to it, `L` a plain link to
+our `Part` with their longer box, the held file let go.
+`testAStrangersSetIsTakenWhole` -- a set made apart from ours and laid
+out alike: both files Take theirs by default, both under the step's id;
+our `Part` holds their `Cyl` and not our `Box`, and our `Asm`'s one link
+is to it in our `Part`. Driven (`tests/gui/import-linked-set.py`,
+`GuiImportLinkedSet_tests_run`): the dialog lists the three files with
+`Part` and `Asm` paired by the history and merged, `Bolt` written; Import
+says two branches and one held; Merge takes the set in; one Std_Undo
+takes it back in both documents.
+
+### 35.14 Q9 built: the set's record (2026-10-20)
+
+As Q9 (c) proposed: every file's import record names the set, and our
+top's log holds its map.
+
+- **Each file's** `import` record carries `set: {id, name}`
+  (`ImportSetRecord`, a scope `importSet` opens and `importFork` reads):
+  a part file knows its branch is a set's.
+- **The top's map**: once the files are imported, a record of kind `set`
+  in our top's log -- no ops, no undo step -- holds the set's id, its name
+  (their top's file name), their top, and per file what `importLinkedSet`
+  returns: their file and its path in their set, how it was paired, ours,
+  the branch, the held row, the default action and `write_to`, and an
+  error where there was one.
+- **Merged**: `mergeSet` with the set's id (`SetMergeOptions::set`, in
+  Python `mergeLinkedSet(files, set=...)`) writes a second `set` record,
+  `merged`; the set is no longer pending.
+- **Pending** (`App::pendingSets`, in Python
+  `Document.getLinkedSetImports()`): the `set` records of the branch our
+  top is on, imported and not merged, oldest first, each as
+  `importLinkedSet` returned it.
+- **The Gui**: Std_ImportLinkedSet offers the newest set pending first --
+  "The set from ... was imported and is not merged yet. Merge it now?" --
+  and the dialog opens at its merge, the pairing fixed, the actions as the
+  record has them and changeable.
+
+**Found on the way, in the Gui**: inside a command the command's
+transaction is held open until it ends, and a document opened in it takes
+its first change into that transaction. A branch's document opened for
+the relink row had one open, the row went into it, and the merge of the
+branch refused: "branch 'Asm' has a transaction open". The relink lets
+the command's hold go for its document (`AutoTransaction::setEnable`, as
+`setEdit()` does; `AutoTransaction::isEnabled()` new, to put back exactly
+what was there), commits what the document had, then writes and commits
+its row. The dialog pairs a file by hand only where the user changed its
+pair, so the record says how it was paired.
+
+**Tests**: `testASetIsMergedAsOneStep` now finds the set pending with the
+import's branches and actions, the set named in our `Part`'s import
+record, merges from the map the log holds -- as the dialog opened again
+does -- and finds nothing pending after. Driven: the dialog closed after
+Import, the command run again offers the set and opens at its merge; the
+merge takes the set in, nothing more is asked, nothing is pending, and
+one Std_Undo takes it back.
+
+### 35.15 The gaps left, elaborated (user: "elaborate on 2", 2026-10-23)
+
+What 35.11 to 35.13 left not built, each with what the user sees, why,
+and what would close it. From reading the code (`src/App/ImportSet.cpp`);
+nothing here was run, but where it says so.
+
+**G1. A sub-assembly that brought nothing new, over a part that did.**
+Their `Asm` links their `Sub`, which links their `Part`; only `Part` was
+changed. `importFork` of `Sub` writes no row, so `Sub` gets no branch and
+its target is ours as the manifest says it was (a version or a branch).
+The top's branch then links our `Sub`, whose link is to our `Part`: the
+assembly under review shows our part, not theirs -- the wrong picture,
+with no sign of it. The files are imported linked-first, so when `Sub` is
+done it is known which files it links got branches. Closing it: a file
+that brought nothing new but links (directly) a file of the set that got
+a branch is given a branch at the version it was paired with, holding one
+row -- "Link their set" -- made by `relinkBranch` as for any branch; its
+target is then that branch, and the top links it. One level covers any
+depth, since each level is decided after the ones it links. At the merge
+(L6) its "Link our set" row turns the link back plain, so merging it
+changes nothing of ours; its default action can be Keep ours. Cost: small
+-- a branch from a version exists (`Document::createBranch(name,
+version)`), the relink is the existing function. Test: three files, the
+part changed only; the top's branch shows their box length.
+
+Probed (2026-10-23, `~/.cache/lv-merge/probe/g1.py`; the user asked how
+it can be, when a link already notices a change of the file it links by
+its timestamp): `Asm` links `Sub.L`, `Sub.L` links `Part.Box`; theirs
+changed the box to 25 and moved `Asm.S`. Imported: `Part` and `Asm`
+branches, `Sub` none. In the top's branch, `S` is our `Sub.FCStd`, whose
+link is our `Part.FCStd` -- the file, at its head -- and the box reads 10.
+The timestamp does not come into it: our `Part.FCStd` did not change; their
+box is in a branch of its log, which opens as another document
+(`Part.FCStd@Part@`), and only a link rewritten to name that branch reaches
+it -- which the relink row does for the files that got a branch, and
+nothing does for `Sub`. With their `Asm` unchanged too, no file but `Part`
+gets a branch, and there is no top's branch to look at their set from: the
+same fix, carried up, gives the top one.
+
+**G2. A link inside a list is not relinked.** `relinkBranch` changes
+properties that are a `PropertyXLink` (and so `PropertyXLinkSub`); a
+`PropertyXLinkSubList` is not one, and its entries are left pointing at
+our file. The rows brought are fine: a list's entries restore through
+`PropertyXLinkSub::Restore`, which maps them. So the gap is the links the
+copies had in common before they parted. The one user of such a list in
+the tree is `Part::SubShapeBinder::Support` -- a binder of geometry from
+another file, the usual way a PartDesign body refers to another part's
+faces. Seen as: their binder copies our part's face, not theirs. Closing
+it: `relinkBranch` also walks a list's entries, and sets the list whole
+(`setValues`, one undo row); `plainly` for the merge's "Link our set" the
+same way. Cost: small. A Python property of type `App::PropertyXLinkSubList`
+is covered by the same walk.
+
+Not looked at, and alike: an expression that reads another file of the
+set (`Part#Box.Length`) holds its link in the engine's own `_XLinks`, not
+as a property `relinkBranch` walks, and names the document in its text.
+Whether the top's branch reads our `Part` there needs a probe first.
+
+**G3. The branch tips open whole.** The import opens each branch's tip
+(`ourFile@branch@`) to relink it, and those documents' links open what
+they link: every file of the set is loaded in full, shapes and all, for
+a pass that reads and writes only links. On a set of a few files it does
+not show; on a large assembly it is the import's time and memory. Closing
+it: a partial restore that reads the objects' link properties only, and
+writes the relink row from them -- a restore mode the document does not
+have. Cost: large; worth it only once a set that size is a case.
+
+**G4. A file of theirs alone that links a file paired with ours.** Their
+`Bolt`, which we do not have, is held as their bytes untouched (L5), so
+its link to `Part` is to their `Part` by its path in their set -- which
+resolves to their file if their folder is reachable here, and to nothing
+otherwise -- until the merge (L6) writes it where the user says and makes
+its links ours. During review, then, `Bolt` shows their part, or nothing,
+beside a top that shows the branch of ours. Closing it: the staged copy
+(the one written under the transient directory, not the held bytes, whose
+hash the log keeps) has its links to paired files rewritten to their
+targets, as the rows brought are, when it is written. Cost: medium -- the
+staged copy must be opened, relinked and saved, and written again the same
+way when `writeHeldFile` restores it in another session.
+
+**G5. The Q4 preview.** Q4 asked the top's line in the dialog to say
+which references will not resolve after the merge -- a link to an object
+their side removed, a sub-element name that is gone. Not built: the dialog
+says per file what it came as, not what will break. Closing it: after the
+import, each branch's links resolved against the branches they point at
+(the relinked targets), and what fails listed on its file's line. Cost:
+medium, Gui and App.
+
+**G6. No macro.** The Import and the Merge are App calls with a plan and
+pairs, not one Python line, and are not recorded. Cost: small if the
+plan is written as a dict literal; low value.
+
+Recommended order: G1 (a wrong picture, small), G2 (common in PartDesign
+work, small), then G4; G5 when the dialog is next touched; G3 and G6 when
+a case asks for them. The expression case is probed before anything is
+said of it.
+
+### 35.16 G1, G2 and G4 built; the expression case probed (user: "yes, and agree with the rest", 2026-10-23)
+
+**G1.** `importSet`: a file that brought nothing new (`importFork` says
+so, with the row both hold) and links -- directly, by its plan's `links`
+-- a file of the set that came as a branch gets a branch from that row
+(`Document::importLinksOnly`: the import's replay document, forked there,
+no row of theirs, an `import` record with `links_only` and the set, and
+no map kept, so a later import of the copy is a branch of its own). Its
+relink row is made with the others'. The files come after what they link,
+so the rule carries up any depth; a top that brought nothing gets one
+too. `SetImportedFile::linksOnly` (`links_only` in Python and in the
+set's record); default action Keep ours, which the merge's "Link our
+set" row skips, so ours stay as they are. The dialog says "branch X, its
+links only" and sets Keep ours.
+
+**G2.** `relinkBranch`'s walk is `gatherRelinks()`: a link, and each
+entry of a `PropertyXLinkSubList`, whose change is its list's (one undo
+row, as any).
+
+**G4.** A file of theirs alone is held at its turn in the plan -- after
+the files it links -- and the copy held is their file read with its links
+mapped as the rows brought are (`ImportPaths::intoFile`: the restores
+into a document opened from that file), written by `saveCopy` with no
+history under `ExportSetPaths`, which names a file outside the set by
+its full path and keeps a link's branch and held attributes. So its link
+to their `Part` is to our `Part`'s branch, here and when the copy is
+written again from the log in another session. When their file is open
+already it is not read again, and is held as it is. At the set's merge,
+Write reads the held copy written aside, makes its links plain links to
+ours -- the branches' files, the others written -- and writes it with
+`saveCopy` under `ExportSetPaths` mapping the set's documents to their
+files, so those links are relative, as between the files of a set; when
+it cannot be read, the held bytes as before. Found probing it: before,
+the held `Bolt`'s link to `Part.FCStd` was relative to the held copy's
+folder, where there is none, and did not restore at all
+(`~/.cache/lv-merge/probe/g4.py`), not "their file" as 35.15 said.
+
+**The expression case (G7), probed** (`~/.cache/lv-merge/probe/expr.py`;
+reading another document needs `doc.foreign` granted, which the probe
+does): their top's `C.Length = Part#Box.Length`, their box 25. In the
+top's branch, `C` comes with their value, 25, and a recompute makes it
+10: the expression reads the document named `Part`, ours; their part's
+branch is not opened. The engine holds its link to another file in its
+own `_XLinks`, not as a property `gatherRelinks()` walks, and the
+expression names the document in its text. Not built; what would close it
+is the engine's links relinked like a property's, and the expression's
+document name mapped through them as a restore maps it -- to be looked
+into, and put to the user.
+
+Tests (`Document.py`, `TransactionBranchCases`):
+`testASubAssemblyThatBroughtNothingStillShowsTheirPart` (G1, G2; without
+G2 the binder reads our part), `testATopThatBroughtNothingGetsABranchForItsLinks`
+(G1 up to the top, and the set's merge), and
+`testTheirFileAloneLinksWhatTheSetsFilesCameAs` (G4: in review, in another
+session, and written by the merge, `file="Part.FCStd"` with no branch).
+
+### 35.17 G7 and G5 built (user: "do G7 and G5", 2026-10-23)
+
+**G7, an expression that reads another file of the set.** The relink
+(`gatherRelinks`) also looks at each expression container of an object --
+its `ExpressionEngine`, a sheet's cells, any `PropertyXLinkContainer` --
+for what it reads of a file of the set that came as something else, and
+swaps each such object for the one of its name there through
+`CopyOnLinkReplace`, the call a copy-on-change link's swap uses: the
+expression's document name becomes the branch's document's
+(`Part_v2#Box.Length`), and the engine's link to it is live to the
+branch. Saved, the engine's `DocMap` beside that link maps the name to
+whatever the branch's document is called when it is read again, so it
+holds in another session. At the merge, "Link our set" swaps it to ours by
+the same name; an object their file made, which ours has not until its
+merge, is left as it is, with a warning. The written copy of a file of
+theirs alone gets the same.
+
+**G5, what will not resolve, said before the merge (Q4 (b)).**
+`App::previewSetReferences(ourTop, files)`, in Python
+`Document.previewLinkedSet(files)`: for each file to be merged or taken,
+what it will be is made -- `previewMergeResult` for a merge (the branch's
+head for a fast-forward), the branch's head for Take theirs -- and ours as
+it is stands for a file kept. Each of its references to a file of the set
+-- a link, an entry of a list, what an expression reads -- is looked up
+in what that file will be: the object by its name, and an element of it by
+`GeoFeature::resolveElement`, a missing mark, or an index past the shape's
+count. A link that resolves to nothing is looked up by the file and the
+object it names. Each that fails: `L3.LinkedObject -> Part.FCStd#Cyl`,
+`B2.Support -> Part.FCStd#F.Face8`. The merge's report says the same of
+what was merged (`references` per file). The dialog's Merge checks first:
+the count on each file's line, the list in its tooltip, and a question
+listing them, which offers "Merge X too" for the files kept ours that the
+references need -- set to Merge and checked again -- or "Merge as
+listed", or Cancel.
+
+Tests: `testAnExpressionReadsWhatTheSetsFilesCameAs` (G7: in review, in
+another session, merged), `testWhatWillNotResolveIsSaidBeforeTheMerge`
+(G5: a cylinder their Part added and a face of their eight-faced F, kept
+ours; none when merged; the report after), driven
+`GuiImportLinkedSetReferences` (`tests/gui/import-linked-set-references.py`:
+the question, the line, "Merge Part.FCStd too" taken).
+
+### 35.18 A set's files left to be saved; U5; the look under Assign (user: "do 1 and 2", 2026-10-23)
+
+**The files an import gives a branch are modified.** A set's import puts
+each file's branch in that file's own history, which only that file's
+save writes: closed unsaved, the branch was gone, and nothing said so --
+the Gui did not count the import a change of the file (found in 35.16,
+where a test saved the top alone and found no branch of the part). The
+Gui document now marks itself modified when its file's branches change
+(`signalBranchesChanged`: a branch made, switched, renamed, trimmed,
+deleted, an import, a merge, a file kept or let go -- each a change the
+save writes, as `signalLogKeptChanged` already was), not a branch's or a
+version's own document, which is not saved. Driven
+`GuiSetImportMarksModified` (`tests/gui/set-import-marks-modified.py`):
+neither of ours modified before, both after, the branch's document not,
+neither once saved, the branches there when opened again. On the way: a
+save of a part marks the assembly linking it modified (the link's stamp),
+so the part is saved first. The same holds of a branch served to a
+client (sec 32.30): its changes are in the file's history, so the
+desktop's document is modified, and its close asks to save first -- the
+hidden-document check saves it before it closes the window.
+
+**U5, a set's file paired by the objects it shares** (sec 36.2 U5). A
+guess after the one by `Uid`, where that says nothing, and before the one
+by path: `SetPairing::Objects` ("objects"). (Put before the `Uid` first,
+it took over the pairing of `testTwoOfOursAlikePairNone`'s top, which the
+`Uid` answers; the older signal goes first.) Their file's object UIDs are read off
+its `Document.xml` (`uid` on each `<Object>`); it is paired with the one
+of ours whose objects have the most of them, where that is two at least
+-- one is no proof, a pasted copy shares it -- and half of theirs at
+least; two of ours as many is ambiguous, the user says. A guess, not
+certain (Q1), so Take theirs by default: a copy of the objects into a new
+file shares them too. Test `testASetsFileIsPairedByTheObjectsItShares`:
+their `Bracket.FCStd`, another name and `Uid`, no history, made of copies
+of our part's objects, paired with our `Part.FCStd`; a file sharing one
+object, not.
+
+**The look under Assign** (36.6: "the live object keeps its look"; user:
+add an option, on by default). An object assigned takes the look brought
+with its values: the paste dialog (`DlgObjectSelection` in paste mode)
+and the clash dialog (`askImportClashes`, a merge of a project, a drag
+that copies) have a check, "Assigned objects take the look brought too",
+checked, which sets `ImportClashScope::copyLook`. The look is in two
+places. What the object keeps -- a Part feature's or a link's
+`Appearances` group, the element looks and the colours over them -- is
+taken with the values, and left out when the check is off (not the
+physical material, `ShapeMaterial`, which is the design). What the view
+provider keeps -- line width, point size, display mode -- the import read
+into the copy's view provider before the clash was settled:
+`signalAssignLook(copy, live)` is fired then, before the copy goes, and
+the Gui takes each of its properties into the live one's (not
+`Visibility`: a paste hides the copy), as changes of the step, which one
+undo takes back. Driven `GuiPasteAssignLook`
+(`tests/gui/paste-assign-look.py`): a longer, red box with thicker lines
+assigned onto ours -- the check offered and checked; taken, length and
+look; one undo, both back; unchecked, the length and our look.
+
+**The dialog's marks of 36.6 are moot.** "The rows where an assigned
+object will refer to a duplicate": the rule of 37.9 lets an object here
+that an assigned one depends on be only assigned or left out, so none
+does. Closed.
+
+## 36. Object UIDs: an object known by what it is, not its name (2026-10-21)
+
+**Asked (user, 2026-10-21)**, from the Q8 question of 35.13 -- their `L`
+came back as `L001` under Take theirs: "from now on we give each object a
+uid". Then, in three rulings the same day:
+
+- a new UID only when an object is created, or brought into a document
+  where a live object has its UID already;
+- objects are paired in a merge by their UID and their type, the name
+  ignored;
+- a UID is a history link: an object pasted back after it was deleted is
+  the same object, jumped to a new state with the rows between missing;
+  only live objects are checked for a clash, and a clash brought from
+  another document is asked -- a list, each row Assign or Duplicate, with
+  Assign all and Duplicate all;
+- names: **(a)**, the reservation of 27.40 item 3 stays; Take theirs
+  hands a name to their object where ours, which held it, goes in the
+  same row.
+
+### 36.1 Why
+
+An object of another copy of a file was taken for ours by its id and its
+name, the type agreeing (30.19 G7, 30.22, the replay of a branch). That
+is why a name was given to one id for ever (27.40 item 3): it was half of
+an object's identity. A stranger's object of a name ours had could only
+come in under another (P4), and Take theirs, which removes ours, still
+left theirs renamed. With the identity carried by a UID the name is only
+what references use.
+
+### 36.2 The design, as ruled
+
+| | Point | Ruled |
+| --- | --- | --- |
+| U1 | What it is | A random UUID held by the object, not a property: no undo of its own, never edited. Saved as `uid` on the object's entry in `Document.xml`'s `Objects`. Python: `obj.ObjectUid`, read only (`App::Part` and `Fem::FemAnalysis` have a property `Uid` already). |
+| U2 | When an object gets a new one | When it is created. When it is brought into a document -- paste, drag and drop, merge project, `copyObject` -- and a live object there has its UID: always for a copy into its own document (paste, Duplicate selection, Link's copy-on-change), always where the live one is of another type, and otherwise as asked (36.4). Kept through a save, Save As, the set export, a branch, a version, an undo. |
+| U3 | An object of a file from before | Its UID derived from the file's `Uid` as read, its id and its name -- a name-based UUID -- so two copies of one file agree on it. |
+| U4 | The store | A table `objuid` (cid, uid), and the `create` op's `meta` says the UID, so the history knows the UID of every id it has, deleted ones too. `StoreVersion` 2. |
+| U5 | Who reads it | The kinship of an import: the file without a history in common (30.22), the state brought as one row (30.19 G7), the replay of a branch. Pairing a set's files may count UIDs shared (a pasted copy shares one, so one is no proof). |
+| U6 | Pairing | By UID and type; the name ignored. Their `Box001` and our `Box002` of one UID are one object, and references to their name map to ours as an import maps them now. |
+| U7 | Names | 27.40 item 3 kept. Take theirs (Q8): an object of theirs renamed on import (P4) takes its own name back where the object that held it here is removed by the same row. |
+
+### 36.3 One UID, one id
+
+The history gives a UID one object id. An object made under an id the
+file knows -- an undo, a version, a branch, a replay -- has that id's
+UID. An object brought in with a UID the history knows, of the same
+type, comes back under that id and the name the table gives it: the log
+records a create of that id, as an undo of its removal would, with the
+state brought. Only an object made under an id new to the file gets a
+UID of its own (or the one it was brought with).
+
+### 36.4 A clash, brought from another document
+
+Asked once per paste: a list of the objects whose UID a live object has
+-- the one brought, the one here, Assign or Duplicate -- and Assign all,
+Duplicate all, Cancel (nothing is pasted).
+
+- **Assign**: the live object keeps its id and name and takes the state
+  brought; what links to it still does.
+- **Duplicate**: a new object, a new UID, as a paste is today.
+- References among the objects brought follow each choice: a Body
+  assigned whose Pad is duplicated holds the new Pad, and the row says so.
+- One undo step for the paste, as now. Without the Gui, and by default in
+  Python: Duplicate; a keyword asks for Assign.
+
+### 36.5 Order
+
+1. U1 to U4: the UID held, saved, read, derived for an older file, in
+   the store and the history, `obj.ObjectUid`.
+2. U5, U6 and 36.4: kinship by UID, the paste rules, the dialog.
+3. U7: the name handed over at Take theirs; the stranger's test of 35.13
+   finds `L`.
+
+### 36.6 As built (2026-10-21)
+
+**Step 1 (U1 to U4).** `DocumentObject::getObjectUid()`, held by the
+object and given by `Document::_giveObjectUid` as it takes its id: the
+id's UID where the history knows one; else the UID it carries or was saved
+with; else, under an id the file knew, one derived from the file's `Uid`
+as read, its id and its name (`Base::Uuid::createUuid(space, name)`, a
+version 5 UUID); else its own. A UID a live object here has, or one the
+history gives another id, is not taken: the object gets its own. The live
+objects are indexed by UID (`objectUidMap`). Saved as `uid` on the
+object's entry; the history keeps `objuid` (cid, uid) and `FileHistory`
+the pairs, one to one, filled from the table and from the `meta` of the
+`create` and `remove` ops (`{"uid": ...}`, kept by the log's fold), as the
+names are. `StoreVersion` 2. Python `obj.ObjectUid`.
+
+**Step 2 (U5, U6, 36.4).**
+
+- *Kinship.* `_applyForeignState` (30.19, 30.22) takes theirs for the
+  live object of its UID and type, and an object of theirs not here comes
+  with its UID -- under the id and the name the history gives that UID,
+  when it is one of ours removed. The replay of a branch's rows looks up
+  the `create` op's UID first. Two copies' rows are paired by UID before
+  the source name (`sameObjects`, 30.33).
+- *Found while building:* a file written by a build that keeps no UID --
+  an older one, or upstream FreeCAD, which writes its own `Document.xml`
+  -- has its UIDs derived, and a derived UID says nothing of an object
+  this file made since with a UID of its own. Such an object of theirs
+  (`derivedUids`) is still known by its id and name, as before.
+- *The paste.* An export says where it is from (`From`, the source
+  document's transient directory). An object brought onto a live one of
+  its UID and type, from another document, is a clash: made as a copy,
+  then settled by the thread's `Document::ImportClashScope` once the
+  import is in -- Duplicate (the default), Assign, or Ask. Assigned: what
+  the objects brought refer to of the copy is repointed to the live one
+  (`CopyOnLinkReplace`), the live one takes the copy's dynamic properties
+  and values (captured and restored through the copy's name, the label
+  left), and the copy goes. Cancelled: what was brought is removed and the
+  import throws `Base::AbortException`. A UID the history gives an id no
+  live object has comes back under that id and name.
+- *Python:* `doc.copyObject(objs, with_dependencies, return_all,
+  assign=False)`.
+- *Gui:* `Gui::askImportClashes` (`DlgImportClash`), asked by
+  `Gui::ImportClashAsk` around the paste, File > Merge project and a tree
+  drag that copies; the drag's macro line says `assign=True` when all were
+  assigned. The dialog explains how references follow the choices; it
+  does not mark the rows where they do.
+
+**Step 3 (U7).** `Document::importedNames(branch)`: the names an import's
+rows on that branch could not keep. `restoreVersion(num, names)`: where
+the end state has an object of a name in `names` and none of the name it
+maps to, that object is made under the name mapped to, whatever holds the
+name now -- gone at the end -- is removed first (the walk along the log
+otherwise removes last), and every value is read through the same names;
+the version read whole, when the walk cannot be taken, does the same.
+Take theirs restores with the branch's names: their `L` comes back as
+`L`, and our `L` stays in the history under its id.
+
+*Found while building:* the version read whole is not a path for this. A
+link to another file of the set, read in the version's scratch document,
+resolves against the scratch's place and is broken in the value taken
+from it ("File '.../temp/Part.FCStd' does not exist"); the walk takes the
+log's values, which are this file's.
+
+**Not built:** the set's pairing counting UIDs shared (U5); the dialog
+marking the rows where an assigned object will refer to a duplicate; a
+view provider's state under Assign (the live object keeps its look).
+
+**Tests**: `testAnObjectKeepsItsUid`, `testAnOlderFilesObjectsGetUidsOfTheFile`,
+`testAnObjectBroughtBackIsItself`, `testAStrangersObjectOfOurUidIsOurs`,
+`testAStrangersSetIsTakenWhole` (now `L`); gtest
+`aStoreOfLayoutOneGetsObjectUids`; driven `import-clash.py`.
+
+### 36.7 A UID through upstream's format: `_ObjectUUID` (ruled and built 2026-10-21)
+
+36.6 found that a file upstream writes again has lost its `uid`
+attributes, and its objects' UIDs are derived. The ruling: carry the UID in
+a property upstream keeps, the `_ObjectUUID` an export already made (with
+logging on only); and the `Uid` properties of `App::Part` and
+`Fem::FemAnalysis`, which nothing reads, go -- a read-only Python `Uid`
+answers the object's UID for them.
+
+- **Written.** A save below schema 5 (upstream's format, `SaveSchemaVersion`
+  4) and every export (always 4) put `_ObjectUUID` on each object written,
+  made if missing, set to its UID -- besides the `uid` attribute.
+  `Document::carryObjectUid` does it as the document's bookkeeping: no
+  undo step, no row of the log, a pinned version takes it. The property is
+  a compatibility name (`Property::Legacy`): in no file of schema 5, in no
+  row of the log, and a version's restore leaves it (a version never holds
+  it); `NoModify`, so the save that makes it marks nothing modified;
+  `Output | Hidden`.
+- **Read.** After the object data are in (`readObjects`), an object whose
+  UID came from nothing -- no attribute, no history: the derived one, or
+  for an import a new one -- takes the `_ObjectUUID` it carries
+  (`_adoptCarriedUids`), by the attribute's rules: not where a live object
+  has it (an import from another document records the clash, 36.4), not
+  where the history gives it another id. The attribute wins where both
+  are. The object's `_ObjectUUID` is set to its UID either way. An object
+  given its UID so is no longer a derived one, so it pairs by UID.
+- **The old `Uid`.** A part's or an analysis's `Uid` of an older file,
+  unknown to the class now, is read by `handleChangedPropertyName`
+  (`DocumentObject::restoreUidProperty`) into `_ObjectUUID`, and taken as
+  above; a later `_ObjectUUID` of the same object has the last word. Two
+  parts with one `Uid` -- an upstream paste copies it -- the first takes it,
+  the second keeps its derived UID.
+- **Python.** `part.Uid` and `analysis.Uid` read the UID; setting it raises
+  `AttributeError` (`DocumentObject::hasUidAttribute`, answered in
+  `DocumentObjectPy::getCustomAttributes`); a property named `Uid`, a
+  Python feature's own, still answers first.
+
+**`_SourceUUID`.** The import made each object brought with an
+`_ObjectUUID` carry the value as `_SourceUUID` and get a new random
+`_ObjectUUID`. Both users of it matched a copy to its source by it: a
+tracking copy-on-change link, whose new copy replaces the old one in what
+refers to it (`LinkBaseExtension::syncCopyOnChange`), and a copy of a shape
+content, which takes the shape of the content it is a copy of
+(`Part::Feature::restoreShapeContents`). Since the export made the
+`_ObjectUUID` with logging on only, neither matched anything otherwise. A
+reference through the link into the old copy (`(L, ["C002."])`) stayed on
+it, removed as the new copy came; with the copies' `_SourceUUID` taken
+away before the source changes -- that state -- it still does, and with
+them it moves to `C003.`. (A direct link from elsewhere to a copy is not
+moved either way: `tryReplaceLink` moves one only for its owner being the
+link.) Now every export carries `_ObjectUUID`, and the
+import no longer writes `_SourceUUID` on every object brought. Its users
+set it themselves, to the source's UID: the link on each copy as
+`copyObject` returns it (in the order given), and a content's copy from the
+UID it was brought with (`Document::getBroughtObjectUid`, kept for the
+import's length), so that its reopen finds the content again.
+
+**Not covered.** A file of split XML (the directory layout) has its object
+data read after `readObjects`, past the adoption: one upstream wrote again
+keeps derived UIDs -- upstream writes no such layout. A paste of an
+upstream clipboard whose objects carry `_ObjectUUID` alone does not bring
+an object removed here back under its id and name (36.3): the id is given
+before the property is read.
+
+**Tests**: `testUpstreamsFormatKeepsTheUids`, `testAPartsUidIsItsObjectUid`,
+`testATrackingCopyReplacesItsOldOne`, `testACopyOfAShapeContentHasItsShape`.
+
+## 37. Audit of the implementation (2026-10-21)
+
+The user asked for an audit of the whole implementation before the open
+items of sec 35 and 36 go on. Six read-only passes, one per area (the
+record model and values, the store and recovery, undo over the log,
+versions/branches/merge, import/sets/UIDs, the Gui), each reading the
+code against the sections that rule it; every finding was then verified
+against the code, and where it could be, by a probe, before it was fixed.
+What was fixed, by area, then what was left and why.
+
+### 37.1 Fixed
+
+**Store** (`TransactionStoreSQLite.cpp`).
+- The batch writers `addObjectUids`, `addObjectNames`, `addLastGeoIds`,
+  `removeObjectState`, `addStrings`, `removeStrings`, `addStringRefs`
+  stepped their statements raw, discarding the result, with no rollback:
+  a full disk mid-batch left a partial table and "cannot commit - no
+  transaction is active". All go through `step()` (which throws) inside
+  `batch()`, one SQL transaction with the rollback.
+- Every `catch { exec("ROLLBACK"); throw; }` could replace the real error
+  ("database or disk is full") with "cannot rollback - no transaction is
+  active", since SQLite rolls back by itself after SQLITE_FULL/IOERR/NOMEM.
+  `rollback()` rolls back only when a transaction is still open, and never
+  throws.
+- `text()` read TEXT columns as C strings where `bindText` wrote the whole
+  length: a value with an embedded NUL came back cut. Read by length.
+- `dropTier`: the second walk can number nodes the first never reached,
+  and `listed[n]` then read past the vector. Bounds-checked.
+- `anchorVersions` and `removeBranch` ran their several statements with no
+  transaction around them; a crash between left access or open merge
+  requests of a branch that no longer exists. Each is one `batch()`.
+- `find_package(SQLite3 3.38 REQUIRED)`: `json_extract`/`json_valid` (the
+  UID read out of op metadata, sec 36.3) are built in from 3.38 only, and
+  with an older library every log failed to open at `objectUids()`.
+- The guard reads of an embedded copy (`FileHistory.cpp`, `Document.cpp`
+  at `Document::Restore`) opened the blob read-write and relied on the OS
+  refusing writes: as root, or on a filesystem that ignores the mode bit,
+  the open set the journal mode and migrated an older copy in place, and
+  even read-only an open of a WAL-header file made a `-shm` beside the blob
+  which the blob store's recovery then took for a loose blob.
+  `openSQLite(path, readOnly=true)` opens `file:...?immutable=1`
+  read-only: no lock, no `-shm`, nothing written.
+- Crash recovery (`Document::recoverFromLog`): when the replay stopped
+  before an incomplete row (sec 25.2 item 3), the undo stacks were still
+  rebuilt to the crashed head and the `recover` row parented there, so the
+  log said the document was at a state it never reached. The head is moved
+  to `last`, the rows past it (never applied, their values never written)
+  are removed, and the recover row's script lists them as `skipped`.
+
+**Core** (`TransactionLog.cpp`).
+- A capture that failed on the worker (a Save that throws) left the key in
+  `_recorded` while `_hashById` had nothing: the next composing snapshot
+  claimed the value and `putComposite` either threw "claimed but not held"
+  or, with an older value and verify off, silently took the STALE hash --
+  the version recorded the property's previous value as current. The
+  worker now reports such keys (`_unrecorded`, drained on the main thread
+  by `dropUnrecorded()` at every post, flush and before a snapshot's sink
+  is made, which now flushes first), and they leave `_recorded`.
+- A posted job that threw left a row numbered, the head moved, and the row
+  never appended: the next row's parent named a seq that did not exist,
+  and `chain()`, `rowsBackTo`'s store path and undo over the log failed
+  ("a row on the way is gone") while the in-memory `_recent` believed the
+  row was there. The commit job, the version job (`writeVersion`, the body
+  of `postVersion`'s job) and `keepFile` append the row whatever the
+  values or the version did -- short of a value it is the incomplete row
+  recovery stops before; a failed version's row says `{"error":...}` -- and
+  the commit job retires its remaining copies on the way out, so no copy's
+  destructor runs on the worker (sec 25.4).
+- `logged()` admitted a static property marked transient by STATUS
+  (`Property::Transient`, which `PropertyContainer::Save` skips for a
+  non-dynamic property): `Part::Compound2::Shape`, `FeatureWrap::AddSubShape`
+  were logged with their full value at every recompute and written back by
+  a cold undo into a property the file never carries. Excluded, as the
+  ruling at sec 10 says; a dynamic one stays (its name and type are saved).
+- `number()` remembered every row before its kind and script were set, so
+  `rowsBackTo`'s memory path returned record, branch, login, request and
+  snapshot rows with empty kind and script where the store path returned
+  the real ones. Each maker remembers its row once it is filled.
+
+**Document: transactions and undo** (`Document.cpp`).
+- With the log on, a removal with no transaction open (`doc.removeObject`
+  from Python, or any removal outside a command) opened none unless an
+  undo step already named the object (upstream's "Delete" rule), so the
+  object was gone and the log had no `remove` op: a recovery, a branch
+  switch or a selective undo brought it back. Measured with a probe in
+  both undo modes. A removal is an implicit step like a write is when the
+  document has a log. Test `aRemovalWithNothingOpenIsLogged`.
+- `undo(id)` down to another author's step (reachable through
+  `closeActiveTransaction(true, id)` when a task is cancelled under another
+  actor than it was opened under) looped until the actor's run was empty,
+  undoing every step of theirs, then returned false. Refused before
+  anything moves (`undoRefusal` "the step is another's"). Test
+  `undoDownToAnothersStepIsRefused`.
+- `_takeStep` had no unwind protection between making the inverse the
+  active transaction and putting it on the other stack: a throw out of
+  `touched.leave` or `logInverse` left the inverse active, so the next
+  write was recorded into it. Those two are caught and logged; the stacks
+  are kept whatever the log makes of the step.
+
+**Document: versions and branches.**
+- An object recreated by type -- `_applyVersion` step 2, `_moveAlongLog`,
+  `_replayLog`, the cold undo -- lost every Python extension it had, and
+  the version's extension properties (a group's `Group`) were then skipped
+  as static properties the live object did not have. Any Draft/Arch group
+  or FeaturePython that called `addExtension` and was deleted after a
+  version came back bare on a restore or a branch switch. The `create` and
+  `remove` ops carry the Python extension type names in their metadata
+  (`{"uid":..., "ext":[...]}`, sec 9.2's promise), the version path reads
+  them off the version's object, and every recreate site adds them back
+  right after `addObject`. Test `aRecreatedObjectKeepsItsPythonExtensions`
+  (restore and cold undo).
+- `switchBranch` and `createBranch` were not exception safe: a throw out
+  of `_checkoutHead`'s whole-read fallback (a version missing or
+  unreadable) left the cursor on the new branch with the document on the
+  old one, and the next commit wrote a row on the new head with the old
+  branch's values as befores. `switchBranch` also refused a branch open in
+  another document only after the tip snapshot and `clearUndos()`. The
+  holder is checked first; a failed checkout puts the cursor back on the
+  branch left (`createBranch` also removes the branch it made), with the
+  live values forgotten.
+- `restoreVersion` left its "Restore version N" step open when the
+  whole-read path threw; every later edit joined it and branch operations
+  refused "inside a transaction". A scope guard aborts the step on unwind.
+- `restoreContainer`'s removal pass did not consult `keptOnRestore`, so the
+  document's `History`, `Version` and `Branch` were removed by a restore to
+  a version whose Document.xml lacks them (version 1 of an adopted plain
+  file, sec 16.6). Kept, as the intent comment above it says.
+- A dynamic property present in both with another type (a pattern's
+  Offset, a length or an angle) kept the live type and received the
+  version's fragment -- a wrong value under the right name. The version
+  restore and `_moveAlongLog` step 2 now replace it, as the cold undo did.
+- `restoreVersion` and `_checkBranchable` refuse under `Recomputing`: a
+  removal there is deferred (`pendingRemove`) and the object would outlive
+  the checkout.
+- Frozen (pinned) documents, sec 27.22: the refusal covered an object's
+  properties and add/remove of objects but not the document's own
+  properties, add/remove of a dynamic property, freeze/unfreeze, the
+  panel's undo of a row, a snapshot, or keeping and letting go of values.
+  `checkNotFrozen` in `Document::onBeforeChange` (outside bookkeeping),
+  `_addOrRemoveProperty`, `onBeforeChangeFreeze`, `undoLogged`,
+  `snapshotToLog`, `keepLogValue`, `keepLogValuesOf`, `releaseLogValue`.
+
+**Document: import and UIDs.**
+- Assign (sec 36.4) removed each copy after step 1 had pointed its links at
+  the live objects, and a removal's unsetup takes what the object owns:
+  with a Part or a Body pasted again and assigned, removing the copy
+  deleted the LIVE origin and its features (`OriginGroupExtension`), and a
+  Link's live copy-on-change group likewise. Each copy lets go of every
+  link (`breakLink(copy, true)`) before it is removed. Test
+  `testAnAssignedPartKeepsTheLiveOrigin`.
+- Assign copied the copy's `_ObjectUUID` onto the live object as an
+  ordinary dynamic property (the status bits Legacy/NoModify are not
+  carried by `addDynamicProperty`), persisted and logged, and removed the
+  live object's own. The carrier is skipped both ways.
+- `checkUserEdit` refused the carrier's write on a document still being
+  filled (`LiveImport`): Std_Copy and a schema-4 save threw "Stopped at
+  Obj._ObjectUUID" where both were allowed before 36.7. Bookkeeping, and a
+  Legacy or NoModify property, are not edits.
+- `onBeforeChangeProperty` recorded a bookkeeping write into a transaction
+  that happened to be open (`doc.openTransaction(); doc.copyObject()` put
+  the first `_ObjectUUID` into the undo step, against 36.7's "no undo
+  step"). Bookkeeping is skipped as `Document::onBeforeChange` already did.
+- `derivedUids` was never pruned: a TempDoc emptied and refilled kept the
+  earlier content's ids flagged derived, and `_applyForeignState` then
+  paired by id+name+type where it should by UID. Erased with the object,
+  cleared with the map.
+- The Cancel path of a paste removed the brought objects through pointers
+  of a list a removal's unsetup could have freed. By name, checked live.
+- `Part::Feature::restoreShapeContents` cleared the source UID when it
+  equalled the object's own -- exactly the first cross-document paste,
+  where the UID is kept (U2) -- so a shape content pasted alone never found
+  its original. The `obj != this` test already keeps it from matching
+  itself.
+- `openFileVersion` with no view (a branch served, a version read for a
+  link) left the new windowless document as the application's active
+  document: the next paste landed in it, and a later `_openReadVersion`
+  hand-back attached the panel to it. The previous active document is put
+  back.
+- A version is named through `Document::nameLogVersion` (the panel, the
+  Python method, the `log.nameVersion` op): the panels of the file's
+  documents refresh (`signalBranchesChanged`), and with the log embedded
+  the document is marked modified (`signalLogKeptChanged`), where before
+  a name given and the window closed without a save prompt was not in the
+  file.
+
+**Gui.**
+- Both context menus of the log panel read the `QTreeWidgetItem` after
+  `menu.exec()`, and the panel's refresh timer rebuilds the lists inside
+  the menu's event loop on any commit (a client's, the snapshot cadence):
+  a use after free. Everything is read into locals before the menu runs.
+- `Gui::Document::takeSteps` built the run's `TransactionGuard` before
+  `checkTransactionID`, so the grouped-transaction prompt and the other
+  documents' steps ran under it, and a grouped step that goes through the
+  log recomputed with its touches deferred. The check comes first, as
+  upstream orders it.
+- The three paste/merge callers caught `Base::AbortException` alone;
+  `_settleImportClashes` throws `Base::RuntimeError` too, which left the
+  "Paste" transaction open with the copies in it, and
+  `Gui::MergeDocuments::importObjects` leaked its `ZipInputStream` with a
+  dangling pointer. `Base::Exception` is caught (the transaction aborted,
+  the error reported) and the stream is owned.
+- After an Assign the pasted list holds LIVE objects in the copies' place,
+  and the paste moved them into the selected group. Only what was not
+  there before is grouped.
+- The recovery dialog listed a crashed session's `history/log.db` only
+  when the log preference was on at THIS start; otherwise the directory was
+  deleted unlisted, the unsaved tail with it. It is offered whatever the
+  preference says; the recovery itself says the log must be on.
+- A row recovered from the log kept its check box, so Cleanup counted it.
+
+### 37.2 Left as found
+
+Judged real but not fixed now, with the reason; each is a candidate for a
+later pass. Elaborated item by item, re-checked, in 37.7 (some are
+narrower or wider than said here).
+
+- **Core: a dynamic property removed and another of the same name and
+  type added in one transaction** can land on the same address (the
+  removed one is deleted at the next property call, PropertyCleaner), and
+  `onCommit`'s "original is gone" test is a pointer lookup: the row then
+  has two `set`s on one name and no `delprop`. Rare (needs the allocator
+  to reuse the address); the right fix is an explicit removal flag in
+  `TransactionObject::addOrRemoveProperty`, a change to the undo record.
+- **Core: a transaction whose every write turns out `same`** is
+  unnumbered again, but its session ordinal stays incremented (a gap, no
+  collision) and `number()` has already made a detached version document
+  take or create a branch (against 27.5). Needs numbering after the ops
+  are built; low value.
+- **Undo: `closeActiveTransaction(true, id)` holds a `TransactionGuard`
+  across every document's `undo(id)`**, and `_revertStep` refuses under
+  it: a step not at state cannot be taken back by a task cancel. Niche (a
+  client wrote past the user's step before the cancel); the fix is in
+  `AutoTransaction.cpp`, mirroring `takeSteps`.
+- **Undo: an open transaction committed by `undo`/`undoLogged` while the
+  application still owns its id** (`_activeTransactionGuard > 0`) makes
+  the next `_openTransaction(name, tid)` throw "invalid transaction id".
+  Pre-existing shape; `undoLogged` widens the window.
+- **Undo: `undoLogged` clears the actor's redos after making its step**,
+  the order `_openTransaction` avoids. No failure traced.
+- **Store: `recover()` opens the moved database when the `-wal` could not
+  be moved** (the committed, uncheckpointed tail missing) and reports
+  failure with the old directory half emptied. One rename of two in the
+  same directory failing is not a case seen.
+- **Store: `environment()`/`user()` do SELECT-then-INSERT outside a
+  transaction and no busy handler is set**: safe under sec 29's one
+  connection per file; the first second connection (29.1) must add
+  `INSERT OR IGNORE` and `sqlite3_busy_timeout`.
+- **Versions: `_readVersion`'s scratch document is the application's
+  active document while `_applyVersion` writes the live one**; a Python
+  proxy touching `FreeCAD.ActiveDocument` in `onChanged` sees a document
+  deleted a moment later. The comment says it is intentional; left for
+  the reason to be recorded or the order changed.
+- **Versions: `_rollBackUndoneMerge`** has the same shape as the branch
+  switch (forward, moveHead, then a `_followHead` that may throw); not
+  wrapped, since a failed follow leaves rows no head reaches rather than
+  a wrong head.
+- **Import: Assign of a Body whose Origin does not clash** leaves the
+  live Body pointing at the brought Origin and the old live Origin
+  orphaned: a question of what Assign should do with an owned child that
+  was not paired, for the user (36.4).
+- **Import: the file's `uid` attribute is silently overridden by the
+  history's UID for the id** (36.3) -- a copy's save synced over the file
+  with the sidecar history left in place takes the history's. Policy; a
+  warning when they disagree would help.
+- **Import: `nameCopySources` names nothing on a size mismatch**; the
+  copy-on-change sync then builds no replacements. Pre-existing shape.
+- **Gui: the sec 36.4 clash dialog is modal and opens with the "Paste"
+  transaction open**; a served client's commit meanwhile closes it with
+  the half-settled paste in it. Needs the ask before the transaction (the
+  clashing UIDs read off the stream first) or the dispatch held.
+- **Gui: `signalBranchesChanged` reloads the whole list synchronously**
+  (one `ops()` query per row, items inserted at index 0 one by one) inside
+  the App signal: a stall on every switch/branch/merge of a long log.
+  Performance; schedule through the timer and insert in one go.
+- **Gui: activating another document's window rejects an open merge
+  preview silently** (`attach` -> `detach` -> `_mergeDialog->reject()`),
+  against 32.15's intent that the document stays in reach. Bind the
+  preview to its document, not to the active one.
+- **Gui: the log panel acts on a pinned document** with no word; the App
+  entry points now refuse (above), the panel should disable its writing
+  actions and say why.
+
+### 37.3 Found sound
+
+Each pass ended with what it checked and found right; the list is long
+and lives in the session, not here. The parts worth naming: every SQL
+parameter bound and every ordered read with ORDER BY; the migration
+writes `user_version` inside the step's transaction; WAL + synchronous
+NORMAL with values durable before the row that names them (25.4); the
+pending map, the copy cache and share ownership; `_moveAlongLog`'s
+meeting point and tails; object ids file-wide across branches; the
+clash rules of 36.4 and the carrier's Legacy status through undo (probed:
+the undo of a delete re-inserts the same object, the carrier keeps it);
+the panel's connection scoping and re-entrancy guards; the recovery
+dialog preferring the log entry over a recovery file beside it.
+
+### 37.4 Storage growth (measured and audited 2026-10-21)
+
+The user asked, with the audit, how the log's storage grows and what
+could be done about it. One auditor read the store, the encodings, the
+retention and the embed path against secs 10, 13, 14, 16, 23, 27.48-27.71
+and 32.11; two scripted measurements (`~/.cache/lv-merge/storage_measure.py`,
+`storage_measure2.py`) sized the live store per table (`dbstat`), the
+blob store and the file after each phase.
+
+**Measured.** A Part fusion (box + sphere, 13 KB BRep), 500 recomputed
+edits each making a distinct shape, a save every 100:
+- live store: 160 KB -> 2.0 MB, no free pages; `entity` 956 KB (the 1000
+  shape fragments and their attachments as a reverse-delta chain: 357 KB,
+  ~360 bytes a shape), `op` 288 KB, `txn` 152 KB, `ref` + its index
+  368 KB; the pack store 2.0 MB (the current geometry of each object, the
+  superseded ones released);
+- WAL beside it: 4 MB, its high-water mark, from the first hundred edits
+  on;
+- the file with the log embedded: 20 KB -> 343 KB (9 KB with the log
+  off), ~650 bytes an edit, of which the history blob was 338 KB zipped,
+  1.7 MB raw -- 700 KB `entity`, 295 KB `op`, 156 KB `txn`, 303 KB `ref`
+  and its index, 70 KB the other indexes.
+- 300 placement edits with no recompute cost ~400 bytes each; 300
+  recomputes that cycled ten lengths stored ten shapes (hash dedup); a
+  paste of a fusion with its inputs wrote 97 ops (one per persisted
+  property per object, each a durable value).
+
+**Fixed.**
+- *The cache tier travelled.* Inside that file were 1,769 cache-tier
+  entities, 397 KB raw -- 40% of the history -- where 13.3 says the cache
+  tier never travels. `dropTier` kept every entity that any entity an op
+  reaches is delta-based on; a value is stored as a delta on the one after
+  it (23.2), so in a chain of n recomputes that kept n-1 of them, and the
+  measurement at 32.11 ("each save and reopen takes the oldest again")
+  had recorded the symptom as the rule. The bases are now followed from
+  what is kept -- entities of other tiers, and of the dropped tier what a
+  manifest or a kept value lists -- to a fixpoint, so a run of recomputes
+  leaves the file but for what a kept version lists. The unit test's
+  expectations (`dropTierWithEvictionIsTheTwoCalls`) hold under both
+  readings; the measurement is the difference.
+- *The WAL's high-water mark*: `journal_size_limit` 1 MB, truncated past
+  a checkpoint, where 4 MB sat beside every open document.
+- *The embedded copy's indexes* (`txn_ord`, `op_container`,
+  `version_hash`, `ref_target`) are dropped before the copy is vacuumed
+  (27.69 measured them at a tenth of the copy); an adopted copy's open
+  makes them again (`setUp`, `CREATE INDEX IF NOT EXISTS`).
+- *A trim, a squash and a branch deletion vacuum the live store*: they are
+  what shrinks it, and nothing else returned the pages (27.54 F6 measured
+  only the steady state's 6% and rightly left a vacuum at save alone).
+
+The same script after these: the file after the 500 edits 145.6 KB
+(from 343.3; 9.2 plain), the WAL 1.5 MB (from 4.0), the blob store
+0.8 MB (from 2.0 -- the embedded copy is a member of it); the live
+store's tables unchanged, as they should be.
+
+**Where the code and the doc differ** (the auditor's list, verified):
+1. sec 10 / 16.3's eviction budget "count and bytes, weighted by cost":
+   only `TransactionLogKeepVersions` exists, count alone, default 0 = keep
+   every cadence version; the cache tier is never dropped in the live
+   store.
+2. 13.3's op budget for the embedded copy: not built (27.69, ruled "later"
+   in 27.70); every op row ever written travels in every save.
+3. 13.2 / 20.2's 64 KB inline threshold: not built (23.1's note agrees).
+4. 23.2 "named versions are full anchors, always": `writeVersion` ignores
+   `kind`, so a named version's entries are re-encoded as deltas on the
+   next unnamed one, which then travels for it.
+5. 10.1 "shapes made in a source-bearing transaction go to the cache
+   tier": a `create` op's sets are durable whatever the value, so a pasted
+   or imported body's geometry is held by the op forever and in the file.
+6. 27.52 F2 / 27.69 (d) recompute-record compaction: still the verbose
+   JSON, one row per recompute beside the user's row.
+
+**Proposed, for a ruling** (ranked by effect over cost; none built):
+- *P1 -- bound what the embedded copy carries* (13.3's budget): rows older
+  than the oldest named version, or past N rows / M bytes, removed from
+  the copy after `dropTier` (`truncate` collects after it); the trim's
+  bridge semantics (27.71) keep a reopened chain whole. The file's growth
+  is linear in ops otherwise.
+- *P2 -- compact the `op` table*: `vbefore`/`vafter` as 20-byte blobs
+  through `bindHash` (the entity and ref tables already pack them; the
+  collector reads either form), and `ptype`/`prop` interned. 27.69
+  measured 5.2 MB of hex hashes and 3.8 MB of type and property names in
+  13.8 MB of ops; about 60% of the op table and its indexes. A
+  StoreVersion step.
+- *P3 -- compact the recompute record*: no `p`/`q` name arrays (ids or a
+  bitmask), messages on error only, the script compressed past 128 B.
+  2.8 MB of a 3.6 MB `txn` table on the T4 run.
+- *P4 -- coalesce consecutive commits on one property* (a spinbox, a
+  Python loop: two rows, a value, a blob and a delta per step), same
+  session and property within a few seconds and no version between, by
+  `replaceTransactions`. Undo granularity is the trade: the user's call;
+  nothing in the doc rules on it.
+- *P5 -- a scalar as a row*: 1000 Length edits are 1000 raw 60-byte
+  entities under their own 20-byte keys; either delta them under 128 B
+  when the patch is smaller, or inline values under ~48 bytes in the op.
+- *P6 -- `TransactionLogKeepVersions` default* from 0 to a count (20?)
+  so cadence versions do not accumulate forever, and the 16.3 byte budget.
+- *P7 -- named versions as anchors*: skip `supersede` of a named
+  version's entries, or re-encode on `nameVersion`.
+- *P8 -- pack-store write amplification* (I/O, not size): a commit that
+  makes a blob rewrites the append segment whole, up to 64 MB
+  (`FileBlobManager::flushLocked`); a smaller append segment or appending
+  members would cut per-commit writes by orders of magnitude. Belongs to
+  docs/FileBlobsManager.md.
+Rejected before and not re-proposed: a live vacuum at save (27.54 F6),
+content-defined chunking (20.2), another store engine (13.1), filtering
+Shape by name (sec 10).
+
+### 37.5 The storage proposals as built (user: all of P1-P8 yes, 2026-10-21)
+
+Ruled with them: P1 configurable in the file, the defaults mine; P6
+configurable, five unnamed snapshots; P4's undo granularity accepted.
+In the order built:
+
+- **P6 -- built.** `TransactionLogKeepVersions` defaults to 5 (was 0, keep
+  all): when a version is added, the unnamed ones over five go, never a
+  named one and never the newest of a branch.
+- **P7 -- built.** A named version is a full anchor (23.2). The store's
+  `nameVersion` through `store()` re-encodes full every delta the version
+  reaches -- its entry list, each entry, a composite's skeleton and parts,
+  a value's attachments, and a blob, which becomes a file of the blob
+  store again (`restoreBlob`) -- and adds them to an anchor set that
+  `supersede()` leaves alone after, the op path's supersession included.
+  The set is made from the store's named versions on first use; a version
+  unnamed or evicted leaves its entities in it, which costs a missed
+  delta, never a byte read. `createBranch` named its fork on the raw store
+  and now goes through `store()`. Test `aNamedVersionIsAFullAnchor`.
+- **P2 -- built, layout 3.** The op table's `vbefore`/`vafter` are the
+  hash's 20 bytes (`bindHash`), `ctype`, `prop` and `ptype` ids of a new
+  table `name(id, text UNIQUE)`, 0 for none. A column's type cannot change
+  in place, so the migrate step makes the table again
+  (`SQLiteStore::packOps`, with an `fc_packhash` SQL function: `unhex()`
+  is 3.41, the floor 3.38). A row that is still text reads as text. The
+  store keeps the name table in memory both ways and forgets what a
+  rolled-back transaction made. Test `aStoreOfLayoutTwoGetsItsOpsPacked`.
+- **P3 -- built, in the store.** A row's script is written by
+  `bindScript`: a record's per-object `p` and `q` arrays (a recompute's,
+  an undo's, a redo's, a restore's, 27.58, 27.63) as ids of the P2 name
+  table, and any script past 128 bytes zstd-compressed; either way a blob
+  led by a tag (`J` ids, `Z` ids compressed, `z` compressed as it is). A
+  script neither changes stays text. `columnScript` gives back the same
+  JSON, keys in their order, so no reader changed -- `TouchedFold::record`
+  and the Gui read what they read before. Messages were on error only
+  already. Test `aRecordKeepsItsNamesAsIds`.
+- **P1 -- built.** The embedded copy carries each branch's newest
+  version, the newest `snapshots` unnamed versions of each branch and the
+  newest `named` named ones (0 every one), and always a version a branch
+  forked from and a pinned one (the store's `pins` meta). A branch where
+  the bound binds -- its chain lost a version to the copy, or carries the
+  full `snapshots` unnamed ones (the live store evicts past the same count,
+  P6, so the copy itself seldom does) -- is then cut at the oldest version
+  that travels on it, as a trim cuts it with the bridge (16.7, 27.71); one
+  under the bound keeps its rows back to the start. The first
+  build cut every chain, and a file saved once and saved again lost every
+  row before the version its open recorded
+  (`testAFileOpenedForALinkKeepsItsHistory`), with nothing over the bound: `Document::trimBranch`'s core is
+  `App::planTrim`/`applyTrim` now, shared by both. The version a cut keeps
+  is named `trim <branch>` in the copy, as a trim names it, so the file
+  opened elsewhere does not evict what its rows start from. Unlike a trim,
+  the copy keeps that version's own row (a bridge keeps it anyway): a file
+  opened elsewhere records the file as found as a version at the last row
+  the two files share, and when that is the oldest version its copy
+  carries, an import of its fork (30.13) still finds the row it meets ours
+  at -- `aForkIsImportedAsABranch` and
+  `anObjectTheCopyBringsBackIsNotASecondOne` failed on the trim's cut. A
+  fork worked on for more saves than the copy carries has no row in common
+  with ours any more: the bound's price. The numbers
+  are the file's: store meta `keep_named` and `keep_snapshots`, which the
+  copy carries, else the preferences `TransactionLogKeepNamed` (new,
+  default 10) and `TransactionLogKeepVersions` (P6's, at least 1 here).
+  `named` below 0 carries the whole history as before. Python:
+  `Document.getHistoryRetention()`, `setHistoryRetention(named=, snapshots=)`.
+  The live store keeps every row; only the file is bounded. Note the
+  consequence with no named version: once a branch has more than five
+  unnamed versions, the file's history reaches back to the fifth-newest,
+  and an open records one, so about five sessions. Test
+  `TransactionBranchCases.testAFileCarriesItsHistoryFromTheOldestVersionKept`;
+  `testABranchIsMergedAcrossOpensOlderThanTheVersionsKept` needs an
+  open's version gone from the file, and sets the file's `snapshots` to 1,
+  what every file carried before.
+- **P5 -- not built: the cheap variant is a loss.** Measured in the
+  store's own layout (`~/.cache/lv-merge/p5/p5cost.py`, 5000 values of
+  60 bytes, dbstat after a vacuum): a raw value costs 144 bytes; as a
+  delta on the next one it costs 228 with a 12-byte patch and 247 with a
+  30-byte one. The patch saves at most the value's few dozen bytes, and
+  the delta adds the `base` column and a `ref` row with its `ref_target`
+  index entry, about 85 bytes. Only the other variant -- a value under
+  ~48 bytes inline in the op, no entity -- saves, and it changes what
+  `vbefore`/`vafter` mean at some 70 places (Document, the log, the Gui's
+  log view and scene log). Left for a ruling. **Ruled (user, 2026-10-22):
+  no delta for a small value.** P5 is closed as it stands: a value under
+  128 bytes stays a raw entity (`supersede()` returns on `old.size <=
+  128`), and neither variant is built.
+- **P4 -- built.** A commit that writes by hand the one property the
+  step before it wrote, by the same author under the same name, within
+  `TransactionLogCoalesceSeconds` (new, default 3, 0 off) of the last
+  commit, is folded into that step (`Document::_coalesceStep`): one row,
+  one undo step. Between the two may lie only the earlier step's
+  recompute -- its record rows and its implicit steps of derived writes
+  (33.4); anything else (a version, a save, a switch, an undo, another
+  author's step, a step that made or removed an object or changed a
+  freeze, a step of the application's spanning other documents) keeps
+  them apart. The rows: `TransactionLog::coalesceRows` resolves only the
+  pending afters of the rows that go (resolvePending with a row set),
+  then posts a job that rewrites the later row with the earlier befores
+  and whatever only the earlier rows changed, its own ops kept in place so
+  what is still pending on them stays right, and drops the rest through
+  `replaceTransactions` with no collection (a walk of the store per
+  spinbox tick is too much; the next collection takes the values nothing
+  names). The document's row cache is updated to match, not cleared. The
+  undo: `Transaction::absorb` moves into the earlier step what it did not
+  change, the earlier befores kept; the folded steps are deleted.
+  Test `aRunOnOnePropertyFoldsIntoOneStep`; the other cases of the gtest
+  fixture count a row and a step per commit, and run with the window 0.
+  The Gui check `transaction-log-view-check.py` made three `length`
+  commits to undo one by one; they are named apart now.
+- **P8 -- built** (docs/FileBlobsManager.md sec 15.12): a batch adds to
+  the pack store's append segment only while it is under `BlobAppendSize`
+  (new, 1 MB), and `maintain()` merges the small segments size-tiered.
+
+**Measured** with 37.4's script (`storage_measure2.py`: a fusion, 500
+recomputed edits of the box's Length, committed and then recomputed, a
+save every 100), against 37.4's result after its fixes:
+
+| | the file after 500 edits | live `op` table | live `txn` | rows |
+|---|---|---|---|---|
+| 37.4, fixed | 145.6 KB | 288 KB | 152 KB | 1510 |
+| P1-P3, P6-P8, folding off | 75.3 KB | 152 KB | 140 KB | 1510 |
+| the same, folding on (default) | 37.1 KB | 12 KB | -- | 28 |
+
+The plain file is 9.2 KB. Folding off, the file grows until its branch
+has five unnamed versions (52, 77, 96 KB after the first three saves) and
+then holds there, halved by P1 (the five and the rows since the oldest of
+them travel); the op
+table by P2; P3 saved little here, since a one-object record is under
+128 bytes and its names were short already. Folding on, the 500 edits are
+five rows. Seen, not chased: with folding on the WAL beside the live store
+stood at 3.4-3.7 MB after each save where it was 1.5 MB folding off -- a
+rewrite per commit keeps it from checkpointing back under the 1 MB limit
+as often. (Wrong: measured in 37.6, folding makes no difference; the two
+runs read a sawtooth at different points.)
+
+### 37.6 The WAL (measured 2026-10-22)
+
+The user asked to look into the WAL after 37.5's note. Two scripts,
+`~/.cache/lv-merge/wal/walgrowth.py` (the WAL's size after every edit of
+37.4's run, folding off and on) and `walpages.py` / `walbound.py` (the
+WAL's frames parsed after a few edits, each frame's page mapped to its
+table or index through `dbstat`).
+
+**The size is a sawtooth, folding or not.** Both runs climb from 1 MB to
+4 MB and drop back about every 15 edits (33 and 34 drops in 500 edits;
+peak 4.13 and 4.12 MB). The drop is SQLite's automatic checkpoint at
+1000 pages (`wal_autocheckpoint`, the default, 4 MB at 4 KB pages),
+after which the next writer starts the WAL over and `journal_size_limit`
+(37.4) cuts the file to 1 MB. What a save finds depends on where in the
+tooth it lands: folding off read 1.0, 3.6, 2.7, 1.7 and 1.3 MB at its five
+saves, folding on 2.6, 2.6, 2.6, 3.2 and 3.6. 37.5's 1.5 against 3.5 MB
+was two such readings. `journal_size_limit` does what 37.4 meant it to,
+so the file is never above 1 MB at rest after a checkpoint. It cannot
+keep the WAL under 1 MB between checkpoints, since checkpoints come only
+every 1000 pages.
+
+**What fills it: about 55 pages an edit, in 12 SQL transactions.** One
+edit (a commit and its recompute) wrote 52-57 frames, folding off and on
+alike (4 KB each, so about 220 KB written for some 3 KB the store grows
+by), in 12.2-13.2 commits. Each commit writes again the pages it touches,
+and every commit touches the same few hot pages: the last leaf of
+`entity` and of its primary key's index, of `ref` and `ref_target`, of
+`op` and `txn` and their indexes, the `branch` row of the head, and page
+1 (the header SQLite rewrites when the file grows). In the order one
+edit commits them, with the frames each wrote:
+
+| commit (what it is: my reading of the tables) | tables touched | frames |
+|---|---|---|
+| a value (the user's) | entity, its index, page 1 | 4 |
+| three values superseded | entity, index, ref, ref_target | 4, 5, 5 |
+| a value | entity, index | 2 |
+| the user's row | txn, txn_ord, op, its index, op_container, branch | 7 |
+| a recompute value, and its supersession | entity, index (ref, ref_target) | 2, 7 |
+| the string refs | strref | 1 |
+| two shapes and their deltas | entity, index, ref, ref_target, page 1 | 13, 8 |
+| the recompute's row | txn, txn_ord, op, op_container, branch | 6 |
+| the record row | txn, txn_ord, branch | 3 |
+
+The same pages, written once per edit, are 19-25; written once per run of
+five edits, 33 in all, 6.6 an edit. So the WAL is written 2.3 times over
+by committing each job alone, and 8 times over against committing what
+the worker has queued at once.
+
+**Why it does not matter much, and where it would.** With `synchronous
+NORMAL` a WAL commit does not wait on the disk, so the cost is bytes
+written, not latency: about 220 KB an edit, 2 MB a second for a spinbox
+at ten edits a second (P4 folds those rows, not their writes), and the
+checkpoint copying each tooth back into the database. On a desktop SSD
+that is noise. On a phone's flash, or the browser's OPFS (sec 22, the
+WASM tier), it is wear and battery, and the 4 MB beside each open
+document is space.
+
+**Proposed, for a ruling** (none built):
+- *P9 -- one SQL transaction per worker drain.* `TransactionLogCore::run`
+  opens one transaction before it takes the first queued job and commits
+  when the queue is empty, and the store's own `BEGIN`/`COMMIT` (and
+  the single statements that commit on their own) become savepoints
+  inside it. Measured bound: 55 frames an edit to 7-25, depending on how
+  many edits a drain holds. Atomic is stronger than 25.4's order (a value
+  durable before the row naming it): both land in the same commit. The
+  care is the error path. A job's failed savepoint rolls back only its
+  own work, as now; but after a full disk or an I/O error SQLite rolls
+  the WHOLE transaction back, earlier jobs of the drain with it, and those
+  rows are numbered in `_recent` but never appended -- the shape 37.1 fixed
+  for one job. On such an error the drain would have to run its jobs
+  again one by one, or mark the log failed. Some 80 lines in the store
+  and `run()`, and a test that makes a drain fail half way.
+- *P10 -- `wal_autocheckpoint` 256 pages*, to match `journal_size_limit`:
+  the WAL stays near 1 MB instead of climbing to 4 MB. One line. The
+  price is four checkpoints where there was one, and each writes into the
+  database every page the WAL holds once. The hot pages are the same few,
+  so this is likely to write more in total, not less. Worth it only if
+  the 4 MB on disk matters more than the writes, which is the case on the
+  browser tier. Not measured. (Built and measured, 37.8.)
+Neither changes a format.
+
+### 37.7 The items left as found, elaborated (2026-10-22)
+
+The user asked for 37.2's sixteen items in enough detail to rule on.
+Three read-only passes re-read each against the code at 6f5904be1a; what
+each claimed that decides a ruling was checked again by hand. Per item:
+whether it is still real, how it is reached, what the user sees, the fix
+and its size. None changes a format. "Inferred" marks what was reasoned
+and not run.
+
+**1. Core: a dynamic property removed and re-added in one transaction.**
+Real, and likelier than 37.2 says: the change map is keyed by
+`Property::_id`, so the two get two entries, and the removed one is freed
+by the next `PropertyCleaner` (any property write); a same-type
+allocation then often gets the freed address back (glibc's per-size
+cache is last-in first-out; inferred). `onCommit`'s "original is gone"
+test (`TransactionLog.cpp` ~3716) compares name and type through the
+stale pointer, so the removed entry emits a `set` where it should emit a
+`delprop`. Reached from Python: `removeProperty("Foo")`, any write,
+`addProperty(<same type>, "Foo")`, commit. The user sees a row with two
+`set Foo` and an `addprop`, no `delprop`; undo is not affected (it works
+by name), a replay, a cold undo or a merge of that row is (inferred).
+Fix: `|| prop->getID() != kv.first` in that test and in the
+removed-object branch above it -- safe, since it reads the pointer only
+after `getPropertyName` found it live in the container. 3 lines; no
+change to the undo record, which 37.2 thought it needed. A gtest can
+compare the addresses and skip when the allocator did not reuse.
+
+**2. Core: a transaction whose every write is `same`.** Real.
+`number()` runs before the ops are built, and on a detached version
+document it calls `ensureBranch()`: a branch is made or taken, a
+"branch" row written and the version named for it; the empty path then
+restores only `_nextSeq` and the head. Reached by opening a version and
+committing a write of the value it already has (a task panel's OK with
+nothing changed writes every field back; inferred). The user sees a new
+branch `main@vN` in the list, or the version taking an existing branch,
+and the version named and kept from eviction -- against 27.6's "opening
+a version only to look leaves nothing behind". The ordinal gap shows only
+in a row's uid and is harmless. Fix: number after the ops are built (and
+patch the pending ops' `txn`), about 20 lines, medium risk since
+`ensureBranch` flushes and posts mid-commit. A 3-line partial fix undoes
+only the ordinal.
+
+**3. Undo: a task cancel after another writer committed.** Real.
+`closeActiveTransaction(true, id)` with the id already closed holds a
+`TransactionGuard` across every document's `undo(id)`
+(`AutoTransaction.cpp` ~235); a step not at state goes through
+`_revertStep`, which refuses under any guard. Reached with
+`Std_TransformManip`: drag (a step is committed), a served client
+commits, the user presses Cancel (`TaskCSysDragger.cpp` ~313). The user
+sees Cancel do nothing, with no message; Ctrl+Z still takes the step
+back. Fix: as `Gui::Document::takeSteps` does, drop the guard for a
+document whose step needs the log. About 8 lines, low risk. A Python test
+needs no Gui (an application transaction, an actor's commit, the abort).
+
+**4. Undo: an undo inside a command breaks its next write.** Real,
+narrow. `undo`/`undoLogged` commit the open transaction while the
+application still names its id (`_activeTransactionGuard > 0`); when
+the undo did not take that step itself -- `undoLogged`'s first row is
+refused, or the undo is under another actor -- the id stays in
+`mUndoMap`, and the next write's `_checkTransaction` reopens it and
+throws "invalid transaction id". Reached by a command whose Activated
+writes, calls `undoLogged` on a refused row and writes again, or by a
+command running a modal dialog while a served client's undo is
+dispatched (inferred). The user sees the command fail on a property
+write. Fix: in `_checkTransaction`, do not reopen an id `mUndoMap`
+still holds; open an implicit step instead. About 5 lines; a write of
+that command loses its grouping with other documents. A gtest with an
+`App::AutoTransaction`. Seen beside it (inferred): when `undoLogged`
+succeeds, the command's later writes leave its step silently and go into
+an implicit one.
+
+**5. Undo: `undoLogged` clears the redos after making its step.** Real
+as written, no failure found. Deleting a redo step deletes the detached
+objects it owns; anything their teardown writes (a proxy's `__del__`, an
+observer) would be recorded into the "Undo ..." step and undone with it.
+Nothing found that does. Fix: hold the step aside while clearing, about
+4 lines. A test is contrived (`__del__` timing).
+
+**6. Store: crash recovery when the WAL cannot be moved.** Real, and
+worse than 37.2 says. When moving the `-wal` fails, `recover()` opens the
+moved database without it, returns false, and the old `-shm` is already
+deleted. `Application::recoverDocument` then throws "nothing to recover
+in <dir>" and closes the new document, and closing it deletes its history
+directory -- the moved `log.db` with it. The old directory keeps the
+orphaned WAL; a retry finds "no transaction log". The user sees a wrong
+message and loses the crashed session's history. Reached by one rename
+or copy failing (on Windows, a file held by a scanner; on Linux, rare).
+If instead the database fails and the WAL moves, the new store opens
+beside a foreign WAL. Fix: move both or neither -- put the database back
+when the WAL fails, and leave the old directory whole. About 15 lines,
+low risk. A gtest makes `<new>-wal` a directory so the rename and the
+copy fail.
+
+**7. Store: `environment()`/`user()` and a second connection.** Real,
+latent: nothing reaches it while one connection holds a file (29.1).
+Both tables have their UNIQUE constraints already. Fix:
+`INSERT OR IGNORE` then the SELECT, and `sqlite3_busy_timeout` at open
+(harmless now); writers would also want `BEGIN IMMEDIATE` (inferred).
+About 10 lines. Belongs with 29.1 when it is built.
+
+**8. Versions: the scratch document as the active one.** Mostly not
+real. `newDocument` with `tempDoc` hands the previous active document
+back before it returns (`Application.cpp` ~590), so while
+`_applyVersion` writes, `FreeCAD.ActiveDocument` is the caller's. The
+comment at `_readVersion` ("A new document becomes the active one; the
+active one is handed back -- here, or ... by the caller") predates the
+scratch being a temporary document and gives no reason. What is left:
+with NO document active at the call (FreeCADCmd, the active one closed),
+the scratch stays active through the apply and the active document is
+None after. Fix: in that case make the live document active for the
+apply and put None back; correct the comment. 3-5 lines.
+
+**9. Versions: `_rollBackUndoneMerge` not wrapped.** Real, bookkeeping
+only. It forwards the branch in the store and moves the head, then
+`_followHead` may throw (only if the walk refuses AND the whole read
+fails: a version missing or unreadable). The walk's refusal does nothing
+to the document, so the document is at the new head, as 37.2 said. What
+is skipped: the merge rows removed, the undo stacks rebuilt, the panel
+refreshed. The user sees "Merge not rolled back -- the report view says
+why" with the head moved, empty undo and redo until the next branch
+operation, and a retry saying there is no merge undone. Two ways, for a
+ruling: (a) catch, warn, and finish the rollback, the document being
+there already; (b) catch, put the branch and head back, rethrow. 8-12
+lines. A test needs a fault hook (the 37.1 branch-switch fix has none
+either).
+
+**10. Import: Assign of a Body whose Origin is not assigned.** Real. Step
+2 of `_settleImportClashes` writes the copy's values into the live Body
+through the assigned pairs only, so the live Body's `Origin` names the
+brought Origin; the old live Origin and its planes are left with no
+owner. Reached most simply in the dialog: each object is a row of its
+own, so Assign for the Body and Duplicate for its Origin; Python's
+`assign=True` assigns every row and reaches it only if the Origin's UID
+does not match. The user sees a stray Origin, probably at the tree root,
+and live features attached to its planes now out of the Body's scope
+(inferred). A question of what Assign does with an owned child, for the
+user:
+- (A) owned children follow their owner: assigning the Body assigns its
+  Origin and planes, paired by slot and Role even without a UID; the
+  dialog locks those rows;
+- (B) Assign keeps the live Origin: the brought one is removed and links
+  to its planes moved by Role (`OriginGroupExtension::relinkToOrigin`
+  does that already);
+- (C) Assign takes the brought Origin and removes the old one, relinking
+  by Role -- the Origin's identity changes in the history;
+- (D) leave it, with a warning.
+(A) and (B) give the same document; (A) also takes rows off the dialog.
+40-60 lines for A or B. A gtest with an ask callback that assigns the
+Body alone.
+
+**11. Import: the file's `uid` overridden by the history's.** Partly
+real, narrower than 37.2 says. On a plain open the objects are read
+before the embedded history is adopted, and the first pairing is kept,
+so the file's attribute wins. The override happens only when the history
+is joined BEFORE the objects are read: a second document of the file, a
+version or branch read, and -- the case that matters -- a file whose
+history this process already holds (a `file.FCStd@vN` or a pinned link
+open) while another copy was saved over the file. That open joins the
+held history, skips the 16.4 guard, and `_giveObjectUid` replaces each
+object's UID by the history's for its id, with no check of type and no
+word. The two disagree only when file and history diverged: two copies
+of one history each made the next id for a different object. The user
+sees nothing at open; later a merge or import pairs the object with
+another one of the history (inferred). Fix: a warning at the override,
+one line per document with a count, 6-10 lines (to check: a 36.7 renote
+must not trip it). The larger gap behind it: a joined open never runs
+the 16.4 guard.
+
+**12. Import: `nameCopySources` names nothing on a size mismatch.**
+Real in the code, rare in practice, and one consequence 37.2 missed.
+`copyObject` returns its copies in input order only when every object
+was made; a source whose creation fails in the target document is
+dropped ("Cannot create object") and the list comes back in read order.
+`nameCopySources` then names nothing and the sync builds no
+replacements, so references into the old copies break when they go --
+and `syncCopyOnChange` (`Link.cpp` ~674) and `makeCopyOnChange` take
+`back()` as the linked object's copy, which in read order may be a
+dependency's: the link can end up pointing at the wrong copy. Fix
+options: (a) abort the sync on a mismatch, remove what was imported,
+keep the old copies, about 10 lines; (b) make `copyObject` return one
+entry per input (null for a failed one), 20-30 lines, which also fixes
+Python `copyObject` returning another order silently. A test needs a
+type whose creation throws.
+
+**13. Gui: the clash dialog with "Paste" open.** Real, and the effect
+differs from 37.2's. All four callers (paste twice in `MainWindow.cpp`,
+File > Merge project, the tree's copy-drag) open the transaction and
+import inside it; the dialog's `exec()` runs a nested event loop in
+which served requests are dispatched. A client's undo or the browser
+panel's "undo row" commits the open step (`_takeRun`, `undoLogged`): the
+Paste row is closed with the copies in it, and the settling goes into a
+step of its own. If the user then presses Cancel, the abort takes back
+only that later step, so the cancelled paste STAYS in the document
+(inferred from the code, not run). A client's ordinary write meanwhile
+is not closed off but absorbed: it lands in the desktop's Paste step, the
+desktop as its author, and an undo of the paste undoes it. Fixes: (B)
+hold served dispatch while the dialog is up -- a hold counter and a
+queue flushed on release, 40-60 lines in SceneControl and
+SceneServeSource; a held write can time out at the browser (10 s) and
+land later; it covers every modal dialog inside a command. (A) ask
+before the transaction, reading the clashing UIDs off the stream first:
+150-250 lines, and the pre-scan must agree with every clash rule of 36.4
+forever. (C) a stopgap: refuse a client's undo while another author's
+step is open, 10 lines, not the absorb case. B is the recommendation. A
+Gui check would combine `tests/gui/import-clash.py` and the WS client of
+`transaction-log-author-check.py`.
+
+**14. Gui: the log panel reloads in the signal.** Real.
+`signalBranchesChanged` calls `reload()` directly, visible or not, and so
+does `attach()` -- every switch to another document's window. The reload
+reads every transaction, then calls `ops(seq)` per row only to learn if
+it is empty (each decodes every op of the row), inserts the items one by
+one at index 0, and resizes the columns; the refresh after it walks the
+head's chain. Fired by every branch create/switch/rename/trim/delete, a
+squash, a merge (twice when another document holds the branch), a
+rollback, an import, and naming a version, for every document of the
+file. Not measured; a guess is 0.5-2 s at 10^4 rows. Fix: a reload flag
+on the panel's existing 0 ms refresh timer (which already skips a hidden
+panel), the items inserted in one call, and one query
+`SELECT DISTINCT txn FROM op WHERE txn >= ?` in place of the per-row
+ops (a new store method). 40-60 lines, low risk.
+
+**15. Gui: another document made active rejects the merge preview.**
+Real, but it is what 32.15 rules ("another made the active one:
+`detach()` rejects the dialog"), against the same section's aim that the
+document stays in reach. A question for the user, not a defect. It is
+reached by clicking another tab, selecting another document's object in
+the tree, the panel's own "Open version N", or -- the natural case --
+opening the branch in a document of its own to look at it while merging.
+The preview vanishes with no word and the sides picked are lost. If the
+preview should stay: bind it to its document (rejected only when that
+document is deleted), and `askBeside`, the stale-preview checks and the
+merge after the wait use the captured document instead of the active one.
+25-40 lines; `transaction-log-merge-check.py` gets the case.
+
+**16. Gui: the log panel and a pinned document.** Real, and wider than
+37.2 says. The panel never tests `FrozenVersion`. The entry points 37.1
+guarded refuse (switch, branch, merge, apply rows, undo rows, roll back,
+restore, keep and let go, bring in, open branch), but the user sees at
+best "-- the report view says why", and several only an error in the
+report view. Seven entry points have NO frozen check, and they write
+the file's shared history from the pinned view: delete branch, rename
+branch, trim, squash, name or unname a version, reject a request, and
+the access dialog. A trim or squash might remove the very version the pin
+shows (not checked). For the user: should those refuse on a pinned
+document? They change the file's history, not the document's data. The
+fix either way: grey the buttons, the branch box and the writing menu
+entries with a status line ("a pinned version: shown, not changed"),
+40-60 lines; the refusals, if ruled, about 8.
+`transaction-log-frozen-check.py` already makes the pinned document
+active, the place to assert it.
+
+**Ruling questions in short:** 10 (A/B/C/D), 15 (stay or close), 16
+(refuse the seven), 9 (finish or undo the rollback), 13 (fix B). The
+others are fixes with one obvious shape: 1, 3, 4, 6 have effects a user
+meets; 2 and 12 are rarer; 5, 7, 8, 11 are small or latent.
+
+### 37.8 Rulings of 2026-10-22, and what was built
+
+The user ruled on 37.6 and 37.7: "Try P10 first. If not working, try P9
+but group on undo steps. 13, elaborate asking before the steps open. 16
+grey out. 10, if an object is assigned, then its deps in the paste list
+can only be assign or exclude. Does that make sense? 15 stay open. 9
+finished." -- and of the rest, "ok": built as 37.7 proposed.
+
+**P10 -- built; P9 not needed.** `wal_autocheckpoint=256` beside
+`journal_size_limit` (`TransactionStoreSQLite.cpp`). Measured with
+`~/.cache/lv-merge/wal/p10.py` (300 recomputed edits of 37.4's fusion,
+each committed under its own name so none folds) and an `LD_PRELOAD` shim
+counting the bytes the process writes to `log.db` and its WAL
+(`wal/shim/wcount.c`; this kernel has no `/proc/self/io`), two runs each:
+
+| checkpoint at | WAL peak | WAL mean | written to the WAL | written to the database |
+|---|---|---|---|---|
+| 1000 pages (SQLite's) | 3.94 MB | 2.07 MB | 74.1 MB | 5.1 MB |
+| 256 pages (P10) | 1.01 MB | 1.00 MB | 74.0 MB | 13.4 MB |
+
+The WAL stays at its 1 MB; the price is the checkpoints writing 8 MB more
+into the database over the 300 edits, 11% more written in all. P10 works
+for what it is for, so P9 (one SQL transaction per undo step) was not
+tried. It is what would cut the 74 MB -- 250 KB an edit written to the
+WAL whatever the checkpoint -- if that is ever wanted.
+
+**Built, one line each** (tests named; all in the gates):
+- *1.* `onCommit` tells a property added in a removed one's freed address
+  by its id: `delprop`, `addprop`, `set` (gtest
+  `aPropertyAddedInARemovedOnesPlaceIsNotItsSet`, which skips where the
+  allocator does not reuse the address; here it does).
+- *2.* A row is numbered once its ops say there is one: a commit of
+  `same` writes takes no ordinal and puts no version document on a branch
+  (`testAVersionLookedAtWithANoChangeCommitStaysDetached`).
+- *3.* A cancel by id holds no guard around a document with a log; its
+  `undo(id)` holds its own (`testATaskCancelledAfterAnotherWroteTakesItsStepBack`,
+  which fails without the change: 4716 where 4711 was put back).
+- *4.* `_checkTransaction` does not reopen an id a step on the undo stack
+  has; the write is a step of its own (gtest
+  `aWriteAfterAnUndoInsideACommandIsAStepOfItsOwn`).
+- *5.* `undoLogged` clears the redos with its step set aside; what a
+  deleted object's teardown writes is a step of its own.
+- *6.* Recovery moves the database and its WAL both or neither; a failure
+  puts back what moved and leaves the crashed session's directory whole
+  (a rename that will not go back is copied back first). The message is
+  "nothing recovered from <dir>; the report view says why" (gtest
+  `aRecoveryThatCannotTakeTheWalLeavesTheLogWhole`).
+- *7.* `environment()`/`user()` insert OR IGNORE and read back;
+  `sqlite3_busy_timeout` 5 s at open.
+- *8.* `_readVersion` with no document active makes the live one active
+  while it writes it, and puts none back after; the comment corrected.
+- *9.* (ruled: finished) A rollback whose follow fails warns and finishes:
+  rows removed, stacks rebuilt, panel refreshed.
+- *11.* A file read with the history's UID for an id that the file saved
+  with another says so (one warning per object, which takes the history's).
+- *12.* A copy on change that could not copy every object takes none of
+  the copy back: the sync keeps the old copies, a first copy throws.
+- *14.* The panel rebuilds its lists on its refresh timer, not inside
+  `signalBranchesChanged`, reads which rows have ops in one query
+  (`TransactionStore::rowsWithOps`) and puts the rows in in one call.
+  `attach()` and a restore still reload at once.
+- *15.* (ruled: stays open) The preview is of its own document: another
+  made active leaves it open, its answer merges into the document it is of,
+  and it is rejected only when that document is closed
+  (`transaction-log-merge-check.py`, "stays").
+- *16.* (ruled: grey out) On a pinned version the panel greys its writing
+  buttons, the branch box and every writing menu entry, with the reason in
+  the tip, and its status says "a pinned version: shown, not changed"
+  (`transaction-log-frozen-check.py`). The seven App entry points 37.7
+  found unguarded are left as they are: the panel does not reach them, and
+  the ruling was the panel's.
+
+**13 -- asking before the step opens, elaborated.** Today all four callers
+(paste from the clipboard, paste of a file, File > Merge project, the
+tree's copy-drag) open the transaction, import, and only then
+`_settleImportClashes` asks, from a nested event loop, with the copies
+already in the step. To ask first, the clashes have to be known before
+anything is imported. What decides a clash (`_giveObjectUid`): the UID an
+object is brought with -- the `uid` attribute of its `<Object>` entry (37.7
+item 11), else the `_ObjectUUID` carrier read with its properties (36.7),
+else one derived from the source file's UID and the id (U3, a file from
+before UIDs) -- matching a live object's, of the same type, unless the
+stream is from this document (`From`, `importFromHere`). Every piece of
+that is in the stream's `Document.xml`. Three ways:
+
+- *(a) Read the stream twice.* A scan of the stream's `Document.xml`
+  (object entries and their `uid`, the header's `From`, a carrier
+  property where an entry has no `uid`, the file's UID for a derived
+  one) lists the clashes; the dialog asks; then the transaction opens and
+  the import runs with the answers handed in through `ImportClashScope`
+  (a map UID -> assign), asking nothing. Cancel imports nothing at all,
+  where today it imports and removes. To keep the scan and the import
+  agreeing forever, the rule "the UID it is brought with" becomes one
+  function both call. A clash the import finds that the scan did not is
+  duplicated, with a warning. The bytes are read twice, but the scan reads
+  only `Document.xml`, not a shape. What it cannot give is each object's
+  dependencies, which 10's rule needs in the dialog: those are in link
+  properties of every type, and reading them off the XML is a second
+  parser of every link property.
+- *(b) Import into a scratch document first.* The stream is imported into
+  a temporary document with no undo and no log, the clashes found there
+  against the target's UIDs (the same `_giveObjectUid` rule, against
+  another map), the dialog asks with the real objects (labels, types and
+  dependencies all known), and then the transaction opens and the stream
+  is imported again into the target with the answers. Exact by
+  construction, and 10's rule has its dependencies. The cost: everything
+  is read twice, shapes included, and a Python feature's restore runs
+  twice.
+- *(c) (a) as a gate in front of (b).* The scan of (a), cut to the cheap
+  part -- does any `uid` (or carrier, or derivable one) of the stream name
+  a live object here? -- runs first. Nothing: the import runs as now with
+  nothing to ask, the usual paste. Something: (b), and the dialog. Only a
+  paste that clashes pays the second read, and it is exact.
+
+All three change the four callers the same way: the ask moves out of the
+import and in front of `openTransaction("Paste")`. A served client's undo
+then has no step to close, and a client's write made while the dialog is
+up is its own step, not the desktop's Paste. Recommended: (c). Size:
+(a)'s scan about 120 lines in App plus the shared UID rule, (b)'s scratch
+pass about 80 lines in App, the callers about 15 lines each, and the
+dialog takes a list made before import (labels and types, not live
+objects).
+
+**10 -- the rule asked about.** "If an object is assigned, its
+dependencies in the paste list can only be Assign or Exclude." It makes
+sense, and it is what stops 37.7's case: the Body assigned and its Origin
+duplicated is not offered, so the live Body never points at a new Origin
+and the old one is never orphaned. Three things, my reading:
+- *Exclude does not exist yet.* The dialog offers Duplicate and Assign.
+  Exclude would be: the object here is kept as it is, the brought one
+  goes, and what was brought refers to the one here -- 36.4's step 1
+  without step 2. For an owned child that is option B of 37.7 item 10
+  (the live Origin kept).
+- *The other direction needs the same rule.* A Body duplicated with its
+  Origin assigned gives a new Body owning the live Origin, which then has
+  two owners; excluded, the same. So: an object duplicated, its owned
+  children can only be duplicated.
+- *Owned children or every dependency?* For an owned child (linked with
+  child scope: a Body's `Origin` and `Group`, a part's origin features, a
+  link's copy-on-change group) the rule is needed both ways. For a plain
+  dependency (a Pad's sketch outside the Body, a Fusion's inputs)
+  "assigned refers to a duplicated one by its copy" is what the dialog
+  says it does today, and it harms nothing: the live sketch stays and is
+  only no longer used. Restricting those too is simpler to explain but
+  takes away a choice that works.
+Proposed, for a word: the rule both ways for owned children, transitively;
+plain dependencies unrestricted; Exclude added as the third choice. In the
+dialog a locked row shows the choices it still has and why ("owned by
+Body, which is assigned"). With 13's (b) or (c) the dialog knows the
+dependencies before the step opens; with (a) it would not.
+
+### 37.9 A paste asked before its step, in the dependency dialog; owned objects (2026-10-22)
+
+The user ruled on 37.8's two questions: "13 c. 10, extend what [the]
+current paste dialog [does], which offers [a] checkbox for exclusion and
+has special logic for link. Add [an] option for assign when applicable.
+Add special logic for origins. Propose a general way of handling special
+child objects, maybe add an API."
+
+**13 (c) -- built.** `Gui::pasteAsked` (`DlgImportClash.cpp`) is what
+the clipboard paste (both forms), File > Merge project and their like
+call. It reads the stream's `Document.xml` up to the end of its object
+list (`MergeDocuments::scanUids`: the `uid` of each `<Object>` entry, the
+header's `From`). Where none names an object of the document, or the
+stream is from the document itself, nothing is asked and the import runs
+as before. Where one does, the stream is imported into a scratch
+document (no undo, no log, closed after), the dialog asks of what that
+holds, and only then is the transaction opened and the stream imported
+again with the answers, through `ImportClashScope` mode `Answered`
+(answers by each object's name in the stream, which the import now
+records, `broughtNames`; an object another document exports is
+`Name@Document` in the stream, as `copyObject` writes it, and is answered
+by either). Cancel imports nothing and opens no step. The
+tree's copy-drag asks of the dragged objects themselves (they are live),
+before its `AutoTransaction`. An object without a UID (a stream from
+before UIDs) clashes with nothing, since an import gives it its own, so
+the scan skips it. A clash the import finds that nothing answered is
+duplicated, as before.
+
+**10 -- built, in the dependency dialog.** The dialog that asks is the one
+Std_Copy asks with, `DlgObjectSelection`, in a paste mode
+(`setPaste(target, pairs)`), over the objects brought. Its check is the
+exclusion it always was; on a row whose object is in the document already
+(the same UID and type) a second column reads "Assign to <the one here>".
+What each row takes (`getTakes`, `App::Document::ImportTake`):
+- checked, not assigned: *Duplicate*, a new object beside the one here;
+- checked and assigned: *Assign*, the one here takes the state brought,
+  and what was brought refers to it;
+- unchecked: *Exclude*, left out: what was brought refers to the one
+  here, kept as it is -- or, where there is none, to nothing.
+The rules the dialog keeps, to a fixpoint, as the user changes anything:
+- *your rule:* an object an assigned object depends on, that is here
+  too and included, is assigned (Duplicate is not offered; it may still be
+  left out). Assigning `LA`, a link to `Obj`, assigns `Obj`;
+- *an owned object follows its owner* (below): owner duplicated, it is
+  duplicated; owner left out, it is left out; owner assigned or left out
+  with the one here kept, it is the live owner's own -- kept for an
+  origin, assigned with it otherwise. Such a row is not checked by hand,
+  and says why ("X_Axis there, kept (owned by Part)").
+The App side does the same without the dialog: `_settleImportClashes`
+takes Assign, Exclude and Duplicate, pairs what an assigned or kept owner
+owns with the live owner's own, and removes the brought copies of
+everything assigned, kept or left out (links let go first, removed by
+name). So Python's `copyObject(..., assign=True)` keeps a part's live
+origin too.
+
+The "special logic for link" the dialog has (the copy-on-change link's
+call, `ViewProviderLink`, with its excludes) is untouched: paste mode is
+a mode beside it.
+
+**Origins -- built as the first owned objects.** An `App::Part` or a
+body (`OriginGroupExtension`) owns its `Origin`; a coordinate system
+(`LocalCoordinateSystem`, an origin among them) owns its axes, planes and
+point. Pasted onto a live owner, the brought origin stands for the live
+owner's origin (by its slot), each brought axis or plane for the live
+one of its Role (made if the lazy origin had not made it yet), and all of
+them KEEP the live one: an origin's state is fixed, so there is nothing
+to assign, and what was brought (a sketch on the brought XY plane) refers
+to the live one. 37.7 item 10 -- the body assigned, its origin
+duplicated, the live origin orphaned -- cannot be chosen any more.
+
+**The general way: an owned object, as an API (proposed; the C++ half
+built for origins).** Several kinds of child are not children like a
+group's: they are made with their parent, removed with it, never another
+object's, and their state is the parent's business. Each kind is handled
+today by code of its own, wherever it matters -- an origin's unsetup, the
+copy-on-change group a link removes, a sketch's or a page's own -- and
+every generic operation (paste, delete, copy, drag, merge) has to know
+them all or get them wrong. The proposal: one notion, asked of the
+object.
+- `DocumentObject::getOwnedObjects()` -- what this object owns; asks
+  each `DocumentObjectExtension::extensionGetOwnedObjects`, none by
+  default. *Built.*
+- `DocumentObject::getOwnedCounterpart(owned, liveOwner, how)` -- of what
+  this object owns, the object of `liveOwner` (one this object is pasted
+  onto) that `owned` stands for, and `how` (`App::OwnedPaste`):
+  `FollowOwner` (assigned with it) or `KeepLive` (the live one kept, its
+  state being fixed). Asks the extensions likewise. *Built.*
+- Implemented by `OriginGroupExtension` (the Origin, by slot, KeepLive)
+  and `LocalCoordinateSystem` (its features, by Role, KeepLive). *Built.*
+- *Proposed next, by who owns what:* `LinkBaseExtension` -- the
+  copy-on-change group and its copies (FollowOwner, by `_SourceUUID`,
+  36.7); `App::Link`'s element list where `ElementCount` makes them
+  (owned, by index); TechDraw's page and its views (owned, by name);
+  Assembly's joint group (owned). Each a few lines in the class that
+  already knows it owns them.
+- *Python:* a proxy may answer the same two questions
+  (`getOwnedObjects(self, obj)` -> list, `getOwnedCounterpart(self, obj,
+  owned, live)` -> `(object, "keep" | "follow")`), through
+  `FeaturePythonImp` like its other hooks, so a workbench's feature that
+  makes helper objects (Draft's, Arch's, a FEM analysis's) joins in
+  without C++. *Proposed.*
+- *Where else it would serve, once there:* removal (one generic "remove
+  what it owns" in place of each unsetup's), Std_Copy's dependency dialog
+  (an owned object always goes with its owner, not offered apart), the
+  tree's drag (an owned object is not dragged out of its owner), and the
+  pairing of a linked set's or a fork's objects (35, 30.13), where two
+  origins of one body that grew apart are the same origin. *Proposed;
+  only the paste uses it now.*
+
+**And 37.8's item 14, gated.** The deferred reload let the panel's own
+act's message go: a squash said "Squashed ..." and the rebuild after it
+put the plain status back (`transaction-log-squash-check.py` failed).
+A message set after the signal, before the rebuild, now outlives it.
+And `transaction-log-request-check.py` read the panel's list straight
+after a sent file (which signals the branches) with no event let run: it
+settles first now, the panel being up to date once its timer has run.
+
+Tests: gtest `aPasteAnsweredAheadKeepsWhatIsLeftOutAndTheOrigin` (the
+App half: an object left out keeps the live one and is linked to, a part
+assigned keeps its live origin and leaves no second one);
+`tests/gui/import-clash.py`, rewritten for the dialog (assigning a link
+assigns its dependency; left out keeps ours; duplicated; cancelled; beside
+its source nothing asked; a part assigned, its origin's rows kept and not
+checkable, and no second origin).
+
+### 37.10 Owned objects, the follow-up (user: "continue the general approach", 2026-10-22)
+
+Built of 37.9's proposal:
+- *Link* (`LinkBaseExtension`): owns its copy-on-change group, and the
+  elements it removes with itself (`detachElement`'s rule) -- every
+  element in AutoDelete mode (the copy-on-change group is a `LinkGroup` in
+  that mode, so it owns its copies), the elements it made (`_LinkOwner`,
+  an array's) in AutoUnlink. Pasted onto a live link: the group stands for
+  the live link's group, a copy for the live copy of the same source
+  (`_SourceUUID`, 36.7), any other element for the live one at its index
+  if of its type. All follow the link: assigned with it, left out with it.
+- *TechDraw* (`DrawPage`): owns its views and its template (it removes them
+  in `unsetupObject`). The template stands for the live page's, a view for
+  the live page's view of its UID; both follow the page.
+- *Assembly* (user: "it should delete its joints"; my first reading,
+  that the App removal leaves them, missed `ViewProviderAssembly::
+  onDelete`, which deletes the joint, view and BOM groups with their
+  content): `AssemblyObject` owns those three groups (and its origin, as a
+  part), each group owns what it holds. Pasted onto a live assembly, a
+  group stands for the live one's of its type, a joint (a view, a BOM
+  entry) for the live group's member of its UID; all follow the assembly.
+  The simulation and snapshot groups are not deleted with it, and are
+  not owned.
+- *Python*: two Proxy hooks (`FeaturePythonHooks.py`, so a `ProxyExp`
+  element may answer them too): `getOwnedObjects(self, obj)` -> a list,
+  added to what the object's class says; `getOwnedCounterpart(self, obj,
+  owned, liveOwner)` -> an object, or `(object, "keep" | "follow")`, or
+  None for the class to answer. And `DocumentObject.getOwnedObjects()` for
+  any script to ask.
+- *Std_Copy's dependency dialog*, in its ordinary copy mode: an owned
+  object listed goes with its owner -- checked with it, unchecked with it,
+  not checked by hand (its tip says by whom). A body is copied with its
+  origin or not at all.
+
+Not built, and why:
+- *Removal by the owned list* (one generic "remove what it owns" for every
+  unsetup's own): each class's unsetup already does it its own way, with
+  its own order (a page removes views by name because one takes others
+  with it); replacing them changes delete for every one of them. Proposed
+  still, with a test per class, as its own piece of work.
+- *The tree's drag* refusing an owned object out of its owner: today a
+  link group's element may be dragged out, and the user may want that to
+  stay. A question, not built.
+- *The pairing of a linked set's or a fork's objects* (35, 30.13) by the
+  owned counterpart: those pair by UID and name today and have shown no
+  case where an origin does not pair; left until one does.
+
+**Answered and looked into (2026-10-22).**
+- *Removal by the owned list:* ruled "no need". Each class keeps its own.
+- *The drag:* by a link group I meant any `App::LinkGroup` in Auto Delete
+  mode -- one a user sets so, and the copy-on-change group, which is one
+  and holds a link's copy-on-change objects. The tree lets an element be
+  dragged out of any link group (`ViewProviderLink::canDragObject` is true
+  for a group), and the drag is `setLink(i, nullptr)`, which in Auto
+  Delete mode removes the element from the document: probed,
+  `g.setLink({0: None})` on such a group left `['G']` of `['G', 'E']`.
+  The probe ran the drag's App call, not the Gui drag itself. A link's
+  array elements are not draggable already. The question: refuse the
+  drag of an owned element, or make a drag out of an Auto Delete group a
+  move (let go without removing).
+- *Pairing a fork's or a linked set's objects:* not "no case" -- probed
+  (`~/.cache/lv-merge/wal/forkorigin.py`). An origin's axes and planes are
+  made lazily, on first ask, under fresh ids and UIDs, so two copies of a
+  file that each made them hold the same plane under two UIDs
+  (`lazyorigin.py`: every role differs). Ours made them; theirs made them
+  and linked `OnXY` to its XY plane; theirs imported as a branch and
+  merged: three sets of planes after (`XY_Plane`, `XY_Plane001`,
+  `XY_Plane002`, and the same for the rest), the Part's origin now lists
+  theirs (`XY_Plane001`...), ours are left owned by nothing, and the link
+  brought links theirs. Two fixes, either or both, for a ruling:
+  (a) the lazily made features take a UID derived from their origin's
+  UID and their Role, so every copy makes the same one and UID pairing
+  needs nothing more -- the root of it, for origins, and a paste gains
+  the same; files that have diverged already stay diverged;
+  (b) `_applyForeignState` (a fork, a linked set) pairs an object left
+  unpaired by UID through its owner, when the owner is paired, by
+  `getOwnedCounterpart` -- the paste's rule, for every owner; it also
+  mends files that diverged before (a).
+
+Tests: Python `testAScriptedOwnersHelperFollowsIt` (a Proxy owns a helper;
+the owner assigned, a helper brought under another UID is the live
+helper, kept; `getOwnedObjects()` from Python on the proxy object and on a
+Part).
+
+### 37.11 An origin's planes the same in every copy; owned pairing in an import (user: "both", 2026-10-22)
+
+Both of 37.10's fixes, and two faults their tests found on the way.
+
+**(a) A datum's UID from its system and its Role.**
+`LocalCoordinateSystem::createDatum` gives the feature it makes the UID
+`Uuid::createUuid(<the system's UID>, "datum <Role>")`, through
+`Document::giveNextObjectUid` (the next object added takes it, as 36.3's
+rules let it: not a live object's, not another id's in the history). Two
+copies of a file that each made an origin's features now hold the same
+seven objects by UID. A file whose features diverged before this stays
+diverged; (b) is for it. Test `testAnOriginsPlanesAreTheSameInEveryCopy`.
+
+**(b) Pairing through the owner, in both import paths.**
+- *The file as found* (`_applyForeignState`): their objects are taken
+  owners first, and one not paired by its UID (nor, for a file from before
+  UIDs, by its id and name) is the object here that its owner's
+  `getOwnedCounterpart` names, the owner being paired.
+- *Their rows* (`importFork`'s replay): who owns what is known only once
+  a row is applied, so after the row's last step an object it made that
+  is no live object's by UID is asked of its owner; one the owner here
+  names is held, and the row is applied once more with it made under that
+  object's id, name and UID -- as an object paired by UID is. Once only.
+  The replay shares the file's history, which by then has the UID the
+  first application noted: the owner's answer comes before the UID's, and
+  "one of ours" is a live object's UID, not one the history knows.
+Test `testAForkWhoseHelperWasMadeApartPairsByItsOwner` (a Proxy's helper,
+made in each copy apart: one helper after the merge).
+
+**Found: a merge conflict on a value that only reads differently.** Each
+side made the XZ plane; the merge set ours' Placement against theirs' as a
+conflict: `Q0="0.7071067811865475"` against `"...476"`. Theirs came
+through the replay, where a Placement is restored and written again, and
+its quaternion is rebuilt from the axis and angle the text also holds. The
+merge's "same" test now also reads both values back into properties of
+their type and compares those (`sameReadValue`; not a link, not one with
+files), beside `sameLinkValue`.
+
+**Found: a third set of planes, owned by nothing.** The import's replay
+writes a value of `OriginFeatures`; the write reads for the property first,
+and `Origin::getPropertyByName` makes the lazy features right then -- seven
+objects the row then leaves to nothing, as the probe of 37.10 showed. Two
+guards in `LocalCoordinateSystem::initObjects`: no lazy features in a
+version read to be compared or applied (a document both `TempDoc` and
+`VersionDoc`), and none while another copy's rows or state are written in
+(`Document::isWritingForeign()`, a flag the replay and
+`_applyForeignState` set; unlike `isReplaying()` the rows are still
+recorded). Test `testAForkWhoseOriginWasMadeApartMergesOnePlane`: each
+copy made the planes, theirs linked one, imported and merged -- seven
+datum objects, ours, the part's origin still lists them, and the link
+brought links our XY plane.
+
+### 37.12 A drag out of an Auto Delete group is a move (user: "turn into a real move", 2026-10-22)
+
+**The drag.** `ViewProviderLink::dragObject` took an element out of a link
+group by `setLink(i, nullptr)`, which in Auto Delete mode removes it from
+the document (`detachElement`). In that mode the group makes no link for
+what is put in it: the element is the user's object itself, so a drag
+out of the group, meant as a move, removed the object, and the tree's drop
+then found nothing to drop ("Dropping object deleted"). The same held for
+a copy dragged out of a link's copy-on-change group, which is a group in
+that mode, and for a link an Auto Unlink group made.
+
+Built: `LinkBaseExtension::releaseElement(obj)` takes the element out of
+the list and nothing more, whatever the mode; a link the group made
+(`_LinkOwner`) is no longer the group's own. The drag calls it. A removal
+by the API (`setLink(i, None)`, `setLink({i: None})`) keeps removing:
+that is what the mode is for. A copy moved out of the copy-on-change group
+is the user's from then on: the link still links it until its next copy,
+which, not finding it among the old copies, makes a new one and leaves it.
+
+Test `GuiLinkGroupDragOut` (`tests/gui/link-group-drag-out.py`), by the
+calls the tree's drop makes, the old parent's `dragObject()` and the new
+one's `dropObject()` in one transaction: an Auto Delete element moved to a
+plain group, back by one undo; an Auto Unlink group's link moved, its
+`_LinkOwner` cleared; a copy moved out of the copy-on-change group, the
+link still linking it; `setLink({0: None})` still removes. On the old
+`dragObject` the first fails: the object is gone. A drop synthesized onto
+the tree widget itself was refused by the tree's checks before any of
+this code ran, and was not chased.
+
+**A link element paired by its index (user: "yes", 2026-10-22).** Raised
+by the user: pairing through the owner does not suit what an Auto Delete
+group or an assembly holds. Of the pairings 37.10 and 37.11 built, one
+went by position: a link's element with no `_SourceUUID` stood for the
+live link's element at its index if of its type. Joints, assembly views
+and TechDraw views already paired by UID only.
+
+The rule now: an owner pairs a *slot* -- an object whose identity is its
+place in the owner: an origin and its axes and planes (by role), an
+assembly's three groups, a link's copy-on-change group, a copy by its
+source, and an array's element by its index (an `App::Link` with
+`ElementCount` makes its elements per index, so element i of one copy is
+element i of another). What an owner holds as *content* -- a group's
+elements, a joint, a view -- pairs by UID or not at all; the owner only
+decides that it follows (no row of its own in the paste dialog, assigned
+or left out with the owner). Built: a link group's element pairs with the
+live group's element of its UID (`Link.cpp`,
+`extensionGetOwnedCounterpart`).
+
+**Found building it: content never paired by UID in a paste.** A brought
+object that clashes comes in under a UID of its own (36.4), so a UID
+match against what it was brought with finds nothing at
+`_settleImportClashes`: in a paste, the assembly's joints and a page's
+views (37.10) did not follow their owner either, but came in as
+duplicates. The clash list knows the pair: an owned object the owner
+gives no counterpart now follows its owner onto its own clash's live one.
+The paste dialog, which reads the originals (their UIDs intact), takes the
+same fallback from its pairs. In a fork's import the UIDs are kept, and
+the UID match is what pairs.
+
+Tests: `aGroupsElementPastedFollowsItsUidNotItsPlace` (gtest; their group
+[A, B] assigned onto ours, A removed here: our B takes their B's state,
+their A comes in as an object of its own); and
+`testAForkWhoseGroupGotAnElementApartKeepsBoth` (each copy put an object
+of its own first in the same group: two objects after the merge). On the
+index pairing both fail (the merge makes the two one: `['Ours']`).
+
+### 37.13 The cache tier's budget (user: "do cache size limit", 2026-10-23)
+
+Item 1 of 37.4's list: sec 10 puts a derived value -- the shape a
+recompute writes -- in an evictable tier "under the one eviction budget
+of 16.3 (bytes and count, weighted by the cost to regenerate)", and a
+missing value means "recompute". Only the count of unnamed versions was
+built (37.5 P6); nothing ever dropped a cache-tier value from the live
+store, so it grew with every recompute until a trim or a squash.
+
+**The budget.** Two preferences, `TransactionLogCacheSize` (MB, default
+256) and `TransactionLogCacheValues` (default 10000), 0 for no limit.
+What they measure: the values of the cache tier the rows name, and the
+bytes only they hold -- the fragment rows, their attachments and the
+files of the blob store they name, as each lies (a delta's patch, a
+file's size). Over either, values go until both are at three quarters
+(`TransactionStore::evictTier`):
+- of each property, the oldest first. A value is a delta on the one after
+  it (23.2), so the chain is cut from its old end;
+- across properties, by age (how many values of the property came after
+  it) times bytes, over the seconds the object's recomputes took on
+  average (the recompute records' `s`, 27.52): a cheap shape goes before
+  one that took minutes, as 10.1 asked;
+- what stays whatever the budget: the newest value of each property on
+  each branch (what a switch shows), what a version lists, a kept value
+  or object (32.11).
+The ops keep their refs. A value gone is read as one never kept: a cold
+undo onto it skips it and touches the object (24.1), and the recompute
+that follows makes it.
+
+**Found building it: a durable value held the whole chain.** The shape a
+`create` op records is durable (37.4 item 5), and it is stored as a delta
+on the first shape the recompute wrote, that one on the next, and so on to
+the newest. Following the bases from what stays, as `dropTier` does,
+held every attachment of every shape the object ever had: on a box with
+three recomputes, 365 of the tier's 1330 bytes counted as the tier's and
+could go, the rest pinned. Now a delta that stays on a base that goes is
+written full (zstd past 128 bytes) in the same SQL transaction, and the
+measure does not follow a base edge into the tier from what stays. One
+that cannot be read full brings its base back instead.
+
+**When it runs.** On the log's worker, as a job of its own between two
+jobs (every value put is named by a row by then), queued by `post()` when
+the worker has put an eighth of either budget in the cache tier since the
+last look, and once on the first post after open. Under the budget it is
+one read of the graph, as a version's collection is. Python:
+`Document.evictTransactionCache(size=None, values=None)` runs it now
+with the preferences or the numbers given (bytes, values) and returns the
+tier's values and bytes before, the values evicted and the bytes left;
+with both 0 it measures.
+
+**Measured** (`~/.cache/lv-merge/probe37/budget.py`, 37.4's fusion, 300
+recomputed edits of the box's length, folding off):
+
+| budget | tier values | tier bytes | live db used | 300 edits |
+|---|---|---|---|---|
+| none | 607 | 260 KB | 1236 KB | 2.16 s |
+| 50 values | 51 | 37 KB | 532 KB | 2.18 s |
+
+Then 25 undos, five of them past the hot window onto values that went:
+the same length and volume (22.75, 3053.10) both ways.
+
+Not built: 16.3's byte limit on unnamed *versions*. A version holds what
+its manifest lists, and they are bounded by count (five, P6); the bytes a
+version lists in the cache tier stay with it, as they did.
+
+Tests: `theCacheTierIsHeldUnderItsBudget` (gtest, the store: under the
+budget nothing goes; over it the quick object's old values go before the
+slow one's, the newest of each stays, what a version lists stays, a delta
+kept on a value that goes is written full; then by count);
+`TransactionBranchCases.testTheCacheTierIsHeldUnderItsBudget` (a box
+recomputed 24 times, a budget of 4 values: the oldest 22 shapes go, the
+newest stays, and 22 undos back past the hot window give length 12's
+shape after a recompute).
+
+## 38. A document as a folder, the format the log wants: survey, probes, questions (2026-10-24)
+
+The user, 2026-10-24: "I got the feeling that with transaction log, deal
+with directory is better than archive file, if we can get things right",
+then "Write the doc for the folder save now". This section is the survey,
+the probes and the questions. Nothing in it is built. The probes are in
+`~/.cache/lv-merge/probe38/`.
+
+### 38.1 Why a folder suits the log
+
+An archive is rewritten whole on every save: a zip's central directory is
+at its end, so no entry can grow or be replaced in place. That is why
+13.3 copies the whole history into the file at each save (`VACUUM INTO`,
+bounded by 37.5 P1), and why appending to it was never on the table. A
+folder has neither limit, since its files are independent of each other.
+Five things could follow from that:
+
+1. **A save that costs what changed.** The log knows which objects changed
+   since the last save. A folder can write those files alone, where an
+   archive has to write every entry.
+2. **Blobs written once.** Blobs are known by their content hash already.
+   In a folder one need never be written twice, and the old blobs a
+   version or a pin refers to stay where they are for nothing.
+3. **The history not copied whole.** The folder's own database can take
+   the rows since the last save, where the archive needs a full copy.
+4. **Reading what is needed.** An object or a version can be read from its
+   own files, with no archive index to go through. 35.15's G3, opening a
+   branch tip only in part, would be easy.
+5. **Other tools see it.** Git, diff and backup tools see one XML file per
+   object and blobs that do not change.
+
+What 38.2 and 38.3 found: 2 is built already, 1 and 3 are not, and a
+folder save today is slower than an archive save and not safe against a
+crash (38.4).
+
+### 38.2 What a folder save is today (survey)
+
+The format is this fork's (1dfd9b93c9, 2019).
+
+- **The write.** `Document::saveToFile`:
+  - **An archive** is written to `<file>.<uuid>` and renamed over the file
+    (`BackupPolicy`, with the `.FCBak` copies).
+  - **A folder** is written by `Base::FileWriter` into the folder in place.
+    Each entry is opened with truncation. There is no temporary file and no
+    backup: the policy is off for a folder.
+- **The order**, from the mtimes of a save:
+  1. `Document.xml`. It is opened, truncated, before the object pass and
+     closed when the first blob is written, so it sits truncated or half
+     written through the whole object pass.
+  2. `blobs/`: the index `Content.xml` first, then the content files, then
+     `History.db` (29.8).
+  3. The split files: one `<Name>.xml` per object (`SplitXML`, on by
+     default), named from `Document.xml` by a `file=` attribute. The Gui
+     splits its view providers the same way (`Gui/Document.cpp`).
+  4. The sweep (`AutoRemoveFile`, on by default) deletes the files this
+     save did not write.
+- **Blobs are already written once.** `FileBlobManager::writeBlobs` reads
+  the index in the folder and skips a name whose recorded hash is the
+  content's and whose file exists. The names are derived: after the first
+  holder (`Box0.Shape.brp`), or after the hash when that name is taken. So
+  a name can mean other bytes after a save, and only the index says what
+  it holds. An object names its blob by hash (`<Part ... hash="...">`),
+  never by file.
+- **Object files are not.** Every object is serialised and its file
+  rewritten at every save. An unchanged one comes out byte for byte the
+  same: in the probe, a save of a one-box edit rewrote 606 of 616 files,
+  and 6 of them differed.
+- **String ids are stable across saves.** A save's compaction (27.50,
+  27.51) drops ids and renumbers none. An unchanged object's file
+  therefore stays valid against the next save's table.
+- **The history** (29.8) is the bounded `VACUUM INTO` copy, kept as
+  `blobs/History.db`. Its bytes change at every save, so it is rewritten
+  whole every time.
+- **The read is eager.** An open reads `Document.xml` and every object's
+  file. It copies every file under `blobs/` into the transient store
+  (`restoreFromDirectory`, by `insertFile`). The deferred read
+  (`DeferShapeLoad`) is the archive's only. Once an open returns, nothing
+  in the folder is read again, except by a pull (29.8), which copies the
+  folder under the save lock. An open takes no lock.
+
+### 38.3 What a save costs (measured)
+
+**The cost of a save** (`cost.py`):
+- Boxes, the timed saves each following an edit of one box's length, 10 of
+  each, mode 2 with the history in the file, mode 1 without.
+- An archive's size is the file as compressed; "history" is its database
+  unpacked. A folder's size counts every file, its history included.
+
+| Objects | Form | History | Size | Of it, history | Save, median |
+| ---: | --- | --- | ---: | ---: | ---: |
+| 60 | archive | in it | 82 KB | 224 KB | 43.5 ms |
+| 60 | folder | in it | 660 KB | 304 KB | 50.4 ms |
+| 60 | archive | none | 28 KB | -- | 22.1 ms |
+| 60 | folder | none | 354 KB | -- | 27.9 ms |
+| 600 | archive | in it | 526 KB | 1028 KB | 279.6 ms |
+| 600 | folder | in it | 5086 KB | 1768 KB | 349.5 ms |
+| 600 | archive | none | 189 KB | -- | 202.5 ms |
+| 600 | folder | none | 3317 KB | -- | 260.2 ms |
+
+**Where the time goes** (`phases.py`):
+- The save's own phase line (`FC_LOG "save <doc>: ..."`), at 600 boxes.
+- Saves 2-4 after the `saveAs`, with logging on. The first save after a
+  `saveAs` is an outlier at 440-490 ms.
+- The "object pass" column includes the beforeSave column.
+
+| Form, history | Save | History copy (collect) | Object pass | Of it, each object's `beforeSave` | Blobs | Files |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| archive, in it | 254-260 ms | 78-83 | 159-162 | 127-130 | 6 | 5 |
+| folder, in it | 325-339 ms | 118-123 | 132-141 | 128-137 | 7-9 | 56-60 |
+| archive, none | 202-211 ms | 19-28 | 164-168 | 133-136 | 5-9 | 5-6 |
+| folder, none | 258-272 ms | 41-47 | 130-133 | 128-130 | 14-15 | 61-65 |
+
+What the tables say:
+- **A folder save is slower than an archive save,** by 50-70 ms at 600
+  boxes. Most of that is the 600 object files written one by one (the
+  files phase, 57 ms against 5). The rest is a longer collect.
+- **Neither costs what changed.** In both, each object's `beforeSave` is
+  half the save, 0.2 ms a box, and it runs for every object, changed or
+  not.
+- **The history copy** is the collect with the history in it, less the
+  collect without it: about 55 ms in an archive and 75 ms in a folder at
+  600 boxes. It grows with the history, which P1 bounds, not with the
+  change.
+- **A folder is ten times the archive on disk.** Its XML is uncompressed,
+  5.4 KB a box, and the split layout writes no class-defaults block. That
+  is by choice: per `Document.cpp`, a shared block would make every object
+  file depend on a record for the whole document.
+
+### 38.4 A folder save killed part way (probes)
+
+**Kills at random** (`crash.py`, `crashrun.py`):
+- 600 boxes, every box's length changed, then the save killed at a
+  random moment by SIGKILL, and the folder opened in a fresh process.
+- Of 20 rounds, 11 kills came after the save had finished. Of the 9 that
+  came during it:
+  - **5** left the folder as it was. The save had not written yet.
+  - **3** left a folder that does not open: "Error reading project file",
+    with `Document.xml` torn.
+  - **1** opened, without a word, as 225 boxes at the old length and 375
+    at the new.
+
+**Torn by hand** (`tear.py`): each stage of the write order built from two
+whole saves (every box at 10, then every box at 11), and opened in a fresh
+process.
+
+| State | Opens as |
+| --- | --- |
+| `Document.xml` half written | Nothing: an XML parse error. |
+| `Document.xml` new, the rest old | The old lengths. The new `Document.xml` names a save the old `History.db` does not know, so the guard (13.3) keeps the history as closed branches and starts a new `main`. The history looks gone, though it is all there. |
+| `Document.xml` and `blobs/` new (so `History.db` too), the object files old | The old lengths, with no word. Its history says the version opened is the save of the new ones. |
+| Half the object files new | 300 boxes at 10 and 300 at 11, with no word. The history is as in the row above. |
+| Every file new but the last object's, cut in half | It opens. That object is half read, its shape no longer matching its length, and the report view shows a parse error. |
+| Every file new | The new lengths. |
+
+- **An archive does not have these states.** Its save writes a temporary
+  file and renames it, so a kill leaves the old file or the new one.
+- **The silent mixes are the worst.** The document opens as a state
+  nobody saved, and the history names the save that was cut short. A
+  later save would record the mix as the next version: in the half-new
+  case, as 300 boxes put back to their old length.
+- **Another process opening the folder during a save** reads the same
+  states, since an open takes no lock.
+- **Not run:** crash recovery (25) of a folder document.
+
+### 38.5 Proposed shape, in three stages
+
+**S1: `Document.xml` is the save's one commit point.**
+1. **Every other file is written under a name no earlier save used for
+   other bytes**:
+   - An object file is `<Name>.<h>.xml`, where `h` is a short hash of its
+     bytes. The same bytes give the same name, and that file is not written
+     again. `Document.xml` names it by `file=` already, so the reader needs
+     no change.
+   - A blob is `blobs/<hash>.<ext>`, and so is the history's database. It
+     is never rewritten, and no name ever comes to hold other bytes.
+   - The string table is `StringTable.<h>.txt`. `Document.xml` names the
+     table by its reference already.
+   - The index `blobs/Content.xml` keeps its fixed name, so builds that
+     read it by that name still do (Q2). It is written to a temporary file
+     and renamed into place before `Document.xml`. It lists the blobs of
+     the new save and of the previous one, so whichever `Document.xml` is
+     on disk finds its blobs in it.
+2. **`Document.xml` is written last**, to a temporary file in the folder,
+   then renamed over the old one, as the marker is (`QSaveFile`). That
+   rename is the save.
+3. **The sweep runs after the rename, under the save lock.** It deletes
+   only what neither the new `Document.xml` nor the previous one names. A
+   reader that started before the rename finds every file it reads. An
+   open takes the save lock shared: boost's `file_lock` has
+   `lock_sharable`, the same lock file as 29.8. So no sweep runs while an
+   open is reading.
+4. **What a crash then leaves:**
+   - Before the rename: the old save, whole, plus files that no
+     `Document.xml` names. The next save sweeps those.
+   - After the rename: the new save, whole.
+- **Durability.** No fsync, as for the archive today. That is safe against
+  a crash of the process; a power loss is left to the file system, as an
+  archive's rename is (Q5).
+- **Windows.** A rename over `Document.xml` fails while another program
+  holds it open without delete sharing. The shared lock keeps our own
+  opens away, but a sync client or a virus scanner may still hold it, so
+  the rename retries the way `writeMarker` does (50 x 10 ms).
+- **What it costs.** Nothing extra at the write. Fewer files are written:
+  only those whose bytes changed, so the files phase of 38.3 drops to the
+  changed objects. An open copies every file under `blobs/`, so it also
+  copies the previous save's blobs until they are swept, unless it reads
+  only the blobs the index names, which is a small change.
+- **An older build of this fork** reads such a folder by the `file=`
+  names and the index. When it saves, it writes its fixed names, and its
+  sweep deletes the files it read and did not write. The folder simply
+  returns to the old layout.
+
+**S2: a save writes only what changed.**
+- **What is skipped.** For an object the log says is unchanged since this
+  folder's last save, the save skips its `beforeSave`, its serialisation
+  and its file. `Document.xml` keeps the file name from the last save.
+- **What "unchanged" means:**
+  - no op on the object, on any of its properties or on its view
+    provider, between the version of the last save and now;
+  - the folder's stamp is this document's own, so no pull merged anything
+    into it (29.8);
+  - the save's options are the same: schema, `ForceXML`, `PreferBinary`.
+  Anything else is serialised.
+- **The log's save record.** The version is the previous one with the
+  changed objects' entries replaced, which is how the log keeps a version
+  already (23.3). The capture then sees only the changed objects.
+- **A check mode**, a developer preference, serialises every object anyway
+  and compares the bytes. The gates run with it on.
+- **Before building:** check `beforeSave` by property type. Any work it
+  does beyond the object's own bytes has to come from the kept state
+  instead: for example a store for the whole document collecting what the
+  objects made ready (`docs/SharedShapeStorage.md`).
+- **The gain.** At 600 boxes, the object pass (130-165 ms) and the files
+  phase (57 ms) drop to the changed objects. What remains is
+  `Document.xml`'s own pass and the history, which S3 decides. To be
+  measured when built.
+
+**S3: the history at a save.** Two ways:
+- **(a) Appended at the save.** The folder's database is a file of its
+  own, `history.db` beside `Document.xml`, not a blob.
+  1. At a save, under the save lock, the rows since the last save and the
+     new version go into it in one SQLite transaction. It uses a rollback
+     journal, not WAL: no shared-memory file, and one file once closed.
+  2. Then S1's rename of `Document.xml`.
+
+  A crash between the two leaves the database one version ahead of
+  `Document.xml`. The open takes the version that `Document.xml` names.
+  The rows after it are a tail offered as recovery (25), never shown as
+  the saved state. The cost is the rows since the last save, not the
+  whole history. P1's bound becomes a trim in place (16.7), with a
+  `VACUUM` now and then.
+  - The history-only save (27.29), which refuses a folder today (29.8,
+    "Not built"), is then this append with no `Document.xml` written.
+  - The pull of 29.8 could later read the other process's rows from that
+    database instead of importing a copy of the folder.
+- **(b) Live in the folder.** The process's store is the folder's database:
+  13.3's `local`, kept in the folder. Every commit is written there.
+  Nothing happens at a save, and a crash loses nothing. Against it:
+  - SQLite's WAL needs shared memory, and SQLite says it does not work over
+    a network file system. A rollback journal on NFS or SMB is only as good
+    as the share's locking.
+  - A sync client (Dropbox, OneDrive) copies the database in the middle of
+    a transaction. It can upload a torn file or make conflict copies.
+  - Every edit lands in a shared folder, saved or not, against 13.3's
+    privacy points.
+  - Two processes would share one store. That is 29.7's shape (b), against
+    the ruling (29.8, Q1).
+
+### 38.6 Questions
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q1 | Build S1 | **Yes, first.** It removes every state of 38.4's table but "old" and "new", on its own. |
+| Q2 | Older builds of this fork opening a folder S1 wrote | **They read it with no change**: the `file=` names are theirs already, and the index keeps its name and lists both saves' blobs (S1 item 1). No format version is bumped. |
+| Q3 | S2's "unchanged" | **From the log** (the ops since the last save's version, the stamp, the options), with the check mode on in the gates. |
+| Q4 | S3: (a) appended at the save, or (b) live in the folder | **(a).** (b) only if asked for, and then only for a folder on a local disk. |
+| Q5 | Power loss | **No fsync**, as the archive today. Otherwise: fsync the changed files and the temporary `Document.xml` before the rename. That costs a sync per changed file, to be measured. |
+| Q6 | A backup for a folder (the archive's `.FCBak`) | **None.** The previous save's files stay until the next save, and the history holds the versions (16). |
+| Q7 | The folder as the working format (open an archive into a folder, export an archive) | **Not now.** Ask again once S1-S3 are built and measured against 38.3. |
+
+### 38.7 Build order, once ruled
+
+1. **S1.** Tests:
+   - each state of 38.4's table, built by hand as `tear.py` does, opens as
+     the old save or the new;
+   - a save killed at random, as `crashrun.py` does;
+   - an open in a second process during a save;
+   - an older layout's folder saved over in the new one.
+2. **S2's survey of `beforeSave`,** then S2, with the check mode in the
+   gates. `cost.py` again.
+3. **S3 (a).** Then the history-only save of a folder (27.29).
+4. **Crash recovery (25) of a folder document,** run once S3 is in.
+
+### 38.8 S1 as built: the folder save goes in whole (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "Continue stage 1", so Q1 is yes. Q2-Q7 are
+not ruled; what is built follows their recommendations where it touches
+them (no fsync, no backup, the reader unchanged).
+
+**Not as proposed: no new names.** 38.5's S1 gave every file but
+`Document.xml` a name of its own bytes. Building it showed why that does
+not hold. A property can add a data file of its own from inside its
+object's file (`writer.addFile` in `PropertyTopoShape` at schema 4, in
+`MeshProperties`, in `PropertyTopoShapeList`). An object's file then names
+a file that is written after it, so a name by hash would have to be
+patched into the files that name it, down a chain. Instead, every file
+keeps its name, and the save goes in through a stage:
+
+1. **The stage.** A folder save writes every entry into `.~<name>.save`,
+   beside the folder and laid out as it is (`Base::FileWriter::setStageDir`).
+   The stage is beside the folder, not in it, so nothing that reads the
+   folder (an open, a pull's copy, `FileHistory::openFile`) ever sees it.
+2. **Unchanged files stay.** When the save is whole, every staged file
+   whose bytes the folder has already is dropped from the stage. Such a
+   file is not moved and not touched: its time and inode are as they
+   were.
+3. **The record.** `.~commit` in the stage, written through a rename
+   (`QSaveFile`), lists what to delete: what the blob index no longer has
+   (`FileBlobManager::prune`, through `FileWriter::dropFile`, where it used
+   to delete during the save), and the files the last save wrote and this
+   one did not (`AutoRemoveFile`). Writing the record is the commit.
+4. **The move.** The rest is renamed into the folder (`std::filesystem::rename`,
+   retried 50 x 10 ms for Windows), `Document.xml` last. Then the deletions
+   run, and the stage goes.
+
+`App::FolderSave` in `FileElsewhere.cpp`: `freshStage`, `commit`, `recover`,
+`pending`, `stagePath`.
+
+**A save cut short.** Whatever finds a stage beside a folder settles it
+first: an open (`Document::restore`), a save (`save()` under its lock,
+before the look of 29.8), and a save-as (`freshStage`).
+- **A stage with a record** is moved in. The move is idempotent: a file
+  already moved is not in the stage any more.
+- **A stage without a record** is deleted, and the folder is the save
+  before it.
+- **The report view** says which it was.
+- **It runs under the folder's `SaveLock`**, so a live save's stage is
+  never taken for a dead one: a folder save now always holds the lock.
+  `save()` holds it already when it pulls; `saveToFile` takes it when this
+  process does not (`SaveLock::heldHere`), which covers a save-as and a
+  save with the pull off.
+
+**A read during another's save.** An open takes no lock. It stamps
+`Document.xml` before the read and again after it. A commit moves
+`Document.xml` in last, so a save that came in during the read changed the
+stamp, and the report view says so ("was saved by another process while
+it was read: ... Close it and open it again"). Not built: opening it
+again by itself.
+
+**Measured** (38.4's probes again, on the build):
+- **Killed at random**, 40 rounds (`crashrun.py`, `crashrun2.txt`; the span
+  is now measured right, so every kill lands in the save). In every round
+  the folder opened whole.
+  - **39** left a stage with no record. Each was thrown away, and the
+    folder opened as the save before.
+  - **1** came after the record (round 13). It was moved in at the open,
+    and the folder opened as the new save.
+  - **None** left a folder that does not open, or a mix.
+- **The cost of a save** (`cost.py`, `cost2.txt`):
+
+  | Objects, history | Folder before | Folder now | Archive (same run) |
+  | --- | ---: | ---: | ---: |
+  | 600, in it | 349.5 ms | 362.6 ms | 288.7 ms |
+  | 600, none | 260.2 ms | 276.3 ms | 220.4 ms |
+  | 60, in it | 50.4 ms | 53.1 ms | 44.3 ms |
+
+  - A one-box edit now touches 6 of 616 files (606 before).
+  - The time is within the run's noise: the archive rows moved 9-18 ms
+    the same way. The stage is written whole and compared, so this is no
+    faster; S2 is what makes it so.
+
+**Tests.**
+- gtest `FileElsewhereTest`:
+  - `aFolderSaveMovesInOnlyWhatChanged`: the unchanged file keeps its
+    stamp, a removal goes, the stage goes;
+  - `aStageWithoutItsRecordIsThrownAway`;
+  - `aRecordedStageIsMovedInEvenHalfMovedAlready`.
+- Python `FolderSaveCases`, with the stages built by hand from two whole
+  saves:
+  - a save moves in only what changed, and a removed object's file goes;
+  - a stage cut short before its record opens as the old save, without
+    the second save's row;
+  - one with its record, half moved in already, opens as the new save
+    with its history;
+  - a save-as over the folder finishes the stage first.
+
+### 38.9 S3 (a) as built, saved blobs read in place, a read-only folder (2026-10-25)
+
+**Rulings (user, 2026-10-25):** "Agree with your recommendations", given on
+the question of whether a folder document still needs a transient
+directory. So:
+- **Q4 is (a).** The history is brought up to date at a save. (b), the
+  store living in the folder, is a later opt-in for a folder on a local
+  disk, never the default.
+- **Saved blobs are read from the folder**, not copied into the transient
+  store at open.
+- **A folder on a read-only medium**: "implement such that it works opening
+  a folder on readonly medium in which case changes still go the
+  transient directory route as usual."
+
+What the transient directory still holds for a folder document: the
+commits since the last save (`history/log.db`), the blobs made since then,
+and the session's scratch (`pull/`, `history/checkout`, `held/`,
+`requests/`). It is also still what a crash leaves for recovery (25).
+
+**The history: `History.db` beside `Document.xml`.**
+- A folder save keeps the database as a file of its own, not a blob.
+  `<History file="History.db" count="N">` names it; the blobs that named
+  versions hold are listed as before. An archive keeps `db="<hash>"`, a
+  blob, unchanged. `PropertyHistory::setFile`, `databasePath()`.
+- **What changed is recorded.** SQLite's session extension records every
+  change to the live store but the string table, which the file carries as
+  a member of its own (27.50 item 2). The record starts when a folder's copy
+  is adopted at open (`adoptEmbedded(path, folder)`, before the session
+  row the open writes) or when a save to the folder takes the changes.
+  `TransactionStore::beginChanges`, `takeChanges`, `applyChanges`.
+- **At a save** (`TransactionLogCore::embedFolder`):
+  1. the folder's `History.db` is copied into the stage, a plain file
+     copy;
+  2. it is opened as a copy (`openSQLiteCopy`: journal in memory, no WAL
+     made or left, no indexes) and checked to be of the save the record
+     started from (`save_id`);
+  3. the changes are played into it. A row changed or removed that the copy
+     no longer has is left out: retention took it out. A row added that it
+     has is replaced. Anything else (a unique name taken) aborts it;
+  4. retention, the closing of sessions and the guard's meta run on it as
+     on a copy made whole (`finishEmbed`, shared with `embed`);
+  5. it is vacuumed only once a quarter of it is free pages.
+
+  S1's commit then moves it in with the rest, so the history and
+  `Document.xml` go in together or not at all. No append in place, no
+  journal in the folder, and no tail ahead of `Document.xml` to explain
+  at open (38.5 had planned one).
+- **Copied whole instead** whenever the record cannot be trusted. That is:
+  - the first save to a folder, or a save-as;
+  - a store closed and reopened meanwhile (its record goes with it);
+  - the folder's copy of another save, because another process saved it
+    or it was replaced by hand;
+  - a change that does not apply;
+  - a build whose SQLite lacks the extension. CMake checks for
+    `sqlite3session_create`; conda-forge's has it on Linux and Windows.
+
+  Either way the record starts again at the take.
+- **Nothing recorded for nothing.** A save to an archive, or one without
+  the history, stops the record (`untrackFolder`), so it never grows
+  unread.
+- **A save without the history** removes a `History.db` an earlier save
+  left. A `blobs/History.db` from before is pruned by the blob index, as
+  any blob no longer named.
+- **The readers.** `FileHistory::openFile`, `savedAs`, `readTable`, the
+  pull's import and the guard on open read the `file` form. A version's
+  entries leave `History.db` out, as they leave the blobs out.
+- **The check.** With `FC_TXNLOG_CHECK_FOLDER` set, a copy brought up to date
+  is compared table by table with one made whole at the same moment
+  (`TransactionStore::differences`; a session's closing time and the string
+  table are not compared). Any difference goes to the report view. A trim
+  is not covered: a copy trimmed save after save squashes rows otherwise
+  than one trimmed once. Python `getLastSaveHistory()`: `updated`,
+  `changes`, `seconds`, `checked`, `differences`.
+
+**Measured** (`~/.cache/lv-merge/probe38/embed.py`, 600 boxes, mode 2, one
+box's length changed before each save, the history 1.8-2.0 MB):
+
+| Part of the history's copy | Copied whole | Brought up to date |
+| --- | ---: | ---: |
+| State and flush (the live store's own) | 36-49 ms | 27-34 ms |
+| Copy | 15-19 ms | 2.4-2.5 ms |
+| Retention | 54-59 ms | 21-24 ms |
+| Vacuum | 8-9 ms | 0.1-0.2 ms |
+| The save | 339-376 ms | 297-307 ms |
+
+- The changes of a one-box edit are 78 KB. Most of it is the previous
+  save's version and its manifest, which the live store writes after the
+  copy is taken.
+- What is left is retention over the whole copy, and the live store's
+  file-scope state (names, UIDs, strings), both written whatever the
+  change.
+
+**Older builds of this fork** know only `db=`. Their restore returns
+before the `<Blob>` children when it is missing, so they should read the
+folder as one with no history; not tried. These builds are not released.
+
+**Saved blobs, read in place.**
+- **At open.** A document opened from its own folder reads `blobs/`
+  where it is. Each file becomes a blob of the store with the folder's
+  file as its path (`FileBlob::inPlace()`), under the hash the folder's
+  index gives it. Nothing is read or copied; a file the index does not
+  name is hashed where it is. `FileBlobManager::readInPlace` (set by
+  `Document::restore` for the document's own folder only),
+  `restoreFromDirectory(dir, true)`, `adoptInPlace`.
+- **Only there.** Any other folder is copied as before, because it goes
+  away: a version checked out, an anchor recovered, a pull's copy, a
+  `FileHistory` of another file.
+- **The store never writes such a file.** It is not made read-only, never
+  deleted when the blob goes (`release`), and never moved with the
+  transient directory (`relocate`).
+- **Not as proposed: no hash in the names.** The goal was that no save
+  ever puts other bytes under a name someone reads in place. Readable,
+  stable names are what `docs/FileBlobsManager.md` builds on (a name
+  follows its referrer, so a git diff of a folder reads), and `FileBlobs.py`
+  tests them. So the names stay, and the guarantee comes another way:
+  - **This process.** Before a save replaces a name's content or prunes a
+    file, every blob read in place from that file is copied into the store
+    (`copyIn`): the undo, the log and named versions still hold the old
+    content.
+  - **Another process** that has the folder open (a line in
+    `.~<name>.open` that is not this process) may read any blob file
+    there. While one does, a save gives no name it found other content
+    (`planSave` avoids them; the new content takes a numbered name), and
+    prunes nothing. What it leaves stays listed in the index it writes
+    (`writeIndex`'s `carried`), so the next save made alone prunes it.
+    What a user put in `blobs/` is never pruned, as before
+    (`testStrayFileIsNotTouched`).
+  - **Any name about to be written** whose file there is not known to
+    hold that content is copied in first, whether or not the previous
+    index listed it: a name freed while another process read the folder
+    is not in it.
+  - **The marker goes up before the read** for a folder, not after it as
+    29.8 wrote it, so a save in another process sees the reader from its
+    first byte.
+- **The document moves.** Blobs read in place belong to the document's
+  folder (`settleInPlace`, at the end of a save of the document's own
+  file):
+  - a save-as to another folder points them at that folder's files of the
+    same content, which that save wrote;
+  - a save-as to an archive copies them in, since the old folder may be
+    deleted next;
+  - a copy saved elsewhere (`saveCopy`) changes nothing.
+- **Recovery (25) of a folder document.** The store a killed process left
+  lacks the blobs it read in place. `TransactionLog::recover` reads them
+  from the folder again (`holdFolderBlobs`) before the log takes its
+  handles. This is 38.7's step 4, run here.
+- **Measured** (`~/.cache/lv-merge/probe38/opentime.py`, six opens each,
+  alternating with `FC_FOLDER_BLOBS_COPY`, which copies as before):
+
+  | Folder | Blobs | Open, in place | Open, copied | Transient store after |
+  | --- | ---: | ---: | ---: | ---: |
+  | 40 included files of 4 MB | 160 MB | 16.3 ms | 464.1 ms | 0 against 160 MB |
+  | 600 boxes | 28 KB | 120.8 ms | 131.0 ms | 0 against 1 KB |
+
+- **What it leaves open.**
+  - A folder moved or deleted by hand while its document is open loses
+    what it held in place. So does a removable medium taken out. The open
+    reads nothing more, so the next read of such a blob fails.
+  - A file in `blobs/` edited by hand under the same name is read as it
+    now is: the index is trusted, as git trusts its objects.
+
+**A read-only folder.** Nothing is made beside it or in it at open:
+- `SaveLock` cannot make its lock file and stands aside, as it already did
+  for a folder that takes no files;
+- the marker is not written;
+- a stage cut short beside it cannot be settled, and the report view says
+  so ("cannot be finished here (read-only?); read as it is").
+
+Its history is adopted into the transient directory, its blobs are read in
+place, and edits go to the transient store. A save of it fails at its
+stage ("cannot make the stage to save the folder in (read-only?); nothing
+was written"), and a save-as elsewhere works as from any folder.
+
+**Tests.**
+- gtest `TransactionLogTest.aCopyBroughtUpToDateHoldsWhatACopyMadeWholeDoes`:
+  a copy made at one point and brought up to date by the changes since
+  holds what a copy made whole then holds (`differences` empty); a row the
+  copy lost meanwhile is left out of the next changes; no WAL beside the
+  copy.
+- Python `FolderSaveCases`:
+  - **The history.**
+    - The first save copies whole and the next ones bring it up to date,
+      the check finding no difference; `History.db` is beside
+      `Document.xml` with no `-journal`/`-wal`, not under `blobs/`; a
+      reopen has every row, and a save after it brings it up to date
+      again.
+    - It is copied whole after a save-as elsewhere and back, and when the
+      folder's copy is replaced behind its back.
+    - A save without the history removes the old `History.db`.
+  - **The blobs.**
+    - They are read in the folder, with the folder's permissions, and
+      nothing goes into the transient store.
+    - A save that gives a name new content copies in the old first: the
+      undo brings it back from the store.
+    - With another opener in the marker, every old name keeps its bytes
+      and the new content goes elsewhere. The save made alone after it
+      leaves nothing the index does not name, and two undos still read
+      the old content.
+    - A save-as to a folder points them at its files, one to an archive
+      copies them in, and a `saveCopy` leaves them be.
+  - **Recovery.** A session of a folder killed in another process
+    (`os._exit` after an edit) is recovered: the edit is there, every
+    shape is valid, and the old directory goes.
+  - **Read-only.** A folder in a directory that takes no writes opens with
+    its history and its shapes, edits go to the transient store, a save
+    fails with nothing made beside it, and a save-as elsewhere carries
+    both rows. Skipped where the file system takes writes whatever the
+    mode (root, Windows).
+- `FileBlobs.py`: `testDirectorySharedContentIsOneFile` now expects no copy
+  in the store and one file in the folder for both referrers.
+- `Document.py`: `testAPinnedFolderKeepsItsVersion` and
+  `testAFolderCarriesItsHistory` look for `History.db` beside
+  `Document.xml`.
+
+**Gates** (round s38b, `FC_TXNLOG_CHECK_FOLDER` set for the whole round): 24
+GUI checks; Python 3873 OK with freeze on and off; gtest 1014 with freeze on
+and off; driven 301. No check reported a difference.
+
+**Next, per 38.7:** S2's survey of `beforeSave`, then S2, the save that
+skips unchanged objects. Then the history-only save of a folder (27.29),
+now a save whose stage holds `History.db` alone. Q2, Q3 and Q5-Q7 are not
+ruled.
+
+### 38.10 An archive extracted by hand opens as a folder (2026-10-25)
+
+**The question (user, 2026-10-25):** "can we use the same layout in archive
+and folder? additionally, can the user just archive the folder by himself
+and expecting it works the same?" Then, relaxed: "allow hand decompressed
+archive to be able to read as folder. no need the other way round." And
+the ruling: "make deflate level 1 a setting on saved format. default to
+zstd."
+
+**What differs** between the two layouts (`~/.cache/lv-merge/probe38/swap*.py`):
+
+| | Archive | Folder |
+| --- | --- | --- |
+| Objects | All in `Document.xml`, with the per-class defaults block | One `<Name>.xml` each (`SplitXML`), no block |
+| Small property data | `.bin` entries at the root | Inline XML (`ForceXML` 3, file version 2) |
+| History | `blobs/History.db`, a blob named by hash | `History.db` beside `Document.xml` (38.9) |
+| Blob entries | zstd (zip method 93), copied raw from the pack store | Plain files |
+
+**What was found:**
+- **An archive extracted by hand opens as a folder, whole.** Its objects,
+  shapes, included file and history all come back. The first save turns it
+  into a folder layout: one file per object, `History.db` beside
+  `Document.xml`, and the archive's entries the folder does not write
+  removed. The reopen after that has the history and the new row.
+- **Hand extraction does not work with common tools.** Every blob entry
+  (shapes, included files, the history) is zstd. Info-ZIP `unzip` skips
+  them and Python's `zipfile` refuses them. The probe could only extract
+  them by piping each entry through the `zstd` tool.
+- **The other way, not asked for:** a folder zipped by hand opens only with
+  `Document.xml` as the first entry, and it does so without its history:
+  `file="History.db"` has no folder to be read from inside a zip.
+
+**Built: `BlobCompression`, a Format property of the document** (beside
+`ForceXML` and `SplitXML`), `Zstd` or `Deflate`. Its default for new
+documents is the preference `BlobCompression` (0 zstd), so the default
+stays zstd.
+- **With `Deflate`**, content is taken into the pack store as deflate at
+  level 1 (`encodeMember(..., portable)`), and an archive copies it raw as
+  before. Every entry is then deflate, which any zip tool extracts.
+- **Content taken in as zstd** before the document asked is decoded and
+  compressed again as the archive is written. The store learns the
+  property at a save or a restore, so a new document's first save is one
+  such: what it took in before is zstd.
+- `FileBlobManager::setDeflate` is set from the property before each save
+  and after each restore. A folder save writes plain files either way.
+- **Existing archives** read as before: each entry records its own method.
+
+**Measured** (`codec.py`, 40 files of 2 MB that compress as BRep text does,
+two runs each; with the content taken in, saved as an archive, saved again
+unchanged, opened, and read back whole):
+
+| | zstd | deflate 1 | deflate 3 | deflate default (6) |
+| --- | ---: | ---: | ---: | ---: |
+| Take in 80 MB | 628 ms | 801-805 ms | 2084-2093 ms | 4098-4186 ms |
+| First save | 201-206 ms | 408-411 ms | 357-359 ms | 365-384 ms |
+| Save, nothing changed | 36-37 ms | 37 ms | 39-40 ms | 37-39 ms |
+| Open | 208-211 ms | 399-412 ms | 356-357 ms | 376-378 ms |
+| Read it all back | 104-106 ms | 289-290 ms | 240-245 ms | 267 ms |
+| Archive | 40.0 MB | 42.1 MB | 40.4 MB | 39.4 MB |
+
+Level 1 is the one close to zstd where it matters most, taking content in.
+Reading back is two to three times slower, and the archive is 5% larger.
+That is why zstd stays the default.
+
+**Test.** `FolderSaveCases.testADeflatedArchiveExtractedByHandOpensAsAFolder`:
+content taken in as zstd, the property set to `Deflate` before a save as
+an archive; every entry is deflate; Python's `zipfile` extracts it; the
+folder opens with its shape, its included file, the history's row, and
+the property.
+
+**Gates** (round s38c): 24 GUI checks; Python 3874 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301.
+
+**Not built.** The layouts are not made one, and a folder zipped by hand is
+not read (not asked for). If wanted later: find `Document.xml` through the
+zip's central directory rather than first, accept one top-level folder in
+the zip, and read `file="History.db"` as an entry.
+
+### 38.11 S2's survey: what a save does per object (2026-10-25)
+
+**The ruling (user, 2026-10-25):** "go", on the next item of 38.7: S2's
+survey of `beforeSave`, then S2.
+
+**What `beforeSave` does, by kind.** `Document::Save` runs it over every
+object, then the document's own properties (`PropertyContainer::beforeSave`,
+then each property's).
+- **Getting the object's own write ready.** Its persistent properties are
+  collected into the map `Save` walks (`PropertyContainer::beforeSave`); a
+  shape parked by the deferred read is pulled in (`ensureRestored`). This
+  goes with the write: a skipped object needs none of it.
+- **What it lends the whole document.** A skipped object must still do
+  these, or do them from what its last save recorded:
+  - **String-id marks.** Link shadows (`PropertyLinkSub`, `...SubList`,
+    `PropertyXLink`, `PropertyXLinkSubList`), expressions' element paths,
+    a sheet's cells, a shape's element map (`ComplexGeoData::beforeSave`) and
+    dynamic properties' ids each mark the ids they use. Compaction keeps a
+    string while memory holds it, so the marks are not what keeps the table
+    whole. They are the ids this save's version uses (`markedIDs` ->
+    `noteVersionStrings`, 27.50 item 4). A version recorded without a
+    skipped object's ids would lose them to a later compaction, once memory
+    lets go of them.
+  - **Blob notes.** A shape notes its file into the save set (`noteBlob`),
+    as the collect pass notes every other blob referrer. A blob noted by
+    nobody is pruned by the save (38.9).
+  - **Hasher indexes.** A shape with a hasher of its own takes an index from
+    `Document::addStringHasher` in visiting order, and its file writes it.
+  - **Shape sharing** (`docs/SharedShapeStorage.md`). Each shape's file is
+    planned against the files before it in the same save: the owner table
+    (what sub-shapes earlier files hold, to borrow), and the congruence
+    index (an earlier part this one is the same as, moved). Both are built
+    afresh at each save (`saveOwnerTable`, `CongruenceIndex::forSave`).
+  - **Shape versions.** `Part::Feature::reconcileShapeVersions` keeps a
+    retained generation only while some referrer needs it.
+
+**Where the time goes** (`~/.cache/lv-merge/probe38/prof.py` under perf
+with DWARF call graphs, 600 boxes in a folder, ten saves each after one
+box's edit; shares of all samples):
+- `Document::save` 55%, of which `Document::Save` 33%.
+- `PropertyPartShape::beforeSave` 32%, nearly all of it `makeBlob`:
+  - `CongruenceIndex::find` 24% (`areaOf` 12%, `volumeOf` 8%, motion
+    recovery 3%);
+  - `ShapeRefSet::build` 7%.
+- Writing the objects (`writeObject`, `PropertyContainer::Save`) 10%.
+- The history's copy (`embedFolder`, 38.9) 6%.
+
+The same, by switching the sharing off (`share.py`, medians of ten saves,
+two runs each):
+
+| Setting | Save |
+| --- | ---: |
+| As shipped | 286-291 ms |
+| `DedupCongruentShapes` off | 191-196 ms |
+| `ShareStoredSubShapes` off (the congruence index rides on it) | 191-193 ms |
+
+So a third of a save of 600 unchanged boxes is the congruence search. The
+boxes are equal, so every one finds the first as a candidate, and computes
+its own length, area and volume to compare, at every save. Those numbers
+change only when the shape does. The per-object serialisation that S2 was
+proposed for is the smaller part.
+
+**Proposed S2, in two steps:**
+1. **S2a: what a shape's sharing analysis learns, kept while the shape
+   is unchanged.** First the congruence invariants (length, area, volume):
+   `CongruenceIndex::find` takes the caller's, and `PropertyPartShape` keeps
+   them with the shape they were taken of. Archives gain as much as folders.
+   No format change and no ruling needed.
+2. **S2b: an unchanged object is not written.** Its `Save` and its file are
+   skipped, and the stage keeps the folder's file. Its contributions to the
+   whole document come from what its last save recorded: its marked ids
+   (a recorder around its `beforeSave`, as `BlobRecorder` is for blobs), its
+   blob notes, its hasher index, and its place in the owner table. The
+   sharing tables are the involved part, because a later shape may borrow
+   from an unchanged one. A first cut keeps running the analysis (cheap
+   after S2a) and skips only the write. "Unchanged" is Q3: the log's ops
+   since the version of this folder's last save, the stamp, the options;
+   with a check mode in the gates that writes every object anyway and
+   compares the bytes.
+
+**S2a as built (2026-10-25).**
+- `CongruenceIndex::find(shape, match, own, last)`. `own` holds the
+  shape's invariants from one find to the next. `last` is the previous
+  find's match: if the shape it matched is stored again (`IsEqual`), its
+  motion is reused, with no recovery. `Match::with` is the stored shape
+  matched.
+- `PropertyPartShape` keeps both with the root they were taken of
+  (`_congruentFor`, `_congruentInvariants`, `_congruentMatch`). They are
+  dropped when the root is no longer that shape, and when the value changes
+  to a shape that is no partner of it (`dropBlob`), so no old shape is
+  held for them.
+- **Measured** (`share.py`, as above, two runs each): a save of 600 boxes
+  takes 212-225 ms, from 286-291 ms. With the congruence search off it is
+  203-215 ms, so what is left of the search is the key and the lookups.
+  Reusing the motion adds little beyond the invariants (222 ms with them
+  alone); it is kept because it costs nothing.
+- **Test.** `ShapeStorage.ShapeCongruenceCases.testSaveAfterSaveFollowsWhatChanged`:
+  a folder saved after each change. Unchanged: three files twice. One
+  instance made its own part: four. Made the instance again, a new shape:
+  three. The shape it matched changed while it did not: four. The reopen
+  gives every volume and every centre as left.
+
+- **Gates** (round s38d): 24 GUI checks; Python 3875 OK with freeze on and
+  off; gtest 1014 with freeze on and off; driven 301.
+
+**Left for S2b and Q3:** writing the objects (10% of the samples before
+S2a), the per-object preparation that remains (`ShapeRefSet::build` 7%
+before S2a), and the stage's comparison of every file. Not profiled again
+after S2a.
+
+### 38.12 S2b as built: an unchanged object is not written (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "agree", on 38.11's Q3 recommendation:
+"unchanged" is what the log says, with the stamp and the options; a check
+mode runs in the gates; the first cut skips the write only.
+
+**When a save keeps an object's file.** Each save to a folder records its
+state (`DocumentP::FolderState`):
+- the folder, its canonical path;
+- the log's row the save was of (`head`), and the version it recorded;
+- the options that decide the bytes (schema, file version, `ForceXML`,
+  `PreferBinary`, binary BRep);
+- the stamp of the folder as the commit left it;
+- per object, the blobs it referred to (`FileBlobManager::referencesByObject`)
+  and the entries its write made, its own file first.
+
+It is kept only after a save of the document's own file (`saveCopy` keeps
+nothing), and cleared by a save to an archive. The next save keeps an
+object's file when all of these hold:
+- **The save is the same:** the same folder, the same options, the folder's
+  stamp what the last save left (no other process saved it, nothing
+  touched it), and the last save's version still in the log.
+- **Nothing changed it:** no op of a row after the recorded one on this
+  branch's chain names the object (`TransactionLog::objectsChangedSince`).
+  A row trimmed away, or a branch switched, means nothing is kept.
+- **It refers to the same blobs.** This catches what no op of the object
+  records: a shape whose file it borrowed from changed (38.11's test case).
+- **It is written under the name it was.**
+
+**What keeping means.**
+- **Its preparation still runs**, as it did. That keeps the string-id marks,
+  the blob notes, the hasher indexes and the sharing tables as before; the
+  first cut skips the write only.
+- **Its entry is registered**, so `Document.xml` names its file as before.
+- **Not written:** `FileWriter::keepFile` marks the entry, and the data
+  files its last write added, as the save's files. Nothing is staged for
+  them, nothing removes them, and the folder's files stay as they are.
+- **The log's version** of the save takes the kept entries from the last
+  save's version, by name (`EntryCapture::keepFrom`, read in
+  `writeVersion`). A kept entry missing there fails the version's write,
+  and the next save, finding no such version, keeps nothing.
+- **Python `getLastFolderSave()`**: `written`, `kept`, `checked`, `differed`.
+
+**The check.** With `FC_FOLDER_SAVE_CHECK` set, everything is written. Each
+object that would have been kept is compared, staged against the folder's
+file, before the commit; a difference goes to the report view and to
+`differed`. The whole Python suite was run with it on, 3878 tests: no
+object that would have been kept came out otherwise.
+
+**Measured** (`share.py`, 600 boxes, one box changed before each save,
+medians of ten saves, two runs each):
+
+| Build | Save |
+| --- | ---: |
+| Before S2 | 286-291 ms |
+| S2a (38.11) | 212-225 ms |
+| S2b | 119-121 ms |
+| S2b with the check (everything written) | 220-222 ms |
+
+**Gates** (round s38e, the keeping active in every folder save of the
+suites): 24 GUI checks; Python 3878 OK with freeze on and off; gtest 1014
+with freeze on and off; driven 301.
+
+**Tests** (`FolderSaveCases`):
+- **An unchanged object is kept as the folder has it.** A save with
+  nothing changed keeps all four boxes. After one box is changed and one
+  added, two are written and three kept, and the kept files keep their
+  stamps. The log's version of that save opens with every object and the
+  changed length. A removed object's file goes. A reopen reads every
+  shape.
+- **Nothing is kept after another save or other options:** a `ForceXML`
+  change writes everything, the next save keeps again, and a
+  `Document.xml` touched behind its back writes everything.
+- **The check:** everything written, `differed` empty.
+- Both keeping cases clear `FC_FOLDER_SAVE_CHECK` for themselves, since a
+  run may set it.
+
+**Not built.**
+- **Not safe as built: element-map numbers.** A save numbers element maps
+  across all its objects, so a kept file could name a map that a rewritten
+  one now numbers otherwise, and the reader would hand it the wrong map.
+  Found and fixed in 38.14.
+- **The first save after an open** writes everything: no state is known
+  for a folder the document only read. Built in 38.14.
+- **The Gui's split view-provider files** are written as before. Built in
+  38.14.
+- **A kept object's preparation** still runs (the second step of 38.11's
+  S2b). Where the remaining 120 ms goes is not profiled yet.
+
+### 38.13 The history saved alone into a folder (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "push and continue", on 38.12's next item:
+the history-only save (27.28) for a folder, which refused one ("has no
+file to save its history into") since 29.8.
+
+**As built.** `Document::saveToLog` takes a folder. After the snapshot and
+its name, as for an archive, `_saveFolderHistory` writes through the
+folder's stage, under its lock, and commits as a save does (38.8). Only
+four kinds of file change:
+- **`History.db`:** brought up to date in the stage (38.9), carrying the
+  file's own save id and date (`TransactionLog::embedFolderForFile`), so
+  the guard on open still matches and no new save is recorded. The record
+  of what changes starts again from it (`folderSaved` with that id), so
+  the next save brings it up to date again.
+- **`Document.xml`:** only its History element is replaced, since the blobs
+  the history keeps can change. The model's part is byte for byte as it
+  was. Its stamp moves; the next save takes that as a touch, its save id
+  being the document's own (29.8), and S2b's state takes the new stamp.
+- **`blobs/`:** by the folder's index (`archiveBlobIndex` now reads a
+  folder), as an archive's members are handled. A file only the old history
+  named goes unless the new one keeps it, copied in first if this process
+  reads it in place. What the new history keeps that the folder lacks is
+  added, by hash. The index is written again. While another process has
+  the folder open, nothing goes (38.9).
+- **Nothing else:** no object's file is touched.
+
+A folder that still keeps its history as a blob (saved before 38.9) is
+refused: "the folder keeps its history as a blob: save it once first".
+
+**Gates** (round s38f): 24 GUI checks; Python 3879 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301.
+
+**Test.** `FolderSaveCases.testTheHistoryAloneIsSavedIntoTheFolder`:
+- **After an edit, saved to the history:**
+  - the model part of `Document.xml` and the objects' files are as they
+    were, and `History.db` moved;
+  - no stage is left;
+  - the version is named "Saved to history", and the live value is the
+    edited one.
+- **A normal save after it:** the history is brought up to date, not
+  copied, and the unchanged object is kept.
+- **Saved to the history again, then reopened:**
+  - the folder is the last normal save;
+  - both versions are in its history, and no branch is closed (the guard
+    held);
+  - the second version restores.
+
+### 38.14 View-provider files kept, and the first save after an open (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "agreed. go", on the two items left by
+38.12: the Gui's split view-provider files, and the first save after an
+open of a folder.
+
+**View-provider files.** The log records a view provider's change as an op
+of kind `view`, named by its object's id (24.9). A save of a folder keeps
+an object's view-provider file on the same terms as the object's own file
+(38.12):
+- no `view` op names it since the folder's last save
+  (`objectsChangedSince` now also returns those);
+- nothing outside the log changed it either (below);
+- it is written under the name it was;
+- what the file says outside its properties is the same: the object's
+  name, `expanded`, `Extensions`.
+
+The Gui document asks `App::Document::keepViewFile` as it lists each file
+in `GuiDocument.xml`, and reports what a written file added with
+`viewFileWritten`. Kept files reach the log's version by `keepFrom`, as an
+object's do. `getLastFolderSave()` adds `viewsWritten` and `viewsKept`. A
+colour is the object's appearance (34): changing it writes the object's
+file, not the view provider's.
+
+**Changes the log leaves out.** The log is not a complete record of what a
+file holds:
+- a `NoModify` write, and a view fitted to the model (`DerivedViewWrites`),
+  open no transaction;
+- a property's status (an editor mode) is saved with it and recorded by no
+  transaction;
+- what a restore's afterward (`afterRestore`, `onDocumentRestored`)
+  changes is not recorded at all.
+
+So every such change is noted as well, by object, for objects and view
+providers apart (`Document::noteSavedChange`). The sources are:
+`onBeforeChangeProperty` (except a transient or unsaved property), a
+dynamic property added or removed, and a status change of an object's or
+view provider's property. Each note carries a generation. A save of the
+folder clears the notes up to the point its objects settled (after
+`beforeSave`), so a change made during the save stays for the next. A
+failed save clears nothing.
+
+**The first save after an open.** An open of the document's own folder,
+read whole with no save coming in meanwhile, becomes what the first save
+keeps from (`Document::_takeFolderRead`, once both the read and the
+restore after it are done). Its parts:
+- **The options:** a folder save now states the options that decided its
+  bytes in `Document.xml` (`FolderOptions`). The options now include the
+  build (`ProgramVersion`), so an open keeps only what this same build
+  wrote. A folder without the attribute is written whole once.
+- **The version:** the log's version of the folder as found (16.6), which
+  holds every entry's hash. Kept entries are taken from it.
+- **The entries:** each object's from its `file=` attribute and the data
+  files its properties asked the reader for; each view provider's from the
+  Gui's read (`viewFileRead`) and its properties' data files.
+- **The blobs:** what each property was handed by the restore, by
+  `Object.Property` (`FileBlobManager::takeRestoredReferences`). The save
+  compares property by property: every blob a property was handed must
+  still be what it refers to. A reference the restore did not hand over,
+  such as a stock material card written by its hash, is that property's
+  value, which nothing changed.
+- **The row:** the log's head when the restore is over. What the restore
+  itself changed is in the notes above.
+
+**What the check found** (the Python suite under `FC_FOLDER_SAVE_CHECK`,
+which writes everything and compares what would have been kept):
+- **Element maps numbered otherwise: a fault of 38.12 too.** A save numbers
+  the element maps of all its objects in one sequence (`beforeSave`), so
+  that a map shared by several shapes is written once. A reader takes each
+  number once, from whichever file names it first. An object nothing
+  changed still writes numbers that depend on the objects before it. Give
+  an earlier object more maps and a later one's kept file names numbers that
+  a rewritten file now uses for other maps. On reopen, the kept object has
+  another object's element map. `testElementMapsNumberedOtherwiseAreWritten`
+  reproduces it with the check below bypassed: box `A` reopens with the
+  first object's map.
+
+  Fixed by comparing: `Data::ElementMapIdCollector` gathers the numbers an
+  object's maps get in this save's `beforeSave`, the numbers its write puts
+  in its file, and the numbers an open reads from it. A file is kept only
+  when this save numbers the object's maps as the file does. The cost is
+  that an edit giving an earlier object more or fewer maps rewrites the
+  objects after it. Numbers kept across saves (a map keeps its number, new
+  maps take ones above any used) avoid that: built in 38.15.
+- **A reference put right at reload** (a broken one repaired from its
+  retained generation, `ShapeStorage`) changed the link with no signal.
+  `_updateElementReference` now notes a change of the reference or its
+  shadow when it was asked not to signal.
+- **An empty expression engine** signalled a change in its `afterRestore`.
+  It no longer marks one when nothing was read into an empty engine.
+- **The Touched bit** was saved in a property's status. No file preserves
+  it: the property's own Restore touches it again, and the document purges
+  it after. A file saved before a recompute therefore came back otherwise.
+  The status is now written without that bit (`savedStatus`). No reader
+  sees a difference. (Said too strongly; 38.15 has it precisely.)
+
+After these, the suite under the check: 3883 tests OK, no file differing.
+
+**Gates** (round s38g): 25 GUI checks (`fo` added); Python 3883 OK with
+freeze on and off; gtest 1014 with freeze on and off; driven 301.
+
+**Measured** (`~/.cache/lv-merge/probe38/opensave.py`, 600 boxes, FreeCADCmd,
+four rounds of open, edit one box, save, edit another, save):
+
+| | Open | First save after it | Second save |
+| --- | --- | --- | --- |
+| written / kept | | 1 / 599 | 1 / 599 |
+| ms | 156-231 | 32-66 | 32-52 |
+
+**Tests.**
+- `FolderSaveCases`:
+  - `testTheFirstSaveAfterAnOpenKeepsWhatItRead`: after an open, one edit
+    writes one object, keeps three, and leaves their files untouched; the
+    folder reopens whole; a save with nothing changed keeps all four.
+  - `testAChangeTheLogLeavesOutIsWritten`: an editor mode changed writes
+    that object, after a save and after an open.
+  - `testAFolderOfUnknownOptionsIsWrittenWhole`: `FolderOptions` removed,
+    the first save writes everything, the next keeps.
+  - `testElementMapsNumberedOtherwiseAreWritten`: an earlier object given
+    more maps; every object reopens with its own.
+  - `testTheCheckFindsWhatWouldHaveBeenKeptAsTheFolderHasIt` now covers an
+    open too.
+- GUI check `transaction-log-folder-check.py` (`fo` in the gates):
+  - view-provider files kept on a second save;
+  - a line width written alone, and an editor mode the same;
+  - after an open, everything kept;
+  - a view and an object changed, each written alone;
+  - a colour writes the object's file;
+  - under the check, nothing differs.
+
+### 38.15 Element maps keep their numbers across saves (2026-10-26)
+
+**Ruling (user, 2026-10-26):** "Yes make element map stable", on the
+follow-up 38.14 left: numbers kept across saves, so an edit giving one
+object more or fewer maps no longer rewrites the objects after it.
+
+**As built** (`src/App/ElementMap.cpp`):
+- A map keeps the number it was last saved under (`_id`), and a restore now
+  sets it to the number it read. A restore inside an `ElementMapIdScope`
+  (the log's own captures, 27.67) does not: those numbers are the scope's.
+- A save gives each map that number again, unless another map of the same
+  save took it first (`UsedIds`). A map with no number, or whose number is
+  taken, gets one above every number given or read in this process
+  (`LastId`, only ever raised). It therefore cannot take a number that a map
+  numbered later in the same save still holds.
+- Numbers are still unique within one save. That is all a reader needs,
+  and the format is unchanged.
+- The 38.14 check stays as it is: a file is kept only when this save
+  numbers its object's maps as the file does. Two maps holding one number
+  are the case it still catches. One map comes from the document's own
+  folder and the other from a file another process wrote, merged in
+  (`mergeProject`, paste, import). The first one numbered keeps the number,
+  and the other is numbered anew and its object written.
+- `Data::startElementMapNumbering()` starts a save's numbering. The save
+  signals already reset it. `Document::Save` now calls it too, for the save
+  no signal brackets (the auto saver's recovery file). Left to accumulate
+  there, a reopened document's maps would find their own numbers taken and
+  be numbered anew, and the next save would rewrite every object once.
+  Because a map takes its own number again, starting twice in one save
+  changes nothing.
+- The auto saver numbers maps by the same rules, so a recovery file does
+  not disturb the numbers either.
+
+**Measured** (`~/.cache/lv-merge/probe38/stablemaps.py`, FreeCADCmd, 200
+cuts of two boxes each behind a first `Part::Feature`, 601 objects; the
+first object alternately given a cut's shape scaled by two, and a plain box;
+a save after each, four rounds after a save and four after an open):
+
+| | Before (38.14) | Now |
+| --- | --- | --- |
+| written / kept, after a save | the objects after the first, all written | 1 / 600 every round |
+| written / kept, after an open | the same | 1 / 600 every round |
+| ms, after a save | | 108-136 |
+| ms, after an open | | 228-232 |
+
+The "before" column follows from 38.14's rule; it was not run. Once the first
+object gains or loses maps, every object after it numbers its maps otherwise.
+
+**Not about the numbers, found on the way.** Given the cut's shape unscaled
+(`PROBE_SCALE=0`), the first save writes 201 files, the first object and
+every cut. That is 38.11's congruence search: the first object's shape is
+congruent to every cut and comes first, so each cut's blob now records it
+as its match. The blob compare refuses those files ("blobs differ", in the
+new log below), which is right. Turning the first object back into a box
+writes only that one: each cut keeps the match it made, and its blob still
+reads, since the blob it matched stays in the folder. Probe
+`~/.cache/lv-merge/probe38/congruent.py` (20 cuts): five such saves, each
+followed by a reopen, and every cut's volume and box centre came back as
+saved.
+
+**Why a file was written** is now logged per object at `App` log level:
+"changed in the log", "a change noted", "blobs differ", "element map ids
+differ" or "entry differs".
+
+**Tests** (`FolderSaveCases`):
+- `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of
+  38.14's `testElementMapsNumberedOtherwiseAreWritten`): the first object
+  given the cut's maps writes one file, keeps three, and leaves their files
+  untouched. Each object reopens with its own maps. After the open, the
+  first object given fewer maps again writes one and keeps three.
+- `testElementMapsNumberedOtherwiseAreWritten`, now the collision case. A
+  second document, cut with a cylinder so its maps differ, is saved as a
+  folder. Its map numbers are rewritten by hand to the first document's,
+  as another process would have numbered them, and the folder is zipped.
+  The archive is merged into the first document, opened from its folder.
+  The save writes the four merged objects and keeps the four of our own,
+  and the merged maps' numbers come out apart from ours. On reopen every
+  object has its own map.
+
+**The Touched bit, said precisely** (38.14 said "no file preserves it",
+which was too strong). Before 38.14, a property's saved status did carry
+the bit, and `PropertyContainer::Restore` applied it (`setStatusValue`)
+before the property's own Restore. It never decided anything, for two
+reasons:
+- An object saved up to date is purged after the restore
+  (`afterRestore`: `purgeTouched` unless the object is in `touchedObjs` or
+  in error),
+  which clears every property's bit whatever the file said.
+- An object saved needing a recompute is marked so by the `Touched="1"`
+  attribute of its entry in `Document.xml`, which 38.14 did not change.
+  Its properties are then not purged. Every property whose value the file
+  holds is touched by its own Restore (`hasSetValue` -> `touch()`) whether
+  or not the bit was saved.
+
+The bit could matter only in a touched object, and only for a property
+whose Restore does not touch it:
+- a transient property, whose value the file does not hold at all, so
+  marking it changed claims a change the file cannot reproduce;
+- an empty expression engine, which now marks no change at restore
+  (38.14).
+
+What says an object needs a recompute was never a property's bit: it is
+the object's `Touch` bit, saved as `Touched="1"`. The other recompute
+state, `Enforce` (`touch()`, `enforceRecompute()`), was never saved,
+before or after; a property's `NoRecompute` bit is saved as before.
+Probe `~/.cache/lv-merge/probe38/touched.py`: a box left at a new length
+unrecomputed, a box touched with nothing changed, and a cut of the two,
+saved as a folder and as an archive. Both reopen with the same objects
+touched and recompute to the right volumes (A 3000, Cut 2750). The folder
+patched by hand to carry the bit in every status of the box's file, as
+the old writer did, reopens the same.
+
+**Gates** (round s38h): 25 GUI checks; Python 3884 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301. The Python suite under
+`FC_FOLDER_SAVE_CHECK`: 3884 OK, no file that would have been kept came out
+otherwise.
+
+### 38.16 Q2, Q5 and Q6 ruled; a folder save flushed to the disk (2026-10-26)
+
+**Ruling (user, 2026-10-26):** "yes good", on: Q2 and Q6 as recommended, Q5
+built, and Q7 written up (38.17).
+- **Q2:** older builds of this fork read a folder S1 wrote with no change.
+  This still holds after S2b, 38.14 and 38.15. `FolderOptions` is an
+  attribute an older reader skips, and the map numbers are as unique per
+  file set as before.
+- **Q6:** no backup file for a folder. The previous save's files stay until
+  the next save, and the history holds the versions.
+- **Q5:** recommended as no fsync while every save wrote everything. Since
+  S2b a save writes what changed, so the recommendation is now to flush,
+  and it is built.
+
+**As built** (`FolderSave::commit` in `src/App/FileElsewhere.cpp`), with
+`FolderSaveSync` on (the default):
+- Every file the stage still holds after the files the folder already has
+  are dropped is flushed to the disk, then each directory of the stage.
+  Only then is the record written. A file that cannot be flushed fails the
+  save, with the folder as it was.
+- The record is flushed, and the stage's directory. From here the save goes
+  in whatever happens.
+- The files are moved in and each folder directory they went into is
+  flushed, all before the record is removed. A power loss before then
+  leaves the record, and the next open moves the stage in (`recover()`,
+  which flushes the same way).
+- On Windows a file's flush (`FlushFileBuffers`, on a handle open for
+  writing) covers its directory entry; the directory flushes are POSIX
+  only.
+- Many files are flushed several at a time (`syncFiles`: one by one below
+  8 files, up to 32 threads above): a journal takes flushes that arrive
+  together in one commit.
+- `FolderSaveSync` off restores the save as it was, for a slow network
+  drive.
+
+**Measured** (`~/.cache/lv-merge/probe38/syncsave.py`, FreeCADCmd, 600
+boxes, this box's ext4 under WSL; ten saves each after an edit of one box,
+two runs each way):
+
+| | Sync off | Sync on, one by one | Sync on, as built |
+| --- | ---: | ---: | ---: |
+| First save (`saveAs`, 600 files) | 540-579 ms | 1500-1593 ms | 617-631 ms |
+| One box edited, median | 111-120 ms | 126-129 ms | 121-127 ms |
+
+A bare probe of the disk (`~/.cache/lv-merge/probe38/fsync/`): 600 small
+files flushed one by one took 270 ms, on 16 threads 99 ms, on 64 threads
+55 ms. `syncfs` took 3 ms, but it flushes everything on the file system,
+other programs' writes included, and is Linux only, so it was not used.
+
+**Test.** `FolderSaveCases.testASaveFlushedOrNotGoesInWhole`: 40 boxes,
+sync on and off, one edited; one written, 39 kept, no stage left, and the
+reopen has the edit.
+
+**Gates** (round s38i): 25 GUI checks; Python 3885 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301.
+
+### 38.17 Q7: one folder save for the working state, proposed (2026-10-26)
+
+**Ruling (user, 2026-10-26)**, on Q7: "if it performs better or on par with
+current transient directory saving, we can consider replacing it with
+unified folder save". This section measures that and proposes the shape.
+Nothing here is built.
+
+**What the transient directory holds today** (log on, the default; 22.1,
+25):
+- **Every commit** goes to `history/log.db` in the transient directory.
+  The main thread copies the values the commit set, and the log's worker
+  writes them (25.4).
+- **An unnamed version** is taken every 200 commits
+  (`TransactionLogSnapshotTransactions`) or on the first commit after the
+  autosave interval (`AutoSaveTimeout`, 15 min) (16.3, 25.6). It is a
+  save's serialisation with no archive written (`snapshotToLog`). The
+  store keeps the entries by hash.
+- **Recovery** after a crash (`recoverDocument`, 25.7): the newest
+  version is materialised into a directory and opened as a file is, then
+  the rows after it are replayed.
+- **The old AutoSaver's recovery directory** (`fc_recovery_files`,
+  `RecoveryWriter`) is written only with the log off, which is the staging
+  switch 22.1 retires. It is not what is compared here.
+
+**Measured** (FreeCADCmd, this box; `~/.cache/lv-merge/probe38/`
+`workingfolder.py` and `recovery.py`; 600 objects, either 600 boxes or 200
+cuts of two boxes each; ten rounds of one edit each; two runs each):
+
+| | 600 boxes | 200 cuts (600 objects) |
+| --- | ---: | ---: |
+| A commit, main thread | 0.3 ms | 0.7 ms |
+| A version (`snapshotTransactionLog`), main thread | 85-94 ms | 100-114 ms |
+| The same, until the worker has it | 106-153 ms | 141-196 ms |
+| A folder save after the edit, main thread | 96-129 ms | 120-152 ms |
+
+| Recovery, 600 boxes | |
+| --- | ---: |
+| From the log, 20 commits after the version | 354-355 ms |
+| From the log, 200 commits (the cadence's version just taken) | 272 ms |
+| Opening the saved folder (no tail) | 198-207 ms |
+
+What the numbers say:
+- **A folder save is the version plus the files.** It captures its log
+  version as it writes (the entry sink, 38.12), with no separate
+  snapshot. It costs 12-20 ms more than a version alone, about 15%, and
+  leaves a folder the document opens from.
+- **Most of either is the same work:** every object's `beforeSave` and
+  serialisation pass, kept or not (38.3: 0.2 ms an object). Skipping that
+  for the objects nothing changed would speed up both alike.
+- **Recovery from a folder skips the materialising.** The log's recovery
+  writes the anchor's entries out and then reads them as a file. A folder
+  is opened as it lies: 200 ms, against 270-355 ms with the tail.
+- **A commit is unchanged** either way: the rows still stream to the log.
+
+So on the measure asked for, a folder is on par for a version (about 15%
+more main-thread time, against a version that already takes 85-114 ms at
+600 objects) and better for recovery.
+
+**Proposed shape: a working folder.**
+- **W1. Where.** Each document's working folder is
+  `<TransientDir>/working/`, laid out as a document folder. It is never the
+  user's own file or folder: what the user saved changes only when they
+  save. That is so for a document kept as a folder too, whose folder is
+  the user's saved state.
+- **W2. The cadence writes it.** An unnamed version due by the cadence
+  becomes a folder save into the working folder: S2b keeps what nothing
+  changed, and the save's version is the unnamed version, as any save's
+  is. `snapshotToLog` stays for the saves that write no folder (`saveCopy`
+  into an archive, a version restored).
+- **W3. Keeping per folder.** S2b's state (`folderLast`, the dirty notes'
+  generations, the map numbers) is kept for one folder today, the
+  document's own. It becomes a state per target folder. Then a save to the
+  user's folder and a save to the working folder each keep against what
+  that folder holds.
+- **W4. The first write.** A working folder written whole would cost a
+  `saveAs` (540-630 ms at 600 boxes, 38.16) on the main thread at the
+  first cadence. Instead, the log's worker fills it from the store when
+  the document is opened or made. It writes out the newest version's
+  entries, as recovery's materialising does, and that becomes the
+  folder's first state to keep from. The first cadence save then writes
+  only what changed since.
+- **W5. Recovery.** The Gui's recovery finds `working/` with
+  `history/log.db`, opens the folder, and replays the rows after the
+  version the folder's `Document.xml` names (25.7 step 3). With no
+  working folder, it falls back to the anchor as now.
+- **W6. No flush.** The working folder is written with `FolderSaveSync`
+  off, as the log's WAL runs at `synchronous=NORMAL` (25.4): a power loss
+  costs the last stretch, never consistency. S1's stage and record still
+  make each working save whole.
+- **W7. Later, measured first:** writing an archive save from the working
+  folder (zip what the last working save left plus what changed, instead
+  of serialising again), and opening an archive by extracting it into the
+  working folder. That is Q7's original "open an archive into a folder",
+  and it is only worth it if W1-W6 hold up.
+
+**Costs and risks:**
+- **Disk:** a working folder is the document uncompressed, about 5.5 KB
+  per box (38.3: 3.3 MB at 600 boxes without history), beside the store,
+  which keeps the versions' entries too.
+- **Main thread:** about 15% more per cadence version, at most every 200
+  commits or 15 minutes.
+- **The first write moves to the worker (W4).** If it is not done by the
+  first cadence, that cadence waits for it, or writes whole.
+- **Two keep states per document (W3).** The check mode
+  (`FC_FOLDER_SAVE_CHECK`) has to cover the working folder too.
+
+**Questions:**
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q7a | Build the working folder (W1-W6) | **Yes**, in the order W3, W1+W2, W4, W5, W6, with the check mode on in the gates throughout. |
+| Q7b | Its place | **`<TransientDir>/working/`**: per process and per document, cleaned up with the transient directory. |
+| Q7c | W7 (archive save from the folder, opening an archive into it) | **Later**, after W1-W6 are measured on a real model. |
+| Q7d | Skip `beforeSave` for the objects nothing changed (the shared cost above) | **Survey first**: what `beforeSave` does per object that a kept file still needs (element-map numbering, 38.15; string hasher marks; the congruence search, 38.11). |
+
+**Revised (2026-10-26), on the user's question** "if opening an archive
+file, will working folder require to extract the archive in full, which
+cause slow down? The existing transient directory way does not extract in
+full right?":
+- **Yes, and yes.** An archive's open today copies its blob members raw
+  into a few capped segments of the store (`docs/FileBlobsManager.md` sec
+  14, 15.10): compressed, no file per entry. Its XML entries go into the
+  database as version 1. W4 would instead write the document out as a
+  folder: a file per object at least, and a file per blob unless the blobs
+  stayed in the store.
+- **A file per entry is what sec 14 was built to avoid.** On a monitored
+  Windows file system each file create cost about 61 ms: `MiSTer.FCStd`'s
+  5401 entries took 407 s of a 409 s open. A working folder of its 17800
+  objects is minutes of disk work there, every session. The measurements
+  above are on Linux with 600 boxes, where a file create costs next to
+  nothing, so they could not show it.
+- **Recovery has the same cost today.** It materialises the anchor as files
+  and reads them back (25.7 step 2), as does opening an old version.
+
+**So the recommendation changes:** no working folder for an archive
+document.
+- **The version:** it stays in the store, where kept entries are stored
+  once by hash. The working folder would only have added the files.
+- **Recovery's gain:** the anchor is read from the store directly, its
+  entries served by hash the way an archive's members are (sec 14 of
+  `FileBlobsManager.md`), with nothing materialised. The same reader serves
+  opening a version.
+- **First, measure** how much of recovery's 270-355 ms is the
+  materialising and how much the replay.
+- **A folder document is unchanged:** the user's folder is the folder, and
+  its blobs are read in place (38.9).
+
+| | Question | Recommended, revised |
+| --- | --- | --- |
+| Q7a | A working folder (W1-W6) | **No**, for the file creates above. |
+| Q7b | Its place | Moot. |
+| Q7e | Read a version from the store with nothing materialised: recovery, opening a version | **Measure the materialising first**, then build it if it is a real share. |
+| Q7c, Q7d | As above | Unchanged. |
+
+**Q7e measured (2026-10-26, user: "push and do measure").** Recovery now
+logs its phases (`recover <doc>: N rows after version V; take over,
+materialise, restore, replay, undo`, at `App` log level). Probe
+`~/.cache/lv-merge/probe38/recovery.py`: 600 boxes saved, 20 or 199 edits,
+then a crash (`os._exit`); a second process recovers the transient
+directory left, then opens the saved file. FreeCADCmd, this box, two runs
+each:
+
+| | Folder document | Archive document |
+| --- | ---: | ---: |
+| Take over the log (`TransactionLog::recover`) | 12 ms | 14 ms |
+| Materialise the anchor | 90 ms | 32 ms |
+| Restore it | 200 ms | 140 ms |
+| Replay 20 edits (41 rows) / 199 edits (399 rows) | 23 / 103 ms | 24 / 105 ms |
+| Rebuild undo | 19 ms | 19 ms |
+| Recovery, whole | 355-377 / 459-463 ms | 258-263 / 342-351 ms |
+| Opening the saved file, for comparison | 198-212 ms | 104-107 ms (one run 197) |
+
+What it says:
+- **Materialising is 12-24% here**, and its cost is files. A schema-5
+  version leaves its blobs in the store (`materialiseVersion`,
+  `blobsInStore`) and writes only its XML entries. For an archive that is
+  `Document.xml` and the Gui's: a couple of files. For a folder document it
+  is a file per object, 600 here, which at sec 14's 61 ms a create would be
+  about 37 s on that Windows laptop.
+- **The restore is the open,** at the same cost as opening the file, and
+  replay is about 0.5 ms a row.
+- **In the common case the anchor is the file on disk.** It is the
+  version of the last save or open, until 200 commits or the autosave
+  interval take a newer one. Then the entries are already on disk, in the
+  document's own file, and materialising them copies what is there.
+
+**Recommended, in place of a store-served reader:**
+- **R1.** When the document's own file or folder on disk is a version on
+  the recovered branch (its `Document.xml` hash matches that version's),
+  restore from it in place and replay the rows after that version. That
+  holds even when a newer cadence version exists, as long as the extra
+  rows cost less than materialising would. At 0.5 ms a row against a file
+  per object, that is nearly always for a folder document; for an archive
+  the difference is small either way. No file is written. A folder's
+  blobs are read in place (38.9) and an archive's from the copy the store
+  already makes at open.
+- **R2, only if R1 leaves a case that matters:** a reader that serves a
+  version's entries from the store, for recovery past a file changed
+  elsewhere, and for opening an old version (`checkout`). It needs a third
+  kind of reader beside the archive and the directory, so it is the bigger
+  job.
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q7e | Read a version from the store with nothing materialised | **R1 first**: recover from the document's own file when it is a version of the branch, then replay; R2 only for what R1 leaves. |
+
+**Ruling (user, 2026-10-26): Q7 closed, nothing built.** "Looks complicated
+and risky. Maybe we just stick to old transient directory for archive
+file." An archive document keeps the transient directory as it is. A folder
+document keeps what 38.9 built, which already keeps the folder's content
+out of the transient directory:
+- **Its blobs** are read in place from the folder at open, never copied
+  (38.9). Blobs made since the save go to the transient store.
+- **Its XML entries** are read from the folder. Their bytes also go into
+  the log's database as the version the open found (16.6): rows, not files.
+- **Its `History.db`** is the one thing copied: to
+  `<TransientDir>/history/log.db` at open (`adoptEmbedded`), where every
+  commit then streams. A save rebuilds the folder's copy in its stage from
+  that copy and the changes since (38.9).
+- **Recovery** materialises the anchor's XML entries, a file per object
+  for a folder document. That is the one per-object cost, paid only after
+  a crash, and it stays: R1 and R2 are not built. The phase line
+  `recoverFromLog` now logs stays, for measuring it again on Windows.
+
+### 38.18 Survey: what a folder save still spends on what it keeps (2026-10-26)
+
+**Asked (user, 2026-10-26):** "do the survey first", on Q7d: skip each
+object's save preparation when its file is kept. Nothing built.
+
+**Where a save goes.** FreeCADCmd, 600 objects (600 boxes, or 200 cuts of
+two boxes each), one object edited before each save, from the save's own
+phase line (`~/.cache/lv-merge/probe38/phases38.py`):
+
+| | Boxes, first objects edited | Boxes, last edited | Cuts, first edited | Cuts, last edited |
+| --- | ---: | ---: | ---: | ---: |
+| Save, whole | 112-128 ms | 98-113 ms | 126-147 ms | 110-129 ms |
+| Every object's `beforeSave` | 49-50 | 37-40 | 60-64 | 49 |
+| The history into the folder ("collect") | 32-50 | 26-50 | 34-50 | 27-48 |
+| The rest: `Document.xml`, the edited file, blobs, the flush and the move | about 20 | about 20 | about 20 | about 20 |
+
+A kept object is already not serialised (38.12): its cost is all in
+`beforeSave`.
+
+**Inside, by perf** (`/usr/lib/linux-tools/6.8.0-147-generic/perf`, since
+`/usr/bin/perf` has no build for this WSL kernel; 40 saves of 600 boxes,
+first objects edited, call graphs by DWARF; percent of the save's samples):
+- **Each shape's `makeBlob`, 53%**, run for every shape, kept or not:
+  - **`ShapeRefSet::build`, 33%.** Of that, OCCT's geometry analysis
+    (`BRepTools_ShapeSet::AddGeometry`, chiefly
+    `BRepTools::IsPCurveOmittable`: `BRep_Tool::CurveOnPlane`,
+    `GeomProjLib::ProjectOnPlane`) is 22% of the save. The walk and the
+    owner-table lookups are the rest.
+  - **The congruence search (`CongruenceIndex::find`), 18%**, most of it
+    `recoverShapeMotion`. That is the probe's worst case: the boxes are
+    congruent, all match the first box, and the first boxes are the ones
+    edited, so every box matches anew. With the last objects edited
+    instead, `beforeSave` is 10-15 ms less.
+- **The history step (`embedFolder`), 24%.** Most of it is retention run
+  on the copy at every save (`finishEmbed`). The save adds one unnamed
+  version, retention evicts the one now over the limit
+  (`dropTier`, `evictVersions`), and evicting walks the store's whole
+  held graph (`collectEntities`, 21% of the save), then `trimCopy`.
+- **Element-map numbering and string-table marks: under 0.3%** of the
+  samples each. Not worth touching.
+- The log's worker writes the save's version (`writeVersion`), off the
+  main thread.
+
+**Why a kept shape still pays.** What a shape's file borrows is decided
+against the owner table this save builds, from what the files before it
+publish in this save (38.11). So the table is built afresh and every
+shape walks into it. Of that walk, though, only the owner lookups depend
+on the save: the geometry analysis is a function of the shape alone, and
+a shape's TShapes are not changed in place (23.6).
+
+**Options:**
+
+| | What | Gain at 600 objects | Risk |
+| --- | --- | --- | --- |
+| A | **Retention in batches.** Evict only once the unnamed versions are a few over the limit (say 8), so the walk runs about every eighth save. | most of the history step's 21%: about 20-25 ms on 7 saves of 8 | Low. A file carries up to 8 more unnamed versions. The walk itself is unchanged. |
+| B | **The geometry analysis cached per shape.** `IsPCurveOmittable`'s answer per edge and face, kept with the shape across saves (as 38.11 keeps the congruence invariants) and dropped when the shape changes. The owner lookups still run every save. | about 22% of the save: 20-25 ms | Low to moderate. Pure geometry, so no save decision is cached. The cache must die with the shape. Where it lives, the ShapeRefSet or the OCCT fork's `BRepTools`, is the build's first question. |
+| C | **A shape's whole outcome cached** (plan, blob, match, what it publishes), reused when the shape and everything before it in the owner table are unchanged | up to 40-50 ms | Moderate to high. "Everything before it" is the 38.15 cascade again: an early edit recomputes all after it. Done exactly, it needs each shape's TShape set kept. Not recommended before A and B are measured. |
+| D | **The congruence match reused** while the shape and the shape it matched are both unchanged | 10-15 ms, after an early edit only | Low. Smaller and narrower. |
+
+**Recommended:** A, then B, each measured with this probe and gated with
+`FC_FOLDER_SAVE_CHECK` on. Together they take about 40-50 ms off a
+100-130 ms save at 600 objects, and B speeds up an archive save and the
+log's snapshot as well, since both run `makeBlob`. C and D wait for those
+numbers.
+
+### 38.19 B as built: a frozen edge's pcurve test is answered once; A not built (2026-10-26)
+
+**Ruling (user, 2026-10-26):** "yes", on A then B.
+
+**A turned out not to be the low-risk item 38.18 said.** Timed inside
+`finishEmbed` (600 boxes, the last objects edited), on the folder's copy
+of the history:
+- `dropTier` evicts nothing at the save, since the live store evicted the
+  version already. It still walks the whole held graph to strip the cache
+  tier: 9-14 ms. The cache tier grew by 3 entries a save, and the walk
+  dropped none, because the newest manifest reaches them.
+- `trimCopy` takes 4-24 ms, cutting 0-3 rows a save.
+- The live store's own eviction runs on the worker, off the main thread.
+
+The walk cannot be skipped while retention is exact. Each save's changes
+carry the live store's eviction of one version, and that can leave
+entities unreached, which only the walk finds. Running it less often means
+retention floats: "keep 2" becomes 2 to 9 versions, in the live store and
+in the file. That is a rule the user sees, and `evictsUnnamedVersions` and
+the retention tests pin it. Deferring only the sweep keeps the version
+rule exact, but leaves dead entities in the file between sweeps, and the
+same gtest checks that they go at once. Either way is a ruling, so A is
+not built (question A below).
+
+**B as built** (OCCT fork, TKBRep): `BRepTools::IsPCurveOmittable`, the
+test of whether a writer may leave out a pcurve on a plane, keeps its
+answer on the curve representation when the edge is Immutable
+(`BRep_CurveRepresentation::PCurveOmittable`, -1 not asked, 0, 1). The
+answer comes from the edge's 3D curve, its pcurve, the plane and its
+tolerance, all of which the flag freezes. So a shape saved again asks each
+planar pcurve once in its life, not once per save. A mutable edge computes
+as before. A copy of a representation starts unasked. The field is atomic,
+since a recovery or log worker may write the same shape on another thread.
+FreeCAD needs no change: it freezes every TShape of a shape property's
+value (`ImmutableShapeValues`, on by default), edges included, and both
+`AddGeometry` and the write ask the same function.
+
+**Measured** (`~/.cache/lv-merge/probe38/phases38.py`, now setting
+`ImmutableShapeValues` itself; 600 objects, the last ones edited, five
+saves each; the cache bypassed by a temporary switch for the "before"
+column, removed since):
+
+| | Before | After |
+| --- | ---: | ---: |
+| Boxes: every object's `beforeSave` | 38-41 ms | 20-22 ms |
+| Boxes: save, whole | 93-118 ms | 75-96 ms |
+| Cuts: every object's `beforeSave` | 52-55 ms | 27-29 ms |
+| Cuts: save, whole | 112-136 ms | 96-119 ms |
+
+With the freeze off nothing changes (37-39 ms for the boxes), as designed.
+
+**A finding about the earlier numbers.** This box's own
+`~/.config/Thundereal/user.cfg` holds `ImmutableShapeValues=0`, and
+FreeCADCmd reads it. So every probe of 38.15-38.18 ran with the freeze off.
+The gates are unaffected: they run in homes of their own with the freeze
+set each way. The probe now sets the freeze itself and restores the
+setting after.
+
+**Tests.**
+- OCCT, `BRepTools_OmitPCurve.ImmutableEdgeKeepsItsAnswer`: a mutable
+  edge's answer is not kept; an Immutable one's is kept and given again; a
+  kept answer is the one given; a copy starts unasked. The tree here is
+  built without OCCT's gtests (`BUILD_GTEST=OFF`), so the file was compiled
+  on its own against the installed OCCT and gtest from the conda env: 6 of
+  6 pass.
+- FreeCAD: no new test. The bytes are unchanged by construction, and
+  `FC_FOLDER_SAVE_CHECK` over the suite compares them (below).
+
+**Gates** (round s38j): 25 GUI checks; Python 3885 OK with freeze on and
+off; C++ 1014/1014 with freeze on and off; driven 301/301. The suite with
+`FC_FOLDER_SAVE_CHECK=1`: 3885 run, no file differed, one failure:
+`testASaveFlushedOrNotGoesInWhole` (38.16) asserted one file written and
+39 kept, which check mode cannot give since it writes every file to
+compare it. 38.16 had not run check mode. The test now turns the check
+off for itself (`noCheck()`, as the other count tests do), and
+`FolderSaveCases` passes 24/24 with the check on and off.
+
+**Question A** (not built):
+
+| | Question | Recommended |
+| --- | --- | --- |
+| A | Retention that floats ("keep N" becomes N to N+7, the walk about every eighth save), or a sweep deferred while the version rule stays exact, for about 13-25 ms a save at 600 objects | **Neither for now.** The gain is about half B's, and either way changes what a rule or a test promises. Revisit if a real model's history makes the walk large. |
+
+**Ruling (user, 2026-10-26):** "2 agree": A is not built, either way.
+
+### 38.20 The save measured again, with B and the freeze on (2026-10-26)
+
+**Asked (user, 2026-10-26):** "build occt. what's next". OCCT built at
+`473e9f6224` (B, on the fork's fillet work since `3eb5a7ff9b`), FreeCAD
+rebuilt on it; gates s38k green (25 GUI checks; Python 3885 OK and C++
+1014/1014 with freeze on and off; driven 301/301). The real `user.cfg`'s
+`ImmutableShapeValues=0` is removed (ruled), so the freeze is on by
+default here again. Nothing built in this section.
+
+**Where a save goes now** (the probe of 38.18, freeze on, 8 saves each).
+38.18's numbers ran with the freeze off (38.19); these have it on and B:
+
+| | Boxes, first edited | Boxes, last edited | Cuts, first edited | Cuts, last edited |
+| --- | ---: | ---: | ---: | ---: |
+| Save, whole (38.18) | 112-128 ms | 98-113 ms | 126-147 ms | 110-129 ms |
+| Save, whole (now) | 90-112 ms | 75-99 ms | 101-124 ms | 91-114 ms |
+| Every object's `beforeSave` (38.18) | 49-50 | 37-40 | 60-64 | 49 |
+| Every object's `beforeSave` (now) | 32-35 | 20-25 | 37-44 | 27-31 |
+| The history into the folder ("collect", now) | 26-49 | 26-49 | 27-52 | 26-49 |
+| of it, retention on the copy | 20-39 | 19-38 | 20-40 | 20-38 |
+
+**Inside, by perf** (40 saves of 600 boxes, first edited, DWARF call
+graphs; percent of the save's samples; `~/.cache/lv-merge/probe38/perf2`):
+- **The history step, 30%**: almost all of it the collector on the copy
+  (`collectEntities`, 26%), which loads the copy's whole held graph each
+  save: SQLite reads and zstd decoding of the composites, then a walk and a
+  sweep. This is the cost A aimed at, and A is ruled out.
+- **Each shape's `makeBlob`, 41%** (53% in 38.18):
+  - **The congruence search, 22%.** `recoverShapeMotion` is 14%, and 40%
+    of that is `BRepTools::UVBounds` of each face. The congruence key and
+    the area and volume it is made from are 6-7%. In this probe every box
+    matches anew each save (the box all match is the one edited), so it is
+    the worst case.
+  - **`ShapeRefSet::build`, 16%**, most of it each shape's own-geometry
+    walk (`OwnGeometry::Add`: explorers over the sub-shapes).
+    `IsPCurveOmittable` is under 1% now (B).
+- Element-map numbering and string marks stay under 0.3%.
+
+**What is left, and what each would take:**
+
+| | What | Gain at 600 objects | Risk |
+| --- | --- | --- | --- |
+| E | **The retention overlapped with the objects' preparation**, on a thread, on the save's own copy (the sweep touches only the copy). The rule stays exact. But the copy's blob list is needed by the collect pass, which runs before every `beforeSave`: either the save is reordered, or collect takes the list before retention and keeps an evicted version's blobs one save longer | up to the retention's 20 ms | Moderate. A thread on the save path, the save's order changed, and the second form is A's objection again in small. |
+| F | **A frozen shape's congruence inputs computed once**, as B did for the pcurve test: its key (area, volume, length) and each face's `UVBounds`, kept with the frozen shape | about 10 ms where every shape matches anew, less otherwise | Low. Each is a function of the frozen shape alone, as B's is. `UVBounds` would live in the OCCT fork, beside B's answer. |
+| G | **An incremental collector**: each entity's holders counted in the store, so an eviction visits only what the evicted version held | most of the 26% | High. A store layout change (a `StoreVersion` step and a migration), and every writer keeps the counts. |
+| C, D | As 38.18 | as 38.18 | as 38.18: D does not help this probe's worst case, where the matched shape is the one edited. |
+
+**Recommended:** stop here. A folder save of 600 objects now takes
+75-124 ms, of which about 20 ms is the retention the rule asks for and
+about 35 ms is each shape's blob decision, which kept files need (38.11).
+F is the one cheap step left, for about 10 ms; E and G change the save or
+the store for at most 20 ms. Revisit with a real model's profile.
+
+**Ruling (user, 2026-10-26):** "stop here". E, F and G are not built; the
+folder save's cost work ends with this section.
+
+### 38.21 Audit of the folder and two-process code (2026-10-26)
+
+**Asked (user, 2026-10-26):** "merge with LinkVibe and main, build, and
+continue with the audit's 'left as found'". 37.2's list is closed: every
+item was built or ruled in 37.8-37.12. So the audit continues over what
+came after it: 29.8 (two processes on one file) and 38.8-38.16 (the
+folder), about 5500 lines in 20 commits. Three read-only passes, one per
+area. Each finding below was traced again here before it went in.
+
+**The merge.** `thundereal/LinkVibe` (660e124d2b) and `thundereal/main`
+(9e197d5b66) into Transaction:
+- One conflict. LinkVibe's 96cf8eaf74 gave `embedFolder` a `trigger`
+  (who asked for the save), and 38.13 gave it a `saveId`. Both are kept.
+  The auto-merge had passed the trigger into the `saveId` slot of
+  `TransactionLog::embedFolder`; corrected.
+- main links with lld (`CMAKE_LINKER_TYPE=LLD`) and relinks only the edited
+  library (`CMAKE_LINK_DEPENDS_NO_SHARED`). lld 23.1.0 went into the env:
+  the doc names 22.1.8, but this env's libLLVM is 23, and 23.1.0 is one
+  package with the pins unchanged. The tree was reconfigured with
+  `conda-linux-801-relwithdebinfo`.
+
+**Shown by a probe** (`~/.cache/lv-merge/probe38/audit38.py`, on the
+merged build):
+
+| | What | Probe result |
+| --- | --- | --- |
+| F1 | **A Python proxy's state is lost.** "Unchanged" is read from the log's ops. `obj.Proxy.x = 1` makes no op, so the object's file is kept and `dumps()` is never called. Before 38.12 every save called it. | `counter` set to 7, saved, reopened: 0 |
+| F2 | **A link into another file keeps a stale path and stamp.** A save of the linked document re-points `PropertyXLink::filePath` and touches only the linking document's `Comment` (`DocInfo::slotSaveDocument`). The linking object is not noted, so its file is kept. | B saved elsewhere, A saved: `L.xml` still names B's old folder |
+| F3 | **A version retention dropped from the folder's history never comes back.** The updated copy (38.9) only replays rows that changed in the live store. A raised limit, a pin, an unnamed or deleted newer version, a `keepValue`, or a branch from an old version all make a dropped version travel again without touching its rows. | keep 1 for four saves, then keep 10: 3 versions in the folder against 6 that should travel |
+
+**Confirmed by reading the code path:**
+
+| | What | Effect |
+| --- | --- | --- |
+| F4 | **A commit record's `remove` lines are not confined to the folder** (`rollForward`). An absolute or `../` line deletes outside it, and `restore()` runs `recover()` when a stage with a record sits beside the folder. | Opening a folder that came with a crafted `.~X.save` deletes any file the user can |
+| F5 | **`saveToLog` (a history-only save) takes no save lock.** The archive form reads, rewrites into a temp file, deletes the file and renames over it. The folder form reads `Document.xml` before `_saveFolderHistory` takes the lock. | Another process's full save made in between is overwritten (archive), or the folder is left with an old `Document.xml` over new object files |
+| F6 | **A history-only save into a folder keeps the file's save id** (`embedFolderForFile`, as 27.28 does for an archive). Another process with the folder open takes it as touched, not rewritten, and its next save applies its recorded changes on top of the other history: the guard compares the same save id. | Two histories that grew from one state merged row by row: colliding `txn.seq`, `version.num`, ops under the wrong transaction. In an archive the same case loses the history-only save but stays consistent. |
+| F7 | **After a pull conflict, every save re-copies the file until a pull completes** (`d->pullBranch` is cleared only on success). A save-as to a new name, or a file moved away meanwhile, makes `_pullFromDisk` copy a path that is not there, and it throws. | The document cannot be saved anywhere, not even under another name |
+| F8 | **An archive save takes the lock only when the pull is on and the document has a log** (`save()`). A folder save always locks (`saveToFile`). | A process with the pull off, or no log, writes between another's look and write |
+| F9 | **A history-only save into a folder names no trigger** (left from this merge): `_saveFolderHistory` passes none, and `finishEmbed` writes `save_trigger` only when it has one. | The folder's history names the previous save's trigger |
+
+**Reported, plausible, narrower** (not probed):
+- *Path identity* (one fix covers all three):
+  - The lock and open-marker names are built from the path as given
+    (`beside()`), while the stage and the write use the canonical path.
+    A document whose own last path part is a symlink, opened through it
+    by one process and by the target by another, gets two locks and one
+    stage.
+  - `FileHistory::canonicalPath` of a file not yet there (a save-as
+    target) does not resolve a symlinked parent. The history is keyed by
+    that and is missed once the file exists. On macOS this is any save
+    under `/tmp` or `/var/folders`.
+  - A trailing slash on a folder path puts the lock inside the folder.
+- *Map numbering:* `Document::Save` now resets the process-wide numbering
+  (38.15) unconditionally. A save started inside another's progress
+  pump (the autosaver, with the log off) resets it mid-save. A nesting
+  depth fixes it.
+- *VRML resources:* `VRMLObject` registers its files with
+  `addFile(name, this)` with the object, not a property, as owner, and the
+  first save after an open does not attribute them. The object is kept
+  and its resources removed. Rare type; the general fix is "do not keep an
+  object one of whose read entries was not attributed".
+- *The open marker* is written without the lock after a 10 s wait. It now
+  decides whether a save may remove blob files another process reads in
+  place.
+- *A kept file is trusted on `Document.xml`'s stamp alone*: an object file
+  restored or deleted by another tool (a VCS checkout, a sync client) is
+  kept as the tool left it.
+- *`FileBlob::_path`* is rewritten on a materialized blob (`copyIn`,
+  `settleInPlace`) while the header says it is read without the lock.
+- *`syncFiles`* terminates the process if a thread cannot be created
+  part way. macOS `fsync` is not durable without `F_FULLFSYNC`.
+- *Windows*: a reader holding `Document.xml` open fails the commit's last
+  rename. `DiskStamp` has no file id. Case-only spellings may be two
+  documents.
+- *`HasherIndex`* is not in the keep comparison.
+- *The check* (`FC_TXNLOG_CHECK_FOLDER`) does not compare `sqlite_sequence`
+  or `session.closed`. 38.9's "a trim is not covered" invites reading F3's
+  difference as trim noise.
+
+**Found sound:** the commit order and the crash recovery at every step;
+every lock's release on an exception; the conflict dialog runs off the
+lock (queued); the lock's create/delete race; the change record's
+all-or-nothing apply, every table keyed; `FolderTrack` after a failed or
+abandoned save (the next save copies whole); map-id uniqueness within a
+save; the congruence cache's reuse (both shapes `IsEqual`); the merged
+signatures.
+
+**Proposed fixes** (none built):
+
+| | Fix | Size |
+| --- | --- | --- |
+| F1 | Keep an object or view provider with a Python proxy only when its serialised proxy (`dumps()`, else `__getstate__()`, else `__dict__`, as `PropertyPythonObject::toString` writes it) is what the kept file holds: compared at the save, the call every save made before 38.12. Nothing goes into the log: a proxy's attribute was never undoable, and stays unrecorded (user, 2026-10-26) | small |
+| F2 | `slotSaveDocument`: note each linking object changed (`noteSavedChange`) when the path or stamp it saves moved | small |
+| F3 | After an updated copy's retention, work out what travels against the live store; when the copy lacks any of it, make the copy whole | small |
+| F4 | `rollForward` refuses a record line that is absolute or whose clean path leaves the folder, and the record with it | small |
+| F5 | `saveToLog` takes the save lock before it reads, for both forms | small |
+| F6 | Each copy carries its own `copy_id`; the folder guard compares it, not the save id | moderate |
+| F7 | Keep the path a pending pull came from; a save to another path, or with the file gone, merges the branch without copying | small |
+| F8 | `save()` always takes the lock; only the pull depends on the preference | small |
+| F9 | `_saveFolderHistory` passes `SaveTrigger::current()` | one line |
+| P | The path identity group: lock and marker names from the canonical path, `canonicalPath` resolving the nearest existing parent, `cleanPath` in `beside()` | small |
+
+**Recommended:** F1-F9 and P now, each with a test that fails without it
+(the probe's three cases become `FolderSaveCases` tests). The others stay
+recorded here until a case shows.
+
+**Gates** (round merge, on the merged tree, before any fix): 25 GUI
+checks; Python 3905 OK and C++ 1018/1018 with freeze on and off; driven 326
+of 329. The three failures repeat when run alone, and none touches code
+this branch changed (beyond LinkVibe, the merged tree adds only App code,
+38.14's view-provider files and the lld preset):
+- `GuiTechDrawTreePickSwitchesPage` (new from LinkVibe, 9a464c8819): after
+  PageA's and PageB's views are opened, only PageB's is open.
+- `GuiSpreadsheetScrollBarsBesideOverlay` (new, a19fb686e7): the laid-over
+  scroll bars stand under the overlaid docks.
+- `GuiViewCellDragCancelAndLook` (passed in s38k): "a scroll bar of the
+  sheet runs through a corner" finds no bars, which a19fb686e7's
+  laid-over bars, hidden after a moment, would explain.
+Not chased: they look like LinkVibe's on this box, unconfirmed by a
+LinkVibe build.
+
+### 38.22 38.21's fixes as built; the merge's three GUI failures chased (2026-10-26)
+
+**Ruling (user, 2026-10-26):** "Push. Go ahead for the fix then chase the
+failed test". On F1, before it: "those changes are never undo/redoable in
+the past. so it is correct for us to not record it in transaction log".
+Nothing of a proxy goes into the log; F1's check is at the save only.
+
+**As built:**
+
+| | Where | What |
+| --- | --- | --- |
+| F1 | `PropertyPythonObject::stateOf`, `Document` (the keep decision, `_takeFolderRead`), Gui `viewHead` | An object's Python objects as Save writes them (`dumps()`, else `__getstate__()`, else `__dict__`; what Save skips is skipped, so `ViewObject`, on every object, is not in it). An object is kept only while that is what it last wrote (`FolderState::proxies`); after an open, what the restore gave back is taken for it. A view provider's goes into its head, so a view file is kept the same way; a head read from a file has none, so a view provider with a proxy is written by the first save after an open. Logged as "its proxy's state differs". |
+| F2 | `PropertyLinks.cpp`, `DocInfo::slotSaveDocument` | A save of the linked document notes each linking object changed (`noteSavedChange`): the path and stamp it saves moved. |
+| F3 | `TransactionLog.cpp`, `travelling()` (out of `finishEmbed`) and `embedFolder` | After the record is applied to the folder's copy: every version that travels by the live store's rule must be in the copy, a value kept since must have its entity, and no object may have been kept since. Otherwise the copy is made whole (the existing fallback). |
+| F4 | `FileElsewhere.cpp`, `rollForward` | A `remove` line that is absolute, leaves the folder (`..`), or holds `\` or `:` makes the record no record: the stage is thrown away, with a warning. |
+| F5 | `Document::saveToLog`, `_saveFolderHistory` | The save lock from before the read to after the rewrite; a folder's cut-short save settled first. The folder's stamp is taken again after the commit only when it was still the one this document last wrote. |
+| F6 | `TransactionLog` (`FolderTrack::copyId`, `pendingCopy`) | Each folder copy carries `copy_id` in its meta, a new uuid per copy; it is taken over at `folderSaved`, read back at an open, and compared by the guard besides the save id. A copy without one (an older folder) is made whole once. The check's whole copy gets the same token. |
+| F7 | `Document::save`, `DocumentP::pullFile` | A pending pull remembers its file. A save to another file, or with that file gone, lets it go with a warning: the branch stays in the log, to merge by hand. |
+| F8 | `Document::save` | The save lock is taken on every save; only the pull depends on `TransactionLogPullOnSave`. |
+| F9 | `Document::saveToLog`, `_saveFolderHistory` | Both history-only saves pass `SaveTrigger::current()`. |
+| P | `FileHistory::canonicalPath`, `beside()` | A path is cleaned first (a trailing slash dropped); one not there yet has its existing folder resolved. The lock, the open marker and the stage are named beside the canonical path. |
+
+**Tests** (each new one fails without its fix where shown; `FolderSaveCases`
+28 of 28 with `FC_FOLDER_SAVE_CHECK` on and off,
+`TransactionTwoProcessCases` 11 of 11):
+- F1 `testAProxysOwnStateIsWrittenNotKept`: the proxy's state set by
+  attribute, a box edited, saved: both written; edited again: the scripted
+  object kept; reopened with the state. The probe before the fix: 0 for 7.
+- F2 `testALinkIsWrittenWhenTheFileItLinksIntoMoves`: the linking file names
+  the folder the linked one was saved as. The probe before: the old one.
+- F3 `testAVersionThatTravelsAgainComesBackIntoTheFolder`: keep 1 for four
+  saves, then 10: the folder's history holds every version the store has,
+  and the copy was made whole. The probe before: 3 of 6.
+- F4 `testASaveRecordNamingAFileOutsideIsThrownAway`: a record naming
+  `../victim.txt`: the file stays, the stage goes, the folder opens.
+- F6 `testAFolderSavedToItsHistoryElsewhereIsCopiedWhole` (two processes):
+  the other saves to its history alone; this one's next save makes its copy
+  whole and reopens.
+- F7 `testASaveAsAwayFromAPullConflictIsNotHeldByIt` (two processes): after
+  a conflict, a save-as to another folder goes through and reopens with ours.
+- F5, F8, F9 and P have no test of their own: F5 and F8 need two saves
+  racing for the lock, and P a symlinked path. The gates run them.
+- Not shown failing without the fix: the tests of F4, F6 and F7 (the probe
+  covered F1-F3 only).
+
+**The three GUI failures of the merge (38.21).** None was this branch's.
+8d69a9e4aa ("every driven GUI test run starts from a fresh profile", come
+with the merge) clears a test's profile before each run; before, its work
+directory kept the `user.cfg` its earlier runs left. What that profile
+held when they passed for their authors is not known here. With defaults, `UseViewArea` is on:
+- `GuiSpreadsheetScrollBarsBesideOverlay`: **a defect of a19fb686e7.** In a
+  view area the sheet's viewport begins below the docks' top, so a side
+  dock reached its top edge and was taken for a dock at the top too
+  (`OverlayScrollBars::place`); with the bottom dock that left the bars no
+  room, and they went back to the area's edges, under the docks. A cover at
+  a corner is now on the side it runs more of the area along. 8 of 8; the
+  bars stand at x 1120 beside the right dock at 1130, and at y 743 above
+  the bottom one at 753.
+- `GuiTechDrawTreePickSwitchesPage`: the test's premise. In a view area the
+  second page's view takes the first one's cell (the reuse step,
+  `ViewPlacement.cpp`, ruled 2026-08-28), so the first is closed, not
+  behind. The test now turns `UseViewArea` off for its run and puts it
+  back. 7 of 7.
+- `GuiViewCellDragCancelAndLook`: the test's premise. Its scroll scenario
+  needed a sheet bar standing in a cell's corner; since a19fb686e7 a sheet's
+  (and a drawing page's) bars are laid over and hidden until used. The
+  precondition is now a note, and the scenario checks that the zones keep
+  their corners. 93 checks, none failing.
+
+**Gates** (round s38l): 25 GUI checks; Python 3911 OK and C++ 1018/1018
+with freeze on and off; driven 329/329; the suite with
+`FC_FOLDER_SAVE_CHECK=1` 3911 OK.
+
+### 38.23 A view cell's handles keep their corners over laid-over bars (2026-10-26)
+
+**Ruling (user, 2026-10-26),** on 38.22's open question -- a laid-over
+scroll bar, shown, can stand where a view cell's corner handle is: "Cells
+drag handle takes priority."
+
+**As built:** `ViewAreaCell::placeChrome` no longer moves a zone aside for a
+bar laid over the view (`OverlayScrollBars`); it still does for a view's own
+bars, which stand there for good. It hands the menu button's and the two
+zones' rectangles to each such area's bars (`OverlayScrollBars::keepClear`),
+and a bar that would run under one stops short of it at the end it is
+nearer; one left shorter than three of its thickness is not shown. A view
+taken out of its cell (`releaseView`) has its bars run to its corners again.
+Before, a zone moved aside each time the bars showed, and back as they
+faded.
+
+**Test:** `GuiTechDrawPageOverlayScrollBars` puts its page in a view cell
+(`UseViewArea` on for the run): shown, the bars leave the zones in their
+corners, run under neither, and stop just short of them (x 14, y 14).
+Without the fix it fails: the zones stood at x 402 and y 557, not 413 and
+568, and the bars ran to 1. `GuiViewCellDragCancelAndLook`'s scroll scenario
+now scrolls the sheet so that its bars show and checks the zones did not
+move; a sheet's bars stand in from the cell's edges past its headers, so it
+does not reach the case, and it passes without the fix too.
+
+**Gates** (round s38m): 25 GUI checks; Python 3911 OK and C++ 1018/1018
+with freeze on and off; driven 329/329.
+
+## 39. Audit of the whole implementation (2026-10-27)
+
+**Asked (user, 2026-10-27):** "Do a full audit for Transaction
+implementation. Give me report using concise words". Then, on the report:
+"agree. go ahead" -- the sixteen recommended fixes -- and a design document
+to stand beside this journal (`docs/TransactionLogDesign.md`).
+
+Six read-only passes, one per area (recording and replay; versions,
+branches and merge; the store and the file history; the document's saves,
+folders and two processes; linked sets, UIDs and paste; the Gui panel and
+the browser server), each told what 37.2, 37.7 and 38.21 had ruled. A fuzz
+of the 85 Python entry points with 13 bad-argument shapes each: no crash
+(`setHistoryRetention(-1)` is the designed "whole history"). Every finding
+was run as a probe or traced to its lines; the severe ones not probed were
+read again by hand.
+
+### 39.1 Found, and fixed
+
+| | What | Fix |
+| --- | --- | --- |
+| D1 | A save-as or a copy onto the folder of another open document of this process pruned the blob files that document reads in place (the open marker leaves this process's own line out); it could not be saved anywhere after. | `saveAs` and `saveCopy` refuse a file another open document of this process is (`refuseOtherDocumentOfFile`): "document X has '...' open: close it first". |
+| D2 | A document recovered from the log never pulled: `recoverFromLog` restores with no file name, so no disk state was noted, and the first save wrote over what another process had saved meanwhile. | After the replay the file's state is noted and the open marker added. A save this history made is where it was left; any other is taken as moved, so the first save pulls. |
+| D3 | `saveToLog` of an archive deleted the file, then renamed the rewrite over it: a kill between left only `<name>.FCStd.<uuid>`. | One `std::filesystem::rename` over the file (MoveFileEx on Windows). |
+| V1 | A branch delete evicted a version on it that a link of another file pins (`pins` was never read), against 16.7. | Kept, named "kept from <branch>": a pinned version, a fork, and one at a row another branch's history holds. `TransactionLog::pinnedVersions()` reads `pins` (travelling() uses it too). |
+| V2 | trim, delete and squash took the version a version document stands on; its first commit then forked from a row that was gone, and a switch to that branch emptied the document. | All three refuse what another open document of the file stands on (`otherStandingOn`): a branch head among the rows, or a version document's version among the versions evicted. A version document whose version stays is left alone: the version is whole. `_checkoutHead` with no version on the chain and a chain that does not reach row 0 throws instead of emptying the document. |
+| V3 | `previewTransactionMergeResult(..., again)` closed any open document of that name. | Only a result this document made is closed. |
+| V4 | `openTransactionBranch` named no fork version; eviction dropped it and `from_version` named nothing. | `forkHere` names it "branch <name>", as `createBranch` does (17.1). |
+| V5 | `nameTransactionVersion(n, "")` un-named a version a pin, a branch or a trim stands on; the next eviction removed it. | Refused, saying which: "a link of another file pins it", "a branch was made from it", "the history before it was trimmed". |
+| L1 | A linked set's file outside their top folder (a library beside both) got `write_to` = their own file; "Write over it?" rewrote it. | Such a file goes under `_external/` in ours, as the export lays it out; a write onto any file of their set is refused. |
+| L2 | A link's `heldpath`, read from the file, was joined under `held/` unchecked: `..` wrote a held file's bytes anywhere. | `writeHeldFile` refuses a path that is absolute, has `..`, or holds `\` or `:` (as 38.22 F4 does for a save record). |
+| L3 | `writeTransactionSentFile`, `keepTransactionSentFile` and `mergeLinkedSet`'s `write_to` took no host-path gate; `saveAs` does (Sandbox 7.29). | `checkHostPath` with fs.write / fs.read at the three. |
+| C1 | A row that removed a dynamic property and added one of its name and type: the hot undo was right, a cold undo, a replay and a fold lost it (ops in hash-map order; step 2 took the added one for the removed one, step 4 removed it). | `onCommit` emits a container's removals first; `_applyRevert` keeps the re-added property (step 4 leaves it) and restores the removed one's value into it. |
+| S2 | Row numbers had no counter: after a merge roll-back or a branch delete removed the newest rows, a reopen handed a removed number out again (`inverts`, `merge_from`, `version.seq` name rows by it). | The store keeps `seq_counter` in meta before rows are deleted; `lastSeq()` is the larger of it and MAX(seq). |
+| L4 | Undo of a set's Take theirs put the documents back, but its records stood: the set was no longer pending and the branch read as merged. | `undoneMergeAtHead` takes a restore followed by a no-ops merge record (Take theirs) as a merge; the "Merged set" record carries its step and the files it changed, and `pendingSets` reads a set whose step stands undone in any of them as pending. Keep ours writes only a record and stays decided. |
+| G1 | Browser uploads in pieces: every serving process wrote `<temp>/BrowserUploads.pieces/<n>.part` from a counter at 1, and cleared every `*.part` at its first use. | A folder per process (`.../BrowserUploads.pieces/<pid>`). |
+| G2 | After a save conflict in a document not active, the panel showed it without activating it; reading a let-go shape opens a document, the activation signal put the panel back on the active one, and `_values` was cleared under `TransactionDiffBar::update()`'s loop. | `mergeSaved` makes the document active; `update()` iterates a copy. |
+
+**Tests** (`TransactionAuditCases`, src/Mod/Test/Document.py, 12): one per
+fix except D3, L3, G1, G2. D3's window needs a kill between two calls; L3
+is the same gate as `saveAs`, which `SandboxHostFiles` covers through a
+guest; G1 needs two serving processes; G2 a Gui session with a conflict.
+Each of the twelve failed before its fix: run against the App library
+built without the fixes, 11 failed at once; S2's first test passed (the
+branch delete writes a row of its own after the removed ones), and was
+replaced by the path the audit named -- a merge undone, rolled back, the
+document saved as another file, a commit: the new rows took numbers 10
+and 11 again.
+
+### 39.2 Found, left
+
+Each is real and small, and waits for a case or a ruling:
+
+- **Versions:** a failed branch switch or create leaves the undo and redo
+  stacks cleared (`_arriveOnBranch` not run in the catch).
+- **Recording:** a write that lands in no transaction (Visibility is
+  NoModify; Legacy, DerivedViewWrites, bookkeeping) is not forgotten by the
+  log, so the next compose-mode snapshot claims the old value;
+  `TransactionLogVerify` (off) is what catches it. A hand write whose
+  before value is a derived one cannot be undone from the log once the
+  cache budget evicts that value (an entity's tier is the first writer's).
+  A version document's first change has no recompute row (`onRecompute`
+  returns on `_branch == 0`). A failed version write leaves claims with no
+  hash until the next save. A cold revert that fails on one op is still
+  committed as the undo step.
+- **Store:** `commit()` ignores `rollForward()`'s refusal (latent: no
+  staged name can trip it today). `canonicalPath` resolves only one missing
+  parent (38.22 P, narrower). A recovered folder document reads blobs in
+  place with no open marker. SELECT errors read as "no row" (`adoptEmbedded`
+  and `recover` would take a live store for empty). The lock file stays
+  when the marker was never written.
+- **Saves:** a marker line of a crashed opener on another host is never
+  aged: the folder is "not alone" for ever. A stale conflict on one document
+  silences another's save error (Gui/Document.cpp). `TransactionTwoProcessCases`
+  is defined twice in Document.py; the first copy never runs.
+- **Sets:** a set is recorded merged when one file's merge threw; a set of
+  folder documents cannot be imported (the planner wants archives); a copy
+  spanning two documents pasted back into its source asks about clashes
+  with itself.
+- **Gui and server:** selecting an op reads its shape two or three times
+  and computes its volume on the GUI thread, and `log.value` does the same
+  per call for any reader; `refreshKept` runs a query per kept value on
+  every commit; four idle writers can hold the four staged-upload slots; a
+  save conflict while a preview is open is not queued.
+
+**Found sound** (the parts worth naming): store handles, migration,
+WAL embed, the lock race, the fsync order, `rollForward` resumed, 38.22
+F4; the commit order and the keep decision; the fixes of 38.22; 37.8's
+refusals; the paste clash asked before the transaction (37.2's modal item
+is closed); UID and owned-object rules; the preview bound to its document;
+the pinned greying; upload order, resume and limits; served trim, squash
+and delete host-only; property ids never reused; the copy cache's
+ownership.
+
+**Gates** (round s39): 25 GUI checks; Python 3923 OK and C++ 1018/1018
+with freeze on and off; driven 328/329. The request check failed one of 57
+as the round ran it: it looked for the pieces in the old shared folder;
+pointed at this process's folder, 57 of 57. The driven failure,
+`GuiOmniSearchRecentItems` ("picking the parameter's row opens its
+editor"), passes alone; nothing here touches the search.
+
+### 39.3 Five of 39.2 fixed, and two panel costs (2026-10-27)
+
+**Asked (user, 2026-10-27):** "go" -- on the next steps proposed: the
+items of 39.2 that can still leave wrong data, then the panel's costs.
+
+| | What | Fix |
+| --- | --- | --- |
+| C2 | A write in no transaction was not forgotten by the log, so the next composed snapshot claimed the value last recorded. `Visibility` is the plain case: it is `NoModify`, no write of it opens a transaction, and the create's value was claimed for ever. | `Document::onBeforeChangeProperty` calls `forgetValue` for a write that lands in no transaction -- or is bookkeeping -- outside an undo, a replay or a checkout. |
+| C3 | An entity's tier is its first writer's: the before of a hand write over a computed value stayed in the cache tier, and the budget dropped it; the hand row then could not be undone from the log. | `evictTier` holds every value a row by hand (`derived` not 1) names, whatever its tier. |
+| S5 | A read that failed (I/O error, damaged page, busy past the timeout) was taken for "no row": `lastSeq` 0, `getMeta` empty, and `adoptEmbedded` or `recover` then took a live store for empty and deleted it. | `stepRow()` in the SQLite store: a row, the end, or a throw. Every read uses it (67). |
+| D4 | A marker line of a process of another computer that ended without closing was never dropped: the folder was never alone again, its blob files never pruned, its lock file never removed. | A marker line carries when it was last seen (a fourth field; older builds read the first three); a process's line is seen again at each save; a line of another computer not seen for `FileOpenerExpiryDays` (30; 0 keeps every line) is taken as gone, with a warning. |
+| D6 | `TransactionTwoProcessCases` held a 200-line block twice; the first copy never ran. | Deleted. |
+| G3 | Selecting an op read its value two or three times and built and measured a shape on the GUI thread at every click; the served `log.value` the same at every call. | A ref names its bytes, so what is said of it never changes: `App::summariseValue(doc, ref, ...)` remembers the newest 512 summaries; the value pane keeps the newest 64 texts, and reads under a wait cursor. |
+| G4 | The Kept list asked the store once per value of each kept object at every commit, recompute, undo and redo, shown or not. | Hidden, the tab shows only the count; the lines are built when it is shown. |
+
+`testAnotherOpenerKeepsTheNamesItMayRead` wrote another process's line
+opened at time 1 (1970), which D4 now takes as gone; it writes the time
+now.
+
+**Tests** (in `TransactionAuditCases`): C2, C3 and D4, each failing on the
+build before the fixes. C2's checks what the version holds, not what a
+restore makes of it: a restore leaves `Visibility` alone (view state). S5
+has none: it needs a read that fails.
+
+### 39.4 Keep ours under undo (ruled 2026-10-27)
+
+**Asked (user, 2026-10-27):** "let's rethink 'Keep ours under undo'".
+Keep ours wrote a record into the file's history that took their branch in
+(35.11), and a record is no undo step: undoing the set merge left it, so
+after 39.1 L4 the set came back pending with that file's branch still
+counted merged -- a Merge of it the second time brought nothing. **Ruled:
+undone with the rest** -- the set merge is one step, so undoing it leaves
+every file undecided, Keep ours included.
+
+**As built:** the Keep ours and Take theirs records carry the set's step.
+A merge of a set whose last merge stands undone (its step undone in the
+top or in a file it changed, as `pendingSets` reads it) first calls
+`Document::rollBackSetDecision(step)` on each file: the record of that
+step leaves the log with the records after it and the unnamed versions
+taken at them, the branch head put back on the row before it -- the way
+`_rollBackUndoneMerge` takes out an undone merge. A file changed since the
+record, or one where something stands on those rows (another document's
+cursor, a named version, a branch), keeps it, and a Merge of that file is
+refused: "Keep ours took its branch in, and the file was changed since:
+Take theirs, or pick the branch's rows". A set where every file was Keep
+ours changed nothing and has no undo step: to choose again, the set is
+imported again.
+
+**Test:** `testUndoOfASetMergeTakesItsKeepOursBack` -- Keep ours, the merge
+undone, merged again with Take theirs: the Keep ours record is gone and the
+part is theirs.
+
+`FileElsewhereTest.theOpenMarkerSaysWhoElseHasTheFile` wrote another
+computer's line dated 2023, which D4 takes as gone: it writes the time now,
+and a line 40 days old beside it that must not be listed.
+
+**Gates** (round s39c): 25 GUI checks; Python 3927 OK and C++ 1018/1018
+with freeze on and off; driven 329/329. Round s39b, on 39.3 alone, had the
+two fixtures above fail, and the unfrozen Python suite crashed once in
+`TestFilletSlivers.testBaseOutsideTheBody` (SIGSEGV in
+`GeoFeatureGroupExtension::getGroupOfObject` from a recompute: a dangling
+object, the signature a7e36a7e74 took the trigger of away). Alone, three
+times, and in the whole suite twice since, it passed: one in three runs.
+
+Chased after (PartDesign's, not the log's): `MALLOC_PERTURB_=165` makes it
+crash every time, alone, with the freeze off. Removing a fillet clears its
+link properties one by one (`PropertyLinkBase::breakLinks`), `Corners`
+before `Base`; `Fillet::onChanged` saw `Corners` empty and `Base` still
+set, and linked `Corners` to the Base's object again. That link was never
+taken back, so the deleted fillet stayed in the FeatureBase's InList, and the
+next recompute's `getGroupOfObject` walked it. The freeze only decides
+whether the freed memory is reused before that walk. `Fillet::onChanged` no
+longer relinks while the fillet is being removed (`App::Remove`). The test now
+also asserts the FeatureBase's InList is the body's two links: that fails on
+the old build every time, with the freeze on or off.

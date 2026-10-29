@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 27.7: a version of a file opened
+# GUI check of docs/TransactionLogJournal.md sec 27.7: a version of a file opened
 # as a document of its own in the running application -- shown beside the
 # document it came from, on the file's one log, read-only as a partial
 # document is when saving, and made a branch by its first change. One GUI

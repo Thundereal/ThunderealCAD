@@ -344,7 +344,19 @@ def edge2_colour(view, name):
     if img is None:
         return None, err
     x, y = view.getPointOnViewport(FreeCAD.Vector(20, 22, 0))
-    return QtGui.QColor(img.pixel(int(x), int(img.height() - 1 - y))), ""
+    # the edge's own pixel within one of the point: where a fit puts a 2 px
+    # line on the pixel grid moves with the scene's bounds (a datum label's
+    # border), and the pixel the point falls in can be its antialiased side
+    w = state["want"]
+    want = QtGui.QColor.fromRgbF(w[0], w[1], w[2])
+    px, py = int(x), int(img.height() - 1 - y)
+    near = [
+        QtGui.QColor(img.pixel(i, j))
+        for i in range(px - 1, px + 2)
+        for j in range(py - 1, py + 2)
+        if 0 <= i < img.width() and 0 <= j < img.height()
+    ]
+    return min(near, key=lambda c: dist(c, want)), ""
 
 
 def near_want(c):

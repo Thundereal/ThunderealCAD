@@ -25,10 +25,13 @@
 # include <QTreeWidget>
 # include <QCheckBox>
 # include <QPushButton>
+# include <QHeaderView>
+# include <QSignalBlocker>
 #endif
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <Base/Tools.h>
 
 #include <Base/Console.h>
 #include "DlgObjectSelection.h"
@@ -154,6 +157,19 @@ void DlgObjectSelection::init(const std::vector<App::DocumentObject*> &objs,
             setItemState(obj, Qt::Unchecked);
     }
     onItemSelectionChanged();
+
+    // What a listed object owns goes with it (docs/TransactionLogJournal.md sec
+    // 37.9): a body's origin is copied with the body or not at all
+    for (const auto& v : itemMap) {
+        auto obj = v.first.getObject();
+        if (!obj)
+            continue;
+        for (auto owned : obj->getOwnedObjects()) {
+            if (owned && itemMap.count(owned) && !ownedBy.count(owned))
+                ownedBy[owned] = obj;
+        }
+    }
+    applyOwnedRules();
 
     /**
      * create useOriginalsBtn and add to the button box
@@ -400,6 +416,20 @@ void DlgObjectSelection::onDepItemChanged(QTreeWidgetItem * depItem, int column)
 }
 
 void DlgObjectSelection::onObjItemChanged(QTreeWidgetItem * objItem, int column) {
+    if (pasteMode && column == 1 && !applyingRules) {
+        // Assign, or not: the rest of the rules follow (sec 37.9)
+        if (auto obj = qvariant_cast<App::SubObjectT>(objItem->data(0, Qt::UserRole)).getObject()) {
+            if (objItem->checkState(1) == Qt::Checked) {
+                pasteAssigned.insert(obj);
+                if (!included(obj))
+                    setItemState(obj, Qt::Checked, true);
+            }
+            else
+                pasteAssigned.erase(obj);
+        }
+        applyPasteRules();
+        return;
+    }
     if(column != 0)
         return;
 
@@ -528,6 +558,10 @@ void DlgObjectSelection::checkItemChanged() {
 
     itemChanged.clear();
     updateAllItemState();
+    if (pasteMode)
+        applyPasteRules();
+    else
+        applyOwnedRules();
 }
 
 QTreeWidgetItem *DlgObjectSelection::createDepItem(QTreeWidget *parent, App::DocumentObject *obj)
@@ -669,6 +703,206 @@ void DlgObjectSelection::onAutoDeps(bool checked)
             setCheckState(i, state);
     }
     onItemSelectionChanged();
+}
+
+void DlgObjectSelection::applyOwnedRules()
+{
+    if (applyingRules || ownedBy.empty())
+        return;
+    Base::StateLocker guard(applyingRules);
+    QSignalBlocker blocker(ui->treeWidget);
+    // To a fixpoint: an origin follows its body, its axes the origin
+    for (int round = 0; round < 32; ++round) {
+        bool changed = false;
+        for (const auto& [owned, owner] : ownedBy) {
+            const bool in = included(owner);
+            if (included(owned) != in) {
+                setItemState(owned, in ? Qt::Checked : Qt::Unchecked, true);
+                changed = true;
+            }
+        }
+        if (!changed)
+            break;
+    }
+    for (const auto& [owned, owner] : ownedBy) {
+        if (auto item = getItem(owned)) {
+            item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable);
+            item->setToolTip(0, tr("Owned by %1: goes with it")
+                                    .arg(QString::fromUtf8(owner->Label.getValue())));
+        }
+    }
+    updateAllItemState();
+}
+
+bool DlgObjectSelection::included(App::DocumentObject* obj) const
+{
+    auto it = itemMap.find(obj);
+    return it != itemMap.end() && it->second[0]->checkState(0) != Qt::Unchecked;
+}
+
+void DlgObjectSelection::setPaste(App::Document* target,
+                                  const std::map<App::DocumentObject*, App::DocumentObject*>& pairs)
+{
+    pasteMode = true;
+    pastePairs = pairs;
+    useOriginalsBtn->hide();
+    // What each listed object owns, and -- the owner paired -- the one
+    // there it stands for, down the chain (an origin, then its axes)
+    std::vector<std::pair<App::DocumentObject*, App::DocumentObject*>> owners;
+    for (const auto& v : itemMap) {
+        if (auto obj = v.first.getObject())
+            owners.emplace_back(obj, nullptr);
+    }
+    for (std::size_t i = 0; i < owners.size(); ++i) {
+        auto [owner, live] = owners[i];
+        if (!live) {
+            auto it = pastePairs.find(owner);
+            live = it != pastePairs.end() ? it->second : nullptr;
+        }
+        for (auto owned : owner->getOwnedObjects()) {
+            if (!owned || !itemMap.count(owned) || pasteOwned.count(owned))
+                continue;
+            PasteOwned o;
+            o.owner = owner;
+            if (live) {
+                o.live = owner->getOwnedCounterpart(owned, live, o.how);
+                // Content found here by its own UID follows the owner onto it
+                if (!o.live) {
+                    auto it = pastePairs.find(owned);
+                    if (it != pastePairs.end()) {
+                        o.live = it->second;
+                        o.how = App::OwnedPaste::FollowOwner;
+                    }
+                }
+                if (o.live && o.live->getDocument() != target)
+                    o.live = nullptr;
+            }
+            pasteOwned[owned] = o;
+            if (o.live)
+                owners.emplace_back(owned, o.live);
+        }
+    }
+    ui->treeWidget->setColumnCount(2);
+    ui->treeWidget->headerItem()->setText(1, tr("Here"));
+    ui->treeWidget->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    {
+        QSignalBlocker blocker(ui->treeWidget);
+        for (const auto& [brought, live] : pastePairs) {
+            auto item = getItem(brought);
+            if (!item || pasteOwned.count(brought))
+                continue;
+            item->setText(1, tr("Assign to %1").arg(QString::fromUtf8(live->Label.getValue())));
+            item->setToolTip(1, tr("Checked: %1 there takes the state brought, and what is "
+                                   "brought refers to it. Unchecked: a new object beside it. "
+                                   "Left out (the first check): what is brought refers to "
+                                   "%1, as it is.")
+                                    .arg(QString::fromUtf8(live->Label.getValue())));
+            item->setCheckState(1, Qt::Unchecked);
+        }
+    }
+    setMessage(tr("Some of these objects are in %1 already. Unchecked: left out -- what is "
+                  "brought refers to the one there, or to nothing. Assign: the one there "
+                  "takes the state brought. What an object owns (an origin) follows it.")
+                   .arg(QString::fromUtf8(target->Label.getValue())));
+    applyPasteRules();
+}
+
+void DlgObjectSelection::applyPasteRules()
+{
+    if (applyingRules)
+        return;
+    Base::StateLocker guard(applyingRules);
+    QSignalBlocker blocker(ui->treeWidget);
+    auto setAssign = [this](App::DocumentObject* obj, bool on) {
+        if (on ? !pasteAssigned.insert(obj).second : !pasteAssigned.erase(obj))
+            return false;
+        if (auto item = getItem(obj))
+            if (!item->text(1).isEmpty())
+                item->setCheckState(1, on ? Qt::Checked : Qt::Unchecked);
+        return true;
+    };
+    auto setIncluded = [this](App::DocumentObject* obj, bool on) {
+        if (included(obj) == on)
+            return false;
+        setItemState(obj, on ? Qt::Checked : Qt::Unchecked, true);
+        return true;
+    };
+    // To a fixpoint: an owner's choice decides what it owns, which may own
+    // in turn; an assignment reaches down the dependencies.
+    for (int round = 0; round < 32; ++round) {
+        bool changed = false;
+        // 1. What is owned follows its owner.
+        for (const auto& [owned, o] : pasteOwned) {
+            const bool ownerIn = included(o.owner);
+            const bool ownerAssigned = pasteAssigned.count(o.owner) != 0;
+            auto above = pasteOwned.find(o.owner);
+            const bool ownerPaired = pastePairs.count(o.owner)
+                || (above != pasteOwned.end() && above->second.live);
+            bool in = false, assign = false;
+            if (ownerPaired && (ownerAssigned || !ownerIn)) {
+                // The owner is the one there, assigned or kept: its own is
+                // the one there too -- kept, or assigned with it.
+                if (o.live && o.how == App::OwnedPaste::FollowOwner && ownerAssigned)
+                    in = assign = true;
+                else if (!o.live)
+                    in = ownerIn;
+            }
+            else
+                in = ownerIn;   // duplicated with it, or left out with it
+            changed = setIncluded(owned, in) || changed;
+            changed = setAssign(owned, assign) || changed;
+        }
+        // 2. One an assigned object depends on, there too, is assigned or
+        // left out: duplicated, the live one would refer to a new one and
+        // the old one would be left to nothing (37.7 item 10, ruled).
+        for (auto obj : std::vector<App::DocumentObject*>(pasteAssigned.begin(),
+                                                          pasteAssigned.end())) {
+            if (!included(obj)) {
+                changed = setAssign(obj, false) || changed;
+                continue;
+            }
+            for (auto dep : obj->getOutListRecursive()) {
+                if (pastePairs.count(dep) && !pasteOwned.count(dep) && included(dep))
+                    changed = setAssign(dep, true) || changed;
+            }
+        }
+        if (!changed)
+            break;
+    }
+    // The rows a rule decides say so, and are not checked by hand
+    for (const auto& [owned, o] : pasteOwned) {
+        auto item = getItem(owned);
+        if (!item)
+            continue;
+        item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable);
+        const QString owner = QString::fromUtf8(o.owner->Label.getValue());
+        if (o.live && !included(owned))
+            item->setText(1, tr("%1 there, kept (owned by %2)")
+                                 .arg(QString::fromUtf8(o.live->Label.getValue()), owner));
+        else if (o.live && pasteAssigned.count(owned))
+            item->setText(1, tr("Assigned to %1 (owned by %2)")
+                                 .arg(QString::fromUtf8(o.live->Label.getValue()), owner));
+        else
+            item->setText(1, tr("Follows %1, which owns it").arg(owner));
+    }
+    updateAllItemState();
+}
+
+std::map<App::DocumentObject*, App::Document::ImportTake> DlgObjectSelection::getTakes() const
+{
+    std::map<App::DocumentObject*, App::Document::ImportTake> takes;
+    for (const auto& v : itemMap) {
+        auto obj = v.first.getObject();
+        if (!obj)
+            continue;
+        if (v.second[0]->checkState(0) == Qt::Unchecked)
+            takes[obj] = App::Document::ImportTake::Exclude;
+        else if (pasteAssigned.count(obj))
+            takes[obj] = App::Document::ImportTake::Assign;
+        else
+            takes[obj] = App::Document::ImportTake::Duplicate;
+    }
+    return takes;
 }
 
 void DlgObjectSelection::onShowDeps()

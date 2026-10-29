@@ -123,6 +123,13 @@ public:
     /// whether or not it also has a file.
     bool inPack() const;
 
+    /** Whether the file is the document's folder's, read where it is
+     * (docs/TransactionLogJournal.md sec 38.9): the store never deletes it or
+     * changes its permissions, and copies it in before a save takes it
+     * away or the document leaves the folder.
+     */
+    bool inPlace() const;
+
     /// Whether the content is stored under this extension. Never writes a file.
     bool hasExtension(const char* ext) const;
     /// The extension the content is stored under, without the dot, empty
@@ -138,7 +145,7 @@ public:
      * A shape file that borrows geometry names the files it borrows from
      * (docs/SharedShapeStorage.md sec 11.5); it cannot be read without them,
      * so whoever keeps it for later -- the transaction log
-     * (docs/TransactionLog.md sec 23.16) -- has to keep them too. The module
+     * (docs/TransactionLogJournal.md sec 23.16) -- has to keep them too. The module
      * that owns a format says how to find them, see
      * FileBlobManager::registerSourceReader(); content with no reader for
      * its extension reads nothing else. Reads the content.
@@ -159,6 +166,9 @@ private:
     /// Whether the content is a pack store member. Set before the blob is
     /// published and never cleared.
     bool _packed {false};
+    /// Read where it is (inPlace()); cleared, under the manager's lock and
+    /// after _path, when the file is copied in.
+    std::atomic<bool> _inPlace {false};
     /** The logical segment holding the member, 0 while it is only in memory.
      *
      * Logical: a merge sends the segments it empties to the one it wrote
@@ -253,7 +263,7 @@ public:
      * A property that keeps the file its value was last written to (a
      * shape after a save, until it changes) answers it here so that a
      * reader wanting a content hash -- the transaction log
-     * (docs/TransactionLog.md sec 20.2, decision 6b) -- can take the hash
+     * (docs/TransactionLogJournal.md sec 20.2, decision 6b) -- can take the hash
      * and hold the blob instead of serialising the value again. Null
      * means "not known": the caller serialises. It must never name a blob
      * whose content differs from the value.
@@ -269,7 +279,7 @@ public:
  * exactly which files the value names -- and the manager's save set, which
  * belongs to whatever save the document runs next, is left alone. The
  * transaction log captures values on its worker thread this way
- * (docs/TransactionLog.md sec 23.16). Nests; the innermost records.
+ * (docs/TransactionLogJournal.md sec 23.16). Nests; the innermost records.
  */
 class AppExport BlobRecorder
 {

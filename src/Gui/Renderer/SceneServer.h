@@ -248,7 +248,7 @@ struct SceneGrant {
     /// with a way to keep or drop them.
     bool liveOnly = false;
     /// How many browsers this grant is for (docs/ShareAccess.md sec 2.5,
-    /// docs/TransactionLog.md sec 30.32). 0, the default: it counts
+    /// docs/TransactionLogJournal.md sec 30.32). 0, the default: it counts
     /// nobody, and is the invitation it always was. More: the grant
     /// admits a connection only with the id its browser keeps
     /// (SceneDevice), enrols the first `maxUsers` of them in `devices`,
@@ -307,7 +307,7 @@ struct SceneClientInfo {
     /// Admitted on an invitation the host issued to this one name: a
     /// token, and a name spelled out rather than a pattern. With no
     /// verified identity it is what lets the connection write
-    /// (docs/TransactionLog.md sec 30.6 U4, U6).
+    /// (docs/TransactionLogJournal.md sec 30.6 U4, U6).
     bool invited = false;
     /// The browser it is (SceneDevice::key); empty when its hello gave no
     /// id. \a enrolled: admitted as one of the browsers its grant counts
@@ -417,7 +417,7 @@ public:
     /// Say whose the shared token is: the one person it was issued to,
     /// by the name their connection gives. The token is then an
     /// invitation to that name, and its holder under that name may
-    /// write (docs/ShareAccess.md sec 2.3, docs/TransactionLog.md sec
+    /// write (docs/ShareAccess.md sec 2.3, docs/TransactionLogJournal.md sec
     /// 30.6 U6); under any other name, or with no invitee set, the
     /// shared token admits to look. Empty (the default) = nobody. No
     /// effect without a token, or while a grant list is the door.
@@ -726,7 +726,7 @@ public:
     /// Install this document's cue that the roster changed -- what
     /// setClientsChangedNotifier is for the sharing UI, for the source
     /// that serves the document: it records who came and who left
-    /// (docs/TransactionLog.md sec 30.6). Fired for every change of any
+    /// (docs/TransactionLogJournal.md sec 30.6). Fired for every change of any
     /// connection, since a connection that left this document for
     /// another is a change of both; the handler reads clients() and
     /// decides. Called on a server thread -- it must marshal itself.

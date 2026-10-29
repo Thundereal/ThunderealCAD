@@ -249,7 +249,7 @@ protected:
         /// shape for its parts writes the shape's cache, and that cache is
         /// shared with every copy of the shape -- m_saveShape among them --
         /// so the worker is handed the parts and asks for nothing
-        /// (docs/TransactionLog.md sec 31.28).
+        /// (docs/TransactionLogJournal.md sec 31.28).
         std::vector<Part::TopoShape> solids;
         Part::TopoShape cuttingTool;
         bool trimAfterCut;

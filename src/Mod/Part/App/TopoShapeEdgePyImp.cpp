@@ -74,6 +74,7 @@
 #include <Mod/Part/App/BSplineCurvePy.h>
 #include <Mod/Part/App/CirclePy.h>
 #include <Mod/Part/App/EllipsePy.h>
+#include <Mod/Part/App/GeomCurveOnSurface.h>
 #include <Mod/Part/App/GeometryPy.h>
 #include <Mod/Part/App/HyperbolaPy.h>
 #include <Mod/Part/App/LinePy.h>
@@ -134,6 +135,19 @@ int TopoShapeEdgePy::PyInit(PyObject* args, PyObject* /*kwd*/)
         if (curve.IsNull()) {
             PyErr_SetString(PartExceptionOCCError, "geometry is not a curve type");
             return -1;
+        }
+        if (auto onSurface = freecad_cast<GeomCurveOnSurface*>(geom)) {
+            // the 2D curve on its surface, not its evaluator, which BRep cannot store
+            try {
+                getTopoShapePtr()->setShape(onSurface->toShape(
+                    first == DBL_MAX ? curve->FirstParameter() : first,
+                    last == DBL_MAX ? curve->LastParameter() : last));
+                return 0;
+            }
+            catch (const Base::Exception& e) {
+                PyErr_SetString(PartExceptionOCCError, e.what());
+                return -1;
+            }
         }
 
         if (first==DBL_MAX)

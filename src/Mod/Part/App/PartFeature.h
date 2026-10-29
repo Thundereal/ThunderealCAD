@@ -392,7 +392,7 @@ public:
                                                        const char *subname = nullptr) const override;
 
     /** The shape another branch had, kept for a reference a merge took
-     * from that branch (docs/TransactionLog.md sec 31.22).
+     * from that branch (docs/TransactionLogJournal.md sec 31.22).
      *
      * A generation as any other, with the property that persists it made
      * at once: the caller fills it. The referrer holds this one and no

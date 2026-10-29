@@ -36,6 +36,7 @@ generate_from_xml(GeometryFacadePy)
 generate_from_xml(ExternalGeometryFacadePy)
 generate_from_xml(ConstraintPy)
 generate_from_xml(SketchPy)
+generate_from_xml(Sketch3DObjectPy)
 
 
 SET(Properties_SRCS
@@ -116,12 +117,27 @@ SET(PlaneGCS_SRCS
     planegcs/Geo.h
     planegcs/Constraints.cpp
     planegcs/Constraints.h
+    planegcs/Geo3D.cpp
+    planegcs/Geo3D.h
+    planegcs/Constraints3D.cpp
+    planegcs/Constraints3D.h
     planegcs/SubSystem.cpp
     planegcs/SubSystem.h
     planegcs/qp_eq.cpp
     planegcs/qp_eq.h
 )
 SOURCE_GROUP("PlaneGCS" FILES ${PlaneGCS_SRCS})
+
+# The 3D sketch (docs/Sketch3D.md); kept out of the precompiled header list.
+SET(Sketch3D_SRCS
+    Sketch3DObject.cpp
+    Sketch3DObject.h
+    Sketch3DObjectPy.xml
+    Sketch3DObjectPyImp.cpp
+    Sketch3DSolver.cpp
+    Sketch3DSolver.h
+)
+SOURCE_GROUP("Sketch3D" FILES ${Sketch3D_SRCS})
 
 SET(SketchModule_SRCS
     AppSketcher.cpp
@@ -134,6 +150,7 @@ SOURCE_GROUP("Module" FILES ${SketchModule_SRCS})
 SET(Sketcher_SRCS
     ${Features_SRCS}
     ${PlaneGCS_SRCS}
+    ${Sketch3D_SRCS}
     ${SketchModule_SRCS}
     ${Python_SRCS}
     ${Properties_SRCS}

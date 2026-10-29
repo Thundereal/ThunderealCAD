@@ -217,6 +217,8 @@ SET(PartGui_SRCS
     ViewProviderCurveNet.cpp
     ViewProviderCurveNet.h
     ViewProviderSpline.cpp
+    ViewProviderCurvatureComb.cpp
+    ViewProviderCurvatureComb.h
     ViewProviderSpline.h
     ViewProviderImport.cpp
     ViewProviderImport.h

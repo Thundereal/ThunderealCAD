@@ -29,14 +29,53 @@
 # include <QItemSelectionModel>
 #endif
 
+#include <cmath>
+#include <vector>
+
 #include <Inventor/nodes/SoCamera.h>
 
+#include <App/Application.h>
 #include <App/DocumentObject.h>
 
 #include "Utilities.h"
+#include "ViewParams.h"
 
 
 using namespace Gui;
+
+bool Gui::viewBackgroundIsLight()
+{
+    // as View3DSettings draws the background from the same preferences
+    auto grp =
+        App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/View");
+    auto luminance = [](unsigned long packed) {
+        auto channel = [](unsigned long c) {
+            double x = double(c & 0xff) / 255.;
+            return x <= 0.03928 ? x / 12.92 : std::pow((x + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * channel(packed >> 24) + 0.7152 * channel(packed >> 16)
+            + 0.0722 * channel(packed >> 8);
+    };
+    std::vector<unsigned long> colours;
+    bool gradient = grp->GetBool("Gradient", ViewParams::defaultGradient())
+        || grp->GetBool("RadialGradient", ViewParams::defaultRadialGradient());
+    if (gradient) {
+        colours.push_back(grp->GetUnsigned("BackgroundColor2", ViewParams::defaultBackgroundColor2()));
+        colours.push_back(grp->GetUnsigned("BackgroundColor3", ViewParams::defaultBackgroundColor3()));
+        if (grp->GetBool("UseBackgroundColorMid", ViewParams::defaultUseBackgroundColorMid())) {
+            colours.push_back(
+                grp->GetUnsigned("BackgroundColor4", ViewParams::defaultBackgroundColor4()));
+        }
+    }
+    else {
+        colours.push_back(grp->GetUnsigned("BackgroundColor", ViewParams::defaultBackgroundColor()));
+    }
+    double sum = 0.;
+    for (auto c : colours) {
+        sum += luminance(c);
+    }
+    return sum / double(colours.size()) > 0.35;
+}
 
 SbViewVolume Gui::getMappedViewVolume(const SoCamera *camera, float aspect)
 {

@@ -38,6 +38,7 @@
 # include <cmath>
 # include <QFontMetrics>
 # include <QPainter>
+# include <QPainterPath>
 
 # include <Inventor/SoPrimitiveVertex.h>
 # include <Inventor/actions/SoCallbackAction.h>
@@ -55,6 +56,7 @@
 # include <Inventor/nodes/SoLightModel.h>
 # include <Inventor/nodes/SoMaterial.h>
 # include <Inventor/nodes/SoSeparator.h>
+# include <Inventor/nodes/SoSwitch.h>
 # include <Inventor/nodes/SoTexture2.h>
 # include <Inventor/nodes/SoTransformation.h>
 #endif // _PreComp_
@@ -286,7 +288,11 @@ SoDatumLabel::SoDatumLabel()
     SO_NODE_ADD_FIELD(name, ("Helvetica"));
     SO_NODE_ADD_FIELD(size, (10.f));
     SO_NODE_ADD_FIELD(lineWidth, (2.f));
+    SO_NODE_ADD_FIELD(outlineColor, (SbVec3f(0.f, 0.f, 0.f)));
+    SO_NODE_ADD_FIELD(outlineWidth, (0.f));
     SO_NODE_ADD_FIELD(linePattern, (0xFFFF));
+    SO_NODE_ADD_FIELD(backgroundColor, (SbVec3f(1.f, 1.f, 1.f)));
+    SO_NODE_ADD_FIELD(backgroundAlpha, (0.f));
 
     SO_NODE_ADD_FIELD(datumtype, (SoDatumLabel::DISTANCE));
 
@@ -386,6 +392,21 @@ SoNode* SoDatumLabel::getImageNode()
         // Leaders first: they compute textOffset/textAngle, which the glyph
         // reads, and are captured before the texture is in the state.
         this->imageRoot->addChild(lightModel);
+        // the border: the leaders again, wider, in outlineColor, under them
+        this->outlineSwitch = new SoSwitch;
+        auto outlineGroup = new SoSeparator;
+        auto outlineMaterial = new SoMaterial;
+        outlineMaterial->diffuseColor.connectFrom(&this->outlineColor);
+        this->outlineStyle = new SoDrawStyle;
+        this->outlineStyle->style = SoDrawStyle::LINES;  // the arrow heads as rims
+        this->outlineLeader = new SoDatumLabelLeader;
+        this->outlineLeader->owner = this;
+        outlineGroup->addChild(outlineMaterial);
+        outlineGroup->addChild(this->outlineStyle);
+        outlineGroup->addChild(this->outlineLeader);
+        this->outlineSwitch->addChild(outlineGroup);
+        this->imageRoot->addChild(this->outlineSwitch);
+        syncOutline();
         this->imageRoot->addChild(material);
         this->imageRoot->addChild(drawStyle);
         this->imageRoot->addChild(this->leaderShape);
@@ -399,6 +420,16 @@ SoNode* SoDatumLabel::getImageNode()
     return this->imageRoot;
 }
 
+void SoDatumLabel::syncOutline()
+{
+    if (!this->outlineSwitch) {
+        return;
+    }
+    const float border = this->outlineWidth.getValue();
+    this->outlineSwitch->whichChild = border > 0.f ? 0 : SO_SWITCH_NONE;
+    this->outlineStyle->lineWidth = this->lineWidth.getValue() + 2.f * border;
+}
+
 void SoDatumLabel::syncImageTexture()
 {
     if (!this->imageTexture)
@@ -406,7 +437,37 @@ void SoDatumLabel::syncImageTexture()
     SbVec2s size;
     int nc;
     const unsigned char* bytes = this->image.getValue(size, nc);
-    if (bytes && size[0] > 0 && size[1] > 0 && nc == 4) {
+    if (bytes && size[0] > 0 && size[1] > 0 && backgroundAlpha.getValue() > 0.f) {
+        // A ground of its own under the glyph (an on-view value's label,
+        // docs/HandsOnQueue.md entry 240): more than two colours, the texel
+        // as it is
+        this->imageTexture->image.setValue(size, nc, bytes);
+        this->imageTexture->model = SoTexture2::REPLACE;
+    }
+    else if (bytes && size[0] > 0 && size[1] > 0 && nc == 4 && this->outlineWidth.getValue() > 0.f) {
+        // Two colours, the glyph and its border. BLEND mixes the fragment's colour -- the
+        // material, textColor, which a highlight overrides -- toward blendColor by the
+        // texel: so each texel is how far it lies from the glyph toward the border, and
+        // a preselected label is drawn in the highlight colour inside its own border.
+        const SbColor f = textColor.getValue();
+        const SbColor b = outlineColor.getValue();
+        const SbVec3f fb(b[0] - f[0], b[1] - f[1], b[2] - f[2]);
+        const float len2 = fb.dot(fb);
+        std::vector<unsigned char> mix(bytes, bytes + std::size_t(size[0]) * size[1] * 4);
+        for (std::size_t i = 0; i < mix.size(); i += 4) {
+            float t = 0.f;
+            if (len2 > 1e-6f) {
+                const SbVec3f c(mix[i] / 255.f - f[0], mix[i + 1] / 255.f - f[1],
+                                mix[i + 2] / 255.f - f[2]);
+                t = std::clamp(c.dot(fb) / len2, 0.f, 1.f);
+            }
+            mix[i] = mix[i + 1] = mix[i + 2] = static_cast<unsigned char>(std::lround(t * 255.f));
+        }
+        this->imageTexture->image.setValue(size, 4, mix.data());
+        this->imageTexture->blendColor = b;
+        this->imageTexture->model = SoTexture2::BLEND;
+    }
+    else if (bytes && size[0] > 0 && size[1] > 0 && nc == 4) {
         // drawImage() paints the glyph in textColor alone: keep its alpha
         std::vector<unsigned char> mask(bytes, bytes + std::size_t(size[0]) * size[1] * 4);
         for (std::size_t i = 0; i < mask.size(); i += 4) {
@@ -416,7 +477,8 @@ void SoDatumLabel::syncImageTexture()
         this->imageTexture->model = SoTexture2::MODULATE;
     }
     else if (bytes && size[0] > 0 && size[1] > 0) {
-        // no alpha to keep: the texel as it is
+        // no alpha to keep, or a ground of its own under the glyph: the
+        // texel as it is
         this->imageTexture->image.setValue(size, nc, bytes);
         this->imageTexture->model = SoTexture2::REPLACE;
     }
@@ -450,16 +512,46 @@ void SoDatumLabel::drawImage()
     QColor front;
     front.setRgbF(t[0],t[1], t[2]);
 
-    QImage image(w, h,QImage::Format_ARGB32_Premultiplied);
-    image.fill(0x00000000);
+    // a border round the glyphs takes room of its own on every side, and a
+    // ground under the text (entry 240) a little more round them
+    const float border = std::max(0.f, outlineWidth.getValue());
+    const float groundAlpha = backgroundAlpha.getValue();
+    const int pad = std::max(int(std::ceil(border)), groundAlpha > 0.f ? std::max(2, h / 6) : 0);
+    // Not premultiplied, and the clear pixels in the colour of the outermost ink: the
+    // texture is filtered, and a clear black would draw a dark fringe round the label,
+    // plain on a light background.
+    const SbColor& edge = border > 0.f ? outlineColor.getValue() : t;
+    QImage image(w + 2 * pad, h + 2 * pad, QImage::Format_ARGB32);
+    image.fill(QColor::fromRgbF(edge[0], edge[1], edge[2], 0.f));
 
     QPainter painter(&image);
     if(useAntialiasing)
         painter.setRenderHint(QPainter::Antialiasing);
 
-    painter.setPen(front);
-    painter.setFont(font);
-    painter.drawText(0, 0, w, h, Qt::AlignLeft, str);
+    if (groundAlpha > 0.f) {
+        const SbColor& b = backgroundColor.getValue();
+        QColor ground;
+        ground.setRgbF(b[0], b[1], b[2], std::min(groundAlpha, 1.f));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(ground);
+        painter.drawRoundedRect(QRectF(0, 0, w + 2 * pad, h + 2 * pad), pad, pad);
+    }
+    if (border > 0.f) {
+        // the outline stroked under the text: half the pen falls outside it
+        const SbColor& o = outlineColor.getValue();
+        QColor back;
+        back.setRgbF(o[0], o[1], o[2]);
+        QPainterPath path;
+        path.addText(QPointF(pad, pad + fm.ascent()), font, str);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.strokePath(path, QPen(back, 2.0 * border, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.fillPath(path, front);
+    }
+    else {
+        painter.setPen(front);
+        painter.setFont(font);
+        painter.drawText(pad, pad, w, h, Qt::AlignLeft, str);
+    }
     painter.end();
 
     Gui::BitmapFactory().convert(image, this->image);
@@ -1856,8 +1948,13 @@ void SoDatumLabel::generatePrimitives(SoAction * action)
 void SoDatumLabel::notify(SoNotList * l)
 {
     SoField * f = l->getLastField();
+    if (f == &this->outlineWidth || f == &this->lineWidth) {
+        syncOutline();
+    }
     if (f == &this->string || f == &this->textColor || f == &this->name
-        || f == &this->size || f == &this->image) {
+        || f == &this->size || f == &this->image || f == &this->outlineColor
+        || f == &this->outlineWidth || f == &this->backgroundColor
+        || f == &this->backgroundAlpha) {
         this->glimagevalid = false;
         // The glyph bitmap changed; the companion texture must be re-fed.
         this->imagesynced = false;
@@ -1869,8 +1966,12 @@ void SoDatumLabel::notify(SoNotList * l)
     // their connected style nodes; image is written by the capture itself, as
     // is what the anchor reads.
     if (this->leaderShape && f && f != &this->textColor && f != &this->lineWidth
-        && f != &this->linePattern && f != &this->image) {
+        && f != &this->linePattern && f != &this->image && f != &this->outlineColor
+        && f != &this->outlineWidth) {
         this->leaderShape->touch();
+        if (this->outlineLeader) {
+            this->outlineLeader->touch();
+        }
         this->imageShape->touch();
         // and the anchor that places the number by them
         if (this->imageAnchor) {
@@ -1972,7 +2073,8 @@ void SoDatumLabel::GLRender(SoGLRenderAction * action)
     state->push();
 
     //Set General OpenGL Properties
-    glPushAttrib(GL_ENABLE_BIT | GL_PIXEL_MODE_BIT | GL_COLOR_BUFFER_BIT | GL_LINE_BIT);
+    glPushAttrib(GL_ENABLE_BIT | GL_PIXEL_MODE_BIT | GL_COLOR_BUFFER_BIT | GL_LINE_BIT
+                 | GL_POLYGON_BIT);
     glDisable(GL_LIGHTING);
     // the leaders' pattern; the number and the arrow heads are not lines
     if (this->linePattern.getValue() != 0xFFFF) {
@@ -1994,406 +2096,407 @@ void SoDatumLabel::GLRender(SoGLRenderAction * action)
     // Position for Datum Text Label
     float angle = 0;
 
-    // Get the colour
-    const SbColor& t = textColor.getValue();
-
-    // Set GL Properties
-    glLineWidth(this->lineWidth.getValue());
-    glColor3f(t[0], t[1], t[2]);
-
-    // From an anchor to the finite geometry it stands for
-    if (this->extensionLines.getNum() > 1) {
-        const SbVec3f* extension = this->extensionLines.getValues(0);
-        glBegin(GL_LINES);
-        for (int i = 0; i + 1 < this->extensionLines.getNum(); i += 2) {
-            glVertex2f(extension[i][0], extension[i][1]);
-            glVertex2f(extension[i + 1][0], extension[i + 1][1]);
-        }
-        glEnd();
-    }
-
+    // The leaders, once in a colour and width: with a border, first wider in the
+    // border's colour -- the arrow heads as rims, so they are bordered too -- then
+    // as they are. They also work out where the number stands (textOffset, angle).
     SbVec3f textOffset;
-
-    if (this->datumtype.getValue() == DISTANCE ||
-        this->datumtype.getValue() == DISTANCEX ||
-        this->datumtype.getValue() == DISTANCEY ) {
-        float length = this->param1.getValue();
-        float length2 = this->param2.getValue();
-
-        SbVec3f p1 = points[0];
-        SbVec3f p2 = points[1];
-
-        SbVec3f dir, normal;
-        if (this->datumtype.getValue() == DISTANCE) {
-            dir = (p2-p1);
-        } else if (this->datumtype.getValue() == DISTANCEX) {
-            dir = SbVec3f( (p2[0] - p1[0] >= FLT_EPSILON) ? 1 : -1, 0, 0);
-        } else if (this->datumtype.getValue() == DISTANCEY) {
-            dir = SbVec3f(0, (p2[1] - p1[1] >= FLT_EPSILON) ? 1 : -1, 0);
-        }
-
-        dir.normalize();
-        normal = SbVec3f (-dir[1],dir[0],0);
-
-        // when the datum line is not parallel to p1-p2 the projection of
-        // p1-p2 on normal is not zero, p2 is considered as reference and p1
-        // is replaced by its projection p1_
-        float normproj12 = (p2-p1).dot(normal);
-        SbVec3f p1_ = p1 + normproj12 * normal;
-
-        SbVec3f midpos = (p1_ + p2)/2;
-
-        float offset1 = ((length + normproj12 < 0) ? -1.  : 1.) * srch;
-        float offset2 = ((length < 0) ? -1  : 1)*srch;
-
-        // Get magnitude of angle between horizontal
-        angle = atan2f(dir[1],dir[0]);
-        if (angle > M_PI_2+M_PI/12) {
-            angle -= (float)M_PI;
-        } else if (angle <= -M_PI_2+M_PI/12) {
-            angle += (float)M_PI;
-        }
-
-        textOffset = midpos + normal * length + dir * length2;
-
-        // Get the colour
-        const SbColor& t = textColor.getValue();
-
-        // Set GL Properties
-        glLineWidth(this->lineWidth.getValue());
+    auto drawLeaders = [&](const SbColor& t, float width) {
+        glLineWidth(width);
         glColor3f(t[0], t[1], t[2]);
-        float margin = this->imgHeight / 4.0;
 
-
-        SbVec3f perp1 = p1_ + normal * (length + offset1 * scale);
-        SbVec3f perp2 = p2  + normal * (length + offset2 * scale);
-
-        // Calculate the coordinates for the parallel datum lines
-        SbVec3f par1 = p1_ + normal * length;
-        SbVec3f par2 = midpos + normal * length + dir * (length2 - this->imgWidth / 2 - margin);
-        SbVec3f par3 = midpos + normal * length + dir * (length2 + this->imgWidth / 2 + margin);
-        SbVec3f par4 = p2  + normal * length;
-
-        bool flipTriang = false;
-
-        if ((par3-par1).dot(dir) > (par4 - par1).length()) {
-            // Increase Margin to improve visibility
-            float tmpMargin = this->imgHeight /0.75;
-            par3 = par4;
-            if ((par2-par1).dot(dir) > (par4 - par1).length()) {
-                par3 = par2;
-                par2 = par1 - dir * tmpMargin;
-                flipTriang = true;
+        // From an anchor to the finite geometry it stands for
+        if (this->extensionLines.getNum() > 1) {
+            const SbVec3f* extension = this->extensionLines.getValues(0);
+            glBegin(GL_LINES);
+            for (int i = 0; i + 1 < this->extensionLines.getNum(); i += 2) {
+                glVertex2f(extension[i][0], extension[i][1]);
+                glVertex2f(extension[i + 1][0], extension[i + 1][1]);
             }
+            glEnd();
         }
-        else if ((par2-par1).dot(dir) < 0.f) {
-            float tmpMargin = this->imgHeight /0.75;
-            par2 = par1;
-            if((par3-par1).dot(dir) < 0.f) {
-                par2 = par3;
-                par3 = par4 + dir * tmpMargin;
-                flipTriang = true;
+
+        if (this->datumtype.getValue() == DISTANCE ||
+            this->datumtype.getValue() == DISTANCEX ||
+            this->datumtype.getValue() == DISTANCEY ) {
+            float length = this->param1.getValue();
+            float length2 = this->param2.getValue();
+
+            SbVec3f p1 = points[0];
+            SbVec3f p2 = points[1];
+
+            SbVec3f dir, normal;
+            if (this->datumtype.getValue() == DISTANCE) {
+                dir = (p2-p1);
+            } else if (this->datumtype.getValue() == DISTANCEX) {
+                dir = SbVec3f( (p2[0] - p1[0] >= FLT_EPSILON) ? 1 : -1, 0, 0);
+            } else if (this->datumtype.getValue() == DISTANCEY) {
+                dir = SbVec3f(0, (p2[1] - p1[1] >= FLT_EPSILON) ? 1 : -1, 0);
             }
+
+            dir.normalize();
+            normal = SbVec3f (-dir[1],dir[0],0);
+
+            // when the datum line is not parallel to p1-p2 the projection of
+            // p1-p2 on normal is not zero, p2 is considered as reference and p1
+            // is replaced by its projection p1_
+            float normproj12 = (p2-p1).dot(normal);
+            SbVec3f p1_ = p1 + normproj12 * normal;
+
+            SbVec3f midpos = (p1_ + p2)/2;
+
+            float offset1 = ((length + normproj12 < 0) ? -1.  : 1.) * srch;
+            float offset2 = ((length < 0) ? -1  : 1)*srch;
+
+            // Get magnitude of angle between horizontal
+            angle = atan2f(dir[1],dir[0]);
+            if (angle > M_PI_2+M_PI/12) {
+                angle -= (float)M_PI;
+            } else if (angle <= -M_PI_2+M_PI/12) {
+                angle += (float)M_PI;
+            }
+
+            textOffset = midpos + normal * length + dir * length2;
+
+            float margin = this->imgHeight / 4.0;
+
+
+            SbVec3f perp1 = p1_ + normal * (length + offset1 * scale);
+            SbVec3f perp2 = p2  + normal * (length + offset2 * scale);
+
+            // Calculate the coordinates for the parallel datum lines
+            SbVec3f par1 = p1_ + normal * length;
+            SbVec3f par2 = midpos + normal * length + dir * (length2 - this->imgWidth / 2 - margin);
+            SbVec3f par3 = midpos + normal * length + dir * (length2 + this->imgWidth / 2 + margin);
+            SbVec3f par4 = p2  + normal * length;
+
+            bool flipTriang = false;
+
+            if ((par3-par1).dot(dir) > (par4 - par1).length()) {
+                // Increase Margin to improve visibility
+                float tmpMargin = this->imgHeight /0.75;
+                par3 = par4;
+                if ((par2-par1).dot(dir) > (par4 - par1).length()) {
+                    par3 = par2;
+                    par2 = par1 - dir * tmpMargin;
+                    flipTriang = true;
+                }
+            }
+            else if ((par2-par1).dot(dir) < 0.f) {
+                float tmpMargin = this->imgHeight /0.75;
+                par2 = par1;
+                if((par3-par1).dot(dir) < 0.f) {
+                    par2 = par3;
+                    par3 = par4 + dir * tmpMargin;
+                    flipTriang = true;
+                }
+            }
+            // Perp Lines
+            glBegin(GL_LINES);
+                if (length != 0.) {
+                    glVertex2f(p1[0], p1[1]);
+                    glVertex2f(perp1[0], perp1[1]);
+
+                    glVertex2f(p2[0], p2[1]);
+                    glVertex2f(perp2[0], perp2[1]);
+                }
+
+                glVertex2f(par1[0], par1[1]);
+                glVertex2f(par2[0], par2[1]);
+
+                glVertex2f(par3[0], par3[1]);
+                glVertex2f(par4[0], par4[1]);
+            glEnd();
+
+            SbVec3f ar1 = par1 + ((flipTriang) ? -1 : 1) * dir * 0.866f * 2 * margin;
+            SbVec3f ar2 = ar1 + normal * margin;
+                    ar1 -= normal * margin;
+
+            SbVec3f ar3 = par4 - ((flipTriang) ? -1 : 1) * dir * 0.866f * 2 * margin;
+            SbVec3f ar4 = ar3 + normal * margin ;
+                    ar3 -= normal * margin;
+
+            //Draw a pretty arrowhead (Equilateral) (Eventually could be improved to other shapes?)
+            glBegin(GL_TRIANGLES);
+                glVertex2f(par1[0], par1[1]);
+                glVertex2f(ar1[0], ar1[1]);
+                glVertex2f(ar2[0], ar2[1]);
+
+                glVertex2f(par4[0], par4[1]);
+                glVertex2f(ar3[0], ar3[1]);
+                glVertex2f(ar4[0], ar4[1]);
+            glEnd();
         }
-        // Perp Lines
-        glBegin(GL_LINES);
-            if (length != 0.) {
+        else if (this->datumtype.getValue() == RADIUS || this->datumtype.getValue() == DIAMETER) {
+            // Get the Points
+            SbVec3f p1 = points[0];
+            SbVec3f p2 = points[1];
+
+            SbVec3f dir = (p2-p1);
+            SbVec3f center = p1;
+            double radius = (p2 - p1).length();
+            if (this->datumtype.getValue() == DIAMETER) {
+                center = (p1 + p2) / 2;
+                radius = radius / 2;
+            }
+
+            dir.normalize();
+            SbVec3f normal (-dir[1],dir[0],0);
+
+            float length = this->param1.getValue();
+            SbVec3f pos = p2 + length*dir;
+
+            // Get magnitude of angle between horizontal
+            angle = atan2f(dir[1],dir[0]);
+            if (angle > M_PI_2+M_PI/12) {
+                angle -= (float)M_PI;
+            } else if (angle <= -M_PI_2+M_PI/12) {
+                angle += (float)M_PI;
+            }
+
+            textOffset = pos;
+
+            float margin = this->imgHeight / 4.0;
+
+            // Create the arrowhead
+            SbVec3f ar0  = p2;
+            SbVec3f ar1  = p2 - dir * 0.866f * 2 * margin;
+            SbVec3f ar2  = ar1 + normal * margin;
+            ar1 -= normal * margin;
+
+            SbVec3f p3 = pos +  dir * (this->imgWidth / 2 + margin);
+            if ((p3-p1).length() > (p2-p1).length())
+                p2 = p3;
+
+            // Calculate the points
+            SbVec3f pnt1 = pos - dir * (margin + this->imgWidth / 2);
+            SbVec3f pnt2 = pos + dir * (margin + this->imgWidth / 2);
+
+            // Draw the Lines
+            glBegin(GL_LINES);
                 glVertex2f(p1[0], p1[1]);
-                glVertex2f(perp1[0], perp1[1]);
+                glVertex2f(pnt1[0], pnt1[1]);
 
+                glVertex2f(pnt2[0], pnt2[1]);
                 glVertex2f(p2[0], p2[1]);
-                glVertex2f(perp2[0], perp2[1]);
-            }
-
-            glVertex2f(par1[0], par1[1]);
-            glVertex2f(par2[0], par2[1]);
-
-            glVertex2f(par3[0], par3[1]);
-            glVertex2f(par4[0], par4[1]);
-        glEnd();
-
-        SbVec3f ar1 = par1 + ((flipTriang) ? -1 : 1) * dir * 0.866f * 2 * margin;
-        SbVec3f ar2 = ar1 + normal * margin;
-                ar1 -= normal * margin;
-
-        SbVec3f ar3 = par4 - ((flipTriang) ? -1 : 1) * dir * 0.866f * 2 * margin;
-        SbVec3f ar4 = ar3 + normal * margin ;
-                ar3 -= normal * margin;
-
-        //Draw a pretty arrowhead (Equilateral) (Eventually could be improved to other shapes?)
-        glBegin(GL_TRIANGLES);
-            glVertex2f(par1[0], par1[1]);
-            glVertex2f(ar1[0], ar1[1]);
-            glVertex2f(ar2[0], ar2[1]);
-
-            glVertex2f(par4[0], par4[1]);
-            glVertex2f(ar3[0], ar3[1]);
-            glVertex2f(ar4[0], ar4[1]);
-        glEnd();
-    }
-    else if (this->datumtype.getValue() == RADIUS || this->datumtype.getValue() == DIAMETER) {
-        // Get the Points
-        SbVec3f p1 = points[0];
-        SbVec3f p2 = points[1];
-
-        SbVec3f dir = (p2-p1);
-        SbVec3f center = p1;
-        double radius = (p2 - p1).length();
-        if (this->datumtype.getValue() == DIAMETER) {
-            center = (p1 + p2) / 2;
-            radius = radius / 2;
-        }
-
-        dir.normalize();
-        SbVec3f normal (-dir[1],dir[0],0);
-
-        float length = this->param1.getValue();
-        SbVec3f pos = p2 + length*dir;
-
-        // Get magnitude of angle between horizontal
-        angle = atan2f(dir[1],dir[0]);
-        if (angle > M_PI_2+M_PI/12) {
-            angle -= (float)M_PI;
-        } else if (angle <= -M_PI_2+M_PI/12) {
-            angle += (float)M_PI;
-        }
-
-        textOffset = pos;
-
-        float margin = this->imgHeight / 4.0;
-
-        // Create the arrowhead
-        SbVec3f ar0  = p2;
-        SbVec3f ar1  = p2 - dir * 0.866f * 2 * margin;
-        SbVec3f ar2  = ar1 + normal * margin;
-        ar1 -= normal * margin;
-
-        SbVec3f p3 = pos +  dir * (this->imgWidth / 2 + margin);
-        if ((p3-p1).length() > (p2-p1).length())
-            p2 = p3;
-
-        // Calculate the points
-        SbVec3f pnt1 = pos - dir * (margin + this->imgWidth / 2);
-        SbVec3f pnt2 = pos + dir * (margin + this->imgWidth / 2);
-
-        // Draw the Lines
-        glBegin(GL_LINES);
-            glVertex2f(p1[0], p1[1]);
-            glVertex2f(pnt1[0], pnt1[1]);
-
-            glVertex2f(pnt2[0], pnt2[1]);
-            glVertex2f(p2[0], p2[1]);
-        glEnd();
-
-        glBegin(GL_TRIANGLES);
-            glVertex2f(ar0[0], ar0[1]);
-            glVertex2f(ar1[0], ar1[1]);
-            glVertex2f(ar2[0], ar2[1]);
-        glEnd();
-
-        if (this->datumtype.getValue() == DIAMETER) {
-            // create second arrowhead
-            SbVec3f ar0_1  = p1;
-            SbVec3f ar1_1  = p1 + dir * 0.866f * 2 * margin;
-            SbVec3f ar2_1  = ar1_1 + normal * margin;
-            ar1_1 -= normal * margin;
+            glEnd();
 
             glBegin(GL_TRIANGLES);
-                glVertex2f(ar0_1[0], ar0_1[1]);
-                glVertex2f(ar1_1[0], ar1_1[1]);
-                glVertex2f(ar2_1[0], ar2_1[1]);
+                glVertex2f(ar0[0], ar0[1]);
+                glVertex2f(ar1[0], ar1[1]);
+                glVertex2f(ar2[0], ar2[1]);
             glEnd();
+
+            if (this->datumtype.getValue() == DIAMETER) {
+                // create second arrowhead
+                SbVec3f ar0_1  = p1;
+                SbVec3f ar1_1  = p1 + dir * 0.866f * 2 * margin;
+                SbVec3f ar2_1  = ar1_1 + normal * margin;
+                ar1_1 -= normal * margin;
+
+                glBegin(GL_TRIANGLES);
+                    glVertex2f(ar0_1[0], ar0_1[1]);
+                    glVertex2f(ar1_1[0], ar1_1[1]);
+                    glVertex2f(ar2_1[0], ar2_1[1]);
+                glEnd();
+            }
+
+            // Draw arc helper if needed
+            float startangle = this->param3.getValue();
+            float range = this->param4.getValue();
+            if (range != 0.0) {
+                int countSegments = std::max(6, abs(int(50.0 * range / (2 * M_PI))));
+                double segment = range / (countSegments - 1);
+
+                glBegin(GL_LINE_STRIP);
+                for (int i = 0; i < countSegments; i++) {
+                    double theta = startangle + segment * i;
+                    SbVec3f v1 = center + SbVec3f(radius * cos(theta), radius * sin(theta), 0);
+                    glVertex2f(v1[0], v1[1]);
+                }
+                glEnd();
+            }
+
         }
+        else if (this->datumtype.getValue() == ANGLE) {
+            // Only the angle intersection point is needed
+            SbVec3f p0 = points[0];
 
-        // Draw arc helper if needed
-        float startangle = this->param3.getValue();
-        float range = this->param4.getValue();
-        if (range != 0.0) {
+            float margin = this->imgHeight / 4.0;
+
+            // Load the Parameters
+            float length     = this->param1.getValue();
+            float startangle = this->param2.getValue();
+            float range      = this->param3.getValue();
+            float endangle   = startangle + range;
+            float endLineLength1 = std::max(this->param4.getValue(), margin);
+            float endLineLength2 = std::max(this->param5.getValue(), margin);
+            float endLineLength12 = std::max(- this->param4.getValue(), margin);
+            float endLineLength22 = std::max(- this->param5.getValue(), margin);
+
+
+            float r = 2*length;
+
+            // Set the Text label angle to zero
+            angle = 0.f;
+
+            // Useful Information
+            // v0 - vector for text position
+            // p0 - vector for angle intersect
+            SbVec3f v0(cos(startangle+range/2),sin(startangle+range/2),0);
+
+            // leave some space for the text; r is negative when the number is
+            // past the centre, and the gap is the same size then
+            if (range >= 0)
+                range = std::max(0.2f*range, range - this->imgWidth/(2*std::fabs(r)));
+            else
+                range = std::min(0.2f*range, range + this->imgWidth/(2*std::fabs(r)));
+
             int countSegments = std::max(6, abs(int(50.0 * range / (2 * M_PI))));
-            double segment = range / (countSegments - 1);
+            double segment = range / (2*countSegments-2);
 
+            textOffset = p0 + v0 * r;
+
+
+            // Draw
             glBegin(GL_LINE_STRIP);
-            for (int i = 0; i < countSegments; i++) {
-                double theta = startangle + segment * i;
-                SbVec3f v1 = center + SbVec3f(radius * cos(theta), radius * sin(theta), 0);
-                glVertex2f(v1[0], v1[1]);
+
+            for (int i=0; i < countSegments; i++) {
+                double theta = startangle + segment*i;
+                SbVec3f v1 = p0+SbVec3f(r*cos(theta),r*sin(theta),0);
+                glVertex2f(v1[0],v1[1]);
             }
             glEnd();
-        }
 
-    }
-    else if (this->datumtype.getValue() == ANGLE) {
-        // Only the angle intersection point is needed
-        SbVec3f p0 = points[0];
-
-        float margin = this->imgHeight / 4.0;
-
-        // Load the Parameters
-        float length     = this->param1.getValue();
-        float startangle = this->param2.getValue();
-        float range      = this->param3.getValue();
-        float endangle   = startangle + range;
-        float endLineLength1 = std::max(this->param4.getValue(), margin);
-        float endLineLength2 = std::max(this->param5.getValue(), margin);
-        float endLineLength12 = std::max(- this->param4.getValue(), margin);
-        float endLineLength22 = std::max(- this->param5.getValue(), margin);
-
-
-        float r = 2*length;
-
-        // Set the Text label angle to zero
-        angle = 0.f;
-
-        // Useful Information
-        // v0 - vector for text position
-        // p0 - vector for angle intersect
-        SbVec3f v0(cos(startangle+range/2),sin(startangle+range/2),0);
-
-        // leave some space for the text; r is negative when the number is
-        // past the centre, and the gap is the same size then
-        if (range >= 0)
-            range = std::max(0.2f*range, range - this->imgWidth/(2*std::fabs(r)));
-        else
-            range = std::min(0.2f*range, range + this->imgWidth/(2*std::fabs(r)));
-
-        int countSegments = std::max(6, abs(int(50.0 * range / (2 * M_PI))));
-        double segment = range / (2*countSegments-2);
-
-        textOffset = p0 + v0 * r;
-
-
-        // Draw
-        glBegin(GL_LINE_STRIP);
-
-        for (int i=0; i < countSegments; i++) {
-            double theta = startangle + segment*i;
-            SbVec3f v1 = p0+SbVec3f(r*cos(theta),r*sin(theta),0);
-            glVertex2f(v1[0],v1[1]);
-        }
-        glEnd();
-
-        glBegin(GL_LINE_STRIP);
-        for (int i=0; i < countSegments; i++) {
-            double theta = endangle - segment*i;
-            SbVec3f v1 = p0+SbVec3f(r*cos(theta),r*sin(theta),0);
-            glVertex2f(v1[0],v1[1]);
-        }
-        glEnd();
-
-        // Direction vectors for start and end lines
-        SbVec3f v1(cos(startangle),sin(startangle),0);
-        SbVec3f v2(cos(endangle),sin(endangle),0);
-
-        SbVec3f pnt1 = p0 + (r - endLineLength1) * v1;
-        SbVec3f pnt2 = p0 + (r + endLineLength12) * v1;
-        SbVec3f pnt3 = p0 + (r - endLineLength2) * v2;
-        SbVec3f pnt4 = p0 + (r + endLineLength22) * v2;
-
-        glBegin(GL_LINES);
-            glVertex2f(pnt1[0],pnt1[1]);
-            glVertex2f(pnt2[0],pnt2[1]);
-
-            glVertex2f(pnt3[0],pnt3[1]);
-            glVertex2f(pnt4[0],pnt4[1]);
-        glEnd();
-
-    }
-    else if (this->datumtype.getValue() == SYMMETRIC) {
-
-        SbVec3f p1 = points[0];
-        SbVec3f p2 = points[1];
-
-        SbVec3f dir = (p2-p1);
-        dir.normalize();
-        SbVec3f normal (-dir[1],dir[0],0);
-
-        float margin = this->imgHeight / 4.0;
-
-        // Calculate coordinates for the first arrow
-        SbVec3f ar0, ar1, ar2;
-        ar0  = p1 + dir * 4 * margin; // Tip of Arrow
-        ar1  = ar0 - dir * 0.866f * 2 * margin;
-        ar2  = ar1 + normal * margin;
-        ar1 -= normal * margin;
-
-        glBegin(GL_LINES);
-            glVertex3f(p1[0], p1[1], ZCONSTR);
-            glVertex3f(ar0[0], ar0[1], ZCONSTR);
-            glVertex3f(ar0[0], ar0[1], ZCONSTR);
-            glVertex3f(ar1[0], ar1[1], ZCONSTR);
-            glVertex3f(ar0[0], ar0[1], ZCONSTR);
-            glVertex3f(ar2[0], ar2[1], ZCONSTR);
-        glEnd();
-
-        // Calculate coordinates for the second arrow
-        SbVec3f ar3, ar4, ar5;
-        ar3  = p2 - dir * 4 * margin; // Tip of 2nd Arrow
-        ar4  = ar3 + dir * 0.866f * 2 * margin;
-        ar5  = ar4 + normal * margin;
-        ar4 -= normal * margin;
-
-        glBegin(GL_LINES);
-            glVertex3f(p2[0], p2[1], ZCONSTR);
-            glVertex3f(ar3[0], ar3[1], ZCONSTR);
-            glVertex3f(ar3[0], ar3[1], ZCONSTR);
-            glVertex3f(ar4[0], ar4[1], ZCONSTR);
-            glVertex3f(ar3[0], ar3[1], ZCONSTR);
-            glVertex3f(ar5[0], ar5[1], ZCONSTR);
-        glEnd();
-    }
-    else if (this->datumtype.getValue() == ARCLENGTH) {
-        ArcLengthGeometry geom;
-        if (arcLengthGeometry(geom)) {
-            const float mid = (geom.startangle + geom.endangle) / 2;
-            angle = geom.textAngle;
-            const float shift = arcLengthShiftSign(angle, mid) * this->imgHeight;
-            textOffset = geom.textOffset + SbVec3f(-sin(angle), cos(angle), 0.f) * shift;
-
-            const float range = geom.endangle - geom.startangle;
-            int countSegments = std::max(6, abs(int(50.0 * range / (2 * M_PI))));
-            double segment = range / (countSegments - 1);
             glBegin(GL_LINE_STRIP);
-            for (int i = 0; i < countSegments; i++) {
-                double theta = geom.startangle + segment * i;
-                SbVec3f v = geom.arcCenter
-                    + SbVec3f(geom.arcRadius * cos(theta), geom.arcRadius * sin(theta), 0);
-                glVertex2f(v[0], v[1]);
+            for (int i=0; i < countSegments; i++) {
+                double theta = endangle - segment*i;
+                SbVec3f v1 = p0+SbVec3f(r*cos(theta),r*sin(theta),0);
+                glVertex2f(v1[0],v1[1]);
             }
             glEnd();
+
+            // Direction vectors for start and end lines
+            SbVec3f v1(cos(startangle),sin(startangle),0);
+            SbVec3f v2(cos(endangle),sin(endangle),0);
+
+            SbVec3f pnt1 = p0 + (r - endLineLength1) * v1;
+            SbVec3f pnt2 = p0 + (r + endLineLength12) * v1;
+            SbVec3f pnt3 = p0 + (r - endLineLength2) * v2;
+            SbVec3f pnt4 = p0 + (r + endLineLength22) * v2;
 
             glBegin(GL_LINES);
-                glVertex2f(geom.pnt1[0], geom.pnt1[1]);
-                glVertex2f(geom.pnt2[0], geom.pnt2[1]);
-                glVertex2f(geom.pnt3[0], geom.pnt3[1]);
-                glVertex2f(geom.pnt4[0], geom.pnt4[1]);
+                glVertex2f(pnt1[0],pnt1[1]);
+                glVertex2f(pnt2[0],pnt2[1]);
+
+                glVertex2f(pnt3[0],pnt3[1]);
+                glVertex2f(pnt4[0],pnt4[1]);
             glEnd();
 
-            // Tips on the extension lines, bodies along the arc, sized as
-            // the distance labels' are.
-            float margin = this->imgHeight / 4.0f;
-            auto arrow = [&](const SbVec3f& tip, const SbVec3f& back, const SbVec3f& side) {
-                SbVec3f base = tip + back * (0.866f * 2 * margin);
-                SbVec3f a = base + side * margin;
-                SbVec3f b = base - side * margin;
-                glVertex2f(tip[0], tip[1]);
-                glVertex2f(a[0], a[1]);
-                glVertex2f(b[0], b[1]);
-            };
-            glBegin(GL_TRIANGLES);
-                arrow(geom.pnt2,
-                      SbVec3f(-sin(geom.startangle), cos(geom.startangle), 0.f),
-                      SbVec3f(cos(geom.startangle), sin(geom.startangle), 0.f));
-                arrow(geom.pnt4,
-                      SbVec3f(sin(geom.endangle), -cos(geom.endangle), 0.f),
-                      SbVec3f(cos(geom.endangle), sin(geom.endangle), 0.f));
+        }
+        else if (this->datumtype.getValue() == SYMMETRIC) {
+
+            SbVec3f p1 = points[0];
+            SbVec3f p2 = points[1];
+
+            SbVec3f dir = (p2-p1);
+            dir.normalize();
+            SbVec3f normal (-dir[1],dir[0],0);
+
+            float margin = this->imgHeight / 4.0;
+
+            // Calculate coordinates for the first arrow
+            SbVec3f ar0, ar1, ar2;
+            ar0  = p1 + dir * 4 * margin; // Tip of Arrow
+            ar1  = ar0 - dir * 0.866f * 2 * margin;
+            ar2  = ar1 + normal * margin;
+            ar1 -= normal * margin;
+
+            glBegin(GL_LINES);
+                glVertex3f(p1[0], p1[1], ZCONSTR);
+                glVertex3f(ar0[0], ar0[1], ZCONSTR);
+                glVertex3f(ar0[0], ar0[1], ZCONSTR);
+                glVertex3f(ar1[0], ar1[1], ZCONSTR);
+                glVertex3f(ar0[0], ar0[1], ZCONSTR);
+                glVertex3f(ar2[0], ar2[1], ZCONSTR);
+            glEnd();
+
+            // Calculate coordinates for the second arrow
+            SbVec3f ar3, ar4, ar5;
+            ar3  = p2 - dir * 4 * margin; // Tip of 2nd Arrow
+            ar4  = ar3 + dir * 0.866f * 2 * margin;
+            ar5  = ar4 + normal * margin;
+            ar4 -= normal * margin;
+
+            glBegin(GL_LINES);
+                glVertex3f(p2[0], p2[1], ZCONSTR);
+                glVertex3f(ar3[0], ar3[1], ZCONSTR);
+                glVertex3f(ar3[0], ar3[1], ZCONSTR);
+                glVertex3f(ar4[0], ar4[1], ZCONSTR);
+                glVertex3f(ar3[0], ar3[1], ZCONSTR);
+                glVertex3f(ar5[0], ar5[1], ZCONSTR);
             glEnd();
         }
+        else if (this->datumtype.getValue() == ARCLENGTH) {
+            ArcLengthGeometry geom;
+            if (arcLengthGeometry(geom)) {
+                const float mid = (geom.startangle + geom.endangle) / 2;
+                angle = geom.textAngle;
+                const float shift = arcLengthShiftSign(angle, mid) * this->imgHeight;
+                textOffset = geom.textOffset + SbVec3f(-sin(angle), cos(angle), 0.f) * shift;
+
+                const float range = geom.endangle - geom.startangle;
+                int countSegments = std::max(6, abs(int(50.0 * range / (2 * M_PI))));
+                double segment = range / (countSegments - 1);
+                glBegin(GL_LINE_STRIP);
+                for (int i = 0; i < countSegments; i++) {
+                    double theta = geom.startangle + segment * i;
+                    SbVec3f v = geom.arcCenter
+                        + SbVec3f(geom.arcRadius * cos(theta), geom.arcRadius * sin(theta), 0);
+                    glVertex2f(v[0], v[1]);
+                }
+                glEnd();
+
+                glBegin(GL_LINES);
+                    glVertex2f(geom.pnt1[0], geom.pnt1[1]);
+                    glVertex2f(geom.pnt2[0], geom.pnt2[1]);
+                    glVertex2f(geom.pnt3[0], geom.pnt3[1]);
+                    glVertex2f(geom.pnt4[0], geom.pnt4[1]);
+                glEnd();
+
+                // Tips on the extension lines, bodies along the arc, sized as
+                // the distance labels' are.
+                float margin = this->imgHeight / 4.0f;
+                auto arrow = [&](const SbVec3f& tip, const SbVec3f& back, const SbVec3f& side) {
+                    SbVec3f base = tip + back * (0.866f * 2 * margin);
+                    SbVec3f a = base + side * margin;
+                    SbVec3f b = base - side * margin;
+                    glVertex2f(tip[0], tip[1]);
+                    glVertex2f(a[0], a[1]);
+                    glVertex2f(b[0], b[1]);
+                };
+                glBegin(GL_TRIANGLES);
+                    arrow(geom.pnt2,
+                          SbVec3f(-sin(geom.startangle), cos(geom.startangle), 0.f),
+                          SbVec3f(cos(geom.startangle), sin(geom.startangle), 0.f));
+                    arrow(geom.pnt4,
+                          SbVec3f(sin(geom.endangle), -cos(geom.endangle), 0.f),
+                          SbVec3f(cos(geom.endangle), sin(geom.endangle), 0.f));
+                glEnd();
+            }
+        }
+        else if (this->datumtype.getValue() == TEXT) {
+            // the number alone, upright at the point
+            textOffset = points[0];
+            angle = 0.f;
+        }
+    };
+    if (this->outlineWidth.getValue() > 0.f) {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        drawLeaders(this->outlineColor.getValue(),
+                    this->lineWidth.getValue() + 2.f * this->outlineWidth.getValue());
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
-    else if (this->datumtype.getValue() == TEXT) {
-        // the number alone, upright at the point
-        textOffset = points[0];
-        angle = 0.f;
-    }
+    drawLeaders(this->textColor.getValue(), this->lineWidth.getValue());
 
     if (hasText) {
         //Get the camera z-direction

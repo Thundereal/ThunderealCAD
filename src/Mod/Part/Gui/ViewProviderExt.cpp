@@ -2053,6 +2053,7 @@ ViewProviderPartExt::ViewProviderPartExt()
 
     VisualTouched = true;
     forceUpdateCount = 0;
+    combExtension.initExtension(this);
 
     // Rebuild Part visuals when a parameter of the shape-instancing gate
     // flips (render cache mode / renderer type), so the representation
@@ -4812,7 +4813,7 @@ void ViewProviderPartExt::setupContextMenu(QMenu* menu, QObject* receiver, const
     act->setData(QVariant((int)ViewProvider::Color));
     // The last change of the shape, where the log has one: an edit mode as
     // the colours are, so that it is the same entry in a browser's menu
-    // (docs/TransactionLog.md sec 32.19)
+    // (docs/TransactionLogJournal.md sec 32.19)
     std::string before, after;
     if (!hasGivenShape && lastValueChange(getShapePropertyName(), before, after)) {
         QAction* diff = menu->addAction(QObject::tr("Show last change"), receiver, member);

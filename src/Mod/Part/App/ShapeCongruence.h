@@ -68,6 +68,27 @@ public:
     {
         int slot = 0;
         gp_Trsf motion;
+        /// The stored shape matched, which \a slot names.
+        TopoDS_Shape with;
+    };
+
+    /** Length, area and volume, which no rigid motion changes.
+     *
+     * Computed once per shape and only when a bucket actually proposes
+     * something, because they are the expensive part of this. They are what
+     * stands between sharing and a shape whose corners agree while its faces
+     * do not -- transformGeometry() produces exactly that, approximating an
+     * exact cylinder with a spline that keeps every vertex and every edge
+     * midpoint and moves the volume by a part in a thousand.
+     */
+    struct Invariants
+    {
+        double length = 0.;
+        double area = 0.;
+        double volume = 0.;
+        bool lengthKnown = false;
+        bool areaKnown = false;
+        bool volumeKnown = false;
     };
 
     /** Look for a shape congruent to \a shape among those added.
@@ -76,8 +97,16 @@ public:
      * rigid motion that every vertex and every edge midpoint agrees with, in
      * sub-shape index order. A mirrored instance is not a rigid motion and is
      * refused rather than counted.
+     *
+     * \a own, when given, holds \a shape's invariants from one find to the
+     * next: a property keeps them while its shape does not change, so a
+     * save of a shape it saved before computes none of them
+     * (docs/TransactionLogJournal.md sec 38.11). \a last, when given, is the match
+     * the previous find of the same shape made: if the shape it matched is
+     * stored again, the motion to it is the one found then.
      */
-    bool find(const TopoDS_Shape& shape, Match& match) const;
+    bool find(const TopoDS_Shape& shape, Match& match, Invariants* own = nullptr,
+              const Match* last = nullptr) const;
 
     /// Remember \a shape under the caller's \a slot.
     void add(const TopoDS_Shape& shape, int slot);
@@ -100,24 +129,6 @@ public:
     static CongruenceIndex* forSave(std::uint64_t generation);
 
 private:
-    /** Area and volume, which no rigid motion changes.
-     *
-     * Computed once per shape and only when a bucket actually proposes
-     * something, because they are the expensive part of this. They are what
-     * stands between sharing and a shape whose corners agree while its faces
-     * do not -- transformGeometry() produces exactly that, approximating an
-     * exact cylinder with a spline that keeps every vertex and every edge
-     * midpoint and moves the volume by a part in a thousand.
-     */
-    struct Invariants
-    {
-        double length = 0.;
-        double area = 0.;
-        double volume = 0.;
-        bool lengthKnown = false;
-        bool areaKnown = false;
-        bool volumeKnown = false;
-    };
 
     struct Entry
     {

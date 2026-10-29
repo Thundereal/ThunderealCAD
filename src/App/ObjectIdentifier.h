@@ -52,7 +52,7 @@ inline T &any_cast(boost::any &value) {
 #include <vector>
 #include <FCConfig.h>
 
-#include "PropertyLinks.h"
+#include "ShadowSub.h"
 
 namespace Base {
 class PythonVariables;
@@ -402,8 +402,8 @@ public:
     const std::string &getSubObjectName() const;
 
     /// The element path's shadow and the string ids it holds
-    /// (docs/TransactionLog.md sec 27.75).
-    const PropertyLinkBase::ShadowSub &getShadowSub() const {
+    /// (docs/TransactionLogJournal.md sec 27.75).
+    const ShadowSub &getShadowSub() const {
         return shadowSub;
     }
     /// The ids a file gave for the shadow, held once the reference resolves
@@ -590,8 +590,8 @@ protected:
     String  documentObjectName;
     String  subObjectName;
     /// Holds the string ids of the element it names, as a link's does
-    /// (docs/TransactionLog.md sec 27.75)
-    PropertyLinkBase::ShadowSub shadowSub;
+    /// (docs/TransactionLogJournal.md sec 27.75)
+    ShadowSub shadowSub;
     std::vector<Component> components;
     bool documentNameSet;
     bool documentObjectNameSet;

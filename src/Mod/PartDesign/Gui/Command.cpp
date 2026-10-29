@@ -745,7 +745,7 @@ void CmdPartDesignNewSketch::activated(int iMsg)
                                                  QStringLiteral("Sketcher_Sketch"),
                                                  QObject::tr("Sketch attachment"));
         task->editAfterClose();
-        Gui::Control().showDialog(task);
+        PartDesignGui::showTaskDialog(task);
     }
 }
 
@@ -1114,7 +1114,7 @@ void prepareProfileBased(PartDesign::Body *pcActiveBody, Gui::Command* cmd, cons
 
         Gui::Selection().clearSelection();
         pickDlg = new PartDesignGui::TaskDlgFeaturePick(sketches, status, accepter, sketch_worker, true);
-        Gui::Control().showDialog(pickDlg);
+        PartDesignGui::showTaskDialog(pickDlg);
     }
     else {
         sketch_worker({*firstFreeSketch});

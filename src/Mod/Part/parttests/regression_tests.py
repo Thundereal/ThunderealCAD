@@ -483,7 +483,7 @@ class RegressionTests(unittest.TestCase):
         """Thickness with intersection and the Arc join put the offsets in hash
         order -- a shape's hash is its TShape's address -- and the result
         depended on that order: the same input gave up to four different
-        results in eight runs (docs/TransactionLog.md sec 27.88)."""
+        results in eight runs (docs/TransactionLogJournal.md sec 27.88)."""
         cases = {
             "boss": (lambda: Part.makeCylinder(6, 4).fuse(
                 Part.makeCylinder(3, 4, Vector(0, 0, 4))), 2),
@@ -510,7 +510,7 @@ class RegressionTests(unittest.TestCase):
         closed edge found twice, one seam wire allowed per face, a closed edge
         losing its orientation; and the offset of an ellipse, a closed B-spline,
         was stretched past its ends. Upstream OCCT gives these volumes
-        (docs/TransactionLog.md sec 27.89)."""
+        (docs/TransactionLogJournal.md sec 27.89)."""
         hole = lambda: Part.makeCylinder(5, 10).cut(Part.makeCylinder(2, 10))
         ellipse = lambda: Part.Face(
             Part.Wire(Part.Ellipse(Vector(0, 0, 0), 10, 5).toShape())
@@ -536,7 +536,7 @@ class RegressionTests(unittest.TestCase):
         """Outward with the Arc join past a concave corner, the loop kept the
         corner of an arc face cut off by the next one as a face of its own;
         with a concave face removed, a stretched edge of the removed face gave
-        a plane one of its lines twice (docs/TransactionLog.md sec 27.90).
+        a plane one of its lines twice (docs/TransactionLogJournal.md sec 27.90).
         The first two are upstream OCCT's volumes, the third the fork's own:
         upstream fails it."""
         lbox = lambda: Part.makeBox(10, 10, 5).cut(Part.makeBox(5, 5, 5, Vector(5, 5, 0)))
@@ -557,7 +557,7 @@ class RegressionTests(unittest.TestCase):
 
     @needsOCCTFork("the thickness fixes in TKOffset")
     def test_thickness_inward_and_in_intersection_mode(self):
-        """Three fork breaks (docs/TransactionLog.md sec 27.91): the T's
+        """Three fork breaks (docs/TransactionLogJournal.md sec 27.91): the T's
         concave bar top inward -- where the stretched removed face crossed an
         edge was taken for that edge's own end; the L-box's top and the T's
         back with intersection on and the Intersection join -- an edge two
@@ -587,7 +587,7 @@ class RegressionTests(unittest.TestCase):
 
     @needsOCCTFork("the thickness fixes in TKOffset")
     def test_thickness_with_the_intersection_join(self):
-        """The Intersection join (docs/TransactionLog.md sec 27.92): a thick solid
+        """The Intersection join (docs/TransactionLogJournal.md sec 27.92): a thick solid
         came back inside out, oriented by the order its shells were glued in; a
         blind hole's floor, met at a concave edge, got its section on the hole's
         offset the wrong way round; and with intersection on, a removed face at
@@ -620,7 +620,7 @@ class RegressionTests(unittest.TestCase):
         tangent to the fillets, whose offsets never meet it, and the offset
         came back unhollowed or failed (upstream OCCT too). A tube round the
         tangent edge closes it, and outward an eighth of a sphere closes each
-        corner (docs/TransactionLog.md sec 27.93). Worked out by hand."""
+        corner (docs/TransactionLogJournal.md sec 27.93). Worked out by hand."""
         box = Part.makeBox(10, 8, 6)
         cases = [
             ("end face, in", 0, -1.0, 261.1150),
@@ -642,7 +642,7 @@ class RegressionTests(unittest.TestCase):
         came back valid with more volume than the input (upstream OCCT fails
         too). The tubes and corners are built on the fillet's cylinder, the
         loop on it walks the angles as on a plane, and a piece of an offset
-        face left hanging on the shell is dropped (docs/TransactionLog.md sec
+        face left hanging on the shell is dropped (docs/TransactionLogJournal.md sec
         27.95). Worked out by hand."""
         box = Part.makeBox(10, 8, 6)
         cases = [
@@ -663,7 +663,7 @@ class RegressionTests(unittest.TestCase):
         round its cylinder into a lip or never met the removed face, and the
         result came back wrong, unhollowed or not at all. The gap is closed with
         the tube's sharp counterpart, a strip of the neighbour's tangent plane
-        and a wall square to the removed face (docs/TransactionLog.md sec
+        and a wall square to the removed face (docs/TransactionLogJournal.md sec
         27.96). Worked out by hand; the fillet of 2.5 has no coincident walls."""
         box = Part.makeBox(10, 8, 6)
         cases = [
@@ -689,7 +689,7 @@ class RegressionTests(unittest.TestCase):
         thick at the top, the cone's and the hole's inner offsets cross at
         z=6.485, and no cavity reaches the removed face. The material is every
         point within the thickness of a face that stays, so the cavity is
-        closed and the top stays as skin over it (docs/TransactionLog.md sec
+        closed and the top stays as skin over it (docs/TransactionLogJournal.md sec
         27.100): two shells, in every mode. With its bottom removed and
         intersection off the cavity ran on past the crossing, 0.761 too much.
         Worked out by hand."""
@@ -715,7 +715,7 @@ class RegressionTests(unittest.TestCase):
     def test_thickness_of_faces_left_in_pieces(self):
         """Removing a cylinder's side leaves its two caps, which share no
         edge: each is a thick solid of its own, a disc of 16 pi, and the
-        result is a compound of the two (docs/TransactionLog.md sec 27.101;
+        result is a compound of the two (docs/TransactionLogJournal.md sec 27.101;
         refused before, as upstream refuses it). Where the cylinder is
         shorter than twice the thickness the inward discs overlap and fuse
         into the whole cylinder."""
@@ -740,7 +740,7 @@ class RegressionTests(unittest.TestCase):
     def test_thickness_of_a_pocket_left_in_pieces(self):
         """A box with a blind hole, its top removed: the hole's wall and floor
         are a piece of their own beside the outside's. They were refused
-        (docs/TransactionLog.md sec 27.103): a piece built as the shape with
+        (docs/TransactionLogJournal.md sec 27.103): a piece built as the shape with
         the other piece removed kept the outside as a shell of its own, and
         the top's free rim, stretched into the top's loop, closed round the
         hole's rim so the ring between it and the offset rim was never built.
@@ -772,7 +772,7 @@ class RegressionTests(unittest.TestCase):
         input inside out. The loop on the removed cylinder ran ShapeFix on a
         test face made of the input's edges on the input face's own surface,
         and the pcurve it shifted by a period was the input's
-        (docs/TransactionLog.md sec 27.104; a PartDesign Pad under a
+        (docs/TransactionLogJournal.md sec 27.104; a PartDesign Pad under a
         Thickness where shape values are not frozen, occ-issues local03)."""
         for past in (0.0, 2 * math.pi):
             outer = Part.ArcOfCircle(
@@ -799,7 +799,7 @@ class RegressionTests(unittest.TestCase):
         """No face stays to be thickened, and there is no answer. A sphere
         with its one face removed came back as the sphere itself, valid and
         unhollowed, and a box with all six faces removed as the box; a torus
-        was refused already (docs/TransactionLog.md sec 27.105)."""
+        was refused already (docs/TransactionLogJournal.md sec 27.105)."""
         box = Part.makeBox(10, 10, 6)
         cases = (
             ("sphere", Part.makeSphere(5), None),
@@ -822,7 +822,7 @@ class RegressionTests(unittest.TestCase):
         with the equator as its only wire -- invalid, 216.55 outward. Each
         volume is a difference of sphere caps cut by the removed face's
         plane; the cone's skin has its apex rounded
-        (docs/TransactionLog.md sec 27.106)."""
+        (docs/TransactionLogJournal.md sec 27.106)."""
         V = Vector
         up = V(0, 0, 1)
 
@@ -1516,7 +1516,7 @@ class RegressionTests(unittest.TestCase):
         a cylinder down to its top, a box down to its bottom. It threw
         (BRepAlgo_Image::Bind), and once that was mended the cap outward came
         out as the whole cylinder: the removed side's seam reached its loop
-        once, not once each way (docs/TransactionLog.md sec 27.102). The
+        once, not once each way (docs/TransactionLogJournal.md sec 27.102). The
         cylinder's side removed now gives its two discs with this join too."""
         cyl = Part.makeCylinder(4, 20)
         for offset in (1.0, -1.0):
@@ -1542,7 +1542,7 @@ class RegressionTests(unittest.TestCase):
         10 x 10 x 1. The loop split each removed side at the bottom's offset
         and kept the piece nearer an end of the side's edge, the one above the
         offset here: the box came out with the plate's complement as a void
-        (docs/TransactionLog.md sec 27.101). Upstream is right."""
+        (docs/TransactionLogJournal.md sec 27.101). Upstream is right."""
         for height in (1.5, 2.0, 2.5):
             box = Part.makeBox(10, 10, height)
             removed = [f for i, f in enumerate(box.Faces) if i != 4]

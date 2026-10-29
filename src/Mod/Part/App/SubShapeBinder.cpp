@@ -272,7 +272,7 @@ void SubShapeBinder::update(SubShapeBinder::UpdateOption options) {
     std::vector<Part ::TopoShape> shapes;
     std::vector<std::pair<int,int> > shapeOwners;
     // The document each shape is of: a copy's is the original's, its own
-    // being temporary (docs/TransactionLog.md sec 27.76 item 4).
+    // being temporary (docs/TransactionLogJournal.md sec 27.76 item 4).
     std::vector<App::Document*> shapeDocs;
     std::vector<const Base::Matrix4D*> shapeMats;
 
@@ -303,7 +303,18 @@ void SubShapeBinder::update(SubShapeBinder::UpdateOption options) {
             parent = 0;
         if(!parent && parentSub.empty()) {
             auto parents = getParents();
-            if(parents.size()) {
+            if(parents.size() && !App::GeoFeatureGroupExtension::getGroupOfObject(this)) {
+                // Its node stands at the root of the 3D scene: no group that
+                // takes its children's nodes holds it -- an App::Part or a
+                // Body would; a link group does not, and lists it besides
+                // (the user, docs/HandsOnQueue.md entry 207: "unlike App::Part,
+                // which moves object's node into its child group, link group
+                // does not. so you shall still find Binder008's node under
+                // root"). The shortest path to it is that one, of no length:
+                // its own context (entry 113), before any container's.
+                parent = this;
+            }
+            else if(parents.size()) {
                 // No context recorded. A binder that has no shape yet takes
                 // the first path to itself: that is a new binder, relative to
                 // where it was made. One that HAS a shape was placed without

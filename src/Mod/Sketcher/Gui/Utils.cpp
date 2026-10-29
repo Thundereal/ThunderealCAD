@@ -25,6 +25,9 @@
 #include <Mod/Sketcher/App/SketcherParams.h>
 #ifndef _PreComp_
 #include <cfloat>
+#include <cmath>
+#include <set>
+#include <string_view>
 #include <numbers>
 
 #include <QCursor>
@@ -36,6 +39,8 @@
 #endif
 
 #include <App/Application.h>
+#include <Gui/Utilities.h>
+#include <Gui/ViewParams.h>
 #include <Base/Quantity.h>
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
@@ -975,4 +980,22 @@ void SketcherGui::ConstraintLineByAngle(int geoId, double angle, App::DocumentOb
                               geoId,
                               angle);
     }
+}
+
+bool SketcherGui::isViewBackgroundParameter(const char* name)
+{
+    static const std::set<std::string_view> names {"BackgroundColor",
+                                                   "BackgroundColor2",
+                                                   "BackgroundColor3",
+                                                   "BackgroundColor4",
+                                                   "UseBackgroundColorMid",
+                                                   "Gradient",
+                                                   "RadialGradient"};
+    return name && names.count(name) > 0;
+}
+
+bool SketcherGui::viewBackgroundIsLight()
+{
+    // in Gui: the on-view values outside a sketch pick their outline by it too
+    return Gui::viewBackgroundIsLight();
 }

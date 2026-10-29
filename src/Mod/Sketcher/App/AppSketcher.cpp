@@ -38,6 +38,7 @@
 #include "SketchGeometryExtension.h"
 #include "SketchGeometryExtensionPy.h"
 #include "SketchObject.h"
+#include "Sketch3DObject.h"
 #include "SketchObjectSF.h"
 #include "SketchPy.h"
 #include "SolverGeometryExtension.h"
@@ -92,6 +93,7 @@ PyMOD_INIT_FUNC(Sketcher)
     Sketcher::SketchObject ::init();
     Sketcher::SketchExport ::init();
     Sketcher::SketchObjectPython ::init();
+    Sketcher::Sketch3DObject ::init();
     Sketcher::Sketch ::init();
     Sketcher::Constraint ::init();
     Sketcher::PropertyConstraintList ::init();

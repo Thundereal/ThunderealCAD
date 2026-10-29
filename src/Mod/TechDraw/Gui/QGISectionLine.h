@@ -26,6 +26,7 @@
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
 #include <QColor>
+#include <QElapsedTimer>
 #include <QFont>
 #include <QPainterPath>
 #include <QPointF>
@@ -137,6 +138,11 @@ private:
     // them puts them back (onItemMoved).
     bool               m_markDragging = false;
     TechDraw::ChangePointVector m_changePointsAtPress;
+    // The press on the line or a mark: since when, and whether it is a
+    // drag yet (isDrag).
+    QElapsedTimer      m_pressTimer;
+    bool               m_dragStarted = false;
+    bool isDrag(const QGraphicsSceneMouseEvent *ev);
 };
 
 }

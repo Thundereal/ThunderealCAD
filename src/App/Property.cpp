@@ -323,7 +323,7 @@ void Property::hasSetValue()
         // restore, whose setValue() comes back here and would free the copy
         // under the compare (PropertyPartShape::serveFromBlob, reached from
         // isSame() when a restore to a version wrote a shape named by its
-        // blob -- docs/TransactionLog.md sec 27.60).
+        // blob -- docs/TransactionLogJournal.md sec 27.60).
         std::unique_ptr<Property> old = std::move(_old);
         if(isSame(*old)) {
             FC_TRACE("no change of " << getFullName());
@@ -362,7 +362,7 @@ void Property::aboutToSetValue()
     }
     // Whatever the log kept of this property's last committed value is
     // stale now: taken by the transaction recording this write, if one
-    // was, and dropped otherwise (docs/TransactionLog.md sec 25.4).
+    // was, and dropped otherwise (docs/TransactionLogJournal.md sec 25.4).
     TransactionCopyCache::drop(_id);
 }
 

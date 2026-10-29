@@ -5,7 +5,8 @@ to do the things it is for -- look back at what was done, see how an object
 changed, keep a version, work on a branch, and merge.
 
 This is the how-to. Why things are built the way they are is in
-`docs/TransactionLog.md`, by section number where this guide names one.
+`docs/TransactionLogDesign.md`; the record of how they were built, by the
+section numbers this guide names, is `docs/TransactionLogJournal.md`.
 
 The pictures are taken from the running application by
 `scripts/transaction-log-guide-shots.py`; see the end for how to take them
@@ -25,9 +26,14 @@ again after the panel changes.
 10. [Merging](#10-merging)
 11. [Requests: changes someone sends you](#11-requests-changes-someone-sends-you)
 12. [The history in a browser](#12-the-history-in-a-browser)
-13. [I want to...](#13-i-want-to)
-14. [The same from Python](#14-the-same-from-python)
-15. [Taking the pictures again](#15-taking-the-pictures-again)
+13. [Two copies of FreeCAD on one file](#13-two-copies-of-freecad-on-one-file)
+14. [A document saved as a folder](#14-a-document-saved-as-a-folder)
+15. [Linked sets: a document and the files it links to](#15-linked-sets-a-document-and-the-files-it-links-to)
+16. [Pasting objects that are here already](#16-pasting-objects-that-are-here-already)
+17. [I want to...](#17-i-want-to)
+18. [Settings](#18-settings)
+19. [The same from Python](#19-the-same-from-python)
+20. [Taking the pictures again](#20-taking-the-pictures-again)
 
 ## 1. What the log is
 
@@ -46,9 +52,10 @@ From that the log gives you:
   back;
 - **undo of one step** that is not the last one.
 
-The log travels inside the `.FCStd` file. It is on by default; the parameter
-is `Preferences/Document/TransactionLog` (0 off, 1 for this session only,
-2 written into the file).
+The log travels inside the `.FCStd` file -- or, for a document saved as a
+folder, beside its `Document.xml` (section 14). It is on by default; the
+parameter is `Preferences/Document/TransactionLog` (0 off, 1 for this
+session only, 2 written into the file; section 18).
 
 ## 2. Opening the panel
 
@@ -63,6 +70,14 @@ is nothing to show:
 | `No active document` | open or make a document |
 | `Name: log off (...)` | the parameter above is 0 |
 | `Name: no log yet (made at the first commit)` | nothing has been changed yet |
+
+and, inside its brackets, a few states worth knowing:
+
+| In the brackets | Meaning |
+|---|---|
+| `a pinned version: shown, not changed` | the document is a version a link is pinned to: the panel reads it, and changes nothing (section 7) |
+| `saved by another process: merged at the next save` | another FreeCAD saved this file since it was read here (section 13) |
+| `a save waits on the merge of BRANCH` | a save stopped at a conflict with what the other one saved (section 13) |
 
 ## 3. The panel at a glance
 
@@ -99,7 +114,7 @@ From top to bottom:
 | **Merge from file...** | Bring in another copy of this file and merge it (section 10). |
 | **Branch to document** | A new branch opened as a second document of the same file, so both can be seen side by side. |
 | **All branches** | Show the rows of every branch, not only this branch's history. |
-| **Hide records** | Hide the rows that changed nothing: recomputes, saves, snapshots, switches. |
+| **Hide records** | Hide the rows that changed nothing: recomputes, saves, snapshots, switches, and the records of a linked set (section 15). |
 | **Logins** | Show the rows that record a connection to a shared session. |
 
 ## 5. Transactions: what was done
@@ -112,11 +127,11 @@ lines, with a label at each branch's head and at each version.
 | Column | Meaning |
 |---|---|
 | Seq | The row's number in this log. |
-| Kind | `user`: a step you made. `implicit`: one made without a name -- a change from the Python console, a recompute. It is not in Edit > Undo: it goes with the step before it, and one undo takes both. `undo`, `redo`. `recompute`: a record that a recompute ran. `save`, `snapshot`, `switch` (of branch), `merge`, `pick` (rows applied from another branch), `squash`, `restore`. Records that changed nothing are grey. |
+| Kind | `user`: a step you made. `implicit`: one made without a name -- a change from the Python console, a recompute. It is not in Edit > Undo: it goes with the step before it, and one undo takes both. `undo`, `redo`. `recompute`: a record that a recompute ran. `save`, `snapshot`, `switch` (of branch), `merge`, `pick` (rows applied from another branch), `squash`, `restore`. `import`: a row brought in from another copy of the file. `set`: a record of a linked set imported or merged (section 15). `recover`: the document was recovered from the log after a crash; **Copy script** on it lists any row the recovery had to leave out. Records that changed nothing are grey. |
 | Name | The step's name, as in Edit > Undo. |
 | Author | Who made it; `host` is you, at this machine. |
 | Parent | The row before it on its branch. |
-| Inverts | For an undo: the row it undid. |
+| Inverts | For an undo: the row it undid. Empty for one that undid several rows together (**Undo N rows**); its name lists them, `Undo A, B, C and 2 more`. |
 | Merged | For a merge: the head of the branch merged in. |
 | Branch | The branch it was made on. |
 
@@ -131,7 +146,11 @@ lines, with a label at each branch's head and at each version.
 | Derived | `yes`: a recompute wrote it (a shape), you did not. `yes, kept`: section 8. `followed`: moved along with something else. |
 
 **Select an operation** and the value pane shows the value after, then the
-value before, as they are stored.
+value before, as they are stored. A shape's value starts with a line that
+says it in words -- `Compound: 1 solid, 1 shell, 7 faces, 15 edges, 10
+vertices; volume 1398.94 mm^3; 10 x 10 x 16 mm`, always in mm. A shape a
+recompute made that the log no longer holds says so (section 8); the 3D
+view makes it again (section 6).
 
 ### The row's menu
 
@@ -267,6 +286,21 @@ its history.
 If the status says "No shape of what is chosen changed", the row changed
 other objects than the ones you chose.
 
+### A shape the log no longer holds
+
+The shapes of old rows are not written into the file (section 8), so once
+the file has been closed and opened again most rows have none. The bar does
+not leave them blank: it **computes the shape again**, in a hidden copy of
+the document set to that row's state, and draws that. The text then ends
+with `1 shape(s) the log let go, computed again at their row`. This works
+for an operation, a whole row, a version's "Changed since" and a merge's
+preview. What is drawn is what this FreeCAD makes of that state, which is
+nearly always what was there.
+
+Rows picked to be applied together (**Apply rows**) have no one state to
+compute in; for those the text says `1 shape(s) the log let go, which
+nothing here has`.
+
 ### The last change of one object, without the panel
 
 Right-click an object in the 3D view and choose **Show last change**. The
@@ -292,6 +326,11 @@ A **version** is the whole document as it was at one row. Every save takes
 one; **Snapshot** takes one without saving. A version is *unnamed* until you
 name it, and unnamed ones may be dropped as the log is tidied; a **named**
 version never is.
+
+**File > Save to History** is a save that leaves the file as it was: it
+writes a version, named `Saved to history`, into the file's history, and
+the file still opens as it was last saved. It needs a file that already
+carries its history -- saved once with the log written into it.
 
 ![The Versions tab](images/transaction-log/10-versions.png)
 
@@ -325,13 +364,32 @@ value pane.
 | **Squash to version N from...** | Folds the rows between an older version and this one into one row. Asked first; it cannot be undone. |
 | **Keep the selected objects as they are at version N** / **Let go of...** | Section 8. |
 
+### A pinned version
+
+A link can point at an object as it was at a version of its file, not as
+it is now. The version it shows is opened as a document of its own, which
+nothing changes; its name in the tree is in italics. When it is the
+panel's document, the panel only reads it: the status line says `a pinned
+version: shown, not changed`, and everything that would write is greyed,
+with the tip `A pinned version: shown, not changed` -- the branch bar,
+**Snapshot**, and every menu entry but those that only read (**Copy
+script**, **Copy row**, **Open version N**, **Show row N**). To work on
+that version, **Open version N** opens a second copy of it you can edit.
+
 ## 8. Kept: shapes a save would leave out
 
 A shape is something a recompute makes, and can be made again. So when a
 document is saved, the shapes of old rows are mostly **left out of the file**
 to keep it small (the values you set yourself are always there). A row whose
-shape was left out still lists it, but there is nothing to show in the 3D
-view.
+shape was left out still lists it, and the 3D view computes it again when
+you look at it (section 6).
+
+The log lets go of shapes while you work, too. Past 256 MB of them, or
+10,000, the oldest that are cheapest to make again go, down to three
+quarters of that. The newest value of each property, what a version holds,
+and what is kept stay. The two limits are the settings
+`TransactionLogCacheSize` and `TransactionLogCacheValues` (section 18); 0 is
+no limit.
 
 To have a shape stay in the file, **keep** it. There are two ways:
 
@@ -384,6 +442,10 @@ last row.
 With **All branches** ticked, the graph draws each branch as a line of its
 own colour, with its name at its head.
 
+Making, switching, renaming, trimming or deleting a branch, a merge,
+bringing in a file and naming a version all change what the file holds:
+the document is marked changed, and closing it asks to save.
+
 A row of another branch can be applied here without merging the branch:
 
 ![The menu of a row of another branch](images/transaction-log/16-other-branch-row-menu.png)
@@ -418,7 +480,9 @@ as one step that can be undone. **Cancel** does nothing.
 The preview has the same two lines as the panel. Choose objects in
 "Objects:" and the view shows `ours against theirs` for them; the list
 offers `base against ours` and `base against theirs` too. Select a line of
-the list to see that one change over its object:
+the list to see that one change over its object. An object the other
+branch removes, or that the merge would remove, is drawn as it is here,
+all of it in the removed colour:
 
 ![One change of the merge selected](images/transaction-log/12-merge-one-change.png)
 
@@ -441,7 +505,9 @@ The result is worked out when you choose that entry, with the sides picked
 as they are at that moment, and again when you pick another side or untick
 a change. It is made in a hidden copy of the document, so nothing here
 changes: no undo step, and a step you had undone can still be redone. On a
-large document expect to wait about as long as opening it takes.
+large document expect to wait about as long as opening it takes the first
+time; picking another side after that is quicker, as the document is not
+read again.
 
 The status line also says what the picture cannot: how many objects the
 merge makes or removes, and **which objects fail to compute in the result**.
@@ -466,8 +532,11 @@ Click **Preview again** to have it made anew; the sides you had picked are
 asked again. An edit the merge does not care about leaves the preview as it
 is.
 
-Only one preview is open at a time. Closing the document, or making another
-document the active one, closes it.
+Only one preview is open at a time: asking for another brings the open one
+to the front, and the status line says `A merge is being looked at
+already: answer it first`. A preview belongs to its document. Making
+another document the active one leaves it open, and its **Merge** still
+goes into its own document; closing that document closes it.
 
 ### After a merge
 
@@ -515,7 +584,10 @@ look does not have it, and cannot read the history any other way.
 
 It reads from top to bottom:
 
-- **The steps**, newest first: number, name, who made it, when. Steps
+- **The steps**, newest first: number, name, who made it, when, with the
+  branches drawn as a graph on their left, as on the desktop. Each
+  branch's head is a coloured tag before the step's name; the branch the
+  document is on is in bold. Steps
   that changed nothing -- a recompute's record, someone connecting -- are
   left out until **Records** is ticked. A step of another branch is in
   italics, with the branch's name. **Load older** fetches the next hundred.
@@ -523,7 +595,13 @@ It reads from top to bottom:
 - **The operations** of the step you click: which object, which property.
   An object that has since been removed is in italics.
 - **The value** of the operation you click, **After** or **Before**. A long
-  value, such as a shape, shows its start and says how long it is.
+  value shows its start and says how long it is. A shape is said in one
+  line first (section 5), with what the log holds folded under **as the
+  log holds it**.
+
+![The steps as a graph, each branch's head named](images/transaction-log/16-log-browser-graph.png)
+
+![A shape's value said in a line](images/transaction-log/16-log-browser-summary.png)
 
 An operation that changed a shape has a **Show** button. It does what
 "Show last change" does (section 6), for that step instead of the last one:
@@ -618,7 +696,13 @@ Under the merges asked for, a second list, **Sent, or brought in**: the
 copies of the file sent to be merged (with *Send my copy to merge...* in
 the viewer's menu) and not read yet, and the branches a copy was brought
 in as and not merged yet. You see the copies you sent, and **Withdraw** one
-to take it back, unread. The sharer sees them all: **Bring in** reads a
+to take it back, unread. A copy larger than 4 MB is sent in pieces, and
+the foot of the page says how far it has got: `Sending part.FCStd: 3.2 of
+12.5 MB`. If the connection drops it waits for it -- `waiting for the
+connection...`, for up to a minute and a half -- and goes on from where it
+stopped. The largest copy that can be sent is the sharer's to say, in the
+sharing panel: **Clients may send files up to:**, 16 MB unless changed, at
+most 1024. The sharer sees them all: **Bring in** reads a
 copy into a branch of its own, which then shows in the same list with how
 many operations it has, who made them and who sent it; **Merge** and
 **Look first...** merge it as a request is merged, and **Delete** throws
@@ -708,7 +792,182 @@ checked out on, and names the one that is.
 
 ![Closing the last window while a served branch has none](images/transaction-log/18-hidden-close.png)
 
-## 13. I want to...
+## 13. Two copies of FreeCAD on one file
+
+The same file can be open in two FreeCADs -- two windows on one machine, or
+two machines on a shared drive. Neither writes over what the other saved:
+**a save first brings in what the other saved, and merges it.**
+
+**When you open the file** and another FreeCAD has it open already, the
+report view says so: `'part' is also open in HOST (pid 4242) since
+2026-10-26 14:05`. Nothing is locked against you.
+
+**While you work**, the panel looks at the file every few seconds. When the
+other one saves it, the report view and the status bar say so once --
+`part was saved by another process: its changes are merged in at the next
+save here` -- and the panel's status line carries `saved by another
+process: merged at the next save`.
+
+![The panel after another FreeCAD saved the file](images/transaction-log/19-saved-elsewhere.png)
+
+**When you save**, what the other one saved comes in as a branch named
+after the file -- `part saved elsewhere`, or `part saved by NAME` where the
+file names who saved it -- and is merged into yours as a `merge` row, which
+one Undo takes back like any other. Then the file is written. The branch is
+closed once the file is written: the **Branch:** list shows it greyed, as
+`(closed)`.
+
+**If the two of you changed the same thing** differently, nothing is
+written. The report view says how many changes conflict, the panel comes up
+on the document with `part was saved by another process since it was read
+here: pick a side for each conflict, then save again`, and the merge's
+preview opens (section 10). Pick a side for each conflict, **Merge**, and
+save again. Until then the status line carries `a save waits on the merge
+of BRANCH`.
+
+![A save stopped at a conflict: the same length, changed in both](images/transaction-log/19-save-conflict.png)
+
+**Save As to another file** while such a merge waits goes ahead, as the
+merge is not of that file. The report view says the branch `is left to
+merge by hand`; it stays in the log, and **Merge...** takes it in when you
+want it.
+
+**Two saves at once** wait for each other: a save holds a lock beside the
+file (`.~part.FCStd.lock`) while it reads and writes. One that has waited a
+minute gives up and says who holds the file: `'part.FCStd' is being saved
+by another process (it is open in HOST (pid 4242) since ...); nothing was
+written`.
+
+**Who saved it?** Every save writes a line to the report view -- shown when
+its **Log messages** option is ticked -- naming what asked for it: `Saved
+/path/part.FCStd (schema 5) by Std_Save`. It is the command, the view its
+Save went to, a Python file and line, or a client of the MCP console. The
+history keeps it with each save: `doc.getTransactionSave()` (section 19).
+
+To turn the merging off, set `TransactionLogPullOnSave` to false (section
+18): a save then writes over what the other one saved, as FreeCAD always
+did. The lock is taken either way.
+
+## 14. A document saved as a folder
+
+**File > Save as Directory...** saves a document as a folder instead of one
+zip file: `Document.xml`, a file for each object and each view provider, the
+shapes and other content under `blobs/`, and the log as `History.db` beside
+`Document.xml` when the log is written into the file. **File > Open
+Directory...** opens one. After that **Save** saves to the folder.
+
+It is the better home for the log. A save rewrites only the files of
+objects that changed -- the file of an object nothing changed is left as it
+is -- and the history is brought up to date in place, not written whole.
+The panel shows a folder document as it does any other, and two FreeCADs
+on one folder merge at a save as in section 13.
+
+- **A save goes in whole or not at all.** It is made beside the folder
+  (`.~NAME.save`) and moved in at the end. A save cut short -- a crash, a
+  drive gone -- is finished or thrown away at the next open, and the report
+  view says which.
+- There is no `.FCBak` backup of a folder.
+- On a drive you cannot write, the folder opens and you can work; a save
+  says it cannot, and **Save As** somewhere else works.
+- A save is flushed to the disk before it counts. On a slow network drive
+  turn `FolderSaveSync` off (section 18).
+- A `.FCStd` unzipped by hand opens with **Open Directory** too, when the
+  document's `BlobCompression` property (group Format) is `Deflate`; most
+  unzip tools cannot read the default, `Zstd`.
+- **File > Save to History** on a folder writes only its history
+  (section 7).
+
+## 15. Linked sets: a document and the files it links to
+
+A document that links to objects in other files is a **set** of files. Two
+entries in the File menu move a set as one, history and all.
+
+### Export with Linked Files
+
+**File > Export with Linked Files...** writes the document and every file it
+links to into one folder, the links between them pointing at the copies.
+The document must be saved first. The dialog lists each file, what it
+**Is** -- `the file`, `pinned version 3`, `branch side`, `branch side at
+version 3` -- and what it is **Written as**. A pinned version or a branch
+becomes a file of its own (`part.v3.FCStd`, `part.side.FCStd`), so the set
+opens in any FreeCAD. Files from outside the document's folder go under
+`_external/`.
+
+| Control | What it does |
+|---|---|
+| **Folder:** | Where to write; `NAME-set` beside the document unless you choose another. A folder that is not empty is asked about. |
+| **With history** | Each file keeps its history, for someone who uses the log too. Without, a file brought back is paired with yours by its save. Off by default. |
+| **Leave library files in their library** | Shown when links reach a library: those files are not copied, and the links keep pointing at the library. |
+
+![Export with Linked Files](images/transaction-log/20-export-set.png)
+
+**Export** writes them; the status bar says how many.
+
+### Import a Linked Set
+
+Someone worked on a copy of your set and sends it back. **File > Import a
+Linked Set...** brings each of their files in as a branch of the matching
+file of yours, and then merges them all as one step. The document must be
+saved with its history.
+
+1. Choose **Their top:** -- their copy of the top document -- and click
+   **Read**. Each of their files is paired with one of yours:
+
+   | Column | What it shows |
+   |---|---|
+   | Their file, Ours | The pair. Choose another of yours in **Ours**, or `(none: theirs alone)`. |
+   | Paired by | How the pair was found: `history`, `save`, `manifest`, `objects`, `uid`, `path`, `user`. `(a guess)` when it is not certain; `two of ours alike: say which` when you must choose. |
+   | Action | For a pair: `Merge`, `Take theirs` or `Keep ours` (a guess starts on `Take theirs`). For a file of theirs alone: `Write` or `Leave out`. |
+   | Written to | Where a file of theirs alone is written. |
+   | State | After Import: `branch X`, `held`, `nothing new`, or what went wrong. |
+
+   ![Their set read: two files paired by history, one of theirs alone](images/transaction-log/20-import-set.png)
+
+2. **Import** brings them in as branches; nothing of yours changes yet. Look
+   at each in its document's panel, or stop here: the next **Import a
+   Linked Set...** offers to merge the set brought in.
+
+   ![Imported: two branches, and their file alone held](images/transaction-log/20-import-set-imported.png)
+
+3. **Merge** does what each line's action says, as **one undo step** across
+   the files, named `Merge their set`. If a reference would not resolve
+   after it -- a link into a file you keep as ours, to something only
+   theirs has -- the references are listed first, with **Merge FILE too**,
+   **Merge as listed** and **Cancel**.
+
+In each file's panel the import and the merge are rows of their own: `Link
+their set`, `Link our set`, `Take theirs`, `Keep ours`, and the grey `set`
+records.
+
+## 16. Pasting objects that are here already
+
+Every object has an identity of its own, which it keeps when it is copied,
+renamed or saved. A paste, **File > Merge document...**, or a drag that
+copies in the tree, may bring an object whose identity is in the document
+already -- you copied it out earlier and paste it back, say. Then you are
+asked first, before anything changes, in **Paste: objects already here**:
+
+| The object's line | What the paste does |
+|---|---|
+| Unchecked | Leaves it out: what is brought refers to the one here, as it is. |
+| Checked | A new object beside the one here, as a paste always made. |
+| Checked, with **Assign to X** in the **Here** column | The one here takes the state brought, and keeps its name; what is brought refers to it. |
+
+![Two objects pasted back: Base assigned, Pin a new object beside](images/transaction-log/21-paste-clash.png)
+
+What an assigned object depends on, if it is here too, is assigned with it
+or left out. What an object owns -- a body's origin and its planes, a
+TechDraw page's views, a link's own elements, an assembly's groups -- goes
+with it, and cannot be ticked by itself. **Assigned objects take the look
+brought too**, on to begin with, takes the colours and display with the
+state. **Cancel** brings nothing and leaves no undo step. A paste beside the
+objects in the document they came from asks nothing.
+
+The same identity is how a merge (section 10) pairs objects: by identity
+and type, not by name, so an object renamed on one branch is still the same
+object on the other.
+
+## 17. I want to...
 
 | I want to... | Where |
 |---|---|
@@ -736,8 +995,33 @@ checked out on, and names the one that is.
 | undo a step of your own, or take a version, from a browser | **History**: click the step, then **Undo row**; **Snapshot...** (section 12) |
 | give someone a branch of their own to work in from a browser | `Gui.serveBranch(doc, "name")`; they switch, branch and restore there (section 12) |
 | see what one step did to a shape, from a browser | **History**: click the step, then **Show** on its shape |
+| work on one file in two FreeCADs | just save: each save merges what the other saved (section 13) |
+| finish a save that stopped at a conflict | pick a side for each in the merge that opened, **Merge**, save again |
+| see who saved a file | the report view, with **Log messages** ticked |
+| save a document as a folder | **File > Save as Directory...** (section 14) |
+| record a version without changing what the file opens as | **File > Save to History** |
+| send a document with every file it links to | **File > Export with Linked Files...** (section 15) |
+| take back someone's copy of the set | **File > Import a Linked Set...** |
+| paste objects back onto the ones they were copied from | **Edit > Paste**, and **Assign to** each (section 16) |
 
-## 14. The same from Python
+## 18. Settings
+
+Under `Preferences/Document` unless the name says otherwise. None but the
+last is on a preferences page: set them in the parameter editor (**Tools >
+Edit parameters...**).
+
+| Setting | Default | What it says |
+|---|---|---|
+| `TransactionLog` | 2 | 0 no log, 1 for this session only, 2 written into the file |
+| `MergeConflictSide` | 0 | the side a conflict starts on: 0 ours, 1 theirs, 2 none (section 10) |
+| `TransactionLogPullOnSave` | true | a save merges what another FreeCAD saved (section 13) |
+| `TransactionLogCacheSize` | 256 | MB of shapes the log holds while you work; 0 no limit (section 8) |
+| `TransactionLogCacheValues` | 10000 | the same, counted in values |
+| `FolderSaveSync` | true | a folder's save is flushed to the disk before it counts (section 14) |
+| `BlobCompression` | 0 | a new document's content: 0 zstd, 1 deflate (section 14) |
+| `Preferences/SceneShare/UploadLimitMB` | 16 | **Clients may send files up to:**, in the sharing panel (section 12) |
+
+## 19. The same from Python
 
 Everything the panel does is a method of the document.
 
@@ -760,11 +1044,18 @@ Everything the panel does is a method of the document.
 | Merge from file | `doc.importTransactionFork(path)` |
 | Keep, let go, list | `doc.keepTransactionValue(obj, prop, seq)`, `doc.keepTransactionValuesOf(obj)`, `doc.releaseTransactionValue(ref)`, `doc.getKeptTransactionValues()`, `doc.getKeptTransactionObjects()` |
 | Trim, Squash | `doc.trimTransactionBranch(name)`, `doc.squashTransactionVersions(first, last)` |
+| Save to History | `doc.saveToLog()` |
+| who asked for a save | `doc.getTransactionSave(saveId='')` |
+| another FreeCAD on the file | `doc.getFileOpeners()`, `doc.isFileChangedElsewhere()`, `doc.getLastSavePull()` |
+| let go of the log's shapes now | `doc.evictTransactionCache(size=None, values=None)` |
+| Export with Linked Files | `doc.exportLinkedSet(folder, withHistory=False)` |
+| Import a Linked Set | `doc.planLinkedSetImport(path)`, `doc.importLinkedSet(path, pairs=None)`, `doc.mergeLinkedSet(...)`, `doc.getLinkedSetImports()` |
+| an object's identity | `obj.ObjectUid` |
 
 Each has its arguments and what it returns in its docstring:
 `help(doc.previewTransactionMerge)`.
 
-## 15. Taking the pictures again
+## 20. Taking the pictures again
 
 The pictures are taken by a script that builds a small document, edits,
 branches and merges it, and drives the panel through this guide. Run it
@@ -782,7 +1073,10 @@ GUIDE_OUT=$PWD/../../docs/images/transaction-log \
 
 A fresh home and cache each time: the run ends abruptly, and the next one in
 the same cache would be offered the document to recover, over the pictures.
-`shots.txt` beside the pictures lists what was taken, and any error.
+`shots.txt` beside the pictures lists what was taken, and any error. The
+pictures of sections 13, 15 and 16 are made on documents of their own; for
+section 13 the script starts `FreeCADCmd` beside it, as the other copy that
+saves the file.
 
 The pictures of section 12 are a browser's, and that script does not take
 them. They are written by the two browser tests into their output directory
@@ -790,4 +1084,9 @@ them. They are written by the two browser tests into their output directory
 and `versions.png` by `tests/gui/serve-log-acts-browser.py`, with the rest of
 its shots (`sent.png` among them) -- and copied from there as
 `14-log-browser*.png` and `15-log-browser-*.png`. Both tests
-say in their first lines how they are run.
+say in their first lines how they are run. `16-log-browser-graph.png` and
+`16-log-browser-summary.png` were taken by hand from the page
+(`docs/TransactionLogJournal.md` sec 32.35); no test writes them.
+
+The sections added for two FreeCADs on one file, folders, linked sets and
+pasting (13-16) have no pictures yet.

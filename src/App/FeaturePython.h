@@ -25,6 +25,8 @@
 #ifndef APP_FEATUREPYTHON_H
 #define APP_FEATUREPYTHON_H
 
+#include <algorithm>
+
 #include <App/FeaturePythonHook.h>
 #include <App/GeoFeature.h>
 #include <App/PropertyLinks.h>
@@ -100,6 +102,15 @@ public:
     void  getElementMapVersion(std::string &ver, const App::Property *prop, bool restored) const;
 
     bool editProperty(const char *propName);
+
+    /// What the Proxy says the object owns (sec 37.9), added to `ret`;
+    /// false when it does not say
+    bool getOwnedObjects(std::vector<App::DocumentObject*>& ret) const;
+    /// The Proxy's counterpart of `owned` on `liveOwner` (sec 37.9); false
+    /// when it does not say
+    bool getOwnedCounterpart(const App::DocumentObject* owned,
+                             const App::DocumentObject* liveOwner,
+                             App::DocumentObject*& ret, App::OwnedPaste& how) const;
 
 protected:
     Py::Object hookSelf(int hook) const override;
@@ -316,6 +327,29 @@ public:
         return ver;
     }
 
+    /// What the object owns (docs/TransactionLogJournal.md sec 37.9): the base's,
+    /// and what the Proxy's getOwnedObjects(obj) adds
+    std::vector<App::DocumentObject*> getOwnedObjects() const override {
+        auto ret = FeatureT::getOwnedObjects();
+        std::vector<App::DocumentObject*> more;
+        if (imp->getOwnedObjects(more)) {
+            for (auto obj : more) {
+                if (std::find(ret.begin(), ret.end(), obj) == ret.end())
+                    ret.push_back(obj);
+            }
+        }
+        return ret;
+    }
+    /// The Proxy's getOwnedCounterpart(obj, owned, liveOwner) first, then
+    /// the base's
+    App::DocumentObject* getOwnedCounterpart(const App::DocumentObject* owned,
+                                             const App::DocumentObject* liveOwner,
+                                             App::OwnedPaste& how) const override {
+        App::DocumentObject* ret = nullptr;
+        if (imp->getOwnedCounterpart(owned, liveOwner, ret, how))
+            return ret;
+        return FeatureT::getOwnedCounterpart(owned, liveOwner, how);
+    }
     void editProperty(const char *propName) override {
         if (!imp->editProperty(propName))
             FeatureT::editProperty(propName);

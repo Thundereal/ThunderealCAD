@@ -44,6 +44,8 @@ from parttests.PrimitiveNamesTest import PrimitiveNamesTest, PrimitiveNamesBodyT
 from parttests.ElementAppearanceTest import ElementAppearanceMadeTest, ElementAppearanceMergeTest, ElementAppearanceNamesTest, ElementAppearanceLinkTest, ElementAppearanceLinkMergeTest, ElementAppearanceFileTest
 from parttests.ElementNameTest import ElementNameTest, LoftCapNameTest
 from parttests.ShapeListTest import ShapeListTest
+from parttests.CurveOnSurfaceTest import CurveOnSurfaceTest
+from parttests.GeometrySaveTest import GeometrySaveTest
 from parttests.ShapeDiffTest import ShapeDiffTest, ShapeAtAStateTest, KeptShapesTest
 from parttests.ShapeDiffTest import ShapeMaterialTest
 from parttests.ShapeDiffTest import MergedResultTest

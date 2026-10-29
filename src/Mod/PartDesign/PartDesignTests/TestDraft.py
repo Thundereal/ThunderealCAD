@@ -335,13 +335,15 @@ class TestDraft(unittest.TestCase):
         self.assertTrue(draft.Shape.isValid())
         self.assertAlmostEqual(draft.Shape.Volume, volume, 6)
         # the drafted face and the front wall it breaks through are named
-        # after the base's faces, the same over a recompute
+        # after the base's faces, the same over a recompute. The draft is on
+        # the body's FeatureBase, whose names the document's hasher may
+        # shorten: the front wall is the face whose history goes back to it
         names = dict(draft.Shape.ElementMap)
         front = [i for i, f in enumerate(shape.Faces, 1) if self.planeAt("Y", 0)(f)][0]
-        cut = [n for n, e in names.items()
-               if n.startswith("Face%d;" % front) and e.startswith("Face")]
+        cut = [e for e in names.values() if e.startswith("Face")
+               and draft.Shape.getElementHistory(e)[1].startswith("Face%d;" % front)]
         self.assertEqual(len(cut), 1)
-        self.assertLess(draft.Shape.getElement(names[cut[0]]).Area, 400 - 1)
+        self.assertLess(draft.Shape.getElement(cut[0]).Area, 400 - 1)
         draft.touch()
         self.Doc.recompute()
         self.assertEqual(dict(draft.Shape.ElementMap), names)

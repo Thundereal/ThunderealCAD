@@ -211,7 +211,10 @@ void TaskFeatureParameters::addBlinkWidget(QWidget *widget, const QString &txt)
         text = w->text();
     else
         return;
+    bool added = !blinkWidgets.count(widget);
     auto &info = blinkWidgets[widget];
+    if (added)
+        info.minWidth = widget->minimumWidth();
     info.widget = widget;
     info.text = text;
     info.altText = txt;
@@ -237,6 +240,12 @@ void TaskFeatureParameters::removeBlinkWidget(QWidget *widget)
     auto it = blinkWidgets.find(widget);
     if (it != blinkWidgets.end()) {
         it->second.setText(it->second.text);
+        // the width held while it blinked let go: its own, or the one
+        // fitTaskWidgets() gave it meanwhile
+        if (auto w = it->second.widget.data()) {
+            QVariant fitted = w->property("fitMinWidth");
+            w->setMinimumWidth(fitted.isValid() ? fitted.toInt() : it->second.minWidth);
+        }
         blinkWidgets.erase(it);
     }
 }
@@ -413,7 +422,7 @@ void TaskFeatureParameters::onUpdateViewTimer()
     recomputeFeature(false);
 }
 
-void TaskFeatureParameters::setupTransaction()
+void TaskFeatureParameters::setupTransaction(const QString& what)
 {
     if (!vp || !vp->getObject())
         return;
@@ -430,9 +439,16 @@ void TaskFeatureParameters::setupTransaction()
 
     if (fineUndo) {
         // A step of its own for what this event changes (entry 136), unless
-        // one is open already -- this event's, or a held one's
+        // one is open already -- this event's, or a held one's. Named for
+        // what it does, where the caller says (entry 228).
         if (!tid || tid != stepTid) {
-            stepTid = App::GetApplication().setActiveTransaction(n.c_str());
+            std::string step = n;
+            if (!what.isEmpty()) {
+                step = obj->Label.getValue();
+                step += ": ";
+                step += what.toUtf8().constData();
+            }
+            stepTid = App::GetApplication().setActiveTransaction(step.c_str());
             if (!transactionID)
                 transactionID = stepTid;
             if (!firstStepTid)
@@ -575,8 +591,10 @@ void TaskFeatureParameters::beginAcceptStep()
     App::GetApplication().getActiveTransaction(&tid);
     if (tid && tid == stepTid)
         App::GetApplication().closeActiveTransaction(false, tid);
-    std::string n("Edit ");
-    n += vp->getObject()->getNameInDocument();
+    // what it is, as each step says (entry 228)
+    std::string n = vp->getObject()->Label.getValue();
+    n += ": ";
+    n += tr("OK, recompute").toUtf8().constData();
     stepTid = App::GetApplication().setActiveTransaction(n.c_str());
     if (!transactionID)
         transactionID = stepTid;

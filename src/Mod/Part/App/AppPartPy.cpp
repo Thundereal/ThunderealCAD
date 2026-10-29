@@ -22,12 +22,6 @@
 
 #include "PreCompiled.h"
 
-#ifdef FC_OS_WIN32
-#  include <libloaderapi.h>
-#else
-#  include <dlfcn.h>
-#endif
-
 #ifndef _PreComp_
 # include <BRep_Builder.hxx>
 # include <BRep_Tool.hxx>
@@ -109,6 +103,7 @@
 #include "PartFeature.h"
 #include "FeatureElement.h"
 #include "ShapeDiff.h"
+#include "OCCTFork.h"
 #include "PartPyCXX.h"
 #include "SubShapeBinder.h"
 #include "Tools.h"
@@ -399,239 +394,13 @@ PartExport int initOCCTExtension()
     static int extVersion = 0;
     if (extVersion == 0) {
         extVersion = -1;
-#ifdef FC_OS_WIN32
-        // LoadLibraryA, not LoadLibrary: the build defines UNICODE, so the
-        // unsuffixed macro resolves to LoadLibraryW and rejects this narrow
-        // literal. GetProcAddress below is narrow-only in either case.
-        HMODULE hModule = LoadLibraryA("TKBRep.dll");
-        if (hModule) {
-            setFuncShowTopoShape = (FuncSetFuncShowTopoShape)GetProcAddress(hModule, "SetFuncShowTopoShape");
-        }
-#else
-        // Looked up among the libraries already loaded first: Part links
-        // TKBRep, so it is there under whatever file name it has, where the
-        // name below is the development symlink -- absent from a runtime-only
-        // install, and never the name on macOS.
         setFuncShowTopoShape =
-            (FuncSetFuncShowTopoShape)dlsym(RTLD_DEFAULT, "SetFuncShowTopoShape");
-        if (!setFuncShowTopoShape) {
-            void *hModule = dlopen ("libTKBRep.so", RTLD_LAZY);
-            if (hModule) {
-                setFuncShowTopoShape =
-                    (FuncSetFuncShowTopoShape)dlsym(hModule, "SetFuncShowTopoShape");
-            }
-        }
-#endif
+            (FuncSetFuncShowTopoShape)lookUpTKBRep("SetFuncShowTopoShape");
         if (setFuncShowTopoShape) {
             extVersion = setFuncShowTopoShape(showTopoShape);
         }
     }
-        
     return extVersion;
-}
-
-/// A function of one of the OCCT fork's toolkits ("TKBRep", "TKDESTEP", ...),
-/// looked up by name at run time like SetFuncShowTopoShape, so that FreeCAD
-/// still loads where the OCCT libraries are upstream's, or a fork's from
-/// before the function; null there. What FreeCAD needs of the fork it reaches
-/// this way, through a C function of the fork: a function called by its C++
-/// name is a symbol upstream's library does not have, and the loader then
-/// refuses the whole module.
-PartExport void *lookUpOCCT(const char *toolkit, const char *name)
-{
-#ifdef FC_OS_WIN32
-    const std::string dll = std::string(toolkit) + ".dll";
-    HMODULE hModule = GetModuleHandleA(dll.c_str());
-    if (!hModule)
-        hModule = LoadLibraryA(dll.c_str());
-    return hModule ? (void *)GetProcAddress(hModule, name) : nullptr;
-#else
-    void *f = dlsym(RTLD_DEFAULT, name);
-    if (!f) {
-#ifdef FC_OS_MACOSX
-        const std::string lib = std::string("lib") + toolkit + ".dylib";
-#else
-        const std::string lib = std::string("lib") + toolkit + ".so";
-#endif
-        void *hModule = dlopen(lib.c_str(), RTLD_LAZY);
-        if (hModule)
-            f = dlsym(hModule, name);
-    }
-    return f;
-#endif
-}
-
-/// A function of the OCCT fork's TKFillet by name, null without it.
-PartExport void *lookUpTKFillet(const char *name)
-{
-    return lookUpOCCT("TKFillet", name);
-}
-
-/// A function of the OCCT fork's TKBRep by name, null without it.
-PartExport void *lookUpTKBRep(const char *name)
-{
-    return lookUpOCCT("TKBRep", name);
-}
-
-typedef void (*FuncSetCurve2dSetMerging)(GeomTools_Curve2dSet &, bool);
-
-/// Says whether the set merges a 2D curve into an entry that would be written
-/// the same (the OCCT fork's GeomTools_Curve2dSet_SetMerging). False without
-/// the fork's function: upstream's set merges nothing, and there is nothing
-/// to set.
-PartExport bool setOCCTCurve2dSetMerging(GeomTools_Curve2dSet &set, bool merging)
-{
-    static const auto func = (FuncSetCurve2dSetMerging)lookUpOCCT(
-        "TKGeomBase", "GeomTools_Curve2dSet_SetMerging");
-    if (!func)
-        return false;
-    func(set, merging);
-    return true;
-}
-
-typedef void (*FuncSetOmitPCurvesOnPlane)(BinTools_ShapeSet &, bool);
-
-/// Says whether the binary shape set leaves out the pcurves a plane can
-/// rebuild (the OCCT fork's BinTools_ShapeSet_SetOmitPCurvesOnPlane). False
-/// without the fork's function: upstream's set writes them all.
-PartExport bool setOCCTOmitPCurvesOnPlane(BinTools_ShapeSet &set, bool omit)
-{
-    static const auto func = (FuncSetOmitPCurvesOnPlane)lookUpOCCT(
-        "TKBRep", "BinTools_ShapeSet_SetOmitPCurvesOnPlane");
-    if (!func)
-        return false;
-    func(set, omit);
-    return true;
-}
-
-typedef bool (*FuncIsCacheRepresentation)(const Standard_Transient *);
-
-/// Whether a BRep curve or point representation is a cache: one a frozen
-/// (Immutable) edge or vertex of the OCCT fork was given after it was frozen,
-/// such as a pcurve for a face built on the edge elsewhere. The fork's
-/// BRep_Builder_IsCache, looked up at run time; false without it -- upstream
-/// OCCT freezes nothing and has no caches.
-PartExport bool isOCCTCacheRepresentation(const Standard_Transient *rep)
-{
-    static const auto func = (FuncIsCacheRepresentation)lookUpTKBRep("BRep_Builder_IsCache");
-    return func && rep && func(rep);
-}
-
-typedef void (*FuncSetStableBytes)(BinTools_ShapeSet &, bool);
-
-/// Says whether the binary shape set writes the same bytes for the same
-/// shape whatever was written before (the OCCT fork's
-/// BinTools_ShapeSet_SetStableBytes). False without the fork's function:
-/// upstream's set has no such option.
-PartExport bool setOCCTStableBytes(BinTools_ShapeSet &set, bool stable)
-{
-    static const auto func = (FuncSetStableBytes)lookUpTKBRep("BinTools_ShapeSet_SetStableBytes");
-    if (!func)
-        return false;
-    func(set, stable);
-    return true;
-}
-
-typedef void (*FuncAddOwnSurfaces)(BRepTools_ShapeSet &, const TopoDS_Shape &);
-
-/// Names the surfaces of a shape to a text shape set before its geometry is
-/// added, for a stable write (the OCCT fork's
-/// BRepTools_ShapeSet_AddOwnSurfaces). False without the fork's function:
-/// upstream's set writes every representation and has nothing to name.
-PartExport bool addOCCTOwnSurfaces(BRepTools_ShapeSet &set, const TopoDS_Shape &shape)
-{
-    static const auto func = (FuncAddOwnSurfaces)lookUpTKBRep("BRepTools_ShapeSet_AddOwnSurfaces");
-    if (!func)
-        return false;
-    func(set, shape);
-    return true;
-}
-
-typedef void (*FuncThawedFrom)(const TopoDS_TShape *, Handle(TopoDS_TShape) &);
-
-/// The TShape a thawed copy was made of: an algorithm of the OCCT fork copied
-/// a frozen (Immutable) sub-shape where it would have changed it in place
-/// (the fork's TopoDS_TShape_ThawedFrom). Null for any other TShape, and
-/// without the fork's function -- upstream OCCT freezes nothing and thaws
-/// nothing.
-PartExport Handle(TopoDS_TShape) thawedFromOCCT(const TopoDS_TShape *copy)
-{
-    static const auto func = (FuncThawedFrom)lookUpTKBRep("TopoDS_TShape_ThawedFrom");
-    Handle(TopoDS_TShape) original;
-    if (func && copy)
-        func(copy, original);
-    return original;
-}
-
-typedef unsigned int (*FuncRaisedLockedShapes)();
-
-/// How many TopoDS_LockedShape the OCCT fork has raised on this thread: an
-/// algorithm that was refused a change of a frozen shape (the fork's
-/// TopoDS_LockedShape_Raised). 0 without the fork's function: upstream's
-/// exception counts nothing, and nothing there is frozen to be refused.
-PartExport unsigned int raisedOCCTLockedShapes()
-{
-    static const auto func = (FuncRaisedLockedShapes)lookUpTKBRep("TopoDS_LockedShape_Raised");
-    return func ? func() : 0;
-}
-
-typedef void *(*FuncAcquireRepresentationLock)(const TopoDS_TShape *);
-typedef void (*FuncReleaseRepresentationLock)(void *);
-
-/// Locks a frozen TShape's representations against the edits a frozen shape
-/// still takes -- a mesher's polygons, a pcurve for a new face -- while a
-/// writer walks them (the OCCT fork's BRep_RepresentationLock_Acquire). Null
-/// where nothing was locked, and without the fork's functions: upstream OCCT
-/// freezes nothing, so there is nothing to guard.
-PartExport void *acquireOCCTRepresentationLock(const TopoDS_TShape *tshape)
-{
-    static const auto func =
-        (FuncAcquireRepresentationLock)lookUpTKBRep("BRep_RepresentationLock_Acquire");
-    return func && tshape ? func(tshape) : nullptr;
-}
-
-/// Lets go of what acquireOCCTRepresentationLock returned, on the thread that
-/// acquired it; null is nothing.
-PartExport void releaseOCCTRepresentationLock(void *lock)
-{
-    static const auto func =
-        (FuncReleaseRepresentationLock)lookUpTKBRep("BRep_RepresentationLock_Release");
-    if (func && lock)
-        func(lock);
-}
-
-typedef double (*FuncSetFilletSetting)(double);
-
-/// Hands PartParams FilletPlateG0FallbackRatio to the OCCT fork's fillet: a
-/// corner plate that misses its boundary by more than this fraction of the
-/// smallest radius at the corner while held tangent to the stripes is built
-/// again on positions alone (ChFi3d_Builder::SetPlateG0FallbackRatio). Looked
-/// up at run time like SetFuncShowTopoShape, so a build against upstream OCCT,
-/// or a fork from before the ratio, still loads; returns false there.
-PartExport bool setOCCTPlateG0FallbackRatio(double ratio)
-{
-    static const auto func =
-        (FuncSetFilletSetting)lookUpTKFillet("ChFi3d_SetPlateG0FallbackRatio");
-    if (!func)
-        return false;
-    // 0 or less turns the fallback off: every tangent plate is kept (the
-    // fork's distance setting, which takes over then, defaults to off)
-    func(ratio > 0.0 ? ratio : 0.0);
-    return true;
-}
-
-/// Hands PartParams FilletCornerSetbackFallback to the OCCT fork's fillet:
-/// where a fillet fails at a corner, the corner is set back, up to this many
-/// times the radius, and built again (ChFi3d_Builder::SetCornerSetbackFallback,
-/// docs/CornerBlending.md section 9). False without the fork's function.
-PartExport bool setOCCTCornerSetbackFallback(double multiple)
-{
-    static const auto func =
-        (FuncSetFilletSetting)lookUpTKFillet("ChFi3d_SetCornerSetbackFallback");
-    if (!func)
-        return false;
-    func(multiple > 0.0 ? multiple : 0.0);
-    return true;
 }
 
 class Module : public Py::ExtensionModule<Module>

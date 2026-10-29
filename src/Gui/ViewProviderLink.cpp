@@ -2790,13 +2790,9 @@ bool ViewProviderLink::canDragObjects() const {
 void ViewProviderLink::dragObject(App::DocumentObject* obj) {
     auto ext = getLinkExtension();
     if(isGroup(ext)) {
-        const auto &objs = ext->getElementListValue();
-        for(size_t i=0;i<objs.size();++i) {
-            if(obj==objs[i]) {
-                ext->setLink(i,nullptr);
-                break;
-            }
-        }
+        // A move, not a removal: in AutoDelete mode, setLink(i, nullptr)
+        // would remove what is being dragged (sec 37.12)
+        ext->releaseElement(obj);
         return;
     }
     if(hasElements(ext))

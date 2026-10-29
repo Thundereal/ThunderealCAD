@@ -24,6 +24,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <algorithm>
 # include <set>
 # include <QAction>
 # include <QActionGroup>
@@ -91,6 +92,7 @@
 #include "OmniSearchBox.h"
 #include "OverlayParams.h"
 #include "TreeParams.h"
+#include "DlgImportClash.h"
 
 FC_LOG_LEVEL_INIT("Tree",false,true,true)
 
@@ -1289,7 +1291,7 @@ TreeWidget::TreeWidget(const char *name, QWidget* parent)
     // transaction closes, so a rank the tree writes for it -- an object the
     // command moved out to the root, sent last -- is part of that command's
     // step and not an edit of the tree's own from its timer
-    // (docs/TransactionLog.md sec 30.8). The flush is the one
+    // (docs/TransactionLogJournal.md sec 30.8). The flush is the one
     // checkTopParent() asks for, and does nothing when nothing is pending.
     connectBeforeCloseTransaction = App::GetApplication().signalBeforeCloseTransaction.connect(
         [this](bool abort) {
@@ -3352,7 +3354,7 @@ void TreeWidget::mousePressEvent(QMouseEvent *event) {
                     pimpl->toggleItemShowOnTop(oitem);
                 else {
                     // With the log on a click is a step of its own, named
-                    // (docs/TransactionLog.md sec 24.10); off, as it was.
+                    // (docs/TransactionLogJournal.md sec 24.10); off, as it was.
                     std::optional<App::AutoTransaction> committer;
                     if (App::DocumentParams::getTransactionLog() != 0)
                         committer.emplace("Toggle visibility");
@@ -4389,6 +4391,26 @@ void TreeWidget::dropEvent(QDropEvent *event)
                 }
             }
         }
+        // A copy into a document that has some of what it brings asks
+        // before the step opens (docs/TransactionLogJournal.md sec 37.9, 37.7 item
+        // 13): of the dragged objects and what they bring with them, by
+        // their names in their documents, which the copy keeps.
+        std::map<std::string, App::Document::ImportTake> pasteTakes;
+        bool pasteLook = true;
+        if (da == Qt::CopyAction) {
+            std::vector<App::DocumentObject*> sources;
+            for (auto& info : infos) {
+                auto doc = App::GetApplication().getDocument(info.doc.c_str());
+                auto obj = doc ? doc->getObject(info.obj.c_str()) : nullptr;
+                if (obj && info.parent.empty())
+                    sources.push_back(obj);
+            }
+            if (!sources.empty()
+                    && !askPaste(thisDoc, App::Document::getDependencyList(sources), pasteTakes,
+                                 &pasteLook))
+                return;
+        }
+
         // Because the existence of subname, we must de-select the drag the
         // object manually. Just do a complete clear here for simplicity
         Selection().selStackPush();
@@ -4492,9 +4514,27 @@ void TreeWidget::dropEvent(QDropEvent *event)
                         << Command::getObjectCmd(obj) << ", True)";
                     App::DocumentObject *res = nullptr;
                     if(da == Qt::CopyAction) {
+                        // Sec 36.4, 37.9: asked above, before the step;
+                        // the macro says assign where nothing was
+                        // duplicated or left out of what was there.
+                        App::Document::ImportClashScope ask(
+                            App::Document::ImportClashScope::Answered);
+                        ask.answers = pasteTakes;
+                        ask.copyLook = pasteLook;
                         auto copied = thisDoc->copyObject({obj},true);
                         if(copied.size())
                             res = copied.back();
+                        bool assigned = false, other = false;
+                        for (const auto& kv : pasteTakes) {
+                            assigned = assigned
+                                || kv.second == App::Document::ImportTake::Assign;
+                            other = other || kv.second == App::Document::ImportTake::Exclude;
+                        }
+                        if (assigned && !other) {
+                            ss.str("");
+                            ss << "App.getDocument('" << thisDoc->getName() << "').copyObject("
+                               << Command::getObjectCmd(obj) << ", True, assign=True)";
+                        }
                     } else
                         res = thisDoc->moveObject(obj,true);
                     if(res) {
@@ -4730,6 +4770,55 @@ struct UpdateDisabler {
         }
     }
 };
+
+/** The item that reveals an object in error that has no top-level item of
+ * its own: the one along its shortest OBJECT path (getParents(), the path
+ * in the 3D scene), made along it if it is not there yet; else, an object
+ * only the tree groups, the shallowest of its items, the first of those in
+ * the tree's order. The first by address, which the set of its items is
+ * ordered by, revealed one or another of its places from run to run --
+ * Binder008 under Lens003 or under LinkGroup001 (docs/HandsOnQueue.md entry
+ * 207; the user: "Lens only group the binder in tree hierarchy, not 3D
+ * scene. so it should not be treated as a parent").
+ */
+DocumentObjectItem *TreeWidget::pickRevealItem(const DocumentObjectDataPtr &data)
+{
+    if (data->docItem && data->viewObject) {
+        if (auto obj = data->viewObject->getObject()) {
+            auto parents = obj->getParents();
+            std::stable_sort(parents.begin(), parents.end(), [](const auto &a, const auto &b) {
+                return std::count(a.second.begin(), a.second.end(), '.')
+                     < std::count(b.second.begin(), b.second.end(), '.');
+            });
+            for (auto &parent : parents) {
+                if (auto item = data->docItem->findItemByObject(true, parent.first,
+                                                                 parent.second.c_str(), false))
+                    return item;
+            }
+        }
+    }
+    // the rows from the top down to an item, by their indexes
+    auto rowPath = [](QTreeWidgetItem *item) {
+        std::vector<int> path;
+        for (; item && item->parent(); item = item->parent())
+            path.push_back(item->parent()->indexOfChild(item));
+        if (item && item->treeWidget())
+            path.push_back(item->treeWidget()->indexOfTopLevelItem(item));
+        std::reverse(path.begin(), path.end());
+        return path;
+    };
+    DocumentObjectItem *best = nullptr;
+    std::vector<int> bestPath;
+    for (auto item : data->items) {
+        auto path = rowPath(item);
+        if (!best || path.size() < bestPath.size()
+                || (path.size() == bestPath.size() && path < bestPath)) {
+            best = item;
+            bestPath = std::move(path);
+        }
+    }
+    return best;
+}
 
 void TreeWidget::onUpdateStatus()
 {
@@ -5006,9 +5095,10 @@ void TreeWidget::onUpdateStatus()
         }
         if(data) {
             auto item = data->rootItem;
-            if(!item && !data->items.empty()) {
-                item = *data->items.begin();
-                data->docItem->showItem(item,false,true);
+            if(!item) {
+                item = pickRevealItem(data);
+                if(item)
+                    data->docItem->showItem(item,false,true);
             }
             if(!errItem)
                 errItem = item;
@@ -6088,7 +6178,7 @@ DocumentItem::DocumentItem(const Gui::Document* doc, QTreeWidgetItem * parent)
     connectRecomputedObj = adoc->signalRecomputedObject.connect(
             std::bind(&DocumentItem::slotRecomputedObject, this, sp::_1));
     connectChangedModified = doc->signalChangedModified.connect([this](const Document &) { setDocumentLabel(); });
-    // The branch suffix follows the file's branches (docs/TransactionLog.md
+    // The branch suffix follows the file's branches (docs/TransactionLogJournal.md
     // sec 27.24).
     connBranches = adoc->signalBranchesChanged.connect(
         [this](const App::Document &) { setDocumentLabel(); });
@@ -6161,7 +6251,7 @@ void DocumentItem::setDocumentLabel() {
         return;
     // The file's own document, while the file has more than one branch:
     // `@<branch>@v<num>`, the branch it is on and the version it is on disk
-    // (docs/TransactionLog.md sec 27.24). A version document's label carries
+    // (docs/TransactionLogJournal.md sec 27.24). A version document's label carries
     // its own (27.23).
     QString suffix;
     auto log = doc->getTransactionLog();
@@ -6355,7 +6445,7 @@ void DocumentItem::setupTreeRank(DocumentObjectItem *item, bool moved)
     // for the first time. Writing a rank then is an edit nobody made: with
     // the transaction log it was an undo step of its own after the command,
     // and it cleared the redo stack after an undo
-    // (docs/TransactionLog.md sec 30.8). Only an object with no rank at all
+    // (docs/TransactionLogJournal.md sec 30.8). Only an object with no rank at all
     // is given one.
     //
     // An item moved out to the root goes last, so the user finds it -- as

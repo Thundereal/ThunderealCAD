@@ -55,8 +55,6 @@ public:
     //@{
     /// Id e.g. Part number
     App::PropertyString  Id;
-    /// unique identifier of the Item
-    App::PropertyUUID    Uid;
     /// material descriptions
     App::PropertyLink    Material;
     /// Meta descriptions
@@ -113,6 +111,10 @@ public:
 
 
     void handleChangedPropertyType(Base::XMLReader &reader, const char *TypeName, App::Property *prop) override;
+    /// The `Uid` of a file from before sec 36 is the part's UID
+    /// (docs/TransactionLogJournal.md sec 36.7)
+    void handleChangedPropertyName(Base::XMLReader &reader, const char *TypeName, const char *PropName) override;
+    bool hasUidAttribute() const override {return true;}
 
     /** @name Group mode */
     //@{
@@ -157,6 +159,17 @@ public:
      */
     static int getAuxGroupRank(const AuxGroup *group);
     //@}
+
+    /** What a part owns (docs/TransactionLogJournal.md sec 37.9): its origin,
+     * and its aux groups of a role and its Elements group, made with it and
+     * removed with it; a group without a role is the user's. Pasted onto a
+     * live part, each group stands for the live one's of its role and
+     * follows the part.
+     */
+    std::vector<DocumentObject*> getOwnedObjects() const override;
+    DocumentObject* getOwnedCounterpart(const DocumentObject* owned,
+                                        const DocumentObject* liveOwner,
+                                        OwnedPaste& how) const override;
 
 protected:
     void onChanged(const Property *prop) override;

@@ -763,7 +763,7 @@ QJsonObject setEditOp(const QJsonObject &req, const std::string &boundDoc,
     const int mode = req.value(QLatin1String("mode")).toInt(0);
     const QString subname = req.value(QLatin1String("subname")).toString();
     // The change of one row of the log, where the edit is of a change
-    // (ViewProvider::ValueDiff, docs/TransactionLog.md sec 32.21): said to
+    // (ViewProvider::ValueDiff, docs/TransactionLogJournal.md sec 32.21): said to
     // the view provider, which the edit that starts next spends it on
     auto vpd = Base::freecad_dynamic_cast<ViewProviderDocumentObject>(vp);
     const qint64 row = req.value(QLatin1String("row")).toInteger(0);
@@ -889,6 +889,43 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("Sketcher_ChangeDimensionConstraint"),
         QStringLiteral("Sketcher_ConstrainSnellsLaw"),
     };
+    // The 3D sketch's own: its manipulator's switches and its constraints,
+    // none of which opens a dialog (what they refuse goes to the status
+    // bar). Its tools are the Sketcher_Create* commands, which start the 3D
+    // tool while a 3D sketch is in edit.
+    static const QSet<QString> sketch3d = {
+        QStringLiteral("Sketcher_Sketch3DCyclePlane"),
+        QStringLiteral("Sketcher_Sketch3DLockHeight"),
+        QStringLiteral("Sketcher_Sketch3DResetManipulator"),
+        QStringLiteral("Sketcher_Sketch3DKeepPlane"),
+        QStringLiteral("Sketcher_Sketch3DRotationHandles"),
+        QStringLiteral("Sketcher_Sketch3DSplineOnFace"),
+        QStringLiteral("Sketcher_Constrain3DAlongX"),
+        QStringLiteral("Sketcher_Constrain3DAlongY"),
+        QStringLiteral("Sketcher_Constrain3DAlongZ"),
+        QStringLiteral("Sketcher_ConstrainDistanceZ"),
+        QStringLiteral("Sketcher_Constrain3DSmooth"),
+    };
+    // Surface's commands that make an object and open its panel, which the
+    // panel mirror carries and which says what it has to say in the panel,
+    // never in a dialog, and those that open nothing and say an unusable
+    // selection in the report view (docs/Surface.md sec 8)
+    static const QSet<QString> surface = {
+        QStringLiteral("Surface_Network"),
+        QStringLiteral("Surface_Trim"),
+        QStringLiteral("Surface_Split"),
+        QStringLiteral("Surface_Untrim"),
+        QStringLiteral("Surface_ExtendEdges"),
+        QStringLiteral("Surface_BlendSurface"),
+        QStringLiteral("Surface_TwoRailSweep"),
+        QStringLiteral("Surface_PipeShell"),
+        QStringLiteral("Surface_EdgeContinuity"),
+        QStringLiteral("Surface_Isocurve"),
+        QStringLiteral("Surface_CurveOnSurface"),
+        QStringLiteral("Surface_IntersectionCurve"),
+        QStringLiteral("Surface_JoinCurves"),
+        QStringLiteral("Surface_ExtendCurve"),
+    };
     // Sketcher_External's three siblings start the same handler in another
     // flavour; pressed while a constraint tool runs, each switches that
     // tool's outside picking to its flavour.
@@ -898,7 +935,9 @@ bool isBrowserSafeCommand(const QString &name)
         || name == QLatin1String("Sketcher_Intersection")
         || name == QLatin1String("Sketcher_IntersectionDefining")
         || name == QLatin1String("Sketcher_CarbonCopy")
-        || constraints.contains(name);
+        || constraints.contains(name)
+        || sketch3d.contains(name)
+        || surface.contains(name);
 }
 
 /// The command a group's member `index` (1-based) runs, by the route the
@@ -1246,7 +1285,7 @@ QJsonObject undoRedoOp(const QJsonObject &req, const std::string &boundDoc, bool
                           QStringLiteral("grouped transactions in other documents "
                                          "need the desktop user's answer"));
 
-    // The steps are this connection's user's own (docs/TransactionLog.md
+    // The steps are this connection's user's own (docs/TransactionLogJournal.md
     // sec 30.10): the counts above, the steps taken and the stacks told
     // back, all under the actor the request runs as.
     if (redo)
@@ -1383,7 +1422,7 @@ std::string Gui::handleSceneControlRequest(const std::string &json,
                      OmniControl::requiredAccess(op));
         AccessScope scope(access);
         // What a connection's op writes is the connection's
-        // (docs/TransactionLog.md sec 30.3 S.b); a request with no
+        // (docs/TransactionLogJournal.md sec 30.3 S.b); a request with no
         // connection behind it is the desktop's own.
         App::ActorScope actor(client ? SceneActors::of(client) : nullptr);
         if (access < required && access == Render::ClientAccess::View)

@@ -31,6 +31,7 @@ class BRepBuilderAPI_MakeShape;
 #include <vector>
 
 #include "TopoShape.h"
+#include "ShapeCongruence.h"
 #include <TopAbs_ShapeEnum.hxx>
 
 #include <App/FileBlob.h>
@@ -44,7 +45,7 @@ class Feature;
 class ShapeRefSet;
 
 /** While one lives on this thread, a frozen shape value is handed out as a
- * copy, one per value, carrying the same element names (docs/TransactionLog.md
+ * copy, one per value, carrying the same element names (docs/TransactionLogJournal.md
  * sec 27.82). Part::Feature::recompute runs a feature again inside one when an
  * algorithm refused to change a frozen input (TopoDS_LockedShape): the copy
  * is the algorithm's to change.
@@ -149,10 +150,10 @@ public:
     App::Property *Copy(void) const override;
     void Paste(const App::Property &from) override;
     /// False while the TShapes are not frozen: they are shared, and may be
-    /// edited in place (docs/TransactionLog.md sec 27.99).
+    /// edited in place (docs/TransactionLogJournal.md sec 27.99).
     bool canSaveOffThread() const override;
     /// The element map, which every copy of the shape shares
-    /// (docs/TransactionLog.md sec 31.31).
+    /// (docs/TransactionLogJournal.md sec 31.31).
     std::shared_ptr<void> holdForOffThread() const override;
     unsigned int getMemSize (void) const override;
     //@}
@@ -317,6 +318,15 @@ private:
      * the XML, so nothing on the reading side has to know about any of it.
      */
     mutable TopLoc_Location _blobMotion;
+    /** The shape's congruence invariants (CongruenceIndex::find), and the
+     * shape they were taken of: kept from one save to the next while the
+     * shape is the same, which is most of what a save of unchanged shapes
+     * used to compute (docs/TransactionLogJournal.md sec 38.11).
+     */
+    mutable TopoDS_Shape _congruentFor;
+    mutable CongruenceIndex::Invariants _congruentInvariants;
+    /// And the match the last save made for it.
+    mutable CongruenceIndex::Match _congruentMatch;
     /** Whether this property's file is offered for other files to borrow
      * from (ShapeRefSet::publish). Off for a retained generation
      * (Feature::materializeShapeVersions): it may borrow, but nothing

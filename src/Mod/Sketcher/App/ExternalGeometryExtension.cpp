@@ -93,7 +93,7 @@ void ExternalGeometryExtension::restoreAttributes(Base::XMLReader& reader)
     RefIndex = reader.getAttributeAsInteger("RefIndex", "-1");
     RefElement = reader.getAttribute("RefElement", "");
     Flags = FlagType(reader.getAttributeAsUnsigned("Flags", "0"));
-    // A value of another copy of the file (docs/TransactionLog.md sec
+    // A value of another copy of the file (docs/TransactionLogJournal.md sec
     // 30.16, 31.14): what the reference names is read as a link's path is
     // -- its strings out of that copy's table, and an element the copy
     // numbered by the number it has here.

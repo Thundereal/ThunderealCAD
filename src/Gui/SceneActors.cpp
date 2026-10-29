@@ -71,7 +71,7 @@ App::Actor SceneActors::describe(const Render::SceneClientInfo& info)
     App::Actor actor;
     actor.login = info.id;
     actor.access = Render::clientAccessName(info.access);
-    // Which browser, whoever it is (docs/TransactionLog.md sec 30.32): the
+    // Which browser, whoever it is (docs/TransactionLogJournal.md sec 30.32): the
     // start of its key, as the host's record lists it.
     actor.device = info.device.substr(0, 12);
     if (!info.identity.empty()) {

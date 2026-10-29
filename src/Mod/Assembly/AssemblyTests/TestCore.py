@@ -25,6 +25,7 @@ import math
 import FreeCAD as App
 import Part
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -726,8 +727,12 @@ class TestSolverBackend(AssemblyTestBase):
         try:
             self.assertEqual(self.doc.getObject("Assembly").SolverBackend, "Ondsel")
         finally:
-            os.remove(path)
-            os.rmdir(os.path.dirname(path))
+            # Closed first: an open document keeps its lock files beside
+            # its file (.~backend.FCStd.lock, .open); tearDown closes the
+            # blank one
+            App.closeDocument(self.doc.Name)
+            self.doc = App.newDocument("SolverBackendSaved")
+            shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
 
 class TestSubNames(AssemblyTestBase):

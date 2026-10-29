@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-// The phase-0 measurement of the transaction log (docs/TransactionLog.md
+// The phase-0 measurement of the transaction log (docs/TransactionLogJournal.md
 // sec 15): a commit walks its transaction the way the log writer will and
 // writes one CSV row per value. These tests pin the walk -- the op each
 // change becomes, the two hashes of a set, the dedup of a value seen twice

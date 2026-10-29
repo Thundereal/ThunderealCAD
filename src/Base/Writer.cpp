@@ -478,7 +478,7 @@ void Writer::writeEntry(const FileEntry& entry)
 }
 
 // ----------------------------------------------------------------------------
-// The entry capture and the property marks (docs/TransactionLog.md 23.3)
+// The entry capture and the property marks (docs/TransactionLogJournal.md 23.3)
 
 EntryCapture::EntryCapture(std::string bytes)
 {
@@ -820,15 +820,43 @@ void FileWriter::putNextEntry(const char* file, const char *obj)
     // in a row (the included-file blobs) relies on this.
     this->FileStream.close();
 
-    std::string fileName = DirName + "/" + file;
+    std::string fileName = (StageDir.empty() ? DirName : StageDir) + "/" + file;
+    if (!StageDir.empty()) {
+        // A stage starts empty: an entry under a subdirectory (blobs/) finds
+        // none there, where the directory itself has it from the last save.
+        auto slash = fileName.rfind('/');
+        Base::FileInfo parent(fileName.substr(0, slash));
+        if (!parent.exists()) {
+            parent.createDirectories();
+        }
+    }
     this->FileStream.open(Base::FileInfo(fileName),
                           std::ios::out | std::ios::binary | std::ios::trunc);
     // One float format for every writer, the archive's (ZipWriter): a
     // value has to serialise to the same bytes whichever writer it goes
-    // through, or the log cannot hold one copy of it (TransactionLog.md
+    // through, or the log cannot hold one copy of it (TransactionLogJournal.md
     // 23.3).
     this->FileStream << std::setprecision(std::numeric_limits<double>::digits10 + 1);
     this->FileStream.setf(ios::fixed, ios::floatfield);
+}
+
+void FileWriter::dropFile(const std::string& name)
+{
+    if (!StageDir.empty()) {
+        Removals.push_back(name);
+        return;
+    }
+    Base::FileInfo fi(DirName + "/" + name);
+    if (fi.exists()) {
+        fi.deleteFile();
+    }
+}
+
+void FileWriter::keepFile(const std::string& name)
+{
+    Kept.insert(name);
+    if (FileNameSet.insert(name).second)
+        FileNames.push_back(name);
 }
 
 bool FileWriter::shouldWrite(const std::string& /*name*/, const Base::Persistence* /*obj*/) const
@@ -847,11 +875,12 @@ void FileWriter::writeFiles()
         stepProgress(base, FileList.size());
         FileEntry entry = FileList[index];
 
-        if (shouldWrite(entry.FileName, entry.Object)) {
+        if (!Kept.count(entry.FileName) && shouldWrite(entry.FileName, entry.Object)) {
             std::string filePath = entry.FileName;
             std::string::size_type pos = 0;
+            const std::string& root = StageDir.empty() ? DirName : StageDir;
             while ((pos = filePath.find('/', pos)) != std::string::npos) {
-                std::string dirName = DirName + "/" + filePath.substr(0, pos);
+                std::string dirName = root + "/" + filePath.substr(0, pos);
                 pos++;
                 Base::FileInfo fi(dirName);
                 fi.createDirectory();

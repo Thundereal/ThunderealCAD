@@ -67,6 +67,16 @@ std::string Uuid::createUuid()
     return Uuid;
 }
 
+std::string Uuid::createUuid(const std::string& space, const std::string& name)
+{
+    QString uuid = QUuid::createUuidV5(QUuid(QString::fromUtf8(space.c_str())),
+                                       QByteArray(name.c_str(), int(name.size())))
+                       .toString();
+    uuid = uuid.mid(1);
+    uuid.chop(1);
+    return uuid.toUtf8().constData();
+}
+
 void Uuid::setValue(const char* sString)
 {
     if (sString) {

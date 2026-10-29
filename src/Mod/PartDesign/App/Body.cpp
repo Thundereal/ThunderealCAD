@@ -253,6 +253,8 @@ bool Body::isAllowed(const Base::Type &type)
             type.isDerivedFrom(PartDesign::Solid::getClassTypeId())   ||
             type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId()) ||
             type.isDerivedFrom(Part::Part2DObject::getClassTypeId()) ||
+            // the 3D sketch (docs/Sketch3D.md), by name: PartDesign does not link Sketcher
+            type.isDerivedFrom(Base::Type::fromName("Sketcher::Sketch3DObject")) ||
             type.isDerivedFrom(PartDesign::ShapeBinder::getClassTypeId()) ||
             type.isDerivedFrom(Part::SubShapeBinder::getClassTypeId()) ||
             type.isDerivedFrom(App::AuxGroup::getClassTypeId()) ||

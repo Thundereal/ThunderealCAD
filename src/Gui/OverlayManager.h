@@ -222,6 +222,24 @@ public:
      */
     static bool hasOverlayRowBands(const QWidget *view);
 
+    /** Every scroll area in \a widget, \a widget too, given the thin bars
+     * laid over it (Gui::OverlayScrollBars) while it shows the overlay look,
+     * and its own back when it no longer does (docs/HandsOnQueue.md entry
+     * 225, the reporter: "a general way to replace the scroll bar of all
+     * other widgets in overlay transparent mode").
+     *
+     * Called after each walk that gives a panel the overlay look or takes it
+     * away, and as a scroll area is shown, which reaches what is made in a
+     * panel later (a task panel's lists). Left out: an area whose bars were
+     * put there by something else (the spreadsheet's, a TechDraw page's), a
+     * list in a window of its own (a combo box's), the model tree and the
+     * property view while their own hide options are on (TreeParams
+     * HideScrollBarInOverlay, OverlayParams
+     * DockOverlayHidePropertyViewScrollBar), and an area with both its own
+     * bars off for good.
+     */
+    static void updateScrollBars(QWidget *widget);
+
     /** The parts of \a widget that are laid over: by the overlaid docks,
      * as occupied() answers, and by whatever else registered itself with
      * addCover() -- a task panel shown over its view.
@@ -230,6 +248,17 @@ public:
      * (docs/HandsOnQueue.md entry 76).
      */
     QRegion covered(const QWidget *widget) const;
+    /** covered() one cover at a time: each dock's and each cover's own
+     * rectangle in \a widget. A region keeps rectangles in bands, so that
+     * a dock at the side of a dock at the bottom comes back from it in two
+     * pieces, the upper one reading as a dock at the top: what lays itself
+     * out against the docks by side asks this (OverlayScrollBars,
+     * docs/HandsOnQueue.md entry 233). With taskContent, a see-through
+     * dock that shows task views and nothing else by what they show, the
+     * boxes in their panels: the scroll bars do not go round the Tasks
+     * panel while it has nothing in it (entry 233).
+     */
+    QVector<QRect> coverRects(const QWidget *widget, bool taskContent = false) const;
     /// \a cover is laid over views while it is shown: covered() counts it,
     /// and coverChanged() tells when it moves, shows or hides. Forgotten
     /// when it is destroyed.

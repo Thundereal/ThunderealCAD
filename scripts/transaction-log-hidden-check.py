@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 32.30, the desktop's side of a
+# GUI check of docs/TransactionLogJournal.md sec 32.30, the desktop's side of a
 # branch served in a document of its own, which has no window: closing the
 # last document that has one, while such a document is open, says so and
 # offers to show it -- "Show Them", "Leave Hidden", or Cancel -- and saving
@@ -144,6 +144,13 @@ def run():
               and "Save to History" in (seen.get("buttons") or []))
 
         # -- Closing the last window ----------------------------------------
+        # The branch served and changed is in outer's history, which its
+        # save writes: outer is modified now (TransactionLog sec 35.18), and
+        # a close would ask to save it first. Saved, as the desktop would.
+        check("the branch served leaves the outer document to be saved (%r)"
+              % (Gui.getDocument(outer).Modified,), Gui.getDocument(outer).Modified)
+        Gui.getDocument(outer).save()
+        settle(300)
         seen = answering(None, lambda: closeWindow(outer))
         text = seen.get("text", "")
         check("closing the outer document's window says what has none, by name (%r)"

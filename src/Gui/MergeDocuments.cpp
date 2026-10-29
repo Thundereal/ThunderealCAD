@@ -96,19 +96,67 @@ unsigned int MergeDocuments::getMemSize () const
     return 0;
 }
 
+namespace
+{
+/// The value of `attr="..."` in the tag text `tag`, empty if none
+std::string attribute(const std::string& tag, const char* attr)
+{
+    const std::string key = std::string(" ") + attr + "=\"";
+    auto pos = tag.find(key);
+    if (pos == std::string::npos)
+        return {};
+    pos += key.size();
+    auto end = tag.find('"', pos);
+    return end == std::string::npos ? std::string() : tag.substr(pos, end - pos);
+}
+}  // namespace
+
+std::vector<std::string> MergeDocuments::scanUids(std::istream& input, std::string& from)
+{
+    from.clear();
+    std::vector<std::string> uids;
+    zipios::ZipInputStream zip(input);
+    // Document.xml is the first entry; the object list is its first part,
+    // read up to its end and no further (the properties, the shapes' files)
+    std::string text;
+    char buf[65536];
+    while (zip) {
+        zip.read(buf, sizeof(buf));
+        text.append(buf, static_cast<std::size_t>(zip.gcount()));
+        if (text.find("</Objects>") != std::string::npos)
+            break;
+    }
+    auto doc = text.find("<Document ");
+    if (doc != std::string::npos)
+        from = attribute(text.substr(doc, text.find('>', doc) - doc), "From");
+    auto end = text.find("</Objects>");
+    for (auto pos = text.find("<Object "); pos != std::string::npos && pos < end;
+         pos = text.find("<Object ", pos + 1)) {
+        const std::string tag = text.substr(pos, text.find('>', pos) - pos);
+        std::string uid = attribute(tag, "uid");
+        if (!uid.empty())
+            uids.push_back(std::move(uid));
+    }
+    return uids;
+}
+
 std::vector<App::DocumentObject*>
 MergeDocuments::importObjects(std::istream& input)
 {
     this->nameMap.clear();
-    this->stream = new zipios::ZipInputStream(input);
+    // Owned here: an import that throws (a clash settlement that cannot
+    // read a value, sec 36.4) leaves neither the stream nor a dangling
+    // pointer to it behind
+    std::unique_ptr<zipios::ZipInputStream> owned(new zipios::ZipInputStream(input));
+    this->stream = owned.get();
+    struct Reset
+    {
+        zipios::ZipInputStream*& stream;
+        ~Reset() { stream = nullptr; }
+    } reset {this->stream};
     Base::ZipReader zreader(*this->stream,std::string("<memory>"));
     XMLMergeReader reader(this->nameMap, zreader);
-    std::vector<App::DocumentObject*> objs = appdoc->importObjects(reader);
-
-    delete this->stream;
-    this->stream = nullptr;
-
-    return objs;
+    return appdoc->importObjects(reader);
 }
 
 void MergeDocuments::importObject(const std::vector<App::DocumentObject*>& o, Base::XMLReader & r)

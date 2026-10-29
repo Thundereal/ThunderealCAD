@@ -1188,7 +1188,8 @@ void OverlayTabWidget::_setOverlayMode(QWidget *widget, OverlayOption option)
             if (treeView) {
                 auto scrollArea = static_cast<QAbstractScrollArea*>(parent);
                 if (scrollArea->verticalScrollBar() == widget) {
-                    if (!TreeParams::getHideScrollBar() || option == OverlayOption::Disable)
+                    if (!TreeParams::getHideScrollBarInOverlay()
+                            || option == OverlayOption::Disable)
                         widget->setStyleSheet(QString());
                     else {
                         static QString _style = QStringLiteral("*{width:0}");
@@ -1438,6 +1439,7 @@ void OverlayTabWidget::setOverlayMode(bool enable)
     proxyWidget->setStyleSheet(stylesheet);
     this->setStyleSheet(stylesheet);
     setOverlayMode(this, option);
+    OverlayManager::updateScrollBars(this);
 
     _graphicsEffect->setEnabled(effectEnabled() && (enable || isTransparent()));
 
@@ -1703,6 +1705,7 @@ void OverlayTabWidget::removeWidget(QDockWidget *dock, QDockWidget *lastDock)
     dock->setFeatures(dock->features() | QDockWidget::DockWidgetFloatable);
 
     setOverlayMode(dock, OverlayOption::Disable);
+    OverlayManager::updateScrollBars(dock);
 
     saveTabs();
 }

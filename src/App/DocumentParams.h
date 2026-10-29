@@ -182,6 +182,37 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter BlobCompression
+    ///
+    /// How new documents compress the content their file carries --
+    /// shapes, included files, the history: 0 zstd, 1 deflate. Any zip
+    /// tool extracts deflate, and the extracted folder opens as the
+    /// document; zstd reads back about twice as fast. Has no effect on a
+    /// document saved as a directory.
+    static const long & getBlobCompression();
+    static const long & defaultBlobCompression();
+    static void removeBlobCompression();
+    static void setBlobCompression(const long &v);
+    static const char *docBlobCompression();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter FolderSaveSync
+    ///
+    /// Flush the files a save of a document kept as a directory changed to
+    /// the disk before the save counts as done, so that a power loss leaves
+    /// the previous save or this one, whole. Costs a disk flush per changed
+    /// file; turn it off on a slow network drive.
+    static const bool & getFolderSaveSync();
+    static const bool & defaultFolderSaveSync();
+    static void removeFolderSaveSync();
+    static void setFolderSaveSync(const bool &v);
+    static const char *docFolderSaveSync();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter SplitXML
     ///
     /// Give each object an XML file of its own in new documents saved as a
@@ -267,6 +298,22 @@ public:
     static void removeBlobSegmentSize();
     static void setBlobSegmentSize(const long &v);
     static const char *docBlobSegmentSize();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter BlobAppendSize
+    ///
+    /// How full, in KB, the pack store segment new content is added to
+    /// may be before the next batch starts another (docs/TransactionLogJournal.md
+    /// sec 37.4 P8): adding rewrites that segment whole, so this bounds
+    /// what a commit writes besides its own content. The small segments
+    /// left behind are merged in the background. At most BlobSegmentSize.
+    static const long & getBlobAppendSize();
+    static const long & defaultBlobAppendSize();
+    static void removeBlobAppendSize();
+    static void setBlobAppendSize(const long &v);
+    static const char *docBlobAppendSize();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)
@@ -634,7 +681,7 @@ public:
     //@{
     /// Accessor for parameter TransactionLog
     ///
-    /// Transaction log mode (docs/TransactionLog.md sec 13.3, 27.5). The
+    /// Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The
     /// log is always on; what this chooses is whether a save writes the
     /// history into the file: 2 (the default) writes it, 1 keeps it in
     /// the document transient directory only, where it dies with the
@@ -693,9 +740,10 @@ public:
     //@{
     /// Accessor for parameter TransactionLogKeepVersions
     ///
-    /// How many unnamed versions the transaction log keeps (sec 16.3):
-    /// when a version is added, the oldest unnamed ones over this count
-    /// are evicted -- never a named one, never the newest. 0 keeps all.
+    /// How many unnamed versions the transaction log keeps (sec 16.3,
+    /// 37.4 P6): when a version is added, the oldest unnamed ones over
+    /// this count are evicted -- never a named one, never the newest of
+    /// a branch. 0 keeps all.
     static const long & getTransactionLogKeepVersions();
     static const long & defaultTransactionLogKeepVersions();
     static void removeTransactionLogKeepVersions();
@@ -705,10 +753,102 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter TransactionLogCacheSize
+    ///
+    /// The budget of the transaction log cache tier, in MB (docs/
+    /// TransactionLogJournal.md sec 37.13): the shapes recomputes wrote that only
+    /// the history holds. Past it the oldest go, the quickest to recompute
+    /// first, down to three quarters; an undo onto one recomputes it. The
+    /// newest of each property and what a version lists stay. 0 for none.
+    static const long & getTransactionLogCacheSize();
+    static const long & defaultTransactionLogCacheSize();
+    static void removeTransactionLogCacheSize();
+    static void setTransactionLogCacheSize(const long &v);
+    static const char *docTransactionLogCacheSize();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogCacheValues
+    ///
+    /// The same budget as TransactionLogCacheSize, in values. 0 sets none.
+    static const long & getTransactionLogCacheValues();
+    static const long & defaultTransactionLogCacheValues();
+    static void removeTransactionLogCacheValues();
+    static void setTransactionLogCacheValues(const long &v);
+    static const char *docTransactionLogCacheValues();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogPullOnSave
+    ///
+    /// A save first brings in what another process saved into the file
+    /// since it was read here, and merges it (docs/TransactionLogJournal.md sec
+    /// 29.8); a conflict stops the save at the merge. Off, the save
+    /// writes over the file as before. The save lock is taken either way.
+    static const bool & getTransactionLogPullOnSave();
+    static const bool & defaultTransactionLogPullOnSave();
+    static void removeTransactionLogPullOnSave();
+    static void setTransactionLogPullOnSave(const bool &v);
+    static const char *docTransactionLogPullOnSave();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter FileOpenerExpiryDays
+    ///
+    /// A line of the open marker beside a file (.~<name>.open) that names
+    /// a process of another computer and was not seen -- opened or saved --
+    /// for this many days is taken as gone (docs/TransactionLogJournal.md
+    /// sec 39.3): one that ended without closing left the folder never
+    /// alone again. 0 keeps every line.
+    static const long & getFileOpenerExpiryDays();
+    static const long & defaultFileOpenerExpiryDays();
+    static void removeFileOpenerExpiryDays();
+    static void setFileOpenerExpiryDays(const long &v);
+    static const char *docFileOpenerExpiryDays();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogCoalesceSeconds
+    ///
+    /// A commit that writes by hand the one property the commit before
+    /// it wrote, by the same author under the same name and within this
+    /// many seconds of it, is folded into it: one row of the transaction
+    /// log and one undo step for the run, as a spinbox or a Python loop
+    /// makes it (docs/TransactionLogJournal.md sec 37.4 P4). 0 never folds.
+    static const long & getTransactionLogCoalesceSeconds();
+    static const long & defaultTransactionLogCoalesceSeconds();
+    static void removeTransactionLogCoalesceSeconds();
+    static void setTransactionLogCoalesceSeconds(const long &v);
+    static const char *docTransactionLogCoalesceSeconds();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogKeepNamed
+    ///
+    /// How many named versions a saved file carries in its history
+    /// (docs/TransactionLogJournal.md sec 37.4 P1), the newest first, for a file
+    /// that does not say (Document.setHistoryRetention): rows older than
+    /// the oldest version the file carries are left out of it. A version
+    /// a branch forked from and a pinned one always travel. 0 carries
+    /// every named version; below 0 carries the whole history.
+    static const long & getTransactionLogKeepNamed();
+    static const long & defaultTransactionLogKeepNamed();
+    static void removeTransactionLogKeepNamed();
+    static void setTransactionLogKeepNamed(const long &v);
+    static const char *docTransactionLogKeepNamed();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter TransactionLogCompactSize
     ///
     /// When the file-scope state of the transaction log is compacted on
-    /// its own (docs/TransactionLog.md sec 27.48, 27.49), in KB: after a
+    /// its own (docs/TransactionLogJournal.md sec 27.48, 27.49), in KB: after a
     /// trim, a branch deletion or a squash, once the names estimated to be
     /// referred to by nothing and the strings of the file hasher nothing
     /// holds come to this many bytes together. 0 never.
@@ -724,7 +864,7 @@ public:
     /// Accessor for parameter ClosePinnedVersion
     ///
     /// When the last link pinned to a version of a file goes, what
-    /// happens to the document that showed it (docs/TransactionLog.md
+    /// happens to the document that showed it (docs/TransactionLogJournal.md
     /// sec 27.21 Q5): 0 ask, 1 close it, 2 keep it open. With no Gui to
     /// ask, 0 keeps it open.
     static const long & getClosePinnedVersion();
@@ -783,7 +923,7 @@ public:
     /// Accessor for parameter MergeConflictSide
     ///
     /// The side a conflict starts on when a merge, or rows applied, are
-    /// previewed (docs/TransactionLog.md sec 32.17): 0 ours (the default),
+    /// previewed (docs/TransactionLogJournal.md sec 32.17): 0 ours (the default),
     /// 1 theirs, 2 none -- it is asked. A side is what the dialog starts
     /// each conflict on, and what is merged unless another is picked.
     /// Asked, nothing is merged or shown until each conflict has a side.

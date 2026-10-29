@@ -42,7 +42,7 @@ namespace PartGui
 class ViewProviderPartExt;
 
 /** The panel of the edit mode that shows an object's last change
- * (Gui::ViewProvider::ValueDiff; docs/TransactionLog.md sec 32.19).
+ * (Gui::ViewProvider::ValueDiff; docs/TransactionLogJournal.md sec 32.19).
  *
  * Which change it is, and how its two states are drawn over the object: by
  * the faces or by the material, where between before and after, with what

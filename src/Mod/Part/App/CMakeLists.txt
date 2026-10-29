@@ -45,6 +45,7 @@ generate_from_xml(HyperbolaPy)
 generate_from_xml(ArcOfHyperbolaPy)
 generate_from_xml(ParabolaPy)
 generate_from_xml(OffsetCurvePy)
+generate_from_xml(CurveOnSurfacePy)
 generate_from_xml(GeometryPy)
 generate_from_xml(GeometryExtensionPy)
 generate_from_xml(GeometryIntExtensionPy)
@@ -291,6 +292,8 @@ SET(Python_SRCS
     ParabolaPyImp.cpp
     OffsetCurvePy.xml
     OffsetCurvePyImp.cpp
+    CurveOnSurfacePy.xml
+    CurveOnSurfacePyImp.cpp
     GeometryPy.xml
     GeometryPyImp.cpp
     GeometryExtensionPy.xml
@@ -555,6 +558,8 @@ SET(Part_SRCS
     GeometryMigrationExtension.cpp
     Geometry.cpp
     Geometry.h
+    GeomCurveOnSurface.cpp
+    GeomCurveOnSurface.h
     GizmoHelper.cpp
     GizmoHelper.h
     Geometry2d.cpp
@@ -565,6 +570,8 @@ SET(Part_SRCS
     ImportStep.h
     Interface.cpp
     Interface.h
+    OCCTFork.cpp
+    OCCTFork.h
     PreCompiled.cpp
     PreCompiled.h
     ProgressIndicator.cpp

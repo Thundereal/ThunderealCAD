@@ -128,6 +128,7 @@
 #include "WorkbenchManager.h"
 #include "Workbench.h"
 
+#include "DlgImportClash.h"
 #include "MergeDocuments.h"
 #include "ViewProviderExtern.h"
 #include "ViewParams.h"
@@ -951,7 +952,7 @@ bool MainWindow::setupSelectionView()
 
 bool MainWindow::setupTransactionLogView()
 {
-    // The transaction log browser (docs/TransactionLog.md sec 22.2)
+    // The transaction log browser (docs/TransactionLogJournal.md sec 22.2)
     if (d->hiddenDockWindows.find("Std_TransactionLogView") == std::string::npos) {
         auto view = new DockWnd::TransactionLogView(nullptr, this);
         view->setObjectName
@@ -3337,6 +3338,29 @@ bool ClipboardFormats::insertable()
         formats.contains(_MimeDocObjFile) || formats.contains(_MimeDocObjXFile);
 }
 
+namespace {
+/// The objects a paste brought go under the selected group, when one is:
+/// not an object that was there before, which an Assign (sec 36.4) put in
+/// the list in a copy's place.
+void groupPasted(App::Document* doc, const std::vector<App::DocumentObject*>& newObj,
+                 const std::set<long>& before)
+{
+    auto grp = Gui::Selection().getSelection(doc->getName(), ResolveMode::OldStyleElement,
+                                             /*single*/ true);
+    if (grp.size() != 1)
+        return;
+    Gui::Document* gui = Application::Instance->getDocument(doc);
+    if (!gui)
+        return;
+    std::vector<App::DocumentObject*> brought;
+    for (auto o : newObj) {
+        if (o && !before.count(o->getID()))
+            brought.push_back(o);
+    }
+    gui->addRootObjectsToGroup(brought, grp.front().pObject);
+}
+}  // namespace
+
 void MainWindow::insertFromMimeData (const QMimeData * mimeData)
 {
     if (!mimeData)
@@ -3367,35 +3391,68 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
     if(!fromDoc) {
         QByteArray res = mimeData->data(format);
 
-        doc->openTransaction("Paste");
-        Base::ByteArrayIStreambuf buf(res);
-        std::istream in(nullptr);
-        in.rdbuf(&buf);
-        MergeDocuments mimeView(doc);
-        std::vector<App::DocumentObject*> newObj = mimeView.importObjects(in);
-        auto grp = Gui::Selection().getSelection(doc->getName(), ResolveMode::OldStyleElement, /*single*/true);
-        if (grp.size() == 1) {
-            Gui::Document* gui = Application::Instance->getDocument(doc);
-            if (gui)
-                gui->addRootObjectsToGroup(newObj, grp.front().pObject);
+        std::set<long> before;
+        for (auto o : doc->getObjects())
+            before.insert(o->getID());
+        // The bytes read as often as asking needs them (sec 37.9)
+        struct Bytes: std::istream
+        {
+            explicit Bytes(const QByteArray& data)
+                : std::istream(nullptr)
+                , buf(data)
+            {
+                rdbuf(&buf);
+            }
+            Base::ByteArrayIStreambuf buf;
+        };
+        std::vector<App::DocumentObject*> newObj;
+        try {
+            // Asked before the "Paste" step opens (sec 36.4, 37.9)
+            if (!pasteAsked(doc, [&res]() { return std::make_unique<Bytes>(res); }, "Paste",
+                            newObj))
+                return;
         }
+        catch (const Base::AbortException&) {
+            doc->abortTransaction();
+            return;
+        }
+        catch (const Base::Exception& e) {
+            // What was brought goes with the transaction
+            doc->abortTransaction();
+            e.ReportException();
+            return;
+        }
+        groupPasted(doc, newObj, before);
         doc->commitTransaction();
     }
     else {
         QByteArray res = mimeData->data(format);
 
-        doc->openTransaction("Paste");
-        Base::FileInfo fi((const char*)res);
-        Base::ifstream str(fi, std::ios::in | std::ios::binary);
-        MergeDocuments mimeView(doc);
-        std::vector<App::DocumentObject*> newObj = mimeView.importObjects(str);
-        str.close();
-        auto grp = Gui::Selection().getSelection(doc->getName(), ResolveMode::OldStyleElement, /*single*/true);
-        if (grp.size() == 1) {
-            Gui::Document* gui = Application::Instance->getDocument(doc);
-            if (gui)
-                gui->addRootObjectsToGroup(newObj, grp.front().pObject);
+        std::set<long> before;
+        for (auto o : doc->getObjects())
+            before.insert(o->getID());
+        const Base::FileInfo fi((const char*)res);
+        std::vector<App::DocumentObject*> newObj;
+        try {
+            // Asked before the "Paste" step opens (sec 36.4, 37.9)
+            if (!pasteAsked(doc,
+                            [&fi]() -> std::unique_ptr<std::istream> {
+                                return std::make_unique<Base::ifstream>(
+                                    fi, std::ios::in | std::ios::binary);
+                            },
+                            "Paste", newObj))
+                return;
         }
+        catch (const Base::AbortException&) {
+            doc->abortTransaction();
+            return;
+        }
+        catch (const Base::Exception& e) {
+            doc->abortTransaction();
+            e.ReportException();
+            return;
+        }
+        groupPasted(doc, newObj, before);
         doc->commitTransaction();
     }
 }

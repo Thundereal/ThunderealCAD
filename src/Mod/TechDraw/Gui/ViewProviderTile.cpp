@@ -72,3 +72,13 @@ Gui::MDIView *ViewProviderTile::getMDIView() const
         return nullptr;
     return vp->getMDIView();
 }
+
+Gui::MDIView *ViewProviderTile::getOrCreateMDIView()
+{
+    // its weld symbol's page view, opened if closed (entry 217)
+    auto obj = getFeature();
+    auto vp = obj ? dynamic_cast<Gui::ViewProviderDocumentObject*>(
+                        Gui::Application::Instance->getViewProvider(obj->getParent()))
+                  : nullptr;
+    return vp ? vp->getOrCreateMDIView() : nullptr;
+}

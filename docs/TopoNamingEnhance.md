@@ -1485,7 +1485,7 @@ Four things the code settled that section 7 left implicit:
   two edits -- should pass the mapped name; `getSubTopoShape` already
   resolves either form, so that is a caller change, not a cache change.
   Noted for V3.
-  *Since (2026-10-09, docs/TransactionLog.md sec 31.22):* a request that
+  *Since (2026-10-09, docs/TransactionLogJournal.md sec 31.22):* a request that
   names its referrer is answered only from a generation retained for that
   referrer, where there is one. A merge gives a feature the other branch's
   shape as a generation (`retainElementEvidence`), and a number of that

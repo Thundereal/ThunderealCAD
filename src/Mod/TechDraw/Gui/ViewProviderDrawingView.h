@@ -71,7 +71,17 @@ public:
 
     QGIView* getQView();
     MDIViewPage* getMDIViewPage() const;
+    /** Its page's view: on several pages, the one in front if it shows it,
+     * else the first page's (entry 217)
+     */
     Gui::MDIView *getMDIView() const override;
+    /// Its page's view, opened if closed -- not show(), which would make a
+    /// hidden view visible (entry 217)
+    Gui::MDIView *getOrCreateMDIView() override;
+    bool hasOwnView() const override
+    {
+        return true;
+    }
     ViewProviderPage* getViewProviderPage() const;
 
     /** @name Restoring view provider from document load */

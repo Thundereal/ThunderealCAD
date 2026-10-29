@@ -44,6 +44,7 @@
 #include "PreferencesGui.h"
 #include "ZVALUE.h"
 #include "TaskDimension.h"
+#include "TaskProjGroup.h"
 #include "QGIViewDimension.h"
 #include "ViewProviderDimension.h"
 
@@ -115,8 +116,26 @@ void ViewProviderDimension::attach(App::DocumentObject *pcFeat)
 
 bool ViewProviderDimension::doubleClicked()
 {
-    startDefaultEditMode();
+    startEdit();
     return true;
+}
+
+void ViewProviderDimension::startEdit()
+{
+    // A projection group's edit is a dialog of its own, no edit of the
+    // document's: nothing ended it, and setEdit() below refuses while any
+    // dialog is up -- a double click on a dimension did nothing, the
+    // transaction it opened left open (docs/HandsOnQueue.md entry 219; the
+    // reporter: "I want to dismiss projection group edit and launch
+    // dimension edit"). Ended as OK ends it, its changes kept as their own
+    // undo step, before the dimension's opens.
+    if (qobject_cast<TaskDlgProjGroup*>(Gui::Control().activeDialog())) {
+        Gui::Control().accept();
+        if (Gui::Control().activeDialog()) {
+            return;
+        }
+    }
+    startDefaultEditMode();
 }
 
 void ViewProviderDimension::setupContextMenu(QMenu* menu, QObject* receiver, const char* member)
@@ -125,7 +144,7 @@ void ViewProviderDimension::setupContextMenu(QMenu* menu, QObject* receiver, con
     QAction* act = menu->addAction(QObject::tr("Edit %1").arg(QString::fromUtf8(getObject()->Label.getValue())));
     act->setData(QVariant((int)ViewProvider::Default));
     func->trigger(act, [this](){
-        this->startDefaultEditMode();
+        this->startEdit();
     });
 
     ViewProviderDrawingView::setupContextMenu(menu, receiver, member);

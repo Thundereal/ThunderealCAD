@@ -65,6 +65,7 @@
 #include "AssemblyObjectPy.h"
 #include "AssemblyUtils.h"
 #include "CamJoint.h"
+#include <App/DocumentObjectExtension.h>
 #include "Groups.h"
 #include "AssemblyGroup.h"
 #include "Grounding.h"
@@ -2397,6 +2398,44 @@ T* AssemblyObject::getGroup()
         }
     }
     return nullptr;
+}
+
+namespace
+{
+/// Upstream's groups an assembly owns, in a file not converted: the ones its
+/// deletion deletes (the simulation group stays)
+bool ownedLegacyGroup(const App::DocumentObject* obj)
+{
+    return obj && (obj->is<JointGroup>() || obj->is<ViewGroup>() || obj->is<BomGroup>());
+}
+}  // namespace
+
+std::vector<App::DocumentObject*> AssemblyObject::getOwnedObjects() const
+{
+    auto owned = App::Part::getOwnedObjects();
+    for (auto obj : Group.getValues()) {
+        if (ownedLegacyGroup(obj)) {
+            owned.push_back(obj);
+        }
+    }
+    return owned;
+}
+
+App::DocumentObject* AssemblyObject::getOwnedCounterpart(const App::DocumentObject* owned,
+                                                         const App::DocumentObject* liveOwner,
+                                                         App::OwnedPaste& how) const
+{
+    auto live = freecad_cast<const AssemblyObject*>(liveOwner);
+    if (live && ownedLegacyGroup(owned)) {
+        how = App::OwnedPaste::FollowOwner;
+        for (auto obj : live->Group.getValues()) {
+            if (obj && obj->getTypeId() == owned->getTypeId()) {
+                return obj;
+            }
+        }
+        return nullptr;
+    }
+    return App::Part::getOwnedCounterpart(owned, liveOwner, how);
 }
 
 // Not upstream: whether an object's proxy is of one of the classes, in the

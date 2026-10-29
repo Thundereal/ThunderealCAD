@@ -130,6 +130,7 @@
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
 #include <App/GeoFeatureGroupExtension.h>
+#include <App/PropertyGeo.h>
 #include <App/PropertyUnits.h>
 #include <App/PropertyFile.h>
 #include <App/ComplexGeoDataPy.h>
@@ -3831,27 +3832,30 @@ void View3DInventorViewer::showRotationCenter(bool show)
             auto complexity = new SoComplexity();
             complexity->value = 1;
 
+            // Lit, so that it reads as a ball (docs/HandsOnQueue.md entry
+            // 234, the reporter: "make the view spin center indicating ball
+            // shaded. right now it seems to be render as flat"): seven tenths
+            // of the color diffuse and three emissive, so that it is the color
+            // itself where the light meets it square, a third of it at the
+            // rim, and a soft highlight. All of it diffuse saturated most of
+            // the ball, flat again. It was flat (BASE_COLOR) since 201889b931,
+            // where the render-cache backend's light shaded it unevenly; the
+            // shadow pass and the screen-space effects stay off it (below).
+            const SbColor base(float(color.redF()), float(color.greenF()), float(color.blueF()));
             auto material = new SoMaterial();
-            // Base color as well as emissive: with the flat (BASE_COLOR)
-            // light model below the render-cache backend takes the diffuse
-            // color as the unlit fill.
-            material->diffuseColor = SbColor(float(color.redF()),
-                                             float(color.greenF()),
-                                             float(color.blueF()));
-            material->emissiveColor = SbColor(float(color.redF()),
-                                              float(color.greenF()),
-                                              float(color.blueF()));
+            material->diffuseColor = base * 0.7F;
+            material->emissiveColor = base * 0.3F;
+            material->specularColor = SbColor(0.35F, 0.35F, 0.35F);
+            material->shininess = 0.4F;
             material->transparency = 1.0F - float(color.alphaF());
 
             // The rotation-center sphere is a navigation gizmo, not scene
-            // geometry: render it flat (unlit) and out of the shadow pass so
-            // the render-cache backend never shades, shadows or tints it.
+            // geometry: out of the shadow pass, so that nothing darkens it.
             // Drawn on-top (SoAnnotation) it already renders after the
-            // screen-space effects (SSAO / volumetric / water / caustics);
-            // this keeps the lighting and shadow passes off it too, so no
-            // special effect touches the transparent sphere.
+            // screen-space effects (SSAO / volumetric / water / caustics),
+            // so none of them touches the transparent sphere.
             auto lightModel = new SoLightModel();
-            lightModel->model = SoLightModel::BASE_COLOR;
+            lightModel->model = SoLightModel::PHONG;
 
             auto shadowStyle = new SoShadowStyle();
             shadowStyle->style = SoShadowStyle::NO_SHADOWING;
@@ -5799,7 +5803,7 @@ void Gui::initRenderProperties(App::PropertyContainer *view)
     // the names are installed before the value is set.
     if (!view->getPropertyByName("Render_MatcapPreset")) {
         static const char* _matcapPresetEnums[] =
-            {"Studio", "Clay", "Metal", "Pearl", "Zebra", nullptr};
+            {"Studio", "Clay", "Metal", "Pearl", "Zebra", "Draft", "Curvature", nullptr};
         auto prop = static_cast<App::PropertyEnumeration*>(
                 view->addDynamicProperty("App::PropertyEnumeration",
                                          "Render_MatcapPreset", "Render",
@@ -5818,6 +5822,31 @@ void Gui::initRenderProperties(App::PropertyContainer *view)
     _renderParam<App::PropertyFloatConstraint>(view, "MatcapTint",
             RenderParams::docMatcapTint(), RenderParams::getMatcapTint(),
             applyUnitConstraint);
+    _renderParam<App::PropertyBool>(view, "MatcapFixed",
+            RenderParams::docMatcapFixed(), RenderParams::getMatcapFixed());
+    _renderParam<App::PropertyFloat>(view, "MatcapDraftAngle",
+            RenderParams::docMatcapDraftAngle(), RenderParams::getMatcapDraftAngle());
+    if (!view->getPropertyByName("Render_MatcapCurvature")) {
+        static const char* _curvatureEnums[] = {"Gaussian", "Mean", "Least", "Greatest", nullptr};
+        auto prop = static_cast<App::PropertyEnumeration*>(
+                view->addDynamicProperty("App::PropertyEnumeration",
+                                         "Render_MatcapCurvature", "Render",
+                                         RenderParams::docMatcapCurvature()));
+        prop->setEnums(_curvatureEnums);
+        prop->setValue(long(RenderParams::getMatcapCurvature()));
+    }
+    _renderParam<App::PropertyFloat>(view, "MatcapCurvatureRange",
+            RenderParams::docMatcapCurvatureRange(), RenderParams::getMatcapCurvatureRange());
+    // a direction of this view's alone, in world space: no default to keep
+    // in the preferences, since what it points at is the model in the view
+    if (!view->getPropertyByName("Render_MatcapDirection")) {
+        auto prop = static_cast<App::PropertyVector*>(
+                view->addDynamicProperty("App::PropertyVector",
+                                         "Render_MatcapDirection", "Render",
+                                         "The fixed zebra's eye and the draft matcap's pull, in\n"
+                                         "world space; the shading options set it from the view"));
+        prop->setValue(Base::Vector3d(0, 0, 1));
+    }
     _renderParam<App::PropertyFloat>(view, "BumpScale",
             RenderParams::docBumpScale(), RenderParams::getBumpScale());
     _renderParam<App::PropertyBool>(view, "Parallax",

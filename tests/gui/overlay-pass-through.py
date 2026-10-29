@@ -166,6 +166,27 @@ def clear_at(tab, gpos, reach=10):
     return True
 
 
+def view_pick():
+    """The object the active 3D view has under the pointer, by its own pick"""
+    try:
+        view = FreeCADGui.ActiveDocument.ActiveView
+        info = view.getObjectInfo(view.getCursorPos())
+        return info["Object"] if info else None
+    except Exception as e:
+        return "pick failed: %s" % e
+
+
+def view_rect():
+    """The active 3D view's widget on the screen, (x, y, w, h)"""
+    for w in QtWidgets.QApplication.allWidgets():
+        try:
+            if cls(w) == "Gui::View3DInventor" and w.isVisible():
+                return QtCore.QRect(w.mapToGlobal(QtCore.QPoint(0, 0)), w.size()).getRect()
+        except RuntimeError:
+            pass
+    return None
+
+
 def away():
     """The pointer over the middle of the view, clear of the panels at its sides"""
     FreeCADGui.Selection.clearSelection()
@@ -178,6 +199,15 @@ def through(name, tab, spot, plate):
                  clear_at(tab, spot, 3)):
         return
     pointer(spot)
+    # the plate under the spot, as the view picks it: the plates meet at the
+    # middle of the view, not of the window (entry 229)
+    picked = view_pick()
+    note("INFO %s: the spot %s, the window's middle %s, the view %s; the view picks %s, "
+         "the guess was %s" % (name, spot.toTuple(),
+                               mw().mapToGlobal(mw().rect().center()).toTuple(),
+                               view_rect(), picked, plate))
+    if picked in ("LeftPlate", "RightPlate"):
+        plate = picked
     check("%s: a move over its clear part preselects the plate under it" % name,
           preselected() == plate, preselected())
     # the wheel before the click: a selection puts things into a Tasks panel

@@ -361,7 +361,7 @@ ShapeDiffView::ShapeDiffView(ViewProviderPartExt& owner, Gui::EditingRoot* sessi
     // That is the scene every view of the document draws and a served
     // document publishes; this is what the one at the desktop is looking
     // at in its log panel or its merge dialog, so it is the host's own to
-    // see (ruled 2026-10-13, docs/TransactionLog.md sec 32.24).
+    // see (ruled 2026-10-13, docs/TransactionLogJournal.md sec 32.24).
     _root->hostOnly = TRUE;
     _owner.getRoot()->addChild(_root);
 }

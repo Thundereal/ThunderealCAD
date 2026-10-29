@@ -4,7 +4,7 @@ docs/OnViewValueEditing.md 3.2 to 3.4, brought from the fillet and the
 chamfer to the rest of PartDesign (the reporter 2026-10-18 10:42: "Implement
 the same active handle and on view edit to the rest of partdesign feature").
 Each feature in a body of its own, in edit in turn:
-  - Box: "Length", "Width", "Height" at the top middle; Tab, 12, Enter:
+  - Box: Tab, "Length" beside its handle (entry 240); 12, Enter:
     Length is 12;
   - Pad: "Length 5 mm" at the top middle, no second length (one side);
     Tab, 7, Enter: Length is 7; the menu offers "Reversed", "Sides" and
@@ -306,9 +306,11 @@ def run():
 
         # -- Box
         ok, labels = edit(prim, "box")
-        check("box: Length, Width, Height at the top middle",
-              all(has_label(labels, t) for t in ("Length 10", "Width 10", "Height 10")), labels)
+        # each beside its handle while that one is active (entry 240), no
+        # longer all at the top middle
         tabs(1)
+        check("box: Tab: the Length label, beside its handle",
+              has_label(text_labels(), "Length 10"), text_labels())
         type_value("12")
         check("box: Tab, 12, Enter: Length is 12", abs(prim.Length.Value - 12) < 1e-9, prim.Length)
         leave("box")

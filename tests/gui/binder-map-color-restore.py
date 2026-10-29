@@ -18,12 +18,12 @@ over them, so both are read. Claims, per open mode (ProgressiveLoad off,
 then on): the binder's MapFaceColor, MapLineColor, MapPointColor and
 MapTransparency are the saved ones, by either name. And after the opens,
 setting the colour still turns the mapping off, as it did -- by the view
-provider's name and by the object's (docs/TransactionLog.md sec 33.16) --
+provider's name and by the object's (docs/TransactionLogJournal.md sec 33.16) --
 and the binder is drawn in the colour set.
 
 Scored against the tree before the fix: the eager open reads
 MapFaceColor false. And against the tree as first merged with the looks
-kept on the object (docs/TransactionLog.md sec 33.14): the view provider's
+kept on the object (docs/TransactionLogJournal.md sec 33.14): the view provider's
 flag reads false where the object's reads true, in both open modes, and a
 colour set leaves the object's on -- the object's look arriving under the
 view provider's name was taken for a colour picked.

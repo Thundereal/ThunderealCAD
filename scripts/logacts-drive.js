@@ -1,5 +1,5 @@
 // Drive a real browser viewer through what the transaction log's panel does
-// with what it lists (docs/TransactionLog.md sec 32.22).
+// with what it lists (docs/TransactionLogJournal.md sec 32.22).
 //
 // tests/gui/serve-log-acts-browser.py serves the document and the page,
 // which is opened with `?history` so that the card is up on load. What only

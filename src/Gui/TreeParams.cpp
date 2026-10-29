@@ -72,7 +72,7 @@ public:
     unsigned long ItemBackground;
     long ItemBackgroundPadding;
     bool HideColumn;
-    bool HideScrollBar;
+    bool HideScrollBarInOverlay;
     bool HideHeaderView;
     bool ResizableColumn;
     long ColumnSize1;
@@ -144,8 +144,8 @@ public:
         funcs["ItemBackgroundPadding"] = &TreeParamsP::updateItemBackgroundPadding;
         HideColumn = this->handle->GetBool("HideColumn", true);
         funcs["HideColumn"] = &TreeParamsP::updateHideColumn;
-        HideScrollBar = this->handle->GetBool("HideScrollBar", true);
-        funcs["HideScrollBar"] = &TreeParamsP::updateHideScrollBar;
+        HideScrollBarInOverlay = this->handle->GetBool("HideScrollBarInOverlay", false);
+        funcs["HideScrollBarInOverlay"] = &TreeParamsP::updateHideScrollBarInOverlay;
         HideHeaderView = this->handle->GetBool("HideHeaderView", true);
         funcs["HideHeaderView"] = &TreeParamsP::updateHideHeaderView;
         ResizableColumn = this->handle->GetBool("ResizableColumn", false);
@@ -361,8 +361,8 @@ public:
         }
     }
     // Auto generated code (Tools/params_utils.py:314)
-    static void updateHideScrollBar(TreeParamsP *self) {
-        self->HideScrollBar = self->handle->GetBool("HideScrollBar", true);
+    static void updateHideScrollBarInOverlay(TreeParamsP *self) {
+        self->HideScrollBarInOverlay = self->handle->GetBool("HideScrollBarInOverlay", false);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateHideHeaderView(TreeParamsP *self) {
@@ -549,9 +549,10 @@ static const App::ParamRegistry::Registrar _TreeParamsRegistrar({
         .setTitle("Hide extra column")
         .setDoc("Hide extra tree view column for item description.")
         .setOnChange(),
-    App::ParamInfo("Gui", "TreeParams", "User parameter:BaseApp/Preferences/TreeView", "HideScrollBar", "HideScrollBar", App::ParamInfo::Bool, true)
+    App::ParamInfo("Gui", "TreeParams", "User parameter:BaseApp/Preferences/TreeView", "HideScrollBarInOverlay", "HideScrollBarInOverlay", App::ParamInfo::Bool, false)
         .setTitle("Hide scroll bar")
-        .setDoc("Hide tree view scroll bar in dock overlay."),
+        .setDoc("Hide tree view scroll bar in dock overlay. Off, the tree shows thin\n"
+"scroll bars laid over it there, as the other lists do."),
     App::ParamInfo("Gui", "TreeParams", "User parameter:BaseApp/Preferences/TreeView", "HideHeaderView", "HideHeaderView", App::ParamInfo::Bool, true)
         .setTitle("Hide header")
         .setDoc("Hide tree view header view in dock overlay."),
@@ -1458,31 +1459,32 @@ void TreeParams::removeHideColumn() {
 }
 
 // Auto generated code (Tools/params_utils.py:397)
-const char *TreeParams::docHideScrollBar() {
+const char *TreeParams::docHideScrollBarInOverlay() {
     return QT_TRANSLATE_NOOP("TreeParams",
-"Hide tree view scroll bar in dock overlay.");
+"Hide tree view scroll bar in dock overlay. Off, the tree shows thin\n"
+"scroll bars laid over it there, as the other lists do.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)
-const bool & TreeParams::getHideScrollBar() {
-    return instance()->HideScrollBar;
+const bool & TreeParams::getHideScrollBarInOverlay() {
+    return instance()->HideScrollBarInOverlay;
 }
 
 // Auto generated code (Tools/params_utils.py:413)
-const bool & TreeParams::defaultHideScrollBar() {
-    const static bool def = true;
+const bool & TreeParams::defaultHideScrollBarInOverlay() {
+    const static bool def = false;
     return def;
 }
 
 // Auto generated code (Tools/params_utils.py:422)
-void TreeParams::setHideScrollBar(const bool &v) {
-    instance()->handle->SetBool("HideScrollBar",v);
-    instance()->HideScrollBar = v;
+void TreeParams::setHideScrollBarInOverlay(const bool &v) {
+    instance()->handle->SetBool("HideScrollBarInOverlay",v);
+    instance()->HideScrollBarInOverlay = v;
 }
 
 // Auto generated code (Tools/params_utils.py:431)
-void TreeParams::removeHideScrollBar() {
-    instance()->handle->RemoveBool("HideScrollBar");
+void TreeParams::removeHideScrollBarInOverlay() {
+    instance()->handle->RemoveBool("HideScrollBarInOverlay");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

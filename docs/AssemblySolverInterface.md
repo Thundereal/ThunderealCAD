@@ -1667,6 +1667,12 @@ and `2*sin(time)`) as a model and runs it both ways: the eleven frames agree
 to **5e-13** in position and rotation angle. One difference in shape:
 `runKINEMATIC` reports the start twice (the assembled pose, then t = 0), the
 position solves once per output time; the test drops Ondsel's first frame.
+(Corrected 2026-10-29: the first is not the assembled pose but the INPUT
+one, the poses as handed in -- `System::runKINEMATIC` outputs INPUT, then
+INITIALCONDITION, then the steps. It looked assembled here only because the
+model starts solved; played, it showed the parts where the last run left
+them, at t = 0. `OndselSession::simulate` now leaves it out, and these tests
+take each output time once.)
 
 Tests: Assembly gtest 20/20 (11 + 7 `FormulaEvaluator` + 2 `OndselAdapter`);
 ctest 920/920 (the two `TransactionMeasureTest` cases flaked in the

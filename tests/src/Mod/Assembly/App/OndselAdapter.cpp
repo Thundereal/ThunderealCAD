@@ -701,12 +701,10 @@ TEST(OndselAdapter, positionSolvesFollowTheKinematicRun)  // NOLINT
     Recorder actual;
     ASSERT_EQ(simulateByPositionSolves(*stepped, m, spec, actual), Status::Ok);
 
-    // runKINEMATIC reports the start twice: the assembled pose, then the
-    // first output time. The position solves report each output time once.
-    ASSERT_EQ(expected.frames.size(), 12u);
-    ASSERT_EQ(expected.times[0], expected.times[1]);
-    expected.times.erase(expected.times.begin());
-    expected.frames.erase(expected.frames.begin());
+    // Each output time once: the session leaves out the input frame
+    // runKINEMATIC records before the start's
+    ASSERT_EQ(expected.frames.size(), 11u);
+    ASSERT_NE(expected.times[0], expected.times[1]);
     ASSERT_EQ(actual.frames.size(), expected.frames.size());
     ASSERT_EQ(actual.frames.size(), 11u);
     double worst = 0.0;
@@ -887,7 +885,7 @@ struct Rig
     }
 };
 
-// OndselSolver's kinematic run, the start reported twice dropped.
+// OndselSolver's kinematic run: each output time once, from the start.
 void runKinematic(const Model& m, double tOutput, double tEnd, Recorder& out)
 {
     SimulationSpec spec;
@@ -898,9 +896,8 @@ void runKinematic(const Model& m, double tOutput, double tEnd, Recorder& out)
     ASSERT_EQ(session->load(m), Status::Ok);
     ASSERT_EQ(session->simulate(spec, out), Status::Ok);
     ASSERT_GE(out.frames.size(), 2u);
-    ASSERT_EQ(out.times[0], out.times[1]);
-    out.times.erase(out.times.begin());
-    out.frames.erase(out.frames.begin());
+    ASSERT_EQ(out.times[0], spec.tStart);
+    ASSERT_NE(out.times[0], out.times[1]);
     // The run reached the end.
     ASSERT_NEAR(out.times.back(), tEnd, 1e-9);
 }

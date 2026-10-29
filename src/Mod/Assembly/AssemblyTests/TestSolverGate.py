@@ -43,6 +43,11 @@ were taken in: the text is compared with the grounded entries sorted
 (assembly markers, the leading grounded parts, the leading grounding
 joints), everything else in order; placements with a tolerance.
 
+Since 2026-10-29 the Ondsel session leaves out the frame runKINEMATIC
+records first, the poses it was handed before the start's assembly (played,
+it showed the parts where the last run left them): the records keep it, and
+the check drops it (without_input_frame()).
+
 Since sec 6.19 OndselSolver's Newton steps are solved by a sparse LU instead
 of its row scaled Gaussian elimination. Results move by rounding, within the
 tolerance; what moved more is the digest of the model handed to a drag,
@@ -482,6 +487,7 @@ class SolverGateBase(JointTestBase):
             return
         expected = references()["cases"].get(key)
         self.assertIsNotNone(expected, "no reference recorded for %s" % key)
+        expected = self.without_input_frame(expected, result, key)
         self.deviation_key = key
         self.check(expected, json.loads(json.dumps(result)), key, text)
         if key in SIMULATION_DEVIATION:
@@ -490,6 +496,22 @@ class SolverGateBase(JointTestBase):
                 "Solver gate: %s: simulation frames within %.3g mm, %.3g rad of the record\n"
                 % (key, mm, rad)
             )
+
+    @staticmethod
+    def without_input_frame(expected, actual, key):
+        """The record without the frame the Ondsel session no longer gives:
+        runKINEMATIC records the poses it was handed (not assembled) before
+        the start's, and the records have it first -- in reverse order last."""
+        recorded = expected.get("simulation")
+        run = actual.get("simulation")
+        if not recorded or not run or len(run["frames"]) != len(recorded["frames"]) - 1:
+            return expected
+        frames = recorded["frames"]
+        trimmed = dict(expected)
+        trimmed["simulation"] = dict(
+            recorded, frames=frames[:-1] if "reverse" in key else frames[1:]
+        )
+        return trimmed
 
     def run_all(self, drag=None, sim=None, frame_order=None):
         """The export, simulation, solve and drag of gate(); the result and the export text.

@@ -885,7 +885,12 @@ Status OndselSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
         current.assembly->runKINEMATIC();
         const std::size_t frames = current.assembly->numberOfFrames();
         std::vector<BodyPose> poses(current.parts.size());
-        for (std::size_t frame = 0; frame < frames; ++frame) {
+        // runKINEMATIC records the INPUT first -- the poses as they were
+        // handed in, not assembled -- then the initial condition at the
+        // start time, then the steps (System::runKINEMATIC). The input is not
+        // a frame of the run: played, it showed the parts where the last run
+        // left them, at the start time.
+        for (std::size_t frame = frames > 1 ? 1 : 0; frame < frames; ++frame) {
             current.assembly->updateForFrame(frame);
             for (std::size_t i = 0; i < current.parts.size(); ++i) {
                 poses[i] = {static_cast<Id>(i), Ondsel::partPlacement(current.parts[i])};

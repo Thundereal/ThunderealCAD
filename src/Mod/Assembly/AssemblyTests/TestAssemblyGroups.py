@@ -136,7 +136,7 @@ class TestAssemblyGroups(JointTestBase):
         self.doc.recompute()
         # The builder finds the motion and the joints through the new groups
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
-        self.assertEqual(self.assembly.numberOfFrames(), 12)
+        self.assertEqual(self.assembly.numberOfFrames(), 11)
 
     def testDeletingAGroupKeepsWhatItShows(self):
         a, b = self.pair()

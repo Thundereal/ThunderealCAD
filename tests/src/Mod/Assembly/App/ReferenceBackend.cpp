@@ -792,10 +792,8 @@ TEST(ReferenceBackend, simulationFollowsTheKinematicRun)  // NOLINT
     ASSERT_EQ(ondsel->load(m), Status::Ok);
     Recorder expected;
     ASSERT_EQ(ondsel->simulate(spec, expected), Status::Ok);
-    // runKINEMATIC reports the start twice.
-    ASSERT_EQ(expected.frames.size(), 102u);
-    expected.times.erase(expected.times.begin());
-    expected.frames.erase(expected.frames.begin());
+    // Each output time once
+    ASSERT_EQ(expected.frames.size(), 101u);
 
     ReferenceSession session;
     ASSERT_EQ(session.load(m), Status::Ok);
@@ -863,8 +861,8 @@ TEST(ReferenceBackend, drivenAnglesFollowTheFormula)  // NOLINT
     ASSERT_EQ(ondsel->load(m), Status::Ok);
     Recorder expected;
     ASSERT_EQ(ondsel->simulate(spec, expected), Status::Ok);
-    ASSERT_EQ(expected.frames.size(), 12u);
-    for (std::size_t k = 1; k < expected.frames.size(); ++k) {
+    ASSERT_EQ(expected.frames.size(), 11u);
+    for (std::size_t k = 0; k < expected.frames.size(); ++k) {
         SCOPED_TRACE(k);
         const double t = expected.times[k];
         const auto& f = expected.frames[k];

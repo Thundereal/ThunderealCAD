@@ -518,9 +518,12 @@ Phase D1 is under way (2026-10-28):
     start), tested at 1e-3; the undriven pendulum reporting nothing.
     TestGuiCommands: the check, shown for Kinematic and hidden for Dynamic,
     and gravity and the elements following it.
-  - Found on the way, not changed: OndselSolver's kinematic run emits the
-    start twice (22 frames for 21 times, Times [0, 0, 0.01, ...]); the
-    times it reports are right.
+  - Found on the way: OndselSolver's kinematic run gave the start twice
+    (22 frames for 21 times, Times [0, 0, 0.01, ...]), and the first was
+    not the start: it is runKINEMATIC's INPUT output, the poses as handed in,
+    so a run after a run began where the last one ended (a trace through
+    the frames bent back to it). Fixed: `OndselSession::simulate` leaves it
+    out; the gate's records keep it and its check drops it.
 - Built: CSV export, and the same table to a spreadsheet (sec 8.4's "CSV
   or a Spreadsheet of any channels"). `CommandCreateSimulation.
   resultsTable(assembly)` makes the table of the last run's values: the

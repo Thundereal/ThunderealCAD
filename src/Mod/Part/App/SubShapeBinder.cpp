@@ -61,6 +61,7 @@ typedef boost::iterator_range<const char*> CharRange;
 #include <Mod/Part/App/TopoShapeOpCode.h>
 #include <Mod/Part/App/FaceMakerBullseye.h>
 #include "SubShapeBinder.h"
+#include "OCCTFork.h"
 #include "BodyBase.h"
 #include "PartParams.h"
 #include "WireJoiner.h"
@@ -102,6 +103,8 @@ SubShapeBinder::SubShapeBinder()
     ADD_PROPERTY_TYPE(OffsetFill, (false), "Offsetting", App::Prop_None, "True = make face between original wire and offset.");
     ADD_PROPERTY_TYPE(OffsetOpenResult, (false), "Offsetting", App::Prop_None, "False = make closed offset from open wire.");
     ADD_PROPERTY_TYPE(OffsetIntersection, (false), "Offsetting", App::Prop_None, "False = offset child wires independently.");
+    ADD_PROPERTY_TYPE(_OffsetFixLevel, (0), "Offsetting", App::Prop_Hidden,
+            "The OCCT fork's offset fix level the offset is made at");
     ADD_PROPERTY_TYPE(ClaimChildren, (false), "Base",App::Prop_Output,"Claim linked object as children");
     ADD_PROPERTY_TYPE(Relative, (true), "Base",App::Prop_None,"Enable relative sub-object binding");
     ADD_PROPERTY_TYPE(BindMode, ((long)BindModeEnum::Synchronized), "Base", App::Prop_None, 
@@ -162,6 +165,7 @@ SubShapeBinder::~SubShapeBinder() {
 void SubShapeBinder::setupObject() {
     Part::Feature::setupObject();
     _Version.setValue(8);
+    _OffsetFixLevel.setValue(OCCTOffsetFixLevelLatest);
     Refine.setValue(PartParams::getRefineModel());
     checkPropertyStatus();
 }
@@ -1031,6 +1035,7 @@ void SubShapeBinder::buildShape(TopoShape &result)
     doFuse();
 
     if (fabs(Offset.getValue()) > Precision::Confusion()) {
+        OCCTOffsetFixLevel fixLevel(_OffsetFixLevel.getValue());
         try {
             std::vector<TopoShape> results;
             auto makeOffset = [&](const TopoShape &s, bool is2D) {

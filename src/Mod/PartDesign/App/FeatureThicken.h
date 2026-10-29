@@ -53,9 +53,14 @@ public:
     /// Half the thickness each side
     App::PropertyBool Midplane;
     App::PropertyEnumeration Join;
+    /// The OCCT fork's offset fix level the object recomputes at
+    /// (Part::OCCTOffsetFixLevel): the latest for an object made now, 0 for
+    /// one a file from before the level brings, which so recomputes as it did
+    App::PropertyInteger _OffsetFixLevel;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    void setupObject() override;
     const char* getViewProviderName() const override
     {
         return "PartDesignGui::ViewProviderThicken";

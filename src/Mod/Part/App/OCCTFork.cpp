@@ -307,4 +307,19 @@ bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
     return true;
 }
 
+// --- TKOffset -------------------------------------------------------------
+
+typedef int (*FuncSetOffsetFixLevel)(int);
+
+/// The calling thread's offset fix level (the OCCT fork's
+/// BRepOffset_SetFixLevel): which of the fork's corrections to the offset
+/// that give a different shape than before are made. Returns what was set
+/// before; -1 without the fork's function, where nothing is set.
+int setOCCTOffsetFixLevel(int level)
+{
+    static const auto func =
+        (FuncSetOffsetFixLevel)lookUpOCCT("TKOffset", "BRepOffset_SetFixLevel");
+    return func ? func(level) : -1;
+}
+
 } // namespace Part

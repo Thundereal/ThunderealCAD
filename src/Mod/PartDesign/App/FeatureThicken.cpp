@@ -31,6 +31,7 @@
 #endif
 
 #include <App/Document.h>
+#include <Mod/Part/App/OCCTFork.h>
 #include <Mod/Part/App/TopoShapeOpCode.h>
 
 #include "FeatureThicken.h"
@@ -71,7 +72,18 @@ Thicken::Thicken()
                       "How the offsets of faces meeting at an edge are joined: round it, or\n"
                       "by running on until they meet");
     Join.setEnums(JoinEnums);
+    ADD_PROPERTY_TYPE(_OffsetFixLevel,
+                      (0),
+                      "Thicken",
+                      App::Prop_Hidden,
+                      "The OCCT fork's offset fix level the object recomputes at");
     initAddSubType(Additive);
+}
+
+void Thicken::setupObject()
+{
+    FeatureAddSub::setupObject();
+    _OffsetFixLevel.setValue(Part::OCCTOffsetFixLevelLatest);
 }
 
 short Thicken::mustExecute() const
@@ -85,6 +97,7 @@ short Thicken::mustExecute() const
 
 App::DocumentObjectExecReturn* Thicken::execute()
 {
+    Part::OCCTOffsetFixLevel fixLevel(_OffsetFixLevel.getValue());
     try {
         auto hasher = getDocument()->getStringHasher();
         std::vector<TopoShape> faces;

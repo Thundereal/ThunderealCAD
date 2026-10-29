@@ -48,6 +48,7 @@
 #include <App/Document.h>
 #include "ShapeAnalysis_FreeBoundsFix.h"
 #include "TopoShapeOpCode.h"
+#include "OCCTFork.h"
 #include "PartFeatures.h"
 #include "PartParams.h"
 
@@ -686,9 +687,17 @@ Thickness::Thickness()
     Join.setEnums(JoinEnums);
     ADD_PROPERTY_TYPE(Intersection, (false), "Thickness", App::Prop_None, "Intersection");
     ADD_PROPERTY_TYPE(SelfIntersection, (false), "Thickness", App::Prop_None, "Self Intersection");
+    ADD_PROPERTY_TYPE(_OffsetFixLevel, (0), "Thickness", App::Prop_Hidden,
+                      "The OCCT fork's offset fix level the object recomputes at");
 
     // Value should have length as unit
     Value.setUnit(Base::Unit::Length);
+}
+
+void Thickness::setupObject()
+{
+    Part::Feature::setupObject();
+    _OffsetFixLevel.setValue(OCCTOffsetFixLevelLatest);
 }
 
 short Thickness::mustExecute() const
@@ -724,6 +733,7 @@ void Thickness::handleChangedPropertyType(Base::XMLReader &reader, const char *T
 
 App::DocumentObjectExecReturn *Thickness::execute()
 {
+    OCCTOffsetFixLevel fixLevel(_OffsetFixLevel.getValue());
 #ifdef FC_NO_ELEMENT_MAP
     App::DocumentObject* source = Faces.getValue();
     if (!source)

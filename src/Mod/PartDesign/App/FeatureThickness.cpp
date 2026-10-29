@@ -35,6 +35,7 @@
 #include <Base/Console.h>
 #include <App/Application.h>
 #include <App/Document.h>
+#include <Mod/Part/App/OCCTFork.h>
 #include "FeatureThickness.h"
 
 FC_LOG_LEVEL_INIT("PartDesign",true,true)
@@ -117,6 +118,14 @@ Thickness::Thickness()
     ADD_PROPERTY_TYPE(Intersection, (false), "Thickness", App::Prop_None,
                       "Enable intersection-handling");
     ADD_PROPERTY_TYPE(MakeOffset,(false),"Thickness",App::Prop_None,"Make a thicken or shrunken solid instead of a thin shell");
+    ADD_PROPERTY_TYPE(_OffsetFixLevel, (0), "Thickness", App::Prop_Hidden,
+                      "The OCCT fork's offset fix level the object recomputes at");
+}
+
+void Thickness::setupObject()
+{
+    DressUp::setupObject();
+    _OffsetFixLevel.setValue(Part::OCCTOffsetFixLevelLatest);
 }
 
 short Thickness::mustExecute() const
@@ -131,6 +140,7 @@ short Thickness::mustExecute() const
 
 App::DocumentObjectExecReturn *Thickness::execute()
 {
+    Part::OCCTOffsetFixLevel fixLevel(_OffsetFixLevel.getValue());
     // Base shape
     Part::TopoShape baseShape;
     try {

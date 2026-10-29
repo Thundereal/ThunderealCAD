@@ -74,6 +74,10 @@ public:
     App::PropertyBool OffsetFill;
     App::PropertyBool OffsetOpenResult;
     App::PropertyBool OffsetIntersection;
+    /// The OCCT fork's offset fix level the offset is made at
+    /// (OCCTOffsetFixLevel): the latest for an object made now, 0 for one a
+    /// file from before the level brings, which so recomputes as it did
+    App::PropertyInteger _OffsetFixLevel;
 
     App::PropertyPrecision EdgeTolerance;
     App::PropertyBool Outline;

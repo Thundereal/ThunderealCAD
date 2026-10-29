@@ -46,12 +46,17 @@ public:
     App::PropertyBool Intersection;
     App::PropertyBool SelfIntersection;
     App::PropertyBool Fill;
+    /// The OCCT fork's offset fix level the object recomputes at
+    /// (OCCTOffsetFixLevel): the latest for an object made now, 0 for one a
+    /// file from before the level brings, which so recomputes as it did
+    App::PropertyInteger _OffsetFixLevel;
 
     /** @name methods override feature */
     //@{
     /// recalculate the feature
     App::DocumentObjectExecReturn *execute() override;
     short mustExecute() const override;
+    void setupObject() override;
     const char* getViewProviderName() const override {
         return "PartGui::ViewProviderOffset";
     }

@@ -422,10 +422,11 @@ def verify():
               said.get("cameraBeforeSketchOrbit") is not None
               and said.get("cameraAfterSketchOrbit") != said.get("cameraBeforeSketchOrbit"),
               (said.get("cameraBeforeSketchOrbit"), said.get("cameraAfterSketchOrbit")))
+        before = s.get("sketchempty") or s["linedragged"]
         check("... sends nothing up, and moves no line",
-              s["sketchorbited"]["inputs"] == s["linedragged"]["inputs"]
+              s["sketchorbited"]["inputs"] == before["inputs"]
               and s["sketchorbited"]["line"] == l1,
-              (s["linedragged"], s["sketchorbited"]))
+              (before, s["sketchorbited"]))
     except Exception:
         note("ABORT verify:\n" + traceback.format_exc())
     finish()

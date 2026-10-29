@@ -109,6 +109,8 @@ public:
     void deleteSelf() override;
     PyObject *getPyObject() override;
     MDIViewPy *getMDIViewPyObject();
+    /// The MDIViewPy of \a pyObj, or of the view it wraps (cast_to_base()):
+    /// borrowed, valid while \a pyObj is
     static MDIViewPy *castFrom(PyObject *);
     /** @name Printing */
     //@{

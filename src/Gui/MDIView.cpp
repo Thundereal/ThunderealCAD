@@ -267,7 +267,6 @@ MDIViewPy* MDIView::getMDIViewPyObject()
 MDIViewPy *MDIView::castFrom(PyObject *pyObj)
 {
     if (PyObject_TypeCheck(pyObj, &MDIViewPy::Type)) {
-        Py_INCREF(pyObj);
         return static_cast<MDIViewPy*>(pyObj);
     }
     try {

@@ -128,6 +128,22 @@ class TestDynamics(unittest.TestCase):
         # It swings through the bottom, 50 below the hinge
         self.assertAlmostEqual(lowest, 5 - 50, delta=0.05)
 
+    def test_nothing_to_move(self):
+        """A dynamic run whose joints tie nothing to the ground has nothing to
+        move: it runs, its frames all where the parts are (it crashed:
+        Chrono's solve of an empty system)"""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        a = self.box("A", (10, 10, 10), (30, 0, 0))
+        b = self.box("B", (10, 10, 10), (50, 0, 0))
+        self.doc.recompute()
+        self.joint("Revolute", (a, ["Face2"]), plc(10, 5, 5), (b, ["Face1"]), plc(0, 5, 5))
+        self.doc.recompute()
+        _, result = self.simulate(0.05, 1e-2)
+        self.assertEqual(result, 0)
+        self.assertEqual(self.assembly.numberOfFrames(), 6)
+
     def test_without_gravity(self):
         """With gravity off nothing moves."""
         rod = self.pendulum()

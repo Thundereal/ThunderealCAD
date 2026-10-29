@@ -194,6 +194,13 @@ public:
 private:
     bool FactorizeMatrix(bool analyze) override
     {
+        // Nothing to move (a run of parts no joint ties to the ground): Eigen's
+        // SparseLU divides by the matrix's size, and a 0 x 0 one crashed
+        if (m_mat.rows() == 0) {
+            factored = true;
+            qrReady = false;
+            return true;
+        }
         if (analyze) {
             lu.analyzePattern(m_mat);
         }
@@ -204,6 +211,10 @@ private:
     }
     bool SolveSystem() override
     {
+        if (m_mat.rows() == 0) {
+            m_sol.resize(0);
+            return true;
+        }
         if (factored) {
             m_sol = lu.solve(m_rhs);
             if (lu.info() == Eigen::Success && m_sol.allFinite()) {

@@ -334,6 +334,57 @@ class TestDynamics(unittest.TestCase):
             self.assertLess((force + onRod).Length, weight * 1e-3, time)
             self.assertLess(torque.Length, weight * d * 1e-6, time)
 
+    def test_results_export(self):
+        """The run's values to a CSV file and to a spreadsheet
+        (docs/AssemblyDynamics.md sec 8.4): the time, then each channel's
+        components in the panel's units, a row per frame, to full
+        precision; nothing from a run that reported none."""
+        import csv
+        import os
+        import tempfile
+
+        import CommandCreateSimulation as Sim
+
+        self.pendulum()
+        _, result = self.simulate(0.05, 1e-2)
+        self.assertEqual(result, 0)
+        results = self.assembly.getSimulationResults()
+        forces = self.channel("Revolute", "Force")
+        torques = self.channel("Revolute", "Torque")
+        path = os.path.join(tempfile.mkdtemp(), "results.csv")
+        self.assertTrue(Sim.exportResultsCsv(self.assembly, path))
+        with open(path, newline="", encoding="utf-8") as f:
+            rows = list(csv.reader(f))
+        os.remove(path)
+        os.rmdir(os.path.dirname(path))
+        header = rows[0]
+        self.assertEqual(len(header), 7)
+        self.assertEqual(header[0], "Time (s)")
+        self.assertEqual(header[1], "Revolute: Reaction force X (N)")
+        self.assertEqual(header[6], "Revolute: Reaction torque Z (N m)")
+        self.assertEqual(len(rows), 1 + len(results["Times"]))
+        for k, row in enumerate(rows[1:]):
+            self.assertEqual(float(row[0]), results["Times"][k])
+            # mN to N, mN mm to N m, exactly as written
+            self.assertEqual(float(row[3]), forces[k].z * 1e-3)
+            self.assertEqual(float(row[5]), torques[k].y * 1e-6)
+
+        sheet = Sim.exportResultsSheet(self.assembly)
+        self.assertEqual(sheet.TypeId, "Spreadsheet::Sheet")
+        self.assertEqual(sheet.get("A1"), "Time (s)")
+        self.assertEqual(sheet.get("G1"), "Revolute: Reaction torque Z (N m)")
+        last = len(results["Times"]) + 1
+        self.assertAlmostEqual(sheet.get("A%d" % last), results["Times"][-1], places=12)
+        self.assertAlmostEqual(sheet.get("D%d" % last), forces[-1].z * 1e-3, places=12)
+
+        # A kinematic run reports nothing to export
+        self.tearDown()
+        self.setUp()
+        self.assertIsNotNone(self.driven("Position", "time", analysis="Kinematic"))
+        self.assertIsNone(Sim.resultsTable(self.assembly))
+        self.assertFalse(Sim.exportResultsCsv(self.assembly, path))
+        self.assertFalse(os.path.exists(path))
+
     def test_motor_torque(self):
         """A Speed motion holding the rod still at horizontal applies its
         weight's torque about the hinge, m g d; an Effort motion of that torque

@@ -82,6 +82,88 @@ ResultQuantities = {
     "BushingTorque": (QT_TRANSLATE_NOOP("Assembly", "Bushing torque"), 1e-6, "N m"),
 }
 
+
+def resultsTable(assembly):
+    """Not upstream (docs/AssemblyDynamics.md sec 8.4, 8.5): the last run's values
+    as a table, (header, rows), a row per frame: the time in s, then each
+    channel's components in the units the panel shows (a vector's X, Y and
+    Z), each column named by the object, the quantity, the component and the
+    unit, and "(not unique)" for a redundant joint's reaction. None when the
+    run reported no values."""
+    results = assembly.getSimulationResults()
+    if not results["Channels"]:
+        return None
+    header = [translate("Assembly", "Time") + " (s)"]
+    columns = []
+    for channel in results["Channels"]:
+        obj = channel["Object"]
+        name = obj.Label if obj is not None else channel["Name"]
+        label, factor, unit = ResultQuantities.get(
+            channel["Quantity"], (channel["Quantity"], 1.0, "")
+        )
+        label = "%s: %s" % (name, translate("Assembly", label))
+        note = ""
+        if not channel.get("Unique", True):
+            note = " " + translate("Assembly", "(not unique)")
+        values = channel["Values"]
+        if values and isinstance(values[0], App.Vector):
+            for axis in "XYZ":
+                header.append("%s %s (%s)%s" % (label, axis, unit, note))
+                columns.append([getattr(v, axis.lower()) * factor for v in values])
+        else:
+            header.append("%s (%s)%s" % (label, unit, note))
+            columns.append([v * factor for v in values])
+    rows = []
+    for i, time in enumerate(results["Times"]):
+        rows.append([time] + [column[i] if i < len(column) else 0.0 for column in columns])
+    return header, rows
+
+
+def exportResultsCsv(assembly, path):
+    """The last run's values (resultsTable()) as a CSV file, UTF-8, numbers
+    to full precision; False when the run reported none"""
+    import csv
+
+    table = resultsTable(assembly)
+    if table is None:
+        return False
+    header, rows = table
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        for row in rows:
+            writer.writerow(["%.17g" % v for v in row])
+    return True
+
+
+def exportResultsSheet(assembly, doc=None, name="SimulationResults"):
+    """The last run's values (resultsTable()) in a new spreadsheet of doc
+    (the assembly's document by default): the names in row 1, a frame per
+    row below. The sheet, or None when the run reported none."""
+    table = resultsTable(assembly)
+    if table is None:
+        return None
+    header, rows = table
+    doc = doc or assembly.Document
+    sheet = doc.addObject("Spreadsheet::Sheet", name)
+
+    def column(k):
+        letters = ""
+        k += 1
+        while k:
+            k, r = divmod(k - 1, 26)
+            letters = chr(ord("A") + r) + letters
+        return letters
+
+    for k, text in enumerate(header):
+        # A leading quote keeps it text
+        sheet.set("%s1" % column(k), "'" + text)
+    for i, row in enumerate(rows):
+        for k, v in enumerate(row):
+            sheet.set("%s%d" % (column(k), i + 2), "%.17g" % v)
+    sheet.recompute()
+    return sheet
+
 if App.GuiUp:
 
     class ResultPlot(QtWidgets.QWidget):
@@ -1452,6 +1534,21 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.resultValue.setWordWrap(True)
         self.resultValue.setTextInteractionFlags(Qt.TextSelectableByMouse)
         results.addWidget(self.resultValue)
+        exports = QtWidgets.QHBoxLayout()
+        self.csvButton = QPushButton(translate("Assembly", "Export CSV..."))
+        self.csvButton.setToolTip(
+            translate("Assembly", "Every value of the run, a row per frame, to a CSV file")
+        )
+        self.csvButton.clicked.connect(self.exportCsv)
+        exports.addWidget(self.csvButton)
+        self.sheetButton = QPushButton(translate("Assembly", "To Spreadsheet"))
+        self.sheetButton.setToolTip(
+            translate("Assembly", "Every value of the run, a row per frame, in a new spreadsheet")
+        )
+        self.sheetButton.clicked.connect(self.exportSheet)
+        exports.addWidget(self.sheetButton)
+        exports.addStretch(1)
+        results.addLayout(exports)
         self.resultsBox.hide()
         self.form.layout().addWidget(self.resultsBox)
         self.resultCombo.currentIndexChanged.connect(self.showResult)
@@ -1685,6 +1782,22 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.resultCombo.blockSignals(False)
         self.resultsBox.setVisible(self.resultCombo.count() > 0)
         self.showResult()
+
+    def exportCsv(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self.form,
+            translate("Assembly", "Export the results"),
+            "",
+            translate("Assembly", "CSV files") + " (*.csv)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+        exportResultsCsv(self.assembly, path)
+
+    def exportSheet(self):
+        exportResultsSheet(self.assembly)
 
     def resultCurves(self):
         """The chosen channel's curves, in the shown unit: a vector's X, Y, Z

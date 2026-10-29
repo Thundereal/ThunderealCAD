@@ -630,6 +630,52 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(sims[0].TypeId, "Assembly::SimulationPython")
         self.assertClean()
 
+    def test_results_to_spreadsheet(self):
+        """The Results box's To Spreadsheet button puts the run's values in
+        a new sheet; Export CSV... asks for a file"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        self.assertTrue(panel.csvButton.isVisibleTo(panel.resultsBox))
+
+        doc = self.doc
+
+        class Results:
+            Document = doc
+
+            def getSimulationResults(self):
+                return {
+                    "Times": [0.0, 0.5],
+                    "Channels": [
+                        {
+                            "Object": None,
+                            "Name": "Motion",
+                            "Quantity": "MotorTorque",
+                            "Values": [1000.0, 2000.0],
+                            "Unique": True,
+                        }
+                    ],
+                }
+
+        assembly = panel.assembly
+        panel.assembly = Results()
+        try:
+            panel.sheetButton.click()
+        finally:
+            panel.assembly = assembly
+        sheets = [o for o in self.doc.Objects if o.isDerivedFrom("Spreadsheet::Sheet")]
+        self.assertEqual(len(sheets), 1)
+        self.assertEqual(sheets[0].get("B1"), "Motion: Motor torque (N m)")
+        self.assertAlmostEqual(sheets[0].get("B3"), 2e-3, places=12)
+        self.accept_task()
+        self.assertClean()
+
     def test_kinematic_reactions_check(self):
         """The Reactions check shows for a Kinematic study, sets Reactions,
         and with it the study takes gravity and the elements as a Dynamic

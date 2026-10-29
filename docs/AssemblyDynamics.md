@@ -521,6 +521,25 @@ Phase D1 is under way (2026-10-28):
   - Found on the way, not changed: OndselSolver's kinematic run emits the
     start twice (22 frames for 21 times, Times [0, 0, 0.01, ...]); the
     times it reports are right.
+- Built: CSV export, and the same table to a spreadsheet (sec 8.4's "CSV
+  or a Spreadsheet of any channels"). `CommandCreateSimulation.
+  resultsTable(assembly)` makes the table of the last run's values: the
+  time, then every channel's components (a vector's X, Y, Z) in the units
+  the Results box shows, each column named "Revolute: Reaction force X (N)",
+  "(not unique)" added to a redundant joint's; `exportResultsCsv(assembly,
+  path)` writes it (UTF-8, numbers to 17 digits, so they read back
+  exactly), `exportResultsSheet(assembly)` puts it in a new
+  `Spreadsheet::Sheet` of the document, the names in row 1. The Results box
+  has "Export CSV..." and "To Spreadsheet". A run that reported no values
+  (a kinematic one without its reactions) has nothing to export.
+  - All the channels, not one plot's (SOLIDWORKS exports per plot): a
+    table a spreadsheet filters is the more useful default, and the
+    plots are one channel each anyway.
+  - Not built: the measures of sec 8.5 (a point's velocity, relative
+    motion, energies) as columns -- they come with the measures.
+  - Tests: TestDynamics, the pendulum's run to a CSV file read back exactly
+    and to a sheet, and nothing from a kinematic run; TestGuiCommands, the
+    To Spreadsheet button.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

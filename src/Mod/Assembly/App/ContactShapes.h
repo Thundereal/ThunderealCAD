@@ -38,22 +38,25 @@ namespace Assembly
 {
 
 // A solid's contact geometry (docs/AssemblyDynamics.md sec 7.1, the ladder's
-// first two rungs), in the coordinates the solid is given in: the sphere, box
-// or cylinder the solid is -- every face of it the primitive's, and the solid's
+// first rungs), in the coordinates the solid is given in: the sphere, box or
+// cylinder the solid is -- every face of it the primitive's, and the solid's
 // volume the primitive's to 1e-6 -- centred on 'placement' along its axes; else,
-// when the solid is convex, the points of its contact mesh, the hull's.
+// when the solid is convex, the points of its contact mesh, the hull's; else
+// that mesh, closed, its triangles wound outward (rung 3a).
 struct SolidContactShape
 {
     Solver::ContactShape::Kind kind {};
     Base::Placement placement;
     Base::Vector3d size;
-    std::vector<Base::Vector3d> points;  // a hull's, in the given coordinates
-    double deflection = 0.0;             // the mesh's chord error, a hull's
+    std::vector<Base::Vector3d> points;         // a hull's or a mesh's, in the given coordinates
+    std::vector<std::array<int, 3>> triangles;  // a mesh's, on points
+    double deflection = 0.0;                    // the mesh's chord error, a hull's or a mesh's
 };
 
-// Its contact shape, or none when the solid is no primitive and not convex:
-// some point of its contact mesh more than twice the mesh's deflection in
-// front of a triangle of it. deflection 0: ContactGeometryCache's own.
+// Its contact shape, or none when the solid is no primitive, not convex and
+// its contact mesh not closed (not manifold, or in more than one piece).
+// Convex: no point of the mesh more than twice its deflection in front of a
+// neighbouring triangle. deflection 0: ContactGeometryCache's own.
 AssemblyExport std::optional<SolidContactShape> contactShapeOf(const TopoDS_Shape& solid,
                                                                double deflection = 0.0);
 

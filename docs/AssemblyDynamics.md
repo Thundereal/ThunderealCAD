@@ -701,8 +701,8 @@ Phase D1 is under way (2026-10-28):
     Not now. Taken up again if crashes in runs turn up, or when the
     browser tier wants a solver on the server (its playback of stored
     results needs none: the frames are data).
-- Built, D2's first step: contact between primitives and convex hulls, in
-  dynamic and static runs on the Chrono backend.
+- Built, D2's first step: contact between primitives, convex hulls and
+  closed meshes, in dynamic and static runs on the Chrono backend.
   - The document: `Assembly::ContactSet` in the Physics group (Python:
     `CommandCreateContact.newContactSet(assembly, groupA, groupB=())`),
     ticked in a study's Elements as any other element. GroupA's
@@ -726,10 +726,12 @@ Phase D1 is under way (2026-10-28):
   - The geometry, sec 7.1's first rungs (`App/ContactShapes.cpp`): each
     solid of a component is the primitive it is -- a sphere, a box or a
     cylinder, recognised by its faces and checked by its volume -- or its
-    convex hull, from the contact geometry cache's triangles. A solid
-    neither is refused by name and the run fails (meshes are the next
-    rung). Shapes ride on frames, so the rigid groups carry them as they
-    carry everything else.
+    convex hull, from the contact geometry cache's triangles, or else
+    those triangles themselves (rung 3a), wound to agree across their
+    edges and outward (`orientOutward()`). A solid none of these -- its
+    mesh not closed, not manifold, or in pieces, as a cube with a hollow
+    in it is -- is refused by name and the run fails. Shapes ride on
+    frames, so the rigid groups carry them as they carry everything else.
   - The force (`Solver/ChronoBackend.cpp`, `ContactLoad`): a load per pair
     of bodies a set lets touch, given at each step's start the points
     collision detection found, and evaluating the law at whatever state
@@ -765,6 +767,24 @@ Phase D1 is under way (2026-10-28):
     as the segment between its caps' lowest points, against the face
     turned most toward it (`cylinderPoints()`). Other pairs (a sphere, a
     cylinder against a cylinder) keep GJK's points.
+  - Meshes (rung 3a): a `ChTriangleMeshConnected` of the solid's
+    triangles, its vertices in the body's frame (the connected path's
+    triangles ignore a shape's frame), each triangle a Bullet shape of its
+    own knowing its neighbours. A triangle against a box, a hull or another
+    mesh's triangle goes to `PolyhedralAlgorithm` too, its features
+    `satOfTriangle()`'s: its face, grown by the envelope, and its edges'
+    arcs to the neighbours' faces -- convex edges only, so the flat edges
+    inside a face make no axis and a part sliding over them does not bump
+    into them. A triangle stands for the solid behind it: a contact normal
+    out of either triangle's back is not taken, a neighbour's face that
+    proves the best normal leaves the points to the neighbour's own pair,
+    and an edge pair touches at the edges' closest points -- inside both
+    edges, or not at all. A triangle's points are grown toward the other
+    shape, as a ball grows it, not along its own normal. Those axes cannot
+    prove a pair apart, so a pair they find touching is tested again as
+    two plain convex shapes, flat edges and all (`satApart()`), the
+    separating axis kept as any other. The triangles share their corners,
+    and a corner's points come once per load.
   - Found on the way, each measured before it was fixed:
     - Chrono builds Bullet in float unless `CH_USE_BULLET_DOUBLE` is on,
       and Bullet's GJK tolerances are absolute: 1e-6 on squared lengths,
@@ -815,6 +835,35 @@ Phase D1 is under way (2026-10-28):
       substep's collision detection twice (Chrono runs it as a step
       starts, at the state the substep before ended on; the system now
       skips that one). 8.7 s now.
+    - Meshes, rung 3a's tests:
+      - `PolyhedralAlgorithm` came from the dispatcher's pool, whose
+        elements are sized for Bullet's own algorithms (184 bytes; it is
+        240), the size checked by an assert only: a mesh's pairs overran
+        them and the run died in Bullet's compound algorithm. It is
+        allocated on its own now.
+      - Two triangles facing the same way side by side -- a part's side
+        flush with the wall of the slot it rests beside -- were taken to
+        overlap by the part's width along their plane, and the part flew
+        off at 1e14 rad/s. Hence the axes out of a triangle's back.
+      - Then the convex edges alone could not tell a channel's wall from a
+        part's side 7 mm away (the one axis between them the cross product
+        of two diagonals): hence `satApart()`.
+      - An edge pair took the triangle's face as its reference, a right
+        angle off the axis, and pushed the part sideways as deep as the
+        face was wide; then a kept axis put a corner on an edge 20 mm off.
+        Hence the edges' closest points, inside both.
+      - A wall's top edge grown along the wall's normal stood an envelope
+        below the top beside it, and a part overhanging the slot by 0.04 mm
+        rested 0.02 mm low. Hence the growth toward the other shape.
+      - A torus took 76 min for 0.3 s: its 267 points within the envelope
+        each took a share of its mass for the substep, and only the ring it
+        rests on presses. The pressing points share it now, when any do.
+        Under the default law that ring still rests in substeps of 1.4 us
+        -- a fiftieth of the law's period on each point's share of the
+        mass, a box's four corners about 4 us by the same rule -- and
+        0.3 s takes 10
+        minutes, collision detection 1.6 ms of each substep's 2.6. Its
+        test runs a soft law: 18 s.
   - Envelope 2e-5 m, margin 1e-4 m: Chrono's defaults (3 cm, 1 cm) are a
     part's size here.
   - Results: a ContactForce channel per set, the force on group A's
@@ -825,15 +874,22 @@ Phase D1 is under way (2026-10-28):
     sliding at mu g; a prism resting on its hull under a soft law and
     landing level under the default one (1e-4 mm, 1e-4 rad), and on a
     larger prism's top face; an ellipsoid resting on its pole (0.01 mm),
-    a torus refused; a cylinder
+    a torus on its tube (0.01 mm, under a soft law); a cube with a corner
+    cut out landing level on its base (1e-4 mm, 1e-4 rad), a box resting
+    on the floor of a slot in a block and not on the block's hull, and the
+    notched cube on the block beside the slot, mesh on mesh, its sides
+    flush with the slot's wall; a cylinder
     landing on its cap, a tall one landing tilted and tipping onto its
-    cap, one landing on its side and staying there; a solid that is
-    neither refused; a set's pairs only.
+    cap, one landing on its side and staying there; a cube with a hollow
+    in it refused; a set's pairs only.
   - Tests (TestGuiCommands): the panel's picks, law, OK and Cancel, and
     a new study ticking the set; OK refused with group A empty.
-  - Not yet: meshes (sec 7.1's rung 3a), curve
-    contact for cams (sec 7.4), stops, sensors, contact plots. A tumble
-    is slow: the tall cylinder's 0.3 s takes about 20 s, in substeps of
+  - Not yet: curve contact for cams (sec 7.4), stops, sensors, contact
+    plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
+    A sphere or a cylinder against a mesh keeps GJK's point per triangle.
+    The law is per point, so a mesh's stiffness and its substeps follow
+    its tessellation: a law per patch is the fix for both. A tumble is
+    slow: the tall cylinder's 0.3 s takes about 20 s, in substeps of
     microseconds through each impact.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls

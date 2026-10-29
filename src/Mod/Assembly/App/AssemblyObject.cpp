@@ -2005,8 +2005,8 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             auto contact = contactShapeOf(solid.getShape());
             if (!contact) {
                 Base::Console().error(
-                    "Assembly: solid %d of %s is neither a sphere, a box, a cylinder nor "
-                    "convex: contact on such a shape is not built yet\n",
+                    "Assembly: solid %d of %s is neither a sphere, a box, a cylinder, "
+                    "convex nor closed: contact on such a shape is not built\n",
                     index,
                     component->getFullLabel().c_str());
                 ++badFormulas;
@@ -2016,6 +2016,7 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             record.kind = contact->kind;
             record.size = contact->size;
             record.points = std::move(contact->points);
+            record.triangles = std::move(contact->triangles);
             record.frame = frameOn(component,
                                    contact->placement,
                                    component->getFullName() + "-solid" + std::to_string(index));

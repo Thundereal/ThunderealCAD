@@ -213,45 +213,41 @@ asBox(const TopoDS_Shape& solid, const std::vector<Face>& faces, double volume)
     return out;
 }
 
-// Whether a closed triangle mesh is convex: convex at every edge, which for
-// a closed connected surface is convex everywhere (Tietze). The triangles'
-// windings are made to agree across their shared edges and turned outward by
-// the signed volume; then no triangle's neighbour across an edge may stand
-// in front of its plane by more than tol. Local, so a long thin triangle --
-// an ellipsoid's at its poles -- is not held against points beyond its
-// neighbours, which on a curved surface stand in front of its plane by more
-// than the deflection. Nothing for a mesh not closed, not manifold, not
-// orientable or in more than one piece: the test says nothing of it.
-std::optional<bool> convexMesh(const std::vector<gp_XYZ>& points,
-                               const std::vector<std::array<int, 3>>& triangles,
-                               double tol)
+// Each edge of a triangle mesh, by its ends' indices, and the triangles on it
+// with the corner the edge starts from
+using MeshEdges = std::map<std::pair<int, int>, std::vector<std::pair<std::size_t, int>>>;
+
+MeshEdges edgesOf(const std::vector<std::array<int, 3>>& triangles)
 {
-    const std::size_t count = triangles.size();
-    if (count < 4) {
-        return std::nullopt;
-    }
-    // Each edge, by its ends' indices, and the triangles on it with the
-    // corner the edge starts from
-    std::map<std::pair<int, int>, std::vector<std::pair<std::size_t, int>>> edges;
-    for (std::size_t t = 0; t < count; ++t) {
+    MeshEdges edges;
+    for (std::size_t t = 0; t < triangles.size(); ++t) {
         for (int k = 0; k < 3; ++k) {
             const int u = triangles[t][k];
             const int v = triangles[t][(k + 1) % 3];
             edges[{std::min(u, v), std::max(u, v)}].emplace_back(t, k);
         }
     }
+    return edges;
+}
+
+// Winds a closed triangle mesh's triangles to agree across their shared
+// edges -- an edge runs one way in one triangle and the other way in the
+// other -- and outward by the signed volume. False, the triangles as they
+// were, for a mesh not closed, not manifold, not orientable or in more than
+// one piece.
+bool orientOutward(const std::vector<gp_XYZ>& points, std::vector<std::array<int, 3>>& triangles)
+{
+    const std::size_t count = triangles.size();
+    if (count < 4) {
+        return false;
+    }
+    MeshEdges edges = edgesOf(triangles);
     for (const auto& [key, on] : edges) {
         if (on.size() != 2) {
-            return std::nullopt;
+            return false;
         }
     }
-    // The windings, made to agree from the first triangle on: an edge runs
-    // one way in one triangle and the other way in the other
     std::vector<int> flip(count, 0);  // 0 unvisited, +1 kept, -1 reversed
-    // Whether, as wound now, a triangle's edges run as stored
-    auto runsForward = [&](std::size_t t) {
-        return flip[t] > 0;
-    };
     std::vector<std::size_t> stack {0};
     flip[0] = 1;
     std::size_t reached = 1;
@@ -267,45 +263,60 @@ std::optional<bool> convexMesh(const std::vector<gp_XYZ>& points,
                 }
                 // The same direction in both as stored: one of them turns
                 const bool sameStored = triangles[other][corner] == u;
-                const bool forward = runsForward(t);
-                const int wanted = (sameStored == forward) ? -1 : 1;
+                const int wanted = (sameStored == (flip[t] > 0)) ? -1 : 1;
                 if (flip[other] == 0) {
                     flip[other] = wanted;
                     ++reached;
                     stack.push_back(other);
                 }
                 else if (flip[other] != wanted) {
-                    return std::nullopt;  // not orientable
+                    return false;  // not orientable
                 }
             }
         }
     }
     if (reached != count) {
-        return std::nullopt;
+        return false;
     }
-    auto normalOf = [&](std::size_t t) {
-        const gp_XYZ& a = points[triangles[t][0]];
-        gp_XYZ n = (points[triangles[t][1]] - a).Crossed(points[triangles[t][2]] - a);
-        return flip[t] > 0 ? n : n.Reversed();
-    };
     double volume = 0.0;
     for (std::size_t t = 0; t < count; ++t) {
-        volume += points[triangles[t][0]].Dot(normalOf(t));
+        const gp_XYZ& a = points[triangles[t][0]];
+        const gp_XYZ n = (points[triangles[t][1]] - a).Crossed(points[triangles[t][2]] - a);
+        volume += flip[t] * a.Dot(n);
     }
-    const double outward = volume > 0.0 ? 1.0 : -1.0;
-    for (const auto& [key, on] : edges) {
+    const int outward = volume > 0.0 ? 1 : -1;
+    for (std::size_t t = 0; t < count; ++t) {
+        if (flip[t] * outward < 0) {
+            std::swap(triangles[t][1], triangles[t][2]);
+        }
+    }
+    return true;
+}
+
+// Whether a closed triangle mesh wound outward (orientOutward()) is convex:
+// convex at every edge, which for a closed connected surface is convex
+// everywhere (Tietze). No triangle's neighbour across an edge may stand in
+// front of its plane by more than tol. Local, so a long thin triangle -- an
+// ellipsoid's at its poles -- is not held against points beyond its
+// neighbours, which on a curved surface stand in front of its plane by more
+// than the deflection.
+bool convexMesh(const std::vector<gp_XYZ>& points,
+                const std::vector<std::array<int, 3>>& triangles,
+                double tol)
+{
+    for (const auto& [key, on] : edgesOf(triangles)) {
         for (int side = 0; side < 2; ++side) {
             const std::size_t t = on[side].first;
             const std::size_t other = on[1 - side].first;
-            gp_XYZ n = normalOf(t) * outward;
+            const gp_XYZ& a = points[triangles[t][0]];
+            gp_XYZ n = (points[triangles[t][1]] - a).Crossed(points[triangles[t][2]] - a);
             const double length = n.Modulus();
             if (!(length > 1e-24)) {
                 continue;
             }
             n /= length;
             const int corner = (on[1 - side].second + 2) % 3;  // opposite the edge
-            const gp_XYZ& apart = points[triangles[other][corner]];
-            if (n.Dot(apart - points[triangles[t][0]]) > tol) {
+            if (n.Dot(points[triangles[other][corner]] - a) > tol) {
                 return false;
             }
         }
@@ -342,8 +353,9 @@ bool convexByPlanes(const std::vector<gp_XYZ>& points,
 }
 
 // The convex hull of the contact mesh when the mesh is convex (convexMesh(),
-// or convexByPlanes() when that cannot tell, within twice the deflection)
-std::optional<SolidContactShape> asHull(const TopoDS_Shape& solid, double deflection)
+// or convexByPlanes() for a mesh orientOutward() cannot wind, within twice the
+// deflection); else the mesh itself when it is closed
+std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double deflection)
 {
     const auto mesh = ContactGeometryCache::instance().get(solid, deflection);
     BRepExtrema_TriangleSet& set = mesh->triangles();
@@ -380,14 +392,19 @@ std::optional<SolidContactShape> asHull(const TopoDS_Shape& solid, double deflec
     BRepBndLib::Add(solid, box);
     const double diagonal = box.IsVoid() ? 1.0 : std::sqrt(box.SquareExtent());
     const double tol = 2.0 * mesh->deflection() + 1e-9 * diagonal;
-    const std::optional<bool> convex = convexMesh(points, triangles, tol);
-    if (!(convex ? *convex : convexByPlanes(points, triangles, tol))) {
+    const bool closed = orientOutward(points, triangles);
+    const bool convex =
+        closed ? convexMesh(points, triangles, tol) : convexByPlanes(points, triangles, tol);
+    if (!convex && !closed) {
         return std::nullopt;
     }
     // The mesh is in the solid's own frame: into the coordinates given
     const gp_Trsf where = solid.Location().Transformation();
     SolidContactShape out;
-    out.kind = Kind::ConvexHull;
+    out.kind = convex ? Kind::ConvexHull : Kind::Mesh;
+    if (!convex) {
+        out.triangles = std::move(triangles);
+    }
     out.deflection = mesh->deflection();
     out.points.reserve(points.size());
     for (gp_XYZ p : points) {
@@ -430,5 +447,5 @@ std::optional<SolidContactShape> Assembly::contactShapeOf(const TopoDS_Shape& so
             return box;
         }
     }
-    return asHull(solid, deflection);
+    return asHullOrMesh(solid, deflection);
 }

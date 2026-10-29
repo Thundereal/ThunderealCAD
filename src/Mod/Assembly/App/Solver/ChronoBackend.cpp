@@ -119,12 +119,14 @@
 #include <chrono/collision/ChCollisionShapeConvexHull.h>
 #include <chrono/collision/ChCollisionShapeCylinder.h>
 #include <chrono/collision/ChCollisionShapeSphere.h>
+#include <chrono/collision/ChCollisionShapeTriangleMesh.h>
 #include <chrono/collision/ChCollisionSystem.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtActivatingCollisionAlgorithm.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCollisionDispatcher.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCollisionObjectWrapper.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtBoxShape.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtCEtriangleShape.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtCompoundShape.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexHullShape.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.h>
@@ -133,6 +135,7 @@
 #include <chrono/collision/bullet/ChCollisionSystemBullet.h>
 #include <chrono/core/ChFrame.h>
 #include <chrono/functions/ChFunctionBase.h>
+#include <chrono/geometry/ChTriangleMeshConnected.h>
 #include <chrono/functions/ChFunctionConst.h>
 #include <chrono/physics/ChBody.h>
 #include <chrono/physics/ChContactMaterialNSC.h>
@@ -647,7 +650,8 @@ public:
 // A box's or a hull's polyhedral features as the separating axis test reads
 // them: the vertices, the faces' planes, and the edges with the faces either
 // side and the cross product of those faces' normals (right x left), in the
-// shape's frame
+// shape's frame. A mesh triangle's (satOfTriangle()) has its own face first,
+// the one with a polygon, and its neighbours' after it.
 struct SatPolyhedron
 {
     struct Edge
@@ -664,7 +668,8 @@ struct SatPolyhedron
     std::vector<cbtVector3> arcs;
     std::vector<std::vector<int>> polygons;  // each face's vertices, in order
     std::vector<std::vector<int>> facesAt;   // each vertex's faces
-    cbtVector3 center {0, 0, 0};
+    bool triangle = false;                   // a mesh's, one-sided
+    cbtScalar grown = 0;                     // a triangle's, along its normal
 };
 
 SatPolyhedron satOf(const cbtConvexPolyhedron& polyhedron)
@@ -672,10 +677,6 @@ SatPolyhedron satOf(const cbtConvexPolyhedron& polyhedron)
     SatPolyhedron sat;
     for (int i = 0; i < polyhedron.m_vertices.size(); ++i) {
         sat.vertices.push_back(polyhedron.m_vertices[i]);
-        sat.center += polyhedron.m_vertices[i];
-    }
-    if (!sat.vertices.empty()) {
-        sat.center /= static_cast<cbtScalar>(sat.vertices.size());
     }
     // Each edge by its ends, and the faces either side
     std::map<std::pair<int, int>, std::pair<int, int>> sides;
@@ -709,6 +710,68 @@ SatPolyhedron satOf(const cbtConvexPolyhedron& polyhedron)
     return sat;
 }
 
+// A mesh triangle's features (sec 7.1's rung 3a), in its body's frame: its
+// face, and each edge between that face and the neighbour's across it, so
+// that the edges' arcs are the mesh's, with the neighbour's face. A flat
+// edge's arc is a point and a concave one's none: neither is an edge of the
+// mesh's hull there, and neither makes an axis -- where an isolated
+// triangle's would, a part sliding over a flat mesh bumped into the edges
+// between its triangles. Grown along its normal by the envelope, as Bullet's
+// margin grows it, and a neighbour's plane along that one's. No features for
+// a triangle without an area.
+SatPolyhedron satOfTriangle(const cbtCEtriangleShape& triangle, cbtScalar grow)
+{
+    SatPolyhedron sat;
+    auto bt = [](const ch::ChVector3d& v) {
+        return cbtVector3(static_cast<cbtScalar>(v.x()),
+                          static_cast<cbtScalar>(v.y()),
+                          static_cast<cbtScalar>(v.z()));
+    };
+    const cbtVector3 p[3] = {bt(*triangle.get_p1()),
+                             bt(*triangle.get_p2()),
+                             bt(*triangle.get_p3())};
+    // Each edge's wing: the far corner of its neighbour, or of this triangle
+    // where it has none
+    const cbtVector3 wing[3] = {bt(*triangle.get_e1()),
+                                bt(*triangle.get_e2()),
+                                bt(*triangle.get_e3())};
+    cbtVector3 n = (p[1] - p[0]).cross(p[2] - p[0]);
+    if (!(n.length() > 0)) {
+        return sat;
+    }
+    n.normalize();
+    for (const auto& corner : p) {
+        sat.vertices.push_back(corner + n * grow);
+    }
+    sat.normals.push_back(n);
+    sat.offsets.push_back(-n.dot(sat.vertices[0]));
+    sat.polygons.push_back({0, 1, 2});
+    sat.facesAt.assign(3, {0});
+    sat.triangle = true;
+    sat.grown = grow;
+    for (int k = 0; k < 3; ++k) {
+        const cbtVector3& u = p[k];
+        const cbtVector3& v = p[(k + 1) % 3];
+        const cbtVector3& w = wing[k];
+        // Convex: the wing behind the face
+        if (!(n.dot(w - p[0]) < -1e-9 * (w - p[0]).length())) {
+            continue;
+        }
+        // The neighbour, wound outward as this one: v, u, w
+        cbtVector3 m = (u - v).cross(w - v);
+        if (!(m.length() > 0)) {
+            continue;
+        }
+        m.normalize();
+        const int face = static_cast<int>(sat.normals.size());
+        sat.normals.push_back(m);
+        sat.offsets.push_back(-(m.dot(u) + grow));
+        sat.edges.push_back({k, (k + 1) % 3, 0, face});
+        sat.arcs.push_back(m.cross(n));
+    }
+    return sat;
+}
+
 // Whether an edge between faces of normals a and b (bxa = b x a) and one
 // between faces of normals c and d (dxc = d x c) make a face of the two
 // shapes' Minkowski difference: the arcs a-b and -c to -d cross on the Gauss
@@ -733,7 +796,8 @@ bool minkowskiFace(const cbtVector3& a,
 }
 
 // The axis separating two polyhedra most, in A's frame from A to B: a face
-// of A's (i), of B's (j), or an edge of each (i, j)
+// of A's (i), of B's (j), or an edge of each (i, j); or a direction that
+// proves a mesh triangle apart from the other (satApart())
 struct SatAxis
 {
     enum Kind
@@ -741,7 +805,8 @@ struct SatAxis
         None,
         FaceA,
         FaceB,
-        Edges
+        Edges,
+        Apart
     };
     Kind kind = None;
     int i = -1;
@@ -821,13 +886,16 @@ void satMeasure(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced&
                 break;
             }
             n /= length;
-            if (n.dot(p - a.center) < 0) {
+            // Out of A: within the edge's arc, so along the faces' normals --
+            // a triangle has no inside to point away from
+            if (n.dot(a.normals[ea.left] + a.normals[ea.right]) < 0) {
                 n = -n;
             }
             axis.separation = n.dot(bp.vertices[eb.tail] - p);
             axis.normal = n;
             break;
         }
+        case SatAxis::Apart:
         case SatAxis::None:
             break;
     }
@@ -891,11 +959,19 @@ void satRemeasure(const SatPolyhedron& a,
                 break;
             }
             n /= length;
-            if (n.dot(p - a.center) < 0) {
+            // Out of A: within the edge's arc, so along the faces' normals --
+            // a triangle has no inside to point away from
+            if (n.dot(a.normals[ea.left] + a.normals[ea.right]) < 0) {
                 n = -n;
             }
             axis.separation = leastB(n) - n.dot(a.vertices[supportOf(a.vertices, n)]);
             axis.normal = n;
+            break;
+        }
+        case SatAxis::Apart: {
+            const cbtVector3& d = axis.normal;
+            axis.separation = std::max(leastB(d) - d.dot(a.vertices[supportOf(a.vertices, d)]),
+                                       leastB(-d) + d.dot(a.vertices[supportOf(a.vertices, -d)]));
             break;
         }
         case SatAxis::None:
@@ -919,6 +995,50 @@ void clipAlong(const SatPolyhedron& a,
                cbtManifoldResult* resultOut)
 {
     const cbtVector3 n = ta.getBasis() * axis.normal;  // from A to B
+    // An edge of a mesh triangle's on an edge of the other's: the edges'
+    // closest points. A triangle's one face is no reference for it, up to a
+    // right angle off the axis: its normal taken for the point's pushed a
+    // part sideways, as deep as the face was wide.
+    if (axis.kind == SatAxis::Edges && (a.triangle || b.triangle)) {
+        const SatPolyhedron::Edge& ea = a.edges[axis.i];
+        const SatPolyhedron::Edge& eb = b.edges[axis.j];
+        // A triangle's edge grown toward the other, as a ball grows it, not
+        // along its own normal
+        const cbtVector3 shiftA =
+            a.triangle ? n * a.grown - ta.getBasis() * a.normals[0] * a.grown : cbtVector3(0, 0, 0);
+        const cbtVector3 shiftB = b.triangle ? -n * b.grown - tb.getBasis() * b.normals[0] * b.grown
+                                             : cbtVector3(0, 0, 0);
+        const cbtVector3 p1 = ta(a.vertices[ea.tail]) + shiftA;
+        const cbtVector3 d1 = ta(a.vertices[ea.head]) - ta(a.vertices[ea.tail]);
+        const cbtVector3 p2 = tb(b.vertices[eb.tail]) + shiftB;
+        const cbtVector3 d2 = tb(b.vertices[eb.head]) - tb(b.vertices[eb.tail]);
+        // Each one's parameter along its edge where the lines come closest:
+        // outside either edge they touch elsewhere, a face's pair's -- an
+        // axis kept from an earlier query put a part's corner on an edge
+        // 20 mm off
+        const cbtVector3 r = p1 - p2;
+        const cbtScalar aa = d1.dot(d1);
+        const cbtScalar ee = d2.dot(d2);
+        const cbtScalar f = d2.dot(r);
+        const cbtScalar c = d1.dot(r);
+        const cbtScalar bb = d1.dot(d2);
+        const cbtScalar denom = aa * ee - bb * bb;
+        if (!(aa > 0) || !(ee > 0) || !(denom > 0)) {
+            return;
+        }
+        const cbtScalar s1 = (bb * f - c * ee) / denom;
+        const cbtScalar s2 = (bb * s1 + f) / ee;
+        if (!(s1 >= 0 && s1 <= 1 && s2 >= 0 && s2 <= 1)) {
+            return;
+        }
+        const cbtVector3 onA = p1 + d1 * s1;
+        const cbtVector3 onB = p2 + d2 * s2;
+        const cbtScalar depth = n.dot(onB - onA);
+        if (depth <= threshold) {
+            resultOut->addContactPoint(-n, onB, depth);
+        }
+        return;
+    }
     // The face of a shape most along dir among those at its support vertex
     // that way, dir in the world
     auto faceAt = [](const SatPolyhedron& shape, const cbtTransform& at, const cbtVector3& dir) {
@@ -949,7 +1069,8 @@ void clipAlong(const SatPolyhedron& a,
     const cbtTransform& refAt = referenceA ? ta : tb;
     const SatPolyhedron& inc = referenceA ? b : a;
     const cbtTransform& incAt = referenceA ? tb : ta;
-    if (reference < 0) {
+    // A mesh triangle's neighbour's face: its points are that one's pair's
+    if (reference < 0 || reference >= static_cast<int>(ref.polygons.size())) {
         return;
     }
     const cbtVector3 refNormal = refAt.getBasis() * ref.normals[reference];
@@ -961,9 +1082,15 @@ void clipAlong(const SatPolyhedron& a,
     for (int v : ref.polygons[reference]) {
         sides.push_back(refAt(ref.vertices[v]));
     }
+    // An incident triangle grown toward the reference face, as a ball grows
+    // it: grown along its own normal, a wall's top edge under a part's face
+    // stood an envelope below the top beside it, and the part sank that far
+    const cbtVector3 shift = inc.triangle
+        ? -refNormal * inc.grown - incAt.getBasis() * inc.normals[0] * inc.grown
+        : cbtVector3(0, 0, 0);
     std::vector<cbtVector3> points;
     for (int v : inc.polygons[incident]) {
-        points.push_back(incAt(inc.vertices[v]));
+        points.push_back(incAt(inc.vertices[v]) + shift);
     }
     cbtVector3 centre(0, 0, 0);
     for (const auto& v : sides) {
@@ -1008,33 +1135,143 @@ void clipAlong(const SatPolyhedron& a,
     }
 }
 
+// Whether a pair with a mesh triangle is apart by more than threshold, by
+// the plain test of two convex shapes: the triangle as the flat thing it is,
+// each face's normal and the cross product of each edge of one with each of
+// the other, its flat edges too, and both shapes' extents along them. The
+// mesh's axes satSearch() takes a contact normal from are not enough to tell:
+// a channel's wall and a part's side, 7 mm apart, the one axis between them
+// the cross product of their triangles' diagonals, were taken to overlap.
+SatAxis
+satApart(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced& bp, cbtScalar threshold)
+{
+    SatAxis apart;
+    apart.kind = SatAxis::Apart;
+    // Either way along d
+    auto offer = [&](cbtVector3 d) {
+        const cbtScalar length = d.length();
+        if (!(length > 0)) {
+            return false;
+        }
+        d /= length;
+        cbtScalar lowA = std::numeric_limits<cbtScalar>::max();
+        cbtScalar highA = -lowA;
+        cbtScalar lowB = lowA;
+        cbtScalar highB = -lowA;
+        for (const auto& v : a.vertices) {
+            lowA = std::min(lowA, d.dot(v));
+            highA = std::max(highA, d.dot(v));
+        }
+        for (const auto& v : bp.vertices) {
+            lowB = std::min(lowB, d.dot(v));
+            highB = std::max(highB, d.dot(v));
+        }
+        const cbtScalar gap = std::max(lowB - highA, lowA - highB);
+        if (gap > apart.separation) {
+            apart.separation = gap;
+            apart.normal = d;
+        }
+        return gap > threshold;
+    };
+    auto ends = [](const SatPolyhedron& shape, const std::vector<cbtVector3>& vertices) {
+        std::vector<cbtVector3> out;
+        if (shape.triangle) {
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(vertices[(k + 1) % 3] - vertices[k]);
+            }
+        }
+        else {
+            for (const auto& e : shape.edges) {
+                out.push_back(vertices[e.head] - vertices[e.tail]);
+            }
+        }
+        return out;
+    };
+    for (const auto& n : a.normals) {
+        if (offer(n)) {
+            return apart;
+        }
+    }
+    for (const auto& n : bp.normals) {
+        if (offer(n)) {
+            return apart;
+        }
+    }
+    const std::vector<cbtVector3> edgesA = ends(a, a.vertices);
+    const std::vector<cbtVector3> edgesB = ends(b, bp.vertices);
+    // A triangle's sides, square to its edges in its plane: two triangles in
+    // one plane are apart along one of those or not at all
+    if (a.triangle) {
+        for (const auto& e : edgesA) {
+            if (offer(a.normals[0].cross(e))) {
+                return apart;
+            }
+        }
+    }
+    if (b.triangle) {
+        for (const auto& e : edgesB) {
+            if (offer(bp.normals[0].cross(e))) {
+                return apart;
+            }
+        }
+    }
+    for (const auto& ea : edgesA) {
+        for (const auto& eb : edgesB) {
+            const cbtVector3 d = ea.cross(eb);
+            // Parallel edges: the faces' normals cover them
+            if (d.length2() > 2.5e-5 * ea.length2() * eb.length2() && offer(d)) {
+                return apart;
+            }
+        }
+    }
+    return apart;
+}
+
 // The full search: every face of each, and the edge pairs that make
 // Minkowski faces. An edge pair's axis is taken over a face's only when it
 // separates them clearly more, so parallel faces resting on each other keep
 // a face's normal.
-SatAxis satSearch(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced& bp)
+SatAxis
+satSearch(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced& bp, cbtScalar threshold)
 {
-    SatAxis best;
+    // A mesh triangle stands for the solid behind it: an axis along which
+    // that solid reaches on without end -- out of its back -- is no contact
+    // normal of the pair's. Any axis still proves the triangles apart. Two
+    // triangles facing the same way, side by side in one plane, touch only
+    // along the edge between them: a part resting flush with the side of
+    // another, the two faces taken to overlap by the part's width along the
+    // plane, threw it off. Their neighbours' faces give the axis they touch
+    // along, and the neighbours their points.
+    constexpr cbtScalar slack = 1e-3;
+    auto valid = [&](const SatAxis& axis) {
+        return (!a.triangle || axis.normal.dot(a.normals[0]) >= -slack)
+            && (!b.triangle || axis.normal.dot(bp.normals[0]) <= slack);
+    };
+    SatAxis best;   // of all
+    SatAxis touch;  // of the valid ones
+    auto offer = [&](const SatAxis& axis, cbtScalar bias) {
+        if (axis.separation > best.separation + bias) {
+            best = axis;
+        }
+        if (axis.separation > touch.separation + bias && valid(axis)) {
+            touch = axis;
+        }
+    };
     for (int i = 0; i < static_cast<int>(a.normals.size()); ++i) {
         SatAxis axis;
         axis.kind = SatAxis::FaceA;
         axis.i = i;
         satMeasure(a, b, bp, axis);
-        if (axis.separation > best.separation) {
-            best = axis;
-        }
+        offer(axis, 0);
     }
-    for (int j = 0; j < static_cast<int>(bp.normals.size()); ++j) {
+    for (int j = 0; j < static_cast<int>(b.normals.size()); ++j) {
         SatAxis axis;
         axis.kind = SatAxis::FaceB;
         axis.j = j;
         satMeasure(a, b, bp, axis);
-        if (axis.separation > best.separation) {
-            best = axis;
-        }
+        offer(axis, 0);
     }
     constexpr cbtScalar edgeBias = 1e-7;  // m
-    SatAxis edges;
     for (int i = 0; i < static_cast<int>(a.edges.size()); ++i) {
         const SatPolyhedron::Edge& ea = a.edges[i];
         for (int j = 0; j < static_cast<int>(b.edges.size()); ++j) {
@@ -1052,20 +1289,25 @@ SatAxis satSearch(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlace
             axis.i = i;
             axis.j = j;
             satMeasure(a, b, bp, axis);
-            if (axis.separation > edges.separation) {
-                edges = axis;
-            }
+            offer(axis, edgeBias);
         }
     }
-    if (edges.kind != SatAxis::None && edges.separation > best.separation + edgeBias) {
-        best = edges;
+    if (best.separation > threshold) {
+        return best;
     }
-    return best;
+    if (a.triangle || b.triangle) {
+        SatAxis apart = satApart(a, b, bp, threshold);
+        if (apart.separation > threshold) {
+            return apart;
+        }
+    }
+    return touch;
 }
 
 // Contact between two boxes or hulls, or a box and a hull, in place of
-// Bullet's convex pair's: the separating axis by satSearch(), then Bullet's
-// clipping face against face along it into the pair's persistent manifold.
+// Bullet's convex pair's, and between a mesh's triangle and any of those or
+// another mesh's: the separating axis by satSearch(), then clipping face
+// against face along it (clipAlong()) into the pair's persistent manifold.
 // Bullet's own SAT projects both shapes on every pair of edge directions: two
 // 256-sided prisms, 129 directions each, one dropped across the other, took
 // 55 s over a tenth of a second that GJK's axis did in 1.7 s, and GJK's axis
@@ -1080,7 +1322,16 @@ SatAxis satSearch(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlace
 class PolyhedralAlgorithm: public cbtActivatingCollisionAlgorithm
 {
 public:
-    using Polyhedra = std::map<const cbtConvexPolyhedron*, SatPolyhedron>;
+    // By a box's or a hull's polyhedron, a mesh triangle's shape
+    using Polyhedra = std::map<const void*, SatPolyhedron>;
+
+    static const void* keyOf(const cbtCollisionShape* shape)
+    {
+        if (shape->getShapeType() == CH_TRIANGLE_SHAPE_PROXYTYPE) {
+            return shape;
+        }
+        return static_cast<const cbtPolyhedralConvexShape*>(shape)->getConvexPolyhedron();
+    }
 
     PolyhedralAlgorithm(const cbtCollisionAlgorithmConstructionInfo& ci,
                         const cbtCollisionObjectWrapper* body0Wrap,
@@ -1108,13 +1359,12 @@ public:
             ownManifold = true;
         }
         resultOut->setPersistentManifold(manifold);
-        auto* shapeA = static_cast<const cbtPolyhedralConvexShape*>(body0Wrap->getCollisionShape());
-        auto* shapeB = static_cast<const cbtPolyhedralConvexShape*>(body1Wrap->getCollisionShape());
-        const cbtConvexPolyhedron* hullA = shapeA->getConvexPolyhedron();
-        const cbtConvexPolyhedron* hullB = shapeB->getConvexPolyhedron();
-        auto a = hullA ? polyhedra->find(hullA) : polyhedra->end();
-        auto b = hullB ? polyhedra->find(hullB) : polyhedra->end();
-        if (a == polyhedra->end() || b == polyhedra->end()) {
+        const void* keyA = keyOf(body0Wrap->getCollisionShape());
+        const void* keyB = keyOf(body1Wrap->getCollisionShape());
+        auto a = keyA ? polyhedra->find(keyA) : polyhedra->end();
+        auto b = keyB ? polyhedra->find(keyB) : polyhedra->end();
+        if (a == polyhedra->end() || b == polyhedra->end() || a->second.normals.empty()
+            || b->second.normals.empty()) {
             if (ownManifold) {
                 resultOut->refreshContactPoints();
             }
@@ -1132,11 +1382,11 @@ public:
             const cbtQuaternion turn = searchedAt.getRotation().inverse() * bInA.getRotation();
             const cbtScalar angle = 2 * std::acos(std::min<cbtScalar>(1, std::abs(turn.getW())));
             kept = axis.separation > threshold
-                || (moved < 1e-5 && angle < 1e-3
+                || (moved < 1e-5 && angle < 1e-3 && axis.kind != SatAxis::Apart
                     && axis.separation > -std::numeric_limits<cbtScalar>::max());
         }
         if (!kept) {
-            axis = satSearch(a->second, b->second, placed(b->second, bInA));
+            axis = satSearch(a->second, b->second, placed(b->second, bInA), threshold);
             searchedAt = bInA;
         }
         if (axis.kind != SatAxis::None && axis.separation <= threshold) {
@@ -1170,8 +1420,12 @@ public:
                                  const cbtCollisionObjectWrapper* body0Wrap,
                                  const cbtCollisionObjectWrapper* body1Wrap) override
         {
-            void* memory =
-                ci.m_dispatcher1->allocateCollisionAlgorithm(sizeof(PolyhedralAlgorithm));
+            // Not from the dispatcher's pool: its elements are sized for
+            // Bullet's own algorithms (184 bytes, this one 240), and it hands
+            // one out whatever size is asked (the check is an assert) -- a
+            // mesh's thousands of pairs overran them. The dispatcher frees
+            // what is not the pool's with cbtAlignedFree.
+            void* memory = cbtAlignedAlloc(sizeof(PolyhedralAlgorithm), 16);
             return new (memory) PolyhedralAlgorithm(ci, body0Wrap, body1Wrap, polyhedra);
         }
     };
@@ -1189,11 +1443,13 @@ private:
 // its manifold gathers more only over the following steps, so a hexagonal
 // prism landing flat first touched at one corner -- a spin of 100 rad/s from
 // a fall of a millimetre. A pair of boxes or hulls is clipped face against
-// face (addPolyhedralFeatures(), PolyhedralAlgorithm); a cylinder's cap or
-// side on a box's or a hull's face is clipped the same way
-// (cylinderPoints()). Not Bullet's perturbation of a pair's orientation for
-// more points: they were up to 20 um off on a flat face, and a ball's bounce
-// on a plate lost half a percent of its height to them.
+// face (addPolyhedralFeatures(), PolyhedralAlgorithm), and so is a mesh's
+// triangle against a box, a hull or another mesh's triangle, its axes the
+// mesh's (satOfTriangle()); a cylinder's cap or side on a box's or a hull's
+// face is clipped the same way (cylinderPoints()). Not Bullet's perturbation
+// of a pair's orientation for more points: they were up to 20 um off on a
+// flat face, and a ball's bounce on a plate lost half a percent of its
+// height to them.
 class ContactCollisionSystem: public ch::ChCollisionSystemBullet
 {
 public:
@@ -1208,6 +1464,19 @@ public:
                                                    &polyhedral);
         bt_dispatcher->registerCollisionCreateFunc(BOX_SHAPE_PROXYTYPE,
                                                    CONVEX_HULL_SHAPE_PROXYTYPE,
+                                                   &polyhedral);
+        // A mesh's triangles, against a box, a hull or another mesh's (in
+        // place of Chrono's triangle pair, made for an FEA mesh's thickness)
+        for (int other : {BOX_SHAPE_PROXYTYPE, CONVEX_HULL_SHAPE_PROXYTYPE}) {
+            bt_dispatcher->registerCollisionCreateFunc(CH_TRIANGLE_SHAPE_PROXYTYPE,
+                                                       other,
+                                                       &polyhedral);
+            bt_dispatcher->registerCollisionCreateFunc(other,
+                                                       CH_TRIANGLE_SHAPE_PROXYTYPE,
+                                                       &polyhedral);
+        }
+        bt_dispatcher->registerCollisionCreateFunc(CH_TRIANGLE_SHAPE_PROXYTYPE,
+                                                   CH_TRIANGLE_SHAPE_PROXYTYPE,
                                                    &polyhedral);
     }
     void addPolyhedralFeatures(
@@ -1267,13 +1536,33 @@ void ContactCollisionSystem::addPolyhedralFeatures(
     auto* compound = top->getShapeType() == COMPOUND_SHAPE_PROXYTYPE
         ? static_cast<cbtCompoundShape*>(top)
         : nullptr;
-    const auto& instances = model.GetShapeInstances();
-    if (compound ? compound->getNumChildShapes() != static_cast<int>(instances.size())
-                 : instances.size() != 1) {
-        return;
+    // The Bullet shapes in the order the instances made them: one each, a
+    // mesh's one a triangle
+    std::vector<cbtCollisionShape*> children;
+    if (compound) {
+        for (int i = 0; i < compound->getNumChildShapes(); ++i) {
+            children.push_back(compound->getChildShape(i));
+        }
     }
+    else {
+        children.push_back(top);
+    }
+    const auto& instances = model.GetShapeInstances();
+    std::size_t next = 0;
     for (std::size_t i = 0; i < instances.size(); ++i) {
-        cbtCollisionShape* shape = compound ? compound->getChildShape(static_cast<int>(i)) : top;
+        if (instances[i].shape->GetType() == ch::ChCollisionShape::Type::TRIANGLEMESH) {
+            while (next < children.size()
+                   && children[next]->getShapeType() == CH_TRIANGLE_SHAPE_PROXYTYPE) {
+                auto* triangle = static_cast<cbtCEtriangleShape*>(children[next++]);
+                polyhedra[triangle] =
+                    satOfTriangle(*triangle, static_cast<cbtScalar>(model.GetEnvelope()));
+            }
+            continue;
+        }
+        if (next >= children.size()) {
+            return;
+        }
+        cbtCollisionShape* shape = children[next++];
         switch (instances[i].shape->GetType()) {
             case ch::ChCollisionShape::Type::BOX: {
                 auto* box = static_cast<cbtBoxShape*>(shape);
@@ -4122,6 +4411,26 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             finder->found.clear();
+            // A mesh's triangles share their corners and edges, and each
+            // one's pair gives the points on them: each point once
+            std::vector<ContactLoad::Point> once;
+            for (auto& load : *loads) {
+                once.clear();
+                for (const auto& point : load->points) {
+                    bool seen = false;
+                    for (const auto& kept : once) {
+                        if ((kept.onA - point.onA).Length2() < 1e-18
+                            && ch::Vdot(kept.normal, point.normal) > 1.0 - 1e-9) {
+                            seen = true;
+                            break;
+                        }
+                    }
+                    if (!seen) {
+                        once.push_back(point);
+                    }
+                }
+                load->points.swap(once);
+            }
         }
     };
     const bool contact = !si.dynamics->contacts.empty();
@@ -4175,9 +4484,35 @@ Status ChronoSession::simulateDynamics(
                     made = std::make_shared<ch::ChCollisionShapeConvexHull>(material, points);
                     break;
                 }
+                case ContactShape::Kind::Mesh: {
+                    // A triangle per Bullet shape, each pointing into the
+                    // mesh's vertices and placed where they are: the
+                    // vertices in the body's frame, the shape at its origin.
+                    // Not static (the body may be ground or not), and not
+                    // convex: Chrono keeps the triangles and their
+                    // neighbours.
+                    auto mesh = std::make_shared<ch::ChTriangleMeshConnected>();
+                    const ch::ChFramed on = run.d->localOf(shape.frame);
+                    for (const auto& point : shape.points) {
+                        mesh->GetCoordsVertices().push_back(
+                            on.TransformPointLocalToParent(toCh(point)));
+                    }
+                    for (const auto& t : shape.triangles) {
+                        mesh->GetIndicesVertexes().emplace_back(t[0], t[1], t[2]);
+                    }
+                    made = std::make_shared<ch::ChCollisionShapeTriangleMesh>(material,
+                                                                              mesh,
+                                                                              false,
+                                                                              false,
+                                                                              0.0);
+                    break;
+                }
             }
             auto body = run.d->bodyOf(shape.frame);
-            body->AddCollisionShape(made, run.d->localOf(shape.frame));
+            body->AddCollisionShape(made,
+                                    shape.kind == ContactShape::Kind::Mesh
+                                        ? ch::ChFramed()
+                                        : run.d->localOf(shape.frame));
             body->GetCollisionModel()->SetEnvelope(envelope);
             body->GetCollisionModel()->SetSafeMargin(margin);
             body->EnableCollision(true);
@@ -4975,8 +5310,18 @@ Status ChronoSession::simulateDynamics(
                 continue;
             }
             // Its points are springs side by side on that mass: each holds
-            // its share
-            mass /= static_cast<double>(load->points.size());
+            // its share, the ones pressing when any does. A mesh resting on
+            // a ring of its points has hundreds more within the envelope,
+            // and their shares cut a torus's steps to a fraction of a
+            // microsecond.
+            std::size_t pressing = 0;
+            for (const auto& point : load->points) {
+                pressing += -ch::Vdot(point.normal,
+                                      b->TransformPointLocalToParent(point.onB)
+                                          - a->TransformPointLocalToParent(point.onA))
+                    > 0.0;
+            }
+            mass /= static_cast<double>(pressing ? pressing : load->points.size());
             const ContactLaw& law = load->law;
             for (const auto& point : load->points) {
                 const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);

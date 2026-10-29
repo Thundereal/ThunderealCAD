@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 """Contact (docs/AssemblyDynamics.md sec 7, phase D2): contact sets between
-the components' solids, as the primitives they are or their convex hulls,
-by the impact law and friction, against the closed forms."""
+the components' solids, as the primitives they are, their convex hulls or
+their closed meshes, by the impact law and friction, against the closed
+forms."""
 
 import math
 import unittest
@@ -250,14 +251,21 @@ class TestContact(unittest.TestCase):
         self.assertAlmostEqual(self.heights(egg)[-1], 13, delta=0.01)
         self.assertLess(self.tilt(egg), 1e-2)
 
-    def test_curved_not_convex_refused(self):
-        """A torus, curved and not convex, is refused"""
+    def test_torus_rests(self):
+        """A torus, curved and not convex, touches as its mesh: lying flat,
+        it comes to rest on its tube, its centre the tube's radius above the
+        plate, within the mesh's deflection and the soft law's sink. Under
+        the default law its ring of points rests in substeps of 1.4 us, and
+        0.3 s takes ten minutes"""
         plate = self.plate()
         torus = self.assembly.newObject("Part::Torus", "Torus")
-        torus.Placement.Base = App.Vector(0, 0, 20)
-        self.contact([torus], [plate])
-        _, result = self.simulate(0.01, 1e-3)
-        self.assertEqual(result, -1)
+        torus.Radius1, torus.Radius2 = 10, 2
+        torus.Placement.Base = App.Vector(0, 0, 13)
+        self.contact([torus], [plate], Stiffness=1.0, MaxDamping=1e-3)
+        _, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(torus)[-1], 12, delta=0.01)
+        self.assertLess(self.tilt(torus), 1e-3)
 
     def test_cylinder_on_its_cap(self):
         """A cylinder landing on its cap rests level on it: the cap's rim
@@ -298,15 +306,78 @@ class TestContact(unittest.TestCase):
         self.assertAlmostEqual(self.tilt(cylinder), math.pi / 2, delta=1e-4)
         self.assertLess(abs(cylinder.Placement.Base.x), 0.01)
 
-    def test_not_convex_refused(self):
-        """A solid neither a primitive nor convex is refused, by name"""
+    def notch(self, z):
+        """A cube of 10 with a cube of 6 cut from its top corner: no
+        primitive and not convex, its base whole"""
+        import Part
+
+        notch = self.assembly.newObject("Part::Feature", "Notch")
+        notch.Shape = Part.makeBox(10, 10, 10).cut(Part.makeBox(6, 6, 6, App.Vector(4, 4, 4)))
+        notch.Placement.Base = App.Vector(-5, -5, z)
+        return notch
+
+    def channel(self):
+        """A grounded block 30 x 30 x 10 with a slot 10 wide and 5 deep along
+        y through its top: its top at z = 10, the slot's floor at 5, between
+        x = -5 and 5"""
+        import Part
+
+        channel = self.assembly.newObject("Part::Feature", "Channel")
+        channel.Shape = Part.makeBox(30, 30, 10).cut(
+            Part.makeBox(10, 30, 5, App.Vector(10, 0, 5))
+        )
+        channel.Placement.Base = App.Vector(-15, -15, 0)
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedChannel")
+        JointObject.GroundedJoint(ground, channel)
+        return channel
+
+    def test_mesh_lands_flat(self):
+        """A solid neither a primitive nor convex touches as its mesh: the
+        notched cube landing on its base rests level on it, its triangles
+        clipped against the plate face to face"""
+        plate = self.plate()
+        notch = self.notch(12)
+        self.contact([notch], [plate])
+        _, result = self.simulate(0.2, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(notch)[-1], 10, delta=1e-4)
+        self.assertLess(self.tilt(notch), 1e-4)
+
+    def test_concave_contact(self):
+        """A box dropped into the channel's slot rests on the slot's floor,
+        not on the channel's hull 5 mm above it"""
+        channel = self.channel()
+        box = self.assembly.newObject("Part::Box", "Box")
+        box.Length, box.Width, box.Height = 6, 6, 4
+        box.Placement.Base = App.Vector(-3, -3, 7)
+        self.contact([box], [channel])
+        _, result = self.simulate(0.2, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(box)[-1], 5, delta=1e-4)
+        self.assertLess(self.tilt(box), 1e-4)
+
+    def test_mesh_on_mesh(self):
+        """The notched cube landing on the channel's top, beside the slot,
+        rests level there: mesh against mesh, triangle against triangle"""
+        channel = self.channel()
+        notch = self.notch(12)
+        notch.Placement.Base = App.Vector(5, -5, 12)
+        self.contact([notch], [channel])
+        _, result = self.simulate(0.2, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(notch)[-1], 10, delta=1e-4)
+        self.assertLess(self.tilt(notch), 1e-4)
+
+    def test_mesh_in_pieces_refused(self):
+        """A solid whose mesh is in pieces -- a cube with a hollow in it, two
+        shells -- is refused, by name"""
         import Part
 
         plate = self.plate()
-        notch = self.assembly.newObject("Part::Feature", "Notch")
-        notch.Shape = Part.makeBox(10, 10, 10).cut(Part.makeBox(6, 6, 6, App.Vector(4, 4, 4)))
-        notch.Placement.Base = App.Vector(0, 0, 12)
-        self.contact([notch], [plate])
+        hollow = self.assembly.newObject("Part::Feature", "Hollow")
+        hollow.Shape = Part.makeBox(10, 10, 10).cut(Part.makeSphere(2, App.Vector(5, 5, 5)))
+        hollow.Placement.Base = App.Vector(-5, -5, 12)
+        self.contact([hollow], [plate])
         _, result = self.simulate(0.01, 1e-3)
         self.assertEqual(result, -1)
 

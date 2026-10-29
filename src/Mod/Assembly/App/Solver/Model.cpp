@@ -157,7 +157,7 @@ bool same(const ContactLaw& a, const ContactLaw& b)
 bool same(const ContactShape& a, const ContactShape& b)
 {
     if (a.frame != b.frame || a.kind != b.kind || !same(a.size, b.size)
-        || a.points.size() != b.points.size()) {
+        || a.points.size() != b.points.size() || a.triangles != b.triangles) {
         return false;
     }
     for (std::size_t i = 0; i < a.points.size(); ++i) {

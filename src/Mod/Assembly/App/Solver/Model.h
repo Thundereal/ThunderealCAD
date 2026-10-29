@@ -362,10 +362,10 @@ struct ContactLaw
     double vFriction = 10.16;  // mm/s
 };
 
-// A solid's contact geometry (sec 7.1, the ladder's first two rungs): a
-// primitive the solid is, centred on its frame along its axes, or the convex
-// hull of points on it, in its frame. On a frame, as every force element is,
-// so that the reductions that move frames move it.
+// A solid's contact geometry (sec 7.1, the ladder's first rungs): a
+// primitive the solid is, centred on its frame along its axes; the convex
+// hull of points on it; or its closed mesh, in its frame. On a frame, as
+// every force element is, so that the reductions that move frames move it.
 struct ContactShape
 {
     enum class Kind : std::uint8_t
@@ -373,12 +373,14 @@ struct ContactShape
         Sphere,    // size.x the radius
         Box,       // size the edges along x, y, z
         Cylinder,  // along z: size.x the radius, size.z the height
-        ConvexHull
+        ConvexHull,
+        Mesh  // points, and the triangles on them, wound outward
     };
     Id frame = NoId;
     Kind kind {};
     Base::Vector3d size;
     std::vector<Base::Vector3d> points;
+    std::vector<std::array<int, 3>> triangles;  // a mesh's
 };
 
 // A contact set: the shapes of group A touching those of group B, or, B

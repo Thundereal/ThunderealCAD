@@ -791,10 +791,12 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
         return -1;
     }
 
-    // A dynamic or static run: the bodies' masses, its force elements, and
-    // gravity in the assembly's frame. The forces first: a part a spring
-    // alone holds becomes a body there, which the masses then weigh.
-    if (simulationSpec && simulationSpec->analysis != Solver::Analysis::Kinematic) {
+    // A dynamic or static run, or a kinematic one with its reactions: the
+    // bodies' masses, its force elements, and gravity in the assembly's
+    // frame. The forces first: a part a spring alone holds becomes a body
+    // there, which the masses then weigh.
+    if (simulationSpec
+        && (simulationSpec->analysis != Solver::Analysis::Kinematic || simulationSpec->reactions)) {
         addForces(*solverModel, sim);
         if (badFormulas > 0) {
             // A load's profile that does not parse, reported with it
@@ -2348,9 +2350,10 @@ void AssemblyObject::makeMbdModel()
 {
     loadedBodies = 0;
     Solver::Backend* backend = Solver::Registry::instance().select(this);
-    // A dynamic or static run, on the first backend that runs dynamics,
-    // whichever the assembly solves with
-    if (simulationSpec && simulationSpec->analysis != Solver::Analysis::Kinematic
+    // A dynamic or static run, or a kinematic one with its reactions, on the
+    // first backend that runs dynamics, whichever the assembly solves with
+    if (simulationSpec
+        && (simulationSpec->analysis != Solver::Analysis::Kinematic || simulationSpec->reactions)
         && !(backend && backend->capabilities().dynamics)) {
         backend = nullptr;
         auto& registry = Solver::Registry::instance();
@@ -3405,6 +3408,8 @@ void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObjec
         mbdSim->hMax = 1.0;
         mbdSim->errorTolerance = typed->GlobalErrorTolerance.getValue();
         mbdSim->restitution = typed->Restitution.getValue();
+        mbdSim->reactions =
+            mbdSim->analysis == Solver::Analysis::Kinematic && typed->Reactions.getValue();
         simulationSpec = std::move(mbdSim);
         return;
     }

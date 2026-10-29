@@ -136,7 +136,7 @@ class TestDynamics(unittest.TestCase):
         for time, centre, _ in self.frames(rod, 1e-2):
             self.assertLess((centre - App.Vector(60, 5, 5)).Length, 1e-9, time)
 
-    def driven(self, control, formula, analysis="Dynamic", gravity=True):
+    def driven(self, control, formula, analysis="Dynamic", gravity=True, reactions=False):
         """The pendulum's hinge driven by a motion; the rod's turn about it
         (rad, unsigned) at each frame of 0.2 s by 0.01 s, or None if the run
         was refused."""
@@ -144,6 +144,7 @@ class TestDynamics(unittest.TestCase):
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
         sim.AnalysisType = analysis
+        sim.Reactions = reactions
         sim.GravityEnabled = gravity
         sim.TimeEnd = 0.2
         sim.TimeStepOutput = 0.01
@@ -1170,6 +1171,108 @@ class TestDynamics(unittest.TestCase):
         for k, force in enumerate(alone[0]["Values"]):
             together = forces[0]["Values"][k] + forces[1]["Values"][k]
             self.assertLess((together - force).Length, weight * 1e-6, k)
+
+    def test_kinematic_reactions(self):
+        """A kinematic run with its reactions (docs/AssemblyDynamics.md sec
+        6.3): the rod driven from horizontal by theta = 2 t^2 takes the
+        motor torque I alpha - m g d cos(theta) about the hinge, and the
+        hinge holds it with m (a - g), a its centre of mass's from the
+        prescribed motion."""
+        turns = self.driven("Position", "2*time*time", analysis="Kinematic", reactions=True)
+        self.assertIsNotNone(turns)
+        rod = self.doc.getObject("Rod")
+        frames = self.frames(rod, 1e-2)
+        forces = self.channel("Revolute", "Force")
+        torques = self.channel("Revolute", "MotorTorque")
+        mass = 100 * 10 * 10 * 2.7e-6
+        d = 50.0
+        inertia = mass * ((100**2 + 10**2) / 12 + d**2)  # kg mm^2, about the hinge
+        weight = mass * G
+        # Which way it turns: theta below the horizontal, as the rod reads it
+        last = frames[-1][1]
+        sign = 1.0 if 5 - last.z > 0 else -1.0
+        for (time, centre, _), force, torque in zip(frames, forces, torques):
+            theta = math.atan2(5 - centre.z, centre.x - 10)
+            self.assertAlmostEqual(theta, sign * 2 * time * time, delta=1e-9, msg=time)
+            omega = sign * 4 * time
+            alpha = sign * 4.0
+            e = App.Vector(math.cos(theta), 0, -math.sin(theta))
+            t = App.Vector(-math.sin(theta), 0, -math.cos(theta))
+            accel = t * (alpha * d) - e * (omega * omega * d)
+            onRod = accel * mass + App.Vector(0, 0, weight)
+            self.assertLess((force + onRod).Length, weight * 1e-6, time)
+            want = inertia * alpha - weight * d * math.cos(theta)
+            self.assertAlmostEqual(abs(torque), abs(want), delta=weight * d * 1e-6, msg=time)
+
+    def sliderCrank(self, analysis, reactions=False):
+        """A crank 20 mm long about z through the origin, a rod 60 mm to a
+        block sliding along x, all in the plane z = 0 (a closed loop: its
+        out-of-plane equations are redundant); the crank driven at 10
+        rad/s, no gravity. The crank's motor torque at each frame of 0.2 s
+        by 0.01 s, or None if the run failed."""
+        ground = self.box("Ground", (10, 10, 10), (-5, -5, -20))
+        fixed = self.joints.newObject("Assembly::GroundedJointPython", "GroundedGround")
+        JointObject.GroundedJoint(fixed, ground)
+        crank = self.box("Crank", (20, 4, 4), (0, -2, -2))
+        rod = self.box("Rod", (60, 4, 4), (20, -2, -2))
+        block = self.box("Block", (10, 10, 10), (75, -5, -5))
+        self.doc.recompute()
+        self.joint("Revolute", (ground, ["Face6"]), plc(5, 5, 20), (crank, ["Face1"]), plc(0, 2, 2))
+        self.joint("Revolute", (crank, ["Face2"]), plc(20, 2, 2), (rod, ["Face1"]), plc(0, 2, 2))
+        self.joint("Revolute", (rod, ["Face2"]), plc(60, 2, 2), (block, ["Face1"]), plc(5, 5, 5))
+        along = App.Vector(0, 1, 0)
+        self.joint(
+            "Slider",
+            (ground, ["Face6"]),
+            plc(85, 5, 20, along, 90),
+            (block, ["Face1"]),
+            plc(5, 5, 5, along, 90),
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = analysis
+        sim.Reactions = reactions
+        sim.GravityEnabled = False
+        sim.TimeEnd = 0.2
+        sim.TimeStepOutput = 0.01
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = [o for o in self.joints.Group if o.Name == "Revolute"][0]
+        motion.MotionType = "Angular"
+        motion.Formula = "10*time"
+        self.doc.recompute()
+        if self.assembly.generateSimulation(sim) != 0:
+            return None
+        return self.channel("Revolute", "MotorTorque")
+
+    def test_kinematic_reactions_slider_crank(self):
+        """The slider-crank's motor torque from the kinematic run's inverse
+        dynamics is the torque a Dynamic run of the same Position motion
+        takes, to the dynamic run's accuracy."""
+        inverse = self.sliderCrank("Kinematic", reactions=True)
+        self.assertIsNotNone(inverse)
+        self.tearDown()
+        self.setUp()
+        forward = self.sliderCrank("Dynamic")
+        self.assertIsNotNone(forward)
+        self.assertEqual(len(inverse), len(forward))
+        largest = max(abs(v) for v in inverse)
+        self.assertGreater(largest, 1.0)
+        for k, (a, b) in enumerate(zip(inverse, forward)):
+            self.assertAlmostEqual(a, b, delta=largest * 1e-3, msg=k)
+
+    def test_kinematic_reactions_need_every_freedom(self):
+        """A kinematic run that asks for its reactions with a freedom left
+        undriven runs, and reports none."""
+        rod = self.pendulum()
+        sim, result = self.simulate(0.05, 1e-2, AnalysisType="Kinematic", Reactions=True)
+        self.assertEqual(result, 0)
+        self.assertEqual(self.assembly.numberOfFrames(), 6)
+        results = self.assembly.getSimulationResults()
+        self.assertEqual(results["Channels"], [])
+        for time, centre, _ in self.frames(rod, 1e-2):
+            self.assertLess((centre - App.Vector(60, 5, 5)).Length, 1e-9, time)
 
     def test_bushing_not_listed(self):
         """A bushing the study does not list does nothing."""

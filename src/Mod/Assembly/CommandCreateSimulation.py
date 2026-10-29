@@ -1383,6 +1383,16 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             )
         )
         row.addWidget(self.analysisCombo, 1)
+        self.reactionsCheck = QtWidgets.QCheckBox(translate("Assembly", "Reactions"))
+        self.reactionsCheck.setToolTip(
+            translate(
+                "Assembly",
+                "Kinematic: also the joints' reactions and the motions' efforts the motion\n"
+                "takes, from the masses, gravity and the elements ticked. The motions must\n"
+                "drive every freedom.",
+            )
+        )
+        row.addWidget(self.reactionsCheck)
         self.gravityCheck = QtWidgets.QCheckBox(translate("Assembly", "Gravity"))
         self.gravityCheck.setToolTip(
             translate("Assembly", "Dynamic: gravity acts, along the simulation's Gravity")
@@ -1448,6 +1458,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.results = None
         self.analysisCombo.currentIndexChanged.connect(self.onAnalysisChanged)
         self.gravityCheck.toggled.connect(self.onGravityChanged)
+        self.reactionsCheck.toggled.connect(self.onReactionsChanged)
         self.restitutionSpin.valueChanged.connect(self.onRestitutionChanged)
 
     def hasAnalysis(self):
@@ -1458,6 +1469,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         if not self.hasAnalysis():
             self.analysisCombo.setEnabled(False)
             self.gravityCheck.setEnabled(False)
+            self.reactionsCheck.hide()
             self.restitutionSpin.setEnabled(False)
             self.elementsBox.hide()
             return
@@ -1469,6 +1481,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.gravityCheck.blockSignals(True)
         self.gravityCheck.setChecked(self.simFeaturePy.GravityEnabled)
         self.gravityCheck.blockSignals(False)
+        self.reactionsCheck.blockSignals(True)
+        self.reactionsCheck.setChecked(getattr(self.simFeaturePy, "Reactions", False))
+        self.reactionsCheck.blockSignals(False)
         self.restitutionSpin.blockSignals(True)
         self.restitutionSpin.setValue(getattr(self.simFeaturePy, "Restitution", 0.0))
         self.restitutionSpin.blockSignals(False)
@@ -1510,8 +1525,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.simFeaturePy.Elements = [o for o in used if o is not None]
 
     def showAnalysis(self):
-        # Static takes the masses, gravity and the elements as Dynamic does
-        dynamic = self.analysisCombo.currentData() in ("Dynamic", "Static")
+        # Static takes the masses, gravity and the elements as Dynamic does,
+        # and so does a kinematic run with its reactions
+        kinematic = self.analysisCombo.currentData() == "Kinematic"
+        self.reactionsCheck.setVisible(kinematic and hasattr(self.simFeaturePy, "Reactions"))
+        dynamic = not kinematic or (
+            hasattr(self.simFeaturePy, "Reactions") and self.reactionsCheck.isChecked()
+        )
         self.gravityCheck.setEnabled(dynamic)
         # A static run settles on its stops, never bouncing
         self.restitutionSpin.setEnabled(
@@ -1526,6 +1546,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def onAnalysisChanged(self, index):
         if self.hasAnalysis():
             self.simFeaturePy.AnalysisType = self.analysisCombo.currentData()
+        self.showAnalysis()
+
+    def onReactionsChanged(self, checked):
+        if hasattr(self.simFeaturePy, "Reactions"):
+            self.simFeaturePy.Reactions = checked
         self.showAnalysis()
 
     def onGravityChanged(self, checked):

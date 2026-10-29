@@ -78,6 +78,12 @@ Simulation::Simulation()
                       "back as fast as it came");
     static const App::PropertyFloatConstraint::Constraints unit = {0.0, 1.0, 0.05};
     Restitution.setConstraints(&unit);
+    ADD_PROPERTY_TYPE(Reactions,
+                      (false),
+                      "Simulation",
+                      App::Prop_None,
+                      "Kinematic: also the reactions and the motors' efforts the motions "
+                      "take, from the masses, gravity and the Elements (inverse dynamics)");
 }
 
 const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", "Static", nullptr};

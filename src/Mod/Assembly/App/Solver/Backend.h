@@ -147,6 +147,10 @@ struct SimulationSpec
     double errorTolerance = 1e-6;
     double hMin = 1e-9;
     double hMax = 1.0;
+    // Kinematic: also the reactions and the motors' efforts the motions take
+    // (inverse dynamics, docs/AssemblyDynamics.md sec 6.3), from the model's
+    // dynamics block; a backend that runs no dynamics ignores it
+    bool reactions = false;
 };
 
 // A value a run reports with each frame besides the poses

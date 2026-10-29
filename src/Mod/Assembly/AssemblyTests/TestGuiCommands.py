@@ -630,6 +630,34 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(sims[0].TypeId, "Assembly::SimulationPython")
         self.assertClean()
 
+    def test_kinematic_reactions_check(self):
+        """The Reactions check shows for a Kinematic study, sets Reactions,
+        and with it the study takes gravity and the elements as a Dynamic
+        one does; a Dynamic study hides it"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        self.assertFalse(sim.Reactions)
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        self.assertTrue(panel.reactionsCheck.isVisibleTo(panel.form))
+        self.assertFalse(panel.gravityCheck.isEnabled())
+        self.assertFalse(panel.elementsBox.isVisibleTo(panel.form))
+        panel.reactionsCheck.setChecked(True)
+        self.assertTrue(sim.Reactions)
+        self.assertTrue(panel.gravityCheck.isEnabled())
+        self.assertTrue(panel.elementsBox.isVisibleTo(panel.form))
+        panel.analysisCombo.setCurrentIndex(panel.analysisCombo.findData("Dynamic"))
+        self.assertFalse(panel.reactionsCheck.isVisibleTo(panel.form))
+        self.assertTrue(panel.gravityCheck.isEnabled())
+        self.accept_task()
+        self.assertTrue(sim.Reactions)
+        self.assertClean()
+
     def test_initial_velocity(self):
         """The initial velocity's dialog writes a joint's rate, and reopened
         on it, a component's velocity"""

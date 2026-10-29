@@ -2743,6 +2743,18 @@ Status ChronoSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
     const auto steps =
         static_cast<std::size_t>(std::floor((spec.tEnd - spec.tStart) / spec.tOutput + 1e-9));
 
+    // With the reactions asked for, the frames are kept for the inverse
+    // dynamics pass, which sends them on with their values
+    const bool inverse = spec.reactions && d->model.dynamics;
+    std::vector<std::pair<double, std::vector<BodyPose>>> kept;
+    auto emit = [&](double time, std::vector<BodyPose> poses) {
+        if (!inverse) {
+            return sink.frame(time, poses);
+        }
+        kept.emplace_back(time, std::move(poses));
+        return true;
+    };
+
     Status status = Status::Ok;
     try {
         d->addMotors();
@@ -2780,7 +2792,7 @@ Status ChronoSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
                 }
             }
             now = time;
-            if (status == Status::Ok && !sink.frame(time, d->posesNow())) {
+            if (status == Status::Ok && !emit(time, d->posesNow())) {
                 status = Status::Cancelled;
             }
         }
@@ -2792,13 +2804,21 @@ Status ChronoSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
     }
     d->removeMotors();
     d->sys->SetChTime(0.0);
+    if (inverse && status == Status::Ok) {
+        status = simulateDynamics(spec, sink, &kept);
+    }
     return status;
 }
 
-Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySink& sink)
+Status ChronoSession::simulateDynamics(
+    const SimulationSpec& spec,
+    TrajectorySink& sink,
+    const std::vector<std::pair<double, std::vector<BodyPose>>>* prescribed)
 {
     const Model& model = d->model;
-    const char* kind = spec.analysis == Analysis::Static ? "static" : "dynamic";
+    const char* kind = prescribed           ? "kinematic"
+        : spec.analysis == Analysis::Static ? "static"
+                                            : "dynamic";
     auto refuse = [kind](const std::string& why) {
         Base::Console().error("Assembly: the %s analysis cannot run: %s\n", kind, why.c_str());
         return Status::Unsupported;
@@ -3369,6 +3389,170 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         }
         return out;
     };
+    // Inverse dynamics (a Kinematic run's reactions, sec 6.3): the poses
+    // are the kinematic run's. At each, the velocities and accelerations the
+    // motions give -- central differences of the poses Chrono's assembly
+    // finds a short step either side, the motors at those times (forward
+    // ones where a formula has no value before) -- and the multipliers that
+    // make them: Cq' L = M a - f, solved by least squares, which is exact
+    // and the only answer when the motions drive every freedom. With a
+    // freedom left undriven there is none: the frames go out without values.
+    if (prescribed) {
+        auto plain = [&]() {
+            for (const auto& [time, poses] : *prescribed) {
+                if (!sink.frame(time, poses)) {
+                    return Status::Cancelled;
+                }
+            }
+            return Status::Ok;
+        };
+        try {
+            run.d->prepare();
+            ch::ChSparseMatrix Cq;
+            sys.GetConstraintJacobianMatrix(Cq);
+            MatX J(Cq);
+            for (Eigen::Index r = 0; r < J.rows(); ++r) {
+                const double norm = J.row(r).norm();
+                if (norm > 0.0) {
+                    J.row(r) /= norm;
+                }
+            }
+            Eigen::Index rank = 0;
+            if (J.rows() > 0 && J.cols() > 0) {
+                Eigen::ColPivHouseholderQR<MatX> qr(J);
+                qr.setThreshold(rankTolerance);
+                rank = qr.rank();
+            }
+            if (rank < J.cols()) {
+                Base::Console().warning(
+                    "Assembly: the kinematic run's reactions need the motions to drive every "
+                    "freedom, and %d are left free: the run reports none\n",
+                    static_cast<int>(J.cols() - rank));
+                return plain();
+            }
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("Assembly: the Chrono backend's reactions failed: %s\n",
+                                  e.what());
+            return plain();
+        }
+        if (!channels.empty()) {
+            sink.channels(channels);
+        }
+        // The poses in SI, each body's frame at its centre of mass
+        auto place = [&](const std::vector<BodyPose>& poses) {
+            for (const auto& pose : poses) {
+                if (pose.body >= n || run.d->bodies[pose.body]->IsFixed()) {
+                    continue;
+                }
+                Base::Placement p = pose.placement;
+                p.setPosition(p.getPosition() * SI::length);
+                const ch::ChFramed f = toCh(p * centre[pose.body]);
+                auto& body = run.d->bodies[pose.body];
+                body->SetPos(f.GetPos());
+                body->SetRot(f.GetRot());
+                body->SetPosDt(ch::VNULL);
+                body->SetAngVelLocal(ch::VNULL);
+            }
+        };
+        // Short against any motion's time scale, long against the
+        // assembly's tolerance: a rounding of 1e-14 m reads as 1e-6 m/s^2
+        const double delta = 1e-4;
+        struct Stencil
+        {
+            std::vector<int> at;
+            std::vector<double> v;
+            std::vector<double> a;
+        };
+        const Stencil central {{-1, 0, 1}, {-0.5, 0.0, 0.5}, {1.0, -2.0, 1.0}};
+        const Stencil forward {{0, 1, 2, 3},
+                               {-11.0 / 6.0, 3.0, -1.5, 1.0 / 3.0},
+                               {2.0, -5.0, 4.0, -1.0}};
+        bool warned = false;
+        try {
+            for (const auto& [time, poses] : *prescribed) {
+                const double t = time;
+                const Stencil& stencil = run.d->driversFinite(t - delta) ? central : forward;
+                std::vector<std::vector<Pose>> at;
+                std::vector<Pose> here;
+                for (int k : stencil.at) {
+                    place(poses);
+                    sys.SetChTime(t + k * delta);
+                    sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::POSITION),
+                                   30,
+                                   1e-14,
+                                   1e-12,
+                                   1e-15);
+                    at.push_back(run.d->current());
+                    if (k == 0) {
+                        here = at.back();
+                    }
+                }
+                run.d->setPoses(here);
+                run.d->commitAngles();
+                sys.SetChTime(t);
+                for (std::size_t b = 0; b < n; ++b) {
+                    auto& body = run.d->bodies[b];
+                    if (body->IsFixed()) {
+                        continue;
+                    }
+                    ch::ChVector3d v;
+                    ch::ChVector3d a;
+                    ch::ChVector3d w;
+                    ch::ChVector3d alpha;
+                    for (std::size_t k = 0; k < stencil.at.size(); ++k) {
+                        const Pose& p = at[k][b];
+                        const ch::ChVector3d turn = rotationFrom(here[b].q, p.q);
+                        v += stencil.v[k] * p.p;
+                        a += stencil.a[k] * p.p;
+                        w += stencil.v[k] * turn;
+                        alpha += stencil.a[k] * turn;
+                    }
+                    body->SetPosDt(v / delta);
+                    body->SetPosDt2(a / (delta * delta));
+                    body->SetAngVelLocal(w / delta);
+                    body->SetAngAccLocal(alpha / (delta * delta));
+                }
+                run.d->prepare();
+                const unsigned int nv = sys.GetNumCoordsVelLevel();
+                ch::ChState X(sys.GetNumCoordsPosLevel(), &sys);
+                ch::ChStateDelta V(nv, &sys);
+                ch::ChStateDelta A(nv, &sys);
+                double now = 0.0;
+                sys.StateGather(X, V, now);
+                sys.StateGatherAcceleration(A);
+                ch::ChVectorDynamic<> b(nv);
+                b.setZero();
+                sys.LoadResidual_Mv(b, A, 1.0);
+                sys.LoadResidual_F(b, -1.0);
+                ch::ChSparseMatrix Cq;
+                sys.GetConstraintJacobianMatrix(Cq);
+                const MatX Jt = MatX(Cq).transpose();
+                const VecX L = Jt.colPivHouseholderQr().solve(VecX(b));
+                const double off = (Jt * L - VecX(b)).norm();
+                if (!warned && !(off <= 1e-6 * b.norm() + 1e-9)) {
+                    warned = true;
+                    Base::Console().warning(
+                        "Assembly: the kinematic run's reactions at %g s leave %g of the "
+                        "motion's forces unbalanced\n",
+                        t,
+                        off / std::max(b.norm(), 1e-300));
+                }
+                sys.StateScatterReactions(L);
+                sink.values(valuesNow());
+                if (!sink.frame(t, poses)) {
+                    return Status::Cancelled;
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("Assembly: the Chrono backend's reactions failed: %s\n",
+                                  e.what());
+            return Status::Failed;
+        }
+        return Status::Ok;
+    }
+
     if (!channels.empty()) {
         sink.channels(channels);
     }

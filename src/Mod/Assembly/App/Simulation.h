@@ -74,6 +74,10 @@ public:
     /// a dynamic run takes as rigid stops: 0 stays at the stop, 1 bounces
     /// back as fast as it came
     App::PropertyFloatConstraint Restitution;
+    /// Kinematic: also the reactions and the motors' efforts the motions
+    /// take, from the masses, gravity and the Elements (inverse dynamics,
+    /// docs/AssemblyDynamics.md sec 6.3), on a backend that runs dynamics
+    App::PropertyBool Reactions;
 
     static const char* AnalysisTypeEnums[];
 

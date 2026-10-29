@@ -117,7 +117,13 @@ public:
     // reason logged: a model without its dynamics block, a body free to move
     // without mass, and what a dynamic run does not take yet -- motions,
     // limits and cams.
-    Status simulateDynamics(const SimulationSpec& spec, TrajectorySink& sink);
+    // With 'prescribed', a Kinematic spec's frames (times and poses), the
+    // inverse dynamics of that motion instead: the frames as they are, with
+    // the reactions and the motors' efforts it takes at each (sec 6.3).
+    Status simulateDynamics(
+        const SimulationSpec& spec,
+        TrajectorySink& sink,
+        const std::vector<std::pair<double, std::vector<BodyPose>>>* prescribed = nullptr);
     // The Chrono system as Chrono's own JSON archive.
     Status exportNative(const std::string& path) override;
 

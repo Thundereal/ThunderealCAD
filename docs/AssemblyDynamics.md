@@ -483,6 +483,44 @@ Phase D1 is under way (2026-10-28):
     two Fixed joints that disagree refuse the run. TestDynamics: the
     pendulum on a second coaxial hinge, the same. TestGuiCommands: the
     Results box's label and tool tip.
+- Built: inverse dynamics in kinematic runs (sec 6.3's "Kinematic +
+  reactions", on Chrono). `Simulation::Reactions` (the panel's
+  "Reactions" check, shown for a Kinematic study) sets
+  `SimulationSpec::reactions`; the study then takes the masses, gravity
+  and its Elements as a Dynamic one does, and runs on a backend that runs
+  dynamics, whichever the assembly solves with.
+  - Chrono's kinematic run keeps its frames and hands them to
+    `simulateDynamics(spec, sink, &frames)`, which builds the dynamic
+    run's system (SI, centres of mass, force elements, the motions as
+    Position motors, redundant rows taken out) and, instead of
+    integrating, at each frame: the poses Chrono's assembly finds 1e-4 s
+    either side with the motors at those times (four forward ones where a
+    formula has no value before the frame), central differences of them
+    for the velocities and accelerations, and the multipliers solving
+    Cq' L = M a - f by least squares, scattered to the links -- so every
+    reaction, motor effort, spring and bushing channel reads as in a
+    dynamic run. The frames' poses are the kinematic run's, unchanged.
+  - Chrono's own acceleration analysis (`DoAssembly` FULL) was no use: its
+    velocity step holds the constraints' rates at the current time, so a
+    driven joint's acceleration and the centripetal terms come out as
+    nothing (the 1e-6 s step the dynamic start compensates is the same
+    thing).
+  - A motion that leaves a freedom undriven has no unique answer: the run
+    warns ("need the motions to drive every freedom, and 1 are left
+    free") and plays its frames without values. Limits are not stops
+    here: a kinematic run's active bound carries no reaction yet.
+  - Tests (TestDynamics): the pendulum driven by theta = 2 t^2, its hinge
+    force m (a - g) and motor torque I alpha - m g d cos(theta) against
+    the closed form (1e-6 of the weight's); a slider-crank (a closed loop,
+    3 redundant rows) driven at 10 rad/s, its motor torque against a
+    Dynamic run of the same Position motion -- within 5e-5 of the peak at
+    every frame but the first after the start (3.7e-4, the dynamic run's
+    start), tested at 1e-3; the undriven pendulum reporting nothing.
+    TestGuiCommands: the check, shown for Kinematic and hidden for Dynamic,
+    and gravity and the elements following it.
+  - Found on the way, not changed: OndselSolver's kinematic run emits the
+    start twice (22 frames for 21 times, Times [0, 0, 0.01, ...]); the
+    times it reports are right.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

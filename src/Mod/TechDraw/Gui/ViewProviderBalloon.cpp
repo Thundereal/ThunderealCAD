@@ -37,6 +37,7 @@
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
+#include <Gui/ViewParams.h>
 #include <Gui/ViewProviderDocumentObject.h>
 
 #include <Mod/TechDraw/App/LineGroup.h>
@@ -109,6 +110,14 @@ bool ViewProviderBalloon::setEdit(int ModNum)
         Gui::Control().showDialog(new TaskDlgBalloon(qgivBalloon, this));
     }
     return true;
+}
+
+bool ViewProviderBalloon::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum == ViewProvider::Default && Gui::ViewParams::getPerViewEdit()) {
+        return false;
+    }
+    return ViewProviderDrawingView::editHoldsTransaction(ModNum);
 }
 
 void ViewProviderBalloon::updateData(const App::Property* p)

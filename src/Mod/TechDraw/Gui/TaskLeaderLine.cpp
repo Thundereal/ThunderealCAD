@@ -33,6 +33,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
+#include <Gui/EditSteps.h>
 #include <Gui/MainWindow.h>
 #include <Gui/ViewProvider.h>
 #include <Mod/TechDraw/App/ArrowPropEnum.h>
@@ -80,6 +81,10 @@ TaskLeaderLine::TaskLeaderLine(TechDrawGui::ViewProviderLeader* leadVP) :
     m_saveY(0.0)
 {
     //existence of leadVP is guaranteed by caller being ViewProviderLeaderLine.setEdit
+
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232)
+    m_steps = new Gui::EditSteps(leadVP, this);
 
     m_lineFeat = m_lineVP->getFeature();
 
@@ -176,6 +181,11 @@ TaskLeaderLine::TaskLeaderLine(TechDraw::DrawView* baseFeat,
     m_trackerMode = QGTracker::TrackerMode::Line;
     if (m_vpp->getMDIViewPage())
         m_saveContextPolicy = m_vpp->getMDIViewPage()->contextMenuPolicy();
+}
+
+bool TaskLeaderLine::holdsTransaction() const
+{
+    return !m_steps || !m_steps->isOn();
 }
 
 void TaskLeaderLine::saveState()
@@ -756,7 +766,14 @@ bool TaskLeaderLine::accept()
     removeTracker();
 
     Gui::Command::updateActive();
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
+    if (m_steps && m_steps->isOn()) {
+        // This edit, of the several there may be
+        m_steps->close();
+        m_steps->endEdit();
+    }
+    else {
+        Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
+    }
 
     if (m_vpp->getMDIViewPage())
         m_vpp->getMDIViewPage()->setContextMenuPolicy(m_saveContextPolicy);
@@ -777,6 +794,21 @@ bool TaskLeaderLine::reject()
     Gui::Document* doc = Gui::Application::Instance->getDocument(m_basePage->getDocument());
     if (!doc)
         return false;
+
+    if (m_steps && m_steps->isOn()) {
+        // Its own steps taken back -- the points, the symbols, the line --
+        // and no other view's
+        m_trackerMode = QGTracker::TrackerMode::None;
+        removeTracker();
+        m_steps->reject();
+        if (m_lineFeat) {
+            m_lineFeat->recomputeFeature();
+        }
+        if (m_vpp->getMDIViewPage()) {
+            m_vpp->getMDIViewPage()->setContextMenuPolicy(m_saveContextPolicy);
+        }
+        return false;
+    }
 
     if (getCreateMode() && m_lineFeat)  {
         removeFeature();
@@ -856,6 +888,11 @@ bool TaskDlgLeaderLine::reject()
 {
     widget->reject();
     return true;
+}
+
+bool TaskDlgLeaderLine::holdsTransaction() const
+{
+    return widget->holdsTransaction();
 }
 
 #include <Mod/TechDraw/Gui/moc_TaskLeaderLine.cpp>

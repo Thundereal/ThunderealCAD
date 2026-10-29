@@ -30,6 +30,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
+#include <Gui/EditSteps.h>
 #include <Gui/Selection.h>
 #include <Gui/ViewProvider.h>
 #include <Mod/TechDraw/App/DrawPage.h>
@@ -150,6 +151,10 @@ TaskDetail::TaskDetail(TechDraw::DrawViewDetail* detailFeat):
         Base::Console().Error("TaskDetail - bad parameters.  Can not proceed.\n");
         return;
     }
+
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232)
+    m_steps = new Gui::EditSteps(m_detailFeat, this);
 
     m_doc = m_detailFeat->getDocument();
     m_detailName = m_detailFeat->getNameInDocument();
@@ -588,9 +593,20 @@ bool TaskDetail::accept()
     m_ghost->hide();
     getDetailFeat()->requestPaint();
     getBaseFeat()->requestPaint();
+    if (m_steps && m_steps->isOn()) {
+        // This edit, of the several there may be
+        m_steps->close();
+        m_steps->endEdit();
+        return true;
+    }
     Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
 
     return true;
+}
+
+bool TaskDetail::holdsTransaction() const
+{
+    return !m_steps || !m_steps->isOn();
 }
 
 bool TaskDetail::reject()
@@ -601,6 +617,17 @@ bool TaskDetail::reject()
         return false;
 
     m_ghost->hide();
+    if (m_steps && m_steps->isOn()) {
+        // Its own steps taken back, and no other view's
+        m_steps->reject();
+        if (auto detail = getDetailFeat()) {
+            detail->recomputeFeature();
+        }
+        if (auto base = getBaseFeat()) {
+            base->requestPaint();
+        }
+        return false;
+    }
     if (m_mode == CREATEMODE) {
         if (m_created) {
             Gui::Command::doCommand(Gui::Command::Gui, "App.activeDocument().removeObject('%s')",
@@ -674,6 +701,11 @@ bool TaskDlgDetail::reject()
 {
     widget->reject();
     return true;
+}
+
+bool TaskDlgDetail::holdsTransaction() const
+{
+    return widget->holdsTransaction();
 }
 
 #include <Mod/TechDraw/Gui/moc_TaskDetail.cpp>

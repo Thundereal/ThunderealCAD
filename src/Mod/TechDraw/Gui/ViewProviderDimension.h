@@ -75,6 +75,9 @@ public:
     void onChanged(const App::Property* p) override;
     void setupContextMenu(QMenu*, QObject*, const char*) override;
     bool setEdit(int ModNum) override;
+    /// None in its panel's edit with PerViewEdit on: each change is a
+    /// step of its own (docs/HandsOnQueue.md entry 232)
+    bool editHoldsTransaction(int ModNum) const override;
     bool doubleClicked() override;
     /** The dimension's edit, a projection group's left first (as OK leaves
      * it): its double click on the page and in the tree, its menu's Edit

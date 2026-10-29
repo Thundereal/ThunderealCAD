@@ -34,6 +34,7 @@
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
+#include <Gui/ViewParams.h>
 
 #include <Mod/TechDraw/App/DrawLeaderLine.h>
 #include <Mod/TechDraw/App/DrawProjGroupItem.h>
@@ -93,8 +94,19 @@ bool ViewProviderProjGroup::setEdit(int ModNum)
 
 bool ViewProviderProjGroup::doubleClicked()
 {
-    setEdit(0);
+    // The document's edit, as a dimension's is: the object locked, the
+    // tree marking it, the session the page's (docs/HandsOnQueue.md
+    // entry 232)
+    startDefaultEditMode();
     return true;
+}
+
+bool ViewProviderProjGroup::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum == ViewProvider::Default && Gui::ViewParams::getPerViewEdit()) {
+        return false;
+    }
+    return ViewProviderDrawingView::editHoldsTransaction(ModNum);
 }
 
 bool ViewProviderProjGroup::onDelete(const std::vector<std::string> &)

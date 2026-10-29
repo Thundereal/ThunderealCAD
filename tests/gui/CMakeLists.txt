@@ -436,6 +436,11 @@ fc_add_gui_test(GuiPdEditTwoViews_tests_run pd-edit-two-views.py
 fc_add_gui_test(GuiSketchEditTwoViews_tests_run sketch-edit-two-views.py
                 --timeout 240)
 
+# TechDraw edits one per page, beside a 3D view's (entry 232, the TechDraw
+# round): Cancel of one takes back its own steps only.
+fc_add_gui_test(GuiTdEditTwoPages_tests_run td-edit-two-pages.py
+                --timeout 300)
+
 # An edit started after the main window is activated again, or with
 # another document's view the active one, is bound to the 3D view: the
 # split-view container (Gui::ViewArea) was handed out as the active view

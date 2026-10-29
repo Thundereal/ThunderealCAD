@@ -30,6 +30,10 @@
 #include <Gui/TaskView/TaskView.h>
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
+namespace Gui
+{
+class EditSteps;
+}
 
 namespace TechDraw
 {
@@ -64,6 +68,10 @@ public:
     virtual bool reject();
     virtual void setCreateMode(bool mode) { m_createMode = mode; }
     virtual bool getCreateMode() { return m_createMode; }
+    /// Whether its changes go in a transaction held to OK or Cancel; not
+    /// in an edit where each is a step of its own (Gui::EditSteps,
+    /// PerViewEdit)
+    bool holdsTransaction() const;
     void updateTask();
     void saveButtons(QPushButton* btnOK,
                      QPushButton* btnCancel);
@@ -137,6 +145,9 @@ private:
     double m_saveX;
     double m_saveY;
 
+    /// An edit's steps; none when creating
+    Gui::EditSteps* m_steps = nullptr;
+
 private Q_SLOTS:
     void onStartSymbolChanged();
     void onEndSymbolChanged();
@@ -166,6 +177,7 @@ public:
     /// is called by the framework if the user presses the help button
     bool isAllowedAlterDocument() const override
                         { return false; }
+    bool holdsTransaction() const override;
     void update();
 
     void modifyStandardButtons(QDialogButtonBox* box) override;

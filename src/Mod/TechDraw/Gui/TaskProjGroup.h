@@ -31,6 +31,10 @@
 #include <Gui/TaskView/TaskView.h>
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
+namespace Gui
+{
+class EditSteps;
+}
 
 namespace TechDraw {
 class DrawProjGroup;
@@ -54,6 +58,10 @@ public:
     virtual bool accept();
     virtual bool reject();
     virtual bool apply();
+    /// Whether its changes go in a transaction held to OK or Cancel; not
+    /// in an edit where each is a step of its own (Gui::EditSteps,
+    /// PerViewEdit)
+    bool holdsTransaction() const;
     void modifyStandardButtons(QDialogButtonBox* box);
     void saveButtons(QPushButton* btnOK,
                      QPushButton* btnCancel,
@@ -119,6 +127,9 @@ private:
     double         m_saveSpacingY;
     Base::Vector3d m_saveDirection;
     std::vector<std::string> m_saveViewNames;
+
+    /// An edit's steps; none when creating
+    Gui::EditSteps* m_steps = nullptr;
 };
 
 class TaskDlgProjGroup : public Gui::TaskView::TaskDialog
@@ -147,6 +158,7 @@ public:
     /// is called by the framework if the user presses the help button
     bool isAllowedAlterDocument() const override
     { return false; }
+    bool holdsTransaction() const override;
     void setCreateMode(bool mode);
 
     void update();

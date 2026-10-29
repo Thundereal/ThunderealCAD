@@ -83,6 +83,9 @@ public:
     bool canDelete(App::DocumentObject* obj) const override;
     bool setEdit(int ModNum) override;
     bool doubleClicked(void) override;
+    /// None in a detail view's panel's edit with PerViewEdit on: each
+    /// change is a step of its own (docs/HandsOnQueue.md entry 232)
+    bool editHoldsTransaction(int ModNum) const override;
     void onChanged(const App::Property *prop) override;
     void handleChangedPropertyType(Base::XMLReader &reader, const char *TypeName, App::Property * prop) override;
     App::Color prefSectionColor(void);

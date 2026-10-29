@@ -995,6 +995,271 @@ SLOPE defines the steepness of the transition between 0 and H1 and H2 to 0 about
         return self.dialog.exec()
 
 
+########### Initial velocity #############
+# Not upstream (docs/AssemblyDynamics.md sec 5.2's InitialCondition): a
+# Dynamic study's start velocity, a child of the Simulation as a motion is
+
+
+def simulationOf(obj):
+    """The Simulation a motion or an initial velocity is a child of"""
+    for parent in obj.InList:
+        if parent.isDerivedFrom("Assembly::Simulation") or hasattr(
+            getattr(parent, "Proxy", None), "setMotionsChangedCallback"
+        ):
+            return parent
+    return None
+
+
+def assemblyOf(obj):
+    sim = simulationOf(obj)
+    if sim is None:
+        return None
+    for parent in sim.InListRecursive:
+        if parent.isDerivedFrom("Assembly::AssemblyObject"):
+            return parent
+    return None
+
+
+def newInitialCondition(sim, joint=None, rate=None, component=None, linear=None, angular=None):
+    """An initial velocity in the simulation: a joint's rate (in deg/s for
+    an angular one, a number or a quantity) when joint is given, else the
+    component's linear (mm/s) and angular (deg/s) velocity"""
+    assembly = None
+    for parent in sim.InListRecursive:
+        if parent.isDerivedFrom("Assembly::AssemblyObject"):
+            assembly = parent
+            break
+    obj = (assembly or sim).newObject("Assembly::InitialConditionPython", "InitialVelocity")
+    if App.GuiUp:
+        ViewProviderInitialCondition(obj.ViewObject)
+    if joint is not None:
+        obj.Mode = "Joint"
+        obj.Joint = joint
+        obj.MotionType = "Linear" if joint.JointType == "Slider" else "Angular"
+        if rate is not None:
+            obj.Rate = rate
+    else:
+        obj.Mode = "Component"
+        obj.Component = component
+        obj.LinearVelocity = linear or App.Vector()
+        obj.AngularVelocity = angular or App.Vector()
+    group = list(sim.Group)
+    if obj not in group:
+        sim.Group = group + [obj]
+    describeInitialCondition(obj)
+    return obj
+
+
+def describeInitialCondition(obj):
+    """The label: what it starts moving"""
+    if obj.Mode == "Joint":
+        target = obj.Joint
+    else:
+        target = obj.Component
+    if target is not None:
+        obj.Label = translate("Assembly", "{} (initial velocity)").format(target.Label)
+
+
+class ViewProviderInitialCondition:
+    def __init__(self, vp):
+        vp.Proxy = self
+
+    def attach(self, vpDoc):
+        self.app_obj = vpDoc.Object
+
+    def getDisplayModes(self, vpDoc):
+        return []
+
+    def getDefaultDisplayMode(self):
+        return ""
+
+    def getIcon(self):
+        return ":/icons/button_right.svg"
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    def doubleClicked(self, vpDoc):
+        self.openEditDialog()
+        return True
+
+    def openEditDialog(self):
+        assembly = assemblyOf(self.app_obj)
+        if assembly is None:
+            return False
+        dialog = InitialConditionDialog(assembly, self.app_obj)
+        if dialog.exec_():
+            dialog.apply(self.app_obj)
+        return True
+
+
+class InitialConditionDialog:
+    """An initial velocity's values: a joint and its rate, or a component and
+    its velocity. apply() writes them to the object."""
+
+    def __init__(self, assembly, obj=None):
+        self.assembly = assembly
+        self.dialog = QDialog()
+        self.dialog.setWindowTitle(translate("Assembly", "Initial velocity"))
+        layout = QGridLayout(self.dialog)
+
+        self.modeCombo = QComboBox(self.dialog)
+        self.modeCombo.addItem(translate("Assembly", "A joint's rate"), "Joint")
+        self.modeCombo.addItem(translate("Assembly", "A component's velocity"), "Component")
+        layout.addWidget(self.modeCombo, 0, 0, 1, 4)
+
+        self.jointCombo = QComboBox(self.dialog)
+        for joint in UtilsAssembly.getJointsOfType(assembly, ["Revolute", "Slider", "Cylindrical"]):
+            self.jointCombo.addItem(QIcon(joint.ViewObject.Icon), joint.Label, userData=joint)
+        self.typeCombo = QComboBox(self.dialog)
+        self.rateBox = QtWidgets.QDoubleSpinBox(self.dialog)
+        self.rateBox.setRange(-1e9, 1e9)
+        self.rateBox.setDecimals(4)
+        self.jointLabel = QLabel(translate("Assembly", "Joint"))
+        layout.addWidget(self.jointLabel, 1, 0)
+        layout.addWidget(self.jointCombo, 1, 1, 1, 3)
+        self.typeLabel = QLabel(translate("Assembly", "Motion Type"))
+        layout.addWidget(self.typeLabel, 2, 0)
+        layout.addWidget(self.typeCombo, 2, 1, 1, 3)
+        self.rateLabel = QLabel(translate("Assembly", "Rate"))
+        self.rateBox.setToolTip(
+            translate(
+                "Assembly",
+                "The joint's rate at the start, the way a Speed motion of it turns or slides it",
+            )
+        )
+        layout.addWidget(self.rateLabel, 3, 0)
+        layout.addWidget(self.rateBox, 3, 1, 1, 3)
+
+        self.componentCombo = QComboBox(self.dialog)
+        for part in UtilsAssembly.getMovablePartsWithin(assembly, True):
+            self.componentCombo.addItem(part.Label, userData=part)
+        self.componentLabel = QLabel(translate("Assembly", "Component"))
+        layout.addWidget(self.componentLabel, 4, 0)
+        layout.addWidget(self.componentCombo, 4, 1, 1, 3)
+
+        def vectorRow(row, text, suffix, tip):
+            label = QLabel(text)
+            label.setToolTip(tip)
+            layout.addWidget(label, row, 0)
+            boxes = []
+            for col, axis in enumerate("xyz"):
+                box = QtWidgets.QDoubleSpinBox(self.dialog)
+                box.setRange(-1e9, 1e9)
+                box.setDecimals(4)
+                box.setPrefix(axis + " ")
+                box.setSuffix(suffix)
+                layout.addWidget(box, row, col + 1)
+                boxes.append(box)
+            return label, boxes
+
+        self.linearLabel, self.linearBoxes = vectorRow(
+            5,
+            translate("Assembly", "Linear"),
+            " mm/s",
+            translate("Assembly", "The velocity of the component's origin, in the assembly's axes"),
+        )
+        self.angularLabel, self.angularBoxes = vectorRow(
+            6,
+            translate("Assembly", "Angular"),
+            " deg/s",
+            translate("Assembly", "The component's angular velocity, in the assembly's axes"),
+        )
+        note = QLabel(
+            translate(
+                "Assembly",
+                "A Dynamic study starts with these velocities; what the joints do not allow\n"
+                "is taken out.",
+            )
+        )
+        layout.addWidget(note, 7, 0, 1, 4)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self.dialog
+        )
+        buttons.accepted.connect(self.dialog.accept)
+        buttons.rejected.connect(self.dialog.reject)
+        layout.addWidget(buttons, 8, 0, 1, 4)
+
+        self.modeCombo.currentIndexChanged.connect(self.showMode)
+        self.jointCombo.currentIndexChanged.connect(self.fillTypes)
+        self.typeCombo.currentIndexChanged.connect(self.showUnit)
+        self.fill(obj)
+
+    def fill(self, obj):
+        mode = obj.Mode if obj is not None else "Joint"
+        self.modeCombo.setCurrentIndex(max(0, self.modeCombo.findData(mode)))
+        if obj is not None and obj.Joint is not None:
+            self.jointCombo.setCurrentIndex(max(0, self.jointCombo.findData(obj.Joint)))
+        self.fillTypes()
+        if obj is not None:
+            self.typeCombo.setCurrentIndex(max(0, self.typeCombo.findData(obj.MotionType)))
+            self.rateBox.setValue(obj.Rate.Value)
+            if obj.Component is not None:
+                self.componentCombo.setCurrentIndex(
+                    max(0, self.componentCombo.findData(obj.Component))
+                )
+            for box, value in zip(self.linearBoxes, obj.LinearVelocity):
+                box.setValue(value)
+            for box, value in zip(self.angularBoxes, obj.AngularVelocity):
+                box.setValue(value)
+        self.showMode()
+
+    def fillTypes(self):
+        joint = self.jointCombo.currentData()
+        current = self.typeCombo.currentData()
+        self.typeCombo.blockSignals(True)
+        self.typeCombo.clear()
+        if joint is not None:
+            if joint.JointType == "Revolute":
+                types = ["Angular"]
+            elif joint.JointType == "Slider":
+                types = ["Linear"]
+            else:
+                types = ["Angular", "Linear"]
+            for name in types:
+                self.typeCombo.addItem(translate("Assembly", name), name)
+            self.typeCombo.setCurrentIndex(max(0, self.typeCombo.findData(current)))
+        self.typeCombo.blockSignals(False)
+        self.showUnit()
+
+    def showUnit(self):
+        self.rateBox.setSuffix(" mm/s" if self.typeCombo.currentData() == "Linear" else " deg/s")
+
+    def showMode(self):
+        joint = self.modeCombo.currentData() == "Joint"
+        for widget in (
+            self.jointLabel,
+            self.jointCombo,
+            self.typeLabel,
+            self.typeCombo,
+            self.rateLabel,
+            self.rateBox,
+        ):
+            widget.setVisible(joint)
+        for widget in [self.componentLabel, self.componentCombo, self.linearLabel]:
+            widget.setVisible(not joint)
+        for widget in [self.angularLabel] + self.linearBoxes + self.angularBoxes:
+            widget.setVisible(not joint)
+
+    def apply(self, obj):
+        obj.Mode = self.modeCombo.currentData()
+        if obj.Mode == "Joint":
+            obj.Joint = self.jointCombo.currentData()
+            obj.MotionType = self.typeCombo.currentData() or "Angular"
+            obj.Rate = self.rateBox.value()
+        else:
+            obj.Component = self.componentCombo.currentData()
+            obj.LinearVelocity = App.Vector(*[box.value() for box in self.linearBoxes])
+            obj.AngularVelocity = App.Vector(*[box.value() for box in self.angularBoxes])
+        describeInitialCondition(obj)
+
+    def exec_(self):
+        return self.dialog.exec()
+
+
 ######### Create Simulation Task ###########
 class TaskAssemblyCreateSimulation(QtCore.QObject):
     def __init__(self, simFeaturePy=None):
@@ -1043,6 +1308,17 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.form.StepForwardButton.clicked.connect(self.stepForward)
         self.form.StopButton.clicked.connect(self.stopAnimation)
         self.form.AddButton.clicked.connect(self.addMotionClicked)
+        # Not upstream: a Dynamic study's initial velocities, listed with the
+        # motions
+        self.addInitialButton = QtWidgets.QToolButton()
+        self.addInitialButton.setText(translate("Assembly", "v0"))
+        self.addInitialButton.setToolTip(
+            translate("Assembly", "Add an initial velocity: a joint's rate or a component's")
+        )
+        self.addInitialButton.clicked.connect(self.addInitialClicked)
+        buttons = self.form.findChild(QtWidgets.QVBoxLayout, "motion_buttonsLayout")
+        if buttons is not None:
+            buttons.insertWidget(1, self.addInitialButton)
         self.form.RemoveButton.clicked.connect(self.deleteSelectedMotions)
         self.form.groupBox_player.hide()
         self.form.SaveAnimationButton.clicked.connect(self.saveAnimation)
@@ -1243,6 +1519,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             and hasattr(self.simFeaturePy, "Restitution")
         )
         self.elementsBox.setVisible(dynamic and self.hasAnalysis())
+        self.addInitialButton.setVisible(
+            self.analysisCombo.currentData() == "Dynamic" and self.hasAnalysis()
+        )
 
     def onAnalysisChanged(self, index):
         if self.hasAnalysis():
@@ -1484,6 +1763,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def stopAnimation(self):
         self.animationTimer.stop()
+
+    def addInitialClicked(self):
+        dialog = InitialConditionDialog(self.assembly)
+        if dialog.exec_():
+            obj = newInitialCondition(self.simFeaturePy)
+            dialog.apply(obj)
+            self.onMotionsChanged()
 
     def addMotionClicked(self):
         dialog = MotionEditDialog(self.assembly)

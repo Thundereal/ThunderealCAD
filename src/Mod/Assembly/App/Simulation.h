@@ -127,4 +127,57 @@ public:
 
 using MotionPython = App::FeaturePythonT<Motion>;
 
+
+/** An initial velocity of a dynamic study (docs/AssemblyDynamics.md sec
+ * 5.2's InitialCondition), a child of a Simulation as a motion is: a
+ * joint's rate, about or along its axis as a Speed motion of it turns it;
+ * or a component's velocity, its origin's and its turn's, in the
+ * assembly's axes. The run starts from the solved assembly with these
+ * velocities, made consistent with the joints by the least change: what
+ * a joint does not allow is taken out. A static or kinematic study does
+ * not use them.
+ */
+class AssemblyExport InitialCondition: public App::DocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::InitialCondition);
+
+public:
+    InitialCondition();
+
+    /// Joint: a joint's rate; Component: a component's velocity
+    App::PropertyEnumeration Mode;
+    /// Joint: a Revolute, Cylindrical or Slider joint
+    App::PropertyLink Joint;
+    /// Joint: Angular, the turn about the axis; Linear, the slide along it
+    App::PropertyEnumeration MotionType;
+    /// Joint: an angular speed or a speed, as MotionType is
+    App::PropertyQuantity Rate;
+    /// Component: the component given the velocity
+    App::PropertyLink Component;
+    /// Component: its origin's velocity, in the assembly's axes, mm/s
+    App::PropertyVector LinearVelocity;
+    /// Component: its angular velocity, in the assembly's axes, deg/s
+    App::PropertyVector AngularVelocity;
+
+    static const char* ModeEnums[];
+
+    void onChanged(const App::Property* prop) override;
+    void onDocumentRestored() override;
+
+    const char* getViewProviderName() const override
+    {
+        return "Gui::ViewProviderDocumentObject";
+    }
+
+    bool isJointRate() const
+    {
+        return Mode.getValue() == 0;
+    }
+
+private:
+    void updateUnit();
+};
+
+using InitialConditionPython = App::FeaturePythonT<InitialCondition>;
+
 }  // namespace Assembly

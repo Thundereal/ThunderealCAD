@@ -408,6 +408,44 @@ Phase D1 is under way (2026-10-28):
     the frame's y; two blocks parting about a bushing between them at
     sqrt(2k/m), with the force channel; a static sag m g / k; not listed.
     TestSpringEnds' TestBushingEnd (4). TestGuiCommands: the panel.
+- Built: initial velocities. `Assembly::InitialCondition` (and its
+  Python variant, which the study's panel lists with the motions and edits
+  through `InitialConditionDialog`), a child of the Simulation as a motion
+  is -- a start state is the study's (sec 5.1): `Mode` {Joint, Component};
+  a Revolute, Cylindrical or Slider `Joint`, its `MotionType` and `Rate`
+  (deg/s or mm/s, the unit following the type); or a `Component`, its
+  `LinearVelocity` (mm/s) and `AngularVelocity` (deg/s), in the assembly's
+  axes. No `Locked` yet. A Dynamic study only: a static run starts and ends
+  at rest, and a kinematic one has its motions.
+  - The linear velocity is the component's origin's, not its centre of
+    mass's (sec 5.2 said a body's): a point the user sees, and a frame,
+    which survives the rigid groups' reduction where a body id does not.
+  - Neutral: `InitialVelocity` {RotationZ, TranslationZ, Body} on frames
+    -- a joint's frames I and J from its record, as a torsion spring's; a
+    body's frame I at the component's origin. A rate on a joint a motion
+    drives is left out with a warning.
+  - Chrono: on the start assembly, a body's velocity set (its centre of
+    mass's from v + w x (com - origin)); a joint's rate held by a Speed
+    motor of the joint's kind while one velocity projection makes every
+    velocity consistent with the joints -- the least mass-weighted change,
+    so what a joint does not allow is taken out -- then the motor removed.
+    The start's projections each add 1e-6 s of the forces' acceleration,
+    and `assembleFull` takes back that one too.
+  - Found on the way, a fault of the Speed motions since they were built:
+    Chrono's speed motors hold their joint to the integral of the rate
+    from an offset of 0, so a joint not at its zero -- a slider 2 mm open
+    -- was pulled there at the start. The offset is now the joint's value
+    at the start (`startHere`), for the motions and the temporary motors
+    alike. A Speed motion's frames still run up to 2e-6 s of its rate
+    ahead (measured, 2e-4 mm at 100 mm/s); not chased.
+  - Tests (TestDynamics, 7): a component started up its slider under
+    gravity, z0 + v0 t - g t^2 / 2 (1e-6 mm); one given a velocity across
+    the slider and a turn, only the slide kept; a hinge's rate of 90 deg/s
+    and a slider's of 100 mm/s, against the closed form and a Speed motion
+    of the joint; the rod's own velocity given as a turn about the hinge,
+    which needs no change (the origin to centre of mass conversion); a
+    static study ignoring one; and the Speed motion from 2 mm open.
+    TestGuiCommands: the dialog, a joint's rate and then a component's.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -630,6 +630,47 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(sims[0].TypeId, "Assembly::SimulationPython")
         self.assertClean()
 
+    def test_initial_velocity(self):
+        """The initial velocity's dialog writes a joint's rate, and reopened
+        on it, a component's velocity"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        joint = self.joints("Revolute")[0]
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.AnalysisType = "Dynamic"
+
+        dialog = CommandCreateSimulation.InitialConditionDialog(self.assembly)
+        self.assertEqual(dialog.jointCombo.currentData(), joint)
+        self.assertEqual(dialog.typeCombo.currentData(), "Angular")
+        self.assertEqual(dialog.rateBox.suffix(), " deg/s")
+        dialog.rateBox.setValue(45)
+        obj = CommandCreateSimulation.newInitialCondition(sim)
+        dialog.apply(obj)
+        self.assertEqual(obj.Mode, "Joint")
+        self.assertEqual(obj.Joint, joint)
+        self.assertAlmostEqual(obj.Rate.getValueAs("deg/s").Value, 45, places=9)
+        self.assertIn(obj, sim.Group)
+        self.assertIn(joint.Label, obj.Label)
+
+        # Reopened on it, as a double click in the panel's list does
+        dialog = CommandCreateSimulation.InitialConditionDialog(self.assembly, obj)
+        self.assertEqual(dialog.rateBox.value(), 45)
+        dialog.modeCombo.setCurrentIndex(dialog.modeCombo.findData("Component"))
+        self.assertFalse(dialog.rateBox.isVisibleTo(dialog.dialog))
+        self.assertTrue(dialog.componentCombo.isVisibleTo(dialog.dialog))
+        dialog.componentCombo.setCurrentIndex(dialog.componentCombo.findData(self.cyl1))
+        dialog.linearBoxes[2].setValue(20)
+        dialog.angularBoxes[0].setValue(30)
+        dialog.apply(obj)
+        self.assertEqual(obj.Mode, "Component")
+        self.assertEqual(obj.Component, self.cyl1)
+        self.assertEqual(obj.LinearVelocity, App.Vector(0, 0, 20))
+        self.assertEqual(obj.AngularVelocity, App.Vector(30, 0, 0))
+        self.assertClean()
+
     # ------------------------------------------------------------ springs
 
     def springs(self):

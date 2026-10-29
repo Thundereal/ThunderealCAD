@@ -134,6 +134,75 @@ Motion::Motion()
 }
 
 
+PROPERTY_SOURCE(Assembly::InitialCondition, App::DocumentObject)
+
+const char* InitialCondition::ModeEnums[] = {"Joint", "Component", nullptr};
+
+InitialCondition::InitialCondition()
+{
+    ADD_PROPERTY_TYPE(Mode,
+                      (0L),
+                      "Initial velocity",
+                      App::Prop_None,
+                      "Joint: a joint's rate. Component: a component's velocity");
+    Mode.setEnums(ModeEnums);
+    ADD_PROPERTY_TYPE(Joint,
+                      (nullptr),
+                      "Initial velocity",
+                      App::Prop_None,
+                      "Joint: the Revolute, Cylindrical or Slider joint given the rate");
+    ADD_PROPERTY_TYPE(MotionType,
+                      (0L),
+                      "Initial velocity",
+                      App::Prop_None,
+                      "Joint: Angular, its turn about its axis; Linear, its slide along it");
+    MotionType.setEnums(Motion::MotionTypeEnums);
+    ADD_PROPERTY_TYPE(Rate,
+                      (0.0),
+                      "Initial velocity",
+                      App::Prop_None,
+                      "Joint: the rate, the way a Speed motion of the joint turns or slides it");
+    ADD_PROPERTY_TYPE(Component,
+                      (nullptr),
+                      "Initial velocity",
+                      App::Prop_None,
+                      "Component: the component given the velocity");
+    ADD_PROPERTY_TYPE(LinearVelocity,
+                      (Base::Vector3d()),
+                      "Initial velocity",
+                      App::Prop_None,
+                      "Component: its origin's velocity, in the assembly's axes, in mm/s");
+    ADD_PROPERTY_TYPE(AngularVelocity,
+                      (Base::Vector3d()),
+                      "Initial velocity",
+                      App::Prop_None,
+                      "Component: its angular velocity, in the assembly's axes, in deg/s");
+    updateUnit();
+}
+
+void InitialCondition::updateUnit()
+{
+    // An angle over a time (the angle's internal unit is the degree), or a
+    // length over a time
+    Rate.setUnit(MotionType.getValue() == 0 ? Base::Unit(0, 0, -1, 0, 0, 0, 0, 1)
+                                            : Base::Unit(1, 0, -1));
+}
+
+void InitialCondition::onChanged(const App::Property* prop)
+{
+    if (prop == &MotionType) {
+        updateUnit();
+    }
+    DocumentObject::onChanged(prop);
+}
+
+void InitialCondition::onDocumentRestored()
+{
+    updateUnit();
+    DocumentObject::onDocumentRestored();
+}
+
+
 // Python features --------------------------------------------------------
 
 namespace App
@@ -154,5 +223,13 @@ const char* Assembly::MotionPython::getViewProviderName() const
     return "Gui::ViewProviderPythonFeature";
 }
 template class AssemblyExport FeaturePythonT<Assembly::Motion>;
+
+PROPERTY_SOURCE_TEMPLATE(Assembly::InitialConditionPython, Assembly::InitialCondition)
+template<>
+const char* Assembly::InitialConditionPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template class AssemblyExport FeaturePythonT<Assembly::InitialCondition>;
 /// @endcond
 }  // namespace App

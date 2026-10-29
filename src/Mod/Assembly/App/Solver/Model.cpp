@@ -107,6 +107,12 @@ bool same(const ForceElement& a, const ForceElement& b)
         && a.preload6 == b.preload6;
 }
 
+bool same(const InitialVelocity& a, const InitialVelocity& b)
+{
+    return a.source == b.source && a.kind == b.kind && a.frameI == b.frameI && a.frameJ == b.frameJ
+        && a.rate == b.rate && same(a.v, b.v) && same(a.w, b.w);
+}
+
 bool same(const Inertia& a, const Inertia& b)
 {
     return a.body == b.body && a.mass == b.mass && same(a.com, b.com) && a.inertia == b.inertia
@@ -135,7 +141,8 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
         || (a.dynamics
             && (!same(a.dynamics->gravity, b.dynamics->gravity)
                 || !sameRecords(a.dynamics->inertias, b.dynamics->inertias)
-                || !sameRecords(a.dynamics->forces, b.dynamics->forces)))) {
+                || !sameRecords(a.dynamics->forces, b.dynamics->forces)
+                || !sameRecords(a.dynamics->initial, b.dynamics->initial)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)
@@ -236,6 +243,13 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             }
             force.rest *= length;
             force.preload *= length;
+        }
+        // A speed scales as a length does, a turning rate not at all
+        for (auto& initial : out.dynamics->initial) {
+            if (initial.kind == InitialVelocity::Kind::TranslationZ) {
+                initial.rate *= length;
+            }
+            initial.v = initial.v * length;
         }
     }
     return out;

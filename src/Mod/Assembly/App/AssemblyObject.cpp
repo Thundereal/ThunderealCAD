@@ -1579,9 +1579,11 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         // From the assembly's frame into the body's
         dynamics.inertias.push_back(Solver::moved(inertia, model.bodies[body].placement.inverse()));
     }
-    // Kept: the force elements addForces() put in first
+    // Kept: the force elements and the initial velocities addForces() put
+    // in first
     if (model.dynamics) {
         dynamics.forces = std::move(model.dynamics->forces);
+        dynamics.initial = std::move(model.dynamics->initial);
     }
     model.dynamics = std::move(dynamics);
 }
@@ -1783,6 +1785,83 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         force.c = spring->Damping.getValue();
         force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
         model.dynamics->forces.push_back(force);
+    }
+
+    // The initial velocities, a Dynamic study's children: a static run
+    // starts and ends at rest
+    if (typed->AnalysisType.getValue() != 1) {
+        return;
+    }
+    for (auto* child : typed->Group.getValues()) {
+        auto* condition = freecad_cast<InitialCondition*>(child);
+        if (!condition) {
+            continue;
+        }
+        const std::string label = condition->getFullLabel();
+        Solver::InitialVelocity initial;
+        if (!condition->isJointRate()) {
+            auto* component = condition->Component.getValue();
+            if (!component) {
+                Base::Console().warning(
+                    "Assembly: the initial velocity %s is of no component, and does nothing\n",
+                    label.c_str());
+                continue;
+            }
+            initial.source = model.addSource(condition->getFullName());
+            initial.kind = Solver::InitialVelocity::Kind::Body;
+            initial.frameI = frameOn(component, Base::Placement(), condition->getFullName());
+            initial.v = condition->LinearVelocity.getValue();
+            initial.w = condition->AngularVelocity.getValue() * (std::numbers::pi / 180.0);
+            model.dynamics->initial.push_back(initial);
+            continue;
+        }
+        // On its joint's frames, as the joint's model record has them, and
+        // not on a joint a motion of that kind drives already
+        auto* joint = condition->Joint.getValue();
+        const std::string jointName = joint ? joint->getFullName() : std::string();
+        const bool angular = condition->MotionType.getValue() == 0;
+        const Solver::Joint* held = nullptr;
+        for (const auto& record : model.joints) {
+            const bool fits = record.kind == Solver::JointKind::Cylindrical
+                || record.kind
+                    == (angular ? Solver::JointKind::Revolute : Solver::JointKind::Prismatic);
+            if (fits && model.sourceName(record.source) == jointName) {
+                held = &record;
+                break;
+            }
+        }
+        if (!held) {
+            Base::Console().warning(
+                angular ? "Assembly: the initial velocity %s is on no revolute or cylindrical "
+                          "joint the simulation runs, and does nothing\n"
+                        : "Assembly: the initial velocity %s is on no slider or cylindrical "
+                          "joint the simulation runs, and does nothing\n",
+                label.c_str());
+            continue;
+        }
+        const auto driven = std::ranges::find_if(model.drivers, [&](const Solver::Driver& d) {
+            return model.sourceName(d.source) == jointName
+                && (d.kind == Solver::DriverKind::Both
+                    || d.kind
+                        == (angular ? Solver::DriverKind::RotationZ
+                                    : Solver::DriverKind::TranslationZ));
+        });
+        if (driven != model.drivers.end()) {
+            Base::Console().warning(
+                "Assembly: the initial velocity %s is on a joint a motion drives, which "
+                "sets its rate; it does nothing\n",
+                label.c_str());
+            continue;
+        }
+        initial.source = model.addSource(condition->getFullName());
+        initial.kind = angular ? Solver::InitialVelocity::Kind::RotationZ
+                               : Solver::InitialVelocity::Kind::TranslationZ;
+        initial.frameI = held->frameI;
+        initial.frameJ = held->frameJ;
+        // An angular rate's internal unit is the degree per second
+        initial.rate =
+            angular ? Base::toRadians(condition->Rate.getValue()) : condition->Rate.getValue();
+        model.dynamics->initial.push_back(initial);
     }
 }
 

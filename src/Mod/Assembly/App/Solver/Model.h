@@ -321,6 +321,29 @@ struct ForceElement
     std::array<double, 6> preload6 {};
 };
 
+// An initial velocity of a dynamic run (sec 6.1), set on the start
+// assembly and then made consistent with the joints by the least
+// mass-weighted change: a joint's rate on its frames I and J, as a Speed
+// driver of the joint of that kind gives it; or a body's velocity, the
+// velocity v of frame I's origin and the angular velocity w, in the
+// assembly's axes
+struct InitialVelocity
+{
+    enum class Kind : std::uint8_t
+    {
+        RotationZ,     // rad/s, xJ about zI
+        TranslationZ,  // mm/s, along zI
+        Body
+    };
+    Id source = NoId;  // the document's condition
+    Kind kind {};
+    Id frameI = NoId;
+    Id frameJ = NoId;  // NoId for a body's
+    double rate = 0.0;
+    Base::Vector3d v;  // mm/s
+    Base::Vector3d w;  // rad/s
+};
+
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has
 // none. Grows with phase D1: forces, tables, contact, stops, initial
 // velocities, sensors.
@@ -329,6 +352,7 @@ struct Dynamics
     Base::Vector3d gravity;         // mm/s^2, in the assembly's frame; zero: off
     std::vector<Inertia> inertias;  // one per body that has mass, by Inertia::body
     std::vector<ForceElement> forces;
+    std::vector<InitialVelocity> initial;
 };
 
 struct Model

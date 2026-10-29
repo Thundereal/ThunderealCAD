@@ -971,6 +971,164 @@ class TestDynamics(unittest.TestCase):
         self.assembly.updateForFrame(0)
         self.assertAlmostEqual(block.Placement.Base.z, 12 - self.MASS * G / k, delta=1e-5)
 
+    # ------------------------------------------------------------ initial velocities
+
+    def started(self, end, step, conditions, **props):
+        """A Dynamic run with initial velocities: conditions, each a dict of
+        newInitialCondition's arguments, made in the study first"""
+        import CommandCreateSimulation
+
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = props.pop("AnalysisType", "Dynamic")
+        sim.TimeEnd = end
+        sim.TimeStepOutput = step
+        for name, value in props.items():
+            setattr(sim, name, value)
+        for condition in conditions:
+            CommandCreateSimulation.newInitialCondition(sim, **condition)
+        self.doc.recompute()
+        return sim, self.assembly.generateSimulation(sim)
+
+    def test_initial_velocity_of_a_component(self):
+        """The block on its slider started up at v0, under gravity:
+        z = z0 + v0 t - g t^2 / 2."""
+        block = self.slider()
+        v0 = 100.0  # mm/s
+        _, result = self.started(
+            0.02, 1e-3, [dict(component=block, linear=App.Vector(0, 0, v0))]
+        )
+        self.assertEqual(result, 0)
+        for time, z in self.heights(block, 1e-3):
+            self.assertAlmostEqual(z, 12 + v0 * time - 0.5 * G * time * time, delta=1e-6)
+
+    def test_initial_velocity_projected(self):
+        """What the slider does not allow is taken out: across it and a turn
+        go, along it stays."""
+        block = self.slider()
+        _, result = self.started(
+            0.05,
+            1e-2,
+            [
+                dict(
+                    component=block,
+                    linear=App.Vector(50, 30, 100),
+                    angular=App.Vector(0, 0, 90),
+                )
+            ],
+            GravityEnabled=False,
+        )
+        self.assertEqual(result, 0)
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            time = i * 1e-2
+            plc = block.Placement
+            self.assertAlmostEqual(plc.Base.z, 12 + 100 * time, delta=1e-6, msg=time)
+            self.assertAlmostEqual(plc.Base.x, 0, delta=1e-9, msg=time)
+            self.assertAlmostEqual(plc.Base.y, 0, delta=1e-9, msg=time)
+            self.assertAlmostEqual(plc.Rotation.Angle, 0, delta=1e-9, msg=time)
+
+    def speedRun(self, joint, formula, end, step):
+        """The same joint driven by a Speed motion instead, from the start
+        pose: a run starts where the parts are, and playing the last one
+        left them at its end"""
+        if self.assembly.numberOfFrames():
+            self.assembly.updateForFrame(0)
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.GravityEnabled = False
+        sim.TimeEnd = end
+        sim.TimeStepOutput = step
+        motion = self.assembly.newObject("Assembly::Motion", "Motion")
+        motion.Joint = joint
+        motion.MotionType = "Linear" if joint.JointType == "Slider" else "Angular"
+        motion.Control = "Speed"
+        motion.Formula = formula
+        sim.Group = [motion]
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+
+    def test_initial_rate_of_a_revolute(self):
+        """A rate of 90 deg/s on the hinge, nothing else acting: the rod turns
+        at it, as a Speed motion of the joint turns it."""
+        rod = self.pendulum()
+        joint = self.joints.Group[-1]
+        _, result = self.started(
+            0.1, 1e-2, [dict(joint=joint, rate=90.0)], GravityEnabled=False
+        )
+        self.assertEqual(result, 0)
+        free = self.rodAngles(rod, 1e-2)
+        self.speedRun(joint, "pi/2", 0.1, 1e-2)
+        driven = self.rodAngles(rod, 1e-2)
+        # A Speed motion's frames are up to 2e-6 s of its rate ahead
+        # (measured: 1e-6 s at the start, 2e-6 s after)
+        for (time, a), (_, b) in zip(free, driven):
+            self.assertAlmostEqual(a, b, delta=1e-5, msg=time)
+            self.assertAlmostEqual(abs(a), math.pi / 2 * time, delta=1e-6, msg=time)
+
+    def test_initial_rate_of_a_slider(self):
+        """A rate of 100 mm/s on the slider, as a Speed motion of it."""
+        block = self.slider()
+        joint = self.joints.Group[-1]
+        _, result = self.started(
+            0.05, 1e-2, [dict(joint=joint, rate="100 mm/s")], GravityEnabled=False
+        )
+        self.assertEqual(result, 0)
+        free = self.heights(block, 1e-2)
+        self.speedRun(joint, "100", 0.05, 1e-2)
+        driven = self.heights(block, 1e-2)
+        for (time, a), (_, b) in zip(free, driven):
+            self.assertAlmostEqual(a, b, delta=3e-4, msg=time)
+            self.assertAlmostEqual(abs(a - 12), 100 * time, delta=1e-6, msg=time)
+
+    def test_motor_speed_from_where_it_is(self):
+        """A Speed motion on a slider 2 mm open moves it from there, not from
+        the joint's zero: Chrono's speed motor held the joint to the integral
+        of its rate from 0, and pulled the block down 2 mm at the start."""
+        block = self.slider()
+        self.speedRun(self.joints.Group[-1], "100", 0.05, 1e-2)
+        # Its frames up to 2e-6 s of the rate ahead, 2e-4 mm; the snap was 2 mm
+        for time, z in self.heights(block, 1e-2):
+            self.assertAlmostEqual(abs(z - 12), 100 * time, delta=3e-4, msg=time)
+
+    def test_initial_velocity_turning_about_the_hinge(self):
+        """The rod's own velocity, given as a turn about the hinge -- its
+        origin's velocity w x (origin - hinge) and w -- needs no change: it
+        turns at w, as the joint's rate of w turns it."""
+        rod = self.pendulum()
+        w = math.pi / 2
+        # The origin (10, 0, 0), the hinge's axis along y through (10, 5, 5)
+        v = App.Vector(0, w, 0).cross(App.Vector(0, -5, -5))
+        _, result = self.started(
+            0.1,
+            1e-2,
+            [dict(component=rod, linear=v, angular=App.Vector(0, 90, 0))],
+            GravityEnabled=False,
+        )
+        self.assertEqual(result, 0)
+        for time, angle in self.rodAngles(rod, 1e-2):
+            self.assertAlmostEqual(angle, w * time, delta=1e-6, msg=time)
+
+    def test_initial_velocity_static_ignored(self):
+        """A static study starts and ends at rest: the block sags m g / k."""
+        k = self.K * 10
+        block = self.slider()
+        bushing = self.bushing(
+            (block, App.Placement(App.Vector(5, 5, 0), App.Rotation())),
+            TranslationalStiffness=App.Vector(k, k, k),
+        )
+        _, result = self.started(
+            0.0,
+            1e-2,
+            [dict(component=block, linear=App.Vector(0, 0, 500))],
+            AnalysisType="Static",
+            Elements=[bushing],
+        )
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(0)
+        self.assertAlmostEqual(block.Placement.Base.z, 12 - self.MASS * G / k, delta=1e-5)
+
     def test_bushing_not_listed(self):
         """A bushing the study does not list does nothing."""
         block = self.slider()

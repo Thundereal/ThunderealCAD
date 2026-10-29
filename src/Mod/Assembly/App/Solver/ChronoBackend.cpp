@@ -2672,6 +2672,19 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorRotation>>> rotationMotors;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorLinear>>> linearMotors;
     std::vector<std::pair<Id, std::shared_ptr<Bushing>>> bushings;
+    // A Speed motor integrates its rate from an offset, and holds the joint
+    // to that integral to keep it from drifting: from Chrono's offset of 0 a
+    // joint not at its zero -- a slider 2 mm open -- was pulled there at the
+    // start. The offset is the joint's value where the run starts.
+    auto startHere = [&](const std::shared_ptr<ch::ChLinkMotor>& motor) {
+        motor->Update(sys.GetChTime(), ch::UpdateFlags::UPDATE_ALL_NO_VISUAL);
+        if (auto rotation = std::dynamic_pointer_cast<ch::ChLinkMotorRotationSpeed>(motor)) {
+            rotation->SetAngleOffset(rotation->GetMotorAngle());
+        }
+        else if (auto linear = std::dynamic_pointer_cast<ch::ChLinkMotorLinearSpeed>(motor)) {
+            linear->SetMotionOffset(linear->GetMotorPos());
+        }
+    };
     // The force elements, on frames of the model: in SI and at the centres
     // of mass with it (a stiffness and a damping need no factor, sec 8.1)
     auto loads = std::make_shared<ch::ChLoadContainer>();
@@ -2799,6 +2812,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
                                   f2);
                 motor->SetMotorFunction(function);
                 sys.AddLink(motor);
+                startHere(motor);
                 rotationMotors.emplace_back(driver.source, motor);
             }
         }
@@ -2824,6 +2838,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
                                   f2);
                 motor->SetMotorFunction(function);
                 sys.AddLink(motor);
+                startHere(motor);
                 linearMotors.emplace_back(driver.source, motor);
             }
         }
@@ -3143,7 +3158,9 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     // and differentiates the jump over its own step of 1e-6 s, so a motion
     // starting to move (or a Position motion's rate after a static rest)
     // read as an impulse -- the cam's start, ten thousand times its force
-    auto assembleFull = [&]() {
+    // `earlier`: the velocity projections made since the velocities were
+    // last right, besides the two here (the initial velocities' one)
+    auto assembleFull = [&](int earlier = 0) {
         sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::POSITION)
                        | static_cast<int>(ch::AssemblyAnalysis::Level::VELOCITY));
         sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::FULL));
@@ -3151,14 +3168,84 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         // left the velocities 2e-6 s of acceleration off, the rack 1.4e-3 mm
         // off after 0.1 s. Taken back by the accelerations the second kept.
         constexpr double projectionStep = 1e-6;
+        const double back = (2.0 + earlier) * projectionStep;
         for (const auto& body : run.d->bodies) {
             if (body->IsFixed()) {
                 continue;
             }
-            body->SetPosDt(body->GetPosDt() - 2.0 * projectionStep * body->GetPosDt2());
-            body->SetAngVelLocal(body->GetAngVelLocal()
-                                 - 2.0 * projectionStep * body->GetAngAccLocal());
+            body->SetPosDt(body->GetPosDt() - back * body->GetPosDt2());
+            body->SetAngVelLocal(body->GetAngVelLocal() - back * body->GetAngAccLocal());
         }
+    };
+    // The initial velocities on the start assembly (sec 6.1): a body's set
+    // as given, a joint's rate held by a Speed motor of the joint's kind
+    // while one projection makes the velocities consistent with every
+    // joint -- the least mass-weighted change, what a joint does not allow
+    // taken out. In SI with the model. False when there are none.
+    auto setInitialVelocities = [&]() {
+        bool any = false;
+        std::vector<std::shared_ptr<ch::ChLinkBase>> held;
+        for (const auto& initial : si.dynamics->initial) {
+            if (!run.d->validFrame(initial.frameI)) {
+                continue;
+            }
+            if (initial.kind == InitialVelocity::Kind::Body) {
+                const auto& body = run.d->bodyOf(initial.frameI);
+                if (!body || body->IsFixed()) {
+                    continue;
+                }
+                // v is the frame's origin's; the body's own is its centre
+                // of mass's
+                const ch::ChVector3d w = toCh(initial.w);
+                const ch::ChVector3d at = run.d->globalOf(initial.frameI).GetPos();
+                body->SetPosDt(toCh(initial.v) + ch::Vcross(w, body->GetPos() - at));
+                body->SetAngVelParent(w);
+                any = true;
+                continue;
+            }
+            if (!run.d->validFrame(initial.frameJ)
+                || run.d->isRigid(initial.frameI, initial.frameJ)) {
+                continue;
+            }
+            const ch::ChFramed f1 = run.d->driverLocalOf(initial.frameJ);
+            const ch::ChFramed f2 = run.d->localOf(initial.frameI);
+            auto rate = std::make_shared<ch::ChFunctionConst>(initial.rate);
+            if (initial.kind == InitialVelocity::Kind::RotationZ) {
+                auto motor = std::make_shared<ch::ChLinkMotorRotationSpeed>();
+                motor->SetSpindleConstraint(ch::ChLinkMotorRotation::SpindleConstraint::FREE);
+                motor->Initialize(run.d->bodyOf(initial.frameJ),
+                                  run.d->bodyOf(initial.frameI),
+                                  true,
+                                  f1,
+                                  f2);
+                motor->SetMotorFunction(rate);
+                sys.AddLink(motor);
+                startHere(motor);
+                held.push_back(motor);
+            }
+            else {
+                auto motor = std::make_shared<ch::ChLinkMotorLinearSpeed>();
+                motor->SetGuideConstraint(ch::ChLinkMotorLinear::GuideConstraint::FREE);
+                motor->Initialize(run.d->bodyOf(initial.frameJ),
+                                  run.d->bodyOf(initial.frameI),
+                                  true,
+                                  f1,
+                                  f2);
+                motor->SetMotorFunction(rate);
+                sys.AddLink(motor);
+                startHere(motor);
+                held.push_back(motor);
+            }
+            any = true;
+        }
+        if (!any) {
+            return false;
+        }
+        sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::VELOCITY));
+        for (const auto& motor : held) {
+            sys.RemoveLink(motor);
+        }
+        return true;
     };
     const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
     const int maxRelaxSteps = 50000;
@@ -3236,11 +3323,12 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     Status status = Status::Ok;
     try {
         sys.SetChTime(spec.tStart);
+        const bool moving = !statics && setInitialVelocities();
         // The accelerations at the start, gravity's: HHT takes those it is
         // given, and from rest that was none, the run lagging a part of a
         // step behind -- the pendulum's period long by 0.2% at 1 ms, the
         // error first order in the step
-        assembleFull();
+        assembleFull(moving ? 1 : 0);
         auto stepOnce = [&](double dt) {
             sys.DoStepDynamics(dt);
             // The neutral links count their turns from the angles last

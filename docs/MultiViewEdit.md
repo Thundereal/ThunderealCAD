@@ -421,7 +421,9 @@ Coarser groups mean fewer rows, not larger ones.
    idle, whichever comes first. A 0-timer the input's work queues runs
    before idle and so is in its group: an input and the recompute it
    queued are one step. Without the Gui, an invocation (a script, a
-   macro, a console line) is one group.
+   macro) is one group. A line typed into the Python console is a
+   script's, not an input: it starts no group, and neither does a timer
+   or a socket (12.6).
 2. **One id.** Every document changed in a group gets a transaction
    under the group's id -- the step opened in it, explicit or implicit.
    A document with no step of its own joins the step last opened while
@@ -430,10 +432,12 @@ Coarser groups mean fewer rows, not larger ones.
    that is not bound. A change made to that document directly is not the
    step's (`tests/gui/edit-two-documents.py` changes B in B's window
    while A's edit is open).
-3. **The name.** From `openTransaction()`. Stacked: an open inside an
-   open joins it, and the outer name stays. Open/commit pairs one AFTER
-   another in a group stay steps of their own: a script keeps the steps
-   it makes.
+3. **The name.** From `openTransaction()`. No stacking (ruled, 12.6):
+   outside a command an open commits the one before, as upstream's
+   contract says; inside a command a nested open is dropped and the
+   command's step and name stay (the `AutoTransaction` guard), which is
+   joining, not stacking. Open/commit pairs one after another in a group
+   stay steps of their own: a script keeps the steps it makes.
 4. **Where a step is listed.** In every document it changed; and, as an
    empty pointer (`-> <name>`), in the document of the view the input
    that opened it went to, when that document did not change -- taken
@@ -449,7 +453,10 @@ Coarser groups mean fewer rows, not larger ones.
    (a step opened while a dialog is up is the dialog's, and closes when
    it does -- today's `AutoTransaction::setEnable(false)`, which
    `Control::showDialog` and `Gui::Document::setEdit` call), an edit's
-   own hold (typing, a spin box press), or a mouse button held down: a
+   own hold (typing, a spin box press), an editor that keeps its step
+   over the inputs typed into it (set with `persist`: the property
+   editor, the omni search box, the tree's label editor, which closes it
+   when it goes), or a mouse button held down: a
    drag opens its step on the press (`ViewProviderDragger::onDragStart`)
    and closes it on the release, groups apart. Anything else still open
    at the end of a group is committed.
@@ -467,8 +474,8 @@ Coarser groups mean fewer rows, not larger ones.
 - **Stage 1** -- rules 2 and 4 with today's closing points (the Gui's
   0-timer for an implicit step, the end of an invocation, the command's
   return for an explicit one). Fixes sec 11's cases.
-- **Stage 2** -- rules 1, 3, 5, 6: the group's boundary, stacked
-  opens, collection of what is left open, abort by id.
+- **Stage 2** -- rules 1, 5, 6: the group's boundary, collection of
+  what is left open, abort by id. Rule 3 needs no change (12.6).
 - **Stage 3** -- rule 7, after measuring what recording costs a script
   that recorded nothing before (time; memory is bounded, 12.1).
 
@@ -533,3 +540,68 @@ Recommended: drop stacking outside a command -- an open closes the one
 before, as today -- and treat the Python console as a script, not as an
 input boundary. Rule 1 then only commits what an input's own group
 left open, which today the next open would have closed anyway.
+
+Ruled by the user (2026-10-29): as recommended. Rule 3 reworded to
+match (12.2).
+
+### 12.7 Stage 2 (2026-10-29, 3f3d270d36, 723c7d5129)
+
+Rules 1, 5 and 6 in, rule 3 as it was.
+
+- **The group.** `GUIApplication::notify` counts each outermost input
+  (the receiver's events of sec 12.2 rule 1) and tells the application
+  (`setInputGroup`); a step minted then carries that group, one minted
+  with `persist` or while `AutoTransaction` is disabled (a dialog, an
+  edit) is marked held. A 0-timer queued at the input's end runs after
+  the work it queued and calls `closeGroupStep()`, which commits the
+  application's step only if it carries a group and nothing holds it:
+  no command running (the guard), no `TransactionLocker`, no task dialog
+  open, no document in edit, no mouse button down. A bound step (an
+  edit's) is never touched. A console line sets group 0.
+- **Editors.** The property editor, the omni search box and the tree's
+  label editor set their steps with `persist`. The tree's never closed
+  its step (the next step did); it now closes it when the editor goes.
+- **Rule 6.** `Command::abortCommand()` does nothing when the step its
+  `openCommand()` set was committed by its group.
+- **Off switch.** `Document/UndoGroupByInput` (on); off, a step left
+  open stays open until the next step is set.
+
+`tests/gui/undo-group-by-input.py`: a click's loose step is committed
+after its work and a later click's change to another document does not
+join it; one undo takes back only the click's; held by `persist`, by a
+task dialog, by a mouse button down (committed after the release); a
+console line's step stays open; off, it stays open. Rule 6 is not
+reachable from Python and has no test.
+
+Typing into the console in that test crashed FreeCAD: the call tips
+list re-sent a key release to the console through its own application
+filter until the stack ran out (since 8f3ae4742e; a real keyboard
+reaches the popup instead). Fixed in 401e3b1aab.
+
+**Undo steps, rules on against off.** The whole GUI suite twice on the
+same binary, `UndoGroupByInput` on then off, an observer counting per
+test the steps opened (named, pointer, implicit), aborted and
+committed, and the undo list of each document a test closes:
+
+| per run (331 tests)         | off  | on   |
+|-----------------------------|------|------|
+| named steps opened          | 627  | 626  |
+| pointer steps (`-> name`)   | 1    | 1    |
+| implicit steps              | 1905 | 1907 |
+| aborts                      | 64   | 64   |
+| commits                     | 2480 | 2481 |
+| undo steps listed at close  | 432  | 432  |
+
+Two tests differ. `GuiUndoGroupByInput` is the new test, which fails
+off by design. `GuiSyncViewDoesNotMesh` had one more implicit recompute
+in one run; four repeats, two each way, give the same tally. So the
+rules change no test's number of steps. Most tests run from a timer,
+which starts no group; of the 141 that send input, the step set in an
+input is a command's, closed at its return, or a script's, between
+inputs. Rule 1 commits only what the next open would have closed, and
+the suite has no such step. What changes is what a later input's
+change joins, which `undo-group-by-input.py` shows. The Python suite
+(FreeCADCmd) has no inputs and is the same by construction.
+
+Gate: GUI 362/363 (LineWidths, known on main), Python 4062 OK, C++
+1094/1095 (RenderGoldenCycles, known on main).

@@ -22,7 +22,9 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <set>
+#include <vector>
 
 #include <App/Document.h>
 
@@ -42,6 +44,33 @@ BodyBase::BodyBase()
     ADD_PROPERTY(BaseFeature , (nullptr) );
 
     App::OriginGroupExtension::initExtension(this);
+}
+
+namespace
+{
+std::vector<Base::Type>& allowedTypes()
+{
+    static std::vector<Base::Type> types;
+    return types;
+}
+}  // namespace
+
+void BodyBase::allowType(Base::Type type)
+{
+    auto& types = allowedTypes();
+    if (std::find(types.begin(), types.end(), type) == types.end()) {
+        types.push_back(type);
+    }
+}
+
+bool BodyBase::isTypeAllowed(Base::Type type)
+{
+    for (const auto& t : allowedTypes()) {
+        if (type.isDerivedFrom(t)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 BodyBase* BodyBase::findBodyOf(const App::DocumentObject* f)

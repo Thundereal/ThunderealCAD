@@ -648,6 +648,7 @@ void BGFXView::setTriangleFrameState(const Render::Material &mat, int pass,
     float matcapParams[4] = {matcapFrame ? 1.0f : 0.0f,
                              float(matcapPreset), matcapTint, matcapStripes};
     bgfx::setUniform(u_matcapParams, matcapParams);
+    bgfx::setUniform(u_matcapDir, matcapDir);
     bgfx::setTexture(1, s_texEnv, env);
 
     // The per-face texture palette (unit 10). Bound on every mesh draw,

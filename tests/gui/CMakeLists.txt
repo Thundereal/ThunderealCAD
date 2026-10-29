@@ -116,6 +116,75 @@ fc_add_gui_test(GuiSurfaceSew_tests_run surface-sew.py
 # in it recomputed, an edge picked, Cancel and OK.
 fc_add_gui_test(GuiSurfaceBlendCurve_tests_run surface-blend-curve.py
                 --timeout 180)
+# Its Network command and task panel (U1): a whole 3D sketch sorted, the
+# families separated and corrected, curves and supports picked, edge
+# conditions set and read out, Cancel and OK.
+fc_add_gui_test(GuiSurfaceNetwork_tests_run surface-network.py
+                --timeout 180)
+# And from a browser's connection (sec 8): the command op runs it, the
+# panel is mirrored and worked -- separate, a continuity, a tolerance, OK
+# refused and taken, Cancel -- with no dialog at any point.
+fc_add_gui_test(GuiServeSurfaceNetwork_tests_run serve-surface-network.py
+                --timeout 240)
+# Its cutting commands and the Trim panel (U2): Extend edges, Split, Trim,
+# Untrim from the selection; the sides kept picked in the view and toggled,
+# OK and Cancel; a selection they cannot use said without a dialog.
+fc_add_gui_test(GuiSurfaceTrim_tests_run surface-trim.py
+                --timeout 180)
+# And from a browser's connection: the four on the allowlist, the three
+# without a panel saying an unusable selection without a dialog, Trim's
+# panel mirrored and cancelled.
+fc_add_gui_test(GuiServeSurfaceTrim_tests_run serve-surface-trim.py
+                --timeout 180)
+# And the older panels, Sections, Filling and GeomFillSurface: made from a
+# browser's connection, OK refused without a dialog, Cancel.
+fc_add_gui_test(GuiServeSurfacePanels_tests_run serve-surface-panels.py
+                --timeout 240)
+# Its U3 commands: Blend surface, Two-rail sweep and Pipeshell from the
+# selection, as one undo step each; a selection they cannot use said without
+# a dialog.
+fc_add_gui_test(GuiSurfaceSweeps_tests_run surface-sweeps.py
+                --timeout 180)
+# And their task panels: a blend's conditions, a sweep's sections and
+# stations, a pipe's mode, OK and Cancel, no dialog.
+fc_add_gui_test(GuiSurfaceToolPanels_tests_run surface-tool-panels.py
+                --timeout 180)
+# Its Edge continuity command (U4): a crease, a fillet's tangent edge, two
+# faces picked; a selection it cannot use said without a dialog.
+fc_add_gui_test(GuiSurfaceContinuity_tests_run surface-continuity.py
+                --timeout 180)
+# Its curve tools (U5): isocurves, a curve on a surface, an intersection,
+# curves joined and an edge extended from the selection, one undo step each;
+# a selection they cannot use said without a dialog.
+fc_add_gui_test(GuiSurfaceCurves_tests_run surface-curves.py
+                --timeout 180)
+# Its edge conditions in the view (sec 8): an arrow on each outer boundary of
+# a network or a blend, a click stepping the continuity, a drag or a typed
+# value the weight, the menu the continuity.
+fc_add_gui_test(GuiSurfaceEdgeMarkers_tests_run surface-edge-markers.py
+                --timeout 180)
+# The same for Sections and GeomFillSurface, whose own panels do not show
+# their conditions: a box of them in each dialog, and their arrows.
+fc_add_gui_test(GuiSurfaceFillMarkers_tests_run surface-fill-markers.py
+                --timeout 180)
+# Its features in a PartDesign Body, as a sketch is: the commands put what
+# they make into the active body, and nowhere else.
+fc_add_gui_test(GuiSurfaceInBody_tests_run surface-in-body.py
+                --timeout 180)
+# Geometry picked for a Surface feature is taken as a sketch takes external
+# geometry: through SubShapeBinder::import, outside the feature's body by a
+# binder in it -- by its commands and every panel.
+fc_add_gui_test(GuiSurfaceImport_tests_run surface-import.py
+                --timeout 180)
+# PartDesign Thicken's command and panel: the selected face made a solid,
+# the panel's fields the feature's, a face outside the body bound in, Remove,
+# OK and Cancel.
+fc_add_gui_test(GuiPDThicken_tests_run pd-thicken.py
+                --timeout 180)
+# A client that drops with a task panel open, whose Cancel throws: the panel
+# is closed with the client's view, and the server lives on.
+fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py
+                --timeout 120)
 # Its drag and kept planes (S2e): a point and a curve dragged with the
 # constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
 fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py
@@ -1629,6 +1698,23 @@ fc_add_gui_test(GuiServeEmptyDocument_tests_run
 # the stripes cross a tangent seam unbroken and break at a creased one.
 fc_add_gui_test(GuiMatcapZebra_tests_run
                 matcap-zebra.py
+                --timeout 180)
+# The surface analysis matcaps (docs/Surface.md sec 7, U4): draft colours a
+# frustum's released, steep and undercut faces; the zebra fixed to the model
+# keeps its stripes on a sphere as the view turns, and the camera's does not.
+fc_add_gui_test(GuiMatcapAnalysis_tests_run
+                matcap-analysis.py
+                --timeout 180)
+# And the curvature map (U4): a sphere's mean curvature bracketed, a
+# cylinder's Gaussian curvature zero, a saddle's negative.
+fc_add_gui_test(GuiCurvatureMap_tests_run
+                curvature-map.py
+                --timeout 180)
+# The curvature comb, an overlay of any Part object's view (U4): even teeth
+# on a circle, none on a line, the longest at an ellipse's ends, the scale,
+# a rebuild on a change, a cylinder's isocurves, off.
+fc_add_gui_test(GuiCurvatureComb_tests_run
+                curvature-comb.py
                 --timeout 180)
 
 # A task dialog belongs to the view it was opened for

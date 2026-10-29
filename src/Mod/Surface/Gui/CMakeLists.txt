@@ -50,6 +50,17 @@ SET(SurfaceGui_SRCS
     TaskGeomFillSurface.h
     TaskSections.cpp
     TaskSections.h
+    TaskNetwork.cpp
+    TaskNetwork.h
+    TaskTrim.cpp
+    TaskTrim.h
+    TaskTools.cpp
+    TaskTools.h
+    EdgeMarkers.cpp
+    EdgeMarkers.h
+    Import.cpp
+    Import.h
+    EndEdit.h
     AppSurfaceGui.cpp
     Command.cpp
     PreCompiled.cpp

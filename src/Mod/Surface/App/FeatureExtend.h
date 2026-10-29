@@ -24,6 +24,8 @@
 #define SURFACE_FEATUREEXTEND_H
 
 #include <App/PropertyLinks.h>
+#include <App/PropertyStandard.h>
+#include <App/PropertyUnits.h>
 #include <Mod/Part/App/FeaturePartSpline.h>
 #include <Mod/Surface/SurfaceGlobal.h>
 
@@ -49,6 +51,15 @@ public:
     App::PropertyIntegerConstraint SampleU;
     App::PropertyIntegerConstraint SampleV;
 
+    /// Per edge (docs/Surface.md sec 5.2): "Face" refits the whole face
+    /// larger, as before; "Edges" carries the face on across each of Edges
+    App::PropertyEnumeration Mode;
+    App::PropertyLinkSubList Edges;
+    App::PropertyDistance Length;
+    App::PropertyEnumeration Extension;
+    /// A face to extend up to, in place of Length
+    App::PropertyLinkSub UpTo;
+
     // recalculate the feature
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
@@ -65,6 +76,8 @@ protected:
                                    const char* PropName) override;
 
 private:
+    App::DocumentObjectExecReturn* extendEdges(const Part::TopoShape& input);
+
     bool lockOnChangeMutex {false};
 };
 

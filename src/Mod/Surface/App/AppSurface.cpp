@@ -25,18 +25,24 @@
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/Parameter.h>
+#include <Mod/Part/App/BodyBase.h>
 
 #include "Blending/BlendCurvePy.h"
 #include "Blending/BlendPointPy.h"
 #include "Blending/FeatureBlendCurve.h"
 
+#include "FeatureBlendSurface.h"
+#include "FeatureCurves.h"
 #include "FeatureCut.h"
 #include "FeatureExtend.h"
 #include "FeatureFilling.h"
 #include "FeatureGeomFillSurface.h"
 #include "FeatureNetwork.h"
+#include "FeaturePipeShell.h"
 #include "FeatureSections.h"
 #include "FeatureSewing.h"
+#include "FeatureTrim.h"
+#include "FeatureTwoRailSweep.h"
 #include "Geom/GeomPy.h"
 
 
@@ -90,7 +96,41 @@ PyMOD_INIT_FUNC(Surface)
     Surface::FeatureBlendCurve ::init();
     Surface::Sections          ::init();
     Surface::Network           ::init();
+    Surface::BlendSurface      ::init();
+    Surface::Split             ::init();
+    Surface::Trim              ::init();
+    Surface::Untrim            ::init();
+    Surface::TwoRailSweep      ::init();
+    Surface::PipeShell         ::init();
+    Surface::Isocurve          ::init();
+    Surface::CurveOnSurface    ::init();
+    Surface::IntersectionCurve ::init();
+    Surface::JoinCurves        ::init();
+    Surface::ExtendCurve       ::init();
     // clang-format on
+
+    // In a PartDesign Body, as a sketch is: not solid, never its Tip
+    for (Base::Type type : {Surface::Filling::getClassTypeId(),
+                            Surface::Sewing::getClassTypeId(),
+                            Surface::Cut::getClassTypeId(),
+                            Surface::GeomFillSurface::getClassTypeId(),
+                            Surface::Extend::getClassTypeId(),
+                            Surface::FeatureBlendCurve::getClassTypeId(),
+                            Surface::Sections::getClassTypeId(),
+                            Surface::Network::getClassTypeId(),
+                            Surface::BlendSurface::getClassTypeId(),
+                            Surface::Split::getClassTypeId(),
+                            Surface::Trim::getClassTypeId(),
+                            Surface::Untrim::getClassTypeId(),
+                            Surface::TwoRailSweep::getClassTypeId(),
+                            Surface::PipeShell::getClassTypeId(),
+                            Surface::Isocurve::getClassTypeId(),
+                            Surface::CurveOnSurface::getClassTypeId(),
+                            Surface::IntersectionCurve::getClassTypeId(),
+                            Surface::JoinCurves::getClassTypeId(),
+                            Surface::ExtendCurve::getClassTypeId()}) {
+        Part::BodyBase::allowType(type);
+    }
 
     PyMOD_Return(mod);
 }

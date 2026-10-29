@@ -90,6 +90,8 @@ SET(FeaturesDressUp_SRCS
     FeatureDraft.h
     FeatureThickness.cpp
     FeatureThickness.h
+    FeatureThicken.cpp
+    FeatureThicken.h
     FeatureDefeaturing.cpp
     FeatureDefeaturing.h
 )

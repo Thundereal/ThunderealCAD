@@ -88,4 +88,32 @@ SurfaceExport NetworkResult networkSurface(const std::vector<Handle(Geom_Curve)>
                                            const std::vector<Handle(Geom_Curve)>& guides,
                                            const NetworkOptions& options = {});
 
+struct FamiliesResult
+{
+    /// Input indices, in input order: the family of the first curve, and the other
+    std::vector<int> profiles;
+    std::vector<int> guides;
+    /// Why the curves are not one network; empty when they are
+    std::string error;
+
+    bool isDone() const
+    {
+        return error.empty() && !profiles.empty();
+    }
+};
+
+/** The curves of a whole network (a 3D sketch's, say) sorted into profiles and
+ * guides (docs/Surface.md sec 6)
+ *
+ * Two curves meet when they pass within `tolerance`. A network is two
+ * families in which no curve meets one of its own and every curve meets every
+ * curve of the other, which decides the families; the first curve's is the
+ * profiles. Anything else -- a curve that meets nothing, one that meets both
+ * families, a profile short of a guide -- is an error naming the curves by
+ * `names`, or by their place in the input, counted from 1.
+ */
+SurfaceExport FamiliesResult sortFamilies(const std::vector<Handle(Geom_Curve)>& curves,
+                                          double tolerance,
+                                          const std::vector<std::string>& names = {});
+
 }  // namespace Surface::Geom

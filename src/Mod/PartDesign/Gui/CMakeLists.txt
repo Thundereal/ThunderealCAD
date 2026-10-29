@@ -89,6 +89,8 @@ SET(PartDesignGuiViewProvider_SRCS
     ViewProviderDraft.h
     ViewProviderThickness.cpp
     ViewProviderThickness.h
+    ViewProviderThicken.cpp
+    ViewProviderThicken.h
     ViewProviderDefeaturing.cpp
     ViewProviderDefeaturing.h
     ViewProviderDressUp.cpp
@@ -176,6 +178,8 @@ SET(PartDesignGuiTaskDlgs_SRCS
     TaskDraftParameters.h
     TaskThicknessParameters.ui
     TaskThicknessParameters.cpp
+    TaskThickenParameters.cpp
+    TaskThickenParameters.h
     TaskThicknessParameters.h
     TaskDefeaturingParameters.ui
     TaskDefeaturingParameters.cpp

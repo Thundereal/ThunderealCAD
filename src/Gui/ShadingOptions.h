@@ -29,6 +29,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QDoubleSpinBox;
 class QLabel;
 class QMenu;
 class QPushButton;
@@ -177,6 +178,13 @@ private:
     QLabel *matcapStripesLabel;
     QSlider *matcapStripesSlider;
     QLabel *matcapStripesValue;
+    QLabel *matcapAnalysisLabel;
+    QCheckBox *matcapFixedCheck;
+    QDoubleSpinBox *matcapDraftSpin;
+    QPushButton *matcapDirButton;
+    QLabel *matcapCurvatureLabel;
+    QComboBox *matcapCurvatureCombo;
+    QDoubleSpinBox *matcapRangeSpin;
     QCheckBox *cavityCheck;
     QLabel *cavityRadiusLabel;
     QSlider *cavityRadiusSlider;

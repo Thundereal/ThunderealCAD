@@ -1152,6 +1152,7 @@ void BGFXView::init(bool keepShared)
     ensureUniform(s_texEnv, "s_texEnv", bgfx::UniformType::Sampler);
     ensureUniform(u_pbrParams, "u_pbrParams", bgfx::UniformType::Vec4);
     ensureUniform(u_matcapParams, "u_matcapParams", bgfx::UniformType::Vec4);
+    ensureUniform(u_matcapDir, "u_matcapDir", bgfx::UniformType::Vec4);
     ensureUniform(u_envSH, "u_envSH", bgfx::UniformType::Vec4, kEnvSH);
     // Bump mapping of the textured mesh programs (unit 2; the 1x1
     // white cap texture stands in when a draw has no bump map).

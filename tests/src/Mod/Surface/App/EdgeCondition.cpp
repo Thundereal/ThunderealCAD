@@ -342,3 +342,40 @@ TEST(EdgeCondition, reach)
     EXPECT_LT(moved, 1e-9) << "beyond the reach";
     EXPECT_GT(near, 1e-3) << "within it";
 }
+
+// A boundary's marker: its middle, the way into the surface square to it and
+// in its tangent plane, and its length
+TEST(EdgeCondition, boundaryMarker)
+{
+    Handle(Geom_BSplineSurface) s = field(sloped);
+    double u0, u1, v0, v1;
+    s->Bounds(u0, u1, v0, v1);
+    // along y = 0 the surface is level at z = 10, from x = 0 to 20
+    BoundaryMarker m = boundaryMarker(s, Boundary::VMin);
+    EXPECT_LT(m.middle.Distance(gp_Pnt(10, 0, 10)), 1e-9);
+    EXPECT_NEAR(m.length, 20, 1e-6);
+    EXPECT_GT(m.inward.Y(), 0.9);
+    EXPECT_LT(std::abs(m.inward.X()), 1e-9);
+    for (Boundary b : {Boundary::UMin, Boundary::UMax, Boundary::VMin, Boundary::VMax}) {
+        BoundaryMarker k = boundaryMarker(s, b);
+        GeomAPI_ProjectPointOnSurf pr(k.middle, s);
+        double u, v;
+        pr.LowerDistanceParameters(u, v);
+        gp_Pnt p;
+        gp_Vec du, dv;
+        s->D1(u, v, p, du, dv);
+        bool alongU = b == Boundary::VMin || b == Boundary::VMax;
+        gp_Vec along = alongU ? du : dv;
+        EXPECT_LT(std::abs(gp_Vec(k.inward).Dot(along.Normalized())), 1e-9);
+        EXPECT_LT(std::abs(gp_Vec(k.inward).Dot(du.Crossed(dv).Normalized())), 1e-9);
+        // a step along it lands inside the surface, near it
+        GeomAPI_ProjectPointOnSurf in(k.middle.Translated(gp_Vec(k.inward) * 0.5), s);
+        in.LowerDistanceParameters(u, v);
+        EXPECT_LT(in.LowerDistance(), 0.05);
+        double inside = b == Boundary::UMin ? u - u0
+            : b == Boundary::UMax           ? u1 - u
+            : b == Boundary::VMin           ? v - v0
+                                            : v1 - v;
+        EXPECT_GT(inside, 1e-3) << int(b);
+    }
+}

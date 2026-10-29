@@ -318,3 +318,74 @@ Where it rubs against 17.5, to settle when built:
 - **Size.** A view entity is small, but it is rewritten often; it goes
   through the reverse-delta policy of `docs/TransactionLogJournal.md` 23.2 like
   any other entity, and a camera settle point is not a commit.
+
+## 11. The cross-document undo, to review with the log and per-view edit (2026-10-29)
+
+**The mechanism.** `Document::_openTransaction` (`src/App/Document.cpp`):
+a transaction opened in a document that is not the active one opens a
+twin in the active document, under the same id and named `-> <name>`.
+It is by design (user, 2026-10-29): it is what lets the user edit an
+externally linked document in place and undo it from the document they
+are working in. An implicit transaction is not mirrored (77f7b6428b,
+`docs/TransactionLogJournal.md` 24.13).
+
+**The case that shows it rubbing.** `tests/gui/serve-log-acts-browser.py`
+serves a branch of a document in a document of its own
+(`Gui.serveBranch`) and checks that nothing done there moves the first
+document. The host's two changes on the branch's document each leave a
+`-> ` twin in the first document's undo list, because the first is the
+active document; the check "nothing the page did moved the document the
+branch was served from" fails on the first document's `UndoCount` (4 at
+`listed`, 6 at `restored`; its box unchanged). The journal last records
+the test whole on 2026-10-15 (44 checks); when the active document
+started being the first one in it is not bisected. Without a browser,
+run through `scripts/gui-test.sh <script> <outdir>`:
+
+    import os, tempfile
+    import FreeCAD, FreeCADGui
+    from PySide import QtCore
+    from wsclient import free_port          # tests/gui on sys.path
+
+    def run():
+        p = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        p.SetInt("TransactionLog", 2)
+        doc = FreeCAD.newDocument("BranchUndo", hidden=True)
+        doc.UndoMode = 1
+        doc.openTransaction("base")
+        box = doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        doc.saveAs(os.path.join(tempfile.mkdtemp(), "log.FCStd"))
+        for name, value in (("taller", 16), ("wider", 14)):
+            doc.openTransaction(name)
+            box.Height = value
+            doc.recompute()
+            doc.commitTransaction()
+        FreeCADGui.serveDocument(doc, free_port())
+        served = FreeCADGui.serveBranch(doc, "try")
+        served.openTransaction("on try")
+        served.getObject("Box").Height = 40
+        served.recompute()
+        served.commitTransaction()
+        print(doc.UndoNames)    # ['-> on try', 'wider', 'taller', 'base']
+
+    QtCore.QTimer.singleShot(1500, run)
+
+**What to review, in view of the log and of edits per view.**
+
+- The active document is a desktop notion. A served branch's document,
+  a client's session, a view of its own (sec 6) each edit with no claim
+  on the desktop's active document, and the mirror puts their steps in
+  its undo list all the same -- an undo there then undoes a step the
+  desktop user never took.
+- With the log, a document's undo is its branch's rows. A `-> ` twin is
+  a step in one document's list that is a row of another document's log
+  (another branch, possibly another file); what an undo of it means for
+  the first document's log -- a row, a cursor move, nothing -- is not
+  said anywhere.
+- With edits per view (sec 6), the in-place edit of a linked document is
+  a view's edit, and the undo that should take it back is that view's
+  (or that edit session's), not the active document's.
+- So what the mirror is FOR -- one undo for an edit that spans documents
+  -- may be better carried by the edit session (or the view) that spans
+  them than by whichever document is active.

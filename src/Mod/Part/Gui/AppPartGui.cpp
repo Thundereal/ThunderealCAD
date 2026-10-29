@@ -193,6 +193,8 @@ PyMOD_INIT_FUNC(PartGui)
     PartGui::ViewProviderGridExtensionPython        ::init();
     PartGui::ViewProviderSplineExtension            ::init();
     PartGui::ViewProviderSplineExtensionPython      ::init();
+    PartGui::ViewProviderCurvatureCombExtension     ::init();
+    PartGui::ViewProviderCurvatureCombExtensionPython::init();
     PartGui::ViewProviderPartExt                    ::init();
     PartGui::ViewProviderLine                       ::init();
     PartGui::ViewProviderPlane                      ::init();

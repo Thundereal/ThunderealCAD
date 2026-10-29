@@ -163,6 +163,27 @@ class TestSurfaceFeatures(unittest.TestCase):
         self.recompute(s)
         self.assertEqual(edgeOn(s.Shape, s3), h.Ref[1][0])
 
+    def testSectionsTheOtherWayRound(self):
+        # a section given the other way round from the one before is turned:
+        # lofted as given, the face between two lines drawn opposite ways
+        # was twisted into a bow tie of half the area
+        a = self.doc.addObject("Part::Line", "A")
+        a.X1, a.Y1, a.Z1, a.X2, a.Y2, a.Z2 = 0, 0, 0, 10, 0, 0
+        b = self.doc.addObject("Part::Line", "B")
+        b.X1, b.Y1, b.Z1, b.X2, b.Y2, b.Z2 = 10, 0, 5, 0, 0, 5
+        c = spline(self.doc, "c", (0, 0, 10), (5, 0, 11), (10, 0, 10))
+        s = self.doc.addObject("Surface::Sections", "Sec")
+        s.NSections = [(a, "Edge1"), (b, "Edge1"), (c, "Edge1")]
+        self.recompute(s)
+        face = s.Shape.Faces[0]
+        # flat in y = 0, from x = 0 to 10, as high as the sections
+        flat = Part.Face(Part.makePolygon([V(0, 0, 0), V(10, 0, 0), V(10, 0, 10), V(0, 0, 10), V(0, 0, 0)]))
+        self.assertGreater(face.Area, 0.95 * flat.Area)
+        for o in (a, b, c):
+            self.assertLess(face.distToShape(o.Shape)[0], 1e-6, o.Name)
+        bb = face.BoundBox
+        self.assertLess(bb.YLength, 1e-6)
+
     # -- Extend ---------------------------------------------------------------
 
     def testExtendNames(self):
@@ -219,6 +240,38 @@ class TestSurfaceFeatures(unittest.TestCase):
         self.assertEqual(sew.FreeEdges, 6)
         self.assertGreater(sew.MaxGap.Value, 0.004)
         self.assertLess(sew.MaxGap.Value, 0.1)
+
+    def testSewingSurfacesOnOneCurve(self):
+        # a network and a side lofted down from its first profile: built on
+        # one curve, they meet within the network's fit, not to 1e-7; the
+        # default tolerance sews them
+        import math
+
+        def p(u, v):
+            return V(80 * u, 50 * v, 22 + 10 * math.sin(math.pi * u) * (1 - 0.6 * (2 * v - 1) ** 2))
+
+        def curve(name, alongU, fixed):
+            c = Part.BSplineCurve()
+            c.interpolate([p(t / 12, fixed) if alongU else p(fixed, t / 12) for t in range(13)])
+            o = self.doc.addObject("Part::Feature", name)
+            o.Shape = c.toShape()
+            return o
+
+        fr = (0, 1 / 3, 2 / 3, 1)
+        net = self.doc.addObject("Surface::Network", "Top")
+        net.Profiles = [(curve("p%d" % i, True, f), "Edge1") for i, f in enumerate(fr)]
+        net.Guides = [(curve("g%d" % i, False, f), "Edge1") for i, f in enumerate(fr)]
+        line = self.doc.addObject("Part::Line", "Floor")
+        line.X1, line.Y1, line.Z1, line.X2, line.Y2, line.Z2 = 0, 0, 0, 80, 0, 0
+        side = self.doc.addObject("Surface::Sections", "Side")
+        side.NSections = [(net.Profiles[0][0], "Edge1"), (line, "Edge1")]
+        self.recompute(net, side)
+        self.assertGreater(net.MaxFitDeviation, 1e-6)
+        sew = self.doc.addObject("Surface::Sewing", "Sew")
+        sew.ShapeList = [(net, ""), (side, "")]
+        self.recompute(sew)
+        self.assertEqual(len(sew.Shape.Shells), 1)
+        self.assertEqual(sew.FreeEdges, 6)
 
     # -- Cut ------------------------------------------------------------------
 

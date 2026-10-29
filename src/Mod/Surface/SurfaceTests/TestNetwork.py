@@ -218,6 +218,56 @@ class TestNetwork(unittest.TestCase):
         for e in sk.Shape.Edges:
             self.assertLess(face.distToShape(e)[0], 2 * n.FitTolerance)
 
+    def sketchOf(self, curves, name="Sketch3D"):
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", name)
+        for c in curves:
+            sk.addGeometry(c)
+        self.doc.recompute()
+        return sk
+
+    def testAWholeSketchIsSorted(self):
+        # docs/Surface.md sec 6: a network drawn in one 3D sketch, in any
+        # order, given whole; no guides, so its edges are sorted into two
+        # families
+        p, g = waveCurves()
+        explicit = self.network(self.features(p, "p"), self.features(g, "g"))
+        sk = self.sketchOf([g[2], p[3], p[0], g[0], p[4], g[3], p[1], g[1], p[2]])
+        n = self.doc.addObject("Surface::Network", "Whole")
+        n.Profiles = [(sk, "")]
+        self.recompute(explicit, n)
+        self.assertAlmostEqual(n.Shape.Area, explicit.Shape.Area, places=3)
+        face = n.Shape.Faces[0]
+        for e in sk.Shape.Edges:
+            self.assertLess(face.distToShape(e)[0], 2 * n.FitTolerance)
+        self.assertEqual(len(n.Shape.Edges), 4)
+
+        # a curve that is not part of it is named by its edge
+        sk.addGeometry(Part.LineSegment(V(0, 0, 50), V(10, 0, 50)))
+        self.doc.recompute()
+        self.assertFalse(n.isValid())
+        stray = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(sk.Shape.Edges)
+            if abs(e.Vertexes[0].Point.z - 50) < 1e-6
+        ]
+        self.assertEqual(len(stray), 1)
+        self.assertIn("Sketch3D.%s" % stray[0], n.getStatusString())
+        self.assertIn("meets none", n.getStatusString())
+
+    def testWholeObjectsAsFamilies(self):
+        # an object given whole is its edges; with guides given, nothing is
+        # sorted
+        p, g = waveCurves()
+        explicit = self.network(self.features(p, "p"), self.features(g, "g"))
+        profiles = self.doc.addObject("Part::Feature", "Profiles")
+        profiles.Shape = Part.Compound([c.toShape() for c in p])
+        guides = self.sketchOf(g, "Guides")
+        n = self.doc.addObject("Surface::Network", "Whole")
+        n.Profiles = [(profiles, "")]
+        n.Guides = [(guides, "")]
+        self.recompute(explicit, n)
+        self.assertAlmostEqual(n.Shape.Area, explicit.Shape.Area, places=4)
+
     def testGeomFunction(self):
         import Surface
 
@@ -234,6 +284,12 @@ class TestNetwork(unittest.TestCase):
         self.assertEqual((s2.NbUPoles, s2.NbVPoles), (s.NbUPoles, s.NbVPoles))
         with self.assertRaises(ValueError):
             Surface.Geom.network(p[:1], g)
+
+        profiles, guides = Surface.Geom.families([g[1], p[0], g[0], p[2], p[1], g[2], g[3]] + p[3:])
+        self.assertEqual(profiles, [0, 2, 5, 6])
+        self.assertEqual(guides, [1, 3, 4, 7, 8])
+        with self.assertRaises(ValueError):
+            Surface.Geom.families(p)
 
 
 def bentWave(u, v):

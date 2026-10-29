@@ -435,6 +435,52 @@ sphere doubles from 8 to 16, pixel pairs to either side of a tangent
 seam carry the same tone, and about half of those across a creased seam
 do not.
 
+**Fixed to the model** (`Render_MatcapFixed`, docs/Surface.md sec 7). The
+camera's zebra moves its stripes as the view turns, which is what makes a
+seam easy to sweep, and what makes one stripe hard to follow across an
+edge from two sides. Fixed, the room is looked at along the view's
+`Render_MatcapDirection` instead -- the world normal is put in the frame
+whose third axis is that direction, and read with the same formula -- so a
+stripe stays where it is on the surface. The shading options' "From the
+view" button sets the direction to the view as it is now.
+
+**Draft** is the sixth preset: a face coloured by how it releases from a
+mold pulled along `Render_MatcapDirection`. Its draft is the angle between
+it and the pull, asin(n . pull) of the world normal: green past
+`Render_MatcapDraftAngle` (1 deg by default), red an undercut past its
+negative, yellow between -- too steep to release. The boundaries blend
+over a pixel by the angle's own screen derivative, as the zebra's edges
+do, and a quarter of the facing ratio is kept so that faces of one colour
+still read as shapes. Like every preset it takes the normal flipped toward
+the viewer on a two-sided draw, so it reads a solid's faces, not an open
+shell's back.
+
+**Curvature** is the seventh: blue negative, green flat, red positive,
+saturating at `Render_MatcapCurvatureRange` (1/mm), and Gaussian, mean,
+least or greatest by `Render_MatcapCurvature`. It needs no curvature from
+the model: the shader finds the surface's shape operator from how the
+normal turns as the position moves across the screen -- the screen
+derivatives of the view-space normal and position, expressed in the plane
+the position's two derivatives span, made symmetric -- and takes its
+trace, determinant or eigenvalues. That is exact for each triangle's
+interpolation of the normals, which the tessellation takes from the
+surface at its nodes, so it is as true as the view mesh: faceted where the
+mesh is coarse, true where it is fine -- lower `Deviation` before reading
+values. A positive value bends away from the normal, a sphere seen from
+outside. (docs/Surface.md sec 7 asked for curvature per vertex from the
+surface, carried as an attribute through the mesh and the stream; this
+takes the shader's way instead, and that remains open if exact values on a
+coarse mesh are wanted.) `tests/gui/curvature-map.py`: a sphere's mean
+curvature read between 0.625/R and 1.25/R, a cylinder's Gaussian curvature
+green, a saddle's blue.
+
+Both cross the wire with the matcap (snapshot version 89, the curvature's
+kind and range 90), and
+`tests/gui/matcap-analysis.py` holds them: a frustum's top and inward
+leaning side green, its outward leaning side red, an upright box yellow;
+points of a sphere keep their tone between a front and a right view when
+fixed (48 of 48), and far fewer do from the camera (30 of 47).
+
 Fill-bound effect passes (AO, volumetrics, bloom, reflection…) can run
 below main resolution via the `Render_EffectResolution` view property
 (`BGFXRenderer::setEffectResolution`); the scene and line passes always

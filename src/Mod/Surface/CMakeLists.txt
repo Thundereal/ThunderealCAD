@@ -12,9 +12,18 @@ set(Surface_Scripts
 set(Surface_TestScripts
     SurfaceTests/__init__.py
     SurfaceTests/TestBlendCurve.py
+    SurfaceTests/TestBlendSurface.py
+    SurfaceTests/TestBody.py
+    SurfaceTests/TestContinuity.py
+    SurfaceTests/TestCurves.py
     SurfaceTests/TestEdgeConditions.py
+    SurfaceTests/TestExtend.py
     SurfaceTests/TestNetwork.py
+    SurfaceTests/TestPipeShell.py
+    SurfaceTests/TestSectionsGuides.py
     SurfaceTests/TestSurfaceFeatures.py
+    SurfaceTests/TestTrim.py
+    SurfaceTests/TestTwoRailSweep.py
 )
 
 if(BUILD_GUI)

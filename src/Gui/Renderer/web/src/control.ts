@@ -1072,6 +1072,29 @@ const SKETCH3D_COMMANDS = new Set([
   'Sketcher_Constrain3DSmooth',
 ]);
 
+/// Surface's commands that make an object and open its panel, which says
+/// what it has to say in the panel, never in a dialog, and those that open
+/// nothing.
+const SURFACE_COMMANDS = new Set([
+  'Surface_Network',
+  'Surface_Trim',
+  'Surface_Split',
+  'Surface_Untrim',
+  'Surface_ExtendEdges',
+  'Surface_BlendSurface',
+  'Surface_TwoRailSweep',
+  'Surface_PipeShell',
+  'Surface_EdgeContinuity',
+  'Surface_Isocurve',
+  'Surface_CurveOnSurface',
+  'Surface_IntersectionCurve',
+  'Surface_JoinCurves',
+  'Surface_ExtendCurve',
+  'Surface_Sections',
+  'Surface_Filling',
+  'Surface_GeomFillSurface',
+]);
+
 /// The `command` op's allowlist as the server has it (SceneControl.cpp
 /// isBrowserSafeCommand), for drawing a button disabled rather than
 /// letting it be refused. The server's copy is the one that decides.
@@ -1083,7 +1106,8 @@ export function isBrowserSafeCommand(name: string): boolean {
     || name === 'Sketcher_IntersectionDefining'
     || name === 'Sketcher_CarbonCopy'
     || DIALOG_FREE_CONSTRAINTS.has(name)
-    || SKETCH3D_COMMANDS.has(name);
+    || SKETCH3D_COMMANDS.has(name)
+    || SURFACE_COMMANDS.has(name);
 }
 
 /// Bytes as base64, in chunks: `String.fromCharCode(...bytes)` over a whole

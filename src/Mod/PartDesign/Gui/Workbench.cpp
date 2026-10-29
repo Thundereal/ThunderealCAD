@@ -605,6 +605,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
           << "PartDesign_Boolean"
           << "PartDesign_Split"
           << "PartDesign_Extrusion"
+          << "PartDesign_Thicken"
           << "Separator"
           << "PartDesign_MoveTip"
           << "PartDesign_Migrate"
@@ -705,6 +706,7 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
           << "PartDesign_Boolean"
           << "PartDesign_Split"
           << "PartDesign_Extrusion"
+          << "PartDesign_Thicken"
           << "Separator"
           << "Part_CheckGeometry";
 

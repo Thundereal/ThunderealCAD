@@ -19,10 +19,14 @@
 #include <Geom_TrimmedCurve.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
 
+#include <GC_MakeArcOfCircle.hxx>
+#include <GC_MakeSegment.hxx>
+
 #include <Mod/Surface/App/Geom/NetworkSurface.h>
 
 using Surface::Geom::NetworkOptions;
 using Surface::Geom::networkSurface;
+using Surface::Geom::sortFamilies;
 using Curve = Handle(Geom_Curve);
 using Curves = std::vector<Curve>;
 using Fn = std::function<gp_Pnt(double, double)>;
@@ -310,4 +314,101 @@ TEST(NetworkSurface, tooFewCurves)
     auto r = networkSurface(p, g);
     EXPECT_FALSE(r.isDone());
     EXPECT_FALSE(r.error.empty());
+}
+
+// A whole sketch's curves, in any order and either way round, fall into the
+// two families; the family of the first curve is the profiles
+TEST(SortFamilies, aShuffledNetworkIsSorted)
+{
+    Curves p, g;
+    unevenWave(p, g);
+    Curves all = {g[2], p[3], reversed(p[0]), g[0], p[4], reversed(g[3]), p[1], g[1], p[2]};
+    auto r = sortFamilies(all, 1e-4);
+    ASSERT_TRUE(r.isDone()) << r.error;
+    EXPECT_EQ(r.profiles, (std::vector<int> {0, 3, 5, 7}));
+    EXPECT_EQ(r.guides, (std::vector<int> {1, 2, 4, 6, 8}));
+
+    Curves profiles, guides;
+    for (int i : r.profiles) {
+        profiles.push_back(all[i]);
+    }
+    for (int i : r.guides) {
+        guides.push_back(all[i]);
+    }
+    EXPECT_TRUE(networkSurface(profiles, guides).isDone());
+}
+
+// A curve that meets nothing is named, by its place in the input
+TEST(SortFamilies, aStrayCurveIsNamed)
+{
+    Curves p, g;
+    unevenWave(p, g);
+    Curves all = p;
+    all.insert(all.end(), g.begin(), g.end());
+    all.push_back(interp({gp_Pnt(0, 0, 50), gp_Pnt(5, 1, 50), gp_Pnt(10, 0, 50)}));
+    auto r = sortFamilies(all, 1e-4);
+    EXPECT_FALSE(r.isDone());
+    EXPECT_NE(r.error.find("curve 10"), std::string::npos) << r.error;
+    EXPECT_NE(r.error.find("meets none"), std::string::npos) << r.error;
+}
+
+// A diagonal meets a profile and a guide that meet each other: it belongs to
+// neither family
+TEST(SortFamilies, aCurveMeetingBothFamilies)
+{
+    Curves p, g;
+    unevenWave(p, g);
+    Curves all = p;
+    all.insert(all.end(), g.begin(), g.end());
+    std::vector<gp_Pnt> pts;
+    for (int i = 0; i <= 6; ++i) {
+        pts.push_back(wave(i / 6.0, i / 6.0));
+    }
+    all.push_back(interp(pts));
+    auto r = sortFamilies(all, 1e-4);
+    EXPECT_FALSE(r.isDone());
+    EXPECT_NE(r.error.find("curve 10"), std::string::npos) << r.error;
+}
+
+// A profile short of the last guide: the families are clear, the network is not
+TEST(SortFamilies, aProfileShortOfAGuide)
+{
+    Curves p, g;
+    unevenWave(p, g);
+    p[2] = through(wave, true, 0.55, {0.0, 0.35, 0.7}, 1);
+    Curves all = p;
+    all.insert(all.end(), g.begin(), g.end());
+    auto r = sortFamilies(all, 1e-4);
+    EXPECT_FALSE(r.isDone());
+    EXPECT_NE(r.error.find("curve 3"), std::string::npos) << r.error;
+    EXPECT_NE(r.error.find("curve 9"), std::string::npos) << r.error;
+    EXPECT_NE(r.error.find("do not meet"), std::string::npos) << r.error;
+}
+
+TEST(SortFamilies, tooFewCurves)
+{
+    Curves p, g;
+    unevenWave(p, g);
+    auto r = sortFamilies({p[0], g[0], g[1]}, 1e-4);
+    EXPECT_FALSE(r.isDone());
+    EXPECT_NE(r.error.find("two"), std::string::npos) << r.error;
+}
+
+// Arcs of circles are rational: their own parameter does not run at a
+// steady speed, and a fit by it does not converge. By arc length it does:
+// the surface is within the fit tolerance of them, and says so
+TEST(NetworkSurface, arcsAreFittedWithinTolerance)
+{
+    Curves p, g;
+    for (double x : {0.0, 10.0, 20.0}) {
+        p.push_back(GC_MakeArcOfCircle(gp_Pnt(x, 0, 0), gp_Pnt(x, 5, 5), gp_Pnt(x, 10, 0)).Value());
+    }
+    g.push_back(GC_MakeSegment(gp_Pnt(0, 0, 0), gp_Pnt(20, 0, 0)).Value());
+    g.push_back(GC_MakeSegment(gp_Pnt(0, 10, 0), gp_Pnt(20, 10, 0)).Value());
+    NetworkOptions opt;
+    auto r = networkSurface(p, g, opt);
+    ASSERT_TRUE(r.isDone()) << r.error;
+    EXPECT_LE(r.maxFitDeviation, opt.fitTolerance);
+    EXPECT_LT(deviation(r.surface, p), opt.fitTolerance);
+    EXPECT_LT(deviation(r.surface, g), opt.fitTolerance);
 }

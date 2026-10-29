@@ -1038,6 +1038,8 @@ env's copy into `~/.cache/puppeteer/lib` and pass that directory as
 same four variables (the latency one also `SANDBOX_LATENCY_RTTS` and
 `SANDBOX_LATENCY_MODES`, and about seven minutes for the prefetch on and off).
 
+`serve-matcap-browser.py` (docs/Surface.md sec 7, U4) takes the same variables and checks that the surface analysis matcaps -- curvature, draft and zebra, set from the page on the served view as its property editor sets them -- are drawn by the browser's viewer. It first waits up to `MATCAP_SETTLE` ms (60000) for the whole scene, the sphere's mesh after its bounding box, and says so apart when it never comes. It did not come in 3 of 8 runs on 2026-10-28 and 5 of 6 on 2026-10-29: both objects stayed the browser's bounding-box stand-ins for good. The serve was not at fault -- it published all six draws -- but the viewer was: the arrival that landed the root's last manifests released a delta held behind them before the root's groups were applied, and the staged delta dropped them (fixed in `wasm/main.cpp`, where a delta is staged; `?stream&decisions` on the page URL is what showed it).
+
 `build/wasm` on this box (configured 2026-09-15; the CMakeLists' own
 instructions name `~/works/sw/emsdk`, which is not here): the emsdk of the
 guest wheel, the cmake and ninja of the conda env, node from emsdk, and the

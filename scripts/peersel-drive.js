@@ -185,7 +185,9 @@ async function capture(page, name) {
         }
       });
       page.on('pageerror', e => console.log(tag + ' ERROR: ' + e.message));
-      await page.goto(url, {waitUntil: 'domcontentloaded'});
+      // each page is its own somebody: the host invited both names
+      await page.goto(url + '&client=peersel-' + tag,
+                      {waitUntil: 'domcontentloaded'});
       await page.evaluate(HELPERS);
       pages.push(page);
     }

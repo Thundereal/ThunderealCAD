@@ -40,6 +40,8 @@
 #include <optional>
 
 #include <App/Document.h>
+#include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Gui/ActionFunction.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
@@ -735,10 +737,25 @@ void TaskView::slotActivateView(const Gui::MDIView *view)
 
 void TaskView::closeLost(TaskDialog *dlg)
 {
-    if (dlg->isAutoCloseOnClosedView())
-        dlg->autoClosedOnClosedView();
-    else
-        reject(dlg);
+    // Its answer may throw, and this is reached from the destructor of the
+    // view that owned it -- a served client's mirror, when the client drops
+    // -- where an exception is std::terminate, for every client the process
+    // serves. Said, and the dialog closed all the same.
+    try {
+        if (dlg->isAutoCloseOnClosedView())
+            dlg->autoClosedOnClosedView();
+        else
+            reject(dlg);
+    }
+    catch (Base::Exception &e) {
+        e.reportException();
+    }
+    catch (std::exception &e) {
+        Base::Console().Error("Closing a task dialog its view left: %s\n", e.what());
+    }
+    catch (...) {
+        Base::Console().Error("Closing a task dialog its view left: unknown exception\n");
+    }
     // Whatever it answered: there is nobody left to answer it
     if (infoOf(dlg))
         removeDialog(dlg);
@@ -1665,7 +1682,15 @@ void TaskView::accept(TaskDialog *dlg)
     // Make sure that if 'accept' calls 'closeDialog' the deletion is postponed until
     // the dialog leaves the 'accept' method
     dlg->setProperty("taskview_accept_or_reject", true);
-    bool success = dlg->accept();
+    bool success = false;
+    try {
+        success = dlg->accept();
+    }
+    catch (...) {
+        // left set, a removal after the throw would only be noted
+        dlg->setProperty("taskview_accept_or_reject", QVariant());
+        throw;
+    }
     dlg->setProperty("taskview_accept_or_reject", QVariant());
     if (success || dlg->property("taskview_remove_dialog").isValid())
         removeDialog(dlg);
@@ -1687,7 +1712,15 @@ void TaskView::reject(TaskDialog *dlg)
     // Make sure that if 'reject' calls 'closeDialog' the deletion is postponed until
     // the dialog leaves the 'reject' method
     dlg->setProperty("taskview_accept_or_reject", true);
-    bool success = dlg->reject();
+    bool success = false;
+    try {
+        success = dlg->reject();
+    }
+    catch (...) {
+        // left set, a removal after the throw would only be noted
+        dlg->setProperty("taskview_accept_or_reject", QVariant());
+        throw;
+    }
     dlg->setProperty("taskview_accept_or_reject", QVariant());
     if (success || dlg->property("taskview_remove_dialog").isValid())
         removeDialog(dlg);

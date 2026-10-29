@@ -44,12 +44,24 @@ SET(Blending_SRCS
 )
 
 SET(Geom_SRCS
+  Geom/Blend.cpp
+  Geom/Blend.h
+  Geom/Continuity.cpp
+  Geom/Continuity.h
+  Geom/Curves.cpp
+  Geom/Curves.h
   Geom/EdgeCondition.cpp
   Geom/EdgeCondition.h
+  Geom/Extend.cpp
+  Geom/Extend.h
+  Geom/Trim.cpp
+  Geom/Trim.h
   Geom/GeomPy.cpp
   Geom/GeomPy.h
   Geom/NetworkSurface.cpp
   Geom/NetworkSurface.h
+  Geom/Sweep.cpp
+  Geom/Sweep.h
 )
 SOURCE_GROUP("Geom" FILES ${Geom_SRCS})
 
@@ -72,10 +84,20 @@ SET(Surface_SRCS
   FeatureFilling.h
   FeatureNetwork.cpp
   FeatureNetwork.h
+  FeaturePipeShell.cpp
+  FeaturePipeShell.h
   FeatureSections.cpp
   FeatureSections.h
   FeatureSewing.cpp
   FeatureSewing.h
+  FeatureTrim.cpp
+  FeatureTrim.h
+  FeatureTwoRailSweep.cpp
+  FeatureTwoRailSweep.h
+  FeatureBlendSurface.cpp
+  FeatureBlendSurface.h
+  FeatureCurves.cpp
+  FeatureCurves.h
   FeatureCut.cpp
   FeatureCut.h
 )

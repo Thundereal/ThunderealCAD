@@ -659,8 +659,48 @@ Phase D1 is under way (2026-10-28):
     keeping nothing; a run here cancelling the one going; nothing to move,
     six frames. TestGuiCommands: Generate's progress row, the player after
     it, and Cancel on a long dynamic run.
-- D1 is built. D3 is next to be measured (above), before it is built or
-  D2 is taken up.
+- D1 is built.
+- **D3 measured, 2026-10-29: skipped; D2 follows D1.** What running out of
+  process would buy, against what is here now:
+  - The runs' lengths (headless, wall clock of `generateSimulation()`,
+    best of two; the tests' mechanisms and chains of 20 mm links hinged end
+    to end, falling from horizontal):
+
+    | run | frames | s |
+    |---|---|---|
+    | pendulum, dynamic, 1 s | 101 | 0.03 |
+    | pendulum, dynamic, 10 s | 1001 | 0.21 |
+    | pendulum, static, 1 s by 0.1 | 11 | 0.03 |
+    | slider-crank, kinematic (OndselSolver), 10 s | 1001 | 1.9 |
+    | slider-crank, kinematic with reactions (Chrono), 10 s | 1001 | 0.77 |
+    | slider-crank, dynamic, 10 s | 1001 | 0.53 |
+    | chain of 10 links, dynamic, 1 s | 101 | 0.33 |
+    | chain of 30 links, dynamic, 1 s | 101 | 1.0 |
+    | chain of 100 links, dynamic, 1 s | 101 | 26.7 |
+    | chain of 30 links, kinematic (OndselSolver), 1 s | 101 | 0.75 |
+
+    Seconds for the mechanisms a study is made of; the long one is a
+    solver matter, not a process one: a quarter of the 100-link chain's
+    linear solves go to `LUThenQR`'s QR because Eigen's SparseLU fails to
+    factor them (a zero pivot) once the chain moves fast -- none in its
+    first 0.3 s. Refining the LU solution does not help (it is not
+    reached); a pivoting threshold or another ordering is the lead. Open.
+  - Crashes and hangs: one crash in a run (the empty system, found and
+    fixed above, `34ebcfed94`); OndselSolver's hang on a singular matrix
+    and the solve/status recursion were fixed before (SI sec 6.19,
+    `2253269d53`); its formula parser's crashes went with the neutral
+    evaluator (SI sec 4.6). None open.
+  - What the worker thread gives already: the GUI stays live through a
+    run, with its progress and a Cancel that stops a Chrono run (dynamic,
+    static, kinematic with reactions) at its next frame. Not covered: an
+    OndselSolver kinematic run cannot be stopped midway (2 s for a
+    thousand frames of the slider-crank), and a crash in a backend still
+    takes the session down.
+  - So D3 would buy crash isolation for a class with nothing open, and the
+    stop of an OndselSolver run that is seconds long, for its 3-4 weeks.
+    Not now. Taken up again if crashes in runs turn up, or when the
+    browser tier wants a solver on the server (its playback of stored
+    results needs none: the frames are data).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

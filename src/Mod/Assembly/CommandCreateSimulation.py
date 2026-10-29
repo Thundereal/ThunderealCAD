@@ -436,6 +436,9 @@ class Simulation:
         if prop == "Group" and hasattr(self, "motionsChangedCallback"):
             if self.motionsChangedCallback is not None:
                 self.motionsChangedCallback()
+        # Not upstream: the open panel says when the run it shows is stale
+        if prop == "ResultsStale" and getattr(self, "resultsStaleCallback", None):
+            self.resultsStaleCallback()
 
     def setMotionsChangedCallback(self, callback):
         self.motionsChangedCallback = callback
@@ -483,7 +486,9 @@ class ViewProviderSimulation:
 
     def updateData(self, feaPy, prop):
         """If a property of the handled feature has changed we have the chance to handle this here"""
-        pass
+        # Not upstream: the stale flag (docs/AssemblyDynamics.md sec 8.4)
+        if prop == "ResultsStale":
+            feaPy.ViewObject.signalChangeIcon()
 
     def getDisplayModes(self, vpDoc):
         """Return a list of display modes."""
@@ -498,6 +503,13 @@ class ViewProviderSimulation:
         pass
 
     def getIcon(self):
+        # Not upstream: a stale run's study carries the tree's recompute mark
+        if getattr(getattr(self, "app_obj", None), "ResultsStale", False):
+            pixmap = QtGui.QIcon(":/icons/Assembly_CreateSimulation.svg").pixmap(64, 64)
+            painter = QtGui.QPainter(pixmap)
+            painter.drawPixmap(32, 0, QtGui.QIcon(":/icons/TreeRecompute.svg").pixmap(32, 32))
+            painter.end()
+            return QtGui.QIcon(pixmap)
         return ":/icons/Assembly_CreateSimulation.svg"
 
     def dumps(self):
@@ -1458,6 +1470,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.setAnalysisInitialValues()
 
         self.simFeaturePy.Proxy.setMotionsChangedCallback(self.onMotionsChanged)
+        self.simFeaturePy.Proxy.resultsStaleCallback = self.showStale
+        self.showStale()
 
         self.currentFrm = 1
         self.startFrm = 1
@@ -1551,6 +1565,18 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.runMessage.setStyleSheet("color: #c80000")
         self.runMessage.hide()
         self.form.layout().addWidget(self.runMessage)
+        # The stale flag (docs/AssemblyDynamics.md sec 8.4)
+        self.staleMessage = QtWidgets.QLabel(
+            translate(
+                "Assembly",
+                "The results are of an earlier version of the assembly or of this study: "
+                "generate them again.",
+            )
+        )
+        self.staleMessage.setWordWrap(True)
+        self.staleMessage.setStyleSheet("color: #c86400")
+        self.staleMessage.hide()
+        self.form.layout().addWidget(self.staleMessage)
         # What a dynamic run reports with its frames (sec 8.4)
         self.resultsBox = QtWidgets.QGroupBox(translate("Assembly", "Results"))
         results = QtWidgets.QVBoxLayout(self.resultsBox)
@@ -1594,6 +1620,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.gravityCheck.toggled.connect(self.onGravityChanged)
         self.reactionsCheck.toggled.connect(self.onReactionsChanged)
         self.restitutionSpin.valueChanged.connect(self.onRestitutionChanged)
+
+    def showStale(self):
+        """Not upstream: whether the run kept for this study is stale"""
+        self.staleMessage.setVisible(getattr(self.simFeaturePy, "ResultsStale", False))
 
     def hasAnalysis(self):
         """Upstream's Python simulation, not converted, has none"""
@@ -1715,6 +1745,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def deactivate(self):
         self.animationTimer.stop()
         self.simFeaturePy.Proxy.setMotionsChangedCallback(None)
+        self.simFeaturePy.Proxy.resultsStaleCallback = None
         if Gui.Control.activeDialog():
             Gui.Control.closeDialog()
 

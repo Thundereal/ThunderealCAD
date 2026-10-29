@@ -21,6 +21,9 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <algorithm>
+#include <cmath>
+
 #include "Model.h"
 
 using namespace Assembly::Solver;
@@ -29,8 +32,14 @@ namespace
 {
 
 // Exact comparisons: Base's operator== on vectors and rotations has a tolerance.
+// sameMechanism()'s tolerance while it compares; 0, bit for bit
+double slack = 0.0;
+
 bool same(const Base::Vector3d& a, const Base::Vector3d& b)
 {
+    if (slack > 0.0) {
+        return (a - b).Length() <= slack * std::max(1.0, a.Length());
+    }
     return a.x == b.x && a.y == b.y && a.z == b.z;
 }
 
@@ -40,6 +49,14 @@ bool same(const Base::Rotation& a, const Base::Rotation& b)
     double b0 {}, b1 {}, b2 {}, b3 {};
     a.getValue(a0, a1, a2, a3);
     b.getValue(b0, b1, b2, b3);
+    if (slack > 0.0) {
+        // q and -q are one rotation
+        const double minus =
+            std::max({std::abs(a0 - b0), std::abs(a1 - b1), std::abs(a2 - b2), std::abs(a3 - b3)});
+        const double plus =
+            std::max({std::abs(a0 + b0), std::abs(a1 + b1), std::abs(a2 + b2), std::abs(a3 + b3)});
+        return std::min(minus, plus) <= slack;
+    }
     return a0 == b0 && a1 == b1 && a2 == b2 && a3 == b3;
 }
 
@@ -115,6 +132,17 @@ bool same(const InitialVelocity& a, const InitialVelocity& b)
 
 bool same(const Inertia& a, const Inertia& b)
 {
+    if (slack > 0.0) {
+        // From the shape where the part stands: its last bits move with it
+        double largest = 0.0;
+        double off = 0.0;
+        for (std::size_t i = 0; i < a.inertia.size(); ++i) {
+            largest = std::max(largest, std::abs(a.inertia[i]));
+            off = std::max(off, std::abs(a.inertia[i] - b.inertia[i]));
+        }
+        return a.body == b.body && std::abs(a.mass - b.mass) <= slack * std::abs(a.mass)
+            && same(a.com, b.com) && off <= slack * largest && a.origin == b.origin;
+    }
     return a.body == b.body && a.mass == b.mass && same(a.com, b.com) && a.inertia == b.inertia
         && a.origin == b.origin;
 }
@@ -134,6 +162,52 @@ bool sameRecords(const std::vector<T>& a, const std::vector<T>& b)
 }
 
 }  // namespace
+
+namespace
+{
+// Everything but the bodies
+bool sameBeyondBodies(const Model& a, const Model& b)
+{
+    if (a.dynamics.has_value() != b.dynamics.has_value()
+        || (a.dynamics
+            && (!same(a.dynamics->gravity, b.dynamics->gravity)
+                || !sameRecords(a.dynamics->inertias, b.dynamics->inertias)
+                || !sameRecords(a.dynamics->forces, b.dynamics->forces)
+                || !sameRecords(a.dynamics->initial, b.dynamics->initial)))) {
+        return false;
+    }
+    return a.version == b.version && a.sources == b.sources && sameRecords(a.frames, b.frames)
+        && sameRecords(a.joints, b.joints) && sameRecords(a.grounds, b.grounds)
+        && sameRecords(a.limits, b.limits) && sameRecords(a.drivers, b.drivers)
+        && sameRecords(a.curves, b.curves);
+}
+}  // namespace
+
+bool Assembly::Solver::sameMechanism(const Model& a, const Model& b, double tolerance)
+{
+    struct Slack
+    {
+        explicit Slack(double tolerance)
+        {
+            slack = tolerance;
+        }
+        ~Slack()
+        {
+            slack = 0.0;
+        }
+    } scope(tolerance);
+    if (a.bodies.size() != b.bodies.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.bodies.size(); ++i) {
+        const Body& p = a.bodies[i];
+        const Body& q = b.bodies[i];
+        if (p.id != q.id || p.source != q.source || p.grounded != q.grounded) {
+            return false;
+        }
+    }
+    return sameBeyondBodies(a, b);
+}
 
 bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
 {

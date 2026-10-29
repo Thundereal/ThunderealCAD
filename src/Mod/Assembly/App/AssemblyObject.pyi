@@ -102,6 +102,21 @@ class AssemblyObject(Part):
         """
         ...
 
+    def isSimulationStale(self, sim, /) -> bool:
+        """
+        Whether the frames the assembly keeps, sim's last run, are of an
+        older mechanism than sim builds now: the assembly, its motions or the
+        study changed since (docs/AssemblyDynamics.md sec 8.4). Where the
+        parts stand does not count. False when the frames kept are not
+        sim's. The study's ResultsStale says the same after each recompute.
+
+        Args:
+            sim: a Simulation.
+
+        Returns: bool
+        """
+        ...
+
     @constmethod
     def getSimulationPlacements(self, obj: Any) -> list:
         """

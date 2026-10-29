@@ -474,6 +474,59 @@ class TestDynamics(unittest.TestCase):
             self.assertLess((props["CenterOfMass"] - rod.Shape.CenterOfMass).Length, 1e-9, frame)
         self.assertGreater((rod.Shape.CenterOfMass - App.Vector(60, 5, 5)).Length, 1)
 
+    def test_stale_flag(self):
+        """The stale flag (docs/AssemblyDynamics.md sec 8.4): a run's study is
+        stale once the study, a joint or a part's shape changes, and fresh
+        again once run; playing it, or moving a part, does not count; the
+        check leaves the last solve's status as it was; a study whose frames
+        are gone is not stale."""
+        rod = self.pendulum()
+        sim, result = self.simulate(0.05, 1e-2)
+        self.assertEqual(result, 0)
+
+        def stale():
+            self.doc.recompute()
+            self.assertEqual(sim.ResultsStale, self.assembly.isSimulationStale(sim))
+            return sim.ResultsStale
+
+        self.assertFalse(stale())
+        self.assembly.updateForFrame(3)
+        self.assertFalse(stale())
+        moved = rod.Placement
+        moved.Base += App.Vector(0, 0, 0.5)
+        rod.Placement = moved
+        self.assertFalse(stale())
+
+        sim.TimeEnd = 0.04
+        self.assertTrue(stale())
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertFalse(stale())
+
+        joint = [o for o in self.joints.Group if o.Name.startswith("Revolute")][0]
+        status = self.assembly.getSolveStatus()
+        joint.Placement2 = plc(0, 5, 4, App.Vector(1, 0, 0), -90)
+        self.assertTrue(stale())
+        self.assertEqual(self.assembly.getSolveStatus(), status)
+        joint.Placement2 = plc(0, 5, 5, App.Vector(1, 0, 0), -90)
+        self.assertFalse(stale())
+
+        # The rod's mass: a dynamic study's, not a kinematic one's
+        rod.Length = 90
+        self.assertTrue(stale())
+        rod.Length = 100
+        self.assertFalse(stale())
+
+        # Another study's run: this one has no frames now
+        sim.TimeEnd = 0.03
+        self.assertTrue(stale())
+        other, result = self.simulate(0.02, 1e-2, AnalysisType="Kinematic")
+        self.assertEqual(result, 0)
+        self.assertFalse(sim.ResultsStale)
+        self.assertFalse(self.assembly.isSimulationStale(sim))
+        rod.Length = 90
+        self.doc.recompute()
+        self.assertFalse(other.ResultsStale)
+
     def test_motor_torque(self):
         """A Speed motion holding the rod still at horizontal applies its
         weight's torque about the hinge, m g d; an Effort motion of that torque

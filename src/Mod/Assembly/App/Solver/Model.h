@@ -424,6 +424,13 @@ private:
 // before a drag (Session::update).
 AssemblyExport bool sameExceptDragWeights(const Model& a, const Model& b);
 
+// Whether two models hold the same mechanism (docs/AssemblyDynamics.md sec
+// 8.4, the stale flag): record for record, positions and directions within
+// 'tolerance' (relative, at least 1 mm or 1) and the rest exactly, apart from
+// the bodies' placements -- where the parts stand, which a run's playback
+// moves, and from which a frame on a part is recomputed in its last bits.
+AssemblyExport bool sameMechanism(const Model& a, const Model& b, double tolerance);
+
 /** The model with its lengths times `length` (docs/AssemblyDynamics.md sec
  * 8.1: Solver::SI::length takes it to SI): positions, frames, the joints'
  * offsets, distances, radii and pitches, the translation limits, the

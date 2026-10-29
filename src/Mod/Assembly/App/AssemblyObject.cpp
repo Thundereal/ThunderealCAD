@@ -743,11 +743,27 @@ std::vector<std::tuple<std::string, Base::Vector3d, double, int, double>> Assemb
 
 int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 {
-    solverModel = makeMbdAssembly();
-    objectPartMap.clear();
+    // The study the frames were of has none now
+    if (auto* last = freecad_cast<Simulation*>(lastSimulation())) {
+        last->ResultsStale.setValue(false);
+    }
     trajectory.reset();
     trajectoryParts.clear();
     trajectorySimulation.reset();
+    trajectoryModel.reset();
+    trajectorySpec.reset();
+
+    if (int built = buildSimulation(sim); built != 0) {
+        return built;
+    }
+    makeMbdModel();
+    return runSimulation(sim);
+}
+
+int AssemblyObject::buildSimulation(App::DocumentObject* sim)
+{
+    solverModel = makeMbdAssembly();
+    objectPartMap.clear();
 
     motions = getMotionsFromSimulation(sim);
 
@@ -814,9 +830,11 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
             solverModel->dynamics->gravity = turn.multVec(typed->Gravity.getValue());
         }
     }
+    return 0;
+}
 
-    makeMbdModel();
-
+int AssemblyObject::runSimulation(App::DocumentObject* sim)
+{
     // Every frame the backend produces is kept here, so playback needs no
     // live solver.
     struct Recorder: Solver::TrajectorySink
@@ -865,9 +883,76 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
     trajectory = std::make_unique<Solver::Trajectory>(std::move(sink.frames));
     trajectoryParts = objectPartMap;
     trajectorySimulation = sim;
+    trajectoryModel = std::make_unique<Solver::Model>(*solverModel);
+    trajectorySpec = std::make_unique<Solver::SimulationSpec>(*simulationSpec);
+    resultsChanged = false;
     motions.clear();
 
     return 0;
+}
+
+namespace
+{
+bool sameSpec(const Solver::SimulationSpec& a, const Solver::SimulationSpec& b)
+{
+    return a.analysis == b.analysis && a.maxStep == b.maxStep && a.restitution == b.restitution
+        && a.tStart == b.tStart && a.tEnd == b.tEnd && a.tOutput == b.tOutput
+        && a.errorTolerance == b.errorTolerance && a.hMin == b.hMin && a.hMax == b.hMax
+        && a.reactions == b.reactions;
+}
+}  // namespace
+
+bool AssemblyObject::isSimulationStale(App::DocumentObject* sim)
+{
+    if (!sim || !trajectory || !trajectoryModel || !trajectorySpec || lastSimulation() != sim) {
+        return false;
+    }
+    // A build replaces the session, the model, the spec and the parts the
+    // last solve left, which the solve's status and a drag read: they are
+    // put back after
+    auto keptSession = std::move(session);
+    auto keptModel = std::move(solverModel);
+    auto keptSpec = std::move(simulationSpec);
+    auto keptParts = objectPartMap;
+    const std::size_t keptBodies = loadedBodies;
+    const int keptBad = badFormulas;
+    const bool wasChecking = checkingResults;
+    checkingResults = true;
+    bool stale = true;
+    try {
+        if (buildSimulation(sim) == 0 && solverModel && simulationSpec) {
+            stale = !Solver::sameMechanism(*trajectoryModel, *solverModel, 1e-9)
+                || !sameSpec(*trajectorySpec, *simulationSpec);
+        }
+    }
+    catch (const Base::Exception& e) {
+        e.reportException();
+    }
+    motions.clear();
+    session = std::move(keptSession);
+    solverModel = std::move(keptModel);
+    simulationSpec = std::move(keptSpec);
+    objectPartMap = std::move(keptParts);
+    loadedBodies = keptBodies;
+    badFormulas = keptBad;
+    checkingResults = wasChecking;
+    return stale;
+}
+
+void AssemblyObject::checkResults()
+{
+    if (!resultsChanged || checkingResults) {
+        return;
+    }
+    resultsChanged = false;
+    auto* sim = freecad_cast<Simulation*>(lastSimulation());
+    if (!sim) {
+        return;
+    }
+    const bool stale = isSimulationStale(sim);
+    if (sim->ResultsStale.getValue() != stale) {
+        sim->ResultsStale.setValue(stale);
+    }
 }
 
 // Not upstream: whether a child of a Simulation is a motion. A child whose
@@ -3383,6 +3468,23 @@ void AssemblyObject::onSettingDocument()
     };
     connConnectivityNew = doc->signalNewObject.connect(drop);
     connConnectivityDeleted = doc->signalDeletedObject.connect(drop);
+    // The stale flag (docs/AssemblyDynamics.md sec 8.4): a change while
+    // frames are kept is looked at after the recompute that follows it
+    connResultsChanged = doc->signalChangedObject.connect(
+        [this](const App::DocumentObject&, const App::Property& prop) {
+            if (!trajectory || checkingResults) {
+                return;
+            }
+            const char* name = prop.getName();
+            if (name && std::strcmp(name, "ResultsStale") == 0) {
+                return;
+            }
+            resultsChanged = true;
+        });
+    connResultsRecomputed = doc->signalRecomputed.connect(
+        [this](const App::Document&, const std::vector<App::DocumentObject*>&) {
+            checkResults();
+        });
 }
 
 void AssemblyObject::jointParts(std::vector<App::DocumentObject*> joints)

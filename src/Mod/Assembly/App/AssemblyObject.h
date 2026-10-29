@@ -147,6 +147,11 @@ public:
     {
         return *trajectorySimulation;
     }
+    // Whether the last frames, sim's, are of an older mechanism than sim
+    // builds now (docs/AssemblyDynamics.md sec 8.4): the model built again
+    // and compared, the parts' start poses left out; the session and the
+    // last solve are left as they were. False without frames of sim.
+    bool isSimulationStale(App::DocumentObject* sim);
     void preDrag(std::vector<App::DocumentObject*> dragParts);
     /* One drag step: solves for the Placement the caller wrote on the dragged parts.
     Returns false when no drag is in progress or the step failed; a failed step leaves
@@ -559,6 +564,22 @@ private:
     std::unique_ptr<Solver::Trajectory> trajectory;
     std::unordered_map<App::DocumentObject*, MbDPartData> trajectoryParts;
     App::DocumentObjectWeakPtrT trajectorySimulation {nullptr};
+    // The model and the spec the last frames were run from, for the stale
+    // flag; and whether the document changed since the flag was set
+    std::unique_ptr<Solver::Model> trajectoryModel;
+    std::unique_ptr<Solver::SimulationSpec> trajectorySpec;
+    bool resultsChanged {false};
+    bool checkingResults {false};
+    fastsignals::scoped_connection connResultsChanged;
+    fastsignals::scoped_connection connResultsRecomputed;
+    // The model and the spec of sim, as a run builds them: 0, or the code
+    // generateSimulation() returns
+    int buildSimulation(App::DocumentObject* sim);
+    // The run of the model and the spec built, the session loaded with them
+    int runSimulation(App::DocumentObject* sim);
+    // After a recompute that followed a change: sets the last run's study's
+    // ResultsStale
+    void checkResults();
 
 
     std::unordered_map<App::DocumentObject*, MbDPartData> objectPartMap;

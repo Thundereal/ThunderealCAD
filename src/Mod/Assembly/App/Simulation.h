@@ -78,6 +78,11 @@ public:
     /// take, from the masses, gravity and the Elements (inverse dynamics,
     /// docs/AssemblyDynamics.md sec 6.3), on a backend that runs dynamics
     App::PropertyBool Reactions;
+    /// Whether the run kept for this study is of an older mechanism: the
+    /// assembly, its motions or the study changed since (docs/
+    /// AssemblyDynamics.md sec 8.4). Set by the assembly after a recompute;
+    /// not saved
+    App::PropertyBool ResultsStale;
 
     static const char* AnalysisTypeEnums[];
 

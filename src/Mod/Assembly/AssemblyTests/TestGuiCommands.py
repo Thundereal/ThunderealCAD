@@ -676,6 +676,37 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
+    def test_stale_results(self):
+        """A study changed after its run: the panel says its results are
+        stale and the tree's icon carries the recompute mark; run again,
+        both go"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.TimeEnd = 0.05
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertIsInstance(sim.ViewObject.Proxy.getIcon(), str)
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        self.assertFalse(panel.staleMessage.isVisibleTo(panel.form))
+        sim.TimeEnd = 0.04
+        self.doc.recompute()
+        _process()
+        self.assertTrue(sim.ResultsStale)
+        self.assertTrue(panel.staleMessage.isVisibleTo(panel.form))
+        self.assertIsInstance(sim.ViewObject.Proxy.getIcon(), QtGui.QIcon)
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        _process()
+        self.assertFalse(sim.ResultsStale)
+        self.assertFalse(panel.staleMessage.isVisibleTo(panel.form))
+        self.accept_task()
+        self.assertClean()
+
     def test_trace_button(self):
         """The panel's Trace button traces the selected vertex: a trace of
         its part, the point in the part's coordinates; with nothing

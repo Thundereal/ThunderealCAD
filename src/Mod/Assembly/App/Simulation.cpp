@@ -84,6 +84,13 @@ Simulation::Simulation()
                       App::Prop_None,
                       "Kinematic: also the reactions and the motors' efforts the motions "
                       "take, from the masses, gravity and the Elements (inverse dynamics)");
+    ADD_PROPERTY_TYPE(ResultsStale,
+                      (false),
+                      "Simulation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output | App::Prop_Transient
+                                        | App::Prop_NoRecompute),
+                      "The run kept for this study is of an older mechanism: the assembly, its "
+                      "motions or the study changed since. Run it again.");
 }
 
 const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", "Static", nullptr};

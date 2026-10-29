@@ -582,6 +582,46 @@ Phase D1 is under way (2026-10-28):
     turn closed and periodic, 2 pi 100 long to 1e-3 (the Ondsel input
     frame found through this one). TestGuiCommands: the vertex pick in the
     part's coordinates, and the button.
+- Built: the stale flag (sec 8.4), for the run the assembly keeps -- the
+  results are not stored in the file yet, so there is no model hash to
+  keep with them; the model itself is kept instead. A run keeps the model
+  and the spec it was run from. `AssemblyObject::isSimulationStale(sim)`
+  builds sim's model again as a run would (`buildSimulation()`, split out
+  of `generateSimulation()`; the session, the model, the spec and the
+  parts the last solve left are put back, so the solve's status and a
+  drag do not see it) and compares: `Solver::sameMechanism()`, the
+  records with positions, directions and inertias within 1e-9 (relative)
+  and the rest exactly, the bodies' placements left out -- where the
+  parts stand is not the mechanism, and playback moves them -- and the
+  spec field for field.
+  - `Simulation::ResultsStale` (read-only, not saved) says it in the
+    property editor; the assembly sets it after a recompute that followed
+    a change in the document while it keeps frames (once per edit: the
+    rebuild's own messages, a formula that no longer parses, come once).
+    The study's tree icon carries the tree's recompute mark, and the open
+    panel says "The results are of an earlier version of the assembly or
+    of this study: generate them again." A run clears it, and a study
+    whose frames another study's run replaced is not stale.
+  - What makes a run stale is what its model holds: the joints and their
+    frames, the parts' shapes through their inertias in a dynamic study
+    (not in a kinematic one), the motions, the elements, gravity, and the
+    study's own settings. Moving a part is not; nor is the start pose.
+  - Found on the way: the mass properties after a played frame were of the
+    parts where they had stood. They read the shapes through the
+    assembly's shape cache (`Part::PropertyShapeCache`), which waits for
+    the assembly itself to change, and playback (or a solve) writes the
+    placements and purges the parts' touched state -- so a dynamic run
+    started from a played frame had its inertias in the wrong place, the
+    centre of mass 3.3 mm off at the third frame of the pendulum. Not even
+    a recompute helped. `setNewPlacements()` now clears that cache when
+    it moves anything.
+  - Tests (TestDynamics): fresh after a run, after playback and after
+    moving the rod; stale on the study's end time, a joint's frame and
+    the rod's length, fresh again on undoing each, the solve's status
+    kept through the check, fresh again on a run; a study whose frames are
+    gone, not stale; a kinematic study not stale on a mass change. The
+    mass properties at two played frames, where the rod is (1e-9 mm).
+    TestGuiCommands: the panel's line and the tree icon, on and off.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

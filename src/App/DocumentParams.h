@@ -666,6 +666,22 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter UndoGroupByInput
+    ///
+    /// Close the undo step an input's handling opened and left open once the
+    /// work it queued has run, unless something holds it: a command, a task
+    /// dialog, an edit, an editor that keeps it (persist), a mouse button
+    /// held down (docs/MultiViewEdit.md sec 12.2 rule 1). Off, it stays open
+    /// until the next step is set, as before; for A/B checks.
+    static const bool & getUndoGroupByInput();
+    static const bool & defaultUndoGroupByInput();
+    static void removeUndoGroupByInput();
+    static void setUndoGroupByInput(const bool &v);
+    static const char *docUndoGroupByInput();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter TransactionOnRecompute
     ///
     /// Record a recompute started with the Refresh command as an undo step.

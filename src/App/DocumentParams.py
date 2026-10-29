@@ -321,6 +321,12 @@ Params = [
     ParamBool('DuplicateLabels', False,
         doc = "Allow several objects of one document to carry the same label. When\n"
               "off a label already in use gets a number added to make it unique."),
+    ParamBool('UndoGroupByInput', True,
+        doc = "Close the undo step an input's handling opened and left open once the\n"
+              "work it queued has run, unless something holds it: a command, a task\n"
+              "dialog, an edit, an editor that keeps it (persist), a mouse button\n"
+              "held down (docs/MultiViewEdit.md sec 12.2 rule 1). Off, it stays open\n"
+              "until the next step is set, as before; for A/B checks."),
     ParamBool('TransactionOnRecompute', False,
         doc = "Record a recompute started with the Refresh command as an undo step.\n"
               "When off, refreshing leaves the undo and redo history alone."),

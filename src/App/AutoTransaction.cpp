@@ -133,6 +133,9 @@ void AutoTransaction::setEnable(bool enable) {
         return;
     app._activeTransactionGuard = -app._activeTransactionGuard;
     FC_TRACE("toggle auto Transaction " << app._activeTransactionGuard);
+    // Kept past the command: past its input's group too (sec 12.2 rule 5)
+    if (!enable && app._activeTransactionID)
+        app._activeTransactionHeld = true;
     if(!enable && app._activeTmpName()) {
         bool close = true;
         for(auto &v : app.DocMap) {
@@ -243,6 +246,8 @@ void Application::bindActiveTransaction(Document *doc)
         _activeTransactionID = 0;
         _activeTransactionTmpName = false;
         _activeTransactionListing = nullptr;
+        _activeTransactionGroup = 0;
+        _activeTransactionHeld = false;
     }
     FC_LOG("bind active transaction of " << doc->getName() << " '" << bound.name
            << "' " << bound.id);
@@ -266,6 +271,8 @@ void Application::unbindActiveTransaction(Document *doc, bool abort)
         _activeTransactionName = it->second.name;
         _activeTransactionTmpName = it->second.tmpName;
         _activeTransactionListing = it->second.listing;
+        _activeTransactionGroup = 0;
+        _activeTransactionHeld = false;
         _boundTransactions.erase(it);
         closeActiveTransaction(abort, id);
         return;
@@ -342,6 +349,9 @@ int Application::setActiveTransaction(const char *name, bool persist, const Docu
         else {
             _activeTransactionID = activeId;
             _activeTransactionListing = _inputDocument;
+            // The input's group's, unless kept past it (sec 12.2 rules 1, 5)
+            _activeTransactionGroup = _inputGroup;
+            _activeTransactionHeld = persist || _activeTransactionGuard < 0;
         }
         _lastStep.id = activeId;
         _lastStep.listing = _inputDocument;
@@ -422,6 +432,34 @@ const char *Application::getOpenStep(int *tid, const Document *doc) const
     return _lastStep.name.c_str();
 }
 
+void Application::setInputGroup(int serial)
+{
+    _inputGroup = serial;
+}
+
+int Application::getInputGroup() const
+{
+    return _inputGroup;
+}
+
+int Application::closeGroupStep()
+{
+    // The application's own: a bound step is its edit's
+    const int id = _activeTransactionID;
+    if (!id || !_activeTransactionGroup
+            || _activeTransactionHeld || _activeTransactionGuard != 0 || _TransactionLock)
+        return 0;
+    FC_LOG("close group step '" << _activeTransactionName << "' " << id);
+    _closedGroupStep = id;
+    closeActiveTransaction(false, id);
+    return id;
+}
+
+bool Application::isGroupStepClosed(int id) const
+{
+    return id && id == _closedGroupStep;
+}
+
 const char *Application::getActiveTransaction(int *id) const {
     return getActiveTransaction(id, nullptr);
 }
@@ -500,8 +538,11 @@ void Application::closeActiveTransaction(bool abort, int id) {
             wasBound = true;
         }
     }
-    if (!wasBound || id == _activeTransactionID)
+    if (!wasBound || id == _activeTransactionID) {
         _activeTransactionID = 0;
+        _activeTransactionGroup = 0;
+        _activeTransactionHeld = false;
+    }
 
     TransactionSignaller signaller(abort,false);
     if (abort) {

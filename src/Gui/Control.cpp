@@ -676,6 +676,11 @@ TaskOwner ControlSingleton::ownerOfContent(const QObject *obj) const
     return TaskOwner();
 }
 
+bool ControlSingleton::hasOpenDialog() const
+{
+    return !openDialogs.empty();
+}
+
 Gui::ViewProvider* ControlSingleton::editViewProviderOf(const QObject *obj) const
 {
     const TaskOwner owner = ownerOfContent(obj);

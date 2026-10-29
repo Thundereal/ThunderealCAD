@@ -88,6 +88,7 @@ public:
         signalParamChanged("ThumbnailSampleSize");
         signalParamChanged("ThumbnailSize");
         signalParamChanged("DuplicateLabels");
+        signalParamChanged("UndoGroupByInput");
         signalParamChanged("TransactionOnRecompute");
         signalParamChanged("TransactionLog");
         signalParamChanged("TransactionLogIdentity");
@@ -168,6 +169,7 @@ public:
     long ThumbnailSampleSize;
     long ThumbnailSize;
     bool DuplicateLabels;
+    bool UndoGroupByInput;
     bool TransactionOnRecompute;
     long TransactionLog;
     bool TransactionLogIdentity;
@@ -293,6 +295,8 @@ public:
         funcs["ThumbnailSize"] = &DocumentParamsP::updateThumbnailSize;
         DuplicateLabels = this->handle->GetBool("DuplicateLabels", false);
         funcs["DuplicateLabels"] = &DocumentParamsP::updateDuplicateLabels;
+        UndoGroupByInput = this->handle->GetBool("UndoGroupByInput", true);
+        funcs["UndoGroupByInput"] = &DocumentParamsP::updateUndoGroupByInput;
         TransactionOnRecompute = this->handle->GetBool("TransactionOnRecompute", false);
         funcs["TransactionOnRecompute"] = &DocumentParamsP::updateTransactionOnRecompute;
         TransactionLog = this->handle->GetInt("TransactionLog", 2);
@@ -547,6 +551,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateDuplicateLabels(DocumentParamsP *self) {
         self->DuplicateLabels = self->handle->GetBool("DuplicateLabels", false);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateUndoGroupByInput(DocumentParamsP *self) {
+        self->UndoGroupByInput = self->handle->GetBool("UndoGroupByInput", true);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionOnRecompute(DocumentParamsP *self) {
@@ -915,6 +923,13 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
         .setTitle("Duplicate Labels")
         .setDoc("Allow several objects of one document to carry the same label. When\n"
 "off a label already in use gets a number added to make it unique."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "UndoGroupByInput", "UndoGroupByInput", App::ParamInfo::Bool, true)
+        .setTitle("Undo Group By Input")
+        .setDoc("Close the undo step an input's handling opened and left open once the\n"
+"work it queued has run, unless something holds it: a command, a task\n"
+"dialog, an edit, an editor that keeps it (persist), a mouse button\n"
+"held down (docs/MultiViewEdit.md sec 12.2 rule 1). Off, it stays open\n"
+"until the next step is set, as before; for A/B checks."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionOnRecompute", "TransactionOnRecompute", App::ParamInfo::Bool, false)
         .setTitle("Transaction On Recompute")
         .setDoc("Record a recompute started with the Refresh command as an undo step.\n"
@@ -2383,6 +2398,38 @@ void DocumentParams::setDuplicateLabels(const bool &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeDuplicateLabels() {
     instance()->handle->RemoveBool("DuplicateLabels");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docUndoGroupByInput() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"Close the undo step an input's handling opened and left open once the\n"
+"work it queued has run, unless something holds it: a command, a task\n"
+"dialog, an edit, an editor that keeps it (persist), a mouse button\n"
+"held down (docs/MultiViewEdit.md sec 12.2 rule 1). Off, it stays open\n"
+"until the next step is set, as before; for A/B checks.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & DocumentParams::getUndoGroupByInput() {
+    return instance()->UndoGroupByInput;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & DocumentParams::defaultUndoGroupByInput() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setUndoGroupByInput(const bool &v) {
+    instance()->handle->SetBool("UndoGroupByInput",v);
+    instance()->UndoGroupByInput = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeUndoGroupByInput() {
+    instance()->handle->RemoveBool("UndoGroupByInput");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

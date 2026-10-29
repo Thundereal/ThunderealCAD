@@ -308,6 +308,29 @@ public:
      * directly is not the step's. Returns its name, null for none.
      */
     const char *getOpenStep(int *tid, const Document *doc) const;
+    /** The group of work the input being handled starts
+     * (docs/MultiViewEdit.md sec 12.2 rule 1).
+     *
+     * The Gui sets a new serial as an input arrives and 0 once the work it
+     * queued has run; 0 too for an input to the Python console, which is
+     * a script's. The application's active transaction set meanwhile is
+     * the group's, for closeGroupStep().
+     */
+    void setInputGroup(int serial);
+    int getInputGroup() const;
+    /** At the end of an input's group: commit the application's active
+     * transaction when an input's group set it and nothing holds it -- a
+     * running command, a TransactionLocker, setActiveTransaction() with
+     * persist (an editor that keeps its step over several inputs, a task
+     * dialog's). The Gui checks its own holds first: an open task dialog,
+     * an edit, a mouse button down (rule 5). Before, such a step stayed
+     * open, and every later change joined it, until the next was set.
+     * Returns the id committed, 0 for none.
+     */
+    int closeGroupStep();
+    /// Whether \a id is the step closeGroupStep() committed last: an
+    /// abort its opener asks for later finds nothing to abort (rule 6)
+    bool isGroupStepClosed(int id) const;
     //@}
 
     /** @name Signals of the Application */
@@ -828,6 +851,13 @@ private:
     /// Where the application's active transaction is listed (getListingDocument)
     Document *_activeTransactionListing{nullptr};
     Document *_inputDocument{nullptr};
+    /// The input's group (setInputGroup), the one the application's active
+    /// transaction was set in, whether it is held, and the step
+    /// closeGroupStep() committed last
+    int _inputGroup{0};
+    int _activeTransactionGroup{0};
+    bool _activeTransactionHeld{false};
+    int _closedGroupStep{0};
 
     /// A document's own active transaction (bindActiveTransaction)
     struct BoundTransaction {

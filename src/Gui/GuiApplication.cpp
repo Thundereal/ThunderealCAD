@@ -63,6 +63,7 @@
 
 #include <App/Actor.h>
 #include <App/Application.h>
+#include <App/DocumentParams.h>
 #include <Base/Console.h>
 #include <Base/CrashLog.h>
 #include <Base/Exception.h>
@@ -121,6 +122,45 @@ App::Document *inputDocumentOf(QObject *receiver)
     return doc ? doc->getDocument() : nullptr;
 }
 
+/// Whether \a receiver is the Python console: a line typed there is a
+/// script's, no input's group (sec 12.2 rule 1)
+bool isConsoleInput(QObject *receiver)
+{
+    for (QObject *o = receiver; o; o = o->parent()) {
+        if (o->inherits("Gui::PythonConsole"))
+            return true;
+    }
+    return false;
+}
+
+/// What keeps a step past its input's group that only the Gui knows (sec
+/// 12.2 rule 5): a mouse button down -- a drag, closed on the release --
+/// an open task dialog, an edit
+bool groupStepHeld()
+{
+    if (QApplication::mouseButtons() != Qt::NoButton)
+        return true;
+    if (Control().hasOpenDialog())
+        return true;
+    return !Application::Instance->editDocuments().empty();
+}
+
+/// The end of an input's group: the step it left open, that nothing
+/// holds, is committed (sec 12.2 rule 1)
+void endInputGroup()
+{
+    if (!App::DocumentParams::getUndoGroupByInput() || groupStepHeld())
+        return;
+    try {
+        App::GetApplication().closeGroupStep();
+    }
+    catch (Base::Exception &e) {
+        e.ReportException();
+    }
+    catch (...) {
+    }
+}
+
 int notifyDepth = 0;
 
 struct NotifyDepth
@@ -129,23 +169,30 @@ struct NotifyDepth
     ~NotifyDepth() { --notifyDepth; }
 };
 
-/** An input being handled: the application's input document while it is
- * (App::Application::setInputDocument). Qt hands a widget's input on from
- * its window, one inside the other: the innermost names the document, and
- * the outermost ends it. One the event loop delivered keeps it until the
+/** An input being handled: the application's input document and group
+ * while it is (App::Application::setInputDocument, setInputGroup). Qt
+ * hands a widget's input on from its window, one inside the other: the
+ * outermost starts the group, the innermost names the document, and the
+ * outermost ends both. One the event loop delivered keeps them until the
  * work it queued has run; one sent from another event's handling -- a
- * test's timer -- gives back what was there when it returns.
+ * test's timer -- gives back what was there when it returns. Its group
+ * ends after that work either way, unless another input came first: then
+ * that one's end is its end too.
  */
 class InputDocumentScope
 {
 public:
     explicit InputDocumentScope(QObject *receiver)
         : outer(current)
+        , prevGroup(App::GetApplication().getInputGroup())
     {
         if (auto prevDoc = App::GetApplication().getInputDocument())
             prev = prevDoc->getName();
         current = this;
         App::GetApplication().setInputDocument(inputDocumentOf(receiver));
+        if (!outer)
+            ++group;
+        App::GetApplication().setInputGroup(isConsoleInput(receiver) ? 0 : group);
         ++serial;
     }
     ~InputDocumentScope()
@@ -153,16 +200,22 @@ public:
         current = outer;
         if (outer)
             return;
-        if (notifyDepth > 1) {
+        const bool nested = notifyDepth > 1;
+        if (nested) {
             App::GetApplication().setInputDocument(
                 prev.empty() ? nullptr : App::GetApplication().getDocument(prev.c_str()));
-            return;
+            App::GetApplication().setInputGroup(prevGroup);
         }
         // After the 0-timers its work queued, which were queued first
         const int mine = serial;
-        QTimer::singleShot(0, [mine]() {
-            if (serial == mine)
+        QTimer::singleShot(0, [mine, nested]() {
+            if (serial != mine)
+                return;
+            if (!nested) {
                 App::GetApplication().setInputDocument(nullptr);
+                App::GetApplication().setInputGroup(0);
+            }
+            endInputGroup();
         });
     }
     InputDocumentScope(const InputDocumentScope&) = delete;
@@ -171,7 +224,9 @@ public:
 private:
     static inline InputDocumentScope *current = nullptr;
     static inline int serial = 0;
+    static inline int group = 0;
     InputDocumentScope *outer;
+    int prevGroup;
     std::string prev;
 };
 }

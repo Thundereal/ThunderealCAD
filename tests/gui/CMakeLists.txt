@@ -516,6 +516,12 @@ fc_add_gui_test(GuiTdEditTwoPages_tests_run td-edit-two-pages.py
 fc_add_gui_test(GuiXdocUndoPair_tests_run xdoc-undo-pair.py
                 --timeout 180)
 
+# A step an input's handling left open is closed at the end of its group
+# unless held: persist, a task dialog, a mouse button down; a console
+# line's is a script's (docs/MultiViewEdit.md sec 12.2 rules 1, 5).
+fc_add_gui_test(GuiUndoGroupByInput_tests_run undo-group-by-input.py
+                --timeout 180)
+
 # An edit started after the main window is activated again, or with
 # another document's view the active one, is bound to the 3D view: the
 # split-view container (Gui::ViewArea) was handed out as the active view

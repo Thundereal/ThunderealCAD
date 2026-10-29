@@ -1140,7 +1140,10 @@ QWidget* TreeWidgetItemDelegate::createEditor(
 
     std::ostringstream str;
     str << "Change " << obj->getNameInDocument() << '.' << prop.getName();
-    App::GetApplication().setActiveTransaction(str.str().c_str());
+    // Kept over the inputs typed into the editor, closed with it below
+    // (docs/MultiViewEdit.md sec 12.2 rule 5); before, the next step set
+    // closed it
+    const int tid = App::GetApplication().setActiveTransaction(str.str().c_str(), true);
     FC_LOG("create editor transaction " << App::GetApplication().getActiveTransaction());
 
     QLineEdit *editor;
@@ -1154,6 +1157,14 @@ QWidget* TreeWidgetItemDelegate::createEditor(
         editor = new QLineEdit(parent);
     editor->setReadOnly(prop.isReadOnly());
     LineEditStyle::setup(editor);
+    // Its value is written (setModelData) before it goes
+    if (tid) {
+        QObject::connect(editor, &QObject::destroyed, [tid]() {
+            int active = 0;
+            if (App::GetApplication().getActiveTransaction(&active) && active == tid)
+                App::GetApplication().closeActiveTransaction(false, tid);
+        });
+    }
     return editor;
 }
 

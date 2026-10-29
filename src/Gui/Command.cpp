@@ -836,11 +836,16 @@ QString Command::translatedGroupName() const
  *  operation default is the Command name.
  *  @see CommitCommand(),AbortCommand()
  */
+namespace {
+/// The step openCommand() set last, 0 when it joined one already open
+int openedStep = 0;
+}
+
 void Command::openCommand(const char* sCmdName)
 {
     if (!sCmdName)
         sCmdName = "Command";
-    App::GetApplication().setActiveTransaction(sCmdName);
+    openedStep = App::GetApplication().setActiveTransaction(sCmdName);
 }
 
 void Command::commitCommand()
@@ -850,6 +855,13 @@ void Command::commitCommand()
 
 void Command::abortCommand()
 {
+    // Committed at the end of its input's group already: an abort now
+    // would take another's step (docs/MultiViewEdit.md sec 12.2 rule 6)
+    if (App::GetApplication().isGroupStepClosed(openedStep)) {
+        FC_LOG("abort of a step its group closed, ignored");
+        openedStep = 0;
+        return;
+    }
     App::GetApplication().closeActiveTransaction(true);
 }
 

@@ -307,6 +307,52 @@ class TestThickness(unittest.TestCase):
         self.assertAlmostEqual(result.Volume, 42 * 32 * 12 - 38 * 28 * 8, delta=1e-7)
         self.assertBounds(result, -1, -1, -1, 41, 31, 11)
 
+    def _domeThickness(self, level=None):
+        """A thickness 1 outward, the Intersection join, of a box under a
+        B-spline dome, the dome's edges filleted (Part's parttests model),
+        its bottom removed; at the object's _OffsetFixLevel, or the one a new
+        object gets"""
+        from parttests.OffsetFixLevelTest import domeShape
+
+        dome = self.Doc.addObject("Part::Feature", "Dome")
+        dome.Shape = domeShape()
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        body.BaseFeature = dome
+        self.Doc.recompute()
+        thickness = body.newObject("PartDesign::Thickness", "Thickness")
+        thickness.Base = (body.Group[0], ["Face4"])
+        thickness.Value = 1.0
+        thickness.Reversed = False
+        thickness.Join = "Intersection"
+        if level is not None:
+            thickness._OffsetFixLevel = level
+        self.Doc.recompute()
+        return thickness
+
+    @unittest.skipUnless(Part.hasOCCTFunction("TKOffset", "BRepOffset_SetFixLevel"),
+                         "needs the OCCT fork's BRepOffset_SetFixLevel (TKOffset)")
+    def testNewThicknessIsMadeAtTheLatestOffsetFixLevel(self):
+        """The OCCT fork's offset fix level (BRepOffset_SetFixLevel): the dome
+        outward with the Intersection join is made from level 1"""
+        thickness = self._domeThickness()
+        self.assertGreaterEqual(thickness._OffsetFixLevel, 1)
+        self.assertTrue(thickness.isValid())
+        self.assertTrue(thickness.Shape.isValid())
+        # the fork's suite: dome_join_out
+        self.assertAlmostEqual(thickness.Shape.Volume, 11009.9518, delta=11.0)
+
+    @unittest.skipUnless(Part.hasOCCTFunction("TKOffset", "BRepOffset_SetFixLevel"),
+                         "needs the OCCT fork's BRepOffset_SetFixLevel (TKOffset)")
+    def testThicknessFromBeforeTheOffsetFixLevelRecomputesAsItDid(self):
+        """A thickness saved before the level is at 0: refused, as it was"""
+        thickness = self._domeThickness(level=0)
+        self.assertFalse(thickness.isValid())
+
+    def testNewThickenIsMadeAtTheLatestOffsetFixLevel(self):
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        thicken = body.newObject("PartDesign::Thicken", "Thicken")
+        self.assertGreaterEqual(thicken._OffsetFixLevel, 1)
+
     def tearDown(self):
         #closing doc
         FreeCAD.closeDocument("PartDesignTestThickness")

@@ -389,3 +389,147 @@ run through `scripts/gui-test.sh <script> <outdir>`:
 - So what the mirror is FOR -- one undo for an edit that spans documents
   -- may be better carried by the edit session (or the view) that spans
   them than by whichever document is active.
+
+## 12. Undo steps by burst of work (user, 2026-10-29)
+
+Answers sec 11. The user's idea: a transaction records changes by
+itself, and an undo step is only a grouping the user (a person or code)
+sees. So group by the work one event-loop pass does: the name comes from
+`openTransaction()`, which may now be stacked, and every change in the
+group -- whatever property, whatever document -- goes into its document
+under the SAME id, so they undo together. What makes it work: garbage
+collect the steps code opens and never closes (it relied on the next
+open to close them), and decide what a long-running script's group is.
+
+### 12.1 What a step already bounds
+
+A step holds one old copy per property, taken on the first write
+(`TransactionObject::setProperty`, `src/App/Transactions.cpp`): a
+property set 10,000 times in a step costs one copy. An object made and
+removed in the same step drops out; one changed then removed is one
+removal. With the log on, `TransactionLog::onCommit` reads the same
+entries once, at the commit: one op per touched property (the step's
+copy before, the live value after), and nothing for an empty step. So a
+step of any length costs at most one copy of what it touched; with the
+log on the log grows with the number of steps, never with their length.
+Coarser groups mean fewer rows, not larger ones.
+
+### 12.2 The rules
+
+1. **The group.** The work from one desktop input (a press, release,
+   key, wheel, double click, context menu) up to the next input or to
+   idle, whichever comes first. A 0-timer the input's work queues runs
+   before idle and so is in its group: an input and the recompute it
+   queued are one step. Without the Gui, an invocation (a script, a
+   macro, a console line) is one group.
+2. **One id.** Every document changed in a group gets a transaction
+   under the group's id -- the step opened in it, explicit or implicit.
+   A document with no step of its own joins the step last opened while
+   it recomputes from a document that has that step open: an edit's
+   bound step (sec 6) takes in the recompute it causes in a document
+   that is not bound. A change made to that document directly is not the
+   step's (`tests/gui/edit-two-documents.py` changes B in B's window
+   while A's edit is open).
+3. **The name.** From `openTransaction()`. Stacked: an open inside an
+   open joins it, and the outer name stays. Open/commit pairs one AFTER
+   another in a group stay steps of their own: a script keeps the steps
+   it makes.
+4. **Where a step is listed.** In every document it changed; and, as an
+   empty pointer (`-> <name>`), in the document of the view the input
+   that opened it went to, when that document did not change -- taken
+   when the step is opened, from the receiver: its MDIView, else the
+   view the dialog it is part of belongs to, else the active view. No
+   input -- a timer, a socket, a script, FreeCADCmd -- no pointer. It
+   replaces "the active document": an in-place edit of a linked
+   document is still undone from the document worked in (the user's
+   ruling, sec 11), and a script's or a served branch's step lands only
+   where it changed.
+5. **Holds.** A step lives past its group while held: by a running
+   command (`AutoTransaction`), a `TransactionLocker`, a task dialog
+   (a step opened while a dialog is up is the dialog's, and closes when
+   it does -- today's `AutoTransaction::setEnable(false)`, which
+   `Control::showDialog` and `Gui::Document::setEdit` call), an edit's
+   own hold (typing, a spin box press), or a mouse button held down: a
+   drag opens its step on the press (`ViewProviderDragger::onDragStart`)
+   and closes it on the release, groups apart. Anything else still open
+   at the end of a group is committed.
+6. **Abort by id.** An abort ends only the step its opener opened, never
+   another's -- after rule 5 committed one early, a late
+   `abortCommand()` must find nothing to abort, not someone else's step.
+7. **Log off.** A write with no step open is recorded too (an implicit
+   step), not only with the log on.
+8. **The log.** An empty pointer writes no row (`onCommit` skips an
+   empty step -- already so); a pointer that took its document's own
+   changes is that document's row.
+
+### 12.3 Order of work
+
+- **Stage 1** -- rules 2 and 4 with today's closing points (the Gui's
+  0-timer for an implicit step, the end of an invocation, the command's
+  return for an explicit one). Fixes sec 11's cases.
+- **Stage 2** -- rules 1, 3, 5, 6: the group's boundary, stacked
+  opens, collection of what is left open, abort by id.
+- **Stage 3** -- rule 7, after measuring what recording costs a script
+  that recorded nothing before (time; memory is bounded, 12.1).
+
+### 12.4 Measured before (2026-10-29, 06bbb5eabd)
+
+Linked pair: B's Box changed, the recompute writes A's copy of it
+(Part::FeaturePython over an XLink), A active, one Std_Undo with A
+active:
+
+| step opened by           | undo lists after                         | one undo   |
+|--------------------------|------------------------------------------|------------|
+| app-wide (a command)     | A `-> cmd step`, B `cmd step`             | both back  |
+| `B.openTransaction()`    | A `-> script step`, B `script step`       | both back  |
+| bound to B (an edit)     | A `-> edit step`, B `edit step`           | both back  |
+
+In the third, `getActiveTransaction(A)` is None: the twin is A's only
+way into the edit's step. Sec 11's case: the served branch's own step
+lists in the first document (`['-> on try', 'wider', 'taller', 'base']`),
+and a script's `other.openTransaction()` in the active one.
+
+### 12.5 Stage 1 (2026-10-29, 4bde00ce23)
+
+Rules 2 and 4 in, the twin gone. The pair of 12.4, after:
+
+| step opened by           | undo lists after               | one undo   |
+|--------------------------|--------------------------------|------------|
+| app-wide (a command)     | A `cmd step`, B `cmd step`     | both back  |
+| `B.openTransaction()`    | A `script step`, B `script step` | both back |
+| bound to B (an edit)     | A `edit step`, B `edit step`   | both back  |
+
+A gets a step of its own under the same id -- its recompute's -- not a
+pointer. A timer's step that changes B only is listed in B only; a click
+in A's view whose handler changes B only lists `-> click step` in A, and
+undoes from there; a click in B's view, A active, lists it in B only
+(`tests/gui/xdoc-undo-pair.py`). Sec 11's case: the served branch's step
+stays in its own document (`doc ['wider', 'taller', 'base'] served
+['on try']`), and a script's `other.openTransaction()` lands in `other`
+only.
+
+Rule 2 had first been "a document with no step joins the one opened
+last, while it is open"; `tests/gui/edit-two-documents.py` failed on it
+(a script's change to B, in B's window, joined A's open edit). Narrowed
+to a recompute from a document the step is open in.
+
+Gate: GUI 361/362 (LineWidths, known on main), Python 4062 OK, C++
+1094/1095 (RenderGoldenCycles, known on main).
+
+### 12.6 Open: rule 3 against the upstream contract
+
+Stacked opens contradict what `openTransaction()` means today, outside a
+command. Upstream's `Document.py` `testUndo`/`testUndoProperties`: open
+T1, change, open T2 with no commit -- two steps, and aborting T2 takes
+back T2 only. 272 `openTransaction(` calls in `src/Mod` Python (tests
+aside) were written against that. Inside a command they already stack:
+the `AutoTransaction` guard ignores a second open. Rule 1's collection
+has a like edge: a console line is an input, so a step opened on one
+line and committed on a later one would be collected in between; a
+Python task panel's step (opened in a click, committed on OK) is held by
+its dialog (rule 5) and is safe.
+
+Recommended: drop stacking outside a command -- an open closes the one
+before, as today -- and treat the Python console as a script, not as an
+input boundary. Rule 1 then only commits what an input's own group
+left open, which today the next open would have closed anyway.

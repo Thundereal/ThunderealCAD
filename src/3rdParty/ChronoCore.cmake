@@ -74,6 +74,11 @@ ExternalProject_Add(ChronoCoreBuild
         -DCH_ENABLE_OPENMP:BOOL=OFF
         -DCH_USE_SIMD:BOOL=OFF
         -DCH_ENABLE_HDF5:BOOL=OFF
+        # Bullet in double: its GJK's tolerances are absolute, 1e-6 on
+        # squared lengths in float -- a square millimetre in the backend's
+        # metres -- and a cylinder lying on a plate was not found until it
+        # was 6 mm into it.
+        -DCH_USE_BULLET_DOUBLE:BOOL=ON
         -DCMAKE_CUDA_COMPILER:FILEPATH=CMAKE_CUDA_COMPILER-NOTFOUND
         -DCMAKE_DISABLE_FIND_PACKAGE_MPI:BOOL=ON
         -DCMAKE_DISABLE_FIND_PACKAGE_Thrust:BOOL=ON
@@ -98,8 +103,11 @@ set_target_properties(ChronoCore PROPERTIES
     IMPORTED_LOCATION "${CHRONO_CORE_LIBRARY}"
     CHRONO_INCLUDE_DIRS
         "${CHRONO_SOURCE_DIR}/src;${CHRONO_BINARY_DIR};${CHRONO_SOURCE_DIR}/src/chrono/collision/bullet;${CHRONO_SOURCE_DIR}/src/chrono/collision/gimpact"
-    # What Chrono_core's own target makes PUBLIC, less the warning options.
-    CHRONO_DEFINITIONS "CH_STATIC;CH_IGNORE_DEPRECATED"
+    # What Chrono_core's own target makes PUBLIC, less the warning options,
+    # and the PRIVATE precision of its Bullet: a source that reaches Bullet's
+    # types (the Chrono backend's contact, polyhedral features and clipping)
+    # sees them as Chrono_core built them, not cbtScalar as float.
+    CHRONO_DEFINITIONS "CH_STATIC;CH_IGNORE_DEPRECATED;BT_USE_DOUBLE_PRECISION"
 )
 if (WIN32)
     set_property(TARGET ChronoCore PROPERTY INTERFACE_LINK_LIBRARIES Ws2_32)

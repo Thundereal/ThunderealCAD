@@ -392,4 +392,44 @@ public:
 
 using BushingPython = App::FeaturePythonT<Bushing>;
 
+/** A contact set (docs/AssemblyDynamics.md sec 5.2, 7; phase D2): the
+ * components of GroupA touching those of GroupB, or, GroupB empty, those of
+ * GroupA touching one another, by the impact law and friction:
+ * normal  Fn = Stiffness d^Exponent + STEP(d, 0, 0, Penetration, MaxDamping)
+ *         dd/dt, d the penetration, never pulling;
+ * friction mu Fn against the sliding, mu rising from 0 at rest to
+ *          StaticFriction at StictionVelocity and going to DynamicFriction at
+ *          FrictionVelocity.
+ * Each solid of a component touches as the sphere, box or cylinder it is,
+ * else as its convex hull when it is convex.
+ */
+class AssemblyExport ContactSet: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::ContactSet);
+
+public:
+    ContactSet();
+
+    App::PropertyLinkList GroupA;
+    /// Empty: the components of GroupA touch one another
+    App::PropertyLinkList GroupB;
+    /// N / mm^Exponent
+    App::PropertyFloatConstraint Stiffness;
+    App::PropertyFloatConstraint Exponent;
+    /// The damping reached at Penetration, N s/mm
+    App::PropertyFloatConstraint MaxDamping;
+    App::PropertyLength Penetration;
+    App::PropertyFloatConstraint StaticFriction;
+    App::PropertyFloatConstraint DynamicFriction;
+    App::PropertySpeed StictionVelocity;
+    App::PropertySpeed FrictionVelocity;
+
+    const char* getViewProviderName() const override
+    {
+        return "Gui::ViewProviderDocumentObject";
+    }
+};
+
+using ContactSetPython = App::FeaturePythonT<ContactSet>;
+
 }  // namespace Assembly

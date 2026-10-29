@@ -140,6 +140,8 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::AppliedLoadPython::init();
     Assembly::Bushing::init();
     Assembly::BushingPython::init();
+    Assembly::ContactSet::init();
+    Assembly::ContactSetPython::init();
     Assembly::TorsionSpring::init();
     Assembly::TorsionSpringPython::init();
 

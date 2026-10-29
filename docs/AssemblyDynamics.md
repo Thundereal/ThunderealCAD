@@ -701,6 +701,85 @@ Phase D1 is under way (2026-10-28):
     Not now. Taken up again if crashes in runs turn up, or when the
     browser tier wants a solver on the server (its playback of stored
     results needs none: the frames are data).
+- Built, D2's first step: contact between primitives and convex hulls, in
+  dynamic and static runs on the Chrono backend.
+  - The document: `Assembly::ContactSet` in the Physics group (Python:
+    `CommandCreateContact.newContactSet(assembly, groupA, groupB=())`),
+    ticked in a study's Elements as any other element. GroupA's
+    components touch GroupB's, or, GroupB empty, one another; nothing
+    else touches (a set is the pair table's row). Its law is Adams'
+    IMPACT: `Stiffness` (N/mm^e), `Exponent`, `MaxDamping` (N s/mm,
+    reached at `Penetration` through a STEP), and friction by speed:
+    `StaticFriction` below `StictionVelocity`, `DynamicFriction` above
+    `FrictionVelocity`, STEPs between (defaults 1e5, 1.5, 10, 0.01 mm,
+    0.3, 0.25, 0.1 and 10.16 mm/s).
+  - The geometry, sec 7.1's first rungs (`App/ContactShapes.cpp`): each
+    solid of a component is the primitive it is -- a sphere, a box or a
+    cylinder, recognised by its faces and checked by its volume -- or its
+    convex hull, from the contact geometry cache's triangles. A solid
+    neither is refused by name and the run fails (meshes are the next
+    rung). Shapes ride on frames, so the rigid groups carry them as they
+    carry everything else.
+  - The force (`Solver/ChronoBackend.cpp`, `ContactLoad`): a load per pair
+    of bodies a set lets touch, given at each step's start the points
+    collision detection found, and evaluating the law at whatever state
+    the integrator asks for. Chrono's numerical Jacobian of it makes the
+    contact implicit; Chrono makes no contact of its own (Bullet's
+    narrowphase callback refuses them all: its SMC contact is explicit,
+    fixed over a step). HHT with alpha -1/3 and no step control when there
+    is contact. A step is cut into substeps: a fiftieth of the stiffest
+    point's impact period (the body's mass shared among its points), the
+    damping's limit 2m/c, and half the time to a contact still coming
+    (its speed and gravity). A substep that finds a new contact deeper
+    than a tenth of what its impact will reach is taken again an eighth as
+    long; one whose Newton iterations ran off to a state not finite, too,
+    and below 1e-9 s the run fails ("the contact's integration diverged")
+    instead of handing Bullet a NaN.
+  - The points: Bullet's GJK gives a convex pair one point a query, and a
+    face landing on a face then rocks on whichever corner it found. A
+    pair of boxes or hulls has Bullet's polyhedral features, and is
+    clipped face against face with SAT's axis: every corner at once. A
+    cylinder's pair with a box or a hull is clipped the same way, its cap
+    as a 16-gon of its rim starting at the rim's lowest point, or its side
+    as the segment between its caps' lowest points, against the face
+    turned most toward it (`cylinderPoints()`). Other pairs (a sphere, a
+    cylinder against a cylinder) keep GJK's points.
+  - Found on the way, each measured before it was fixed:
+    - Chrono builds Bullet in float unless `CH_USE_BULLET_DOUBLE` is on,
+      and Bullet's GJK tolerances are absolute: 1e-6 on squared lengths,
+      a square millimetre in the backend's metres. A cylinder lying on the
+      plate was not found until it was 6 mm into it (GJK's distance 6.5 mm
+      for a gap of 0.27). `src/3rdParty/ChronoCore.cmake` turns it on, and
+      passes `BT_USE_DOUBLE_PRECISION` to the sources that include
+      Bullet's headers so they see its types as the library has them.
+    - Chrono's hull of a hull's points (Bullet's old HullLibrary) moves
+      them by about half a micrometre and merges any within a millimetre
+      of each other: a prism stood 0.5 um low. The features are the exact
+      hull of the points (`cbtConvexHullComputer`), each face moved out by
+      the envelope and each vertex onto its faces' planes, so they are the
+      shape Chrono reports contacts on.
+    - Bullet's multipoint perturbation (more points per query by turning
+      the pair a little) put its points up to 20 um off on a flat face,
+      and lost a bouncing ball half a percent of its height: not used.
+    - The narrowphase's normal can be NaN (EPA failing to a zero normal):
+      such a point is dropped.
+  - Envelope 2e-5 m, margin 1e-4 m: Chrono's defaults (3 cm, 1 cm) are a
+    part's size here.
+  - Results: a ContactForce channel per set, the force on group A's
+    bodies.
+  - Tests (TestContact): a ball resting sunk by (mg/k)^(1/e) (1e-5 mm),
+    its contact force the weight (1e-5), the same rest from a Static
+    study; an undamped bounce back to its height (5e-4 mm); a block
+    sliding at mu g; a prism resting on its hull under a soft law and
+    landing level under the default one (1e-4 mm, 1e-4 rad); a cylinder
+    landing on its cap, a tall one landing tilted and tipping onto its
+    cap, one landing on its side and staying there; a solid that is
+    neither refused; a set's pairs only.
+  - Not yet: the command and panel for contact sets (and ContactSet in
+    the study panel's elements), meshes (sec 7.1's rung 3a), curve
+    contact for cams (sec 7.4), stops, sensors, contact plots. A tumble
+    is slow: the tall cylinder's 0.3 s takes about 20 s, in substeps of
+    microseconds through each impact.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

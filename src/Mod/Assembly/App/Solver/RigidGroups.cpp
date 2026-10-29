@@ -709,6 +709,8 @@ private:
             // On frames, which keep their ids
             dynamics.forces = original.dynamics->forces;
             dynamics.initial = original.dynamics->initial;
+            dynamics.contactShapes = original.dynamics->contactShapes;
+            dynamics.contacts = original.dynamics->contacts;
             reduced.dynamics = std::move(dynamics);
         }
     }

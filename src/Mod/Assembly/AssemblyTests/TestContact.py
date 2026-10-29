@@ -1,0 +1,278 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+"""Contact (docs/AssemblyDynamics.md sec 7, phase D2): contact sets between
+the components' solids, as the primitives they are or their convex hulls,
+by the impact law and friction, against the closed forms."""
+
+import math
+import unittest
+
+import FreeCAD as App
+import JointObject
+
+G = 9806.65  # mm/s^2
+DENSITY = 2.7e-6  # kg/mm^3, the default aluminium
+BALL = 4.0 / 3.0 * math.pi * 125 * DENSITY  # a ball of radius 5, kg
+
+
+class TestContact(unittest.TestCase):
+    def setUp(self):
+        import AssemblyApp
+
+        if "Chrono" not in AssemblyApp.getAvailableSolvers():
+            self.skipTest("the Chrono backend is not built")
+        self.params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
+        self._solveInCreation = self.params.GetBool("SolveInJointCreation", True)
+        self.params.SetBool("SolveInJointCreation", False)
+        self.doc = App.newDocument("TestContact")
+        self.assembly = self.doc.addObject("Assembly::AssemblyObject", "Assembly")
+        self.joints = self.assembly.getGroup("Joints", True)
+        self.sets = []
+
+    def tearDown(self):
+        self.params.SetBool("SolveInJointCreation", self._solveInCreation)
+        App.closeDocument(self.doc.Name)
+
+    def plate(self):
+        """A grounded plate 50 x 50 x 10 under the origin's column, its top
+        at z = 10"""
+        plate = self.assembly.newObject("Part::Box", "Plate")
+        plate.Length, plate.Width, plate.Height = 50, 50, 10
+        plate.Placement.Base = App.Vector(-25, -25, 0)
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
+        JointObject.GroundedJoint(ground, plate)
+        return plate
+
+    def ball(self, z):
+        ball = self.assembly.newObject("Part::Sphere", "Ball")
+        ball.Radius = 5
+        ball.Placement.Base = App.Vector(0, 0, z)
+        return ball
+
+    def contact(self, a, b, **law):
+        import CommandCreateContact
+
+        self.doc.recompute()
+        contact = CommandCreateContact.newContactSet(self.assembly, a, b)
+        for name, value in law.items():
+            setattr(contact, name, value)
+        self.doc.recompute()
+        self.sets.append(contact)
+        return contact
+
+    def simulate(self, end, step, analysis="Dynamic", **props):
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = analysis
+        sim.TimeEnd = end
+        sim.TimeStepOutput = step
+        sim.Elements = self.sets
+        for name, value in props.items():
+            setattr(sim, name, value)
+        self.doc.recompute()
+        return sim, self.assembly.generateSimulation(sim)
+
+    def heights(self, part):
+        out = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            out.append(part.Placement.Base.z)
+        return out
+
+    def tilt(self, part):
+        """How far the part's own z is turned off the vertical at the last
+        frame, rad"""
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        up = App.Vector(0, 0, 1)
+        return part.Placement.Rotation.multVec(up).getAngle(up)
+
+    def cylinder(self, height, placement):
+        cylinder = self.assembly.newObject("Part::Cylinder", "Cylinder")
+        cylinder.Radius = 5
+        cylinder.Height = height
+        cylinder.Placement = placement
+        return cylinder
+
+    def force(self):
+        """The contact set's ContactForce channel: on group A's bodies"""
+        channels = self.assembly.getSimulationResults()["Channels"]
+        found = [c for c in channels if c["Quantity"] == "ContactForce"]
+        self.assertEqual(len(found), 1, channels)
+        return found[0]["Values"]
+
+    # The law for the closed forms: soft enough to sink measurably, a little
+    # damping to settle, no friction
+    SOFT = dict(Stiffness=1.0, MaxDamping=1e-4, StaticFriction=0.0, DynamicFriction=0.0)
+
+    def sink(self, mass, stiffness=1.0, exponent=1.5):
+        """How far a mass sinks into the impact law's spring, mm"""
+        return (mass * G * 1e-3 / stiffness) ** (1.0 / exponent)
+
+    def test_ball_rests(self):
+        """A ball dropped on the plate comes to rest sunk by (m g / k)^(1/e),
+        held by its weight; its contact force is the weight, up"""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate], **self.SOFT)
+        self.assertEqual(contact.GroupA, [ball])
+        _, result = self.simulate(1.0, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(ball)[-1], 15 - self.sink(BALL), delta=1e-5)
+        force = self.force()[-1]
+        self.assertAlmostEqual(force.z, BALL * G, delta=BALL * G * 1e-5)
+        self.assertLess(abs(force.x) + abs(force.y), 1e-9)
+
+    def test_ball_rests_static(self):
+        """A Static study finds the same rest"""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate], **self.SOFT)
+        _, result = self.simulate(0.0, 1e-2, "Static", Elements=[contact])
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(0)
+        self.assertAlmostEqual(ball.Placement.Base.z, 15 - self.sink(BALL), delta=1e-5)
+
+    def test_elastic_bounce(self):
+        """Without damping the ball bounces back to the height it fell
+        from, the energy kept to 1e-4"""
+        plate = self.plate()
+        ball = self.ball(20)
+        self.contact([ball], [plate], Stiffness=1.0, MaxDamping=0.0, StaticFriction=0.0)
+        _, result = self.simulate(0.12, 1e-4)
+        self.assertEqual(result, 0)
+        z = self.heights(ball)
+        low = z.index(min(z))
+        self.assertLess(min(z), 15)
+        self.assertAlmostEqual(max(z[low:]), 20, delta=5 * 1e-4)
+
+    def test_sliding_friction(self):
+        """A block sent sliding along the plate slows at mu g, mu the
+        dynamic friction while it slides faster than the friction velocity"""
+        plate = self.plate()
+        block = self.assembly.newObject("Part::Box", "Block")
+        block.Length = block.Width = block.Height = 10
+        block.Placement.Base = App.Vector(-15, -5, 10)
+        self.contact([block], [plate])
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        import CommandCreateSimulation
+
+        CommandCreateSimulation.newInitialCondition(
+            sim, component=block, linear=App.Vector(200, 0, 0)
+        )
+        sim.AnalysisType = "Dynamic"
+        sim.Elements = self.sets
+        sim.TimeEnd = 0.05
+        sim.TimeStepOutput = 1e-3
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        a = 0.25 * G
+        for k in range(self.assembly.numberOfFrames()):
+            t = k * 1e-3
+            self.assembly.updateForFrame(k)
+            # While it slides fast: v0 - a t above 10.16 mm/s, after the
+            # settling of the first steps
+            if 0.005 <= t and 200 - a * t > 20:
+                x = block.Placement.Base.x
+                self.assertAlmostEqual(x, -15 + 200 * t - a * t * t / 2, delta=0.05, msg=t)
+        # It stops, not past where the dynamic friction alone stops it by
+        # more than the slow end's slip
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        self.assertLess(block.Placement.Base.x, -15 + 200 * 200 / (2 * a) + 0.5)
+
+    def test_hull_rests(self):
+        """A hexagonal prism, no primitive but convex, rests on its hull"""
+        plate = self.plate()
+        prism = self.assembly.newObject("Part::Prism", "Prism")
+        prism.Polygon = 6
+        prism.Circumradius = 5
+        prism.Height = 5
+        prism.Placement.Base = App.Vector(0, 0, 11)
+        self.contact([prism], [plate], **self.SOFT)
+        _, result = self.simulate(1.0, 1e-3)
+        self.assertEqual(result, 0)
+        mass = 6 * (math.sqrt(3) / 4 * 25) * 5 * DENSITY
+        # Over its whole base, as many points: the spring is per point, so
+        # only its rest above the plate, a fraction of the ball's sink, is
+        # asserted
+        z = self.heights(prism)[-1]
+        self.assertLess(z, 10)
+        self.assertGreater(z, 10 - self.sink(mass))
+
+    def test_hull_lands_flat(self):
+        """The prism landing flat under the default, stiff law rests level:
+        its base is clipped against the plate face to face, all its corners
+        at once, not one a query"""
+        plate = self.plate()
+        prism = self.assembly.newObject("Part::Prism", "Prism")
+        prism.Polygon = 6
+        prism.Circumradius = 5
+        prism.Height = 5
+        prism.Placement.Base = App.Vector(0, 0, 11)
+        self.contact([prism], [plate])
+        _, result = self.simulate(0.2, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(prism)[-1], 10, delta=1e-4)
+        self.assertLess(self.tilt(prism), 1e-4)
+
+    def test_cylinder_on_its_cap(self):
+        """A cylinder landing on its cap rests level on it: the cap's rim
+        clipped against the plate"""
+        plate = self.plate()
+        cylinder = self.cylinder(5, App.Placement(App.Vector(0, 0, 11), App.Rotation()))
+        self.contact([cylinder], [plate])
+        _, result = self.simulate(0.2, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(cylinder)[-1], 10, delta=1e-4)
+        self.assertLess(self.tilt(cylinder), 1e-4)
+
+    def test_cylinder_tips_onto_its_cap(self):
+        """A tall cylinder landing tilted on its rim tips onto its cap and
+        rests there, upright"""
+        plate = self.plate()
+        cylinder = self.cylinder(
+            20, App.Placement(App.Vector(0, 10, 16), App.Rotation(App.Vector(1, 0, 0), 20))
+        )
+        self.contact([cylinder], [plate])
+        _, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(cylinder)[-1], 10, delta=1e-4)
+        self.assertLess(self.tilt(cylinder), 1e-4)
+
+    def test_cylinder_on_its_side(self):
+        """A cylinder landing on its side rests on the line along it, its
+        axis a radius above the plate, and stays where it landed"""
+        plate = self.plate()
+        cylinder = self.cylinder(
+            20, App.Placement(App.Vector(0, 10, 16), App.Rotation(App.Vector(1, 0, 0), 90))
+        )
+        self.contact([cylinder], [plate])
+        _, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        # Its placement is on its axis, at a cap's centre
+        self.assertAlmostEqual(self.heights(cylinder)[-1], 15, delta=1e-4)
+        self.assertAlmostEqual(self.tilt(cylinder), math.pi / 2, delta=1e-4)
+        self.assertLess(abs(cylinder.Placement.Base.x), 0.01)
+
+    def test_not_convex_refused(self):
+        """A solid neither a primitive nor convex is refused, by name"""
+        import Part
+
+        plate = self.plate()
+        notch = self.assembly.newObject("Part::Feature", "Notch")
+        notch.Shape = Part.makeBox(10, 10, 10).cut(Part.makeBox(6, 6, 6, App.Vector(4, 4, 4)))
+        notch.Placement.Base = App.Vector(0, 0, 12)
+        self.contact([notch], [plate])
+        _, result = self.simulate(0.01, 1e-3)
+        self.assertEqual(result, -1)
+
+    def test_outside_the_set(self):
+        """A set touches only its own pairs: a ball whose set pairs it with
+        another ball, far off, falls through the plate"""
+        plate = self.plate()
+        ball = self.ball(16)
+        other = self.ball(16)
+        other.Placement.Base.x = 100
+        self.contact([ball, other], [], **self.SOFT)
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        self.assertLess(self.heights(ball)[-1], 0)

@@ -32,6 +32,7 @@ set(Assembly_Scripts
     CommandCreateSpring.py
     CommandCreateLoad.py
     CommandCreateBushing.py
+    CommandCreateContact.py
     SimulationTrace.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
@@ -70,6 +71,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestInterference.py
     AssemblyTests/TestMassProperties.py
     AssemblyTests/TestDynamics.py
+    AssemblyTests/TestContact.py
     AssemblyTests/TestSpringEnds.py
     AssemblyTests/TestCommandCreateView.py
     AssemblyTests/TestCommandInsertLink.py

@@ -106,15 +106,32 @@
 #include <exception>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <numbers>
+#include <set>
 #include <sstream>
+#include <stdexcept>
 
 #include <Eigen/Dense>
 
+#include <chrono/collision/ChCollisionModel.h>
+#include <chrono/collision/ChCollisionShapeBox.h>
+#include <chrono/collision/ChCollisionShapeConvexHull.h>
+#include <chrono/collision/ChCollisionShapeCylinder.h>
+#include <chrono/collision/ChCollisionShapeSphere.h>
+#include <chrono/collision/ChCollisionSystem.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtBoxShape.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtCompoundShape.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexHullShape.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.h>
+#include <chrono/collision/bullet/BulletCollision/NarrowPhaseCollision/cbtPolyhedralContactClipping.h>
+#include <chrono/collision/bullet/ChCollisionModelBullet.h>
+#include <chrono/collision/bullet/ChCollisionSystemBullet.h>
 #include <chrono/core/ChFrame.h>
 #include <chrono/functions/ChFunctionBase.h>
 #include <chrono/functions/ChFunctionConst.h>
 #include <chrono/physics/ChBody.h>
+#include <chrono/physics/ChContactMaterialNSC.h>
 #include <chrono/physics/ChLinkDistance.h>
 #include <chrono/physics/ChLinkLockGear.h>
 #include <chrono/physics/ChLinkMate.h>
@@ -486,6 +503,418 @@ public:
                 frame_Bw.TransformDirectionLocalToParent(locB_torque)};
     }
 };
+
+// ---------------------------------------------------------------- contact
+
+// Adams' STEP: h0 below x0, h1 above x1, a cubic between them
+double step(double x, double x0, double h0, double x1, double h1)
+{
+    if (x <= x0) {
+        return h0;
+    }
+    if (x >= x1) {
+        return h1;
+    }
+    const double u = (x - x0) / (x1 - x0);
+    return h0 + (h1 - h0) * u * u * (3.0 - 2.0 * u);
+}
+
+// The contact between two bodies a contact set lets touch (ContactPair,
+// docs/AssemblyDynamics.md sec 7, phase D2): the points collision detection
+// found at the step's start, each a point on either body and the normal
+// from A to B there, the normal kept for the step. At every state the
+// integrator asks for -- each Newton iteration's -- the gap is the normal's
+// component of B's point from A's, the penetration its opposite, and the
+// impact law and friction give the force on B at its point, its opposite on
+// A at A's. Chrono's numerical jacobian of that makes the contact implicit,
+// so a part resting on another needs no step shorter than the contact's.
+class ContactLoad: public ch::ChLoadBodyBody
+{
+public:
+    struct Point
+    {
+        ch::ChVector3d onA;     // in A's frame
+        ch::ChVector3d onB;     // in B's frame
+        ch::ChVector3d normal;  // absolute, from A to B
+    };
+
+    ContactLoad(std::shared_ptr<ch::ChBody> a,
+                std::shared_ptr<ch::ChBody> b,
+                const ContactLaw& law,
+                std::size_t set)
+        : ch::ChLoadBodyBody(a, b, ch::ChFramed(b->GetPos(), b->GetRot()))
+        , law(law)
+        , set(set)
+    {}
+
+    ContactLoad* Clone() const override
+    {
+        return new ContactLoad(*this);
+    }
+    bool IsStiff() override
+    {
+        return true;
+    }
+    void ComputeBodyBodyForceTorque(const ch::ChFrameMoving<>&,
+                                    ch::ChVector3d& force,
+                                    ch::ChVector3d& moment) override
+    {
+        force = ch::VNULL;
+        moment = ch::VNULL;
+    }
+    void ComputeQ(ch::ChState* state_x, ch::ChStateDelta* state_w) override
+    {
+        auto bodyA = std::dynamic_pointer_cast<ch::ChBody>(loadables[0]);
+        auto bodyB = std::dynamic_pointer_cast<ch::ChBody>(loadables[1]);
+        ch::ChFrameMoving<> a;
+        ch::ChFrameMoving<> b;
+        if (state_x) {
+            a.SetCoordsys(state_x->segment(0, 7));
+            b.SetCoordsys(state_x->segment(7, 7));
+        }
+        else {
+            a.SetCoordsys(bodyA->GetCoordsys());
+            b.SetCoordsys(bodyB->GetCoordsys());
+        }
+        if (state_w) {
+            a.SetPosDt(state_w->segment(0, 3));
+            a.SetAngVelLocal(state_w->segment(3, 3));
+            b.SetPosDt(state_w->segment(6, 3));
+            b.SetAngVelLocal(state_w->segment(9, 3));
+        }
+        else {
+            a.SetCoordsysDt(bodyA->GetCoordsysDt());
+            b.SetCoordsysDt(bodyB->GetCoordsysDt());
+        }
+        load_Q.setZero();
+        onB = ch::VNULL;
+        count = 0;
+        for (const Point& point : points) {
+            const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
+            const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
+            const double depth = -ch::Vdot(point.normal, pB - pA);
+            if (!(depth > 0.0)) {
+                continue;
+            }
+            const ch::ChVector3d relative =
+                b.PointSpeedLocalToParent(point.onB) - a.PointSpeedLocalToParent(point.onA);
+            const double rate = -ch::Vdot(point.normal, relative);
+            double normal = law.stiffness * std::pow(depth, law.exponent)
+                + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate;
+            if (!(normal > 0.0)) {
+                continue;
+            }
+            ch::ChVector3d f = point.normal * normal;
+            const ch::ChVector3d sliding =
+                relative - point.normal * ch::Vdot(point.normal, relative);
+            const double speed = sliding.Length();
+            if (speed > 0.0 && law.muStatic > 0.0) {
+                const double mu = speed < law.vStiction
+                    ? step(speed, 0.0, 0.0, law.vStiction, law.muStatic)
+                    : step(speed, law.vStiction, law.muStatic, law.vFriction, law.muDynamic);
+                f -= sliding * (mu * normal / speed);
+            }
+            // f on B at pB, -f on A at pA; the torques in each body's axes
+            load_Q.segment(6, 3) += f.eigen();
+            load_Q.segment(9, 3) += b.GetRot().RotateBack(ch::Vcross(pB - b.GetPos(), f)).eigen();
+            load_Q.segment(0, 3) -= f.eigen();
+            load_Q.segment(3, 3) -= a.GetRot().RotateBack(ch::Vcross(pA - a.GetPos(), f)).eigen();
+            onB += f;
+            ++count;
+        }
+    }
+    // Chrono's numerical jacobian leaves the load at its last perturbed
+    // state: put back the one at the state
+    void ComputeJacobian(ch::ChState* state_x, ch::ChStateDelta* state_w) override
+    {
+        ch::ChLoadBodyBody::ComputeJacobian(state_x, state_w);
+        ComputeQ(state_x, state_w);
+    }
+
+    ContactLaw law;
+    std::size_t set = 0;  // the ContactPair's index
+    std::vector<Point> points;
+    // At the last state ComputeQ was given: the force on B, absolute, and
+    // the points pressing
+    ch::ChVector3d onB;
+    int count = 0;
+};
+
+// Bullet's collision detection, with several points per pair at once where
+// a face rests on a face: a convex pair's GJK gives one point a query, and
+// its manifold gathers more only over the following steps, so a hexagonal
+// prism landing flat first touched at one corner -- a spin of 100 rad/s from
+// a fall of a millimetre. A pair of boxes or hulls is clipped face against
+// face (addPolyhedralFeatures()), its separating axis by SAT; a cylinder's
+// cap or side on a box's or a hull's face is clipped the same way
+// (cylinderPoints()). Not Bullet's perturbation of a pair's orientation for
+// more points: they were up to 20 um off on a flat face, and a ball's bounce
+// on a plate lost half a percent of its height to them.
+class ContactCollisionSystem: public ch::ChCollisionSystemBullet
+{
+public:
+    ContactCollisionSystem()
+    {
+        bt_collision_world->getDispatchInfo().m_enableSatConvex = true;
+    }
+    void addPolyhedralFeatures(
+        ch::ChCollisionModel& model,
+        std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*>& features);
+};
+
+// A model's boxes and hulls with their polyhedral features, for Bullet to
+// clip a pair of them face against face: all the points of a face resting
+// on another at once, and exact. The perturbation's points were up to 20 um
+// off on a flat face, so a hexagonal prism landing flat took its impact on
+// one corner and the contact's Newton iterations ran off to NaN. The
+// features are of the shape Chrono reports contacts on, the true one grown
+// by the envelope: a box's vertices are that. A hull's are shrunk by the
+// margin Chrono gives back as Bullet's rounding, and Chrono's hull of its
+// points merges any within a millimetre of each other, so its features are
+// the exact hull of its points, each face moved out by the envelope and
+// each vertex onto its faces' planes.
+void ContactCollisionSystem::addPolyhedralFeatures(
+    ch::ChCollisionModel& model,
+    std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*>& features)
+{
+    if (!model.HasImplementation()) {
+        return;
+    }
+    // Its Bullet object, the one whose user pointer is the model's Bullet
+    // half
+    cbtCollisionShape* top = nullptr;
+    const auto& objects = bt_collision_world->getCollisionObjectArray();
+    for (int i = 0; i < objects.size() && !top; ++i) {
+        if (objects[i]->getUserPointer() == model.GetImplementation()) {
+            top = objects[i]->getCollisionShape();
+        }
+    }
+    if (!top) {
+        return;
+    }
+    auto* compound = top->getShapeType() == COMPOUND_SHAPE_PROXYTYPE
+        ? static_cast<cbtCompoundShape*>(top)
+        : nullptr;
+    const auto& instances = model.GetShapeInstances();
+    if (compound ? compound->getNumChildShapes() != static_cast<int>(instances.size())
+                 : instances.size() != 1) {
+        return;
+    }
+    for (std::size_t i = 0; i < instances.size(); ++i) {
+        cbtCollisionShape* shape = compound ? compound->getChildShape(static_cast<int>(i)) : top;
+        switch (instances[i].shape->GetType()) {
+            case ch::ChCollisionShape::Type::BOX: {
+                auto* box = static_cast<cbtBoxShape*>(shape);
+                if (box->initializePolyhedralFeatures()) {
+                    features[instances[i].shape.get()] = box->getConvexPolyhedron();
+                }
+                break;
+            }
+            case ch::ChCollisionShape::Type::CONVEXHULL: {
+                auto hull =
+                    std::static_pointer_cast<ch::ChCollisionShapeConvexHull>(instances[i].shape);
+                cbtConvexHullShape exact;
+                for (const auto& v : hull->GetPoints()) {
+                    exact.addPoint(cbtVector3(static_cast<cbtScalar>(v.x()),
+                                              static_cast<cbtScalar>(v.y()),
+                                              static_cast<cbtScalar>(v.z())),
+                                   false);
+                }
+                exact.setMargin(0);
+                if (exact.getNumPoints() < 4 || !exact.initializePolyhedralFeatures()) {
+                    break;
+                }
+                cbtConvexPolyhedron grown = *exact.getConvexPolyhedron();
+                const cbtScalar grow = static_cast<cbtScalar>(model.GetEnvelope());
+                std::vector<ch::ChMatrix33d> normals(grown.m_vertices.size(),
+                                                     ch::ChMatrix33d::Zero());
+                std::vector<ch::ChVector3d> sums(grown.m_vertices.size(), ch::VNULL);
+                for (int f = 0; f < grown.m_faces.size(); ++f) {
+                    cbtFace& face = grown.m_faces[f];
+                    const ch::ChVector3d n(face.m_plane[0], face.m_plane[1], face.m_plane[2]);
+                    for (int k = 0; k < face.m_indices.size(); ++k) {
+                        const auto v = static_cast<std::size_t>(face.m_indices[k]);
+                        normals[v] += ch::TensorProduct(n, n);
+                        sums[v] += n;
+                    }
+                    face.m_plane[3] -= grow;
+                }
+                // Each vertex by the least squares offset whose component
+                // along each of its faces' normals is the growth
+                bool solved = true;
+                for (int v = 0; v < grown.m_vertices.size() && solved; ++v) {
+                    const ch::ChMatrix33d& m = normals[static_cast<std::size_t>(v)];
+                    solved = std::abs(m.determinant()) > 1e-9;
+                    if (solved) {
+                        const ch::ChVector3d offset = ch::ChMatrix33d(m.inverse())
+                            * (sums[static_cast<std::size_t>(v)] * grow);
+                        grown.m_vertices[v] += cbtVector3(static_cast<cbtScalar>(offset.x()),
+                                                          static_cast<cbtScalar>(offset.y()),
+                                                          static_cast<cbtScalar>(offset.z()));
+                    }
+                }
+                if (!solved) {
+                    break;
+                }
+                grown.m_uniqueEdges.clear();
+                grown.initialize();
+                auto* convex = static_cast<cbtConvexHullShape*>(shape);
+                convex->setPolyhedralFeatures(grown);
+                features[instances[i].shape.get()] = convex->getConvexPolyhedron();
+                break;
+            }
+            default:
+                break;
+        }
+    }
+}
+
+// A contact shape where it is: on its body at its frame, a cylinder's
+// radius and half length, a box's or a hull's polyhedral features
+struct ShapeOn
+{
+    ch::ChBody* body = nullptr;
+    ch::ChFramed frame;
+    double radius = 0.0;  // a cylinder's, 0 for any other
+    double half = 0.0;
+    const cbtConvexPolyhedron* features = nullptr;
+    double envelope = 0.0;
+};
+
+// A point of a cylinder's contact, on it and on the other shape
+struct CylinderPoint
+{
+    ch::ChVector3d onCylinder;
+    ch::ChVector3d onOther;
+};
+
+// The points of a cylinder's contact with a box's or a hull's face, the
+// normal from that face to the cylinder in normal: its cap (its normal
+// within 60 degrees of the cylinder's axis) as a polygon of its rim, or its
+// side as the segment between its caps' points nearest the face, clipped to
+// the face, each point within reach of it. Bullet's GJK gives a cylinder one
+// point a query, a different one of its rim each time it lands flat on its
+// cap. False when there is no such face: the pair keeps GJK's points.
+bool cylinderPoints(const ShapeOn& cylinder,
+                    const ShapeOn& other,
+                    const ch::ChVector3d& toOther,
+                    double reach,
+                    std::vector<CylinderPoint>& points,
+                    ch::ChVector3d& normal)
+{
+    points.clear();
+    if (!other.features || other.features->m_faces.size() == 0) {
+        return false;
+    }
+    const ch::ChFramed o = other.frame >> *other.body;
+    const ch::ChMatrix33d& r = o.GetRotMat();
+    cbtTransform where;
+    where.setOrigin(cbtVector3(static_cast<cbtScalar>(o.GetPos().x()),
+                               static_cast<cbtScalar>(o.GetPos().y()),
+                               static_cast<cbtScalar>(o.GetPos().z())));
+    where.setBasis(cbtMatrix3x3(static_cast<cbtScalar>(r(0, 0)),
+                                static_cast<cbtScalar>(r(0, 1)),
+                                static_cast<cbtScalar>(r(0, 2)),
+                                static_cast<cbtScalar>(r(1, 0)),
+                                static_cast<cbtScalar>(r(1, 1)),
+                                static_cast<cbtScalar>(r(1, 2)),
+                                static_cast<cbtScalar>(r(2, 0)),
+                                static_cast<cbtScalar>(r(2, 1)),
+                                static_cast<cbtScalar>(r(2, 2))));
+    // The face, the one turned most against toOther; its plane is grown by
+    // the envelope, as the features are
+    const cbtConvexPolyhedron& hull = *other.features;
+    int closest = 0;
+    cbtScalar least = std::numeric_limits<cbtScalar>::max();
+    for (int f = 0; f < hull.m_faces.size(); ++f) {
+        const cbtScalar* plane = hull.m_faces[f].m_plane;
+        const cbtVector3 n = where.getBasis() * cbtVector3(plane[0], plane[1], plane[2]);
+        const cbtScalar d = n.x() * toOther.x() + n.y() * toOther.y() + n.z() * toOther.z();
+        if (d < least) {
+            least = d;
+            closest = f;
+        }
+    }
+    const cbtScalar* plane = hull.m_faces[closest].m_plane;
+    const cbtVector3 faceNormal = where.getBasis() * cbtVector3(plane[0], plane[1], plane[2]);
+    normal = ch::ChVector3d(faceNormal.x(), faceNormal.y(), faceNormal.z());
+    // The cylinder's feature toward the face, by the face's normal, not
+    // GJK's, which a flat contact leaves to chance and a manifold keeps from
+    // an older step
+    const ch::ChVector3d into = -normal;
+    const ch::ChFramed c = cylinder.frame >> *cylinder.body;
+    const ch::ChVector3d axis = c.GetRotMat().GetAxisZ();
+    const double along = ch::Vdot(axis, into);
+    const ch::ChVector3d side = into - axis * along;
+    const double sideLength = side.Length();
+    cbtVertexArray polygon;
+    auto add = [&](const ch::ChVector3d& p) {
+        polygon.push_back(cbtVector3(static_cast<cbtScalar>(p.x()),
+                                     static_cast<cbtScalar>(p.y()),
+                                     static_cast<cbtScalar>(p.z())));
+    };
+    if (std::abs(along) >= 0.5) {
+        const ch::ChVector3d center =
+            c.GetPos() + axis * (along > 0.0 ? cylinder.half : -cylinder.half);
+        // From the rim's point nearest the face: exact where the cylinder
+        // stands tilted on it
+        const ch::ChVector3d u = sideLength > 1e-9 ? side / sideLength : c.GetRotMat().GetAxisX();
+        const ch::ChVector3d v = ch::Vcross(axis, u);
+        constexpr int rim = 16;
+        for (int k = 0; k < rim; ++k) {
+            const double angle = 2.0 * pi * k / rim;
+            add(center + (u * std::cos(angle) + v * std::sin(angle)) * cylinder.radius);
+        }
+    }
+    else {
+        if (!(sideLength > 1e-9)) {
+            return false;
+        }
+        const ch::ChVector3d out = side / sideLength * cylinder.radius;
+        add(c.GetPos() + axis * cylinder.half + out);
+        add(c.GetPos() - axis * cylinder.half + out);
+    }
+    const cbtVector3 separating(static_cast<cbtScalar>(into.x()),
+                                static_cast<cbtScalar>(into.y()),
+                                static_cast<cbtScalar>(into.z()));
+    struct Collect: cbtDiscreteCollisionDetectorInterface::Result
+    {
+        std::vector<std::pair<cbtVector3, cbtScalar>> found;
+        void setShapeIdentifiersA(int, int) override
+        {}
+        void setShapeIdentifiersB(int, int) override
+        {}
+        void addContactPoint(const cbtVector3&, const cbtVector3& point, cbtScalar depth) override
+        {
+            found.emplace_back(point, depth);
+        }
+    } collect;
+    cbtVertexArray scratch;
+    cbtPolyhedralContactClipping::clipFaceAgainstHull(
+        separating,
+        hull,
+        where,
+        polygon,
+        scratch,
+        -std::numeric_limits<cbtScalar>::max(),
+        static_cast<cbtScalar>(reach - other.envelope),
+        collect);
+    for (const auto& [point, depth] : collect.found) {
+        const ch::ChVector3d p(point.x(), point.y(), point.z());
+        // A segment's clipped end comes twice
+        bool again = false;
+        for (const auto& known : points) {
+            again = again || (known.onCylinder - p).Length2() < 1e-18;
+        }
+        if (again) {
+            continue;
+        }
+        // Its gap from the true face, the envelope inside the grown one
+        const double gap = static_cast<double>(depth) + other.envelope;
+        points.push_back({p, p - normal * gap});
+    }
+    return !points.empty();
+}
 
 // ---------------------------------------------------------------- NeutralLink
 
@@ -3015,6 +3444,250 @@ Status ChronoSession::simulateDynamics(
         sys.AddLink(spring);
         springs.emplace_back(force.source, spring);
     }
+    // Contact (sec 7, phase D2): each shape on its frame's body, collision
+    // detection by Bullet making no contact of Chrono's own (its SMC contact
+    // force is explicit, fixed over a step), and a ContactLoad per pair of
+    // bodies a set lets touch, given the points found at each step's start
+    std::vector<std::shared_ptr<ContactLoad>> contactLoads;
+    struct Found
+    {
+        ContactLoad* load = nullptr;
+        bool swapped = false;  // the info's A is the load's B
+        ch::ChVector3d pA, pB, normal;
+        const ch::ChCollisionShape* shapeA = nullptr;
+        const ch::ChCollisionShape* shapeB = nullptr;
+    };
+    struct ContactFinder: ch::ChCollisionSystem::NarrowphaseCallback
+    {
+        std::map<std::pair<const ch::ChContactable*, const ch::ChContactable*>, ContactLoad*> loads;
+        std::vector<Found> found;
+        bool OnNarrowphase(ch::ChCollisionInfo& info) override
+        {
+            const ch::ChContactable* a = info.modelA ? info.modelA->GetContactable() : nullptr;
+            const ch::ChContactable* b = info.modelB ? info.modelB->GetContactable() : nullptr;
+            auto it = loads.find({a, b});
+            // Bullet's EPA can fail to a zero normal, which Chrono normalises
+            // to NaN: a point without a direction is no contact
+            const bool usable = std::isfinite(info.vN.x()) && std::isfinite(info.vN.y())
+                && std::isfinite(info.vN.z()) && std::abs(info.vN.Length() - 1.0) < 1e-6
+                && std::isfinite(info.vpA.Length()) && std::isfinite(info.vpB.Length());
+            if (it != loads.end() && usable) {
+                const bool swapped =
+                    static_cast<const ch::ChContactable*>(it->second->GetBodyA().get()) != a;
+                found.push_back(
+                    {it->second, swapped, info.vpA, info.vpB, info.vN, info.shapeA, info.shapeB});
+            }
+            // Never one of Chrono's contacts
+            return false;
+        }
+    };
+    struct ContactHandover: ch::ChSystem::CustomCollisionCallback
+    {
+        std::shared_ptr<ContactFinder> finder;
+        std::vector<std::shared_ptr<ContactLoad>>* loads = nullptr;
+        const std::map<const ch::ChCollisionShape*, ShapeOn>* shapes = nullptr;
+        std::shared_ptr<std::map<const ch::ChCollisionShape*, ShapeOn>> keep;
+        double reach = 0.0;
+        void OnCustomCollision(ch::ChSystem*) override
+        {
+            for (auto& load : *loads) {
+                load->points.clear();
+            }
+            // A point in the info's terms to its load's: the load's A first,
+            // the normal from its A to its B
+            auto handOver = [](const Found& f,
+                               const ch::ChVector3d& pA,
+                               const ch::ChVector3d& pB,
+                               const ch::ChVector3d& normal) {
+                ContactLoad& load = *f.load;
+                load.points.push_back(
+                    {load.GetBodyA()->TransformPointParentToLocal(f.swapped ? pB : pA),
+                     load.GetBodyB()->TransformPointParentToLocal(f.swapped ? pA : pB),
+                     f.swapped ? -normal : normal});
+            };
+            auto on = [&](const ch::ChCollisionShape* shape) -> const ShapeOn* {
+                auto it = shapes->find(shape);
+                return it == shapes->end() ? nullptr : &it->second;
+            };
+            // A cylinder's pair with a face: its points once, in place of
+            // all GJK's
+            std::set<std::pair<const ch::ChCollisionShape*, const ch::ChCollisionShape*>> done;
+            std::vector<CylinderPoint> points;
+            ch::ChVector3d normal;
+            for (const Found& f : finder->found) {
+                const ShapeOn* a = on(f.shapeA);
+                const ShapeOn* b = on(f.shapeB);
+                const bool cylinderA = a && a->radius > 0.0 && b && b->features;
+                const bool cylinderB = b && b->radius > 0.0 && a && a->features;
+                if (!cylinderA && !cylinderB) {
+                    handOver(f, f.pA, f.pB, f.normal);
+                    continue;
+                }
+                if (done.count({f.shapeA, f.shapeB})) {
+                    continue;
+                }
+                const bool clipped = cylinderA
+                    ? cylinderPoints(*a, *b, f.normal, reach, points, normal)
+                    : cylinderPoints(*b, *a, -f.normal, reach, points, normal);
+                if (!clipped) {
+                    handOver(f, f.pA, f.pB, f.normal);
+                    continue;
+                }
+                done.insert({f.shapeA, f.shapeB});
+                for (const CylinderPoint& point : points) {
+                    // normal is from the face, info's A to B as f.normal
+                    if (cylinderA) {
+                        handOver(f, point.onCylinder, point.onOther, -normal);
+                    }
+                    else {
+                        handOver(f, point.onOther, point.onCylinder, normal);
+                    }
+                }
+            }
+            finder->found.clear();
+        }
+    };
+    const bool contact = !si.dynamics->contacts.empty();
+    if (contact) {
+        // Bullet grows each shape by the envelope and rounds it by the
+        // margin, and a contact's points are where those put them: Chrono's
+        // defaults (3 cm, 1 cm) are a part's size here, and an envelope of
+        // 2 mm put a 10 mm box's corners 2 mm out. A small envelope, then; a
+        // contact it does not see coming is found by the step that goes too
+        // deep (advance()). The margin stays above the penetrations: deeper,
+        // Bullet takes a convex pair by EPA, whose normals are noisy -- a
+        // hexagonal prism rocking on a plate until it flew off. Chrono caps
+        // it at a tenth of the shape's least size.
+        constexpr double envelope = 2e-5;
+        constexpr double margin = 1e-4;
+        ch::ChCollisionModel::SetDefaultSuggestedEnvelope(envelope);
+        ch::ChCollisionModel::SetDefaultSuggestedMargin(margin);
+        auto collision = std::make_shared<ContactCollisionSystem>();
+        sys.SetCollisionSystem(collision);
+        auto material = std::make_shared<ch::ChContactMaterialNSC>();
+        std::vector<ch::ChBody*> shapeBody(si.dynamics->contactShapes.size(), nullptr);
+        auto shapesOn = std::make_shared<std::map<const ch::ChCollisionShape*, ShapeOn>>();
+        for (std::size_t k = 0; k < si.dynamics->contactShapes.size(); ++k) {
+            const ContactShape& shape = si.dynamics->contactShapes[k];
+            if (!run.d->validFrame(shape.frame)) {
+                continue;
+            }
+            std::shared_ptr<ch::ChCollisionShape> made;
+            switch (shape.kind) {
+                case ContactShape::Kind::Sphere:
+                    made = std::make_shared<ch::ChCollisionShapeSphere>(material, shape.size.x);
+                    break;
+                case ContactShape::Kind::Box:
+                    made = std::make_shared<ch::ChCollisionShapeBox>(material,
+                                                                     shape.size.x,
+                                                                     shape.size.y,
+                                                                     shape.size.z);
+                    break;
+                case ContactShape::Kind::Cylinder:
+                    made = std::make_shared<ch::ChCollisionShapeCylinder>(material,
+                                                                          shape.size.x,
+                                                                          shape.size.z);
+                    break;
+                case ContactShape::Kind::ConvexHull: {
+                    std::vector<ch::ChVector3d> points;
+                    points.reserve(shape.points.size());
+                    for (const auto& point : shape.points) {
+                        points.push_back(toCh(point));
+                    }
+                    made = std::make_shared<ch::ChCollisionShapeConvexHull>(material, points);
+                    break;
+                }
+            }
+            auto body = run.d->bodyOf(shape.frame);
+            body->AddCollisionShape(made, run.d->localOf(shape.frame));
+            body->GetCollisionModel()->SetEnvelope(envelope);
+            body->GetCollisionModel()->SetSafeMargin(margin);
+            body->EnableCollision(true);
+            shapeBody[k] = body.get();
+            ShapeOn& where = (*shapesOn)[made.get()];
+            where.body = body.get();
+            where.frame = run.d->localOf(shape.frame);
+            where.envelope = envelope;
+            if (shape.kind == ContactShape::Kind::Cylinder) {
+                where.radius = shape.size.x;
+                where.half = 0.5 * shape.size.z;
+            }
+        }
+        auto finder = std::make_shared<ContactFinder>();
+        // A load per pair of bodies a set lets touch, the first set's law
+        auto pairUp = [&](ch::ChBody* x, ch::ChBody* y, std::size_t set) {
+            if (!x || !y || x == y || (x->IsFixed() && y->IsFixed())
+                || finder->loads.count({x, y})) {
+                return;
+            }
+            std::shared_ptr<ch::ChBody> first;
+            std::shared_ptr<ch::ChBody> second;
+            auto own = [&](ch::ChBody* raw) {
+                if (raw == run.d->world.get()) {
+                    return run.d->world;
+                }
+                for (const auto& body : run.d->bodies) {
+                    if (body.get() == raw) {
+                        return body;
+                    }
+                }
+                return std::shared_ptr<ch::ChBody>();
+            };
+            first = own(x);
+            second = own(y);
+            if (!first || !second) {
+                return;
+            }
+            auto load =
+                std::make_shared<ContactLoad>(first, second, si.dynamics->contacts[set].law, set);
+            loads->Add(load);
+            contactLoads.push_back(load);
+            finder->loads[{x, y}] = load.get();
+            finder->loads[{y, x}] = load.get();
+        };
+        for (std::size_t set = 0; set < si.dynamics->contacts.size(); ++set) {
+            const ContactPair& pair = si.dynamics->contacts[set];
+            auto bodyOf = [&](Id shape) {
+                return shape < shapeBody.size() ? shapeBody[shape] : nullptr;
+            };
+            if (pair.groupB.empty()) {
+                for (std::size_t i = 0; i < pair.groupA.size(); ++i) {
+                    for (std::size_t j = i + 1; j < pair.groupA.size(); ++j) {
+                        pairUp(bodyOf(pair.groupA[i]), bodyOf(pair.groupA[j]), set);
+                    }
+                }
+            }
+            else {
+                for (Id x : pair.groupA) {
+                    for (Id y : pair.groupB) {
+                        pairUp(bodyOf(x), bodyOf(y), set);
+                    }
+                }
+            }
+        }
+        collision->RegisterNarrowphaseCallback(finder);
+        auto handover = std::make_shared<ContactHandover>();
+        handover->finder = finder;
+        handover->loads = &contactLoads;
+        handover->shapes = shapesOn.get();
+        handover->reach = margin;
+        handover->keep = shapesOn;
+        sys.RegisterCustomCollisionCallback(handover);
+        collision->Initialize();
+        std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*> features;
+        std::set<ch::ChBody*> withShapes(shapeBody.begin(), shapeBody.end());
+        for (ch::ChBody* body : withShapes) {
+            if (body) {
+                collision->addPolyhedralFeatures(*body->GetCollisionModel(), features);
+            }
+        }
+        for (const auto& [shape, polyhedron] : features) {
+            auto it = shapesOn->find(shape);
+            if (it != shapesOn->end()) {
+                it->second.features = polyhedron;
+            }
+        }
+    }
     // The motions, as motors: an angle or a distance, a speed, or a torque or
     // a force (sec 5.2), the formulas in SI with the model
     for (const auto& driver : si.drivers) {
@@ -3088,7 +3761,7 @@ Status ChronoSession::simulateDynamics(
     // HHT, which needs a direct solver: the load set LUThenQR
     sys.SetTimestepperType(ch::ChTimestepper::Type::HHT);
     if (auto hht = std::dynamic_pointer_cast<ch::ChTimestepperHHT>(sys.GetTimestepper())) {
-        hht->SetAlpha(-0.2);
+        hht->SetAlpha(contact ? -1.0 / 3.0 : -0.2);
         hht->SetMaxIters(20);
         hht->SetStepControl(false);
     }
@@ -3186,6 +3859,9 @@ Status ChronoSession::simulateDynamics(
     for (const auto& bushing : bushings) {
         channels.push_back({si.sourceName(bushing.first), "BushingForce", 3});
         channels.push_back({si.sourceName(bushing.first), "BushingTorque", 3});
+    }
+    for (const auto& pair : si.dynamics->contacts) {
+        channels.push_back({si.sourceName(pair.source), "ContactForce", 3});
     }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
@@ -3398,6 +4074,18 @@ Status ChronoSession::simulateDynamics(
                 out.push_back(w.torque[k] / SI::torque);
             }
         }
+        // A set's: the force its group A's bodies take, each load's A
+        // being the A side (a set within A: its first body)
+        std::vector<ch::ChVector3d> onSet(si.dynamics->contacts.size());
+        for (const auto& load : contactLoads) {
+            load->ComputeQ(nullptr, nullptr);
+            onSet[load->set] -= load->onB;
+        }
+        for (const auto& force : onSet) {
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(force[k] / SI::force);
+            }
+        }
         return out;
     };
     // Inverse dynamics (a Kinematic run's reactions, sec 6.3): the poses
@@ -3523,6 +4211,10 @@ Status ChronoSession::simulateDynamics(
                     body->SetPosDt2(a / (delta * delta));
                     body->SetAngVelLocal(w / delta);
                     body->SetAngAccLocal(alpha / (delta * delta));
+                }
+                // The contacts of the pose: what a step would have found
+                if (contact) {
+                    sys.ComputeCollisions();
                 }
                 run.d->prepare();
                 const unsigned int nv = sys.GetNumCoordsVelLevel();
@@ -3672,6 +4364,195 @@ Status ChronoSession::simulateDynamics(
         }
         return true;
     };
+    // A step of dt, in substeps that resolve the impacts coming (sec 8.2,
+    // events): an impact on the default law is over in some tens of
+    // microseconds, and HHT taking it in one step of a millisecond -- a
+    // trapezoidal-family method on a stiff nonlinear spring -- gained energy,
+    // a box landing flat bouncing higher each time. From the contacts within
+    // the envelope: how deep an impact at the speed of approach goes (all of
+    // its kinetic energy into the law's spring, or the penetration now), the
+    // law's stiffness there, and the period of the lighter body on it; a
+    // substep is a twentieth of the shortest. The law's damping there too:
+    // a step longer than 2 m / c turns its decay into an oscillation, which
+    // the contact, pushing only, rectified into a kick -- a box at rest
+    // jumping 0.2 mm. A part resting on another is limited by neither: its
+    // period is milliseconds, its penetration a fraction of the damping's.
+    auto contactStep = [&]() {
+        double shortest = std::numeric_limits<double>::infinity();
+        double damped = std::numeric_limits<double>::infinity();
+        double arrival = std::numeric_limits<double>::infinity();
+        for (const auto& load : contactLoads) {
+            if (load->points.empty()) {
+                continue;
+            }
+            const auto a = load->GetBodyA();
+            const auto b = load->GetBodyB();
+            double mass = std::numeric_limits<double>::infinity();
+            for (const auto& body : {a, b}) {
+                if (!body->IsFixed() && body->GetMass() > 0.0) {
+                    mass = std::min(mass, body->GetMass());
+                }
+            }
+            if (!std::isfinite(mass)) {
+                continue;
+            }
+            // Its points are springs side by side on that mass: each holds
+            // its share
+            mass /= static_cast<double>(load->points.size());
+            const ContactLaw& law = load->law;
+            for (const auto& point : load->points) {
+                const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
+                const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
+                const double depth = -ch::Vdot(point.normal, pB - pA);
+                const double rate = -ch::Vdot(point.normal,
+                                              b->PointSpeedLocalToParent(point.onB)
+                                                  - a->PointSpeedLocalToParent(point.onA));
+                const double approach = std::max(rate, 0.0);
+                const double reach = std::pow((law.exponent + 1.0) * mass * approach * approach
+                                                  / (2.0 * law.stiffness),
+                                              1.0 / (law.exponent + 1.0));
+                const double deepest = std::max({depth, reach, 1e-12});
+                const double stiffness =
+                    law.exponent * law.stiffness * std::pow(deepest, law.exponent - 1.0);
+                if (!(stiffness > 0.0)) {
+                    continue;
+                }
+                const double period = 2.0 * pi * std::sqrt(mass / stiffness);
+                // Not touching yet: steps up to half the time it takes to,
+                // coming in at its speed and gravity's acceleration, the
+                // impact's once that is within its period. A step to the
+                // contact itself went in by what gravity added, and the
+                // Newton iterations of a stiff law that deep failed.
+                if (depth <= 0.0) {
+                    const double gap = -depth;
+                    const double root = std::sqrt(approach * approach + 2.0 * gravity * gap);
+                    if (!(approach + root > 0.0)) {
+                        continue;
+                    }
+                    const double toContact = 2.0 * gap / (approach + root);
+                    if (toContact > period) {
+                        arrival = std::min(arrival, 0.5 * toContact);
+                        continue;
+                    }
+                }
+                shortest = std::min(shortest, period);
+                const double damping = step(deepest, 0.0, 0.0, law.penetration, law.maxDamping);
+                if (damping > 0.0) {
+                    damped = std::min(damped, 2.0 * mass / damping);
+                }
+            }
+        }
+        return std::min({shortest / 50.0, damped, arrival});
+    };
+    // The deepest a load's points press now, -inf for none
+    auto pressing = [](const ContactLoad& load) {
+        double deepest = -std::numeric_limits<double>::infinity();
+        const auto a = load.GetBodyA();
+        const auto b = load.GetBodyB();
+        for (const auto& point : load.points) {
+            deepest = std::max(deepest,
+                               -ch::Vdot(point.normal,
+                                         b->TransformPointLocalToParent(point.onB)
+                                             - a->TransformPointLocalToParent(point.onA)));
+        }
+        return deepest;
+    };
+    // Whether a contact the last step found new is in too deep: deeper than a
+    // tenth of how deep its impact goes at the speed it comes in at. A
+    // contact found only once in -- the envelope is small -- had no force
+    // over the step that took it there, and its law's spring hands back
+    // what that depth stores: at a hundredth of a millimetre on the default
+    // law, fifteen times a falling box's energy.
+    auto late = [&](const ContactLoad& load) {
+        const auto a = load.GetBodyA();
+        const auto b = load.GetBodyB();
+        double mass = std::numeric_limits<double>::infinity();
+        for (const auto& body : {a, b}) {
+            if (!body->IsFixed() && body->GetMass() > 0.0) {
+                mass = std::min(mass, body->GetMass());
+            }
+        }
+        const ContactLaw& law = load.law;
+        for (const auto& point : load.points) {
+            const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
+            const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
+            const double depth = -ch::Vdot(point.normal, pB - pA);
+            if (!(depth > 1e-12)) {
+                continue;
+            }
+            const double rate = std::max(-ch::Vdot(point.normal,
+                                                   b->PointSpeedLocalToParent(point.onB)
+                                                       - a->PointSpeedLocalToParent(point.onA)),
+                                         0.0);
+            const double reach = std::isfinite(mass)
+                ? std::pow((law.exponent + 1.0) * mass * rate * rate / (2.0 * law.stiffness),
+                           1.0 / (law.exponent + 1.0))
+                : 0.0;
+            if (depth > 0.1 * reach) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // A step of dt, in substeps; a substep that found a contact late is taken
+    // again, an eighth as long, from the state before it, and the steps
+    // grow back after.
+    auto advance = [&](double dt) {
+        if (!contact) {
+            sys.DoStepDynamics(dt);
+            return;
+        }
+        const unsigned int nx = sys.GetNumCoordsPosLevel();
+        const unsigned int nv = sys.GetNumCoordsVelLevel();
+        ch::ChState x(nx, &sys);
+        ch::ChStateDelta v(nv, &sys);
+        ch::ChStateDelta a(nv, &sys);
+        double done = 0.0;
+        double cap = dt;
+        std::vector<double> before(contactLoads.size());
+        while (dt - done > 1e-12 * dt) {
+            double h = std::min({dt - done, cap, contactStep()});
+            if (dt - done - h < 1e-9 * dt) {
+                h = dt - done;
+            }
+            for (std::size_t i = 0; i < contactLoads.size(); ++i) {
+                before[i] = pressing(*contactLoads[i]);
+            }
+            double t = 0.0;
+            sys.StateGather(x, v, t);
+            sys.StateGatherAcceleration(a);
+            sys.DoStepDynamics(h);
+            // A step whose Newton iterations ran off -- a state not finite
+            // -- is taken again too, before collision detection sees it
+            bool finite = true;
+            for (const auto& body : run.d->bodies) {
+                finite = finite && std::isfinite(body->GetPos().Length2())
+                    && std::isfinite(body->GetRot().Length2())
+                    && std::isfinite(body->GetPosDt().Length2())
+                    && std::isfinite(body->GetAngVelLocal().Length2());
+            }
+            if (!finite && !(h > 1e-9)) {
+                sys.StateScatter(x, v, t, ch::UpdateFlags::UPDATE_ALL);
+                throw std::runtime_error("the contact's integration diverged");
+            }
+            bool tooDeep = !finite;
+            if (finite) {
+                sys.ComputeCollisions();
+                for (std::size_t i = 0; i < contactLoads.size() && !tooDeep; ++i) {
+                    tooDeep = before[i] <= 0.0 && late(*contactLoads[i]);
+                }
+            }
+            if (tooDeep && h > 1e-9) {
+                sys.StateScatter(x, v, t, ch::UpdateFlags::UPDATE_ALL);
+                sys.StateScatterAcceleration(a);
+                sys.ComputeCollisions();
+                cap = h / 8.0;
+                continue;
+            }
+            done += h;
+            cap = std::min(dt, cap * 2.0);
+        }
+    };
     const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
     const int maxRelaxSteps = 50000;
     auto kinetic = [&]() {
@@ -3719,7 +4600,7 @@ Status ChronoSession::simulateDynamics(
         for (int i = 0; i < maxRelaxSteps; ++i) {
             // Ending at the time held: a Position motion holds its value then
             sys.SetChTime(time - h);
-            sys.DoStepDynamics(h);
+            advance(h);
             run.d->commitAngles();
             handleStops(h, false);
             const double energy = kinetic();
@@ -3755,7 +4636,7 @@ Status ChronoSession::simulateDynamics(
         // error first order in the step
         assembleFull(moving ? 1 : 0);
         auto stepOnce = [&](double dt) {
-            sys.DoStepDynamics(dt);
+            advance(dt);
             // The neutral links count their turns from the angles last
             // committed: a pinion past half a turn read as the other way
             // round, the rack jumping a pitch

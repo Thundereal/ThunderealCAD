@@ -344,6 +344,54 @@ struct InitialVelocity
     Base::Vector3d w;  // rad/s
 };
 
+// Contact (sec 6.1, 7; phase D2). The law of a contact between two shapes,
+// d their penetration (the Adams/SOLIDWORKS impact law and friction, P7):
+//   normal  Fn = k d^e + STEP(d, 0, 0, dmax, cmax) dd/dt, never pulling;
+//   friction mu(v) Fn against the sliding velocity v, mu rising from 0 at
+//            rest to muStatic at vStiction and going to muDynamic at
+//            vFriction, Adams' STEP between them.
+struct ContactLaw
+{
+    double stiffness = 1e8;     // k, mN / mm^e (1e5 N/mm at e = 1)
+    double exponent = 1.5;      // e
+    double maxDamping = 1e4;    // cmax, mN s / mm (10 N s/mm)
+    double penetration = 0.01;  // dmax, mm
+    double muStatic = 0.3;
+    double muDynamic = 0.25;
+    double vStiction = 0.1;    // mm/s
+    double vFriction = 10.16;  // mm/s
+};
+
+// A solid's contact geometry (sec 7.1, the ladder's first two rungs): a
+// primitive the solid is, centred on its frame along its axes, or the convex
+// hull of points on it, in its frame. On a frame, as every force element is,
+// so that the reductions that move frames move it.
+struct ContactShape
+{
+    enum class Kind : std::uint8_t
+    {
+        Sphere,    // size.x the radius
+        Box,       // size the edges along x, y, z
+        Cylinder,  // along z: size.x the radius, size.z the height
+        ConvexHull
+    };
+    Id frame = NoId;
+    Kind kind {};
+    Base::Vector3d size;
+    std::vector<Base::Vector3d> points;
+};
+
+// A contact set: the shapes of group A touching those of group B, or, B
+// empty, those of A touching one another; never two shapes on one body.
+struct ContactPair
+{
+    Id id = NoId;
+    Id source = NoId;        // the document's set
+    std::vector<Id> groupA;  // ContactShape indices
+    std::vector<Id> groupB;
+    ContactLaw law;
+};
+
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has
 // none. Grows with phase D1: forces, tables, contact, stops, initial
 // velocities, sensors.
@@ -353,6 +401,8 @@ struct Dynamics
     std::vector<Inertia> inertias;  // one per body that has mass, by Inertia::body
     std::vector<ForceElement> forces;
     std::vector<InitialVelocity> initial;
+    std::vector<ContactShape> contactShapes;
+    std::vector<ContactPair> contacts;
 };
 
 struct Model

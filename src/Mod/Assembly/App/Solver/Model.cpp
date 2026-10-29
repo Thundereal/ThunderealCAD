@@ -147,6 +147,33 @@ bool same(const Inertia& a, const Inertia& b)
         && a.origin == b.origin;
 }
 
+bool same(const ContactLaw& a, const ContactLaw& b)
+{
+    return a.stiffness == b.stiffness && a.exponent == b.exponent && a.maxDamping == b.maxDamping
+        && a.penetration == b.penetration && a.muStatic == b.muStatic && a.muDynamic == b.muDynamic
+        && a.vStiction == b.vStiction && a.vFriction == b.vFriction;
+}
+
+bool same(const ContactShape& a, const ContactShape& b)
+{
+    if (a.frame != b.frame || a.kind != b.kind || !same(a.size, b.size)
+        || a.points.size() != b.points.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.points.size(); ++i) {
+        if (!same(a.points[i], b.points[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool same(const ContactPair& a, const ContactPair& b)
+{
+    return a.id == b.id && a.source == b.source && a.groupA == b.groupA && a.groupB == b.groupB
+        && same(a.law, b.law);
+}
+
 template<typename T>
 bool sameRecords(const std::vector<T>& a, const std::vector<T>& b)
 {
@@ -173,7 +200,9 @@ bool sameBeyondBodies(const Model& a, const Model& b)
             && (!same(a.dynamics->gravity, b.dynamics->gravity)
                 || !sameRecords(a.dynamics->inertias, b.dynamics->inertias)
                 || !sameRecords(a.dynamics->forces, b.dynamics->forces)
-                || !sameRecords(a.dynamics->initial, b.dynamics->initial)))) {
+                || !sameRecords(a.dynamics->initial, b.dynamics->initial)
+                || !sameRecords(a.dynamics->contactShapes, b.dynamics->contactShapes)
+                || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.frames, b.frames)
@@ -216,7 +245,9 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
             && (!same(a.dynamics->gravity, b.dynamics->gravity)
                 || !sameRecords(a.dynamics->inertias, b.dynamics->inertias)
                 || !sameRecords(a.dynamics->forces, b.dynamics->forces)
-                || !sameRecords(a.dynamics->initial, b.dynamics->initial)))) {
+                || !sameRecords(a.dynamics->initial, b.dynamics->initial)
+                || !sameRecords(a.dynamics->contactShapes, b.dynamics->contactShapes)
+                || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)
@@ -324,6 +355,21 @@ Model Assembly::Solver::scaled(const Model& model, double length)
                 initial.rate *= length;
             }
             initial.v = initial.v * length;
+        }
+        for (auto& shape : out.dynamics->contactShapes) {
+            shape.size = shape.size * length;
+            for (auto& point : shape.points) {
+                point = point * length;
+            }
+        }
+        // The impact law's stiffness, a force over a length to the e: as a
+        // length to the 1 - e; its damping, a force over a speed, not at all
+        for (auto& contact : out.dynamics->contacts) {
+            ContactLaw& law = contact.law;
+            law.stiffness *= std::pow(length, 1.0 - law.exponent);
+            law.penetration *= length;
+            law.vStiction *= length;
+            law.vFriction *= length;
         }
     }
     return out;

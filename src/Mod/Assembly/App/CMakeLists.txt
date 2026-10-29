@@ -128,6 +128,8 @@ SET(Assembly_SRCS
     Grounding.h
     ContactGeometry.cpp
     ContactGeometry.h
+    ContactShapes.cpp
+    ContactShapes.h
     Interference.cpp
     Interference.h
     Joint.cpp

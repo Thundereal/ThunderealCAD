@@ -642,6 +642,73 @@ Bushing::Bushing()
                       "mN mm");
 }
 
+PROPERTY_SOURCE(Assembly::ContactSet, Assembly::PhysicsItem)
+
+ContactSet::ContactSet()
+{
+    ADD_PROPERTY_TYPE(GroupA,
+                      (nullptr),
+                      "Contact",
+                      App::Prop_None,
+                      "The components touching those of GroupB, or one another when GroupB is "
+                      "empty");
+    ADD_PROPERTY_TYPE(GroupB,
+                      (nullptr),
+                      "Contact",
+                      App::Prop_None,
+                      "The components those of GroupA touch; empty: those of GroupA touch one "
+                      "another");
+    // SOLIDWORKS's and Adams View's defaults (docs/AssemblyDynamics.md sec 2.3)
+    ADD_PROPERTY_TYPE(Stiffness,
+                      (1e5),
+                      "Contact",
+                      App::Prop_None,
+                      "The impact law's stiffness, in N / mm^Exponent");
+    ADD_PROPERTY_TYPE(Exponent,
+                      (1.5),
+                      "Contact",
+                      App::Prop_None,
+                      "The impact law's exponent: the force grows as the penetration to it");
+    ADD_PROPERTY_TYPE(MaxDamping,
+                      (10.0),
+                      "Contact",
+                      App::Prop_None,
+                      "The impact law's damping, reached at Penetration, in N s/mm");
+    ADD_PROPERTY_TYPE(Penetration,
+                      (0.01),
+                      "Contact",
+                      App::Prop_None,
+                      "The penetration at which the damping is whole");
+    ADD_PROPERTY_TYPE(StaticFriction,
+                      (0.3),
+                      "Contact",
+                      App::Prop_None,
+                      "The friction coefficient at the stiction velocity; 0: no friction");
+    ADD_PROPERTY_TYPE(DynamicFriction,
+                      (0.25),
+                      "Contact",
+                      App::Prop_None,
+                      "The friction coefficient from the friction velocity on");
+    ADD_PROPERTY_TYPE(StictionVelocity,
+                      (0.1),
+                      "Contact",
+                      App::Prop_None,
+                      "The sliding speed at which the static friction is whole");
+    ADD_PROPERTY_TYPE(FrictionVelocity,
+                      (10.16),
+                      "Contact",
+                      App::Prop_None,
+                      "The sliding speed from which the friction is dynamic");
+    static const App::PropertyFloatConstraint::Constraints positive = {0.0, 1e30, 1.0};
+    static const App::PropertyFloatConstraint::Constraints exponent = {1.0, 10.0, 0.1};
+    static const App::PropertyFloatConstraint::Constraints coefficient = {0.0, 10.0, 0.05};
+    Stiffness.setConstraints(&positive);
+    Exponent.setConstraints(&exponent);
+    MaxDamping.setConstraints(&positive);
+    StaticFriction.setConstraints(&coefficient);
+    DynamicFriction.setConstraints(&coefficient);
+}
+
 PROPERTY_SOURCE(Assembly::TorsionSpring, Assembly::PhysicsItem)
 
 TorsionSpring::TorsionSpring()
@@ -698,6 +765,14 @@ PyObject* Assembly::BushingPython::getPyObject()
     return Py::new_reference_to(PythonObject);
 }
 template class AssemblyExport FeaturePythonT<Assembly::Bushing>;
+
+PROPERTY_SOURCE_TEMPLATE(Assembly::ContactSetPython, Assembly::ContactSet)
+template<>
+const char* Assembly::ContactSetPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template class AssemblyExport FeaturePythonT<Assembly::ContactSet>;
 
 PROPERTY_SOURCE_TEMPLATE(Assembly::AppliedLoadPython, Assembly::AppliedLoad)
 template<>

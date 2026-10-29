@@ -76,6 +76,7 @@
 #include "Joint.h"
 #include "MassProperties.h"
 #include "Physics.h"
+#include "ContactShapes.h"
 #include "Simulation.h"
 #include "Views.h"
 #include "Solver/Backend.h"
@@ -1824,11 +1825,13 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         // From the assembly's frame into the body's
         dynamics.inertias.push_back(Solver::moved(inertia, model.bodies[body].placement.inverse()));
     }
-    // Kept: the force elements and the initial velocities addForces() put
-    // in first
+    // Kept: the force elements, the initial velocities and the contact sets
+    // addForces() put in first
     if (model.dynamics) {
         dynamics.forces = std::move(model.dynamics->forces);
         dynamics.initial = std::move(model.dynamics->initial);
+        dynamics.contactShapes = std::move(model.dynamics->contactShapes);
+        dynamics.contacts = std::move(model.dynamics->contacts);
     }
     model.dynamics = std::move(dynamics);
 }
@@ -1967,7 +1970,96 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
         model.dynamics->forces.push_back(std::move(force));
     };
+    // Contact sets (docs/AssemblyDynamics.md sec 7, phase D2): each
+    // component's solids as the shapes it touches with, on frames of it,
+    // made once for every set it is in
+    std::map<App::DocumentObject*, std::vector<Solver::Id>> shapesOf;
+    auto componentShapes = [&](App::DocumentObject* component) {
+        auto found = shapesOf.find(component);
+        if (found != shapesOf.end()) {
+            return found->second;
+        }
+        std::vector<Solver::Id>& ids = shapesOf[component];
+        ::Part::TopoShape shape;
+        try {
+            // In the component's own coordinates
+            shape = ::Part::Feature::getTopoShape(component,
+                                                  nullptr,
+                                                  false,
+                                                  nullptr,
+                                                  nullptr,
+                                                  true,
+                                                  false);
+        }
+        catch (const Base::Exception& e) {
+            e.reportException();
+        }
+        const auto solids = shape.getSubTopoShapes(TopAbs_SOLID);
+        if (solids.empty()) {
+            Base::Console().warning("Assembly: %s has no solid, and touches nothing\n",
+                                    component->getFullLabel().c_str());
+        }
+        int index = 0;
+        for (const auto& solid : solids) {
+            ++index;
+            auto contact = contactShapeOf(solid.getShape());
+            if (!contact) {
+                Base::Console().error(
+                    "Assembly: solid %d of %s is neither a sphere, a box, a cylinder nor "
+                    "convex: contact on such a shape is not built yet\n",
+                    index,
+                    component->getFullLabel().c_str());
+                ++badFormulas;
+                continue;
+            }
+            Solver::ContactShape record;
+            record.kind = contact->kind;
+            record.size = contact->size;
+            record.points = std::move(contact->points);
+            record.frame = frameOn(component,
+                                   contact->placement,
+                                   component->getFullName() + "-solid" + std::to_string(index));
+            ids.push_back(static_cast<Solver::Id>(model.dynamics->contactShapes.size()));
+            model.dynamics->contactShapes.push_back(std::move(record));
+        }
+        return ids;
+    };
+    auto addContacts = [&](ContactSet* set) {
+        Solver::ContactPair pair;
+        for (auto* component : set->GroupA.getValues()) {
+            for (Solver::Id id : componentShapes(component)) {
+                pair.groupA.push_back(id);
+            }
+        }
+        for (auto* component : set->GroupB.getValues()) {
+            for (Solver::Id id : componentShapes(component)) {
+                pair.groupB.push_back(id);
+            }
+        }
+        if (pair.groupA.empty() || (set->GroupB.getSize() > 0 && pair.groupB.empty())) {
+            Base::Console().warning("Assembly: the contact set %s has nothing to touch\n",
+                                    set->getFullLabel().c_str());
+            return;
+        }
+        pair.source = model.addSource(set->getFullName());
+        // N to mN: the stiffness in N / mm^e, the damping in N s/mm
+        Solver::ContactLaw& law = pair.law;
+        law.stiffness = set->Stiffness.getValue() * 1000.0;
+        law.exponent = set->Exponent.getValue();
+        law.maxDamping = set->MaxDamping.getValue() * 1000.0;
+        law.penetration = set->Penetration.getValue();
+        law.muStatic = set->StaticFriction.getValue();
+        law.muDynamic = set->DynamicFriction.getValue();
+        law.vStiction = set->StictionVelocity.getValue();
+        law.vFriction = set->FrictionVelocity.getValue();
+        pair.id = static_cast<Solver::Id>(model.dynamics->contacts.size());
+        model.dynamics->contacts.push_back(std::move(pair));
+    };
     for (auto* element : typed->Elements.getValues()) {
+        if (auto* set = freecad_cast<ContactSet*>(element)) {
+            addContacts(set);
+            continue;
+        }
         if (auto* load = freecad_cast<AppliedLoad*>(element)) {
             addLoad(load);
             continue;

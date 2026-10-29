@@ -459,6 +459,21 @@ class TestDynamics(unittest.TestCase):
         self.assertTrue(edge.isClosed())
         self.assertAlmostEqual(edge.Length, 2 * math.pi * 100, delta=2 * math.pi * 100 * 1e-3)
 
+    def test_mass_properties_after_playback(self):
+        """A played frame moves the rod without a recompute; the mass
+        properties, which a dynamic run's inertias come from, are those of
+        the rod where it is (the assembly's shape cache let go of)."""
+        rod = self.pendulum()
+        _, result = self.simulate(0.05, 1e-2)
+        self.assertEqual(result, 0)
+        for frame in (3, 5):
+            self.assembly.updateForFrame(frame)
+            props = [
+                c for c in self.assembly.getMassProperties()["Components"] if c["Object"] == rod
+            ][0]
+            self.assertLess((props["CenterOfMass"] - rod.Shape.CenterOfMass).Length, 1e-9, frame)
+        self.assertGreater((rod.Shape.CenterOfMass - App.Vector(60, 5, 5)).Length, 1)
+
     def test_motor_torque(self):
         """A Speed motion holding the rod still at horizontal applies its
         weight's torque about the hinge, m g d; an Effort motion of that torque

@@ -59,6 +59,7 @@
 #include <Mod/Part/App/DatumFeature.h>
 #include <Mod/Part/App/FeatureElement.h>
 #include <Mod/Part/App/PartFeature.h>
+#include <Mod/Part/App/PropertyTopoShape.h>
 
 #include "AssemblyLink.h"
 #include "AssemblyObject.h"
@@ -2211,6 +2212,7 @@ void AssemblyObject::setNewPlacements(
     // of the assembly's children for each part moved made a drag step of a
     // chain of 200 parts spend 0.3 s here, five times the solve.
     std::unordered_map<App::Part*, Joint::Copies> copies;
+    bool moved = false;
     auto copiesOf = [&](App::Part* assembly) -> const Joint::Copies& {
         auto it = copies.find(assembly);
         if (it == copies.end()) {
@@ -2250,6 +2252,7 @@ void AssemblyObject::setNewPlacements(
             const Base::Placement delta = newPlacement * propPlacement->getValue().inverse();
             propPlacement->setValue(newPlacement);
             obj->purgeTouched();
+            moved = true;
             // The copies that follow it: in this assembly, and, for a part
             // of a flexible sub-assembly instance, in the instance too, the
             // move then said in each one's coordinate system
@@ -2269,6 +2272,17 @@ void AssemblyObject::setNewPlacements(
             else {
                 Joint::relocateCopies(copiesOf(this), obj, delta);
             }
+        }
+    }
+    // The shapes the assembly cached by its components' paths are where the
+    // components stood: the cache waits for the assembly to change, and a
+    // placement written here touches nothing. The mass properties read
+    // through it, and a dynamic run after a played frame had its inertias
+    // where the parts had been.
+    if (moved) {
+        if (auto* cache = ::Part::PropertyShapeCache::get(this, false)) {
+            Base::PyGILStateLocker lock;
+            cache->setPyObject(Py_None);
         }
     }
 }

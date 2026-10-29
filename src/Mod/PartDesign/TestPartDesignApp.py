@@ -73,6 +73,7 @@ from PartDesignTests.TestThickness import TestThickness
 from PartDesignTests.TestThicken import TestThicken
 from PartDesignTests.TestDefeaturing import TestDefeaturing
 from PartDesignTests.TestSuppressed import TestSuppressed
+from PartDesignTests.TestRetryOnCopy import TestRetryOnCopy
 
 # extras
 from PartDesignTests.TestInvoluteGear import TestInvoluteGear

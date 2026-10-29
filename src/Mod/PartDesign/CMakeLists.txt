@@ -68,6 +68,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestThicken.py
     PartDesignTests/TestDefeaturing.py
     PartDesignTests/TestSuppressed.py
+    PartDesignTests/TestRetryOnCopy.py
     PartDesignTests/TestInvoluteGear.py
     PartDesignTests/TestTopologicalNamingProblem.py
     PartDesignTests/TestNameEncoding.py

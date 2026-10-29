@@ -120,6 +120,10 @@
 #include <chrono/collision/ChCollisionShapeCylinder.h>
 #include <chrono/collision/ChCollisionShapeSphere.h>
 #include <chrono/collision/ChCollisionSystem.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtActivatingCollisionAlgorithm.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCollisionDispatcher.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCollisionObjectWrapper.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtBoxShape.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtCompoundShape.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexHullShape.h>
@@ -640,13 +644,553 @@ public:
     int count = 0;
 };
 
+// A box's or a hull's polyhedral features as the separating axis test reads
+// them: the vertices, the faces' planes, and the edges with the faces either
+// side and the cross product of those faces' normals (right x left), in the
+// shape's frame
+struct SatPolyhedron
+{
+    struct Edge
+    {
+        int tail = 0;
+        int head = 0;
+        int left = 0;
+        int right = 0;
+    };
+    std::vector<cbtVector3> vertices;
+    std::vector<cbtVector3> normals;
+    std::vector<cbtScalar> offsets;  // a face's plane: normal . x + offset = 0
+    std::vector<Edge> edges;
+    std::vector<cbtVector3> arcs;
+    std::vector<std::vector<int>> polygons;  // each face's vertices, in order
+    std::vector<std::vector<int>> facesAt;   // each vertex's faces
+    cbtVector3 center {0, 0, 0};
+};
+
+SatPolyhedron satOf(const cbtConvexPolyhedron& polyhedron)
+{
+    SatPolyhedron sat;
+    for (int i = 0; i < polyhedron.m_vertices.size(); ++i) {
+        sat.vertices.push_back(polyhedron.m_vertices[i]);
+        sat.center += polyhedron.m_vertices[i];
+    }
+    if (!sat.vertices.empty()) {
+        sat.center /= static_cast<cbtScalar>(sat.vertices.size());
+    }
+    // Each edge by its ends, and the faces either side
+    std::map<std::pair<int, int>, std::pair<int, int>> sides;
+    sat.facesAt.resize(sat.vertices.size());
+    for (int f = 0; f < polyhedron.m_faces.size(); ++f) {
+        const cbtFace& face = polyhedron.m_faces[f];
+        sat.normals.emplace_back(face.m_plane[0], face.m_plane[1], face.m_plane[2]);
+        sat.offsets.push_back(face.m_plane[3]);
+        const int n = face.m_indices.size();
+        std::vector<int>& polygon = sat.polygons.emplace_back();
+        for (int k = 0; k < n; ++k) {
+            polygon.push_back(face.m_indices[k]);
+            sat.facesAt[face.m_indices[k]].push_back(f);
+        }
+        for (int k = 0; k < n; ++k) {
+            const int u = face.m_indices[k];
+            const int v = face.m_indices[(k + 1) % n];
+            auto [it, added] = sides.emplace(std::make_pair(std::min(u, v), std::max(u, v)),
+                                             std::make_pair(f, -1));
+            if (!added) {
+                it->second.second = f;
+            }
+        }
+    }
+    for (const auto& [ends, faces] : sides) {
+        if (faces.second >= 0) {
+            sat.edges.push_back({ends.first, ends.second, faces.first, faces.second});
+            sat.arcs.push_back(sat.normals[faces.second].cross(sat.normals[faces.first]));
+        }
+    }
+    return sat;
+}
+
+// Whether an edge between faces of normals a and b (bxa = b x a) and one
+// between faces of normals c and d (dxc = d x c) make a face of the two
+// shapes' Minkowski difference: the arcs a-b and -c to -d cross on the Gauss
+// map. Only such a pair's cross product can separate them (Gregorius, "The
+// Separating Axis Test between Convex Polyhedra", GDC 2013); most pairs are
+// passed over after two products.
+bool minkowskiFace(const cbtVector3& a,
+                   const cbtVector3& b,
+                   const cbtVector3& bxa,
+                   const cbtVector3& c,
+                   const cbtVector3& d,
+                   const cbtVector3& dxc)
+{
+    const cbtScalar cba = -c.dot(bxa);
+    const cbtScalar dba = -d.dot(bxa);
+    if (!(cba * dba < 0)) {
+        return false;
+    }
+    const cbtScalar adc = a.dot(dxc);
+    const cbtScalar bdc = b.dot(dxc);
+    return adc * bdc < 0 && cba * bdc > 0;
+}
+
+// The axis separating two polyhedra most, in A's frame from A to B: a face
+// of A's (i), of B's (j), or an edge of each (i, j)
+struct SatAxis
+{
+    enum Kind
+    {
+        None,
+        FaceA,
+        FaceB,
+        Edges
+    };
+    Kind kind = None;
+    int i = -1;
+    int j = -1;
+    cbtScalar separation = -std::numeric_limits<cbtScalar>::max();
+    cbtVector3 normal {0, 0, 1};
+};
+
+// B's features where A's frame has them
+struct SatPlaced
+{
+    std::vector<cbtVector3> vertices;
+    std::vector<cbtVector3> normals;
+    std::vector<cbtScalar> offsets;
+    std::vector<cbtVector3> arcs;
+};
+
+SatPlaced placed(const SatPolyhedron& b, const cbtTransform& bInA)
+{
+    SatPlaced out;
+    out.vertices.reserve(b.vertices.size());
+    for (const auto& v : b.vertices) {
+        out.vertices.push_back(bInA(v));
+    }
+    out.normals.reserve(b.normals.size());
+    out.offsets.reserve(b.normals.size());
+    for (std::size_t f = 0; f < b.normals.size(); ++f) {
+        const cbtVector3 n = bInA.getBasis() * b.normals[f];
+        out.normals.push_back(n);
+        out.offsets.push_back(b.offsets[f] - n.dot(bInA.getOrigin()));
+    }
+    out.arcs.reserve(b.arcs.size());
+    for (const auto& arc : b.arcs) {
+        out.arcs.push_back(bInA.getBasis() * arc);
+    }
+    return out;
+}
+
+// One axis's separation in a search, its normal from A to B. An edge pair's
+// by its edges alone: they are a Minkowski face, which the search tested. A
+// kept axis's pair may no longer be one, and its edges' gap then says
+// nothing of the shapes': satRemeasure() measures the shapes' extents.
+void satMeasure(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced& bp, SatAxis& axis)
+{
+    switch (axis.kind) {
+        case SatAxis::FaceA: {
+            const cbtVector3& n = a.normals[axis.i];
+            cbtScalar least = std::numeric_limits<cbtScalar>::max();
+            for (const auto& v : bp.vertices) {
+                least = std::min(least, n.dot(v) + a.offsets[axis.i]);
+            }
+            axis.separation = least;
+            axis.normal = n;
+            break;
+        }
+        case SatAxis::FaceB: {
+            const cbtVector3& n = bp.normals[axis.j];
+            cbtScalar least = std::numeric_limits<cbtScalar>::max();
+            for (const auto& v : a.vertices) {
+                least = std::min(least, n.dot(v) + bp.offsets[axis.j]);
+            }
+            axis.separation = least;
+            axis.normal = -n;
+            break;
+        }
+        case SatAxis::Edges: {
+            const SatPolyhedron::Edge& ea = a.edges[axis.i];
+            const SatPolyhedron::Edge& eb = b.edges[axis.j];
+            const cbtVector3& p = a.vertices[ea.tail];
+            const cbtVector3 e1 = a.vertices[ea.head] - p;
+            const cbtVector3 e2 = bp.vertices[eb.head] - bp.vertices[eb.tail];
+            cbtVector3 n = e1.cross(e2);
+            const cbtScalar length = n.length();
+            // Parallel edges: their faces' axes cover them
+            if (!(length > 0.005 * std::sqrt(e1.length2() * e2.length2()))) {
+                axis.separation = -std::numeric_limits<cbtScalar>::max();
+                break;
+            }
+            n /= length;
+            if (n.dot(p - a.center) < 0) {
+                n = -n;
+            }
+            axis.separation = n.dot(bp.vertices[eb.tail] - p);
+            axis.normal = n;
+            break;
+        }
+        case SatAxis::None:
+            break;
+    }
+}
+
+// The vertex farthest along dir
+int supportOf(const std::vector<cbtVector3>& vertices, const cbtVector3& dir)
+{
+    int best = 0;
+    cbtScalar most = -std::numeric_limits<cbtScalar>::max();
+    for (int i = 0; i < static_cast<int>(vertices.size()); ++i) {
+        const cbtScalar d = dir.dot(vertices[i]);
+        if (d > most) {
+            most = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+// A kept axis's separation now, B where bInA has it, without placing all of
+// B's features in A's frame as a search does: one direction turned into
+// B's frame, then one pass over the vertices. The shapes' extents along it,
+// so it holds for any axis (satMeasure()'s projected).
+void satRemeasure(const SatPolyhedron& a,
+                  const SatPolyhedron& b,
+                  const cbtTransform& bInA,
+                  SatAxis& axis)
+{
+    const cbtMatrix3x3& turn = bInA.getBasis();
+    const cbtVector3& shift = bInA.getOrigin();
+    // The least of n . x over B, n in A's frame
+    auto leastB = [&](const cbtVector3& n) {
+        const cbtVector3 inB = turn.transpose() * n;
+        return inB.dot(b.vertices[supportOf(b.vertices, -inB)]) + n.dot(shift);
+    };
+    switch (axis.kind) {
+        case SatAxis::FaceA: {
+            const cbtVector3& n = a.normals[axis.i];
+            axis.separation = leastB(n) + a.offsets[axis.i];
+            axis.normal = n;
+            break;
+        }
+        case SatAxis::FaceB: {
+            const cbtVector3 n = turn * b.normals[axis.j];
+            const cbtScalar offset = b.offsets[axis.j] - n.dot(shift);
+            axis.separation = n.dot(a.vertices[supportOf(a.vertices, -n)]) + offset;
+            axis.normal = -n;
+            break;
+        }
+        case SatAxis::Edges: {
+            const SatPolyhedron::Edge& ea = a.edges[axis.i];
+            const SatPolyhedron::Edge& eb = b.edges[axis.j];
+            const cbtVector3& p = a.vertices[ea.tail];
+            const cbtVector3 e1 = a.vertices[ea.head] - p;
+            const cbtVector3 e2 = turn * (b.vertices[eb.head] - b.vertices[eb.tail]);
+            cbtVector3 n = e1.cross(e2);
+            const cbtScalar length = n.length();
+            if (!(length > 0.005 * std::sqrt(e1.length2() * e2.length2()))) {
+                axis.separation = -std::numeric_limits<cbtScalar>::max();
+                break;
+            }
+            n /= length;
+            if (n.dot(p - a.center) < 0) {
+                n = -n;
+            }
+            axis.separation = leastB(n) - n.dot(a.vertices[supportOf(a.vertices, n)]);
+            axis.normal = n;
+            break;
+        }
+        case SatAxis::None:
+            break;
+    }
+}
+
+// The pair's points along the axis, into the manifold as Bullet's clipping
+// gives them: the reference face, the one the axis is the normal of (an edge
+// pair's: the face of either most along it, at the support vertex), and the
+// incident face of the other, the one most against it among the faces at the
+// other's support vertex; the incident face clipped to the reference face's
+// sides, each point kept within threshold of its plane. Bullet's own looks
+// for both faces among all of them, 11558 of an ellipsoid's on each query.
+void clipAlong(const SatPolyhedron& a,
+               const SatPolyhedron& b,
+               const cbtTransform& ta,
+               const cbtTransform& tb,
+               const SatAxis& axis,
+               cbtScalar threshold,
+               cbtManifoldResult* resultOut)
+{
+    const cbtVector3 n = ta.getBasis() * axis.normal;  // from A to B
+    // The face of a shape most along dir among those at its support vertex
+    // that way, dir in the world
+    auto faceAt = [](const SatPolyhedron& shape, const cbtTransform& at, const cbtVector3& dir) {
+        const cbtVector3 local = at.getBasis().transpose() * dir;
+        int best = -1;
+        cbtScalar most = -std::numeric_limits<cbtScalar>::max();
+        for (int f : shape.facesAt[supportOf(shape.vertices, local)]) {
+            const cbtScalar d = shape.normals[f].dot(local);
+            if (d > most) {
+                most = d;
+                best = f;
+            }
+        }
+        return std::make_pair(best, most);
+    };
+    bool referenceA = axis.kind == SatAxis::FaceA;
+    int reference = axis.i;
+    if (axis.kind == SatAxis::FaceB) {
+        reference = axis.j;
+    }
+    else if (axis.kind == SatAxis::Edges) {
+        const auto [fa, da] = faceAt(a, ta, n);
+        const auto [fb, db] = faceAt(b, tb, -n);
+        referenceA = da >= db;
+        reference = referenceA ? fa : fb;
+    }
+    const SatPolyhedron& ref = referenceA ? a : b;
+    const cbtTransform& refAt = referenceA ? ta : tb;
+    const SatPolyhedron& inc = referenceA ? b : a;
+    const cbtTransform& incAt = referenceA ? tb : ta;
+    if (reference < 0) {
+        return;
+    }
+    const cbtVector3 refNormal = refAt.getBasis() * ref.normals[reference];
+    const int incident = faceAt(inc, incAt, -refNormal).first;
+    if (incident < 0) {
+        return;
+    }
+    std::vector<cbtVector3> sides;
+    for (int v : ref.polygons[reference]) {
+        sides.push_back(refAt(ref.vertices[v]));
+    }
+    std::vector<cbtVector3> points;
+    for (int v : inc.polygons[incident]) {
+        points.push_back(incAt(inc.vertices[v]));
+    }
+    cbtVector3 centre(0, 0, 0);
+    for (const auto& v : sides) {
+        centre += v;
+    }
+    centre /= static_cast<cbtScalar>(sides.size());
+    std::vector<cbtVector3> kept;
+    for (std::size_t k = 0; k < sides.size() && !points.empty(); ++k) {
+        const cbtVector3& p0 = sides[k];
+        const cbtVector3& p1 = sides[(k + 1) % sides.size()];
+        cbtVector3 out = (p1 - p0).cross(refNormal);
+        if (out.dot(centre - p0) > 0) {
+            out = -out;
+        }
+        kept.clear();
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            const cbtVector3& cur = points[i];
+            const cbtVector3& prev = points[(i + points.size() - 1) % points.size()];
+            const cbtScalar dc = out.dot(cur - p0);
+            const cbtScalar dp = out.dot(prev - p0);
+            if ((dc <= 0) != (dp <= 0)) {
+                kept.push_back(prev + (cur - prev) * (dp / (dp - dc)));
+            }
+            if (dc <= 0) {
+                kept.push_back(cur);
+            }
+        }
+        points.swap(kept);
+    }
+    for (const auto& p : points) {
+        const cbtScalar depth = refNormal.dot(p - sides[0]);
+        if (depth > threshold) {
+            continue;
+        }
+        // Bullet's normal on B points to A, its point is on B
+        if (referenceA) {
+            resultOut->addContactPoint(-refNormal, p, depth);
+        }
+        else {
+            resultOut->addContactPoint(refNormal, p - refNormal * depth, depth);
+        }
+    }
+}
+
+// The full search: every face of each, and the edge pairs that make
+// Minkowski faces. An edge pair's axis is taken over a face's only when it
+// separates them clearly more, so parallel faces resting on each other keep
+// a face's normal.
+SatAxis satSearch(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced& bp)
+{
+    SatAxis best;
+    for (int i = 0; i < static_cast<int>(a.normals.size()); ++i) {
+        SatAxis axis;
+        axis.kind = SatAxis::FaceA;
+        axis.i = i;
+        satMeasure(a, b, bp, axis);
+        if (axis.separation > best.separation) {
+            best = axis;
+        }
+    }
+    for (int j = 0; j < static_cast<int>(bp.normals.size()); ++j) {
+        SatAxis axis;
+        axis.kind = SatAxis::FaceB;
+        axis.j = j;
+        satMeasure(a, b, bp, axis);
+        if (axis.separation > best.separation) {
+            best = axis;
+        }
+    }
+    constexpr cbtScalar edgeBias = 1e-7;  // m
+    SatAxis edges;
+    for (int i = 0; i < static_cast<int>(a.edges.size()); ++i) {
+        const SatPolyhedron::Edge& ea = a.edges[i];
+        for (int j = 0; j < static_cast<int>(b.edges.size()); ++j) {
+            const SatPolyhedron::Edge& eb = b.edges[j];
+            if (!minkowskiFace(a.normals[ea.left],
+                               a.normals[ea.right],
+                               a.arcs[i],
+                               bp.normals[eb.left],
+                               bp.normals[eb.right],
+                               bp.arcs[j])) {
+                continue;
+            }
+            SatAxis axis;
+            axis.kind = SatAxis::Edges;
+            axis.i = i;
+            axis.j = j;
+            satMeasure(a, b, bp, axis);
+            if (axis.separation > edges.separation) {
+                edges = axis;
+            }
+        }
+    }
+    if (edges.kind != SatAxis::None && edges.separation > best.separation + edgeBias) {
+        best = edges;
+    }
+    return best;
+}
+
+// Contact between two boxes or hulls, or a box and a hull, in place of
+// Bullet's convex pair's: the separating axis by satSearch(), then Bullet's
+// clipping face against face along it into the pair's persistent manifold.
+// Bullet's own SAT projects both shapes on every pair of edge directions: two
+// 256-sided prisms, 129 directions each, one dropped across the other, took
+// 55 s over a tenth of a second that GJK's axis did in 1.7 s, and GJK's axis
+// put them a millimetre wrong. The axis is kept for the next query and
+// measured again there: still separating them beyond the contact threshold,
+// it proves them apart however they moved; otherwise it is taken while the
+// pair has moved less than 10 um and 1e-3 rad apart since its search -- a
+// resting or impacting pair's substeps are microseconds long. The prisms
+// take 1.4 s so. A full search of theirs is 1.5 ms (768 edges each, 33000
+// pairs of them Minkowski faces, cap rim against cap rim); searching at all
+// 108000 of the run's queries took 180 s.
+class PolyhedralAlgorithm: public cbtActivatingCollisionAlgorithm
+{
+public:
+    using Polyhedra = std::map<const cbtConvexPolyhedron*, SatPolyhedron>;
+
+    PolyhedralAlgorithm(const cbtCollisionAlgorithmConstructionInfo& ci,
+                        const cbtCollisionObjectWrapper* body0Wrap,
+                        const cbtCollisionObjectWrapper* body1Wrap,
+                        const Polyhedra* polyhedra)
+        : cbtActivatingCollisionAlgorithm(ci, body0Wrap, body1Wrap)
+        , manifold(ci.m_manifold)
+        , polyhedra(polyhedra)
+    {}
+    ~PolyhedralAlgorithm() override
+    {
+        if (ownManifold && manifold) {
+            m_dispatcher->releaseManifold(manifold);
+        }
+    }
+
+    void processCollision(const cbtCollisionObjectWrapper* body0Wrap,
+                          const cbtCollisionObjectWrapper* body1Wrap,
+                          const cbtDispatcherInfo&,
+                          cbtManifoldResult* resultOut) override
+    {
+        if (!manifold) {
+            manifold = m_dispatcher->getNewManifold(body0Wrap->getCollisionObject(),
+                                                    body1Wrap->getCollisionObject());
+            ownManifold = true;
+        }
+        resultOut->setPersistentManifold(manifold);
+        auto* shapeA = static_cast<const cbtPolyhedralConvexShape*>(body0Wrap->getCollisionShape());
+        auto* shapeB = static_cast<const cbtPolyhedralConvexShape*>(body1Wrap->getCollisionShape());
+        const cbtConvexPolyhedron* hullA = shapeA->getConvexPolyhedron();
+        const cbtConvexPolyhedron* hullB = shapeB->getConvexPolyhedron();
+        auto a = hullA ? polyhedra->find(hullA) : polyhedra->end();
+        auto b = hullB ? polyhedra->find(hullB) : polyhedra->end();
+        if (a == polyhedra->end() || b == polyhedra->end()) {
+            if (ownManifold) {
+                resultOut->refreshContactPoints();
+            }
+            return;
+        }
+        const cbtTransform& ta = body0Wrap->getWorldTransform();
+        const cbtTransform& tb = body1Wrap->getWorldTransform();
+        const cbtTransform bInA = ta.inverse() * tb;
+        const cbtScalar threshold =
+            manifold->getContactBreakingThreshold() + resultOut->m_closestPointDistanceThreshold;
+        bool kept = false;
+        if (axis.kind != SatAxis::None) {
+            satRemeasure(a->second, b->second, bInA, axis);
+            const cbtScalar moved = (bInA.getOrigin() - searchedAt.getOrigin()).length();
+            const cbtQuaternion turn = searchedAt.getRotation().inverse() * bInA.getRotation();
+            const cbtScalar angle = 2 * std::acos(std::min<cbtScalar>(1, std::abs(turn.getW())));
+            kept = axis.separation > threshold
+                || (moved < 1e-5 && angle < 1e-3
+                    && axis.separation > -std::numeric_limits<cbtScalar>::max());
+        }
+        if (!kept) {
+            axis = satSearch(a->second, b->second, placed(b->second, bInA));
+            searchedAt = bInA;
+        }
+        if (axis.kind != SatAxis::None && axis.separation <= threshold) {
+            clipAlong(a->second, b->second, ta, tb, axis, threshold, resultOut);
+        }
+        if (ownManifold) {
+            resultOut->refreshContactPoints();
+        }
+    }
+
+    cbtScalar calculateTimeOfImpact(cbtCollisionObject*,
+                                    cbtCollisionObject*,
+                                    const cbtDispatcherInfo&,
+                                    cbtManifoldResult*) override
+    {
+        return 1;
+    }
+
+    void getAllContactManifolds(cbtManifoldArray& manifoldArray) override
+    {
+        if (manifold && ownManifold) {
+            manifoldArray.push_back(manifold);
+        }
+    }
+
+    struct CreateFunc: cbtCollisionAlgorithmCreateFunc
+    {
+        const Polyhedra* polyhedra = nullptr;
+        cbtCollisionAlgorithm*
+        CreateCollisionAlgorithm(cbtCollisionAlgorithmConstructionInfo& ci,
+                                 const cbtCollisionObjectWrapper* body0Wrap,
+                                 const cbtCollisionObjectWrapper* body1Wrap) override
+        {
+            void* memory =
+                ci.m_dispatcher1->allocateCollisionAlgorithm(sizeof(PolyhedralAlgorithm));
+            return new (memory) PolyhedralAlgorithm(ci, body0Wrap, body1Wrap, polyhedra);
+        }
+    };
+
+private:
+    cbtPersistentManifold* manifold = nullptr;
+    bool ownManifold = false;
+    const Polyhedra* polyhedra = nullptr;
+    SatAxis axis;
+    cbtTransform searchedAt;
+};
+
 // Bullet's collision detection, with several points per pair at once where
 // a face rests on a face: a convex pair's GJK gives one point a query, and
 // its manifold gathers more only over the following steps, so a hexagonal
 // prism landing flat first touched at one corner -- a spin of 100 rad/s from
 // a fall of a millimetre. A pair of boxes or hulls is clipped face against
-// face (addPolyhedralFeatures()), its separating axis by SAT; a cylinder's
-// cap or side on a box's or a hull's face is clipped the same way
+// face (addPolyhedralFeatures(), PolyhedralAlgorithm); a cylinder's cap or
+// side on a box's or a hull's face is clipped the same way
 // (cylinderPoints()). Not Bullet's perturbation of a pair's orientation for
 // more points: they were up to 20 um off on a flat face, and a ball's bounce
 // on a plate lost half a percent of its height to them.
@@ -655,11 +1199,39 @@ class ContactCollisionSystem: public ch::ChCollisionSystemBullet
 public:
     ContactCollisionSystem()
     {
-        bt_collision_world->getDispatchInfo().m_enableSatConvex = true;
+        polyhedral.polyhedra = &polyhedra;
+        bt_dispatcher->registerCollisionCreateFunc(CONVEX_HULL_SHAPE_PROXYTYPE,
+                                                   CONVEX_HULL_SHAPE_PROXYTYPE,
+                                                   &polyhedral);
+        bt_dispatcher->registerCollisionCreateFunc(CONVEX_HULL_SHAPE_PROXYTYPE,
+                                                   BOX_SHAPE_PROXYTYPE,
+                                                   &polyhedral);
+        bt_dispatcher->registerCollisionCreateFunc(BOX_SHAPE_PROXYTYPE,
+                                                   CONVEX_HULL_SHAPE_PROXYTYPE,
+                                                   &polyhedral);
     }
     void addPolyhedralFeatures(
         ch::ChCollisionModel& model,
         std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*>& features);
+
+    // Chrono runs collision detection as a step starts, and advance() runs
+    // it after each substep to see what the substep found: at the same
+    // state, so the next substep's may keep those results. Set it just
+    // before a step whose state collision detection last saw; the next run
+    // takes it down.
+    bool reuse = false;
+    void Run() override
+    {
+        if (reuse) {
+            reuse = false;
+            return;
+        }
+        ch::ChCollisionSystemBullet::Run();
+    }
+
+private:
+    PolyhedralAlgorithm::Polyhedra polyhedra;
+    PolyhedralAlgorithm::CreateFunc polyhedral;
 };
 
 // A model's boxes and hulls with their polyhedral features, for Bullet to
@@ -707,6 +1279,7 @@ void ContactCollisionSystem::addPolyhedralFeatures(
                 auto* box = static_cast<cbtBoxShape*>(shape);
                 if (box->initializePolyhedralFeatures()) {
                     features[instances[i].shape.get()] = box->getConvexPolyhedron();
+                    polyhedra[box->getConvexPolyhedron()] = satOf(*box->getConvexPolyhedron());
                 }
                 break;
             }
@@ -740,27 +1313,30 @@ void ContactCollisionSystem::addPolyhedralFeatures(
                     face.m_plane[3] -= grow;
                 }
                 // Each vertex by the least squares offset whose component
-                // along each of its faces' normals is the growth
-                bool solved = true;
-                for (int v = 0; v < grown.m_vertices.size() && solved; ++v) {
+                // along each of its faces' normals is the growth. On a
+                // curved surface a vertex's faces are nearly parallel and
+                // their normals all but span a single direction: what they
+                // do not span is left out (singular values under a
+                // thousandth of the largest), not the vertex's features --
+                // an ellipsoid without them went through the plate.
+                for (int v = 0; v < grown.m_vertices.size(); ++v) {
                     const ch::ChMatrix33d& m = normals[static_cast<std::size_t>(v)];
-                    solved = std::abs(m.determinant()) > 1e-9;
-                    if (solved) {
-                        const ch::ChVector3d offset = ch::ChMatrix33d(m.inverse())
-                            * (sums[static_cast<std::size_t>(v)] * grow);
-                        grown.m_vertices[v] += cbtVector3(static_cast<cbtScalar>(offset.x()),
-                                                          static_cast<cbtScalar>(offset.y()),
-                                                          static_cast<cbtScalar>(offset.z()));
-                    }
-                }
-                if (!solved) {
-                    break;
+                    Eigen::JacobiSVD<Eigen::Matrix3d> svd(m,
+                                                          Eigen::ComputeFullU
+                                                              | Eigen::ComputeFullV);
+                    svd.setThreshold(1e-3);
+                    const Eigen::Vector3d rhs = (sums[static_cast<std::size_t>(v)] * grow).eigen();
+                    const Eigen::Vector3d offset = svd.solve(rhs);
+                    grown.m_vertices[v] += cbtVector3(static_cast<cbtScalar>(offset.x()),
+                                                      static_cast<cbtScalar>(offset.y()),
+                                                      static_cast<cbtScalar>(offset.z()));
                 }
                 grown.m_uniqueEdges.clear();
                 grown.initialize();
                 auto* convex = static_cast<cbtConvexHullShape*>(shape);
                 convex->setPolyhedralFeatures(grown);
                 features[instances[i].shape.get()] = convex->getConvexPolyhedron();
+                polyhedra[convex->getConvexPolyhedron()] = satOf(*convex->getConvexPolyhedron());
                 break;
             }
             default:
@@ -3449,6 +4025,7 @@ Status ChronoSession::simulateDynamics(
     // force is explicit, fixed over a step), and a ContactLoad per pair of
     // bodies a set lets touch, given the points found at each step's start
     std::vector<std::shared_ptr<ContactLoad>> contactLoads;
+    ContactCollisionSystem* contactCollision = nullptr;
     struct Found
     {
         ContactLoad* load = nullptr;
@@ -3564,6 +4141,7 @@ Status ChronoSession::simulateDynamics(
         ch::ChCollisionModel::SetDefaultSuggestedMargin(margin);
         auto collision = std::make_shared<ContactCollisionSystem>();
         sys.SetCollisionSystem(collision);
+        contactCollision = collision.get();
         auto material = std::make_shared<ch::ChContactMaterialNSC>();
         std::vector<ch::ChBody*> shapeBody(si.dynamics->contactShapes.size(), nullptr);
         auto shapesOn = std::make_shared<std::map<const ch::ChCollisionShape*, ShapeOn>>();
@@ -4510,6 +5088,7 @@ Status ChronoSession::simulateDynamics(
         double done = 0.0;
         double cap = dt;
         std::vector<double> before(contactLoads.size());
+        bool fresh = false;  // collision detection last ran at the state now
         while (dt - done > 1e-12 * dt) {
             double h = std::min({dt - done, cap, contactStep()});
             if (dt - done - h < 1e-9 * dt) {
@@ -4521,7 +5100,9 @@ Status ChronoSession::simulateDynamics(
             double t = 0.0;
             sys.StateGather(x, v, t);
             sys.StateGatherAcceleration(a);
+            contactCollision->reuse = fresh;
             sys.DoStepDynamics(h);
+            fresh = false;
             // A step whose Newton iterations ran off -- a state not finite
             // -- is taken again too, before collision detection sees it
             bool finite = true;
@@ -4538,6 +5119,7 @@ Status ChronoSession::simulateDynamics(
             bool tooDeep = !finite;
             if (finite) {
                 sys.ComputeCollisions();
+                fresh = true;
                 for (std::size_t i = 0; i < contactLoads.size() && !tooDeep; ++i) {
                     tooDeep = before[i] <= 0.0 && late(*contactLoads[i]);
                 }
@@ -4546,6 +5128,7 @@ Status ChronoSession::simulateDynamics(
                 sys.StateScatter(x, v, t, ch::UpdateFlags::UPDATE_ALL);
                 sys.StateScatterAcceleration(a);
                 sys.ComputeCollisions();
+                fresh = true;
                 cap = h / 8.0;
                 continue;
             }

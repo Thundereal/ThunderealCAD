@@ -214,6 +214,51 @@ class TestContact(unittest.TestCase):
         self.assertAlmostEqual(self.heights(prism)[-1], 10, delta=1e-4)
         self.assertLess(self.tilt(prism), 1e-4)
 
+    def test_hull_on_hull(self):
+        """A hexagonal prism landing flat on a grounded, larger one rests
+        level on its top face: two hulls, the separating axis by the
+        backend's own search"""
+        under = self.assembly.newObject("Part::Prism", "Under")
+        under.Polygon = 6
+        under.Circumradius = 10
+        under.Height = 10
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedUnder")
+        JointObject.GroundedJoint(ground, under)
+        prism = self.assembly.newObject("Part::Prism", "Prism")
+        prism.Polygon = 6
+        prism.Circumradius = 5
+        prism.Height = 5
+        prism.Placement.Base = App.Vector(0, 0, 11)
+        self.contact([prism], [under])
+        _, result = self.simulate(0.2, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(prism)[-1], 10, delta=1e-4)
+        self.assertLess(self.tilt(prism), 1e-4)
+
+    def test_curved_convex(self):
+        """A convex solid with curved faces is its hull, and comes to rest on
+        its lowest point: an ellipsoid on the plate. Its mesh's long thin
+        triangles at the poles once had it refused as not convex"""
+        plate = self.plate()
+        egg = self.assembly.newObject("Part::Ellipsoid", "Egg")
+        egg.Radius1, egg.Radius2, egg.Radius3 = 3, 6, 6
+        egg.Placement.Base = App.Vector(0, 0, 14)
+        self.contact([egg], [plate])
+        _, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        # Resting on its pole, within the hull's deflection
+        self.assertAlmostEqual(self.heights(egg)[-1], 13, delta=0.01)
+        self.assertLess(self.tilt(egg), 1e-2)
+
+    def test_curved_not_convex_refused(self):
+        """A torus, curved and not convex, is refused"""
+        plate = self.plate()
+        torus = self.assembly.newObject("Part::Torus", "Torus")
+        torus.Placement.Base = App.Vector(0, 0, 20)
+        self.contact([torus], [plate])
+        _, result = self.simulate(0.01, 1e-3)
+        self.assertEqual(result, -1)
+
     def test_cylinder_on_its_cap(self):
         """A cylinder landing on its cap rests level on it: the cap's rim
         clipped against the plate"""

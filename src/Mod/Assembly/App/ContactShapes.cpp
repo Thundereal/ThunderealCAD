@@ -25,6 +25,8 @@
 #include <cmath>
 #include <numbers>
 #include <set>
+#include <map>
+#include <optional>
 #include <tuple>
 
 #include <BRepBndLib.hxx>
@@ -211,49 +213,120 @@ asBox(const TopoDS_Shape& solid, const std::vector<Face>& faces, double volume)
     return out;
 }
 
-// The convex hull of the contact mesh when the mesh is convex: no point of
-// it more than twice the deflection on both sides of a triangle's plane. The
-// work is capped: past it, every k-th triangle is tried, a concavity spanning
-// many of them.
-std::optional<SolidContactShape> asHull(const TopoDS_Shape& solid, double deflection)
+// Whether a closed triangle mesh is convex: convex at every edge, which for
+// a closed connected surface is convex everywhere (Tietze). The triangles'
+// windings are made to agree across their shared edges and turned outward by
+// the signed volume; then no triangle's neighbour across an edge may stand
+// in front of its plane by more than tol. Local, so a long thin triangle --
+// an ellipsoid's at its poles -- is not held against points beyond its
+// neighbours, which on a curved surface stand in front of its plane by more
+// than the deflection. Nothing for a mesh not closed, not manifold, not
+// orientable or in more than one piece: the test says nothing of it.
+std::optional<bool> convexMesh(const std::vector<gp_XYZ>& points,
+                               const std::vector<std::array<int, 3>>& triangles,
+                               double tol)
 {
-    const auto mesh = ContactGeometryCache::instance().get(solid, deflection);
-    BRepExtrema_TriangleSet& set = mesh->triangles();
-    const int triangles = set.Size();
-    if (triangles < 4) {
+    const std::size_t count = triangles.size();
+    if (count < 4) {
         return std::nullopt;
     }
-    std::set<std::tuple<double, double, double>> unique;
-    std::vector<std::array<BVH_Vec3d, 3>> corners(static_cast<std::size_t>(triangles));
-    for (int i = 0; i < triangles; ++i) {
-        auto& t = corners[static_cast<std::size_t>(i)];
-        set.GetVertices(i, t[0], t[1], t[2]);
-        for (const auto& v : t) {
-            unique.emplace(v.x(), v.y(), v.z());
+    // Each edge, by its ends' indices, and the triangles on it with the
+    // corner the edge starts from
+    std::map<std::pair<int, int>, std::vector<std::pair<std::size_t, int>>> edges;
+    for (std::size_t t = 0; t < count; ++t) {
+        for (int k = 0; k < 3; ++k) {
+            const int u = triangles[t][k];
+            const int v = triangles[t][(k + 1) % 3];
+            edges[{std::min(u, v), std::max(u, v)}].emplace_back(t, k);
         }
     }
-    std::vector<gp_XYZ> points;
-    points.reserve(unique.size());
-    for (const auto& [px, py, pz] : unique) {
-        points.emplace_back(px, py, pz);
-    }
-    Bnd_Box box;
-    BRepBndLib::Add(solid, box);
-    const double diagonal = box.IsVoid() ? 1.0 : std::sqrt(box.SquareExtent());
-    const double tol = 2.0 * mesh->deflection() + 1e-9 * diagonal;
-    const double work = static_cast<double>(points.size()) * triangles;
-    const int stride = std::max(1, static_cast<int>(work / 5e7));
-    for (int i = 0; i < triangles; i += stride) {
-        const auto& t = corners[static_cast<std::size_t>(i)];
-        const gp_XYZ a(t[0].x(), t[0].y(), t[0].z());
-        const gp_XYZ b(t[1].x(), t[1].y(), t[1].z());
-        const gp_XYZ c(t[2].x(), t[2].y(), t[2].z());
-        gp_XYZ n = (b - a).Crossed(c - a);
-        const double area = n.Modulus();
-        if (!(area > 1e-24)) {
-            continue;
+    for (const auto& [key, on] : edges) {
+        if (on.size() != 2) {
+            return std::nullopt;
         }
-        n /= area;
+    }
+    // The windings, made to agree from the first triangle on: an edge runs
+    // one way in one triangle and the other way in the other
+    std::vector<int> flip(count, 0);  // 0 unvisited, +1 kept, -1 reversed
+    // Whether, as wound now, a triangle's edges run as stored
+    auto runsForward = [&](std::size_t t) {
+        return flip[t] > 0;
+    };
+    std::vector<std::size_t> stack {0};
+    flip[0] = 1;
+    std::size_t reached = 1;
+    while (!stack.empty()) {
+        const std::size_t t = stack.back();
+        stack.pop_back();
+        for (int k = 0; k < 3; ++k) {
+            const int u = triangles[t][k];
+            const int v = triangles[t][(k + 1) % 3];
+            for (const auto& [other, corner] : edges[{std::min(u, v), std::max(u, v)}]) {
+                if (other == t) {
+                    continue;
+                }
+                // The same direction in both as stored: one of them turns
+                const bool sameStored = triangles[other][corner] == u;
+                const bool forward = runsForward(t);
+                const int wanted = (sameStored == forward) ? -1 : 1;
+                if (flip[other] == 0) {
+                    flip[other] = wanted;
+                    ++reached;
+                    stack.push_back(other);
+                }
+                else if (flip[other] != wanted) {
+                    return std::nullopt;  // not orientable
+                }
+            }
+        }
+    }
+    if (reached != count) {
+        return std::nullopt;
+    }
+    auto normalOf = [&](std::size_t t) {
+        const gp_XYZ& a = points[triangles[t][0]];
+        gp_XYZ n = (points[triangles[t][1]] - a).Crossed(points[triangles[t][2]] - a);
+        return flip[t] > 0 ? n : n.Reversed();
+    };
+    double volume = 0.0;
+    for (std::size_t t = 0; t < count; ++t) {
+        volume += points[triangles[t][0]].Dot(normalOf(t));
+    }
+    const double outward = volume > 0.0 ? 1.0 : -1.0;
+    for (const auto& [key, on] : edges) {
+        for (int side = 0; side < 2; ++side) {
+            const std::size_t t = on[side].first;
+            const std::size_t other = on[1 - side].first;
+            gp_XYZ n = normalOf(t) * outward;
+            const double length = n.Modulus();
+            if (!(length > 1e-24)) {
+                continue;
+            }
+            n /= length;
+            const int corner = (on[1 - side].second + 2) % 3;  // opposite the edge
+            const gp_XYZ& apart = points[triangles[other][corner]];
+            if (n.Dot(apart - points[triangles[t][0]]) > tol) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Whether no point of the mesh stands more than tol on both sides of a
+// triangle's plane: what convexMesh() falls back to. Too strict on a curved
+// surface's long thin triangles. The work is capped: past it, every k-th
+// triangle is tried, a concavity spanning many of them.
+bool convexByPlanes(const std::vector<gp_XYZ>& points,
+                    const std::vector<std::array<int, 3>>& triangles,
+                    double tol)
+{
+    const double work = static_cast<double>(points.size()) * triangles.size();
+    const std::size_t stride = std::max<std::size_t>(1, static_cast<std::size_t>(work / 5e7));
+    for (std::size_t i = 0; i < triangles.size(); i += stride) {
+        const gp_XYZ& a = points[triangles[i][0]];
+        gp_XYZ n = (points[triangles[i][1]] - a).Crossed(points[triangles[i][2]] - a);
+        n /= n.Modulus();
         bool front = false;
         bool back = false;
         for (const auto& p : points) {
@@ -261,9 +334,55 @@ std::optional<SolidContactShape> asHull(const TopoDS_Shape& solid, double deflec
             front = front || d > tol;
             back = back || d < -tol;
             if (front && back) {
-                return std::nullopt;
+                return false;
             }
         }
+    }
+    return true;
+}
+
+// The convex hull of the contact mesh when the mesh is convex (convexMesh(),
+// or convexByPlanes() when that cannot tell, within twice the deflection)
+std::optional<SolidContactShape> asHull(const TopoDS_Shape& solid, double deflection)
+{
+    const auto mesh = ContactGeometryCache::instance().get(solid, deflection);
+    BRepExtrema_TriangleSet& set = mesh->triangles();
+    const int count = set.Size();
+    if (count < 4) {
+        return std::nullopt;
+    }
+    // The vertices by position: a face's triangulation shares its edges'
+    // nodes with its neighbours'
+    std::map<std::tuple<double, double, double>, int> index;
+    std::vector<gp_XYZ> points;
+    std::vector<std::array<int, 3>> triangles;
+    triangles.reserve(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        BVH_Vec3d corners[3];
+        set.GetVertices(i, corners[0], corners[1], corners[2]);
+        std::array<int, 3> t {};
+        for (int k = 0; k < 3; ++k) {
+            const auto key = std::make_tuple(corners[k].x(), corners[k].y(), corners[k].z());
+            auto [it, added] = index.emplace(key, static_cast<int>(points.size()));
+            if (added) {
+                points.emplace_back(corners[k].x(), corners[k].y(), corners[k].z());
+            }
+            t[k] = it->second;
+        }
+        // A pole's triangles with two corners at the pole have no area and
+        // no plane
+        const gp_XYZ n = (points[t[1]] - points[t[0]]).Crossed(points[t[2]] - points[t[0]]);
+        if (t[0] != t[1] && t[1] != t[2] && t[0] != t[2] && n.Modulus() > 1e-24) {
+            triangles.push_back(t);
+        }
+    }
+    Bnd_Box box;
+    BRepBndLib::Add(solid, box);
+    const double diagonal = box.IsVoid() ? 1.0 : std::sqrt(box.SquareExtent());
+    const double tol = 2.0 * mesh->deflection() + 1e-9 * diagonal;
+    const std::optional<bool> convex = convexMesh(points, triangles, tol);
+    if (!(convex ? *convex : convexByPlanes(points, triangles, tol))) {
+        return std::nullopt;
     }
     // The mesh is in the solid's own frame: into the coordinates given
     const gp_Trsf where = solid.Location().Transformation();

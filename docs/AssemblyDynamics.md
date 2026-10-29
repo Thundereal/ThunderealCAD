@@ -737,8 +737,19 @@ Phase D1 is under way (2026-10-28):
     instead of handing Bullet a NaN.
   - The points: Bullet's GJK gives a convex pair one point a query, and a
     face landing on a face then rocks on whichever corner it found. A
-    pair of boxes or hulls has Bullet's polyhedral features, and is
-    clipped face against face with SAT's axis: every corner at once. A
+    pair of a hull and a hull or a box has Bullet's polyhedral features,
+    and is clipped face against face along the axis separating them most,
+    every corner at once (`PolyhedralAlgorithm`, registered for those
+    pairs in place of Bullet's convex pair; two boxes keep Bullet's
+    box-box). The axis is the backend's own separating axis search: every
+    face of each, and the edge pairs that make faces of the Minkowski
+    difference (Gregorius, GDC 2013), most of them passed over in two dot
+    products. It is kept for the pair's next query and measured again
+    there, by the shapes' extents along it: still separating them, it
+    proves them apart however they moved, and otherwise it is taken while
+    they have moved less than 10 um and 1e-3 rad since its search. The
+    clipping finds both faces from the support vertices' faces, not among
+    all of them. A
     cylinder's pair with a box or a hull is clipped the same way, its cap
     as a 16-gon of its rim starting at the rim's lowest point, or its side
     as the segment between its caps' lowest points, against the face
@@ -763,6 +774,37 @@ Phase D1 is under way (2026-10-28):
       and lost a bouncing ball half a percent of its height: not used.
     - The narrowphase's normal can be NaN (EPA failing to a zero normal):
       such a point is dropped.
+    - Bullet's SAT (its `m_enableSatConvex`) projects both shapes on every
+      pair of edge directions. Two 256-sided prisms, one dropped across
+      the other, 0.1 s: 55 s, against 1.7 s on GJK's axis -- which put
+      them a millimetre wrong. The backend's search does that run in
+      1.4 s; a full search of theirs is 1.5 ms (768 edges each, 33000
+      edge pairs real Minkowski faces, cap rim against cap rim), and
+      searching on all of the run's 108000 queries took 180 s, so it is
+      the kept axis that pays. A hexagonal prism lying across a larger one
+      now rests on the ridge at 14.33 mm, as the geometry says (10 + 5
+      sin 60); Bullet's clipping had it at 15.45.
+    - The convexity test held every point of the mesh against every
+      triangle's plane, and a curved surface's long thin triangles -- an
+      ellipsoid's at its poles, a cone's -- have points beyond their
+      neighbours in front of the plane by more than the deflection: both
+      refused as not convex. It is local now (`convexMesh()`): the
+      triangles' windings made to agree across their shared edges and
+      turned outward by the signed volume, no neighbour across an edge in
+      front of a triangle's plane by more than twice the deflection. A
+      closed, connected surface convex at every edge is convex (Tietze).
+      A mesh it cannot read (not closed, not manifold) falls back to the
+      old test.
+    - An ellipsoid's hull, 5795 vertices and 11558 faces, then had no
+      features: a vertex on a curved surface has its faces' normals all
+      but parallel, and growing it by the envelope solved a 3 x 3 system
+      that is all but singular. It went through the plate. The growth
+      is an SVD now, the directions the normals do not span left out.
+      Its run then took 72 s for 0.3 s: re-placing all of the shape for
+      the kept axis, Bullet's clipping searching all 11558 faces, each
+      substep's collision detection twice (Chrono runs it as a step
+      starts, at the state the substep before ended on; the system now
+      skips that one). 8.7 s now.
   - Envelope 2e-5 m, margin 1e-4 m: Chrono's defaults (3 cm, 1 cm) are a
     part's size here.
   - Results: a ContactForce channel per set, the force on group A's
@@ -771,7 +813,9 @@ Phase D1 is under way (2026-10-28):
     its contact force the weight (1e-5), the same rest from a Static
     study; an undamped bounce back to its height (5e-4 mm); a block
     sliding at mu g; a prism resting on its hull under a soft law and
-    landing level under the default one (1e-4 mm, 1e-4 rad); a cylinder
+    landing level under the default one (1e-4 mm, 1e-4 rad), and on a
+    larger prism's top face; an ellipsoid resting on its pole (0.01 mm),
+    a torus refused; a cylinder
     landing on its cap, a tall one landing tilted and tipping onto its
     cap, one landing on its side and staying there; a solid that is
     neither refused; a set's pairs only.

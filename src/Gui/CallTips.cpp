@@ -726,8 +726,9 @@ bool CallTipsList::eventFilter(QObject * watched, QEvent * event)
                 }
                 return true;
             }
-            qApp->sendEvent(textEdit, event);
-            return true;
+            // On to the console, which it is for: sending it there again would
+            // bring it back here, this filter being the application's
+            return false;
         }
         else if (event->type() == QEvent::FocusOut) {
             if (!hasFocus())

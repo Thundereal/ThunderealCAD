@@ -145,6 +145,10 @@ struct EditSession
     std::string subElement;
     Base::Matrix4D transform;
     ViewerContext* viewer = nullptr;
+    /// The view of its own the edit runs in, where that is no 3D view --
+    /// a TechDraw page: what tells it from another view's edit, as \a
+    /// viewer does for a 3D view's (docs/HandsOnQueue.md entry 232)
+    QPointer<MDIView> view;
     /// The session root (Document::editingRoot); rootNode is its node
     /// while the session runs.
     std::unique_ptr<EditingRoot> root;
@@ -193,8 +197,10 @@ struct DocumentP
      * The one being started; else the one of the view being handled
      * (ViewerContext::current(), a view that joined a shared session
      * included) -- and none for a served client's view that is in none;
-     * else the active 3D view's; else, with no 3D view to ask (a served
-     * document, a page or a sheet the active view), the latest.
+     * else the active 3D view's; else, with PerViewEdit on, that of the
+     * active view of another kind (a TechDraw page), none for one in no
+     * edit, as for a 3D view; else, with no view to ask (a served
+     * document) or one edit at a time, the latest.
      */
     EditSession* currentSession(const Document *doc) const
     {
@@ -208,8 +214,11 @@ struct DocumentP
             if (current->cameraIsRemote())
                 return nullptr;
         }
-        if (auto view3d = dynamic_cast<View3DInventor *>(doc->getActiveView()))
+        MDIView *active = doc->getActiveView();
+        if (auto view3d = dynamic_cast<View3DInventor *>(active))
             return sessionOf(view3d->getViewer());
+        if (active && ViewParams::getPerViewEdit())
+            return sessionIn(active);
         return _editSessions.back().get();
     }
 
@@ -240,6 +249,32 @@ struct DocumentP
             }
         }
         return nullptr;
+    }
+
+    /// The session started in \a view: its 3D view's, or one that runs
+    /// in a view of its own (a page); for a container (Gui::ViewArea), its
+    /// active embedded view's. Null for none -- and for a 3D view that
+    /// only joined a session (sessionOf() finds that).
+    EditSession* sessionIn(const MDIView *view) const
+    {
+        if (!view)
+            return nullptr;
+        const TaskOwner owner(const_cast<MDIView *>(view));
+        for (auto &s : _editSessions) {
+            if (ownerOf(s.get()) == owner)
+                return s.get();
+        }
+        return nullptr;
+    }
+
+    /// The view \a s runs in, as the task panels know it
+    static TaskOwner ownerOf(const EditSession *s)
+    {
+        if (!s)
+            return TaskOwner();
+        if (s->viewer)
+            return TaskOwner(s->viewer);
+        return TaskOwner(s->view.data());
     }
 
     /// The session editing \a obj, null for none
@@ -798,11 +833,13 @@ namespace {
  * box. A client's request gets no desktop box at all.
  */
 void refuseEditInUse(const App::DocumentObject *obj, Gui::Document *editDoc,
-                     ViewerContext *viewer = nullptr)
+                     MDIView *holderView = nullptr)
 {
-    if (!viewer)
-        viewer = editDoc->editingViewer();
-    QPointer<MDIView> view = viewer ? TaskOwner(viewer).mdiView() : nullptr;
+    QPointer<MDIView> view = holderView;
+    if (!view) {
+        ViewerContext *viewer = editDoc->editingViewer();
+        view = viewer ? TaskOwner(viewer).mdiView() : nullptr;
+    }
     QString where = view ? view->windowTitle().remove(QStringLiteral("[*]"))
                          : QObject::tr("another view");
     const QString label = QString::fromUtf8(obj->Label.getValue());
@@ -995,14 +1032,33 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     // created for the document if it has none, which is a thing only a
     // desktop may do.
     ViewerContext *editViewer = ViewerContext::current();
+    // An object with a view of its own -- a TechDraw page's -- is edited
+    // in that view, which no 3D view is: the session is that view's, as
+    // another is its 3D view's (docs/HandsOnQueue.md entry 232)
+    MDIView *editView = nullptr;
     View3DInventor *view3d = nullptr;
-    if (!editViewer) {
+    if (!editViewer && svp->hasOwnView()) {
+        // In its own view whichever window is active: a dimension edited
+        // from the tree with a 3D view in front is its page's edit
+        editView = svp->getMDIView();
+        if (!editView)
+            editView = svp->getOrCreateMDIView();
+        if (qobject_cast<View3DInventor *>(editView))
+            editView = nullptr;
+        else if (editView)
+            getMainWindow()->setActiveWindow(editView);
+    }
+    if (!editViewer && !editView) {
         view3d = dynamic_cast<View3DInventor *>(getActiveView());
         // if the currently active view is not the 3d view search for it and activate it
         if (view3d)
             getMainWindow()->setActiveWindow(view3d);
-        else
-            view3d = dynamic_cast<View3DInventor *>(setActiveView(vp));
+        else {
+            MDIView *view = setActiveView(vp);
+            view3d = dynamic_cast<View3DInventor *>(view);
+            if (!view3d)
+                editView = view;
+        }
         if (view3d)
             editViewer = view3d->getViewer();
     }
@@ -1015,7 +1071,9 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     std::vector<EditSession*> ending;
     if (perView) {
         for (auto &s : d->_editSessions) {
-            if (s->viewer == editViewer || !s->viewProvider
+            const bool sameView = editViewer ? s->viewer == editViewer
+                                             : !s->viewer && s->view == editView;
+            if (sameView || !s->viewProvider
                     || s->viewProvider->editHoldsTransaction(s->mode)
                     || svp->editHoldsTransaction(ModNum))
                 ending.push_back(s.get());
@@ -1032,7 +1090,8 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         EditSession *holder = editDoc ? editDoc->d->sessionEditing(sobj) : nullptr;
         if (editDoc && (editDoc != this
                         || std::find(ending.begin(), ending.end(), holder) == ending.end())) {
-            refuseEditInUse(sobj, editDoc, holder ? holder->viewer : nullptr);
+            refuseEditInUse(sobj, editDoc,
+                            holder ? DocumentP::ownerOf(holder).mdiView() : nullptr);
             return false;
         }
     }
@@ -1063,6 +1122,7 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     Application::Instance->setEditDocument(this);
 
     session->parent = vp;
+    session->view = editView;
     session->subname = std::move(editSubname);
     session->subElement = std::move(editSubElement);
     session->transform = editTransform;
@@ -1145,7 +1205,7 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     }
     // The dialog of the view the edit runs in, which is where an edit
     // mode shows its panel -- not of whichever view is being handled
-    Gui::TaskView::TaskDialog* dlg = Gui::Control().activeDialog(TaskOwner(editViewer));
+    Gui::TaskView::TaskDialog* dlg = Gui::Control().activeDialog(DocumentP::ownerOf(session));
     if (dlg)
         dlg->setDocumentName(this->getDocument()->getName());
     if (session->viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
@@ -1326,7 +1386,11 @@ void Document::resetEdit() {
         });
         return;
     }
+    _endEdit(s);
+}
 
+void Document::_endEdit(EditSession *s)
+{
     bool vpIsNotNull = s->viewProvider != nullptr;
     bool vpHasChanged = s->viewProvider != d->_editViewProviderPrevious;
     int modeToRestore = d->_editModePrevious;
@@ -1660,13 +1724,28 @@ const ViewProvider *EditStepScope::current()
 void Document::resetEditOf(const ViewProvider *vp)
 {
     for (auto &s : d->_editSessions) {
-        if (s->viewProvider != vp)
-            continue;
-        // As resetEdit() for the view it runs in
-        ViewerScope scope(s->viewer);
-        resetEdit();
-        return;
+        if (s->viewProvider == vp) {
+            _endEdit(s.get());
+            return;
+        }
     }
+}
+
+void Document::resetEditIn(const MDIView *view)
+{
+    if (EditSession *s = d->sessionIn(view))
+        _endEdit(s);
+}
+
+ViewProvider *Document::editViewProviderIn(const MDIView *view) const
+{
+    EditSession *s = d->sessionIn(view);
+    // A 3D view that joined another's session draws in it too
+    if (!s) {
+        if (auto view3d = qobject_cast<View3DInventor *>(TaskOwner(const_cast<MDIView *>(view)).mdiView()))
+            s = d->sessionOf(view3d->getViewer());
+    }
+    return s ? s->viewProvider : nullptr;
 }
 
 ViewerContext *Document::editingViewerOf(const ViewProvider *vp) const
@@ -1674,6 +1753,15 @@ ViewerContext *Document::editingViewerOf(const ViewProvider *vp) const
     for (auto &s : d->_editSessions) {
         if (s->viewProvider == vp)
             return s->viewer;
+    }
+    return nullptr;
+}
+
+MDIView *Document::editViewOf(const ViewProvider *vp) const
+{
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp)
+            return DocumentP::ownerOf(s.get()).mdiView();
     }
     return nullptr;
 }

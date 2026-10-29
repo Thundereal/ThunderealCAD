@@ -72,6 +72,7 @@
 #include "Application.h"
 #include "Control.h"
 #include "Document.h"
+#include "MDIView.h"
 #include "View3DInventorViewer.h"
 #include "MainWindow.h"
 #include "RenderParams.h"
@@ -84,7 +85,8 @@ using namespace Gui;
 namespace {
 /// The view provider in edit an event to \a obj works on: that of the
 /// edit's dialog it is part of, else that of the editing 3D view it is in
-/// -- an editor laid over the view (docs/HandsOnQueue.md entry 232)
+/// -- an editor laid over the view -- or of the view of its own an edit
+/// runs in, a TechDraw page (docs/HandsOnQueue.md entry 232)
 ViewProvider *editOfReceiver(QObject *obj)
 {
     if (ViewProvider *vp = Control().editViewProviderOf(obj))
@@ -92,6 +94,10 @@ ViewProvider *editOfReceiver(QObject *obj)
     for (QObject *o = obj; o; o = o->parent()) {
         if (auto viewer = dynamic_cast<View3DInventorViewer*>(o))
             return viewer->getEditingViewProvider();
+        if (auto view = qobject_cast<MDIView*>(o)) {
+            Gui::Document *doc = view->getGuiDocument();
+            return doc ? doc->editViewProviderIn(view) : nullptr;
+        }
     }
     return nullptr;
 }

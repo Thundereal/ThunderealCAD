@@ -671,8 +671,13 @@ Gui::ViewProvider* ControlSingleton::editViewProviderOf(const QObject *obj) cons
             const auto &content = open.dialog->getDialogContent();
             if (std::find(content.begin(), content.end(), o) == content.end())
                 continue;
-            ViewerContext *viewer = open.dialog->owner().context();
-            return viewer ? viewer->getEditingViewProvider() : nullptr;
+            const TaskOwner &owner = open.dialog->owner();
+            if (ViewerContext *viewer = owner.context())
+                return viewer->getEditingViewProvider();
+            // A view of its own an edit runs in: a TechDraw page's
+            MDIView *view = owner.mdiView();
+            Gui::Document *doc = view ? view->getGuiDocument() : nullptr;
+            return doc ? doc->editViewProviderIn(view) : nullptr;
         }
     }
     return nullptr;

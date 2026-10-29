@@ -499,6 +499,13 @@ public:
      * not in edit here.
      */
     void resetEditOf(const ViewProvider *vp);
+    /** End the edit that runs in \a view -- a 3D view, or a view of its
+     * own an edit runs in, a TechDraw page -- and the document's edit with
+     * it when it is the last. Nothing when none runs there.
+     */
+    void resetEditIn(const MDIView *view);
+    /// What is in edit in \a view (a 3D view, or a page), null for nothing
+    ViewProvider *editViewProviderIn(const MDIView *view) const;
     /** Take back an edit's own undo steps, transaction ids \a tids: its
      * Cancel, where each change of it was a step of its own
      * (docs/HandsOnQueue.md entry 232).
@@ -521,6 +528,11 @@ public:
     std::vector<int> editStepsOf(const ViewProvider *vp) const;
     /// The view \a vp is in edit in, null for none
     ViewerContext *editingViewerOf(const ViewProvider *vp) const;
+    /** The window \a vp is in edit in: its 3D view's, or the view of its
+     * own it runs in (a TechDraw page); null for none, and for a client's
+     * view, which has no window
+     */
+    MDIView *editViewOf(const ViewProvider *vp) const;
     /// Whether an edit was started in \a viewer (it is the initiator)
     bool isEditingIn(const ViewerContext *viewer) const;
     /// The views edits were started in, one per edit
@@ -669,6 +681,8 @@ private:
 
     /// End one edit of this document, and the document's edit with its last
     void _resetEditSession(EditSession *s);
+    /// End the edit \a s as resetEdit() ends the one it picks
+    void _endEdit(EditSession *s);
     bool hasEditSession(const EditSession *s) const;
 
     struct DocumentP* d;

@@ -1770,14 +1770,9 @@ void Application::viewClosed(MDIView* pcView)
     // bound to, and the view's own selection, going with the view, told
     // the edit mode to read it again through that viewer.
     if (Gui::Document* doc = pcView->getGuiDocument()) {
-        for (ViewerContext* editing : doc->editingViewers()) {
-            if (TaskOwner(editing) == TaskOwner(pcView)) {
-                // That edit, of the several there may be (PerViewEdit)
-                ViewerScope scope(editing);
-                doc->resetEdit();
-                break;
-            }
-        }
+        // That edit, of the several there may be (PerViewEdit): its 3D
+        // view's, or a page's (docs/HandsOnQueue.md entry 232)
+        doc->resetEditIn(pcView);
     }
     // And a task dialog it owns goes with it (Gui::TaskView::TaskView)
     signalCloseView(pcView);

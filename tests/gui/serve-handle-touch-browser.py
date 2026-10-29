@@ -113,6 +113,12 @@ class Run(threading.Thread):
     def run(self):
         try:
             env = dict(os.environ)
+            # The bundled Chrome needs libasound from the conda env this
+            # build runs against, and conda activation replaces
+            # LD_LIBRARY_PATH before we get here (scripts/wasm-chrome.js).
+            env["LD_LIBRARY_PATH"] = (
+                os.path.join(REPO, ".conda", "freecad", "lib")
+                + os.pathsep + env.get("LD_LIBRARY_PATH", ""))
             env["TOUCH_PHASES"] = self.phase_path
             env["TOUCH_RESULT"] = self.result_path
             env["TOUCH_SHOTS"] = OUT

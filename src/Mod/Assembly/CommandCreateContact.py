@@ -256,10 +256,18 @@ class TaskContact(QtCore.QObject):
 
         if self.assembly is not None:
             Gui.Selection.clearSelection()
+            Gui.Selection.addObserver(self, Gui.Selection.ResolveMode.NoResolve)
+
+    def open(self):
+        """Shown: the gate, on the selection the dialog's view has of its own
+        now (docs/TaskPanelPerView.md sec 12). Set as the panel was made, it
+        went to the shared one, which the view does not take it from, and
+        deactivate() removed nothing: it gated the shared selection after
+        the panel was gone, and Python's end, under it, crashed the exit."""
+        if self.assembly is not None:
             Gui.Selection.addSelectionGate(
                 ContactSelGate(self), Gui.Selection.ResolveMode.NoResolve
             )
-            Gui.Selection.addObserver(self, Gui.Selection.ResolveMode.NoResolve)
 
     # ------------------------------------------------------------- the form
 

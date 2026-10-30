@@ -261,17 +261,26 @@ class TaskSpring(QtCore.QObject):
         self.fill()
 
         if self.assembly is not None:
-            import JointObject
-
             UtilsAssembly.setJointsPickableState(self.doc, False)
             Gui.Selection.clearSelection()
+            Gui.Selection.addObserver(self, Gui.Selection.ResolveMode.NoResolve)
+            if self.view is not None and hasattr(self.view, "addEventCallback"):
+                self.callbackMove = self.view.addEventCallback("SoLocation2Event", self.moveMouse)
+
+    def open(self):
+        """Shown: the gate, on the selection the dialog's view has of its own
+        now (docs/TaskPanelPerView.md sec 12). Set as the panel was made --
+        edited by a double click, no assembly in edit -- it went to the
+        shared one, which the view does not take it from, and deactivate()
+        removed nothing: it gated the shared selection after the panel was
+        gone, and Python's end, under it, crashed the exit."""
+        if self.assembly is not None:
+            import JointObject
+
             Gui.Selection.addSelectionGate(
                 JointObject.MakeJointSelGate(self, self.assembly),
                 Gui.Selection.ResolveMode.NoResolve,
             )
-            Gui.Selection.addObserver(self, Gui.Selection.ResolveMode.NoResolve)
-            if self.view is not None and hasattr(self.view, "addEventCallback"):
-                self.callbackMove = self.view.addEventCallback("SoLocation2Event", self.moveMouse)
 
     # ------------------------------------------------------------- the form
 

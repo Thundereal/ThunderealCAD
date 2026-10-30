@@ -477,7 +477,8 @@ Coarser groups mean fewer rows, not larger ones.
 - **Stage 2** -- rules 1, 5, 6: the group's boundary, collection of
   what is left open, abort by id. Rule 3 needs no change (12.6).
 - **Stage 3** -- rule 7, after measuring what recording costs a script
-  that recorded nothing before (time; memory is bounded, 12.1).
+  that recorded nothing before (time; memory is bounded, 12.1). Done,
+  12.8.
 
 ### 12.4 Measured before (2026-10-29, 06bbb5eabd)
 
@@ -605,3 +606,69 @@ change joins, which `undo-group-by-input.py` shows. The Python suite
 
 Gate: GUI 362/363 (LineWidths, known on main), Python 4062 OK, C++
 1094/1095 (RenderGoldenCycles, known on main).
+
+### 12.8 Stage 3 (2026-10-30, 15785faed1, 97630abae1, ea98250cd0)
+
+A document with no log already had implicit steps before rule 7: a
+temporary one, a version, a replay keep none while TransactionLog is 2,
+and `_openImplicitTransaction` asked only the preference. They went on
+the undo stack as they do with a log, and three things there assumed
+one:
+
+- **The limit counted them.** `_trimHotWindow` turns old steps cold with
+  a log; without one it deletes them, and counted implicit steps as
+  steps: 25 steps with an implicit one after each left 10 of the 20.
+  Now the limit counts the user's, a trimmed one takes the implicit ones
+  above it, and implicit ones under the first user step left go.
+- **Runs piled up.** A run of implicit steps only ever undoes whole (sec
+  33.4). `_foldImplicit` folds an implicit step into the implicit step
+  before it (`Transaction::absorb`, the oldest copy of each property
+  kept), and drops one with no user step under it, which nothing undoes.
+  A step in which an object came or went is not folded (`absorb`
+  refuses it).
+- **Redo.** With a log, a redo after an implicit write goes through the
+  log. Without one its copies are of a state the write has left, so a
+  write by hand ends the redo steps. A recompute's does not: undo,
+  recompute, redo is what upstream code does all the time
+  (TestSolidBody, TestPatternKind, TestLinearPattern), and the redo's
+  copies put back what the recompute wrote, which the next recompute
+  writes again (97630abae1, after the first version broke those three
+  with the log off).
+
+The log is not made early to answer "is there a log" (`d->transactionLog`,
+not `getTransactionLog()`): made at a step's open instead of its commit,
+it keeps an object removed in that step for its row, its name taken till
+the commit, and two CAM post tests that add and remove `testpath` in one
+uncommitted step failed on it.
+
+Rule 7 then (ea98250cd0): with TransactionLog 0, `_openImplicitTransaction`
+opens the step too, and a removal with nothing open is one, where it was
+a "Delete" step of its own when the object was in an earlier step and
+nothing otherwise. `Document/UndoImplicitLogOff` (on) turns it off. A
+temporary document's removal is left as it was: held for an undo, the
+removed object would keep its name taken in a workspace that reuses it.
+
+**Cost**, log off, one user step under it all, FreeCADCmd, three runs
+each way:
+
+| work                                          | rule 7 off       | rule 7 on          |
+|-----------------------------------------------|------------------|--------------------|
+| 2000 x write a box, recompute, commit         | 0.85-0.90 s, +1.8 MB | 0.87-0.89 s, +3.2 MB |
+| 500 x make a box (one step), remove it (next) | 0.33 s, +0.6 MB  | 0.36-0.40 s, +63.5 MB |
+| the one undo after                            | 0.000 s          | 0.065 s            |
+
+The first is the fold: 2000 steps kept as one, the oldest copies of 50
+boxes. The second is the price: each removed object is held so the undo
+can bring it back, about 127 KB a box here, in 1000 steps, as neither a
+making nor a removal folds. Open: fold a making and a later removal of
+the same object in one run to nothing, as one step already does and the
+log's squash does (`NetChange`, sec 16.7); that takes the second case
+back to about nothing.
+
+**Gates.** Defaults: Python 4064 OK, C++ 1094/1095 (RenderGoldenCycles,
+known on main), GUI 362/363 (LineWidths, known on main) -- the C++ and
+GUI runs before 97630abae1, which changes only a document with no log.
+Python with TransactionLog 0, rule 7 on: the three BoundTransactionCases
+that read log rows fail, as they do with it off; off, one appearance
+test (`testAColourWrittenToABinderEndsItsMapping`) fails besides, and
+passes with it on.

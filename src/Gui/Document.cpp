@@ -1640,12 +1640,24 @@ bool Document::undoOwnSteps(const std::vector<int>& tids)
     if (doc->hasPendingTransaction())
         doc->commitTransaction();
 
+    // Those still on the undo stack: one undone in the edit since is on
+    // the redo stack, where it stays, and is no reason to look further
+    // down for it
+    std::set<int> onStack;
+    for (unsigned pos = 0;; ++pos) {
+        const int tid = doc->getTransactionID(/*undo*/true, pos);
+        if (!tid)
+            break;
+        if (mine.count(tid))
+            onStack.insert(tid);
+    }
+
     // Nothing of anyone else's above the oldest of them: the plain undo
     // down to it, as a panel's Cancel always was, and redo keeps them
     int oldest = 0;
     std::size_t seen = 0;
     bool interleaved = false;
-    for (unsigned pos = 0; seen < mine.size(); ++pos) {
+    for (unsigned pos = 0; seen < onStack.size(); ++pos) {
         const int tid = doc->getTransactionID(/*undo*/true, pos);
         if (!tid)
             break;

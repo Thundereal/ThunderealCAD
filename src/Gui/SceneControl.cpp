@@ -821,13 +821,23 @@ QJsonObject resetEditOp(const QJsonObject &req, const std::string &boundDoc,
 
     // "Whoever started it" is the shared session's rule: every client
     // with a view is in it. A session that is its initiating view's alone
-    // (PerViewEdit) is left by that view's connection and by no other.
-    if (ViewerContext *owner = gdoc->editingViewer()) {
-        SceneServeSource *source = SceneServeSource::sourceFor(doc);
-        if (source && !gdoc->editingRoot()->isShared()
-                && source->viewerFor(client) != owner)
-            return errorReply(id, "NotInSession",
-                              QStringLiteral("the edit belongs to another view"));
+    // (PerViewEdit) is left by that view's connection and by no other --
+    // the one its view runs, of the several there may be (docs/HandsOnQueue.md
+    // entry 232), ended in that view.
+    if (gdoc->editingViewer() && !gdoc->editingRoot()->isShared()) {
+        if (SceneServeSource *source = SceneServeSource::sourceFor(doc)) {
+            ViewerContext *mine = source->viewerFor(client);
+            if (!mine || !gdoc->isEditingIn(mine))
+                return errorReply(id, "NotInSession",
+                                  QStringLiteral("the edit belongs to another view"));
+            ViewerScope scope(mine);
+            gdoc->resetEdit();
+            QJsonObject reply;
+            reply[QLatin1String("id")] = id;
+            reply[QLatin1String("ok")] = true;
+            reply[QLatin1String("doc")] = QString::fromUtf8(doc->getName());
+            return reply;
+        }
     }
 
     // No scope opened here: Gui::Document::resetEdit opens one over the
@@ -976,9 +986,16 @@ QJsonObject enterClientEdit(const QJsonValue &id, Document *gdoc, ViewProvider *
     // A document has one edit at a time, so entering one ends the one in
     // progress -- which every client with a view is in, when it is shared.
     // One that is its initiating view's alone (PerViewEdit) is not this
-    // client's to end by starting another.
-    if (ViewerContext *owner = gdoc->editingViewer()) {
-        if (viewer && owner != viewer && !gdoc->editingRoot()->isShared())
+    // client's to end by starting another: refused where this edit would
+    // end it (Gui::Document::editEndsAnother), or where another view has
+    // the object in edit. Beside it otherwise, each view its own edit
+    // (docs/HandsOnQueue.md entry 232).
+    if (viewer && gdoc->editingViewer() && !gdoc->editingRoot()->isShared()) {
+        ViewerContext *holder = gdoc->editingViewerOf(vp);
+        if (holder && holder != viewer)
+            return errorReply(id, "EditInProgress",
+                              QStringLiteral("another view is editing this object"));
+        if (gdoc->editEndsAnother(vp, mode, viewer))
             return errorReply(id, "EditInProgress",
                               QStringLiteral("another view is editing this document"));
     }

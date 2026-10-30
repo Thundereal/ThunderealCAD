@@ -832,6 +832,17 @@ namespace {
  * request as well as from a click, and none of them may be held up by a
  * box. A client's request gets no desktop box at all.
  */
+/** Whether an edit of \a vp in mode \a mode cannot run beside the
+ * session \a s (PerViewEdit): \a s holds a transaction open across its
+ * user's work, or the new edit would -- a second would commit the first
+ * one's work in progress (docs/HandsOnQueue.md entry 232)
+ */
+bool cannotRunBeside(const EditSession &s, const ViewProvider *vp, int mode)
+{
+    return !s.viewProvider || s.viewProvider->editHoldsTransaction(s.mode)
+        || vp->editHoldsTransaction(mode);
+}
+
 void refuseEditInUse(const App::DocumentObject *obj, Gui::Document *editDoc,
                      MDIView *holderView = nullptr)
 {
@@ -1073,9 +1084,7 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         for (auto &s : d->_editSessions) {
             const bool sameView = editViewer ? s->viewer == editViewer
                                              : !s->viewer && s->view == editView;
-            if (sameView || !s->viewProvider
-                    || s->viewProvider->editHoldsTransaction(s->mode)
-                    || svp->editHoldsTransaction(ModNum))
+            if (sameView || cannotRunBeside(*s, svp, ModNum))
                 ending.push_back(s.get());
         }
     }
@@ -1258,6 +1267,19 @@ bool Document::isEditingIn(const ViewerContext *viewer) const
         return false;
     for (auto &s : d->_editSessions) {
         if (s->viewer == viewer)
+            return true;
+    }
+    return false;
+}
+
+bool Document::editEndsAnother(const ViewProvider *vp, int mode,
+                               const ViewerContext *viewer) const
+{
+    for (auto &s : d->_editSessions) {
+        // The view's own, which an edit started there ends anyway
+        if (viewer && s->viewer == viewer)
+            continue;
+        if (cannotRunBeside(*s, vp, mode))
             return true;
     }
     return false;

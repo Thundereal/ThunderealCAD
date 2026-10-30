@@ -537,6 +537,13 @@ public:
     bool isEditingIn(const ViewerContext *viewer) const;
     /// The views edits were started in, one per edit
     std::vector<ViewerContext*> editingViewers() const;
+    /** Whether an edit of \a vp in mode \a mode, started in \a viewer, would
+     * end an edit another view runs (PerViewEdit): one that holds a
+     * transaction across its work, or any when this one would -- the rule
+     * setEdit() ends them by (docs/HandsOnQueue.md entry 232). What a
+     * served client may not do to another's edit.
+     */
+    bool editEndsAnother(const ViewProvider *vp, int mode, const ViewerContext *viewer) const;
     /** The object in edit: the sub-object of the edited path whose view
      * provider edits. Known from the moment setEdit() picks it, before the
      * view provider has started -- what code run by its startEditing() can

@@ -192,12 +192,9 @@ class TestContact(unittest.TestCase):
         _, result = self.simulate(1.0, 1e-3)
         self.assertEqual(result, 0)
         mass = 6 * (math.sqrt(3) / 4 * 25) * 5 * DENSITY
-        # Over its whole base, as many points: the spring is per point, so
-        # only its rest above the plate, a fraction of the ball's sink, is
-        # asserted
-        z = self.heights(prism)[-1]
-        self.assertLess(z, 10)
-        self.assertGreater(z, 10 - self.sink(mass))
+        # On its whole base, its six corners one patch: the law's sink, as
+        # the ball's one point
+        self.assertAlmostEqual(self.heights(prism)[-1], 10 - self.sink(mass), delta=1e-5)
 
     def test_hull_lands_flat(self):
         """The prism landing flat under the default, stiff law rests level:
@@ -252,17 +249,17 @@ class TestContact(unittest.TestCase):
         self.assertLess(self.tilt(egg), 1e-2)
 
     def test_torus_rests(self):
-        """A torus, curved and not convex, touches as its mesh: lying flat,
-        it comes to rest on its tube, its centre the tube's radius above the
-        plate, within the mesh's deflection and the soft law's sink. Under
-        the default law its ring of points rests in substeps of 1.4 us, and
-        0.3 s takes ten minutes"""
+        """A torus, curved and not convex, touches as its mesh: lying flat
+        under the default law, it comes to rest on its tube, its centre the
+        tube's radius above the plate, within the mesh's deflection. Its
+        ring of points is one patch, at rest by 0.06 s in substeps of
+        6.7 us; per point they were 1.4 us, and 0.3 s took ten minutes"""
         plate = self.plate()
         torus = self.assembly.newObject("Part::Torus", "Torus")
         torus.Radius1, torus.Radius2 = 10, 2
         torus.Placement.Base = App.Vector(0, 0, 13)
-        self.contact([torus], [plate], Stiffness=1.0, MaxDamping=1e-3)
-        _, result = self.simulate(0.3, 1e-3)
+        self.contact([torus], [plate])
+        _, result = self.simulate(0.1, 1e-3)
         self.assertEqual(result, 0)
         self.assertAlmostEqual(self.heights(torus)[-1], 12, delta=0.01)
         self.assertLess(self.tilt(torus), 1e-3)
@@ -367,6 +364,33 @@ class TestContact(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertAlmostEqual(self.heights(notch)[-1], 10, delta=1e-4)
         self.assertLess(self.tilt(notch), 1e-4)
+
+    def test_patch_law(self):
+        """The law is a patch's: a cube with a hole through it, its base a
+        fan of triangles around the hole, sinks the law's sink for its
+        weight as the ball does on its one point; the channel upside down,
+        on its two legs, sinks each leg's for half its weight. A soft law,
+        so that the sinks are tenths of a millimetre"""
+        import Part
+
+        plate = self.plate()
+        holed = self.assembly.newObject("Part::Feature", "Holed")
+        holed.Shape = Part.makeBox(10, 10, 10).cut(Part.makeCylinder(3, 10, App.Vector(5, 5, 0)))
+        holed.Placement.Base = App.Vector(-5, 35, 11)
+        bridge = self.assembly.newObject("Part::Feature", "Bridge")
+        bridge.Shape = Part.makeBox(30, 30, 10).cut(Part.makeBox(10, 30, 5, App.Vector(10, 0, 0)))
+        bridge.Placement.Base = App.Vector(-15, -15, 11)
+        plate.Length, plate.Width = 100, 80
+        law = dict(self.SOFT, MaxDamping=1e-3)
+        self.contact([holed, bridge], [plate], **law)
+        _, result = self.simulate(1.0, 1e-3)
+        self.assertEqual(result, 0)
+        mass = holed.Shape.Volume * DENSITY
+        self.assertAlmostEqual(self.heights(holed)[-1], 10 - self.sink(mass), delta=1e-5)
+        self.assertLess(self.tilt(holed), 1e-4)
+        mass = (9000 - 1500) * DENSITY
+        self.assertAlmostEqual(self.heights(bridge)[-1], 10 - self.sink(mass / 2), delta=1e-5)
+        self.assertLess(self.tilt(bridge), 1e-4)
 
     def test_mesh_in_pieces_refused(self):
         """A solid whose mesh is in pieces -- a cube with a hollow in it, two

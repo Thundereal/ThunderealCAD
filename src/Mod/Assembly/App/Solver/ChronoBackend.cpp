@@ -111,6 +111,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 
 #include <Eigen/Dense>
 
@@ -118,6 +119,7 @@
 #include <chrono/collision/ChCollisionShapeBox.h>
 #include <chrono/collision/ChCollisionShapeConvexHull.h>
 #include <chrono/collision/ChCollisionShapeCylinder.h>
+#include <chrono/collision/ChCollisionShapeMeshTriangle.h>
 #include <chrono/collision/ChCollisionShapeSphere.h>
 #include <chrono/collision/ChCollisionShapeTriangleMesh.h>
 #include <chrono/collision/ChCollisionSystem.h>
@@ -535,6 +537,16 @@ double step(double x, double x0, double h0, double x1, double h1)
 // impact law and friction give the force on B at its point, its opposite on
 // A at A's. Chrono's numerical jacobian of that makes the contact implicit,
 // so a part resting on another needs no step shorter than the contact's.
+//
+// The law is a patch's, not a point's: the points of one stretch of
+// surface touching another (patchesOf()) push as one point would at the
+// patch's depth, each its share by its own spring, so the deeper carry more
+// and a tilt is pushed back. The patch's spring is its points' springs
+// averaged, each weighted by itself: a face resting flat pushes as one
+// point, however many its clipping or its mesh gave it, and a corner
+// coming down beside a deep one adds as little as it presses. Per point, a
+// box's four corners were four times as stiff as a sphere's one, and a
+// mesh's ring of points as stiff as it was fine.
 class ContactLoad: public ch::ChLoadBodyBody
 {
 public:
@@ -543,6 +555,10 @@ public:
         ch::ChVector3d onA;     // in A's frame
         ch::ChVector3d onB;     // in B's frame
         ch::ChVector3d normal;  // absolute, from A to B
+        // The shapes it is on, for patchesOf(), and the patch it is in
+        const ch::ChCollisionShape* shapeA = nullptr;
+        const ch::ChCollisionShape* shapeB = nullptr;
+        std::size_t patch = 0;
     };
 
     ContactLoad(std::shared_ptr<ch::ChBody> a,
@@ -596,18 +612,41 @@ public:
         load_Q.setZero();
         onB = ch::VNULL;
         count = 0;
-        for (const Point& point : points) {
+        // Each patch's springs and their squares: a point's share is the
+        // patch's spring, sum(s^2) / sum(s), over the sum. The deepest
+        // point's spring, the first try, has a kink where the deepest
+        // changes, and the Newton iterations of a cube landing flat on a
+        // mesh ran off on it, the cube thrown off at 3 km/s.
+        depths.resize(points.size());
+        squares.assign(patches, 0.0);
+        sum.assign(patches, 0.0);
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            const Point& point = points[i];
             const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
-            const double depth = -ch::Vdot(point.normal, pB - pA);
+            depths[i] = -ch::Vdot(point.normal, pB - pA);
+            if (depths[i] > 0.0) {
+                const double spring = std::pow(depths[i], law.exponent);
+                squares[point.patch] += spring * spring;
+                sum[point.patch] += spring;
+            }
+        }
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            const Point& point = points[i];
+            const double depth = depths[i];
             if (!(depth > 0.0)) {
                 continue;
             }
+            const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
+            const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
             const ch::ChVector3d relative =
                 b.PointSpeedLocalToParent(point.onB) - a.PointSpeedLocalToParent(point.onA);
             const double rate = -ch::Vdot(point.normal, relative);
-            double normal = law.stiffness * std::pow(depth, law.exponent)
-                + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate;
+            const double total = sum[point.patch];
+            const double share = total > 0.0 ? squares[point.patch] / total / total : 1.0;
+            double normal = share
+                * (law.stiffness * std::pow(depth, law.exponent)
+                   + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate);
             if (!(normal > 0.0)) {
                 continue;
             }
@@ -641,11 +680,110 @@ public:
     ContactLaw law;
     std::size_t set = 0;  // the ContactPair's index
     std::vector<Point> points;
+    std::size_t patches = 0;
     // At the last state ComputeQ was given: the force on B, absolute, and
     // the points pressing
     ch::ChVector3d onB;
     int count = 0;
+
+private:
+    std::vector<double> depths, squares, sum;
 };
+
+// What a shape on a body meets its neighbours by: a mesh triangle its
+// corners, any other shape itself
+int keysOf(const ch::ChCollisionShape* shape, const void* keys[3])
+{
+    if (shape && shape->GetType() == ch::ChCollisionShape::Type::MESHTRIANGLE) {
+        const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+        keys[0] = triangle->V1;
+        keys[1] = triangle->V2;
+        keys[2] = triangle->V3;
+        return 3;
+    }
+    keys[0] = shape;
+    return 1;
+}
+
+// A load's points into patches, the stretches of surface touching: two
+// points are in one where both bodies' shapes under them meet -- the same
+// shape, or mesh triangles with a corner in common -- and their normals are
+// within 45 deg. A ball in a V-groove and a box in a corner touch in two,
+// and a table's legs on the floor one each. A mesh's triangles share their
+// corners and edges, and each one's pair gives the points on them: each
+// point is kept once, the first of its copies, in their patch. Each point's
+// patch is set, and the load's count. Only points sharing a key on both
+// bodies (keysOf()) are compared, those sorted together: comparing all of
+// them, a torus's 1560 points before the copies went took 18 ms a query.
+void patchesOf(ContactLoad& load)
+{
+    auto& points = load.points;
+    std::vector<std::size_t> root(points.size());
+    std::vector<bool> copy(points.size(), false);
+    for (std::size_t i = 0; i < root.size(); ++i) {
+        root[i] = i;
+    }
+    auto find = [&](std::size_t i) {
+        while (root[i] != i) {
+            root[i] = root[root[i]];
+            i = root[i];
+        }
+        return i;
+    };
+    using Entry = std::tuple<const void*, const void*, std::size_t>;
+    std::vector<Entry> entries;
+    entries.reserve(points.size() * 3);
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const void* keysA[3];
+        const void* keysB[3];
+        const int na = keysOf(points[i].shapeA, keysA);
+        const int nb = keysOf(points[i].shapeB, keysB);
+        for (int x = 0; x < na; ++x) {
+            for (int y = 0; y < nb; ++y) {
+                entries.emplace_back(keysA[x], keysB[y], i);
+            }
+        }
+    }
+    std::sort(entries.begin(), entries.end());
+    const double within = std::cos(pi / 4.0);
+    for (std::size_t first = 0; first < entries.size();) {
+        std::size_t last = first + 1;
+        while (last < entries.size() && std::get<0>(entries[last]) == std::get<0>(entries[first])
+               && std::get<1>(entries[last]) == std::get<1>(entries[first])) {
+            ++last;
+        }
+        for (std::size_t m = first + 1; m < last; ++m) {
+            const std::size_t i = std::get<2>(entries[m]);
+            for (std::size_t k = first; k < m; ++k) {
+                const std::size_t j = std::get<2>(entries[k]);  // j < i
+                const double turn = ch::Vdot(points[i].normal, points[j].normal);
+                if (turn > 1.0 - 1e-9 && (points[i].onA - points[j].onA).Length2() < 1e-18) {
+                    copy[i] = true;
+                }
+                if (turn > within && find(i) != find(j)) {
+                    root[find(i)] = find(j);
+                }
+            }
+        }
+        first = last;
+    }
+    std::vector<std::size_t> number(points.size(), points.size());
+    std::size_t patches = 0;
+    std::vector<ContactLoad::Point> once;
+    once.reserve(points.size());
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        if (!copy[i]) {
+            std::size_t& patch = number[find(i)];
+            if (patch == points.size()) {
+                patch = patches++;
+            }
+            once.push_back(points[i]);
+            once.back().patch = patch;
+        }
+    }
+    points.swap(once);
+    load.patches = patches;
+}
 
 // A box's or a hull's polyhedral features as the separating axis test reads
 // them: the vertices, the faces' planes, and the edges with the faces either
@@ -979,8 +1117,17 @@ void satRemeasure(const SatPolyhedron& a,
     }
 }
 
-// The pair's points along the axis, into the manifold as Bullet's clipping
-// gives them: the reference face, the one the axis is the normal of (an edge
+// A point of a pair's clipping, as Bullet's result takes one: the normal on
+// B, pointing to A, the point on B, and how far apart (negative, how deep)
+struct ClipPoint
+{
+    cbtVector3 normalOnB;
+    cbtVector3 onB;
+    cbtScalar depth;
+};
+
+// The pair's points along the axis, as Bullet's clipping gives them: the
+// reference face, the one the axis is the normal of (an edge
 // pair's: the face of either most along it, at the support vertex), and the
 // incident face of the other, the one most against it among the faces at the
 // other's support vertex; the incident face clipped to the reference face's
@@ -992,7 +1139,7 @@ void clipAlong(const SatPolyhedron& a,
                const cbtTransform& tb,
                const SatAxis& axis,
                cbtScalar threshold,
-               cbtManifoldResult* resultOut)
+               std::vector<ClipPoint>& out)
 {
     const cbtVector3 n = ta.getBasis() * axis.normal;  // from A to B
     // An edge of a mesh triangle's on an edge of the other's: the edges'
@@ -1035,7 +1182,7 @@ void clipAlong(const SatPolyhedron& a,
         const cbtVector3 onB = p2 + d2 * s2;
         const cbtScalar depth = n.dot(onB - onA);
         if (depth <= threshold) {
-            resultOut->addContactPoint(-n, onB, depth);
+            out.push_back({-n, onB, depth});
         }
         return;
     }
@@ -1127,10 +1274,10 @@ void clipAlong(const SatPolyhedron& a,
         }
         // Bullet's normal on B points to A, its point is on B
         if (referenceA) {
-            resultOut->addContactPoint(-refNormal, p, depth);
+            out.push_back({-refNormal, p, depth});
         }
         else {
-            resultOut->addContactPoint(refNormal, p - refNormal * depth, depth);
+            out.push_back({refNormal, p - refNormal * depth, depth});
         }
     }
 }
@@ -1301,13 +1448,22 @@ satSearch(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced& bp, c
             return apart;
         }
     }
+    // Touching the least out of a triangle's back, the touch is its
+    // neighbours': no points, unless a valid axis touches as little. A side
+    // of a cube landing on a plate, tilted past the slack, its triangles
+    // meeting the base at a corner only, touched least along the plate's top
+    // face, out of their backs, and the valid axis left was the plate's
+    // bottom face, 20 mm deep: the cube was driven through the plate.
+    if (!valid(best) && touch.separation < best.separation - 1e-6) {
+        return SatAxis();
+    }
     return touch;
 }
 
 // Contact between two boxes or hulls, or a box and a hull, in place of
 // Bullet's convex pair's, and between a mesh's triangle and any of those or
 // another mesh's: the separating axis by satSearch(), then clipping face
-// against face along it (clipAlong()) into the pair's persistent manifold.
+// against face along it (clipAlong()) into the pair's manifolds.
 // Bullet's own SAT projects both shapes on every pair of edge directions: two
 // 256-sided prisms, 129 directions each, one dropped across the other, took
 // 55 s over a tenth of a second that GJK's axis did in 1.7 s, and GJK's axis
@@ -1345,6 +1501,9 @@ public:
     {
         if (ownManifold && manifold) {
             m_dispatcher->releaseManifold(manifold);
+        }
+        for (cbtPersistentManifold* more : extra) {
+            m_dispatcher->releaseManifold(more);
         }
     }
 
@@ -1389,12 +1548,17 @@ public:
             axis = satSearch(a->second, b->second, placed(b->second, bInA), threshold);
             searchedAt = bInA;
         }
+        clipped.clear();
         if (axis.kind != SatAxis::None && axis.separation <= threshold) {
-            clipAlong(a->second, b->second, ta, tb, axis, threshold, resultOut);
+            clipAlong(a->second, b->second, ta, tb, axis, threshold, clipped);
         }
-        if (ownManifold) {
-            resultOut->refreshContactPoints();
+        if (!ownManifold) {
+            for (const ClipPoint& point : clipped) {
+                resultOut->addContactPoint(point.normalOnB, point.onB, point.depth);
+            }
+            return;
         }
+        handOver(resultOut);
     }
 
     cbtScalar calculateTimeOfImpact(cbtCollisionObject*,
@@ -1409,6 +1573,9 @@ public:
     {
         if (manifold && ownManifold) {
             manifoldArray.push_back(manifold);
+            for (cbtPersistentManifold* more : extra) {
+                manifoldArray.push_back(more);
+            }
         }
     }
 
@@ -1431,8 +1598,68 @@ public:
     };
 
 private:
+    // The result's shape identifiers, which Chrono's report takes a
+    // compound's child by: protected, named through a class of its own
+    struct Identifiers: cbtManifoldResult
+    {
+        static constexpr int cbtManifoldResult::*partId0 = &Identifiers::m_partId0;
+        static constexpr int cbtManifoldResult::*partId1 = &Identifiers::m_partId1;
+        static constexpr int cbtManifoldResult::*index0 = &Identifiers::m_index0;
+        static constexpr int cbtManifoldResult::*index1 = &Identifiers::m_index1;
+    };
+
+    // The clipping's points, all of them: a manifold holds four, a fifth
+    // replacing one of them, and a new point near one, within the breaking
+    // threshold, replaces that. A hexagonal prism resting on a plate kept
+    // four of its corners, off its centre, and rested tilted on them (2e-3
+    // rad under a soft law). Four to a manifold, then, the pair's own and as
+    // many more as it takes, each emptied first: the clipping is the whole
+    // contact, nothing to keep from the last query. As Bullet's result adds
+    // one otherwise.
+    void handOver(cbtManifoldResult* resultOut)
+    {
+        const cbtCollisionObject* body0 = resultOut->getBody0Wrap()->getCollisionObject();
+        const cbtCollisionObject* body1 = resultOut->getBody1Wrap()->getCollisionObject();
+        const bool swapped = manifold->getBody0() != body0;
+        const int partId0 = resultOut->*Identifiers::partId0;
+        const int partId1 = resultOut->*Identifiers::partId1;
+        const int index0 = resultOut->*Identifiers::index0;
+        const int index1 = resultOut->*Identifiers::index1;
+        manifold->clearManifold();
+        for (cbtPersistentManifold* more : extra) {
+            more->clearManifold();
+        }
+        std::size_t added = 0;
+        for (const ClipPoint& c : clipped) {
+            if (c.depth > manifold->getContactBreakingThreshold()) {
+                continue;
+            }
+            const std::size_t which = added++ / MANIFOLD_CACHE_SIZE;
+            if (which > extra.size()) {
+                extra.push_back(
+                    m_dispatcher->getNewManifold(manifold->getBody0(), manifold->getBody1()));
+            }
+            cbtPersistentManifold* into = which ? extra[which - 1] : manifold;
+            const cbtVector3 pointA = c.onB + c.normalOnB * c.depth;
+            const cbtVector3 localA =
+                (swapped ? body1 : body0)->getWorldTransform().invXform(pointA);
+            const cbtVector3 localB =
+                (swapped ? body0 : body1)->getWorldTransform().invXform(c.onB);
+            cbtManifoldPoint point(localA, localB, c.normalOnB, c.depth);
+            point.m_positionWorldOnA = pointA;
+            point.m_positionWorldOnB = c.onB;
+            point.m_partId0 = swapped ? partId1 : partId0;
+            point.m_partId1 = swapped ? partId0 : partId1;
+            point.m_index0 = swapped ? index1 : index0;
+            point.m_index1 = swapped ? index0 : index1;
+            into->addManifoldPoint(point);
+        }
+    }
+
     cbtPersistentManifold* manifold = nullptr;
     bool ownManifold = false;
+    std::vector<cbtPersistentManifold*> extra;
+    std::vector<ClipPoint> clipped;
     const Polyhedra* polyhedra = nullptr;
     SatAxis axis;
     cbtTransform searchedAt;
@@ -1489,13 +1716,14 @@ public:
     // before a step whose state collision detection last saw; the next run
     // takes it down.
     bool reuse = false;
+    bool reused = false;  // by the last run
     void Run() override
     {
-        if (reuse) {
-            reuse = false;
-            return;
+        reused = reuse;
+        reuse = false;
+        if (!reused) {
+            ch::ChCollisionSystemBullet::Run();
         }
-        ch::ChCollisionSystemBullet::Run();
     }
 
 private:
@@ -4350,12 +4578,19 @@ Status ChronoSession::simulateDynamics(
     struct ContactHandover: ch::ChSystem::CustomCollisionCallback
     {
         std::shared_ptr<ContactFinder> finder;
+        const ContactCollisionSystem* collision = nullptr;
         std::vector<std::shared_ptr<ContactLoad>>* loads = nullptr;
         const std::map<const ch::ChCollisionShape*, ShapeOn>* shapes = nullptr;
         std::shared_ptr<std::map<const ch::ChCollisionShape*, ShapeOn>> keep;
         double reach = 0.0;
         void OnCustomCollision(ch::ChSystem*) override
         {
+            // Collision detection's results kept from the check after the
+            // last substep, at this state: its points are the loads' still
+            if (collision->reused) {
+                finder->found.clear();
+                return;
+            }
             for (auto& load : *loads) {
                 load->points.clear();
             }
@@ -4369,7 +4604,9 @@ Status ChronoSession::simulateDynamics(
                 load.points.push_back(
                     {load.GetBodyA()->TransformPointParentToLocal(f.swapped ? pB : pA),
                      load.GetBodyB()->TransformPointParentToLocal(f.swapped ? pA : pB),
-                     f.swapped ? -normal : normal});
+                     f.swapped ? -normal : normal,
+                     f.swapped ? f.shapeB : f.shapeA,
+                     f.swapped ? f.shapeA : f.shapeB});
             };
             auto on = [&](const ch::ChCollisionShape* shape) -> const ShapeOn* {
                 auto it = shapes->find(shape);
@@ -4411,25 +4648,8 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             finder->found.clear();
-            // A mesh's triangles share their corners and edges, and each
-            // one's pair gives the points on them: each point once
-            std::vector<ContactLoad::Point> once;
             for (auto& load : *loads) {
-                once.clear();
-                for (const auto& point : load->points) {
-                    bool seen = false;
-                    for (const auto& kept : once) {
-                        if ((kept.onA - point.onA).Length2() < 1e-18
-                            && ch::Vdot(kept.normal, point.normal) > 1.0 - 1e-9) {
-                            seen = true;
-                            break;
-                        }
-                    }
-                    if (!seen) {
-                        once.push_back(point);
-                    }
-                }
-                load->points.swap(once);
+                patchesOf(*load);
             }
         }
     };
@@ -4581,6 +4801,7 @@ Status ChronoSession::simulateDynamics(
         collision->RegisterNarrowphaseCallback(finder);
         auto handover = std::make_shared<ContactHandover>();
         handover->finder = finder;
+        handover->collision = contactCollision;
         handover->loads = &contactLoads;
         handover->shapes = shapesOn.get();
         handover->reach = margin;
@@ -5309,19 +5530,22 @@ Status ChronoSession::simulateDynamics(
             if (!std::isfinite(mass)) {
                 continue;
             }
-            // Its points are springs side by side on that mass: each holds
-            // its share, the ones pressing when any does. A mesh resting on
-            // a ring of its points has hundreds more within the envelope,
-            // and their shares cut a torus's steps to a fraction of a
-            // microsecond.
-            std::size_t pressing = 0;
+            // Its patches are springs side by side on that mass, each
+            // pushing as one point: each holds its share, the ones pressing
+            // when any does. Each point's share, and a torus resting on a
+            // ring of points took substeps of 1.4 us; each one within the
+            // envelope's, a fraction of a microsecond.
+            std::vector<bool> pressed(load->patches, false);
             for (const auto& point : load->points) {
-                pressing += -ch::Vdot(point.normal,
-                                      b->TransformPointLocalToParent(point.onB)
-                                          - a->TransformPointLocalToParent(point.onA))
-                    > 0.0;
+                if (-ch::Vdot(point.normal,
+                              b->TransformPointLocalToParent(point.onB)
+                                  - a->TransformPointLocalToParent(point.onA))
+                    > 0.0) {
+                    pressed[point.patch] = true;
+                }
             }
-            mass /= static_cast<double>(pressing ? pressing : load->points.size());
+            const auto pressing = std::count(pressed.begin(), pressed.end(), true);
+            mass /= static_cast<double>(pressing ? pressing : load->patches);
             const ContactLaw& law = load->law;
             for (const auto& point : load->points) {
                 const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);

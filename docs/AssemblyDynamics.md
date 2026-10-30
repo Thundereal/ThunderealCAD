@@ -708,7 +708,8 @@ Phase D1 is under way (2026-10-28):
     ticked in a study's Elements as any other element. GroupA's
     components touch GroupB's, or, GroupB empty, one another; nothing
     else touches (a set is the pair table's row). Its law is Adams'
-    IMPACT: `Stiffness` (N/mm^e), `Exponent`, `MaxDamping` (N s/mm,
+    IMPACT, applied per patch (below): `Stiffness` (N/mm^e), `Exponent`,
+    `MaxDamping` (N s/mm,
     reached at `Penetration` through a STEP), and friction by speed:
     `StaticFriction` below `StictionVelocity`, `DynamicFriction` above
     `FrictionVelocity`, STEPs between (defaults 1e5, 1.5, 10, 0.01 mm,
@@ -740,18 +741,34 @@ Phase D1 is under way (2026-10-28):
     narrowphase callback refuses them all: its SMC contact is explicit,
     fixed over a step). HHT with alpha -1/3 and no step control when there
     is contact. A step is cut into substeps: a fiftieth of the stiffest
-    point's impact period (the body's mass shared among its points), the
-    damping's limit 2m/c, and half the time to a contact still coming
+    point's impact period (the body's mass shared among its patches
+    pressing), the damping's limit 2m/c, and half the time to a contact
+    still coming
     (its speed and gravity). A substep that finds a new contact deeper
     than a tenth of what its impact will reach is taken again an eighth as
     long; one whose Newton iterations ran off to a state not finite, too,
     and below 1e-9 s the run fails ("the contact's integration diverged")
     instead of handing Bullet a NaN.
+  - The law is a patch's, not a point's (`patchesOf()`, `ContactLoad`):
+    the points of one stretch of surface touching another push as one
+    point would at the patch's depth, so a face resting flat pushes the
+    same however many points its clipping or its mesh gave it. Two points
+    are in one patch where both bodies' shapes under them meet -- the same
+    shape, or mesh triangles with a corner in common -- and their normals
+    are within 45 deg: a ball in a V-groove or a box in a corner touches in
+    two, a table's legs on the floor in one each. Each point pushes by its
+    own law's force times a share, sum(s^2) / sum(s)^2 over the patch's
+    springs s = k d^e: equal depths share equally, so the patch pushes
+    k d^e, and a deeper point carries more, so a tilt is pushed back.
+    Per point, a box's four corners were four times as stiff as a sphere's
+    one point, a hexagon's six six times, and a mesh as stiff as it was
+    fine.
   - The points: Bullet's GJK gives a convex pair one point a query, and a
     face landing on a face then rocks on whichever corner it found. A
     pair of a hull and a hull or a box has Bullet's polyhedral features,
     and is clipped face against face along the axis separating them most,
-    every corner at once (`PolyhedralAlgorithm`, registered for those
+    every corner at once, four to a manifold and as many manifolds as it
+    takes (`PolyhedralAlgorithm`, registered for those
     pairs in place of Bullet's convex pair; two boxes keep Bullet's
     box-box). The axis is the backend's own separating axis search: every
     face of each, and the edge pairs that make faces of the Minkowski
@@ -779,7 +796,9 @@ Phase D1 is under way (2026-10-28):
     out of either triangle's back is not taken, a neighbour's face that
     proves the best normal leaves the points to the neighbour's own pair,
     and an edge pair touches at the edges' closest points -- inside both
-    edges, or not at all. A triangle's points are grown toward the other
+    edges, or not at all. A pair touching least out of a triangle's back
+    gives no points unless a valid axis touches as little: that touch is
+    the neighbours'. A triangle's points are grown toward the other
     shape, as a ball grows it, not along its own normal. Those axes cannot
     prove a pair apart, so a pair they find touching is tested again as
     two plain convex shapes, flat edges and all (`satApart()`), the
@@ -858,12 +877,36 @@ Phase D1 is under way (2026-10-28):
       - A torus took 76 min for 0.3 s: its 267 points within the envelope
         each took a share of its mass for the substep, and only the ring it
         rests on presses. The pressing points share it now, when any do.
-        Under the default law that ring still rests in substeps of 1.4 us
+        Under the default law that ring still rested in substeps of 1.4 us
         -- a fiftieth of the law's period on each point's share of the
-        mass, a box's four corners about 4 us by the same rule -- and
-        0.3 s takes 10
-        minutes, collision detection 1.6 ms of each substep's 2.6. Its
-        test runs a soft law: 18 s.
+        mass -- and 0.3 s took 10 minutes. The law per patch was the fix.
+    - The law per patch:
+      - The patch's spring first was its deepest point's, max(s): a kink
+        where the deepest changes, and the Newton iterations of a cube
+        landing flat on its mesh ran off on it, the cube thrown at 3 km/s.
+        sum(s^2) / sum(s) is smooth, equal to s when the points are.
+      - A hexagonal prism resting under a soft law stood 0.5 um high and
+        2e-3 rad tilted: Bullet's manifold keeps four points, a fifth
+        replacing one, and a new point near one, within the breaking
+        threshold, replacing that. It kept four corners, off its centre. Hence
+        the manifolds four to one, each emptied first.
+      - The cube with a corner cut out, landing under the soft law, fell
+        through the plate: tilted past the slack, its side's triangles that
+        meet the base at a corner only touched the plate least along its
+        top face, out of their backs, and the valid axis left was its
+        bottom face, 20 mm deep. Hence no points from a pair touching
+        least out of a triangle's back.
+      - Grouping by every pair of points, a torus's 1560 points a query
+        (260 once the copies went) took 18 ms, and it ran twice a substep:
+        once after it, and again at the next one's start on the same
+        results. Only points sharing a key on both bodies are compared now,
+        and a step's start on kept results keeps the points: 0.05 s of the
+        torus 129 s -> 14 s.
+      - The torus under the default law: one patch, substeps of 6.7 us
+        (1.4 per point), at rest by 0.06 s; its test's 0.1 s takes about
+        a minute. The cube with the corner cut out rests tilted 1.6e-3 rad
+        under the soft law, as an off-centre load on an elastic support
+        does: its centre of mass is off its base's.
   - Envelope 2e-5 m, margin 1e-4 m: Chrono's defaults (3 cm, 1 cm) are a
     part's size here.
   - Results: a ContactForce channel per set, the force on group A's
@@ -871,10 +914,13 @@ Phase D1 is under way (2026-10-28):
   - Tests (TestContact): a ball resting sunk by (mg/k)^(1/e) (1e-5 mm),
     its contact force the weight (1e-5), the same rest from a Static
     study; an undamped bounce back to its height (5e-4 mm); a block
-    sliding at mu g; a prism resting on its hull under a soft law and
-    landing level under the default one (1e-4 mm, 1e-4 rad), and on a
-    larger prism's top face; an ellipsoid resting on its pole (0.01 mm),
-    a torus on its tube (0.01 mm, under a soft law); a cube with a corner
+    sliding at mu g; a prism resting on its hull under a soft law, sunk
+    by (mg/k)^(1/e) as the ball (1e-5 mm), and landing level under the
+    default one (1e-4 mm, 1e-4 rad), and on a larger prism's top face; an
+    ellipsoid resting on its pole (0.01 mm), a torus on its tube (0.01 mm);
+    the law per patch: a cube with a hole through it sunk by the ball's
+    rule, and the channel upside down on its two legs by half its weight's
+    (1e-5 mm); a cube with a corner
     cut out landing level on its base (1e-4 mm, 1e-4 rad), a box resting
     on the floor of a slot in a block and not on the block's hull, and the
     notched cube on the block beside the slot, mesh on mesh, its sides
@@ -887,9 +933,10 @@ Phase D1 is under way (2026-10-28):
   - Not yet: curve contact for cams (sec 7.4), stops, sensors, contact
     plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
-    The law is per point, so a mesh's stiffness and its substeps follow
-    its tessellation: a law per patch is the fix for both. A tumble is
-    slow: the tall cylinder's 0.3 s takes about 20 s, in substeps of
+    A resting mesh is still slow under the default law: collision
+    detection and the Newton iterations cost milliseconds a substep, and
+    the substep is a fiftieth of the patch's period. A tumble is slow too:
+    the tall cylinder's 0.3 s takes about 10 s, in substeps of
     microseconds through each impact.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls

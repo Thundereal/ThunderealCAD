@@ -363,6 +363,49 @@ the converter does not know stay as they are.
 
 ## 8. Editing in the view
 
+### 8.1 Working in PartDesign: tool bars that come when asked for
+
+Ruled 2026-10-30. Sheet metal and surfaces are made in a PartDesign body, without switching
+workbench. Their tool bars are part of the PartDesign workbench but are not offered, not shown and
+not in the menus, until something asks for them. Showing them all the time would crowd the window,
+because each of their commands makes a new object rather than adding geometry to one object. The
+sketch's own tool bars are the other case: they make sense only inside a sketch's edit, which
+already switches to them.
+
+How other CAD programs keep surface and sheet metal tools out of the way (general knowledge, not
+surveyed):
+- **Tabs** (SOLIDWORKS, Fusion, Inventor, Creo, NX): every tool reachable, one tab shown at a time.
+- **Modes entered and finished:** Fusion's Form and Flat Pattern, Inventor's Freeform and Flat
+  Pattern, Creo's Style. Onshape's Sheet Metal Model stays active until finished (survey A6.4).
+- **Containers that take new features:** CATIA's geometrical sets, Creo's quilts and NX's sheet
+  bodies. CATIA still ties tool bars to the workbench, not to the set.
+
+Here it is the container, with its tool bars tied to it:
+- **A surface group** is a new kind of aux group in a body (`PartDesign::AuxGroup`, named
+  `Surfaces`). It holds Surface features, and the body's Misc group leaves them to it. Its icon is
+  the group's folder with the Surface icon on it.
+  - `PartDesign_SurfaceGroup` (PartDesign's Helper tool bar) makes one in the active body, puts the
+    selected Surface features of the body in it, and makes it active.
+  - A double-click toggles it: active in the view or not. While it is active, the Surface tool bar
+    is offered, and what the Surface commands make goes into it.
+- **A solid holding sheet metal** (`PartDesign::SolidBody`) has its icon changed, by an overlay. A
+  double-click toggles it active, which offers the sheet metal tool bars.
+- **An edit offers them too.** Editing any Surface or sheet metal object offers its tool bars if
+  they are not offered already. Leaving the edit takes them away again, but only if no surface
+  group or sheet metal solid is active.
+
+The mechanism is general (`Gui::ToolContext`). A module registers a context: its tool bars, the
+workbenches that take them, the view's active-object key that holds them (`pdsurface`,
+`pdsheetmetal`), and the kind of object it is for. The kind is what the module registers its types
+with on a body (`Part::BodyBase::allowType(type, kind)`), so PartDesign tells a Surface feature
+from others without linking Surface. The tool bars come back after a workbench switch, and go when
+the active group is deleted or its document closed.
+
+Built 2026-10-30 for Surface. The SolidBody half is in place, but nothing uses it until the first
+sheet metal feature registers its context (M1). It is tested then.
+
+### 8.2 In the view
+
 - **Flanges in the view:** each flange's leg end has a drag arrow for its length and an arc handle
   for its angle, using the gizmos the Surface edge markers use (`LinearGizmo`).
 - **The flat beside the folded part:** the flat pattern can be shown in the same view, laid

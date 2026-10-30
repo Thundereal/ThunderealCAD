@@ -318,6 +318,8 @@ The analysis tools belong in the view, not in the Surface workbench. Upstream as
 
 **The curvature map from the surface's own curvature: not built, ruled 2026-10-30.** Measured 2026-10-30 before building it (`~/.cache/lv-merge/curvature-map/measure.py`: the map's colour at points of known curvature, inverted through the ramp after sRGB decoding). The shader's value, at the view's default mesh: a sphere within 1.6%; a torus's greatest curvature within 1.5%, its mean 1.3% on average (3.9% worst), its Gaussian and least 4% on average, 9 to 10% worst where they change fastest. Meshed finely, everything within 1.3% on average (3.8% worst) -- the readback's own 8 bits are about 1%. Curvature at each mesh node from the surface would cost 6 to 28% of the tessellation's time (2026-10-30, seven OCCT sample models; `cost.cpp` there), 8 bytes a vertex, and a new channel through the Part mesh, the vertex cache, the renderer's mesh data, its shaders and the scene stream (snapshot version 91). Not built, as recommended: a map read by colour does not show a few percent, and the comb and the continuity readout give the numbers. Sec 7's per-vertex attribute is withdrawn; the shader's shape operator stays.
 
+**Surfaces in PartDesign without switching workbench, built 2026-10-30:** a surface group in a body, whose double-click toggles the Surface tool bar in PartDesign; editing a Surface feature offers it until the edit ends. Ruled and described in docs/SheetMetal.md sec 8.1.
+
 G3 and sec 5.4 are out of this release by ruling.
 
 a. **Scope for the end-2026 release.** Proposed: U0 to U3, then U4 (analysis), then U5 if there is time. Or a cut: U0, U1, U2 (network, edge conditions, trim) as the release's surfacing, and the rest after.

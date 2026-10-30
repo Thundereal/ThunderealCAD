@@ -1382,7 +1382,11 @@ bool Document::_revertStep(bool undo, Transaction* step)
     log->resolvePending();
     ColdRevert revert;
     revert.selective = true;
-    if (!_prepareRevert(step->LogSeq, step->Name, revert))
+    // A step that changed nothing has nothing to take back: an implicit
+    // one whose every write put back the value that was there rode with
+    // the step below it into every undo of that step from under another's,
+    // which it refused for want of a row
+    if (!step->Unchanged && !_prepareRevert(step->LogSeq, step->Name, revert))
         return false;
 
     auto inverse = new Transaction(step->getID());
@@ -1519,7 +1523,7 @@ bool Document::_takeStep(bool undo, int id)
         return _revertStep(undo, step);
 
     ColdRevert cold;
-    if (step->Cold && !_prepareRevert(step->LogSeq, step->Name, cold))
+    if (step->Cold && !step->Unchanged && !_prepareRevert(step->LogSeq, step->Name, cold))
         return false;
     StepTouched touched;   // sec 27.63
     if (auto log = getTransactionLog())
@@ -2219,11 +2223,13 @@ void Document::_commitTransaction(bool notify)
         bool snapshotDue = false;
         if (auto log = d->closing ? nullptr : getTransactionLog()) {
             const std::string& kind = d->activeUndoTransaction->LogKind;
+            bool unchanged = false;
             d->activeUndoTransaction->LogSeq =
                 log->onCommit(*d->activeUndoTransaction,
                               !kind.empty() ? kind.c_str() : implicit ? "implicit" : "user",
                               d->activeUndoTransaction->Origin.c_str(),
-                              d->activeUndoTransaction->Inverts);
+                              d->activeUndoTransaction->Inverts, &unchanged);
+            d->activeUndoTransaction->Unchanged = unchanged;
             // What waited on the row: a recompute record (sec 27.59).
             auto after = std::move(d->activeUndoTransaction->AfterLogRow);
             for (auto& write : after)

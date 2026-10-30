@@ -100,6 +100,10 @@ public:
     /// The row the transaction log wrote for this transaction (its seq),
     /// 0 when none was written (docs/TransactionLogJournal.md sec 24.2).
     int64_t LogSeq {0};
+    /// No row because nothing in it changed anything: every write put back
+    /// the value that was there (TransactionLog::onCommit). Taken back from
+    /// the log, it has nothing to take back, rather than no row to read.
+    bool Unchanged {false};
     /// For a transaction the document makes to undo a log row (sec 24.4):
     /// the kind the log records ("undo") and the row it inverts.
     std::string LogKind;

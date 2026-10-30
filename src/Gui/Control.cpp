@@ -341,7 +341,20 @@ void ControlSingleton::showDialogFor(Gui::TaskView::TaskDialog *dlg, const TaskO
         // dialog says it works on the selection every view shares.
         if (dlg->usesOwnSelection()) {
             if (MDIView *view = owner.mdiView()) {
+                // And the gate the dialog set as it was made, before it had
+                // a view, on the selection every view shares: its own now.
+                // Left there, the dialog's deactivate() removed nothing --
+                // it removes the current instance's, the view's -- and the
+                // gate went on gating every view after the dialog was gone
+                // (the Assembly contact, load and spring panels, edited by
+                // a double click), and was deleted after Python's end at
+                // the exit, a crash.
+                SelectionSingleton &before = Selection();
+                const bool fresh = !view->selectionInstance();
                 view->takeOwnSelection();
+                SelectionSingleton *own = view->selectionInstance();
+                if (fresh && own && own != &before && &before == &SelectionRoom())
+                    before.moveSelectionGateTo(*own);
                 open.selectionView = view;
             }
         }

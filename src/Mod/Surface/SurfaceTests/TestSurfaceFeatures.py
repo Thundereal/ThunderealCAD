@@ -132,6 +132,41 @@ class TestSurfaceFeatures(unittest.TestCase):
         self.recompute(f)
         self.assertEqual(edgeOn(f.Shape, loop[1]), h.Ref[1][0])
 
+    def fillingG1(self):
+        """A filling rising from a flat neighbour, G1 to it along their shared
+        edge: the angle between the two at the edge's middle, in degrees"""
+        import math
+
+        sup = self.doc.addObject("Part::Feature", "Sup")
+        sup.Shape = Part.makePlane(10, 10, V(-10, 0, 0))
+        shared = [i for i, e in enumerate(sup.Shape.Edges)
+                  if abs(e.BoundBox.XMin) < 1e-9 and abs(e.BoundBox.XMax) < 1e-9][0]
+        rise = [(x * 0.5, 5 * (x / 20.0) ** 2) for x in range(21)]
+        s0 = spline(self.doc, "s0", *[(x, 0, z) for x, z in rise])
+        s1 = spline(self.doc, "s1", *[(x, 10, z) for x, z in rise])
+        far = spline(self.doc, "far", *[(10, y * 0.5, 5 + 6 * math.sin(math.pi * y / 20.0))
+                                        for y in range(21)])
+        f = self.doc.addObject("Surface::Filling", "Fill")
+        f.BoundaryEdges = [(sup, "Edge%d" % (shared + 1)), (s0, "Edge1"), (far, "Edge1"),
+                           (s1, "Edge1")]
+        f.BoundaryFaces = [(sup, "Face1"), (s0, ""), (far, ""), (s1, "")]
+        f.BoundaryOrder = [1, 0, 0, 0]
+        self.recompute(f)
+        face = f.Shape.Faces[0]
+        n = face.normalAt(*face.Surface.parameter(V(0, 5, 0)))
+        return math.degrees(min(n.getAngle(V(0, 0, 1)), n.getAngle(V(0, 0, -1))))
+
+    def testFillingG1(self):
+        # frozen, the fixed boundary wire was a copy whose edges had no order
+        # and no support: G0, 9.2 deg off the neighbour
+        from parttests.occt_fork import frozen
+
+        for on in (False, True):
+            with frozen(on):
+                self.assertLess(self.fillingG1(), 0.1, "frozen %s" % on)
+            for o in self.doc.Objects:
+                self.doc.removeObject(o.Name)
+
     # -- Sections -------------------------------------------------------------
 
     def sections(self):

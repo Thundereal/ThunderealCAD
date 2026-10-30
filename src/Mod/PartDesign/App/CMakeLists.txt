@@ -3,6 +3,8 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}
+    # SheetMetal/ finds the module's PreCompiled.h, as Surface's Geom/ does
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${Boost_INCLUDE_DIRS}
     ${OCC_INCLUDE_DIR}
     ${QT_INCLUDE_DIR}
@@ -149,6 +151,15 @@ SET(Module_SRCS
 SOURCE_GROUP("Module" FILES ${Module_SRCS})
 
 
+# Sheet metal's geometry, no document (docs/SheetMetal.md sec 4.5)
+SET(SheetMetal_SRCS
+    SheetMetal/BendAllowance.cpp
+    SheetMetal/BendAllowance.h
+    SheetMetal/Fold.cpp
+    SheetMetal/Fold.h
+)
+SOURCE_GROUP("SheetMetal" FILES ${SheetMetal_SRCS})
+
 SET(Python_SRCS
     BodyPy.xml
     BodyPyImp.cpp
@@ -163,6 +174,7 @@ SET(PartDesign_SRCS
     ${FeaturesTransformed_SRCS}
     ${FeaturesSketchBased_SRCS}
     ${FeaturesDressUp_SRCS}
+    ${SheetMetal_SRCS}
     ${Module_SRCS}
     ${Python_SRCS}
 )

@@ -49,6 +49,7 @@
 #include <Gui/SoFCUnifiedSelection.h>
 #include <Gui/CommandT.h>
 #include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 #include <Gui/Tree.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>
@@ -106,7 +107,7 @@ App::DocumentObject *ViewProvider::getPickedVisibilityTarget() const
 
 bool ViewProvider::editHoldsTransaction(int ModNum) const
 {
-    if (ModNum == ViewProvider::Default && Gui::ViewParams::getPerViewEdit()
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()
             && panelOwnsItsSteps())
         return false;
     return PartGui::ViewProviderPart::editHoldsTransaction(ModNum);

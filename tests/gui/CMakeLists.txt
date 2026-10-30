@@ -500,6 +500,12 @@ fc_add_gui_test(GuiEditTwoDocuments_tests_run edit-two-documents.py
 fc_add_gui_test(GuiPdEditTwoViews_tests_run pd-edit-two-views.py
                 --timeout 240)
 
+# Each change in an edit's panel an undo step of its own with
+# View/EditStepEachChange, PerViewEdit off: a pad, a pattern, a TechDraw
+# dimension; undone one at a time with the dialog open.
+fc_add_gui_test(GuiEditStepEachChange_tests_run edit-step-each-change.py
+                --timeout 240)
+
 # Two sketches in edit in one document, one per view (entry 232, the
 # Sketcher round): Cancel of one takes back its own steps only.
 fc_add_gui_test(GuiSketchEditTwoViews_tests_run sketch-edit-two-views.py

@@ -39,6 +39,7 @@
 #include <Gui/Control.h>
 #include <Gui/Selection.h>
 #include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 
 #include <Mod/TechDraw/App/DrawComplexSection.h>
 #include <Mod/TechDraw/App/DrawGeomHatch.h>
@@ -156,7 +157,7 @@ bool ViewProviderViewSection::setEdit(int ModNum)
 
 bool ViewProviderViewSection::editHoldsTransaction(int ModNum) const
 {
-    if (ModNum == ViewProvider::Default && Gui::ViewParams::getPerViewEdit()
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()
             && !dynamic_cast<TechDraw::DrawComplexSection*>(getViewObject())) {
         return false;
     }

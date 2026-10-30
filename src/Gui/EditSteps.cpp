@@ -104,7 +104,7 @@ EditSteps::EditSteps(ViewProviderDocumentObject* vp, QObject* parent)
 EditSteps::EditSteps(App::DocumentObject* obj, QObject* parent)
     : QObject(parent)
     , objT(obj)
-    , on(ViewParams::getPerViewEdit())
+    , on(wanted())
 {
     if (!on)
         return;
@@ -114,6 +114,11 @@ EditSteps::EditSteps(App::DocumentObject* obj, QObject* parent)
 }
 
 EditSteps::~EditSteps() = default;
+
+bool EditSteps::wanted()
+{
+    return ViewParams::getEditStepEachChange() || ViewParams::getPerViewEdit();
+}
 
 ViewProviderDocumentObject* EditSteps::viewProvider() const
 {

@@ -45,6 +45,7 @@
 #include <Gui/TaskOwner.h>
 #include <Gui/ViewerContext.h>
 #include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 #include <Gui/WaitCursor.h>
 #include <Mod/Part/Gui/PartParams.h>
 #include <Mod/PartDesign/App/FeatureAddSub.h>
@@ -120,7 +121,7 @@ TaskFeatureParameters::TaskFeatureParameters(PartDesignGui::ViewProvider *vp, QW
     Gui::Document* doc = vp->getDocument();
     this->attachDocument(doc);
     App::GetApplication().getActiveTransaction(&transactionID, doc->getDocument());
-    perViewAtOpen = Gui::ViewParams::getPerViewEdit();
+    perViewAtOpen = Gui::EditSteps::wanted();
     new StepOpener(this);
 }
 
@@ -132,7 +133,7 @@ TaskFeatureParameters::TaskFeatureParameters(PartDesignGui::ViewProvider *vp, QW
     Gui::Document* doc = vp->getDocument();
     this->attachDocument(doc);
     App::GetApplication().getActiveTransaction(&transactionID, doc->getDocument());
-    perViewAtOpen = Gui::ViewParams::getPerViewEdit();
+    perViewAtOpen = Gui::EditSteps::wanted();
     new StepOpener(this);
 }
 

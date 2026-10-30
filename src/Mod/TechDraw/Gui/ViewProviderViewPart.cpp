@@ -42,6 +42,7 @@
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 
 #include <Mod/TechDraw/App/DrawBrokenView.h>
 #include <Mod/TechDraw/App/DrawGeomHatch.h>
@@ -334,7 +335,7 @@ bool ViewProviderViewPart::doubleClicked()
 
 bool ViewProviderViewPart::editHoldsTransaction(int ModNum) const
 {
-    if (ModNum == ViewProvider::Default && Gui::ViewParams::getPerViewEdit()
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()
             && dynamic_cast<TechDraw::DrawViewDetail*>(getViewObject())) {
         return false;
     }

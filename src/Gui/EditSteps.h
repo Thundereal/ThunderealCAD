@@ -67,11 +67,16 @@ public:
     EditSteps(App::DocumentObject* obj, QObject* parent);
     ~EditSteps() override;
 
-    /// PerViewEdit when it was made: whether the panel's changes are steps
+    /// wanted() when it was made: whether the panel's changes are steps
     bool isOn() const
     {
         return on;
     }
+    /** Whether an edit started now makes each change of its panel a step of
+     * its own: with View/EditStepEachChange (on by default), and always with
+     * PerViewEdit, whose edits run beside each other by it
+     */
+    static bool wanted();
     /** Opens a step for a change made outside an event of the edit's -- a
      * deferred apply, OK's work -- unless one is open; committed once the
      * event being handled is done

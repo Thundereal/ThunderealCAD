@@ -131,6 +131,7 @@ public:
     bool MapChildrenPlacement;
     double EditingTransparency;
     bool PerViewEdit;
+    bool EditStepEachChange;
     bool PerViewSelection;
     bool TaskPanelInView;
     double DraggerScale;
@@ -466,6 +467,8 @@ public:
         funcs["EditingTransparency"] = &ViewParamsP::updateEditingTransparency;
         PerViewEdit = this->handle->GetBool("PerViewEdit", false);
         funcs["PerViewEdit"] = &ViewParamsP::updatePerViewEdit;
+        EditStepEachChange = this->handle->GetBool("EditStepEachChange", true);
+        funcs["EditStepEachChange"] = &ViewParamsP::updateEditStepEachChange;
         PerViewSelection = this->handle->GetBool("PerViewSelection", false);
         funcs["PerViewSelection"] = &ViewParamsP::updatePerViewSelection;
         TaskPanelInView = this->handle->GetBool("TaskPanelInView", false);
@@ -1156,6 +1159,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updatePerViewEdit(ViewParamsP *self) {
         self->PerViewEdit = self->handle->GetBool("PerViewEdit", false);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateEditStepEachChange(ViewParamsP *self) {
+        self->EditStepEachChange = self->handle->GetBool("EditStepEachChange", true);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updatePerViewSelection(ViewParamsP *self) {
@@ -2253,6 +2260,12 @@ static const App::ParamRegistry::Registrar _ViewParamsRegistrar({
 "document as it is and take no input for the edit. When off, every view\n"
 "of the document joins the edit and can work in it. Takes effect with\n"
 "the next edit."),
+    App::ParamInfo("Gui", "ViewParams", "User parameter:BaseApp/Preferences/View", "EditStepEachChange", "EditStepEachChange", App::ParamInfo::Bool, true)
+        .setTitle("Undo each change of an edit")
+        .setDoc("Make each change in an edit's task panel an undo step of its own, so\n"
+"that it can be undone on its own; Cancel takes back all of the edit's.\n"
+"When off, an edit's changes are one undo step, made at OK. Always on\n"
+"with PerViewEdit. Takes effect with the next edit."),
     App::ParamInfo("Gui", "ViewParams", "User parameter:BaseApp/Preferences/View", "PerViewSelection", "PerViewSelection", App::ParamInfo::Bool, false)
         .setTitle("A selection per view")
         .setDoc("Give every view a selection of its own. What is selected in one view\n"
@@ -5074,6 +5087,37 @@ void ViewParams::setPerViewEdit(const bool &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void ViewParams::removePerViewEdit() {
     instance()->handle->RemoveBool("PerViewEdit");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *ViewParams::docEditStepEachChange() {
+    return QT_TRANSLATE_NOOP("ViewParams",
+"Make each change in an edit's task panel an undo step of its own, so\n"
+"that it can be undone on its own; Cancel takes back all of the edit's.\n"
+"When off, an edit's changes are one undo step, made at OK. Always on\n"
+"with PerViewEdit. Takes effect with the next edit.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & ViewParams::getEditStepEachChange() {
+    return instance()->EditStepEachChange;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & ViewParams::defaultEditStepEachChange() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void ViewParams::setEditStepEachChange(const bool &v) {
+    instance()->handle->SetBool("EditStepEachChange",v);
+    instance()->EditStepEachChange = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void ViewParams::removeEditStepEachChange() {
+    instance()->handle->RemoveBool("EditStepEachChange");
 }
 
 // Auto generated code (Tools/params_utils.py:397)
@@ -10725,7 +10769,7 @@ void ViewParams::removeHeadlightRotationW() {
     instance()->handle->RemoveFloat("HeadlightRotationW");
 }
 
-// Auto generated code (Gui/ViewParams.py:1122)
+// Auto generated code (Gui/ViewParams.py:1127)
 const std::vector<QString> ViewParams::AnimationCurveTypes = {
     QStringLiteral("Linear"),
     QStringLiteral("InQuad"),
@@ -10770,7 +10814,7 @@ const std::vector<QString> ViewParams::AnimationCurveTypes = {
     QStringLiteral("OutInBounce"),
 };
 
-// Auto generated code (Gui/ViewParams.py:1130)
+// Auto generated code (Gui/ViewParams.py:1135)
 static const char *DrawStyleNames[] = {
     QT_TRANSLATE_NOOP("DrawStyle", "As Is"),
     QT_TRANSLATE_NOOP("DrawStyle", "Points"),
@@ -10783,7 +10827,7 @@ static const char *DrawStyleNames[] = {
     nullptr,
 };
 
-// Auto generated code (Gui/ViewParams.py:1140)
+// Auto generated code (Gui/ViewParams.py:1145)
 static const char *DrawStyleDocs[] = {
     QT_TRANSLATE_NOOP("DrawStyle", "Display style, normal display mode"),
     QT_TRANSLATE_NOOP("DrawStyle", "Display style, show points only"),
@@ -10796,13 +10840,13 @@ static const char *DrawStyleDocs[] = {
 };
 
 namespace Gui {
-// Auto generated code (Gui/ViewParams.py:1150)
+// Auto generated code (Gui/ViewParams.py:1155)
 const char **drawStyleNames()
 {
     return DrawStyleNames;
 }
 
-// Auto generated code (Gui/ViewParams.py:1157)
+// Auto generated code (Gui/ViewParams.py:1162)
 const char *drawStyleNameFromIndex(int i)
 {
     if (i < 0 || i>= 8)
@@ -10810,7 +10854,7 @@ const char *drawStyleNameFromIndex(int i)
     return DrawStyleNames[i];
 }
 
-// Auto generated code (Gui/ViewParams.py:1166)
+// Auto generated code (Gui/ViewParams.py:1171)
 int drawStyleIndexFromName(const char *name)
 {
     if (!name)
@@ -10822,7 +10866,7 @@ int drawStyleIndexFromName(const char *name)
     return -1;
 }
 
-// Auto generated code (Gui/ViewParams.py:1179)
+// Auto generated code (Gui/ViewParams.py:1184)
 const char *drawStyleDocumentation(int i)
 {
     if (i < 0 || i>= 8)

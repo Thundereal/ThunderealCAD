@@ -93,6 +93,11 @@ def make(name):
 
 
 def run():
+    # The edit that holds one transaction to OK, which this is about --
+    # an edit's one step, bound to its document: View/EditStepEachChange off; each change a step of
+    # its own, the default, is tests/gui/edit-step-each-change.py
+    FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool(
+        "EditStepEachChange", False)
     try:
         a, padA = make("EditTwoA")
         b, padB = make("EditTwoB")

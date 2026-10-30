@@ -452,7 +452,9 @@ TaskDlgDimension::TaskDlgDimension(QGIViewDimension *parent, ViewProviderDimensi
     taskbox = new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("TechDraw_Dimension"), widget->windowTitle(), true, nullptr);
     taskbox->groupLayout()->addWidget(widget);
     Content.push_back(taskbox);
-    setAutoCloseOnTransactionChange(true);
+    // Not when each change is a step: an undo of one is no end of the
+    // edit, and its own Cancel undoes
+    setAutoCloseOnTransactionChange(widget->holdsTransaction());
 }
 
 TaskDlgDimension::~TaskDlgDimension()

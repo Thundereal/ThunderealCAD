@@ -1374,8 +1374,19 @@ void TaskAttacher::visibilityAutomation(bool opening_not_closing)
     }
 }
 
+void TaskAttacher::setStepper(std::function<void()> stepper)
+{
+    this->stepper = stepper;
+    if (partner)
+        partner->stepper = std::move(stepper);
+}
+
 void TaskAttacher::setupTransaction()
 {
+    if (stepper) {
+        stepper();
+        return;
+    }
     if (!ViewProvider || !ViewProvider->getObject())
         return;
 

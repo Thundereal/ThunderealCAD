@@ -36,7 +36,11 @@ Claims:
     change typed after it stays;
   - a Boolean's edit beside the fillet's: its operation changed in its
     panel goes with its Cancel, the fillet's change after it stays; its
-    OK keeps it and ends its edit only.
+    OK keeps it and ends its edit only;
+  - a primitive's edit beside the fillet's: its length and its
+    attachment offset typed in its two panels go with its Cancel, the
+    fillet's change after them stays; its OK keeps a length and ends its
+    edit only.
 """
 import os
 import traceback
@@ -98,7 +102,9 @@ def type_into(view, name, text):
     box = None
     for w in dlg.getDialogContent():
         for b in w.findChildren(QtWidgets.QAbstractSpinBox):
-            if b.objectName() == name:
+            # the visible one: a hidden twin may share the name (the base
+            # attachment's panel)
+            if b.objectName() == name and (box is None or not box.isVisible()):
                 box = b
     if box is None:
         return False
@@ -212,6 +218,9 @@ def run():
         body = doc.addObject("PartDesign::Body", "Body")
         box = body.newObject("PartDesign::AdditiveBox", "Box")
         box.Length = box.Width = box.Height = 10
+        # Attached, so its attachment offset is open for typing
+        box.Support = (doc.getObject("XY_Plane"), [""])
+        box.MapMode = "FlatFace"
         doc.recompute()
         fillet = body.newObject("PartDesign::Fillet", "Fillet")
         fillet.Base = (box, ["Edge1"])
@@ -452,6 +461,40 @@ def run():
               boolean.Type == "Cut" and in_edit(gdoc, v2) is None
               and in_edit(gdoc, v1) == "Fillet" and boolean.isValid(),
               (boolean.Type, in_edit(gdoc, v2), in_edit(gdoc, v1), boolean.State))
+
+        # A primitive's dialog: its own panel and the attachment's
+        edit(gdoc, v2, box, "Edit Box")
+        check("the primitive goes in edit beside the fillet",
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)) == ("Fillet", "Box"),
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)))
+        steps = len(doc.UndoNames)
+        type_into(v2, "boxLength", "12")
+        check("what is typed into a primitive's box is one step",
+              len(doc.UndoNames) == steps + 1, doc.UndoNames[:3])
+        type_into(v2, "attachmentOffsetX", "3")
+        type_into(v1, "filletRadius", "1.7")
+        check("the values typed are the features' (primitive)",
+              (round(box.Length.Value, 3), round(box.AttachmentOffset.Base.x, 3),
+               round(fillet.Radius.Value, 3)) == (12.0, 3.0, 1.7),
+              (box.Length, box.AttachmentOffset.Base.x, fillet.Radius))
+        activate(v2)
+        cancel(v2)
+        check("Cancel of the primitive takes back its length and offset",
+              (round(box.Length.Value, 3), round(box.AttachmentOffset.Base.x, 3)) == (10.0, 0.0),
+              (box.Length, box.AttachmentOffset.Base.x))
+        check("and keeps the fillet's (primitive)", round(fillet.Radius.Value, 3) == 1.7,
+              fillet.Radius)
+        check("the fillet stays in edit (primitive)", in_edit(gdoc, v1) == "Fillet",
+              in_edit(gdoc, v1))
+        edit(gdoc, v2, box, "Edit Box")
+        type_into(v2, "boxLength", "11")
+        activate(v2)
+        FreeCADGui.Control.activeTaskDialog(view=v2).accept()
+        settle(1000)
+        check("OK of the primitive keeps its length and ends its edit only",
+              round(box.Length.Value, 3) == 11.0 and in_edit(gdoc, v2) is None
+              and in_edit(gdoc, v1) == "Fillet",
+              (box.Length, in_edit(gdoc, v2), in_edit(gdoc, v1)))
         activate(v1)
         FreeCADGui.Control.activeTaskDialog(view=v1).accept()
         settle(1000)

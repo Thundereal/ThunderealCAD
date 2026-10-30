@@ -92,6 +92,11 @@ namespace Gui
 } //namespace Gui
 
 static const char PDBODYKEY[] = "pdbody";
+/// A PartDesign body's active surface group (PartDesign::AuxGroup), which
+/// offers the Surface tool bars (ToolContext)
+static const char PDSURFACEKEY[] = "pdsurface";
+/// A PartDesign body's active sheet metal solid (PartDesign::SolidBody)
+static const char PDSHEETMETALKEY[] = "pdsheetmetal";
 static const char PARTKEY[] = "part";
 static const char ASSEMBLYKEY[] = "assembly";
 

@@ -31,6 +31,7 @@
 #include <Gui/ViewProviderDocumentObject.h>
 
 #include "ActiveObjectList.h"
+#include "ToolContext.h"
 #include "TreeParams.h"
 
 
@@ -230,6 +231,8 @@ bool Gui::ActiveObjectList::hasObject(App::DocumentObject *obj,
 void Gui::ActiveObjectList::setObject(App::DocumentObject* obj, const char* name,
                                       const char *subname, const Gui::HighlightMode& mode)
 {
+    // the tool bars an active group or solid offers (ToolContext)
+    ToolContext::refreshLater();
     auto it = _ObjectMap.find(name);
     if(it!=_ObjectMap.end()) {
         setHighlight(it->second,false);
@@ -268,6 +271,7 @@ bool Gui::ActiveObjectList::hasObject(const char*name)const
 
 void ActiveObjectList::objectDeleted(const ViewProviderDocumentObject &vp)
 {
+    ToolContext::refreshLater();
     //maybe boost::bimap or boost::multi_index
     for (auto it = _ObjectMap.begin(); it != _ObjectMap.end(); ++it) {
         if (it->second.obj == vp.getObject() || it->second.activeObject == vp.getObject()) {

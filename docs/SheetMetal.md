@@ -1,6 +1,7 @@
 # Sheet metal workbench: design (2026-10-30, proposed)
 
-Status: PROPOSED, nothing built. The questions are section 12. The user asked on 2026-10-26 for
+Status: PROPOSED; M0's geometry layer and its join measurement built (section 12, Progress). The
+open questions are section 12. The user asked on 2026-10-26 for
 three things in the pending (end of 2026) release: a 3D sketch, a fuller Surface workbench and
 sheet metal, all native C++ rather than bundled Python addons. The 3D sketch and Surface are done
 (docs/Sketch3D.md, docs/Surface.md). On 2026-10-30 the user ruled: survey sheet metal against other
@@ -488,6 +489,14 @@ and not frozen.
 
 ## 12. Questions
 
+**Progress:**
+- M0's speed gate, the join, measured (sec 4.4, 7ef92a8d41).
+- M0's geometry layer: `PartDesign::SheetMetal`, the bend allowance by every method of sec 4.6,
+  and the cylindrical bend's fold map, with gtests (`PartDesign_tests_run`, 13) (41d487593a).
+- The tool bars of sec 8.1, built for Surface (c10f1f68e8 and the commits before it).
+- Left of M0: the Rule object (question c), and the sheet model that owns the faces, which comes
+  with the first feature that makes one (M1).
+
 a. **The module's name.** It cannot be `src/Mod/SheetMetal`: the addon installs under that name
    and the loader lets a user's module of the same name (any case) replace a built-in one, so the
    native module would not load for anyone with the addon (3.5). Options:
@@ -497,6 +506,13 @@ a. **The module's name.** It cannot be `src/Mod/SheetMetal`: the addon installs 
      shadowed. This changes the loader for every module, including developers who replace a
      built-in one on purpose.
    Recommendation: (1). Commit area `SM:`.
+
+   **Revised 2026-10-30**, after sec 8.1 put sheet metal in PartDesign: (3) no module of its own.
+   The features are PartDesign's (`PartDesign::` types, `PartDesign_` commands), and the
+   geometry layer is `PartDesign/App/SheetMetal/` (namespace `PartDesign::SheetMetal`). There is
+   then nothing to shadow, no workbench beside PartDesign's, and nothing for PartDesign to load. The
+   work proceeds on (3); moving it to a module of its own is cheap until the first feature is in a
+   saved file.
 
 b. **The model: the solid with ownership (4.1), or a sheet-first model.** Recommendation: the
    solid, with the sheet model as knowledge about it, so every PartDesign tool works on sheet

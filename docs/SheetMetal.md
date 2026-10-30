@@ -317,9 +317,12 @@ as Surface's were after their first round (docs/Surface.md sec 12, fb9aa6ee53).
 
 ### 4.8 Forms
 
-A form (a dimple, louver, bead, lance) is a tool body pressed into a wall. It is one element of
+A form (a dimple, louver, bead, lance, drawn cutout, flanged hole, emboss, gusset) is a tool body
+pressed into a wall, a gusset into a bend. It is one element of
 its own, owned by the wall it sits on, carried rigidly into the flat and drawn there as 4.7 says.
-User tools are any solid with a marked face; a small built-in set is parametric (question f).
+User tools are any solid with a marked face; a built-in set is parametric (question f, ruled
+both): dimple, louver, bead, lance, and from the audit of 5.7 drawn cutout, flanged hole (a collar
+to thread), emboss and gusset.
 
 ## 5. The tools
 
@@ -337,6 +340,10 @@ its tracker, not ported.
 | **Fold** | Bends a wall along a sketched line: radius, angle, which side moves, the line at the bend's start, middle or end. | B1 9 |
 | **Jog** | Two opposite bends along a line, by an offset. | -- |
 | **Tab** | A closed sketch on a wall's skin adds a plate on that wall. | B1 8 |
+| **Extend wall** | A wall's end face pushed out by a length, or up to a face, with gaps and a clearance against walls it would meet. | B1 7 |
+| **Bend between walls** | Two walls picked, joined by a bend of the rule's radius; the walls trimmed or extended to meet it. Where two sheets of a part come together. | -- (Inventor Bend, Fusion Join by Bend, Creo Merge) |
+| **Rolled wall** | An open sketch of lines and arcs revolved or rolled into a cylindrical or conical sheet, its arcs developed exactly as a lofted flange's are. | -- (Inventor Contour Roll, CATIA Rolled Wall) |
+| **Starter shapes** | A parametric L, U, tub, hat or box as a first feature, made of base wall and flanges. | B1 1 |
 | **Lofted flange** | Between two profiles (a round to a square, a cone): developed exactly where the surface is a cone, cylinder or plane, and as conical facets where it is not, with the facet count a parameter. | -- (#603) |
 
 ### 5.2 Edges, corners and cuts
@@ -350,6 +357,8 @@ its tracker, not ported.
 | **Cutout** | A closed sketch cut normal to the sheet on every wall and bend it crosses. | B1 18 |
 | **Wrap cutout** | A sketch cut as if drawn on the flat: through the flat, and folded back (refold, 4.1). | B1 17 |
 | **Notch at a bend** | A small V or slot at each end of a bend line on the outline, for the press brake operator. | -- (#622) |
+| **Hinge and perforation cuts** | Slots along a bend line so it can be bent by hand, or a laser living hinge: straight, tiled from a sketch, or wave; drawn in the flat. | B1 5 (perforation), B1 10 (hinge cuts) |
+| **Tab and slot** | Tabs on the edge of one wall and matching slots cut through another it meets, with a clearance, so laser-cut parts locate themselves for welding. | -- (SOLIDWORKS, gk) |
 | **Cross break** | Two diagonals drawn on a panel as bend lines of a small angle, shown in the flat. | -- |
 
 Holes, pockets, fillets and chamfers of flat corners, patterns and mirrors are PartDesign's own
@@ -367,16 +376,49 @@ Holes, pockets, fillets and chamfers of flat corners, patterns and mirrors are P
 | Tool | What it does | Ref |
 |---|---|---|
 | **Flat pattern** | 4.7. | B1 10 |
-| **Unfold / refold** | A pair: features between them are made on the flat and folded back with the part. | -- (#296) |
+| **Unfold / refold** | A pair: features between them are made on the flat and folded back with the part. The bends to unfold are picked; all of them by default. | -- (#296) |
+| **Flat orientation** | The flat laid by a picked edge or direction, with the grain or rolling direction drawn as an arrow, kept in the DXF and the drawing. | -- (Inventor) |
+| **Manufacturing properties** | Each sheet's flat size (its bounding box in the flat), area, thickness, material, bend count and largest bend angle, as read-only properties a bill of materials or a drawing table can take. | -- (SOLIDWORKS cut list, gk) |
 | **Export flat** | DXF and SVG of one sheet, or of every sheet in a document in one go, one file each. | B1 10 (#462) |
-| **Bend table in a drawing** | The bend table as a TechDraw table. | -- |
+| **Bend table in a drawing** | The bend table as a TechDraw table (5.6). | -- |
 
 ### 5.5 Not in this release (section 11 says why)
 
 - One-step formability (NX); aerospace joggles and flanges on curved edges (NX, CATIA).
 - Direct editing of flanges (Solid Edge synchronous).
-- Gussets.
-- Bend order and bend sequence planning.
+- Bend order and bend sequence planning (Inventor, Creo, Solid Edge drafts).
+
+### 5.6 Drawings
+
+Every program in the survey puts sheet metal on a drawing sheet [A4]: an unfolded view with bend
+axes and bend limits (CATIA [A src 48]); a flat pattern view with form annotations (Onshape
+[A src 23]); bend tables placed on the draft (Solid Edge [A src 42]); a bend table annotation with
+the bend order (Inventor [A src 12]); bend notes and an order table (Creo [A src 27]); PMI on the
+flat (NX [A src 36]); and in SOLIDWORKS a flat pattern view with bend notes ("UP 90 R2") and the
+cut list as a table (gk). In TechDraw:
+- **The flat view.** A TechDraw view of the FlatPattern feature, as of any shape. Its bend lines are
+  edges of their own, named after their bend, drawn as centre lines: up and down in two styles, and
+  the bend's tangent lines optional, as in the DXF. The grain arrow and form outlines or centre
+  marks come with it.
+- **Bend notes.** A note on each bend line, its direction, angle and radius ("UP 90 R2"), attached
+  to the bend by name, so a note and a dimension to a bend line survive flanges added before it
+  (4.3).
+- **The bend table.** Each bend's name, direction, angle, radius, allowance and value source, and
+  the bend notes keyed to it by number. TechDraw has no table of its own beyond a spreadsheet view
+  (`DrawViewSpreadsheet`); the bend table is a view fed by the flat pattern directly, live, and the
+  manufacturing properties (5.4) can go in the same kind of view.
+- **The folded views.** Bend tangent edges, between a wall and its bend, are smooth edges, so
+  TechDraw's `SmoothVisible` shows or hides them as on any part; upstream's open request to hide
+  them (#18251 [A5]) is that switch.
+- **Live.** All of it recomputes with the part, as every TechDraw view does.
+
+### 5.7 Audit against other programs and the addon (2026-10-30, approved)
+
+Checked against the survey's catalogue of ten programs [A7a] and the addon's inventory and tracker
+[B1][B4]. Added, all approved: extend wall, hinge and perforation cuts, starter shapes (the addon
+has them); bend between walls, rolled wall, unfolding picked bends, flat orientation (most programs
+have them); tab and slot, manufacturing properties (gk, not in the survey's sources); the gusset
+and three more built-in forms (4.8). Bend order stays out (5.5).
 
 ## 6. The addon's documents
 
@@ -460,11 +502,11 @@ sheet metal feature registers its context (M1). It is tested then.
 | Phase | Content | Tests | Size |
 |---|---|---|---|
 | M0 | **Foundation and the speed gate.** The module, its `Geom/` layer and test target. The sheet model and the fold maps of a wall and a cylindrical bend. Bend allowance: K, DIN, BA and BD tables, Y. The Rule object. **Measure the join** (4.4) on a 64-flange part: a glue boolean against replacing the end face directly; set the speed target from it. | gtests: a bend's map sends known points where hand computation says; every allowance method against worked examples, the addon's table case among them. A timing test for the join at N = 1, 4, 16, 64. | M |
-| M1 | **A first part end to end.** Base wall (plate and profile), Flange with the full option set, names by role, the model carried by name through a Pocket and a Hole (4.2 way 2), the flat pattern with both skins, the DXF. | Python: flat length of an L, U and box equals the hand sum of legs and allowances at 1e-6; a countersunk hole survives into the flat; a flange end referenced downstream survives an edit upstream; save and reopen; frozen and unfrozen. A 64-flange chain against M0's target. | L |
-| M2 | **Edges, corners, cuts.** Hem, fold, jog, tab, contour flange; bend relief, corner relief, corner closure; cutout, wrap cutout; checks (7). | per tool, as M1; a wrap cutout across two bends is the same hole in the flat as cut there directly. | L |
+| M1 | **A first part end to end.** Base wall (plate and profile), Flange with the full option set, extend wall, names by role, the model carried by name through a Pocket and a Hole (4.2 way 2), the flat pattern with both skins and its orientation, the manufacturing properties, the DXF. | Python: flat length of an L, U and box equals the hand sum of legs and allowances at 1e-6; a countersunk hole survives into the flat; a flange end referenced downstream survives an edit upstream; save and reopen; frozen and unfrozen. A 64-flange chain against M0's target. | L |
+| M2 | **Edges, corners, cuts.** Hem, fold, jog, tab, contour flange, bend between walls, rolled wall; bend relief, corner relief, corner closure; hinge and perforation cuts; cutout, wrap cutout; checks (7). | per tool, as M1; a wrap cutout across two bends is the same hole in the flat as cut there directly. | L |
 | M3 | **Convert and recognise.** Convert a solid or shell, rip; the geometry recogniser for imported parts. | the M1 parts exported to STEP and read back give the same flat as their features do; a hand-made shell converts and flattens to the hand value. | M |
-| M4 | **Flat state and the table.** Unfold / refold, notches, the bend table panel with overrides, cross break, multi-sheet export, the bend table in TechDraw. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
-| M5 | **Forms and lofted flanges.** User tools and the built-in set; the flat's three ways of showing a form; lofted flange developed exactly for cones and by facets otherwise. | a cone's development against the closed form; a form kept in the flat is the same solid moved. | M |
+| M4 | **Flat state, the table and drawings.** Unfold / refold of picked bends, notches, the bend table panel with overrides, cross break, multi-sheet export, the drawings of 5.6. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
+| M5 | **Forms and lofted flanges.** User tools and the built-in set (gusset among them); starter shapes; tab and slot; the flat's three ways of showing a form; lofted flange developed exactly for cones and by facets otherwise. | a cone's development against the closed form; a form kept in the flat is the same solid moved. | M |
 | M6 | **Not built** (question e). **The addon's documents** (6). | a set of addon files saved by addon 0.8.26, converted, and their flats against hand values. The files are made by the user or from the addon's own examples; this session does not run the addon (3.5). | S |
 
 **Test rule, from the 3D sketch and Surface:** each phase's tests are written first and scored on

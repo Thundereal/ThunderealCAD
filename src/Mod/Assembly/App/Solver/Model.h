@@ -420,6 +420,11 @@ struct ContactShape
 
 // A contact set: the shapes of group A touching those of group B, or, B
 // empty, those of A touching one another; never two shapes on one body.
+// Or a cam that lifts off (a CamContact, sec 7.4): its PointOnCurve joint,
+// which a dynamic or static run does not hold, the follower (frame J's
+// origin, offset by the joint's value, a roller's radius) pushed off the
+// curve by the law instead -- on its 'side' of it, +1 the side the joint's
+// equations' N2 points to, -1 the other. Its groups empty.
 struct ContactPair
 {
     Id id = NoId;
@@ -427,6 +432,8 @@ struct ContactPair
     std::vector<Id> groupA;  // ContactShape indices
     std::vector<Id> groupB;
     ContactLaw law;
+    Id cam = NoId;  // the joint, in Model::joints
+    double side = 1.0;
 };
 
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has

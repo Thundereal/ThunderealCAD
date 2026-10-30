@@ -682,7 +682,12 @@ public:
                 stiffness[point.patch] * std::pow(depth, exponents[point.patch]);
             double normal = share
                 * (law.damping == ContactLaw::Damping::Restitution
-                       ? spring * (1.0 + hunt() * rate)
+                       ? spring
+                           * (1.0
+                              + hunt(std::pow(squares[point.patch] / total,
+                                              1.0 / exponents[point.patch]),
+                                     point.patch)
+                                  * rate)
                        : spring + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate);
             if (!(normal > 0.0)) {
                 continue;
@@ -772,12 +777,31 @@ public:
      * loses for r, exactly for any exponent, a line contact's as a ball's.
      * It scales with the stiffness, where a damping given by value drowned
      * a soft part and left a line contact's sink of 1e-7 mm all but
-     * undamped. v0 at least 1 mm/s: a contact made at rest has none to
-     * divide by.
+     * undamped. v0 at least the speed of an impact that goes as deep as
+     * the patch presses now, sqrt(2 k d^(e+1) / ((e+1) m)), m the lighter
+     * body moving: an impact goes no deeper than its own, and is damped as
+     * it was; a contact pressed deeper, by its load or by a cam that
+     * started on it, came in at none -- at 1 mm/s, all that was left, a
+     * follower resting on its cam had a damping ratio in the hundreds and
+     * took substeps of 0.2 us. At rest under its weight that ratio is
+     * about a / 2.
      */
-    double hunt() const
+    double hunt(double depth, std::size_t patch) const
     {
-        return hysteresis / std::max(impact, 1e-3);
+        double v0 = impact;
+        double mass = std::numeric_limits<double>::infinity();
+        for (const auto& body : {GetBodyA(), GetBodyB()}) {
+            if (!body->IsFixed() && body->GetMass() > 0.0) {
+                mass = std::min(mass, body->GetMass());
+            }
+        }
+        if (depth > 0.0 && std::isfinite(mass)) {
+            const double e = exponents[patch];
+            v0 = std::max(v0,
+                          std::sqrt(2.0 * stiffness[patch] * std::pow(depth, e + 1.0)
+                                    / ((e + 1.0) * mass)));
+        }
+        return hysteresis / std::max(v0, 1e-3);
     }
     // At the last state ComputeQ was given: the force on B, absolute, and
     // the points pressing
@@ -3317,6 +3341,9 @@ struct ChronoSession::Impl
     bool loaded = false;
     std::string refused;
     std::vector<Id> unsupported;
+    // A dynamic or static run's: the joints its cams that lift off hold
+    // (ContactPair::cam) not made, their followers pushed by the contact
+    bool liftCams = false;
 
     std::unique_ptr<ch::ChSystemNSC> sys;
     std::shared_ptr<ch::ChBody> world;
@@ -3478,6 +3505,25 @@ struct ChronoSession::Impl
     // reason it cannot be, or empty.
     std::string neutralJoint(const Joint& joint)
     {
+        std::string why;
+        auto link = neutralLink(joint, why);
+        if (!link) {
+            return why;
+        }
+        sys->AddLink(link);
+        std::vector<Category> rows;
+        for (eq::Category c : link->rowCategories()) {
+            rows.push_back(static_cast<Category>(c));
+        }
+        record(link, Owner::Joint, joint.id, std::move(rows));
+        neutral.push_back(link);
+        gearRatio = std::max(gearRatio, link->speedRatio());
+        return {};
+    }
+
+    // A joint's NeutralLink, not added; none, and why, where it cannot be
+    std::shared_ptr<NeutralLink> neutralLink(const Joint& joint, std::string& why)
+    {
         auto ref = [&](Id frame) {
             NeutralLink::FrameRef r;
             const Id body = model.frames[frame].body;
@@ -3498,24 +3544,18 @@ struct ChronoSession::Impl
                 curve = model.curves[joint.curve].geometry;
             }
             if (!curve) {
-                return "it holds a point on a curve the model does not have";
+                why = "it holds a point on a curve the model does not have";
+                return nullptr;
             }
         }
         auto link =
             std::make_shared<NeutralLink>(joint, fi, fj, carrier ? &fk : nullptr, std::move(curve));
         if (link->rowCategories().empty()) {
             // The Reference fails the same.
-            return "its frames are coaxial and it has no carrier frame to measure the turns from";
+            why = "its frames are coaxial and it has no carrier frame to measure the turns from";
+            return nullptr;
         }
-        sys->AddLink(link);
-        std::vector<Category> rows;
-        for (eq::Category c : link->rowCategories()) {
-            rows.push_back(static_cast<Category>(c));
-        }
-        record(link, Owner::Joint, joint.id, std::move(rows));
-        neutral.push_back(link);
-        gearRatio = std::max(gearRatio, link->speedRatio());
-        return {};
+        return link;
     }
 
     // The rows of a Gear. Ondsel's relation, orbit(J, I) + ratio orbit(I,
@@ -4658,7 +4698,18 @@ Status ChronoSession::load(const Model& model)
         }
 
         std::ostringstream why;
+        std::set<Id> lifted;
+        if (d->liftCams && d->model.dynamics) {
+            for (const auto& pair : d->model.dynamics->contacts) {
+                if (pair.cam != NoId) {
+                    lifted.insert(pair.cam);
+                }
+            }
+        }
         for (const auto& joint : d->model.joints) {
+            if (lifted.count(joint.id)) {
+                continue;
+            }
             const std::string reason = d->addJoint(joint);
             if (!reason.empty()) {
                 d->unsupported.push_back(joint.id);
@@ -5043,6 +5094,7 @@ Status ChronoSession::simulateDynamics(
     }
 
     ChronoSession run;
+    run.d->liftCams = true;
     if (run.load(si) != Status::Ok) {
         return Status::Failed;
     }
@@ -5233,6 +5285,51 @@ Status ChronoSession::simulateDynamics(
         ShapesOn shapesOn;
         std::shared_ptr<std::map<const ch::ChCollisionShape*, ShapeOn>> keep;
         double reach = 0.0;
+        // A cam that lifts off (ContactPair::cam): its load, A the cam's
+        // body and B the follower's, frames I and J on them, the curve in
+        // frame I's coordinates, the joint's offset (a roller's radius,
+        // signed) and the follower's side; the curve's parameter at the
+        // closest point last found
+        struct CamFollow
+        {
+            ContactLoad* load = nullptr;
+            const Joint* joint = nullptr;
+            std::shared_ptr<const CurveGeometry> curve;
+            ch::ChFramed frameI;
+            ch::ChFramed frameJ;
+            double offset = 0.0;
+            double side = 1.0;
+            double u = 0.0;
+            bool started = false;
+
+            // The curve's normal in its plane at a point, N2 = T x N1, N1 the
+            // reference square to the tangent T (the joint's)
+            Base::Vector3d normal(const CurveProjection& at) const
+            {
+                Base::Vector3d tangent = at.at.d1;
+                tangent.Normalize();
+                const Base::Vector3d& a = curve->reference();
+                Base::Vector3d n1 = a - tangent * (a * tangent);
+                n1.Normalize();
+                return tangent % n1;
+            }
+            // Frame J's origin in frame I's coordinates now
+            Base::Vector3d follower() const
+            {
+                const ch::ChFramed i = frameI >> *load->GetBodyA();
+                const ch::ChFramed j = frameJ >> *load->GetBodyB();
+                const ch::ChVector3d local = i.TransformPointParentToLocal(j.GetPos());
+                return Base::Vector3d(local.x(), local.y(), local.z());
+            }
+            // How far the follower is off the cam now, to its side
+            double gap() const
+            {
+                const Base::Vector3d x = follower();
+                const CurveProjection at = projectOnCurveGlobally(*curve, x);
+                return side * ((x - at.at.p) * normal(at) - offset);
+            }
+        };
+        std::vector<CamFollow> cams;
         void OnCustomCollision(ch::ChSystem*) override
         {
             // Collision detection's results kept from the check after the
@@ -5298,12 +5395,39 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             finder->found.clear();
+            // A cam's one point, where it is or not: the curve's closest
+            // point to the follower (frame J's origin), followed from the
+            // last, on the cam, and the follower's nearest it -- a roller's
+            // centre less its radius along the curve's normal in its plane
+            // (N2, as the joint's equations take it) -- the normal N2 to the
+            // follower's side. Exact on the curve, where Bullet would have a
+            // faceted cam's noise in the follower's accelerations.
+            for (CamFollow& cam : cams) {
+                ContactLoad& load = *cam.load;
+                const ch::ChFramed i = cam.frameI >> *load.GetBodyA();
+                const Base::Vector3d x = cam.follower();
+                const CurveProjection at = cam.started ? projectOnCurve(*cam.curve, x, cam.u)
+                                                       : projectOnCurveGlobally(*cam.curve, x);
+                cam.u = at.u;
+                cam.started = true;
+                const Base::Vector3d n2 = cam.normal(at);
+                const ch::ChVector3d onCam = i.TransformPointLocalToParent(toCh(at.at.p));
+                const ch::ChVector3d onFollower =
+                    i.TransformPointLocalToParent(toCh(x - n2 * cam.offset));
+                load.points.push_back(
+                    {load.GetBodyA()->TransformPointParentToLocal(onCam),
+                     load.GetBodyB()->TransformPointParentToLocal(onFollower),
+                     i.TransformDirectionLocalToParent(toCh(n2 * cam.side)),
+                     nullptr,
+                     nullptr});
+            }
             for (auto& load : *loads) {
                 patchesOf(*load);
                 patchStiffness(*load, shapesOn);
             }
         }
     };
+    std::shared_ptr<ContactHandover> contactHandover;
     const bool contact = !si.dynamics->contacts.empty();
     if (contact) {
         // Bullet grows each shape by the envelope and rounds it by the
@@ -5474,6 +5598,7 @@ Status ChronoSession::simulateDynamics(
         }
         collision->RegisterNarrowphaseCallback(finder);
         auto handover = std::make_shared<ContactHandover>();
+        contactHandover = handover;
         handover->finder = finder;
         handover->collision = contactCollision;
         handover->loads = &contactLoads;
@@ -5486,6 +5611,44 @@ Status ChronoSession::simulateDynamics(
         }
         handover->reach = margin;
         handover->keep = shapesOn;
+        // The cams that lift off: a load each between the cam's body and
+        // the follower's, its one point from the curve at each collision
+        // detection (ContactHandover), not Bullet's
+        for (std::size_t set = 0; set < si.dynamics->contacts.size(); ++set) {
+            const ContactPair& pair = si.dynamics->contacts[set];
+            if (pair.cam == NoId) {
+                continue;
+            }
+            const Joint* joint = nullptr;
+            for (const auto& record : si.joints) {
+                if (record.id == pair.cam) {
+                    joint = &record;
+                    break;
+                }
+            }
+            if (!joint || joint->curve >= si.curves.size() || !si.curves[joint->curve].geometry
+                || !run.d->validFrame(joint->frameI) || !run.d->validFrame(joint->frameJ)
+                || run.d->isRigid(joint->frameI, joint->frameJ)) {
+                continue;
+            }
+            auto cam = run.d->bodyOf(joint->frameI);
+            auto follower = run.d->bodyOf(joint->frameJ);
+            if (!cam || !follower || cam == follower || (cam->IsFixed() && follower->IsFixed())) {
+                continue;
+            }
+            auto load = std::make_shared<ContactLoad>(cam, follower, pair.law, set);
+            loads->Add(load);
+            contactLoads.push_back(load);
+            ContactHandover::CamFollow follow;
+            follow.load = load.get();
+            follow.joint = joint;
+            follow.curve = si.curves[joint->curve].geometry;
+            follow.frameI = run.d->localOf(joint->frameI);
+            follow.frameJ = run.d->localOf(joint->frameJ);
+            follow.offset = joint->value;
+            follow.side = pair.side;
+            handover->cams.push_back(std::move(follow));
+        }
         sys.RegisterCustomCollisionCallback(handover);
         collision->Initialize();
         std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*> features;
@@ -6275,7 +6438,7 @@ Status ChronoSession::simulateDynamics(
                     shortest = std::min(shortest, period);
                 }
                 const double damping = law.damping == ContactLaw::Damping::Restitution
-                    ? k * std::pow(deepest, e) * load->hunt()
+                    ? k * std::pow(deepest, e) * load->hunt(std::max(depth, 0.0), point.patch)
                     : step(deepest, 0.0, 0.0, law.penetration, law.maxDamping);
                 if (damping > 0.0 && (strict || !load->settled)) {
                     damped = std::min(damped, 2.0 * mass / damping);
@@ -6362,6 +6525,35 @@ Status ChronoSession::simulateDynamics(
         load.calm = depth > 0.0 ? h : 0.0;
         load.settled = false;
     };
+    // Newton's test, HHT's, is on its iterations' increments, in
+    // accelerations and multipliers, 1e-10 absolute by default: a
+    // constraint's round-off, 1e-15 m, is eps / h^2 there, and below a
+    // microsecond no step passed it -- each of the 64 smallest starting a
+    // run ran its 20 iterations, two iterates apart, |R| at 1e-17, and a
+    // contact's step taken again for that, an eighth as long, failed it the
+    // more: a cam's follower stuck at a nanosecond. The increments a
+    // thousandth of the run's tolerance in position instead, the
+    // multipliers' as they would move the lightest body -- where there is
+    // contact, whose substeps are taken again on it. A run without takes
+    // each step as Newton ends it, and its 20 iterations get the start's
+    // reactions closer: stopped at those tolerances, a hinge's was 0.3%
+    // off and redundant hinges' sum 5 N off the one hinge's.
+    double lightest = std::numeric_limits<double>::infinity();
+    for (const auto& body : run.d->bodies) {
+        if (!body->IsFixed() && body->GetMass() > 0.0) {
+            lightest = std::min(lightest, body->GetMass());
+        }
+    }
+    if (!std::isfinite(lightest)) {
+        lightest = 1.0;
+    }
+    auto tolerate = [&](double h) {
+        if (auto implicit =
+                std::dynamic_pointer_cast<ch::ChTimestepperImplicit>(sys.GetTimestepper())) {
+            const double s = std::max(1e-3 * tolerance / (h * h), 1e-10);
+            implicit->SetAbsTolerances(s, std::max(s * lightest, 1e-10));
+        }
+    };
     // A step of dt, in substeps; a substep that found a contact late is taken
     // again, an eighth as long, from the state before it, and the steps
     // grow back after. One longer than the strict rule's that moved a load
@@ -6396,6 +6588,7 @@ Status ChronoSession::simulateDynamics(
             auto implicit =
                 std::dynamic_pointer_cast<ch::ChTimestepperImplicit>(sys.GetTimestepper());
             const unsigned int terminated = implicit ? implicit->GetNumTerminated() : 0;
+            tolerate(h);
             sys.DoStepDynamics(h);
             fresh = false;
             // A step whose Newton iterations ran off -- a state not finite
@@ -6527,12 +6720,33 @@ Status ChronoSession::simulateDynamics(
     Status status = Status::Ok;
     try {
         sys.SetChTime(spec.tStart);
+        // A follower on its cam at the start (within a micrometre) starts as
+        // the cam's joint would have it: the joint held over the start's
+        // assembly, as an initial velocity's motor is, and taken off. From
+        // rest, the cam at its speed came at it as an impact -- at 60 mm/s
+        // on the disk cam, the follower sunk three times its allowance
+        // before it rode the lift.
+        std::vector<std::shared_ptr<ch::ChLinkBase>> camsHeld;
+        if (!statics && contactHandover) {
+            for (const auto& cam : contactHandover->cams) {
+                std::string why;
+                if (cam.gap() <= 1e-6) {
+                    if (auto link = run.d->neutralLink(*cam.joint, why)) {
+                        sys.AddLink(link);
+                        camsHeld.push_back(link);
+                    }
+                }
+            }
+        }
         const bool moving = !statics && setInitialVelocities();
         // The accelerations at the start, gravity's: HHT takes those it is
         // given, and from rest that was none, the run lagging a part of a
         // step behind -- the pendulum's period long by 0.2% at 1 ms, the
         // error first order in the step
         assembleFull(moving ? 1 : 0);
+        for (const auto& link : camsHeld) {
+            sys.RemoveLink(link);
+        }
         auto stepOnce = [&](double dt) {
             advance(dt);
             // The neutral links count their turns from the angles last

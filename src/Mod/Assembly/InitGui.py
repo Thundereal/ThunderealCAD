@@ -106,6 +106,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_CreateLoad",
             "Assembly_CreateBushing",
             "Assembly_CreateContact",
+            "Assembly_CreateCamContact",
             "Assembly_CreateBom",
         ]
 

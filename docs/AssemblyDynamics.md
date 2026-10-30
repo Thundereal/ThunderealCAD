@@ -753,8 +753,13 @@ Phase D1 is under way (2026-10-28):
     Restitution (a new set's), by the coefficient of restitution
     `Restitution` (0.6): Hunt and Crossley's,
     Fn = k d^e (1 + a / v0 dd/dt), v0 the speed the contact came in at (the
-    fastest its points approach while it does not press, kept from then on,
-    at least 1 mm/s), a exactly r's (`huntCrossley()`, Carvalho and Martins
+    fastest its points approach while it does not press, kept from then on;
+    at least the speed of an impact that goes as deep as the patch presses
+    now, sqrt(2 k d^(e+1) / ((e+1) m)), which an impact never passes and a
+    contact pressed deeper by its load does -- a follower that started on
+    its cam came in at none, and at the 1 mm/s that left, its damping ratio
+    in the hundreds, it took substeps of 0.2 us; at rest under its weight it
+    is about a / 2), a exactly r's (`huntCrossley()`, Carvalho and Martins
     2019): with u = a / v0 dd/dt the impact integrates in closed form,
     m v0^2 / (a^2 k) (u - ln(1 + u)) = -d^(e+1) / (e+1), so u - ln(1 + u) is
     the same coming in at u = a and going out at -a r -- for any exponent,
@@ -1075,8 +1080,7 @@ Phase D1 is under way (2026-10-28):
     value or an allowed penetration, and the damping by restitution or a value, each idling the
     other's rows, the slider's powers of ten and the rest it shows; OK
     refused with group A empty.
-  - Not yet: curve contact for cams (sec 7.4), stops, sensors, contact
-    plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
+  - Not yet: 2D path contact (sec 7.4), stops, sensors, contact plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
     The rebound by restitution is r^2's of aluminium -- a ball dropped a
     millimetre reaches 0.0894 for r^2 0.09 at r 0.3, 0.364 for 0.36, 0.645
@@ -1088,6 +1092,64 @@ Phase D1 is under way (2026-10-28):
     0.3 us: 27 s for 0.1 s (its test is of the soft material: 8 s).
     A tumble is slow too: the tall cylinder's 0.3 s takes a few seconds, in
     substeps of microseconds through each impact.
+
+- Built: cams that lift off (sec 7.4's `CurveContact`, as a contact set).
+  - The document: `Assembly::CamContact`, a `ContactSet` (Physics; Python
+    `CommandCreateContact.newCamContact(assembly, joint)`, the command
+    `Assembly_CreateCamContact` on a selected Cam joint, ticked in the
+    Dynamic and Static studies) whose `Joint` is a Cam joint; GroupA,
+    GroupB and RadiusFrom hidden, the law the set's, by default an allowed
+    penetration (0.01 mm) with no friction. `Reverse` puts the follower on
+    the curve's other side. In a Dynamic run the joint is not made
+    (`ContactPair::cam`, `liftCams` in the session's load); a ContactLoad
+    between the cam's body and the follower's pushes instead, its one point
+    found at each collision detection from the exact curve
+    (`ContactHandover::CamFollow`): the curve's closest point to frame J's
+    origin in frame I's coordinates (`projectOnCurve`, warm-started from the
+    last; `projectOnCurveGlobally` the first time), the curve's normal in
+    its plane N2 = T x N1 (N1 the reference square to the tangent, the
+    joint's), the follower's point a roller's radius back along it, the
+    normal N2 to the follower's side. It is one patch, and the whole law
+    applies: the stiffness from an allowed penetration, a value or the
+    materials (as the allowance there: a curve has no surface to read),
+    damping by restitution, friction along the tangent, the step rules.
+    Kinematic runs keep the joint.
+  - The side (`camFollowerSide()`, CamJoint.cpp): a roller's, its offset's
+    sign; on a closed planar curve, outside -- the sign of the curve's
+    sampled area against its reference axis; otherwise the side of the
+    follower's centre of mass from the curve's normal, at the start.
+  - The start: a follower within a micrometre of its cam starts as the
+    joint would have it -- the joint's NeutralLink held over the start's
+    assembly, as an initial velocity's motor is, and taken off. From rest,
+    the cam at 10 rad/s came at it as an impact at 60 mm/s, the follower
+    sunk 0.03 mm, three times its allowance, before it rode.
+  - Newton's test: HHT's is on its iterations' increments, in
+    accelerations and multipliers, 1e-10 absolute by default, and a
+    constraint's round-off of 1e-15 m is eps / h^2 there. Below a
+    microsecond no step passed: each of the 64 smallest starting a run ran
+    its 20 iterations, |R| at 1e-17 and two iterates apart, and a contact's
+    substep taken again for that, an eighth as long, failed the more -- the
+    follower stuck at a nanosecond, its test running three hours. The
+    increments are now a thousandth of the run's tolerance in position, /
+    h^2, the multipliers' as they would move the lightest body
+    (`tolerate()`, each substep of a run with contact, which takes a
+    substep again on it; a run without keeps Chrono's tolerances, its 20
+    iterations getting the start's reactions closer -- stopped at these, a
+    hinge's was 0.3% off); the case's first 1.9 ms took 75 s, then
+    0.03 s.
+  - Tests (TestCamJoint, `test_cam_lifts_off`): the disk cam (e 6 mm)
+    turning at 10 and 80 rad/s, the follower on its slider, flat and a
+    roller of 3 mm, under gravity down the slider -- on the cam while the
+    cam falls away slower than g, e w^2 < g, below 40.4 rad/s. At 10 it
+    rides the lift sunk 0.0096 to 0.0136 mm (within 0.02, never above it),
+    at 80 it is thrown 20 mm up and lands on the cam's crest a turn later;
+    frames of a 400th of a turn, two turns, 5 s for the four.
+    TestGuiCommands (`test_cam_contact`): the command idle until a Cam
+    joint is selected, then the set on it, selected, by an allowed
+    penetration with no friction, ticked in the Dynamic study and not the
+    Kinematic one, and one undo taking it out.
+  - Not yet: a follower that is itself a curve (Adams CVCV), 2D path
+    contact, a cam's pressure angle and slip in the results.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono
@@ -2058,6 +2120,13 @@ from)` gives e . N2 - offset, which with offset 0 and the sign of the side
 is the signed distance, so g = distance - followerRadius is its second row
 with offset = followerRadius, with its exact gradient. The curve is a
 `Model::curves` record (not a `ContactGeometry` yet), shared by reference.
+
+*As built (D2):* the lift-off cam is a `CamContact` set on the Cam joint,
+not a `LiftOff` flag on it -- a set's law, stiffness, damping and friction,
+apply as they do to any contact -- and its force is the set's ContactLoad
+with one point from the projector at each collision detection, not a
+custom link: the step rules, the patch's law and the retakes are the
+contact's. The persistent joint holds the start (sec D2's "Built" entry).
 
 
 ## 8. Solver settings, units, determinism, results

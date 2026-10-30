@@ -92,4 +92,12 @@ bool addCamCurve(
     const Base::Placement& camOffset
 );
 
+/// The side of the cam's curve its follower is free on, for a cam that lifts
+/// off (Solver::ContactPair::side): +1 the side the PointOnCurve equations'
+/// N2 points to there, -1 the other. A roller's, the side its centre starts
+/// on (its offset's sign); a point follower's, the outside of a closed
+/// planar curve, else the side the follower body's centre of mass (its
+/// origin, without one) is on.
+double camFollowerSide(const Solver::Model& model, const Solver::Joint& joint);
+
 }  // namespace Assembly

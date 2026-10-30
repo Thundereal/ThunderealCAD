@@ -446,3 +446,59 @@ bool Assembly::addCamCurve(
     mbdJoint.value = offset;
     return true;
 }
+
+double Assembly::camFollowerSide(const Solver::Model& model, const Solver::Joint& joint)
+{
+    if (joint.value != 0.0) {
+        return joint.value > 0.0 ? 1.0 : -1.0;
+    }
+    if (joint.curve >= model.curves.size() || !model.curves[joint.curve].geometry
+        || joint.frameI >= model.frames.size() || joint.frameJ >= model.frames.size()) {
+        return 1.0;
+    }
+    const Solver::CurveGeometry& curve = *model.curves[joint.curve].geometry;
+    const Base::Vector3d plane = curve.planeNormal();
+    // Outside a closed planar curve: N2 = T x N1, N1 the plane normal, points
+    // out where the curve turns about N1 counterclockwise -- its area, about
+    // N1, positive
+    if (curve.closed() && plane.Length() > 0.0) {
+        constexpr int samples = 256;
+        Base::Vector3d area;
+        Base::Vector3d last = curve.evaluate(curve.first()).p;
+        for (int i = 1; i <= samples; ++i) {
+            const double u = curve.first() + curve.period() * i / samples;
+            const Base::Vector3d p = Solver::evaluateCurve(curve, u).p;
+            area += last % p;
+            last = p;
+        }
+        return area * curve.reference() >= 0.0 ? 1.0 : -1.0;
+    }
+    // Else the follower body's centre of mass, in frame I's coordinates
+    auto global = [&](const Solver::Frame& f) {
+        if (f.body == Solver::NoId || f.body >= model.bodies.size()) {
+            return f.local;
+        }
+        return model.bodies[f.body].placement * f.local;
+    };
+    const Solver::Frame& frameJ = model.frames[joint.frameJ];
+    Base::Vector3d centre;
+    if (frameJ.body != Solver::NoId && frameJ.body < model.bodies.size()) {
+        Base::Vector3d com;
+        if (model.dynamics) {
+            for (const auto& inertia : model.dynamics->inertias) {
+                if (inertia.body == frameJ.body) {
+                    com = inertia.com;
+                    break;
+                }
+            }
+        }
+        model.bodies[frameJ.body].placement.multVec(com, centre);
+    }
+    global(model.frames[joint.frameI]).inverse().multVec(Base::Vector3d(centre), centre);
+    const auto at = Solver::projectOnCurveGlobally(curve, centre);
+    Base::Vector3d tangent = at.at.d1;
+    tangent.Normalize();
+    Base::Vector3d n1 = curve.reference() - tangent * (curve.reference() * tangent);
+    n1.Normalize();
+    return (centre - at.at.p) * (tangent % n1) >= 0.0 ? 1.0 : -1.0;
+}

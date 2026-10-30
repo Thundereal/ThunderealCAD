@@ -186,4 +186,14 @@ public:
     bool doubleClicked() override;
 };
 
+/// A cam contact: its icon; its Cam joint shows where it is, and the
+/// property editor takes its law
+class AssemblyGuiExport ViewProviderCamContact: public Gui::ViewProviderDocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderCamContact);
+
+public:
+    QIcon getIcon() const override;
+};
+
 }  // namespace AssemblyGui

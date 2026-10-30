@@ -511,6 +511,13 @@ void ViewProviderBushing::makeLines(std::vector<SbVec3f>& points,
     counts.push_back(2);
 }
 
+PROPERTY_SOURCE(AssemblyGui::ViewProviderCamContact, Gui::ViewProviderDocumentObject)
+
+QIcon ViewProviderCamContact::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_CamContact.svg");
+}
+
 PROPERTY_SOURCE(AssemblyGui::ViewProviderContactSet, Gui::ViewProviderDocumentObject)
 
 QIcon ViewProviderContactSet::getIcon() const

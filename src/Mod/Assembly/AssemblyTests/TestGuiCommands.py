@@ -1248,6 +1248,38 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(self.contactSets(), [])
         self.assertClean()
 
+    def test_cam_contact(self):
+        """Idle until a Cam joint is selected; then a cam contact on it,
+        selected, its law by an allowed penetration with no friction, ticked
+        in the Dynamic study and not the Kinematic one; one undo takes it out"""
+        j = self.jointgroup.newObject("App::FeaturePython", "Cam")
+        JointObject.Joint(j, JointObject.JointTypes.index("Cam"))
+        JointObject.ViewProviderJoint(j.ViewObject)
+        sims = self.assembly.getGroup("Simulations", True)
+        dynamic = sims.newObject("Assembly::Simulation", "Dynamic")
+        dynamic.AnalysisType = "Dynamic"
+        kinematic = sims.newObject("Assembly::Simulation", "Kinematic")
+        _process()
+        Gui.Selection.clearSelection()
+        _process()
+        self.assertFalse(Gui.Command.get("Assembly_CreateCamContact").isActive())
+        Gui.Selection.addSelection(j)
+        self.run_command("Assembly_CreateCamContact")
+        cams = [o for o in self.contactSets() if o.isDerivedFrom("Assembly::CamContact")]
+        self.assertEqual(len(cams), 1)
+        cam = cams[0]
+        self.assertEqual(cam.Joint, j)
+        self.assertEqual(Gui.Selection.getSelection(), [cam])
+        self.assertEqual(cam.StiffnessFrom, "Penetration")
+        self.assertEqual(cam.StaticFriction, 0.0)
+        self.assertIn(cam, dynamic.Elements)
+        self.assertNotIn(cam, kinematic.Elements)
+        self.doc.undo()
+        _process()
+        self.assertEqual(self.contactSets(), [])
+        self.assertEqual(dynamic.Elements, [])
+        self.assertClean()
+
     def test_export_asmt(self):
         import CommandExportASMT
 

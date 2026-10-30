@@ -175,7 +175,7 @@ bool same(const ContactShape& a, const ContactShape& b)
 bool same(const ContactPair& a, const ContactPair& b)
 {
     return a.id == b.id && a.source == b.source && a.groupA == b.groupA && a.groupB == b.groupB
-        && same(a.law, b.law);
+        && same(a.law, b.law) && a.cam == b.cam && a.side == b.side;
 }
 
 template<typename T>

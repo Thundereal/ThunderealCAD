@@ -456,4 +456,30 @@ public:
 
 using ContactSetPython = App::FeaturePythonT<ContactSet>;
 
+/** A cam that lifts off (docs/AssemblyDynamics.md sec 7.4, phase D2): the
+ * Cam joint Joint, held in a kinematic run, is not held in a dynamic or
+ * static one -- its follower is pushed off the cam's curve by the contact
+ * set's law instead, so that it can leave the cam and land on it again. The
+ * law as a contact set's (GroupA and GroupB unused), its stiffness by a
+ * value or an allowed penetration (Materials, which a curve has no width
+ * for, runs as Penetration). The follower stays on the side of the curve it
+ * starts on: a roller's centre's, a point's outside a closed cam, or the
+ * follower part's side of an open one; Reverse turns it over.
+ */
+class AssemblyExport CamContact: public ContactSet
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::CamContact);
+
+public:
+    CamContact();
+
+    App::PropertyLink Joint;
+    App::PropertyBool Reverse;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderCamContact";
+    }
+};
+
 }  // namespace Assembly

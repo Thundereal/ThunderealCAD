@@ -586,5 +586,57 @@ class TaskContact(QtCore.QObject):
         return QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
 
 
+def selectedCamJoint():
+    """The one Cam joint selected, else None"""
+    joints = [o for o in Gui.Selection.getSelection() if getattr(o, "JointType", None) == "Cam"]
+    return joints[0] if len(joints) == 1 else None
+
+
+def newCamContact(assembly, joint):
+    """A cam contact on a Cam joint, in a transaction: its follower lifts off
+    in the Dynamic and Static studies of the assembly, each of which ticks it"""
+    doc = assembly.Document
+    doc.openTransaction(translate("Assembly", "Create cam contact"))
+    try:
+        physics = assembly.getGroup("Physics", True)
+        cam = physics.newObject("Assembly::CamContact", "CamContact")
+        cam.Joint = joint
+        sims = assembly.getGroup("Simulations")
+        for sim in sims.Group if sims else []:
+            if getattr(sim, "AnalysisType", None) in ("Dynamic", "Static"):
+                sim.Elements = list(sim.Elements) + [cam]
+    finally:
+        doc.commitTransaction()
+    return cam
+
+
+class CommandCreateCamContact:
+    def GetResources(self):
+        return {
+            "Pixmap": "Assembly_CamContact",
+            "MenuText": QT_TRANSLATE_NOOP("Assembly_CreateCamContact", "Cam Contact"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Assembly_CreateCamContact",
+                "Lets the follower of a cam joint lift off the cam and land on it again in a\n"
+                "dynamic or static simulation, pushed off by a contact law. Select the cam\n"
+                "joint first.",
+            ),
+            "CmdType": "ForEdit",
+        }
+
+    def IsActive(self):
+        return UtilsAssembly.isAssemblyCommandActive() and selectedCamJoint() is not None
+
+    def Activated(self):
+        assembly = UtilsAssembly.activeAssembly()
+        joint = selectedCamJoint()
+        if not assembly or joint is None:
+            return
+        cam = newCamContact(assembly, joint)
+        Gui.Selection.clearSelection()
+        Gui.Selection.addSelection(cam)
+
+
 if App.GuiUp:
     Gui.addCommand("Assembly_CreateContact", CommandCreateContact())
+    Gui.addCommand("Assembly_CreateCamContact", CommandCreateCamContact())

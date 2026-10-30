@@ -432,6 +432,60 @@ class TestCamJoint(CamMechanism, JointTestBase):
                     )
 
 
+    def test_cam_lifts_off(self):
+        """A cam contact lets the follower leave the cam (docs/AssemblyDynamics.md
+        sec 7.4). The disk cam turning at w lifts the follower by about
+        CAM_E sin(w t); gravity, along -y down the slider, keeps it on the cam
+        while the cam falls away slower than g, CAM_E w^2 < g -- below 40.4
+        rad/s. At 10 rad/s it rides the lift, sunk by the law's allowance
+        (0.01 mm) and a little more, from the start: it starts moving with the
+        cam, as the joint would have it, not hit by it (0.03 mm deep); at 80
+        rad/s it is thrown off, millimetres above the cam, and lands on it
+        again. Frames of a 400th of a turn, which see the start."""
+        if "Chrono" not in self.backends():
+            self.skipTest("the Chrono backend is not built")
+        import CommandCreateContact
+
+        for rate, thrown in ((10.0, False), (80.0, True)):
+            for roller in (0.0, ROLLER):
+                with self.subTest(rate=rate, roller=roller):
+                    self.tearDown()
+                    self.setUp()
+                    cam, rev, f = self.disk_mechanism(roller)
+                    joint = [
+                        o
+                        for o in self.assembly.getGroup("Joints").Group
+                        if getattr(o, "JointType", None) == "Cam"
+                    ][0]
+                    lifted = CommandCreateContact.newCamContact(self.assembly, joint)
+                    self.assertEqual(lifted.StiffnessFrom, "Penetration")
+                    sims = self.assembly.getGroup("Simulations", True)
+                    sim = sims.newObject("Assembly::Simulation", "Simulation")
+                    sim.AnalysisType = "Dynamic"
+                    sim.Gravity = App.Vector(0, -9806.65, 0)
+                    turn = 2 * math.pi / rate
+                    sim.TimeEnd = 2 * turn
+                    step = turn / 400
+                    sim.TimeStepOutput = step
+                    sim.Elements = [lifted]
+                    motion = sim.newObject("Assembly::Motion", "Motion")
+                    motion.Joint = rev
+                    motion.MotionType = "Angular"
+                    motion.Formula = "%g*time" % rate
+                    self.doc.recompute()
+                    self.assertEqual(self.assembly.generateSimulation(sim), 0)
+                    gaps = []
+                    for k in range(self.assembly.numberOfFrames()):
+                        self.assembly.updateForFrame(k)
+                        theta = rate * k * step
+                        gaps.append(f.Placement.Base.y - disk_lift(theta, roller))
+                    if thrown:
+                        self.assertGreater(max(gaps), 1.0, gaps)
+                    else:
+                        self.assertLess(max(abs(g) for g in gaps), 0.02, gaps)
+                        self.assertLess(max(gaps), 1e-6, gaps)
+
+
 class TestSimulationMotions(CamMechanism, JointTestBase):
     """Which children of a Simulation are its motions (docs/AssemblyDynamics.md sec 1)."""
 

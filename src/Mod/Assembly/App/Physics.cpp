@@ -764,6 +764,32 @@ void ContactSet::Restore(Base::XMLReader& reader)
     PhysicsItem::Restore(reader);
 }
 
+PROPERTY_SOURCE(Assembly::CamContact, Assembly::ContactSet)
+
+CamContact::CamContact()
+{
+    ADD_PROPERTY_TYPE(Joint,
+                      (nullptr),
+                      "Cam",
+                      App::Prop_None,
+                      "The Cam joint whose follower lifts off in a dynamic or static run");
+    ADD_PROPERTY_TYPE(Reverse,
+                      (false),
+                      "Cam",
+                      App::Prop_None,
+                      "The follower on the other side of the cam's curve than the one it is "
+                      "taken to start on");
+    // A curve has no width for Hertz's law: by an allowance; a roller rolls
+    StiffnessFrom.setValue("Penetration");
+    StaticFriction.setValue(0.0);
+    DynamicFriction.setValue(0.0);
+    for (App::Property* unused : {static_cast<App::Property*>(&GroupA),
+                                  static_cast<App::Property*>(&GroupB),
+                                  static_cast<App::Property*>(&RadiusFrom)}) {
+        unused->setStatus(App::Property::Hidden, true);
+    }
+}
+
 PROPERTY_SOURCE(Assembly::TorsionSpring, Assembly::PhysicsItem)
 
 TorsionSpring::TorsionSpring()

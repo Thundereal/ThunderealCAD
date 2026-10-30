@@ -2033,26 +2033,9 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         }
         return ids;
     };
-    auto addContacts = [&](ContactSet* set) {
-        Solver::ContactPair pair;
-        for (auto* component : set->GroupA.getValues()) {
-            for (Solver::Id id : componentShapes(component)) {
-                pair.groupA.push_back(id);
-            }
-        }
-        for (auto* component : set->GroupB.getValues()) {
-            for (Solver::Id id : componentShapes(component)) {
-                pair.groupB.push_back(id);
-            }
-        }
-        if (pair.groupA.empty() || (set->GroupB.getSize() > 0 && pair.groupB.empty())) {
-            Base::Console().warning("Assembly: the contact set %s has nothing to touch\n",
-                                    set->getFullLabel().c_str());
-            return;
-        }
-        pair.source = model.addSource(set->getFullName());
-        // N to mN: the stiffness in N / mm^e, the damping in N s/mm
-        Solver::ContactLaw& law = pair.law;
+    // A set's law. N to mN: the stiffness in N / mm^e, the damping in N s/mm
+    auto lawOf = [&](ContactSet* set) {
+        Solver::ContactLaw law;
         switch (set->StiffnessFrom.getValue()) {
             case 0:
                 law.from = Solver::ContactLaw::Stiffness::Materials;
@@ -2078,10 +2061,67 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         law.muDynamic = set->DynamicFriction.getValue();
         law.vStiction = set->StictionVelocity.getValue();
         law.vFriction = set->FrictionVelocity.getValue();
+        return law;
+    };
+    auto addContacts = [&](ContactSet* set) {
+        Solver::ContactPair pair;
+        for (auto* component : set->GroupA.getValues()) {
+            for (Solver::Id id : componentShapes(component)) {
+                pair.groupA.push_back(id);
+            }
+        }
+        for (auto* component : set->GroupB.getValues()) {
+            for (Solver::Id id : componentShapes(component)) {
+                pair.groupB.push_back(id);
+            }
+        }
+        if (pair.groupA.empty() || (set->GroupB.getSize() > 0 && pair.groupB.empty())) {
+            Base::Console().warning("Assembly: the contact set %s has nothing to touch\n",
+                                    set->getFullLabel().c_str());
+            return;
+        }
+        pair.source = model.addSource(set->getFullName());
+        pair.law = lawOf(set);
+        pair.id = static_cast<Solver::Id>(model.dynamics->contacts.size());
+        model.dynamics->contacts.push_back(std::move(pair));
+    };
+    // A cam that lifts off: its Cam joint's PointOnCurve record, which the
+    // run then does not hold, and the side its follower is free on
+    auto addCam = [&](CamContact* cam) {
+        auto* joint = cam->Joint.getValue();
+        const std::string jointName = joint ? joint->getFullName() : std::string();
+        const Solver::Joint* held = nullptr;
+        for (const auto& record : model.joints) {
+            if (record.kind == Solver::JointKind::PointOnCurve
+                && model.sourceName(record.source) == jointName) {
+                held = &record;
+                break;
+            }
+        }
+        if (!held) {
+            Base::Console().warning(
+                "Assembly: the cam contact %s is on no Cam joint the simulation runs, and "
+                "does nothing\n",
+                cam->getFullLabel().c_str());
+            return;
+        }
+        Solver::ContactPair pair;
+        pair.source = model.addSource(cam->getFullName());
+        pair.law = lawOf(cam);
+        // A curve has no width for Hertz's law
+        if (pair.law.from == Solver::ContactLaw::Stiffness::Materials) {
+            pair.law.from = Solver::ContactLaw::Stiffness::Penetration;
+        }
+        pair.cam = held->id;
+        pair.side = camFollowerSide(model, *held) * (cam->Reverse.getValue() ? -1.0 : 1.0);
         pair.id = static_cast<Solver::Id>(model.dynamics->contacts.size());
         model.dynamics->contacts.push_back(std::move(pair));
     };
     for (auto* element : typed->Elements.getValues()) {
+        if (auto* cam = freecad_cast<CamContact*>(element)) {
+            addCam(cam);
+            continue;
+        }
         if (auto* set = freecad_cast<ContactSet*>(element)) {
             addContacts(set);
             continue;

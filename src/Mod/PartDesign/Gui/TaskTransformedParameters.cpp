@@ -242,7 +242,11 @@ int TaskTransformedParameters::getUpdateViewTimeout() const
 void TaskTransformedParameters::onUpdateViewTimer()
 {
     if (!blockUpdate) {
-        setupTransaction();
+        // With steps of its own the recompute opens none: what it writes is
+        // an implicit step, undone with the change it follows
+        // (docs/TransactionLogJournal.md sec 33.4), not a step of its own
+        if (!ownsItsSteps())
+            setupTransaction();
         recomputeFeature();
     }
 }

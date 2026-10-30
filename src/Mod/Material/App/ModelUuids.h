@@ -72,6 +72,8 @@ public:
 
     static const QString ModelUUID_Thermal_Default;
 
+    static const QString ModelUUID_SheetMetal_SheetMetal;
+
     static const QString ModelUUID_Electromagnetic_Default;
 
     static const QString ModelUUID_Architectural_Default;

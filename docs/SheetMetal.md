@@ -551,8 +551,10 @@ and not frozen.
 - The tool bars of sec 8.1, built for Surface (c10f1f68e8 and the commits before it); the surface
   group made by the body, not by a command, and the auto aux groups on in new bodies (revised
   2026-10-30).
-- Left of M0: the Rule object (question c), and the sheet model that owns the faces, which comes
-  with the first feature that makes one (M1).
+- The Material module's `SheetMetal` model (sec 4.6): a gauge table, the allowance method and a
+  bend table, with a gtest (2026-10-30).
+- Left of M0: the Rule object, which reads that model, and the sheet model that owns the faces,
+  which comes with the first feature that makes one (M1).
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

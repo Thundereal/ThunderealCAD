@@ -96,6 +96,9 @@ class UUIDs(BaseClass):
     Thermal: Final[str] = ...
     """UUID for model System:Thermal/Thermal"""
 
+    SheetMetal: Final[str] = ...
+    """UUID for model System:SheetMetal/SheetMetal"""
+
     Electromagnetic: Final[str] = ...
     """UUID for model System:Electromagnetic/Electromagnetic"""
 

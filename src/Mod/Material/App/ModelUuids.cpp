@@ -80,6 +80,9 @@ const QString ModelUUIDs::ModelUUID_Fluid_Default =
 const QString ModelUUIDs::ModelUUID_Thermal_Default =
     QStringLiteral("9959d007-a970-4ea7-bae4-3eb1b8b883c7");
 
+const QString ModelUUIDs::ModelUUID_SheetMetal_SheetMetal =
+    QStringLiteral("27cde1dc-d6bb-4b74-9002-4eb7f0228c9a");
+
 const QString ModelUUIDs::ModelUUID_Electromagnetic_Default =
     QStringLiteral("b2eb5f48-74b3-4193-9fbb-948674f427f3");
 

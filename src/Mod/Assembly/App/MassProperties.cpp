@@ -76,6 +76,39 @@ double densityOf(const Materials::Material& material)
     return density.isValid() && density.getValue() > 0.0 ? density.getValue() : 0.0;
 }
 
+// Aluminum Generic's, for a default material that gives none
+constexpr double AluminumModulus = 7e7;  // kPa
+constexpr double AluminumPoisson = 0.35;
+
+// The elastic constants a material card gives, Young's modulus in kPa; false
+// when it gives none. The Default card gives none, as for its density.
+bool elasticityOfCard(const Materials::Material& material, Elasticity& out)
+{
+    const QString uuid = material.getUUID();
+    if (uuid == QLatin1String("7f9fd73b-50c9-41d8-b7b2-575a030c1eeb")
+        || uuid == QLatin1String("5dbb7be6-8b63-479b-ab4c-87be02ead973")
+        || !material.hasPhysicalProperty(QStringLiteral("YoungsModulus"))) {
+        return false;
+    }
+    const Base::Quantity modulus = material.getPhysicalQuantity(QStringLiteral("YoungsModulus"));
+    if (!modulus.isValid() || !(modulus.getValue() > 0.0)) {
+        return false;
+    }
+    out.youngsModulus = modulus.getValue();
+    out.poissonRatio = 0.0;
+    if (material.hasPhysicalProperty(QStringLiteral("PoissonRatio"))) {
+        bool ok = false;
+        const double ratio =
+            material.getPhysicalValue(QStringLiteral("PoissonRatio")).toDouble(&ok);
+        if (ok && ratio >= 0.0 && ratio < 0.5) {
+            out.poissonRatio = ratio;
+        }
+    }
+    out.material = material.getName().toStdString();
+    out.assumed = false;
+    return true;
+}
+
 // The path of an object from the assembly, "A.B.Obj.", through the
 // sub-assemblies it is in; empty when it is not in the assembly
 std::string pathFrom(const AssemblyObject* assembly, App::DocumentObject* obj)
@@ -256,6 +289,60 @@ double Assembly::defaultDensity(std::string* name)
         *name = "Aluminum Generic";
     }
     return AluminumDensity;
+}
+
+Elasticity Assembly::defaultElasticity()
+{
+    const std::string uuid =
+        App::GetApplication()
+            .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Mod/Assembly")
+            ->GetASCII("DefaultMaterial", AluminumGeneric);
+    Elasticity out;
+    try {
+        auto material =
+            Materials::MaterialManager::getManager().getMaterial(QString::fromStdString(uuid));
+        if (material && elasticityOfCard(*material, out)) {
+            out.assumed = true;
+            return out;
+        }
+    }
+    catch (const Base::Exception& e) {
+        FC_WARN("The default material " << uuid << " is not found: " << e.what());
+    }
+    catch (const std::exception& e) {
+        FC_WARN("The default material " << uuid << " is not found: " << e.what());
+    }
+    out.youngsModulus = AluminumModulus;
+    out.poissonRatio = AluminumPoisson;
+    out.material = "Aluminum Generic";
+    out.assumed = true;
+    return out;
+}
+
+Elasticity Assembly::elasticityOf(App::DocumentObject* component)
+{
+    std::vector<std::pair<Part::Feature*, std::string>> leaves;
+    collect(component, std::string(), leaves, 0);
+    Elasticity softest;
+    bool any = false;
+    for (const auto& leaf : leaves) {
+        Elasticity one;
+        bool given = false;
+        try {
+            given = elasticityOfCard(leaf.first->ShapeMaterial.getValue(), one);
+        }
+        catch (const Base::Exception&) {
+            given = false;
+        }
+        if (!given) {
+            one = defaultElasticity();
+        }
+        if (!any || one.planeModulus() < softest.planeModulus()) {
+            softest = one;
+            any = true;
+        }
+    }
+    return any ? softest : defaultElasticity();
 }
 
 std::vector<MassProperties> Assembly::massPropertiesOf(const AssemblyObject* assembly)

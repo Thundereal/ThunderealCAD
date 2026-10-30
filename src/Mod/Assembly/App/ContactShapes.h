@@ -49,7 +49,7 @@ struct SolidContactShape
     Base::Placement placement;
     Base::Vector3d size;
     std::vector<Base::Vector3d> points;         // a hull's or a mesh's, in the given coordinates
-    std::vector<std::array<int, 3>> triangles;  // a mesh's, on points
+    std::vector<std::array<int, 3>> triangles;  // on points, a hull's mesh's too
     double deflection = 0.0;                    // the mesh's chord error, a hull's or a mesh's
 };
 

@@ -400,8 +400,13 @@ using BushingPython = App::FeaturePythonT<Bushing>;
  * friction mu Fn against the sliding, mu rising from 0 at rest to
  *          StaticFriction at StictionVelocity and going to DynamicFriction at
  *          FrictionVelocity.
+ * The stiffness and the exponent as given (StiffnessFrom Value), or Hertz's
+ * from the components' materials (Materials, a new set's): 4/3 E* R^0.5 and
+ * 1.5, E* the two materials' moduli combined and R the contact's radius --
+ * where each patch of contact touches (RadiusFrom Patch), or from the two
+ * solids' sizes (Part).
  * Each solid of a component touches as the sphere, box or cylinder it is,
- * else as its convex hull when it is convex.
+ * else as its convex hull when it is convex, else as its closed mesh.
  */
 class AssemblyExport ContactSet: public PhysicsItem
 {
@@ -413,6 +418,8 @@ public:
     App::PropertyLinkList GroupA;
     /// Empty: the components of GroupA touch one another
     App::PropertyLinkList GroupB;
+    App::PropertyEnumeration StiffnessFrom;
+    App::PropertyEnumeration RadiusFrom;
     /// N / mm^Exponent
     App::PropertyFloatConstraint Stiffness;
     App::PropertyFloatConstraint Exponent;
@@ -424,10 +431,15 @@ public:
     App::PropertySpeed StictionVelocity;
     App::PropertySpeed FrictionVelocity;
 
+    static const char* StiffnessFromEnums[];
+    static const char* RadiusFromEnums[];
+
     const char* getViewProviderName() const override
     {
         return "AssemblyGui::ViewProviderContactSet";
     }
+    /// A set saved before StiffnessFrom keeps the stiffness it was given
+    void Restore(Base::XMLReader& reader) override;
 };
 
 using ContactSetPython = App::FeaturePythonT<ContactSet>;

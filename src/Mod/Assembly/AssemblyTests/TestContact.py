@@ -13,6 +13,10 @@ import JointObject
 G = 9806.65  # mm/s^2
 DENSITY = 2.7e-6  # kg/mm^3, the default aluminium
 BALL = 4.0 / 3.0 * math.pi * 125 * DENSITY  # a ball of radius 5, kg
+ALUMINUM = "9bf060e9-1663-44a2-88e2-2ff6ee858efe"  # Aluminum Generic's card
+# The soft card's Young's modulus (MPa) and Poisson's ratio: the sinks of
+# Hertz's law hundredths of a millimetre
+SOFT_E, SOFT_NU = 10.0, 0.3
 
 
 class TestContact(unittest.TestCase):
@@ -54,6 +58,9 @@ class TestContact(unittest.TestCase):
 
         self.doc.recompute()
         contact = CommandCreateContact.newContactSet(self.assembly, a, b)
+        # A stiffness given is the one to run with: not the materials'
+        if "Stiffness" in law:
+            contact.StiffnessFrom = "Value"
         for name, value in law.items():
             setattr(contact, name, value)
         self.doc.recompute()
@@ -391,6 +398,149 @@ class TestContact(unittest.TestCase):
         mass = (9000 - 1500) * DENSITY
         self.assertAlmostEqual(self.heights(bridge)[-1], 10 - self.sink(mass / 2), delta=1e-5)
         self.assertLess(self.tilt(bridge), 1e-4)
+
+    def soft(self):
+        """A material card of aluminium's density, as soft as a foam"""
+        import Materials
+
+        material = Materials.MaterialManager().getMaterial(ALUMINUM)
+        material.Name = "Soft aluminium"
+        material.setPhysicalValue("YoungsModulus", "%g MPa" % SOFT_E)
+        material.setPhysicalValue("PoissonRatio", str(SOFT_NU))
+        return material
+
+    def hertz(self, radius):
+        """Hertz's stiffness of two soft parts touching at the radius,
+        N/mm^1.5: 4/3 E* R^0.5"""
+        modulus = SOFT_E / (1 - SOFT_NU**2) / 2
+        return 4.0 / 3.0 * modulus * math.sqrt(radius)
+
+    def sizeOf(self, part):
+        """The radius of the ball of the part's volume"""
+        return (3 * part.Shape.Volume / (4 * math.pi)) ** (1.0 / 3.0)
+
+    def test_hertz_ball(self):
+        """The stiffness from the materials: Hertz's law. A ball on the plate,
+        both soft, sinks by Hertz's closed form, its contact radius its own
+        where they touch, or by the parts' sizes, 1/R = 1/RA + 1/RB"""
+        plate = self.plate()
+        plate.ShapeMaterial = self.soft()
+        ball = self.ball(16)
+        ball.ShapeMaterial = self.soft()
+        contact = self.contact(
+            [ball], [plate], MaxDamping=1e-3, StaticFriction=0.0, DynamicFriction=0.0
+        )
+        self.assertEqual(contact.StiffnessFrom, "Materials")
+        self.assertEqual(contact.RadiusFrom, "Patch")
+        sim, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(
+            self.heights(ball)[-1], 15 - self.sink(BALL, self.hertz(5.0)), delta=1e-6
+        )
+        contact.RadiusFrom = "Part"
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        radius = 1.0 / (1.0 / self.sizeOf(ball) + 1.0 / self.sizeOf(plate))
+        self.assertAlmostEqual(
+            self.heights(ball)[-1], 15 - self.sink(BALL, self.hertz(radius)), delta=1e-6
+        )
+
+    def test_hertz_flat(self):
+        """Two flat faces have no curvature: the prism's base on the plate
+        takes the patch's extent, its corners' distance from their centre, for
+        its radius -- 5 mm, its corners grown by the envelope 5.02 -- or the
+        parts' sizes"""
+        plate = self.plate()
+        plate.ShapeMaterial = self.soft()
+        prism = self.assembly.newObject("Part::Prism", "Prism")
+        prism.Polygon = 6
+        prism.Circumradius = 5
+        prism.Height = 5
+        prism.Placement.Base = App.Vector(0, 0, 11)
+        prism.ShapeMaterial = self.soft()
+        contact = self.contact(
+            [prism], [plate], MaxDamping=1e-3, StaticFriction=0.0, DynamicFriction=0.0
+        )
+        sim, result = self.simulate(0.5, 1e-3)
+        self.assertEqual(result, 0)
+        mass = prism.Shape.Volume * DENSITY
+        self.assertAlmostEqual(
+            self.heights(prism)[-1], 10 - self.sink(mass, self.hertz(5.0)), delta=2e-5
+        )
+        contact.RadiusFrom = "Part"
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        radius = 1.0 / (1.0 / self.sizeOf(prism) + 1.0 / self.sizeOf(plate))
+        self.assertAlmostEqual(
+            self.heights(prism)[-1], 10 - self.sink(mass, self.hertz(radius)), delta=1e-6
+        )
+
+    def test_hertz_curvature(self):
+        """A mesh's and a hull's curvature, read off their meshes where they
+        touch: the torus resting on its tube, R 2, and a hemisphere on its
+        dome, R 5, rest as they do on the stiffness Hertz's law gives those
+        radii -- what their meshes' facets do to the rest, both runs share"""
+        import Part
+
+        plate = self.plate()
+        plate.ShapeMaterial = self.soft()
+        torus = self.assembly.newObject("Part::Torus", "Torus")
+        torus.Radius1, torus.Radius2 = 10, 2
+        torus.Placement.Base = App.Vector(0, 0, 13)
+        torus.ShapeMaterial = self.soft()
+        dome = self.assembly.newObject("Part::Feature", "Dome")
+        dome.Shape = Part.makeSphere(5).common(Part.makeBox(20, 20, 10, App.Vector(-10, -10, -10)))
+        dome.Placement.Base = App.Vector(18, 0, 16)
+        dome.ShapeMaterial = self.soft()
+        law = dict(MaxDamping=0.01, StaticFriction=0.0, DynamicFriction=0.0)
+        sets = {
+            torus: (self.contact([torus], [plate], **law), 2.0),
+            dome: (self.contact([dome], [plate], **law), 5.0),
+        }
+        start = {part: part.Placement for part in sets}
+        sim, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        fromMaterials = {part: self.heights(part)[-1] for part in sets}
+        # From where they started: the hemisphere still rocks at 0.3 s
+        for part, placement in start.items():
+            part.Placement = placement
+        for contact, radius in sets.values():
+            contact.StiffnessFrom = "Value"
+            contact.Stiffness = self.hertz(radius)
+            contact.Exponent = 1.5
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        for part in sets:
+            self.assertAlmostEqual(fromMaterials[part], self.heights(part)[-1], delta=5e-5)
+
+    def test_old_set_keeps_its_stiffness(self):
+        """A contact set saved before StiffnessFrom ran with its Stiffness:
+        restored, it still does"""
+        import io
+        import re
+        import zipfile
+
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate])
+        self.assertEqual(contact.StiffnessFrom, "Materials")
+        data = bytes(contact.dumpContent(Compression=0))
+        with zipfile.ZipFile(io.BytesIO(data)) as zipped:
+            name = zipped.namelist()[0]
+            xml = zipped.read(name).decode("utf-8")
+        older, removed = re.subn(
+            r'<Property name="StiffnessFrom".*?</Property>\s*', "", xml, flags=re.S
+        )
+        self.assertEqual(removed, 1)
+        count = int(re.search(r'<Properties Count="(\d+)"', older).group(1))
+        older = older.replace(
+            '<Properties Count="%d"' % count, '<Properties Count="%d"' % (count - 1)
+        )
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w") as zipped:
+            zipped.writestr(name, older)
+        contact.restoreContent(out.getvalue())
+        self.assertEqual(contact.StiffnessFrom, "Value")
 
     def test_mesh_in_pieces_refused(self):
         """A solid whose mesh is in pieces -- a cube with a hollow in it, two

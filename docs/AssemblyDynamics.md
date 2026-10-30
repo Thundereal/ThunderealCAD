@@ -708,17 +708,48 @@ Phase D1 is under way (2026-10-28):
     ticked in a study's Elements as any other element. GroupA's
     components touch GroupB's, or, GroupB empty, one another; nothing
     else touches (a set is the pair table's row). Its law is Adams'
-    IMPACT, applied per patch (below): `Stiffness` (N/mm^e), `Exponent`,
+    IMPACT, applied per patch (below): a stiffness and an exponent,
     `MaxDamping` (N s/mm,
     reached at `Penetration` through a STEP), and friction by speed:
     `StaticFriction` below `StictionVelocity`, `DynamicFriction` above
-    `FrictionVelocity`, STEPs between (defaults 1e5, 1.5, 10, 0.01 mm,
-    0.3, 0.25, 0.1 and 10.16 mm/s).
+    `FrictionVelocity`, STEPs between (defaults 10, 0.01 mm, 0.3, 0.25,
+    0.1 and 10.16 mm/s). The stiffness and the exponent are `Stiffness`
+    (N/mm^e) and `Exponent` (1e5 and 1.5) where `StiffnessFrom` is Value,
+    or, Materials (a new set's), Hertz's from the components' materials:
+    4/3 E* R^0.5 and 1.5, 1/E* = (1 - nuA^2)/EA + (1 - nuB^2)/EB, each
+    component's Young's modulus and Poisson's ratio from its shapes'
+    material cards (the softest where they differ; the default material's,
+    Aluminum Generic, 70 GPa and 0.35, where a card gives none). R, the
+    contact's radius, by `RadiusFrom`: Patch, where each patch touches --
+    1 / (the two sides' curvatures there), or, two flat faces, the patch's
+    extent, the farthest of its points from their centre, and a single
+    point on two flat faces the parts' sizes -- or Part, the parts' sizes,
+    1/R = 1/RA + 1/RB, each the radius of the ball of the solid's volume.
+    Aluminium on aluminium comes to about 1e5 N/mm^1.5 for a radius of
+    5 mm, the Adams default. A set saved before `StiffnessFrom` restores as
+    Value (`ContactSet::Restore()`).
+  - The curvature (`vertexBends()`): a sphere's and a cylinder's side by
+    their radii, a cylinder's cap and a box's faces none; a mesh's and a
+    hull's at each vertex of their contact mesh, the larger eigenvalue of
+    the curvature tensor of a height quadric, A x^2/2 + B x y + C y^2/2 +
+    D x + E y, fitted to the vertex's neighbours in the tangent plane of
+    its normal (the faces' within 40 deg; a turn of 40 deg or more is the
+    solid's edge, and a flat face up to it stays flat). A point takes the
+    mesh triangle's corner nearest it, or the hull's mesh point farthest
+    out along the normal, where a convex shape touches. A torus's tube
+    (2 mm) reads 1.997, a hemisphere (5 mm) 4.99, an ellipsoid's pole
+    (12 mm) 11.99.
   - The command, Assembly_CreateContact (toolbar, after the bushing):
     the components selected go in group A, and its panel (a double click
     opens it too) picks either group in the 3D view -- a pick adds a
     component, taking it out of the other group, and a pick of one
-    already in the group takes it out -- and takes the law. OK waits for
+    already in the group takes it out -- and takes the law: where the
+    stiffness comes from, the contact radius, and the stiffness itself on a
+    spin box and a slider of powers of ten, 1 to 1e7. Under them, how the
+    lightest component of group A rests on the law: how far it sinks and
+    the run's steps there, (mg/k)^(1/e) and a fiftieth of the period
+    (from the materials, by the parts' sizes; the run takes R where they
+    touch). OK waits for
     group A; Cancel undoes the edit, or deletes the set the command made.
     A new study ticks it with the other elements, and its ContactForce
     channel is "Contact force" in N in the results. The study command no
@@ -748,7 +779,9 @@ Phase D1 is under way (2026-10-28):
     than a tenth of what its impact will reach is taken again an eighth as
     long; one whose Newton iterations ran off to a state not finite, too,
     and below 1e-9 s the run fails ("the contact's integration diverged")
-    instead of handing Bullet a NaN.
+    instead of handing Bullet a NaN; and one whose iterations stopped
+    unconverged (HHT's terminated solves, whose state it takes as it is),
+    taken as it is only below 1e-9 s.
   - The law is a patch's, not a point's (`patchesOf()`, `ContactLoad`):
     the points of one stretch of surface touching another push as one
     point would at the patch's depth, so a face resting flat pushes the
@@ -907,6 +940,31 @@ Phase D1 is under way (2026-10-28):
         a minute. The cube with the corner cut out rests tilted 1.6e-3 rad
         under the soft law, as an off-centre load on an elastic support
         does: its centre of mass is off its base's.
+    - The stiffness from the materials, the curvature's estimates:
+      - The angle between faces over their centres' spacing read a torus's
+        tube as tighter by half again: its triangles are half quads, a
+        triangle's normal the quad's and its centre a third of the way
+        across. The circle through an edge's ends with the vertex's normal
+        is exact on a polygon of a circle; the most of those at a vertex
+        read the tube a fifth tighter, a slightly wrong normal over a short
+        edge, and a tensor fitted to them as much.
+      - About an ellipsoid's pole the faces' mean normal was 0.004 rad off,
+        and over a tenth of a millimetre's edge the circles read 1/12 mm as
+        anything from 1/30 to 1/6. The height quadric's linear terms take
+        up the normal's error.
+      - A hull's polyhedral features are no mesh to read: Bullet merges
+        faces all but in one plane, and the vertices it kept about the
+        pole curved it as 1/8 mm. The hull keeps its contact mesh's
+        triangles for it.
+      - The patch's extent first capped every radius: its points are all
+        those within the contact's margin, and the ellipsoid's, on the
+        triangle at its pole, were half a millimetre across. Only two flat
+        faces take it now.
+      - The notched cube landing flat from the materials (k 1.4e5) was
+        thrown half a kilometre, and so it was at a value of 1.41e5 (1e5,
+        1.2e5 and 2e5 landed): a landing substep's Newton iterations
+        stopped unconverged, and HHT took the state, finite. Hence the
+        retake of a terminated solve.
   - Envelope 2e-5 m, margin 1e-4 m: Chrono's defaults (3 cm, 1 cm) are a
     part's size here.
   - Results: a ContactForce channel per set, the force on group A's
@@ -920,7 +978,12 @@ Phase D1 is under way (2026-10-28):
     ellipsoid resting on its pole (0.01 mm), a torus on its tube (0.01 mm);
     the law per patch: a cube with a hole through it sunk by the ball's
     rule, and the channel upside down on its two legs by half its weight's
-    (1e-5 mm); a cube with a corner
+    (1e-5 mm); Hertz's law from soft materials (10 MPa): a ball sunk by its
+    closed form, R its own or by the parts' sizes (1e-6 mm), the prism's
+    base by its extent (2e-5 mm: its corners grown by the envelope) or the
+    sizes (1e-6), the torus on its tube and a hemisphere on its dome as on
+    the stiffness Hertz's law gives their radii (5e-5 mm), a set saved
+    before StiffnessFrom restored as Value; a cube with a corner
     cut out landing level on its base (1e-4 mm, 1e-4 rad), a box resting
     on the floor of a slot in a block and not on the block's hull, and the
     notched cube on the block beside the slot, mesh on mesh, its sides
@@ -929,10 +992,15 @@ Phase D1 is under way (2026-10-28):
     cap, one landing on its side and staying there; a cube with a hollow
     in it refused; a set's pairs only.
   - Tests (TestGuiCommands): the panel's picks, law, OK and Cancel, and
-    a new study ticking the set; OK refused with group A empty.
+    a new study ticking the set; the stiffness from the materials or a
+    value, each idling the other's rows, the slider's powers of ten and the
+    rest it shows; OK refused with group A empty.
   - Not yet: curve contact for cams (sec 7.4), stops, sensors, contact
     plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
+    Hertz's law takes the larger of a surface's two curvatures, so a
+    torus on its tube is a ball of the tube's radius, and a line contact (a
+    cylinder on its side) is a ball's too; the damping is still a value.
     A resting mesh is still slow under the default law: collision
     detection and the Newton iterations cost milliseconds a substep, and
     the substep is a fiftieth of the patch's period. A tumble is slow too:

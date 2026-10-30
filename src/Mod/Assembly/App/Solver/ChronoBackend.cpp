@@ -546,7 +546,8 @@ double step(double x, double x0, double h0, double x1, double h1)
 // point, however many its clipping or its mesh gave it, and a corner
 // coming down beside a deep one adds as little as it presses. Per point, a
 // box's four corners were four times as stiff as a sphere's one, and a
-// mesh's ring of points as stiff as it was fine.
+// mesh's ring of points as stiff as it was fine. Each patch's stiffness is
+// the law's, or Hertz's from the shapes' materials (patchStiffness()).
 class ContactLoad: public ch::ChLoadBodyBody
 {
 public:
@@ -568,7 +569,11 @@ public:
         : ch::ChLoadBodyBody(a, b, ch::ChFramed(b->GetPos(), b->GetRot()))
         , law(law)
         , set(set)
-    {}
+    {
+        if (law.from == ContactLaw::Stiffness::Materials) {
+            this->law.exponent = 1.5;
+        }
+    }
 
     ContactLoad* Clone() const override
     {
@@ -645,7 +650,7 @@ public:
             const double total = sum[point.patch];
             const double share = total > 0.0 ? squares[point.patch] / total / total : 1.0;
             double normal = share
-                * (law.stiffness * std::pow(depth, law.exponent)
+                * (stiffness[point.patch] * std::pow(depth, law.exponent)
                    + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate);
             if (!(normal > 0.0)) {
                 continue;
@@ -681,6 +686,7 @@ public:
     std::size_t set = 0;  // the ContactPair's index
     std::vector<Point> points;
     std::size_t patches = 0;
+    std::vector<double> stiffness;  // each patch's k
     // At the last state ComputeQ was given: the force on B, absolute, and
     // the points pressing
     ch::ChVector3d onB;
@@ -1872,7 +1878,324 @@ struct ShapeOn
     double half = 0.0;
     const cbtConvexPolyhedron* features = nullptr;
     double envelope = 0.0;
+    // For Hertz's law (patchStiffness()): a sphere's radius, the material's
+    // E / (1 - nu^2), the radius of the ball of the solid's volume, and the
+    // surface's curvature at each vertex of its mesh, a mesh's or a hull's,
+    // 1/m -- a hull's at its points, in its frame. Not of a hull's features:
+    // Bullet's merges faces all but in one plane, and the vertices it kept
+    // about an ellipsoid's pole curved it as 1/8 mm where it is 1/12.
+    double ball = 0.0;
+    double modulus = 0.0;
+    double size = 0.0;
+    std::vector<double> bends;
+    std::vector<ch::ChVector3d> hull;
+    // A mesh's vertices, in its body's frame: its triangles point into them
+    const ch::ChVector3d* vertices = nullptr;
+    std::size_t count = 0;
 };
+
+// A surface's curvature at each vertex of its faces, the most it curves
+// there, convex positive: the larger eigenvalue of the curvature tensor of
+// the height quadric h = A x^2/2 + B x y + C y^2/2 + D x + E y fitted by
+// least squares to its neighbours, in the tangent plane of the vertex's
+// normal. The linear terms take up that normal's error: an average of the
+// faces around, it was 0.004 rad off on an ellipsoid's pole, and over a
+// tenth of a millimetre's edge the circle through each edge's ends with it
+// read the pole's 1/12 mm as anything from 1/30 to 1/6. The normal is the
+// faces' at the vertex that are within 40 deg of the edge's face: a turn of
+// 40 deg or more is one of the solid's edges, not a curve's tessellation --
+// a box's, a prism's -- and a flat face up to it stays flat; its edges are
+// no neighbours. Fewer than five neighbours, the edges' circles fit the
+// tensor alone: -2 n . (v - u) / |v - u|^2 each, exact on a polygon of a
+// circle (the angle between faces over their centres' spacing made a
+// torus's half-quad triangles half as round again).
+std::vector<double> vertexBends(const std::vector<ch::ChVector3d>& vertices,
+                                const std::vector<std::vector<int>>& faces)
+{
+    const double sharp = std::cos(40.0 * pi / 180.0);
+    std::vector<ch::ChVector3d> normals;
+    std::vector<std::vector<std::size_t>> around(vertices.size());
+    for (std::size_t f = 0; f < faces.size(); ++f) {
+        const auto& face = faces[f];
+        ch::ChVector3d n = ch::VNULL;
+        for (std::size_t k = 1; k + 1 < face.size(); ++k) {
+            n += ch::Vcross(vertices[face[k]] - vertices[face[0]],
+                            vertices[face[k + 1]] - vertices[face[0]]);
+        }
+        const double length = n.Length();
+        normals.push_back(length > 0.0 ? n / length : ch::VNULL);
+        for (int v : face) {
+            around[static_cast<std::size_t>(v)].push_back(f);
+        }
+    }
+    // Each edge's faces, to tell the solid's edges
+    std::map<std::pair<int, int>, std::vector<std::size_t>> sides;
+    for (std::size_t f = 0; f < faces.size(); ++f) {
+        const auto& face = faces[f];
+        for (std::size_t k = 0; k < face.size(); ++k) {
+            sides[std::minmax(face[k], face[(k + 1) % face.size()])].push_back(f);
+        }
+    }
+    auto normalAt = [&](std::size_t v, std::size_t f) {
+        ch::ChVector3d n = ch::VNULL;
+        for (std::size_t g : around[v]) {
+            if (ch::Vdot(normals[g], normals[f]) > sharp) {
+                n += normals[g];
+            }
+        }
+        const double length = n.Length();
+        return length > 0.0 ? n / length : normals[f];
+    };
+    // Each vertex's edges: the normal there, the edge's direction, and the
+    // curvature along it
+    struct Along
+    {
+        ch::ChVector3d normal;
+        ch::ChVector3d direction;
+        double bend;
+    };
+    std::vector<std::vector<Along>> edges(vertices.size());
+    for (const auto& [edge, two] : sides) {
+        if (two.size() != 2 || !(ch::Vdot(normals[two[0]], normals[two[1]]) > sharp)) {
+            continue;
+        }
+        const auto u = static_cast<std::size_t>(edge.first);
+        const auto v = static_cast<std::size_t>(edge.second);
+        const ch::ChVector3d d = vertices[v] - vertices[u];
+        const double length2 = d.Length2();
+        if (!(length2 > 0.0)) {
+            continue;
+        }
+        for (const auto& [from, to] : {std::pair(u, d), std::pair(v, -d)}) {
+            const ch::ChVector3d n = normalAt(from, two[0]);
+            edges[from].push_back({n, to, -2.0 * ch::Vdot(n, to) / length2});
+        }
+    }
+    std::vector<double> bends(vertices.size(), 0.0);
+    for (std::size_t v = 0; v < vertices.size(); ++v) {
+        const auto& at = edges[v];
+        if (at.empty()) {
+            continue;
+        }
+        ch::ChVector3d n = ch::VNULL;
+        for (const Along& e : at) {
+            n += e.normal;
+        }
+        n.Normalize();
+        // The tangent plane's axes
+        ch::ChVector3d t1 = ch::Vcross(n, std::abs(n.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
+        t1.Normalize();
+        const ch::ChVector3d t2 = ch::Vcross(n, t1);
+        // The larger eigenvalue of [[a, b], [b, c]], convex positive
+        auto largest = [](double a, double b, double c) {
+            const double mean = 0.5 * (a + c);
+            const double half = std::sqrt(0.25 * (a - c) * (a - c) + b * b);
+            return std::max(mean + half, 0.0);
+        };
+        if (at.size() >= 5) {
+            // The height quadric: h = A x^2/2 + B x y + C y^2/2 + D x + E y,
+            // the curvature -[[A, B], [B, C]], the normal outward
+            Eigen::MatrixXd rows(static_cast<Eigen::Index>(at.size()), 5);
+            Eigen::VectorXd heights(static_cast<Eigen::Index>(at.size()));
+            for (std::size_t i = 0; i < at.size(); ++i) {
+                const double x = ch::Vdot(at[i].direction, t1);
+                const double y = ch::Vdot(at[i].direction, t2);
+                const auto row = static_cast<Eigen::Index>(i);
+                rows.row(row) << 0.5 * x * x, x * y, 0.5 * y * y, x, y;
+                heights[row] = ch::Vdot(at[i].direction, n);
+            }
+            const Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(rows);
+            if (qr.rank() == 5) {
+                const Eigen::VectorXd fit = qr.solve(heights);
+                bends[v] = largest(-fit[0], -fit[1], -fit[2]);
+                continue;
+            }
+        }
+        // k(theta) = a cos^2 + 2 b cos sin + c sin^2, from the edges' circles
+        Eigen::Matrix3d m = Eigen::Matrix3d::Zero();
+        Eigen::Vector3d r = Eigen::Vector3d::Zero();
+        double most = 0.0;
+        for (const Along& e : at) {
+            const double x = ch::Vdot(e.direction, t1);
+            const double y = ch::Vdot(e.direction, t2);
+            const double length2 = x * x + y * y;
+            if (!(length2 > 0.0)) {
+                continue;
+            }
+            const Eigen::Vector3d row(x * x / length2, 2.0 * x * y / length2, y * y / length2);
+            m += row * row.transpose();
+            r += row * e.bend;
+            most = std::max(most, e.bend);
+        }
+        const Eigen::FullPivLU<Eigen::Matrix3d> lu(m);
+        if (at.size() < 3 || lu.rank() < 3) {
+            bends[v] = most;
+            continue;
+        }
+        const Eigen::Vector3d abc = lu.solve(r);
+        bends[v] = largest(abc[0], abc[1], abc[2]);
+    }
+    return bends;
+}
+
+// A mesh's curvature at each vertex
+std::vector<double> meshBends(const std::vector<ch::ChVector3d>& vertices,
+                              const std::vector<ch::ChVector3i>& triangles)
+{
+    std::vector<std::vector<int>> faces;
+    faces.reserve(triangles.size());
+    for (const auto& t : triangles) {
+        faces.push_back({t.x(), t.y(), t.z()});
+    }
+    return vertexBends(vertices, faces);
+}
+
+// The contact shapes by Chrono's shapes, and a mesh's triangle by the mesh
+// its corners are in
+struct ShapesOn
+{
+    const std::map<const ch::ChCollisionShape*, ShapeOn>* byShape = nullptr;
+    std::vector<const ShapeOn*> meshes;
+
+    const ShapeOn* of(const ch::ChCollisionShape* shape) const
+    {
+        if (!shape) {
+            return nullptr;
+        }
+        if (shape->GetType() == ch::ChCollisionShape::Type::MESHTRIANGLE) {
+            const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+            for (const ShapeOn* mesh : meshes) {
+                if (triangle->V1 >= mesh->vertices && triangle->V1 < mesh->vertices + mesh->count) {
+                    return mesh;
+                }
+            }
+            return nullptr;
+        }
+        auto it = byShape->find(shape);
+        return it == byShape->end() ? nullptr : &it->second;
+    }
+
+    // The curvature of the shape where a point of its body touches ('at', in
+    // the body's frame), the surface there facing 'outward' (absolute): a
+    // mesh's at the triangle's corner nearest, a hull's at its point farthest
+    // out that way, where a convex shape touches, a box's none
+    double bendAt(const ch::ChCollisionShape* shape,
+                  const ch::ChBody& body,
+                  const ch::ChVector3d& at,
+                  const ch::ChVector3d& outward) const
+    {
+        const ShapeOn* on = of(shape);
+        if (!on) {
+            return 0.0;
+        }
+        if (on->vertices) {
+            const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+            double nearest = std::numeric_limits<double>::infinity();
+            double bend = 0.0;
+            for (const ch::ChVector3d* corner : {triangle->V1, triangle->V2, triangle->V3}) {
+                const auto index = static_cast<std::size_t>(corner - on->vertices);
+                const double apart = (*corner - at).Length2();
+                if (index < on->bends.size() && apart < nearest) {
+                    nearest = apart;
+                    bend = on->bends[index];
+                }
+            }
+            return bend;
+        }
+        if (on->ball > 0.0) {
+            return 1.0 / on->ball;
+        }
+        const ch::ChVector3d local =
+            on->frame.GetRot().RotateBack(body.GetRot().RotateBack(outward));
+        if (on->radius > 0.0) {
+            // Its cap is flat, its side as round as the cylinder
+            return std::abs(local.z()) > 0.5 ? 0.0 : 1.0 / on->radius;
+        }
+        std::size_t best = on->hull.size();
+        double most = -std::numeric_limits<double>::infinity();
+        for (std::size_t v = 0; v < on->hull.size(); ++v) {
+            const double along = ch::Vdot(on->hull[v], local);
+            if (along > most) {
+                most = along;
+                best = v;
+            }
+        }
+        return best < on->bends.size() ? on->bends[best] : 0.0;
+    }
+};
+
+// Each patch's stiffness (ContactLaw): the law's, or Hertz's from the shapes'
+// materials, k = 4/3 E* R^0.5, 1/E* the sum of the two shapes'
+// 1 / (E / (1 - nu^2)). R is the contact's radius: from the curvatures where
+// the patch touches, 1 / (kA + kB), each side's its points' mean; two flat
+// faces, the patch's extent -- the farthest of its points from their
+// centre, a face resting flat on a face its size -- and a single point on
+// two flat faces, the part sizes'. Or from the parts' sizes alone,
+// 1/R = 1/RA + 1/RB, each the radius of the ball of the solid's volume.
+// The extent is no cap on a curve's radius: its points are all those within
+// the contact's margin, and an ellipsoid resting on its pole, R 12 mm, had
+// them on the triangle there, half a millimetre across.
+void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
+{
+    const ContactLaw& law = load.law;
+    load.stiffness.assign(load.patches, law.stiffness);
+    if (law.from != ContactLaw::Stiffness::Materials || load.points.empty()) {
+        return;
+    }
+    const auto& points = load.points;
+    const auto bodyA = load.GetBodyA();
+    const auto bodyB = load.GetBodyB();
+    struct Patch
+    {
+        std::size_t count = 0;
+        double bendA = 0.0;
+        double bendB = 0.0;
+        ch::ChVector3d centre;
+        double extent = 0.0;
+        const ShapeOn* onA = nullptr;
+        const ShapeOn* onB = nullptr;
+    };
+    std::vector<Patch> patches(load.patches);
+    for (const auto& point : points) {
+        Patch& patch = patches[point.patch];
+        ++patch.count;
+        patch.bendA += shapes.bendAt(point.shapeA, *bodyA, point.onA, point.normal);
+        patch.bendB += shapes.bendAt(point.shapeB, *bodyB, point.onB, -point.normal);
+        patch.centre += point.onA;
+        if (!patch.onA) {
+            patch.onA = shapes.of(point.shapeA);
+            patch.onB = shapes.of(point.shapeB);
+        }
+    }
+    for (auto& patch : patches) {
+        patch.centre /= static_cast<double>(std::max<std::size_t>(patch.count, 1));
+    }
+    for (const auto& point : points) {
+        Patch& patch = patches[point.patch];
+        patch.extent = std::max(patch.extent, (point.onA - patch.centre).Length());
+    }
+    for (std::size_t p = 0; p < patches.size(); ++p) {
+        const Patch& patch = patches[p];
+        if (!patch.onA || !patch.onB || !(patch.onA->modulus > 0.0)
+            || !(patch.onB->modulus > 0.0)) {
+            continue;
+        }
+        const double modulus = 1.0 / (1.0 / patch.onA->modulus + 1.0 / patch.onB->modulus);
+        double sizes = 0.0;
+        for (const ShapeOn* on : {patch.onA, patch.onB}) {
+            sizes += on->size > 0.0 ? 1.0 / on->size : 0.0;
+        }
+        const double part = sizes > 0.0 ? 1.0 / sizes : 0.0;
+        double radius = part;
+        if (law.radius == ContactLaw::Radius::Patch) {
+            const double bend = (patch.bendA + patch.bendB) / static_cast<double>(patch.count);
+            radius = bend > 0.0 ? 1.0 / bend : patch.extent > 0.0 ? patch.extent : part;
+        }
+        if (radius > 0.0) {
+            load.stiffness[p] = 4.0 / 3.0 * modulus * std::sqrt(radius);
+        }
+    }
+}
 
 // A point of a cylinder's contact, on it and on the other shape
 struct CylinderPoint
@@ -4581,6 +4904,7 @@ Status ChronoSession::simulateDynamics(
         const ContactCollisionSystem* collision = nullptr;
         std::vector<std::shared_ptr<ContactLoad>>* loads = nullptr;
         const std::map<const ch::ChCollisionShape*, ShapeOn>* shapes = nullptr;
+        ShapesOn shapesOn;
         std::shared_ptr<std::map<const ch::ChCollisionShape*, ShapeOn>> keep;
         double reach = 0.0;
         void OnCustomCollision(ch::ChSystem*) override
@@ -4650,6 +4974,7 @@ Status ChronoSession::simulateDynamics(
             finder->found.clear();
             for (auto& load : *loads) {
                 patchesOf(*load);
+                patchStiffness(*load, shapesOn);
             }
         }
     };
@@ -4680,6 +5005,7 @@ Status ChronoSession::simulateDynamics(
                 continue;
             }
             std::shared_ptr<ch::ChCollisionShape> made;
+            std::shared_ptr<ch::ChTriangleMeshConnected> meshMade;
             switch (shape.kind) {
                 case ContactShape::Kind::Sphere:
                     made = std::make_shared<ch::ChCollisionShapeSphere>(material, shape.size.x);
@@ -4725,6 +5051,7 @@ Status ChronoSession::simulateDynamics(
                                                                               false,
                                                                               false,
                                                                               0.0);
+                    meshMade = mesh;
                     break;
                 }
             }
@@ -4744,6 +5071,27 @@ Status ChronoSession::simulateDynamics(
             if (shape.kind == ContactShape::Kind::Cylinder) {
                 where.radius = shape.size.x;
                 where.half = 0.5 * shape.size.z;
+            }
+            if (shape.kind == ContactShape::Kind::Sphere) {
+                where.ball = shape.size.x;
+            }
+            if (shape.kind == ContactShape::Kind::ConvexHull) {
+                for (const auto& point : shape.points) {
+                    where.hull.push_back(toCh(point));
+                }
+                std::vector<ch::ChVector3i> triangles;
+                for (const auto& t : shape.triangles) {
+                    triangles.emplace_back(t[0], t[1], t[2]);
+                }
+                where.bends = meshBends(where.hull, triangles);
+            }
+            where.modulus = shape.modulus;
+            where.size = std::cbrt(3.0 * std::max(shape.volume, 0.0) / (4.0 * pi));
+            if (meshMade) {
+                const auto& vertices = meshMade->GetCoordsVertices();
+                where.vertices = vertices.data();
+                where.count = vertices.size();
+                where.bends = meshBends(vertices, meshMade->GetIndicesVertexes());
             }
         }
         auto finder = std::make_shared<ContactFinder>();
@@ -4804,6 +5152,12 @@ Status ChronoSession::simulateDynamics(
         handover->collision = contactCollision;
         handover->loads = &contactLoads;
         handover->shapes = shapesOn.get();
+        handover->shapesOn.byShape = shapesOn.get();
+        for (const auto& [shape, on] : *shapesOn) {
+            if (on.vertices) {
+                handover->shapesOn.meshes.push_back(&on);
+            }
+        }
         handover->reach = margin;
         handover->keep = shapesOn;
         sys.RegisterCustomCollisionCallback(handover);
@@ -5555,12 +5909,12 @@ Status ChronoSession::simulateDynamics(
                                               b->PointSpeedLocalToParent(point.onB)
                                                   - a->PointSpeedLocalToParent(point.onA));
                 const double approach = std::max(rate, 0.0);
-                const double reach = std::pow((law.exponent + 1.0) * mass * approach * approach
-                                                  / (2.0 * law.stiffness),
-                                              1.0 / (law.exponent + 1.0));
+                const double k = load->stiffness[point.patch];
+                const double reach =
+                    std::pow((law.exponent + 1.0) * mass * approach * approach / (2.0 * k),
+                             1.0 / (law.exponent + 1.0));
                 const double deepest = std::max({depth, reach, 1e-12});
-                const double stiffness =
-                    law.exponent * law.stiffness * std::pow(deepest, law.exponent - 1.0);
+                const double stiffness = law.exponent * k * std::pow(deepest, law.exponent - 1.0);
                 if (!(stiffness > 0.0)) {
                     continue;
                 }
@@ -5632,7 +5986,8 @@ Status ChronoSession::simulateDynamics(
                                                        - a->PointSpeedLocalToParent(point.onA)),
                                          0.0);
             const double reach = std::isfinite(mass)
-                ? std::pow((law.exponent + 1.0) * mass * rate * rate / (2.0 * law.stiffness),
+                ? std::pow((law.exponent + 1.0) * mass * rate * rate
+                               / (2.0 * load.stiffness[point.patch]),
                            1.0 / (law.exponent + 1.0))
                 : 0.0;
             if (depth > 0.1 * reach) {
@@ -5670,6 +6025,9 @@ Status ChronoSession::simulateDynamics(
             sys.StateGather(x, v, t);
             sys.StateGatherAcceleration(a);
             contactCollision->reuse = fresh;
+            auto implicit =
+                std::dynamic_pointer_cast<ch::ChTimestepperImplicit>(sys.GetTimestepper());
+            const unsigned int terminated = implicit ? implicit->GetNumTerminated() : 0;
             sys.DoStepDynamics(h);
             fresh = false;
             // A step whose Newton iterations ran off -- a state not finite
@@ -5685,8 +6043,14 @@ Status ChronoSession::simulateDynamics(
                 sys.StateScatter(x, v, t, ch::UpdateFlags::UPDATE_ALL);
                 throw std::runtime_error("the contact's integration diverged");
             }
-            bool tooDeep = !finite;
-            if (finite) {
+            // And one whose iterations stopped unconverged at their most:
+            // HHT takes the state they stopped at, and a cube landing flat
+            // on its mesh at k = 1.41e5 (1.2e5 and 2e5 landed) was thrown
+            // half a kilometre, finite. Taken as it is below a nanosecond.
+            const bool unconverged =
+                implicit && implicit->GetNumTerminated() > terminated && h > 1e-9;
+            bool tooDeep = !finite || unconverged;
+            if (finite && !unconverged) {
                 sys.ComputeCollisions();
                 fresh = true;
                 for (std::size_t i = 0; i < contactLoads.size() && !tooDeep; ++i) {

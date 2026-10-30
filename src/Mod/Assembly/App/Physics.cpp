@@ -644,6 +644,9 @@ Bushing::Bushing()
 
 PROPERTY_SOURCE(Assembly::ContactSet, Assembly::PhysicsItem)
 
+const char* ContactSet::StiffnessFromEnums[] = {"Materials", "Value", nullptr};
+const char* ContactSet::RadiusFromEnums[] = {"Patch", "Part", nullptr};
+
 ContactSet::ContactSet()
 {
     ADD_PROPERTY_TYPE(GroupA,
@@ -658,12 +661,30 @@ ContactSet::ContactSet()
                       App::Prop_None,
                       "The components those of GroupA touch; empty: those of GroupA touch one "
                       "another");
+    ADD_PROPERTY_TYPE(StiffnessFrom,
+                      (0L),
+                      "Contact",
+                      App::Prop_None,
+                      "Materials: Hertz's law from the components' materials, a stiffness of "
+                      "4/3 E* R^0.5 and an exponent of 1.5.\nValue: Stiffness and Exponent as "
+                      "given.");
+    StiffnessFrom.setEnums(StiffnessFromEnums);
+    ADD_PROPERTY_TYPE(RadiusFrom,
+                      (0L),
+                      "Contact",
+                      App::Prop_None,
+                      "Hertz's contact radius R, for StiffnessFrom Materials.\nPatch: from the "
+                      "curvatures where the shapes touch, at most the extent of the contact.\n"
+                      "Part: from the sizes of the two solids, each the radius of the ball of "
+                      "its volume.");
+    RadiusFrom.setEnums(RadiusFromEnums);
     // SOLIDWORKS's and Adams View's defaults (docs/AssemblyDynamics.md sec 2.3)
     ADD_PROPERTY_TYPE(Stiffness,
                       (1e5),
                       "Contact",
                       App::Prop_None,
-                      "The impact law's stiffness, in N / mm^Exponent");
+                      "The impact law's stiffness, in N / mm^Exponent, for StiffnessFrom "
+                      "Value");
     ADD_PROPERTY_TYPE(Exponent,
                       (1.5),
                       "Contact",
@@ -707,6 +728,14 @@ ContactSet::ContactSet()
     MaxDamping.setConstraints(&positive);
     StaticFriction.setConstraints(&coefficient);
     DynamicFriction.setConstraints(&coefficient);
+}
+
+void ContactSet::Restore(Base::XMLReader& reader)
+{
+    // Saved before StiffnessFrom: the set's file has none, and its stiffness
+    // was the one it ran with
+    StiffnessFrom.setValue("Value");
+    PhysicsItem::Restore(reader);
 }
 
 PROPERTY_SOURCE(Assembly::TorsionSpring, Assembly::PhysicsItem)

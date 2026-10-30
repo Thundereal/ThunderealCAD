@@ -402,9 +402,8 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
     const gp_Trsf where = solid.Location().Transformation();
     SolidContactShape out;
     out.kind = convex ? Kind::ConvexHull : Kind::Mesh;
-    if (!convex) {
-        out.triangles = std::move(triangles);
-    }
+    // A hull's too: Hertz's law reads its curvature off them
+    out.triangles = std::move(triangles);
     out.deflection = mesh->deflection();
     out.points.reserve(points.size());
     for (gp_XYZ p : points) {

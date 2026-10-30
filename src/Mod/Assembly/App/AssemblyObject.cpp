@@ -37,6 +37,8 @@
 #include <thread>
 
 // Reached transitively upstream, but not here.
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <Standard_Failure.hxx>
 
@@ -1980,6 +1982,8 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             return found->second;
         }
         std::vector<Solver::Id>& ids = shapesOf[component];
+        // For Hertz's law, where a set takes its stiffness from the materials
+        const double modulus = elasticityOf(component).planeModulus();
         ::Part::TopoShape shape;
         try {
             // In the component's own coordinates
@@ -2017,6 +2021,10 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             record.size = contact->size;
             record.points = std::move(contact->points);
             record.triangles = std::move(contact->triangles);
+            record.modulus = modulus;
+            GProp_GProps props;
+            BRepGProp::VolumeProperties(solid.getShape(), props);
+            record.volume = std::abs(props.Mass());
             record.frame = frameOn(component,
                                    contact->placement,
                                    component->getFullName() + "-solid" + std::to_string(index));
@@ -2045,6 +2053,10 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         pair.source = model.addSource(set->getFullName());
         // N to mN: the stiffness in N / mm^e, the damping in N s/mm
         Solver::ContactLaw& law = pair.law;
+        law.from = set->StiffnessFrom.getValue() == 0 ? Solver::ContactLaw::Stiffness::Materials
+                                                      : Solver::ContactLaw::Stiffness::Value;
+        law.radius = set->RadiusFrom.getValue() == 0 ? Solver::ContactLaw::Radius::Patch
+                                                     : Solver::ContactLaw::Radius::Part;
         law.stiffness = set->Stiffness.getValue() * 1000.0;
         law.exponent = set->Exponent.getValue();
         law.maxDamping = set->MaxDamping.getValue() * 1000.0;

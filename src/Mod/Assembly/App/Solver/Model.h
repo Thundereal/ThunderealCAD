@@ -350,8 +350,24 @@ struct InitialVelocity
 //   friction mu(v) Fn against the sliding velocity v, mu rising from 0 at
 //            rest to muStatic at vStiction and going to muDynamic at
 //            vFriction, Adams' STEP between them.
+// k and e as given, or Hertz's from the shapes' materials: k = 4/3 E* R^0.5
+// and e = 1.5, 1/E* the sum of the two shapes' 1 / ContactShape::modulus,
+// and R the contact's radius -- from the curvatures where the shapes touch,
+// or from the two shapes' sizes.
 struct ContactLaw
 {
+    enum class Stiffness : std::uint8_t
+    {
+        Value,     // stiffness and exponent
+        Materials  // Hertz's
+    };
+    enum class Radius : std::uint8_t
+    {
+        Patch,  // 1 / (the two curvatures), at most the patch's extent
+        Part    // 1/R = 1/RA + 1/RB, each shape's the ball's of its volume
+    };
+    Stiffness from = Stiffness::Value;
+    Radius radius = Radius::Patch;
     double stiffness = 1e8;     // k, mN / mm^e (1e5 N/mm at e = 1)
     double exponent = 1.5;      // e
     double maxDamping = 1e4;    // cmax, mN s / mm (10 N s/mm)
@@ -380,7 +396,12 @@ struct ContactShape
     Kind kind {};
     Base::Vector3d size;
     std::vector<Base::Vector3d> points;
-    std::vector<std::array<int, 3>> triangles;  // a mesh's
+    // A mesh's; a hull's mesh's, its points', for its curvature
+    std::vector<std::array<int, 3>> triangles;
+    // Its material's E / (1 - nu^2), kPa (mN/mm^2), for ContactLaw's
+    // Materials; and its solid's volume, mm^3
+    double modulus = 0.0;
+    double volume = 0.0;
 };
 
 // A contact set: the shapes of group A touching those of group B, or, B

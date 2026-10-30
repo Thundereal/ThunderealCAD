@@ -94,4 +94,32 @@ AssemblyExport std::vector<MassProperties> massPropertiesOf(const AssemblyObject
 /// The mass properties of these together: Assumed if any is
 AssemblyExport MassProperties totalOf(const std::vector<MassProperties>& parts);
 
+/** A material's elastic constants, for contact (docs/AssemblyDynamics.md
+ * sec 7): Young's modulus in kPa (the internal unit, mN/mm^2) and Poisson's
+ * ratio, and the material's name.
+ */
+struct AssemblyExport Elasticity
+{
+    double youngsModulus = 0.0;
+    double poissonRatio = 0.0;
+    std::string material;
+    // From the default material: the part's gives none
+    bool assumed = false;
+
+    /// E / (1 - nu^2), the plane-strain modulus Hertz's law takes
+    double planeModulus() const
+    {
+        return youngsModulus / (1.0 - poissonRatio * poissonRatio);
+    }
+};
+
+/// The default material's elastic constants (defaultDensity()'s material),
+/// Aluminum Generic's (70 GPa, 0.35) when it gives none
+AssemblyExport Elasticity defaultElasticity();
+
+/// A component's: its shapes' materials', the softest of them where they
+/// differ (the softer gives way); the default material's for a shape whose
+/// material gives none
+AssemblyExport Elasticity elasticityOf(App::DocumentObject* component);
+
 }  // namespace Assembly

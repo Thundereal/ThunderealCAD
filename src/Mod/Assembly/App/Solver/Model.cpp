@@ -149,7 +149,8 @@ bool same(const Inertia& a, const Inertia& b)
 
 bool same(const ContactLaw& a, const ContactLaw& b)
 {
-    return a.stiffness == b.stiffness && a.exponent == b.exponent && a.maxDamping == b.maxDamping
+    return a.from == b.from && a.radius == b.radius && a.stiffness == b.stiffness
+        && a.exponent == b.exponent && a.maxDamping == b.maxDamping
         && a.penetration == b.penetration && a.muStatic == b.muStatic && a.muDynamic == b.muDynamic
         && a.vStiction == b.vStiction && a.vFriction == b.vFriction;
 }
@@ -157,7 +158,8 @@ bool same(const ContactLaw& a, const ContactLaw& b)
 bool same(const ContactShape& a, const ContactShape& b)
 {
     if (a.frame != b.frame || a.kind != b.kind || !same(a.size, b.size)
-        || a.points.size() != b.points.size() || a.triangles != b.triangles) {
+        || a.points.size() != b.points.size() || a.triangles != b.triangles
+        || a.modulus != b.modulus || a.volume != b.volume) {
         return false;
     }
     for (std::size_t i = 0; i < a.points.size(); ++i) {
@@ -356,11 +358,17 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             }
             initial.v = initial.v * length;
         }
+        // A modulus, a force over an area: as a length to the -1, the
+        // force scaling as a length does here (as the impact law's
+        // stiffness has it below); Hertz's k = 4/3 E* R^0.5 as a length to
+        // the -1/2 then, as the law's at e = 1.5
         for (auto& shape : out.dynamics->contactShapes) {
             shape.size = shape.size * length;
             for (auto& point : shape.points) {
                 point = point * length;
             }
+            shape.modulus /= length;
+            shape.volume *= length * length * length;
         }
         // The impact law's stiffness, a force over a length to the e: as a
         // length to the 1 - e; its damping, a force over a speed, not at all

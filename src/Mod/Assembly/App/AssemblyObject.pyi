@@ -352,7 +352,10 @@ class AssemblyObject(Part):
         (kg/mm^3; 0 for several), Volume (mm^3), Mass (kg), CenterOfMass
         (a vector, mm, in the assembly's coordinates) and Inertia (xx, yy,
         zz, xy, xz, yz: the inertia tensor about the centre of mass, along
-        the assembly's axes, kg mm^2).
+        the assembly's axes, kg mm^2). A component's also has, for contact
+        by Hertz's law, YoungsModulus (kPa), PoissonRatio and
+        ElasticMaterial: its shapes' material's, the softest where they
+        differ, the default material's where one gives none.
         """
         ...
 

@@ -1124,8 +1124,10 @@ class TestGuiCommands(unittest.TestCase):
     def test_contact_set_panel(self):
         """Selected first, the components go in group A; the panel picks group
         B, a component picked into it leaves group A, and one picked again
-        leaves the group; it takes the law; an edit cancelled leaves it as it
-        was; a new study ticks it"""
+        leaves the group; it takes the law -- from the materials, the stiffness
+        and its slider idle, or a value, the radius idle -- and shows how a
+        part rests on it; an edit cancelled leaves it as it was; a new study
+        ticks it"""
         import CommandCreateContact
 
         self.select(self.box, "Face6")
@@ -1150,7 +1152,30 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(task.groups["B"][0].count(), 1)
         self.assertEqual(Gui.Selection.getSelectionEx("", 0), [])
         self.assertEqual(task.boxes["Stiffness"].value(), 1e5)
+        # From the materials: the stiffness is Hertz's, the radius chosen
+        self.assertEqual(contact.StiffnessFrom, "Materials")
+        self.assertFalse(task.boxes["Stiffness"].isEnabled())
+        self.assertFalse(task.slider.isEnabled())
+        self.assertTrue(task.boxes["RadiusFrom"].isEnabled())
+        self.assertIn("N/mm^1.5", task.estimate.text())
+        combo = task.boxes["RadiusFrom"]
+        combo.setCurrentIndex(combo.findData("Part"))
+        self.assertEqual(contact.RadiusFrom, "Part")
+        # A value: the stiffness and its slider, ten times the stiffness a
+        # hundred ticks on
+        combo = task.boxes["StiffnessFrom"]
+        combo.setCurrentIndex(combo.findData("Value"))
+        self.assertEqual(contact.StiffnessFrom, "Value")
+        self.assertTrue(task.boxes["Stiffness"].isEnabled())
+        self.assertTrue(task.slider.isEnabled())
+        self.assertFalse(task.boxes["RadiusFrom"].isEnabled())
+        self.assertEqual(task.slider.value(), 500)
+        before = task.estimate.text()
+        task.slider.setValue(600)
+        self.assertAlmostEqual(contact.Stiffness, 1e6, delta=1.0)
+        self.assertNotEqual(task.estimate.text(), before)
         task.boxes["Stiffness"].setValue(2e4)
+        self.assertEqual(task.slider.value(), 430)
         task.boxes["StaticFriction"].setValue(0.5)
         self.accept_task()
         self.assertEqual(self.contactSets(), [contact])

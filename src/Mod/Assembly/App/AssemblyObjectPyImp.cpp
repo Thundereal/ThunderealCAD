@@ -599,6 +599,14 @@ PyObject* AssemblyObjectPy::getMassProperties(PyObject* args) const
                 inertia.setItem(i, Py::Float(props.inertia[i]));
             }
             entry.setItem("Inertia", inertia);
+            // For contact by Hertz's law (ContactSet StiffnessFrom
+            // Materials): Young's modulus in kPa
+            if (props.obj) {
+                const Elasticity elastic = elasticityOf(props.obj);
+                entry.setItem("YoungsModulus", Py::Float(elastic.youngsModulus));
+                entry.setItem("PoissonRatio", Py::Float(elastic.poissonRatio));
+                entry.setItem("ElasticMaterial", Py::String(elastic.material));
+            }
             return entry;
         };
         const auto components = massPropertiesOf(getAssemblyObjectPtr());

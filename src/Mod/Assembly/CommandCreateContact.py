@@ -27,6 +27,8 @@ Static studies, by the impact law and friction of Assembly::ContactSet. The
 command makes one of the components selected and opens its task panel, which
 a double click on a contact set opens too."""
 
+import math
+
 import FreeCAD as App
 
 from PySide import QtCore, QtWidgets
@@ -54,8 +56,32 @@ Quantities = [
     ("StictionVelocity", QT_TRANSLATE_NOOP("Assembly", "Stiction velocity")),
     ("FrictionVelocity", QT_TRANSLATE_NOOP("Assembly", "Friction velocity")),
 ]
+# The choices of where the stiffness comes from: the property's value and
+# its label
+Choices = {
+    "StiffnessFrom": [
+        ("Materials", QT_TRANSLATE_NOOP("Assembly", "The parts' materials (Hertz)")),
+        ("Value", QT_TRANSLATE_NOOP("Assembly", "A value")),
+    ],
+    "RadiusFrom": [
+        ("Patch", QT_TRANSLATE_NOOP("Assembly", "Where they touch")),
+        ("Part", QT_TRANSLATE_NOOP("Assembly", "The parts' sizes")),
+    ],
+}
+ChoiceLabels = {
+    "StiffnessFrom": QT_TRANSLATE_NOOP("Assembly", "Stiffness from"),
+    "RadiusFrom": QT_TRANSLATE_NOOP("Assembly", "Contact radius"),
+}
+# The stiffness slider's span, a power of ten each hundredth: 1 to 1e7
+SliderTop = 700
+# A substep at rest, a fiftieth of the impact law's period (the Chrono
+# backend's rule, docs/AssemblyDynamics.md sec 7)
+PeriodsPerStep = 50.0
+G = 9.80665  # m/s^2
 # Where each goes in the form, top to bottom
 Order = [
+    "StiffnessFrom",
+    "RadiusFrom",
     "Stiffness",
     "Exponent",
     "MaxDamping",
@@ -80,6 +106,54 @@ def newContactSet(assembly, groupA, groupB=()):
         if getattr(sim, "AnalysisType", None) in ("Dynamic", "Static"):
             sim.Elements = list(sim.Elements) + [contact]
     return contact
+
+
+def restEstimate(contact, components):
+    """How a component of group A rests on the law: the lightest's mass (kg)
+    and label, the stiffness (N/mm^e) and exponent, the sink (mm) and a
+    substep at rest (s); None when group A has none with a mass. components:
+    getMassProperties()'s, by the object's name. The stiffness from the
+    materials is Hertz's with the parts' sizes for its radius: where they
+    touch is known only in the run."""
+    lightest = None
+    for obj in contact.GroupA:
+        entry = components.get(obj.Name)
+        if entry and entry["Mass"] > 0 and (lightest is None or entry["Mass"] < lightest["Mass"]):
+            lightest = entry
+    if lightest is None:
+        return None
+    if contact.StiffnessFrom == "Materials":
+        others = [components.get(o.Name) for o in (contact.GroupB or contact.GroupA)]
+        others = [e for e in others if e and e is not lightest and e.get("YoungsModulus", 0) > 0]
+        def plane(entry):
+            """E / (1 - nu^2) in N/mm^2: kPa to MPa"""
+            return entry["YoungsModulus"] * 1e-3 / (1 - entry["PoissonRatio"] ** 2)
+
+        def ball(entry):
+            """The radius of the ball of its volume"""
+            return (3 * entry["Volume"] / (4 * math.pi)) ** (1.0 / 3.0)
+
+        if lightest.get("YoungsModulus", 0) <= 0:
+            return None
+        mine = plane(lightest)
+        other = min((plane(e) for e in others), default=mine)
+        modulus = 1.0 / (1.0 / mine + 1.0 / other)
+        sizes = [ball(lightest)] + [ball(e) for e in others[:1] if e["Volume"] > 0]
+        radius = 1.0 / sum(1.0 / r for r in sizes if r > 0)
+        stiffness = 4.0 / 3.0 * modulus * math.sqrt(radius)
+        exponent = 1.5
+    else:
+        stiffness = contact.Stiffness
+        exponent = contact.Exponent
+    if stiffness <= 0:
+        return None
+    mass = lightest["Mass"]
+    sink = (mass * G / stiffness) ** (1.0 / exponent)
+    # The law's slope there, N/mm -> N/m
+    slope = exponent * stiffness * sink ** (exponent - 1.0) * 1e3
+    step = 2 * math.pi * math.sqrt(mass / slope) / PeriodsPerStep
+    label = lightest["Object"].Label if lightest["Object"] else ""
+    return mass, label, stiffness, exponent, sink, step
 
 
 def selectedComponents(assembly):
@@ -243,6 +317,13 @@ class TaskContact(QtCore.QObject):
         # property -> its box
         self.boxes = {}
         labels = {}
+        for prop, choices in Choices.items():
+            combo = QtWidgets.QComboBox()
+            for value, label in choices:
+                combo.addItem(translate("Assembly", label), value)
+            combo.currentIndexChanged.connect(lambda index, prop=prop: self.onChoice(prop))
+            self.boxes[prop] = combo
+            labels[prop] = ChoiceLabels[prop]
         for prop, label, unit, top, decimals in Numbers:
             box = QtWidgets.QDoubleSpinBox()
             box.setDecimals(decimals)
@@ -264,6 +345,25 @@ class TaskContact(QtCore.QObject):
         for prop in Order:
             self.boxes[prop].setToolTip(self.contact.getDocumentationOfProperty(prop))
             form.addRow(translate("Assembly", labels[prop]), self.boxes[prop])
+            if prop == "Stiffness":
+                # The stiffness on a scale of powers of ten, soft to stiff
+                self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+                self.slider.setRange(0, SliderTop)
+                self.slider.setToolTip(
+                    translate(
+                        "Assembly",
+                        "The stiffness from 1 to 1e7 N/mm^e, each tick ten times the last: soft\n"
+                        "parts sink further and run in longer steps",
+                    )
+                )
+                self.slider.valueChanged.connect(self.onSlider)
+                form.addRow("", self.slider)
+        # What the law does to a part at rest: how far it sinks, how long
+        # the run's steps are
+        self.estimate = QtWidgets.QLabel()
+        self.estimate.setWordWrap(True)
+        form.addRow(self.estimate)
+        self.components = None
         layout.addWidget(lawBox)
 
     def fill(self):
@@ -308,6 +408,20 @@ class TaskContact(QtCore.QObject):
             box.blockSignals(True)
             box.setValue(getattr(self.contact, prop))
             box.blockSignals(False)
+        for prop in Choices:
+            combo = self.boxes[prop]
+            combo.blockSignals(True)
+            combo.setCurrentIndex(max(combo.findData(getattr(self.contact, prop)), 0))
+            combo.blockSignals(False)
+        self.slider.blockSignals(True)
+        self.slider.setValue(self.sliderOf(self.contact.Stiffness))
+        self.slider.blockSignals(False)
+        fromValue = self.contact.StiffnessFrom == "Value"
+        for prop in ("Stiffness", "Exponent"):
+            self.boxes[prop].setEnabled(fromValue)
+        self.slider.setEnabled(fromValue)
+        self.boxes["RadiusFrom"].setEnabled(not fromValue)
+        self.showEstimate()
 
     def arm(self, group):
         self.armed = group
@@ -317,6 +431,51 @@ class TaskContact(QtCore.QObject):
 
     def onNumber(self, prop, value):
         setattr(self.contact, prop, value)
+        if prop == "Stiffness":
+            self.slider.blockSignals(True)
+            self.slider.setValue(self.sliderOf(value))
+            self.slider.blockSignals(False)
+        self.showEstimate()
+
+    def onChoice(self, prop):
+        setattr(self.contact, prop, self.boxes[prop].currentData())
+        self.fill()
+
+    @staticmethod
+    def sliderOf(stiffness):
+        return int(round(100 * math.log10(max(stiffness, 1.0))))
+
+    def onSlider(self, position):
+        # Through the box: it sets the property
+        self.boxes["Stiffness"].setValue(10 ** (position / 100.0))
+
+    def showEstimate(self):
+        if self.assembly is None:
+            self.estimate.setText("")
+            return
+        if self.components is None:
+            try:
+                found = self.assembly.getMassProperties()["Components"]
+            except Exception:
+                found = []
+            self.components = {e["Object"].Name: e for e in found if e["Object"]}
+        rest = restEstimate(self.contact, self.components)
+        if rest is None:
+            self.estimate.setText("")
+            return
+        mass, label, stiffness, exponent, sink, step = rest
+        text = translate(
+            "Assembly",
+            "At rest, {part} ({mass:.3g} g) sinks {sink:.3g} mm; the run's steps are about "
+            "{step:.3g} us there.",
+        ).format(part=label, mass=mass * 1e3, sink=sink, step=step * 1e6)
+        if self.contact.StiffnessFrom == "Materials":
+            text += " " + translate(
+                "Assembly",
+                "Stiffness {k:.3g} N/mm^1.5 by the parts' sizes; the run takes it where they "
+                "touch.",
+            ).format(k=stiffness)
+        self.estimate.setText(text)
 
     def toggle(self, component, group):
         """Put the component in the group, out of the other one, or take it out

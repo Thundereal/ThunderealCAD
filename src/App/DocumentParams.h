@@ -695,6 +695,21 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter UndoImplicitLogOff
+    ///
+    /// With the transaction log off (TransactionLog 0), a write with no undo
+    /// step open is recorded too, as an implicit step that goes with the
+    /// step under it, as with the log on (docs/MultiViewEdit.md sec 12.2
+    /// rule 7). Off, such a write is not recorded, as before; for A/B checks.
+    static const bool & getUndoImplicitLogOff();
+    static const bool & defaultUndoImplicitLogOff();
+    static void removeUndoImplicitLogOff();
+    static void setUndoImplicitLogOff(const bool &v);
+    static const char *docUndoImplicitLogOff();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter TransactionLog
     ///
     /// Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The

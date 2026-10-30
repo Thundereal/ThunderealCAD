@@ -330,6 +330,11 @@ Params = [
     ParamBool('TransactionOnRecompute', False,
         doc = "Record a recompute started with the Refresh command as an undo step.\n"
               "When off, refreshing leaves the undo and redo history alone."),
+    ParamBool('UndoImplicitLogOff', True,
+        doc = "With the transaction log off (TransactionLog 0), a write with no undo\n"
+              "step open is recorded too, as an implicit step that goes with the\n"
+              "step under it, as with the log on (docs/MultiViewEdit.md sec 12.2\n"
+              "rule 7). Off, such a write is not recorded, as before; for A/B checks."),
     ParamInt('TransactionLog', 2,
         doc='Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n'
             'log is always on; what this chooses is whether a save writes the\n'

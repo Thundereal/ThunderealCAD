@@ -1972,8 +1972,12 @@ void Document::_openImplicitTransaction()
 {
     // docs/TransactionLogJournal.md sec 9.1: with the log on, a write that arrives
     // with no transaction active opens one of its own, named after the
-    // invocation it happens in, and closed when that returns.
-    if (DocumentParams::getTransactionLog() == 0 || testStatus(Initializing))
+    // invocation it happens in, and closed when that returns. With the log
+    // off too (docs/MultiViewEdit.md sec 12.2 rule 7): the undo groups the
+    // same either way, and what the write changed is taken back with the
+    // step it followed.
+    if ((DocumentParams::getTransactionLog() == 0 && !DocumentParams::getUndoImplicitLogOff())
+            || testStatus(Initializing))
         return;
     const char* origin = Application::InvocationScope::current();
     std::string name = "<implicit";
@@ -2081,8 +2085,12 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
                 }
                 // With the log on, a removal with nothing open is a step
                 // of its own too: the log's `remove` op is written at the
-                // commit, and a removal in no transaction left no row.
-                if(!ignore && (!pcDelObj || d->transactionLog)) {
+                // commit, and a removal in no transaction left no row. With
+                // the log off, as any write is (docs/MultiViewEdit.md sec
+                // 12.2 rule 7).
+                const bool logOff = DocumentParams::getTransactionLog() == 0
+                    && DocumentParams::getUndoImplicitLogOff();
+                if(!ignore && (!pcDelObj || d->transactionLog || logOff)) {
                     _openImplicitTransaction();
                     return;
                 }

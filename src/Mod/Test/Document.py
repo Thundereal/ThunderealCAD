@@ -103,13 +103,15 @@ def optimizeRecompute():
             'User parameter:BaseApp/Preferences/Document').GetBool(
                     'OptimizeRecompute',True)
 
-def transactionLogIsOn():
+def implicitStepsIn(doc):
     # With the log on, a bare write outside any invocation opens an implicit
     # transaction, and observers see it open and commit like any other
-    # (docs/TransactionLogJournal.md sec 24.13).
-    return FreeCAD.ParamGet(
-            'User parameter:BaseApp/Preferences/Document').GetInt(
-                    'TransactionLog',2) != 0
+    # (docs/TransactionLogJournal.md sec 24.13). With it off too, in a
+    # document that keeps undo steps (docs/MultiViewEdit.md sec 12.2 rule 7).
+    param = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')
+    if param.GetInt('TransactionLog', 2) != 0:
+        return True
+    return doc.UndoMode != 0 and param.GetBool('UndoImplicitLogOff', True)
 
 class DocumentBasicCases(unittest.TestCase):
     def setUp(self):
@@ -2796,7 +2798,7 @@ class DocumentObserverCases(unittest.TestCase):
         self.Obs.clear()
 
         self.Doc1.Comment = "test comment"
-        if transactionLogIsOn():
+        if implicitStepsIn(self.Doc1):
             self.assertEqual(self.Obs.signal.pop(0), "DocOpenTransaction")
             self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
             self.assertEqual(self.Obs.parameter2.pop(0), "<implicit>")
@@ -2816,10 +2818,11 @@ class DocumentObserverCases(unittest.TestCase):
             self.assertTrue(self.Obs.parameter.pop() is self.Doc1)
         self.assertTrue(not self.Obs.signal and not self.Obs.parameter and not self.Obs.parameter2)
 
+        implicit = implicitStepsIn(self.Doc1)  # asked while it is there
         FreeCAD.closeDocument(self.Doc1.Name)
         self.assertEqual(self.Obs.signal.pop(), "DocDeleted")
         self.assertEqual(self.Obs.parameter.pop(), self.Doc1)
-        if transactionLogIsOn():
+        if implicit:
             # the close commits the implicit transaction of the Comment write
             self.assertEqual(self.Obs.signal.pop(), "DocCommitTransaction")
             self.assertEqual(self.Obs.parameter.pop(), self.Doc1)
@@ -2858,7 +2861,7 @@ class DocumentObserverCases(unittest.TestCase):
         self.assertTrue(self.Obs.parameter.pop(0) is obj)
         self.assertTrue(self.Obs.signal.pop(0) == "DocRecomputed")
         self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
-        if transactionLogIsOn():
+        if implicitStepsIn(self.Doc1):
             # the implicit transaction addObject opened, closed with the
             # recompute's invocation
             self.assertTrue(self.Obs.signal.pop(0) == "DocCommitTransaction")
@@ -2866,7 +2869,7 @@ class DocumentObserverCases(unittest.TestCase):
         self.assertTrue(not self.Obs.signal and not self.Obs.parameter and not self.Obs.parameter2)
 
         FreeCAD.ActiveDocument.removeObject(obj.Name)
-        if transactionLogIsOn():
+        if implicitStepsIn(self.Doc1):
             # a removal with nothing open is an implicit step too (sec 37.1)
             self.assertEqual(self.Obs.signal.pop(0), "DocOpenTransaction")
             self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
@@ -3051,7 +3054,7 @@ class DocumentObserverCases(unittest.TestCase):
 
         vo = obj.ViewObject
         FreeCAD.ActiveDocument.removeObject(obj.Name)
-        if transactionLogIsOn():
+        if implicitStepsIn(self.Doc1):
             # a removal with nothing open is an implicit step too (sec 37.1)
             self.assertEqual(self.Obs.signal.pop(0), "DocOpenTransaction")
             self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
@@ -6309,6 +6312,55 @@ class TransactionBranchCases(unittest.TestCase):
             doc.undo()
         self.assertAlmostEqual(box.Length.Value, 15.0)
         self.assertAlmostEqual(box.Width.Value, 6.0)
+
+    def testAWriteWithTheLogOffIsRecordedToo(self):
+        # docs/MultiViewEdit.md sec 12.2 rule 7: with the log off, a write
+        # with no step open is an implicit step, as with it on, undone with
+        # the user's step it followed; a removal too, where it was a
+        # "Delete" step of its own. Document/UndoImplicitLogOff off, it is
+        # not recorded, as before.
+        self.param.SetInt("TransactionLog", 0)
+        doc = self.track(FreeCAD.newDocument("LogOffImplicit"))
+        doc.UndoMode = 1
+        box = doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        doc.openTransaction("longer")
+        box.Length = 20
+        doc.commitTransaction()
+        box.Width = 5
+        doc.recompute()
+        doc.commitTransaction()
+        doc.openTransaction("extra")
+        doc.addObject("App::DocumentObject", "Extra")
+        doc.commitTransaction()
+        doc.removeObject("Extra")
+        doc.commitTransaction()
+        self.assertEqual(doc.UndoNames, ["extra", "longer"])
+        doc.undo()
+        self.assertIsNone(doc.getObject("Extra"))
+        self.assertEqual(doc.UndoNames, ["longer"])
+        doc.undo()
+        self.assertAlmostEqual(box.Length.Value, 10.0)
+        self.assertAlmostEqual(box.Width.Value, 10.0)
+        self.assertAlmostEqual(box.Shape.Volume, 1000.0)
+
+        self.param.SetBool("UndoImplicitLogOff", False)
+        try:
+            doc = self.track(FreeCAD.newDocument("LogOffBare"))
+            doc.UndoMode = 1
+            box = doc.addObject("Part::Box", "Box")
+            doc.recompute()
+            doc.openTransaction("longer")
+            box.Length = 20
+            doc.commitTransaction()
+            box.Width = 5
+            doc.commitTransaction()
+            doc.undo()
+            self.assertAlmostEqual(box.Length.Value, 10.0)
+            self.assertAlmostEqual(box.Width.Value, 5.0)
+        finally:
+            self.param.SetBool("UndoImplicitLogOff", True)
 
     def testAStepRefusedIsSaidAndGonePast(self):
         # Sec 33.11: a redo is refused where what it would set was changed

@@ -90,6 +90,7 @@ public:
         signalParamChanged("DuplicateLabels");
         signalParamChanged("UndoGroupByInput");
         signalParamChanged("TransactionOnRecompute");
+        signalParamChanged("UndoImplicitLogOff");
         signalParamChanged("TransactionLog");
         signalParamChanged("TransactionLogIdentity");
         signalParamChanged("TransactionLogDerived");
@@ -171,6 +172,7 @@ public:
     bool DuplicateLabels;
     bool UndoGroupByInput;
     bool TransactionOnRecompute;
+    bool UndoImplicitLogOff;
     long TransactionLog;
     bool TransactionLogIdentity;
     long TransactionLogDerived;
@@ -299,6 +301,8 @@ public:
         funcs["UndoGroupByInput"] = &DocumentParamsP::updateUndoGroupByInput;
         TransactionOnRecompute = this->handle->GetBool("TransactionOnRecompute", false);
         funcs["TransactionOnRecompute"] = &DocumentParamsP::updateTransactionOnRecompute;
+        UndoImplicitLogOff = this->handle->GetBool("UndoImplicitLogOff", true);
+        funcs["UndoImplicitLogOff"] = &DocumentParamsP::updateUndoImplicitLogOff;
         TransactionLog = this->handle->GetInt("TransactionLog", 2);
         funcs["TransactionLog"] = &DocumentParamsP::updateTransactionLog;
         TransactionLogIdentity = this->handle->GetBool("TransactionLogIdentity", false);
@@ -559,6 +563,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionOnRecompute(DocumentParamsP *self) {
         self->TransactionOnRecompute = self->handle->GetBool("TransactionOnRecompute", false);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateUndoImplicitLogOff(DocumentParamsP *self) {
+        self->UndoImplicitLogOff = self->handle->GetBool("UndoImplicitLogOff", true);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLog(DocumentParamsP *self) {
@@ -934,6 +942,12 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
         .setTitle("Transaction On Recompute")
         .setDoc("Record a recompute started with the Refresh command as an undo step.\n"
 "When off, refreshing leaves the undo and redo history alone."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "UndoImplicitLogOff", "UndoImplicitLogOff", App::ParamInfo::Bool, true)
+        .setTitle("Undo Implicit Log Off")
+        .setDoc("With the transaction log off (TransactionLog 0), a write with no undo\n"
+"step open is recorded too, as an implicit step that goes with the\n"
+"step under it, as with the log on (docs/MultiViewEdit.md sec 12.2\n"
+"rule 7). Off, such a write is not recorded, as before; for A/B checks."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLog", "TransactionLog", App::ParamInfo::Int, 2)
         .setTitle("Transaction Log")
         .setDoc("Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n"
@@ -2459,6 +2473,37 @@ void DocumentParams::setTransactionOnRecompute(const bool &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeTransactionOnRecompute() {
     instance()->handle->RemoveBool("TransactionOnRecompute");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docUndoImplicitLogOff() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"With the transaction log off (TransactionLog 0), a write with no undo\n"
+"step open is recorded too, as an implicit step that goes with the\n"
+"step under it, as with the log on (docs/MultiViewEdit.md sec 12.2\n"
+"rule 7). Off, such a write is not recorded, as before; for A/B checks.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & DocumentParams::getUndoImplicitLogOff() {
+    return instance()->UndoImplicitLogOff;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & DocumentParams::defaultUndoImplicitLogOff() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setUndoImplicitLogOff(const bool &v) {
+    instance()->handle->SetBool("UndoImplicitLogOff",v);
+    instance()->UndoImplicitLogOff = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeUndoImplicitLogOff() {
+    instance()->handle->RemoveBool("UndoImplicitLogOff");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

@@ -106,6 +106,66 @@ class TestBlendSurface(unittest.TestCase):
         self.check(self.doc.Low, self.doc.High, b)
         os.remove(path)
 
+    def height(self, b, x, y):
+        """Where the blend crosses the vertical at (x, y)"""
+        line = Part.LineSegment(V(x, y, -20), V(x, y, 20)).toShape()
+        d, pts, _ = line.distToShape(b.Shape.Faces[0])
+        self.assertLess(d, 1e-6)
+        return pts[0][1].z
+
+    def slices(self, low, high, side, ends, x):
+        """The blend's height at x on the slices a sixth and five sixths of
+        the way along `side`'s edge from its start -- where the 7 curves laid
+        across the gap are -- with that side's weight running from ends[0] at
+        the start to ends[1] at the end; and the same of blends with the
+        weight each slice has, all along"""
+        link = "Edge1" if side == 1 else "Edge2"
+        obj = low if side == 1 else high
+        b = self.doc.addObject("Surface::BlendSurface", "Varying")
+        setattr(b, link, (obj, edgeAtX(obj.Shape, 10 if side == 1 else 15)))
+        other = "Edge2" if side == 1 else "Edge1"
+        setattr(b, other, (high if side == 1 else low, edgeAtX((high if side == 1 else low).Shape,
+                                                                15 if side == 1 else 10)))
+        setattr(b, "Side%dWeight" % side, ends[0])
+        setattr(b, "Side%dWeightEnd" % side, ends[1])
+        self.recompute(b)
+        self.check(low, high, b)
+        e = obj.Shape.getElement(getattr(b, link)[1][0])
+        y0 = e.valueAt(e.FirstParameter).y
+        y1 = e.valueAt(e.LastParameter).y
+        got, want = [], []
+        for s in (1 / 6, 5 / 6):
+            y = y0 + (y1 - y0) * s
+            got.append(self.height(b, x, y))
+            u = self.doc.addObject("Surface::BlendSurface", "Uniform")
+            u.Edge1, u.Edge2 = b.Edge1, b.Edge2
+            setattr(u, "Side%dWeight" % side, ends[0] + (ends[1] - ends[0]) * s)
+            self.recompute(u)
+            want.append(self.height(u, x, y))
+        return got, want
+
+    def testAWeightAlongTheEdge(self):
+        low, high, b = self.gap()
+        self.doc.removeObject(b.Name)
+        for side, x in ((1, 11.5), (2, 13.5)):
+            for ends in ((1.0, 3.0), (3.0, 1.0)):
+                got, want = self.slices(low, high, side, ends, x)
+                # the two ends differ: the weight varies along the edge
+                self.assertGreater(abs(want[0] - want[1]), 0.05, (side, ends, want))
+                # the curves laid across the gap are on these slices
+                for g, w in zip(got, want):
+                    self.assertAlmostEqual(g, w, delta=1e-3 * abs(w), msg=(side, ends, got, want))
+
+    def testAWeightAlongTheEdgeDefaultsToTheWeight(self):
+        low, high, b = self.gap()
+        self.assertEqual((b.Side1WeightEnd, b.Side2WeightEnd), (0.0, 0.0))
+        b.Side1Weight = 2.0
+        self.recompute(b)
+        area = b.Shape.Area
+        b.Side1WeightEnd = 2.0
+        self.recompute(b)
+        self.assertAlmostEqual(b.Shape.Area, area, places=9)
+
     def testPositionAlone(self):
         low, high, b = self.gap()
         b.Side1Continuity = b.Side2Continuity = "G0"

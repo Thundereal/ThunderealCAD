@@ -1,22 +1,26 @@
 """A surface group in a PartDesign Body (docs/SheetMetal.md sec 8): an aux
-group that holds Surface features, and brings the Surface tool bar into
-PartDesign while it is active.
+group that gathers the body's Surface features, and brings the Surface tool
+bar into PartDesign while it is active.
 
-In PartDesign, with a body active:
+In PartDesign:
+  - there is no command to make a surface group: the body makes one;
+  - a body made with PartDesign_Body has the auto aux groups (Sketches,
+    Datums, Misc) from the start, and no Surfaces group yet; a body made by
+    script has none;
   - the Surface tool bar is there but not offered (no toggle in the menus);
-  - PartDesign_SurfaceGroup makes a group named Surfaces in the body, with
-    the surface icon overlaid on the group's, and makes it active, which
-    offers the tool bar;
-  - a Surface command run while it is active puts its feature in it;
-  - a double-click on the group lets it go and takes the tool bar away; a
-    second makes it active again;
+  - the first Surface feature in the body brings a group named Surfaces,
+    with the surface icon overlaid on the group's, that holds it; Misc does
+    not hold it too; a later one goes in the same group; not made active;
+  - a double-click on the group makes it active, which offers the tool bar,
+    the body staying active; a second lets it go and takes the tool bar away;
   - the tool bar stays offered across a workbench switch and back;
   - with no group active, editing a Surface feature offers the tool bar and
     leaving the edit takes it away; with a group active, leaving the edit
     keeps it; editing a PartDesign feature offers nothing;
-  - a feature in a surface group is not in the body's Misc group too, and a
-    Surface feature dropped on the group moves there; a sketch cannot be
-    dropped on it;
+  - a sketch cannot be dropped on the group;
+  - the auto aux groups turned off, the Surfaces group goes too and the
+    surfaces stay in the body; turned on, it comes back holding them;
+  - in a body with no auto aux groups, a Surface feature brings no group;
   - saved and reopened, the group is a surface group with its members;
   - deleting the active group takes the tool bar away.
 
@@ -88,6 +92,14 @@ def surfaceGroups(body):
     return [o for o in body.Group if o.TypeId == "PartDesign::AuxGroup" and o.Name.startswith("Surfaces")]
 
 
+def auxGroups(body):
+    """The kinds of auto aux group the body holds, by name"""
+    kinds = ("Sketches", "Datums", "Misc", "Surfaces")
+    return sorted(
+        k for o in body.Group if o.TypeId == "PartDesign::AuxGroup" for k in kinds if o.Name.startswith(k)
+    )
+
+
 def run():
     try:
         mw = FreeCADGui.getMainWindow()
@@ -100,7 +112,23 @@ def run():
 
         import TestSketcherApp
 
-        body = doc.addObject("PartDesign::Body", "Body")
+        check("there is no command to make a surface group",
+              "PartDesign_SurfaceGroup" not in FreeCADGui.listCommands())
+
+        before = set(o.Name for o in doc.Objects)
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.runCommand("PartDesign_Body")
+        pump(40)
+        body = newest(doc, before, "Body")
+        if not check("PartDesign_Body makes a body",
+                     body is not None and body.TypeId == "PartDesign::Body"):
+            return finish()
+        check("with the auto aux groups from the start, and no Surfaces group yet",
+              body.hasAutoAuxGroup() and auxGroups(body) == ["Datums", "Misc", "Sketches"],
+              [o.Name for o in body.Group])
+        view.setActiveObject("pdbody", body)
+        pump(20)
+
         sketch = body.newObject("Sketcher::SketchObject", "Square")
         sketch.Support = (
             [o for o in body.Origin.OriginFeatures if o.Role == "XY_Plane"][0],
@@ -113,54 +141,53 @@ def run():
         pad.Profile = sketch
         pad.Length = 2
         doc.recompute()
-        view.setActiveObject("pdbody", body)
         pump(20)
 
         check("in PartDesign the Surface tool bar is there and not offered", hidden(),
               toolbar() and (toolbar().isVisible(), toolbar().toggleViewAction().isVisible()))
-
-        if not check("the command to make a surface group is registered",
-                     "PartDesign_SurfaceGroup" in FreeCADGui.listCommands()):
-            return finish()
-
-        before = set(o.Name for o in doc.Objects)
-        FreeCADGui.Selection.clearSelection()
-        FreeCADGui.runCommand("PartDesign_SurfaceGroup")
-        pump(40)
-        group = newest(doc, before, "Surfaces")
-        check("it makes a group named Surfaces in the active body",
-              group is not None and group.TypeId == "PartDesign::AuxGroup" and group in body.Group,
-              (group and group.Name, [o.Name for o in body.Group]))
-        if group is None:
-            return finish()
-        check("and makes it active", view.getActiveObject("pdsurface") == group,
-              view.getActiveObject("pdsurface"))
-        check("which offers the Surface tool bar", offered())
-
-        icon = image(group.ViewObject.Icon)
-        check("its icon is the surface group's",
-              icon == image(FreeCADGui.getIcon("PartDesign_GroupSurface.svg"))
-              and icon != image(FreeCADGui.getIcon("PartDesign_Group.svg")))
 
         before = set(o.Name for o in doc.Objects)
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Selection.addSelection(pad, "Face6")
         FreeCADGui.runCommand("Surface_Isocurve")
         pump(40)
+        doc.recompute()
         iso = newest(doc, before, "Isocurve")
-        check("a Surface command run while it is active puts its feature in it",
-              iso is not None and iso in body.Group and iso in group.Group,
-              (iso and iso.Name, [o.Name for o in group.Group]))
+        groups = surfaceGroups(body)
+        group = groups[0] if groups else None
+        if not check("the first Surface feature in the body brings a group named Surfaces",
+                     iso is not None and iso in body.Group and len(groups) == 1,
+                     (iso and iso.Name, [o.Name for o in body.Group])):
+            return finish()
+        check("that holds it", iso in group.Group, [o.Name for o in group.Group])
+        misc = [o for o in body.Group if o.Name.startswith("Misc")][0]
+        check("Misc does not hold it too", iso not in misc.Group, [o.Name for o in misc.Group])
+        check("it is not made active", view.getActiveObject("pdsurface") is None and hidden())
+
+        icon = image(group.ViewObject.Icon)
+        check("its icon is the surface group's",
+              icon == image(FreeCADGui.getIcon("PartDesign_GroupSurface.svg"))
+              and icon != image(FreeCADGui.getIcon("PartDesign_Group.svg")))
+
+        fill = doc.addObject("Surface::Filling", "Fill")
+        body.addObject(fill)
+        doc.recompute()
+        check("a later one goes in the same group",
+              surfaceGroups(body) == [group] and fill in group.Group and fill not in misc.Group,
+              ([o.Name for o in body.Group], [o.Name for o in group.Group]))
 
         group.ViewObject.doubleClicked()
         pump(20)
-        check("a double-click lets the group go", view.getActiveObject("pdsurface") is None)
-        check("and takes the tool bar away", hidden())
+        check("a double-click makes the group active",
+              view.getActiveObject("pdsurface") == group, view.getActiveObject("pdsurface"))
+        check("which offers the Surface tool bar", offered())
         check("the body stays active", view.getActiveObject("pdbody") == body)
         group.ViewObject.doubleClicked()
         pump(20)
-        check("a second makes it active again",
-              view.getActiveObject("pdsurface") == group and offered())
+        check("a second lets it go and takes the tool bar away",
+              view.getActiveObject("pdsurface") is None and hidden())
+        group.ViewObject.doubleClicked()
+        pump(20)
 
         FreeCADGui.activateWorkbench("PartWorkbench")
         pump(30)
@@ -168,9 +195,6 @@ def run():
         pump(30)
         check("the tool bar stays offered across a workbench switch and back", offered())
 
-        fill = doc.addObject("Surface::Filling", "Fill")
-        body.addObject(fill)
-        doc.recompute()
         group.ViewObject.doubleClicked()
         pump(20)
         check("(no group active)", view.getActiveObject("pdsurface") is None and hidden())
@@ -197,28 +221,34 @@ def run():
         pump(40)
         check("with a group active, leaving the edit keeps the tool bar",
               view.getActiveObject("pdsurface") == group and offered())
+        check("a sketch cannot be dropped on the group",
+              not group.ViewObject.canDropObject(sketch))
 
-        misc = doc.addObject("PartDesign::AuxGroup", "Misc")
-        misc.Label = "Misc"
-        children = body.Group
-        children.insert(0, misc)
-        body.Group = children
-        misc._Body = body
+        body.setAutoAuxGroup(False)
+        doc.recompute()
+        pump(40)
+        check("the auto aux groups turned off, the Surfaces group goes too",
+              not body.hasAutoAuxGroup() and auxGroups(body) == [],
+              [o.Name for o in body.Group])
+        check("and the surfaces stay in the body", iso in body.Group and fill in body.Group)
+        check("(its tool bar with it)", view.getActiveObject("pdsurface") is None and hidden())
+        body.setAutoAuxGroup(True)
         doc.recompute()
         pump(20)
-        check("a feature in a surface group is not in the Misc group too",
-              iso not in misc.Group and fill in misc.Group,
-              ([o.Name for o in misc.Group], [o.Name for o in group.Group]))
-        check("a sketch cannot be dropped on the surface group",
-              not group.ViewObject.canDropObject(sketch))
-        dropped = group.ViewObject.canDropObject(fill)
-        if dropped:
-            group.ViewObject.dropObject(fill)
-            doc.recompute()
-            pump(20)
-        check("a Surface feature dropped on it moves there, out of Misc",
-              dropped and fill in group.Group and fill not in misc.Group,
-              (dropped, [o.Name for o in group.Group], [o.Name for o in misc.Group]))
+        groups = surfaceGroups(body)
+        group = groups[0] if groups else None
+        check("turned on, it comes back holding them",
+              auxGroups(body) == ["Datums", "Misc", "Sketches", "Surfaces"]
+              and sorted(o.Name for o in group.Group) == sorted([iso.Name, fill.Name]),
+              ([o.Name for o in body.Group], group and [o.Name for o in group.Group]))
+
+        plain = doc.addObject("PartDesign::Body", "Plain")
+        fill2 = doc.addObject("Surface::Filling", "Fill")
+        plain.addObject(fill2)
+        doc.recompute()
+        check("a body made by script has no auto aux groups, and a surface brings none",
+              not plain.hasAutoAuxGroup() and auxGroups(plain) == [] and fill2 in plain.Group,
+              [o.Name for o in plain.Group])
 
         path = os.path.join(tempfile.mkdtemp(dir=OUT), "SurfaceGroup.FCStd")
         doc.saveAs(path)

@@ -33,7 +33,10 @@ Claims:
     value and ends its edit only;
   - a MultiTransform's edit beside the fillet's: a transformation added
     in its panel goes with its Cancel, its feature too, and the fillet's
-    change typed after it stays.
+    change typed after it stays;
+  - a Boolean's edit beside the fillet's: its operation changed in its
+    panel goes with its Cancel, the fillet's change after it stays; its
+    OK keeps it and ends its edit only.
 """
 import os
 import traceback
@@ -154,6 +157,26 @@ def trigger(view, text):
     return False
 
 
+def key_into_combo(view, name, key):
+    """Press `key` in the combo box `name` of the dialog of `view`."""
+    activate(view)
+    dlg = FreeCADGui.Control.activeTaskDialog(view=view)
+    if dlg is None:
+        return False
+    for w in dlg.getDialogContent():
+        for c in w.findChildren(QtWidgets.QComboBox):
+            if c.objectName() == name:
+                c.window().activateWindow()
+                c.setFocus()
+                settle(20)
+                QtTest.QTest.keyClick(c, key)
+                settle(1000)
+                FreeCADGui.getMainWindow().setFocus()
+                settle(300)
+                return True
+    return False
+
+
 def answer_later(text):
     """Click `text` in the Cancel question once it is up (it is modal)."""
     def click():
@@ -221,6 +244,12 @@ def run():
         pattern.Occurrences = 2
         multi = body.newObject("PartDesign::MultiTransform", "Multi")
         multi.Originals = [pad]
+        tool = doc.addObject("PartDesign::Body", "Tool")
+        tbox = tool.newObject("PartDesign::AdditiveBox", "ToolBox")
+        tbox.Length = tbox.Width = tbox.Height = 4
+        boolean = body.newObject("PartDesign::Boolean", "Boolean")
+        boolean.Group = [tool]
+        boolean.Type = "Fuse"
         doc.recompute()
         doc.UndoMode = 1
         doc.clearUndos()
@@ -397,6 +426,32 @@ def run():
         check("the fillet stays in edit (MultiTransform)", in_edit(gdoc, v1) == "Fillet",
               in_edit(gdoc, v1))
 
+        # A Boolean's panel: its operation changed is its own step
+        edit(gdoc, v2, boolean, "Edit Boolean")
+        check("the Boolean goes in edit beside the fillet",
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)) == ("Fillet", "Boolean"),
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)))
+        keyed = key_into_combo(v2, "comboType", Qt.Key_Down)
+        type_into(v1, "filletRadius", "1.6")
+        check("the operation changed in its panel is the Boolean's",
+              keyed and boolean.Type == "Cut", (keyed, boolean.Type))
+        activate(v2)
+        cancel(v2)
+        check("Cancel of the Boolean takes back its operation", boolean.Type == "Fuse",
+              boolean.Type)
+        check("and keeps the fillet's (Boolean)", round(fillet.Radius.Value, 3) == 1.6,
+              fillet.Radius)
+        check("the fillet stays in edit (Boolean)", in_edit(gdoc, v1) == "Fillet",
+              in_edit(gdoc, v1))
+        edit(gdoc, v2, boolean, "Edit Boolean")
+        key_into_combo(v2, "comboType", Qt.Key_Down)
+        activate(v2)
+        FreeCADGui.Control.activeTaskDialog(view=v2).accept()
+        settle(1000)
+        check("OK of the Boolean keeps its operation and ends its edit only",
+              boolean.Type == "Cut" and in_edit(gdoc, v2) is None
+              and in_edit(gdoc, v1) == "Fillet" and boolean.isValid(),
+              (boolean.Type, in_edit(gdoc, v2), in_edit(gdoc, v1), boolean.State))
         activate(v1)
         FreeCADGui.Control.activeTaskDialog(view=v1).accept()
         settle(1000)

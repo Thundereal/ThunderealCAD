@@ -43,6 +43,8 @@
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
+#include <Gui/CommandT.h>
+#include <Gui/EditSteps.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Tools.h>
 #include <Gui/WaitCursor.h>
@@ -70,6 +72,11 @@ TaskBooleanParameters::TaskBooleanParameters(ViewProviderBoolean *BooleanView,QW
     proxy = new QWidget(this);
     ui->setupUi(proxy);
     QMetaObject::connectSlotsByName(this);
+
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232)
+    if (BooleanView->panelOwnsItsSteps())
+        steps = new Gui::EditSteps(BooleanView, this);
 
     // remembers the initial transaction ID
     App::GetApplication().getActiveTransaction(&transactionID);
@@ -388,7 +395,18 @@ void TaskBooleanParameters::onButtonAdd()
     populate();
 }
 
+bool TaskBooleanParameters::ownsItsSteps() const
+{
+    return steps && steps->isOn();
+}
+
 void TaskBooleanParameters::setupTransaction() {
+    // A step of its own: the event's, or one for a change made outside an
+    // event of the edit's
+    if (ownsItsSteps()) {
+        steps->step();
+        return;
+    }
     int tid = 0;
     const char *name = App::GetApplication().getActiveTransaction(&tid);
     if(tid && tid == transactionID)
@@ -544,6 +562,13 @@ bool TaskDlgBooleanParameters::accept()
         return false;
     }
     parameter->setupTransaction();
+    if (parameter->ownsItsSteps()) {
+        // OK's work in the step just opened, as each change was a step;
+        // this edit ended, of the several there may be
+        parameter->editSteps()->endEdit();
+        Gui::cmdAppDocument(obj, "recompute()");
+        return true;
+    }
     Gui::Command::doCommand(Gui::Command::Gui,"Gui.activeDocument().resetEdit()");
     Gui::Command::doCommand(Gui::Command::Doc,"App.ActiveDocument.recompute()");
     Gui::Command::commitCommand();
@@ -553,6 +578,10 @@ bool TaskDlgBooleanParameters::accept()
 
 bool TaskDlgBooleanParameters::reject()
 {
+    // Its own steps taken back, and no other view's; the edit ended
+    if (parameter->ownsItsSteps() && parameter->editSteps()->reject())
+        return true;
+
     // roll back the done things
     auto editDoc = Gui::Application::Instance->editDocumentOf(
         BooleanView ? BooleanView->getObject() : nullptr);
@@ -561,6 +590,11 @@ bool TaskDlgBooleanParameters::reject()
 
     Gui::Command::doCommand(Gui::Command::Gui,"Gui.activeDocument().resetEdit()");
     return true;
+}
+
+bool TaskDlgBooleanParameters::holdsTransaction() const
+{
+    return !parameter->ownsItsSteps();
 }
 
 

@@ -412,12 +412,16 @@ surveyed):
 
 Here it is the container, with its tool bars tied to it:
 - **A surface group** is a new kind of aux group in a body (`PartDesign::AuxGroup`, named
-  `Surfaces`). It holds Surface features, and the body's Misc group leaves them to it. Its icon is
-  the group's folder with the Surface icon on it.
-  - `PartDesign_SurfaceGroup` (PartDesign's Helper tool bar) makes one in the active body, puts the
-    selected Surface features of the body in it, and makes it active.
+  `Surfaces`). It gathers the body's Surface features, as Sketches gathers its sketches, and the
+  body's Misc group leaves them to it. Its icon is the group's folder with the Surface icon on it.
+  - There is no command to make one, as there is none for the other aux groups (revised
+    2026-10-30). A body keeping the auto aux groups (`Body::setAutoAuxGroup`, the body's context
+    menu) makes it when the first surface comes in, and removes it with the others.
+  - A body made in the GUI (`PartDesign_Body`, `PartDesign_Clone`) keeps the auto aux groups from
+    the start, by the preference `Mod/Part/AutoAuxGroup`, on by default. A body made by script
+    has none, so scripts and their tests see the body's group unchanged.
   - A double-click toggles it: active in the view or not. While it is active, the Surface tool bar
-    is offered, and what the Surface commands make goes into it.
+    is offered.
 - **A solid holding sheet metal** (`PartDesign::SolidBody`) has its icon changed, by an overlay. A
   double-click toggles it active, which offers the sheet metal tool bars.
 - **An edit offers them too.** Editing any Surface or sheet metal object offers its tool bars if
@@ -493,7 +497,9 @@ and not frozen.
 - M0's speed gate, the join, measured (sec 4.4, 7ef92a8d41).
 - M0's geometry layer: `PartDesign::SheetMetal`, the bend allowance by every method of sec 4.6,
   and the cylindrical bend's fold map, with gtests (`PartDesign_tests_run`, 13) (41d487593a).
-- The tool bars of sec 8.1, built for Surface (c10f1f68e8 and the commits before it).
+- The tool bars of sec 8.1, built for Surface (c10f1f68e8 and the commits before it); the surface
+  group made by the body, not by a command, and the auto aux groups on in new bodies (revised
+  2026-10-30).
 - Left of M0: the Rule object (question c), and the sheet model that owns the faces, which comes
   with the first feature that makes one (M1).
 

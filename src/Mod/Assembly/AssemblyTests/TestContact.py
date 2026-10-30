@@ -58,9 +58,12 @@ class TestContact(unittest.TestCase):
 
         self.doc.recompute()
         contact = CommandCreateContact.newContactSet(self.assembly, a, b)
-        # A stiffness given is the one to run with: not the materials'
+        # A stiffness or a damping given is the one to run with: not the
+        # materials' or the restitution's
         if "Stiffness" in law:
             contact.StiffnessFrom = "Value"
+        if "MaxDamping" in law:
+            contact.DampingFrom = "Value"
         for name, value in law.items():
             setattr(contact, name, value)
         self.doc.recompute()
@@ -257,14 +260,16 @@ class TestContact(unittest.TestCase):
 
     def test_torus_rests(self):
         """A torus, curved and not convex, touches as its mesh: lying flat
-        under the default law, it comes to rest on its tube, its centre the
-        tube's radius above the plate, within the mesh's deflection. Its
-        ring of points is one patch, at rest by 0.06 s in substeps of
-        6.7 us; per point they were 1.4 us, and 0.3 s took ten minutes"""
+        it comes to rest on its tube, its centre the tube's radius above the
+        plate, within the mesh's deflection. Its ring of points is one
+        patch, a line contact 62.8 mm long. Of the soft material: of
+        aluminium the line is 2e6 N/mm stiff, and 0.1 s took 15 minutes"""
         plate = self.plate()
+        plate.ShapeMaterial = self.soft()
         torus = self.assembly.newObject("Part::Torus", "Torus")
         torus.Radius1, torus.Radius2 = 10, 2
         torus.Placement.Base = App.Vector(0, 0, 13)
+        torus.ShapeMaterial = self.soft()
         self.contact([torus], [plate])
         _, result = self.simulate(0.1, 1e-3)
         self.assertEqual(result, 0)
@@ -415,6 +420,12 @@ class TestContact(unittest.TestCase):
         modulus = SOFT_E / (1 - SOFT_NU**2) / 2
         return 4.0 / 3.0 * modulus * math.sqrt(radius)
 
+    def line(self, length):
+        """The line contact's stiffness of two soft parts along a length,
+        N/mm: pi/4 E* L"""
+        modulus = SOFT_E / (1 - SOFT_NU**2) / 2
+        return math.pi / 4.0 * modulus * length
+
     def sizeOf(self, part):
         """The radius of the ball of the part's volume"""
         return (3 * part.Shape.Volume / (4 * math.pi)) ** (1.0 / 3.0)
@@ -475,11 +486,37 @@ class TestContact(unittest.TestCase):
             self.heights(prism)[-1], 10 - self.sink(mass, self.hertz(radius)), delta=1e-6
         )
 
+    def test_hertz_line(self):
+        """A line contact: the cylinder lying on its side, one curvature
+        across it and none along, sinks by the line law's closed form,
+        F = pi/4 E* L d, L its length. Fully damped from 1e-4 mm: its sink
+        is a hundredth of the default's"""
+        plate = self.plate()
+        plate.ShapeMaterial = self.soft()
+        turned = App.Rotation(App.Vector(0, 1, 0), 90)
+        cylinder = self.cylinder(20, App.Placement(App.Vector(-10, 0, 16), turned))
+        cylinder.ShapeMaterial = self.soft()
+        self.contact(
+            [cylinder],
+            [plate],
+            MaxDamping=0.01,
+            Penetration=1e-4,
+            StaticFriction=0.0,
+            DynamicFriction=0.0,
+        )
+        _, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        mass = cylinder.Shape.Volume * DENSITY
+        self.assertAlmostEqual(
+            self.heights(cylinder)[-1], 15 - self.sink(mass, self.line(20.0), 1.0), delta=1e-6
+        )
+
     def test_hertz_curvature(self):
         """A mesh's and a hull's curvature, read off their meshes where they
-        touch: the torus resting on its tube, R 2, and a hemisphere on its
-        dome, R 5, rest as they do on the stiffness Hertz's law gives those
-        radii -- what their meshes' facets do to the rest, both runs share"""
+        touch: the torus lying flat touches along its ring, a line contact
+        2 pi 10 mm long, and a hemisphere on its dome, R 5; each rests as it
+        does on the stiffness the line law or Hertz's gives those -- what
+        their meshes' facets do to the rest, both runs share"""
         import Part
 
         plate = self.plate()
@@ -492,10 +529,10 @@ class TestContact(unittest.TestCase):
         dome.Shape = Part.makeSphere(5).common(Part.makeBox(20, 20, 10, App.Vector(-10, -10, -10)))
         dome.Placement.Base = App.Vector(18, 0, 16)
         dome.ShapeMaterial = self.soft()
-        law = dict(MaxDamping=0.01, StaticFriction=0.0, DynamicFriction=0.0)
+        law = dict(MaxDamping=0.01, Penetration=1e-4, StaticFriction=0.0, DynamicFriction=0.0)
         sets = {
-            torus: (self.contact([torus], [plate], **law), 2.0),
-            dome: (self.contact([dome], [plate], **law), 5.0),
+            torus: (self.contact([torus], [plate], **law), self.line(2 * math.pi * 10), 1.0),
+            dome: (self.contact([dome], [plate], **law), self.hertz(5.0), 1.5),
         }
         start = {part: part.Placement for part in sets}
         sim, result = self.simulate(0.3, 1e-3)
@@ -504,18 +541,36 @@ class TestContact(unittest.TestCase):
         # From where they started: the hemisphere still rocks at 0.3 s
         for part, placement in start.items():
             part.Placement = placement
-        for contact, radius in sets.values():
+        for contact, stiffness, exponent in sets.values():
             contact.StiffnessFrom = "Value"
-            contact.Stiffness = self.hertz(radius)
-            contact.Exponent = 1.5
+            contact.Stiffness = stiffness
+            contact.Exponent = exponent
         self.doc.recompute()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         for part in sets:
             self.assertAlmostEqual(fromMaterials[part], self.heights(part)[-1], delta=5e-5)
 
+    def test_restitution(self):
+        """Damped by its coefficient of restitution, a ball dropped a
+        millimetre onto the plate rebounds to r^2 of it, within Flores et
+        al.'s model's 3% at r 0.8 -- the damping scaling with the stiffness,
+        from the materials here"""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate], StaticFriction=0.0, DynamicFriction=0.0)
+        self.assertEqual(contact.DampingFrom, "Restitution")
+        contact.Restitution = 0.8
+        _, result = self.simulate(0.06, 1e-4)
+        self.assertEqual(result, 0)
+        z = self.heights(ball)
+        landed = next(i for i, h in enumerate(z) if h < 15.0)
+        left = next(i for i in range(landed, len(z)) if z[i] > 15.0)
+        again = next((i for i in range(left, len(z)) if z[i] < 15.0), len(z))
+        self.assertAlmostEqual(max(z[left:again]) - 15.0, 0.64, delta=0.64 * 0.03)
+
     def test_old_set_keeps_its_stiffness(self):
-        """A contact set saved before StiffnessFrom ran with its Stiffness:
-        restored, it still does"""
+        """A contact set saved before StiffnessFrom and DampingFrom ran with
+        its Stiffness and its MaxDamping: restored, it still does"""
         import io
         import re
         import zipfile
@@ -524,23 +579,25 @@ class TestContact(unittest.TestCase):
         ball = self.ball(16)
         contact = self.contact([ball], [plate])
         self.assertEqual(contact.StiffnessFrom, "Materials")
+        self.assertEqual(contact.DampingFrom, "Restitution")
         data = bytes(contact.dumpContent(Compression=0))
         with zipfile.ZipFile(io.BytesIO(data)) as zipped:
             name = zipped.namelist()[0]
             xml = zipped.read(name).decode("utf-8")
         older, removed = re.subn(
-            r'<Property name="StiffnessFrom".*?</Property>\s*', "", xml, flags=re.S
+            r'<Property name="(StiffnessFrom|DampingFrom)".*?</Property>\s*', "", xml, flags=re.S
         )
-        self.assertEqual(removed, 1)
+        self.assertEqual(removed, 2)
         count = int(re.search(r'<Properties Count="(\d+)"', older).group(1))
         older = older.replace(
-            '<Properties Count="%d"' % count, '<Properties Count="%d"' % (count - 1)
+            '<Properties Count="%d"' % count, '<Properties Count="%d"' % (count - 2)
         )
         out = io.BytesIO()
         with zipfile.ZipFile(out, "w") as zipped:
             zipped.writestr(name, older)
         contact.restoreContent(out.getvalue())
         self.assertEqual(contact.StiffnessFrom, "Value")
+        self.assertEqual(contact.DampingFrom, "Value")
 
     def test_mesh_in_pieces_refused(self):
         """A solid whose mesh is in pieces -- a cube with a hollow in it, two

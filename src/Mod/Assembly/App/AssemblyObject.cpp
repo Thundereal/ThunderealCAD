@@ -2057,6 +2057,9 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
                                                       : Solver::ContactLaw::Stiffness::Value;
         law.radius = set->RadiusFrom.getValue() == 0 ? Solver::ContactLaw::Radius::Patch
                                                      : Solver::ContactLaw::Radius::Part;
+        law.damping = set->DampingFrom.getValue() == 0 ? Solver::ContactLaw::Damping::Restitution
+                                                       : Solver::ContactLaw::Damping::Value;
+        law.restitution = set->Restitution.getValue();
         law.stiffness = set->Stiffness.getValue() * 1000.0;
         law.exponent = set->Exponent.getValue();
         law.maxDamping = set->MaxDamping.getValue() * 1000.0;

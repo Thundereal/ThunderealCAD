@@ -47,6 +47,7 @@ translate = App.Qt.translate
 Numbers = [
     ("Stiffness", QT_TRANSLATE_NOOP("Assembly", "Stiffness"), "N/mm^e", 1e12, 4),
     ("Exponent", QT_TRANSLATE_NOOP("Assembly", "Exponent (e)"), "", 10.0, 3),
+    ("Restitution", QT_TRANSLATE_NOOP("Assembly", "Restitution"), "", 1.0, 3),
     ("MaxDamping", QT_TRANSLATE_NOOP("Assembly", "Damping"), "N s/mm", 1e12, 4),
     ("StaticFriction", QT_TRANSLATE_NOOP("Assembly", "Static friction"), "", 10.0, 3),
     ("DynamicFriction", QT_TRANSLATE_NOOP("Assembly", "Dynamic friction"), "", 10.0, 3),
@@ -67,10 +68,15 @@ Choices = {
         ("Patch", QT_TRANSLATE_NOOP("Assembly", "Where they touch")),
         ("Part", QT_TRANSLATE_NOOP("Assembly", "The parts' sizes")),
     ],
+    "DampingFrom": [
+        ("Restitution", QT_TRANSLATE_NOOP("Assembly", "A coefficient of restitution")),
+        ("Value", QT_TRANSLATE_NOOP("Assembly", "A value")),
+    ],
 }
 ChoiceLabels = {
     "StiffnessFrom": QT_TRANSLATE_NOOP("Assembly", "Stiffness from"),
     "RadiusFrom": QT_TRANSLATE_NOOP("Assembly", "Contact radius"),
+    "DampingFrom": QT_TRANSLATE_NOOP("Assembly", "Damping from"),
 }
 # The stiffness slider's span, a power of ten each hundredth: 1 to 1e7
 SliderTop = 700
@@ -84,6 +90,8 @@ Order = [
     "RadiusFrom",
     "Stiffness",
     "Exponent",
+    "DampingFrom",
+    "Restitution",
     "MaxDamping",
     "Penetration",
     "StaticFriction",
@@ -335,7 +343,7 @@ class TaskContact(QtCore.QObject):
         for prop, label, unit, top, decimals in Numbers:
             box = QtWidgets.QDoubleSpinBox()
             box.setDecimals(decimals)
-            box.setRange(1.0 if prop == "Exponent" else 0.0, top)
+            box.setRange({"Exponent": 1.0, "Restitution": 0.01}.get(prop, 0.0), top)
             if unit:
                 box.setSuffix(" " + unit)
             box.valueChanged.connect(lambda value, prop=prop: self.onNumber(prop, value))
@@ -429,6 +437,10 @@ class TaskContact(QtCore.QObject):
             self.boxes[prop].setEnabled(fromValue)
         self.slider.setEnabled(fromValue)
         self.boxes["RadiusFrom"].setEnabled(not fromValue)
+        dampedByValue = self.contact.DampingFrom == "Value"
+        for prop in ("MaxDamping", "Penetration"):
+            self.boxes[prop].setEnabled(dampedByValue)
+        self.boxes["Restitution"].setEnabled(not dampedByValue)
         self.showEstimate()
 
     def arm(self, group):

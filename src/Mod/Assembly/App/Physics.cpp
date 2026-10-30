@@ -646,6 +646,7 @@ PROPERTY_SOURCE(Assembly::ContactSet, Assembly::PhysicsItem)
 
 const char* ContactSet::StiffnessFromEnums[] = {"Materials", "Value", nullptr};
 const char* ContactSet::RadiusFromEnums[] = {"Patch", "Part", nullptr};
+const char* ContactSet::DampingFromEnums[] = {"Restitution", "Value", nullptr};
 
 ContactSet::ContactSet()
 {
@@ -678,6 +679,20 @@ ContactSet::ContactSet()
                       "Part: from the sizes of the two solids, each the radius of the ball of "
                       "its volume.");
     RadiusFrom.setEnums(RadiusFromEnums);
+    ADD_PROPERTY_TYPE(DampingFrom,
+                      (0L),
+                      "Contact",
+                      App::Prop_None,
+                      "Restitution: by the coefficient of restitution, the damping scaling "
+                      "with the stiffness (Hunt-Crossley, Flores et al.).\nValue: MaxDamping, "
+                      "reached at Penetration.");
+    DampingFrom.setEnums(DampingFromEnums);
+    ADD_PROPERTY_TYPE(Restitution,
+                      (0.6),
+                      "Contact",
+                      App::Prop_None,
+                      "The coefficient of restitution, for DampingFrom Restitution: the speed "
+                      "a contact parts at over the speed it came in at; 1 elastic");
     // SOLIDWORKS's and Adams View's defaults (docs/AssemblyDynamics.md sec 2.3)
     ADD_PROPERTY_TYPE(Stiffness,
                       (1e5),
@@ -723,8 +738,10 @@ ContactSet::ContactSet()
     static const App::PropertyFloatConstraint::Constraints positive = {0.0, 1e30, 1.0};
     static const App::PropertyFloatConstraint::Constraints exponent = {1.0, 10.0, 0.1};
     static const App::PropertyFloatConstraint::Constraints coefficient = {0.0, 10.0, 0.05};
+    static const App::PropertyFloatConstraint::Constraints ratio = {0.01, 1.0, 0.05};
     Stiffness.setConstraints(&positive);
     Exponent.setConstraints(&exponent);
+    Restitution.setConstraints(&ratio);
     MaxDamping.setConstraints(&positive);
     StaticFriction.setConstraints(&coefficient);
     DynamicFriction.setConstraints(&coefficient);
@@ -732,9 +749,10 @@ ContactSet::ContactSet()
 
 void ContactSet::Restore(Base::XMLReader& reader)
 {
-    // Saved before StiffnessFrom: the set's file has none, and its stiffness
-    // was the one it ran with
+    // Saved before StiffnessFrom and DampingFrom: the set's file has
+    // neither, and its stiffness and damping were the ones it ran with
     StiffnessFrom.setValue("Value");
+    DampingFrom.setValue("Value");
     PhysicsItem::Restore(reader);
 }
 

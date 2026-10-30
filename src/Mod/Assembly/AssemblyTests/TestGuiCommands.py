@@ -1161,6 +1161,19 @@ class TestGuiCommands(unittest.TestCase):
         combo = task.boxes["RadiusFrom"]
         combo.setCurrentIndex(combo.findData("Part"))
         self.assertEqual(contact.RadiusFrom, "Part")
+        # Damped by restitution: the damping's rows idle; by a value, the
+        # restitution's
+        self.assertEqual(contact.DampingFrom, "Restitution")
+        self.assertTrue(task.boxes["Restitution"].isEnabled())
+        self.assertFalse(task.boxes["MaxDamping"].isEnabled())
+        task.boxes["Restitution"].setValue(0.8)
+        self.assertAlmostEqual(contact.Restitution, 0.8, places=9)
+        combo = task.boxes["DampingFrom"]
+        combo.setCurrentIndex(combo.findData("Value"))
+        self.assertEqual(contact.DampingFrom, "Value")
+        self.assertFalse(task.boxes["Restitution"].isEnabled())
+        self.assertTrue(task.boxes["MaxDamping"].isEnabled())
+        self.assertTrue(task.boxes["Penetration"].isEnabled())
         # A value: the stiffness and its slider, ten times the stiffness a
         # hundred ticks on
         combo = task.boxes["StiffnessFrom"]

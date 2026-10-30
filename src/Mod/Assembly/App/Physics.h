@@ -404,7 +404,10 @@ using BushingPython = App::FeaturePythonT<Bushing>;
  * from the components' materials (Materials, a new set's): 4/3 E* R^0.5 and
  * 1.5, E* the two materials' moduli combined and R the contact's radius --
  * where each patch of contact touches (RadiusFrom Patch), or from the two
- * solids' sizes (Part).
+ * solids' sizes (Part). The damping as given (DampingFrom Value), or by the
+ * coefficient of restitution Restitution (a new set's): Flores et al.'s
+ * Hunt-Crossley, Fn = k d^e (1 + 8 (1 - r) / (5 r) dd/dt / v0), v0 the
+ * speed the contact started at.
  * Each solid of a component touches as the sphere, box or cylinder it is,
  * else as its convex hull when it is convex, else as its closed mesh.
  */
@@ -420,6 +423,8 @@ public:
     App::PropertyLinkList GroupB;
     App::PropertyEnumeration StiffnessFrom;
     App::PropertyEnumeration RadiusFrom;
+    App::PropertyEnumeration DampingFrom;
+    App::PropertyFloatConstraint Restitution;
     /// N / mm^Exponent
     App::PropertyFloatConstraint Stiffness;
     App::PropertyFloatConstraint Exponent;
@@ -433,12 +438,14 @@ public:
 
     static const char* StiffnessFromEnums[];
     static const char* RadiusFromEnums[];
+    static const char* DampingFromEnums[];
 
     const char* getViewProviderName() const override
     {
         return "AssemblyGui::ViewProviderContactSet";
     }
-    /// A set saved before StiffnessFrom keeps the stiffness it was given
+    /// A set saved before StiffnessFrom and DampingFrom keeps the stiffness
+    /// and the damping it was given
     void Restore(Base::XMLReader& reader) override;
 };
 

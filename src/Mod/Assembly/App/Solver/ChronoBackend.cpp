@@ -569,11 +569,7 @@ public:
         : ch::ChLoadBodyBody(a, b, ch::ChFramed(b->GetPos(), b->GetRot()))
         , law(law)
         , set(set)
-    {
-        if (law.from == ContactLaw::Stiffness::Materials) {
-            this->law.exponent = 1.5;
-        }
-    }
+    {}
 
     ContactLoad* Clone() const override
     {
@@ -631,7 +627,7 @@ public:
             const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
             depths[i] = -ch::Vdot(point.normal, pB - pA);
             if (depths[i] > 0.0) {
-                const double spring = std::pow(depths[i], law.exponent);
+                const double spring = std::pow(depths[i], exponents[point.patch]);
                 squares[point.patch] += spring * spring;
                 sum[point.patch] += spring;
             }
@@ -649,9 +645,12 @@ public:
             const double rate = -ch::Vdot(point.normal, relative);
             const double total = sum[point.patch];
             const double share = total > 0.0 ? squares[point.patch] / total / total : 1.0;
+            const double spring =
+                stiffness[point.patch] * std::pow(depth, exponents[point.patch]);
             double normal = share
-                * (stiffness[point.patch] * std::pow(depth, law.exponent)
-                   + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate);
+                * (law.damping == ContactLaw::Damping::Restitution
+                       ? spring * (1.0 + hunt() * rate)
+                       : spring + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate);
             if (!(normal > 0.0)) {
                 continue;
             }
@@ -686,7 +685,27 @@ public:
     std::size_t set = 0;  // the ContactPair's index
     std::vector<Point> points;
     std::size_t patches = 0;
-    std::vector<double> stiffness;  // each patch's k
+    // Each patch's k and e
+    std::vector<double> stiffness;
+    std::vector<double> exponents;
+    // The approach speed the contact started at, m/s: while it does not
+    // press, the fastest its points come in at (patchStiffness()), kept
+    // from then on
+    double impact = 0.0;
+
+    /** By restitution: Flores et al.'s Hunt-Crossley damping, the force's
+     * factor a speed in s/m, 8 (1 - r) / (5 r v0) -- the energy an impact
+     * at v0 loses for r, valid across r (Lankarani and Nikravesh's,
+     * 3 (1 - r^2) / (4 v0), only for r near 1). It scales with the
+     * stiffness, where a damping given by value drowned a soft part and
+     * left a line contact's sink of 1e-7 mm all but undamped. v0 at least
+     * 1 mm/s: a contact made at rest has none to divide by.
+     */
+    double hunt() const
+    {
+        const double r = std::clamp(law.restitution, 0.01, 1.0);
+        return 8.0 * (1.0 - r) / (5.0 * r * std::max(impact, 1e-3));
+    }
     // At the last state ComputeQ was given: the force on B, absolute, and
     // the points pressing
     ch::ChVector3d onB;
@@ -1880,23 +1899,24 @@ struct ShapeOn
     double envelope = 0.0;
     // For Hertz's law (patchStiffness()): a sphere's radius, the material's
     // E / (1 - nu^2), the radius of the ball of the solid's volume, and the
-    // surface's curvature at each vertex of its mesh, a mesh's or a hull's,
-    // 1/m -- a hull's at its points, in its frame. Not of a hull's features:
-    // Bullet's merges faces all but in one plane, and the vertices it kept
-    // about an ellipsoid's pole curved it as 1/8 mm where it is 1/12.
+    // surface's curvature tensor at each vertex of its mesh, a mesh's or a
+    // hull's, 1/m -- a mesh's in its body's frame, a hull's at its points,
+    // in its frame. Not of a hull's features: Bullet's merges faces all but
+    // in one plane, and the vertices it kept about an ellipsoid's pole
+    // curved it as 1/8 mm where it is 1/12.
     double ball = 0.0;
     double modulus = 0.0;
     double size = 0.0;
-    std::vector<double> bends;
+    std::vector<ch::ChMatrix33d> curvatures;
     std::vector<ch::ChVector3d> hull;
     // A mesh's vertices, in its body's frame: its triangles point into them
     const ch::ChVector3d* vertices = nullptr;
     std::size_t count = 0;
 };
 
-// A surface's curvature at each vertex of its faces, the most it curves
-// there, convex positive: the larger eigenvalue of the curvature tensor of
-// the height quadric h = A x^2/2 + B x y + C y^2/2 + D x + E y fitted by
+// A surface's curvature tensor at each vertex of its faces, convex
+// positive, in the tangent plane: that of the height quadric
+// h = A x^2/2 + B x y + C y^2/2 + D x + E y fitted by
 // least squares to its neighbours, in the tangent plane of the vertex's
 // normal. The linear terms take up that normal's error: an average of the
 // faces around, it was 0.004 rad off on an ellipsoid's pole, and over a
@@ -1909,8 +1929,8 @@ struct ShapeOn
 // tensor alone: -2 n . (v - u) / |v - u|^2 each, exact on a polygon of a
 // circle (the angle between faces over their centres' spacing made a
 // torus's half-quad triangles half as round again).
-std::vector<double> vertexBends(const std::vector<ch::ChVector3d>& vertices,
-                                const std::vector<std::vector<int>>& faces)
+std::vector<ch::ChMatrix33d> vertexCurvatures(const std::vector<ch::ChVector3d>& vertices,
+                                              const std::vector<std::vector<int>>& faces)
 {
     const double sharp = std::cos(40.0 * pi / 180.0);
     std::vector<ch::ChVector3d> normals;
@@ -1971,7 +1991,7 @@ std::vector<double> vertexBends(const std::vector<ch::ChVector3d>& vertices,
             edges[from].push_back({n, to, -2.0 * ch::Vdot(n, to) / length2});
         }
     }
-    std::vector<double> bends(vertices.size(), 0.0);
+    std::vector<ch::ChMatrix33d> curvatures(vertices.size(), ch::ChMatrix33d::Zero());
     for (std::size_t v = 0; v < vertices.size(); ++v) {
         const auto& at = edges[v];
         if (at.empty()) {
@@ -1986,11 +2006,12 @@ std::vector<double> vertexBends(const std::vector<ch::ChVector3d>& vertices,
         ch::ChVector3d t1 = ch::Vcross(n, std::abs(n.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
         t1.Normalize();
         const ch::ChVector3d t2 = ch::Vcross(n, t1);
-        // The larger eigenvalue of [[a, b], [b, c]], convex positive
-        auto largest = [](double a, double b, double c) {
-            const double mean = 0.5 * (a + c);
-            const double half = std::sqrt(0.25 * (a - c) * (a - c) + b * b);
-            return std::max(mean + half, 0.0);
+        // [[a, b], [b, c]] in the tangent plane's axes, in the vertex's frame
+        auto tensor = [&](double a, double b, double c) {
+            const ch::ChMatrix33d t11 = ch::TensorProduct(t1, t1);
+            const ch::ChMatrix33d t12 = ch::TensorProduct(t1, t2);
+            const ch::ChMatrix33d t22 = ch::TensorProduct(t2, t2);
+            return ch::ChMatrix33d(a * t11 + b * (t12 + t12.transpose()) + c * t22);
         };
         if (at.size() >= 5) {
             // The height quadric: h = A x^2/2 + B x y + C y^2/2 + D x + E y,
@@ -2007,7 +2028,7 @@ std::vector<double> vertexBends(const std::vector<ch::ChVector3d>& vertices,
             const Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(rows);
             if (qr.rank() == 5) {
                 const Eigen::VectorXd fit = qr.solve(heights);
-                bends[v] = largest(-fit[0], -fit[1], -fit[2]);
+                curvatures[v] = tensor(-fit[0], -fit[1], -fit[2]);
                 continue;
             }
         }
@@ -2029,25 +2050,25 @@ std::vector<double> vertexBends(const std::vector<ch::ChVector3d>& vertices,
         }
         const Eigen::FullPivLU<Eigen::Matrix3d> lu(m);
         if (at.size() < 3 || lu.rank() < 3) {
-            bends[v] = most;
+            curvatures[v] = tensor(most, 0.0, most);
             continue;
         }
         const Eigen::Vector3d abc = lu.solve(r);
-        bends[v] = largest(abc[0], abc[1], abc[2]);
+        curvatures[v] = tensor(abc[0], abc[1], abc[2]);
     }
-    return bends;
+    return curvatures;
 }
 
-// A mesh's curvature at each vertex
-std::vector<double> meshBends(const std::vector<ch::ChVector3d>& vertices,
-                              const std::vector<ch::ChVector3i>& triangles)
+// A mesh's curvature tensor at each vertex
+std::vector<ch::ChMatrix33d> meshCurvatures(const std::vector<ch::ChVector3d>& vertices,
+                                            const std::vector<ch::ChVector3i>& triangles)
 {
     std::vector<std::vector<int>> faces;
     faces.reserve(triangles.size());
     for (const auto& t : triangles) {
         faces.push_back({t.x(), t.y(), t.z()});
     }
-    return vertexBends(vertices, faces);
+    return vertexCurvatures(vertices, faces);
 }
 
 // The contact shapes by Chrono's shapes, and a mesh's triangle by the mesh
@@ -2075,42 +2096,55 @@ struct ShapesOn
         return it == byShape->end() ? nullptr : &it->second;
     }
 
-    // The curvature of the shape where a point of its body touches ('at', in
-    // the body's frame), the surface there facing 'outward' (absolute): a
-    // mesh's at the triangle's corner nearest, a hull's at its point farthest
-    // out that way, where a convex shape touches, a box's none
-    double bendAt(const ch::ChCollisionShape* shape,
-                  const ch::ChBody& body,
-                  const ch::ChVector3d& at,
-                  const ch::ChVector3d& outward) const
+    // The curvature tensor of the shape where a point of its body touches
+    // ('at', in the body's frame), the surface there facing 'outward', both
+    // absolute: a mesh's at the triangle's corner nearest, a hull's at its
+    // point farthest out that way, where a convex shape touches; a sphere's
+    // all round, a cylinder's side round its axis, its cap and a box flat
+    ch::ChMatrix33d curvatureAt(const ch::ChCollisionShape* shape,
+                                const ch::ChBody& body,
+                                const ch::ChVector3d& at,
+                                const ch::ChVector3d& outward) const
     {
         const ShapeOn* on = of(shape);
         if (!on) {
-            return 0.0;
+            return ch::ChMatrix33d::Zero();
         }
+        const ch::ChMatrix33d turn = body.GetRotMat();
         if (on->vertices) {
             const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
             double nearest = std::numeric_limits<double>::infinity();
-            double bend = 0.0;
+            std::size_t best = on->curvatures.size();
             for (const ch::ChVector3d* corner : {triangle->V1, triangle->V2, triangle->V3}) {
                 const auto index = static_cast<std::size_t>(corner - on->vertices);
                 const double apart = (*corner - at).Length2();
-                if (index < on->bends.size() && apart < nearest) {
+                if (index < on->curvatures.size() && apart < nearest) {
                     nearest = apart;
-                    bend = on->bends[index];
+                    best = index;
                 }
             }
-            return bend;
+            if (best >= on->curvatures.size()) {
+                return ch::ChMatrix33d::Zero();
+            }
+            return ch::ChMatrix33d(turn * on->curvatures[best] * turn.transpose());
         }
         if (on->ball > 0.0) {
-            return 1.0 / on->ball;
+            const ch::ChMatrix33d across =
+                ch::ChMatrix33d::Identity() - ch::TensorProduct(outward, outward);
+            return ch::ChMatrix33d(across / on->ball);
         }
-        const ch::ChVector3d local =
-            on->frame.GetRot().RotateBack(body.GetRot().RotateBack(outward));
+        const ch::ChMatrix33d frame = on->frame.GetRotMat();
         if (on->radius > 0.0) {
-            // Its cap is flat, its side as round as the cylinder
-            return std::abs(local.z()) > 0.5 ? 0.0 : 1.0 / on->radius;
+            // Its cap is flat, its side round its axis
+            const ch::ChVector3d axis = turn * (frame * ch::VECT_Z);
+            if (std::abs(ch::Vdot(axis, outward)) > 0.5) {
+                return ch::ChMatrix33d::Zero();
+            }
+            ch::ChVector3d round = ch::Vcross(axis, outward);
+            round.Normalize();
+            return ch::ChMatrix33d(ch::TensorProduct(round, round) / on->radius);
         }
+        const ch::ChVector3d local = frame.transpose() * (turn.transpose() * outward);
         std::size_t best = on->hull.size();
         double most = -std::numeric_limits<double>::infinity();
         for (std::size_t v = 0; v < on->hull.size(); ++v) {
@@ -2120,25 +2154,130 @@ struct ShapesOn
                 best = v;
             }
         }
-        return best < on->bends.size() ? on->bends[best] : 0.0;
+        if (best >= on->curvatures.size()) {
+            return ch::ChMatrix33d::Zero();
+        }
+        const ch::ChMatrix33d whole = turn * frame;
+        return ch::ChMatrix33d(whole * on->curvatures[best] * whole.transpose());
     }
 };
 
-// Each patch's stiffness (ContactLaw): the law's, or Hertz's from the shapes'
-// materials, k = 4/3 E* R^0.5, 1/E* the sum of the two shapes'
-// 1 / (E / (1 - nu^2)). R is the contact's radius: from the curvatures where
-// the patch touches, 1 / (kA + kB), each side's its points' mean; two flat
-// faces, the patch's extent -- the farthest of its points from their
-// centre, a face resting flat on a face its size -- and a single point on
-// two flat faces, the part sizes'. Or from the parts' sizes alone,
-// 1/R = 1/RA + 1/RB, each the radius of the ball of the solid's volume.
-// The extent is no cap on a curve's radius: its points are all those within
-// the contact's margin, and an ellipsoid resting on its pole, R 12 mm, had
-// them on the triangle there, half a millimetre across.
+// The length of a line contact's points: the deepest of each cross-section,
+// across the line the curved way, chained by their minimum spanning tree --
+// a torus lying flat touches along its ring, 2 pi 10 mm, its patch's
+// extent 10.7, and a cylinder on its side along its length. 0 for one. A
+// ring's tree is the ring less a segment: a path whose ends are no farther
+// apart than its longest segment and a half is closed -- the torus's ring of
+// 13 points came 8% short.
+double lineLength(const std::vector<ch::ChVector3d>& at,
+                  const std::vector<double>& gaps,
+                  const std::vector<ch::ChVector3d>& across)
+{
+    std::vector<std::size_t> line;
+    for (std::size_t i = 0; i < at.size(); ++i) {
+        bool deepest = true;
+        for (std::size_t j = 0; j < at.size() && deepest; ++j) {
+            const ch::ChVector3d d = at[j] - at[i];
+            const double over = std::abs(ch::Vdot(d, across[i]));
+            const double along = std::sqrt(std::max(d.Length2() - over * over, 0.0));
+            deepest = !(j != i && over > 2.0 * along && gaps[j] < gaps[i] - 1e-8);
+        }
+        if (deepest) {
+            line.push_back(i);
+        }
+    }
+    // Prim's
+    double length = 0.0;
+    double longest = 0.0;
+    std::vector<double> reach(line.size(), std::numeric_limits<double>::infinity());
+    std::vector<std::size_t> from(line.size(), line.size());
+    std::vector<int> degree(line.size(), 0);
+    std::vector<bool> in(line.size(), false);
+    if (!line.empty()) {
+        reach[0] = 0.0;
+    }
+    for (std::size_t n = 0; n < line.size(); ++n) {
+        std::size_t next = line.size();
+        for (std::size_t k = 0; k < line.size(); ++k) {
+            if (!in[k] && (next == line.size() || reach[k] < reach[next])) {
+                next = k;
+            }
+        }
+        in[next] = true;
+        length += reach[next];
+        if (from[next] < line.size()) {
+            longest = std::max(longest, reach[next]);
+            ++degree[next];
+            ++degree[from[next]];
+        }
+        for (std::size_t k = 0; k < line.size(); ++k) {
+            const double apart = (at[line[k]] - at[line[next]]).Length();
+            if (!in[k] && apart < reach[k]) {
+                reach[k] = apart;
+                from[k] = next;
+            }
+        }
+    }
+    // A path, its ends close: a ring
+    std::vector<std::size_t> ends;
+    bool path = line.size() > 2;
+    for (std::size_t k = 0; k < line.size() && path; ++k) {
+        if (degree[k] == 1) {
+            ends.push_back(k);
+        }
+        path = degree[k] <= 2;
+    }
+    if (path && ends.size() == 2) {
+        const double gap = (at[line[ends[0]]] - at[line[ends[1]]]).Length();
+        if (gap <= 1.5 * longest) {
+            length += gap;
+        }
+    }
+    return length;
+}
+
+// Each patch's stiffness and exponent (ContactLaw): the law's, or Hertz's
+// from the shapes' materials, 1/E* the sum of the two shapes'
+// 1 / (E / (1 - nu^2)). By the parts' sizes, a ball's: k = 4/3 E* R^0.5,
+// e = 1.5, 1/R = 1/RA + 1/RB, each the radius of the ball of the solid's
+// volume. Where the patch touches, by its relative curvature: at each point
+// the two sides' curvature tensors summed in the contact plane, and its
+// principal curvatures k1 >= k2, the patch's their means --
+// - k1 none, two flat faces: a ball's, R the patch's extent, the farthest of
+//   its points from their centre (a face resting flat on a face its size),
+//   and a single point on two flat faces the parts' sizes';
+// - k2 at least a hundredth of k1, round or oval: a ball's, R 1/sqrt(k1 k2)
+//   (an ellipse's is within a few percent of it below an aspect of ten);
+// - else a line, a cylinder on its side or a torus lying flat on its ring:
+//   F = pi/4 E* L d, e = 1, L the line's length (lineLength()) -- Johnson's
+//   line contact without its logarithm; one point's line, a ball's, R 1/k1.
+// The means, not the tensors': a torus's ring curves across the tube at
+// each point, a different way round the ring, and the tensors averaged over
+// it read it as a round contact of 4 mm.
 void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
 {
     const ContactLaw& law = load.law;
     load.stiffness.assign(load.patches, law.stiffness);
+    load.exponents.assign(load.patches, law.exponent);
+    // The speed the contact comes in at, while it does not press yet
+    {
+        const auto a = load.GetBodyA();
+        const auto b = load.GetBodyB();
+        bool pressed = false;
+        double fastest = 0.0;
+        for (const auto& point : load.points) {
+            const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
+            const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
+            pressed = pressed || -ch::Vdot(point.normal, pB - pA) > 0.0;
+            fastest = std::max(fastest,
+                               -ch::Vdot(point.normal,
+                                         b->PointSpeedLocalToParent(point.onB)
+                                             - a->PointSpeedLocalToParent(point.onA)));
+        }
+        if (!pressed) {
+            load.impact = fastest;
+        }
+    }
     if (law.from != ContactLaw::Stiffness::Materials || load.points.empty()) {
         return;
     }
@@ -2148,20 +2287,45 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
     struct Patch
     {
         std::size_t count = 0;
-        double bendA = 0.0;
-        double bendB = 0.0;
+        double k1 = 0.0;
+        double k2 = 0.0;
         ch::ChVector3d centre;
         double extent = 0.0;
         const ShapeOn* onA = nullptr;
         const ShapeOn* onB = nullptr;
+        // Its points, absolute, how far apart the bodies are there, and the
+        // way the contact curves most there
+        std::vector<ch::ChVector3d> at;
+        std::vector<double> gaps;
+        std::vector<ch::ChVector3d> across;
     };
     std::vector<Patch> patches(load.patches);
     for (const auto& point : points) {
         Patch& patch = patches[point.patch];
+        const ch::ChVector3d& n = point.normal;
+        const ch::ChVector3d pA = bodyA->TransformPointLocalToParent(point.onA);
+        const ch::ChVector3d pB = bodyB->TransformPointLocalToParent(point.onB);
+        const ch::ChMatrix33d both = shapes.curvatureAt(point.shapeA, *bodyA, point.onA, n)
+            + shapes.curvatureAt(point.shapeB, *bodyB, point.onB, -n);
+        // In the contact plane, its principal curvatures and the first's way
+        ch::ChVector3d u = ch::Vcross(n, std::abs(n.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
+        u.Normalize();
+        const ch::ChVector3d v = ch::Vcross(n, u);
+        const double a = ch::Vdot(u, both * u);
+        const double b = ch::Vdot(u, both * v);
+        const double c = ch::Vdot(v, both * v);
+        const double mean = 0.5 * (a + c);
+        const double half = std::sqrt(0.25 * (a - c) * (a - c) + b * b);
+        const double k1 = std::max(mean + half, 0.0);
+        const double k2 = std::clamp(mean - half, 0.0, k1);
+        const double angle = 0.5 * std::atan2(2.0 * b, a - c);
         ++patch.count;
-        patch.bendA += shapes.bendAt(point.shapeA, *bodyA, point.onA, point.normal);
-        patch.bendB += shapes.bendAt(point.shapeB, *bodyB, point.onB, -point.normal);
+        patch.k1 += k1;
+        patch.k2 += k2;
         patch.centre += point.onA;
+        patch.at.push_back(pA);
+        patch.gaps.push_back(ch::Vdot(n, pB - pA));
+        patch.across.push_back(u * std::cos(angle) + v * std::sin(angle));
         if (!patch.onA) {
             patch.onA = shapes.of(point.shapeA);
             patch.onB = shapes.of(point.shapeB);
@@ -2188,11 +2352,28 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         const double part = sizes > 0.0 ? 1.0 / sizes : 0.0;
         double radius = part;
         if (law.radius == ContactLaw::Radius::Patch) {
-            const double bend = (patch.bendA + patch.bendB) / static_cast<double>(patch.count);
-            radius = bend > 0.0 ? 1.0 / bend : patch.extent > 0.0 ? patch.extent : part;
+            const double k1 = patch.k1 / static_cast<double>(patch.count);
+            const double k2 = patch.k2 / static_cast<double>(patch.count);
+            // Flat below a curvature of a kilometre's
+            if (!(k1 > 1e-3)) {
+                radius = patch.extent > 0.0 ? patch.extent : part;
+            }
+            else if (k2 >= 0.01 * k1) {
+                radius = 1.0 / std::sqrt(k1 * k2);
+            }
+            else {
+                const double length = lineLength(patch.at, patch.gaps, patch.across);
+                if (length > 0.0) {
+                    load.stiffness[p] = pi / 4.0 * modulus * length;
+                    load.exponents[p] = 1.0;
+                    continue;
+                }
+                radius = 1.0 / k1;
+            }
         }
         if (radius > 0.0) {
             load.stiffness[p] = 4.0 / 3.0 * modulus * std::sqrt(radius);
+            load.exponents[p] = 1.5;
         }
     }
 }
@@ -5083,7 +5264,7 @@ Status ChronoSession::simulateDynamics(
                 for (const auto& t : shape.triangles) {
                     triangles.emplace_back(t[0], t[1], t[2]);
                 }
-                where.bends = meshBends(where.hull, triangles);
+                where.curvatures = meshCurvatures(where.hull, triangles);
             }
             where.modulus = shape.modulus;
             where.size = std::cbrt(3.0 * std::max(shape.volume, 0.0) / (4.0 * pi));
@@ -5091,7 +5272,7 @@ Status ChronoSession::simulateDynamics(
                 const auto& vertices = meshMade->GetCoordsVertices();
                 where.vertices = vertices.data();
                 where.count = vertices.size();
-                where.bends = meshBends(vertices, meshMade->GetIndicesVertexes());
+                where.curvatures = meshCurvatures(vertices, meshMade->GetIndicesVertexes());
             }
         }
         auto finder = std::make_shared<ContactFinder>();
@@ -5910,11 +6091,11 @@ Status ChronoSession::simulateDynamics(
                                                   - a->PointSpeedLocalToParent(point.onA));
                 const double approach = std::max(rate, 0.0);
                 const double k = load->stiffness[point.patch];
-                const double reach =
-                    std::pow((law.exponent + 1.0) * mass * approach * approach / (2.0 * k),
-                             1.0 / (law.exponent + 1.0));
+                const double e = load->exponents[point.patch];
+                const double reach = std::pow((e + 1.0) * mass * approach * approach / (2.0 * k),
+                                              1.0 / (e + 1.0));
                 const double deepest = std::max({depth, reach, 1e-12});
-                const double stiffness = law.exponent * k * std::pow(deepest, law.exponent - 1.0);
+                const double stiffness = e * k * std::pow(deepest, e - 1.0);
                 if (!(stiffness > 0.0)) {
                     continue;
                 }
@@ -5937,7 +6118,9 @@ Status ChronoSession::simulateDynamics(
                     }
                 }
                 shortest = std::min(shortest, period);
-                const double damping = step(deepest, 0.0, 0.0, law.penetration, law.maxDamping);
+                const double damping = law.damping == ContactLaw::Damping::Restitution
+                    ? k * std::pow(deepest, e) * load->hunt()
+                    : step(deepest, 0.0, 0.0, law.penetration, law.maxDamping);
                 if (damping > 0.0) {
                     damped = std::min(damped, 2.0 * mass / damping);
                 }
@@ -5973,7 +6156,6 @@ Status ChronoSession::simulateDynamics(
                 mass = std::min(mass, body->GetMass());
             }
         }
-        const ContactLaw& law = load.law;
         for (const auto& point : load.points) {
             const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
@@ -5985,10 +6167,10 @@ Status ChronoSession::simulateDynamics(
                                                    b->PointSpeedLocalToParent(point.onB)
                                                        - a->PointSpeedLocalToParent(point.onA)),
                                          0.0);
+            const double e = load.exponents[point.patch];
             const double reach = std::isfinite(mass)
-                ? std::pow((law.exponent + 1.0) * mass * rate * rate
-                               / (2.0 * load.stiffness[point.patch]),
-                           1.0 / (law.exponent + 1.0))
+                ? std::pow((e + 1.0) * mass * rate * rate / (2.0 * load.stiffness[point.patch]),
+                           1.0 / (e + 1.0))
                 : 0.0;
             if (depth > 0.1 * reach) {
                 return true;

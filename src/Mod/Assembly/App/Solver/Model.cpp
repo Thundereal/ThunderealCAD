@@ -149,7 +149,8 @@ bool same(const Inertia& a, const Inertia& b)
 
 bool same(const ContactLaw& a, const ContactLaw& b)
 {
-    return a.from == b.from && a.radius == b.radius && a.stiffness == b.stiffness
+    return a.from == b.from && a.radius == b.radius && a.damping == b.damping
+        && a.restitution == b.restitution && a.stiffness == b.stiffness
         && a.exponent == b.exponent && a.maxDamping == b.maxDamping
         && a.penetration == b.penetration && a.muStatic == b.muStatic && a.muDynamic == b.muDynamic
         && a.vStiction == b.vStiction && a.vFriction == b.vFriction;

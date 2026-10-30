@@ -350,6 +350,9 @@ struct InitialVelocity
 //   friction mu(v) Fn against the sliding velocity v, mu rising from 0 at
 //            rest to muStatic at vStiction and going to muDynamic at
 //            vFriction, Adams' STEP between them.
+// The damping as given, the STEP's, or by a coefficient of restitution r,
+// Flores et al.'s Hunt-Crossley: Fn = k d^e (1 + 8 (1 - r) / (5 r) dd/dt /
+// v0), v0 the approach speed the contact started at.
 // k and e as given, or Hertz's from the shapes' materials: k = 4/3 E* R^0.5
 // and e = 1.5, 1/E* the sum of the two shapes' 1 / ContactShape::modulus,
 // and R the contact's radius -- from the curvatures where the shapes touch,
@@ -366,8 +369,15 @@ struct ContactLaw
         Patch,  // 1 / (the two curvatures), at most the patch's extent
         Part    // 1/R = 1/RA + 1/RB, each shape's the ball's of its volume
     };
+    enum class Damping : std::uint8_t
+    {
+        Value,       // maxDamping reached at penetration
+        Restitution  // restitution's
+    };
     Stiffness from = Stiffness::Value;
     Radius radius = Radius::Patch;
+    Damping damping = Damping::Value;
+    double restitution = 0.6;  // r
     double stiffness = 1e8;     // k, mN / mm^e (1e5 N/mm at e = 1)
     double exponent = 1.5;      // e
     double maxDamping = 1e4;    // cmax, mN s / mm (10 N s/mm)

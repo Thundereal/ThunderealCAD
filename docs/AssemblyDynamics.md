@@ -719,26 +719,47 @@ Phase D1 is under way (2026-10-28):
     4/3 E* R^0.5 and 1.5, 1/E* = (1 - nuA^2)/EA + (1 - nuB^2)/EB, each
     component's Young's modulus and Poisson's ratio from its shapes'
     material cards (the softest where they differ; the default material's,
-    Aluminum Generic, 70 GPa and 0.35, where a card gives none). R, the
-    contact's radius, by `RadiusFrom`: Patch, where each patch touches --
-    1 / (the two sides' curvatures there), or, two flat faces, the patch's
+    Aluminum Generic, 70 GPa and 0.35, where a card gives none). By
+    `RadiusFrom` Part, a ball's: R, the contact's radius, by the parts'
+    sizes, 1/R = 1/RA + 1/RB, each the radius of the ball of the solid's
+    volume. By Patch, by the patch's relative curvature
+    (`patchStiffness()`): at each point the two sides' curvature tensors
+    summed in the contact plane, and its principal curvatures k1 >= k2, the
+    patch's their means. Two flat faces (k1 none): a ball's, R the patch's
     extent, the farthest of its points from their centre, and a single
-    point on two flat faces the parts' sizes -- or Part, the parts' sizes,
-    1/R = 1/RA + 1/RB, each the radius of the ball of the solid's volume.
-    Aluminium on aluminium comes to about 1e5 N/mm^1.5 for a radius of
-    5 mm, the Adams default. A set saved before `StiffnessFrom` restores as
-    Value (`ContactSet::Restore()`).
-  - The curvature (`vertexBends()`): a sphere's and a cylinder's side by
-    their radii, a cylinder's cap and a box's faces none; a mesh's and a
-    hull's at each vertex of their contact mesh, the larger eigenvalue of
-    the curvature tensor of a height quadric, A x^2/2 + B x y + C y^2/2 +
-    D x + E y, fitted to the vertex's neighbours in the tangent plane of
-    its normal (the faces' within 40 deg; a turn of 40 deg or more is the
+    point on two flat faces the parts' sizes. Round or oval (k2 at least a
+    hundredth of k1): a ball's, R 1/sqrt(k1 k2) -- Hertz's ellipse within a
+    few percent below an aspect of ten. A line (a cylinder on its side, a
+    torus lying flat on its ring): F = pi/4 E* L d, exponent 1, L the
+    line's length -- Johnson's line contact without its logarithm. Each
+    patch has its own exponent. Aluminium on aluminium comes to about
+    1e5 N/mm^1.5 for a radius of 5 mm, the Adams default. The damping is
+    `MaxDamping` reached at `Penetration` where `DampingFrom` is Value, or,
+    Restitution (a new set's), by the coefficient of restitution
+    `Restitution` (0.6): Flores et al.'s Hunt-Crossley,
+    Fn = k d^e (1 + 8 (1 - r) / (5 r) dd/dt / v0), v0 the speed the contact
+    came in at (the fastest its points approach while it does not press,
+    kept from then on, at least 1 mm/s), valid across r where Lankarani and
+    Nikravesh's 3 (1 - r^2) / 4 is good only near 1. It scales with the
+    stiffness, and is none at no depth, with no STEP. A set saved before
+    `StiffnessFrom` and `DampingFrom` restores as Value for both
+    (`ContactSet::Restore()`).
+  - The curvature (`vertexCurvatures()`): a sphere's all round, a
+    cylinder's side round its axis, a cylinder's cap and a box's faces
+    none; a mesh's and a hull's at each vertex of their contact mesh, the
+    curvature tensor of a height quadric, A x^2/2 + B x y + C y^2/2 + D x +
+    E y, fitted to the vertex's neighbours in the tangent plane of its
+    normal (the faces' within 40 deg; a turn of 40 deg or more is the
     solid's edge, and a flat face up to it stays flat). A point takes the
     mesh triangle's corner nearest it, or the hull's mesh point farthest
     out along the normal, where a convex shape touches. A torus's tube
     (2 mm) reads 1.997, a hemisphere (5 mm) 4.99, an ellipsoid's pole
     (12 mm) 11.99.
+  - The line's length (`lineLength()`): the deepest point of each
+    cross-section, across the line the curved way, chained by their
+    minimum spanning tree, a path whose ends are close closed into a ring.
+    A torus lying flat reads 62.38 mm of its ring's 62.83 (the tessellated
+    polygon's), where the patch's extent is 10.7.
   - The command, Assembly_CreateContact (toolbar, after the bushing):
     the components selected go in group A, and its panel (a double click
     opens it too) picks either group in the 3D view -- a pick adds a
@@ -960,6 +981,19 @@ Phase D1 is under way (2026-10-28):
         those within the contact's margin, and the ellipsoid's, on the
         triangle at its pole, were half a millimetre across. Only two flat
         faces take it now.
+      - The extended law: the curvature tensors averaged over a torus's
+        ring, curving across the tube at each point a different way round,
+        read it as a round contact of 4 mm -- hence the means of each
+        point's principal curvatures; its ring's spanning tree was the
+        ring less a segment, 8% short with 13 points; and points at one
+        depth knocked one another out of the line on a rounding's 1e-16,
+        40 of the ring's 89 kept, until a point lost only to one deeper by
+        10 nm.
+      - Under aluminium the line law made a cylinder on its side and a
+        torus lying flat 6e5 and 2e6 N/mm stiff, sunk 1e-7 mm, and the
+        damping given by value, whole at 0.01 mm, all but none there: they
+        bounced on, 0.93 mm up at 0.1 s. Hence the damping by restitution,
+        scaling with the stiffness.
       - The notched cube landing flat from the materials (k 1.4e5) was
         thrown half a kilometre, and so it was at a value of 1.41e5 (1e5,
         1.2e5 and 2e5 landed): a landing substep's Newton iterations
@@ -975,15 +1009,19 @@ Phase D1 is under way (2026-10-28):
     sliding at mu g; a prism resting on its hull under a soft law, sunk
     by (mg/k)^(1/e) as the ball (1e-5 mm), and landing level under the
     default one (1e-4 mm, 1e-4 rad), and on a larger prism's top face; an
-    ellipsoid resting on its pole (0.01 mm), a torus on its tube (0.01 mm);
+    ellipsoid resting on its pole (0.01 mm), a torus on its tube (0.01 mm,
+    of the soft material);
     the law per patch: a cube with a hole through it sunk by the ball's
     rule, and the channel upside down on its two legs by half its weight's
     (1e-5 mm); Hertz's law from soft materials (10 MPa): a ball sunk by its
     closed form, R its own or by the parts' sizes (1e-6 mm), the prism's
     base by its extent (2e-5 mm: its corners grown by the envelope) or the
-    sizes (1e-6), the torus on its tube and a hemisphere on its dome as on
-    the stiffness Hertz's law gives their radii (5e-5 mm), a set saved
-    before StiffnessFrom restored as Value; a cube with a corner
+    sizes (1e-6), a cylinder on its side by the line law's (1e-6), the
+    torus lying flat as on the line law's stiffness for its ring and a
+    hemisphere on its dome as on Hertz's for R 5 (5e-5 mm); damped by
+    restitution, a ball dropped a millimetre rebounding r^2 of it (3% at
+    r 0.8); a set saved before StiffnessFrom and DampingFrom restored as
+    Value for both; a cube with a corner
     cut out landing level on its base (1e-4 mm, 1e-4 rad), a box resting
     on the floor of a slot in a block and not on the block's hull, and the
     notched cube on the block beside the slot, mesh on mesh, its sides
@@ -993,14 +1031,26 @@ Phase D1 is under way (2026-10-28):
     in it refused; a set's pairs only.
   - Tests (TestGuiCommands): the panel's picks, law, OK and Cancel, and
     a new study ticking the set; the stiffness from the materials or a
-    value, each idling the other's rows, the slider's powers of ten and the
-    rest it shows; OK refused with group A empty.
+    value, and the damping by restitution or a value, each idling the
+    other's rows, the slider's powers of ten and the rest it shows; OK
+    refused with group A empty.
   - Not yet: curve contact for cams (sec 7.4), stops, sensors, contact
     plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
-    Hertz's law takes the larger of a surface's two curvatures, so a
-    torus on its tube is a ball of the tube's radius, and a line contact (a
-    cylinder on its side) is a ball's too; the damping is still a value.
+    The rebound by restitution is short of r^2 where r is small and the
+    contact long: a ball dropped a millimetre reached 0.065 for r^2 0.09
+    at r 0.3, 0.627 for 0.64 at 0.8, 0.901 for 0.9025 at 0.95 (aluminium);
+    of a soft material (10 MPa), 0.034, 0.589 and 0.885 -- gravity working
+    through the contact. A line contact's law, linear, takes the damping
+    made for Hertz's. And a line contact of metal is slow: linear, its
+    stiffness stays whole at the smallest depth where a ball's goes to
+    none, and aluminium's is 6e5 N/mm along a 20 mm cylinder, 2e6 along a
+    torus's ring -- substeps of a fraction of a microsecond, the cylinder
+    lying on its side 68 s for 0.3 s (6 s as a ball's), the torus 917 s for
+    0.1 s (its test is of the soft material now: 25 s). Johnson's line law
+    with its logarithm, pi E* L / (2 ln(4R/a) - 1), is some 5 times softer
+    for these loads; and the fiftieth of the period the substep takes is a
+    rule made for Hertz's impacts.
     A resting mesh is still slow under the default law: collision
     detection and the Newton iterations cost milliseconds a substep, and
     the substep is a fiftieth of the patch's period. A tumble is slow too:

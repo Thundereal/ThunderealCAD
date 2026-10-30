@@ -21,6 +21,8 @@ In PartDesign:
   - the auto aux groups turned off, the Surfaces group goes too and the
     surfaces stay in the body; turned on, it comes back holding them;
   - in a body with no auto aux groups, a Surface feature brings no group;
+  - in a body on a base feature, the groups go after the base, which the
+    body keeps;
   - saved and reopened, the group is a surface group with its members;
   - deleting the active group takes the tool bar away.
 
@@ -249,6 +251,17 @@ def run():
         check("a body made by script has no auto aux groups, and a surface brings none",
               not plain.hasAutoAuxGroup() and auxGroups(plain) == [] and fill2 in plain.Group,
               [o.Name for o in plain.Group])
+
+        box = doc.addObject("Part::Box", "Box")
+        based = doc.addObject("PartDesign::Body", "Based")
+        based.BaseFeature = box
+        doc.recompute()
+        based.setAutoAuxGroup(True)
+        doc.recompute()
+        check("in a body on a base feature, the groups go after the base, which it keeps",
+              based.BaseFeature == box and based.Group[0].isDerivedFrom("PartDesign::FeatureBase")
+              and auxGroups(based) == ["Datums", "Misc", "Sketches"],
+              (based.BaseFeature and based.BaseFeature.Name, [o.Name for o in based.Group]))
 
         path = os.path.join(tempfile.mkdtemp(dir=OUT), "SurfaceGroup.FCStd")
         doc.saveAs(path)

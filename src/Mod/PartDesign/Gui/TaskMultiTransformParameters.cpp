@@ -285,8 +285,7 @@ void TaskMultiTransformParameters::onTransformAddMirrored()
     if (!pcBody)
         return;
 
-    if (isEnabledTransaction())
-        setupTransaction();
+    setupTransaction();
 
     FCMD_OBJ_CMD(pcBody, "newObject('PartDesign::Mirrored','"<<newFeatName<<"')");
     auto Feat = pcBody->getDocument()->getObject(newFeatName.c_str());
@@ -314,8 +313,7 @@ void TaskMultiTransformParameters::onTransformAddLinearPattern()
     if (!pcBody)
         return;
 
-    if (isEnabledTransaction())
-        setupTransaction();
+    setupTransaction();
 
     FCMD_OBJ_CMD(pcBody, "newObject('PartDesign::LinearPattern','"<<newFeatName<<"')");
     auto Feat = pcBody->getDocument()->getObject(newFeatName.c_str());
@@ -349,8 +347,7 @@ void TaskMultiTransformParameters::onTransformAddPolarPattern()
     if (!pcBody)
         return;
 
-    if (isEnabledTransaction())
-        setupTransaction();
+    setupTransaction();
 
     FCMD_OBJ_CMD(pcBody, "newObject('PartDesign::PolarPattern','"<<newFeatName<<"')");
     auto Feat = pcBody->getDocument()->getObject(newFeatName.c_str());
@@ -386,8 +383,7 @@ App::DocumentObject* TaskMultiTransformParameters::newTransformFeature(const cha
     if (!pcBody)
         return nullptr;
 
-    if (isEnabledTransaction())
-        setupTransaction();
+    setupTransaction();
 
     FCMD_OBJ_CMD(pcBody, "newObject('PartDesign::"<<type<<"','"<<newFeatName<<"')");
     return pcBody->getDocument()->getObject(newFeatName.c_str());
@@ -434,8 +430,7 @@ void TaskMultiTransformParameters::onTransformAddScaled()
     if (!pcBody)
         return;
 
-    if (isEnabledTransaction())
-        setupTransaction();
+    setupTransaction();
 
     FCMD_OBJ_CMD(pcBody, "newObject('PartDesign::Scaled','"<<newFeatName<<"')");
     auto Feat = pcBody->getDocument()->getObject(newFeatName.c_str());

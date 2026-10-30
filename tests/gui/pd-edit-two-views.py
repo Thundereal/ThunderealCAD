@@ -30,7 +30,10 @@ Claims:
   - OK of the fillet keeps its value and ends its edit;
   - a linear pattern's edit in the second window, beside the fillet's,
     takes back its own on Cancel and keeps the fillet's; its OK keeps its
-    value and ends its edit only.
+    value and ends its edit only;
+  - a MultiTransform's edit beside the fillet's: a transformation added
+    in its panel goes with its Cancel, its feature too, and the fillet's
+    change typed after it stays.
 """
 import os
 import traceback
@@ -38,7 +41,7 @@ import traceback
 import FreeCAD
 import FreeCADGui
 import Part
-from PySide import QtCore, QtWidgets
+from PySide import QtCore, QtGui, QtWidgets
 from PySide6 import QtTest
 
 OUT = os.environ["GT_OUT"]
@@ -136,6 +139,21 @@ def type_into_class(view, cls, text):
     return True
 
 
+def trigger(view, text):
+    """Trigger the action `text` of the dialog of `view`."""
+    activate(view)
+    dlg = FreeCADGui.Control.activeTaskDialog(view=view)
+    if dlg is None:
+        return False
+    for w in dlg.getDialogContent():
+        for a in w.findChildren(QtGui.QAction):
+            if a.text() == text:
+                a.trigger()
+                settle(1000)
+                return True
+    return False
+
+
 def answer_later(text):
     """Click `text` in the Cancel question once it is up (it is modal)."""
     def click():
@@ -201,6 +219,8 @@ def run():
         pattern.Direction = (doc.getObject("X_Axis"), [""])
         pattern.Length = 30
         pattern.Occurrences = 2
+        multi = body.newObject("PartDesign::MultiTransform", "Multi")
+        multi.Originals = [pad]
         doc.recompute()
         doc.UndoMode = 1
         doc.clearUndos()
@@ -355,6 +375,28 @@ def run():
               pattern.Occurrences == 4 and in_edit(gdoc, v2) is None
               and in_edit(gdoc, v1) == "Fillet",
               (pattern.Occurrences, in_edit(gdoc, v2), in_edit(gdoc, v1)))
+
+        # A MultiTransform's panel: what it adds is its own step
+        edit(gdoc, v2, multi, "Edit Multi")
+        check("the MultiTransform goes in edit beside the fillet",
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)) == ("Fillet", "Multi"),
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)))
+        added = trigger(v2, "Add linear pattern")
+        made = [o.Name for o in multi.Transformations]
+        type_into(v1, "filletRadius", "1.5")
+        check("a transformation added in its panel is the MultiTransform's",
+              added and len(made) == 1, (added, made))
+        activate(v2)
+        cancel(v2)
+        check("Cancel of the MultiTransform takes back the transformation added",
+              multi.Transformations == [] and all(doc.getObject(n) is None for n in made),
+              ([o.Name for o in multi.Transformations],
+               [n for n in made if doc.getObject(n) is not None]))
+        check("and keeps the fillet's (MultiTransform)", round(fillet.Radius.Value, 3) == 1.5,
+              fillet.Radius)
+        check("the fillet stays in edit (MultiTransform)", in_edit(gdoc, v1) == "Fillet",
+              in_edit(gdoc, v1))
+
         activate(v1)
         FreeCADGui.Control.activeTaskDialog(view=v1).accept()
         settle(1000)

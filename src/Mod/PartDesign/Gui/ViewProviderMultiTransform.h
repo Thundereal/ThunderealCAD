@@ -44,13 +44,6 @@ public:
 
     std::vector<App::DocumentObject*> _claimChildren() const override;
 
-    /// Not yet: its panel makes and removes the transformations in the
-    /// transaction the edit holds (docs/HandsOnQueue.md entry 232)
-    bool panelOwnsItsSteps() const override
-    {
-        return false;
-    }
-
     const std::string & featureName() const override;
 
     void setupContextMenu(QMenu*, QObject*, const char*) override;

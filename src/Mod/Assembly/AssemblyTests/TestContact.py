@@ -263,7 +263,8 @@ class TestContact(unittest.TestCase):
         it comes to rest on its tube, its centre the tube's radius above the
         plate, within the mesh's deflection. Its ring of points is one
         patch, a line contact 62.8 mm long. Of the soft material: of
-        aluminium the line is 2e6 N/mm stiff, and 0.1 s took 15 minutes"""
+        aluminium it bounces some twenty-five times before it rests, and
+        0.1 s takes half a minute"""
         plate = self.plate()
         plate.ShapeMaterial = self.soft()
         torus = self.assembly.newObject("Part::Torus", "Torus")
@@ -420,11 +421,20 @@ class TestContact(unittest.TestCase):
         modulus = SOFT_E / (1 - SOFT_NU**2) / 2
         return 4.0 / 3.0 * modulus * math.sqrt(radius)
 
-    def line(self, length):
-        """The line contact's stiffness of two soft parts along a length,
-        N/mm: pi/4 E* L"""
-        modulus = SOFT_E / (1 - SOFT_NU**2) / 2
-        return math.pi / 4.0 * modulus * length
+    def johnson(self, length, radius, mass, modulus=None):
+        """Johnson's line contact of two soft parts along a length, the
+        contact's radius across it (johnsonLine()): the sink under the
+        mass's weight, mm, and the power law tangent to it there, its
+        stiffness and exponent. Explicit for a load: d = P / (pi E*)
+        (2 ln(4R/a) - 1), a = sqrt(4 P R / (pi E*)), P the load a mm"""
+        if modulus is None:
+            modulus = SOFT_E / (1 - SOFT_NU**2) / 2
+        load = mass * G * 1e-3 / length
+        half = math.sqrt(4 * load * radius / (math.pi * modulus))
+        log = math.log(4 * radius / half)
+        sink = load / (math.pi * modulus) * (2 * log - 1)
+        exponent = (2 * log - 1) / (2 * log - 2)
+        return sink, length * load / sink**exponent, exponent
 
     def sizeOf(self, part):
         """The radius of the ball of the part's volume"""
@@ -488,9 +498,9 @@ class TestContact(unittest.TestCase):
 
     def test_hertz_line(self):
         """A line contact: the cylinder lying on its side, one curvature
-        across it and none along, sinks by the line law's closed form,
-        F = pi/4 E* L d, L its length. Fully damped from 1e-4 mm: its sink
-        is a hundredth of the default's"""
+        across it and none along, sinks by Johnson's line contact, L its
+        length, R its radius. Fully damped from 1e-4 mm: its sink is a
+        hundredth of the default's"""
         plate = self.plate()
         plate.ShapeMaterial = self.soft()
         turned = App.Rotation(App.Vector(0, 1, 0), 90)
@@ -507,16 +517,31 @@ class TestContact(unittest.TestCase):
         _, result = self.simulate(0.3, 1e-3)
         self.assertEqual(result, 0)
         mass = cylinder.Shape.Volume * DENSITY
-        self.assertAlmostEqual(
-            self.heights(cylinder)[-1], 15 - self.sink(mass, self.line(20.0), 1.0), delta=1e-6
-        )
+        sink, _, _ = self.johnson(20.0, 5.0, mass)
+        self.assertAlmostEqual(self.heights(cylinder)[-1], 15 - sink, delta=1e-6)
+
+    def test_metal_line(self):
+        """Of aluminium, the default, a line contact is stiff: the cylinder on
+        its side sinks Johnson's 3.3e-7 mm, resting on it in steps longer
+        than its period of 36 us, where a fiftieth of it took 68 s for
+        0.3 s"""
+        plate = self.plate()
+        turned = App.Rotation(App.Vector(0, 1, 0), 90)
+        cylinder = self.cylinder(20, App.Placement(App.Vector(-10, 0, 16), turned))
+        self.contact([cylinder], [plate], StaticFriction=0.0, DynamicFriction=0.0)
+        _, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        mass = cylinder.Shape.Volume * DENSITY
+        sink, _, _ = self.johnson(20.0, 5.0, mass, modulus=70000.0 / (1 - 0.35**2) / 2)
+        self.assertAlmostEqual(self.heights(cylinder)[-1], 15 - sink, delta=1e-8)
 
     def test_hertz_curvature(self):
         """A mesh's and a hull's curvature, read off their meshes where they
         touch: the torus lying flat touches along its ring, a line contact
-        2 pi 10 mm long, and a hemisphere on its dome, R 5; each rests as it
-        does on the stiffness the line law or Hertz's gives those -- what
-        their meshes' facets do to the rest, both runs share"""
+        2 pi 10 mm long across its tube of R 2, and a hemisphere on its
+        dome, R 5; each rests as it does on the stiffness Johnson's law, at
+        its sink, or Hertz's gives those -- what their meshes' facets do to
+        the rest, both runs share"""
         import Part
 
         plate = self.plate()
@@ -530,8 +555,11 @@ class TestContact(unittest.TestCase):
         dome.Placement.Base = App.Vector(18, 0, 16)
         dome.ShapeMaterial = self.soft()
         law = dict(MaxDamping=0.01, Penetration=1e-4, StaticFriction=0.0, DynamicFriction=0.0)
+        _, stiffness, exponent = self.johnson(
+            2 * math.pi * 10, 2.0, 2 * math.pi**2 * 10 * 2**2 * DENSITY
+        )
         sets = {
-            torus: (self.contact([torus], [plate], **law), self.line(2 * math.pi * 10), 1.0),
+            torus: (self.contact([torus], [plate], **law), stiffness, exponent),
             dome: (self.contact([dome], [plate], **law), self.hertz(5.0), 1.5),
         }
         start = {part: part.Placement for part in sets}

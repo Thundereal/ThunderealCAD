@@ -730,9 +730,18 @@ Phase D1 is under way (2026-10-28):
     point on two flat faces the parts' sizes. Round or oval (k2 at least a
     hundredth of k1): a ball's, R 1/sqrt(k1 k2) -- Hertz's ellipse within a
     few percent below an aspect of ten. A line (a cylinder on its side, a
-    torus lying flat on its ring): F = pi/4 E* L d, exponent 1, L the
-    line's length -- Johnson's line contact without its logarithm. Each
-    patch has its own exponent. Aluminium on aluminium comes to about
+    torus lying flat on its ring): Johnson's line contact
+    (`johnsonLine()`), the axis of a cylinder of R 1/k1 sinking
+    d = P / (pi E*) (2 ln(4R/a) - 1) under P a unit length, a =
+    sqrt(4 P R / (pi E*)) the contact's half width, L the line's length;
+    as the power law tangent to it at the patch's depth now (or, before it
+    presses, the depth an impact at its speed reaches), refitted at each
+    collision detection: k d^e through Johnson's force there, e its slope
+    (2 ln - 1) / (2 ln - 2), 1.05 to 1.1 (Pereira et al.'s explicit fit to
+    Johnson takes 1.094). Pereira et al. and the review of Skrinjar et al.
+    (2018) put Johnson's first among the line laws; without its logarithm,
+    pi/4 E* L d, it is five times as stiff at a metal's sinks of 1e-7 mm.
+    Each patch has its own exponent. Aluminium on aluminium comes to about
     1e5 N/mm^1.5 for a radius of 5 mm, the Adams default. The damping is
     `MaxDamping` reached at `Penetration` where `DampingFrom` is Value, or,
     Restitution (a new set's), by the coefficient of restitution
@@ -768,9 +777,9 @@ Phase D1 is under way (2026-10-28):
     stiffness comes from, the contact radius, and the stiffness itself on a
     spin box and a slider of powers of ten, 1 to 1e7. Under them, how the
     lightest component of group A rests on the law: how far it sinks and
-    the run's steps there, (mg/k)^(1/e) and a fiftieth of the period
-    (from the materials, by the parts' sizes; the run takes R where they
-    touch). OK waits for
+    the run's steps through an impact there, (mg/k)^(1/e) and a fiftieth
+    of the period (from the materials, by the parts' sizes; the run takes R
+    where they touch). OK waits for
     group A; Cancel undoes the edit, or deletes the set the command made.
     A new study ticks it with the other elements, and its ContactForce
     channel is "Contact force" in N in the results. The study command no
@@ -788,15 +797,24 @@ Phase D1 is under way (2026-10-28):
   - The force (`Solver/ChronoBackend.cpp`, `ContactLoad`): a load per pair
     of bodies a set lets touch, given at each step's start the points
     collision detection found, and evaluating the law at whatever state
-    the integrator asks for. Chrono's numerical Jacobian of it makes the
-    contact implicit; Chrono makes no contact of its own (Bullet's
+    the integrator asks for. Its numerical Jacobian makes the contact
+    implicit, by differences of a hundredth of the shallowest point's depth
+    (at most Chrono's 1e-8 m: a metal's line sinks 3e-10 m); Chrono makes
+    no contact of its own (Bullet's
     narrowphase callback refuses them all: its SMC contact is explicit,
     fixed over a step). HHT with alpha -1/3 and no step control when there
     is contact. A step is cut into substeps: a fiftieth of the stiffest
     point's impact period (the body's mass shared among its patches
     pressing), the damping's limit 2m/c, and half the time to a contact
     still coming
-    (its speed and gravity). A substep that finds a new contact deeper
+    (its speed and gravity) -- for the impacts: a load at rest keeps none of
+    them. It rests once its deepest point's depth has stayed within 2% of
+    itself, or within the run's tolerance (1e-6 mm), for five of its
+    periods (an impact's sink and rebound move it all the way); HHT, given
+    its Jacobian, damps the period it steps over, as RecurDyn and Adams,
+    stepping by their error, cut the step only about an impact. A substep
+    longer than the strict rule's that moves a load at rest out of its
+    range is taken again by the rule. A substep that finds a new contact deeper
     than a tenth of what its impact will reach is taken again an eighth as
     long; one whose Newton iterations ran off to a state not finite, too,
     and below 1e-9 s the run fails ("the contact's integration diverged")
@@ -994,6 +1012,13 @@ Phase D1 is under way (2026-10-28):
         damping given by value, whole at 0.01 mm, all but none there: they
         bounced on, 0.93 mm up at 0.1 s. Hence the damping by restitution,
         scaling with the stiffness.
+      - Johnson's law and the rule for loads at rest took the cylinder of
+        aluminium on its side from 68 s to 15 s for 0.3 s: its Newton
+        iterations stopped unconverged on 26858 of its substeps, every one
+        past a third of its period, until the Jacobian's differences were
+        the contact's own size, and then 0.2 s. The torus of aluminium on
+        its ring rocks on its facets by 5e-8 mm, sunk 6e-8: within 2% it
+        never rested, hence the tolerance.
       - The notched cube landing flat from the materials (k 1.4e5) was
         thrown half a kilometre, and so it was at a value of 1.41e5 (1e5,
         1.2e5 and 2e5 landed): a landing substep's Newton iterations
@@ -1016,8 +1041,9 @@ Phase D1 is under way (2026-10-28):
     (1e-5 mm); Hertz's law from soft materials (10 MPa): a ball sunk by its
     closed form, R its own or by the parts' sizes (1e-6 mm), the prism's
     base by its extent (2e-5 mm: its corners grown by the envelope) or the
-    sizes (1e-6), a cylinder on its side by the line law's (1e-6), the
-    torus lying flat as on the line law's stiffness for its ring and a
+    sizes (1e-6), a cylinder on its side by Johnson's (1e-6), and of
+    aluminium (1e-8 mm), the torus lying flat as on Johnson's power law at
+    its sink for its ring and a
     hemisphere on its dome as on Hertz's for R 5 (5e-5 mm); damped by
     restitution, a ball dropped a millimetre rebounding r^2 of it (3% at
     r 0.8); a set saved before StiffnessFrom and DampingFrom restored as
@@ -1041,21 +1067,13 @@ Phase D1 is under way (2026-10-28):
     contact long: a ball dropped a millimetre reached 0.065 for r^2 0.09
     at r 0.3, 0.627 for 0.64 at 0.8, 0.901 for 0.9025 at 0.95 (aluminium);
     of a soft material (10 MPa), 0.034, 0.589 and 0.885 -- gravity working
-    through the contact. A line contact's law, linear, takes the damping
-    made for Hertz's. And a line contact of metal is slow: linear, its
-    stiffness stays whole at the smallest depth where a ball's goes to
-    none, and aluminium's is 6e5 N/mm along a 20 mm cylinder, 2e6 along a
-    torus's ring -- substeps of a fraction of a microsecond, the cylinder
-    lying on its side 68 s for 0.3 s (6 s as a ball's), the torus 917 s for
-    0.1 s (its test is of the soft material now: 25 s). Johnson's line law
-    with its logarithm, pi E* L / (2 ln(4R/a) - 1), is some 5 times softer
-    for these loads; and the fiftieth of the period the substep takes is a
-    rule made for Hertz's impacts.
-    A resting mesh is still slow under the default law: collision
-    detection and the Newton iterations cost milliseconds a substep, and
-    the substep is a fiftieth of the patch's period. A tumble is slow too:
-    the tall cylinder's 0.3 s takes about 10 s, in substeps of
-    microseconds through each impact.
+    through the contact. A line contact's law, near linear, takes the
+    damping made for Hertz's (Flores et al.'s factor is for an exponent of
+    1.5). A torus of aluminium dropped a millimetre bounces some
+    twenty-five times at r 0.6 before it rests, each impact in substeps of
+    0.3 us: 27 s for 0.1 s (its test is of the soft material: 8 s).
+    A tumble is slow too: the tall cylinder's 0.3 s takes a few seconds, in
+    substeps of microseconds through each impact.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

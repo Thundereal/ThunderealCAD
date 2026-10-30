@@ -673,11 +673,40 @@ public:
             ++count;
         }
     }
-    // Chrono's numerical jacobian leaves the load at its last perturbed
-    // state: put back the one at the state
+    // Chrono's numerical jacobian, by differences of 1e-8 m: a metal's line
+    // contact sinks 3e-10 m, and a difference that lifts it off or presses
+    // it thirty times as deep gave Newton a jacobian it did not converge on
+    // past a third of the contact's period. The differences in position here
+    // a hundredth of the shallowest point pressing, at most Chrono's; and
+    // the load left at the state, not at its last difference.
     void ComputeJacobian(ch::ChState* state_x, ch::ChStateDelta* state_w) override
     {
-        ch::ChLoadBodyBody::ComputeJacobian(state_x, state_w);
+        const int rows = LoadGetNumCoordsVelLevel();
+        ComputeQ(state_x, state_w);
+        const ch::ChVectorDynamic<> q0 = load_Q;
+        double delta = 1e-8;
+        for (const double depth : depths) {
+            if (depth > 0.0) {
+                delta = std::min(delta, 0.01 * depth);
+            }
+        }
+        delta = std::max(delta, 1e-14);
+        ch::ChState moved(LoadGetNumCoordsPosLevel(), nullptr);
+        ch::ChStateDelta step(rows, nullptr);
+        step.setZero(rows, nullptr);
+        for (int i = 0; i < rows; ++i) {
+            step(i) = delta;
+            LoadStateIncrement(*state_x, step, moved);
+            step(i) = 0.0;
+            ComputeQ(&moved, state_w);
+            m_jacobians->K.block(0, i, rows, 1) = (load_Q - q0) * (-1.0 / delta);
+        }
+        for (int i = 0; i < rows; ++i) {
+            (*state_w)(i) += 1e-8;
+            ComputeQ(state_x, state_w);
+            (*state_w)(i) -= 1e-8;
+            m_jacobians->R.block(0, i, rows, 1) = (load_Q - q0) * (-1.0 / 1e-8);
+        }
         ComputeQ(state_x, state_w);
     }
 
@@ -692,6 +721,14 @@ public:
     // press, the fastest its points come in at (patchStiffness()), kept
     // from then on
     double impact = 0.0;
+    // Whether it rests (contactStep(), advance()): the range its deepest
+    // point's depth has kept, for how long, and the shortest period of its
+    // points on their springs
+    double low = 0.0;
+    double high = 0.0;
+    double calm = 0.0;
+    double period = 0.0;
+    bool settled = false;
 
     /** By restitution: Flores et al.'s Hunt-Crossley damping, the force's
      * factor a speed in s/m, 8 (1 - r) / (5 r v0) -- the energy an impact
@@ -2236,6 +2273,36 @@ double lineLength(const std::vector<ch::ChVector3d>& at,
     return length;
 }
 
+// Johnson's line contact, a cylinder of radius R pressed into a half-space
+// (Johnson, Contact Mechanics, 1985; Puttock and Thwaite's for one radius):
+// under P a unit length its axis sinks d = P / (pi E*) (2 ln(4R/a) - 1),
+// a = sqrt(4 P R / (pi E*)) the contact's half width. Linear, pi/4 E* L d,
+// but for the logarithm, which makes it five times as soft at a metal's
+// sinks of 1e-7 mm -- the comparisons of Pereira et al. and Skrinjar et al.
+// put it first among the line contact laws. P at a sink d by fixed point on
+// the logarithm (its slope 1 / (2 ln(4R/a) - 1), a tenth), then the power
+// law tangent to it there, k d^e, e its slope d ln P / d ln d =
+// (2 ln - 1) / (2 ln - 2), 1.05 to 1.1; Pereira et al.'s explicit fit to
+// it takes 1.094. The logarithm at least 2: a contact half as wide as the
+// cylinder is past the law, and e stays at most 1.5, Hertz's.
+void johnsonLine(double modulus,
+                 double radius,
+                 double length,
+                 double depth,
+                 double& stiffness,
+                 double& exponent)
+{
+    double load = pi / 4.0 * modulus * depth;
+    double log = 2.0;
+    for (int i = 0; i < 8; ++i) {
+        const double half = std::sqrt(4.0 * load * radius / (pi * modulus));
+        log = std::max(std::log(4.0 * radius / half), 2.0);
+        load = pi * modulus * depth / (2.0 * log - 1.0);
+    }
+    exponent = (2.0 * log - 1.0) / (2.0 * log - 2.0);
+    stiffness = length * load / std::pow(depth, exponent);
+}
+
 // Each patch's stiffness and exponent (ContactLaw): the law's, or Hertz's
 // from the shapes' materials, 1/E* the sum of the two shapes'
 // 1 / (E / (1 - nu^2)). By the parts' sizes, a ball's: k = 4/3 E* R^0.5,
@@ -2249,8 +2316,10 @@ double lineLength(const std::vector<ch::ChVector3d>& at,
 // - k2 at least a hundredth of k1, round or oval: a ball's, R 1/sqrt(k1 k2)
 //   (an ellipse's is within a few percent of it below an aspect of ten);
 // - else a line, a cylinder on its side or a torus lying flat on its ring:
-//   F = pi/4 E* L d, e = 1, L the line's length (lineLength()) -- Johnson's
-//   line contact without its logarithm; one point's line, a ball's, R 1/k1.
+//   Johnson's line contact (johnsonLine()), R 1/k1, L the line's length
+//   (lineLength()), as the power law tangent to it at the patch's depth
+//   now, or at the depth an impact at its speed goes to before it presses;
+//   one point's line, a ball's, R 1/k1.
 // The means, not the tensors': a torus's ring curves across the tube at
 // each point, a different way round the ring, and the tensors averaged over
 // it read it as a round contact of 4 mm.
@@ -2363,12 +2432,31 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
             }
             else {
                 const double length = lineLength(patch.at, patch.gaps, patch.across);
+                radius = 1.0 / k1;
                 if (length > 0.0) {
-                    load.stiffness[p] = pi / 4.0 * modulus * length;
-                    load.exponents[p] = 1.0;
+                    double depth = 0.0;
+                    for (const double gap : patch.gaps) {
+                        depth = std::max(depth, -gap);
+                    }
+                    if (!(depth > 0.0)) {
+                        double mass = std::numeric_limits<double>::infinity();
+                        for (const auto& body : {bodyA, bodyB}) {
+                            if (!body->IsFixed() && body->GetMass() > 0.0) {
+                                mass = std::min(mass, body->GetMass());
+                            }
+                        }
+                        if (std::isfinite(mass)) {
+                            depth = load.impact * std::sqrt(mass / (pi / 4.0 * modulus * length));
+                        }
+                    }
+                    johnsonLine(modulus,
+                                radius,
+                                length,
+                                std::max(depth, 1e-12 * radius),
+                                load.stiffness[p],
+                                load.exponents[p]);
                     continue;
                 }
-                radius = 1.0 / k1;
             }
         }
         if (radius > 0.0) {
@@ -6044,13 +6132,19 @@ Status ChronoSession::simulateDynamics(
     // substep is a twentieth of the shortest. The law's damping there too:
     // a step longer than 2 m / c turns its decay into an oscillation, which
     // the contact, pushing only, rectified into a kick -- a box at rest
-    // jumping 0.2 mm. A part resting on another is limited by neither: its
-    // period is milliseconds, its penetration a fraction of the damping's.
-    auto contactStep = [&]() {
+    // jumping 0.2 mm. A part resting on another is limited by neither on the
+    // default law: its period is milliseconds, its penetration a fraction of
+    // the damping's. On a metal's it is microseconds, and the period is for
+    // the impacts: a load at rest (advance()), unless strict, keeps only the
+    // damping's limit -- HHT, implicit and given the loads' jacobians, damps
+    // the period it steps over, as the codes stepping by their error do
+    // (RecurDyn, Adams: smaller steps only about an impact).
+    auto contactStep = [&](bool strict) {
         double shortest = std::numeric_limits<double>::infinity();
         double damped = std::numeric_limits<double>::infinity();
         double arrival = std::numeric_limits<double>::infinity();
         for (const auto& load : contactLoads) {
+            load->period = std::numeric_limits<double>::infinity();
             if (load->points.empty()) {
                 continue;
             }
@@ -6113,15 +6207,20 @@ Status ChronoSession::simulateDynamics(
                     }
                     const double toContact = 2.0 * gap / (approach + root);
                     if (toContact > period) {
-                        arrival = std::min(arrival, 0.5 * toContact);
+                        if (strict || !load->settled) {
+                            arrival = std::min(arrival, 0.5 * toContact);
+                        }
                         continue;
                     }
                 }
-                shortest = std::min(shortest, period);
+                load->period = std::min(load->period, period);
+                if (strict || !load->settled) {
+                    shortest = std::min(shortest, period);
+                }
                 const double damping = law.damping == ContactLaw::Damping::Restitution
                     ? k * std::pow(deepest, e) * load->hunt()
                     : step(deepest, 0.0, 0.0, law.penetration, law.maxDamping);
-                if (damping > 0.0) {
+                if (damping > 0.0 && (strict || !load->settled)) {
                     damped = std::min(damped, 2.0 * mass / damping);
                 }
             }
@@ -6178,9 +6277,38 @@ Status ChronoSession::simulateDynamics(
         }
         return false;
     };
+    const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
+    // Whether a load rests: the range its deepest point's depth has kept,
+    // given the depth now too, within 2% of it or within the tolerance; and
+    // that range kept, after a substep of h, settled once it has held five
+    // of its periods -- an impact's sink and rebound move it all the way, and
+    // a resting part's rocking dies down under the damping within some. The
+    // tolerance for a metal's: a torus of aluminium on its ring, sunk 6e-8
+    // mm, rocks on its facets by 5e-8.
+    auto resting = [&](const ContactLoad& load) {
+        const double depth = pressing(load);
+        const double high = std::max(load.high, depth);
+        const double range = high - std::min(load.low, depth);
+        return depth > 0.0 && (range <= 0.02 * high || range <= tolerance);
+    };
+    auto keepCalm = [&](ContactLoad& load, double h) {
+        if (load.calm > 0.0 && resting(load)) {
+            const double depth = pressing(load);
+            load.low = std::min(load.low, depth);
+            load.high = std::max(load.high, depth);
+            load.calm += h;
+            load.settled = load.calm >= 5.0 * load.period;
+            return;
+        }
+        const double depth = pressing(load);
+        load.low = load.high = depth;
+        load.calm = depth > 0.0 ? h : 0.0;
+        load.settled = false;
+    };
     // A step of dt, in substeps; a substep that found a contact late is taken
     // again, an eighth as long, from the state before it, and the steps
-    // grow back after.
+    // grow back after. One longer than the strict rule's that moved a load
+    // at rest is taken again by it.
     auto advance = [&](double dt) {
         if (!contact) {
             sys.DoStepDynamics(dt);
@@ -6196,7 +6324,8 @@ Status ChronoSession::simulateDynamics(
         std::vector<double> before(contactLoads.size());
         bool fresh = false;  // collision detection last ran at the state now
         while (dt - done > 1e-12 * dt) {
-            double h = std::min({dt - done, cap, contactStep()});
+            const double strict = contactStep(true);
+            double h = std::min({dt - done, cap, contactStep(false)});
             if (dt - done - h < 1e-9 * dt) {
                 h = dt - done;
             }
@@ -6239,19 +6368,33 @@ Status ChronoSession::simulateDynamics(
                     tooDeep = before[i] <= 0.0 && late(*contactLoads[i]);
                 }
             }
-            if (tooDeep && h > 1e-9) {
+            bool moved = false;
+            if (!tooDeep && h > strict) {
+                for (const auto& load : contactLoads) {
+                    if (load->settled && !resting(*load)) {
+                        load->settled = false;
+                        load->calm = 0.0;
+                        moved = true;
+                    }
+                }
+            }
+            if ((tooDeep || moved) && h > 1e-9) {
                 sys.StateScatter(x, v, t, ch::UpdateFlags::UPDATE_ALL);
                 sys.StateScatterAcceleration(a);
                 sys.ComputeCollisions();
                 fresh = true;
-                cap = h / 8.0;
+                if (tooDeep) {
+                    cap = h / 8.0;
+                }
                 continue;
             }
             done += h;
             cap = std::min(dt, cap * 2.0);
+            for (const auto& load : contactLoads) {
+                keepCalm(*load, h);
+            }
         }
     };
-    const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
     const int maxRelaxSteps = 50000;
     auto kinetic = [&]() {
         double energy = 0.0;

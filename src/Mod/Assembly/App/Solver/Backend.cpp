@@ -146,6 +146,10 @@ public:
             {
                 sink.values(values);
             }
+            void event(const Event& event) override
+            {
+                sink.event(event);
+            }
         } backSink(*this, sink);
         return inner->simulate(spec, backSink);
     }

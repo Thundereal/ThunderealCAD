@@ -22,6 +22,7 @@
  ***************************************************************************/
 
 #include <cstring>
+#include <string>
 
 #include <Base/Reader.h>
 
@@ -216,6 +217,91 @@ void InitialCondition::onDocumentRestored()
 }
 
 
+PROPERTY_SOURCE(Assembly::Sensor, App::DocumentObject)
+
+// The quantities are the run's (Solver::Channel), by the same names
+const char* Sensor::QuantityEnums[] = {"Force",
+                                       "Torque",
+                                       "MotorTorque",
+                                       "MotorForce",
+                                       "SpringForce",
+                                       "SpringLength",
+                                       "SpringTorque",
+                                       "SpringAngle",
+                                       "BushingForce",
+                                       "BushingTorque",
+                                       "ContactForce",
+                                       nullptr};
+const char* Sensor::ComponentEnums[] = {"Magnitude", "X", "Y", "Z", nullptr};
+const char* Sensor::CompareEnums[] = {"Above", "Below", nullptr};
+const char* Sensor::ActionEnums[] = {"Stop", "Mark", nullptr};
+
+Sensor::Sensor()
+{
+    ADD_PROPERTY_TYPE(Source,
+                      (nullptr),
+                      "Sensor",
+                      App::Prop_None,
+                      "What reports the value: a joint (its reaction, or the effort of the motion "
+                      "driving it), a spring, a torsion spring, a bushing or a contact set");
+    ADD_PROPERTY_TYPE(Quantity, (0L), "Sensor", App::Prop_None, "The value watched");
+    Quantity.setEnums(QuantityEnums);
+    ADD_PROPERTY_TYPE(Component,
+                      (0L),
+                      "Sensor",
+                      App::Prop_None,
+                      "A vector's magnitude, or its component in the assembly's axes; a single "
+                      "value is taken as it is");
+    Component.setEnums(ComponentEnums);
+    ADD_PROPERTY_TYPE(Compare,
+                      (0L),
+                      "Sensor",
+                      App::Prop_None,
+                      "Above: trips rising above the threshold; Below: falling below it");
+    Compare.setEnums(CompareEnums);
+    ADD_PROPERTY_TYPE(Threshold, (0.0), "Sensor", App::Prop_None, "In the quantity's unit");
+    ADD_PROPERTY_TYPE(Action,
+                      (0L),
+                      "Sensor",
+                      App::Prop_None,
+                      "Stop: the run ends where the sensor trips; Mark: the time is noted and the "
+                      "run goes on");
+    Action.setEnums(ActionEnums);
+    updateUnit();
+}
+
+void Sensor::updateUnit()
+{
+    const std::string quantity = Quantity.getValueAsString();
+    if (quantity == "SpringLength") {
+        Threshold.setUnit(Base::Unit::Length);
+    }
+    else if (quantity == "SpringAngle") {
+        Threshold.setUnit(Base::Unit::Angle);
+    }
+    else if (quantity.find("Torque") != std::string::npos) {
+        Threshold.setUnit(Base::Unit::Moment);
+    }
+    else {
+        Threshold.setUnit(Base::Unit::Force);
+    }
+}
+
+void Sensor::onChanged(const App::Property* prop)
+{
+    if (prop == &Quantity) {
+        updateUnit();
+    }
+    DocumentObject::onChanged(prop);
+}
+
+void Sensor::onDocumentRestored()
+{
+    updateUnit();
+    DocumentObject::onDocumentRestored();
+}
+
+
 // Python features --------------------------------------------------------
 
 namespace App
@@ -244,5 +330,13 @@ const char* Assembly::InitialConditionPython::getViewProviderName() const
     return "Gui::ViewProviderPythonFeature";
 }
 template class AssemblyExport FeaturePythonT<Assembly::InitialCondition>;
+
+PROPERTY_SOURCE_TEMPLATE(Assembly::SensorPython, Assembly::Sensor)
+template<>
+const char* Assembly::SensorPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template class AssemblyExport FeaturePythonT<Assembly::Sensor>;
 /// @endcond
 }  // namespace App

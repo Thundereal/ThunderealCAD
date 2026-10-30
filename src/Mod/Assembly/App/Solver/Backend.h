@@ -179,6 +179,18 @@ struct Channel
     bool unique = true;
 };
 
+// Something a run found between its frames (docs/AssemblyDynamics.md sec
+// 8.4's events): a sensor (Model.h) tripping, at the time located, and the
+// value it read there; 'stopped' when the run ended there, its last frame
+// at that time
+struct Event
+{
+    double time = 0.0;
+    std::string source;  // the model's source name of the sensor
+    double value = 0.0;
+    bool stopped = false;
+};
+
 // Poses of the bodies at each output time; owned by the neutral layer, so
 // playback needs no live solver.
 struct Trajectory
@@ -188,6 +200,7 @@ struct Trajectory
     std::vector<Base::Placement> poses;  // times.size() * bodies.size(), row per time
     std::vector<Channel> channels;
     std::vector<double> values;  // times.size() * the channels' widths, row per time
+    std::vector<Event> events;   // in time order
 };
 
 class TrajectorySink
@@ -206,6 +219,11 @@ public:
     virtual void values(const std::vector<double>& values)
     {
         (void)values;
+    }
+    // An event, before the frame that follows it
+    virtual void event(const Event& event)
+    {
+        (void)event;
     }
 };
 

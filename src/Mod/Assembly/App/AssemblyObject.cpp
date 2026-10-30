@@ -399,6 +399,10 @@ struct TrajectoryRecorder: Solver::TrajectorySink
         pending = values;
         pending.resize(width, 0.0);
     }
+    void event(const Solver::Event& event) override
+    {
+        frames.events.push_back(event);
+    }
 };
 }  // namespace
 
@@ -1827,13 +1831,14 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         // From the assembly's frame into the body's
         dynamics.inertias.push_back(Solver::moved(inertia, model.bodies[body].placement.inverse()));
     }
-    // Kept: the force elements, the initial velocities and the contact sets
-    // addForces() put in first
+    // Kept: the force elements, the initial velocities, the contact sets and
+    // the sensors addForces() put in first
     if (model.dynamics) {
         dynamics.forces = std::move(model.dynamics->forces);
         dynamics.initial = std::move(model.dynamics->initial);
         dynamics.contactShapes = std::move(model.dynamics->contactShapes);
         dynamics.contacts = std::move(model.dynamics->contacts);
+        dynamics.sensors = std::move(model.dynamics->sensors);
     }
     model.dynamics = std::move(dynamics);
 }
@@ -2188,6 +2193,46 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         force.c = spring->Damping.getValue();
         force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
         model.dynamics->forces.push_back(force);
+    }
+
+    // The sensors, a Dynamic or Static study's children, in the run's units:
+    // the threshold's internal units are the model's (mm, mN, mN mm), but
+    // for an angle, degrees to the run's radians
+    for (auto* child : typed->Group.getValues()) {
+        auto* sensor = freecad_cast<Sensor*>(child);
+        if (!sensor) {
+            continue;
+        }
+        const std::string label = sensor->getFullLabel();
+        if (typed->AnalysisType.getValue() == 0) {
+            Base::Console().warning(
+                "Assembly: the sensor %s is in a Kinematic study, which does not use sensors\n",
+                label.c_str());
+            continue;
+        }
+        App::DocumentObject* watched = sensor->Source.getValue();
+        // A motion's effort is its joint's motor's
+        if (watched && isMotionObject(watched)) {
+            auto* joint = dynamic_cast<App::PropertyLink*>(watched->getPropertyByName("Joint"));
+            watched = joint ? joint->getValue() : nullptr;
+        }
+        if (!watched) {
+            Base::Console().warning("Assembly: the sensor %s watches nothing, and does nothing\n",
+                                    label.c_str());
+            continue;
+        }
+        Solver::Sensor record;
+        record.source = model.addSource(sensor->getFullName());
+        record.watched = model.addSource(watched->getFullName());
+        record.quantity = sensor->Quantity.getValueAsString();
+        record.component = static_cast<int>(sensor->Component.getValue()) - 1;
+        record.below = sensor->Compare.getValue() == 1;
+        record.value = sensor->Threshold.getValue();
+        if (record.quantity == "SpringAngle") {
+            record.value *= std::numbers::pi / 180.0;
+        }
+        record.stop = sensor->Action.getValue() == 0;
+        model.dynamics->sensors.push_back(record);
     }
 
     // The initial velocities, a Dynamic study's children: a static run

@@ -1080,7 +1080,7 @@ Phase D1 is under way (2026-10-28):
     value or an allowed penetration, and the damping by restitution or a value, each idling the
     other's rows, the slider's powers of ten and the rest it shows; OK
     refused with group A empty.
-  - Not yet: 2D path contact (sec 7.4), stops, sensors, contact plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
+  - Not yet: 2D path contact (sec 7.4), penalty stops, contact plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
     The rebound by restitution is r^2's of aluminium -- a ball dropped a
     millimetre reaches 0.0894 for r^2 0.09 at r 0.3, 0.364 for 0.36, 0.645
@@ -1150,6 +1150,66 @@ Phase D1 is under way (2026-10-28):
     Kinematic one, and one undo taking it out.
   - Not yet: a follower that is itself a curve (Adams CVCV), 2D path
     contact, a cam's pressure angle and slip in the results.
+- Built: sensors that stop a run or mark the time (sec 5.2's `Sensor`,
+  P15: Adams' SENSOR, CATIA's stop on collision, NX's Stop_On_Event).
+  - The document: `Assembly::Sensor` (SensorPython), a child of a
+    Dynamic or Static study as a motion and an initial velocity are
+    (Python `CommandCreateSimulation.newSensor(sim, source, quantity,
+    threshold, component, compare, action)`; the panel's gauge button and
+    `SensorDialog`, which a double click on it in the list opens again).
+    `Source` is what reports the value -- a joint (its reaction, or the
+    effort of the motion driving it; the motion itself maps to its
+    joint), a spring, a torsion spring, a bushing or a contact set (a cam
+    contact too) -- and `Quantity` one of the run's channels (sec 8.4:
+    Force, Torque, MotorTorque, MotorForce, SpringForce, SpringLength,
+    SpringTorque, SpringAngle, BushingForce, BushingTorque, ContactForce);
+    `Component` a vector's Magnitude, X, Y or Z in the assembly's axes;
+    `Compare` Above or Below; `Threshold` a quantity in the quantity's
+    unit (`Sensor::updateUnit()`: force, moment, length or angle);
+    `Action` Stop or Mark. Its label says what it watches and where:
+    "Spring: Spring length above 5.5 mm". A Kinematic study warns and
+    ignores it. Not built: sec 8.5's measure grammar (a point's velocity,
+    a joint's coordinate), which the measures bring; Crosses, which Above
+    and Below make between them.
+  - The model: `Solver::Sensor` in `Dynamics::sensors`, in the model's
+    units, as the run reports values (`scaled()` leaves it; an angle's
+    degrees to radians in the builder), compared by `same()`, so a sensor
+    changed marks the results stale. Its watched source matches a
+    channel by name and quantity; one that matches none warns and does
+    nothing.
+  - The run: after each step, valuesNow() read, a sensor trips where its
+    value is past the threshold and was not at the last reading -- one
+    already past at the start trips when it comes back and passes again.
+    The trip is located by bisection to max(hMin, 1e-6 of the output
+    step), each try a step from the state before it taken back whole: the
+    system's state and accelerations, the stops held (their links added
+    or removed), the limits' turn counts, the contacts' bookkeeping
+    (impact speed, rest), the cams' curve parameters, then collision
+    detection and the neutral links' angles committed again. There it is
+    an event (Backend.h's `Event`, through `TrajectorySink::event()`; the
+    two wrapping sinks, CentredSession's and GroupedSession's, pass it on,
+    and `GroupedSession` keeps the sensors when it reduces the model): a
+    stop ends the run with its last frame at that time, a mark takes the
+    rest of the step. With contact the watched steps are the contact's
+    substeps (`contactStep()`): an impact is over in tens of
+    microseconds, and a ball landing between two millisecond steps went by
+    unseen, its contact force's sensor tripping at a later bounce. A
+    Static study's sensors are read at its output times, from the first.
+  - Results: `getSimulationResults()["Events"]`, each with Time, Object,
+    Name, Value (in the quantity's unit as the channels are) and Stopped;
+    the panel lists them under the player, "Stopped at 0.0397646 s by
+    Spring: Spring length above 5.5 mm".
+  - Tests (TestDynamics): the oscillator's spring length rising above its
+    free length stops the run a quarter period in, 0.0258109306 s against
+    0.0258108171 (1e-5), the length there 4.00000006 mm and the last frame
+    there; marking, above and below, the run goes to its end with an event
+    every half period (1e-4 of it); a sensor on a quantity its source does
+    not report does nothing. TestContact: a ball dropped a millimetre stops
+    the run on landing at sqrt(2 h / g) (1e-6 s), just touching.
+    TestGuiCommands: the dialog's sources (the joint, not its grounding),
+    its quantities per source, the component idle for a single value, the
+    threshold in the unit the results show, written and read back; the
+    panel's lines for a mark and a stop.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -105,6 +105,7 @@
 #include <cmath>
 #include <exception>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <map>
 #include <numbers>
@@ -6237,6 +6238,82 @@ Status ChronoSession::simulateDynamics(
         sink.channels(channels);
     }
 
+    // The sensors (sec 5.2, P15): each on its channel's components, in
+    // valuesNow()'s values, and what it read last. It trips where its value
+    // is past its threshold and was not at the last reading.
+    struct Watch
+    {
+        const Sensor* sensor = nullptr;
+        std::size_t offset = 0;
+        int width = 1;
+        double last = 0.0;
+    };
+    std::vector<Watch> watches;
+    {
+        std::vector<std::size_t> offsets;
+        std::size_t offset = 0;
+        for (const auto& channel : channels) {
+            offsets.push_back(offset);
+            offset += static_cast<std::size_t>(channel.width);
+        }
+        for (const auto& sensor : si.dynamics->sensors) {
+            const std::string watched = si.sourceName(sensor.watched);
+            std::size_t c = 0;
+            while (c < channels.size()
+                   && (channels[c].source != watched || channels[c].quantity != sensor.quantity)) {
+                ++c;
+            }
+            if (c == channels.size()) {
+                Base::Console().warning(
+                    "Assembly: the sensor %s watches the %s of %s, which the run does not "
+                    "report; it does nothing\n",
+                    si.sourceName(sensor.source).c_str(),
+                    sensor.quantity.c_str(),
+                    watched.c_str());
+                continue;
+            }
+            watches.push_back({&sensor, offsets[c], channels[c].width});
+        }
+    }
+    auto reading = [](const Watch& watch, const std::vector<double>& values) {
+        const double* v = &values[watch.offset];
+        if (watch.width == 1) {
+            return v[0];
+        }
+        if (watch.sensor->component >= 0 && watch.sensor->component < watch.width) {
+            return v[watch.sensor->component];
+        }
+        return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    };
+    auto past = [](const Sensor& sensor, double value) {
+        return sensor.below ? value < sensor.value : value > sensor.value;
+    };
+    // The sensors that trip at these values, the readings kept: an event
+    // each, sent; whether one stops the run
+    auto tripsAt = [&](double time, const std::vector<double>& values) {
+        bool stop = false;
+        for (auto& watch : watches) {
+            const double now = reading(watch, values);
+            if (past(*watch.sensor, now) && !past(*watch.sensor, watch.last)) {
+                stop = stop || watch.sensor->stop;
+                sink.event({time, si.sourceName(watch.sensor->source), now, watch.sensor->stop});
+            }
+            watch.last = now;
+        }
+        return stop;
+    };
+    auto anyTrips = [&](const std::vector<double>& values) {
+        return std::ranges::any_of(watches, [&](const Watch& watch) {
+            const double now = reading(watch, values);
+            return past(*watch.sensor, now) && !past(*watch.sensor, watch.last);
+        });
+    };
+    auto watchFrom = [&](const std::vector<double>& values) {
+        for (auto& watch : watches) {
+            watch.last = reading(watch, values);
+        }
+    };
+
     // Static (sec 4, step 4): the stable equilibrium at a time, by dynamic
     // relaxation with kinetic damping -- the dynamics stepped from rest with
     // the time held, every velocity zeroed at each peak of the kinetic
@@ -6755,6 +6832,143 @@ Status ChronoSession::simulateDynamics(
             run.d->commitAngles();
             handleStops(dt, true);
         };
+        // A step watched by the sensors. One that trips one is located by
+        // bisection, each try a step from the state before the trip: that
+        // taken back whole -- the system's state, the stops held (their
+        // links), the angles counted, the contacts' bookkeeping and the cams'
+        // parameters -- to a small fraction of the output step (Adams'
+        // SENSOR to its TERROR). There it is an event; a sensor that stops
+        // ends the step there (true), one that marks takes the rest of it.
+        struct Snapshot
+        {
+            ch::ChState x;
+            ch::ChStateDelta v;
+            ch::ChStateDelta a;
+            double t = 0.0;
+            std::vector<Stop> stops;
+            std::vector<double> limitAngles;
+            struct LoadState
+            {
+                double impact, low, high, calm, period;
+                bool settled;
+            };
+            std::vector<LoadState> loads;
+            std::vector<std::pair<double, bool>> cams;
+        };
+        auto snapshot = [&]() {
+            Snapshot s;
+            s.x = ch::ChState(sys.GetNumCoordsPosLevel(), &sys);
+            s.v = ch::ChStateDelta(sys.GetNumCoordsVelLevel(), &sys);
+            s.a = ch::ChStateDelta(sys.GetNumCoordsVelLevel(), &sys);
+            sys.StateGather(s.x, s.v, s.t);
+            sys.StateGatherAcceleration(s.a);
+            s.stops = stops;
+            s.limitAngles = limitAngles;
+            for (const auto& load : contactLoads) {
+                s.loads.push_back(
+                    {load->impact, load->low, load->high, load->calm, load->period, load->settled});
+            }
+            if (contactHandover) {
+                for (const auto& cam : contactHandover->cams) {
+                    s.cams.emplace_back(cam.u, cam.started);
+                }
+            }
+            return s;
+        };
+        auto restore = [&](Snapshot& s) {
+            for (std::size_t k = 0; k < stops.size(); ++k) {
+                if (stops[k].link != s.stops[k].link) {
+                    if (stops[k].link) {
+                        sys.RemoveLink(stops[k].link);
+                    }
+                    if (s.stops[k].link) {
+                        sys.AddLink(s.stops[k].link);
+                    }
+                }
+            }
+            stops = s.stops;
+            limitAngles = s.limitAngles;
+            sys.StateScatter(s.x, s.v, s.t, ch::UpdateFlags::UPDATE_ALL);
+            sys.StateScatterAcceleration(s.a);
+            for (std::size_t i = 0; i < contactLoads.size(); ++i) {
+                ContactLoad& load = *contactLoads[i];
+                const auto& kept = s.loads[i];
+                load.impact = kept.impact;
+                load.low = kept.low;
+                load.high = kept.high;
+                load.calm = kept.calm;
+                load.period = kept.period;
+                load.settled = kept.settled;
+            }
+            if (contactHandover) {
+                for (std::size_t i = 0; i < contactHandover->cams.size(); ++i) {
+                    contactHandover->cams[i].u = s.cams[i].first;
+                    contactHandover->cams[i].started = s.cams[i].second;
+                }
+            }
+            if (contact) {
+                sys.ComputeCollisions();
+            }
+            run.d->commitAngles();
+        };
+        const double locate = std::max(spec.hMin, 1e-6 * spec.tOutput);
+        std::function<bool(double)> watchedPiece = [&](double dt) {
+            Snapshot from = snapshot();
+            const double t0 = sys.GetChTime();
+            stepOnce(dt);
+            std::vector<double> values = valuesNow();
+            if (!anyTrips(values)) {
+                watchFrom(values);
+                return false;
+            }
+            double lo = 0.0;
+            double hi = dt;
+            while (hi - lo > locate) {
+                const double mid = 0.5 * (lo + hi);
+                restore(from);
+                stepOnce(mid - lo);
+                values = valuesNow();
+                if (anyTrips(values)) {
+                    hi = mid;
+                }
+                else {
+                    lo = mid;
+                    from = snapshot();
+                }
+            }
+            restore(from);
+            stepOnce(hi - lo);
+            if (tripsAt(t0 + hi, valuesNow())) {
+                return true;
+            }
+            return dt - hi > 1e-12 * dt ? watchedPiece(dt - hi) : false;
+        };
+        // With contact, in the contact's substeps (contactStep()): an
+        // impact is over in tens of microseconds, and one watched at the
+        // step's end went by unseen -- a ball landing between two
+        // millisecond steps tripped its contact force's sensor at a later
+        // bounce.
+        auto stepWatched = [&](double dt) {
+            if (watches.empty()) {
+                stepOnce(dt);
+                return false;
+            }
+            if (!contact) {
+                return watchedPiece(dt);
+            }
+            double done = 0.0;
+            while (dt - done > 1e-12 * dt) {
+                double piece = std::min(dt - done, contactStep(false));
+                if (dt - done - piece < 1e-9 * dt) {
+                    piece = dt - done;
+                }
+                if (watchedPiece(piece)) {
+                    return true;
+                }
+                done += piece;
+            }
+            return false;
+        };
         // A dynamic run starts in steps growing from a thousandth of one:
         // 64 of h / 1024, then h / 16, h / 8, h / 4, h / 2, together the
         // first step. HHT starts from the accelerations it is given, the
@@ -6800,8 +7014,13 @@ Status ChronoSession::simulateDynamics(
                     status = Status::Cancelled;
                     break;
                 }
+                // The sensors from the end of the smallest steps
+                if (!watches.empty()) {
+                    watchFrom(valuesNow());
+                }
                 continue;
             }
+            bool tripped = false;
             if (statics) {
                 if (!settle(time)) {
                     Base::Console().error(
@@ -6813,25 +7032,40 @@ Status ChronoSession::simulateDynamics(
                     status = Status::Failed;
                     break;
                 }
+                // A static run's sensors at its output times, from the first
+                if (!watches.empty()) {
+                    const std::vector<double> values = valuesNow();
+                    if (k == 0) {
+                        watchFrom(values);
+                    }
+                    else {
+                        tripped = tripsAt(time, values);
+                    }
+                }
             }
             else {
                 int s = 0;
                 if (k == 1) {
                     // The rest of the first step
-                    for (double part = tinySteps * tiny; part < h; part *= 2.0) {
-                        stepOnce(part);
+                    for (double part = tinySteps * tiny; part < h && !tripped; part *= 2.0) {
+                        tripped = stepWatched(part);
                     }
                     s = 1;
                 }
-                for (; s < sub; ++s) {
-                    stepOnce(h);
+                for (; s < sub && !tripped; ++s) {
+                    tripped = stepWatched(h);
                 }
             }
+            // A sensor that stops: the last frame where it tripped
+            const double at = tripped && !statics ? sys.GetChTime() : time;
             if (!channels.empty()) {
                 sink.values(valuesNow());
             }
-            if (!sink.frame(time, posesNow())) {
+            if (!sink.frame(at, posesNow())) {
                 status = Status::Cancelled;
+                break;
+            }
+            if (tripped) {
                 break;
             }
         }

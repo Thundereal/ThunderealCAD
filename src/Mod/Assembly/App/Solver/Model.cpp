@@ -130,6 +130,13 @@ bool same(const InitialVelocity& a, const InitialVelocity& b)
         && a.rate == b.rate && same(a.v, b.v) && same(a.w, b.w);
 }
 
+bool same(const Sensor& a, const Sensor& b)
+{
+    return a.source == b.source && a.watched == b.watched && a.quantity == b.quantity
+        && a.component == b.component && a.below == b.below && a.value == b.value
+        && a.stop == b.stop;
+}
+
 bool same(const Inertia& a, const Inertia& b)
 {
     if (slack > 0.0) {
@@ -206,7 +213,8 @@ bool sameBeyondBodies(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->forces, b.dynamics->forces)
                 || !sameRecords(a.dynamics->initial, b.dynamics->initial)
                 || !sameRecords(a.dynamics->contactShapes, b.dynamics->contactShapes)
-                || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)))) {
+                || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)
+                || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.frames, b.frames)
@@ -251,7 +259,8 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->forces, b.dynamics->forces)
                 || !sameRecords(a.dynamics->initial, b.dynamics->initial)
                 || !sameRecords(a.dynamics->contactShapes, b.dynamics->contactShapes)
-                || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)))) {
+                || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)
+                || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)

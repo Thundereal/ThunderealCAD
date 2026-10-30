@@ -220,6 +220,10 @@ public:
             {
                 sink.values(values);
             }
+            void event(const Event& event) override
+            {
+                sink.event(event);
+            }
         } expandSink(*this, sink);
         return inner->simulate(spec, expandSink);
     }
@@ -711,6 +715,7 @@ private:
             dynamics.initial = original.dynamics->initial;
             dynamics.contactShapes = original.dynamics->contactShapes;
             dynamics.contacts = original.dynamics->contacts;
+            dynamics.sensors = original.dynamics->sensors;
             reduced.dynamics = std::move(dynamics);
         }
     }

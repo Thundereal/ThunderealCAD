@@ -70,7 +70,8 @@ class TestContact(unittest.TestCase):
         self.sets.append(contact)
         return contact
 
-    def simulate(self, end, step, analysis="Dynamic", **props):
+    def simulate(self, end, step, analysis="Dynamic", sensors=(), **props):
+        """sensors: each a dict of newSensor()'s arguments but the study"""
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
         sim.AnalysisType = analysis
@@ -79,8 +80,36 @@ class TestContact(unittest.TestCase):
         sim.Elements = self.sets
         for name, value in props.items():
             setattr(sim, name, value)
+        if sensors:
+            import CommandCreateSimulation
+
+            for sensor in sensors:
+                CommandCreateSimulation.newSensor(sim, **sensor)
         self.doc.recompute()
         return sim, self.assembly.generateSimulation(sim)
+
+    def test_sensor_stops_on_landing(self):
+        """A sensor on a set's contact force rising above none stops the run
+        where the ball lands, dropped a millimetre: at sqrt(2 h / g), the
+        time located, the ball just touching (CATIA's stop on collision;
+        docs/AssemblyDynamics.md sec 5.2's Sensor)."""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate])
+        _, result = self.simulate(
+            0.05,
+            1e-3,
+            sensors=[{"source": contact, "quantity": "ContactForce", "threshold": 0.0}],
+        )
+        self.assertEqual(result, 0)
+        results = self.assembly.getSimulationResults()
+        events = results["Events"]
+        self.assertEqual(len(events), 1, events)
+        self.assertTrue(events[0]["Stopped"])
+        landing = math.sqrt(2 * 1.0 / 9806.65)
+        self.assertAlmostEqual(events[0]["Time"], landing, delta=1e-6)
+        self.assertAlmostEqual(results["Times"][-1], events[0]["Time"], delta=1e-12)
+        self.assertAlmostEqual(self.heights(ball)[-1], 15.0, delta=1e-5)
 
     def heights(self, part):
         out = []

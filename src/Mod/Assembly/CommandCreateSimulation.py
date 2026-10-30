@@ -1385,6 +1385,277 @@ class InitialConditionDialog:
         return self.dialog.exec()
 
 
+########### Sensor #############
+# Not upstream (docs/AssemblyDynamics.md sec 5.2's Sensor, P15): a value the
+# run reports, watched after each step, which stops the run where it passes
+# a threshold or marks the time; a child of the Simulation as a motion is
+
+# What each kind of source reports, the quantities a sensor on it can watch
+SensorQuantities = {
+    "Joint": ("Force", "Torque", "MotorTorque", "MotorForce"),
+    "Spring": ("SpringForce", "SpringLength"),
+    "TorsionSpring": ("SpringTorque", "SpringAngle"),
+    "Bushing": ("BushingForce", "BushingTorque"),
+    "Contact": ("ContactForce",),
+}
+
+
+def sensorSourceKind(obj):
+    """Which of SensorQuantities' kinds obj is, or None"""
+    if obj is None:
+        return None
+    if obj.isDerivedFrom("Assembly::ContactSet"):
+        return "Contact"
+    if obj.isDerivedFrom("Assembly::SpringDamper"):
+        return "Spring"
+    if obj.isDerivedFrom("Assembly::TorsionSpring"):
+        return "TorsionSpring"
+    if obj.isDerivedFrom("Assembly::Bushing"):
+        return "Bushing"
+    if hasattr(obj, "JointType") or (hasattr(obj, "Joint") and hasattr(obj, "Formula")):
+        return "Joint"
+    return None
+
+
+# A vector's quantities, whose component or magnitude a sensor takes
+SensorVectors = ("Force", "Torque", "BushingForce", "BushingTorque", "ContactForce")
+
+
+def sensorSources(assembly):
+    """What a sensor can watch in the assembly: its joints (but the
+    grounding ones), and its springs, torsion springs, bushings and contact
+    sets"""
+    out = []
+    joints = assembly.getGroup("Joints")
+    for joint in joints.Group if joints else []:
+        if hasattr(joint, "JointType"):
+            out.append(joint)
+    physics = assembly.getGroup("Physics")
+    for item in physics.Group if physics else []:
+        if sensorSourceKind(item) not in (None, "Joint"):
+            out.append(item)
+    return out
+
+
+def thresholdFactor(quantity):
+    """From a threshold's internal unit (mN, mN mm, mm, deg) to the one
+    the panel shows; ResultQuantities' factors are from the run's values,
+    which take an angle in radians"""
+    if quantity == "SpringAngle":
+        return 1.0
+    return ResultQuantities.get(quantity, ("", 1.0, ""))[1]
+
+
+def newSensor(
+    sim, source, quantity, threshold, component="Magnitude", compare="Above", action="Stop"
+):
+    """A sensor in the simulation: source's quantity (one of
+    SensorQuantities' for its kind; a vector's component or its magnitude)
+    passing threshold (a number in the quantity's internal unit -- mN, mN mm,
+    mm, deg -- or a quantity) rising above it, or falling below it with
+    compare "Below"; action "Stop" ends the run there, "Mark" notes the time"""
+    assembly = None
+    for parent in sim.InListRecursive:
+        if parent.isDerivedFrom("Assembly::AssemblyObject"):
+            assembly = parent
+            break
+    obj = (assembly or sim).newObject("Assembly::SensorPython", "Sensor")
+    if App.GuiUp:
+        ViewProviderSensor(obj.ViewObject)
+    obj.Source = source
+    obj.Quantity = quantity
+    obj.Component = component
+    obj.Compare = compare
+    obj.Threshold = threshold
+    obj.Action = action
+    group = list(sim.Group)
+    if obj not in group:
+        sim.Group = group + [obj]
+    describeSensor(obj)
+    return obj
+
+
+def describeSensor(obj):
+    """The label: what it watches, and where it trips, as the panel shows
+    the quantity, as Spring: Spring length above 5.5 mm"""
+    if obj.Source is None:
+        return
+    label, _, unit = ResultQuantities.get(obj.Quantity, (obj.Quantity, 1.0, ""))
+    value = "%.6g %s" % (obj.Threshold.Value * thresholdFactor(obj.Quantity), unit)
+    if obj.Quantity in SensorVectors and obj.Component != "Magnitude":
+        label = "%s %s" % (translate("Assembly", label), obj.Component)
+    else:
+        label = translate("Assembly", label)
+    if obj.Compare == "Below":
+        text = translate("Assembly", "{}: {} below {}")
+    else:
+        text = translate("Assembly", "{}: {} above {}")
+    obj.Label = text.format(obj.Source.Label, label, value.strip())
+
+
+class ViewProviderSensor:
+    def __init__(self, vp):
+        vp.Proxy = self
+
+    def attach(self, vpDoc):
+        self.app_obj = vpDoc.Object
+
+    def getDisplayModes(self, vpDoc):
+        return []
+
+    def getDefaultDisplayMode(self):
+        return ""
+
+    def getIcon(self):
+        return ":/icons/Assembly_Sensor.svg"
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    def doubleClicked(self, vpDoc):
+        self.openEditDialog()
+        return True
+
+    def openEditDialog(self):
+        assembly = assemblyOf(self.app_obj)
+        if assembly is None:
+            return False
+        dialog = SensorDialog(assembly, self.app_obj)
+        if dialog.exec_():
+            dialog.apply(self.app_obj)
+        return True
+
+
+class SensorDialog:
+    """A sensor's values: what it watches, its threshold and what it does
+    there. apply() writes them to the object."""
+
+    def __init__(self, assembly, obj=None):
+        self.assembly = assembly
+        self.dialog = QDialog()
+        self.dialog.setWindowTitle(translate("Assembly", "Sensor"))
+        layout = QGridLayout(self.dialog)
+
+        self.sourceCombo = QComboBox(self.dialog)
+        for source in sensorSources(assembly):
+            self.sourceCombo.addItem(QIcon(source.ViewObject.Icon), source.Label, userData=source)
+        self.sourceCombo.setToolTip(
+            translate(
+                "Assembly",
+                "What reports the value: a joint (its reaction, or the effort of the motion\n"
+                "driving it), a spring, a torsion spring, a bushing or a contact set",
+            )
+        )
+        layout.addWidget(QLabel(translate("Assembly", "Watch")), 0, 0)
+        layout.addWidget(self.sourceCombo, 0, 1, 1, 2)
+
+        self.quantityCombo = QComboBox(self.dialog)
+        layout.addWidget(QLabel(translate("Assembly", "Value")), 1, 0)
+        layout.addWidget(self.quantityCombo, 1, 1, 1, 2)
+
+        self.componentCombo = QComboBox(self.dialog)
+        for name, text in (
+            ("Magnitude", translate("Assembly", "Magnitude")),
+            ("X", "X"),
+            ("Y", "Y"),
+            ("Z", "Z"),
+        ):
+            self.componentCombo.addItem(text, name)
+        self.componentCombo.setToolTip(
+            translate("Assembly", "A vector's magnitude, or its component in the assembly's axes")
+        )
+        self.componentLabel = QLabel(translate("Assembly", "Component"))
+        layout.addWidget(self.componentLabel, 2, 0)
+        layout.addWidget(self.componentCombo, 2, 1, 1, 2)
+
+        self.compareCombo = QComboBox(self.dialog)
+        self.compareCombo.addItem(translate("Assembly", "Rises above"), "Above")
+        self.compareCombo.addItem(translate("Assembly", "Falls below"), "Below")
+        self.thresholdBox = QtWidgets.QDoubleSpinBox(self.dialog)
+        self.thresholdBox.setRange(-1e12, 1e12)
+        self.thresholdBox.setDecimals(6)
+        layout.addWidget(QLabel(translate("Assembly", "When it")), 3, 0)
+        layout.addWidget(self.compareCombo, 3, 1)
+        layout.addWidget(self.thresholdBox, 3, 2)
+
+        self.actionCombo = QComboBox(self.dialog)
+        self.actionCombo.addItem(translate("Assembly", "Stop the run there"), "Stop")
+        self.actionCombo.addItem(translate("Assembly", "Mark the time and go on"), "Mark")
+        layout.addWidget(QLabel(translate("Assembly", "Then")), 4, 0)
+        layout.addWidget(self.actionCombo, 4, 1, 1, 2)
+
+        note = QLabel(
+            translate(
+                "Assembly",
+                "A Dynamic study watches it after each step and finds the time it trips to\n"
+                "a small fraction of a step; a Static study at each output time.",
+            )
+        )
+        layout.addWidget(note, 5, 0, 1, 3)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self.dialog
+        )
+        buttons.accepted.connect(self.dialog.accept)
+        buttons.rejected.connect(self.dialog.reject)
+        self.okButton = buttons.button(QDialogButtonBox.Ok)
+        layout.addWidget(buttons, 6, 0, 1, 3)
+
+        self.sourceCombo.currentIndexChanged.connect(self.fillQuantities)
+        self.quantityCombo.currentIndexChanged.connect(self.showQuantity)
+        self.fill(obj)
+
+    def fill(self, obj):
+        if obj is not None and obj.Source is not None:
+            self.sourceCombo.setCurrentIndex(max(0, self.sourceCombo.findData(obj.Source)))
+        self.fillQuantities()
+        if obj is not None:
+            self.quantityCombo.setCurrentIndex(max(0, self.quantityCombo.findData(obj.Quantity)))
+            self.componentCombo.setCurrentIndex(
+                max(0, self.componentCombo.findData(obj.Component))
+            )
+            self.compareCombo.setCurrentIndex(max(0, self.compareCombo.findData(obj.Compare)))
+            self.actionCombo.setCurrentIndex(max(0, self.actionCombo.findData(obj.Action)))
+            self.thresholdBox.setValue(obj.Threshold.Value * thresholdFactor(obj.Quantity))
+        self.showQuantity()
+
+    def fillQuantities(self):
+        current = self.quantityCombo.currentData()
+        self.quantityCombo.blockSignals(True)
+        self.quantityCombo.clear()
+        kind = sensorSourceKind(self.sourceCombo.currentData())
+        for quantity in SensorQuantities.get(kind, ()):
+            label = ResultQuantities.get(quantity, (quantity, 1.0, ""))[0]
+            self.quantityCombo.addItem(translate("Assembly", label), quantity)
+        self.quantityCombo.setCurrentIndex(max(0, self.quantityCombo.findData(current)))
+        self.quantityCombo.blockSignals(False)
+        self.showQuantity()
+
+    def showQuantity(self):
+        quantity = self.quantityCombo.currentData()
+        vector = quantity in SensorVectors
+        self.componentLabel.setEnabled(vector)
+        self.componentCombo.setEnabled(vector)
+        unit = ResultQuantities.get(quantity, ("", 1.0, ""))[2]
+        self.thresholdBox.setSuffix(" " + unit if unit else "")
+        self.okButton.setEnabled(quantity is not None)
+
+    def apply(self, obj):
+        quantity = self.quantityCombo.currentData()
+        obj.Source = self.sourceCombo.currentData()
+        obj.Quantity = quantity
+        obj.Component = self.componentCombo.currentData()
+        obj.Compare = self.compareCombo.currentData()
+        obj.Action = self.actionCombo.currentData()
+        obj.Threshold = self.thresholdBox.value() / thresholdFactor(quantity)
+        describeSensor(obj)
+
+    def exec_(self):
+        return self.dialog.exec()
+
+
 ######### Create Simulation Task ###########
 class TaskAssemblyCreateSimulation(QtCore.QObject):
     def __init__(self, simFeaturePy=None):
@@ -1451,10 +1722,23 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             )
         )
         self.addTraceButton.clicked.connect(self.addTraceClicked)
+        # Not upstream: a value watched, which stops the run or marks the time
+        self.addSensorButton = QtWidgets.QToolButton()
+        self.addSensorButton.setIcon(QIcon(":/icons/Assembly_Sensor.svg"))
+        self.addSensorButton.setToolTip(
+            translate(
+                "Assembly",
+                "Add a sensor: a reaction, effort, spring or contact force watched over a "
+                "Dynamic or Static run, which stops it or marks the time where it passes a "
+                "threshold",
+            )
+        )
+        self.addSensorButton.clicked.connect(self.addSensorClicked)
         buttons = self.form.findChild(QtWidgets.QVBoxLayout, "motion_buttonsLayout")
         if buttons is not None:
             buttons.insertWidget(1, self.addInitialButton)
             buttons.insertWidget(2, self.addTraceButton)
+            buttons.insertWidget(3, self.addSensorButton)
         self.form.RemoveButton.clicked.connect(self.deleteSelectedMotions)
         self.form.groupBox_player.hide()
         self.form.SaveAnimationButton.clicked.connect(self.saveAnimation)
@@ -1570,6 +1854,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.runMessage.setStyleSheet("color: #c80000")
         self.runMessage.hide()
         self.form.layout().addWidget(self.runMessage)
+        # The sensors that tripped in the run shown
+        self.eventMessage = QtWidgets.QLabel()
+        self.eventMessage.setWordWrap(True)
+        self.eventMessage.hide()
+        self.form.layout().addWidget(self.eventMessage)
         # A run going: how far it got, and a Cancel
         self.runRow = QtWidgets.QWidget()
         row = QtWidgets.QHBoxLayout(self.runRow)
@@ -1830,6 +2119,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # runs on a worker thread (docs/AssemblyDynamics.md sec 4), the panel
         # showing how far it got, with a Cancel
         self.runMessage.hide()
+        self.eventMessage.hide()
         self.results = None
         self.resultsBox.hide()
         if self.runPoll.isActive():
@@ -1884,6 +2174,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
         SimulationTrace.updateTraces(self.simFeaturePy)
         self.fillResults()
+        self.showEvents()
         self.form.frameSlider.setMaximum(nFrms - 1)
         self.setFrameValue(nFrms - 1)
         # Not upstream: shown even when the slider stays where it was -- a
@@ -2076,6 +2367,40 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         part, point = picked
         SimulationTrace.newTrace(self.simFeaturePy, part, point)
         self.onMotionsChanged()
+
+    def showEvents(self):
+        """Not upstream: the sensors that tripped and when, by their labels,
+        which say what they watch and where they trip; the one that stopped
+        the run last"""
+        events = (self.results or {}).get("Events", [])
+        if not events:
+            self.eventMessage.hide()
+            return
+        lines = []
+        shown = 8
+        for event in events[:shown]:
+            obj = event["Object"]
+            name = obj.Label if obj is not None else event["Name"]
+            if event["Stopped"]:
+                text = translate("Assembly", "Stopped at {} s by {}")
+            else:
+                text = translate("Assembly", "Marked at {} s by {}")
+            lines.append(text.format("%.6g" % event["Time"], name))
+        if len(events) > shown:
+            lines.append(translate("Assembly", "and {} more").format(len(events) - shown))
+        self.eventMessage.setText("\n".join(lines))
+        self.eventMessage.show()
+
+    def addSensorClicked(self):
+        dialog = SensorDialog(self.assembly)
+        if dialog.exec_():
+            source = dialog.sourceCombo.currentData()
+            quantity = dialog.quantityCombo.currentData()
+            if source is None or quantity is None:
+                return
+            obj = newSensor(self.simFeaturePy, source, quantity, 0.0)
+            dialog.apply(obj)
+            self.onMotionsChanged()
 
     def addInitialClicked(self):
         dialog = InitialConditionDialog(self.assembly)

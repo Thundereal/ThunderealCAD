@@ -212,11 +212,13 @@ class TestDynamics(unittest.TestCase):
     MASS = 1000 * 2.7e-6  # a 10 mm cube of the default aluminium, kg
     K = 10.0  # N/m, the same number in mN/mm
 
-    def oscillator(self, damping=0.0, listed=True, onFaces=False):
+    def oscillator(self, damping=0.0, listed=True, onFaces=False, sensors=()):
         """A 10 mm cube on a vertical slider over a grounded one, a spring
         from the grounded one's top to its bottom, free at 4 mm; started at
         2 mm, without gravity: it swings about 4 mm by 2. With onFaces, the
-        spring's ends are on the faces rather than points."""
+        spring's ends are on the faces rather than points. sensors: each a
+        dict of newSensor()'s arguments but the study and the source, the
+        spring, made in the study first."""
         base = self.box("Base", (10, 10, 10), (0, 0, 0))
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
         JointObject.GroundedJoint(ground, base)
@@ -246,6 +248,11 @@ class TestDynamics(unittest.TestCase):
         sim.TimeStepOutput = 1e-4
         if listed:
             sim.Elements = [spring]
+        if sensors:
+            import CommandCreateSimulation
+
+            for sensor in sensors:
+                CommandCreateSimulation.newSensor(sim, spring, **sensor)
         self.doc.recompute()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         heights = []
@@ -253,6 +260,60 @@ class TestDynamics(unittest.TestCase):
             self.assembly.updateForFrame(i)
             heights.append((i * 1e-4, block.Placement.Base.z))
         return heights
+
+    def test_sensor_stops(self):
+        """A sensor on the spring's length rising above its free length, 4
+        mm, stops the run where it does, a quarter period in -- the time
+        located, not the next frame's: the last frame is there, the length
+        4 mm (docs/AssemblyDynamics.md sec 5.2's Sensor, P15)."""
+        self.oscillator(sensors=[{"quantity": "SpringLength", "threshold": 4.0}])
+        quarter = math.pi / 2 * math.sqrt(self.MASS / self.K)
+        results = self.assembly.getSimulationResults()
+        events = results["Events"]
+        self.assertEqual(len(events), 1, events)
+        self.assertTrue(events[0]["Stopped"])
+        self.assertEqual(events[0]["Object"].Name, "Sensor")
+        self.assertAlmostEqual(events[0]["Time"], quarter, delta=quarter * 1e-5)
+        self.assertAlmostEqual(events[0]["Value"], 4.0, delta=1e-6)
+        self.assertAlmostEqual(results["Times"][-1], events[0]["Time"], delta=1e-12)
+        self.assertEqual(len(results["Times"]), int(events[0]["Time"] / 1e-4) + 2)
+        self.assertAlmostEqual(self.channel("Spring", "SpringLength")[-1], 4.0, delta=1e-6)
+
+    def test_sensor_marks(self):
+        """Marking, the run goes on to its end, the times noted: rising
+        above 4 mm a quarter period in and once a period after, falling
+        below it three quarters in, each where the length is 4 mm."""
+        self.oscillator(
+            sensors=[
+                {"quantity": "SpringLength", "threshold": 4.0, "action": "Mark"},
+                {"quantity": "SpringLength", "threshold": 4.0, "action": "Mark", "compare": "Below"},
+            ]
+        )
+        period = 2 * math.pi * math.sqrt(self.MASS / self.K)
+        results = self.assembly.getSimulationResults()
+        self.assertAlmostEqual(results["Times"][-1], 0.3, delta=1e-9)
+        events = results["Events"]
+        expected = sorted(
+            [(period / 4 + n * period, "Sensor") for n in range(10) if period / 4 + n * period < 0.3]
+            + [
+                (3 * period / 4 + n * period, "Sensor001")
+                for n in range(10)
+                if 3 * period / 4 + n * period < 0.3
+            ]
+        )
+        self.assertEqual([e["Name"] for e in events], [name for _, name in expected])
+        for event, (time, _) in zip(events, expected):
+            self.assertFalse(event["Stopped"])
+            self.assertAlmostEqual(event["Time"], time, delta=period * 1e-4)
+            self.assertAlmostEqual(event["Value"], 4.0, delta=1e-6)
+
+    def test_sensor_on_nothing_reported(self):
+        """A sensor on a quantity its source does not report does nothing,
+        and says so; the run goes to its end."""
+        self.oscillator(sensors=[{"quantity": "ContactForce", "threshold": 1.0}])
+        results = self.assembly.getSimulationResults()
+        self.assertEqual(results["Events"], [])
+        self.assertAlmostEqual(results["Times"][-1], 0.3, delta=1e-9)
 
     @staticmethod
     def crossings(heights, level):

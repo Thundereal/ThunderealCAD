@@ -140,7 +140,11 @@ class AssemblyObject(Part):
         turn as its limits read it), a torsion spring's. Unique is False
         for a reaction a redundant joint shares with other joints: the run
         took out the equations that repeat others, and the values are one
-        split of the load among them, not the only one. Simulation: the
+        split of the load among them, not the only one. Events: the
+        sensors that tripped, in time order, each a dict with Time (s, the
+        time located), Object (the sensor; None when gone), Name, Value (what
+        it read there, in its quantity's unit as above) and Stopped (whether
+        the run ended there: its last frame is at that time). Simulation: the
         study the frames are of (None before a run, or once it is deleted).
         """
         ...

@@ -189,4 +189,58 @@ private:
 
 using InitialConditionPython = App::FeaturePythonT<InitialCondition>;
 
+
+/** A sensor of a dynamic or static study (docs/AssemblyDynamics.md sec
+ * 5.2's Sensor, P15), a child of a Simulation as a motion is: one of the
+ * values the run reports (getSimulationResults()) -- a vector's component,
+ * or its magnitude -- watched after each step. It trips when the value
+ * passes Threshold, rising above it, or falling below it: it stops the run
+ * there, the time located to a small fraction of a step (a static study's
+ * at its output times), or marks the time, and the run goes on. A value
+ * already past the threshold at the start trips once it comes back and
+ * passes it again. A kinematic study does not use it.
+ */
+class AssemblyExport Sensor: public App::DocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::Sensor);
+
+public:
+    Sensor();
+
+    /// What reports the value: a joint (its reaction, or the effort of the
+    /// motion driving it -- the motion itself does too), a spring, a
+    /// torsion spring, a bushing or a contact set
+    App::PropertyLink Source;
+    /// The value: one of the run's quantities (getSimulationResults())
+    App::PropertyEnumeration Quantity;
+    /// A vector's: its magnitude or a component, in the assembly's axes; a
+    /// single value is taken as it is
+    App::PropertyEnumeration Component;
+    /// Above: trips rising above Threshold; Below: falling below it
+    App::PropertyEnumeration Compare;
+    /// In the quantity's unit
+    App::PropertyQuantity Threshold;
+    /// Stop: the run ends where it trips; Mark: the time is noted and the
+    /// run goes on
+    App::PropertyEnumeration Action;
+
+    static const char* QuantityEnums[];
+    static const char* ComponentEnums[];
+    static const char* CompareEnums[];
+    static const char* ActionEnums[];
+
+    void onChanged(const App::Property* prop) override;
+    void onDocumentRestored() override;
+
+    const char* getViewProviderName() const override
+    {
+        return "Gui::ViewProviderDocumentObject";
+    }
+
+private:
+    void updateUnit();
+};
+
+using SensorPython = App::FeaturePythonT<Sensor>;
+
 }  // namespace Assembly

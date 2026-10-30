@@ -860,6 +860,92 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(obj.AngularVelocity, App.Vector(30, 0, 0))
         self.assertClean()
 
+    def test_sensor(self):
+        """The sensor's dialog lists what reports values -- the joint, not
+        its grounding -- and the quantities of the one picked, the component
+        idle for a single value, the threshold in the unit the results show;
+        it writes the sensor, and reopened on it shows it again"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        joint = self.joints("Revolute")[0]
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.AnalysisType = "Dynamic"
+
+        dialog = CommandCreateSimulation.SensorDialog(self.assembly)
+        combo = dialog.sourceCombo
+        self.assertEqual([combo.itemData(i) for i in range(combo.count())], [joint])
+        combo = dialog.quantityCombo
+        self.assertEqual(
+            [combo.itemData(i) for i in range(combo.count())],
+            ["Force", "Torque", "MotorTorque", "MotorForce"],
+        )
+        self.assertTrue(dialog.componentCombo.isEnabled())
+        self.assertEqual(dialog.thresholdBox.suffix(), " N")
+        combo.setCurrentIndex(combo.findData("MotorTorque"))
+        self.assertFalse(dialog.componentCombo.isEnabled())
+        self.assertEqual(dialog.thresholdBox.suffix(), " N m")
+        dialog.thresholdBox.setValue(2.5)
+        dialog.compareCombo.setCurrentIndex(dialog.compareCombo.findData("Below"))
+        dialog.actionCombo.setCurrentIndex(dialog.actionCombo.findData("Mark"))
+        obj = CommandCreateSimulation.newSensor(sim, joint, "Force", 0.0)
+        dialog.apply(obj)
+        self.assertEqual(obj.Source, joint)
+        self.assertEqual(obj.Quantity, "MotorTorque")
+        self.assertEqual(obj.Compare, "Below")
+        self.assertEqual(obj.Action, "Mark")
+        self.assertAlmostEqual(obj.Threshold.getValueAs("N*m").Value, 2.5, places=9)
+        self.assertIn(obj, sim.Group)
+        self.assertEqual(obj.Label, joint.Label + ": Motor torque below 2.5 N m")
+
+        # Reopened on it, as a double click in the panel's list does
+        dialog = CommandCreateSimulation.SensorDialog(self.assembly, obj)
+        self.assertEqual(dialog.quantityCombo.currentData(), "MotorTorque")
+        self.assertEqual(dialog.compareCombo.currentData(), "Below")
+        self.assertEqual(dialog.actionCombo.currentData(), "Mark")
+        self.assertAlmostEqual(dialog.thresholdBox.value(), 2.5, places=9)
+        self.assertClean()
+
+    def test_sensor_events_shown(self):
+        """After a run the panel says which sensors tripped and when, by
+        their labels; the one that stopped it says so"""
+        import CommandCreateSimulation
+        from PySide import QtWidgets
+
+        class Sensor:
+            Label = "Spring length"
+            Quantity = "SpringLength"
+
+        class Contact:
+            Label = "Landing"
+            Quantity = "ContactForce"
+
+        class Panel:
+            pass
+
+        holder = QtWidgets.QWidget()
+        panel = Panel()
+        panel.eventMessage = QtWidgets.QLabel(holder)
+        panel.results = {
+            "Events": [
+                {"Time": 0.0125, "Object": Sensor(), "Name": "S", "Value": 4.0, "Stopped": False},
+                {"Time": 0.0258109, "Object": Contact(), "Name": "C", "Value": 2500.0, "Stopped": True},
+            ]
+        }
+        CommandCreateSimulation.TaskAssemblyCreateSimulation.showEvents(panel)
+        self.assertEqual(
+            panel.eventMessage.text(),
+            "Marked at 0.0125 s by Spring length\nStopped at 0.0258109 s by Landing",
+        )
+        self.assertFalse(panel.eventMessage.isHidden())
+        panel.results = {"Events": []}
+        CommandCreateSimulation.TaskAssemblyCreateSimulation.showEvents(panel)
+        self.assertTrue(panel.eventMessage.isHidden())
+        holder.deleteLater()
+        self.assertClean()
+
     def test_results_not_unique(self):
         """The Results box marks a redundant joint's reaction "(not unique)",
         and says why in its tool tip; a unique one is listed plain"""

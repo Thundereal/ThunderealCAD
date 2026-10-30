@@ -436,6 +436,23 @@ struct ContactPair
     double side = 1.0;
 };
 
+// A sensor (sec 5.2, P15): one of the values a run reports (Backend.h's
+// Channel) -- a vector's component, or its length -- watched after each
+// step. It trips when the value passes 'value', rising above it or, 'below',
+// falling under it: it stops the run there, the time located, or, 'stop'
+// false, marks the time and the run goes on. In the model's units, as the
+// run reports the value; scaled() leaves it.
+struct Sensor
+{
+    Id source = NoId;   // the document's sensor
+    Id watched = NoId;  // what reports the value: a joint, a spring, a contact set
+    std::string quantity;  // the Channel's
+    int component = -1;    // a vector's x, y or z (0, 1, 2); -1 its length, a scalar itself
+    bool below = false;
+    double value = 0.0;
+    bool stop = true;
+};
+
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has
 // none. Grows with phase D1: forces, tables, contact, stops, initial
 // velocities, sensors.
@@ -447,6 +464,7 @@ struct Dynamics
     std::vector<InitialVelocity> initial;
     std::vector<ContactShape> contactShapes;
     std::vector<ContactPair> contacts;
+    std::vector<Sensor> sensors;
 };
 
 struct Model

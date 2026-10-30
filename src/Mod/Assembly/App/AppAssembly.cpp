@@ -124,6 +124,8 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::MotionPython::init();
     Assembly::InitialCondition::init();
     Assembly::InitialConditionPython::init();
+    Assembly::Sensor::init();
+    Assembly::SensorPython::init();
     Assembly::ExplodedView::init();
     Assembly::ExplodedViewPython::init();
     Assembly::ExplodedViewStep::init();

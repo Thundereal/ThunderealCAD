@@ -275,9 +275,27 @@ PyObject* AssemblyObjectPy::getSimulationResults(PyObject* args) const
                 offset += channel.width;
             }
         }
+        Py::List events;
+        if (trajectory) {
+            App::Document* doc = getAssemblyObjectPtr()->getDocument();
+            for (const auto& event : trajectory->events) {
+                const std::size_t hash = event.source.rfind('#');
+                const std::string name =
+                    hash == std::string::npos ? event.source : event.source.substr(hash + 1);
+                App::DocumentObject* obj = doc ? doc->getObject(name.c_str()) : nullptr;
+                Py::Dict entry;
+                entry.setItem("Time", Py::Float(event.time));
+                entry.setItem("Object", obj ? Py::asObject(obj->getPyObject()) : Py::None());
+                entry.setItem("Name", Py::String(name));
+                entry.setItem("Value", Py::Float(event.value));
+                entry.setItem("Stopped", Py::Boolean(event.stopped));
+                events.append(entry);
+            }
+        }
         Py::Dict ret;
         ret.setItem("Times", times);
         ret.setItem("Channels", channels);
+        ret.setItem("Events", events);
         App::DocumentObject* sim = getAssemblyObjectPtr()->lastSimulation();
         ret.setItem("Simulation", sim ? Py::asObject(sim->getPyObject()) : Py::None());
         return Py::new_reference_to(ret);

@@ -34,6 +34,7 @@
         <file>icons/Assembly_Bushing.svg</file>
         <file>icons/Assembly_Contact.svg</file>
         <file>icons/Assembly_CamContact.svg</file>
+        <file>icons/Assembly_Sensor.svg</file>
         <file>icons/Assembly_DragCollision.svg</file>
         <file>icons/Assembly_ClearCollisionMarkers.svg</file>
         <file>icons/Assembly_JointGroup.svg</file>

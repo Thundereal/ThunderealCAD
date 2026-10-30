@@ -53,6 +53,7 @@ Numbers = [
     ("DynamicFriction", QT_TRANSLATE_NOOP("Assembly", "Dynamic friction"), "", 10.0, 3),
 ]
 Quantities = [
+    ("AllowedPenetration", QT_TRANSLATE_NOOP("Assembly", "Allowed penetration")),
     ("Penetration", QT_TRANSLATE_NOOP("Assembly", "Full damping at")),
     ("StictionVelocity", QT_TRANSLATE_NOOP("Assembly", "Stiction velocity")),
     ("FrictionVelocity", QT_TRANSLATE_NOOP("Assembly", "Friction velocity")),
@@ -63,6 +64,7 @@ Choices = {
     "StiffnessFrom": [
         ("Materials", QT_TRANSLATE_NOOP("Assembly", "The parts' materials (Hertz)")),
         ("Value", QT_TRANSLATE_NOOP("Assembly", "A value")),
+        ("Penetration", QT_TRANSLATE_NOOP("Assembly", "An allowed penetration")),
     ],
     "RadiusFrom": [
         ("Patch", QT_TRANSLATE_NOOP("Assembly", "Where they touch")),
@@ -88,6 +90,7 @@ G = 9.80665  # m/s^2
 Order = [
     "StiffnessFrom",
     "RadiusFrom",
+    "AllowedPenetration",
     "Stiffness",
     "Exponent",
     "DampingFrom",
@@ -122,7 +125,8 @@ def restEstimate(contact, components):
     substep at rest (s); None when group A has none with a mass. components:
     getMassProperties()'s, by the object's name. The stiffness from the
     materials is Hertz's with the parts' sizes for its radius: where they
-    touch is known only in the run."""
+    touch is known only in the run. By an allowed penetration, the lightest
+    sinks it."""
     lightest = None
     for obj in contact.GroupA:
         entry = components.get(obj.Name)
@@ -150,6 +154,13 @@ def restEstimate(contact, components):
         radius = 1.0 / sum(1.0 / r for r in sizes if r > 0)
         stiffness = 4.0 / 3.0 * modulus * math.sqrt(radius)
         exponent = 1.5
+    elif contact.StiffnessFrom == "Penetration":
+        # The lightest sinks the allowance; each pair's lighter its own
+        allowance = contact.AllowedPenetration.Value
+        if allowance <= 0:
+            return None
+        exponent = contact.Exponent
+        stiffness = lightest["Mass"] * G / allowance**exponent
     else:
         stiffness = contact.Stiffness
         exponent = contact.Exponent
@@ -355,7 +366,7 @@ class TaskContact(QtCore.QObject):
             box.setProperty("value", getattr(self.contact, prop))
             box.setProperty("minimum", 0.0)
             Gui.ExpressionBinding(box).bind(self.contact, prop)
-            box.valueChanged.connect(lambda q, prop=prop: setattr(self.contact, prop, q))
+            box.valueChanged.connect(lambda q, prop=prop: self.onQuantity(prop, q))
             self.boxes[prop] = box
             labels[prop] = label
         for prop in Order:
@@ -432,11 +443,12 @@ class TaskContact(QtCore.QObject):
         self.slider.blockSignals(True)
         self.slider.setValue(self.sliderOf(self.contact.Stiffness))
         self.slider.blockSignals(False)
-        fromValue = self.contact.StiffnessFrom == "Value"
-        for prop in ("Stiffness", "Exponent"):
-            self.boxes[prop].setEnabled(fromValue)
-        self.slider.setEnabled(fromValue)
-        self.boxes["RadiusFrom"].setEnabled(not fromValue)
+        source = self.contact.StiffnessFrom
+        self.boxes["Stiffness"].setEnabled(source == "Value")
+        self.slider.setEnabled(source == "Value")
+        self.boxes["Exponent"].setEnabled(source != "Materials")
+        self.boxes["RadiusFrom"].setEnabled(source == "Materials")
+        self.boxes["AllowedPenetration"].setEnabled(source == "Penetration")
         dampedByValue = self.contact.DampingFrom == "Value"
         for prop in ("MaxDamping", "Penetration"):
             self.boxes[prop].setEnabled(dampedByValue)
@@ -455,6 +467,10 @@ class TaskContact(QtCore.QObject):
             self.slider.blockSignals(True)
             self.slider.setValue(self.sliderOf(value))
             self.slider.blockSignals(False)
+        self.showEstimate()
+
+    def onQuantity(self, prop, quantity):
+        setattr(self.contact, prop, quantity)
         self.showEstimate()
 
     def onChoice(self, prop):
@@ -495,6 +511,11 @@ class TaskContact(QtCore.QObject):
                 "Stiffness {k:.3g} N/mm^1.5 by the parts' sizes; the run takes it where they "
                 "touch.",
             ).format(k=stiffness)
+        elif self.contact.StiffnessFrom == "Penetration":
+            text += " " + translate(
+                "Assembly",
+                "Stiffness {k:.3g} N/mm^{e:g} for it; each pair's lighter part sinks as far.",
+            ).format(k=stiffness, e=exponent)
         self.estimate.setText(text)
 
     def toggle(self, component, group):

@@ -605,6 +605,25 @@ class TestContact(unittest.TestCase):
             again = next((i for i in range(left, len(z)) if z[i] < 15.0), len(z))
             self.assertAlmostEqual(max(z[left:again]) - 15.0, r * r, delta=r * r * 0.02)
 
+    def test_allowed_penetration(self):
+        """The stiffness by an allowed penetration (Drake's allowance): each
+        pair's lighter part sinks it under its weight, whatever its mass --
+        the ball of 1.4 g and the box of 10.8 g alike, 5e-3 mm (1e-6)"""
+        plate = self.plate()
+        ball = self.ball(16)
+        box = self.assembly.newObject("Part::Box", "Box")
+        box.Length, box.Width, box.Height = 20, 20, 10
+        box.Placement.Base = App.Vector(5, 5, 11)
+        contact = self.contact([ball, box], [plate], StaticFriction=0.0, DynamicFriction=0.0)
+        contact.StiffnessFrom = "Penetration"
+        contact.AllowedPenetration = 0.005
+        self.doc.recompute()
+        _, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertAlmostEqual(self.heights(ball)[-1], 15 - 0.005, delta=1e-6)
+        self.assertAlmostEqual(self.heights(box)[-1], 10 - 0.005, delta=1e-6)
+        self.assertLess(self.tilt(box), 1e-4)
+
     def test_old_set_keeps_its_stiffness(self):
         """A contact set saved before StiffnessFrom and DampingFrom ran with
         its Stiffness and its MaxDamping: restored, it still does"""

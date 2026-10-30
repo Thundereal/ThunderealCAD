@@ -2053,8 +2053,18 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         pair.source = model.addSource(set->getFullName());
         // N to mN: the stiffness in N / mm^e, the damping in N s/mm
         Solver::ContactLaw& law = pair.law;
-        law.from = set->StiffnessFrom.getValue() == 0 ? Solver::ContactLaw::Stiffness::Materials
-                                                      : Solver::ContactLaw::Stiffness::Value;
+        switch (set->StiffnessFrom.getValue()) {
+            case 0:
+                law.from = Solver::ContactLaw::Stiffness::Materials;
+                break;
+            case 2:
+                law.from = Solver::ContactLaw::Stiffness::Penetration;
+                break;
+            default:
+                law.from = Solver::ContactLaw::Stiffness::Value;
+                break;
+        }
+        law.allowance = set->AllowedPenetration.getValue();
         law.radius = set->RadiusFrom.getValue() == 0 ? Solver::ContactLaw::Radius::Patch
                                                      : Solver::ContactLaw::Radius::Part;
         law.damping = set->DampingFrom.getValue() == 0 ? Solver::ContactLaw::Damping::Restitution

@@ -1174,6 +1174,18 @@ class TestGuiCommands(unittest.TestCase):
         self.assertFalse(task.boxes["Restitution"].isEnabled())
         self.assertTrue(task.boxes["MaxDamping"].isEnabled())
         self.assertTrue(task.boxes["Penetration"].isEnabled())
+        # By an allowed penetration: the allowance and the exponent, the
+        # stiffness theirs
+        self.assertFalse(task.boxes["AllowedPenetration"].isEnabled())
+        combo = task.boxes["StiffnessFrom"]
+        combo.setCurrentIndex(combo.findData("Penetration"))
+        self.assertEqual(contact.StiffnessFrom, "Penetration")
+        self.assertTrue(task.boxes["AllowedPenetration"].isEnabled())
+        self.assertTrue(task.boxes["Exponent"].isEnabled())
+        self.assertFalse(task.boxes["Stiffness"].isEnabled())
+        self.assertFalse(task.slider.isEnabled())
+        self.assertFalse(task.boxes["RadiusFrom"].isEnabled())
+        self.assertIn("sinks 0.01 mm", task.estimate.text())
         # A value: the stiffness and its slider, ten times the stiffness a
         # hundred ticks on
         combo = task.boxes["StiffnessFrom"]

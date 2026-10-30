@@ -152,7 +152,8 @@ bool same(const ContactLaw& a, const ContactLaw& b)
     return a.from == b.from && a.radius == b.radius && a.damping == b.damping
         && a.restitution == b.restitution && a.stiffness == b.stiffness
         && a.exponent == b.exponent && a.maxDamping == b.maxDamping
-        && a.penetration == b.penetration && a.muStatic == b.muStatic && a.muDynamic == b.muDynamic
+        && a.penetration == b.penetration && a.allowance == b.allowance
+        && a.muStatic == b.muStatic && a.muDynamic == b.muDynamic
         && a.vStiction == b.vStiction && a.vFriction == b.vFriction;
 }
 
@@ -377,6 +378,7 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             ContactLaw& law = contact.law;
             law.stiffness *= std::pow(length, 1.0 - law.exponent);
             law.penetration *= length;
+            law.allowance *= length;
             law.vStiction *= length;
             law.vFriction *= length;
         }

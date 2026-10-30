@@ -2383,6 +2383,27 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
             load.impact = fastest;
         }
     }
+    // By the allowance (Drake's penetration allowance): k = m g / d^e, m the
+    // lighter body moving, so that it sinks d under its weight whatever it
+    // is made of -- standard gravity's where the run has none
+    if (law.from == ContactLaw::Stiffness::Penetration) {
+        double mass = std::numeric_limits<double>::infinity();
+        for (const auto& body : {load.GetBodyA(), load.GetBodyB()}) {
+            if (!body->IsFixed() && body->GetMass() > 0.0) {
+                mass = std::min(mass, body->GetMass());
+            }
+        }
+        const auto* system = load.GetBodyA()->GetSystem();
+        double gravity = system ? system->GetGravitationalAcceleration().Length() : 0.0;
+        if (!(gravity > 0.0)) {
+            gravity = 9.80665;
+        }
+        if (std::isfinite(mass) && law.allowance > 0.0) {
+            load.stiffness.assign(load.patches,
+                                  mass * gravity / std::pow(law.allowance, law.exponent));
+        }
+        return;
+    }
     if (law.from != ContactLaw::Stiffness::Materials || load.points.empty()) {
         return;
     }

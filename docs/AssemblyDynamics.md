@@ -742,7 +742,13 @@ Phase D1 is under way (2026-10-28):
     (2018) put Johnson's first among the line laws; without its logarithm,
     pi/4 E* L d, it is five times as stiff at a metal's sinks of 1e-7 mm.
     Each patch has its own exponent. Aluminium on aluminium comes to about
-    1e5 N/mm^1.5 for a radius of 5 mm, the Adams default. The damping is
+    1e5 N/mm^1.5 for a radius of 5 mm, the Adams default. Where
+    `StiffnessFrom` is Penetration, Drake's penetration allowance: at
+    `Exponent`, k = m g / d^e, m the lighter moving body of each pair and d
+    `AllowedPenetration` (0.01 mm), so that it sinks d under its weight
+    whatever its mass or material (standard gravity's where the run has
+    none) -- the largest penetration acceptable runs the fastest. The
+    damping is
     `MaxDamping` reached at `Penetration` where `DampingFrom` is Value, or,
     Restitution (a new set's), by the coefficient of restitution
     `Restitution` (0.6): Hunt and Crossley's,
@@ -781,7 +787,8 @@ Phase D1 is under way (2026-10-28):
     opens it too) picks either group in the 3D view -- a pick adds a
     component, taking it out of the other group, and a pick of one
     already in the group takes it out -- and takes the law: where the
-    stiffness comes from, the contact radius, and the stiffness itself on a
+    stiffness comes from, the contact radius, the allowed penetration, and
+    the stiffness itself on a
     spin box and a slider of powers of ten, 1 to 1e7. Under them, how the
     lightest component of group A rests on the law: how far it sinks and
     the run's steps through an impact there, (mg/k)^(1/e) and a fiftieth
@@ -1054,7 +1061,8 @@ Phase D1 is under way (2026-10-28):
     hemisphere on its dome as on Hertz's for R 5 (5e-5 mm); damped by
     restitution, a ball dropped a millimetre rebounding r^2 of it (2% at
     r 0.8 and 0.3); a set saved before StiffnessFrom and DampingFrom restored as
-    Value for both; a cube with a corner
+    Value for both; by an allowed penetration, a ball of 1.4 g and a box of
+    10.8 g each sunk it (1e-6 mm); a cube with a corner
     cut out landing level on its base (1e-4 mm, 1e-4 rad), a box resting
     on the floor of a slot in a block and not on the block's hull, and the
     notched cube on the block beside the slot, mesh on mesh, its sides
@@ -1063,8 +1071,8 @@ Phase D1 is under way (2026-10-28):
     cap, one landing on its side and staying there; a cube with a hollow
     in it refused; a set's pairs only.
   - Tests (TestGuiCommands): the panel's picks, law, OK and Cancel, and
-    a new study ticking the set; the stiffness from the materials or a
-    value, and the damping by restitution or a value, each idling the
+    a new study ticking the set; the stiffness from the materials, a
+    value or an allowed penetration, and the damping by restitution or a value, each idling the
     other's rows, the slider's powers of ten and the rest it shows; OK
     refused with group A empty.
   - Not yet: curve contact for cams (sec 7.4), stops, sensors, contact

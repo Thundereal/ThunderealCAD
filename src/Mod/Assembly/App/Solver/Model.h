@@ -356,13 +356,16 @@ struct InitialVelocity
 // k and e as given, or Hertz's from the shapes' materials: k = 4/3 E* R^0.5
 // and e = 1.5, 1/E* the sum of the two shapes' 1 / ContactShape::modulus,
 // and R the contact's radius -- from the curvatures where the shapes touch,
-// Johnson's for a line, or from the two shapes' sizes.
+// Johnson's for a line, or from the two shapes' sizes; or, at e, the k at
+// which the lighter body of each pair sinks the allowance under its weight
+// (Drake's penetration allowance).
 struct ContactLaw
 {
     enum class Stiffness : std::uint8_t
     {
-        Value,     // stiffness and exponent
-        Materials  // Hertz's
+        Value,       // stiffness and exponent
+        Materials,   // Hertz's
+        Penetration  // the allowance's, at exponent
     };
     enum class Radius : std::uint8_t
     {
@@ -382,6 +385,7 @@ struct ContactLaw
     double exponent = 1.5;      // e
     double maxDamping = 1e4;    // cmax, mN s / mm (10 N s/mm)
     double penetration = 0.01;  // dmax, mm
+    double allowance = 0.01;    // mm, for Stiffness::Penetration
     double muStatic = 0.3;
     double muDynamic = 0.25;
     double vStiction = 0.1;    // mm/s

@@ -644,7 +644,7 @@ Bushing::Bushing()
 
 PROPERTY_SOURCE(Assembly::ContactSet, Assembly::PhysicsItem)
 
-const char* ContactSet::StiffnessFromEnums[] = {"Materials", "Value", nullptr};
+const char* ContactSet::StiffnessFromEnums[] = {"Materials", "Value", "Penetration", nullptr};
 const char* ContactSet::RadiusFromEnums[] = {"Patch", "Part", nullptr};
 const char* ContactSet::DampingFromEnums[] = {"Restitution", "Value", nullptr};
 
@@ -668,8 +668,16 @@ ContactSet::ContactSet()
                       App::Prop_None,
                       "Materials: Hertz's law from the components' materials, a stiffness of "
                       "4/3 E* R^0.5 and an exponent of 1.5.\nValue: Stiffness and Exponent as "
-                      "given.");
+                      "given.\nPenetration: the stiffness at which the lighter part of each "
+                      "pair sinks AllowedPenetration under its weight, at Exponent.");
     StiffnessFrom.setEnums(StiffnessFromEnums);
+    ADD_PROPERTY_TYPE(AllowedPenetration,
+                      (0.01),
+                      "Contact",
+                      App::Prop_None,
+                      "For StiffnessFrom Penetration: how far the lighter part of each pair "
+                      "sinks under its weight, the most to accept -- the larger, the faster "
+                      "the run");
     ADD_PROPERTY_TYPE(RadiusFrom,
                       (0L),
                       "Contact",

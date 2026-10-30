@@ -404,7 +404,10 @@ using BushingPython = App::FeaturePythonT<Bushing>;
  * from the components' materials (Materials, a new set's): Hertz's,
  * 4/3 E* R^0.5 and 1.5, E* the two materials' moduli combined and R the
  * contact's radius -- where each patch of contact touches (RadiusFrom
- * Patch), Johnson's for a line, or from the two solids' sizes (Part). The
+ * Patch), Johnson's for a line, or from the two solids' sizes (Part); or
+ * the stiffness at which the lighter body of each pair sinks
+ * AllowedPenetration under its weight, at Exponent (Penetration, Drake's
+ * penetration allowance). The
  * damping as given (DampingFrom Value), or by the coefficient of
  * restitution Restitution (a new set's): Hunt and Crossley's,
  * Fn = k d^e (1 + a / v0 dd/dt), a exactly r's, v0 the speed the contact
@@ -423,6 +426,7 @@ public:
     /// Empty: the components of GroupA touch one another
     App::PropertyLinkList GroupB;
     App::PropertyEnumeration StiffnessFrom;
+    App::PropertyLength AllowedPenetration;
     App::PropertyEnumeration RadiusFrom;
     App::PropertyEnumeration DampingFrom;
     App::PropertyFloatConstraint Restitution;

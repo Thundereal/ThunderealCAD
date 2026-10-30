@@ -58,6 +58,8 @@ public:
     Part::PropertyPartShape SuppressedShape;
     App::PropertyBool NewSolid;
     App::PropertyLinkList _Siblings;
+    /// Recompute once more on copies of the inputs where frozen ones fail (Part::Feature::retryOnCopy())
+    App::PropertyBool RetryOnCopy;
 
     short mustExecute() const override;
 
@@ -141,6 +143,7 @@ protected:
 
 
     App::DocumentObjectExecReturn *recompute() override;
+    bool retryOnCopy() const override;
     /// Upstream saves Suppress as Suppressed (its SuppressibleExtension)
     void handleChangedPropertyName(Base::XMLReader &reader, const char *TypeName,
                                    const char *PropName) override;

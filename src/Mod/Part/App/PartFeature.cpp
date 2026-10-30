@@ -402,19 +402,56 @@ App::DocumentObjectExecReturn *Feature::recompute()
         _holdingReferences = true;
         _heldShapeChange = false;
     }
+    // A failure with nothing refused is run again on copies too where the
+    // feature asks for it (retryOnCopy(), PartDesign's RetryOnCopy): the
+    // freeze may fail an algorithm that reports no refusal. A raise is such
+    // a failure then, and the one the copies give is the one that stands.
+    const bool retryFailure = !ThawInputs::active() && PartParams::getImmutableShapeValues()
+            && retryOnCopy();
     App::DocumentObjectExecReturn* ret = nullptr;
     try {
         const unsigned int refused = raisedOCCTLockedShapes();
-        ret = once();
+        std::string raised;
+        if (!retryFailure)
+            ret = once();
+        else {
+            try {
+                ret = once();
+            }
+            catch (Base::AbortException&) {
+                throw;
+            }
+            catch (Base::Exception& e) {
+                raised = e.what();
+            }
+            catch (std::exception& e) {
+                raised = e.what();
+            }
+        }
+        const bool failed = !raised.empty() || ret != App::DocumentObject::StdReturn;
         if (!ThawInputs::active() && raisedOCCTLockedShapes() != refused) {
             FC_LOG(getFullName() << ": a frozen input was refused ("
-                                 << (ret == App::DocumentObject::StdReturn ? "worked around" : ret->Why.c_str())
+                                 << (!raised.empty() ? raised.c_str()
+                                     : ret == App::DocumentObject::StdReturn ? "worked around" : ret->Why.c_str())
                                  << "), recomputing on copies");
             if (ret != App::DocumentObject::StdReturn)
                 delete ret;
             ret = nullptr;
             ThawInputs thaw;
             ret = once();
+        }
+        else if (retryFailure && failed) {
+            const std::string why = !raised.empty() ? raised : ret->Why;
+            if (ret != App::DocumentObject::StdReturn)
+                delete ret;
+            ret = nullptr;
+            {
+                ThawInputs thaw;
+                ret = once();
+            }
+            if (ret == App::DocumentObject::StdReturn)
+                FC_WARN(getFullName() << ": failed on frozen inputs (" << why
+                                      << "), recomputed on copies (RetryOnCopy)");
         }
     }
     catch (...) {

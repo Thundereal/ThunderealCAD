@@ -471,6 +471,12 @@ protected:
 
     /// recompute only this object
     App::DocumentObjectExecReturn *recompute() override;
+    /** Whether a recompute that fails with shape values frozen (PartParams
+     *  ImmutableShapeValues) runs once more on copies of the inputs, as one
+     *  an algorithm's refusal failed does: for a failure the freeze causes
+     *  that no refusal reports. PartDesign::Feature's RetryOnCopy.
+     */
+    virtual bool retryOnCopy() const { return false; }
     /// recalculate the feature
     App::DocumentObjectExecReturn *execute() override;
     void onBeforeChange(const App::Property* prop) override;

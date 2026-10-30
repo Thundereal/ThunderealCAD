@@ -72,6 +72,16 @@ Feature::Feature()
 
     ADD_PROPERTY_TYPE(NewSolid,(false),"Base",App::Prop_None,
                      "Create a new separated solid from this feature");
+
+    ADD_PROPERTY_TYPE(RetryOnCopy,(false),"Base",App::Prop_None,
+                     "With shape values frozen (Part's ImmutableShapeValues), recompute once more\n"
+                     "on copies of the inputs when the recompute fails: for a failure the freeze\n"
+                     "causes. Warns where that rescues the recompute.");
+}
+
+bool Feature::retryOnCopy() const
+{
+    return RetryOnCopy.getValue();
 }
 
 short Feature::mustExecute() const

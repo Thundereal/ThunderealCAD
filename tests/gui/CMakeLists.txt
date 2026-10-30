@@ -512,6 +512,11 @@ fc_add_gui_test(GuiEditStepEachChange_tests_run edit-step-each-change.py
 # steps from before.
 fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 300)
 
+# A drawing and the model it draws, each in edit in a view of its own, their
+# changes interleaved with recomputes, undo and redo from either view.
+fc_add_gui_test(GuiTdModelInterleave_tests_run td-model-interleave.py
+                --timeout 300)
+
 # A view in a tab closed of itself, not through its tab: the tab goes with
 # it, and nothing reads the view that is gone (a segmentation fault).
 fc_add_gui_test(GuiViewCloseDirect_tests_run view-close-direct.py --timeout 180)

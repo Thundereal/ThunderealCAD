@@ -730,4 +730,12 @@ other view that is not a 3D view hands its steps to every view as it
 closes (`App::Document::releaseStepView`); a 3D view keeps them, as no 3D
 view tells them apart, and a page does not list them.
 
-Test: `tests/gui/per-view-undo.py`.
+An edit's Cancel with another view's step among the edit's goes through
+the log, as a step of its own that takes the edit's rows back
+(`Document::undoLogged`). That step is made in the view its input went to,
+as any step is: the Cancel of the edit's own panel is that view's, not a
+step every view lists.
+
+Tests: `tests/gui/per-view-undo.py`; `tests/gui/td-model-interleave.py`, a
+drawing and the model it draws each in edit in a view of its own, their
+changes interleaved with recomputes, undo and redo from either view.

@@ -1288,6 +1288,10 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts confli
             step->Name = stepName;
             step->LogKind = "undo";
             step->Inverts = several ? 0 : *rows.begin();
+            // Made in the view its input went to, as _openTransaction's: an
+            // edit's Cancel is that edit's view's (docs/MultiViewEdit.md
+            // sec 12.9), not a step every view lists
+            step->View = GetApplication().getStepView(step->getID());
             mUndoMap[step->getID()] = step;
             d->activeUndoTransaction = step;
         }

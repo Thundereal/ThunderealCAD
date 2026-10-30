@@ -288,8 +288,15 @@ as Surface's were after their first round (docs/Surface.md sec 12, fb9aa6ee53).
   4. the rule's default.
   The source of each bend's value is shown in the flat pattern's bend table, so nobody has to
   guess which one won.
-- **Material** (question c): the rule may take its thickness gauges, radius and K or table from a
-  material card with a sheet metal model, or carry its own values.
+- **Material** (question c, ruled 2026-10-30: from a card): the rule may take its thickness gauges,
+  radius and K or table from a material card with a sheet metal model, a new model in the Material
+  module, or carry its own values when no card is chosen. Proposed:
+  - The model, `SheetMetal`: a gauge table (a 2D array, one row per stock thickness: thickness,
+    inner radius, K, minimum flange), the allowance method, and the bend table for the table
+    methods.
+  - By default the rule follows the material of its body (`ShapeMaterial`, which a body has as any
+    Part feature), so mass and the flat agree; a card picked on the rule overrides it, and any one
+    value set on the rule overrides the card's.
 
 ### 4.7 The flat pattern
 
@@ -377,7 +384,9 @@ Users with addon parts will open them here. Without the addon installed, its obj
 Python features with no proxy: their shapes show as last saved, and they do not recompute [B3,
 #389].
 
-Proposal (question e): a **Convert addon objects** command reads each addon object's properties --
+**Ruled 2026-10-30 (question e): nothing is built for them.** Users keep the addon for its files;
+since sheet metal lives in PartDesign, both can be installed. What follows was the proposal, kept
+for the record: a **Convert addon objects** command reads each addon object's properties --
 data only, no addon code runs -- and makes the native feature with the same parameters, linked to
 the same inputs. The addon's classes and parameter names are in [B1]. A part whose flat pattern
 changes in the conversion because the addon's table interpolation was wrong is told so. Objects
@@ -456,7 +465,7 @@ sheet metal feature registers its context (M1). It is tested then.
 | M3 | **Convert and recognise.** Convert a solid or shell, rip; the geometry recogniser for imported parts. | the M1 parts exported to STEP and read back give the same flat as their features do; a hand-made shell converts and flattens to the hand value. | M |
 | M4 | **Flat state and the table.** Unfold / refold, notches, the bend table panel with overrides, cross break, multi-sheet export, the bend table in TechDraw. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
 | M5 | **Forms and lofted flanges.** User tools and the built-in set; the flat's three ways of showing a form; lofted flange developed exactly for cones and by facets otherwise. | a cone's development against the closed form; a form kept in the flat is the same solid moved. | M |
-| M6 | **The addon's documents** (6). | a set of addon files saved by addon 0.8.26, converted, and their flats against hand values. The files are made by the user or from the addon's own examples; this session does not run the addon (3.5). | S |
+| M6 | **Not built** (question e). **The addon's documents** (6). | a set of addon files saved by addon 0.8.26, converted, and their flats against hand values. The files are made by the user or from the addon's own examples; this session does not run the addon (3.5). | S |
 
 **Test rule, from the 3D sketch and Surface:** each phase's tests are written first and scored on
 the code before the change, so a pass means something. Every test runs with shape values frozen
@@ -502,6 +511,9 @@ and not frozen.
   2026-10-30).
 - Left of M0: the Rule object (question c), and the sheet model that owns the faces, which comes
   with the first feature that makes one (M1).
+
+**Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
+for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).
 
 a. **The module's name.** It cannot be `src/Mod/SheetMetal`: the addon installs under that name
    and the loader lets a user's module of the same name (any case) replace a built-in one, so the

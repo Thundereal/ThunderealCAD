@@ -223,6 +223,35 @@ The addon's cost is booleans used to find faces, and whole-solid booleans per fl
 Whether a chain of N features is still O(N^2) depends on that join: a boolean visits the whole
 solid at least once. The target is set in M0 from measurement, not assumed.
 
+**Measured 2026-10-30** (`scripts/sheetmetal-join-probe.cpp`, plain OCCT; and the same through
+`TopoShape`'s element-mapped fuse, `~/.cache/lv-merge/sheetmetal/join/mapped.py`). The part is a
+plate 2 thick with N flanges along one edge, each a 90 deg bend of inner radius 2 and a 20-high
+leg. Every result is one valid solid.
+
+| N | faces | chain, plain | chain, glue | chain, named | last join, named | fan, plain | fan, glue | fan, named |
+|---|---|---|---|---|---|---|---|---|
+| 16 | 166 | 118 ms | 97 ms | 172 ms | 15 ms | 47 ms | 28 ms | 46 ms |
+| 64 | 646 | 1.26 s | 1.14 s | 1.76 s | 51 ms | 211 ms | 127 ms | 224 ms |
+| 128 | 1286 | 4.9 s | 4.7 s | 7.7 s | 127 ms | 517 ms | 293 ms | 543 ms |
+| 256 | 2566 | 24 s | 22 s | -- | -- | 1.36 s | 675 ms | -- |
+
+What it says:
+- **A chain is O(N^2), and the glue option does not change that.** One join costs about 0.07 ms
+  per face of the result (0.08 ms with names), because the Boolean walks the whole solid. Glue
+  saves little in a chain, since the cost is the walk, not the intersections. Names add about 40%.
+- **A fan is close to linear, and glue halves it.** 64 flanges in one feature take 0.13 s.
+- **This is not particular to sheet metal.** Every PartDesign feature on a solid of 650 faces
+  pays the same walk: a pocket there costs about as much as a flange.
+
+So, ruled by measurement, not proposed: features join with an ordinary named boolean, with the
+glue option when the new material only touches the part (a flange, a hem, a tab). A feature on
+many edges joins all of them in one boolean. Replacing faces directly in the part is not built:
+at 51 ms for the 64th feature, it would win too little for the risk of building topology by hand.
+Two things remain if large parts need them: a recompute that starts at the edited feature, which
+is the recompute engine's work, and docs/ComputeBoundaries.md's workers. The M1 target is a
+64-flange chain rebuilt in under 2.5 s, and one flange added to it in under 80 ms, through the real
+features, element maps and all.
+
 ### 4.5 Two layers, as in Surface
 
 - **`App/Geom/`: geometry, no document.**

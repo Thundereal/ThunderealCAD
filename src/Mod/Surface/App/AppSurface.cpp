@@ -129,7 +129,7 @@ PyMOD_INIT_FUNC(Surface)
                             Surface::IntersectionCurve::getClassTypeId(),
                             Surface::JoinCurves::getClassTypeId(),
                             Surface::ExtendCurve::getClassTypeId()}) {
-        Part::BodyBase::allowType(type);
+        Part::BodyBase::allowType(type, "Surface");
     }
 
     PyMOD_Return(mod);

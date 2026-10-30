@@ -26,7 +26,10 @@
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
+#include <Gui/ActiveObjectList.h>
 #include <Gui/Application.h>
+#include <Gui/ToolContext.h>
+#include <Mod/Part/App/BodyBase.h>
 
 #include "Blending/ViewProviderBlendCurve.h"
 
@@ -93,6 +96,19 @@ PyMOD_INIT_FUNC(SurfaceGui)
     SurfaceGui::ViewProviderBlendCurve      ::init();
     // SurfaceGui::ViewProviderCut::init();
     // clang-format on
+
+    // The Surface tool bar in PartDesign, offered while a surface group is
+    // active or a Surface feature is in edit (docs/SheetMetal.md sec 8)
+    Gui::ToolContext::Spec surfaces;
+    surfaces.name = "Surface";
+    surfaces.workbenches = {"PartDesignWorkbench"};
+    surfaces.toolbars = {{"Surface", &SurfaceGui::Workbench::addTools}};
+    surfaces.activeKey = PDSURFACEKEY;
+    surfaces.kind = "Surface";
+    surfaces.applies = [](const App::DocumentObject* obj) {
+        return Part::BodyBase::typeKind(obj->getTypeId()) == "Surface";
+    };
+    Gui::ToolContext::add(std::move(surfaces));
 
     PyObject* mod = SurfaceGui::initModule();
     Base::Console().Log("Loading GUI of Surface module... done\n");

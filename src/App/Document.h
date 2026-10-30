@@ -2270,6 +2270,11 @@ protected:
     /// step become the earlier one's. True when folded; the caller then
     /// drops `later`.
     bool _coalesceStep(Transaction* later);
+    /// Without a log (docs/MultiViewEdit.md sec 12.2 rule 7): an implicit
+    /// step just committed with no step of the user's under it, nothing
+    /// undoes, or one that follows an implicit step, folded into it. True
+    /// when dropped or folded; the caller then drops `later`.
+    bool _foldImplicit(Transaction* later);
 
     /// refresh the internal dependency graph
     void _rebuildDependencyList(

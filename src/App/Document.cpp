@@ -1118,6 +1118,28 @@ void Document::_deleteTransaction(Transaction* t)
 void Document::_trimHotWindow(std::list<Transaction*>& stack, std::map<int, Transaction*>& map)
 {
     auto log = getTransactionLog();
+    if (!log) {
+        // No log, so no cold steps either: what is trimmed is gone. An
+        // implicit step is no step of its own (sec 33.4), so the limit
+        // counts the user's, and one trimmed takes the implicit ones above
+        // it -- they go with it -- as it does those under the first user
+        // step left, which nothing undoes (docs/MultiViewEdit.md sec 12.2
+        // rule 7).
+        size_t user = std::count_if(stack.begin(), stack.end(),
+                                    [](const Transaction* t) { return !t->Implicit; });
+        for (auto it = stack.begin(); it != stack.end();) {
+            Transaction* t = *it;
+            if (!t->Implicit) {
+                if (user <= d->UndoMaxStackSize)
+                    break;
+                --user;
+            }
+            map.erase(t->getID());
+            _deleteTransaction(t);
+            it = stack.erase(it);
+        }
+        return;
+    }
     size_t hot = 0;
     for (auto t : stack)
         hot += t->Cold ? 0 : 1;
@@ -1870,8 +1892,13 @@ int Document::_openTransaction(const char* name, int id, bool implicit)
         // A new step of the user's ends its redo steps (sec 30.10 item 5).
         // An implicit one does not (sec 33.4): nothing the user cannot see
         // empties the redo list. A redo after it goes through the log, as
-        // after another's write.
-        if (!implicit)
+        // after another's write. Without a log there is none to go through,
+        // and the redo's copies are of a state the write has left: it ends
+        // them too (docs/MultiViewEdit.md sec 12.2 rule 7). Not made here if
+        // it is not yet: a redo step means a commit, which made it if it
+        // can be, and one made early keeps an object removed in this step
+        // for its row, its name taken till the commit.
+        if (!implicit || !d->transactionLog)
             _clearMyRedos();
 
         d->activeUndoTransaction = new Transaction(id);
@@ -2175,7 +2202,8 @@ void Document::_commitTransaction(bool notify)
         if (!d->activeUndoTransaction->isEmpty())
             d->stateToken = ++d->stateCounter;
         d->activeUndoTransaction->StateAfter = d->stateToken;
-        if (d->iUndoMode && !_coalesceStep(d->activeUndoTransaction)) {
+        if (d->iUndoMode && !_coalesceStep(d->activeUndoTransaction)
+                && !_foldImplicit(d->activeUndoTransaction)) {
             mUndoTransactions.push_back(d->activeUndoTransaction);
         }
         else {
@@ -2283,6 +2311,25 @@ bool Document::_coalesceStep(Transaction* later)
     prev->LogSeq = later->LogSeq;
     prev->StateAfter = later->StateAfter;
     d->lastCommitSeq = prev->LogSeq;
+    return true;
+}
+
+bool Document::_foldImplicit(Transaction* later)
+{
+    // With a log, every implicit step is a row of its own and the hot
+    // window turns old steps cold; without one, a run of them only ever
+    // undoes whole, with the user's step under it (sec 33.4). So the run
+    // is kept as one step, holding the oldest copy of each property (sec
+    // 12.1), however many writes a timer or a script makes.
+    if (!later->Implicit || getTransactionLog())
+        return false;
+    if (std::none_of(mUndoTransactions.begin(), mUndoTransactions.end(),
+                     [](const Transaction* t) { return !t->Implicit; }))
+        return true;
+    Transaction* prev = mUndoTransactions.back();
+    if (!prev->Implicit || !prev->absorbable() || !prev->absorb(*later))
+        return false;
+    prev->StateAfter = later->StateAfter;
     return true;
 }
 

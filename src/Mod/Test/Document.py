@@ -6260,6 +6260,51 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.RedoNames, [])
         self.assertEqual(doc.UndoNames, ["taller"])
 
+    def testImplicitStepsWithoutALog(self):
+        # docs/MultiViewEdit.md sec 12.2 rule 7: a document with no log --
+        # a temporary one keeps none -- records implicit steps too. They go
+        # with the user's step they followed, kept as one step however many
+        # there are; they end the redo steps, which have no log to go
+        # through; and the undo limit counts the user's steps only.
+        doc = self.track(FreeCAD.newDocument("ImplicitNoLog", hidden=True, temp=True))
+        doc.UndoMode = 1
+        box = doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        self.assertEqual(doc.getTransactionLog(), [])
+        self.assertEqual(doc.UndoCount, 0)
+
+        doc.openTransaction("longer")
+        box.Length = 20
+        doc.commitTransaction()
+        for width in range(1, 6):
+            box.Width = width
+            doc.recompute()
+            doc.commitTransaction()
+        self.assertEqual(doc.UndoNames, ["longer"])
+        doc.undo()
+        self.assertAlmostEqual(box.Length.Value, 10.0)
+        self.assertAlmostEqual(box.Width.Value, 10.0)
+        self.assertAlmostEqual(box.Shape.Volume, 1000.0)
+        self.assertEqual(doc.RedoNames, ["longer"])
+        box.Height = 5
+        doc.commitTransaction()
+        self.assertEqual(doc.RedoNames, [])
+
+        # 25 steps of the user's, each with an implicit one after it: the
+        # last 20 are kept, each undone with its implicit one
+        for i in range(25):
+            doc.openTransaction("step %d" % i)
+            box.Length = 11 + i
+            doc.commitTransaction()
+            box.Width = 2 + i
+            doc.commitTransaction()
+        self.assertEqual(doc.UndoCount, 20)
+        while doc.UndoCount:
+            doc.undo()
+        self.assertAlmostEqual(box.Length.Value, 15.0)
+        self.assertAlmostEqual(box.Width.Value, 6.0)
+
     def testAStepRefusedIsSaidAndGonePast(self):
         # Sec 33.11: a redo is refused where what it would set was changed
         # since -- here by a write with no name, which leaves the redo list

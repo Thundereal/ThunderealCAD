@@ -6287,6 +6287,11 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertAlmostEqual(box.Width.Value, 10.0)
         self.assertAlmostEqual(box.Shape.Volume, 1000.0)
         self.assertEqual(doc.RedoNames, ["longer"])
+        # A recompute's write keeps it: undo, recompute, redo
+        box.touch()
+        doc.recompute()
+        doc.commitTransaction()
+        self.assertEqual(doc.RedoNames, ["longer"])
         box.Height = 5
         doc.commitTransaction()
         self.assertEqual(doc.RedoNames, [])

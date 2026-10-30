@@ -1894,11 +1894,14 @@ int Document::_openTransaction(const char* name, int id, bool implicit)
         // empties the redo list. A redo after it goes through the log, as
         // after another's write. Without a log there is none to go through,
         // and the redo's copies are of a state the write has left: it ends
-        // them too (docs/MultiViewEdit.md sec 12.2 rule 7). Not made here if
-        // it is not yet: a redo step means a commit, which made it if it
-        // can be, and one made early keeps an object removed in this step
-        // for its row, its name taken till the commit.
-        if (!implicit || !d->transactionLog)
+        // them too (docs/MultiViewEdit.md sec 12.2 rule 7) -- a write by
+        // hand, not a recompute's: what that wrote the redo's copies put
+        // back and the next recompute writes again, as it always did (undo,
+        // recompute, redo). The log is not made here if it is not yet: a
+        // redo step means a commit, which made it if it can be, and one
+        // made early keeps an object removed in this step for its row, its
+        // name taken till the commit.
+        if (!implicit || (!d->transactionLog && !testStatus(Recomputing)))
             _clearMyRedos();
 
         d->activeUndoTransaction = new Transaction(id);

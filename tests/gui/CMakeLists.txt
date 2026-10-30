@@ -511,6 +511,10 @@ fc_add_gui_test(GuiEditStepEachChange_tests_run edit-step-each-change.py
 # page its own and those made in no view.
 fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 240)
 
+# A view in a tab closed of itself, not through its tab: the tab goes with
+# it, and nothing reads the view that is gone (a segmentation fault).
+fc_add_gui_test(GuiViewCloseDirect_tests_run view-close-direct.py --timeout 180)
+
 # Two sketches in edit in one document, one per view (entry 232, the
 # Sketcher round): Cancel of one takes back its own steps only.
 fc_add_gui_test(GuiSketchEditTwoViews_tests_run sketch-edit-two-views.py

@@ -434,6 +434,17 @@ void MDIView::closeEvent(QCloseEvent *e)
         if (auto mw = getMainWindow())
             mw->dropActiveWindow(this, own, leaving);
 
+        // Closed of itself rather than through its tab -- a script's
+        // close() of the view, an object's view going with the object
+        // (ViewProviderShaderProgram::beforeDelete): the tab goes too. Left
+        // standing it showed empty, and once the view was deleted
+        // MainWindow::windows() handed out a null for it, which the next
+        // window state change read (MDIView::isBackgroundView, a
+        // segmentation fault). Closed through its tab, the tab is closing
+        // already and this does nothing.
+        if (auto tab = qobject_cast<QMdiSubWindow*>(parentWidget()))
+            tab->close();
+
         // Note: When using QMdiArea we must not use removeWindow()
         // because otherwise the QMdiSubWindow will lose its parent
         // and thus the notification in QMdiSubWindow::closeEvent of

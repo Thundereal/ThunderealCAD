@@ -27,7 +27,10 @@ Claims:
     anyway" puts it back; the new feature goes either way;
   - a helix's edit in the second window, beside the fillet's, takes back
     its own on Cancel and keeps the fillet's;
-  - OK of the fillet keeps its value and ends its edit.
+  - OK of the fillet keeps its value and ends its edit;
+  - a linear pattern's edit in the second window, beside the fillet's,
+    takes back its own on Cancel and keeps the fillet's; its OK keeps its
+    value and ends its edit only.
 """
 import os
 import traceback
@@ -106,6 +109,33 @@ def type_into(view, name, text):
     return True
 
 
+def type_into_class(view, cls, text):
+    """Type into the first visible spin box of class `cls` of the dialog of
+    `view` -- the pattern editor's boxes have no names."""
+    activate(view)
+    dlg = FreeCADGui.Control.activeTaskDialog(view=view)
+    if dlg is None:
+        return False
+    box = None
+    for w in dlg.getDialogContent():
+        for b in w.findChildren(QtWidgets.QAbstractSpinBox):
+            if b.metaObject().className() == cls and b.isVisible() and box is None:
+                box = b
+    if box is None:
+        return False
+    box.window().activateWindow()
+    box.setFocus()
+    settle(20)
+    line = box.findChild(QtWidgets.QLineEdit)
+    line.selectAll()
+    QtTest.QTest.keyClicks(line, text)
+    QtTest.QTest.keyClick(box, Qt.Key_Return)
+    settle(200)
+    FreeCADGui.getMainWindow().setFocus()
+    settle(300)
+    return True
+
+
 def answer_later(text):
     """Click `text` in the Cancel question once it is up (it is modal)."""
     def click():
@@ -166,6 +196,11 @@ def run():
         helix.ReferenceAxis = (profile, ["V_Axis"])
         helix.Pitch = 5
         helix.Height = 10
+        pattern = body.newObject("PartDesign::LinearPattern", "Pattern")
+        pattern.Originals = [pad]
+        pattern.Direction = (doc.getObject("X_Axis"), [""])
+        pattern.Length = 30
+        pattern.Occurrences = 2
         doc.recompute()
         doc.UndoMode = 1
         doc.clearUndos()
@@ -291,6 +326,38 @@ def run():
         check("OK of the fillet keeps its value", round(fillet.Radius.Value, 3) == 1.3,
               fillet.Radius)
         check("and ends its edit", in_edit(gdoc, v1) is None)
+
+        # A pattern's panel too: beside the fillet's, its Cancel its own
+        edit(gdoc, v1, fillet, "Edit Fillet")
+        edit(gdoc, v2, pattern, "Edit Pattern")
+        check("the pattern goes in edit beside the fillet",
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)) == ("Fillet", "Pattern"),
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)))
+        typed = type_into_class(v2, "Gui::UIntSpinBox", "3")
+        type_into(v1, "filletRadius", "1.4")
+        check("the values typed are the features' (pattern)",
+              typed and (round(fillet.Radius.Value, 3), pattern.Occurrences) == (1.4, 3),
+              (typed, fillet.Radius, pattern.Occurrences))
+        activate(v2)
+        cancel(v2)
+        check("Cancel of the pattern takes back its occurrences", pattern.Occurrences == 2,
+              pattern.Occurrences)
+        check("and keeps the fillet's (pattern)", round(fillet.Radius.Value, 3) == 1.4,
+              fillet.Radius)
+        check("the fillet stays in edit (pattern)", in_edit(gdoc, v1) == "Fillet",
+              in_edit(gdoc, v1))
+        edit(gdoc, v2, pattern, "Edit Pattern")
+        type_into_class(v2, "Gui::UIntSpinBox", "4")
+        activate(v2)
+        FreeCADGui.Control.activeTaskDialog(view=v2).accept()
+        settle(1000)
+        check("OK of the pattern keeps its occurrences and ends its edit",
+              pattern.Occurrences == 4 and in_edit(gdoc, v2) is None
+              and in_edit(gdoc, v1) == "Fillet",
+              (pattern.Occurrences, in_edit(gdoc, v2), in_edit(gdoc, v1)))
+        activate(v1)
+        FreeCADGui.Control.activeTaskDialog(view=v1).accept()
+        settle(1000)
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

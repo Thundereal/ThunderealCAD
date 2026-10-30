@@ -52,6 +52,7 @@
 #include <App/MappedElement.h>
 #include <Gui/Application.h>
 #include <Gui/Document.h>
+#include <Gui/EditSteps.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/Selection.h>
@@ -139,6 +140,10 @@ TaskTransformedParameters::TaskTransformedParameters(ViewProviderTransformed *Tr
     onTopEnabled = Gui::ViewParams::getShowSelectionOnTop();
     if(!onTopEnabled)
         Gui::ViewParams::setShowSelectionOnTop(true);
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232)
+    if (TransformedView->panelOwnsItsSteps())
+        steps = new Gui::EditSteps(TransformedView, this);
     // remember initial transaction ID
     App::GetApplication().getActiveTransaction(&transactionID);
     watchRecompute();
@@ -217,8 +222,11 @@ void TaskTransformedParameters::refreshAfterUndo()
 {
     refresh();
     // The edit's transaction went with the undo, and an editor sets its
-    // property before it asks for one: what follows is still the edit's
-    setupTransaction();
+    // property before it asks for one: what follows is still the edit's.
+    // Not with steps of its own: there is none to keep, and the undo may be
+    // another view's
+    if (!ownsItsSteps())
+        setupTransaction();
 }
 
 bool TaskTransformedParameters::isViewUpdated() const
@@ -266,8 +274,25 @@ void TaskTransformedParameters::originalSelectionChanged()
     recomputeFeature();
 }
 
+Gui::EditSteps *TaskTransformedParameters::editSteps() const
+{
+    return parentTask ? parentTask->editSteps() : steps;
+}
+
+bool TaskTransformedParameters::ownsItsSteps() const
+{
+    auto s = editSteps();
+    return s && s->isOn();
+}
+
 void TaskTransformedParameters::setupTransaction()
 {
+    // A step of its own: the event's, or one for a change made outside an
+    // event of the edit's -- the update timer's
+    if (ownsItsSteps()) {
+        editSteps()->step();
+        return;
+    }
     if (!isEnabledTransaction())
         return;
 
@@ -863,6 +888,9 @@ TaskDlgTransformedParameters::TaskDlgTransformedParameters(
 bool TaskDlgTransformedParameters::accept()
 {
     parameter->exitSelectionMode();
+    // OK's work a step of its own, as each change was one
+    if (parameter->ownsItsSteps())
+        parameter->editSteps()->step();
     // the values are set already; this records them in the Python console
     parameter->apply();
 
@@ -875,11 +903,20 @@ bool TaskDlgTransformedParameters::reject()
     // ensure that we are not in selection mode
     parameter->exitSelectionMode();
 
+    // Its own steps taken back, and no other view's; the edit ended
+    if (parameter->ownsItsSteps() && parameter->editSteps()->reject())
+        return true;
+
     auto editDoc = Gui::Application::Instance->editDocumentOf(vp ? vp->getObject() : nullptr);
     if(editDoc && parameter->getTransactionID())
         editDoc->getDocument()->undo(parameter->getTransactionID());
 
     return TaskDlgFeatureParameters::reject ();
+}
+
+bool TaskDlgTransformedParameters::holdsTransaction() const
+{
+    return !parameter->ownsItsSteps();
 }
 
 void TaskDlgTransformedParameters::onToggledTaskOffset()

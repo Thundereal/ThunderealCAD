@@ -24,6 +24,8 @@
 #ifndef _PreComp_
 #endif
 
+#include <set>
+
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <Base/Console.h>
@@ -31,6 +33,7 @@
 #include <Base/Tools.h>
 #include <App/Datums.h>
 #include <App/Document.h>
+#include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/Part/App/DatumFeature.h>
 #include <Mod/Part/App/PartParams.h>
@@ -62,6 +65,16 @@ void AuxGroup::onChanged(const App::Property* prop)
         if(prop == &_Body) {
             attachBody();
             refresh();
+        }
+        else if (prop == &Group && getGroupType() == SurfaceGroup) {
+            // Misc leaves a surface group's members to it
+            if (auto body = getBody()) {
+                for (auto obj : body->Group.getValues()) {
+                    auto misc = freecad_cast<AuxGroup*>(obj);
+                    if (misc && misc->getGroupType() == MiscGroup)
+                        misc->refresh();
+                }
+            }
         }
     }
     inherited::onChanged(prop);
@@ -95,14 +108,21 @@ AuxGroup::GroupType AuxGroup::getGroupType() const
         groupType = DatumGroup;
     else if (boost::starts_with(getNameInDocument(), "Misc"))
         groupType = MiscGroup;
+    else if (boost::starts_with(getNameInDocument(), "Surfaces"))
+        groupType = SurfaceGroup;
     else
         groupType = OtherGroup;
     return groupType;
 }
 
+bool AuxGroup::holdsWhatIsPutIn() const
+{
+    return getGroupType() == OtherGroup || getGroupType() == SurfaceGroup;
+}
+
 bool AuxGroup::allowDuplicateLabel() const
 {
-    return getGroupType()!=OtherGroup
+    return !holdsWhatIsPutIn()
         && !Part::PartParams::getAuxGroupUniqueLabel();
 }
 
@@ -120,6 +140,8 @@ bool AuxGroup::isObjectAllowed(const App::DocumentObject *obj) const
         return type.isDerivedFrom(Part::Part2DObject::getClassTypeId());
     case DatumGroup:
         return isDatum;
+    case SurfaceGroup:
+        return Part::BodyBase::typeKind(type) == "Surface";
     case MiscGroup:
         return !type.isDerivedFrom(Part::Part2DObject::getClassTypeId())
             && !isDatum
@@ -155,7 +177,7 @@ void AuxGroup::refresh()
         return;
     }
     std::vector<App::DocumentObject *> children;
-    if (getGroupType() == OtherGroup) {
+    if (holdsWhatIsPutIn()) {
         auto group = Group.getValues();
         std::sort(group.begin(), group.end());
         for (auto obj : body->Group.getValues()) {
@@ -167,8 +189,19 @@ void AuxGroup::refresh()
         }
     }
     else {
+        // what a surface group holds is not Misc's
+        std::set<App::DocumentObject *> held;
+        if (getGroupType() == MiscGroup) {
+            for (auto obj : body->Group.getValues()) {
+                auto group = freecad_cast<AuxGroup*>(obj);
+                if (group && group->getGroupType() == SurfaceGroup) {
+                    for (auto child : group->Group.getValues())
+                        held.insert(child);
+                }
+            }
+        }
         for (auto obj : body->Group.getValues()) {
-            if (isObjectAllowed(obj))
+            if (isObjectAllowed(obj) && !held.count(obj))
                 children.push_back(obj);
         }
     }

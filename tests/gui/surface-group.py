@@ -30,7 +30,7 @@ import traceback
 
 import FreeCAD
 import FreeCADGui
-from PySide import QtCore, QtGui, QtWidgets
+from PySide import QtCore, QtWidgets
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
@@ -75,6 +75,7 @@ def hidden():
 
 
 def image(icon):
+    """The icon at tree size, as the factory makes it (FreeCADGui.getIcon)"""
     return icon.pixmap(32, 32).toImage()
 
 
@@ -138,8 +139,8 @@ def run():
 
         icon = image(group.ViewObject.Icon)
         check("its icon is the surface group's",
-              icon == image(QtGui.QIcon(":/icons/PartDesign_GroupSurface.svg"))
-              and icon != image(QtGui.QIcon(":/icons/PartDesign_Group.svg")))
+              icon == image(FreeCADGui.getIcon("PartDesign_GroupSurface.svg"))
+              and icon != image(FreeCADGui.getIcon("PartDesign_Group.svg")))
 
         before = set(o.Name for o in doc.Objects)
         FreeCADGui.Selection.clearSelection()
@@ -235,7 +236,7 @@ def run():
               group is not None
               and sorted(o.Name for o in group.Group) == members
               and image(group.ViewObject.Icon)
-              == image(QtGui.QIcon(":/icons/PartDesign_GroupSurface.svg")),
+              == image(FreeCADGui.getIcon("PartDesign_GroupSurface.svg")),
               group and [o.Name for o in group.Group])
         check("and it is not active", view.getActiveObject("pdsurface") is None and hidden())
 

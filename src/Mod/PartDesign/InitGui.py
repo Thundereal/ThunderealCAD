@@ -51,6 +51,13 @@ class PartDesignWorkbench ( Workbench ):
 
         import PartDesignGui
         import PartDesign
+        # The Surface tool bar, offered in PartDesign while a surface group is
+        # active (docs/SheetMetal.md sec 8), is registered when SurfaceGui
+        # loads: before this workbench first sets its tool bars up
+        try:
+            import SurfaceGui
+        except ImportError:
+            FreeCAD.Console.PrintLog("PartDesign: Surface not installed\n")
         try:
             from PartDesign import InvoluteGearFeature
             from PartDesign import SprocketFeature

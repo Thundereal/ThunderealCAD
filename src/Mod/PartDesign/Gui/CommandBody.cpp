@@ -51,6 +51,7 @@
 #include <Mod/PartDesign/App/FeatureSketchBased.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 #include <Mod/Part/Gui/PartParams.h>
+#include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/PartParams.h>
 
 #include "TaskFeaturePick.h"
@@ -1130,6 +1131,76 @@ bool CmdPartDesignMoveFeatureInTree::isActive()
 
 
 //===========================================================================
+// PartDesign_SurfaceGroup
+//===========================================================================
+
+/* A surface group in the active body (PartDesign::AuxGroup): what is
+ * selected of the Surface workbench's in the body goes in it, and it is made
+ * active, which offers the Surface tool bars (Gui::ToolContext)
+ */
+DEF_STD_CMD_A(CmdPartDesignSurfaceGroup)
+
+CmdPartDesignSurfaceGroup::CmdPartDesignSurfaceGroup()
+  : Command("PartDesign_SurfaceGroup")
+{
+    sAppModule    = "PartDesign";
+    sGroup        = QT_TR_NOOP("PartDesign");
+    sMenuText     = QT_TR_NOOP("Create surface group");
+    sToolTipText  = QT_TR_NOOP("Create a group for surfaces in the active body and make it "
+                               "active, which brings the Surface tools.\n"
+                               "Selected surfaces of the body go into it.");
+    sWhatsThis    = "PartDesign_SurfaceGroup";
+    sStatusTip    = sToolTipText;
+    sPixmap       = "PartDesign_GroupSurface";
+}
+
+void CmdPartDesignSurfaceGroup::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+
+    PartDesign::Body *body = PartDesignGui::getBody(/*messageIfNot*/true);
+    if (!body)
+        return;
+
+    std::vector<App::DocumentObject*> members;
+    for (const auto &sel : Gui::Selection().getSelectionT("*", Gui::ResolveMode::NoResolve)) {
+        auto obj = sel.getSubObject();
+        if (obj && PartDesign::Body::findBodyOf(obj) == body
+                && Part::BodyBase::typeKind(obj->getTypeId()) == "Surface"
+                && std::find(members.begin(), members.end(), obj) == members.end())
+            members.push_back(obj);
+    }
+
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create surface group"));
+    try {
+        std::ostringstream ss;
+        ss << "[";
+        for (auto obj : members)
+            ss << getObjectCmd(obj) << ",";
+        ss << "]";
+        doCommand(Doc, "_group = App.getDocument('%s').addObject('PartDesign::AuxGroup', 'Surfaces')",
+                  body->getDocument()->getName());
+        FCMD_OBJ_CMD(body, "addObject(_group)");
+        doCommand(Doc, "_group.Group = %s", ss.str().c_str());
+        doCommand(Doc, "_group._Body = %s", getObjectCmd(body).c_str());
+        doCommand(Gui, "Gui.ActiveDocument.ActiveView.setActiveObject('%s', _group)",
+                  PDSURFACEKEY);
+        doCommand(Doc, "del _group");
+        commitCommand();
+    }
+    catch (Base::Exception &e) {
+        e.ReportException();
+        abortCommand();
+    }
+}
+
+bool CmdPartDesignSurfaceGroup::isActive()
+{
+    return hasActiveDocument();
+}
+
+
+//===========================================================================
 // Initialization
 //===========================================================================
 
@@ -1144,4 +1215,5 @@ void CreatePartDesignBodyCommands()
     rcCmdMgr.addCommand(new CmdPartDesignDuplicateSelection());
     rcCmdMgr.addCommand(new CmdPartDesignMoveFeature());
     rcCmdMgr.addCommand(new CmdPartDesignMoveFeatureInTree());
+    rcCmdMgr.addCommand(new CmdPartDesignSurfaceGroup());
 }

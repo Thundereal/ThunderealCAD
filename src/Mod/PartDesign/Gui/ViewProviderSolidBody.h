@@ -109,6 +109,12 @@ public:
     void updateData(const App::Property *prop) override;
     std::vector<App::DocumentObject*> claimChildren() const override;
 
+    /// With the overlay of the tool context its features are of, if any
+    /// (Gui::ToolContext::Spec::inSolid), e.g. sheet metal's
+    QIcon getIcon() const override;
+    /// A solid of such a context: made active in the view under the context's
+    /// key, or let go, which offers or takes away its tool bars
+    bool doubleClicked() override;
     void getExtraIcons(std::vector<std::pair<QByteArray, QPixmap> > &icons) const override;
     QString getToolTip(const QByteArray &iconTag) const override;
     bool canDragIcon(const QByteArray &iconTag) const override;

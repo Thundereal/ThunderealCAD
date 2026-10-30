@@ -103,6 +103,7 @@
         <file>icons/PartDesign_Wrap_Overlay.svg</file>
         <file>icons/PartDesign_Group.svg</file>
         <file>icons/PartDesign_GroupSketch.svg</file>
+        <file>icons/PartDesign_GroupSurface.svg</file>
         <file>icons/PartDesign_GroupDatum.svg</file>
         <file>icons/PartDesign_GroupMisc.svg</file>
     </qresource>

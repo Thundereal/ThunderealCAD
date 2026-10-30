@@ -36,15 +36,19 @@
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include <Gui/ActionFunction.h>
+#include <Gui/ActiveObjectList.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
 #include <Gui/Document.h>
 #include <Gui/MainWindow.h>
+#include <Gui/MDIView.h>
 #include <Gui/OwnNodesPath.h>
 #include <Gui/Selection/Selection.h>
+#include <Gui/ToolContext.h>
 #include <Gui/Tree.h>
 #include <Gui/ViewParams.h>
+#include <Mod/Part/App/BodyBase.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/SolidBody.h>
@@ -280,6 +284,21 @@ std::vector<App::DocumentObject*> seenThroughFeatures(const App::DocumentObject 
     return owner->Group.getValues();
 }
 
+/// The tool context of the first feature of the solid that is of one made
+/// for solids, or null
+const Gui::ToolContext::Spec *solidContext(App::DocumentObject *obj)
+{
+    auto owner = Base::freecad_dynamic_cast<PartDesign::SolidBody>(obj);
+    if (!owner)
+        return nullptr;
+    for (auto feature : owner->Group.getValues()) {
+        auto spec = Gui::ToolContext::forKind(Part::BodyBase::typeKind(feature->getTypeId()));
+        if (spec && spec->inSolid)
+            return spec;
+    }
+    return nullptr;
+}
+
 } // anonymous namespace
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSolidBody, PartGui::ViewProviderPart)
@@ -310,6 +329,48 @@ std::vector<App::DocumentObject*> ViewProviderSolidBody::claimChildren() const
         res.insert(res.end(), features.begin(), features.end());
     }
     return res;
+}
+
+QIcon ViewProviderSolidBody::getIcon() const
+{
+    QIcon icon = inherited::getIcon();
+    auto spec = solidContext(getObject());
+    if (!spec || spec->overlay.empty())
+        return icon;
+    Gui::BitmapCacheContext ctx(spec->overlay.c_str());
+    QPixmap px = Gui::BitmapFactory().pixmapFromSvg(spec->overlay.c_str(), QSizeF(64, 64));
+    return Gui::BitmapFactory().merge(icon.pixmap(64), px, Gui::BitmapFactoryInst::BottomRight);
+}
+
+bool ViewProviderSolidBody::doubleClicked()
+{
+    auto spec = solidContext(getObject());
+    if (!spec || spec->activeKey.empty())
+        return inherited::doubleClicked();
+
+    auto activeDoc = Gui::Application::Instance->activeDocument();
+    if (!activeDoc)
+        activeDoc = getDocument();
+    auto view = activeDoc->setActiveView(this);
+    if (!view)
+        return false;
+    const char *key = spec->activeKey.c_str();
+    if (view->getActiveObject<App::DocumentObject*>(key) == getObject()) {
+        Gui::Command::doCommand(Gui::Command::Gui,
+                "Gui.ActiveDocument.ActiveView.setActiveObject('%s', None)", key);
+        return true;
+    }
+    // its body active too, where the features made go
+    auto owner = static_cast<PartDesign::SolidBody*>(getObject());
+    auto body = owner->getBody();
+    if (body && view->getActiveObject<App::DocumentObject*>(PDBODYKEY) != body) {
+        if (auto bodyVp = Gui::Application::Instance->getViewProvider(body))
+            bodyVp->doubleClicked();
+    }
+    Gui::Command::doCommand(Gui::Command::Gui,
+            "Gui.ActiveDocument.ActiveView.setActiveObject('%s', %s)",
+            key, getObject()->getFullName(true).c_str());
+    return true;
 }
 
 void ViewProviderSolidBody::updateData(const App::Property *prop)

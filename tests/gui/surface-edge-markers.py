@@ -16,7 +16,10 @@ A network of three profiles and three guides over z = 2 sin(pi u) sin(pi v)
   - the handle's menu (Space) sets the continuity;
   - Cancel takes the arrows away and puts the conditions back.
 A blend between two planes: an arrow on each of its two edges; a click on
-the first steps Side1Continuity from G1 to G2.
+the first steps Side1Continuity from G1 to G2; a weight at its edge's end
+given in the panel puts an arrow at each end of the edge in place of the
+middle's, each as long as the weight there, and the end's dragged raises
+the end weight.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
@@ -492,6 +495,42 @@ def run():
                 b.Side1Continuity == "G2" and b.isValid(),
                 (b.Side1Continuity, b.getStatusString()),
             )
+        endBox = panel("side1WeightEnd")
+        check(
+            "the first side has a box for its weight at the edge's end, 0 the weight all along",
+            endBox is not None and endBox.value() == 0 and b.Side1WeightEnd == 0,
+            (endBox, b.Side1WeightEnd),
+        )
+        if endBox is not None:
+            endBox.setValue(3.0)
+            pump(60)
+            near = lambda p: next(
+                ((c, frame(c)) for c in containers() if (frame(c)[0] - p).Length < 1e-2),
+                (None, None),
+            )
+            start, fs = near(e1.valueAt(e1.FirstParameter))
+            end, fe = near(e1.valueAt(e1.LastParameter))
+            quarter = e1.Length / 4
+            check(
+                "given an end weight, the first side's arrows stand at its edge's two ends, "
+                "as long as the weight at each, and none at its middle",
+                abs(b.Side1WeightEnd - 3) < 1e-9
+                and b.isValid()
+                and len(containers()) == 3
+                and near(mid1)[0] is None
+                and fs is not None
+                and fe is not None
+                and abs(fs[2] - b.Side1Weight * quarter) < 1e-2
+                and abs(fe[2] - 3 * quarter) < 1e-2,
+                (b.Side1WeightEnd, b.getStatusString(), [frame(c) for c in containers()], quarter),
+            )
+            if end is not None:
+                drag_arrow(end, 60)
+                check(
+                    "dragged out along itself, the end's arrow raises the end weight",
+                    b.Side1WeightEnd > 3.04 and abs(endBox.value() - b.Side1WeightEnd) < 1e-6,
+                    (b.Side1WeightEnd, endBox.value()),
+                )
         press(QtWidgets.QDialogButtonBox.Cancel)
         pump(40)
     except Exception:

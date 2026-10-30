@@ -548,6 +548,38 @@ double step(double x, double x0, double h0, double x1, double h1)
 // box's four corners were four times as stiff as a sphere's one, and a
 // mesh's ring of points as stiff as it was fine. Each patch's stiffness is
 // the law's, or Hertz's from the shapes' materials (patchStiffness()).
+//
+// Hunt and Crossley's damping for a coefficient of restitution r, the
+// force k d^e (1 + a / v0 dd/dt), v0 the speed the impact came in at: its
+// a exactly (Carvalho and Martins, 2019). With u = a / v0 dd/dt the impact
+// integrates in closed form, m v0^2 / (a^2 k) (u - ln(1 + u)) =
+// -d^(e+1) / (e+1) from where it comes in, so from no depth to no depth
+// u - ln(1 + u) is the same coming in, u = a, and going out, u = -a r:
+// whatever the exponent, the stiffness and the mass. Flores et al.'s
+// 8 (1 - r) / (5 r), the first try, approximates it and rebounds short,
+// 0.26 for 0.3 and 0.79 for 0.8 -- what a ball dropped on the plate did;
+// Gonthier et al.'s (1 - r^2) / r is closer below 0.5 and farther above.
+// By bisection: the difference grows with a from none to infinity at 1 / r.
+double huntCrossley(double restitution)
+{
+    const double r = std::clamp(restitution, 0.01, 1.0);
+    if (!(r < 1.0)) {
+        return 0.0;
+    }
+    double low = 0.0;
+    double high = 1.0 / r;
+    for (int i = 0; i < 200 && high - low > 1e-15 * high; ++i) {
+        const double a = 0.5 * (low + high);
+        if (a - std::log1p(a) > -a * r - std::log1p(-a * r)) {
+            low = a;
+        }
+        else {
+            high = a;
+        }
+    }
+    return 0.5 * (low + high);
+}
+
 class ContactLoad: public ch::ChLoadBodyBody
 {
 public:
@@ -569,6 +601,7 @@ public:
         : ch::ChLoadBodyBody(a, b, ch::ChFramed(b->GetPos(), b->GetRot()))
         , law(law)
         , set(set)
+        , hysteresis(huntCrossley(law.restitution))
     {}
 
     ContactLoad* Clone() const override
@@ -730,18 +763,21 @@ public:
     double period = 0.0;
     bool settled = false;
 
-    /** By restitution: Flores et al.'s Hunt-Crossley damping, the force's
-     * factor a speed in s/m, 8 (1 - r) / (5 r v0) -- the energy an impact
-     * at v0 loses for r, valid across r (Lankarani and Nikravesh's,
-     * 3 (1 - r^2) / (4 v0), only for r near 1). It scales with the
-     * stiffness, where a damping given by value drowned a soft part and
-     * left a line contact's sink of 1e-7 mm all but undamped. v0 at least
-     * 1 mm/s: a contact made at rest has none to divide by.
+    // The law's restitution as Hunt and Crossley's a (huntCrossley()), the
+    // damping's factor a speed v0 makes
+    double hysteresis = 0.0;
+
+    /** By restitution: Hunt and Crossley's damping, the force's factor a
+     * speed in s/m, a / v0 (huntCrossley()) -- the energy an impact at v0
+     * loses for r, exactly for any exponent, a line contact's as a ball's.
+     * It scales with the stiffness, where a damping given by value drowned
+     * a soft part and left a line contact's sink of 1e-7 mm all but
+     * undamped. v0 at least 1 mm/s: a contact made at rest has none to
+     * divide by.
      */
     double hunt() const
     {
-        const double r = std::clamp(law.restitution, 0.01, 1.0);
-        return 8.0 * (1.0 - r) / (5.0 * r * std::max(impact, 1e-3));
+        return hysteresis / std::max(impact, 1e-3);
     }
     // At the last state ComputeQ was given: the force on B, absolute, and
     // the points pressing

@@ -351,12 +351,12 @@ struct InitialVelocity
 //            rest to muStatic at vStiction and going to muDynamic at
 //            vFriction, Adams' STEP between them.
 // The damping as given, the STEP's, or by a coefficient of restitution r,
-// Flores et al.'s Hunt-Crossley: Fn = k d^e (1 + 8 (1 - r) / (5 r) dd/dt /
-// v0), v0 the approach speed the contact started at.
+// Hunt and Crossley's: Fn = k d^e (1 + a / v0 dd/dt), a exactly r's for any
+// e (huntCrossley()), v0 the approach speed the contact started at.
 // k and e as given, or Hertz's from the shapes' materials: k = 4/3 E* R^0.5
 // and e = 1.5, 1/E* the sum of the two shapes' 1 / ContactShape::modulus,
 // and R the contact's radius -- from the curvatures where the shapes touch,
-// or from the two shapes' sizes.
+// Johnson's for a line, or from the two shapes' sizes.
 struct ContactLaw
 {
     enum class Stiffness : std::uint8_t

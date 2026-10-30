@@ -580,21 +580,30 @@ class TestContact(unittest.TestCase):
 
     def test_restitution(self):
         """Damped by its coefficient of restitution, a ball dropped a
-        millimetre onto the plate rebounds to r^2 of it, within Flores et
-        al.'s model's 3% at r 0.8 -- the damping scaling with the stiffness,
-        from the materials here"""
+        millimetre onto the plate rebounds to r^2 of it, within 2% at r 0.8
+        and 0.3 -- Hunt and Crossley's damping, its factor r's exactly; the
+        damping scaling with the stiffness, from the materials here.
+        Flores et al.'s factor, the first try, rebounded 0.065 for 0.09"""
         plate = self.plate()
         ball = self.ball(16)
+        start = ball.Placement
         contact = self.contact([ball], [plate], StaticFriction=0.0, DynamicFriction=0.0)
         self.assertEqual(contact.DampingFrom, "Restitution")
-        contact.Restitution = 0.8
-        _, result = self.simulate(0.06, 1e-4)
-        self.assertEqual(result, 0)
-        z = self.heights(ball)
-        landed = next(i for i, h in enumerate(z) if h < 15.0)
-        left = next(i for i in range(landed, len(z)) if z[i] > 15.0)
-        again = next((i for i in range(left, len(z)) if z[i] < 15.0), len(z))
-        self.assertAlmostEqual(max(z[left:again]) - 15.0, 0.64, delta=0.64 * 0.03)
+        sim = None
+        for r in (0.8, 0.3):
+            ball.Placement = start
+            contact.Restitution = r
+            self.doc.recompute()
+            if sim is None:
+                sim, result = self.simulate(0.06, 1e-4)
+            else:
+                result = self.assembly.generateSimulation(sim)
+            self.assertEqual(result, 0)
+            z = self.heights(ball)
+            landed = next(i for i, h in enumerate(z) if h < 15.0)
+            left = next(i for i in range(landed, len(z)) if z[i] > 15.0)
+            again = next((i for i in range(left, len(z)) if z[i] < 15.0), len(z))
+            self.assertAlmostEqual(max(z[left:again]) - 15.0, r * r, delta=r * r * 0.02)
 
     def test_old_set_keeps_its_stiffness(self):
         """A contact set saved before StiffnessFrom and DampingFrom ran with

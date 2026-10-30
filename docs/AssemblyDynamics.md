@@ -745,12 +745,19 @@ Phase D1 is under way (2026-10-28):
     1e5 N/mm^1.5 for a radius of 5 mm, the Adams default. The damping is
     `MaxDamping` reached at `Penetration` where `DampingFrom` is Value, or,
     Restitution (a new set's), by the coefficient of restitution
-    `Restitution` (0.6): Flores et al.'s Hunt-Crossley,
-    Fn = k d^e (1 + 8 (1 - r) / (5 r) dd/dt / v0), v0 the speed the contact
-    came in at (the fastest its points approach while it does not press,
-    kept from then on, at least 1 mm/s), valid across r where Lankarani and
-    Nikravesh's 3 (1 - r^2) / 4 is good only near 1. It scales with the
-    stiffness, and is none at no depth, with no STEP. A set saved before
+    `Restitution` (0.6): Hunt and Crossley's,
+    Fn = k d^e (1 + a / v0 dd/dt), v0 the speed the contact came in at (the
+    fastest its points approach while it does not press, kept from then on,
+    at least 1 mm/s), a exactly r's (`huntCrossley()`, Carvalho and Martins
+    2019): with u = a / v0 dd/dt the impact integrates in closed form,
+    m v0^2 / (a^2 k) (u - ln(1 + u)) = -d^(e+1) / (e+1), so u - ln(1 + u) is
+    the same coming in at u = a and going out at -a r -- for any exponent,
+    a line contact's as a ball's, any stiffness and mass. Flores et al.'s
+    approximation 8 (1 - r) / (5 r), the first try, rebounded short (0.26
+    for 0.3, 0.79 for 0.8), Gonthier et al.'s (1 - r^2) / r is close below
+    0.5 and not above, Lankarani and Nikravesh's 3 (1 - r^2) / 4 only near
+    1 (the review of Skrinjar et al., 2018). It scales with the stiffness,
+    and is none at no depth, with no STEP. A set saved before
     `StiffnessFrom` and `DampingFrom` restores as Value for both
     (`ContactSet::Restore()`).
   - The curvature (`vertexCurvatures()`): a sphere's all round, a
@@ -1045,8 +1052,8 @@ Phase D1 is under way (2026-10-28):
     aluminium (1e-8 mm), the torus lying flat as on Johnson's power law at
     its sink for its ring and a
     hemisphere on its dome as on Hertz's for R 5 (5e-5 mm); damped by
-    restitution, a ball dropped a millimetre rebounding r^2 of it (3% at
-    r 0.8); a set saved before StiffnessFrom and DampingFrom restored as
+    restitution, a ball dropped a millimetre rebounding r^2 of it (2% at
+    r 0.8 and 0.3); a set saved before StiffnessFrom and DampingFrom restored as
     Value for both; a cube with a corner
     cut out landing level on its base (1e-4 mm, 1e-4 rad), a box resting
     on the floor of a slot in a block and not on the block's hull, and the
@@ -1063,13 +1070,12 @@ Phase D1 is under way (2026-10-28):
   - Not yet: curve contact for cams (sec 7.4), stops, sensors, contact
     plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
-    The rebound by restitution is short of r^2 where r is small and the
-    contact long: a ball dropped a millimetre reached 0.065 for r^2 0.09
-    at r 0.3, 0.627 for 0.64 at 0.8, 0.901 for 0.9025 at 0.95 (aluminium);
-    of a soft material (10 MPa), 0.034, 0.589 and 0.885 -- gravity working
-    through the contact. A line contact's law, near linear, takes the
-    damping made for Hertz's (Flores et al.'s factor is for an exponent of
-    1.5). A torus of aluminium dropped a millimetre bounces some
+    The rebound by restitution is r^2's of aluminium -- a ball dropped a
+    millimetre reaches 0.0894 for r^2 0.09 at r 0.3, 0.364 for 0.36, 0.645
+    for 0.64, 0.907 for 0.9025 -- and short of it where r is small and the
+    contact long, of a soft material (10 MPa): 0.055, 0.316, 0.609 and
+    0.891, gravity working through the 2 ms of contact, which the closed
+    form has none of. A torus of aluminium dropped a millimetre bounces some
     twenty-five times at r 0.6 before it rests, each impact in substeps of
     0.3 us: 27 s for 0.1 s (its test is of the soft material: 8 s).
     A tumble is slow too: the tall cylinder's 0.3 s takes a few seconds, in

@@ -401,13 +401,14 @@ using BushingPython = App::FeaturePythonT<Bushing>;
  *          StaticFriction at StictionVelocity and going to DynamicFriction at
  *          FrictionVelocity.
  * The stiffness and the exponent as given (StiffnessFrom Value), or Hertz's
- * from the components' materials (Materials, a new set's): 4/3 E* R^0.5 and
- * 1.5, E* the two materials' moduli combined and R the contact's radius --
- * where each patch of contact touches (RadiusFrom Patch), or from the two
- * solids' sizes (Part). The damping as given (DampingFrom Value), or by the
- * coefficient of restitution Restitution (a new set's): Flores et al.'s
- * Hunt-Crossley, Fn = k d^e (1 + 8 (1 - r) / (5 r) dd/dt / v0), v0 the
- * speed the contact started at.
+ * from the components' materials (Materials, a new set's): Hertz's,
+ * 4/3 E* R^0.5 and 1.5, E* the two materials' moduli combined and R the
+ * contact's radius -- where each patch of contact touches (RadiusFrom
+ * Patch), Johnson's for a line, or from the two solids' sizes (Part). The
+ * damping as given (DampingFrom Value), or by the coefficient of
+ * restitution Restitution (a new set's): Hunt and Crossley's,
+ * Fn = k d^e (1 + a / v0 dd/dt), a exactly r's, v0 the speed the contact
+ * started at.
  * Each solid of a component touches as the sphere, box or cylinder it is,
  * else as its convex hull when it is convex, else as its closed mesh.
  */

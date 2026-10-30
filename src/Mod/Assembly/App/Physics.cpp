@@ -684,7 +684,7 @@ ContactSet::ContactSet()
                       "Contact",
                       App::Prop_None,
                       "Restitution: by the coefficient of restitution, the damping scaling "
-                      "with the stiffness (Hunt-Crossley, Flores et al.).\nValue: MaxDamping, "
+                      "with the stiffness (Hunt-Crossley's, exactly).\nValue: MaxDamping, "
                       "reached at Penetration.");
     DampingFrom.setEnums(DampingFromEnums);
     ADD_PROPERTY_TYPE(Restitution,

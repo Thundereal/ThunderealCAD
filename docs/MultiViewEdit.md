@@ -716,4 +716,18 @@ is nothing to take it through: every view lists every step, as before.
 A new step still ends the user's redo steps of every view, as it ends
 the user's whatever they were.
 
+A view that closes. A TechDraw page or a spreadsheet has one view at a
+time (its view provider keeps one and brings it to the front when asked
+again; a split cell is given a 3D view instead, `ViewArea::cloneChildFor`),
+so its number is the object's, not the window's
+(`Gui::Document::undoViewIdOf`, by object id, for as long as the document
+is open): opened again, it lists the steps made in it before. Several
+browser clients may be served one page (`TechDrawGui::PageServe`) or one
+sheet, but a client is no MDIView: its undo is the `undo` op, which runs
+as the connection's actor and lists that user's steps (sec 30.10 of the
+journal), so clients are told apart by who they are, not by a view. Any
+other view that is not a 3D view hands its steps to every view as it
+closes (`App::Document::releaseStepView`); a 3D view keeps them, as no 3D
+view tells them apart, and a page does not list them.
+
 Test: `tests/gui/per-view-undo.py`.

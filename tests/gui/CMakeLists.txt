@@ -508,8 +508,9 @@ fc_add_gui_test(GuiEditStepEachChange_tests_run edit-step-each-change.py
 
 # Each view's undo (entry 227, docs/MultiViewEdit.md sec 12.9): a 3D view in
 # edit lists the edit's steps, another 3D view all but those, a TechDraw
-# page its own and those made in no view.
-fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 240)
+# page its own and those made in no view; a page or sheet opened again its
+# steps from before.
+fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 300)
 
 # A view in a tab closed of itself, not through its tab: the tab goes with
 # it, and nothing reads the view that is gone (a segmentation fault).

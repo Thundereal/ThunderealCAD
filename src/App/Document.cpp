@@ -1362,6 +1362,20 @@ const std::string& Document::undoRefusal() const
     return d->undoRefusal;
 }
 
+void Document::releaseStepView(int view)
+{
+    if (!view)
+        return;
+    for (auto* steps : {&mUndoTransactions, &mRedoTransactions}) {
+        for (auto* step : *steps) {
+            if (step->View == view)
+                step->View = 0;
+        }
+    }
+    if (d->activeUndoTransaction && d->activeUndoTransaction->View == view)
+        d->activeUndoTransaction->View = 0;
+}
+
 bool Document::_revertStep(bool undo, Transaction* step)
 {
     // docs/TransactionLogJournal.md sec 30.10 item 3: someone has written since

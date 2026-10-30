@@ -67,8 +67,7 @@ MDIView::MDIView(Gui::Document* pcDocument,QWidget* parent, Qt::WindowFlags wfla
   , wstate(Qt::WindowNoState)
   , ActiveObjects(pcDocument)
 {
-    static int lastUndoId = 0;
-    undoId = ++lastUndoId;
+    undoId = newUndoViewId();
     setAttribute(Qt::WA_DeleteOnClose);
 
     // Every view its own selection, for whoever asked for that: from the
@@ -570,6 +569,24 @@ void MDIView::restorePrinterSettings(QPrinter* printer)
     printer->setPageSize(QPageSize(static_cast<QPageSize::PageSizeId>(defaultPageSize)));
     printer->setPageOrientation(static_cast<QPageLayout::Orientation>(defaultPageOrientation));
     printer->setColorMode(static_cast<QPrinter::ColorMode>(defaultColorMode));
+}
+
+int MDIView::newUndoViewId()
+{
+    static int lastUndoId = 0;
+    return ++lastUndoId;
+}
+
+int MDIView::undoViewId() const
+{
+    // A view of an object -- a drawing page, a spreadsheet, of which there
+    // is one at a time -- the object's, so that one opened again lists the
+    // steps made in the one before
+    if (auto doc = getGuiDocument()) {
+        if (auto obj = doc->objectOfView(this))
+            return doc->undoViewIdOf(obj);
+    }
+    return undoId;
 }
 
 App::UndoView MDIView::undoView() const

@@ -514,6 +514,18 @@ public:
      * made in it and those made in no view.
      */
     App::UndoView undoViewOf(const MDIView *view) const;
+    /** The number the steps made in a view of \a obj carry
+     * (MDIView::undoViewId): the object's for as long as the document is
+     * open, so a page or a sheet opened again lists what was done in it.
+     */
+    int undoViewIdOf(const App::DocumentObject *obj) const;
+    /// The object whose view \a view is (a page, a sheet), null for none
+    App::DocumentObject *objectOfView(const MDIView *view) const;
+    /** A view closes: the steps made in it are every view's, unless it is
+     * a 3D view (whose steps no 3D view tells apart) or a view of an object
+     * (whose steps the object keeps for its next view)
+     */
+    void releaseUndoViewOf(const MDIView *view) const;
     /** Take back an edit's own undo steps, transaction ids \a tids: its
      * Cancel, where each change of it was a step of its own
      * (docs/HandsOnQueue.md entry 232).

@@ -12,7 +12,9 @@ Claims, the log on (its default):
     step from under the edit's, the edit still open;
   - a toolbar command is the active view's: a group made from the toolbar
     with a 3D view active is listed there, not on the page;
-  - with the edit ended, the 3D view lists every step again.
+  - with the edit ended, the 3D view lists every step again;
+  - a page and a sheet, closed and opened again, list the steps made in
+    them before, and not each other's: the number is the object's.
 """
 import glob
 import os
@@ -29,6 +31,7 @@ RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 V = FreeCAD.Vector
 Qt = QtCore.Qt
 VIEW = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
+OPEN_VIEW = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/OpenView")
 FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetBool(
     "AutoSaveEnabled", False)
 
@@ -256,6 +259,97 @@ def run():
         check("per view: Cancel takes the edit back",
               round(pad.Length.Value, 3) == 15.0 and dialog(va) is None,
               (pad.Length, dialog(va)))
+
+        # A page and a sheet, closed and opened again, list the steps made
+        # in them before: the number their steps carry is the object's
+        VIEW.SetBool("PerViewEdit", False)
+        # Beside the page, not in its cell: the placement's reuse step
+        # (Gui::ViewPlacement, DocViewTarget "Split") would close the page
+        OPEN_VIEW.SetString("DocViewTarget", "NewSplit")
+        sheet = doc.addObject("Spreadsheet::Sheet", "Sheet")
+        doc.recompute()
+        pace()
+        sheet.ViewObject.doubleClicked()
+        settle(1500)
+        sv = gdoc.activeView()
+        activate(sv)
+        button = tool_button("Std_Group")
+        sheet_step = None
+        if button is not None:
+            QtTest.QTest.mouseClick(button, Qt.LeftButton)
+            settle(1000)
+            sheet_step = doc.UndoNames[0]
+        check("sheet: lists the step made in it",
+              sheet_step is not None and sv.undoActions()[:1] == [sheet_step],
+              (sheet_step, sv.undoActions()))
+        pace()
+        activate(pv)
+        dim.ViewObject.doubleClicked()
+        settle(1500)
+        spec1 = dim.FormatSpec
+        type_into(pv, "leFormatSpecifier", "%.2f B")
+        dialog(pv).accept()
+        settle(1500)
+        page_step = doc.UndoNames[0]
+        check("page: lists its new step, not the sheet's",
+              pv.undoActions()[:1] == [page_step] and sheet_step not in pv.undoActions(),
+              (page_step, pv.undoActions()))
+        pace()
+        # Each its own window only, as its cell's close button does
+        # (ViewArea::closeCell): Std_CloseActiveWindow would close the whole
+        # split area, 3D views and all
+        for cls in ("TechDrawGui::MDIViewPage", "SpreadsheetGui::SheetView"):
+            for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QMainWindow):
+                if w.metaObject().className() == cls:
+                    w.close()
+            settle(800)
+        check("closed: page and sheet views gone",
+              not gdoc.mdiViewsOfType("TechDrawGui::MDIViewPage")
+              and not gdoc.mdiViewsOfType("SpreadsheetGui::SheetView"))
+        check("closed: a 3D view lists both",
+              page_step in va.undoActions() and sheet_step in va.undoActions(),
+              va.undoActions())
+        # Opened again from the main loop: a view closed is deleted later --
+        # not inside a settle() of this function -- and until then its view
+        # provider still holds it and shows that one
+        CTX.update(locals())
+        QtCore.QTimer.singleShot(500, reopen)
+        return
+    except Exception:
+        note("ABORT:\n" + traceback.format_exc())
+    finish()
+
+
+CTX = {}
+
+
+def reopen():
+    try:
+        globals().update(CTX)
+        # By their type: the active view is the split area they open in
+        page.ViewObject.doubleClicked()
+        settle(1500)
+        sheet.ViewObject.doubleClicked()
+        settle(1500)
+        pv2 = gdoc.mdiViewsOfType("TechDrawGui::MDIViewPage")[0]
+        sv2 = gdoc.mdiViewsOfType("SpreadsheetGui::SheetView")[0]
+        check("page opened again: lists its step, not the sheet's",
+              page_step in pv2.undoActions() and sheet_step not in pv2.undoActions(),
+              pv2.undoActions())
+        check("sheet opened again: lists its step, not the page's",
+              sheet_step in sv2.undoActions() and page_step not in sv2.undoActions(),
+              sv2.undoActions())
+        # The sheet's own, from under the page's newer step
+        groups = len(doc.findObjects("App::DocumentObjectGroup"))
+        undo(sv2)
+        check("sheet opened again: Std_Undo takes back its step, not the page's",
+              len(doc.findObjects("App::DocumentObjectGroup")) == groups - 1
+              and doc.UndoNames[:1] == [page_step] and dim.FormatSpec != spec1,
+              (doc.UndoNames, dim.FormatSpec))
+        undo(pv2)
+        check("page opened again: Std_Undo takes back its step",
+              dim.FormatSpec == spec1 and page_step not in doc.UndoNames,
+              (dim.FormatSpec, spec1, doc.UndoNames))
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()
@@ -263,6 +357,7 @@ def run():
 
 def finish():
     VIEW.SetBool("PerViewEdit", False)
+    OPEN_VIEW.RemString("DocViewTarget")
     try:
         FreeCADGui.resetEdit()
     except Exception:

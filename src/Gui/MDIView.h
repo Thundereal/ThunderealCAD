@@ -142,10 +142,9 @@ public:
     /** The number the steps made in this view carry (App::Transaction::View,
      * docs/MultiViewEdit.md sec 12.9), one of its own for each view
      */
-    int undoViewId() const
-    {
-        return undoId;
-    }
+    int undoViewId() const;
+    /// A number no view's steps carry yet
+    static int newUndoViewId();
     /** What this view's undo lists and takes (sec 12.9), the one in a
      * container's place: Gui::Document::undoViewOf()
      */

@@ -1860,6 +1860,10 @@ public:
     bool redoSkipping(int skip);
     /// Why the last undo() or redo() was refused, empty when it was not.
     const std::string& undoRefusal() const;
+    /** The steps made in view \a view (Transaction::View) are every view's:
+     * that view closed (docs/MultiViewEdit.md sec 12.9)
+     */
+    void releaseStepView(int view);
     /// returns true if the document is in an Transaction phase, e.g. currently performing a redo/undo or rollback,
     /// or replaying transaction log rows (a branch switch, a crash recovery)
     bool isPerformingTransaction() const;

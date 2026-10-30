@@ -182,6 +182,9 @@ struct DocumentP
     bool       _changeViewTouchDocument;
     /// The objects in edit, in the order they were started
     std::vector<std::unique_ptr<EditSession>> _editSessions;
+    /// The undo view number of each object's view, by object id
+    /// (Document::undoViewIdOf)
+    std::map<long, int> _undoViewIds;
     /// The one setEdit() is starting, from when it is made to setEdit()'s
     /// return: whatever the edit mode asks while it starts is about it
     EditSession*                _editStarting = nullptr;
@@ -1809,6 +1812,24 @@ App::UndoView Document::undoViewOf(const MDIView *view) const
     }
     filter.view = view->undoViewId();
     return filter;
+}
+
+int Document::undoViewIdOf(const App::DocumentObject *obj) const
+{
+    if (!obj)
+        return 0;
+    int &id = d->_undoViewIds[obj->getID()];
+    if (!id)
+        id = MDIView::newUndoViewId();
+    return id;
+}
+
+void Document::releaseUndoViewOf(const MDIView *view) const
+{
+    if (!view || view->isDerivedFrom(View3DInventor::getClassTypeId())
+            || objectOfView(view))
+        return;
+    getDocument()->releaseStepView(view->undoViewId());
 }
 
 MDIView *Document::editViewOf(const ViewProvider *vp) const
@@ -5979,22 +6000,30 @@ MDIView *Document::createView(const Base::Type& typeId)
 
 std::string Document::objectViewToken(const MDIView *view) const
 {
-    // What the layouts name such a view by (see Document::Save): an
-    // object view carries its object's name as its widget's
+    // What the layouts name such a view by (see Document::Save)
+    auto obj = objectOfView(view);
+    if (!obj)
+        return {};
+    return std::string("O:") + obj->getNameInDocument();
+}
+
+App::DocumentObject *Document::objectOfView(const MDIView *view) const
+{
+    // An object view carries its object's name as its widget's
     // (MDIViewPage::setDocumentObject), and the object's view provider
     // answers with it.
     if (!view)
-        return {};
+        return nullptr;
     QByteArray objName = view->objectName().toUtf8();
     if (objName.isEmpty())
-        return {};
+        return nullptr;
     auto obj = getDocument()->getObject(objName.constData());
     if (!obj)
-        return {};
+        return nullptr;
     auto vp = getViewProvider(obj);
     if (!vp || vp->getMDIView() != view)
-        return {};
-    return std::string("O:") + objName.constData();
+        return nullptr;
+    return obj;
 }
 
 const Document::ViewTaskState *Document::savedViewTaskState(const MDIView *view) const

@@ -1789,6 +1789,9 @@ void Application::viewClosed(MDIView* pcView)
         // That edit, of the several there may be (PerViewEdit): its 3D
         // view's, or a page's (docs/HandsOnQueue.md entry 232)
         doc->resetEditIn(pcView);
+        // Its undo steps are every view's, unless something shows them
+        // again (docs/MultiViewEdit.md sec 12.9)
+        doc->releaseUndoViewOf(pcView);
     }
     // And a task dialog it owns goes with it (Gui::TaskView::TaskView)
     signalCloseView(pcView);

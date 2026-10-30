@@ -171,6 +171,11 @@ fc_add_gui_test(GuiSurfaceFillMarkers_tests_run surface-fill-markers.py
 # they make into the active body, and nowhere else.
 fc_add_gui_test(GuiSurfaceInBody_tests_run surface-in-body.py
                 --timeout 180)
+# A surface group in a body: an aux group holding Surface features that,
+# while active, brings the Surface tool bar into PartDesign; editing a
+# Surface feature brings it too, until the edit ends.
+fc_add_gui_test(GuiSurfaceGroup_tests_run surface-group.py
+                --timeout 180)
 # Geometry picked for a Surface feature is taken as a sketch takes external
 # geometry: through SubShapeBinder::import, outside the feature's body by a
 # binder in it -- by its commands and every panel.

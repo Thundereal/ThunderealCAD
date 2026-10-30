@@ -27,6 +27,7 @@
 
 #include <functional>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <vector>
 #include <Base/Factory.h>
@@ -114,6 +115,12 @@ public:
     /// row written later -- at the event loop, by whoever closes it -- is
     /// still its author's.
     std::shared_ptr<const Actor> Author;
+    /** The view the input that made it went to (Application::getStepView),
+     * 0 for none: a tree's, a property view's, a script's, which is every
+     * view's. What a view's undo lists by (UndoViewScope); the session's
+     * only, not written to the log.
+     */
+    int View {0};
     /** The state of the document's values this step was made in and the
      * one it left (docs/TransactionLogJournal.md sec 30.10): tokens of the
      * document, a new one for every change. A step can be applied from its
@@ -415,6 +422,44 @@ public:
 
 private:
     TransactionType transactionType;
+};
+
+/** What a view's undo lists and takes (docs/MultiViewEdit.md sec 12.9):
+ * set by the Gui around a view's Undo, Redo and their lists, read by the
+ * document's. The log on only: a step that is not the newest is taken back
+ * from the log, so with it off every step is listed, as before.
+ */
+struct AppExport UndoView
+{
+    /// The steps made in this view and those made in none; 0 for all
+    int view = 0;
+    /// Only the steps in \a only (an edit's), when set
+    bool limited = false;
+    std::set<int> only;
+    /// The steps left out (other views' open edits)
+    std::set<int> hide;
+
+    /// Whether \a step, a user's step, is listed
+    bool sees(const Transaction& step) const;
+};
+
+/// The UndoView of what this thread does while the scope lives. Scopes
+/// nest; the innermost wins.
+class AppExport UndoViewScope
+{
+public:
+    explicit UndoViewScope(UndoView view);
+    ~UndoViewScope();
+
+    UndoViewScope(const UndoViewScope&) = delete;
+    UndoViewScope& operator=(const UndoViewScope&) = delete;
+
+    /// The innermost scope's, null for none: every step is listed
+    static const UndoView* current();
+
+private:
+    UndoView mine;
+    const UndoView* previous;
 };
 
 } //namespace App

@@ -243,9 +243,11 @@ void Application::bindActiveTransaction(Document *doc)
         bound.id = _activeTransactionID;
         bound.tmpName = _activeTransactionTmpName;
         bound.listing = _activeTransactionListing;
+        bound.view = _activeTransactionView;
         _activeTransactionID = 0;
         _activeTransactionTmpName = false;
         _activeTransactionListing = nullptr;
+        _activeTransactionView = 0;
         _activeTransactionGroup = 0;
         _activeTransactionHeld = false;
     }
@@ -271,6 +273,7 @@ void Application::unbindActiveTransaction(Document *doc, bool abort)
         _activeTransactionName = it->second.name;
         _activeTransactionTmpName = it->second.tmpName;
         _activeTransactionListing = it->second.listing;
+        _activeTransactionView = it->second.view;
         _activeTransactionGroup = 0;
         _activeTransactionHeld = false;
         _boundTransactions.erase(it);
@@ -345,16 +348,19 @@ int Application::setActiveTransaction(const char *name, bool persist, const Docu
         if (bound) {
             bound->id = activeId;
             bound->listing = _inputDocument;
+            bound->view = _inputView;
         }
         else {
             _activeTransactionID = activeId;
             _activeTransactionListing = _inputDocument;
+            _activeTransactionView = _inputView;
             // The input's group's, unless kept past it (sec 12.2 rules 1, 5)
             _activeTransactionGroup = _inputGroup;
             _activeTransactionHeld = persist || _activeTransactionGuard < 0;
         }
         _lastStep.id = activeId;
         _lastStep.listing = _inputDocument;
+        _lastStep.view = _inputView;
     }
     if (bound) {
         bound->tmpName = false;
@@ -430,6 +436,29 @@ const char *Application::getOpenStep(int *tid, const Document *doc) const
     if (tid)
         *tid = _lastStep.id;
     return _lastStep.name.c_str();
+}
+
+void Application::setInputView(int view)
+{
+    _inputView = view;
+}
+
+int Application::getInputView() const
+{
+    return _inputView;
+}
+
+int Application::getStepView(int id) const
+{
+    if (id && id == _activeTransactionID)
+        return _activeTransactionView;
+    for (auto &v : _boundTransactions) {
+        if (id && v.second.id == id)
+            return v.second.view;
+    }
+    if (id && id == _lastStep.id)
+        return _lastStep.view;
+    return _inputView;
 }
 
 void Application::setInputGroup(int serial)

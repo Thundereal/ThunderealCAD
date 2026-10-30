@@ -241,6 +241,7 @@ Transaction* Transaction::coldCopy(const Transaction& t)
     stub->Origin = t.Origin;
     stub->LogSeq = t.LogSeq;
     stub->Author = t.Author;   // the step's, not whoever trims the window
+    stub->View = t.View;
     stub->StateBefore = t.StateBefore;
     stub->StateAfter = t.StateAfter;
     stub->Cold = true;
@@ -1034,4 +1035,36 @@ TransactionObject* TransactionFactory::createTransaction (const Base::Type& type
 
     assert(0);
     return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+
+namespace {
+thread_local const UndoView* currentUndoView = nullptr;
+}
+
+bool UndoView::sees(const Transaction& step) const
+{
+    if (limited)
+        return only.count(step.getID()) != 0;
+    if (hide.count(step.getID()))
+        return false;
+    return !view || !step.View || step.View == view;
+}
+
+UndoViewScope::UndoViewScope(UndoView view)
+    : mine(std::move(view))
+    , previous(currentUndoView)
+{
+    currentUndoView = &mine;
+}
+
+UndoViewScope::~UndoViewScope()
+{
+    currentUndoView = previous;
+}
+
+const UndoView* UndoViewScope::current()
+{
+    return currentUndoView;
 }

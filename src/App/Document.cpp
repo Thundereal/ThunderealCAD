@@ -1387,6 +1387,7 @@ bool Document::_revertStep(bool undo, Transaction* step)
 
     auto inverse = new Transaction(step->getID());
     inverse->Name = step->Name;
+    inverse->View = step->View;
     d->activeUndoTransaction = inverse;
     {
         // The values go back as an undo's do: object code does not react to
@@ -1456,12 +1457,21 @@ std::vector<Transaction*> Document::_myRun(bool undo, int skip) const
     const auto& stack = undo ? mUndoTransactions : mRedoTransactions;
     const bool authors = d->transactionLog != nullptr;
     const auto actor = ActorScope::current();
+    // The view's own (docs/MultiViewEdit.md sec 12.9): a user's step it
+    // does not list is passed over, and the implicit ones that go with it.
+    // The log on only, as for authors: what is passed over is above.
+    const UndoView* view = authors ? UndoViewScope::current() : nullptr;
+    bool passed = false;
     std::vector<Transaction*> run;
     for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
         Transaction* step = *it;
         if (authors && !sameUser(step->Author.get(), actor.get()))
             continue;
         if (undo) {
+            if (!step->Implicit && view && !view->sees(*step)) {
+                run.clear();
+                continue;
+            }
             run.push_back(step);
             if (!step->Implicit) {
                 if (skip-- <= 0)
@@ -1470,12 +1480,17 @@ std::vector<Transaction*> Document::_myRun(bool undo, int skip) const
             }
         }
         else {
-            if (!step->Implicit && !run.empty()) {
-                if (skip <= 0)
-                    return run;
-                --skip;
-                run.clear();
+            if (!step->Implicit) {
+                if (!run.empty()) {
+                    if (skip <= 0)
+                        return run;
+                    --skip;
+                    run.clear();
+                }
+                passed = view && !view->sees(*step);
             }
+            if (passed)
+                continue;
             run.push_back(step);
         }
     }
@@ -1515,6 +1530,8 @@ bool Document::_takeStep(bool undo, int id)
     // The step that takes this one back again.
     d->activeUndoTransaction = new Transaction(step->getID());
     d->activeUndoTransaction->Name = step->Name;
+    // Still the view's it was made in, whichever view takes it
+    d->activeUndoTransaction->View = step->View;
     // Back in the state the step was made in; the other step is applied
     // from there.
     d->activeUndoTransaction->StateBefore = step->StateAfter;
@@ -1587,6 +1604,12 @@ bool Document::_takeRun(bool undo, int skip)
     return false;
 }
 
+bool Document::stepListed(const Transaction& step) const
+{
+    const UndoView* view = d->transactionLog ? UndoViewScope::current() : nullptr;
+    return !view || view->sees(step);
+}
+
 bool Document::_runNeedsLog(const std::vector<Transaction*>& run) const
 {
     if (!d->transactionLog)
@@ -1620,6 +1643,11 @@ bool Document::undo(int id)
                 if (d->transactionLog
                         && !sameUser(it->second->Author.get(), ActorScope::current().get())) {
                     d->undoRefusal = "the step is another's";
+                    return false;
+                }
+                // Nor one the view does not list (sec 12.9)
+                if (!stepListed(*it->second)) {
+                    d->undoRefusal = "the step is another view's";
                     return false;
                 }
                 // The actor's steps down to that one (sec 30.10): another's
@@ -1677,6 +1705,10 @@ bool Document::redo(int id)
                 return false;
             if (it->second->Implicit)
                 return false;   // sec 33.4
+            if (!stepListed(*it->second)) {
+                d->undoRefusal = "the step is another view's";
+                return false;
+            }
             std::optional<TransactionGuard> guard;
             while (true) {
                 const auto run = _myRun(false);
@@ -1826,8 +1858,10 @@ std::vector<const Transaction*> stepsOf(const std::list<Transaction*>& stack,
 {
     std::vector<const Transaction*> mine;
     const auto actor = ActorScope::current();
+    // And the view's (docs/MultiViewEdit.md sec 12.9), as Document::_myRun
+    const UndoView* view = authors ? UndoViewScope::current() : nullptr;
     auto take = [&](const Transaction* step) {
-        if (step->Implicit)
+        if (step->Implicit || (view && !view->sees(*step)))
             return;
         if (!authors || sameUser(step->Author.get(), actor.get()))
             mine.push_back(step);
@@ -1909,6 +1943,9 @@ int Document::_openTransaction(const char* name, int id, bool implicit)
             name = "<empty>";
         d->activeUndoTransaction->Name = name;
         d->activeUndoTransaction->Implicit = implicit;
+        // Made in the view its input went to (docs/MultiViewEdit.md sec 12.9)
+        d->activeUndoTransaction->View =
+            GetApplication().getStepView(d->activeUndoTransaction->getID());
         mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
         id = d->activeUndoTransaction->getID();
 
@@ -2283,7 +2320,8 @@ bool Document::_coalesceStep(Transaction* later)
             && t->LogScript.empty();
     };
     if (!plain(prev) || !plain(later) || prev->Origin != later->Origin
-            || prev->Author.get() != later->Author.get() || prev->Name != later->Name)
+            || prev->Author.get() != later->Author.get() || prev->Name != later->Name
+            || prev->View != later->View)
         return false;
     // The one same property, written by hand in each, and there still.
     const TransactionalObject *prevObj = nullptr, *laterObj = nullptr;

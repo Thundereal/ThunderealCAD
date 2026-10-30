@@ -2107,6 +2107,8 @@ protected:
     /// Whether a step of `run`, taken in its order from where the document
     /// stands, goes through the log.
     bool _runNeedsLog(const std::vector<Transaction*>& run) const;
+    /// Whether the undo of the view asking lists \a step (UndoViewScope)
+    bool stepListed(const Transaction& step) const;
     /// Whether `step` can be applied as it is: the document is in the state
     /// the step left.
     bool _atState(const Transaction* step) const;

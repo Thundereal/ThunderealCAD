@@ -318,6 +318,16 @@ public:
      */
     void setInputGroup(int serial);
     int getInputGroup() const;
+    /** The view the input being handled went to (docs/MultiViewEdit.md
+     * sec 12.9), a number the Gui gives each of its views; 0 for none --
+     * the tree, the property view, the Python console. Set and cleared
+     * with setInputDocument().
+     */
+    void setInputView(int view);
+    int getInputView() const;
+    /// The view the step \a id was made in: the input's as the step was
+    /// set active, else the input's now (Transaction::View)
+    int getStepView(int id) const;
     /** At the end of an input's group: commit the application's active
      * transaction when an input's group set it and nothing holds it -- a
      * running command, a TransactionLocker, setActiveTransaction() with
@@ -851,6 +861,10 @@ private:
     /// Where the application's active transaction is listed (getListingDocument)
     Document *_activeTransactionListing{nullptr};
     Document *_inputDocument{nullptr};
+    /// The input's view (setInputView), and the one the application's
+    /// active transaction was set in
+    int _inputView{0};
+    int _activeTransactionView{0};
     /// The input's group (setInputGroup), the one the application's active
     /// transaction was set in, whether it is held, and the step
     /// closeGroupStep() committed last
@@ -865,6 +879,7 @@ private:
         int id = 0;
         bool tmpName = false;
         Document *listing = nullptr;
+        int view = 0;
     };
     std::map<const Document*, BoundTransaction> _boundTransactions;
     /// The step set active last (getOpenStep)

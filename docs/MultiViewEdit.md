@@ -672,3 +672,48 @@ Python with TransactionLog 0, rule 7 on: the three BoundTransactionCases
 that read log rows fail, as they do with it off; off, one appearance
 test (`testAColourWrittenToABinderEndsItsMapping`) fails besides, and
 passes with it on.
+
+### 12.9 Each view's undo (entry 227, user 2026-10-30)
+
+Entry 227 asked what a view's undo offers: a fillet's edit step, made in a
+3D view, was offered on a TechDraw page. Every view listed and took the
+one document stack. The ruling: "for 3D views it is 3. other views 1",
+and yes to both points put with it.
+
+- **A 3D view** (option 3): while an edit is open in it, its undo lists the
+  edit's own steps (`Gui::Document::editStepsOf`, what Cancel takes back)
+  and Std_Undo takes the newest of them -- in a view that joined the edit
+  too, as every 3D view of the document does with PerViewEdit off. With
+  none open, every step --
+  but the steps of an edit another view has open: undoing those under its
+  open dialog is that view's to do.
+- **Any other view** (option 1) -- a page, a spreadsheet: the steps made in
+  it, and those made in no view.
+- **Where a step is made** is where its input went: a widget of a view is
+  that view's; a task panel's, the view of its dialog; the tree, the
+  property view, any other dock and the Python console are no view's, nor
+  is a script's step with no input; a toolbar, a menu, a shortcut, the
+  active view's. A step keeps its view through undo and redo, and two
+  writes of one property fold (sec 37.4 P4 of the journal) only within
+  one view.
+
+How. `App::Transaction::View` is the view's number
+(`MDIView::undoViewId`), taken as the step opens from the input's
+(`Application::setInputView`, set with the input document by the Gui's
+input scope; carried with the application's active transaction as its
+listing document is, `getStepView`). `App::UndoViewScope` names what the
+view asking lists (`Gui::Document::undoViewOf`); `Document::_myRun` and
+the lists read it, passing over a step the view does not list with the
+implicit steps that go with it, as they pass over another author's. The
+Gui sets it around a view's `undoActions`/`redoActions` and the
+Undo/Redo messages to the active view (Std_Undo, Std_Redo, their
+drop-downs and their enabling).
+
+A step taken from under others goes through the log (sec 30.10 of the
+journal), refused where a later step changed what it did, as an author's
+undo is. With the log off (`TransactionLog` 0, for A/B checks only) there
+is nothing to take it through: every view lists every step, as before.
+A new step still ends the user's redo steps of every view, as it ends
+the user's whatever they were.
+
+Test: `tests/gui/per-view-undo.py`.

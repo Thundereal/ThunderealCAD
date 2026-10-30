@@ -71,6 +71,7 @@
 
 #include <App/Document.h>
 #include <App/SaveTrigger.h>
+#include <App/Transactions.h>
 #include <optional>
 #include <App/ViewObjectRequest.h>
 #include <App/DocumentObjectPy.h>
@@ -1393,10 +1394,22 @@ void Application::onLastWindowClosed(Gui::Document* pcDoc)
     }
 }
 
+namespace {
+/// Whether \a msg is an undo or a redo, which takes the steps the view
+/// lists (docs/MultiViewEdit.md sec 12.9)
+bool isUndoMsg(const char* msg)
+{
+    return strcmp(msg, "Undo") == 0 || strcmp(msg, "Redo") == 0;
+}
+}
+
 /// send Messages to the active view
 bool Application::sendMsgToActiveView(const char* pMsg, const char** ppReturn)
 {
     MDIView* pView = getMainWindow()->activeWindow();
+    std::optional<App::UndoViewScope> undoView;
+    if (pView && isUndoMsg(pMsg))
+        undoView.emplace(pView->undoView());
     // A save's message names the view it went to, under whatever sent it
     // (docs/HandsOnQueue.md entry 167): Ctrl+S with a drawing page active
     // reads "Std_Save/Save@TechDrawGui::MDIViewPage"
@@ -1412,6 +1425,9 @@ bool Application::sendMsgToActiveView(const char* pMsg, const char** ppReturn)
 bool Application::sendHasMsgToActiveView(const char* pMsg)
 {
     MDIView* pView = getMainWindow()->activeWindow();
+    std::optional<App::UndoViewScope> undoView;
+    if (pView && isUndoMsg(pMsg))
+        undoView.emplace(pView->undoView());
     return pView ? pView->onHasMsg(pMsg) : false;
 }
 

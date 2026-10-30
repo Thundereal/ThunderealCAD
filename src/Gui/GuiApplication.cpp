@@ -43,6 +43,7 @@
 # include <windows.h>
 #endif
 
+#include <QDockWidget>
 #include <QLocalServer>
 #include <QLocalSocket>
 
@@ -133,6 +134,35 @@ bool isConsoleInput(QObject *receiver)
     return false;
 }
 
+/** The view the input to \a receiver went to (docs/MultiViewEdit.md sec
+ * 12.9), MDIView::undoViewId(): the view it is in; a task panel's, the view
+ * of its dialog; none for the Python console, the tree, the property view
+ * and any other dock; the active view's for the rest -- a toolbar, a menu,
+ * a shortcut.
+ */
+int inputViewOf(QObject *receiver)
+{
+    for (QObject *o = receiver; o; o = o->parent()) {
+        if (auto view = qobject_cast<MDIView*>(o))
+            return view->activeSubView()->undoViewId();
+        if (o->inherits("Gui::PythonConsole"))
+            return 0;
+    }
+    TaskOwner owner = Control().ownerOfContent(receiver);
+    if (!owner.isNull()) {
+        MDIView *view = owner.mdiView();
+        return view ? view->undoViewId() : 0;
+    }
+    for (QObject *o = receiver; o; o = o->parent()) {
+        if (o->inherits("Gui::TaskView::TaskView"))
+            break;
+        if (qobject_cast<QDockWidget*>(o))
+            return 0;
+    }
+    MDIView *view = getMainWindow() ? getMainWindow()->activeWindow() : nullptr;
+    return view ? view->activeSubView()->undoViewId() : 0;
+}
+
 /// What keeps a step past its input's group that only the Gui knows (sec
 /// 12.2 rule 5): a mouse button down -- a drag, closed on the release --
 /// an open task dialog, an edit
@@ -185,11 +215,13 @@ public:
     explicit InputDocumentScope(QObject *receiver)
         : outer(current)
         , prevGroup(App::GetApplication().getInputGroup())
+        , prevView(App::GetApplication().getInputView())
     {
         if (auto prevDoc = App::GetApplication().getInputDocument())
             prev = prevDoc->getName();
         current = this;
         App::GetApplication().setInputDocument(inputDocumentOf(receiver));
+        App::GetApplication().setInputView(inputViewOf(receiver));
         if (!outer)
             ++group;
         App::GetApplication().setInputGroup(isConsoleInput(receiver) ? 0 : group);
@@ -205,6 +237,7 @@ public:
             App::GetApplication().setInputDocument(
                 prev.empty() ? nullptr : App::GetApplication().getDocument(prev.c_str()));
             App::GetApplication().setInputGroup(prevGroup);
+            App::GetApplication().setInputView(prevView);
         }
         // After the 0-timers its work queued, which were queued first
         const int mine = serial;
@@ -214,6 +247,7 @@ public:
             if (!nested) {
                 App::GetApplication().setInputDocument(nullptr);
                 App::GetApplication().setInputGroup(0);
+                App::GetApplication().setInputView(0);
             }
             endInputGroup();
         });
@@ -227,6 +261,7 @@ private:
     static inline int group = 0;
     InputDocumentScope *outer;
     int prevGroup;
+    int prevView;
     std::string prev;
 };
 }

@@ -1791,6 +1791,26 @@ ViewerContext *Document::editingViewerOf(const ViewProvider *vp) const
     return nullptr;
 }
 
+App::UndoView Document::undoViewOf(const MDIView *view) const
+{
+    App::UndoView filter;
+    if (!view)
+        return filter;
+    if (view->isDerivedFrom(View3DInventor::getClassTypeId())) {
+        if (auto vp = editViewProviderIn(view)) {
+            filter.limited = true;
+            for (int id : editStepsOf(vp))
+                filter.only.insert(id);
+            return filter;
+        }
+        for (auto &s : d->_editSessions)
+            filter.hide.insert(s->steps.begin(), s->steps.end());
+        return filter;
+    }
+    filter.view = view->undoViewId();
+    return filter;
+}
+
 MDIView *Document::editViewOf(const ViewProvider *vp) const
 {
     for (auto &s : d->_editSessions) {

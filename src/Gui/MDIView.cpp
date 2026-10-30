@@ -39,6 +39,7 @@
 
 #include <Base/Interpreter.h>
 #include <App/Document.h>
+#include <App/Transactions.h>
 
 #include "MDIView.h"
 #include "MDIViewPy.h"
@@ -66,6 +67,8 @@ MDIView::MDIView(Gui::Document* pcDocument,QWidget* parent, Qt::WindowFlags wfla
   , wstate(Qt::WindowNoState)
   , ActiveObjects(pcDocument)
 {
+    static int lastUndoId = 0;
+    undoId = ++lastUndoId;
     setAttribute(Qt::WA_DeleteOnClose);
 
     // Every view its own selection, for whoever asked for that: from the
@@ -558,11 +561,21 @@ void MDIView::restorePrinterSettings(QPrinter* printer)
     printer->setColorMode(static_cast<QPrinter::ColorMode>(defaultColorMode));
 }
 
+App::UndoView MDIView::undoView() const
+{
+    auto view = const_cast<MDIView*>(this)->activeSubView();
+    if (!view)
+        view = const_cast<MDIView*>(this);
+    Gui::Document* doc = view->getGuiDocument();
+    return doc ? doc->undoViewOf(view) : App::UndoView();
+}
+
 QStringList MDIView::undoActions() const
 {
     QStringList actions;
     Gui::Document* doc = getGuiDocument();
     if (doc) {
+        App::UndoViewScope scope(undoView());
         std::vector<std::string> vecUndos = doc->getUndoVector();
         for (const auto & vecUndo : vecUndos) {
             actions << QCoreApplication::translate("Command", vecUndo.c_str());
@@ -577,6 +590,7 @@ QStringList MDIView::redoActions() const
     QStringList actions;
     Gui::Document* doc = getGuiDocument();
     if (doc) {
+        App::UndoViewScope scope(undoView());
         std::vector<std::string> vecRedos = doc->getRedoVector();
         for (const auto & vecRedo : vecRedos) {
             actions << QCoreApplication::translate("Command", vecRedo.c_str());

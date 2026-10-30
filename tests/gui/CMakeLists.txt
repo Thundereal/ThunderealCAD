@@ -506,6 +506,11 @@ fc_add_gui_test(GuiPdEditTwoViews_tests_run pd-edit-two-views.py
 fc_add_gui_test(GuiEditStepEachChange_tests_run edit-step-each-change.py
                 --timeout 240)
 
+# Each view's undo (entry 227, docs/MultiViewEdit.md sec 12.9): a 3D view in
+# edit lists the edit's steps, another 3D view all but those, a TechDraw
+# page its own and those made in no view.
+fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 240)
+
 # Two sketches in edit in one document, one per view (entry 232, the
 # Sketcher round): Cancel of one takes back its own steps only.
 fc_add_gui_test(GuiSketchEditTwoViews_tests_run sketch-edit-two-views.py

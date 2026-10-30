@@ -34,6 +34,11 @@ QT_BEGIN_NAMESPACE
 class QPrinter;
 QT_END_NAMESPACE
 
+namespace App
+{
+struct UndoView;
+}
+
 namespace Gui
 {
 class Document;
@@ -134,6 +139,17 @@ public:
     //@{
     virtual QStringList undoActions() const;
     virtual QStringList redoActions() const;
+    /** The number the steps made in this view carry (App::Transaction::View,
+     * docs/MultiViewEdit.md sec 12.9), one of its own for each view
+     */
+    int undoViewId() const
+    {
+        return undoId;
+    }
+    /** What this view's undo lists and takes (sec 12.9), the one in a
+     * container's place: Gui::Document::undoViewOf()
+     */
+    App::UndoView undoView() const;
     //@}
 
     QSize minimumSizeHint () const override;
@@ -239,6 +255,7 @@ private:
     int ownSelectionTakes = 0;
     /// Its own for good (PerViewSelection), not for the length of a take
     bool ownSelectionKept = false;
+    int undoId;
 
     ViewMode currentMode;
     Qt::WindowStates wstate;

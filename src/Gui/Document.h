@@ -51,6 +51,7 @@ class DocumentObjectGroup;
 class SubObjectT;
 class Property;
 class Transaction;
+struct UndoView;
 }
 
 namespace Gui {
@@ -506,6 +507,13 @@ public:
     void resetEditIn(const MDIView *view);
     /// What is in edit in \a view (a 3D view, or a page), null for nothing
     ViewProvider *editViewProviderIn(const MDIView *view) const;
+    /** What the undo of \a view lists and takes (docs/MultiViewEdit.md sec
+     * 12.9, docs/HandsOnQueue.md entry 227). A 3D view in edit: the edit's
+     * own steps; one in none: every step but those of the edits other views
+     * have open. Any other view -- a TechDraw page, a spreadsheet: the steps
+     * made in it and those made in no view.
+     */
+    App::UndoView undoViewOf(const MDIView *view) const;
     /** Take back an edit's own undo steps, transaction ids \a tids: its
      * Cancel, where each change of it was a step of its own
      * (docs/HandsOnQueue.md entry 232).

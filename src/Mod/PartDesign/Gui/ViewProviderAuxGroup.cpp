@@ -80,7 +80,7 @@ bool ViewProviderAuxGroup::canDropObject(App::DocumentObject *obj) const
     auto body = owner->getBody();
     if (!body || !owner->isObjectAllowed(obj))
         return false;
-    if (owner->holdsWhatIsPutIn()) {
+    if (owner->getGroupType() == PartDesign::AuxGroup::OtherGroup) {
         if (PartDesign::Body::findBodyOf(obj) == body
                 && !owner->Group.find(obj->getNameInDocument()))
             return true;
@@ -108,7 +108,7 @@ void ViewProviderAuxGroup::dropObject(App::DocumentObject *obj)
         if (bodyVp && owner->isObjectAllowed(obj))
             bodyVp->dropObject(obj);
     }
-    if (owner->holdsWhatIsPutIn()) {
+    if (owner->getGroupType() == PartDesign::AuxGroup::OtherGroup) {
         if (PartDesign::Body::findBodyOf(obj) == body
                 && !owner->Group.find(obj->getNameInDocument())) {
             auto children = owner->Group.getValues();
@@ -128,7 +128,7 @@ bool ViewProviderAuxGroup::canDragObject(App::DocumentObject * obj) const {
     auto body = PartDesign::Body::findBodyOf(owner);
     auto vpBody = Gui::Application::Instance->getViewProvider(body);
 
-    if (!owner->holdsWhatIsPutIn()) {
+    if (owner->getGroupType() != PartDesign::AuxGroup::OtherGroup) {
         if (vpBody)
             return vpBody->canDragObject(obj);
         return false;

@@ -582,7 +582,6 @@ Gui::MenuItem* Workbench::setupMenuBar() const
               << "PartDesign_Defeaturing";
 
     *part << "PartDesign_Body"
-          << "PartDesign_SurfaceGroup"
           << "Separator"
           << datums
           << "PartDesign_CoordinateSystem"
@@ -661,7 +660,6 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
 
     *part << "PartDesign_Body"
           << "PartDesign_NewSketch"
-          << "PartDesign_SurfaceGroup"
           << "Sketcher_EditSketch"
           << "Sketcher_MapSketch"
           << "Sketcher_ValidateSketch"

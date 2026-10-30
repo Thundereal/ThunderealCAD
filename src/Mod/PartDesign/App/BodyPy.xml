@@ -60,6 +60,26 @@ Group by hand.
             </UserDocu>
         </Documentation>
     </Methode>
+    <Methode Name="hasAutoAuxGroup">
+        <Documentation>
+            <UserDocu>
+hasAutoAuxGroup() -> bool
+
+Whether the body keeps the auto aux groups: Sketches, Datums and Misc, and
+Surfaces once it holds a surface.
+            </UserDocu>
+        </Documentation>
+    </Methode>
+    <Methode Name="setAutoAuxGroup">
+        <Documentation>
+            <UserDocu>
+setAutoAuxGroup(enable=True)
+
+Add the auto aux groups the body lacks, or remove them all. A group of the
+user's own stays either way.
+            </UserDocu>
+        </Documentation>
+    </Methode>
     <Attribute Name="Solids" ReadOnly="true">
         <Documentation>
             <UserDocu>The solids of this body, each as the list of its features in history order</UserDocu>

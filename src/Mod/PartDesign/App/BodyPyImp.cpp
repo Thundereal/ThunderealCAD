@@ -162,6 +162,28 @@ PyObject* BodyPy::syncSolidBodies(PyObject *args)
     } PY_CATCH;
 }
 
+PyObject* BodyPy::hasAutoAuxGroup(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+
+    PY_TRY {
+        return Py::new_reference_to(Py::Boolean(getBodyPtr()->hasAutoAuxGroup()));
+    } PY_CATCH;
+}
+
+PyObject* BodyPy::setAutoAuxGroup(PyObject *args)
+{
+    PyObject *enable = Py_True;
+    if (!PyArg_ParseTuple(args, "|O!", &PyBool_Type, &enable))
+        return nullptr;
+
+    PY_TRY {
+        getBodyPtr()->setAutoAuxGroup(PyObject_IsTrue(enable));
+        Py_Return;
+    } PY_CATCH;
+}
+
 Py::List BodyPy::getSolids() const
 {
     Py::List res;

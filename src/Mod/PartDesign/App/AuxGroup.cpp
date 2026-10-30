@@ -24,8 +24,6 @@
 #ifndef _PreComp_
 #endif
 
-#include <set>
-
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <Base/Console.h>
@@ -66,16 +64,6 @@ void AuxGroup::onChanged(const App::Property* prop)
             attachBody();
             refresh();
         }
-        else if (prop == &Group && getGroupType() == SurfaceGroup) {
-            // Misc leaves a surface group's members to it
-            if (auto body = getBody()) {
-                for (auto obj : body->Group.getValues()) {
-                    auto misc = freecad_cast<AuxGroup*>(obj);
-                    if (misc && misc->getGroupType() == MiscGroup)
-                        misc->refresh();
-                }
-            }
-        }
     }
     inherited::onChanged(prop);
 }
@@ -115,14 +103,9 @@ AuxGroup::GroupType AuxGroup::getGroupType() const
     return groupType;
 }
 
-bool AuxGroup::holdsWhatIsPutIn() const
-{
-    return getGroupType() == OtherGroup || getGroupType() == SurfaceGroup;
-}
-
 bool AuxGroup::allowDuplicateLabel() const
 {
-    return !holdsWhatIsPutIn()
+    return getGroupType()!=OtherGroup
         && !Part::PartParams::getAuxGroupUniqueLabel();
 }
 
@@ -177,7 +160,7 @@ void AuxGroup::refresh()
         return;
     }
     std::vector<App::DocumentObject *> children;
-    if (holdsWhatIsPutIn()) {
+    if (getGroupType() == OtherGroup) {
         auto group = Group.getValues();
         std::sort(group.begin(), group.end());
         for (auto obj : body->Group.getValues()) {
@@ -189,19 +172,19 @@ void AuxGroup::refresh()
         }
     }
     else {
-        // what a surface group holds is not Misc's
-        std::set<App::DocumentObject *> held;
+        // the surfaces are not Misc's where a surface group holds them
+        bool surfaceGroup = false;
         if (getGroupType() == MiscGroup) {
             for (auto obj : body->Group.getValues()) {
                 auto group = freecad_cast<AuxGroup*>(obj);
-                if (group && group->getGroupType() == SurfaceGroup) {
-                    for (auto child : group->Group.getValues())
-                        held.insert(child);
-                }
+                if (group && group->getGroupType() == SurfaceGroup)
+                    surfaceGroup = true;
             }
         }
         for (auto obj : body->Group.getValues()) {
-            if (isObjectAllowed(obj) && !held.count(obj))
+            if (isObjectAllowed(obj)
+                    && !(surfaceGroup
+                         && Part::BodyBase::typeKind(obj->getTypeId()) == "Surface"))
                 children.push_back(obj);
         }
     }

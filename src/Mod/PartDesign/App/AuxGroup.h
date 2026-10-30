@@ -34,12 +34,13 @@ class Body;
 
 /** For grouping non PartDesign::Feature objects in Body
  *
- * The type is told by the name: Sketches, Datums and Misc gather what they
- * take from the body by themselves; Surfaces (a surface group) and any other
- * name (a user's group) hold what was put in them. A surface group takes
- * what a module registered with the body as "Surface"
- * (Part::BodyBase::allowType), which Misc then leaves to it; made active in
- * a view it offers the Surface tool bars (Gui::ToolContext).
+ * The type is told by the name: Sketches, Datums, Misc and Surfaces gather
+ * what they take from the body by themselves; any other name (a user's
+ * group) holds what was put in them. A surface group takes what a module
+ * registered with the body as "Surface" (Part::BodyBase::allowType), which
+ * Misc then leaves to it; the body makes one when the first surface comes
+ * (Body::setAutoAuxGroup). Made active in a view it offers the Surface tool
+ * bars (Gui::ToolContext).
  */
 class PartDesignExport AuxGroup : public App::DocumentObject
 {
@@ -72,8 +73,6 @@ public:
         OtherGroup,
     };
     GroupType getGroupType() const;
-    /// Whether it holds what was put in it, rather than gathering
-    bool holdsWhatIsPutIn() const;
     PartDesign::Body * getBody() const;
 
 protected:

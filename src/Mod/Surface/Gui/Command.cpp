@@ -42,9 +42,7 @@
 #include "Mod/Part/App/PartFeature.h"
 #include "Import.h"
 #include <App/Document.h>
-#include <App/PropertyLinks.h>
 #include <Base/Console.h>
-#include <Gui/ActiveObjectList.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
 #include <Gui/Control.h>
@@ -125,8 +123,8 @@ namespace
 /** A new feature placed: into the active PartDesign Body of the view the
  * command came through, as a sketch goes -- a body takes Surface features
  * (Part::BodyBase::allowType), not solid, never its Tip; through the body's
- * own Python, as Surface does not link PartDesign -- and into the body's
- * surface group if one is active (PDSURFACEKEY). Then `_edit`, the edit
+ * own Python, as Surface does not link PartDesign; the body puts it in its
+ * surface group. Then `_edit`, the edit
  * context the picks are imported for (linkOf), set where it now is; the
  * command drops it with dropEditContext().
  */
@@ -146,20 +144,6 @@ void placeFeature(Gui::Document* gdoc, const std::string& feat)
                                 body->getNameInDocument(),
                                 doc->getName(),
                                 feat.c_str());
-        auto group = view->getActiveObject<App::DocumentObject*>(PDSURFACEKEY);
-        auto groupBody = group ? dynamic_cast<App::PropertyLink*>(group->getPropertyByName("_Body"))
-                               : nullptr;
-        if (groupBody && groupBody->getValue() == body) {
-            Gui::Command::doCommand(Gui::Command::Doc,
-                                    "_group = App.getDocument('%s').getObject('%s')\n"
-                                    "_group.Group = _group.Group + "
-                                    "[App.getDocument('%s').getObject('%s')]\n"
-                                    "del _group",
-                                    group->getDocument()->getName(),
-                                    group->getNameInDocument(),
-                                    doc->getName(),
-                                    feat.c_str());
-        }
     }
     if (auto obj = doc->getObject(feat.c_str())) {
         Gui::Command::doCommand(Gui::Command::Doc,

@@ -23,6 +23,8 @@
 
 #include "PreCompiled.h"
 
+#include <set>
+
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Tools.h>
@@ -427,6 +429,10 @@ void Body::insertObject(App::DocumentObject* feature, App::DocumentObject* targe
 
     // Set the BaseFeature property
     setBaseProperty(feature);
+
+    // The first surface in a body keeping the auto aux groups brings its own
+    if (Part::BodyBase::typeKind(feature->getTypeId()) == "Surface" && hasAutoAuxGroup())
+        addAutoAuxGroups(true);
 }
 
 void Body::setTip(App::DocumentObject *feature)
@@ -1272,6 +1278,82 @@ Body::getSiblings(App::DocumentObject *obj, bool all, bool reversed) const
         }
     }
     return res;
+}
+
+bool Body::hasAutoAuxGroup() const
+{
+    for (auto obj : Group.getValues()) {
+        auto group = freecad_cast<AuxGroup*>(obj);
+        if (group && group->getGroupType() != AuxGroup::OtherGroup)
+            return true;
+    }
+    return false;
+}
+
+void Body::setAutoAuxGroup(bool enable)
+{
+    if (enable) {
+        addAutoAuxGroups(false);
+        return;
+    }
+    std::vector<std::string> names;
+    for (auto obj : Group.getValues()) {
+        auto group = freecad_cast<AuxGroup*>(obj);
+        if (group && group->getGroupType() != AuxGroup::OtherGroup)
+            names.emplace_back(group->getNameInDocument());
+    }
+    for (const auto &name : names) {
+        if (auto group = freecad_cast<AuxGroup*>(getDocument()->getObject(name.c_str()))) {
+            group->_Body.setValue(nullptr);
+            getDocument()->removeObject(name.c_str());
+        }
+    }
+}
+
+void Body::addAutoAuxGroups(bool surfacesOnly)
+{
+    auto model = Group.getValues();
+    std::set<AuxGroup::GroupType> there;
+    int last = -1;
+    bool surfaces = false;
+    for (int i = 0; i < (int)model.size(); ++i) {
+        auto group = freecad_cast<AuxGroup*>(model[i]);
+        if (group && group->getGroupType() != AuxGroup::OtherGroup) {
+            there.insert(group->getGroupType());
+            last = i;
+        }
+        else if (Part::BodyBase::typeKind(model[i]->getTypeId()) == "Surface")
+            surfaces = true;
+    }
+
+    // after the groups there are, else first after a base feature: the body
+    // lets its base go if anything comes before it (onChanged)
+    int pos = last + 1;
+    if (last < 0 && !model.empty()
+            && (model[0] == BaseFeature.getValue() || model[0]->isDerivedFrom<FeatureBase>()))
+        pos = 1;
+    static const std::pair<AuxGroup::GroupType, const char *> kinds[] = {
+        {AuxGroup::SketchGroup, "Sketches"},
+        {AuxGroup::DatumGroup, "Datums"},
+        {AuxGroup::MiscGroup, "Misc"},
+        {AuxGroup::SurfaceGroup, "Surfaces"},
+    };
+    std::vector<AuxGroup*> made;
+    for (const auto &[type, name] : kinds) {
+        if (there.count(type)
+                || (type == AuxGroup::SurfaceGroup ? !surfaces : surfacesOnly))
+            continue;
+        auto group = static_cast<AuxGroup*>(
+                getDocument()->addObject("PartDesign::AuxGroup", name));
+        group->Label.setValue(name);
+        model.insert(model.begin() + pos++, group);
+        made.push_back(group);
+    }
+    if (made.empty())
+        return;
+    Group.setValues(model);
+    for (auto group : made)
+        group->_Body.setValue(this);
 }
 
 int Body::isElementVisible(const char *element) const

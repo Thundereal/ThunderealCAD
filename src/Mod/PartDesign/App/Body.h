@@ -116,6 +116,15 @@ public:
     /// Remove the feature from the body
     std::vector<DocumentObject*> removeObject(DocumentObject* obj) override;
 
+    /** Whether the body keeps the auto aux groups (AuxGroup): Sketches,
+     * Datums and Misc, and Surfaces once it holds a surface
+     */
+    bool hasAutoAuxGroup() const;
+    /** Add the auto aux groups the body lacks, or remove them all; a user's
+     * group (AuxGroup::OtherGroup) stays either way
+     */
+    void setAutoAuxGroup(bool enable);
+
     /**
      * Checks if the given document object lays after the current insert point
      * (place before next solid after the Tip)
@@ -279,6 +288,8 @@ protected:
 
 private:
     void removeSolidBody(SolidBody *solid);
+    /// The auto aux groups the body lacks, all of them or only Surfaces
+    void addAutoAuxGroups(bool surfacesOnly);
 
 private:
     bool showTip = false;

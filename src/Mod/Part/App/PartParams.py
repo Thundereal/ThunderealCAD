@@ -86,6 +86,10 @@ Params = [
     ParamBool("AutoGroupSolids", False,
         doc = "Turn on Auto Group Solids in new bodies, which groups the features\n"
               "of each solid under its latest feature."),
+    ParamBool("AutoAuxGroup", True,
+        doc = "Give new bodies made in the GUI (PartDesign_Body, PartDesign_Clone)\n"
+              "the Sketches, Datums and Misc groups, and a Surfaces group once\n"
+              "they hold a surface. A body made by script has none."),
     ParamBool("SingleSolid", False,
         doc = "Turn on Single Solid in new bodies, so that every feature must\n"
               "result in one solid."),

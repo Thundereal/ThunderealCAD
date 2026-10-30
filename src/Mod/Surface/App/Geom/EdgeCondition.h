@@ -136,15 +136,18 @@ SurfaceExport MatchReport matchBoundary(Handle(Geom_BSplineSurface)& surface,
                                         const MatchOptions& options = {});
 
 /// Where a boundary's edge condition is shown in the view (docs/Surface.md
-/// sec 8): the boundary's middle, the way across it into the surface --
-/// square to it, in the surface's tangent plane -- and its length
+/// sec 8): a point of the boundary -- its middle, unless asked for another --
+/// the way across it into the surface -- square to it, in the surface's
+/// tangent plane -- and its length
 struct BoundaryMarker
 {
     gp_Pnt middle;
     gp_Dir inward;
     double length = 0;
 };
+/// `at` of the way along the boundary as its parameter runs (0 to 1)
 SurfaceExport BoundaryMarker boundaryMarker(const Handle(Geom_BSplineSurface) & surface,
-                                            Boundary boundary);
+                                            Boundary boundary,
+                                            double at = 0.5);
 
 }  // namespace Surface::Geom

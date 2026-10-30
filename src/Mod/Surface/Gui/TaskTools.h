@@ -174,12 +174,15 @@ QWidget* pickOne(ToolPanel* panel,
                  App::PropertyLinkSub* link,
                  PickKind kind);
 /// An edge condition: continuity, weight, and a support face; with a marker
-/// in the view where `where` says
+/// in the view where `where` says. With props.weightEnd, a weight at the
+/// edge's end too, and while it is set, a marker at each end of the edge in
+/// place of the one in the middle, where `whereAt` says for each
 QWidget* conditionRow(ToolPanel* panel,
                       const QString& title,
                       const char* name,
                       const Surface::ConditionProperties& props,
-                      EdgeMarkers::Where where = {});
+                      EdgeMarkers::Where where = {},
+                      std::function<EdgeMarkers::Where(double at)> whereAt = {});
 /// Plain properties
 QWidget* enumField(ToolPanel* panel,
                   const QString& title,

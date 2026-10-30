@@ -670,13 +670,14 @@ MatchReport matchBoundary(Handle(Geom_BSplineSurface)& surface,
     return matchBoundaries(surface, c, options)[int(boundary)];
 }
 
-BoundaryMarker boundaryMarker(const Handle(Geom_BSplineSurface) & surface, Boundary boundary)
+BoundaryMarker
+boundaryMarker(const Handle(Geom_BSplineSurface) & surface, Boundary boundary, double at)
 {
     double u0, u1, v0, v1;
     surface->Bounds(u0, u1, v0, v1);
     const bool alongU = boundary == Boundary::VMin || boundary == Boundary::VMax;
-    const double u = alongU ? (u0 + u1) / 2 : boundary == Boundary::UMin ? u0 : u1;
-    const double v = !alongU ? (v0 + v1) / 2 : boundary == Boundary::VMin ? v0 : v1;
+    const double u = alongU ? u0 + (u1 - u0) * at : boundary == Boundary::UMin ? u0 : u1;
+    const double v = !alongU ? v0 + (v1 - v0) * at : boundary == Boundary::VMin ? v0 : v1;
     BoundaryMarker m;
     gp_Vec du, dv;
     surface->D1(u, v, m.middle, du, dv);

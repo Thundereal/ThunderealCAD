@@ -5,7 +5,7 @@ import Part
 
 import unittest
 
-from parttests.occt_fork import needsOCCTFork
+from parttests.occt_fork import frozen, needsOCCTFork, needsOCCTFunction, refusals
 
 class RegressionTests(unittest.TestCase):
 
@@ -1743,3 +1743,44 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(base.isValid())
         self.assertAlmostEqual(base.Volume, volume)
         self.assertEqual(ring_spans(base), spans)
+
+    @needsOCCTFunction("TKBRep", "TopoDS_LockedShape_Raised")
+    def test_shape_tolerance_changes_a_copy_of_a_frozen_part(self):
+        """ShapeFix_ShapeTolerance on a shape holding a frozen value (a
+        feature's Shape, shape values frozen) changes a copy of each frozen
+        part it would change, put in the shape in its place -- as BRepLib's
+        UpdateTolerances does -- and refuses nothing. The value is left as
+        it was; the shape comes out as it does with nothing frozen. FreeCAD's
+        face maker limits the tolerances of the face it made of a sketch's
+        edges, and a helix's profile was refused (TestHelix)."""
+        import FreeCAD
+
+        def run(on):
+            with frozen(on):
+                doc = FreeCAD.newDocument("FrozenTolerance")
+                try:
+                    feature = doc.addObject("Part::Feature", "Box")
+                    feature.Shape = Part.makeBox(1, 1, 1)
+                    value = feature.Shape
+                    shape = Part.Compound([value])
+                    fix = Part.ShapeFix.ShapeTolerance()
+                    before = refusals()
+                    fix.setTolerance(shape, 1e-3)
+                    raised = [round(x.Tolerance, 12) for x in shape.Vertexes + shape.Edges + shape.Faces]
+                    fix.limitTolerance(shape, 0.0, 1e-5)
+                    limited = [round(x.Tolerance, 12) for x in shape.Vertexes + shape.Edges + shape.Faces]
+                    kept = [x.Tolerance for x in value.Vertexes + value.Edges + value.Faces]
+                    return refusals() - before, raised, limited, kept, shape.isValid()
+                finally:
+                    FreeCAD.closeDocument(doc.Name)
+
+        plain = run(False)
+        refused, raised, limited, kept, valid = run(True)
+        self.assertEqual(refused, 0)
+        self.assertEqual(raised, plain[1])
+        self.assertEqual(limited, plain[2])
+        self.assertEqual(set(raised), {1e-3})
+        self.assertEqual(set(limited), {1e-5})
+        self.assertTrue(valid)
+        # the frozen value as it was
+        self.assertEqual(set(kept), {1e-7})

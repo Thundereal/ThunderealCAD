@@ -524,5 +524,20 @@ class TestHelix(unittest.TestCase):
         finally:
             FreeCAD.closeDocument(doc.Name)
 
+    def testGiantHelixFrozen(self):
+        """The giant helices with shape values frozen, made without a refusal:
+        the profile's face, invalid at the larger sizes, has its tolerances
+        limited, which wrote into the sketch's frozen vertices it shares, and
+        FreeCAD recomputed the helix on copies of its inputs."""
+        from parttests.occt_fork import frozen, refusals
+
+        if not Part.hasOCCTFunction("TKBRep", "TopoDS_LockedShape_Raised"):
+            self.skipTest("needs the OCCT fork's TopoDS_LockedShape_Raised (TKBRep)")
+        for name in ("testGiantHelix", "testGiantHelixAdditive", "testGiantHelixSubtractive"):
+            with frozen():
+                before = refusals()
+                getattr(self, name)()
+                self.assertEqual(refusals() - before, 0, name)
+
     def tearDown(self):
         FreeCAD.closeDocument("PartDesignTestHelix")

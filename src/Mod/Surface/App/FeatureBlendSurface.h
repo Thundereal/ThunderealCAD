@@ -35,7 +35,8 @@ namespace Surface
 {
 
 /// A surface bridging two edges on two faces, G0 to G2 and a weight on
-/// each side (docs/Surface.md sec 5.1); Geom::blendSurface builds it
+/// each side, which may vary along it (docs/Surface.md sec 5.1);
+/// Geom::blendSurface builds it
 class SurfaceExport BlendSurface: public Part::Spline
 {
     PROPERTY_HEADER_WITH_OVERRIDE(Surface::BlendSurface);
@@ -47,9 +48,11 @@ public:
     App::PropertyLinkSub Edge2;
     App::PropertyEnumeration Side1Continuity;
     App::PropertyFloatConstraint Side1Weight;
+    App::PropertyFloatConstraint Side1WeightEnd;
     App::PropertyLinkSub Side1Support;
     App::PropertyEnumeration Side2Continuity;
     App::PropertyFloatConstraint Side2Weight;
+    App::PropertyFloatConstraint Side2WeightEnd;
     App::PropertyLinkSub Side2Support;
     App::PropertyIntegerConstraint Samples;
     App::PropertyStringList Achieved;  // Output

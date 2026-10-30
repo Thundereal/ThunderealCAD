@@ -514,7 +514,9 @@ Reports matchBoundaries(Handle(Geom_BSplineSurface)& surface,
                         }
                         gp_Vec c1 = alongU(b) ? dv : du;
                         gp_Vec c2 = alongU(b) ? dvv : duu;
-                        gp_Vec t1 = (c1 - gp_Vec(n) * c1.Dot(gp_Vec(n))) * cond[b].weight;
+                        double lo = alongU(b) ? fr.u0 : fr.v0, hi = alongU(b) ? fr.u1 : fr.v1;
+                        gp_Vec t1 = (c1 - gp_Vec(n) * c1.Dot(gp_Vec(n)))
+                            * cond[b].weightAt((t - lo) / (hi - lo));
                         gp_Vec t2 = c2;
                         if (cond[b].order >= 2 && t1.Magnitude() > 1e-12) {
                             double ks = normalCurvature(pp, gp_Dir(t1));

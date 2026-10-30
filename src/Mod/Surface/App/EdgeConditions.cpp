@@ -43,6 +43,7 @@ namespace Surface
 
 const char* ContinuityEnums[] = {"G0", "G1", "G2", nullptr};
 const App::PropertyFloatConstraint::Constraints WeightRange = {0.01, 100.0, 0.1};
+const App::PropertyFloatConstraint::Constraints WeightEndRange = {0.0, 100.0, 0.1};
 
 namespace
 {
@@ -75,6 +76,7 @@ std::string conditionOf(const ConditionProperties& props,
 {
     c.order = props.continuity->getValue();
     c.weight = props.weight->getValue();
+    c.weightEnd = props.weightEnd ? props.weightEnd->getValue() : 0.0;
     if (c.order == 0) {
         return {};
     }

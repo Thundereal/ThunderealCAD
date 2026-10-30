@@ -38,17 +38,21 @@ namespace Surface
 {
 
 /// The properties of one edge condition on a feature (docs/Surface.md sec
-/// 4.2, 4.3): its continuity, its weight and its support face
+/// 4.2, 4.3): its continuity, its weight and its support face; and where a
+/// feature has one, its weight at the edge's end
 struct ConditionProperties
 {
     const char* name;  // "first profile", for messages and Achieved
     App::PropertyEnumeration* continuity;
     App::PropertyFloatConstraint* weight;
     App::PropertyLinkSub* support;
+    App::PropertyFloatConstraint* weightEnd = nullptr;
 };
 
 SurfaceExport extern const char* ContinuityEnums[];
 SurfaceExport extern const App::PropertyFloatConstraint::Constraints WeightRange;
+/// A weight at an edge's end: WeightRange, or 0 for the weight all along
+SurfaceExport extern const App::PropertyFloatConstraint::Constraints WeightEndRange;
 
 /** The condition the properties ask for, on the curve `edge`, which is
  * `sub` of `source`: an explicit support, or the one face of the source's
@@ -91,3 +95,13 @@ SurfaceExport std::string describe(const ConditionProperties& props,
                       "The face to meet along " _doc                                               \
                       "; empty takes the face the curve is an edge of");                          \
     _name##Support.setScope(App::LinkScope::Global)
+
+/// Adds _name##WeightEnd, the weight of the condition _name at its edge's end
+#define SURFACE_ADD_WEIGHT_END(_name, _doc)                                                        \
+    ADD_PROPERTY_TYPE(_name##WeightEnd,                                                            \
+                      (0.0),                                                                       \
+                      "Conditions",                                                                \
+                      App::Prop_None,                                                              \
+                      "The weight at the end of " _doc ", the weight at its start, linearly "     \
+                      "between; 0 keeps the weight all along");                                   \
+    _name##WeightEnd.setConstraints(&Surface::WeightEndRange)

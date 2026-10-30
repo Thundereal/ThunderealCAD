@@ -25,6 +25,8 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+#include <utility>
+
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRep_Tool.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
@@ -132,6 +134,28 @@ gp_Vec leaving(const BlendSide& side, double t, double sign, const gp_Pnt& towar
     return across * sign;
 }
 
+/// `c` for the boundary `b` of `surface` that `curve` lies on: its weights
+/// at the start and end are the curve's, turned round where the boundary's
+/// parameter runs against it
+EdgeCondition alongBoundary(const Handle(Geom_BSplineSurface) & surface,
+                            int b,
+                            const Handle(Geom_Curve) & curve,
+                            EdgeCondition c)
+{
+    if (c.weightEnd <= 0) {
+        return c;
+    }
+    double u0, u1, v0, v1;
+    surface->Bounds(u0, u1, v0, v1);
+    gp_Pnt start = surface->Value(b == int(Boundary::UMax) ? u1 : u0,
+                                  b == int(Boundary::VMax) ? v1 : v0);
+    if (start.Distance(curve->Value(curve->LastParameter()))
+        < start.Distance(curve->Value(curve->FirstParameter()))) {
+        std::swap(c.weight, c.weightEnd);
+    }
+    return c;
+}
+
 }  // namespace
 
 BlendResult blendSurface(const BlendSide& first,
@@ -160,6 +184,9 @@ BlendResult blendSurface(const BlendSide& first,
         if (a0.Distance(b1) + a1.Distance(b0) < a0.Distance(b0) + a1.Distance(b1)) {
             b.curve = Handle(Geom_Curve)::DownCast(b.curve->Reversed());
             r.reversed = true;
+            if (b.condition.weightEnd > 0) {
+                std::swap(b.condition.weight, b.condition.weightEnd);
+            }
         }
 
         gp_Pnt ma = a.curve->Value((a.curve->FirstParameter() + a.curve->LastParameter()) / 2);
@@ -181,7 +208,7 @@ BlendResult blendSurface(const BlendSide& first,
             gp_Vec da = leaving(a, ta, signA, pb), db = leaving(b, tb, signB, pa);
             // a quintic leaving each end straight along its direction, the
             // derivative there 3 * weight * gap / 3, as a cubic's would be
-            double ha = a.condition.weight * gap / 3, hb = b.condition.weight * gap / 3;
+            double ha = a.condition.weightAt(s) * gap / 3, hb = b.condition.weightAt(s) * gap / 3;
             TColgp_Array1OfPnt poles(1, 6);
             poles.SetValue(1, pa);
             poles.SetValue(2, pa.Translated(da * (0.6 * ha)));
@@ -208,8 +235,8 @@ BlendResult blendSurface(const BlendSide& first,
         for (int k = 0; k < 4; ++k) {
             conditions[k].free = k != at[0] && k != at[1];
         }
-        conditions[at[0]] = a.condition;
-        conditions[at[1]] = b.condition;
+        conditions[at[0]] = alongBoundary(surface, at[0], a.curve, a.condition);
+        conditions[at[1]] = alongBoundary(surface, at[1], b.curve, b.condition);
         auto reports = matchBoundaries(surface, conditions, options.match);
         r.reports = {reports[at[0]], reports[at[1]]};
         for (const auto& rep : r.reports) {

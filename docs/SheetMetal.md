@@ -671,8 +671,17 @@ and not frozen.
     middle on the inner skin, named after the bend.
   - Refused by name for now: a face no element owns, a face of a bend that does not lie flat as a
     plane (risk 2's approximation is still to come), a flat that does not close.
-  - Still to come in M1: the flat's faces named after the folded ones, bend lines up and down
-    and the tangent lines, the flat's orientation, the manufacturing properties, the DXF.
+  - The manufacturing properties of 5.4 (e827522697), read-only in a `Manufacturing` group:
+    `FlatLength`, `FlatWidth` (its size on XY, the longer first), `FlatArea` (the blank's),
+    `Thickness`, `MaterialName` (the rule's card), `BendCount`, `MaxBendAngle`, and
+    `BendDirections`, each bend `Up` where the material comes up toward one looking down on the
+    flat (its inner skin on top).
+  - The DXF (e827522697), `SheetMetal::writeDXF()` in the geometry layer, `exportDXF(path)` on
+    the flat pattern: R12 from the flat's face on XY with the faces of one plane merged, the
+    outline on `OUTLINE`, inner contours on `INNER`, bend lines on `BEND_UP` and `BEND_DOWN`,
+    each labelled on `LABELS`; lines, arcs and circles as they are, other curves as polylines.
+  - Still to come in M1: the flat's faces named after the folded ones, the bend tangent lines,
+    the flat's orientation (a picked edge, the grain arrow), and the SVG.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

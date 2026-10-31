@@ -67,6 +67,22 @@ struct PartDesignExport Table
      * one for each combination of keys.
      */
     double at(const Bend& bend, bool* inside = nullptr) const;
+
+    /// One measured bend: its thickness, inner radius, angle (radians) and
+    /// the value measured
+    struct Row
+    {
+        double thickness = 0;
+        double radius = 0;
+        double angle = 0;
+        double value = 0;
+    };
+    /** The table of rows in any order, as a card holds it: axes thickness,
+     * radius and angle, each keyed by the values its rows have (an axis of
+     * one key kept). Throws Base::ValueError unless the rows fill the grid,
+     * each corner once.
+     */
+    static Table fromRows(const std::vector<Row>& rows);
 };
 
 /** How a bend's flat length is found (docs/SheetMetal.md sec 4.6). The table

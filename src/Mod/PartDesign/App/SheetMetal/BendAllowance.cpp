@@ -137,6 +137,62 @@ double Table::at(const Bend& bend, bool* inside) const
     return sum;
 }
 
+Table Table::fromRows(const std::vector<Row>& rows)
+{
+    if (rows.empty()) {
+        THROWM(Base::ValueError, "A bend table has no rows");
+    }
+    // keys within this of each other are one key
+    const double tol = 1e-9;
+    auto keysOf = [&](double Row::*field) {
+        std::vector<double> keys;
+        for (const auto& row : rows) {
+            keys.push_back(row.*field);
+        }
+        std::sort(keys.begin(), keys.end());
+        std::vector<double> unique;
+        for (double k : keys) {
+            if (unique.empty() || k - unique.back() > tol) {
+                unique.push_back(k);
+            }
+        }
+        return unique;
+    };
+    auto indexOf = [&](const std::vector<double>& keys, double x) {
+        auto it = std::lower_bound(keys.begin(), keys.end(), x - tol);
+        return static_cast<std::size_t>(it - keys.begin());
+    };
+
+    Table table;
+    table.axes = {Axis::Thickness, Axis::Radius, Axis::Angle};
+    table.keys = {keysOf(&Row::thickness), keysOf(&Row::radius), keysOf(&Row::angle)};
+    const std::size_t nr = table.keys[1].size();
+    const std::size_t na = table.keys[2].size();
+    const std::size_t count = table.keys[0].size() * nr * na;
+    if (rows.size() != count) {
+        FC_THROWM(Base::ValueError,
+                  "A bend table has " << rows.size() << " rows for " << count
+                                      << " combinations of its thickness, radius and angle");
+    }
+    table.values.assign(count, 0);
+    std::vector<bool> seen(count, false);
+    for (const auto& row : rows) {
+        const std::size_t index = (indexOf(table.keys[0], row.thickness) * nr
+                                   + indexOf(table.keys[1], row.radius))
+                * na
+            + indexOf(table.keys[2], row.angle);
+        if (seen[index]) {
+            FC_THROWM(Base::ValueError,
+                      "A bend table has two rows for thickness "
+                          << row.thickness << ", radius " << row.radius << " and angle "
+                          << row.angle * 180 / std::numbers::pi << " deg");
+        }
+        seen[index] = true;
+        table.values[index] = row.value;
+    }
+    return table;
+}
+
 double PartDesign::SheetMetal::din6935K(double thickness, double radius)
 {
     if (thickness <= 0 || radius <= 0) {

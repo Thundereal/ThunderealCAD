@@ -273,6 +273,7 @@ public:
 protected:
     void onSettingDocument() override;
 
+    void onBeforeChange(const App::Property* prop) override;
     /// Adjusts the first solid's feature's base on BaseFeature getting set
     void onChanged (const App::Property* prop) override;
 
@@ -293,6 +294,8 @@ private:
 
 private:
     bool showTip = false;
+    /// The card before a change of ShapeMaterial
+    QString oldMaterial;
     bool solidBodyTouched = false;
     bool solidBodySyncing = false;
     int solidBodySyncBlocked = 0;

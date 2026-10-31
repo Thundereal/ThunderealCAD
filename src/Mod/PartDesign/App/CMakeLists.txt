@@ -18,6 +18,7 @@ link_directories(${OCC_LIBRARY_DIR})
 
 generate_from_xml(BodyPy)
 generate_from_xml(FeaturePy)
+generate_from_xml(SheetMetalRulePy)
 
 
 set(PartDesign_LIBS
@@ -157,6 +158,8 @@ SET(SheetMetal_SRCS
     SheetMetal/BendAllowance.h
     SheetMetal/Fold.cpp
     SheetMetal/Fold.h
+    FeatureSheetMetalRule.cpp
+    FeatureSheetMetalRule.h
 )
 SOURCE_GROUP("SheetMetal" FILES ${SheetMetal_SRCS})
 
@@ -165,6 +168,8 @@ SET(Python_SRCS
     BodyPyImp.cpp
     FeaturePy.xml
     FeaturePyImp.cpp
+    SheetMetalRulePy.xml
+    SheetMetalRulePyImp.cpp
 )
 SOURCE_GROUP("Python" FILES ${Python_SRCS})
 

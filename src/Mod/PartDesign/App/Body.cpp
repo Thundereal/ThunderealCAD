@@ -50,6 +50,7 @@
 #include "AuxGroup.h"
 #include "ShapeBinder.h"
 #include "SolidBody.h"
+#include "FeatureSheetMetalRule.h"
 
 #include <Mod/Part/App/PartParams.h>
 
@@ -126,6 +127,14 @@ void Body::onChanged(const App::Property *prop)
     return Part::Feature::onChanged(prop);
 }
 */
+
+void Body::onBeforeChange(const App::Property *prop)
+{
+    // The card the rules follow, which onChanged() hands the new one to
+    if (prop == &ShapeMaterial)
+        oldMaterial = ShapeMaterial.getValue().getUUID();
+    Part::BodyBase::onBeforeChange(prop);
+}
 
 short Body::mustExecute() const
 {
@@ -246,6 +255,7 @@ bool Body::isAllowed(const Base::Type &type)
             type.isDerivedFrom(Part::Datum::getClassTypeId())   ||
             type.isDerivedFrom(PartDesign::Solid::getClassTypeId())   ||
             type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId()) ||
+            type.isDerivedFrom(PartDesign::SheetMetalRule::getClassTypeId()) ||
             type.isDerivedFrom(Part::Part2DObject::getClassTypeId()) ||
             // the 3D sketch (docs/Sketch3D.md), by name: PartDesign does not link Sketcher
             type.isDerivedFrom(Base::Type::fromName("Sketcher::Sketch3DObject")) ||
@@ -433,6 +443,9 @@ void Body::insertObject(App::DocumentObject* feature, App::DocumentObject* targe
     // The first surface in a body keeping the auto aux groups brings its own
     if (Part::BodyBase::typeKind(feature->getTypeId()) == "Surface" && hasAutoAuxGroup())
         addAutoAuxGroups(true);
+
+    if (auto rule = dynamic_cast<SheetMetalRule*>(feature))
+        rule->takeBodyMaterial();
 }
 
 void Body::setTip(App::DocumentObject *feature)
@@ -725,6 +738,14 @@ void Body::onChanged (const App::Property* prop) {
                 if (feature && feature->ShapeMaterial.getValue().getUUID()
                         != ShapeMaterial.getValue().getUUID())
                     feature->ShapeMaterial.setValue(ShapeMaterial.getValue());
+            }
+            // A sheet metal rule follows it while it has the body's card,
+            // and keeps one it was given (docs/SheetMetal.md sec 4.6)
+            for (auto obj : Group.getValues()) {
+                auto rule = dynamic_cast<SheetMetalRule*>(obj);
+                if (rule && rule->ShapeMaterial.getValue().getUUID() == oldMaterial
+                        && oldMaterial != ShapeMaterial.getValue().getUUID())
+                    rule->ShapeMaterial.setValue(ShapeMaterial.getValue());
             }
         }
         else if( prop == &SingleSolid ) {

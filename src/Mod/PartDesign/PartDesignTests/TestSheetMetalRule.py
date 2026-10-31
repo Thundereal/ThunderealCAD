@@ -247,7 +247,9 @@ class TestSheetMetalRule(unittest.TestCase):
         self.assertEqual(rule.Overridden, ["KFactor"])
         self.assertAlmostEqual(rule.KFactor, 0.3)
         self.assertAlmostEqual(rule.BendRadius.Value, 1.5)
-        self.assertTrue(rule.ShapeMaterial.hasPhysicalModel(__import__("Materials").UUIDs().SheetMetal))
+        self.assertTrue(
+            rule.ShapeMaterial.hasPhysicalModel(__import__("Materials").UUIDs().SheetMetal)
+        )
         rule.Thickness = 2
         self.assertAlmostEqual(rule.BendRadius.Value, 2.5)
         self.assertAlmostEqual(rule.KFactor, 0.3)

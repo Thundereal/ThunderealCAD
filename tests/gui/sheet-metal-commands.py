@@ -1,0 +1,207 @@
+"""Sheet metal's commands and tool bar in PartDesign (docs/SheetMetal.md sec 8.1).
+
+  - the Part Design menu has a Sheet Metal submenu holding Base Wall, always
+    (ruled 2026-10-31);
+  - the Sheet Metal tool bar is there but not offered at first;
+  - Base Wall on a selected closed sketch makes a plate in the active body,
+    the sketch hidden, and with it the rule;
+  - Flange on a selected edge of the wall's skin makes a flange there;
+  - Flat Pattern makes the flat of the body's tip, not the body's tip itself;
+  - the solid body holding the sheet has the sheet metal overlay on its icon;
+  - a double-click on it makes it active, which offers the tool bar, and a
+    second lets it go and takes the tool bar away;
+  - a body with no sheet metal: its solid body, if any, offers nothing.
+
+Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
+"""
+
+import os
+import traceback
+
+import FreeCAD
+import FreeCADGui
+import Part
+from PySide import QtCore, QtWidgets
+
+OUT = os.environ["GT_OUT"]
+RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
+DOC = "SheetMetalCommands"
+V = FreeCAD.Vector
+state = {"done": False}
+
+
+def note(msg):
+    with open(RESULT, "a") as f:
+        f.write(str(msg) + "\n")
+        f.flush()
+
+
+def check(name, cond, detail=""):
+    note(("PASS " if cond else "FAIL ") + name + (" | " + str(detail) if detail else ""))
+    return cond
+
+
+def pump(turns=30):
+    for _ in range(turns):
+        QtWidgets.QApplication.processEvents()
+
+
+def toolbar():
+    for tb in FreeCADGui.getMainWindow().findChildren(QtWidgets.QToolBar, "Sheet Metal"):
+        return tb
+    return None
+
+
+def offered():
+    tb = toolbar()
+    return tb is not None and tb.isVisible() and tb.toggleViewAction().isVisible()
+
+
+def hidden():
+    tb = toolbar()
+    return tb is not None and not tb.isVisible() and not tb.toggleViewAction().isVisible()
+
+
+def image(icon):
+    return icon.pixmap(32, 32).toImage()
+
+
+def newest(doc, before, typeId):
+    made = [o for o in doc.Objects if o.Name not in before and o.TypeId == typeId]
+    return made[0] if made else None
+
+
+def menuActions(title):
+    """The actions of the Part Design menu's submenu of that title"""
+    bar = FreeCADGui.getMainWindow().menuBar()
+    for action in bar.actions():
+        menu = action.menu()
+        if not menu or action.text().replace("&", "") != "Part Design":
+            continue
+        for sub in menu.actions():
+            if sub.menu() and sub.text().replace("&", "") == title:
+                return sub.menu().actions()
+    return None
+
+
+def run():
+    try:
+        FreeCADGui.activateWorkbench("PartDesignWorkbench")
+        pump()
+        actions = menuActions("Sheet Metal")
+        base = FreeCADGui.Command.get("PartDesign_SheetMetalBaseWall")
+        check(
+            "the Part Design menu has a Sheet Metal submenu holding Base Wall",
+            actions is not None and base is not None and base.getAction()[0] in actions,
+            [a.text() for a in actions or []],
+        )
+        check("the Sheet Metal tool bar is there and not offered", hidden())
+
+        doc = FreeCAD.newDocument(DOC)
+        view = FreeCADGui.ActiveDocument.ActiveView
+        body = doc.addObject("PartDesign::Body", "Body")
+        view.setActiveObject("pdbody", body)
+        sketch = body.newObject("Sketcher::SketchObject", "Sketch")
+        pts = [(0, 0), (40, 0), (40, 20), (0, 20)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        doc.recompute()
+        pump()
+
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, sketch.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalBaseWall")
+        pump()
+        doc.recompute()
+        wall = newest(doc, before, "PartDesign::SheetMetalBaseWall")
+        check(
+            "Base Wall on a closed sketch makes a plate",
+            wall is not None and wall.Profile[0] == sketch and abs(wall.Shape.Volume - 800) < 1e-6,
+            wall and wall.Shape.Volume,
+        )
+        check("in the active body, with its rule", wall in body.Group and wall.Rule in body.Group)
+        check("the sketch hidden", not sketch.Visibility)
+
+        edge = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(wall.Shape.Edges)
+            if all(abs(v.Point.y - 20) < 1e-7 and abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes)
+        ]
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, wall.Name, edge[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlange")
+        pump()
+        doc.recompute()
+        flange = newest(doc, before, "PartDesign::SheetMetalFlange")
+        check(
+            "Flange on a selected edge makes a flange there",
+            flange is not None and "Invalid" not in flange.State and flange.Edges[1] == edge,
+            flange and (flange.State, flange.Edges),
+        )
+        check("and it is the body's tip", body.Tip == flange)
+
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")
+        pump()
+        doc.recompute()
+        flat = newest(doc, before, "PartDesign::SheetMetalFlatPattern")
+        check(
+            "Flat Pattern makes the flat of the body's tip",
+            flat is not None and flat.Source == flange and "Invalid" not in flat.State,
+            flat and (flat.Source, flat.State),
+        )
+        check("and does not become the tip", body.Tip == flange)
+
+        solid = body.getSolidBody(flange)
+        check("the sheet's solid", solid is not None)
+        icon = image(solid.ViewObject.Icon)
+        check(
+            "has the sheet metal overlay on its icon",
+            icon != image(FreeCADGui.getIcon("PartDesign_SolidBody.svg")),
+        )
+        solid.ViewObject.doubleClicked()
+        pump(20)
+        check(
+            "a double-click makes it active and offers the tool bar",
+            view.getActiveObject("pdsheetmetal") == solid and offered(),
+        )
+        solid.ViewObject.doubleClicked()
+        pump(20)
+        check(
+            "a second lets it go and takes the tool bar away",
+            view.getActiveObject("pdsheetmetal") is None and hidden(),
+        )
+
+        plain = doc.addObject("PartDesign::Body", "Plain")
+        a = plain.newObject("PartDesign::AdditiveBox", "Box")
+        b = plain.newObject("PartDesign::AdditiveBox", "Box001")
+        b.NewSolid = True
+        b.Placement.Base = V(50, 0, 0)
+        doc.recompute()
+        pump()
+        other = plain.getSolidBody(a)
+        if check("a body of two plain solids has solid bodies", other is not None):
+            check(
+                "whose icon has no overlay",
+                image(other.ViewObject.Icon) == image(FreeCADGui.getIcon("PartDesign_SolidBody.svg")),
+            )
+    except Exception:
+        note("ABORT:\n" + traceback.format_exc())
+    finish()
+
+
+def finish():
+    if state["done"]:
+        return
+    state["done"] = True
+    for name in list(FreeCAD.listDocuments().keys()):
+        FreeCAD.closeDocument(name)
+    note("DONE")
+    QtCore.QTimer.singleShot(300, QtCore.QCoreApplication.quit)
+
+
+QtCore.QTimer.singleShot(1500, run)

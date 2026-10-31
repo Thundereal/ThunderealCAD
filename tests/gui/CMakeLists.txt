@@ -180,6 +180,10 @@ fc_add_gui_test(GuiSurfaceGroup_tests_run surface-group.py
 # (docs/SheetMetal.md sec 4.6), and the lone sheet solid given one.
 fc_add_gui_test(GuiSheetMetalTree_tests_run sheet-metal-tree.py
                 --timeout 120)
+# Sheet metal's commands, its Part Design submenu and its tool bar
+# (docs/SheetMetal.md sec 8.1).
+fc_add_gui_test(GuiSheetMetalCommands_tests_run sheet-metal-commands.py
+                --timeout 120)
 # Geometry picked for a Surface feature is taken as a sketch takes external
 # geometry: through SubShapeBinder::import, outside the feature's body by a
 # binder in it -- by its commands and every panel.

@@ -35,6 +35,7 @@
 #include <Gui/Command.h>
 #include <Gui/CommandT.h>
 #include <Gui/FileDialog.h>
+#include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>
@@ -73,6 +74,15 @@ PartDesign::Body* activeBody()
              QT_TR_NOOP("Make a body active, or make one, for the sheet metal feature."));
     }
     return body;
+}
+
+/// The feature's panel, if it opened, commits on OK and takes it away on
+/// Cancel; without one the command commits now
+void commitUnlessEditing(Gui::Command* cmd)
+{
+    if (!Gui::Control().activeDialog()) {
+        cmd->commitCommand();
+    }
 }
 
 /// Make a feature of that type in the body; null if it was not made
@@ -134,7 +144,7 @@ void CmdPartDesignSheetMetalBaseWall::activated(int iMsg)
     Gui::cmdAppObject(feat, std::ostringstream() << "Profile = " << getObjectCmd(sketch));
     FCMD_OBJ_HIDE(sketch);
     finishFeature(this, feat);
-    commitCommand();
+    commitUnlessEditing(this);
 }
 
 bool CmdPartDesignSheetMetalBaseWall::isActive()
@@ -198,7 +208,7 @@ void CmdPartDesignSheetMetalFlange::activated(int iMsg)
                       std::ostringstream()
                           << "Edges = (" << getObjectCmd(base) << ", [" << edges.str() << "])");
     finishFeature(this, feat, base);
-    commitCommand();
+    commitUnlessEditing(this);
 }
 
 bool CmdPartDesignSheetMetalFlange::isActive()

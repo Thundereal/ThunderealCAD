@@ -58,7 +58,7 @@ public:
     App::DocumentObjectExecReturn* execute() override;
     const char* getViewProviderName() const override
     {
-        return "PartDesignGui::ViewProvider";
+        return "PartDesignGui::ViewProviderSheetMetalBaseWall";
     }
 
 private:

@@ -66,6 +66,7 @@
 #include "ViewProviderRevolution.h"
 #include "ViewProviderScaled.h"
 #include "ViewProviderShapeBinder.h"
+#include "ViewProviderSheetMetal.h"
 #include "ViewProviderSolid.h"
 #include "ViewProviderSolidBody.h"
 #include "ViewProviderSplit.h"
@@ -187,6 +188,8 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderWrap          ::init();
     PartDesignGui::ViewProviderAuxGroup      ::init();
     PartDesignGui::ViewProviderSolidBody     ::init();
+    PartDesignGui::ViewProviderSheetMetalBaseWall::init();
+    PartDesignGui::ViewProviderSheetMetalFlange::init();
 
      // add resources and reloads the translators
     loadPartDesignResource();

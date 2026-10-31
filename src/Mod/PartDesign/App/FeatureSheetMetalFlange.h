@@ -74,7 +74,7 @@ public:
     void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {
-        return "PartDesignGui::ViewProvider";
+        return "PartDesignGui::ViewProviderSheetMetalFlange";
     }
 
 private:

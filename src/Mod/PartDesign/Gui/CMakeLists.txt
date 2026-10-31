@@ -91,6 +91,8 @@ SET(PartDesignGuiViewProvider_SRCS
     ViewProviderThickness.h
     ViewProviderThicken.cpp
     ViewProviderThicken.h
+    ViewProviderSheetMetal.cpp
+    ViewProviderSheetMetal.h
     ViewProviderDefeaturing.cpp
     ViewProviderDefeaturing.h
     ViewProviderDressUp.cpp
@@ -180,6 +182,8 @@ SET(PartDesignGuiTaskDlgs_SRCS
     TaskThicknessParameters.cpp
     TaskThickenParameters.cpp
     TaskThickenParameters.h
+    TaskSheetMetalParameters.cpp
+    TaskSheetMetalParameters.h
     TaskThicknessParameters.h
     TaskDefeaturingParameters.ui
     TaskDefeaturingParameters.cpp

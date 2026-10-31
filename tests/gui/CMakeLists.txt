@@ -184,6 +184,10 @@ fc_add_gui_test(GuiSheetMetalTree_tests_run sheet-metal-tree.py
 # (docs/SheetMetal.md sec 8.1).
 fc_add_gui_test(GuiSheetMetalCommands_tests_run sheet-metal-commands.py
                 --timeout 120)
+# Sheet metal's commands from a browser's connection: on the allowlist, and
+# no dialog for what they cannot use (docs/SheetMetal.md sec 8.2).
+fc_add_gui_test(GuiServeSheetMetal_tests_run serve-sheet-metal.py
+                --timeout 180)
 # Geometry picked for a Surface feature is taken as a sketch takes external
 # geometry: through SubShapeBinder::import, outside the feature's body by a
 # binder in it -- by its commands and every panel.

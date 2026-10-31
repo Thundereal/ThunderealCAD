@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenerateModel xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="generateMetaModel_Module.xsd">
+  <PythonExport
+    Father="DocumentObjectExtensionPy"
+    Name="SheetMetalExtensionPy"
+    Twin="SheetMetalExtension"
+    TwinPointer="SheetMetalExtension"
+    Include="Mod/PartDesign/App/SheetMetalExtension.h"
+    Namespace="PartDesign"
+    FatherInclude="App/DocumentObjectExtensionPy.h"
+    FatherNamespace="App">
+    <Documentation>
+      <Author Licence="LGPL" Name="Zheng Lei" EMail="realthunder.dev@gmail.com" />
+      <UserDocu>What every sheet metal feature has: its rule and its model of the sheet (docs/SheetMetal.md sec 4.2)</UserDocu>
+    </Documentation>
+    <Methode Name="sheetElementOf" Const="true">
+      <Documentation>
+        <UserDocu>sheetElementOf(subname) -> str or None
+
+The name of the wall or bend of the sheet model that owns a face of this
+feature's shape, None if none owns it.</UserDocu>
+      </Documentation>
+    </Methode>
+  </PythonExport>
+</GenerateModel>

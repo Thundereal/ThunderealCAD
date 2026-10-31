@@ -25,6 +25,12 @@
 
 #include <map>
 
+#include <BRepClass_FaceClassifier.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Tool.hxx>
+#include <Geom_Surface.hxx>
+#include <TopoDS_Face.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Vec.hxx>
 
 #include <Base/Exception.h>
@@ -114,6 +120,56 @@ int Model::owner(const gp_Pnt& point, double tol) const
         }
     }
     return -1;
+}
+
+namespace
+{
+
+/// A point inside the face, off its boundary: the middle of its parameter
+/// box if that is in it, else the first in from a grid over the box
+bool interiorPoint(const TopoDS_Face& face, gp_Pnt& point)
+{
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);
+    const Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+    if (surface.IsNull()) {
+        return false;
+    }
+    const double tol = BRep_Tool::Tolerance(face);
+    const int n = 8;
+    for (int step = 0; step <= n * n; ++step) {
+        double u = (u0 + u1) / 2, v = (v0 + v1) / 2;
+        if (step > 0) {
+            const int i = (step - 1) / n, j = (step - 1) % n;
+            u = u0 + (u1 - u0) * (i + 0.5) / n;
+            v = v0 + (v1 - v0) * (j + 0.5) / n;
+        }
+        BRepClass_FaceClassifier inside(face, gp_Pnt2d(u, v), tol);
+        if (inside.State() == TopAbs_IN) {
+            point = surface->Value(u, v);
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+int Model::owner(const TopoDS_Face& face, double tol) const
+{
+    gp_Pnt point;
+    if (face.IsNull() || !interiorPoint(face, point)) {
+        return -1;
+    }
+    return owner(point, tol);
+}
+
+void Model::transform(const gp_Trsf& trsf)
+{
+    for (Element& element : elements) {
+        element.frame.Transform(trsf);
+        element.bend.frame.Transform(trsf);
+    }
 }
 
 gp_Trsf Model::placement(int index, int root) const

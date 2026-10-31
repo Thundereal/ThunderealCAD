@@ -31,6 +31,8 @@
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 
+class TopoDS_Face;
+
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
 #include "Fold.h"
@@ -89,6 +91,10 @@ public:
     bool contains(int index, const gp_Pnt& point, double tol = 1e-7) const;
     /// The element the point is in, bends tried first; -1 for none
     int owner(const gp_Pnt& point, double tol = 1e-7) const;
+    /// The element a face is in, by a point inside it; -1 for none
+    int owner(const TopoDS_Face& face, double tol = 1e-7) const;
+    /// Move every element
+    void transform(const gp_Trsf& trsf);
 
     /** What moves an element flat with root fixed: for a wall all of it,
      * for a bend what follows its own map (CylBend::toFlat()). Throws

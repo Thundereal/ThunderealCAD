@@ -69,6 +69,9 @@
 #include "ShapeBinder.h"
 #include "SolidBody.h"
 #include "FeatureSheetMetalRule.h"
+#include "FeatureSheetMetalBaseWall.h"
+#include "PropertySheetModel.h"
+#include "SheetMetalExtension.h"
 
 
 namespace PartDesign {
@@ -180,6 +183,9 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::AuxGroup                    ::init();
     PartDesign::SolidBody                   ::init();
     PartDesign::SheetMetalRule              ::init();
+    PartDesign::PropertySheetModel          ::init();
+    PartDesign::SheetMetalExtension         ::init();
+    PartDesign::SheetMetalBaseWall          ::init();
 
     PyMOD_Return(mod);
 }

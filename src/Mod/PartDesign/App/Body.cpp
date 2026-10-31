@@ -51,6 +51,7 @@
 #include "ShapeBinder.h"
 #include "SolidBody.h"
 #include "FeatureSheetMetalRule.h"
+#include "SheetMetalExtension.h"
 
 #include <Mod/Part/App/PartParams.h>
 
@@ -387,6 +388,28 @@ Body::newObjectAt(const char *type,
     return obj;
 }
 
+/** A sheet metal feature put in the body takes the rule of the sheet it
+ * builds on; the sheet's first makes one. A body holding sheet metal
+ * groups its solids by SolidBody (docs/SheetMetal.md sec 4.6).
+ */
+static void takeSheetRule(Body *body, SheetMetalExtension *sheet)
+{
+    if (!sheet->Rule.getValue()) {
+        auto before = SheetMetalExtension::findBefore(sheet->getExtendedObject());
+        if (before && before->getRule()) {
+            sheet->Rule.setValue(before->getRule());
+        }
+        else {
+            auto rule = body->getDocument()->addObject("PartDesign::SheetMetalRule",
+                                                       "SheetMetalRule");
+            body->addObject(rule);
+            sheet->Rule.setValue(rule);
+        }
+    }
+    if (!body->AddSolidBody.getValue())
+        body->AddSolidBody.setValue(true);
+}
+
 void Body::insertObject(App::DocumentObject* feature, App::DocumentObject* target, bool after)
 {
     if (target && !Group.find(target->getNameInDocument())) {
@@ -446,6 +469,9 @@ void Body::insertObject(App::DocumentObject* feature, App::DocumentObject* targe
 
     if (auto rule = dynamic_cast<SheetMetalRule*>(feature))
         rule->takeBodyMaterial();
+
+    if (auto sheet = feature->getExtensionByType<SheetMetalExtension>(true))
+        takeSheetRule(this, sheet);
 }
 
 void Body::setTip(App::DocumentObject *feature)

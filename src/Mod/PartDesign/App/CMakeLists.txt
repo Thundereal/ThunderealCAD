@@ -19,6 +19,7 @@ link_directories(${OCC_LIBRARY_DIR})
 generate_from_xml(BodyPy)
 generate_from_xml(FeaturePy)
 generate_from_xml(SheetMetalRulePy)
+generate_from_xml(SheetMetalExtensionPy)
 
 
 set(PartDesign_LIBS
@@ -162,6 +163,12 @@ SET(SheetMetal_SRCS
     SheetMetal/Model.h
     FeatureSheetMetalRule.cpp
     FeatureSheetMetalRule.h
+    FeatureSheetMetalBaseWall.cpp
+    FeatureSheetMetalBaseWall.h
+    PropertySheetModel.cpp
+    PropertySheetModel.h
+    SheetMetalExtension.cpp
+    SheetMetalExtension.h
 )
 SOURCE_GROUP("SheetMetal" FILES ${SheetMetal_SRCS})
 
@@ -172,6 +179,8 @@ SET(Python_SRCS
     FeaturePyImp.cpp
     SheetMetalRulePy.xml
     SheetMetalRulePyImp.cpp
+    SheetMetalExtensionPy.xml
+    SheetMetalExtensionPyImp.cpp
 )
 SOURCE_GROUP("Python" FILES ${Python_SRCS})
 

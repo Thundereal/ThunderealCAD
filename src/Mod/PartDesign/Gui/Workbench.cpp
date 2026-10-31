@@ -572,6 +572,12 @@ Gui::MenuItem* Workbench::setupMenuBar() const
 //                     << "PartDesign_Scaled"
 
     // dressups
+    // Sheet metal's way in: its tool bar comes only with a sheet to work on
+    // (docs/SheetMetal.md sec 8.1, ruled 2026-10-31)
+    Gui::MenuItem* sheetMetal = new Gui::MenuItem;
+    sheetMetal->setCommand("Sheet Metal");
+    *sheetMetal << "PartDesign_SheetMetalBaseWall";
+
     Gui::MenuItem* dressups = new Gui::MenuItem;
     dressups->setCommand("Apply a dress-up feature");
 
@@ -597,7 +603,8 @@ Gui::MenuItem* Workbench::setupMenuBar() const
           << "Separator"
           << transformations
           << "Separator"
-          << dressups
+          << dressups
+          << sheetMetal
           << "Separator"
           << "Materials_InspectAppearance"
           << "Materials_InspectMaterial"

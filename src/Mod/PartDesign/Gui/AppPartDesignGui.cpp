@@ -29,6 +29,10 @@
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
 #include <Gui/Application.h>
+#include <Gui/MenuManager.h>
+#include <Gui/ToolBarManager.h>
+#include <Gui/ToolContext.h>
+#include <Mod/Part/App/BodyBase.h>
 #include <Gui/Language/Translator.h>
 #include <Mod/Part/Gui/TaskAttacher.h>
 
@@ -74,6 +78,7 @@
 void CreatePartDesignCommands();
 void CreatePartDesignBodyCommands();
 void CreatePartDesignPrimitiveCommands();
+void CreatePartDesignSheetMetalCommands();
 
 void loadPartDesignResource()
 {
@@ -131,6 +136,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     CreatePartDesignCommands();
     CreatePartDesignBodyCommands();
     CreatePartDesignPrimitiveCommands();
+    CreatePartDesignSheetMetalCommands();
 
     PartDesignGui::Workbench                 ::init();
     PartDesignGui::ViewProvider              ::init();
@@ -184,6 +190,28 @@ PyMOD_INIT_FUNC(PartDesignGui)
 
      // add resources and reloads the translators
     loadPartDesignResource();
+
+    // The Sheet Metal tool bar in PartDesign, offered while a solid body
+    // holding sheet metal is active or a sheet metal feature is in edit
+    // (docs/SheetMetal.md sec 8.1)
+    Gui::ToolContext::Spec sheetMetal;
+    sheetMetal.name = "SheetMetal";
+    sheetMetal.workbenches = {"PartDesignWorkbench"};
+    sheetMetal.toolbars = {{"Sheet Metal", [](Gui::ToolBarItem& item) {
+        item << "PartDesign_SheetMetalBaseWall"
+             << "PartDesign_SheetMetalFlange"
+             << "Separator"
+             << "PartDesign_SheetMetalFlatPattern"
+             << "PartDesign_SheetMetalExportDXF";
+    }}};
+    sheetMetal.activeKey = "pdsheetmetal";
+    sheetMetal.kind = "SheetMetal";
+    sheetMetal.inSolid = true;
+    sheetMetal.overlay = "PartDesign_SheetMetalOverlay.svg";
+    sheetMetal.applies = [](const App::DocumentObject* obj) {
+        return Part::BodyBase::typeKind(obj->getTypeId()) == "SheetMetal";
+    };
+    Gui::ToolContext::add(std::move(sheetMetal));
 
     PyMOD_Return(mod);
 }

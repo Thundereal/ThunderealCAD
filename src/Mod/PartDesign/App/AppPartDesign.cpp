@@ -69,6 +69,7 @@
 #include "ShapeBinder.h"
 #include "SolidBody.h"
 #include "FeatureSheetMetalRule.h"
+#include <Mod/Part/App/BodyBase.h>
 #include "FeatureSheetMetalBaseWall.h"
 #include "FeatureSheetMetalFlange.h"
 #include "FeatureSheetMetalFlatPattern.h"
@@ -190,6 +191,14 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalBaseWall          ::init();
     PartDesign::SheetMetalFlange            ::init();
     PartDesign::SheetMetalFlatPattern       ::init();
+
+    // Sheet metal's own kind on a body, for its tool bar (docs/SheetMetal.md
+    // sec 8.1): what a solid body holding one offers, what an edit of one does
+    for (Base::Type type : {PartDesign::SheetMetalBaseWall::getClassTypeId(),
+                            PartDesign::SheetMetalFlange::getClassTypeId(),
+                            PartDesign::SheetMetalFlatPattern::getClassTypeId()}) {
+        Part::BodyBase::allowType(type, "SheetMetal");
+    }
 
     PyMOD_Return(mod);
 }

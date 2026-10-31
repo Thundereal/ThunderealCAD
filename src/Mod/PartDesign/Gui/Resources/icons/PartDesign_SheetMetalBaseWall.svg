@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's base wall: a thin plate -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- top and the two edges of a plate -->
+  <path
+     d="M 32,18 60,32 32,46 4,32 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 4,32 32,46 V 52 L 4,38 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 32,46 60,32 V 38 L 32,52 Z"
+     style="fill:#59636e;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+</svg>

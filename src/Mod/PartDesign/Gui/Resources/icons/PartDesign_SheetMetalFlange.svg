@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's flange: a plate with its back edge bent up -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the flange, standing on the plate's back edge -->
+  <path
+     d="M 32,24 60,38 V 12 L 32,-2 Z"
+     transform="translate(0,6)"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the plate -->
+  <path
+     d="M 32,30 60,44 32,58 4,44 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 4,44 32,58 V 62 L 4,48 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the bend between them -->
+  <path
+     d="M 32,30 Q 30,25 33,22"
+     style="fill:none;stroke:#1c2128;stroke-width:2;stroke-linecap:round;" />
+</svg>

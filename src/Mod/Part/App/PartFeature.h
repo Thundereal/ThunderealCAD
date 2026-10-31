@@ -320,6 +320,14 @@ public:
                          const char *srcSub,
                          bool single = false);
 
+    /** The location of Placement
+     *
+     * Empty for the identity, and one location for one placement, made once:
+     * a feature that moves its base by this location's inverse and has its
+     * placement applied to its result then has the two cancel. Made anew for
+     * each, they never did, and every feature down a chain stacked two more
+     * on its shape (docs/SheetMetal.md sec 4.4).
+     */
     TopLoc_Location getLocation() const;
 
     DocumentObject *getSubObject(const char *subname, PyObject **pyObj, 
@@ -586,6 +594,10 @@ private:
     bool _holdingReferences {false};
     /// A shape changed while the references were held
     bool _heldShapeChange {false};
+    /// getLocation(), made once for the placement it is of
+    mutable TopLoc_Location _location;
+    mutable Base::Placement _locationOf;
+    mutable bool _hasLocation {false};
 };
 
 class FilletBase : public Part::Feature

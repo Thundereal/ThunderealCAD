@@ -548,10 +548,34 @@ gp_Trsf TopoShape::convert(const Base::Placement& pla) {
     return convert(pla.toMatrix());
 }
 
+bool TopoShape::isIdentity(const gp_Trsf& trsf)
+{
+    if (trsf.Form() == gp_Identity)
+        return true;
+    // one converted from a matrix has no form of its own
+    constexpr double tol = 1e-15;
+    if (std::abs(trsf.ScaleFactor() - 1) > tol || trsf.TranslationPart().SquareModulus() > tol * tol)
+        return false;
+    const gp_Mat m = trsf.HVectorialPart();
+    for (int i = 1; i <= 3; ++i) {
+        for (int j = 1; j <= 3; ++j) {
+            if (std::abs(m(i, j) - (i == j ? 1.0 : 0.0)) > tol)
+                return false;
+        }
+    }
+    return true;
+}
+
 void TopoShape::setTransform(const Base::Matrix4D& rclTrf)
 {
     gp_Trsf mov;
     convertTogpTrsf(rclTrf, mov);
+    // The identity as no location: one made of it is not empty, and does not
+    // cancel against another (docs/SheetMetal.md sec 4.4)
+    if (isIdentity(mov)) {
+        _Shape.Location(TopLoc_Location());
+        return;
+    }
     TopLoc_Location loc(mov);
     _Shape.Location(loc);
 }

@@ -2031,7 +2031,9 @@ void Feature::onChanged(const App::Property* prop)
         // shape.setTransform(this->Placement.getValue().toMatrix());
 
         TopoShape shape = this->Shape.getShape();
-        shape.setTransform(this->Placement.getValue().toMatrix());
+        // getLocation(): one location for one placement, so a base moved by
+        // its inverse cancels against it
+        shape.locate(getLocation());
         Base::ObjectStatusLocker<App::Property::Status, App::Property> guard(
                 App::Property::NoRecompute, &this->Shape);
         // Nobody sets this shape: it follows the property just written
@@ -2042,7 +2044,7 @@ void Feature::onChanged(const App::Property* prop)
     // if the point data has changed check and adjust the transformation as well
     else if (prop == &this->Shape) {
         if (this->shouldApplyPlacement()) {
-            this->Shape._Shape.setTransform(this->Placement.getValue().toMatrix());
+            this->Shape._Shape.locate(getLocation());
         }
         else {
             Base::Placement p;
@@ -2229,6 +2231,10 @@ Feature::searchElementCache(const std::string &element,
 TopLoc_Location Feature::getLocation() const
 {
     Base::Placement pl = this->Placement.getValue();
+    if (pl.isIdentity())
+        return {};
+    if (_hasLocation && _locationOf == pl)
+        return _location;
     Base::Rotation rot(pl.getRotation());
     Base::Vector3d axis;
     double angle;
@@ -2236,7 +2242,10 @@ TopLoc_Location Feature::getLocation() const
     gp_Trsf trf;
     trf.SetRotation(gp_Ax1(gp_Pnt(), gp_Dir(axis.x, axis.y, axis.z)), angle);
     trf.SetTranslationPart(gp_Vec(pl.getPosition().x,pl.getPosition().y,pl.getPosition().z));
-    return TopLoc_Location(trf);
+    _location = TopLoc_Location(trf);
+    _locationOf = pl;
+    _hasLocation = true;
+    return _location;
 }
 
 /// returns the type name of the ViewProvider

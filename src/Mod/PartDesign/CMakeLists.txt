@@ -70,6 +70,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestSheetMetalBaseWall.py
     PartDesignTests/TestSheetMetalFlange.py
     PartDesignTests/TestSheetMetalFlatPattern.py
+    PartDesignTests/TestSheetMetalPart.py
     PartDesignTests/TestDefeaturing.py
     PartDesignTests/TestSuppressed.py
     PartDesignTests/TestRetryOnCopy.py

@@ -81,8 +81,8 @@ AddonManager resource [A src 61].
   A sheet metal feature derived from `PartDesign::FeatureAddSub` lives in a body, is a Tip, and
   works with every PartDesign feature before and after it.
 - **`PartDesign::SolidBody`** (SolidBody.h) is a solid inside a body with its own history and tip.
-  That is the multi-body case: one sheet per solid, each with its own rule set, which the solid
-  body itself carries (4.6).
+  That is the multi-body case: one sheet per solid, each with its own rule set (4.6), shown as
+  the solid body's first child.
 - **The features a sheet metal part uses unchanged:** Hole (countersinks, which a flat pattern
   must keep), Pocket, Pattern, Mirror, Fillet and Chamfer on the flat corners (the "break corner"
   of [A7a]), Thickness (hollow a solid: the classic route to "convert"), and Thicken (a surface made
@@ -273,21 +273,36 @@ as Surface's were after their first round (docs/Surface.md sec 12, fb9aa6ee53).
 
 ### 4.6 The rule set and bend allowance
 
-- **The rule lives on the sheet's solid** (ruled 2026-10-31, in place of a Rule object of its
-  own): the `PartDesign::SolidBody` of the solid holding the sheet metal features carries it, as
-  properties in a `Sheet Metal` group. A SolidBody already holds one solid's history and tip, and
-  the tool bars of 8.1 already take it as the sheet.
-  - The properties: `Thickness`, `BendRadius` (inner), `AllowanceMethod`, `KFactor`,
-    `MinFlange`, `Gap` (between walls meeting at a corner), and the relief defaults
-    `ReliefShape` (rectangle, obround, tear), `ReliefWidth`, `ReliefDepth`. They are shown only
-    while the solid holds a sheet metal feature.
-  - A solid holding a sheet metal feature always has a SolidBody, even when it is the body's only
-    solid. In a body with `AddSolidBody` off (a document from before SolidBody), the first sheet
-    metal feature turns it on, which groups the body's solids the new way from then on.
-  - A feature finds its rule by its solid (`Body::getSolidBody`): there is no link to keep, and
-    convert and recognise, which have no base wall, find it the same way.
-  - Two sheets joined into one solid keep the rule of the solid body that stays (Body's rule for
-    which one stays: the solid's earliest feature); the other's goes with its solid.
+- **A rule object, `PartDesign::SheetMetalRule`** (ruled 2026-10-31), holds the values a sheet's
+  features share. It is a `Part::Feature`: its material card is the `ShapeMaterial` every Part
+  feature has, and its shape, empty for now, is kept for later use (a test coupon at the rule's
+  thickness and radius, the stock blank for nesting).
+  - The properties: `Thickness`, `BendRadius` (inner), `MinFlange`, `AllowanceMethod`, `KFactor`,
+    `Gap` (between walls meeting at a corner), the bend relief defaults `ReliefShape`
+    (rectangle, obround, tear), `ReliefWidth` and `ReliefDepth`, the corner relief defaults
+    `CornerReliefShape` (none, circle, square, tear) and `CornerReliefSize`, and the hidden
+    `Overridden` (below). About fifteen as the later phases add hem and gusset defaults.
+  - **Each sheet metal feature links it** (`Rule`). The first feature of a sheet makes one; every
+    later feature takes the link of the feature it builds on, so nobody sets it by hand.
+  - **The features depend on the rule, never the other way round.** A rule value change
+    recomputes them as any edit does; `=SheetMetalRule.Thickness` works in any feature; a
+    spreadsheet or a VarSet drives the rule as it drives anything. Rejected for this: the rule
+    on the SolidBody, which depends on its features. A feature cannot refer to it by expression
+    (a cyclic reference, measured); marking the values `Property::Input` lifts that but lets
+    only input properties drive them, which a spreadsheet cell cannot be, as the spreadsheet
+    writes its cells in its own recompute (measured 2026-10-31). Rejected too: the rule on the
+    sheet's first feature, which makes the first feature special.
+  - **One rule may serve several sheets**, or several bodies, the usual shop case of one stock
+    and one material; the `Rule` link reaches outside the body for that (a global link, which
+    PartDesign's links otherwise are not), and across documents.
+  - **In the tree** the rule is the first child of each SolidBody whose sheet uses it, claimed by
+    the view provider and not a member of the SolidBody's `Group`, which keeps the solid's
+    history. So a solid holding a sheet metal feature always has a SolidBody, even when it is the
+    body's only solid; in a body with `AddSolidBody` off (a document from before SolidBody), the
+    first sheet metal feature turns it on, which groups the body's solids the new way from then
+    on. The body's Misc group leaves a rule to its solid bodies.
+  - Deleting a rule that features still link asks first, as deleting a sketch a pad uses does;
+    copying features brings the rule with them by the usual dependency prompt.
 - **Allowance methods:**
   - K-factor, either direct or by DIN 6935 from R/T;
   - a bend allowance table and a bend deduction table, each keyed on thickness, radius and angle
@@ -307,11 +322,13 @@ as Surface's were after their first round (docs/Surface.md sec 12, fb9aa6ee53).
   - The model, `SheetMetal`: a gauge table (a 2D array, one row per stock thickness: thickness,
     inner radius, K, minimum flange), the allowance method, and the bend table for the table
     methods.
-  - The card is the solid body's own material (`ShapeMaterial`, which a SolidBody has as any
-    Part feature), and that follows the body's until the solid is given another. So mass and the
-    flat agree, solid by solid.
-  - With a card holding the model, the rule's values are the card's gauge row for the rule's
-    `Thickness` (within 1e-6 mm), and the allowance method and table are the card's. A value set
+  - The card is the rule's own material (`ShapeMaterial`), which follows that of the body holding
+    the rule until the rule is given another, as the body's features do. So mass and the flat
+    agree.
+  - With a card holding the model, the rule's `BendRadius`, `KFactor` and `MinFlange` are the
+    card's gauge row for the rule's `Thickness` (within 1e-6 mm), and the allowance method and
+    table are the card's. The thickness itself and the gap and relief values are always the
+    rule's. A value set
     by hand overrides the card's and is remembered as overridden (`Overridden`, the names), so a
     change of card does not undo it; `resetRuleValue(name)` gives it back to the card. A thickness
     with no row in the card's gauges keeps the rule's own values, and says so.
@@ -521,7 +538,7 @@ sheet metal feature registers its context (M1). It is tested then.
 
 | Phase | Content | Tests | Size |
 |---|---|---|---|
-| M0 | **Foundation and the speed gate.** The module, its `Geom/` layer and test target. The sheet model and the fold maps of a wall and a cylindrical bend. Bend allowance: K, DIN, BA and BD tables, Y. The rule on the SolidBody. **Measure the join** (4.4) on a 64-flange part: a glue boolean against replacing the end face directly; set the speed target from it. | gtests: a bend's map sends known points where hand computation says; every allowance method against worked examples, the addon's table case among them. A timing test for the join at N = 1, 4, 16, 64. | M |
+| M0 | **Foundation and the speed gate.** The module, its `Geom/` layer and test target. The sheet model and the fold maps of a wall and a cylindrical bend. Bend allowance: K, DIN, BA and BD tables, Y. The rule object. **Measure the join** (4.4) on a 64-flange part: a glue boolean against replacing the end face directly; set the speed target from it. | gtests: a bend's map sends known points where hand computation says; every allowance method against worked examples, the addon's table case among them. A timing test for the join at N = 1, 4, 16, 64. | M |
 | M1 | **A first part end to end.** Base wall (plate and profile), Flange with the full option set, extend wall, names by role, the model carried by name through a Pocket and a Hole (4.2 way 2), the flat pattern with both skins and its orientation, the manufacturing properties, the DXF. | Python: flat length of an L, U and box equals the hand sum of legs and allowances at 1e-6; a countersunk hole survives into the flat; a flange end referenced downstream survives an edit upstream; save and reopen; frozen and unfrozen. A 64-flange chain against M0's target. | L |
 | M2 | **Edges, corners, cuts.** Hem, fold, jog, tab, contour flange, bend between walls, rolled wall; bend relief, corner relief, corner closure; hinge and perforation cuts; cutout, wrap cutout; checks (7). | per tool, as M1; a wrap cutout across two bends is the same hole in the flat as cut there directly. | L |
 | M3 | **Convert and recognise.** Convert a solid or shell, rip; the geometry recogniser for imported parts. | the M1 parts exported to STEP and read back give the same flat as their features do; a hand-made shell converts and flattens to the hand value. | M |
@@ -573,7 +590,7 @@ and not frozen.
   2026-10-30).
 - The Material module's `SheetMetal` model (sec 4.6): a gauge table, the allowance method and a
   bend table, with a gtest (2026-10-30).
-- Left of M0: the rule on the SolidBody (4.6, ruled 2026-10-31), which reads that model, and the
+- Left of M0: the rule object (4.6, ruled 2026-10-31), which reads that model, and the
   sheet model that owns the faces, which comes with the first feature that makes one (M1).
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing

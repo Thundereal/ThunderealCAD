@@ -193,6 +193,62 @@ class TestSheetMetalFlange(unittest.TestCase):
         # cut back R + T = 3, leg 10 - 3
         self.assertAlmostEqual(flange.Shape.Volume, 40 * 17 + 40 * ring + 40 * 7, places=6)
 
+    def testTangent(self):
+        """Tangent: from the plane across the leg that touches the outside of
+        the bend -- at 90 deg the outer sharp, at 135 the bend's own outside"""
+        flange = self.far(LengthType="Tangent")
+        self.assertAlmostEqual(flange.Shape.BoundBox.ZMax, 10)
+        flange.Angle = 135
+        self.Doc.recompute()
+        self.checkValid(flange)
+        # the straight part is L - (R + T)
+        ring = (math.pi * 135 / 180) / 2 * (4 - 1)
+        cut = 2 * math.tan(math.radians(67.5))
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * (20 - cut) + 40 * ring + 40 * (10 - 2), places=6
+        )
+        flange.Angle = 45
+        self.Doc.recompute()
+        # below 90, L - (R + T) sin A
+        straight = 10 - 2 * math.sin(math.radians(45))
+        cut = 2 * math.tan(math.radians(22.5))
+        ring = (math.pi / 8) * 3
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * (20 - cut) + 40 * ring + 40 * straight, places=6
+        )
+
+    def testExtents(self):
+        """A negative gap carries the flange past the edge's end"""
+        flange = self.far(BendPosition="BendOutside", Gap1=-5)
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 + 45 * RING + 45 * 8, places=6
+        )
+        self.assertAlmostEqual(flange.Shape.BoundBox.XLength, 45)
+
+    def testParallelTo(self):
+        """The angle from a face the leg runs parallel to"""
+        plane = self.Body.newObject("PartDesign::Plane", "Plane")
+        plane.MapMode = "Deactivated"
+        # its normal halfway between +Y and +Z: a leg parallel to it goes up
+        # and back over the plate, 135 deg from it
+        plane.Placement = FreeCAD.Placement(V(0, 0, 0), FreeCAD.Rotation(V(1, 0, 0), -45))
+        self.Doc.recompute()
+        flange = self.far(ParallelTo=(plane, [""]))
+        self.checkValid(flange)
+        bend = [e for e in flange.SheetModel["Elements"] if e["Kind"] == "Bend"][0]
+        self.assertAlmostEqual(bend["Angle"], 135, places=6)
+
+    def testUpToFace(self):
+        """The length from a face the leg runs up to"""
+        plane = self.Body.newObject("PartDesign::Plane", "Plane")
+        plane.MapMode = "Deactivated"
+        plane.Placement = FreeCAD.Placement(V(0, 0, 15), FreeCAD.Rotation())
+        self.Doc.recompute()
+        flange = self.far(UpToFace=(plane, [""]))
+        self.checkValid(flange)
+        self.assertAlmostEqual(flange.Shape.BoundBox.ZMax, 15)
+
     def testErrors(self):
         """An edge that is not on a wall's skin, a leg left with no length"""
         flange = self.flange([((40, 0, 0), (40, 0, 1))])

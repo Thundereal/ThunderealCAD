@@ -990,7 +990,12 @@ void DrawViewSection::postSectionCutTasks()
     std::vector<App::DocumentObject*> children = getInList();
     for (auto& c : children) {
         if (c->isDerivedFrom<DrawViewPart>()) {
-            // details or sections of this need cut shape
+            // details or sections of this need cut shape.  Asked to: a view
+            // that only waited for it has nothing touched, and a recompute of
+            // an object with nothing touched is skipped (OptimizeRecompute)
+            Base::ObjectStatusLocker<App::ObjectStatus, App::DocumentObject> guard(
+                App::ObjectStatus::NoTouch, c);
+            c->enforceRecompute();
             c->recomputeFeature();
         }
     }

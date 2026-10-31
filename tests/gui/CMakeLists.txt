@@ -517,6 +517,11 @@ fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 300)
 fc_add_gui_test(GuiTdModelInterleave_tests_run td-model-interleave.py
                 --timeout 300)
 
+# A detail of a section is drawn by the recompute that makes it: the section
+# has it recomputed when its cut lands.
+fc_add_gui_test(GuiTdUndoStoredProjection_tests_run td-undo-stored-projection.py
+                --timeout 200)
+
 # A view in a tab closed of itself, not through its tab: the tab goes with
 # it, and nothing reads the view that is gone (a segmentation fault).
 fc_add_gui_test(GuiViewCloseDirect_tests_run view-close-direct.py --timeout 180)

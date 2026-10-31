@@ -596,8 +596,31 @@ and not frozen.
   with `TestSheetMetalRule` (9) and a gtest for the card's bend table (2026-10-31). Its tree
   place under the solid body, and the solid body a lone sheet needs, come with the first
   feature that links it (M1).
-- Left of M0: the sheet model that owns the faces, which comes with the first feature that
-  makes one (M1).
+- The sheet model (4.1), `SheetMetal::Model`: walls as slabs, bends as `CylBend`s, the owner of
+  a point or a face by geometry (bends tried first, a wall bounded by the side of each bend it
+  meets), and the flat of every element from a root wall, either way across a bend; gtests
+  `SheetMetalModel` (4) (75f4438372).
+- M1's base wall, `PartDesign::SheetMetalBaseWall` (5.1), with `TestSheetMetalBaseWall` (12)
+  (3b4d08ea6a). As built:
+  - A closed sketch makes a plate; an open sketch of lines a profile wall, a bend of the rule's
+    radius at each corner, extruded by `Length` (`Reversed`, `Midplane`). Lines in a row along
+    one direction are taken as one; an arc in the profile, a turn back on itself and a leg too
+    short for its bends are refused.
+  - `MaterialSide`: `Outside` puts the sketch on the first bend's inner skin, `Inside` on its
+    outer skin, `Middle` across; the side holds along the profile, so a bend turning the other
+    way has the sketch on its outer skin. For a plate: the side of the sketch's normal, the
+    other, or across.
+  - Each wall and bend is a piece of its own, its edges named by role (`Wall1Skin1`,
+    `Wall1Start`, `Bend1Inner`, `Bend1Outer`), joined in one fuse; so the caps stay split at
+    the bend lines and every face lies in one element. `Refine` is off and hidden, as it would
+    merge faces of two elements.
+  - Every sheet metal feature has `PartDesign::SheetMetalExtension`: `Rule`, a global link,
+    and `SheetModel`, the model saved with the file (read only from Python), with
+    `sheetElementOf(subname)`. A feature put in a body takes the rule of the sheet feature it
+    builds on, or the first makes one; the body's `AddSolidBody` is turned on. A bend's K in
+    the model is the one that gives the rule's allowance, whatever the method.
+- Left of the rule's tree place (4.6): the SolidBody for a body's only solid when it holds sheet
+  metal, and the rule shown as its first child.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

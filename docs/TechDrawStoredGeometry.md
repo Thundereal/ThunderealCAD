@@ -334,6 +334,20 @@ right and clean, and so does an undo made while the step's projection is
 still running: what is stored is then the projection of before the step,
 which is the state the undo leaves.
 
+### 6.5 What is measured off a view
+
+A dimension's points are worked out when they are read, and kept until
+the view's geometry or a property of the dimension changes:
+`GeometryObject::stamp()` changes with every change of the edges, vertices
+or faces and differs between any two geometry objects. `execute()` keeps
+what writes -- repairing references by name and by geometry, which writes
+`References2D`, `SavedNames` and `SavedGeometry` -- and measures last;
+`measure()` is the measuring alone, which the extent and landmark
+dimensions have their own of. The landmark keeps writing its reference
+vertices and tags in `execute()`. `DrawViewDimension::resultInProperties()`
+is gone: what it shows is read off properties and the view's stored
+projection.
+
 ### 6.6 A view that waited for a cut was not recomputed
 
 Found on the way, on the base build as on this one: a detail of a section

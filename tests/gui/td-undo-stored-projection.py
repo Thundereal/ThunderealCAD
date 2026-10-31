@@ -2,14 +2,15 @@
 (docs/TechDrawStoredGeometry.md sec 6).
 
 A box, a page, a part view of the box projected by the real hidden line
-algorithm in its thread, a section through the box and a detail of the
-section. The box's length goes
+algorithm in its thread, a dimension of the box's length on the view, a
+section through the box and a detail of the section. The box's length goes
 from 15 to 20 and is recomputed; then undo and redo.
 
 Claims:
   - after the undo the view draws the 15 box and after the redo the 20 one,
     without a recompute and with nothing marked for one: the projection
     the undo put back in ProjectedGeometry is the one drawn;
+  - the dimension reads 15 and 20 with them, measured when read;
   - an undo while the change is still being projected leaves no drawing
     showing the change and saying it is up to date: what was being made is
     dropped, and what the view stored before the change is drawn.
@@ -88,6 +89,14 @@ def run():
     doc.recompute()
     settle(lambda: tallest(view) == 15)
 
+    edges = view.getVisibleEdges()
+    upright = max(range(len(edges)), key=lambda i: abs(edges[i].Vertexes[0].Point.y
+                                                       - edges[i].Vertexes[-1].Point.y))
+    dim = doc.addObject("TechDraw::DrawViewDimension", "Dimension")
+    dim.Type = "Distance"
+    dim.References2D = [(view, "Edge%d" % upright)]
+    page.addView(dim)
+
     section = doc.addObject("TechDraw::DrawViewSection", "Section")
     page.addView(section)
     section.Source = [box]
@@ -113,9 +122,9 @@ def run():
 
     def state(tag):
         names = [o.Name for o in doc.Objects if "Touched" in o.State]
-        note("  %-8s length %s view %s section %s detail %s touched %s"
-             % (tag, box.Length.Value, tallest(view), longest(section), longest(detail),
-                names))
+        note("  %-8s length %s view %s dimension %.3f section %s detail %s touched %s"
+             % (tag, box.Length.Value, tallest(view), dim.getRawValue(), longest(section),
+                longest(detail), names))
         return names
 
     state("built")
@@ -137,12 +146,16 @@ def run():
     names = state("undone")
     check("undo: the view draws 15 with nothing to recompute",
           tallest(view) == 15 and "View" not in names, str(names))
+    check("undo: the dimension reads 15", abs(dim.getRawValue() - 15) < 1e-6,
+          "%.3f" % dim.getRawValue())
 
     doc.redo()
     settle(seconds=1.0)
     names = state("redone")
     check("redo: the view draws 20 with nothing to recompute",
           tallest(view) == 20 and "View" not in names, str(names))
+    check("redo: the dimension reads 20", abs(dim.getRawValue() - 20) < 1e-6,
+          "%.3f" % dim.getRawValue())
 
     doc.undo()
     settle(seconds=1.0)

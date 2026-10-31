@@ -517,9 +517,9 @@ fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 300)
 fc_add_gui_test(GuiTdModelInterleave_tests_run td-model-interleave.py
                 --timeout 300)
 
-# An undo puts a drawing back as it was: a part view, a section and a detail
-# of the section, right after undo and redo with nothing left to recompute,
-# and after an undo made while they project.
+# An undo puts a drawing back as it was: a part view, a dimension on it, a
+# section and a detail of the section, all right after undo and redo with
+# nothing left to recompute, and after an undo made while they project.
 fc_add_gui_test(GuiTdUndoStoredProjection_tests_run td-undo-stored-projection.py
                 --timeout 200)
 

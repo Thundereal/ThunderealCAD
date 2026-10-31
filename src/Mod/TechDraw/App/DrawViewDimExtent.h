@@ -57,6 +57,7 @@ public:
 
 protected:
     virtual pointPair getPointsExtent(ReferenceVector references);
+    void measure(const ReferenceVector& references) override;
     bool checkReferences2D() const override;
 
 private:

@@ -58,6 +58,7 @@ public:
 
     DrawViewPart* getViewPart() const override;
     int getRefType() const override;
+    void measure(const ReferenceVector& references) override;
 
     gp_Ax2 getProjAxis() const;
 

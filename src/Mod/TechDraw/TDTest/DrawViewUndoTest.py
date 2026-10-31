@@ -29,7 +29,8 @@ class DrawViewUndoTest(unittest.TestCase):
     it went on drawing the box it was last made from; and with the transaction log on, the
     undo put back the touched state the step started from -- clean -- so the drawing was
     stale and said nothing (docs/MultiViewEdit.md sec 12.10).  It draws what the undo put
-    back now (docs/TechDrawStoredGeometry.md sec 6).
+    back now, and a dimension on it measures that when read
+    (docs/TechDrawStoredGeometry.md sec 6).
     """
 
     log = None   # the transaction log preference as the user has it
@@ -117,6 +118,25 @@ class DrawViewUndoTest(unittest.TestCase):
         self.assertEqual(other.Length.Value, 30)
         self.assertEqual(tallest(self.view), 15)
         self.assertNotIn("View", touched(self.document))
+
+    def testDimensionMeasuresWhatTheUndoPutBack(self):
+        edge = max(range(len(self.view.getVisibleEdges())),
+                   key=lambda i: abs(self.view.getEdgeByIndex(i).Vertexes[0].Point.y
+                                     - self.view.getEdgeByIndex(i).Vertexes[-1].Point.y))
+        dim = self.document.addObject("TechDraw::DrawViewDimension", "Dimension")
+        dim.Type = "Distance"
+        dim.References2D = [(self.view, "Edge%d" % edge)]
+        self.page.addView(dim)
+        self.document.recompute()
+        self.document.clearUndos()
+        self.assertAlmostEqual(dim.getRawValue(), 15)
+        self.lengthStep()
+        self.assertAlmostEqual(dim.getRawValue(), 20)
+        self.document.undo()
+        self.assertAlmostEqual(dim.getRawValue(), 15)
+        self.assertEqual([n for n in touched(self.document) if n in ("View", "Dimension")], [])
+        self.document.redo()
+        self.assertAlmostEqual(dim.getRawValue(), 20)
 
     def testUndoWithNothingStoredMarks(self):
         self.tdParams.SetBool("StoreProjectedGeometry", False)

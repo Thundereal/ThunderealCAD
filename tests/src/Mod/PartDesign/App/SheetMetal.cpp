@@ -5,7 +5,8 @@
 // the tables interpolated the way the addon's is not past its second row; and
 // the cylindrical bend's fold map -- the bend's start where it was, the
 // neutral fibre's length kept, a round trip back, and the far end of an L
-// where the hand sum of its legs and the allowance puts it.
+// where the hand sum of its legs and the allowance puts it. The sheet model:
+// which wall or bend a point is in, and a U laid flat from either end.
 
 #include <gtest/gtest.h>
 
@@ -15,10 +16,12 @@
 #include <gp_Ax3.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
+#include <gp_Vec.hxx>
 
 #include <Base/Exception.h>
 #include <Mod/PartDesign/App/SheetMetal/BendAllowance.h>
 #include <Mod/PartDesign/App/SheetMetal/Fold.h>
+#include <Mod/PartDesign/App/SheetMetal/Model.h>
 
 using namespace PartDesign::SheetMetal;
 
@@ -299,4 +302,124 @@ TEST(SheetMetalFold, anL)
     EXPECT_LT(b.side(gp_Pnt(-1, 0, -1)), 0);
     EXPECT_EQ(b.side(inBend(b, deg(45), 1, 0)), 0);
     EXPECT_GT(b.side(gp_Pnt(R + 1, 0, R + 5)), 0);
+}
+
+namespace
+{
+
+/// A U of three walls and two bends, both turning the same way (sec 4.1):
+/// the bottom (wall 0) in z <= 0 running along +X, up a bend about
+/// (0, y, R) to the side (wall 1) in R <= x <= R + T, H high, and over a
+/// bend about (0, y, R + H) to the top (wall 2), its inner skin z = 2 R + H,
+/// running back along -X
+struct U
+{
+    double R = 2, T = 1.5, K = 0.4, H = 30;
+    Model model;
+    int bottom, side, top, up, over;
+
+    U()
+    {
+        model.thickness = T;
+        bottom = model.addWall("Wall1", gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, -1)));
+        side = model.addWall("Wall2", gp_Ax3(gp_Pnt(R, 0, R), gp_Dir(1, 0, 0)));
+        top = model.addWall("Wall3", gp_Ax3(gp_Pnt(0, 0, 2 * R + H), gp_Dir(0, 0, 1)));
+        CylBend b = upBend(R, T, deg(90), K);
+        up = model.addBend("Bend1", b, bottom, side);
+        b.frame = gp_Ax3(gp_Pnt(0, 0, R + H), gp_Dir(0, -1, 0), gp_Dir(1, 0, 0));
+        over = model.addBend("Bend2", b, side, top);
+    }
+
+    /// A point of the second bend at angle a into it, depth d
+    gp_Pnt inOver(double a, double d) const
+    {
+        const double r = R + d;
+        return {r * std::cos(a), 0, R + H + r * std::sin(a)};
+    }
+};
+
+}  // namespace
+
+// Which element a point is in, and none for a point outside the sheet
+TEST(SheetMetalModel, owner)
+{
+    const U u;
+    const Model& m = u.model;
+    EXPECT_EQ(m.find("Wall2"), u.side);
+    EXPECT_EQ(m.find("Bend2"), u.over);
+    EXPECT_EQ(m.find("Bend9"), -1);
+    EXPECT_EQ(m.owner(gp_Pnt(-5, 3, -1)), u.bottom);
+    EXPECT_EQ(m.owner(inBend(m.elements[u.up].bend, deg(45), 1, 2)), u.up);
+    EXPECT_EQ(m.owner(gp_Pnt(u.R + 1, 0, u.R + 5)), u.side);
+    EXPECT_EQ(m.owner(u.inOver(deg(45), 1)), u.over);
+    EXPECT_EQ(m.owner(gp_Pnt(-5, 0, 2 * u.R + u.H + 1)), u.top);
+    // on the skins, within the tolerance
+    EXPECT_EQ(m.owner(gp_Pnt(-5, 0, 1e-9)), u.bottom);
+    EXPECT_EQ(m.owner(gp_Pnt(-5, 0, -u.T - 1e-9)), u.bottom);
+    // inside the U, outside it, beyond the side's skin
+    EXPECT_EQ(m.owner(gp_Pnt(-5, 0, 5)), -1);
+    EXPECT_EQ(m.owner(gp_Pnt(-5, 0, -u.T - 1e-3)), -1);
+    EXPECT_EQ(m.owner(gp_Pnt(u.R + u.T + 1, 0, u.R + 5)), -1);
+    EXPECT_FALSE(m.contains(u.bottom, gp_Pnt(u.R + 1, 0, u.R + 5)));
+}
+
+// Flat from the bottom: the top's far end on the inner skin is the hand sum
+// of the legs and the two allowances along X; from the top, the same sheet
+// moved, the top staying where it is
+TEST(SheetMetalModel, flatU)
+{
+    const U u;
+    const Model& m = u.model;
+    const double ba = bendAllowance({u.T, u.R, deg(90)}, kFactor(u.K));
+    const double L = 12;
+    const gp_Pnt start(-L, 0, 0), end(-L, 0, 2 * u.R + u.H);
+    EXPECT_LT(m.toFlat(u.bottom, start, u.bottom).Distance(start), 1e-12);
+    const gp_Pnt far = m.toFlat(u.top, end, u.bottom);
+    EXPECT_NEAR(far.X(), ba + u.H + ba + L, 1e-12);
+    EXPECT_NEAR(far.Y(), 0, 1e-12);
+    EXPECT_NEAR(far.Z(), 0, 1e-12);
+    // the outer skin a thickness below
+    const gp_Pnt outer = m.toFlat(u.top, end.Translated(gp_Vec(0, 0, u.T)), u.bottom);
+    EXPECT_NEAR(outer.Z(), -u.T, 1e-12);
+
+    EXPECT_LT(m.toFlat(u.top, end, u.top).Distance(end), 1e-12);
+    const gp_Pnt near = m.toFlat(u.bottom, start, u.top);
+    EXPECT_NEAR(near.Distance(end), L + ba + u.H + ba + L, 1e-12);
+    // every point keeps its distance to every other: the two flats differ
+    // by one rigid move
+    const gp_Pnt mid(u.R + 0.5, 1, u.R + 10);
+    EXPECT_NEAR(m.toFlat(u.side, mid, u.top).Distance(near),
+                m.toFlat(u.side, mid, u.bottom).Distance(start),
+                1e-12);
+}
+
+// A bend meets its walls in the flat: its last fibres where the wall after
+// it is laid, whichever end is the root
+TEST(SheetMetalModel, flatBendMeetsWalls)
+{
+    const U u;
+    const Model& m = u.model;
+    for (int root : {u.bottom, u.top}) {
+        for (double d : {0.0, 0.7, u.T}) {
+            const gp_Pnt end = u.inOver(deg(90), d);
+            EXPECT_LT(m.toFlat(u.over, end, root).Distance(m.toFlat(u.top, end, root)), 1e-12)
+                << root << " " << d;
+            const gp_Pnt start = u.inOver(0, d);
+            EXPECT_LT(m.toFlat(u.over, start, root).Distance(m.toFlat(u.side, start, root)),
+                      1e-12)
+                << root << " " << d;
+        }
+    }
+}
+
+TEST(SheetMetalModel, errors)
+{
+    U u;
+    Model& m = u.model;
+    EXPECT_THROW(m.addBend("Bend3", m.elements[u.up].bend, u.bottom, 9), Base::IndexError);
+    EXPECT_THROW(m.addBend("Bend3", m.elements[u.up].bend, u.up, u.top), Base::IndexError);
+    EXPECT_THROW(m.placement(u.top, u.up), Base::ValueError);
+    const int lone = m.addWall("Wall4", gp_Ax3());
+    EXPECT_THROW(m.placement(lone, u.bottom), Base::IndexError);
+    EXPECT_THROW(m.placement(42, u.bottom), Base::IndexError);
 }

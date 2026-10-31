@@ -158,6 +158,8 @@ SET(SheetMetal_SRCS
     SheetMetal/BendAllowance.h
     SheetMetal/Fold.cpp
     SheetMetal/Fold.h
+    SheetMetal/Model.cpp
+    SheetMetal/Model.h
     FeatureSheetMetalRule.cpp
     FeatureSheetMetalRule.h
 )

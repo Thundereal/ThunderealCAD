@@ -90,3 +90,10 @@ int CylBend::side(const gp_Pnt& point) const
     }
     return a > angle ? 1 : 0;
 }
+
+bool CylBend::contains(const gp_Pnt& point, double tol) const
+{
+    double a, r, z;
+    polar(point, a, r, z);
+    return a >= 0 && a <= angle && r >= radius - tol && r <= radius + thickness + tol;
+}

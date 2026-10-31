@@ -75,6 +75,9 @@ struct PartDesignExport CylBend
      * 180 deg, is after it.
      */
     int side(const gp_Pnt& point) const;
+    /// Whether the point is in the bend's material: in its angle, and
+    /// between its skins within tol
+    bool contains(const gp_Pnt& point, double tol = 1e-7) const;
 
 private:
     /// The point's angle about the axis in [-pi / 2, 3 pi / 2), its distance

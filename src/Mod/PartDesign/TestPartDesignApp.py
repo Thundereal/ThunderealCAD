@@ -74,6 +74,7 @@ from PartDesignTests.TestThicken import TestThicken
 from PartDesignTests.TestSheetMetalRule import TestSheetMetalRule
 from PartDesignTests.TestSheetMetalBaseWall import TestSheetMetalBaseWall
 from PartDesignTests.TestSheetMetalFlange import TestSheetMetalFlange
+from PartDesignTests.TestSheetMetalFlatPattern import TestSheetMetalFlatPattern
 from PartDesignTests.TestDefeaturing import TestDefeaturing
 from PartDesignTests.TestSuppressed import TestSuppressed
 from PartDesignTests.TestRetryOnCopy import TestRetryOnCopy

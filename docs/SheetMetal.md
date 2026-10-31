@@ -264,9 +264,11 @@ feature are what is left to look at.
 - The first measurement was 26 s: the flange moved the base by its location and had its placement
   applied to its shape, and a location made of an identity placement is not an empty one, so every
   flange stacked another and every boolean keyed the edges' curves on their surfaces to it
-  (fixed, f3146520da: the flange is built in place, as a pad of the current version is). Other
-  PartDesign features that apply their placement this way -- dress-ups, primitives -- are likely
-  to pay the same down a long chain; not measured.
+  (fixed, f3146520da: the flange is built in place, as a pad of the current version is).
+- PartDesign's own primitives pay the same, measured: 64 additive boxes along a plate's edge
+  (326 faces), the last box 1067 ms, a box fused onto the result 1276 ms, the rebuild 17.3 s, where
+  64 pads making the same part take 78 ms and 71 ms. Dress-ups apply their placement the same way
+  and are likely to; not measured. Not sheet metal's to fix: reported, not changed.
 ### 4.5 Two layers, as in Surface
 
 - **`App/Geom/`: geometry, no document.**

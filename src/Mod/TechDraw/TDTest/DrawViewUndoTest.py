@@ -28,6 +28,7 @@ class DrawViewUndoTest(unittest.TestCase):
     """
 
     def setUp(self):
+        self.params = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
         self.document = FreeCAD.newDocument("TDViewUndo")
         self.box = self.document.addObject("Part::Box", "Box")
         self.box.Length, self.box.Width, self.box.Height = 15, 10, 10
@@ -47,6 +48,7 @@ class DrawViewUndoTest(unittest.TestCase):
         self.assertEqual(tallest(self.view), 15)
 
     def tearDown(self):
+        self.params.RemBool("RecomputeOnUndo")
         FreeCAD.closeDocument(self.document.Name)
 
     def lengthStep(self):
@@ -72,6 +74,16 @@ class DrawViewUndoTest(unittest.TestCase):
         self.document.redo()
         self.assertEqual(self.box.Length.Value, 20)
         self.assertRightOrMarked(20)
+
+    def testRecomputeOnUndo(self):
+        self.params.SetBool("RecomputeOnUndo", True)
+        self.lengthStep()
+        self.document.undo()
+        self.assertEqual(tallest(self.view), 15)
+        self.assertEqual([o.Name for o in self.document.Objects if "Touched" in o.State], [])
+        self.document.redo()
+        self.assertEqual(tallest(self.view), 20)
+        self.assertEqual([o.Name for o in self.document.Objects if "Touched" in o.State], [])
 
 
 if __name__ == "__main__":

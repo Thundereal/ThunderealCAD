@@ -778,4 +778,12 @@ the log off the box is left touched, and the next recompute would make the
 view again anyway; it is touched all the same, so the tree says the same
 in both modes.
 
+`Document/RecomputeOnUndo` (off by default): a run of undos or redos that
+leaves objects to recompute -- ones touched when the step was made, ones
+whose result an undo cannot put back -- is followed by the recompute, once
+the run is all taken, not between its steps
+(`App::Document::recomputeAfterUndo`, called by `Gui::Document::undoOrRedo`
+and the Python `undo()`/`redo()`). The steps another document took in a
+grouped run are left alone.
+
 Test: `src/Mod/TechDraw/TDTest/DrawViewUndoTest.py`.

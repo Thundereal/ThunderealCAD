@@ -710,6 +710,21 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter RecomputeOnUndo
+    ///
+    /// Recompute after an undo or redo that leaves objects to recompute: ones
+    /// marked so when the step undone was made, and ones whose result an undo
+    /// cannot put back, as a TechDraw view's projection (docs/MultiViewEdit.md
+    /// sec 12.10). Off, they are left marked for the next recompute.
+    static const bool & getRecomputeOnUndo();
+    static const bool & defaultRecomputeOnUndo();
+    static void removeRecomputeOnUndo();
+    static void setRecomputeOnUndo(const bool &v);
+    static const char *docRecomputeOnUndo();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter TransactionLog
     ///
     /// Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The

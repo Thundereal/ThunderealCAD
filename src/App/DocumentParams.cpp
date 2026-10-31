@@ -91,6 +91,7 @@ public:
         signalParamChanged("UndoGroupByInput");
         signalParamChanged("TransactionOnRecompute");
         signalParamChanged("UndoImplicitLogOff");
+        signalParamChanged("RecomputeOnUndo");
         signalParamChanged("TransactionLog");
         signalParamChanged("TransactionLogIdentity");
         signalParamChanged("TransactionLogDerived");
@@ -173,6 +174,7 @@ public:
     bool UndoGroupByInput;
     bool TransactionOnRecompute;
     bool UndoImplicitLogOff;
+    bool RecomputeOnUndo;
     long TransactionLog;
     bool TransactionLogIdentity;
     long TransactionLogDerived;
@@ -303,6 +305,8 @@ public:
         funcs["TransactionOnRecompute"] = &DocumentParamsP::updateTransactionOnRecompute;
         UndoImplicitLogOff = this->handle->GetBool("UndoImplicitLogOff", true);
         funcs["UndoImplicitLogOff"] = &DocumentParamsP::updateUndoImplicitLogOff;
+        RecomputeOnUndo = this->handle->GetBool("RecomputeOnUndo", false);
+        funcs["RecomputeOnUndo"] = &DocumentParamsP::updateRecomputeOnUndo;
         TransactionLog = this->handle->GetInt("TransactionLog", 2);
         funcs["TransactionLog"] = &DocumentParamsP::updateTransactionLog;
         TransactionLogIdentity = this->handle->GetBool("TransactionLogIdentity", false);
@@ -567,6 +571,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateUndoImplicitLogOff(DocumentParamsP *self) {
         self->UndoImplicitLogOff = self->handle->GetBool("UndoImplicitLogOff", true);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateRecomputeOnUndo(DocumentParamsP *self) {
+        self->RecomputeOnUndo = self->handle->GetBool("RecomputeOnUndo", false);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLog(DocumentParamsP *self) {
@@ -948,6 +956,12 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "step open is recorded too, as an implicit step that goes with the\n"
 "step under it, as with the log on (docs/MultiViewEdit.md sec 12.2\n"
 "rule 7). Off, such a write is not recorded, as before; for A/B checks."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "RecomputeOnUndo", "RecomputeOnUndo", App::ParamInfo::Bool, false)
+        .setTitle("Recompute On Undo")
+        .setDoc("Recompute after an undo or redo that leaves objects to recompute: ones\n"
+"marked so when the step undone was made, and ones whose result an undo\n"
+"cannot put back, as a TechDraw view's projection (docs/MultiViewEdit.md\n"
+"sec 12.10). Off, they are left marked for the next recompute."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLog", "TransactionLog", App::ParamInfo::Int, 2)
         .setTitle("Transaction Log")
         .setDoc("Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n"
@@ -2504,6 +2518,37 @@ void DocumentParams::setUndoImplicitLogOff(const bool &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeUndoImplicitLogOff() {
     instance()->handle->RemoveBool("UndoImplicitLogOff");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docRecomputeOnUndo() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"Recompute after an undo or redo that leaves objects to recompute: ones\n"
+"marked so when the step undone was made, and ones whose result an undo\n"
+"cannot put back, as a TechDraw view's projection (docs/MultiViewEdit.md\n"
+"sec 12.10). Off, they are left marked for the next recompute.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & DocumentParams::getRecomputeOnUndo() {
+    return instance()->RecomputeOnUndo;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & DocumentParams::defaultRecomputeOnUndo() {
+    const static bool def = false;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setRecomputeOnUndo(const bool &v) {
+    instance()->handle->SetBool("RecomputeOnUndo",v);
+    instance()->RecomputeOnUndo = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeRecomputeOnUndo() {
+    instance()->handle->RemoveBool("RecomputeOnUndo");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

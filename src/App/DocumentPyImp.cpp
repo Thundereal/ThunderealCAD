@@ -647,6 +647,7 @@ PyObject*  DocumentPy::undo(PyObject * args)
             getDocumentPtr()->undoSkipping(skip);
         else if (getDocumentPtr()->getAvailableUndos())
             getDocumentPtr()->undo();
+        getDocumentPtr()->recomputeAfterUndo();
         Py_Return;
     } PY_CATCH;
 }
@@ -661,6 +662,7 @@ PyObject*  DocumentPy::redo(PyObject * args)
             getDocumentPtr()->redoSkipping(skip);
         else if (getDocumentPtr()->getAvailableRedos())
             getDocumentPtr()->redo();
+        getDocumentPtr()->recomputeAfterUndo();
         Py_Return;
     } PY_CATCH;
 }

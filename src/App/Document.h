@@ -1858,6 +1858,12 @@ public:
      */
     bool undoSkipping(int skip);
     bool redoSkipping(int skip);
+    /** After a run of undos or redos, taken once it is all taken: with
+     * DocumentParams RecomputeOnUndo on, the document recomputed when it
+     * has objects to recompute (docs/MultiViewEdit.md sec 12.10). Returns
+     * whether it was.
+     */
+    bool recomputeAfterUndo();
     /// Why the last undo() or redo() was refused, empty when it was not.
     const std::string& undoRefusal() const;
     /** The steps made in view \a view (Transaction::View) are every view's:

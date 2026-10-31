@@ -6883,15 +6883,15 @@ void Document::undoOrRedo(bool undo, int iSteps, bool ask)
     while (iSteps > 0) {
         const int taken = takeSteps(undo, iSteps, skipped);
         if (taken < 0)
-            return;
+            break;
         iSteps -= taken;
         if (iSteps <= 0 || !ask)
-            return;
+            break;
         // Asked with nothing held: no guard, and the document not said to
         // be in a transaction while the dialog's loop turns.
         const std::string why = getDocument()->undoRefusal();
         if (why.empty() || !askToSkip(undo, skipped, why))
-            return;
+            break;
         // The step refused is left, and was one of those asked for.
         ++skipped;
         --iSteps;
@@ -6899,6 +6899,8 @@ void Document::undoOrRedo(bool undo, int iSteps, bool ask)
         if (iSteps <= 0)
             iSteps = 1;
     }
+    // Once the run is all taken, not between its steps (sec 12.10)
+    getDocument()->recomputeAfterUndo();
 }
 
 /// Will UNDO one or more steps

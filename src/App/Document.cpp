@@ -1390,6 +1390,20 @@ const std::string& Document::undoRefusal() const
     return d->undoRefusal;
 }
 
+bool Document::recomputeAfterUndo()
+{
+    if (!DocumentParams::getRecomputeOnUndo() || Transaction::isApplying()
+            || testStatus(Recomputing) || isPerformingTransaction())
+        return false;
+    for (auto obj : d->objectArray) {
+        if (obj->isTouched() || obj->mustRecompute()) {
+            recompute();
+            return true;
+        }
+    }
+    return false;
+}
+
 void Document::releaseStepView(int view)
 {
     if (!view)

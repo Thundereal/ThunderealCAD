@@ -103,6 +103,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_MassProperties",
             "Assembly_CreateSpring",
             "Assembly_CreateTorsionSpring",
+            "Assembly_CreateJointStop",
             "Assembly_CreateLoad",
             "Assembly_CreateBushing",
             "Assembly_CreateContact",

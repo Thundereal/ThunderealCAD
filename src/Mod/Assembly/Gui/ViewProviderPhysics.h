@@ -62,6 +62,15 @@ public:
     QIcon getIcon() const override;
 };
 
+/// A joint's stop: its icon; its joint shows where it is
+class AssemblyGuiExport ViewProviderJointStop: public Gui::ViewProviderDocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderJointStop);
+
+public:
+    QIcon getIcon() const override;
+};
+
 /** A spring and damper, drawn as a coil between its ends, in the assembly's
  * coordinates; redrawn as its ends' components move -- dragged, solved, or
  * played back. It claims the element bindings the spring owns, and a

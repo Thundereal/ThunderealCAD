@@ -514,6 +514,121 @@ public:
     }
 };
 
+// A penalty stop (Stop::Mode::Penalty): a limit's bound pushed back by a
+// spring and a damper on how far past it the joint's value is, k d + c
+// dd/dt, none short of the bound and never pulling -- along zI for a slide,
+// about it for a turn. A is frame J's body, B frame I's, each loaded at its
+// frame: on B along -zI at the least value (J pushed back along +zI), along
+// +zI at the most, as a rigid stop's link pushes. A turn is counted from the
+// one last committed, as the limits' are (limitValue()). Implicit through
+// Chrono's numerical jacobian, as a contact is.
+class StopLoad: public ch::ChLoadBodyBody
+{
+public:
+    StopLoad(std::shared_ptr<ch::ChBody> a,
+             std::shared_ptr<ch::ChBody> b,
+             const ch::ChFramed& frameJ,
+             const ch::ChFramed& frameI,
+             const Limit& limit,
+             double k,
+             double c,
+             double angle)
+        : ch::ChLoadBodyBody(a, b, frameI)
+        , turn(limit.kind == LimitKind::RotationZ)
+        , atMin(limit.min.has_value())
+        , bound(limit.min ? *limit.min : limit.max.value_or(0.0))
+        , k(k)
+        , c(c)
+        , angle(angle)
+    {
+        SetApplicationFrameA(a->ch::ChFramed::TransformParentToLocal(frameJ));
+        SetApplicationFrameB(b->ch::ChFramed::TransformParentToLocal(frameI));
+    }
+
+    StopLoad* Clone() const override
+    {
+        return new StopLoad(*this);
+    }
+    bool IsStiff() override
+    {
+        return true;
+    }
+    void ComputeJacobian(ch::ChState* state_x, ch::ChStateDelta* state_w) override
+    {
+        ch::ChLoadBodyBody::ComputeJacobian(state_x, state_w);
+        ComputeQ(state_x, state_w);
+    }
+    void ComputeBodyBodyForceTorque(const ch::ChFrameMoving<>& /*rel_AB*/,
+                                    ch::ChVector3d& force,
+                                    ch::ChVector3d& moment) override
+    {
+        force = ch::VNULL;
+        moment = ch::VNULL;
+        const auto [value, rate] = valueAndRate();
+        // How far past the bound, and how fast going further
+        const double depth = atMin ? bound - value : value - bound;
+        const double deeper = atMin ? -rate : rate;
+        if (!(depth > 0.0)) {
+            return;
+        }
+        const double push = std::max(k * depth + c * deeper, 0.0);
+        // In frame I's axes, on frame I's body
+        const ch::ChVector3d along(0.0, 0.0, atMin ? -push : push);
+        (turn ? moment : force) = along;
+    }
+    // The force on B and the torque about its frame now, absolute
+    ch::ChWrenchd wrenchNow()
+    {
+        ComputeQ(nullptr, nullptr);
+        return {frame_Bw.TransformDirectionLocalToParent(locB_force),
+                frame_Bw.TransformDirectionLocalToParent(locB_torque)};
+    }
+    ch::ChVector3d pointNow() const
+    {
+        return frame_Bw.GetPos();
+    }
+    // The turn now counted from here on
+    void commit()
+    {
+        ComputeQ(nullptr, nullptr);
+        angle = valueAndRate().first;
+    }
+
+    // Past its bound now, by how much
+    double depthNow()
+    {
+        ComputeQ(nullptr, nullptr);
+        const double value = valueAndRate().first;
+        return atMin ? bound - value : value - bound;
+    }
+    // The limit's value and its rate, at frame_Aw and frame_Bw
+    std::pair<double, double> valueAndRate() const
+    {
+        const ch::ChVector3d z = frame_Bw.GetRotMat().GetAxisZ();
+        const ch::ChVector3d wI = frame_Bw.GetAngVelParent();
+        if (!turn) {
+            const ch::ChVector3d d = frame_Aw.GetPos() - frame_Bw.GetPos();
+            return {ch::Vdot(d, z),
+                    ch::Vdot(frame_Aw.GetPosDt() - frame_Bw.GetPosDt(), z)
+                        + ch::Vdot(d, ch::Vcross(wI, z))};
+        }
+        const ch::ChVector3d xJ = frame_Aw.GetRotMat().GetAxisX();
+        const double s = ch::Vdot(frame_Bw.GetRotMat().GetAxisY(), xJ);
+        const double co = ch::Vdot(frame_Bw.GetRotMat().GetAxisX(), xJ);
+        return {angle + wrapAngle(std::atan2(s, co) - angle),
+                ch::Vdot(frame_Aw.GetAngVelParent() - wI, z)};
+    }
+
+    const bool turn;
+    const bool atMin;
+    const double bound;
+    const double k;
+    const double c;
+
+private:
+    double angle = 0.0;  // the turn last committed
+};
+
 // ---------------------------------------------------------------- contact
 
 // Adams' STEP: h0 below x0, h1 above x1, a cubic between them
@@ -5239,6 +5354,35 @@ Status ChronoSession::simulateDynamics(
         sys.AddLink(spring);
         springs.emplace_back(force.source, spring);
     }
+    // The limits' stops (sec 5.2's JointStop): each limit's record, none for
+    // a rigid stop at the study's restitution; a penalty stop's load
+    using StopRecord = Assembly::Solver::Stop;
+    std::vector<const StopRecord*> stopOf(si.limits.size(), nullptr);
+    for (const auto& stop : si.dynamics->stops) {
+        if (stop.limit < stopOf.size()) {
+            stopOf[stop.limit] = &stop;
+        }
+    }
+    std::vector<std::shared_ptr<StopLoad>> penalties(si.limits.size());
+    for (std::size_t k = 0; k < si.limits.size(); ++k) {
+        const Limit& limit = si.limits[k];
+        const StopRecord* stop = stopOf[k];
+        if (!stop || stop->mode != StopRecord::Mode::Penalty || !(limit.min || limit.max)
+            || !run.d->validFrame(limit.frameI) || !run.d->validFrame(limit.frameJ)
+            || run.d->isRigid(limit.frameI, limit.frameJ)) {
+            continue;
+        }
+        // In SI with the model: an angle's k and c scaled already
+        penalties[k] = std::make_shared<StopLoad>(run.d->bodyOf(limit.frameJ),
+                                                  run.d->bodyOf(limit.frameI),
+                                                  run.d->globalOf(limit.frameJ),
+                                                  run.d->globalOf(limit.frameI),
+                                                  limit,
+                                                  stop->k,
+                                                  stop->c,
+                                                  run.d->limitAngle[limit.id]);
+        loads->Add(penalties[k]);
+    }
     // Contact (sec 7, phase D2): each shape on its frame's body, collision
     // detection by Bullet making no contact of Chrono's own (its SMC contact
     // force is explicit, fixed over a step), and a ContactLoad per pair of
@@ -5895,18 +6039,32 @@ Status ChronoSession::simulateDynamics(
     }
     std::vector<Stop> stops(si.limits.size());
     std::vector<double> limitAngles = run.d->limitAngle;
-    auto stopping = [&](const Limit& limit) {
-        return run.d->validFrame(limit.frameI) && run.d->validFrame(limit.frameJ)
+    auto stopping = [&](std::size_t k) {
+        const Limit& limit = si.limits[k];
+        return (!stopOf[k] || stopOf[k]->mode == StopRecord::Mode::Rigid)
+            && run.d->validFrame(limit.frameI) && run.d->validFrame(limit.frameJ)
             && !run.d->isRigid(limit.frameI, limit.frameJ) && (limit.min || limit.max);
     };
     for (std::size_t k = 0; k < si.limits.size(); ++k) {
-        if (stopping(si.limits[k])) {
+        if (stopping(k)) {
             stops[k].last = run.d->limitValue(si.limits[k], limitAngles);
         }
     }
-    const double restitution = std::clamp(spec.restitution, 0.0, 1.0);
+    // A stop's own restitution, or the study's
+    std::vector<double> restitutions(si.limits.size(), std::clamp(spec.restitution, 0.0, 1.0));
+    for (std::size_t k = 0; k < si.limits.size(); ++k) {
+        if (stopOf[k] && stopOf[k]->restitution >= 0.0) {
+            restitutions[k] = std::clamp(stopOf[k]->restitution, 0.0, 1.0);
+        }
+    }
     const double gravity = si.dynamics->gravity.Length();
     auto handleStops = [&](double step, bool bounce) {
+        // The penalty stops count their turns from here
+        for (const auto& penalty : penalties) {
+            if (penalty) {
+                penalty->commit();
+            }
+        }
         // Let go of the stops that pull
         for (std::size_t k = 0; k < stops.size(); ++k) {
             Stop& stop = stops[k];
@@ -5931,7 +6089,7 @@ Status ChronoSession::simulateDynamics(
         double fastest = 0.0;  // m/s, a turn's at its body's farthest frame
         for (std::size_t k = 0; k < stops.size(); ++k) {
             const Limit& limit = si.limits[k];
-            if (!stopping(limit)) {
+            if (!stopping(k)) {
                 continue;
             }
             Stop& stop = stops[k];
@@ -5978,7 +6136,13 @@ Status ChronoSession::simulateDynamics(
                        1e-15);
         run.d->commitAngles();
         // Bounce, unless it is too slow to leave the stop for a step: what
-        // gravity gives in two steps, a resting part's bump
+        // gravity gives in two steps, a resting part's bump. The projection's
+        // impulse is one for the stops it hit: at the least restitution
+        // among them, so that none gains energy
+        double restitution = 1.0;
+        for (std::size_t k : hit) {
+            restitution = std::min(restitution, restitutions[k]);
+        }
         if (bounce && restitution > 0.0 && fastest > 2.0 * gravity * step) {
             for (std::size_t b = 0; b < n; ++b) {
                 const auto& body = run.d->bodies[b];
@@ -6020,6 +6184,11 @@ Status ChronoSession::simulateDynamics(
                     const ch::ChWrenchd w = wrenchOnI(si.limits[k].frameI, stops[k].link, about);
                     force += w.force;
                     torque += w.torque;
+                }
+                if (penalties[k]) {
+                    const ch::ChWrenchd w = penalties[k]->wrenchNow();
+                    force += w.force;
+                    torque += w.torque + ch::Vcross(penalties[k]->pointNow() - about, w.force);
                 }
             }
             for (int k = 0; k < 3; ++k) {
@@ -6631,13 +6800,85 @@ Status ChronoSession::simulateDynamics(
             implicit->SetAbsTolerances(s, std::max(s * lightest, 1e-10));
         }
     };
+    // The substep the penalty stops allow, as a contact's (contactStep()): a
+    // fiftieth of the period of the lighter body on a stop's spring -- its
+    // mass, or for a turn its inertia about the joint's axis -- and 2 m / c
+    // for its damper, once it is past its bound or will be within a period
+    // at the speed it comes in at; half the time it takes to get there
+    // before. HHT stepping over a stiff spring's period damps it away: the
+    // stop takes the energy a bumper hands back.
+    const bool anyPenalty =
+        std::any_of(penalties.begin(), penalties.end(), [](const auto& p) { return bool(p); });
+    auto penaltyStep = [&]() {
+        double h = std::numeric_limits<double>::infinity();
+        for (const auto& load : penalties) {
+            if (!load || !(load->k > 0.0)) {
+                continue;
+            }
+            const double depth = load->depthNow();
+            const auto [value, rate] = load->valueAndRate();
+            const double deeper = load->atMin ? -rate : rate;
+            const ch::ChVector3d z = load->GetAbsoluteFrameB().GetRotMat().GetAxisZ();
+            const ch::ChVector3d at = load->GetAbsoluteFrameB().GetPos();
+            double mass = std::numeric_limits<double>::infinity();
+            for (const auto& body : {load->GetBodyA(), load->GetBodyB()}) {
+                if (body->IsFixed() || !(body->GetMass() > 0.0)) {
+                    continue;
+                }
+                if (!load->turn) {
+                    mass = std::min(mass, body->GetMass());
+                    continue;
+                }
+                const ch::ChVector3d local = body->TransformDirectionParentToLocal(z);
+                const ch::ChVector3d arm = body->GetPos() - at;
+                const ch::ChVector3d off = arm - z * ch::Vdot(arm, z);
+                mass = std::min(mass,
+                                ch::Vdot(local, body->GetInertia() * local)
+                                    + body->GetMass() * off.Length2());
+            }
+            if (!std::isfinite(mass)) {
+                continue;
+            }
+            const double period = 2.0 * pi * std::sqrt(mass / load->k);
+            if (depth <= 0.0) {
+                const double toContact =
+                    deeper > 0.0 ? -depth / deeper : std::numeric_limits<double>::infinity();
+                if (toContact > period) {
+                    h = std::min(h, 0.5 * toContact);
+                    continue;
+                }
+            }
+            h = std::min(h, period / 50.0);
+            if (load->c > 0.0) {
+                h = std::min(h, 2.0 * mass / load->c);
+            }
+        }
+        return h;
+    };
     // A step of dt, in substeps; a substep that found a contact late is taken
     // again, an eighth as long, from the state before it, and the steps
     // grow back after. One longer than the strict rule's that moved a load
     // at rest is taken again by it.
     auto advance = [&](double dt) {
         if (!contact) {
-            sys.DoStepDynamics(dt);
+            if (!anyPenalty) {
+                sys.DoStepDynamics(dt);
+                return;
+            }
+            double done = 0.0;
+            while (dt - done > 1e-12 * dt) {
+                double h = std::min(dt - done, penaltyStep());
+                if (dt - done - h < 1e-9 * dt) {
+                    h = dt - done;
+                }
+                sys.DoStepDynamics(h);
+                done += h;
+                for (const auto& load : penalties) {
+                    if (load) {
+                        load->commit();
+                    }
+                }
+            }
             return;
         }
         const unsigned int nx = sys.GetNumCoordsPosLevel();
@@ -6651,7 +6892,7 @@ Status ChronoSession::simulateDynamics(
         bool fresh = false;  // collision detection last ran at the state now
         while (dt - done > 1e-12 * dt) {
             const double strict = contactStep(true);
-            double h = std::min({dt - done, cap, contactStep(false)});
+            double h = std::min({dt - done, cap, contactStep(false), penaltyStep()});
             if (dt - done - h < 1e-9 * dt) {
                 h = dt - done;
             }

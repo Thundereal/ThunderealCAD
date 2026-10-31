@@ -137,6 +137,12 @@ bool same(const Sensor& a, const Sensor& b)
         && a.stop == b.stop;
 }
 
+bool same(const Stop& a, const Stop& b)
+{
+    return a.source == b.source && a.limit == b.limit && a.mode == b.mode
+        && a.restitution == b.restitution && a.k == b.k && a.c == b.c;
+}
+
 bool same(const Inertia& a, const Inertia& b)
 {
     if (slack > 0.0) {
@@ -214,7 +220,8 @@ bool sameBeyondBodies(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->initial, b.dynamics->initial)
                 || !sameRecords(a.dynamics->contactShapes, b.dynamics->contactShapes)
                 || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)
-                || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)))) {
+                || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)
+                || !sameRecords(a.dynamics->stops, b.dynamics->stops)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.frames, b.frames)
@@ -260,7 +267,8 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->initial, b.dynamics->initial)
                 || !sameRecords(a.dynamics->contactShapes, b.dynamics->contactShapes)
                 || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)
-                || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)))) {
+                || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)
+                || !sameRecords(a.dynamics->stops, b.dynamics->stops)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)
@@ -361,6 +369,15 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             }
             force.rest *= length;
             force.preload *= length;
+        }
+        // A penalty stop's on a turn, a torque's, as a length squared; on a
+        // slide, a force over a length or a speed, not at all
+        for (auto& stop : out.dynamics->stops) {
+            if (stop.limit < out.limits.size()
+                && out.limits[stop.limit].kind == LimitKind::RotationZ) {
+                stop.k *= length * length;
+                stop.c *= length * length;
+            }
         }
         // A speed scales as a length does, a turning rate not at all
         for (auto& initial : out.dynamics->initial) {

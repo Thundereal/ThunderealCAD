@@ -1366,6 +1366,52 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(dynamic.Elements, [])
         self.assertClean()
 
+    def test_joint_stop(self):
+        """Idle until a Slider, Cylindrical or Revolute joint is selected; then
+        a penalty stop on it, selected, ticked in the Dynamic study and not the
+        Kinematic one, showing only a slide's stiffness and damping for a
+        slider; Rigid shows the restitution alone. One undo takes it out"""
+        j = self.jointgroup.newObject("App::FeaturePython", "Slider")
+        JointObject.Joint(j, JointObject.JointTypes.index("Slider"))
+        JointObject.ViewProviderJoint(j.ViewObject)
+        sims = self.assembly.getGroup("Simulations", True)
+        dynamic = sims.newObject("Assembly::Simulation", "Dynamic")
+        dynamic.AnalysisType = "Dynamic"
+        kinematic = sims.newObject("Assembly::Simulation", "Kinematic")
+        _process()
+        Gui.Selection.clearSelection()
+        _process()
+        self.assertFalse(Gui.Command.get("Assembly_CreateJointStop").isActive())
+        Gui.Selection.addSelection(j)
+        self.run_command("Assembly_CreateJointStop")
+        physics = self.assembly.getGroup("Physics")
+        stops = [o for o in physics.Group if o.isDerivedFrom("Assembly::JointStop")]
+        self.assertEqual(len(stops), 1)
+        stop = stops[0]
+        self.assertEqual(stop.Joint, j)
+        self.assertEqual(Gui.Selection.getSelection(), [stop])
+        self.assertEqual(stop.Mode, "Penalty")
+        self.assertIn(stop, dynamic.Elements)
+        self.assertNotIn(stop, kinematic.Elements)
+
+        def hidden(name):
+            return "Hidden" in stop.getPropertyStatus(name)
+
+        self.assertFalse(hidden("Stiffness"))
+        self.assertFalse(hidden("Damping"))
+        self.assertTrue(hidden("TorsionalStiffness"))
+        self.assertTrue(hidden("Restitution"))
+        stop.Mode = "Rigid"
+        self.assertFalse(hidden("Restitution"))
+        self.assertTrue(hidden("Stiffness"))
+        self.doc.undo()
+        _process()
+        self.assertEqual(
+            [o for o in physics.Group if o.isDerivedFrom("Assembly::JointStop")], []
+        )
+        self.assertEqual(dynamic.Elements, [])
+        self.assertClean()
+
     def test_export_asmt(self):
         import CommandExportASMT
 

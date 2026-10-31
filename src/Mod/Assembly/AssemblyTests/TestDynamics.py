@@ -857,9 +857,13 @@ class TestDynamics(unittest.TestCase):
 
     # ------------------------------------------------------------ stops
 
-    def dropped(self, restitution=0.0, analysis="Dynamic", end=0.2, step=1e-2):
+    def dropped(
+        self, restitution=0.0, analysis="Dynamic", end=0.2, step=1e-2, stop=None, effort=None
+    ):
         """A 10 mm cube on a vertical slider, 4 mm over a grounded one, its
-        travel's least 0: the stop the grounded one's top. Its heights."""
+        travel's least 0: the stop the grounded one's top. Its heights.
+        'stop': a JointStop's properties, the study's only element; 'effort':
+        an Effort motion's formula on the slider (N)."""
         base = self.box("Base", (10, 10, 10), (0, 0, 0))
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
         JointObject.GroundedJoint(ground, base)
@@ -872,7 +876,30 @@ class TestDynamics(unittest.TestCase):
         slider.LengthMin = 0.0
         self.doc.recompute()
         self.assertEqual(self.assembly.solve(), 0)
-        _, result = self.simulate(end, step, AnalysisType=analysis, Restitution=restitution)
+        props = {}
+        if stop is not None:
+            physics = self.assembly.getGroup("Physics", True)
+            element = physics.newObject("Assembly::JointStop", "JointStop")
+            element.Joint = slider
+            for name, value in stop.items():
+                setattr(element, name, value)
+            props["Elements"] = [element]
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = analysis
+        sim.TimeEnd = end
+        sim.TimeStepOutput = step
+        sim.Restitution = restitution
+        for name, value in props.items():
+            setattr(sim, name, value)
+        if effort is not None:
+            motion = sim.newObject("Assembly::Motion", "Motion")
+            motion.Joint = slider
+            motion.MotionType = "Linear"
+            motion.Control = "Effort"
+            motion.Formula = effort
+        self.doc.recompute()
+        result = self.assembly.generateSimulation(sim)
         self.assertEqual(result, 0)
         heights = []
         for i in range(self.assembly.numberOfFrames()):
@@ -930,6 +957,101 @@ class TestDynamics(unittest.TestCase):
                 self.assertLess(angle, 30 + 1e-4, (analysis, time))
             angle = math.degrees(math.atan2(5 - frames[-1][1].z, frames[-1][1].x - 10))
             self.assertAlmostEqual(angle, 30.0, delta=1e-4, msg=analysis)
+
+    # ------------------------------------------------------------ joint stops
+
+    # A penalty stop for the dropped block: 1000 N/m, about a centimetre's
+    # period on the 2.7 g block
+    PENALTY = 1e3  # mN/mm, N/m
+
+    def test_stop_penalty_rests(self):
+        """On a penalty stop the block comes to rest m g / k into it, the
+        stop carrying its weight in the slider's reaction; a static study
+        settles it there too."""
+        weight = self.MASS * G  # mN
+        depth = weight / self.PENALTY
+        for analysis, end in (("Dynamic", 0.3), ("Static", 0.0)):
+            self.tearDown()
+            self.setUp()
+            stop = {"Mode": "Penalty", "Stiffness": self.PENALTY, "Damping": 1.0}
+            heights = self.dropped(analysis=analysis, end=end, stop=stop)
+            self.assertAlmostEqual(heights[-1][1], 10.0 - depth, delta=1e-6, msg=analysis)
+            force = self.channel("Slider", "Force")[-1]
+            self.assertLess(
+                (force - App.Vector(0, 0, -weight)).Length, weight * 1e-5, msg=analysis
+            )
+
+    def test_stop_penalty_bounce(self):
+        """Undamped, the penalty stop hands the block back its energy: dropped
+        4 mm, it goes in as deep as m g (h + d) = k d^2 / 2 says and comes
+        back to where it fell from."""
+        weight = self.MASS * G * 1e-3  # N
+        k = self.PENALTY
+        h = 4e-3
+        deepest = (weight + math.sqrt(weight * weight + 2 * k * weight * h)) / k * 1e3  # mm
+        stop = {"Mode": "Penalty", "Stiffness": k, "Damping": 0.0}
+        heights = self.dropped(end=0.08, step=1e-4, stop=stop)
+        fall = math.sqrt(2 * 4 / G)
+        lowest = min(z for _, z in heights)
+        self.assertAlmostEqual(lowest, 10.0 - deepest, delta=deepest * 2e-3)
+        after = [z for time, z in heights if fall + 0.01 < time < fall + 0.05]
+        self.assertAlmostEqual(max(after), 14.0, delta=4.0 * 2e-3)
+
+    def test_stop_own_restitution(self):
+        """A rigid stop's own restitution, 1, over the study's, 0: the block
+        bounces back to where it fell from."""
+        heights = self.dropped(
+            0.0, end=0.06, step=1e-4, stop={"Mode": "Rigid", "Restitution": 1.0}
+        )
+        fall = math.sqrt(2 * 4 / G)
+        after = [z for time, z in heights if fall + 1e-3 < time < fall + 0.04]
+        self.assertAlmostEqual(max(after) - 10.0, 4.0, delta=4.0 * 1e-2)
+
+    def test_stop_off(self):
+        """A stop Off lets the block fall through its limit, as if free."""
+        heights = self.dropped(end=0.1, step=1e-2, stop={"Mode": "Off"})
+        for time, z in heights:
+            self.assertAlmostEqual(z, 14.0 - G * time * time / 2, delta=1e-3, msg=time)
+
+    def test_stop_under_effort(self):
+        """A study with a motion keeps the limits of the joints it does not
+        hold: an Effort pushing the block down 1 N onto its penalty stop, a
+        static study settles it (m g + 1 N) / k in, which the Effort's own
+        joint's limit, dropped before, now stops."""
+        weight = self.MASS * G  # mN
+        stop = {"Mode": "Penalty", "Stiffness": self.PENALTY, "Damping": 1.0}
+        ((_, z),) = self.dropped(analysis="Static", end=0.0, stop=stop, effort="-1")
+        self.assertAlmostEqual(z, 10.0 - (weight + 1000.0) / self.PENALTY, delta=1e-6)
+
+    def test_stop_penalty_rotation(self):
+        """The pendulum's hinge limited to 30 deg below the horizontal by a
+        penalty stop of 10 N m per radian: a static study settles the rod where
+        the stop's torque k (a - 30 deg) holds its weight's m g L cos a."""
+        rod = self.pendulum()
+        hinge = [o for o in self.joints.Group if o.Name.startswith("Revolute")][0]
+        hinge.EnableAngleMin = True
+        hinge.EnableAngleMax = True
+        hinge.AngleMin = -30.0
+        hinge.AngleMax = 30.0
+        physics = self.assembly.getGroup("Physics", True)
+        stop = physics.newObject("Assembly::JointStop", "JointStop")
+        stop.Joint = hinge
+        stop.Mode = "Penalty"
+        stop.TorsionalStiffness = "10 N*m"
+        self.doc.recompute()
+        _, result = self.simulate(0.0, 1e-2, AnalysisType="Static", Elements=[stop])
+        self.assertEqual(result, 0)
+        frames = self.frames(rod, 1e-2)
+        angle = math.atan2(5 - frames[-1][1].z, frames[-1][1].x - 10)
+        # m g L cos a = k (a - pi / 6), by Newton's iterations; SI
+        torque = 100 * 10 * 10 * 2.7e-6 * G * 1e-3 * 0.05
+        a = math.pi / 6
+        for _ in range(20):
+            a -= (10.0 * (a - math.pi / 6) - torque * math.cos(a)) / (
+                10.0 + torque * math.sin(a)
+            )
+        self.assertAlmostEqual(math.degrees(angle), math.degrees(a), delta=1e-4)
+        self.assertGreater(math.degrees(angle), 30.01)
 
     # ------------------------------------------------------------ torsion
 

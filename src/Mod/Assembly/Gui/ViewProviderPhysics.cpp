@@ -62,6 +62,13 @@ QIcon ViewProviderTorsionSpring::getIcon() const
     return Gui::BitmapFactory().pixmap("Assembly_TorsionSpring.svg");
 }
 
+PROPERTY_SOURCE(AssemblyGui::ViewProviderJointStop, Gui::ViewProviderDocumentObject)
+
+QIcon ViewProviderJointStop::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_JointStop.svg");
+}
+
 PROPERTY_SOURCE(AssemblyGui::ViewProviderSpringDamper, Gui::ViewProviderDocumentObject)
 
 namespace

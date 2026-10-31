@@ -453,6 +453,30 @@ struct Sensor
     bool stop = true;
 };
 
+// How a dynamic or static run stops a limit (sec 5.2's JointStop, P10). A
+// limit with none is Rigid at the study's restitution. Rigid: held at its
+// bound by a link, the impact plastic or, 'restitution' not negative, at
+// that coefficient. Penalty: pushed back by a spring and a damper on how far
+// past the bound the joint's value is, k d + c dd/dt and never pulling --
+// along zI for a TranslationZ limit, about it for a RotationZ one. Off: not
+// stopped at all. k in mN/mm or mN mm per radian, c in mN s/mm or mN mm s
+// per radian, as the limit's kind is.
+struct Stop
+{
+    enum class Mode : std::uint8_t
+    {
+        Rigid,
+        Penalty,
+        Off
+    };
+    Id source = NoId;  // the document's JointStop
+    Id limit = NoId;   // in Model::limits
+    Mode mode {};
+    double restitution = -1.0;  // Rigid: negative for the study's
+    double k = 0.0;
+    double c = 0.0;
+};
+
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has
 // none. Grows with phase D1: forces, tables, contact, stops, initial
 // velocities, sensors.
@@ -465,6 +489,7 @@ struct Dynamics
     std::vector<ContactShape> contactShapes;
     std::vector<ContactPair> contacts;
     std::vector<Sensor> sensors;
+    std::vector<Stop> stops;  // at most one per limit
 };
 
 struct Model

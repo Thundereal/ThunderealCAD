@@ -828,6 +828,102 @@ TorsionSpring::TorsionSpring()
     Damping.setUnit(Base::Unit(2, 1, -1));
 }
 
+PROPERTY_SOURCE(Assembly::JointStop, Assembly::PhysicsItem)
+
+namespace
+{
+const char* StopModeEnums[] = {"Rigid", "Penalty", "Off", nullptr};
+}
+
+JointStop::JointStop()
+{
+    ADD_PROPERTY_TYPE(Joint,
+                      (nullptr),
+                      "Stop",
+                      App::Prop_None,
+                      "The Slider, Cylindrical or Revolute joint whose limits it stops");
+    ADD_PROPERTY_TYPE(Mode,
+                      (0L),
+                      "Stop",
+                      App::Prop_None,
+                      "Rigid: held at the bound, bouncing back by the restitution. Penalty: "
+                      "pushed back by a spring and a damper on how far past the bound the "
+                      "joint is. Off: not stopped");
+    Mode.setEnums(StopModeEnums);
+    ADD_PROPERTY_TYPE(Restitution,
+                      (0.0),
+                      "Stop",
+                      App::Prop_None,
+                      "Rigid: the speed the joint leaves its bound at over the speed it came "
+                      "in at, 0 (it stays) to 1 (it bounces back as fast)");
+    static const App::PropertyFloatConstraint::Constraints unit = {0.0, 1.0, 0.05};
+    Restitution.setConstraints(&unit);
+    // Defaults: a stiff rubber bumper's, about a millimetre under a 1 kN load
+    ADD_PROPERTY_TYPE(Stiffness,
+                      (1e6),
+                      "Stop",
+                      App::Prop_None,
+                      "Penalty, at a length limit: the force per length past the bound");
+    ADD_PROPERTY_TYPE(Damping,
+                      (1e3),
+                      "Stop",
+                      App::Prop_None,
+                      "Penalty, at a length limit: the force per speed going further past "
+                      "the bound (1 N*s/m)");
+    // A force over a speed: mass / time
+    Damping.setUnit(Base::Unit(0, 1, -1));
+    ADD_PROPERTY_TYPE(TorsionalStiffness,
+                      (1e9),
+                      "Stop",
+                      App::Prop_None,
+                      "Penalty, at an angle limit: the torque per radian past the bound "
+                      "(1 N*m is 1 N m per radian)");
+    TorsionalStiffness.setUnit(Base::Unit(2, 1, -2));
+    ADD_PROPERTY_TYPE(TorsionalDamping,
+                      (1e6),
+                      "Stop",
+                      App::Prop_None,
+                      "Penalty, at an angle limit: the torque per radian per second going "
+                      "further past the bound (1 N*m*s is 1 N m s per radian)");
+    TorsionalDamping.setUnit(Base::Unit(2, 1, -1));
+    updateEditable();
+}
+
+void JointStop::onChanged(const App::Property* prop)
+{
+    if (prop == &Joint || prop == &Mode) {
+        updateEditable();
+    }
+    PhysicsItem::onChanged(prop);
+}
+
+void JointStop::onDocumentRestored()
+{
+    PhysicsItem::onDocumentRestored();
+    updateEditable();
+}
+
+void JointStop::updateEditable()
+{
+    // A joint of no known type shows both
+    bool slides = true;
+    bool turns = true;
+    if (auto* joint = Joint.getValue()) {
+        if (auto* type =
+                dynamic_cast<App::PropertyEnumeration*>(joint->getPropertyByName("JointType"))) {
+            const std::string name = type->getValueAsString();
+            slides = name != "Revolute";
+            turns = name != "Slider";
+        }
+    }
+    const int mode = Mode.getValue();
+    Restitution.setStatus(App::Property::Hidden, mode != 0);
+    Stiffness.setStatus(App::Property::Hidden, mode != 1 || !slides);
+    Damping.setStatus(App::Property::Hidden, mode != 1 || !slides);
+    TorsionalStiffness.setStatus(App::Property::Hidden, mode != 1 || !turns);
+    TorsionalDamping.setStatus(App::Property::Hidden, mode != 1 || !turns);
+}
+
 namespace App
 {
 PROPERTY_SOURCE_TEMPLATE(Assembly::BushingPython, Assembly::Bushing)
@@ -879,6 +975,14 @@ const char* Assembly::TorsionSpringPython::getViewProviderName() const
     return "Gui::ViewProviderPythonFeature";
 }
 template class AssemblyExport FeaturePythonT<Assembly::TorsionSpring>;
+
+PROPERTY_SOURCE_TEMPLATE(Assembly::JointStopPython, Assembly::JointStop)
+template<>
+const char* Assembly::JointStopPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template class AssemblyExport FeaturePythonT<Assembly::JointStop>;
 
 PROPERTY_SOURCE_TEMPLATE(Assembly::SpringDamperPython, Assembly::SpringDamper)
 template<>

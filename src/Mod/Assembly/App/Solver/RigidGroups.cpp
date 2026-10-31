@@ -716,6 +716,7 @@ private:
             dynamics.contactShapes = original.dynamics->contactShapes;
             dynamics.contacts = original.dynamics->contacts;
             dynamics.sensors = original.dynamics->sensors;
+            dynamics.stops = original.dynamics->stops;
             reduced.dynamics = std::move(dynamics);
         }
     }

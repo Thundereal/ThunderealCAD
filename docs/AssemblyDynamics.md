@@ -1080,7 +1080,7 @@ Phase D1 is under way (2026-10-28):
     value or an allowed penetration, and the damping by restitution or a value, each idling the
     other's rows, the slider's powers of ten and the rest it shows; OK
     refused with group A empty.
-  - Not yet: 2D path contact (sec 7.4), penalty stops, contact plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
+  - Not yet: 2D path contact (sec 7.4), contact plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
     The rebound by restitution is r^2's of aluminium -- a ball dropped a
     millimetre reaches 0.0894 for r^2 0.09 at r 0.3, 0.364 for 0.36, 0.645
@@ -1210,6 +1210,56 @@ Phase D1 is under way (2026-10-28):
     its quantities per source, the component idle for a single value, the
     threshold in the unit the results show, written and read back; the
     panel's lines for a mark and a stop.
+- Built: stops per joint, rigid, penalty or off (P10: Inventor's bounds,
+  Creo's range limits, Simscape's hard stop). Sec 5.2 planned this as
+  `JointDynamics`, with the joint's friction; that is two objects as built,
+  as the torsion spring is its own, and the friction is not built.
+  - The document: `Assembly::JointStop` (JointStopPython), a Physics item
+    ticked per study (`Assembly_CreateJointStop`, on the one Slider,
+    Cylindrical or Revolute joint selected; `CommandCreateSpring.
+    makeJointStop()`). `Joint`; `Mode` {Rigid, Penalty, Off}; Rigid's
+    `Restitution` (0 to 1), over the study's for that joint; Penalty's
+    `Stiffness` and `Damping` for a length limit, `TorsionalStiffness` and
+    `TorsionalDamping` for an angle limit (defaults 1e6 N/m, 1e3 N s/m,
+    1e3 N m/rad, 1 N m s/rad); only the fields its mode and its joint's
+    kind use are shown. A joint without one stops rigidly at the study's
+    restitution, as before; a second stop on a joint warns and does
+    nothing, as does one on a joint without limits in the run. A kinematic
+    study holds the limits as it always did.
+  - Limits in a study with motions: upstream's builder drops every limit
+    when a study moves anything, so they cannot clash with its motions. A
+    Dynamic or Static study now keeps them, but on the joints a Position or
+    Speed motion holds: an Effort pushes, and an arm driven onto its stop
+    is what a stop is for.
+  - The model: `Solver::Stop` in `Dynamics::stops`, one per limit (the
+    limit's index, its mode, the restitution -- negative: the study's --
+    and k, c as the limit's kind is); `scaled()` scales an angle's k and c
+    as a torque, compared by `same()`, kept by `GroupedSession`.
+  - The run: a rigid stop is the one the D1 leftovers built, at its own
+    restitution; when one step hits several, the projection's impulse
+    bounces at the least of theirs, so none gains energy. A penalty stop is
+    a `StopLoad`, Chrono's body-body load between the limit's frames: past
+    its bound by d, max(0, k d + c dd/dt) along zI for a slide, about it
+    for a turn -- never pulling -- on frame I's body, and its opposite on
+    J's, in the joint's reaction channels. Implicit through Chrono's
+    numerical jacobian; the turn counted from the one last committed. The
+    steps are cut to resolve it, as a contact's are: a fiftieth of the
+    period of the lighter body on the spring (its mass, or for a turn its
+    inertia about the joint's axis), and 2 m / c, once it is past the bound
+    or will be within a period; half the time to get there before. Off:
+    the limit is not stopped.
+  - Tests (TestDynamics), the dropped block on a 1000 N/m stop: at rest
+    m g / k in, 0.0264779550 mm against 0.026477955 (dynamic; 2e-8 mm off
+    static), the slider carrying m g (4e-16; 8e-7 static); undamped, it goes
+    in 0.487093 mm against m g (h + d) = k d^2 / 2's 0.487482 (the output
+    step's sampling, 1e-4 s) and comes back to 3.9983 of its 4 mm; a rigid
+    stop's restitution 1 over the study's 0 bounces it back 4.011 mm; Off,
+    it falls through as if free (2e-13 mm); an Effort of 1 N pushing it onto
+    a penalty stop settles it (m g + 1 N) / k in (1.4e-8 mm), the Effort's
+    own joint's limit kept. The pendulum on a 10 N m/rad stop at 30 deg
+    settles where k (a - 30 deg) = m g L cos a (1e-4 deg). TestGuiCommands:
+    the command idle until such a joint is selected, the stop made Penalty,
+    ticked in the Dynamic study only, the fields shown per mode, one undo.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

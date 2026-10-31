@@ -1831,14 +1831,15 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         // From the assembly's frame into the body's
         dynamics.inertias.push_back(Solver::moved(inertia, model.bodies[body].placement.inverse()));
     }
-    // Kept: the force elements, the initial velocities, the contact sets and
-    // the sensors addForces() put in first
+    // Kept: the force elements, the initial velocities, the contact sets, the
+    // sensors and the stops addForces() put in first
     if (model.dynamics) {
         dynamics.forces = std::move(model.dynamics->forces);
         dynamics.initial = std::move(model.dynamics->initial);
         dynamics.contactShapes = std::move(model.dynamics->contactShapes);
         dynamics.contacts = std::move(model.dynamics->contacts);
         dynamics.sensors = std::move(model.dynamics->sensors);
+        dynamics.stops = std::move(model.dynamics->stops);
     }
     model.dynamics = std::move(dynamics);
 }
@@ -2122,7 +2123,51 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         pair.id = static_cast<Solver::Id>(model.dynamics->contacts.size());
         model.dynamics->contacts.push_back(std::move(pair));
     };
+    // A joint's stop: a record for each limit the run has of the joint, with
+    // a length's stiffness and damping or an angle's, as the limit is
+    auto addStop = [&](JointStop* stop) {
+        auto* joint = stop->Joint.getValue();
+        const std::string jointName = joint ? joint->getFullName() : std::string();
+        const std::string label = stop->getFullLabel();
+        bool any = false;
+        for (std::size_t k = 0; k < model.limits.size(); ++k) {
+            const Solver::Limit& limit = model.limits[k];
+            if (model.sourceName(limit.source) != jointName) {
+                continue;
+            }
+            any = true;
+            const auto& stops = model.dynamics->stops;
+            if (std::any_of(stops.begin(), stops.end(), [&](const Solver::Stop& other) {
+                    return other.limit == k;
+                })) {
+                Base::Console().warning(
+                    "Assembly: the joint stop %s is on a joint another stop has, and does "
+                    "nothing\n",
+                    label.c_str());
+                return;
+            }
+            Solver::Stop record;
+            record.source = model.addSource(stop->getFullName());
+            record.limit = static_cast<Solver::Id>(k);
+            record.mode = static_cast<Solver::Stop::Mode>(stop->Mode.getValue());
+            record.restitution = stop->Restitution.getValue();
+            const bool turn = limit.kind == Solver::LimitKind::RotationZ;
+            record.k = turn ? stop->TorsionalStiffness.getValue() : stop->Stiffness.getValue();
+            record.c = turn ? stop->TorsionalDamping.getValue() : stop->Damping.getValue();
+            model.dynamics->stops.push_back(record);
+        }
+        if (!any) {
+            Base::Console().warning(
+                "Assembly: the joint stop %s is on no joint with limits the simulation runs, "
+                "and does nothing\n",
+                label.c_str());
+        }
+    };
     for (auto* element : typed->Elements.getValues()) {
+        if (auto* stop = freecad_cast<JointStop*>(element)) {
+            addStop(stop);
+            continue;
+        }
         if (auto* cam = freecad_cast<CamContact*>(element)) {
             addCam(cam);
             continue;
@@ -4342,7 +4387,34 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
     }
 
     // Add limits if needed. We do not add if this is a simulation or their might clash.
-    if (motions.empty()) {
+    // But a Dynamic or Static study keeps them, the run's stops
+    // (docs/AssemblyDynamics.md sec 5.2), on the joints no Position or Speed
+    // motion of it holds: a motor pushing an arm onto its stop is the stop's
+    // whole point, and an Effort pushes rather than holds.
+    auto keepsLimits = [&]() {
+        bool stops = false;
+        for (auto* motion : motions) {
+            std::vector<App::DocumentObject*> driven;
+            if (auto* link = dynamic_cast<App::PropertyLinkBase*>(motion->getPropertyByName("Joint"))) {
+                link->getLinks(driven);
+            }
+            auto* typed = freecad_cast<Motion*>(motion);
+            const bool holds = !typed
+                || static_cast<Solver::MotorControl>(typed->Control.getValue())
+                    != Solver::MotorControl::Effort;
+            if (holds && std::find(driven.begin(), driven.end(), joint) != driven.end()) {
+                return false;
+            }
+            for (auto* parent : motion->getInList()) {
+                if (auto* sim = freecad_cast<Simulation*>(parent);
+                    sim && sim->AnalysisType.getValue() != 0) {
+                    stops = true;
+                }
+            }
+        }
+        return motions.empty() || stops;
+    };
+    if (keepsLimits()) {
         if (jointType == JointType::Slider || jointType == JointType::Cylindrical) {
             auto* pLenMin = dynamic_cast<App::PropertyFloat*>(joint->getPropertyByName("LengthMin"));
             auto* pLenMax = dynamic_cast<App::PropertyFloat*>(joint->getPropertyByName("LengthMax"));

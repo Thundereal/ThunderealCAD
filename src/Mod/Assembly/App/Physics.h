@@ -248,6 +248,53 @@ public:
 
 using TorsionSpringPython = App::FeaturePythonT<TorsionSpring>;
 
+/** How a dynamic or static run stops a joint's limits (docs/AssemblyDynamics.md
+ * sec 5.2, P10), in place of the rigid stops at the study's restitution
+ * that a joint without one gets. Rigid: held at the bound, bouncing back at
+ * Restitution. Penalty: pushed back by a spring and a damper on how far past
+ * the bound the joint is, never pulling -- a rubber bumper, Inventor's
+ * bounds, Simscape's hard stop. Off: the run lets the joint through. On a
+ * Slider, Cylindrical or Revolute joint's length and angle limits; a
+ * kinematic study holds them as it always did.
+ */
+class AssemblyExport JointStop: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::JointStop);
+
+public:
+    JointStop();
+
+    /// A Slider, Cylindrical or Revolute joint with limits
+    App::PropertyLink Joint;
+    /// Rigid, Penalty or Off
+    App::PropertyEnumeration Mode;
+    /// Rigid: the coefficient of restitution, 0 plastic to 1 elastic
+    App::PropertyFloatConstraint Restitution;
+    /// Penalty, at a length limit: the force per length past the bound
+    App::PropertyStiffness Stiffness;
+    /// Penalty, at a length limit: the force per speed going further
+    App::PropertyQuantity Damping;
+    /// Penalty, at an angle limit: the torque per radian past the bound
+    App::PropertyQuantity TorsionalStiffness;
+    /// Penalty, at an angle limit: the torque per radian per second
+    App::PropertyQuantity TorsionalDamping;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderJointStop";
+    }
+
+protected:
+    void onChanged(const App::Property* prop) override;
+    void onDocumentRestored() override;
+
+private:
+    /// Only the fields the mode and the joint's limits use are shown
+    void updateEditable();
+};
+
+using JointStopPython = App::FeaturePythonT<JointStop>;
+
 /** An item at a frame on a component (an applied load, a bushing): an
  * element's frame, the offsets applied, when the item has an element binding,
  * owned as a spring owns its ends -- Component and Frame are then its output,

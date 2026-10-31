@@ -660,6 +660,66 @@ def makeTorsionSpring(assembly, joint, stiffness="1 N*m"):
     return spring
 
 
+# The joints whose limits a stop stops
+StopJointTypes = ("Slider", "Cylindrical", "Revolute")
+
+
+def selectedStopJoint():
+    """The one Slider, Cylindrical or Revolute joint selected, else None"""
+    joints = [
+        o for o in Gui.Selection.getSelection() if getattr(o, "JointType", None) in StopJointTypes
+    ]
+    return joints[0] if len(joints) == 1 else None
+
+
+class CommandCreateJointStop:
+    def GetResources(self):
+        return {
+            "Pixmap": "Assembly_JointStop",
+            "MenuText": QT_TRANSLATE_NOOP("Assembly_CreateJointStop", "Joint Stop"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Assembly_CreateJointStop",
+                "How a dynamic or static simulation stops a joint at its limits: rigid "
+                "with its own\nrestitution, a spring and a damper (penalty), or not at all. "
+                "Select a slider,\ncylindrical or revolute joint first.",
+            ),
+            "CmdType": "ForEdit",
+        }
+
+    def IsActive(self):
+        return UtilsAssembly.isAssemblyCommandActive() and selectedStopJoint() is not None
+
+    def Activated(self):
+        assembly = UtilsAssembly.activeAssembly()
+        joint = selectedStopJoint()
+        if not assembly or joint is None:
+            return
+        stop = makeJointStop(assembly, joint)
+        Gui.Selection.clearSelection()
+        Gui.Selection.addSelection(stop)
+
+
+def makeJointStop(assembly, joint, mode="Penalty"):
+    """A stop for a joint's limits, a penalty one by default (a joint without
+    one stops rigidly already), in a transaction; ticked in every Dynamic and
+    Static study of the assembly."""
+    doc = assembly.Document
+    doc.openTransaction(translate("Assembly", "Create joint stop"))
+    try:
+        physics = assembly.getGroup("Physics", True)
+        stop = physics.newObject("Assembly::JointStop", "JointStop")
+        stop.Joint = joint
+        stop.Mode = mode
+        sims = assembly.getGroup("Simulations")
+        for sim in sims.Group if sims else []:
+            if getattr(sim, "AnalysisType", None) in ("Dynamic", "Static"):
+                sim.Elements = list(sim.Elements) + [stop]
+    finally:
+        doc.commitTransaction()
+    return stop
+
+
 if App.GuiUp:
     Gui.addCommand("Assembly_CreateSpring", CommandCreateSpring())
     Gui.addCommand("Assembly_CreateTorsionSpring", CommandCreateTorsionSpring())
+    Gui.addCommand("Assembly_CreateJointStop", CommandCreateJointStop())

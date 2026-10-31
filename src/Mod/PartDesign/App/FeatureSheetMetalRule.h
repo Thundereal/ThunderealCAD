@@ -86,6 +86,11 @@ public:
     SheetMetal::Allowance getAllowance() const;
     /// A bend of the rule's thickness, of its BendRadius unless given another
     SheetMetal::Bend getBend(double angle, double radius = -1) const;
+    /** The K of a sheet model's bend (SheetMetal::CylBend): the one that
+     * gives this rule's allowance for a bend through angle (rad) of that
+     * inner radius, by whatever method
+     */
+    double modelK(double angle, double radius) const;
 
 private:
     /// Take what the card gives into every value not set by hand

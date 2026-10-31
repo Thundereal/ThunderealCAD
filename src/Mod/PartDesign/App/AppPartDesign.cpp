@@ -70,6 +70,7 @@
 #include "SolidBody.h"
 #include "FeatureSheetMetalRule.h"
 #include "FeatureSheetMetalBaseWall.h"
+#include "FeatureSheetMetalFlange.h"
 #include "PropertySheetModel.h"
 #include "SheetMetalExtension.h"
 
@@ -186,6 +187,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::PropertySheetModel          ::init();
     PartDesign::SheetMetalExtension         ::init();
     PartDesign::SheetMetalBaseWall          ::init();
+    PartDesign::SheetMetalFlange            ::init();
 
     PyMOD_Return(mod);
 }

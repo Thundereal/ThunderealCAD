@@ -28,9 +28,6 @@
 #include <numbers>
 
 #include <BRepAdaptor_Curve.hxx>
-#include <BRepBuilderAPI_MakeEdge.hxx>
-#include <BRepBuilderAPI_MakeFace.hxx>
-#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
 #include <Precision.hxx>
@@ -38,14 +35,13 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Vertex.hxx>
-#include <gp_Ax2.hxx>
-#include <gp_Circ.hxx>
 
 #include <App/Document.h>
 #include <Base/Exception.h>
 
 #include "FeatureSheetMetalBaseWall.h"
 #include "FeatureSheetMetalRule.h"
+#include "SheetMetal/Pieces.h"
 
 using namespace PartDesign;
 using Part::TopoShape;
@@ -91,57 +87,6 @@ namespace
 using SheetMetal::CylBend;
 using SheetMetal::Element;
 using SheetMetal::Model;
-
-/// A planar face of the given edges, in order, each edge and the face named
-TopoShape namedFace(const std::vector<std::pair<TopoDS_Edge, std::string>>& edges,
-                    const std::string& name)
-{
-    BRepBuilderAPI_MakeWire wire;
-    for (const auto& edge : edges) {
-        wire.Add(edge.first);
-    }
-    if (!wire.IsDone()) {
-        FC_THROWM(Base::CADKernelError, "Sheet metal: no outline for " << name);
-    }
-    BRepBuilderAPI_MakeFace face(wire.Wire(), true);
-    if (!face.IsDone()) {
-        FC_THROWM(Base::CADKernelError, "Sheet metal: no face for " << name);
-    }
-    TopoShape res(face.Face());
-    res.setElementName(Data::IndexedName::fromConst("Face", 1), Data::MappedName(name));
-    // the wire builder may hand back copies of the edges: find each by place
-    for (int i = 1; i <= res.countSubShapes(TopAbs_EDGE); ++i) {
-        const TopoDS_Edge e = TopoDS::Edge(res.getSubShape(TopAbs_EDGE, i));
-        BRepAdaptor_Curve c(e);
-        const gp_Pnt mid = c.Value((c.FirstParameter() + c.LastParameter()) / 2);
-        for (const auto& edge : edges) {
-            BRepAdaptor_Curve d(edge.first);
-            if (d.Value((d.FirstParameter() + d.LastParameter()) / 2).Distance(mid)
-                < Precision::Confusion()) {
-                res.setElementName(Data::IndexedName::fromConst("Edge", i),
-                                   Data::MappedName(edge.second));
-                break;
-            }
-        }
-    }
-    return res;
-}
-
-TopoDS_Edge line(const gp_Pnt& a, const gp_Pnt& b)
-{
-    return BRepBuilderAPI_MakeEdge(a, b).Edge();
-}
-
-/// An arc about the frame's Z, from its X through angle, reversed if asked
-TopoDS_Edge arc(const gp_Ax3& frame, double radius, double angle, bool reversed)
-{
-    const gp_Ax2 ax(frame.Location(), frame.Direction(), frame.XDirection());
-    TopoDS_Edge e = BRepBuilderAPI_MakeEdge(gp_Circ(ax, radius), 0, angle).Edge();
-    if (reversed) {
-        e.Reverse();
-    }
-    return e;
-}
 
 /// The lines of an open wire as points in order, lines in a row along one
 /// direction made one
@@ -191,14 +136,6 @@ struct Builder
     std::string nextBend()
     {
         return "Bend" + std::to_string(++bends);
-    }
-
-    /// K for the model's fold map: what gives the rule's allowance
-    double kFor(double angle) const
-    {
-        const double ba = SheetMetal::bendAllowance(rule->getBend(angle, radius),
-                                                    rule->getAllowance());
-        return (ba / angle - radius) / thickness;
     }
 
     /// The pieces of a profile wall on the sketch's plane, normal n;
@@ -252,15 +189,15 @@ struct Builder
                 FC_THROWM(Base::ValueError,
                           "Line " << i + 1 << " of the profile is too short for its bends");
             }
-            const gp_Vec la = gp_Vec(l[i]) * a, lb = gp_Vec(l[i]) * b;
+            const gp_Pnt origin = start[i].Translated(gp_Vec(l[i]) * a);
             const std::string name = nextWall();
-            const int wall = model.addWall(name, gp_Ax3(start[i].Translated(la), l[i], d[i]));
-            faces.push_back(namedFace(
-                {{line(start[i].Translated(la), end[i].Translated(la)), name + "Skin1"},
-                 {line(end[i].Translated(la), end[i].Translated(lb)), name + "End"},
-                 {line(end[i].Translated(lb), start[i].Translated(lb)), name + "Skin2"},
-                 {line(start[i].Translated(lb), start[i].Translated(la)), name + "Start"}},
-                name));
+            const int wall = model.addWall(name, gp_Ax3(origin, l[i], d[i]));
+            faces.push_back(SheetMetal::wallSection(origin,
+                                                    d[i],
+                                                    start[i].Distance(end[i]),
+                                                    l[i],
+                                                    thickness,
+                                                    name));
             if (i > 0) {
                 bend(center[i], l[i - 1], n, turn[i], previous, wall);
             }
@@ -278,20 +215,10 @@ struct Builder
         bend.radius = radius;
         bend.thickness = thickness;
         bend.angle = std::abs(turn);
-        bend.k = kFor(bend.angle);
+        bend.k = rule->modelK(bend.angle, radius);
         const std::string name = nextBend();
         model.addBend(name, bend, before, after);
-        const gp_Dir x = bend.frame.XDirection();
-        const gp_Dir x2 = x.Rotated(gp_Ax1(c, bend.frame.Direction()), bend.angle);
-        const double outer = radius + thickness;
-        faces.push_back(namedFace(
-            {{line(c.Translated(gp_Vec(x) * outer), c.Translated(gp_Vec(x) * radius)),
-              name + "Start"},
-             {arc(bend.frame, radius, bend.angle, false), name + "Inner"},
-             {line(c.Translated(gp_Vec(x2) * radius), c.Translated(gp_Vec(x2) * outer)),
-              name + "End"},
-             {arc(bend.frame, outer, bend.angle, true), name + "Outer"}},
-            name));
+        faces.push_back(SheetMetal::bendSection(bend, name));
     }
 };
 

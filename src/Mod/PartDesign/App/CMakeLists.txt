@@ -161,10 +161,14 @@ SET(SheetMetal_SRCS
     SheetMetal/Fold.h
     SheetMetal/Model.cpp
     SheetMetal/Model.h
+    SheetMetal/Pieces.cpp
+    SheetMetal/Pieces.h
     FeatureSheetMetalRule.cpp
     FeatureSheetMetalRule.h
     FeatureSheetMetalBaseWall.cpp
     FeatureSheetMetalBaseWall.h
+    FeatureSheetMetalFlange.cpp
+    FeatureSheetMetalFlange.h
     PropertySheetModel.cpp
     PropertySheetModel.h
     SheetMetalExtension.cpp

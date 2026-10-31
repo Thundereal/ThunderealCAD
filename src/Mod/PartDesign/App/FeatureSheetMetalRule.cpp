@@ -299,6 +299,12 @@ SheetMetal::Bend SheetMetalRule::getBend(double angle, double radius) const
     return {Thickness.getValue(), radius < 0 ? BendRadius.getValue() : radius, angle};
 }
 
+double SheetMetalRule::modelK(double angle, double radius) const
+{
+    const double ba = SheetMetal::bendAllowance(getBend(angle, radius), getAllowance());
+    return (ba / angle - radius) / Thickness.getValue();
+}
+
 SheetMetal::Allowance SheetMetalRule::getAllowance() const
 {
     using Method = SheetMetal::Allowance::Method;

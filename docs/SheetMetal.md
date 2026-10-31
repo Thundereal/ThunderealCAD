@@ -680,8 +680,14 @@ and not frozen.
   - `Gap1`, `Gap2` narrow the flange at the edge's ends; the wall is cut back under it only. No
     bend relief yet (M2).
   - Still to come in M1: the `Tangent` length type, a flange up to a face or parallel to one,
-    extents past the edge's ends, a miter where two flanges of one feature meet, a closed sketch
-    for the leg's shape, and extend wall.
+    extents past the edge's ends, a miter where two flanges of one feature meet, and a closed
+    sketch for the leg's shape.
+- M1's extend wall, `PartDesign::SheetMetalExtendWall` (5.1), with `TestSheetMetalExtendWall` (7)
+  (a229435ab6), its command and panel (234138ce56): each face a wall's end across the sheet,
+  carried along its normal by `Length` or up to `UpToFace`'s plane; a negative length cuts the
+  wall back, one that leaves nothing is refused. The extension is the wall's own, so the model is
+  as it was and the flat grows with it. Still to come: the gaps and the clearance against walls it
+  would meet.
 - M1's flat pattern, `PartDesign::SheetMetalFlatPattern` (4.7), with `TestSheetMetalFlatPattern`
   (10) (ad6b48f059). As built:
   - `SheetMetal::flatten()` in the geometry layer, a pure function: each face of the folded

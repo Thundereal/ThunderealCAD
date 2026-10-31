@@ -6,6 +6,7 @@
   - Base Wall on a selected closed sketch makes a plate in the active body,
     the sketch hidden, and with it the rule; its panel opens, and OK closes it;
   - Flange on a selected edge of the wall's skin makes a flange there;
+  - Extend Wall on a selected end of a wall carries it out;
   - Flat Pattern makes the flat of the body's tip, not the body's tip itself;
   - the solid body holding the sheet has the sheet metal overlay on its icon;
   - a double-click on it makes it active, which offers the tool bar, and a
@@ -155,6 +156,29 @@ def run():
             flange and (flange.State, flange.Edges),
         )
         check("and it is the body's tip", body.Tip == flange)
+
+        near = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(flange.Shape.Faces)
+            if abs(f.BoundBox.YMin) < 1e-7 and abs(f.BoundBox.YMax) < 1e-7
+        ]
+        volume = flange.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, near[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalExtendWall")
+        pump()
+        check("Extend Wall opens its panel, OK closes it", ok())
+        doc.recompute()
+        ext = newest(doc, before, "PartDesign::SheetMetalExtendWall")
+        check(
+            "Extend Wall on a selected end carries it out",
+            ext is not None
+            and "Invalid" not in ext.State
+            and abs(ext.Shape.Volume - volume - 40 * ext.Length.Value) < 1e-6,
+            ext and (ext.State, ext.Shape.Volume, volume),
+        )
+        flange = ext
 
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()

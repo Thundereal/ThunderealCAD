@@ -8,6 +8,7 @@
   - Flange opens its panel with its edge listed; the angle set there is the
     flange's; the edge removed leaves it saying why it is invalid; another
     edge picked with Add is listed and the flange good again;
+  - Extend Wall's panel lists its face, its length set there;
   - Cancel on a new base wall takes it away.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
@@ -183,6 +184,32 @@ def run():
             edges.count() == 1 and "Invalid" not in flange.State and w["labelStatus"].text() == "",
             (edges.count(), flange.State, w["labelStatus"].text()),
         )
+        accept()
+        pump(20)
+
+        # the flange went to the near edge in the end: the far end is plain
+        far = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(flange.Shape.Faces)
+            if abs(f.BoundBox.YMin - 20) < 1e-7 and abs(f.BoundBox.YMax - 20) < 1e-7
+        ]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, far[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalExtendWall")
+        pump()
+        ext = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalExtendWall"][0]
+        w = panel() or {}
+        faces = w.get("listFaces")
+        check(
+            "Extend Wall opens its panel with its face listed and its length",
+            faces is not None and faces.count() == 1 and "Length" in w,
+            (faces and faces.count(), "Length" in w),
+        )
+        w["Length"].setProperty("rawValue", 7.0)
+        pump(20)
+        doc.recompute()
+        check("the length set there is the feature's", abs(ext.Length.Value - 7) < 1e-9,
+              ext.Length.Value)
         accept()
         pump(20)
 

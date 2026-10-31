@@ -1,7 +1,7 @@
 """Sheet metal's commands from a browser's connection (docs/SheetMetal.md
 sec 8.2: every command on the browser allowlist, as Surface's).
 
-Base Wall, Flange and Flat Pattern go on the allowlist; none opens a dialog,
+Base Wall, Flange, Extend Wall and Flat Pattern go on the allowlist; none opens a dialog,
 and each says a selection or a body it cannot use in the report view. A
 document served with no window, one client with a camera, over a real
 socket. Asserted:
@@ -90,6 +90,7 @@ COMMANDS = (
     "PartDesign_SheetMetalBaseWall",
     "PartDesign_SheetMetalFlange",
     "PartDesign_SheetMetalFlatPattern",
+    "PartDesign_SheetMetalExtendWall",
 )
 
 

@@ -643,6 +643,21 @@ and not frozen.
   - Still to come in M1: the `Tangent` length type, a flange up to a face or parallel to one,
     extents past the edge's ends, a miter where two flanges of one feature meet, a closed sketch
     for the leg's shape, and extend wall.
+- M1's flat pattern, `PartDesign::SheetMetalFlatPattern` (4.7), with `TestSheetMetalFlatPattern`
+  (10) (ad6b48f059). As built:
+  - `SheetMetal::flatten()` in the geometry layer, a pure function: each face of the folded
+    solid through its element's map (a wall's rigidly; a bend's edges through the fold map, a
+    line where an edge maps to one, else a B-spline through samples, the face rebuilt on its
+    plane), sewn into one solid with the root wall's skin on XY, the material above.
+  - `Source` is the folded part, a sheet metal feature or one after it; its model is the nearest
+    sheet metal feature's, so a pocket's faces are placed by where they lie (4.2 way 2, tested).
+    `RootFace` is a wall's skin, the first wall's first skin if none.
+  - The shape is a compound of the flat solid and one bend line per bend, along the bend's
+    middle on the inner skin, named after the bend.
+  - Refused by name for now: a face no element owns, a face of a bend that does not lie flat as a
+    plane (risk 2's approximation is still to come), a flat that does not close.
+  - Still to come in M1: the flat's faces named after the folded ones, bend lines up and down
+    and the tangent lines, the flat's orientation, the manufacturing properties, the DXF.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

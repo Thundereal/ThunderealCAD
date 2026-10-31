@@ -1095,6 +1095,14 @@ const SURFACE_COMMANDS = new Set([
   'Surface_GeomFillSurface',
 ]);
 
+/// Sheet metal's commands that make an object from the selection and open
+/// nothing.
+const SHEET_METAL_COMMANDS = new Set([
+  'PartDesign_SheetMetalBaseWall',
+  'PartDesign_SheetMetalFlange',
+  'PartDesign_SheetMetalFlatPattern',
+]);
+
 /// The `command` op's allowlist as the server has it (SceneControl.cpp
 /// isBrowserSafeCommand), for drawing a button disabled rather than
 /// letting it be refused. The server's copy is the one that decides.
@@ -1107,7 +1115,8 @@ export function isBrowserSafeCommand(name: string): boolean {
     || name === 'Sketcher_CarbonCopy'
     || DIALOG_FREE_CONSTRAINTS.has(name)
     || SKETCH3D_COMMANDS.has(name)
-    || SURFACE_COMMANDS.has(name);
+    || SURFACE_COMMANDS.has(name)
+    || SHEET_METAL_COMMANDS.has(name);
 }
 
 /// Bytes as base64, in chunks: `String.fromCharCode(...bytes)` over a whole

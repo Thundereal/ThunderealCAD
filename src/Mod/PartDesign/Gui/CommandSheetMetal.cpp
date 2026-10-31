@@ -26,11 +26,10 @@
 
 #include "PreCompiled.h"
 
-#include <QMessageBox>
-
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <App/Document.h>
+#include <Base/Console.h>
 #include <Base/Tools.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
@@ -55,11 +54,25 @@ void finishFeature(const Gui::Command* cmd,
 namespace
 {
 
+/// Said in the report view, not a dialog: the commands are run from a
+/// browser's connection too (docs/SheetMetal.md sec 8.2)
 void warn(const char* title, const char* text)
 {
-    QMessageBox::warning(Gui::getMainWindow(),
-                         QObject::tr(title),
-                         QObject::tr(text));
+    Base::Console().userWarning("%s: %s\n",
+                                QObject::tr(title).toUtf8().constData(),
+                                QObject::tr(text).toUtf8().constData());
+}
+
+/// The active body, or the document's only one; said in the report view if
+/// there is none
+PartDesign::Body* activeBody()
+{
+    PartDesign::Body* body = PartDesignGui::getBody(/*messageIfNot*/ false);
+    if (!body) {
+        warn(QT_TR_NOOP("No active body"),
+             QT_TR_NOOP("Make a body active, or make one, for the sheet metal feature."));
+    }
+    return body;
 }
 
 /// Make a feature of that type in the body; null if it was not made
@@ -95,7 +108,7 @@ CmdPartDesignSheetMetalBaseWall::CmdPartDesignSheetMetalBaseWall()
 void CmdPartDesignSheetMetalBaseWall::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    PartDesign::Body* body = PartDesignGui::getBody(/*messageIfNot*/ true);
+    PartDesign::Body* body = activeBody();
     if (!body) {
         return;
     }
@@ -151,7 +164,7 @@ CmdPartDesignSheetMetalFlange::CmdPartDesignSheetMetalFlange()
 void CmdPartDesignSheetMetalFlange::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    PartDesign::Body* body = PartDesignGui::getBody(/*messageIfNot*/ true);
+    PartDesign::Body* body = activeBody();
     if (!body) {
         return;
     }
@@ -215,7 +228,7 @@ CmdPartDesignSheetMetalFlatPattern::CmdPartDesignSheetMetalFlatPattern()
 void CmdPartDesignSheetMetalFlatPattern::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    PartDesign::Body* body = PartDesignGui::getBody(/*messageIfNot*/ true);
+    PartDesign::Body* body = activeBody();
     if (!body) {
         return;
     }

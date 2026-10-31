@@ -557,9 +557,15 @@ Built 2026-10-31 for sheet metal (9bb82c8a2a), tested by `GuiSheetMetalCommands`
 tool bar (Base Wall, Flange, Flat Pattern, Export Flat to DXF) is offered while a sheet's solid body
 is active (`pdsheetmetal`) or a sheet metal feature is in edit, the solid body carrying the sheet
 metal overlay; the types are of the kind `SheetMetal` on a body; the Part Design menu's Sheet Metal
-submenu holds Base Wall. The commands take selection and make the feature; their values are edited
-in the property view until the task panels come (M1, still to come, written for the browser as
-Surface's were).
+submenu holds Base Wall. The commands take selection and make the feature, and open its panel.
+Base Wall, Flange and Flat Pattern are on the browser allowlist (76a9426063): they open no dialog,
+saying a selection or a body they cannot use in the report view; Export Flat to DXF asks for a file
+and is not. The panels (66d645d6c7, `GuiSheetMetalPanels`): a box for each value, of the property's
+type and named after it, so the panel mirror carries it; the rule's values said; what is wrong said
+in the panel after any recompute; the flange's edges listed, picked with Add, taken out with Remove.
+OK commits, Cancel takes a new feature away. Still to come: the flat pattern's panel (its root face,
+the manufacturing values), and the rule's (its card, the values the card gives and the ones set by
+hand).
 
 ### 8.2 In the view
 

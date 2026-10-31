@@ -625,6 +625,24 @@ and not frozen.
   its top level, since it counts only what a child links locally and `Rule` is global: the body
   leaves out what its solid bodies claim, through a hook on the group extension
   (`excludeFromExport()`). Tested by `GuiSheetMetalTree`.
+- M1's flange, `PartDesign::SheetMetalFlange` (5.1), with `TestSheetMetalFlange` (13)
+  (65b9cac04f). As built:
+  - On edges where a wall's skin meets its end (an end face across the sheet), all joined in one
+    boolean; the edges track the feature built on, as a dress-up's `Base` does.
+  - It bends toward the side of the skin the edge is on, `Reversed` toward the other, through
+    `Angle` with the rule's radius.
+  - `LengthType`: `Leg` the straight part, `InnerSharp` and `OuterSharp` from where the inner or
+    outer skins of wall and leg meet (default `OuterSharp`).
+  - `BendPosition`: `MaterialInside` puts the leg's outer skin at the wall's end,
+    `MaterialOutside` its inner skin, both seen at the virtual sharp for an angle not 90 (a cut
+    back of (R + T) tan(A / 2) and R tan(A / 2)); `BendOutside` starts the bend there. `Offset`
+    moves the bend out, the wall carried on to it. Where the bend starts inside the wall, the
+    wall is cut back under the flange, one cut before the join.
+  - `Gap1`, `Gap2` narrow the flange at the edge's ends; the wall is cut back under it only. No
+    bend relief yet (M2).
+  - Still to come in M1: the `Tangent` length type, a flange up to a face or parallel to one,
+    extents past the edge's ends, a miter where two flanges of one feature meet, a closed sketch
+    for the leg's shape, and extend wall.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

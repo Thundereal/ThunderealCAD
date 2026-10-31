@@ -254,6 +254,19 @@ is the recompute engine's work, and docs/ComputeBoundaries.md's workers. The M1 
 64-flange chain rebuilt in under 2.5 s, and one flange added to it in under 80 ms, through the real
 features, element maps and all.
 
+**Measured against it 2026-10-31** (`scripts/sheetmetal-chain-probe.py`, M0's part through the real
+features, one per flange, frozen / unfrozen): the 64-flange chain rebuilds in 3.47 s / 4.54 s, and
+a 65th flange adds in 140 ms / 220 ms -- **the target is not met**. Of the last flange's 125 ms,
+87 ms is its one join with the 646-face part, 6 ms the join of its own bend and leg, 4 ms setting
+the shape, the rest the document's recompute. The join costs more than M0's 51 ms for the 64th
+named join; that, glue for material that only touches, and a recompute that starts at the edited
+feature are what is left to look at.
+- The first measurement was 26 s: the flange moved the base by its location and had its placement
+  applied to its shape, and a location made of an identity placement is not an empty one, so every
+  flange stacked another and every boolean keyed the edges' curves on their surfaces to it
+  (fixed, f3146520da: the flange is built in place, as a pad of the current version is). Other
+  PartDesign features that apply their placement this way -- dress-ups, primitives -- are likely
+  to pay the same down a long chain; not measured.
 ### 4.5 Two layers, as in Surface
 
 - **`App/Geom/`: geometry, no document.**

@@ -184,6 +184,108 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         flat = self.flat(box)
         self.assertIn("Invalid", flat.State)
 
+    def testManufacturing(self):
+        """What a bill of materials takes (sec 5.4): the flat's size and area,
+        thickness, material, bend count and largest angle"""
+        import Materials
+
+        wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+        card = Materials.Material()
+        card.Name = "Sheet test"
+        wall.Rule.ShapeMaterial = card
+        flat = self.flat(wall)
+        self.assertAlmostEqual(flat.FlatLength.Value, 19 + ba() + 9, places=6)
+        self.assertAlmostEqual(flat.FlatWidth.Value, 15, places=6)
+        self.assertAlmostEqual(flat.FlatArea.Value, (19 + ba() + 9) * 15, places=6)
+        self.assertAlmostEqual(flat.Thickness.Value, 1)
+        self.assertEqual(flat.MaterialName, "Sheet test")
+        self.assertEqual(flat.BendCount, 1)
+        self.assertAlmostEqual(flat.MaxBendAngle.Value, 90)
+        for name in ("FlatLength", "FlatWidth", "FlatArea", "BendCount", "MaxBendAngle"):
+            self.assertIn("ReadOnly", flat.getEditorMode(name))
+
+    def testBendDirections(self):
+        """Up where the material comes up toward one looking down on the
+        flat; turned over, every bend the other way"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10), (40, 10)], Length=15)
+        flat = self.flat(wall)
+        self.assertEqual(flat.BendDirections, {"Bend1": "Up", "Bend2": "Down"})
+        # the first wall's other skin, y = 0, laid down
+        root = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(wall.Shape.Faces)
+            if abs(f.BoundBox.YMin) < 1e-7 and abs(f.BoundBox.YMax) < 1e-7
+        ]
+        self.assertEqual(len(root), 1)
+        flat.RootFace = (wall, root)
+        self.Doc.recompute()
+        self.assertEqual(flat.BendDirections, {"Bend1": "Down", "Bend2": "Up"})
+
+    def readDXF(self, path):
+        """The entities of a DXF file: (type, layer, {code: value})"""
+        with open(path) as f:
+            lines = [line.strip() for line in f]
+        pairs = list(zip(lines[0::2], lines[1::2]))
+        entities, current, inside = [], None, False
+        for code, value in pairs:
+            if code == "2" and value == "ENTITIES":
+                inside = True
+                continue
+            if not inside:
+                continue
+            if code == "0":
+                if current:
+                    entities.append(current)
+                current = None if value in ("ENDSEC", "EOF", "SEQEND") else [value, "", {}]
+                if value == "ENDSEC":
+                    inside = False
+            elif current is not None:
+                if code == "8":
+                    current[1] = value
+                else:
+                    current[2].setdefault(code, []).append(value)
+        return entities
+
+    def exportDXF(self, flat):
+        path = os.path.join(tempfile.mkdtemp(), "flat.dxf")
+        flat.exportDXF(path)
+        return self.readDXF(path)
+
+    def testDXF(self):
+        """The outline, the bend lines up and down on layers of their own,
+        each bend labelled"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10), (40, 10)], Length=15)
+        flat = self.flat(wall)
+        ents = self.exportDXF(flat)
+        outline = [e for e in ents if e[1] == "OUTLINE"]
+        self.assertEqual({e[0] for e in outline}, {"LINE"})
+        self.assertEqual(len(outline), 4)
+        xs = [float(x) for e in outline for x in e[2]["10"] + e[2]["11"]]
+        ys = [float(y) for e in outline for y in e[2]["20"] + e[2]["21"]]
+        size = sorted([max(xs) - min(xs), max(ys) - min(ys)])
+        self.assertAlmostEqual(size[1], flat.FlatLength.Value, places=6)
+        self.assertAlmostEqual(size[0], flat.FlatWidth.Value, places=6)
+        self.assertEqual(len([e for e in ents if e[1] == "BEND_UP" and e[0] == "LINE"]), 1)
+        self.assertEqual(len([e for e in ents if e[1] == "BEND_DOWN" and e[0] == "LINE"]), 1)
+        labels = sorted(e[2]["1"][0] for e in ents if e[1] == "LABELS" and e[0] == "TEXT")
+        self.assertEqual(labels, ["Bend1", "Bend2"])
+        self.assertEqual([e for e in ents if e[1] == "INNER"], [])
+
+    def testDXFHole(self):
+        """A round hole is a circle on the inner layer"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True)
+        sketch = self.Body.newObject("Sketcher::SketchObject", "HoleSketch")
+        sketch.addGeometry(Part.Circle(V(8, 5, 0), V(0, 0, 1), 2))
+        pocket = self.Body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = sketch
+        pocket.Type = "ThroughAll"
+        pocket.Midplane = True
+        self.Doc.recompute()
+        flat = self.flat(pocket)
+        inner = [e for e in self.exportDXF(flat) if e[1] == "INNER"]
+        self.assertEqual([e[0] for e in inner], ["CIRCLE"])
+        self.assertAlmostEqual(float(inner[0][2]["40"][0]), 2, places=6)
+
     def testSaveAndRestore(self):
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
         flat = self.flat(wall)

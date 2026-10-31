@@ -1100,6 +1100,7 @@ const SURFACE_COMMANDS = new Set([
 const SHEET_METAL_COMMANDS = new Set([
   'PartDesign_SheetMetalBaseWall',
   'PartDesign_SheetMetalFlange',
+  'PartDesign_SheetMetalExtendWall',
   'PartDesign_SheetMetalFlatPattern',
 ]);
 

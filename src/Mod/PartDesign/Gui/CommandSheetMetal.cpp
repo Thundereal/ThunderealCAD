@@ -217,6 +217,66 @@ bool CmdPartDesignSheetMetalFlange::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalExtendWall
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalExtendWall)
+
+CmdPartDesignSheetMetalExtendWall::CmdPartDesignSheetMetalExtendWall()
+    : Command("PartDesign_SheetMetalExtendWall")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Extend Wall");
+    sToolTipText = QT_TR_NOOP("Carries the selected ends of walls out by a length, or up to a\n"
+                              "face; a negative length cuts the wall back");
+    sWhatsThis = "PartDesign_SheetMetalExtendWall";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalExtendWall";
+}
+
+void CmdPartDesignSheetMetalExtendWall::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream faces;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            faces << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue()) {
+        warn(QT_TR_NOOP("No wall end"),
+             QT_TR_NOOP("Select ends of walls on the body's tip, each a face across the sheet."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Extend Wall"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalExtendWall", "ExtendWall");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Faces = (" << getObjectCmd(base) << ", [" << faces.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalExtendWall::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatPattern
 //===========================================================================
 
@@ -344,6 +404,7 @@ void CreatePartDesignSheetMetalCommands()
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
     mgr.addCommand(new CmdPartDesignSheetMetalBaseWall());
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
+    mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatPattern());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
 }

@@ -38,6 +38,11 @@ class QLabel;
 class QListWidget;
 class QToolButton;
 
+namespace App
+{
+class PropertyLinkSub;
+}
+
 namespace PartDesignGui
 {
 
@@ -46,8 +51,9 @@ namespace PartDesignGui
  * A box for each value it is given, by the property's name and of its type
  * -- a quantity, a choice, a switch -- named after it, so the panel mirror
  * carries it to a browser; the rule's values said; and what is wrong said in
- * the panel, never in a dialog. With edges, the list of them, picked in the
- * view from the feature built on.
+ * the panel, never in a dialog. With refs, the property listing the
+ * feature's edges or faces (element), their list, picked in the view from the
+ * feature built on.
  */
 class TaskSheetMetalParameters: public TaskFeatureParameters, public Gui::SelectionObserver
 {
@@ -58,7 +64,8 @@ public:
                              const std::string& pixmap,
                              const QString& title,
                              const std::vector<const char*>& values,
-                             bool edges);
+                             const char* refs = nullptr,
+                             const char* element = "Edge");
     ~TaskSheetMetalParameters() override;
 
     void refresh() override;
@@ -69,18 +76,22 @@ protected:
 
 private:
     App::Property* property(const char* name) const;
+    App::PropertyLinkSub* references() const;
+    App::DocumentObject* builtOn() const;
     void addValue(class QGridLayout* grid, int row, const char* name);
-    void fillEdges();
+    void fillList();
     void startPick(bool on);
-    void removeEdge();
+    void removeCurrent();
     void showStatus();
 
     QWidget* proxy;
-    QListWidget* edgeList = nullptr;
+    QListWidget* refList = nullptr;
     QToolButton* addButton = nullptr;
     QLabel* rule;
     QLabel* status;
     std::vector<const char*> names;
+    const char* refs;
+    std::string element;
     std::map<std::string, QWidget*> boxes;
     bool picking = false;
     fastsignals::scoped_connection recomputed;

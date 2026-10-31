@@ -190,6 +190,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderSolidBody     ::init();
     PartDesignGui::ViewProviderSheetMetalBaseWall::init();
     PartDesignGui::ViewProviderSheetMetalFlange::init();
+    PartDesignGui::ViewProviderSheetMetalExtendWall::init();
 
      // add resources and reloads the translators
     loadPartDesignResource();
@@ -203,6 +204,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     sheetMetal.toolbars = {{"Sheet Metal", [](Gui::ToolBarItem& item) {
         item << "PartDesign_SheetMetalBaseWall"
              << "PartDesign_SheetMetalFlange"
+             << "PartDesign_SheetMetalExtendWall"
              << "Separator"
              << "PartDesign_SheetMetalFlatPattern"
              << "PartDesign_SheetMetalExportDXF";

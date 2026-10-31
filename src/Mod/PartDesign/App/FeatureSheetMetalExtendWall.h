@@ -56,6 +56,10 @@ public:
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
     void onChanged(const App::Property* prop) override;
+    const char* getViewProviderName() const override
+    {
+        return "PartDesignGui::ViewProviderSheetMetalExtendWall";
+    }
     bool shouldApplyPlacement() override
     {
         // built in place, as the flange is (SheetMetalFlange::shouldApplyPlacement())

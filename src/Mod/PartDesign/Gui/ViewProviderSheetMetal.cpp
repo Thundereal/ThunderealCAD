@@ -43,8 +43,7 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalBaseWall::getEditDialog()
         new TaskSheetMetalParameters(this,
                                      "PartDesign_SheetMetalBaseWall",
                                      QObject::tr("Base wall parameters"),
-                                     {"MaterialSide", "Length", "Reversed", "Midplane"},
-                                     /*edges*/ false));
+                                     {"MaterialSide", "Length", "Reversed", "Midplane"}));
 }
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlange, PartDesignGui::ViewProviderAddSub)
@@ -63,5 +62,24 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalFlange::getEditDialog()
             "PartDesign_SheetMetalFlange",
             QObject::tr("Flange parameters"),
             {"Angle", "Length", "LengthType", "BendPosition", "Offset", "Gap1", "Gap2", "Reversed"},
-            /*edges*/ true));
+            "Edges",
+            "Edge"));
+}
+
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalExtendWall, PartDesignGui::ViewProviderAddSub)
+
+ViewProviderSheetMetalExtendWall::ViewProviderSheetMetalExtendWall()
+{
+    sPixmap = "PartDesign_SheetMetalExtendWall";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalExtendWall::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(this,
+                                           new TaskSheetMetalParameters(this,
+                                                                        "PartDesign_SheetMetalExtendWall",
+                                                                        QObject::tr("Extend wall parameters"),
+                                                                        {"Length"},
+                                                                        "Faces",
+                                                                        "Face"));
 }

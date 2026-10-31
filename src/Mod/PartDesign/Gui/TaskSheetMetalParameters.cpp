@@ -40,7 +40,8 @@
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 #include <Gui/QuantitySpinBox.h>
-#include <Mod/PartDesign/App/FeatureSheetMetalFlange.h>
+#include <App/PropertyLinks.h>
+#include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/SheetMetalExtension.h>
 
@@ -51,20 +52,22 @@ using namespace PartDesignGui;
 namespace
 {
 
-/// Edges of the feature built on
-class EdgeGate: public Gui::SelectionGate
+/// Elements of one kind of the feature built on
+class ElementGate: public Gui::SelectionGate
 {
 public:
-    explicit EdgeGate(App::DocumentObject* base)
+    ElementGate(App::DocumentObject* base, std::string element)
         : base(base)
+        , element(std::move(element))
     {}
     bool allow(App::Document*, App::DocumentObject* obj, const char* sub) override
     {
-        return obj && obj == base && sub && std::string(sub).rfind("Edge", 0) == 0;
+        return obj && obj == base && sub && std::string(sub).rfind(element, 0) == 0;
     }
 
 private:
     App::DocumentObject* base;
+    std::string element;
 };
 
 QString number(double v)
@@ -78,10 +81,13 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
                                                    const std::string& pixmap,
                                                    const QString& title,
                                                    const std::vector<const char*>& values,
-                                                   bool edges)
+                                                   const char* refs,
+                                                   const char* element)
     : TaskFeatureParameters(vp, nullptr, pixmap, title)
     , Gui::SelectionObserver(true, Gui::ResolveMode::OldStyleElement)
     , names(values)
+    , refs(refs)
+    , element(element)
 {
     proxy = new QWidget(this);
     proxy->setObjectName(QStringLiteral("TaskSheetMetalParameters"));
@@ -89,31 +95,34 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
 
     auto grid = new QGridLayout;
     int row = 0;
-    if (edges) {
-        edgeList = new QListWidget(proxy);
-        edgeList->setObjectName(QStringLiteral("listEdges"));
-        edgeList->setMaximumHeight(110);
-        edgeList->setToolTip(tr("The edges, each where a wall's skin meets its end"));
-        auto remove = new QAction(tr("Remove"), edgeList);
+    if (refs) {
+        const QString kind = element == "Face" ? tr("faces") : tr("edges");
+        refList = new QListWidget(proxy);
+        refList->setObjectName(QStringLiteral("list") + QString::fromLatin1(refs));
+        refList->setMaximumHeight(110);
+        if (App::Property* prop = property(refs)) {
+            refList->setToolTip(QString::fromUtf8(prop->getDocumentation()));
+        }
+        auto remove = new QAction(tr("Remove"), refList);
         remove->setShortcut(QKeySequence::Delete);
-        edgeList->addAction(remove);
-        edgeList->setContextMenuPolicy(Qt::ActionsContextMenu);
-        connect(remove, &QAction::triggered, this, &TaskSheetMetalParameters::removeEdge);
-        grid->addWidget(edgeList, row++, 0, 1, 2);
+        refList->addAction(remove);
+        refList->setContextMenuPolicy(Qt::ActionsContextMenu);
+        connect(remove, &QAction::triggered, this, &TaskSheetMetalParameters::removeCurrent);
+        grid->addWidget(refList, row++, 0, 1, 2);
         addButton = new QToolButton(proxy);
         addButton->setObjectName(QStringLiteral("buttonAdd"));
         addButton->setText(tr("Add"));
         addButton->setCheckable(true);
         addButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        addButton->setToolTip(tr("Pick edges in the view"));
+        addButton->setToolTip(tr("Pick %1 in the view").arg(kind));
         connect(addButton, &QToolButton::toggled, this, &TaskSheetMetalParameters::startPick);
         grid->addWidget(addButton, row, 0);
         auto removeButton = new QToolButton(proxy);
         removeButton->setObjectName(QStringLiteral("buttonRemove"));
         removeButton->setText(tr("Remove"));
         removeButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        removeButton->setToolTip(tr("Take the edge selected in the list out"));
-        connect(removeButton, &QToolButton::clicked, this, &TaskSheetMetalParameters::removeEdge);
+        removeButton->setToolTip(tr("Take the one selected in the list out"));
+        connect(removeButton, &QToolButton::clicked, this, &TaskSheetMetalParameters::removeCurrent);
         grid->addWidget(removeButton, row++, 1);
     }
     for (const char* name : names) {
@@ -239,20 +248,31 @@ void TaskSheetMetalParameters::refresh()
             static_cast<QCheckBox*>(box)->setChecked(b->getValue());
         }
     }
-    fillEdges();
+    fillList();
     showStatus();
 }
 
-void TaskSheetMetalParameters::fillEdges()
+App::PropertyLinkSub* TaskSheetMetalParameters::references() const
 {
-    auto flange = vp ? dynamic_cast<PartDesign::SheetMetalFlange*>(vp->getObject()) : nullptr;
-    if (!edgeList || !flange) {
+    return refs ? dynamic_cast<App::PropertyLinkSub*>(property(refs)) : nullptr;
+}
+
+App::DocumentObject* TaskSheetMetalParameters::builtOn() const
+{
+    auto feature = vp ? dynamic_cast<PartDesign::Feature*>(vp->getObject()) : nullptr;
+    return feature ? feature->BaseFeature.getValue() : nullptr;
+}
+
+void TaskSheetMetalParameters::fillList()
+{
+    auto list = references();
+    if (!refList || !list) {
         return;
     }
-    QSignalBlocker block(edgeList);
-    edgeList->clear();
-    for (const auto& sub : flange->Edges.getSubValues()) {
-        edgeList->addItem(QString::fromStdString(sub));
+    QSignalBlocker block(refList);
+    refList->clear();
+    for (const auto& sub : list->getSubValues()) {
+        refList->addItem(QString::fromStdString(sub));
     }
 }
 
@@ -280,13 +300,12 @@ void TaskSheetMetalParameters::finishedRecomputeFeature()
 
 void TaskSheetMetalParameters::startPick(bool on)
 {
-    auto flange = vp ? dynamic_cast<PartDesign::SheetMetalFlange*>(vp->getObject()) : nullptr;
-    if (on == picking || !flange) {
+    if (on == picking || !references()) {
         return;
     }
     if (on) {
         Gui::Selection().clearSelection();
-        Gui::Selection().addSelectionGate(new EdgeGate(flange->BaseFeature.getValue()));
+        Gui::Selection().addSelectionGate(new ElementGate(builtOn(), element));
     }
     else {
         Gui::Selection().rmvSelectionGate();
@@ -296,22 +315,22 @@ void TaskSheetMetalParameters::startPick(bool on)
 
 void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
 {
-    auto flange = vp ? dynamic_cast<PartDesign::SheetMetalFlange*>(vp->getObject()) : nullptr;
-    if (!picking || !flange || msg.Type != Gui::SelectionChanges::AddSelection) {
+    auto list = references();
+    if (!picking || !list || msg.Type != Gui::SelectionChanges::AddSelection) {
         return;
     }
-    App::DocumentObject* base = flange->BaseFeature.getValue();
+    App::DocumentObject* base = builtOn();
     App::DocumentObject* obj = msg.Object.getObject();
     const std::string sub = msg.pSubName ? msg.pSubName : "";
-    if (!base || obj != base || sub.rfind("Edge", 0) != 0) {
+    if (!base || obj != base || sub.rfind(element, 0) != 0) {
         return;
     }
-    auto subs = flange->Edges.getSubValues();
+    auto subs = list->getSubValues();
     if (std::find(subs.begin(), subs.end(), sub) == subs.end()) {
-        setupTransaction(tr("add an edge"));
+        setupTransaction(element == "Face" ? tr("add a face") : tr("add an edge"));
         subs.push_back(sub);
-        flange->Edges.setValue(base, subs);
-        fillEdges();
+        list->setValue(base, subs);
+        fillList();
         recomputeFeature();
     }
     QTimer::singleShot(50, this, [] {
@@ -319,21 +338,21 @@ void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& m
     });
 }
 
-void TaskSheetMetalParameters::removeEdge()
+void TaskSheetMetalParameters::removeCurrent()
 {
-    auto flange = vp ? dynamic_cast<PartDesign::SheetMetalFlange*>(vp->getObject()) : nullptr;
-    const int row = edgeList ? edgeList->currentRow() : -1;
-    if (!flange || row < 0) {
+    auto list = references();
+    const int row = refList ? refList->currentRow() : -1;
+    if (!list || row < 0) {
         return;
     }
-    auto subs = flange->Edges.getSubValues();
+    auto subs = list->getSubValues();
     if (row >= static_cast<int>(subs.size())) {
         return;
     }
-    setupTransaction(tr("remove an edge"));
+    setupTransaction(element == "Face" ? tr("remove a face") : tr("remove an edge"));
     subs.erase(subs.begin() + row);
-    flange->Edges.setValue(flange->Edges.getValue(), subs);
-    fillEdges();
+    list->setValue(list->getValue(), subs);
+    fillList();
     recomputeFeature();
 }
 

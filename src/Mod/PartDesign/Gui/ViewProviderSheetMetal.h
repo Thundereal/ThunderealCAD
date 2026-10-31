@@ -54,4 +54,16 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// An extend wall, its panel its faces and length
+class PartDesignGuiExport ViewProviderSheetMetalExtendWall: public ViewProviderAddSub
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalExtendWall);
+
+public:
+    ViewProviderSheetMetalExtendWall();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 }  // namespace PartDesignGui

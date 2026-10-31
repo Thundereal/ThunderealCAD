@@ -936,6 +936,7 @@ bool isBrowserSafeCommand(const QString &name)
     static const QSet<QString> sheetMetal = {
         QStringLiteral("PartDesign_SheetMetalBaseWall"),
         QStringLiteral("PartDesign_SheetMetalFlange"),
+        QStringLiteral("PartDesign_SheetMetalExtendWall"),
         QStringLiteral("PartDesign_SheetMetalFlatPattern"),
     };
     // Sketcher_External's three siblings start the same handler in another

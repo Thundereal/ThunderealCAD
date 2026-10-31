@@ -763,6 +763,30 @@ struct StepTouched
     }
 };
 
+/// Each object whose result an undo or redo cannot bring back
+/// (DocumentObject::resultInProperties) added to `touch` when `applied`,
+/// the writes it made, holds the object or anything it depends on: a
+/// drawing of a shape put back shows the shape it was last made from, and
+/// the rows say it was clean (docs/MultiViewEdit.md sec 12.10).
+void addResultsNotKept(const Document& doc, const Transaction& applied, std::set<long>& touch)
+{
+    for (auto obj : doc.getObjects()) {
+        if (obj->resultInProperties() || touch.count(obj->getID()))
+            continue;
+        bool written = applied.hasObject(obj);
+        if (!written) {
+            for (auto dep : obj->getOutListRecursive()) {
+                if (applied.hasObject(dep)) {
+                    written = true;
+                    break;
+                }
+            }
+        }
+        if (written)
+            touch.insert(obj->getID());
+    }
+}
+
 /** Section 24.4's refuse rule for undoing row `seq` when it is not the tip:
  * every property it left in a state must still be in that state -- the
  * newest op on it after `seq`, if any, left it the same -- so the undo
@@ -1420,6 +1444,13 @@ bool Document::_revertStep(bool undo, Transaction* step)
         // recompute below is outside of it.
         Base::FlagToggler<bool> flag(d->undoing);
         _applyRevert(revert);
+        std::set<long> notKept;
+        addResultsNotKept(*this, *inverse, notKept);
+        for (long id : notKept) {
+            auto obj = getObjectByID(id);
+            if (obj && revert.touched.insert(id).second)
+                obj->touch();
+        }
     }
     if (!revert.touched.empty()) {
         if (Transaction::isApplying())
@@ -1568,8 +1599,18 @@ bool Document::_takeStep(bool undo, int id)
     // The stacks are kept whatever the log makes of the step: an inverse
     // left as the active transaction would take the next write as its own.
     try {
+        auto touch = cold.touched;
+        addResultsNotKept(*this, *d->activeUndoTransaction, touch);
         if (touched.active)
-            touched.leave(*this, *d->activeUndoTransaction, cold.touched);
+            touched.leave(*this, *d->activeUndoTransaction, touch);
+        else {
+            // No rows to fold: what the step wrote is touched by the guard,
+            // and these with it
+            for (long cid : touch) {
+                if (auto obj = getObjectByID(cid))
+                    obj->touch();
+            }
+        }
         logInverse(*step, undo ? "undo" : "redo", step->Cold ? &cold : nullptr);
     }
     catch (Base::Exception& e) {

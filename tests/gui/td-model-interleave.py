@@ -386,6 +386,12 @@ def run():
 
         # 6. The model's undo, then a recompute
         run_in(va, "Std_Undo")
+        settle(300)
+        state("6 3D undo")
+        # The view's projection is not put back by an undo: marked, not
+        # left stale and clean (docs/MultiViewEdit.md sec 12.10)
+        check("6: before a recompute the drawing is right or marked",
+              tallest() == 20.0 or "Touched" in R.tview.State, (tallest(), R.tview.State))
         doc.recompute()
         h = drawn()
         state("6 3D undo + recompute")

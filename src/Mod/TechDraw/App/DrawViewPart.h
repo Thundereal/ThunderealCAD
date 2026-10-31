@@ -149,6 +149,11 @@ public:
     TechDraw::PropertyProjectedGeometry ProjectedGeometry;
 
     short mustExecute() const override;
+    /// The projection is kept in the view, not in its properties
+    bool resultInProperties() const override
+    {
+        return false;
+    }
     App::DocumentObjectExecReturn* execute() override;
     const char* getViewProviderName() const override { return "TechDrawGui::ViewProviderViewPart"; }
     PyObject* getPyObject() override;

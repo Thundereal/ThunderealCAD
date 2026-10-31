@@ -739,3 +739,43 @@ step every view lists.
 Tests: `tests/gui/per-view-undo.py`; `tests/gui/td-model-interleave.py`, a
 drawing and the model it draws each in edit in a view of its own, their
 changes interleaved with recomputes, undo and redo from either view.
+
+### 12.10 What an undo leaves to recompute (user, 2026-10-31)
+
+Found by `td-model-interleave.py`: after an undo of a change to the model,
+the drawing showed the model as it was before the undo, and nothing was
+marked to recompute. The user asked for the touched state an undo leaves
+to be checked first: a step made from a clean state should be undone to a
+clean one, needing no recompute.
+
+What the undo does (measured on a box drawn by a part view, its length
+changed, recomputed, undone, redone; `FreeCADCmd`, log on and off). With
+the log on, an undo leaves each object the touched state the rows say it
+had before the step, and a redo the state before the undo (sec 27.63 of
+`docs/TransactionLogJournal.md`): a step made clean is undone clean, one
+made over a touched box leaves it touched. The box's length and shape come
+back together, as the shape is in the step (the recompute's writes ride
+with the step under them). With the log off every object an undo or redo
+writes is touched, as upstream does, and the next recompute makes it all
+again.
+
+What went wrong is the drawing, not the state. A part view keeps its
+projection in the view (`DrawViewPart::m_geometryObject`), not in a
+property, and a dimension keeps its measured points the same way; no undo
+puts them back. The rows say the view was clean before the step, and that
+is what it was told, so it showed the 20 mm box with the length back at
+15 and nothing to say so.
+
+`DocumentObject::resultInProperties()`, true by default, false for
+`DrawViewPart` (and what derives from it: section, detail, projection
+group item) and `DrawViewDimension`. After an undo or redo applies its
+writes, such an object is touched when the writes (the step that takes it
+back again) hold the object or anything it depends on -- with the log, in
+the set touched last as a cold undo's lost derived values are
+(`StepTouched::leave`), so the undo's row records it; through the log
+(`_revertStep`), with the values that revert leaves to its recompute. With
+the log off the box is left touched, and the next recompute would make the
+view again anyway; it is touched all the same, so the tree says the same
+in both modes.
+
+Test: `src/Mod/TechDraw/TDTest/DrawViewUndoTest.py`.

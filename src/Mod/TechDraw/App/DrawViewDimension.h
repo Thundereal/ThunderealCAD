@@ -108,6 +108,11 @@ enum DimensionType {
 
 
     short mustExecute() const override;
+    /// The points measured are kept in the dimension, not in its properties
+    bool resultInProperties() const override
+    {
+        return false;
+    }
     virtual bool has2DReferences() const;
     virtual bool has3DReferences() const;
     bool hasOverUnderTolerance() const;

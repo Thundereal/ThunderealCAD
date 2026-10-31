@@ -76,6 +76,7 @@ from PartDesignTests.TestSheetMetalBaseWall import TestSheetMetalBaseWall
 from PartDesignTests.TestSheetMetalFlange import TestSheetMetalFlange
 from PartDesignTests.TestSheetMetalFlatPattern import TestSheetMetalFlatPattern
 from PartDesignTests.TestSheetMetalPart import TestSheetMetalPart
+from PartDesignTests.TestChainLocations import TestChainLocations
 from PartDesignTests.TestDefeaturing import TestDefeaturing
 from PartDesignTests.TestSuppressed import TestSuppressed
 from PartDesignTests.TestRetryOnCopy import TestRetryOnCopy

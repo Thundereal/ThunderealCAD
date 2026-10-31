@@ -1366,6 +1366,54 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(dynamic.Elements, [])
         self.assertClean()
 
+    def test_profile_contact(self):
+        """Idle until planar faces of two components are selected -- not one
+        component's, not a curved face; then a profile contact on them,
+        selected, its law by an allowed penetration with no friction, ticked
+        in the Dynamic study and not the Kinematic one; one undo takes it out"""
+        a = self.assembly.newObject("Part::Box", "Wheel")
+        b = self.assembly.newObject("Part::Cylinder", "Pin")
+        b.Placement.Base = App.Vector(20, 0, 0)
+        sims = self.assembly.getGroup("Simulations", True)
+        dynamic = sims.newObject("Assembly::Simulation", "Dynamic")
+        dynamic.AnalysisType = "Dynamic"
+        kinematic = sims.newObject("Assembly::Simulation", "Kinematic")
+        self.doc.recompute()
+        _process()
+        command = Gui.Command.get("Assembly_CreateProfileContact")
+
+        def select(*subs):
+            Gui.Selection.clearSelection()
+            for sub in subs:
+                Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, sub)
+            _process()
+
+        select()
+        self.assertFalse(command.isActive())
+        select("Wheel.Face6")
+        self.assertFalse(command.isActive())
+        select("Wheel.Face6", "Wheel.Face5")
+        self.assertFalse(command.isActive())
+        select("Wheel.Face6", "Pin.Face1")
+        self.assertFalse(command.isActive())
+        select("Wheel.Face6", "Pin.Face2")
+        self.run_command("Assembly_CreateProfileContact")
+        contacts = [o for o in self.contactSets() if o.isDerivedFrom("Assembly::ProfileContact")]
+        self.assertEqual(len(contacts), 1)
+        contact = contacts[0]
+        self.assertEqual((contact.ProfileA[0], list(contact.ProfileA[1])), (a, ["Face6"]))
+        self.assertEqual((contact.ProfileB[0], list(contact.ProfileB[1])), (b, ["Face2"]))
+        self.assertEqual(Gui.Selection.getSelection(), [contact])
+        self.assertEqual(contact.StiffnessFrom, "Penetration")
+        self.assertEqual(contact.StaticFriction, 0.0)
+        self.assertIn(contact, dynamic.Elements)
+        self.assertNotIn(contact, kinematic.Elements)
+        self.doc.undo()
+        _process()
+        self.assertEqual(self.contactSets(), [])
+        self.assertEqual(dynamic.Elements, [])
+        self.assertClean()
+
     def test_joint_stop(self):
         """Idle until a Slider, Cylindrical or Revolute joint is selected; then
         a penalty stop on it, selected, ticked in the Dynamic study and not the

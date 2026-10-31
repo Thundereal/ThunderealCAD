@@ -205,4 +205,14 @@ public:
     QIcon getIcon() const override;
 };
 
+/// A profile contact: its icon; the property editor takes its faces and
+/// its law
+class AssemblyGuiExport ViewProviderProfileContact: public Gui::ViewProviderDocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderProfileContact);
+
+public:
+    QIcon getIcon() const override;
+};
+
 }  // namespace AssemblyGui

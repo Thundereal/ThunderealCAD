@@ -525,6 +525,13 @@ QIcon ViewProviderCamContact::getIcon() const
     return Gui::BitmapFactory().pixmap("Assembly_CamContact.svg");
 }
 
+PROPERTY_SOURCE(AssemblyGui::ViewProviderProfileContact, Gui::ViewProviderDocumentObject)
+
+QIcon ViewProviderProfileContact::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_ProfileContact.svg");
+}
+
 PROPERTY_SOURCE(AssemblyGui::ViewProviderContactSet, Gui::ViewProviderDocumentObject)
 
 QIcon ViewProviderContactSet::getIcon() const

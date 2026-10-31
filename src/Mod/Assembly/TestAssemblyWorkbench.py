@@ -69,6 +69,7 @@ from AssemblyTests.TestImportAsm3 import TestImportAsm3
 from AssemblyTests.TestMassProperties import TestMassProperties
 from AssemblyTests.TestDynamics import TestDynamics
 from AssemblyTests.TestContact import TestContact
+from AssemblyTests.TestProfileContact import TestProfileContact
 from AssemblyTests.TestSpringEnds import (
     TestBushingEnd,
     TestLoadEnd,
@@ -126,6 +127,7 @@ True if TestImportAsm3 else False
 True if TestMassProperties else False
 True if TestDynamics else False
 True if TestContact else False
+True if TestProfileContact else False
 True if TestSpringEnds else False
 True if TestLoadEnd else False
 True if TestBushingEnd else False

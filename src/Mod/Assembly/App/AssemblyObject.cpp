@@ -41,6 +41,7 @@
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <Standard_Failure.hxx>
+#include <TopExp_Explorer.hxx>
 
 
 #include <App/Application.h>
@@ -2123,6 +2124,118 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         pair.id = static_cast<Solver::Id>(model.dynamics->contacts.size());
         model.dynamics->contacts.push_back(std::move(pair));
     };
+    // A profile contact: each face of either side as its profile, on a
+    // frame of its component in the face's plane; the two sides' planes
+    // parallel where the run starts
+    auto addProfiles = [&](ProfileContact* contact) {
+        const std::string label = contact->getFullLabel();
+        Solver::ContactPair pair;
+        Base::Vector3d normal;
+        bool first = true;
+        auto side = [&](App::PropertyLinkSub& prop, std::vector<Solver::Id>& ids) {
+            auto* component = prop.getValue();
+            if (!component) {
+                return false;
+            }
+            for (const auto& sub : prop.getSubValues()) {
+                ::Part::TopoShape face;
+                try {
+                    // In the component's own coordinates
+                    face = ::Part::Feature::getTopoShape(component,
+                                                         sub.c_str(),
+                                                         true,
+                                                         nullptr,
+                                                         nullptr,
+                                                         true,
+                                                         false);
+                }
+                catch (const Base::Exception& e) {
+                    e.reportException();
+                }
+                // The solid the face is on, for how far the part reaches
+                // either side of the plane
+                TopoDS_Shape solid;
+                if (!face.isNull()) {
+                    try {
+                        const ::Part::TopoShape whole = ::Part::Feature::getTopoShape(component,
+                                                                                    nullptr,
+                                                                                    false,
+                                                                                    nullptr,
+                                                                                    nullptr,
+                                                                                    true,
+                                                                                    false);
+                        for (const auto& candidate : whole.getSubTopoShapes(TopAbs_SOLID)) {
+                            for (TopExp_Explorer it(candidate.getShape(), TopAbs_FACE);
+                                 it.More() && solid.IsNull();
+                                 it.Next()) {
+                                if (it.Current().IsSame(face.getShape())) {
+                                    solid = candidate.getShape();
+                                }
+                            }
+                        }
+                        if (solid.IsNull()) {
+                            solid = whole.getShape();
+                        }
+                    }
+                    catch (const Base::Exception& e) {
+                        e.reportException();
+                    }
+                }
+                auto profile = profileOf(face.getShape(), solid);
+                if (!profile) {
+                    Base::Console().error(
+                        "Assembly: %s of %s in the profile contact %s is not a planar face\n",
+                        sub.c_str(),
+                        component->getFullLabel().c_str(),
+                        label.c_str());
+                    ++badFormulas;
+                    return false;
+                }
+                Solver::ContactShape record;
+                record.kind = Solver::ContactShape::Kind::Profile;
+                record.size = Base::Vector3d(profile->low, profile->high, 0.0);
+                record.pieces = std::move(profile->pieces);
+                record.loops = std::move(profile->loops);
+                record.frame = frameOn(component,
+                                       profile->placement,
+                                       contact->getFullName() + "-" + component->getNameInDocument()
+                                           + "-" + sub);
+                // The plane's normal where the run starts
+                Base::Vector3d z =
+                    placementOf(record.frame).getRotation().multVec(Base::Vector3d(0, 0, 1));
+                if (first) {
+                    normal = z;
+                    first = false;
+                }
+                else if (std::abs(normal * z) < 1.0 - 1e-6) {
+                    Base::Console().error(
+                        "Assembly: %s of %s in the profile contact %s is not parallel to the "
+                        "contact's first face\n",
+                        sub.c_str(),
+                        component->getFullLabel().c_str(),
+                        label.c_str());
+                    ++badFormulas;
+                    return false;
+                }
+                ids.push_back(static_cast<Solver::Id>(model.dynamics->contactShapes.size()));
+                model.dynamics->contactShapes.push_back(std::move(record));
+            }
+            return !ids.empty();
+        };
+        if (!side(contact->ProfileA, pair.groupA) || !side(contact->ProfileB, pair.groupB)) {
+            Base::Console().warning("Assembly: the profile contact %s has nothing to touch\n",
+                                    label.c_str());
+            return;
+        }
+        pair.source = model.addSource(contact->getFullName());
+        pair.law = lawOf(contact);
+        // A profile has no width for Hertz's law
+        if (pair.law.from == Solver::ContactLaw::Stiffness::Materials) {
+            pair.law.from = Solver::ContactLaw::Stiffness::Penetration;
+        }
+        pair.id = static_cast<Solver::Id>(model.dynamics->contacts.size());
+        model.dynamics->contacts.push_back(std::move(pair));
+    };
     // A joint's stop: a record for each limit the run has of the joint, with
     // a length's stiffness and damping or an angle's, as the limit is
     auto addStop = [&](JointStop* stop) {
@@ -2170,6 +2283,10 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         }
         if (auto* cam = freecad_cast<CamContact*>(element)) {
             addCam(cam);
+            continue;
+        }
+        if (auto* profiles = freecad_cast<ProfileContact*>(element)) {
+            addProfiles(profiles);
             continue;
         }
         if (auto* set = freecad_cast<ContactSet*>(element)) {

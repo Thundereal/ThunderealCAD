@@ -1080,7 +1080,7 @@ Phase D1 is under way (2026-10-28):
     value or an allowed penetration, and the damping by restitution or a value, each idling the
     other's rows, the slider's powers of ten and the rest it shows; OK
     refused with group A empty.
-  - Not yet: 2D path contact (sec 7.4); the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
+  - Not yet: the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
     The rebound by restitution is r^2's of aluminium -- a ball dropped a
     millimetre reaches 0.0894 for r^2 0.09 at r 0.3, 0.364 for 0.36, 0.645
@@ -1148,8 +1148,9 @@ Phase D1 is under way (2026-10-28):
     joint is selected, then the set on it, selected, by an allowed
     penetration with no friction, ticked in the Dynamic study and not the
     Kinematic one, and one undo taking it out.
-  - Not yet: a follower that is itself a curve (Adams CVCV), 2D path
-    contact, a cam's pressure angle and slip in the results.
+  - Not yet: a follower that is itself a curve (Adams CVCV), a cam's
+    pressure angle and slip in the results. (A planar cam between two
+    profiles is the profile contact, below.)
 - Built: sensors that stop a run or mark the time (sec 5.2's `Sensor`,
   P15: Adams' SENSOR, CATIA's stop on collision, NX's Stop_On_Event).
   - The document: `Assembly::Sensor` (SensorPython), a child of a
@@ -1281,6 +1282,66 @@ Phase D1 is under way (2026-10-28):
     in the manual's video (allowed penetration 0.02 mm).
   - Not yet: contact begin and end as events (sec 8.4), and a pair's own
     channels within a set.
+- Built: profile contact (sec 7.4's 2D path, rung 5), for mechanisms that
+  move in a plane: a Geneva wheel and its driver, a pin in a slot.
+  - The document: `Assembly::ProfileContact`, a `ContactSet` (Physics;
+    `Assembly_CreateProfileContact` on planar faces of two components,
+    `CommandCreateContact.newProfileContact(assembly, a, facesA, b,
+    facesB)`, ticked in the Dynamic and Static studies) whose `ProfileA`
+    and `ProfileB` are a component's planar faces each (`PropertyLinkSub`,
+    any number); GroupA, GroupB and RadiusFrom hidden; its law a set's, by
+    default an allowed penetration with no friction (Materials runs as
+    Penetration: a profile has no width for Hertz's law). The faces stand
+    for their parts' sections in the plane, at whatever height they are.
+  - Not `ChCollisionShapePath2D`: Chrono's 2D algorithms take one point a
+    pair, ignore a segment's ends (a corner on a flat is not seen), never
+    let a hollow arc meet a segment, and lean on Bullet's margins.
+  - The model: `ContactShape::Kind::Profile` on a frame in the face's
+    plane, its `pieces` (`ProfilePiece`: a segment, or an arc by its centre
+    and signed sweep) in `loops`, the face to their left; `size.x` and
+    `size.y` how far the face's solid reaches below and above the plane.
+    `profileOf()` (ContactShapes.cpp) reads each wire's edges in order
+    through their pcurves on the plane (`BRepTools_WireExplorer`), lines
+    and circles as they are, any other curve by
+    `Geom2dConvert_ApproxArcsSegments` within 1e-3 mm, and turns a loop
+    round when a point just left of its longest piece is not in the face
+    (`BRepClass_FaceClassifier`). Faces not parallel where the run starts
+    are refused.
+  - The run: no Bullet shape. A ContactLoad per pair of bodies, its
+    points found at each collision detection (`ContactHandover::
+    ProfileFollow`, as a cam's): B's profile brought into A's plane (its
+    loops turned round once when its plane faces A's), and
+    `profileTouches()` finds where each goes deepest into the other, or
+    within Bullet's envelope of it -- each convex corner of either, an
+    arc's point farthest across a segment of the other, or along the line
+    of the centres from an arc of the other -- the other's nearest
+    boundary point to it, with an outward normal (a corner's between its
+    pieces') telling in from out. Exact on lines and arcs. Each point is at
+    the middle of where the two solids overlap through the plane, so that
+    a free part is pushed through its centre's height and not tipped out of
+    its plane (applied at the faces' height, a disc resting on an edge was
+    turned over by its own weight). A point's patch keys are its pieces
+    (`Point::piecesA`, `piecesB`; a corner's two): a flat lying on a flat,
+    touching at both corners, is one patch, and a pin and a locking disc
+    on one wheel are two.
+  - Tests (TestProfileContact): a disc dropped a millimetre onto a plate's
+    edge, gravity in the plane, rests sunk by the allowance (1e-6 mm), its
+    weight on the plate (1e-5); a block dropped flat rests level on both
+    corners (1e-6 rad) sunk by the allowance -- two patches would sink it
+    2^(-2/3) of it -- the plate's profile its bottom face, facing the
+    block's the other way; a disc dropped into a round notch wider than it
+    settles at the notch's bottom (1e-4 mm); a four-slot Geneva drive, the
+    driver's pin and its locking disc on the wheel, the driver turning
+    once a second: the pin's centre on the slot's axis within the slot's
+    clearance while it is in it, the wheel a quarter turn round after
+    (0.2 deg), held there. Its run of a second takes 1.7 s; the wheel
+    follows the ideal motion within 0.2 deg, picking up 10 ms late across
+    the slot's clearance, and the locking disc holds it within 0.1 deg.
+    TestGuiCommands: the command idle until planar faces of two components
+    are selected, then the contact on them, ticked in the Dynamic study
+    only, one undo.
+  - Not yet: a face's part through its own thickness (the faces' solids
+    give the height only); faces not parallel to each other.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

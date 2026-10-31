@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- A profile contact: a wheel's profile with a slot, a driver's pin in it -->
+  <path d="M 56.6,26 A 26,26 0 1 0 56.6,38 L 36,38 A 6,6 0 0 1 36,26 Z"
+        fill="#babdb6" stroke="#2e3436" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="30" cy="32" r="3" fill="#2e3436"/>
+  <circle cx="44" cy="32" r="5.5" fill="#729fcf" stroke="#2e3436" stroke-width="2"/>
+  <path d="M 44,20 L 44,24 M 44,40 L 44,44" fill="none" stroke="#cc0000"
+        stroke-width="3" stroke-linecap="round"/>
+</svg>

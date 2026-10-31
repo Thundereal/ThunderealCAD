@@ -174,11 +174,20 @@ bool same(const ContactShape& a, const ContactShape& b)
 {
     if (a.frame != b.frame || a.kind != b.kind || !same(a.size, b.size)
         || a.points.size() != b.points.size() || a.triangles != b.triangles
-        || a.modulus != b.modulus || a.volume != b.volume) {
+        || a.modulus != b.modulus || a.volume != b.volume || a.loops != b.loops
+        || a.pieces.size() != b.pieces.size()) {
         return false;
     }
     for (std::size_t i = 0; i < a.points.size(); ++i) {
         if (!same(a.points[i], b.points[i])) {
+            return false;
+        }
+    }
+    for (std::size_t i = 0; i < a.pieces.size(); ++i) {
+        const ProfilePiece& x = a.pieces[i];
+        const ProfilePiece& y = b.pieces[i];
+        if (!same(x.from, y.from) || !same(x.to, y.to) || !same(x.centre, y.centre)
+            || x.sweep != y.sweep) {
             return false;
         }
     }
@@ -394,6 +403,11 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             shape.size = shape.size * length;
             for (auto& point : shape.points) {
                 point = point * length;
+            }
+            for (auto& piece : shape.pieces) {
+                piece.from = piece.from * length;
+                piece.to = piece.to * length;
+                piece.centre = piece.centre * length;
             }
             shape.modulus /= length;
             shape.volume *= length * length * length;

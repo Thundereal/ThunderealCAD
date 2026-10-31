@@ -60,4 +60,24 @@ struct SolidContactShape
 AssemblyExport std::optional<SolidContactShape> contactShapeOf(const TopoDS_Shape& solid,
                                                                double deflection = 0.0);
 
+// A planar face's profile (docs/AssemblyDynamics.md sec 7.1's rung 5, sec
+// 7.4's 2D path), in the coordinates the face is given in: 'placement' its
+// plane's frame, x and y the plane's, z their cross product; its wires' loops
+// in that frame's xy plane, each piece a segment or an arc, the face on its
+// left. Lines and circles as they are, any other curve in arcs and segments
+// within 'tolerance' (mm). And how far 'solid' (the face's, given in the
+// same coordinates) reaches along z, below and above the plane. None when
+// the face is not planar or has no loop.
+struct ProfileContactShape
+{
+    Base::Placement placement;
+    std::vector<Solver::ProfilePiece> pieces;
+    std::vector<int> loops;  // where each loop starts in pieces
+    double low = 0.0;
+    double high = 0.0;
+};
+
+AssemblyExport std::optional<ProfileContactShape>
+profileOf(const TopoDS_Shape& face, const TopoDS_Shape& solid, double tolerance = 1e-3);
+
 }  // namespace Assembly

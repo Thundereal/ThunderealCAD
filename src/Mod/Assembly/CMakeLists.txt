@@ -72,6 +72,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestMassProperties.py
     AssemblyTests/TestDynamics.py
     AssemblyTests/TestContact.py
+    AssemblyTests/TestProfileContact.py
     AssemblyTests/TestSpringEnds.py
     AssemblyTests/TestCommandCreateView.py
     AssemblyTests/TestCommandInsertLink.py

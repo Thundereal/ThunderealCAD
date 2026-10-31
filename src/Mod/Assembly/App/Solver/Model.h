@@ -392,10 +392,25 @@ struct ContactLaw
     double vFriction = 10.16;  // mm/s
 };
 
+// A piece of a planar profile (ContactShape::Kind::Profile), in its frame's
+// xy plane (z 0): a segment from 'from' to 'to', or, 'sweep' not 0, an arc
+// about 'centre' turning 'sweep' radians from 'from' to 'to', positive
+// counterclockwise. The material is on its left: a counterclockwise arc is
+// convex, a clockwise one hollow.
+struct ProfilePiece
+{
+    Base::Vector3d from;
+    Base::Vector3d to;
+    Base::Vector3d centre;
+    double sweep = 0.0;
+};
+
 // A solid's contact geometry (sec 7.1, the ladder's first rungs): a
 // primitive the solid is, centred on its frame along its axes; the convex
-// hull of points on it; or its closed mesh, in its frame. On a frame, as
-// every force element is, so that the reductions that move frames move it.
+// hull of points on it; or its closed mesh, in its frame. Or a planar face's
+// profile (rung 5, sec 7.4's 2D path): its boundary's loops in its frame's
+// xy plane, the face on the side of +z. On a frame, as every force element
+// is, so that the reductions that move frames move it.
 struct ContactShape
 {
     enum class Kind : std::uint8_t
@@ -404,7 +419,8 @@ struct ContactShape
         Box,       // size the edges along x, y, z
         Cylinder,  // along z: size.x the radius, size.z the height
         ConvexHull,
-        Mesh  // points, and the triangles on them, wound outward
+        Mesh,    // points, and the triangles on them, wound outward
+        Profile  // pieces, closed loops, the face to their left
     };
     Id frame = NoId;
     Kind kind {};
@@ -412,6 +428,11 @@ struct ContactShape
     std::vector<Base::Vector3d> points;
     // A mesh's; a hull's mesh's, its points', for its curvature
     std::vector<std::array<int, 3>> triangles;
+    // A profile's pieces, each loop's in order, and where each loop starts;
+    // its size.x and size.y the lowest and highest its solid reaches along
+    // z, for the height its force acts at
+    std::vector<ProfilePiece> pieces;
+    std::vector<int> loops;
     // Its material's E / (1 - nu^2), kPa (mN/mm^2), for ContactLaw's
     // Materials; and its solid's volume, mm^3
     double modulus = 0.0;
@@ -424,7 +445,9 @@ struct ContactShape
 // which a dynamic or static run does not hold, the follower (frame J's
 // origin, offset by the joint's value, a roller's radius) pushed off the
 // curve by the law instead -- on its 'side' of it, +1 the side the joint's
-// equations' N2 points to, -1 the other. Its groups empty.
+// equations' N2 points to, -1 the other. Its groups empty. Or a profile
+// contact (sec 7.4's 2D path): its groups the profiles, A's of one body,
+// B's of another, each of A's touching each of B's in A's plane.
 struct ContactPair
 {
     Id id = NoId;

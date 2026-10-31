@@ -708,6 +708,10 @@ public:
         const ch::ChCollisionShape* shapeA = nullptr;
         const ch::ChCollisionShape* shapeB = nullptr;
         std::size_t patch = 0;
+        // A profile's point: the pieces it is on instead, one or a corner's
+        // two, each side's (ProfileContact)
+        std::array<const void*, 2> piecesA {};
+        std::array<const void*, 2> piecesB {};
     };
 
     ContactLoad(std::shared_ptr<ch::ChBody> a,
@@ -978,11 +982,23 @@ void patchesOf(ContactLoad& load)
     using Entry = std::tuple<const void*, const void*, std::size_t>;
     std::vector<Entry> entries;
     entries.reserve(points.size() * 3);
+    // A profile's point by its pieces: a flat lying on a flat touches at
+    // both its corners, each on the flat's piece, in one patch
+    auto keysOfPoint = [](const std::array<const void*, 2>& pieces,
+                          const ch::ChCollisionShape* shape,
+                          const void* keys[3]) {
+        if (!pieces[0]) {
+            return keysOf(shape, keys);
+        }
+        keys[0] = pieces[0];
+        keys[1] = pieces[1];
+        return pieces[1] ? 2 : 1;
+    };
     for (std::size_t i = 0; i < points.size(); ++i) {
         const void* keysA[3];
         const void* keysB[3];
-        const int na = keysOf(points[i].shapeA, keysA);
-        const int nb = keysOf(points[i].shapeB, keysB);
+        const int na = keysOfPoint(points[i].piecesA, points[i].shapeA, keysA);
+        const int nb = keysOfPoint(points[i].piecesB, points[i].shapeB, keysB);
         for (int x = 0; x < na; ++x) {
             for (int y = 0; y < nb; ++y) {
                 entries.emplace_back(keysA[x], keysB[y], i);
@@ -1028,6 +1044,365 @@ void patchesOf(ContactLoad& load)
     }
     points.swap(once);
     load.patches = patches;
+}
+
+// Profile contact (sec 7.4's 2D path, ProfileContact): two planar profiles,
+// each a face's boundary of segments and arcs with the face to their left,
+// in one plane's coordinates -- A's frame's xy, B's brought into it.
+struct V2
+{
+    double x = 0.0;
+    double y = 0.0;
+};
+V2 operator+(V2 a, V2 b)
+{
+    return {a.x + b.x, a.y + b.y};
+}
+V2 operator-(V2 a, V2 b)
+{
+    return {a.x - b.x, a.y - b.y};
+}
+V2 operator*(V2 a, double s)
+{
+    return {a.x * s, a.y * s};
+}
+double dot(V2 a, V2 b)
+{
+    return a.x * b.x + a.y * b.y;
+}
+double cross(V2 a, V2 b)
+{
+    return a.x * b.y - a.y * b.x;
+}
+double norm(V2 a)
+{
+    return std::hypot(a.x, a.y);
+}
+V2 unit(V2 a)
+{
+    const double l = norm(a);
+    return l > 0.0 ? a * (1.0 / l) : V2 {};
+}
+// To the right of a direction: away from the material on its left
+V2 rightOf(V2 t)
+{
+    return {t.y, -t.x};
+}
+
+struct Profile2
+{
+    struct Piece
+    {
+        V2 from;
+        V2 to;
+        V2 centre;
+        double sweep = 0.0;  // 0: a segment; an arc's, positive counterclockwise
+        double radius = 0.0;
+        double start = 0.0;  // an arc's angle at 'from'
+        std::size_t prev = 0;
+        std::size_t next = 0;
+        const void* key = nullptr;  // the model's piece, for the patches
+        // Where it lies, an arc's whole circle's
+        double low[2] {};
+        double high[2] {};
+        V2 tangentAt(double angle) const
+        {
+            return V2 {-std::sin(angle), std::cos(angle)} * (sweep > 0.0 ? 1.0 : -1.0);
+        }
+        V2 startTangent() const
+        {
+            return sweep == 0.0 ? unit(to - from) : tangentAt(start);
+        }
+        V2 endTangent() const
+        {
+            return sweep == 0.0 ? unit(to - from) : tangentAt(start + sweep);
+        }
+        // Whether an arc reaches the angle
+        bool reaches(double angle) const
+        {
+            double u = std::fmod((angle - start) * (sweep > 0.0 ? 1.0 : -1.0), 2.0 * pi);
+            if (u < 0.0) {
+                u += 2.0 * pi;
+            }
+            return u <= std::abs(sweep) + 1e-12;
+        }
+    };
+    std::vector<Piece> pieces;
+    // At each piece's 'from': whether a convex corner is there -- turning
+    // left, the face to the left, by more than the arcs' approximation's
+    // kinks -- and the outward normal there, its pieces' between
+    std::vector<bool> corner;
+    std::vector<V2> vertexNormal;
+    double low[2] {};
+    double high[2] {};
+};
+
+// A profile in a plane's coordinates: the shape's pieces through 'into'
+// (its frame into the plane's), each loop turned round when 'mirrored' (B
+// facing A), so that the face stays to their left
+Profile2 profileIn(const ContactShape& shape, const ch::ChFramed& into, bool mirrored)
+{
+    Profile2 out;
+    const std::size_t n = shape.pieces.size();
+    out.pieces.reserve(n);
+    auto at = [&](const Base::Vector3d& p) {
+        const ch::ChVector3d q = into.TransformPointLocalToParent(toCh(p));
+        return V2 {q.x(), q.y()};
+    };
+    for (std::size_t l = 0; l < shape.loops.size(); ++l) {
+        const std::size_t first = static_cast<std::size_t>(shape.loops[l]);
+        const std::size_t last =
+            l + 1 < shape.loops.size() ? static_cast<std::size_t>(shape.loops[l + 1]) : n;
+        const std::size_t base = out.pieces.size();
+        for (std::size_t k = first; k < last; ++k) {
+            // Turned round: the loop backwards, each piece from its end
+            const ProfilePiece& piece = shape.pieces[mirrored ? last - 1 - (k - first) : k];
+            Profile2::Piece p;
+            p.from = at(mirrored ? piece.to : piece.from);
+            p.to = at(mirrored ? piece.from : piece.to);
+            p.centre = at(piece.centre);
+            // A mirror reverses the turn, and turning the piece round
+            // reverses it back
+            p.sweep = piece.sweep;
+            p.key = &piece;
+            out.pieces.push_back(p);
+        }
+        const std::size_t count = out.pieces.size() - base;
+        for (std::size_t k = 0; k < count; ++k) {
+            Profile2::Piece& p = out.pieces[base + k];
+            p.prev = base + (k + count - 1) % count;
+            p.next = base + (k + 1) % count;
+        }
+    }
+    out.low[0] = out.low[1] = std::numeric_limits<double>::infinity();
+    out.high[0] = out.high[1] = -std::numeric_limits<double>::infinity();
+    for (auto& p : out.pieces) {
+        if (p.sweep != 0.0) {
+            const V2 r = p.from - p.centre;
+            p.radius = norm(r);
+            p.start = std::atan2(r.y, r.x);
+            p.low[0] = p.centre.x - p.radius;
+            p.low[1] = p.centre.y - p.radius;
+            p.high[0] = p.centre.x + p.radius;
+            p.high[1] = p.centre.y + p.radius;
+        }
+        else {
+            p.low[0] = std::min(p.from.x, p.to.x);
+            p.low[1] = std::min(p.from.y, p.to.y);
+            p.high[0] = std::max(p.from.x, p.to.x);
+            p.high[1] = std::max(p.from.y, p.to.y);
+        }
+        for (int d = 0; d < 2; ++d) {
+            out.low[d] = std::min(out.low[d], p.low[d]);
+            out.high[d] = std::max(out.high[d], p.high[d]);
+        }
+    }
+    out.corner.resize(out.pieces.size());
+    out.vertexNormal.resize(out.pieces.size());
+    for (std::size_t k = 0; k < out.pieces.size(); ++k) {
+        const Profile2::Piece& p = out.pieces[k];
+        const V2 in = out.pieces[p.prev].endTangent();
+        const V2 outward = p.startTangent();
+        // The approximation's arcs meet within 0.05 rad
+        out.corner[k] = cross(in, outward) > std::sin(0.06) || dot(in, outward) < 0.0;
+        out.vertexNormal[k] = unit(rightOf(in) + rightOf(outward));
+    }
+    return out;
+}
+
+// The nearest point of a profile's boundary to x: the point, the outward
+// normal there -- a corner's, its pieces' between -- and the pieces it is
+// on, one or a corner's two
+struct OnProfile
+{
+    V2 point;
+    V2 normal;
+    double distance = std::numeric_limits<double>::infinity();
+    std::array<const void*, 2> pieces {};
+};
+
+OnProfile nearestOn(const Profile2& profile, V2 x)
+{
+    OnProfile best;
+    auto atVertex = [&](std::size_t k) {
+        const Profile2::Piece& p = profile.pieces[k];
+        const double d = norm(x - p.from);
+        if (d < best.distance) {
+            best.distance = d;
+            best.point = p.from;
+            best.normal = profile.vertexNormal[k];
+            best.pieces = {profile.pieces[p.prev].key, p.key};
+        }
+    };
+    for (std::size_t k = 0; k < profile.pieces.size(); ++k) {
+        const Profile2::Piece& p = profile.pieces[k];
+        if (p.sweep == 0.0) {
+            const V2 d = p.to - p.from;
+            const double l2 = dot(d, d);
+            const double t = l2 > 0.0 ? dot(x - p.from, d) / l2 : 0.0;
+            if (t <= 0.0) {
+                atVertex(k);
+                continue;
+            }
+            if (t >= 1.0) {
+                atVertex(p.next);
+                continue;
+            }
+            const V2 q = p.from + d * t;
+            const double dist = norm(x - q);
+            if (dist < best.distance) {
+                best.distance = dist;
+                best.point = q;
+                best.normal = rightOf(unit(d));
+                best.pieces = {p.key, nullptr};
+            }
+            continue;
+        }
+        const V2 r = x - p.centre;
+        const double angle = std::atan2(r.y, r.x);
+        if (norm(r) > 0.0 && p.reaches(angle)) {
+            const V2 radial {std::cos(angle), std::sin(angle)};
+            const V2 q = p.centre + radial * p.radius;
+            const double dist = norm(x - q);
+            if (dist < best.distance) {
+                best.distance = dist;
+                best.point = q;
+                // Out of a convex arc's circle, into a hollow one's
+                best.normal = p.sweep > 0.0 ? radial : radial * -1.0;
+                best.pieces = {p.key, nullptr};
+            }
+            continue;
+        }
+        atVertex(k);
+        atVertex(p.next);
+    }
+    return best;
+}
+
+// Where two profiles touch, or are within 'envelope' (m) of it: point
+// pairs, A's on A's boundary and B's on B's, and the normal from A to B,
+// each where one's boundary goes deepest into the other -- a convex
+// corner's, an arc's farthest across a piece of the other's, along the
+// line of the centres for two arcs -- B's point the nearest on B's boundary
+// to A's, or the other way round, so that A's point is in B as deep as it
+// goes, and the pieces each is on. Exact on lines and arcs: no tessellation's
+// facets, and a pin rolling along a slot's wall is as round as it is.
+struct ProfileTouch
+{
+    V2 onA;
+    V2 onB;
+    V2 normal;
+    std::array<const void*, 2> piecesA {};
+    std::array<const void*, 2> piecesB {};
+};
+
+void profileTouches(const Profile2& a,
+                    const Profile2& b,
+                    double envelope,
+                    std::vector<ProfileTouch>& out)
+{
+    out.clear();
+    for (int d = 0; d < 2; ++d) {
+        if (a.low[d] > b.high[d] + envelope || b.low[d] > a.high[d] + envelope) {
+            return;
+        }
+    }
+    auto overlap = [&](const Profile2::Piece& p, const Profile2::Piece& q) {
+        for (int d = 0; d < 2; ++d) {
+            if (p.low[d] > q.high[d] + envelope || q.low[d] > p.high[d] + envelope) {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto keep = [&](const ProfileTouch& touch) {
+        for (const auto& other : out) {
+            if (norm(other.onA - touch.onA) < 1e-12 && norm(other.onB - touch.onB) < 1e-12) {
+                return;
+            }
+        }
+        out.push_back(touch);
+    };
+    // A's point x against B: in B, or within the envelope of it
+    auto fromA = [&](V2 x, std::array<const void*, 2> pieces) {
+        const OnProfile y = nearestOn(b, x);
+        const V2 d = x - y.point;
+        const double signedDistance = dot(d, y.normal);
+        if (!(signedDistance < envelope)) {
+            return;
+        }
+        // Out of B where they meet, exactly along x - y off a corner
+        const V2 out = norm(d) > 1e-12 ? unit(d) * (signedDistance < 0.0 ? -1.0 : 1.0) : y.normal;
+        keep({x, y.point, out * -1.0, pieces, y.pieces});
+    };
+    // B's point x against A, the same way round
+    auto fromB = [&](V2 x, std::array<const void*, 2> pieces) {
+        const OnProfile y = nearestOn(a, x);
+        const V2 d = x - y.point;
+        const double signedDistance = dot(d, y.normal);
+        if (!(signedDistance < envelope)) {
+            return;
+        }
+        const V2 out = norm(d) > 1e-12 ? unit(d) * (signedDistance < 0.0 ? -1.0 : 1.0) : y.normal;
+        keep({y.point, x, out, y.pieces, pieces});
+    };
+    auto near = [&](V2 x, const Profile2& other) {
+        return x.x > other.low[0] - envelope && x.x < other.high[0] + envelope
+            && x.y > other.low[1] - envelope && x.y < other.high[1] + envelope;
+    };
+    for (std::size_t k = 0; k < a.pieces.size(); ++k) {
+        const Profile2::Piece& p = a.pieces[k];
+        if (a.corner[k] && near(p.from, b)) {
+            fromA(p.from, {a.pieces[p.prev].key, p.key});
+        }
+    }
+    for (std::size_t k = 0; k < b.pieces.size(); ++k) {
+        const Profile2::Piece& q = b.pieces[k];
+        if (b.corner[k] && near(q.from, a)) {
+            fromB(q.from, {b.pieces[q.prev].key, q.key});
+        }
+    }
+    // An arc's point farthest along a direction, when the arc reaches it
+    auto along = [](const Profile2::Piece& arc, V2 direction, V2& x) {
+        direction = unit(direction);
+        if (norm(direction) == 0.0 || !arc.reaches(std::atan2(direction.y, direction.x))) {
+            return false;
+        }
+        x = arc.centre + direction * arc.radius;
+        return true;
+    };
+    for (const auto& p : a.pieces) {
+        for (const auto& q : b.pieces) {
+            if (!overlap(p, q)) {
+                continue;
+            }
+            V2 x;
+            if (p.sweep != 0.0) {
+                if (q.sweep == 0.0) {
+                    // Farthest across q's line into B
+                    if (along(p, rightOf(unit(q.to - q.from)) * -1.0, x)) {
+                        fromA(x, {p.key, nullptr});
+                    }
+                }
+                else {
+                    // On the line of the centres, either way
+                    const V2 c = q.centre - p.centre;
+                    if (along(p, c, x)) {
+                        fromA(x, {p.key, nullptr});
+                    }
+                    if (along(p, c * -1.0, x)) {
+                        fromA(x, {p.key, nullptr});
+                    }
+                }
+            }
+            else if (q.sweep != 0.0) {
+                // B's arc farthest across p's line into A
+                if (along(q, rightOf(unit(p.to - p.from)) * -1.0, x)) {
+                    fromB(x, {q.key, nullptr});
+                }
+            }
+        }
+    }
 }
 
 // A box's or a hull's polyhedral features as the separating axis test reads
@@ -5482,6 +5857,23 @@ Status ChronoSession::simulateDynamics(
             }
         };
         std::vector<CamFollow> cams;
+        // A profile contact's pair of faces (ContactPair's profiles): its
+        // load, A the body of profile a, B of b; the profiles' frames on
+        // them; A's profile in its frame's plane, made once; whether B's
+        // plane faces A's, taken where the run starts
+        struct ProfileFollow
+        {
+            ContactLoad* load = nullptr;
+            const ContactShape* a = nullptr;
+            const ContactShape* b = nullptr;
+            ch::ChFramed frameA;
+            ch::ChFramed frameB;
+            Profile2 profileA;
+            bool mirrored = false;
+        };
+        std::vector<ProfileFollow> profiles;
+        double envelope = 0.0;
+        std::vector<ProfileTouch> touches;
         void OnCustomCollision(ch::ChSystem*) override
         {
             // Collision detection's results kept from the check after the
@@ -5573,6 +5965,46 @@ Status ChronoSession::simulateDynamics(
                      nullptr,
                      nullptr});
             }
+            // A profile contact's points: B's profile brought into A's
+            // plane, where they touch (profileTouches()), each point at the
+            // middle of where the two solids overlap through the plane, so
+            // that a free part is pushed through its centre's height and not
+            // turned out of its plane (half way between them when they do
+            // not overlap)
+            for (ProfileFollow& follow : profiles) {
+                ContactLoad& load = *follow.load;
+                const ch::ChFramed fa = follow.frameA >> *load.GetBodyA();
+                const ch::ChFramed fb = follow.frameB >> *load.GetBodyB();
+                const ch::ChFramed into = fa.TransformParentToLocal(fb);
+                const Profile2 profileB = profileIn(*follow.b, into, follow.mirrored);
+                profileTouches(follow.profileA, profileB, envelope, touches);
+                const double up = into.GetRotMat().GetAxisZ().z() < 0.0 ? -1.0 : 1.0;
+                double lowB = into.GetPos().z() + up * follow.b->size.x;
+                double highB = into.GetPos().z() + up * follow.b->size.y;
+                if (lowB > highB) {
+                    std::swap(lowB, highB);
+                }
+                const double lowA = follow.a->size.x;
+                const double highA = follow.a->size.y;
+                const double low = std::max(lowA, lowB);
+                const double high = std::min(highA, highB);
+                const double height =
+                    low <= high ? 0.5 * (low + high) : 0.25 * (lowA + highA + lowB + highB);
+                for (const ProfileTouch& touch : touches) {
+                    const ch::ChVector3d onA =
+                        fa.TransformPointLocalToParent({touch.onA.x, touch.onA.y, height});
+                    const ch::ChVector3d onB =
+                        fa.TransformPointLocalToParent({touch.onB.x, touch.onB.y, height});
+                    ContactLoad::Point point;
+                    point.onA = load.GetBodyA()->TransformPointParentToLocal(onA);
+                    point.onB = load.GetBodyB()->TransformPointParentToLocal(onB);
+                    point.normal =
+                        fa.TransformDirectionLocalToParent({touch.normal.x, touch.normal.y, 0.0});
+                    point.piecesA = touch.piecesA;
+                    point.piecesB = touch.piecesB;
+                    load.points.push_back(point);
+                }
+            }
             for (auto& load : *loads) {
                 patchesOf(*load);
                 patchStiffness(*load, shapesOn);
@@ -5603,7 +6035,8 @@ Status ChronoSession::simulateDynamics(
         auto shapesOn = std::make_shared<std::map<const ch::ChCollisionShape*, ShapeOn>>();
         for (std::size_t k = 0; k < si.dynamics->contactShapes.size(); ++k) {
             const ContactShape& shape = si.dynamics->contactShapes[k];
-            if (!run.d->validFrame(shape.frame)) {
+            // A profile is not Bullet's (ContactHandover's profiles)
+            if (!run.d->validFrame(shape.frame) || shape.kind == ContactShape::Kind::Profile) {
                 continue;
             }
             std::shared_ptr<ch::ChCollisionShape> made;
@@ -5800,6 +6233,59 @@ Status ChronoSession::simulateDynamics(
             follow.offset = joint->value;
             follow.side = pair.side;
             handover->cams.push_back(std::move(follow));
+        }
+        // The profile contacts: a load per pair of bodies of each, and each
+        // pair of faces on it, its points from the profiles at each
+        // collision detection (ContactHandover), not Bullet's
+        handover->envelope = envelope;
+        auto isProfile = [&](Id shape) {
+            return shape < si.dynamics->contactShapes.size()
+                && si.dynamics->contactShapes[shape].kind == ContactShape::Kind::Profile;
+        };
+        for (std::size_t set = 0; set < si.dynamics->contacts.size(); ++set) {
+            const ContactPair& pair = si.dynamics->contacts[set];
+            if (pair.groupA.empty() || !isProfile(pair.groupA.front())) {
+                continue;
+            }
+            std::map<std::pair<ch::ChBody*, ch::ChBody*>, ContactLoad*> made;
+            for (Id x : pair.groupA) {
+                for (Id y : pair.groupB) {
+                    if (!isProfile(x) || !isProfile(y)) {
+                        continue;
+                    }
+                    const ContactShape& a = si.dynamics->contactShapes[x];
+                    const ContactShape& b = si.dynamics->contactShapes[y];
+                    if (!run.d->validFrame(a.frame) || !run.d->validFrame(b.frame)
+                        || run.d->isRigid(a.frame, b.frame)) {
+                        continue;
+                    }
+                    auto bodyA = run.d->bodyOf(a.frame);
+                    auto bodyB = run.d->bodyOf(b.frame);
+                    if (!bodyA || !bodyB || bodyA == bodyB
+                        || (bodyA->IsFixed() && bodyB->IsFixed())) {
+                        continue;
+                    }
+                    ContactLoad*& load = made[{bodyA.get(), bodyB.get()}];
+                    if (!load) {
+                        auto shared = std::make_shared<ContactLoad>(bodyA, bodyB, pair.law, set);
+                        loads->Add(shared);
+                        contactLoads.push_back(shared);
+                        load = shared.get();
+                    }
+                    ContactHandover::ProfileFollow follow;
+                    follow.load = load;
+                    follow.a = &a;
+                    follow.b = &b;
+                    follow.frameA = run.d->localOf(a.frame);
+                    follow.frameB = run.d->localOf(b.frame);
+                    follow.profileA = profileIn(a, ch::ChFramed(), false);
+                    const ch::ChFramed fa = follow.frameA >> *bodyA;
+                    const ch::ChFramed fb = follow.frameB >> *bodyB;
+                    follow.mirrored = ch::Vdot(fa.GetRotMat().GetAxisZ(), fb.GetRotMat().GetAxisZ())
+                        < 0.0;
+                    handover->profiles.push_back(std::move(follow));
+                }
+            }
         }
         sys.RegisterCustomCollisionCallback(handover);
         collision->Initialize();

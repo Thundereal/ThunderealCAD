@@ -145,6 +145,7 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::ContactSet::init();
     Assembly::ContactSetPython::init();
     Assembly::CamContact::init();
+    Assembly::ProfileContact::init();
     Assembly::TorsionSpring::init();
     Assembly::TorsionSpringPython::init();
     Assembly::JointStop::init();

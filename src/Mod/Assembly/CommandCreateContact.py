@@ -637,6 +637,93 @@ class CommandCreateCamContact:
         Gui.Selection.addSelection(cam)
 
 
+def newProfileContact(assembly, a, facesA, b, facesB):
+    """A profile contact in a transaction: the planar faces facesA (their
+    names) of component a touching facesB of component b in their plane, in
+    the Dynamic and Static studies of the assembly, each of which ticks it"""
+    doc = assembly.Document
+    doc.openTransaction(translate("Assembly", "Create profile contact"))
+    try:
+        physics = assembly.getGroup("Physics", True)
+        contact = physics.newObject("Assembly::ProfileContact", "ProfileContact")
+        contact.ProfileA = (a, list(facesA))
+        contact.ProfileB = (b, list(facesB))
+        sims = assembly.getGroup("Simulations")
+        for sim in sims.Group if sims else []:
+            if getattr(sim, "AnalysisType", None) in ("Dynamic", "Static"):
+                sim.Elements = list(sim.Elements) + [contact]
+    finally:
+        doc.commitTransaction()
+    return contact
+
+
+def selectedProfiles(assembly):
+    """The planar faces selected on two components of the assembly, by
+    component in the order picked: [(a, facesA), (b, facesB)]; else None"""
+    import Part
+
+    picked = []
+    for sel in Gui.Selection.getSelectionEx("", 0):
+        for sub in sel.SubElementNames:
+            component, relative = UtilsAssembly.getComponentReference(assembly, sel.Object, sub)
+            if component is None or not relative:
+                return None
+            element = relative.split(".")[-1]
+            if not element.startswith("Face"):
+                return None
+            try:
+                face = Part.getShape(component, relative, needSubElement=True, transform=False)
+            except Exception:
+                return None
+            if (
+                face.isNull()
+                or face.ShapeType != "Face"
+                or not isinstance(face.Surface, Part.Plane)
+            ):
+                return None
+            for entry in picked:
+                if entry[0] == component:
+                    if relative not in entry[1]:
+                        entry[1].append(relative)
+                    break
+            else:
+                picked.append((component, [relative]))
+    return picked if len(picked) == 2 else None
+
+
+class CommandCreateProfileContact:
+    def GetResources(self):
+        return {
+            "Pixmap": "Assembly_ProfileContact",
+            "MenuText": QT_TRANSLATE_NOOP("Assembly_CreateProfileContact", "Profile Contact"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Assembly_CreateProfileContact",
+                "Lets the profiles of two parts push on each other in their plane in a dynamic\n"
+                "or static simulation, for mechanisms that move in a plane: a Geneva wheel and\n"
+                "its driver, a pin in a slot. Select parallel planar faces on the two parts\n"
+                "first: their boundaries are the profiles.",
+            ),
+            "CmdType": "ForEdit",
+        }
+
+    def IsActive(self):
+        if not UtilsAssembly.isAssemblyCommandActive():
+            return False
+        assembly = UtilsAssembly.activeAssembly()
+        return assembly is not None and selectedProfiles(assembly) is not None
+
+    def Activated(self):
+        assembly = UtilsAssembly.activeAssembly()
+        picked = selectedProfiles(assembly) if assembly else None
+        if not picked:
+            return
+        (a, facesA), (b, facesB) = picked
+        contact = newProfileContact(assembly, a, facesA, b, facesB)
+        Gui.Selection.clearSelection()
+        Gui.Selection.addSelection(contact)
+
+
 if App.GuiUp:
     Gui.addCommand("Assembly_CreateContact", CommandCreateContact())
     Gui.addCommand("Assembly_CreateCamContact", CommandCreateCamContact())
+    Gui.addCommand("Assembly_CreateProfileContact", CommandCreateProfileContact())

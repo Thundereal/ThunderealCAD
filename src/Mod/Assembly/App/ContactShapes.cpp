@@ -29,11 +29,25 @@
 #include <optional>
 #include <tuple>
 
+#include <BRepAdaptor_Curve2d.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRepGProp.hxx>
+#include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <Geom2dAdaptor_Curve.hxx>
+#include <Geom2dConvert_ApproxArcsSegments.hxx>
+#include <Precision.hxx>
+#include <TopLoc_Location.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopoDS_Wire.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Circ2d.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Trsf.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_SphericalSurface.hxx>
@@ -447,4 +461,164 @@ std::optional<SolidContactShape> Assembly::contactShapeOf(const TopoDS_Shape& so
         }
     }
     return asHullOrMesh(solid, deflection);
+}
+
+std::optional<ProfileContactShape>
+Assembly::profileOf(const TopoDS_Shape& shape, const TopoDS_Shape& solid, double tolerance)
+{
+    if (shape.IsNull() || shape.ShapeType() != TopAbs_FACE) {
+        return std::nullopt;
+    }
+    const TopoDS_Face& face = TopoDS::Face(shape);
+    BRepAdaptor_Surface surface(face, false);
+    if (surface.GetType() != GeomAbs_Plane) {
+        return std::nullopt;
+    }
+    // The plane's (u, v) are its frame's x and y
+    const gp_Pln plane = surface.Plane();
+    const gp_Ax3& axes = plane.Position();
+    const gp_Dir x = axes.XDirection();
+    const gp_Dir y = axes.YDirection();
+    const gp_Dir z = x.Crossed(y);
+    ProfileContactShape out;
+    {
+        Base::Matrix4D m;
+        m.setCol(0, Base::Vector3d(x.X(), x.Y(), x.Z()));
+        m.setCol(1, Base::Vector3d(y.X(), y.Y(), y.Z()));
+        m.setCol(2, Base::Vector3d(z.X(), z.Y(), z.Z()));
+        m.setCol(3, vec(axes.Location().XYZ()));
+        out.placement = Base::Placement(m);
+    }
+    auto point = [](const gp_Pnt2d& p) {
+        return Base::Vector3d(p.X(), p.Y(), 0.0);
+    };
+    // A line's or a circle's stretch from a to b, as a piece
+    auto pieceOf = [&](const Adaptor2d_Curve2d& curve, double a, double b) {
+        Solver::ProfilePiece piece;
+        piece.from = point(curve.Value(a));
+        piece.to = point(curve.Value(b));
+        if (curve.GetType() == GeomAbs_Circle) {
+            const gp_Circ2d circle = curve.Circle();
+            piece.centre = point(circle.Location());
+            gp_Pnt2d p;
+            gp_Vec2d d1;
+            curve.D1(a, p, d1);
+            const gp_Vec2d r(circle.Location(), p);
+            // A circle's parameter is its angle
+            piece.sweep = (r.Crossed(d1) >= 0.0 ? 1.0 : -1.0) * (b - a);
+        }
+        return piece;
+    };
+    // The bounding box's size, for the side test's step
+    double size = 0.0;
+    {
+        Bnd_Box box;
+        BRepBndLib::Add(face, box);
+        if (!box.IsVoid()) {
+            size = std::sqrt(box.SquareExtent());
+        }
+    }
+    for (TopExp_Explorer wires(face, TopAbs_WIRE); wires.More(); wires.Next()) {
+        std::vector<Solver::ProfilePiece> loop;
+        for (BRepTools_WireExplorer edges(TopoDS::Wire(wires.Current()), face); edges.More();
+             edges.Next()) {
+            const TopoDS_Edge& edge = edges.Current();
+            if (BRep_Tool::Degenerated(edge)) {
+                continue;
+            }
+            BRepAdaptor_Curve2d curve(edge, face);
+            std::vector<Solver::ProfilePiece> pieces;
+            const GeomAbs_CurveType type = curve.GetType();
+            if (type == GeomAbs_Line || type == GeomAbs_Circle) {
+                pieces.push_back(pieceOf(curve, curve.FirstParameter(), curve.LastParameter()));
+            }
+            else {
+                Geom2dConvert_ApproxArcsSegments approx(curve, tolerance, 0.05);
+                const auto& result = approx.GetResult();
+                for (int i = 1; i <= result.Length(); ++i) {
+                    if (result(i).IsNull()) {
+                        continue;
+                    }
+                    Geom2dAdaptor_Curve part(result(i));
+                    const GeomAbs_CurveType partType = part.GetType();
+                    if (partType != GeomAbs_Line && partType != GeomAbs_Circle) {
+                        return std::nullopt;
+                    }
+                    pieces.push_back(pieceOf(part, part.FirstParameter(), part.LastParameter()));
+                }
+                if (pieces.empty()) {
+                    return std::nullopt;
+                }
+            }
+            if (edge.Orientation() == TopAbs_REVERSED) {
+                std::reverse(pieces.begin(), pieces.end());
+                for (auto& piece : pieces) {
+                    std::swap(piece.from, piece.to);
+                    piece.sweep = -piece.sweep;
+                }
+            }
+            loop.insert(loop.end(), pieces.begin(), pieces.end());
+        }
+        if (loop.empty()) {
+            continue;
+        }
+        // The face to the left: tried a little to the left of the longest
+        // piece's middle, the loop turned round when it is not there
+        std::size_t longest = 0;
+        double length = -1.0;
+        for (std::size_t i = 0; i < loop.size(); ++i) {
+            const auto& piece = loop[i];
+            const double l = piece.sweep == 0.0
+                ? (piece.to - piece.from).Length()
+                : std::abs(piece.sweep) * (piece.from - piece.centre).Length();
+            if (l > length) {
+                length = l;
+                longest = i;
+            }
+        }
+        const auto& piece = loop[longest];
+        Base::Vector3d middle;
+        Base::Vector3d tangent;
+        if (piece.sweep == 0.0) {
+            middle = (piece.from + piece.to) / 2.0;
+            tangent = piece.to - piece.from;
+        }
+        else {
+            const Base::Vector3d r = piece.from - piece.centre;
+            const double start = std::atan2(r.y, r.x);
+            const double angle = start + piece.sweep / 2.0;
+            const Base::Vector3d radial(std::cos(angle), std::sin(angle), 0.0);
+            middle = piece.centre + radial * r.Length();
+            tangent = Base::Vector3d(-radial.y, radial.x, 0.0) * piece.sweep;
+        }
+        tangent.Normalize();
+        const double step = std::min(1e-4 * size, 0.01 * length);
+        const Base::Vector3d left = middle + Base::Vector3d(-tangent.y, tangent.x, 0.0) * step;
+        BRepClass_FaceClassifier classifier(face, gp_Pnt2d(left.x, left.y), Precision::Confusion());
+        if (classifier.State() != TopAbs_IN) {
+            std::reverse(loop.begin(), loop.end());
+            for (auto& p : loop) {
+                std::swap(p.from, p.to);
+                p.sweep = -p.sweep;
+            }
+        }
+        out.loops.push_back(static_cast<int>(out.pieces.size()));
+        out.pieces.insert(out.pieces.end(), loop.begin(), loop.end());
+    }
+    if (out.pieces.empty()) {
+        return std::nullopt;
+    }
+    // The solid's reach along z, in the plane's frame
+    const TopoDS_Shape& reaching = solid.IsNull() ? shape : solid;
+    gp_Trsf toPlane;
+    toPlane.SetTransformation(gp_Ax3(axes.Location(), z, x));
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(reaching.Moved(TopLoc_Location(toPlane)), box, false, false);
+    if (!box.IsVoid()) {
+        double xmin, ymin, zmin, xmax, ymax, zmax;
+        box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        out.low = zmin;
+        out.high = zmax;
+    }
+    return out;
 }

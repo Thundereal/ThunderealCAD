@@ -529,4 +529,31 @@ public:
     }
 };
 
+/** A contact between profiles (docs/AssemblyDynamics.md sec 7.4's 2D path,
+ * phase D2), for mechanisms that move in a plane -- a Geneva wheel and its
+ * driver, a pin in a slot: the boundaries of the planar faces ProfileA, on
+ * one component, touching those of ProfileB, on another, in ProfileA's
+ * plane, each piece of them a line or an arc as it is, any other curve in
+ * arcs and lines. The faces are taken as the parts' sections: a face's part
+ * is where the face is, in the plane, whatever its height. The law as a
+ * contact set's (GroupA and GroupB unused), its stiffness by a value or an
+ * allowed penetration (Materials, which a profile has no width for, runs as
+ * Penetration).
+ */
+class AssemblyExport ProfileContact: public ContactSet
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::ProfileContact);
+
+public:
+    ProfileContact();
+
+    App::PropertyLinkSub ProfileA;
+    App::PropertyLinkSub ProfileB;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderProfileContact";
+    }
+};
+
 }  // namespace Assembly

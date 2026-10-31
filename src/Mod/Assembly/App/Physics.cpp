@@ -790,6 +790,33 @@ CamContact::CamContact()
     }
 }
 
+PROPERTY_SOURCE(Assembly::ProfileContact, Assembly::ContactSet)
+
+ProfileContact::ProfileContact()
+{
+    ADD_PROPERTY_TYPE(ProfileA,
+                      (nullptr),
+                      "Profile",
+                      App::Prop_None,
+                      "Planar faces of one component, whose boundaries touch ProfileB's in their "
+                      "plane");
+    ADD_PROPERTY_TYPE(ProfileB,
+                      (nullptr),
+                      "Profile",
+                      App::Prop_None,
+                      "Planar faces of another component, parallel to ProfileA's");
+    // A profile has no width for Hertz's law: by an allowance; a mechanism's
+    // pieces slide or roll as they are lubricated
+    StiffnessFrom.setValue("Penetration");
+    StaticFriction.setValue(0.0);
+    DynamicFriction.setValue(0.0);
+    for (App::Property* unused : {static_cast<App::Property*>(&GroupA),
+                                  static_cast<App::Property*>(&GroupB),
+                                  static_cast<App::Property*>(&RadiusFrom)}) {
+        unused->setStatus(App::Property::Hidden, true);
+    }
+}
+
 PROPERTY_SOURCE(Assembly::TorsionSpring, Assembly::PhysicsItem)
 
 TorsionSpring::TorsionSpring()

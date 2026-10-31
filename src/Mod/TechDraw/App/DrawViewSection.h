@@ -215,6 +215,7 @@ public:
     virtual void onSectionCutFinished(std::shared_ptr<TopoDS_Shape> result);
 
 protected:
+    void dropWorkingShapes() override;
     void abortMaking() override;
 
     TopoDS_Compound m_sectionTopoDSFaces;//needed for hatching

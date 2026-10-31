@@ -296,7 +296,19 @@ public:
     bool waitingForHlr() const { return m_waitingForHlr; }
     virtual bool waitingForResult() const;
 
+    //! The 3D shapes the views made from this one read -- a section's cut, a
+    //! detail's piece -- are not stored.  A view that draws a stored
+    //! projection has dropped them, and they are made again, by recomputing
+    //! the view, when one of those views asks (docs/TechDrawStoredGeometry.md
+    //! sec 6.4).
+    bool workingShapesDropped() const { return m_workingShapesDropped; }
+    void remakeWorkingShapes();
+
 protected:
+    //! let go of the shapes workingShapesDropped() is about
+    virtual void dropWorkingShapes() {}
+    //! a recompute is making them again
+    void workingShapesMade() { m_workingShapesDropped = false; }
     //! the error of a view whose sources give no shape: none linked, or none
     //! with a shape (docs/TechDrawErrors.md 3.2)
     App::DocumentObjectExecReturn* nothingToDraw(bool noSources);
@@ -361,6 +373,7 @@ private:
     //! before the page that has to make the decision is reached.
     bool m_restoredOutOfDate = false;
     bool m_geometryFromStore = false;
+    bool m_workingShapesDropped = false;
     bool m_waitingForFaces = false;
     bool m_waitingForHlr = false;
 

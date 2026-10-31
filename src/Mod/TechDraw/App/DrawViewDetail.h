@@ -103,6 +103,7 @@ public:
     bool getScaledFrame(gp_Trsf& frame) const;
 
 protected:
+    void dropWorkingShapes() override;
     void abortMaking() override;
 
     struct Output {

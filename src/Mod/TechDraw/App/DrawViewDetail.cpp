@@ -145,6 +145,7 @@ App::DocumentObjectExecReturn* DrawViewDetail::execute()
     if (!keepUpdated()) {
         return DrawView::execute();
     }
+    workingShapesMade();
 
     // nothing to detail is the view's error, not an empty view
     // (docs/TechDrawErrors.md 3.2)
@@ -172,6 +173,11 @@ App::DocumentObjectExecReturn* DrawViewDetail::execute()
     }
 
     if (shape.IsNull()) {
+        if (dvp->workingShapesDropped()) {
+            // it draws a stored projection and has no cut: it cuts again, and
+            // recomputes this once it has (DrawViewSection::postSectionCutTasks)
+            dvp->remakeWorkingShapes();
+        }
         if (dvp->waitingForResult()) {
             // a section still cutting: it recomputes this once it has its
             // shape (DrawViewSection::postSectionCutTasks)
@@ -463,6 +469,18 @@ void DrawViewDetail::onMakeDetailFinished(std::shared_ptr<Output> output)
     m_detailFrameValid = m_pendingFramesValid;
     m_scaledFrameValid = m_pendingFramesValid;
 
+    // a section of this waits for the piece, as one of a section waits for
+    // the cut (DrawViewSection::postSectionCutTasks)
+    for (auto child : getInList()) {
+        auto section = dynamic_cast<DrawViewSection*>(child);
+        if (section && section->BaseView.getValue() == this) {
+            Base::ObjectStatusLocker<App::ObjectStatus, App::DocumentObject> guard(
+                App::ObjectStatus::NoTouch, section);
+            section->enforceRecompute();
+            section->recomputeFeature();
+        }
+    }
+
     //ancestor's buildGeometryObject will run HLR and face finding in a separate thread
     buildGeometryObject(m_scaledShape, m_viewAxis);
 }
@@ -471,6 +489,14 @@ void DrawViewDetail::abortMaking()
 {
     abortMakeDetail();
     DrawViewPart::abortMaking();
+}
+
+void DrawViewDetail::dropWorkingShapes()
+{
+    m_detailShape.Nullify();
+    m_scaledShape.Nullify();
+    m_detailFrameValid = false;
+    m_scaledFrameValid = false;
 }
 
 bool DrawViewDetail::waitingForResult() const

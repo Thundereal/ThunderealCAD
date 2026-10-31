@@ -11,6 +11,9 @@ Claims:
     without a recompute and with nothing marked for one: the projection
     the undo put back in ProjectedGeometry is the one drawn;
   - the dimension reads 15 and 20 with them, measured when read;
+  - the detail of the section, recomputed alone after the undo, details the
+    15 box: the section's cut, which is not stored, is made again rather
+    than the cut of the 20 box it held being used;
   - an undo while the change is still being projected leaves no drawing
     showing the change and saying it is up to date: what was being made is
     dropped, and what the view stored before the change is drawn.
@@ -163,6 +166,12 @@ def run():
     check("undo: the section and its detail draw 15 with nothing to recompute",
           longest(section) == 15 and longest(detail) == 15
           and "Section" not in names and "Detail" not in names, str(names))
+    detail.Radius = 60
+    doc.recompute()
+    settle(seconds=3.0)
+    state("detail")
+    check("the detail recomputed alone details the 15 box", longest(detail) == 15,
+          str(longest(detail)))
     settle(seconds=2.0)
 
     doc.openTransaction("Length 25")

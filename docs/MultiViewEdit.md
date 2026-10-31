@@ -787,3 +787,14 @@ and the Python `undo()`/`redo()`). The steps another document took in a
 grouped run are left alone.
 
 Test: `src/Mod/TechDraw/TDTest/DrawViewUndoTest.py`.
+
+**Corrected at the source (user, 2026-10-31): "this is a design error and
+we shall correct that."** The projection was in a property all along
+(`ProjectedGeometry`, `docs/TechDrawStoredGeometry.md`), and the undo put
+it back; the view read it only when a file was opened. It reads it after
+an undo or a redo now, a dimension measures when read, and the 3D shapes a
+section or detail keeps for the views made from it are dropped and made
+again when asked for (`docs/TechDrawStoredGeometry.md` sec 6). An undo
+leaves a drawing right and clean; `resultInProperties()` stays as the
+fallback, false for a part view only while the store is switched off or a
+projection is running.

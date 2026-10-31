@@ -440,6 +440,7 @@ App::DocumentObjectExecReturn* DrawViewSection::execute()
     if (!keepUpdated()) {
         return App::DocumentObject::StdReturn;
     }
+    workingShapesMade();
 
     // What leaves the section nothing to cut is its error, and what may leave
     // it cut wrongly a warning (docs/TechDrawErrors.md 3.2)
@@ -456,6 +457,11 @@ App::DocumentObjectExecReturn* DrawViewSection::execute()
 
     if (baseShape.isNull()) {
         auto* base = static_cast<DrawViewPart*>(BaseView.getValue());
+        if (base->workingShapesDropped()) {
+            // it draws a stored projection and has no cut: it cuts again, and
+            // recomputes this once it has (postSectionCutTasks)
+            base->remakeWorkingShapes();
+        }
         if (base->waitingForResult()) {
             // a section still cutting: it recomputes this once it has its
             // shape (postSectionCutTasks)
@@ -1573,6 +1579,16 @@ void DrawViewSection::abortMaking()
 {
     abortSectionCut();
     DrawViewPart::abortMaking();
+}
+
+void DrawViewSection::dropWorkingShapes()
+{
+    m_cutShape.Nullify();
+    m_cutShapeRaw = Part::TopoShape();
+    m_cutPieces = Part::TopoShape();
+    m_preparedShape = Part::TopoShape();
+    m_cutFrameValid = false;
+    m_preparedFrameValid = false;
 }
 
 //! keep the cut faces beside the projection they belong to

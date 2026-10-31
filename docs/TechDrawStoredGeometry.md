@@ -272,7 +272,7 @@ What TechDraw kept outside its properties came in four kinds:
   cut (`m_cutShape`, `m_cutShapeRaw`, `m_preparedShape`, the frames), a
   detail's piece (`m_detailShape`), a complex section's aligned shape.
   Never drawn; empty after an open, and after an undo still the shapes of
-  the state the undo left. Not changed here.
+  the state the undo left.
 - **Machinery** -- watchers, progress, waiting flags, held errors. Not
   state, and left alone.
 
@@ -334,6 +334,23 @@ right and clean, and so does an undo made while the step's projection is
 still running: what is stored is then the projection of before the step,
 which is the state the undo leaves.
 
+### 6.4 The shapes kept for the views made from a view
+
+A section keeps its cut (`m_cutShape`, `m_cutShapeRaw`, `m_cutPieces`,
+`m_preparedShape` and their frames), a detail its piece, a complex section
+its aligned pieces. They are not stored: written into every recompute's
+row they would cost what sec 10 of the journal refuses for `Shape`. A view
+that installs a stored projection -- at a file's open or after an undo --
+drops them (`dropWorkingShapes()`) and says so (`workingShapesDropped()`).
+A section or detail that finds its base's shape missing for that reason
+has the base recompute (`remakeWorkingShapes()`), and waits for it the way
+it waits for a cut still running. Before, after an open the detail said
+its base had no shape, and after an undo it used the cut of the state the
+undo took back.
+
+The detail tells the sections made from it when its piece is made, as a
+section tells the views made from it when its cut is (`postSectionCutTasks`).
+
 ### 6.5 What is measured off a view
 
 A dimension's points are worked out when they are read, and kept until
@@ -357,7 +374,8 @@ the section is still cutting, finds no cut, and waits;
 it, as nothing of it is touched (`OptimizeRecompute`,
 `Document::_recomputeFeature`). It drew at its next recompute of its own,
 from the cut before. The section now has it recomputed the way a view has
-its balloons recomputed (`enforceRecompute()` under `NoTouch`).
+its balloons recomputed (`enforceRecompute()` under `NoTouch`), and so do
+`remakeWorkingShapes()` and the detail's own call.
 
 ### 6.7 What this does not do
 
@@ -376,6 +394,9 @@ its balloons recomputed (`enforceRecompute()` under `NoTouch`).
 - **The switch off** (`StoreProjectedGeometry` false): nothing is stored
   and nothing is installed; `resultInProperties()` is false and an undo
   marks the view to recompute, as `d88b86df28` made it.
+- **A complex section whose cut lands before its alignment** says it is no
+  longer waiting while the alignment still runs; a detail of it may be
+  made from nothing. Found by reading, not changed.
 
 Tests: `TDTest/DrawViewUndoTest.py` (App, CoarseView, log on and off) and
 `tests/gui/td-undo-stored-projection.py` (real HLR, a dimension, a section

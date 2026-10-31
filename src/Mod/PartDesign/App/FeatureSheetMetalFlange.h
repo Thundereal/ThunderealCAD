@@ -55,7 +55,8 @@ public:
     App::PropertyAngle Angle;
     App::PropertyLength Length;
     /// Leg: the straight part; InnerSharp, OuterSharp: from where the inner
-    /// or outer skins of the wall and the leg meet
+    /// or outer skins of the wall and the leg meet; Tangent: from the plane
+    /// across the leg that touches the outside of the bend
     App::PropertyEnumeration LengthType;
     /// MaterialInside: the leg's outer skin where the wall ended;
     /// MaterialOutside: its inner skin there; BendOutside: the bend starting
@@ -63,9 +64,14 @@ public:
     App::PropertyEnumeration BendPosition;
     /// Moves the bend out from where BendPosition puts it, the wall carried on
     App::PropertyDistance Offset;
-    /// Taken off the flange's width at the edge's start and end
-    App::PropertyLength Gap1;
-    App::PropertyLength Gap2;
+    /// Taken off the flange's width at the edge's first and last vertex; a
+    /// negative one carries the flange past the edge's end
+    App::PropertyDistance Gap1;
+    App::PropertyDistance Gap2;
+    /// A plane face the leg runs parallel to, in place of Angle
+    App::PropertyLinkSub ParallelTo;
+    /// A plane face the leg runs up to, in place of Length
+    App::PropertyLinkSub UpToFace;
     App::PropertyBool Reversed;
 
     App::DocumentObjectExecReturn* execute() override;

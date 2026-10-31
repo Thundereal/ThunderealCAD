@@ -54,7 +54,11 @@ using SheetMetal::Model;
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalFlange, PartDesign::FeatureAddSub)
 
-const char* SheetMetalFlange::LengthTypeEnums[] = {"Leg", "InnerSharp", "OuterSharp", nullptr};
+const char* SheetMetalFlange::LengthTypeEnums[] = {"Leg",
+                                                   "InnerSharp",
+                                                   "OuterSharp",
+                                                   "Tangent",
+                                                   nullptr};
 const char* SheetMetalFlange::BendPositionEnums[] = {"MaterialInside",
                                                      "MaterialOutside",
                                                      "BendOutside",
@@ -82,7 +86,8 @@ SheetMetalFlange::SheetMetalFlange()
                       "Sheet Metal",
                       App::Prop_None,
                       "Leg: the straight part; InnerSharp, OuterSharp: from where the inner or "
-                      "outer skins of the wall and the leg meet");
+                      "outer skins of the wall and the leg meet; Tangent: from the plane across "
+                      "the leg that touches the outside of the bend");
     LengthType.setEnums(LengthTypeEnums);
     ADD_PROPERTY_TYPE(BendPosition,
                       (0L),
@@ -100,12 +105,24 @@ SheetMetalFlange::SheetMetalFlange()
                       (0.0),
                       "Sheet Metal",
                       App::Prop_None,
-                      "Taken off the flange's width at the edge's start");
+                      "Taken off the flange's width at the edge's first vertex; a negative one "
+                      "carries the flange past it");
     ADD_PROPERTY_TYPE(Gap2,
                       (0.0),
                       "Sheet Metal",
                       App::Prop_None,
-                      "Taken off the flange's width at the edge's end");
+                      "Taken off the flange's width at the edge's last vertex; a negative one "
+                      "carries the flange past it");
+    ADD_PROPERTY_TYPE(ParallelTo,
+                      (nullptr),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "A plane face the leg runs parallel to, in place of Angle");
+    ADD_PROPERTY_TYPE(UpToFace,
+                      (nullptr),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "A plane face the leg runs up to, in place of Length");
     ADD_PROPERTY_TYPE(Reversed,
                       (false),
                       "Sheet Metal",
@@ -129,7 +146,8 @@ short SheetMetalFlange::mustExecute() const
 {
     if (Edges.isTouched() || Angle.isTouched() || Length.isTouched() || LengthType.isTouched()
         || BendPosition.isTouched() || Offset.isTouched() || Gap1.isTouched()
-        || Gap2.isTouched() || Reversed.isTouched()) {
+        || Gap2.isTouched() || Reversed.isTouched() || ParallelTo.isTouched()
+        || UpToFace.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -175,7 +193,6 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
     }
     const double T = rule->Thickness.getValue();
     const double R = rule->BendRadius.getValue();
-    const double A = Angle.getValue() * std::numbers::pi / 180;
     try {
         Model model = modelBefore(T);
         if (model.elements.empty()) {
@@ -196,30 +213,24 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 QT_TRANSLATE_NOOP("Exception", "A flange needs an edge"));
         }
 
-        double setback = 0;
-        switch (BendPosition.getValue()) {
-            case 0:
-                setback = (R + T) * std::tan(A / 2);
-                break;
-            case 1:
-                setback = R * std::tan(A / 2);
-                break;
-            default:
-                break;
-        }
-        setback -= Offset.getValue();
-        double leg = Length.getValue();
-        if (LengthType.getValue() == 1) {
-            leg -= R * std::tan(A / 2);
-        }
-        else if (LengthType.getValue() == 2) {
-            leg -= (R + T) * std::tan(A / 2);
-        }
-        if (leg < Precision::Confusion()) {
-            return new App::DocumentObjectExecReturn(
-                QT_TRANSLATE_NOOP("Exception", "The flange is too short for its bend"));
-        }
-
+        // a plane face, if one is linked
+        auto planeOf = [](const App::PropertyLinkSub& link, gp_Pln& plane) {
+            if (!link.getValue()) {
+                return false;
+            }
+            const auto& subs = link.getSubValues();
+            TopoShape face = Part::Feature::getTopoShape(link.getValue(),
+                                                         subs.empty() ? "" : subs.front().c_str(),
+                                                         true);
+            if (face.isNull() || !face.findPlane(plane)) {
+                FC_THROWM(Base::ValueError,
+                          "A flange's " << link.getName() << " is a plane face only");
+            }
+            return true;
+        };
+        gp_Pln parallel, upTo;
+        const bool byParallel = planeOf(ParallelTo, parallel);
+        const bool byUpTo = planeOf(UpToFace, upTo);
         const auto hasher = getDocument()->getStringHasher();
         std::vector<TopoShape> pieces, cuts;
         for (const auto& shadow : shadows) {
@@ -271,6 +282,33 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 up.Reverse();
                 inner = p0.Translated(gp_Vec(up) * T);
             }
+            // the angle, given or from the face the leg runs parallel to
+            double A = Angle.getValue() * std::numbers::pi / 180;
+            if (byParallel) {
+                const gp_Dir n = parallel.Axis().Direction();
+                A = std::atan2(-n.Dot(endOut), n.Dot(up));
+                if (A <= 0) {
+                    A += std::numbers::pi;
+                }
+                if (A < 1e-4 || A > std::numbers::pi - 1e-4) {
+                    FC_THROWM(Base::ValueError,
+                              "Edge " << shadow.second
+                                      << ": a leg parallel to that face does not bend");
+                }
+            }
+            double setback = 0;
+            switch (BendPosition.getValue()) {
+                case 0:
+                    setback = (R + T) * std::tan(A / 2);
+                    break;
+                case 1:
+                    setback = R * std::tan(A / 2);
+                    break;
+                default:
+                    break;
+            }
+            setback -= Offset.getValue();
+
             const double width = p0.Distance(p1) - Gap1.getValue() - Gap2.getValue();
             if (width < Precision::Confusion()) {
                 FC_THROWM(Base::ValueError,
@@ -294,6 +332,31 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 gp_Ax1(bend.frame.Location(), bend.frame.Direction()), A);
             const gp_Dir legAlong = bend.frame.Direction().Crossed(x2);
             const gp_Pnt legStart = bend.frame.Location().Translated(gp_Vec(x2) * R);
+
+            // the leg's straight part, by the length type or up to a face
+            double leg = Length.getValue();
+            if (byUpTo) {
+                const double across = legAlong.Dot(upTo.Axis().Direction());
+                if (std::abs(across) < Precision::Angular()) {
+                    FC_THROWM(Base::ValueError,
+                              "Edge " << shadow.second << ": the leg never meets that face");
+                }
+                leg = gp_Vec(legStart, upTo.Location()).Dot(gp_Vec(upTo.Axis().Direction()))
+                    / across;
+            }
+            else if (LengthType.getValue() == 1) {
+                leg -= R * std::tan(A / 2);
+            }
+            else if (LengthType.getValue() == 2) {
+                leg -= (R + T) * std::tan(A / 2);
+            }
+            else if (LengthType.getValue() == 3) {
+                leg -= (R + T) * (A >= std::numbers::pi / 2 ? 1.0 : std::sin(A));
+            }
+            if (leg < Precision::Confusion()) {
+                FC_THROWM(Base::ValueError,
+                          "Edge " << shadow.second << ": the flange is too short for its bend");
+            }
             const int legWall = model.addWall(legName, gp_Ax3(legStart, x2, legAlong));
             model.addBend(bendName, bend, wall, legWall);
 

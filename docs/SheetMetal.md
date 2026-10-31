@@ -679,9 +679,12 @@ and not frozen.
     wall is cut back under the flange, one cut before the join.
   - `Gap1`, `Gap2` narrow the flange at the edge's ends; the wall is cut back under it only. No
     bend relief yet (M2).
-  - Still to come in M1: the `Tangent` length type, a flange up to a face or parallel to one,
-    extents past the edge's ends, a miter where two flanges of one feature meet, and a closed
-    sketch for the leg's shape.
+  - Added (9e98a08d8a): `Tangent` measures from the plane across the leg that touches the outside
+    of the bend (the straight part L - (R + T) from 90 deg on, L - (R + T) sin A below); negative
+    gaps carry the flange past the edge's ends; `ParallelTo` gives the angle from a plane face the
+    leg runs parallel to, `UpToFace` the length from one it runs up to.
+  - Still to come in M1: a miter where two flanges of one feature meet, and a closed sketch for
+    the leg's shape.
 - M1's extend wall, `PartDesign::SheetMetalExtendWall` (5.1), with `TestSheetMetalExtendWall` (7)
   (a229435ab6), its command and panel (234138ce56): each face a wall's end across the sheet,
   carried along its normal by `Length` or up to `UpToFace`'s plane; a negative length cuts the

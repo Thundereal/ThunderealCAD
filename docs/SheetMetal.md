@@ -260,7 +260,8 @@ a 65th flange adds in 140 ms / 220 ms -- **the target is not met**. Of the last 
 87 ms is its one join with the 646-face part, 6 ms the join of its own bend and leg, 4 ms setting
 the shape, the rest the document's recompute. The join costs more than M0's 51 ms for the 64th
 named join; that, glue for material that only touches, and a recompute that starts at the edited
-feature are what is left to look at.
+feature are what is left to look at. **Ruled 2026-10-31: accepted for M1**; glue and a recompute
+from the edited feature are for a speed pass after it.
 - The first measurement was 26 s: the flange moved the base by its location and had its placement
   applied to its shape, and a location made of an identity placement is not an empty one, so every
   flange stacked another and every boolean keyed the edges' curves on their surfaces to it
@@ -268,7 +269,8 @@ feature are what is left to look at.
 - PartDesign's own primitives pay the same, measured: 64 additive boxes along a plate's edge
   (326 faces), the last box 1067 ms, a box fused onto the result 1276 ms, the rebuild 17.3 s, where
   64 pads making the same part take 78 ms and 71 ms. Dress-ups apply their placement the same way
-  and are likely to; not measured. Not sheet metal's to fix: reported, not changed.
+  and are likely to; not measured. **Ruled 2026-10-31: fixed as a change of its own**, with its
+  own gate round.
 ### 4.5 Two layers, as in Surface
 
 - **`App/Geom/`: geometry, no document.**
@@ -532,6 +534,10 @@ Here it is the container, with its tool bars tied to it:
 - **An edit offers them too.** Editing any Surface or sheet metal object offers its tool bars if
   they are not offered already. Leaving the edit takes them away again, but only if no surface
   group or sheet metal solid is active.
+
+**The first sheet metal feature (ruled 2026-10-31).** The tool bars above come only with a sheet
+solid active or a sheet feature in edit, so the first base wall needs a way in: a `Sheet Metal`
+submenu of the Part Design menu always holds Base Wall; the full tool bar comes as above.
 
 The mechanism is general (`Gui::ToolContext`). A module registers a context: its tool bars, the
 workbenches that take them, the view's active-object key that holds them (`pdsurface`,

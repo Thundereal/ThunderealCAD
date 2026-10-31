@@ -126,6 +126,9 @@ public:
     static bool canBuild(gp_Ax2 sectionCS, App::DocumentObject* profileObject);
     static gp_Vec projectVector(const gp_Vec& vec, gp_Ax2 sectionCS);
 
+protected:
+    void abortMaking() override;
+
 private:
     static gp_Dir getFaceNormal(TopoDS_Face& face);
     static Part::TopoShape makeProfileFace(const Part::TopoShape& profileShape);

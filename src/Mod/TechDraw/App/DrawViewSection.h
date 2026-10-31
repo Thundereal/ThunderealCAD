@@ -215,6 +215,8 @@ public:
     virtual void onSectionCutFinished(std::shared_ptr<TopoDS_Shape> result);
 
 protected:
+    void abortMaking() override;
+
     TopoDS_Compound m_sectionTopoDSFaces;//needed for hatching
     std::vector<LineSet> m_lineSets;
     /// The hatch lines are to be read from the pattern file when they are

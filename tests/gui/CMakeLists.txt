@@ -517,8 +517,9 @@ fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 300)
 fc_add_gui_test(GuiTdModelInterleave_tests_run td-model-interleave.py
                 --timeout 300)
 
-# A detail of a section is drawn by the recompute that makes it: the section
-# has it recomputed when its cut lands.
+# An undo puts a drawing back as it was: a part view, a section and a detail
+# of the section, right after undo and redo with nothing left to recompute,
+# and after an undo made while they project.
 fc_add_gui_test(GuiTdUndoStoredProjection_tests_run td-undo-stored-projection.py
                 --timeout 200)
 

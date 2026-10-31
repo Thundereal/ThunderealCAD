@@ -467,6 +467,12 @@ void DrawViewDetail::onMakeDetailFinished(std::shared_ptr<Output> output)
     buildGeometryObject(m_scaledShape, m_viewAxis);
 }
 
+void DrawViewDetail::abortMaking()
+{
+    abortMakeDetail();
+    DrawViewPart::abortMaking();
+}
+
 bool DrawViewDetail::waitingForResult() const
 {
     if (DrawViewPart::waitingForResult() || waitingForDetail()) {

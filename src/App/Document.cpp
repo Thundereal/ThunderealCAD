@@ -767,11 +767,14 @@ struct StepTouched
 /// (DocumentObject::resultInProperties) added to `touch` when `applied`,
 /// the writes it made, holds the object or anything it depends on: a
 /// drawing of a shape put back shows the shape it was last made from, and
-/// the rows say it was clean (docs/MultiViewEdit.md sec 12.10).
+/// the rows say it was clean (docs/MultiViewEdit.md sec 12.10). It is told
+/// too, once the undo is done (onUndoRedoFinished): what it is still making
+/// is made from the state the undo left (docs/TechDrawStoredGeometry.md
+/// sec 6.3).
 void addResultsNotKept(const Document& doc, const Transaction& applied, std::set<long>& touch)
 {
     for (auto obj : doc.getObjects()) {
-        if (obj->resultInProperties() || touch.count(obj->getID()))
+        if (obj->resultInProperties())
             continue;
         bool written = applied.hasObject(obj);
         if (!written) {
@@ -782,8 +785,10 @@ void addResultsNotKept(const Document& doc, const Transaction& applied, std::set
                 }
             }
         }
-        if (written)
+        if (written) {
             touch.insert(obj->getID());
+            obj->setStatus(ObjectStatus::PendingTransactionUpdate, true);
+        }
     }
 }
 

@@ -338,6 +338,14 @@ void DrawViewPart::onChanged(const App::Property* prop)
     if (prop == &UseWireJoiner && isRestoring()) {
         wireJoinerRestored = true;
     }
+    if (prop == &ProjectedGeometry && !isRestoring()) {
+        // an undo or a redo putting back the projection of the state it
+        // leaves: drawn once the transaction is done (onUndoRedoFinished)
+        auto doc = getDocument();
+        if (doc && doc->isPerformingTransaction()) {
+            setStatus(App::PendingTransactionUpdate, true);
+        }
+    }
 
     // If the user has set PropertyVector Direction to zero, set it along the default value instead (Front View).
     // Otherwise bad things will happen because there'll be a normalization for direction calculations later.
@@ -604,6 +612,44 @@ bool DrawViewPart::canReuseStoredGeometry() const
     }
     auto doc = getDocument();
     return (!m_restoredOutOfDate && !isTouched()) || (doc && doc->isReplaying());
+}
+
+void DrawViewPart::abortMaking()
+{
+    abortMakeGeometry();
+}
+
+bool DrawViewPart::resultInProperties() const
+{
+    // while a projection runs, what is drawn and stored may be older than the
+    // state it is made from
+    return Preferences::storeProjectedGeometry() && !waitingForResult();
+}
+
+//! An undo or a redo put back the projection of the state it leaves, in
+//! ProjectedGeometry: draw that one, not the projection still installed, which
+//! is of the state it left (docs/TechDrawStoredGeometry.md sec 6).  A
+//! projection still running is of that state too, and is dropped -- also when
+//! the undo wrote only what it projects, the projection never having been
+//! stored (resultInProperties; the view is then left to recompute).
+void DrawViewPart::onUndoRedoFinished()
+{
+    abortMaking();
+    if (restoreStoredGeometry()) {
+        requestPaint();
+        // what is drawn on the view reads its geometry when drawn
+        for (auto dim : getDimensions()) {
+            dim->requestPaint();
+        }
+        for (auto balloon : getBalloons()) {
+            balloon->requestPaint();
+        }
+    }
+    else {
+        // nothing stored to put back: only a recompute can make it again
+        touch();
+    }
+    DrawView::onUndoRedoFinished();
 }
 
 void DrawViewPart::onDocumentRestored()

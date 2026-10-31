@@ -1,18 +1,18 @@
-"""A detail of a section is drawn by the recompute that makes it, and
-follows the section through the next.
+"""An undo puts a drawing back as it was, with nothing left to recompute
+(docs/TechDrawStoredGeometry.md sec 6).
 
-A box, a page, a part view of the box, a section through the box and a
-detail of the section, projected by the real hidden line algorithm in
-threads. The section cuts in a thread too; the detail, recomputed while
-the cut is still running, waits for it, and the section has it recomputed
-when the cut lands (DrawViewSection::postSectionCutTasks). That recompute
-was skipped -- nothing of the detail is touched, and OptimizeRecompute
-skips an object with nothing touched -- so the detail was empty after the
-recompute that made it, and one change behind after each one after.
+A box, a page, a part view of the box projected by the real hidden line
+algorithm in its thread, a section through the box and a detail of the
+section. The box's length goes
+from 15 to 20 and is recomputed; then undo and redo.
 
 Claims:
-  - after the recompute that makes them the detail details the 15 box;
-  - after the box's length goes to 20 and is recomputed, the 20 one.
+  - after the undo the view draws the 15 box and after the redo the 20 one,
+    without a recompute and with nothing marked for one: the projection
+    the undo put back in ProjectedGeometry is the one drawn;
+  - an undo while the change is still being projected leaves no drawing
+    showing the change and saying it is up to date: what was being made is
+    dropped, and what the view stored before the change is drawn.
 """
 import os
 import time
@@ -131,6 +131,38 @@ def run():
     state("edited")
     check("edited: the view draws 20 and the detail details 20",
           tallest(view) == 20 and longest(detail) == 20)
+
+    doc.undo()
+    settle(seconds=1.0)
+    names = state("undone")
+    check("undo: the view draws 15 with nothing to recompute",
+          tallest(view) == 15 and "View" not in names, str(names))
+
+    doc.redo()
+    settle(seconds=1.0)
+    names = state("redone")
+    check("redo: the view draws 20 with nothing to recompute",
+          tallest(view) == 20 and "View" not in names, str(names))
+
+    doc.undo()
+    settle(seconds=1.0)
+    names = state("undone")
+    check("undo: the section and its detail draw 15 with nothing to recompute",
+          longest(section) == 15 and longest(detail) == 15
+          and "Section" not in names and "Detail" not in names, str(names))
+    settle(seconds=2.0)
+
+    doc.openTransaction("Length 25")
+    box.Length = 25
+    doc.commitTransaction()
+    doc.recompute()
+    doc.undo()   # at once, the projections still running
+    settle(seconds=3.0)
+    names = state("raced")
+    shown = {"View": tallest(view), "Section": longest(section), "Detail": longest(detail)}
+    stale = [n for n, v in shown.items() if v != 15 and n not in names]
+    check("an undo during the projection leaves each drawing right or marked",
+          box.Length.Value == 15 and not stale, "stale %s" % stale)
 
     FreeCAD.closeDocument(doc.Name)
 

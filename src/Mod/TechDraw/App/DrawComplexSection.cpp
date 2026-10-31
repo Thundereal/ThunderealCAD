@@ -787,6 +787,12 @@ TopoDS_Shape DrawComplexSection::getShapeToIntersect()
     return m_preparedShape.getShape();
 }
 
+void DrawComplexSection::abortMaking()
+{
+    abortMakeAlignedPieces();
+    DrawViewSection::abortMaking();
+}
+
 TopoDS_Shape DrawComplexSection::getShapeForDetail() const
 {
     if (ProjectionStrategy.getValue() == 0) {//Offset

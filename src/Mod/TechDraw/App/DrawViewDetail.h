@@ -103,6 +103,8 @@ public:
     bool getScaledFrame(gp_Trsf& frame) const;
 
 protected:
+    void abortMaking() override;
+
     struct Output {
         TopoDS_Shape shape;
         TopoDS_Shape detailShape;

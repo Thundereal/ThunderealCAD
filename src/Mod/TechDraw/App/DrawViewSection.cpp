@@ -334,7 +334,9 @@ void DrawViewSection::onChanged(const App::Property* prop)
         BaseView.getValue()->touch();
     }
 
-    DrawView::onChanged(prop);
+    // the part view's, not past it: it is where a projection an undo put back
+    // is taken up (DrawViewPart::onUndoRedoFinished)
+    DrawViewPart::onChanged(prop);
 }
 
 Part::TopoShape DrawViewSection::getShapeToCut()
@@ -1565,6 +1567,12 @@ void DrawViewSection::unsetupObject()
         base->touch();
     }
     DrawViewPart::unsetupObject();
+}
+
+void DrawViewSection::abortMaking()
+{
+    abortSectionCut();
+    DrawViewPart::abortMaking();
 }
 
 //! keep the cut faces beside the projection they belong to

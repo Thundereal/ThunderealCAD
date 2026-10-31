@@ -42,8 +42,17 @@ namespace PartDesign::SheetMetal
 struct PartDesignExport FlatResult
 {
     TopoDS_Shape solid;
-    /// Each bend's line, along its middle on the inner skin, by its name
-    std::vector<std::pair<std::string, TopoDS_Edge>> bendLines;
+    struct BendLine
+    {
+        std::string name;
+        TopoDS_Edge edge;
+        /// The material comes up toward one looking down on the flat: the
+        /// bend's inner skin is on top
+        bool up = false;
+        double angle = 0;
+    };
+    /// Each bend's line, along its middle on the inner skin
+    std::vector<BendLine> bendLines;
 };
 
 /** Lay a folded sheet flat (docs/SheetMetal.md sec 4.7)

@@ -24,7 +24,15 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cmath>
+#include <map>
+#include <numbers>
+
+#include <BRepBndLib.hxx>
+#include <BRepGProp.hxx>
+#include <Bnd_Box.hxx>
+#include <GProp_GProps.hxx>
 
 #include <BRep_Tool.hxx>
 #include <TopoDS.hxx>
@@ -34,9 +42,14 @@
 
 #include <App/Document.h>
 #include <Base/Exception.h>
+#include <Base/FileInfo.h>
+#include <Base/Stream.h>
 
 #include "FeatureSheetMetalFlatPattern.h"
+#include "FeatureSheetMetalRule.h"
+#include "SheetMetal/Dxf.h"
 #include "SheetMetal/Flat.h"
+#include "SheetMetalFlatPatternPy.h"
 #include "SheetMetalExtension.h"
 
 using namespace PartDesign;
@@ -57,24 +70,37 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       App::Prop_None,
                       "The wall's skin laid on XY; the first wall's first skin if none");
     Placement.setStatus(App::Property::Hidden, true);
+
+    const auto out = App::PropertyType(App::Prop_Output | App::Prop_ReadOnly);
+    ADD_PROPERTY_TYPE(FlatLength, (0.0), "Manufacturing", out, "The flat's longer side on XY");
+    ADD_PROPERTY_TYPE(FlatWidth, (0.0), "Manufacturing", out, "The flat's shorter side on XY");
+    ADD_PROPERTY_TYPE(FlatArea, (0.0), "Manufacturing", out, "The blank's area");
+    ADD_PROPERTY_TYPE(Thickness, (0.0), "Manufacturing", out, "The sheet's thickness");
+    ADD_PROPERTY_TYPE(MaterialName, (""), "Manufacturing", out, "The rule's material card");
+    ADD_PROPERTY_TYPE(BendCount, (0), "Manufacturing", out, "How many bends");
+    ADD_PROPERTY_TYPE(MaxBendAngle, (0.0), "Manufacturing", out, "The largest bend angle");
+    ADD_PROPERTY_TYPE(BendDirections,
+                      (),
+                      "Manufacturing",
+                      out,
+                      "Each bend, Up or Down: Up where the material comes up toward one looking "
+                      "down on the flat");
 }
 
-App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
+SheetMetal::FlatResult SheetMetalFlatPattern::buildFlat(SheetMetalExtension*& sheet) const
 {
     auto source = Source.getValue();
     if (!source) {
-        return new App::DocumentObjectExecReturn(
-            QT_TRANSLATE_NOOP("Exception", "The flat pattern has no part to lay flat"));
+        THROWM(Base::ValueError, "The flat pattern has no part to lay flat");
     }
-    try {
+    {
         // the model of the sheet the part is, in the part's placement
-        auto sheet = source->getExtensionByType<SheetMetalExtension>(true);
+        sheet = source->getExtensionByType<SheetMetalExtension>(true);
         if (!sheet) {
             sheet = SheetMetalExtension::findBefore(source);
         }
         if (!sheet || sheet->SheetModel.getValue().elements.empty()) {
-            return new App::DocumentObjectExecReturn(
-                QT_TRANSLATE_NOOP("Exception", "The part is no sheet metal"));
+            THROWM(Base::ValueError, "The part is no sheet metal");
         }
         SheetMetal::Model model = sheet->SheetModel.getValue();
         if (auto feature = dynamic_cast<Part::Feature*>(sheet->getExtendedObject())) {
@@ -82,8 +108,7 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
         }
         const TopoShape folded = Part::Feature::getTopoShape(source);
         if (folded.isNull()) {
-            return new App::DocumentObjectExecReturn(
-                QT_TRANSLATE_NOOP("Exception", "The part has no shape"));
+            THROWM(Base::ValueError, "The part has no shape");
         }
 
         int root = -1;
@@ -94,13 +119,11 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
                                                                subs.front().c_str(),
                                                                /*needSubElement*/ true);
             if (face.isNull() || face.getShape().ShapeType() != TopAbs_FACE) {
-                return new App::DocumentObjectExecReturn(
-                    QT_TRANSLATE_NOOP("Exception", "The root face is not a face"));
+                THROWM(Base::ValueError, "The root face is not a face");
             }
             root = model.owner(TopoDS::Face(face.getShape()));
             if (root < 0 || model.elements[root].kind != SheetMetal::Element::Kind::Wall) {
-                return new App::DocumentObjectExecReturn(
-                    QT_TRANSLATE_NOOP("Exception", "The root face is on no wall"));
+                THROWM(Base::ValueError, "The root face is on no wall");
             }
             const auto& frame = model.elements[root].frame;
             // any point of the skin tells which of the two it is
@@ -116,14 +139,44 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
             }
         }
 
-        const auto flat = SheetMetal::flatten(folded.getShape(), model, root, secondSkin);
+        return SheetMetal::flatten(folded.getShape(), model, root, secondSkin);
+    }
+}
+
+App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
+{
+    try {
+        SheetMetalExtension* sheet = nullptr;
+        const auto flat = buildFlat(sheet);
+        const SheetMetal::Model& model = sheet->SheetModel.getValue();
         std::vector<TopoShape> lines;
+        std::map<std::string, std::string> directions;
+        double maxAngle = 0;
         for (const auto& line : flat.bendLines) {
-            TopoShape edge(line.second);
+            TopoShape edge(line.edge);
             edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
-                                Data::MappedName(line.first));
+                                Data::MappedName(line.name));
             lines.push_back(edge);
+            directions[line.name] = line.up ? "Up" : "Down";
+            maxAngle = std::max(maxAngle, line.angle);
         }
+
+        Bnd_Box box;
+        BRepBndLib::AddOptimal(flat.solid, box, /*useTriangulation*/ false, /*useShapeTolerance*/ false);
+        double x0, y0, z0, x1, y1, z1;
+        box.Get(x0, y0, z0, x1, y1, z1);
+        GProp_GProps props;
+        BRepGProp::VolumeProperties(flat.solid, props);
+        FlatLength.setValue(std::max(x1 - x0, y1 - y0));
+        FlatWidth.setValue(std::min(x1 - x0, y1 - y0));
+        FlatArea.setValue(props.Mass() / model.thickness);
+        Thickness.setValue(model.thickness);
+        BendCount.setValue(static_cast<long>(flat.bendLines.size()));
+        MaxBendAngle.setValue(maxAngle * 180 / std::numbers::pi);
+        BendDirections.setValues(directions);
+        auto rule = sheet->getRule();
+        MaterialName.setValue(rule ? rule->ShapeMaterial.getValue().getName().toStdString()
+                                   : std::string());
         TopoShape res(0, getDocument()->getStringHasher());
         res.makECompound({TopoShape(flat.solid),
                           TopoShape(0, getDocument()->getStringHasher())
@@ -139,4 +192,24 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
         return new App::DocumentObjectExecReturn(e.GetMessageString());
     }
     return App::DocumentObject::StdReturn;
+}
+
+void SheetMetalFlatPattern::exportDXF(const char* path) const
+{
+    SheetMetalExtension* sheet = nullptr;
+    const auto flat = buildFlat(sheet);
+    Base::FileInfo fi(path);
+    Base::ofstream out(fi, std::ios::out | std::ios::trunc);
+    if (!out) {
+        FC_THROWM(Base::FileException, "Cannot write " << path);
+    }
+    SheetMetal::writeDXF(out, flat);
+}
+
+PyObject* SheetMetalFlatPattern::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        PythonObject = Py::Object(new SheetMetalFlatPatternPy(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
 }

@@ -230,9 +230,15 @@ FlatResult flatten(const TopoDS_Shape& folded, const Model& model, int root, boo
             return mapper.map(static_cast<int>(i),
                               b.frame.Location().Translated(mid + gp_Vec(b.frame.Direction()) * z));
         };
-        res.bendLines.emplace_back(
-            element.name,
-            BRepBuilderAPI_MakeEdge(at(extent[i].first), at(extent[i].second)).Edge());
+        FlatResult::BendLine line;
+        line.name = element.name;
+        line.edge = BRepBuilderAPI_MakeEdge(at(extent[i].first), at(extent[i].second)).Edge();
+        line.up = mapper.map(static_cast<int>(i),
+                             b.frame.Location().Translated(gp_Vec(b.frame.XDirection()) * b.radius))
+                      .Z()
+            > model.thickness / 2;
+        line.angle = b.angle;
+        res.bendLines.push_back(line);
     }
     return res;
 }

@@ -25,11 +25,17 @@
 #pragma once
 
 #include <App/PropertyLinks.h>
+#include <App/PropertyStandard.h>
+#include <App/PropertyUnits.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
+#include "SheetMetal/Flat.h"
+
 namespace PartDesign
 {
+
+class SheetMetalExtension;
 
 /** A sheet laid flat (docs/SheetMetal.md sec 4.7)
  *
@@ -50,7 +56,32 @@ public:
     /// The wall's skin laid on XY; the first wall's first skin if none
     App::PropertyLinkSub RootFace;
 
+    /** @name What a bill of materials takes (docs/SheetMetal.md sec 5.4) */
+    //@{
+    /// The flat's size on XY, the longer side first
+    App::PropertyLength FlatLength;
+    App::PropertyLength FlatWidth;
+    /// The blank's area
+    App::PropertyArea FlatArea;
+    App::PropertyLength Thickness;
+    /// The name of the rule's material card
+    App::PropertyString MaterialName;
+    App::PropertyInteger BendCount;
+    App::PropertyAngle MaxBendAngle;
+    /// Each bend, Up or Down: Up where the material comes up toward one
+    /// looking down on the flat
+    App::PropertyMap BendDirections;
+    //@}
+
     App::DocumentObjectExecReturn* execute() override;
+    PyObject* getPyObject() override;
+
+    /// Write the flat as DXF (SheetMetal::writeDXF()); throws on failure
+    void exportDXF(const char* path) const;
+
+private:
+    /// The flat of Source from RootFace; throws Base::ValueError saying why not
+    SheetMetal::FlatResult buildFlat(SheetMetalExtension*& sheet) const;
 };
 
 }  // namespace PartDesign

@@ -20,6 +20,7 @@ generate_from_xml(BodyPy)
 generate_from_xml(FeaturePy)
 generate_from_xml(SheetMetalRulePy)
 generate_from_xml(SheetMetalExtensionPy)
+generate_from_xml(SheetMetalFlatPatternPy)
 
 
 set(PartDesign_LIBS
@@ -159,9 +160,11 @@ SET(SheetMetal_SRCS
     SheetMetal/BendAllowance.h
     SheetMetal/Fold.cpp
     SheetMetal/Fold.h
-    SheetMetal/Model.cpp
+    SheetMetal/Dxf.cpp
+    SheetMetal/Dxf.h
     SheetMetal/Flat.cpp
     SheetMetal/Flat.h
+    SheetMetal/Model.cpp
     SheetMetal/Model.h
     SheetMetal/Pieces.cpp
     SheetMetal/Pieces.h
@@ -189,6 +192,8 @@ SET(Python_SRCS
     SheetMetalRulePyImp.cpp
     SheetMetalExtensionPy.xml
     SheetMetalExtensionPyImp.cpp
+    SheetMetalFlatPatternPy.xml
+    SheetMetalFlatPatternPyImp.cpp
 )
 SOURCE_GROUP("Python" FILES ${Python_SRCS})
 

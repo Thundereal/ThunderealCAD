@@ -70,6 +70,7 @@ public:
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    bool shouldApplyPlacement() override;
     void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {

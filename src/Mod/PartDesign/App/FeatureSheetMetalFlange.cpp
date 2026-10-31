@@ -116,6 +116,15 @@ SheetMetalFlange::SheetMetalFlange()
     Refine.setStatus(App::Property::Hidden, true);
 }
 
+bool SheetMetalFlange::shouldApplyPlacement()
+{
+    // Built where it is, its Placement never applied: a location made of an
+    // identity placement is not an empty one, and each feature down a chain
+    // stacked another on its shape, every boolean keying the edges' curves
+    // on their surfaces to it. A 64-flange chain took 26 s to rebuild.
+    return false;
+}
+
 short SheetMetalFlange::mustExecute() const
 {
     if (Edges.isTouched() || Angle.isTouched() || Length.isTouched() || LengthType.isTouched()
@@ -168,10 +177,6 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
     const double R = rule->BendRadius.getValue();
     const double A = Angle.getValue() * std::numbers::pi / 180;
     try {
-        // In the frame of the feature built on, as a dress-up is
-        if (auto baseObject = getBaseObject(/*silent*/ true)) {
-            Placement.setValue(baseObject->Placement.getValue());
-        }
         Model model = modelBefore(T);
         if (model.elements.empty()) {
             return new App::DocumentObjectExecReturn(
@@ -182,8 +187,8 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             ++(e.kind == Element::Kind::Wall ? walls : bends);
         }
 
+        // In place, as a pad of the current version is (shouldApplyPlacement())
         TopoShape base = getBaseShape();
-        base.move(getLocation().Inverted());
 
         const auto shadows = Edges.getShadowSubs();
         if (shadows.empty()) {
@@ -323,7 +328,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         if (isRecomputePaused()) {
             return App::DocumentObject::StdReturn;
         }
-        Shape.setValue(wrapLocated(makeBoolean(base, tool)));
+        Shape.setValue(makeBoolean(base, tool));
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

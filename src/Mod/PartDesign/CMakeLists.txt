@@ -66,6 +66,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestDraft.py
     PartDesignTests/TestThickness.py
     PartDesignTests/TestThicken.py
+    PartDesignTests/TestSheetMetalRule.py
     PartDesignTests/TestDefeaturing.py
     PartDesignTests/TestSuppressed.py
     PartDesignTests/TestRetryOnCopy.py

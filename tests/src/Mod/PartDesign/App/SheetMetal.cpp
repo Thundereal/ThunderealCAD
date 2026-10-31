@@ -175,6 +175,42 @@ TEST(SheetMetalAllowance, badTables)
     EXPECT_THROW(bendAllowance({2, 2, deg(90)}, a), Base::ValueError);  // an axis twice
 }
 
+// A card's bend table is rows in any order, (thickness, radius, angle,
+// value); made a table, an axis with one key is kept, and the rows have to
+// fill the grid
+TEST(SheetMetalAllowance, tableFromRows)
+{
+    std::vector<Table::Row> rows;
+    for (double t : {2.0, 1.0}) {
+        for (double r : {1.0, 3.0}) {
+            for (double a : {deg(90), deg(45)}) {
+                rows.push_back({t, r, a, 10 * t + r + a});
+            }
+        }
+    }
+    const Table table = Table::fromRows(rows);
+    ASSERT_EQ(table.axes.size(), 3u);
+    EXPECT_EQ(table.keys[0], (std::vector<double>{1, 2}));
+    EXPECT_EQ(table.keys[1], (std::vector<double>{1, 3}));
+    EXPECT_EQ(table.keys[2], (std::vector<double>{deg(45), deg(90)}));
+    for (const auto& row : rows) {
+        EXPECT_NEAR(table.at({row.thickness, row.radius, row.angle}), row.value, 1e-12);
+    }
+    EXPECT_NEAR(table.at({1.5, 2, deg(67.5)}), 15 + 2 + deg(67.5), 1e-12);
+
+    // one thickness only: its axis has the one key
+    std::vector<Table::Row> one(rows.begin() + 4, rows.end());
+    EXPECT_EQ(Table::fromRows(one).keys[0], (std::vector<double>{1}));
+
+    // a corner missing, a corner twice, no rows
+    std::vector<Table::Row> missing(rows.begin(), rows.end() - 1);
+    EXPECT_THROW(Table::fromRows(missing), Base::ValueError);
+    std::vector<Table::Row> twice = rows;
+    twice.back() = twice.front();
+    EXPECT_THROW(Table::fromRows(twice), Base::ValueError);
+    EXPECT_THROW(Table::fromRows({}), Base::ValueError);
+}
+
 namespace
 {
 

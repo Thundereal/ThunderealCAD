@@ -71,6 +71,7 @@ from PartDesignTests.TestChamfer import TestChamfer, TestChamferGroups
 from PartDesignTests.TestDraft import TestDraft
 from PartDesignTests.TestThickness import TestThickness
 from PartDesignTests.TestThicken import TestThicken
+from PartDesignTests.TestSheetMetalRule import TestSheetMetalRule
 from PartDesignTests.TestDefeaturing import TestDefeaturing
 from PartDesignTests.TestSuppressed import TestSuppressed
 from PartDesignTests.TestRetryOnCopy import TestRetryOnCopy

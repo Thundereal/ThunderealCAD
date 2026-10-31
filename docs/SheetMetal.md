@@ -332,7 +332,9 @@ as Surface's were after their first round (docs/Surface.md sec 12, fb9aa6ee53).
     by hand overrides the card's and is remembered as overridden (`Overridden`, the names), so a
     change of card does not undo it; `resetRuleValue(name)` gives it back to the card. A thickness
     with no row in the card's gauges keeps the rule's own values, and says so.
-  - Without such a card the rule's values are its own: 1 mm thick, 1 mm radius, K 0.5.
+  - Without such a card the rule's values are its own. The defaults: 1 mm thick, 1 mm radius,
+    K 0.5 by the KFactor method, no minimum flange, a 0.1 mm gap, a rectangular bend relief
+    1 mm wide and 1 mm deep, a circular corner relief of 2 mm.
   - The table methods take their table from the card; the rule holds no table of its own.
 
 ### 4.7 The flat pattern
@@ -590,8 +592,12 @@ and not frozen.
   2026-10-30).
 - The Material module's `SheetMetal` model (sec 4.6): a gauge table, the allowance method and a
   bend table, with a gtest (2026-10-30).
-- Left of M0: the rule object (4.6, ruled 2026-10-31), which reads that model, and the
-  sheet model that owns the faces, which comes with the first feature that makes one (M1).
+- M0's rule object, `PartDesign::SheetMetalRule` (4.6, ruled 2026-10-31), reading that model,
+  with `TestSheetMetalRule` (9) and a gtest for the card's bend table (2026-10-31). Its tree
+  place under the solid body, and the solid body a lone sheet needs, come with the first
+  feature that links it (M1).
+- Left of M0: the sheet model that owns the faces, which comes with the first feature that
+  makes one (M1).
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

@@ -176,6 +176,19 @@ class TestSheetMetalBaseWall(unittest.TestCase):
         self.wall(self.sketch([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True))
         self.assertTrue(self.Body.AddSolidBody)
 
+    def testLoneSolidHasSolidBody(self):
+        """A body's only solid has a solid body once it holds sheet metal,
+        so the rule has a place in the tree; Misc leaves the rule to it"""
+        self.Body.setAutoAuxGroup(True)
+        wall = self.wall(self.sketch([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True))
+        solids = self.Body.SolidBodies
+        self.assertEqual(len(solids), 1)
+        self.assertIn(wall, solids[0].Group)
+        self.assertIn(wall.Rule, self.Body.Group)
+        misc = [o for o in self.Body.Group if o.Name.startswith("Misc")]
+        self.assertTrue(misc)
+        self.assertNotIn(wall.Rule, misc[0].Group)
+
     def testErrors(self):
         """No rule, a profile with an arc, a leg shorter than its bend"""
         sketch = self.sketch([(0, 0), (20, 0), (20, 10)])

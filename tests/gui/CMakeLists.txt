@@ -176,6 +176,10 @@ fc_add_gui_test(GuiSurfaceInBody_tests_run surface-in-body.py
 # Surface feature brings it too, until the edit ends.
 fc_add_gui_test(GuiSurfaceGroup_tests_run surface-group.py
                 --timeout 180)
+# Sheet metal's rule as the first child of the solid body holding the sheet
+# (docs/SheetMetal.md sec 4.6), and the lone sheet solid given one.
+fc_add_gui_test(GuiSheetMetalTree_tests_run sheet-metal-tree.py
+                --timeout 120)
 # Geometry picked for a Surface feature is taken as a sketch takes external
 # geometry: through SubShapeBinder::import, outside the feature's body by a
 # binder in it -- by its commands and every panel.

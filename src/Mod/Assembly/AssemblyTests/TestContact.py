@@ -132,10 +132,11 @@ class TestContact(unittest.TestCase):
         cylinder.Placement = placement
         return cylinder
 
-    def force(self):
-        """The contact set's ContactForce channel: on group A's bodies"""
+    def force(self, quantity="ContactForce"):
+        """The contact set's channel: its force on group A's bodies, by
+        default"""
         channels = self.assembly.getSimulationResults()["Channels"]
-        found = [c for c in channels if c["Quantity"] == "ContactForce"]
+        found = [c for c in channels if c["Quantity"] == quantity]
         self.assertEqual(len(found), 1, channels)
         return found[0]["Values"]
 
@@ -160,6 +161,29 @@ class TestContact(unittest.TestCase):
         force = self.force()[-1]
         self.assertAlmostEqual(force.z, BALL * G, delta=BALL * G * 1e-5)
         self.assertLess(abs(force.x) + abs(force.y), 1e-9)
+
+    def test_contact_channels(self):
+        """A set reports its force's normal and friction parts, and its
+        deepest point: the ball at rest pressed by its weight, sunk by the
+        law's closed form, with no friction; and before it lands, nothing"""
+        plate = self.plate()
+        ball = self.ball(16)
+        self.contact([ball], [plate], **self.SOFT)
+        _, result = self.simulate(1.0, 1e-3)
+        self.assertEqual(result, 0)
+        total = self.force()
+        normal = self.force("ContactNormalForce")
+        friction = self.force("ContactFrictionForce")
+        depth = self.force("ContactPenetration")
+        for k in range(len(total)):
+            parts = normal[k] + friction[k]
+            self.assertLess((parts - total[k]).Length, 1e-9 * max(1.0, total[k].Length))
+        self.assertAlmostEqual(normal[-1].z, BALL * G, delta=BALL * G * 1e-5)
+        self.assertLess(friction[-1].Length, 1e-9)
+        self.assertAlmostEqual(depth[-1], self.sink(BALL), delta=1e-5)
+        # Falling the millimetre: sqrt(2 h / g), 14 ms
+        self.assertEqual(depth[5], 0.0)
+        self.assertEqual(total[5].Length, 0.0)
 
     def test_ball_rests_static(self):
         """A Static study finds the same rest"""
@@ -218,6 +242,18 @@ class TestContact(unittest.TestCase):
         # more than the slow end's slip
         self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
         self.assertLess(block.Placement.Base.x, -15 + 200 * 200 / (2 * a) + 0.5)
+        # The friction channel: mu of the normal force, against the slide
+        weight = 1000 * DENSITY * G
+        normal = self.force("ContactNormalForce")
+        friction = self.force("ContactFrictionForce")
+        for k in range(len(normal)):
+            t = k * 1e-3
+            if 0.005 <= t and 200 - a * t > 20:
+                self.assertAlmostEqual(normal[k].z, weight, delta=weight * 1e-3, msg=t)
+                self.assertAlmostEqual(
+                    friction[k].x, -0.25 * normal[k].z, delta=weight * 1e-3, msg=t
+                )
+                self.assertLess(abs(friction[k].y) + abs(friction[k].z), weight * 1e-6, msg=t)
 
     def test_hull_rests(self):
         """A hexagonal prism, no primitive but convex, rests on its hull"""

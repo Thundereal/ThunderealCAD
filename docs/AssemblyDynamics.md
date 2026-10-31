@@ -1080,7 +1080,7 @@ Phase D1 is under way (2026-10-28):
     value or an allowed penetration, and the damping by restitution or a value, each idling the
     other's rows, the slider's powers of ten and the rest it shows; OK
     refused with group A empty.
-  - Not yet: 2D path contact (sec 7.4), contact plots; the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
+  - Not yet: 2D path contact (sec 7.4); the decomposition (rung 3b) and a ground mesh's BVH (rung 4).
     A sphere or a cylinder against a mesh keeps GJK's point per triangle.
     The rebound by restitution is r^2's of aluminium -- a ball dropped a
     millimetre reaches 0.0894 for r^2 0.09 at r 0.3, 0.364 for 0.36, 0.645
@@ -1260,6 +1260,27 @@ Phase D1 is under way (2026-10-28):
     settles where k (a - 30 deg) = m g L cos a (1e-4 deg). TestGuiCommands:
     the command idle until such a joint is selected, the stop made Penalty,
     ticked in the Dynamic study only, the fields shown per mode, one undo.
+- Built: contact plots (sec 8.4's per pair channels, per set as built).
+  - Each contact set reports, besides `ContactForce` (its force on group
+    A's bodies), `ContactNormalForce` and `ContactFrictionForce` -- that
+    force's part along its points' normals and the rest, so the two add up
+    to it -- and `ContactPenetration`, its deepest point's depth, 0 apart,
+    in the length unit. The ContactLoad keeps them from the last
+    `ComputeQ()` at the state, as it kept the force (`normalOnB`,
+    `deepest`); a set's are summed, and the deepest taken, over its loads.
+    The panel's Results box plots any of them and the CSV and spreadsheet
+    exports carry them; a sensor watches any of them (a penetration's
+    threshold a length).
+  - Tests (TestContact): the ball at rest pressed by its weight and sunk
+    by the law's closed form (1e-5 mm), no friction, the normal and
+    friction parts adding to the force at every frame (1e-9), nothing
+    before it lands; the block sliding along the plate has the weight for
+    its normal force (1e-3) and a quarter of it, the dynamic friction,
+    against its slide. A sliding block's deepest point is its leading
+    edge, which friction's moment presses: 0.0223 mm against 0.020 at rest
+    in the manual's video (allowed penetration 0.02 mm).
+  - Not yet: contact begin and end as events (sec 8.4), and a pair's own
+    channels within a set.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -81,6 +81,9 @@ ResultQuantities = {
     "BushingForce": (QT_TRANSLATE_NOOP("Assembly", "Bushing force"), 1e-3, "N"),
     "BushingTorque": (QT_TRANSLATE_NOOP("Assembly", "Bushing torque"), 1e-6, "N m"),
     "ContactForce": (QT_TRANSLATE_NOOP("Assembly", "Contact force"), 1e-3, "N"),
+    "ContactNormalForce": (QT_TRANSLATE_NOOP("Assembly", "Contact normal force"), 1e-3, "N"),
+    "ContactFrictionForce": (QT_TRANSLATE_NOOP("Assembly", "Contact friction force"), 1e-3, "N"),
+    "ContactPenetration": (QT_TRANSLATE_NOOP("Assembly", "Contact penetration"), 1.0, "mm"),
 }
 
 
@@ -1396,7 +1399,12 @@ SensorQuantities = {
     "Spring": ("SpringForce", "SpringLength"),
     "TorsionSpring": ("SpringTorque", "SpringAngle"),
     "Bushing": ("BushingForce", "BushingTorque"),
-    "Contact": ("ContactForce",),
+    "Contact": (
+        "ContactForce",
+        "ContactNormalForce",
+        "ContactFrictionForce",
+        "ContactPenetration",
+    ),
 }
 
 
@@ -1418,7 +1426,15 @@ def sensorSourceKind(obj):
 
 
 # A vector's quantities, whose component or magnitude a sensor takes
-SensorVectors = ("Force", "Torque", "BushingForce", "BushingTorque", "ContactForce")
+SensorVectors = (
+    "Force",
+    "Torque",
+    "BushingForce",
+    "BushingTorque",
+    "ContactForce",
+    "ContactNormalForce",
+    "ContactFrictionForce",
+)
 
 
 def sensorSources(assembly):

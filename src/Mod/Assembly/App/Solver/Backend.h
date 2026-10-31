@@ -168,6 +168,10 @@ struct SimulationSpec
 //   "BushingForce", "BushingTorque"  a bushing's on the body of its frame I
 //                      (its component), the torque about frame I's origin;
 //                      width 3
+//   "ContactForce"     a contact set's force on its group A's bodies; width 3
+//   "ContactNormalForce", "ContactFrictionForce"  its parts along the
+//                      contact points' normals and across them; width 3
+//   "ContactPenetration"  the deepest of its points, 0 apart
 // 'unique' is false for a reaction a redundant joint shares with others (sec
 // 6.1): the run took out the rows that repeat others, and what it reports is
 // one split of the load among the joints, not the only one.

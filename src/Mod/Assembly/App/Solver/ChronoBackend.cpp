@@ -761,6 +761,8 @@ public:
         }
         load_Q.setZero();
         onB = ch::VNULL;
+        normalOnB = ch::VNULL;
+        deepest = 0.0;
         count = 0;
         // Each patch's springs and their squares: a point's share is the
         // patch's spring, sum(s^2) / sum(s), over the sum. The deepest
@@ -775,6 +777,7 @@ public:
             const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
             depths[i] = -ch::Vdot(point.normal, pB - pA);
+            deepest = std::max(deepest, depths[i]);
             if (depths[i] > 0.0) {
                 const double spring = std::pow(depths[i], exponents[point.patch]);
                 squares[point.patch] += spring * spring;
@@ -809,6 +812,7 @@ public:
                 continue;
             }
             ch::ChVector3d f = point.normal * normal;
+            normalOnB += f;
             const ch::ChVector3d sliding =
                 relative - point.normal * ch::Vdot(point.normal, relative);
             const double speed = sliding.Length();
@@ -919,9 +923,12 @@ public:
         }
         return hysteresis / std::max(v0, 1e-3);
     }
-    // At the last state ComputeQ was given: the force on B, absolute, and
-    // the points pressing
+    // At the last state ComputeQ was given: the force on B, absolute, its
+    // part along the points' normals (the rest is friction), the deepest
+    // point's depth, m, and the points pressing
     ch::ChVector3d onB;
+    ch::ChVector3d normalOnB;
+    double deepest = 0.0;
     int count = 0;
 
 private:
@@ -5983,7 +5990,11 @@ Status ChronoSession::simulateDynamics(
         channels.push_back({si.sourceName(bushing.first), "BushingTorque", 3});
     }
     for (const auto& pair : si.dynamics->contacts) {
-        channels.push_back({si.sourceName(pair.source), "ContactForce", 3});
+        const std::string& name = si.sourceName(pair.source);
+        channels.push_back({name, "ContactForce", 3});
+        channels.push_back({name, "ContactNormalForce", 3});
+        channels.push_back({name, "ContactFrictionForce", 3});
+        channels.push_back({name, "ContactPenetration", 1});
     }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
@@ -6222,16 +6233,26 @@ Status ChronoSession::simulateDynamics(
             }
         }
         // A set's: the force its group A's bodies take, each load's A
-        // being the A side (a set within A: its first body)
-        std::vector<ch::ChVector3d> onSet(si.dynamics->contacts.size());
+        // being the A side (a set within A: its first body), that force's
+        // normal and friction parts, and the deepest point's depth
+        const std::size_t sets = si.dynamics->contacts.size();
+        std::vector<ch::ChVector3d> onSet(sets);
+        std::vector<ch::ChVector3d> normalOnSet(sets);
+        std::vector<double> deepest(sets, 0.0);
         for (const auto& load : contactLoads) {
             load->ComputeQ(nullptr, nullptr);
             onSet[load->set] -= load->onB;
+            normalOnSet[load->set] -= load->normalOnB;
+            deepest[load->set] = std::max(deepest[load->set], load->deepest);
         }
-        for (const auto& force : onSet) {
-            for (int k = 0; k < 3; ++k) {
-                out.push_back(force[k] / SI::force);
+        for (std::size_t s = 0; s < sets; ++s) {
+            const ch::ChVector3d friction = onSet[s] - normalOnSet[s];
+            for (const ch::ChVector3d& force : {onSet[s], normalOnSet[s], friction}) {
+                for (int k = 0; k < 3; ++k) {
+                    out.push_back(force[k] / SI::force);
+                }
             }
+            out.push_back(deepest[s] / SI::length);
         }
         return out;
     };

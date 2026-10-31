@@ -231,6 +231,9 @@ const char* Sensor::QuantityEnums[] = {"Force",
                                        "BushingForce",
                                        "BushingTorque",
                                        "ContactForce",
+                                       "ContactNormalForce",
+                                       "ContactFrictionForce",
+                                       "ContactPenetration",
                                        nullptr};
 const char* Sensor::ComponentEnums[] = {"Magnitude", "X", "Y", "Z", nullptr};
 const char* Sensor::CompareEnums[] = {"Above", "Below", nullptr};
@@ -273,7 +276,7 @@ Sensor::Sensor()
 void Sensor::updateUnit()
 {
     const std::string quantity = Quantity.getValueAsString();
-    if (quantity == "SpringLength") {
+    if (quantity == "SpringLength" || quantity == "ContactPenetration") {
         Threshold.setUnit(Base::Unit::Length);
     }
     else if (quantity == "SpringAngle") {

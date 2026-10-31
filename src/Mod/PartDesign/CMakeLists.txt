@@ -69,6 +69,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestSheetMetalRule.py
     PartDesignTests/TestSheetMetalBaseWall.py
     PartDesignTests/TestSheetMetalFlange.py
+    PartDesignTests/TestSheetMetalExtendWall.py
     PartDesignTests/TestSheetMetalFlatPattern.py
     PartDesignTests/TestSheetMetalPart.py
     PartDesignTests/TestChainLocations.py

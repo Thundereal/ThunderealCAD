@@ -71,6 +71,7 @@
 #include "FeatureSheetMetalRule.h"
 #include "FeatureSheetMetalBaseWall.h"
 #include "FeatureSheetMetalFlange.h"
+#include "FeatureSheetMetalFlatPattern.h"
 #include "PropertySheetModel.h"
 #include "SheetMetalExtension.h"
 
@@ -188,6 +189,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalExtension         ::init();
     PartDesign::SheetMetalBaseWall          ::init();
     PartDesign::SheetMetalFlange            ::init();
+    PartDesign::SheetMetalFlatPattern       ::init();
 
     PyMOD_Return(mod);
 }

@@ -160,6 +160,8 @@ SET(SheetMetal_SRCS
     SheetMetal/Fold.cpp
     SheetMetal/Fold.h
     SheetMetal/Model.cpp
+    SheetMetal/Flat.cpp
+    SheetMetal/Flat.h
     SheetMetal/Model.h
     SheetMetal/Pieces.cpp
     SheetMetal/Pieces.h
@@ -169,6 +171,8 @@ SET(SheetMetal_SRCS
     FeatureSheetMetalBaseWall.h
     FeatureSheetMetalFlange.cpp
     FeatureSheetMetalFlange.h
+    FeatureSheetMetalFlatPattern.cpp
+    FeatureSheetMetalFlatPattern.h
     PropertySheetModel.cpp
     PropertySheetModel.h
     SheetMetalExtension.cpp

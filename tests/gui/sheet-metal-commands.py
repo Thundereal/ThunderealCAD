@@ -4,7 +4,7 @@
     (ruled 2026-10-31);
   - the Sheet Metal tool bar is there but not offered at first;
   - Base Wall on a selected closed sketch makes a plate in the active body,
-    the sketch hidden, and with it the rule;
+    the sketch hidden, and with it the rule; its panel opens, and OK closes it;
   - Flange on a selected edge of the wall's skin makes a flange there;
   - Flat Pattern makes the flat of the body's tip, not the body's tip itself;
   - the solid body holding the sheet has the sheet metal overlay on its icon;
@@ -71,6 +71,17 @@ def newest(doc, before, typeId):
     return made[0] if made else None
 
 
+def ok():
+    """The open panel's OK, as the user presses it"""
+    for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QDialogButtonBox):
+        b = w.button(QtWidgets.QDialogButtonBox.Ok)
+        if b is not None and b.isVisible():
+            b.click()
+            pump(60)
+            return True
+    return False
+
+
 def menuActions(title):
     """The actions of the Part Design menu's submenu of that title"""
     bar = FreeCADGui.getMainWindow().menuBar()
@@ -114,6 +125,7 @@ def run():
         FreeCADGui.Selection.addSelection(doc.Name, sketch.Name)
         FreeCADGui.runCommand("PartDesign_SheetMetalBaseWall")
         pump()
+        check("Base Wall opens its panel, OK closes it", ok())
         doc.recompute()
         wall = newest(doc, before, "PartDesign::SheetMetalBaseWall")
         check(
@@ -134,6 +146,7 @@ def run():
         FreeCADGui.Selection.addSelection(doc.Name, wall.Name, edge[0])
         FreeCADGui.runCommand("PartDesign_SheetMetalFlange")
         pump()
+        check("Flange opens its panel, OK closes it", ok())
         doc.recompute()
         flange = newest(doc, before, "PartDesign::SheetMetalFlange")
         check(

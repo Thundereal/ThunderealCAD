@@ -188,6 +188,10 @@ fc_add_gui_test(GuiSheetMetalCommands_tests_run sheet-metal-commands.py
 # no dialog for what they cannot use (docs/SheetMetal.md sec 8.2).
 fc_add_gui_test(GuiServeSheetMetal_tests_run serve-sheet-metal.py
                 --timeout 180)
+# Sheet metal's task panels: their values, the edge picks, OK and Cancel
+# (docs/SheetMetal.md sec 5.1, 8.1).
+fc_add_gui_test(GuiSheetMetalPanels_tests_run sheet-metal-panels.py
+                --timeout 120)
 # Geometry picked for a Surface feature is taken as a sketch takes external
 # geometry: through SubShapeBinder::import, outside the feature's body by a
 # binder in it -- by its commands and every panel.

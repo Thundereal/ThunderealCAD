@@ -270,7 +270,11 @@ from the edited feature are for a speed pass after it.
   (326 faces), the last box 1067 ms, a box fused onto the result 1276 ms, the rebuild 17.3 s, where
   64 pads making the same part take 78 ms and 71 ms. Dress-ups apply their placement the same way
   and are likely to; not measured. **Ruled 2026-10-31: fixed as a change of its own**, with its
-  own gate round.
+  own gate round. Done (2f68a3aeca): `Part::Feature::getLocation()` makes one location for one
+  placement, kept, and none for the identity, and applies that one to its shape;
+  `TopoShape::setTransform()` makes none of the identity. The 64 boxes now: the last 70 ms, the fuse
+  58 ms, the rebuild 1.87 s, as the pads. Dress-ups measured too (a chamfer chain, which stacked one
+  datum per chamfer). Tested by `TestChainLocations`.
 ### 4.5 Two layers, as in Surface
 
 - **`App/Geom/`: geometry, no document.**
@@ -548,6 +552,14 @@ the active group is deleted or its document closed.
 
 Built 2026-10-30 for Surface. The SolidBody half is in place, but nothing uses it until the first
 sheet metal feature registers its context (M1). It is tested then.
+
+Built 2026-10-31 for sheet metal (9bb82c8a2a), tested by `GuiSheetMetalCommands`: the Sheet Metal
+tool bar (Base Wall, Flange, Flat Pattern, Export Flat to DXF) is offered while a sheet's solid body
+is active (`pdsheetmetal`) or a sheet metal feature is in edit, the solid body carrying the sheet
+metal overlay; the types are of the kind `SheetMetal` on a body; the Part Design menu's Sheet Metal
+submenu holds Base Wall. The commands take selection and make the feature; their values are edited
+in the property view until the task panels come (M1, still to come, written for the browser as
+Surface's were).
 
 ### 8.2 In the view
 

@@ -128,6 +128,7 @@ protected:
     /// Set Feature viewprovider into visual body mode
     void setVisualBodyMode(bool bodymode);
     bool shouldCheckExport(App::DocumentObject *) const override;
+    void excludeFromExport(std::set<App::DocumentObject *> &) const override;
 
     bool _reorderObject(PartDesign::Body *body,
                         App::DocumentObject *obj,

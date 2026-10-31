@@ -39,6 +39,7 @@
 #include "Body.h"
 #include "Feature.h"
 #include "FeatureSolid.h"
+#include "FeatureSheetMetalRule.h"
 #include "SolidBody.h"
 #include "AuxGroup.h"
 
@@ -131,7 +132,9 @@ bool AuxGroup::isObjectAllowed(const App::DocumentObject *obj) const
             && !type.isDerivedFrom(Feature::getClassTypeId())
             && !type.isDerivedFrom(Solid::getClassTypeId())
             && !type.isDerivedFrom(SolidBody::getClassTypeId())
-            && !type.isDerivedFrom(AuxGroup::getClassTypeId());
+            && !type.isDerivedFrom(AuxGroup::getClassTypeId())
+            // left to the solid bodies of the sheets using it
+            && !type.isDerivedFrom(SheetMetalRule::getClassTypeId());
     case OtherGroup:
         return !type.isDerivedFrom(AuxGroup::getClassTypeId())
             && !type.isDerivedFrom(SolidBody::getClassTypeId())

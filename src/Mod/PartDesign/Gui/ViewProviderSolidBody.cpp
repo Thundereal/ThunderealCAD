@@ -51,6 +51,8 @@
 #include <Mod/Part/App/BodyBase.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/Feature.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
+#include <Mod/PartDesign/App/SheetMetalExtension.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "ViewProviderSolidBody.h"
@@ -326,6 +328,16 @@ std::vector<App::DocumentObject*> ViewProviderSolidBody::claimChildren() const
     auto res = inherited::claimChildren();
     if (auto owner = Base::freecad_dynamic_cast<PartDesign::SolidBody>(getObject())) {
         const auto &features = owner->Group.getValues();
+        // First, the rules its sheet metal features follow, those in its body
+        // (docs/SheetMetal.md sec 4.6)
+        auto body = owner->getBody();
+        for (auto feature : features) {
+            auto sheet = feature->getExtensionByType<PartDesign::SheetMetalExtension>(true);
+            auto rule = sheet ? sheet->getRule() : nullptr;
+            if (rule && body && body->Group.find(rule->getNameInDocument()) == rule
+                    && std::find(res.begin(), res.end(), rule) == res.end())
+                res.push_back(rule);
+        }
         res.insert(res.end(), features.begin(), features.end());
     }
     return res;

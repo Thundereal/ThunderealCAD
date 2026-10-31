@@ -1123,12 +1123,20 @@ void Body::syncSolidBodies(bool force)
     }
 
     // Every solid gets one once there are two solids. A lone solid keeps the
-    // one it has, and is given none.
+    // one it has, and is given none -- unless it holds sheet metal, whose
+    // rule is shown under its solid body (docs/SheetMetal.md sec 4.6).
+    auto holdsSheetMetal = [](const std::vector<App::DocumentObject*> &features) {
+        for (auto obj : features) {
+            if (obj->hasExtension(SheetMetalExtension::getExtensionClassTypeId()))
+                return true;
+        }
+        return false;
+    };
     std::vector<SolidBody*> created;
-    if (solids.size() > 1) {
+    {
         auto group = Group.getValues();
         for (int i=0; i<(int)solids.size(); ++i) {
-            if (assigned[i])
+            if (assigned[i] || (solids.size() < 2 && !holdsSheetMetal(solids[i])))
                 continue;
             // Not made the document's active object: that stays the feature
             // whose arrival made the second solid

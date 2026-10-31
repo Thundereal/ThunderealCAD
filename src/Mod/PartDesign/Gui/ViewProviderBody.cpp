@@ -55,6 +55,7 @@
 
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/FeatureSketchBased.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/FeatureSolid.h>
 #include <Mod/PartDesign/App/FeatureExtrusion.h>
 #include <Mod/PartDesign/App/FeatureMultiTransform.h>
@@ -1309,6 +1310,24 @@ void ViewProviderBody::groupSiblings(PartDesign::Feature *feat, bool collapse, b
 bool ViewProviderBody::shouldCheckExport(App::DocumentObject *) const
 {
     return true;
+}
+
+void ViewProviderBody::excludeFromExport(std::set<App::DocumentObject *> &out) const
+{
+    // A sheet's rule, reached by a global link, is shown under the solid
+    // bodies of the sheets using it (docs/SheetMetal.md sec 4.6)
+    auto body = Base::freecad_dynamic_cast<PartDesign::Body>(getObject());
+    if (!body)
+        return;
+    for (auto solid : body->getSolidBodies()) {
+        auto vp = Gui::Application::Instance->getViewProvider(solid);
+        if (!vp)
+            continue;
+        for (auto child : vp->claimChildren()) {
+            if (child && child->isDerivedFrom(PartDesign::SheetMetalRule::getClassTypeId()))
+                out.insert(child);
+        }
+    }
 }
 
 std::map<std::string,App::Color> ViewProviderBody::getElementColors(const char *element) const

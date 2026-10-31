@@ -619,8 +619,12 @@ and not frozen.
     `sheetElementOf(subname)`. A feature put in a body takes the rule of the sheet feature it
     builds on, or the first makes one; the body's `AddSolidBody` is turned on. A bend's K in
     the model is the one that gives the rule's allowance, whatever the method.
-- Left of the rule's tree place (4.6): the SolidBody for a body's only solid when it holds sheet
-  metal, and the rule shown as its first child.
+- The rule's tree place (4.6) (a164da828d): a body's only solid gets a SolidBody when it holds
+  sheet metal; the SolidBody's view provider claims the rules its features follow, those in its
+  body, before the features; Misc leaves rules to them. The body's export list left the rule at
+  its top level, since it counts only what a child links locally and `Rule` is global: the body
+  leaves out what its solid bodies claim, through a hook on the group extension
+  (`excludeFromExport()`). Tested by `GuiSheetMetalTree`.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

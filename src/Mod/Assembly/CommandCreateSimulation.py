@@ -84,6 +84,8 @@ ResultQuantities = {
     "ContactNormalForce": (QT_TRANSLATE_NOOP("Assembly", "Contact normal force"), 1e-3, "N"),
     "ContactFrictionForce": (QT_TRANSLATE_NOOP("Assembly", "Contact friction force"), 1e-3, "N"),
     "ContactPenetration": (QT_TRANSLATE_NOOP("Assembly", "Contact penetration"), 1.0, "mm"),
+    "FrictionForce": (QT_TRANSLATE_NOOP("Assembly", "Friction force"), 1e-3, "N"),
+    "FrictionTorque": (QT_TRANSLATE_NOOP("Assembly", "Friction torque"), 1e-6, "N m"),
 }
 
 
@@ -1405,6 +1407,7 @@ SensorQuantities = {
         "ContactFrictionForce",
         "ContactPenetration",
     ),
+    "Friction": ("FrictionForce", "FrictionTorque"),
 }
 
 
@@ -1420,6 +1423,8 @@ def sensorSourceKind(obj):
         return "TorsionSpring"
     if obj.isDerivedFrom("Assembly::Bushing"):
         return "Bushing"
+    if obj.isDerivedFrom("Assembly::JointFriction"):
+        return "Friction"
     if hasattr(obj, "JointType") or (hasattr(obj, "Joint") and hasattr(obj, "Formula")):
         return "Joint"
     return None
@@ -1991,6 +1996,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             if o.isDerivedFrom("Assembly::SpringDamper")
             or o.isDerivedFrom("Assembly::TorsionSpring")
             or o.isDerivedFrom("Assembly::JointStop")
+            or o.isDerivedFrom("Assembly::JointFriction")
             or o.isDerivedFrom("Assembly::FramedItem")
             or o.isDerivedFrom("Assembly::ContactSet")
         ]

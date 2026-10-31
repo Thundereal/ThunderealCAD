@@ -719,7 +719,54 @@ def makeJointStop(assembly, joint, mode="Penalty"):
     return stop
 
 
+class CommandCreateJointFriction:
+    def GetResources(self):
+        return {
+            "Pixmap": "Assembly_JointFriction",
+            "MenuText": QT_TRANSLATE_NOOP("Assembly_CreateJointFriction", "Joint Friction"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Assembly_CreateJointFriction",
+                "Friction in a joint in a dynamic simulation: a force against its sliding "
+                "and a torque\nagainst its turning, from the load across the joint and a pin "
+                "radius. Select a\nslider, cylindrical or revolute joint first.",
+            ),
+            "CmdType": "ForEdit",
+        }
+
+    def IsActive(self):
+        return UtilsAssembly.isAssemblyCommandActive() and selectedStopJoint() is not None
+
+    def Activated(self):
+        assembly = UtilsAssembly.activeAssembly()
+        joint = selectedStopJoint()
+        if not assembly or joint is None:
+            return
+        friction = makeJointFriction(assembly, joint)
+        Gui.Selection.clearSelection()
+        Gui.Selection.addSelection(friction)
+
+
+def makeJointFriction(assembly, joint):
+    """Friction in a Slider, Cylindrical or Revolute joint, in a transaction;
+    ticked in every Dynamic study of the assembly (at rest, a Static study's
+    joints slip at no speed, and friction takes nothing)"""
+    doc = assembly.Document
+    doc.openTransaction(translate("Assembly", "Create joint friction"))
+    try:
+        physics = assembly.getGroup("Physics", True)
+        friction = physics.newObject("Assembly::JointFriction", "JointFriction")
+        friction.Joint = joint
+        sims = assembly.getGroup("Simulations")
+        for sim in sims.Group if sims else []:
+            if getattr(sim, "AnalysisType", None) == "Dynamic":
+                sim.Elements = list(sim.Elements) + [friction]
+    finally:
+        doc.commitTransaction()
+    return friction
+
+
 if App.GuiUp:
     Gui.addCommand("Assembly_CreateSpring", CommandCreateSpring())
     Gui.addCommand("Assembly_CreateTorsionSpring", CommandCreateTorsionSpring())
     Gui.addCommand("Assembly_CreateJointStop", CommandCreateJointStop())
+    Gui.addCommand("Assembly_CreateJointFriction", CommandCreateJointFriction())

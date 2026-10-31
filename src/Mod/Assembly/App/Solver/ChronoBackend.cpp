@@ -644,6 +644,111 @@ double step(double x, double x0, double h0, double x1, double h1)
     return h0 + (h1 - h0) * u * u * (3.0 - 2.0 * u);
 }
 
+// A joint's friction (Friction, JointFriction): Coulomb's against the
+// joint's slip -- J's relative to I, along zI (a slide) and about it (a
+// turn, at the radius) -- its coefficient by the slip's speed as a
+// contact's: none at rest, the static at the stiction velocity, the dynamic
+// from the friction velocity. Its load 'normal', the joint's reaction
+// across its axis, is set after each step (the last step's: the reaction
+// is the constraints', which the step solves with it) and held over the
+// next. A is frame J's body, B frame I's, each loaded at its frame: B
+// dragged along J's slip, A held back. Implicit through Chrono's numerical
+// jacobian, as a stop and a contact are: at the stiction velocity of 0.1
+// mm/s it is a stiff damper.
+class FrictionLoad: public ch::ChLoadBodyBody
+{
+public:
+    FrictionLoad(std::shared_ptr<ch::ChBody> a,
+                 std::shared_ptr<ch::ChBody> b,
+                 const ch::ChFramed& frameJ,
+                 const ch::ChFramed& frameI,
+                 const Friction& friction)
+        : ch::ChLoadBodyBody(a, b, frameI)
+        , friction(friction)
+    {
+        SetApplicationFrameA(a->ch::ChFramed::TransformParentToLocal(frameJ));
+        SetApplicationFrameB(b->ch::ChFramed::TransformParentToLocal(frameI));
+    }
+
+    FrictionLoad* Clone() const override
+    {
+        return new FrictionLoad(*this);
+    }
+    bool IsStiff() override
+    {
+        return true;
+    }
+    void ComputeJacobian(ch::ChState* state_x, ch::ChStateDelta* state_w) override
+    {
+        ch::ChLoadBodyBody::ComputeJacobian(state_x, state_w);
+        ComputeQ(state_x, state_w);
+    }
+    void ComputeBodyBodyForceTorque(const ch::ChFrameMoving<>& /*rel_AB*/,
+                                    ch::ChVector3d& force,
+                                    ch::ChVector3d& moment) override
+    {
+        force = ch::VNULL;
+        moment = ch::VNULL;
+        const auto [slide, turn] = slip();
+        const double s = std::hypot(slide, turn);
+        if (!(s > 0.0)) {
+            return;
+        }
+        // Adams' FRICTION's, through no slip from the other way's: steepest
+        // at rest. The contact's from no slip, flat there, left Newton a
+        // block stopping at 1 ms steps to overshoot -- it crept on at 2
+        // mm/s, the friction at its static -- where this is all but linear.
+        const Friction& f = friction;
+        const double mu = s < f.vStiction
+            ? step(s, -f.vStiction, -f.muStatic, f.vStiction, f.muStatic)
+            : step(s, f.vStiction, f.muStatic, f.vFriction, f.muDynamic);
+        // In frame I's axes, on frame I's body, each in its share of the slip
+        force.z() = mu * (normal + friction.preloadForce) * slide / s;
+        moment.z() = mu * (friction.radius * normal + friction.preloadTorque) * turn / s;
+    }
+    // J's slip from I now: along zI, and about it at the radius, as speeds
+    std::pair<double, double> slip() const
+    {
+        const ch::ChVector3d z = frame_Bw.GetRotMat().GetAxisZ();
+        const ch::ChVector3d wI = frame_Bw.GetAngVelParent();
+        double slide = 0.0;
+        double turn = 0.0;
+        if (friction.slides) {
+            const ch::ChVector3d d = frame_Aw.GetPos() - frame_Bw.GetPos();
+            slide = ch::Vdot(frame_Aw.GetPosDt() - frame_Bw.GetPosDt(), z)
+                + ch::Vdot(d, ch::Vcross(wI, z));
+        }
+        if (friction.turns) {
+            turn = ch::Vdot(frame_Aw.GetAngVelParent() - wI, z) * friction.radius;
+        }
+        return {slide, turn};
+    }
+    // The force on B and the torque about its frame now, absolute
+    ch::ChWrenchd wrenchNow()
+    {
+        ComputeQ(nullptr, nullptr);
+        return {frame_Bw.TransformDirectionLocalToParent(locB_force),
+                frame_Bw.TransformDirectionLocalToParent(locB_torque)};
+    }
+    // The slip now, as slip() at the bodies' state
+    std::pair<double, double> slipNow()
+    {
+        ComputeQ(nullptr, nullptr);
+        return slip();
+    }
+    ch::ChVector3d pointNow() const
+    {
+        return frame_Bw.GetPos();
+    }
+    ch::ChVector3d axisNow() const
+    {
+        return frame_Bw.GetRotMat().GetAxisZ();
+    }
+
+    const Friction friction;
+    double normal = 0.0;  // the joint's reaction across its axis, N
+};
+
 // The contact between two bodies a contact set lets touch (ContactPair,
 // docs/AssemblyDynamics.md sec 7, phase D2): the points collision detection
 // found at the step's start, each a point on either body and the normal
@@ -5765,6 +5870,25 @@ Status ChronoSession::simulateDynamics(
                                                   run.d->limitAngle[limit.id]);
         loads->Add(penalties[k]);
     }
+    // The joints' frictions: a load each between its joint's bodies, its
+    // normal load from the joint's reaction after each step. None in a
+    // static run, which slips at no speed.
+    std::vector<std::shared_ptr<FrictionLoad>> frictions;
+    if (spec.analysis != Analysis::Static) {
+        for (const auto& friction : si.dynamics->frictions) {
+            if (!run.d->validFrame(friction.frameI) || !run.d->validFrame(friction.frameJ)
+                || run.d->isRigid(friction.frameI, friction.frameJ)) {
+                continue;
+            }
+            auto load = std::make_shared<FrictionLoad>(run.d->bodyOf(friction.frameJ),
+                                                       run.d->bodyOf(friction.frameI),
+                                                       run.d->globalOf(friction.frameJ),
+                                                       run.d->globalOf(friction.frameI),
+                                                       friction);
+            loads->Add(load);
+            frictions.push_back(load);
+        }
+    }
     // Contact (sec 7, phase D2): each shape on its frame's body, collision
     // detection by Bullet making no contact of Chrono's own (its SMC contact
     // force is explicit, fixed over a step), and a ContactLoad per pair of
@@ -6408,6 +6532,7 @@ Status ChronoSession::simulateDynamics(
         std::vector<std::pair<const Joint*, std::shared_ptr<ch::ChLinkBase>>> links;
         std::vector<std::size_t> limits;  // its stops, by index in si.limits
         bool unique = true;               // false: a redundant joint's (sec 6.1)
+        std::vector<std::size_t> frictions;  // its friction, by index in frictions
     };
     std::vector<Reaction> reactions;
     for (const auto& record : run.d->links) {
@@ -6439,6 +6564,25 @@ Status ChronoSession::simulateDynamics(
             at = std::prev(reactions.end());
         }
         at->limits.push_back(k);
+    }
+    // A friction is its joint's, the joint on its frames; and the joint's
+    // links are what press it
+    std::vector<std::vector<std::shared_ptr<ch::ChLinkBase>>> frictionLinks(frictions.size());
+    for (std::size_t k = 0; k < frictions.size(); ++k) {
+        const Friction& friction = frictions[k]->friction;
+        for (auto& reaction : reactions) {
+            bool mine = false;
+            for (const auto& [joint, link] : reaction.links) {
+                if (joint->frameI == friction.frameI && joint->frameJ == friction.frameJ) {
+                    frictionLinks[k].push_back(link);
+                    mine = true;
+                }
+            }
+            if (mine) {
+                reaction.frictions.push_back(k);
+                break;
+            }
+        }
     }
     std::vector<Channel> channels;
     std::string notUnique;
@@ -6481,6 +6625,15 @@ Status ChronoSession::simulateDynamics(
         channels.push_back({name, "ContactNormalForce", 3});
         channels.push_back({name, "ContactFrictionForce", 3});
         channels.push_back({name, "ContactPenetration", 1});
+    }
+    for (const auto& load : frictions) {
+        const std::string& name = si.sourceName(load->friction.source);
+        if (load->friction.slides) {
+            channels.push_back({name, "FrictionForce", 1});
+        }
+        if (load->friction.turns) {
+            channels.push_back({name, "FrictionTorque", 1});
+        }
     }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
@@ -6555,7 +6708,24 @@ Status ChronoSession::simulateDynamics(
         }
     }
     const double gravity = si.dynamics->gravity.Length();
+    // Each friction's load: its joint's reaction across its axis now, the
+    // force on frame I's body less its part along the axis
+    auto pressFrictions = [&]() {
+        for (std::size_t k = 0; k < frictions.size(); ++k) {
+            FrictionLoad& load = *frictions[k];
+            const Id frameI = load.friction.frameI;
+            const ch::ChFramed at = run.d->globalOf(frameI);
+            ch::ChVector3d force;
+            for (const auto& link : frictionLinks[k]) {
+                force += wrenchOnI(frameI, link, at.GetPos()).force;
+            }
+            const ch::ChVector3d z = at.GetRotMat().GetAxisZ();
+            load.normal = (force - z * ch::Vdot(force, z)).Length();
+        }
+    };
     auto handleStops = [&](double step, bool bounce) {
+        // The frictions take the reactions the step ended with
+        pressFrictions();
         // The penalty stops count their turns from here
         for (const auto& penalty : penalties) {
             if (penalty) {
@@ -6688,6 +6858,12 @@ Status ChronoSession::simulateDynamics(
                     torque += w.torque + ch::Vcross(penalties[k]->pointNow() - about, w.force);
                 }
             }
+            // Its friction is part of what holds it
+            for (std::size_t k : reaction.frictions) {
+                const ch::ChWrenchd w = frictions[k]->wrenchNow();
+                force += w.force;
+                torque += w.torque + ch::Vcross(frictions[k]->pointNow() - about, w.force);
+            }
             for (int k = 0; k < 3; ++k) {
                 out.push_back(force[k] / SI::force);
             }
@@ -6739,6 +6915,17 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             out.push_back(deepest[s] / SI::length);
+        }
+        // A friction's, on frame I's body: along its joint's axis, about it
+        for (const auto& load : frictions) {
+            const ch::ChWrenchd w = load->wrenchNow();
+            const ch::ChVector3d z = load->axisNow();
+            if (load->friction.slides) {
+                out.push_back(ch::Vdot(w.force, z) / SI::force);
+            }
+            if (load->friction.turns) {
+                out.push_back(ch::Vdot(w.torque, z) / SI::torque);
+            }
         }
         return out;
     };
@@ -7362,19 +7549,75 @@ Status ChronoSession::simulateDynamics(
         }
         return h;
     };
+    // The substep the frictions allow: between the stiction and the friction
+    // velocities the friction is flat, or falls as the slip grows, and
+    // Newton's iterations there run off -- a block stopping on its rail at
+    // 1 ms steps crept on at 2 mm/s, its friction at the static's, where at
+    // 50 us it stopped dead. So while a joint slips through that band, half
+    // the time its friction takes to change the slip by the stiction
+    // velocity, the lighter body moving (for a turn its inertia about the
+    // axis, over the radius squared); faster, half the time to come down to
+    // the band. Stuck below half the stiction velocity, or sliding fast, the
+    // steps are the run's.
+    auto frictionStep = [&]() {
+        double h = std::numeric_limits<double>::infinity();
+        for (const auto& load : frictions) {
+            const Friction& f = load->friction;
+            const auto [slide, turn] = load->slipNow();
+            const double s = std::hypot(slide, turn);
+            if (!(s > 0.5 * f.vStiction)) {
+                continue;
+            }
+            const ch::ChVector3d z = load->axisNow();
+            const ch::ChVector3d at = load->pointNow();
+            double mass = std::numeric_limits<double>::infinity();
+            for (const auto& body : {load->GetBodyA(), load->GetBodyB()}) {
+                if (body->IsFixed() || !(body->GetMass() > 0.0)) {
+                    continue;
+                }
+                if (f.slides) {
+                    mass = std::min(mass, body->GetMass());
+                }
+                if (f.turns) {
+                    const ch::ChVector3d local = body->TransformDirectionParentToLocal(z);
+                    const ch::ChVector3d arm = body->GetPos() - at;
+                    const ch::ChVector3d off = arm - z * ch::Vdot(arm, z);
+                    mass = std::min(mass,
+                                    (ch::Vdot(local, body->GetInertia() * local)
+                                     + body->GetMass() * off.Length2())
+                                        / (f.radius * f.radius));
+                }
+            }
+            const double pressed = load->normal + f.preloadForce
+                + (f.turns ? f.preloadTorque / f.radius : 0.0);
+            const double fastest = std::max(f.muStatic, f.muDynamic) * pressed / mass;
+            if (!std::isfinite(mass) || !(fastest > 0.0)) {
+                continue;
+            }
+            if (s < f.vFriction) {
+                h = std::min(h, 0.5 * f.vStiction / fastest);
+            }
+            else {
+                h = std::min(h, std::max(0.5 * (s - f.vFriction) / fastest,
+                                         0.5 * f.vStiction / fastest));
+            }
+        }
+        return h;
+    };
+    const bool anyFriction = !frictions.empty();
     // A step of dt, in substeps; a substep that found a contact late is taken
     // again, an eighth as long, from the state before it, and the steps
     // grow back after. One longer than the strict rule's that moved a load
     // at rest is taken again by it.
     auto advance = [&](double dt) {
         if (!contact) {
-            if (!anyPenalty) {
+            if (!anyPenalty && !anyFriction) {
                 sys.DoStepDynamics(dt);
                 return;
             }
             double done = 0.0;
             while (dt - done > 1e-12 * dt) {
-                double h = std::min(dt - done, penaltyStep());
+                double h = std::min({dt - done, penaltyStep(), frictionStep()});
                 if (dt - done - h < 1e-9 * dt) {
                     h = dt - done;
                 }
@@ -7399,7 +7642,8 @@ Status ChronoSession::simulateDynamics(
         bool fresh = false;  // collision detection last ran at the state now
         while (dt - done > 1e-12 * dt) {
             const double strict = contactStep(true);
-            double h = std::min({dt - done, cap, contactStep(false), penaltyStep()});
+            double h =
+                std::min({dt - done, cap, contactStep(false), penaltyStep(), frictionStep()});
             if (dt - done - h < 1e-9 * dt) {
                 h = dt - done;
             }
@@ -7569,6 +7813,8 @@ Status ChronoSession::simulateDynamics(
         // step behind -- the pendulum's period long by 0.2% at 1 ms, the
         // error first order in the step
         assembleFull(moving ? 1 : 0);
+        // The frictions' loads from the reactions there
+        pressFrictions();
         for (const auto& link : camsHeld) {
             sys.RemoveLink(link);
         }
@@ -7602,6 +7848,7 @@ Status ChronoSession::simulateDynamics(
             };
             std::vector<LoadState> loads;
             std::vector<std::pair<double, bool>> cams;
+            std::vector<double> frictions;
         };
         auto snapshot = [&]() {
             Snapshot s;
@@ -7620,6 +7867,9 @@ Status ChronoSession::simulateDynamics(
                 for (const auto& cam : contactHandover->cams) {
                     s.cams.emplace_back(cam.u, cam.started);
                 }
+            }
+            for (const auto& load : frictions) {
+                s.frictions.push_back(load->normal);
             }
             return s;
         };
@@ -7653,6 +7903,9 @@ Status ChronoSession::simulateDynamics(
                     contactHandover->cams[i].u = s.cams[i].first;
                     contactHandover->cams[i].started = s.cams[i].second;
                 }
+            }
+            for (std::size_t i = 0; i < frictions.size(); ++i) {
+                frictions[i]->normal = s.frictions[i];
             }
             if (contact) {
                 sys.ComputeCollisions();

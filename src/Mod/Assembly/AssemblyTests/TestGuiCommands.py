@@ -1414,6 +1414,50 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(dynamic.Elements, [])
         self.assertClean()
 
+    def test_joint_friction(self):
+        """Idle until a Slider, Cylindrical or Revolute joint is selected; then
+        a friction on it, selected, ticked in the Dynamic study and neither the
+        Static nor the Kinematic one, showing a slide's preload force and not
+        a turn's radius and torque for a slider. One undo takes it out"""
+        j = self.jointgroup.newObject("App::FeaturePython", "Slider")
+        JointObject.Joint(j, JointObject.JointTypes.index("Slider"))
+        JointObject.ViewProviderJoint(j.ViewObject)
+        sims = self.assembly.getGroup("Simulations", True)
+        dynamic = sims.newObject("Assembly::Simulation", "Dynamic")
+        dynamic.AnalysisType = "Dynamic"
+        static = sims.newObject("Assembly::Simulation", "Static")
+        static.AnalysisType = "Static"
+        kinematic = sims.newObject("Assembly::Simulation", "Kinematic")
+        _process()
+        Gui.Selection.clearSelection()
+        _process()
+        self.assertFalse(Gui.Command.get("Assembly_CreateJointFriction").isActive())
+        Gui.Selection.addSelection(j)
+        self.run_command("Assembly_CreateJointFriction")
+        physics = self.assembly.getGroup("Physics")
+        made = [o for o in physics.Group if o.isDerivedFrom("Assembly::JointFriction")]
+        self.assertEqual(len(made), 1)
+        friction = made[0]
+        self.assertEqual(friction.Joint, j)
+        self.assertEqual(Gui.Selection.getSelection(), [friction])
+        self.assertIn(friction, dynamic.Elements)
+        self.assertNotIn(friction, static.Elements)
+        self.assertNotIn(friction, kinematic.Elements)
+
+        def hidden(name):
+            return "Hidden" in friction.getPropertyStatus(name)
+
+        self.assertFalse(hidden("PreloadForce"))
+        self.assertTrue(hidden("PinRadius"))
+        self.assertTrue(hidden("PreloadTorque"))
+        self.doc.undo()
+        _process()
+        self.assertEqual(
+            [o for o in physics.Group if o.isDerivedFrom("Assembly::JointFriction")], []
+        )
+        self.assertEqual(dynamic.Elements, [])
+        self.assertClean()
+
     def test_joint_stop(self):
         """Idle until a Slider, Cylindrical or Revolute joint is selected; then
         a penalty stop on it, selected, ticked in the Dynamic study and not the

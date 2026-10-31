@@ -951,6 +951,92 @@ void JointStop::updateEditable()
     TorsionalDamping.setStatus(App::Property::Hidden, mode != 1 || !turns);
 }
 
+PROPERTY_SOURCE(Assembly::JointFriction, Assembly::PhysicsItem)
+
+JointFriction::JointFriction()
+{
+    ADD_PROPERTY_TYPE(Joint,
+                      (nullptr),
+                      "Friction",
+                      App::Prop_None,
+                      "The Slider, Cylindrical or Revolute joint whose slip it opposes");
+    static const App::PropertyFloatConstraint::Constraints coefficient = {0.0, 10.0, 0.05};
+    // Defaults: dry steel's, as a contact set's
+    ADD_PROPERTY_TYPE(StaticFriction,
+                      (0.3),
+                      "Friction",
+                      App::Prop_None,
+                      "The coefficient reached at the stiction velocity");
+    StaticFriction.setConstraints(&coefficient);
+    ADD_PROPERTY_TYPE(DynamicFriction,
+                      (0.25),
+                      "Friction",
+                      App::Prop_None,
+                      "The coefficient from the friction velocity on");
+    DynamicFriction.setConstraints(&coefficient);
+    ADD_PROPERTY_TYPE(StictionVelocity,
+                      (0.1),
+                      "Friction",
+                      App::Prop_None,
+                      "The slip at which the static coefficient is reached; slower, the "
+                      "friction falls to none at rest");
+    ADD_PROPERTY_TYPE(FrictionVelocity,
+                      (10.16),
+                      "Friction",
+                      App::Prop_None,
+                      "The slip from which the dynamic coefficient holds");
+    ADD_PROPERTY_TYPE(PinRadius,
+                      (5.0),
+                      "Friction",
+                      App::Prop_None,
+                      "A turn's: the radius the joint's load presses at, and its slip is "
+                      "measured at");
+    ADD_PROPERTY_TYPE(PreloadForce,
+                      (0.0),
+                      "Friction",
+                      App::Prop_None,
+                      "A slide's: a load pressing whatever the joint's reaction, as a seal's");
+    ADD_PROPERTY_TYPE(PreloadTorque,
+                      (0.0),
+                      "Friction",
+                      App::Prop_None,
+                      "A turn's: a torque the friction takes whatever the joint's reaction");
+    PreloadTorque.setUnit(Base::Unit::Moment);
+    updateEditable();
+}
+
+void JointFriction::onChanged(const App::Property* prop)
+{
+    if (prop == &Joint) {
+        updateEditable();
+    }
+    PhysicsItem::onChanged(prop);
+}
+
+void JointFriction::onDocumentRestored()
+{
+    PhysicsItem::onDocumentRestored();
+    updateEditable();
+}
+
+void JointFriction::updateEditable()
+{
+    // A joint of no known type shows both
+    bool slides = true;
+    bool turns = true;
+    if (auto* joint = Joint.getValue()) {
+        if (auto* type =
+                dynamic_cast<App::PropertyEnumeration*>(joint->getPropertyByName("JointType"))) {
+            const std::string name = type->getValueAsString();
+            slides = name != "Revolute";
+            turns = name != "Slider";
+        }
+    }
+    PreloadForce.setStatus(App::Property::Hidden, !slides);
+    PinRadius.setStatus(App::Property::Hidden, !turns);
+    PreloadTorque.setStatus(App::Property::Hidden, !turns);
+}
+
 namespace App
 {
 PROPERTY_SOURCE_TEMPLATE(Assembly::BushingPython, Assembly::Bushing)
@@ -1010,6 +1096,14 @@ const char* Assembly::JointStopPython::getViewProviderName() const
     return "Gui::ViewProviderPythonFeature";
 }
 template class AssemblyExport FeaturePythonT<Assembly::JointStop>;
+
+PROPERTY_SOURCE_TEMPLATE(Assembly::JointFrictionPython, Assembly::JointFriction)
+template<>
+const char* Assembly::JointFrictionPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template class AssemblyExport FeaturePythonT<Assembly::JointFriction>;
 
 PROPERTY_SOURCE_TEMPLATE(Assembly::SpringDamperPython, Assembly::SpringDamper)
 template<>

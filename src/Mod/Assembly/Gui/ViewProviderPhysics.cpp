@@ -69,6 +69,13 @@ QIcon ViewProviderJointStop::getIcon() const
     return Gui::BitmapFactory().pixmap("Assembly_JointStop.svg");
 }
 
+PROPERTY_SOURCE(AssemblyGui::ViewProviderJointFriction, Gui::ViewProviderDocumentObject)
+
+QIcon ViewProviderJointFriction::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_JointFriction.svg");
+}
+
 PROPERTY_SOURCE(AssemblyGui::ViewProviderSpringDamper, Gui::ViewProviderDocumentObject)
 
 namespace

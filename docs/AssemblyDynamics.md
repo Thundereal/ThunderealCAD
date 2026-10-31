@@ -1214,7 +1214,7 @@ Phase D1 is under way (2026-10-28):
 - Built: stops per joint, rigid, penalty or off (P10: Inventor's bounds,
   Creo's range limits, Simscape's hard stop). Sec 5.2 planned this as
   `JointDynamics`, with the joint's friction; that is two objects as built,
-  as the torsion spring is its own, and the friction is not built.
+  as the torsion spring is its own, and the friction is its own too (below).
   - The document: `Assembly::JointStop` (JointStopPython), a Physics item
     ticked per study (`Assembly_CreateJointStop`, on the one Slider,
     Cylindrical or Revolute joint selected; `CommandCreateSpring.
@@ -1342,6 +1342,65 @@ Phase D1 is under way (2026-10-28):
     only, one undo.
   - Not yet: a face's part through its own thickness (the faces' solids
     give the height only); faces not parallel to each other.
+- Built: joint friction (sec 2.2's "a friction torque from the reaction and
+  a pin radius"; Inventor's coefficient and radius, Adams' FRICTION).
+  - The document: `Assembly::JointFriction` (JointFrictionPython), a
+    Physics item (`Assembly_CreateJointFriction` on the one Slider,
+    Cylindrical or Revolute joint selected; `CommandCreateSpring.
+    makeJointFriction()`), ticked in the Dynamic studies only: a Static
+    study's joints slip at no speed. `Joint`; `StaticFriction`,
+    `DynamicFriction`, `StictionVelocity`, `FrictionVelocity` (a contact
+    set's defaults, 0.3, 0.25, 0.1 mm/s, 10.16 mm/s); a turn's `PinRadius`
+    (5 mm) and `PreloadTorque`, a slide's `PreloadForce`, each shown for
+    the joint's kind only.
+  - The model: `Solver::Friction` in `Dynamics::frictions`, on the joint's
+    frames (which keep their ids through the reductions, where the
+    joints' records do not), whether it slides and turns (Prismatic,
+    Revolute, Cylindrical), the law, the radius and the preloads;
+    `scaled()` scales the speeds and the radius as lengths, the preloads as
+    a force and a torque. One per joint: a second warns and does nothing.
+  - The run: a `FrictionLoad`, Chrono's body-body load between the
+    joint's frames, on frame I's body and its opposite on J's. The slip is
+    J's from I's, along zI and about it at the radius, s their length; the
+    coefficient by s, Adams' STEP through no slip from the other way's
+    (steepest at rest) up to the static at the stiction velocity, then to
+    the dynamic at the friction velocity; along the axis
+    mu (N + preload force) slide / s, about it mu (radius N + preload
+    torque) turn / s. N is the joint's reaction across its axis: its
+    links' force on frame I's body less its part along the axis, taken
+    after each step (and at the start's assembly) and held over the next
+    -- the constraints' reaction, which the step solves with it. Implicit
+    through the numerical jacobian. Its value is the joint's reaction's
+    too, and its own channels: `FrictionForce` along the axis and
+    `FrictionTorque` about it, which a sensor can watch.
+  - The steps: between the stiction and the friction velocities the
+    friction is flat or falls as the slip grows, and Newton's iterations
+    ran off there -- a block stopping on its rail at 1 ms steps crept on
+    at 2 mm/s, its friction at the static's; at 50 us it stopped dead. So
+    while a joint slips in that band the substep is half the time its
+    friction takes to change the slip by the stiction velocity, the
+    lighter body moving (for a turn its inertia about the axis over the
+    radius squared); faster, half the time to come down to the band.
+    Stuck (below half the stiction velocity) or sliding fast, the run's
+    steps stand. The contact law's STEP from no slip, flat at rest, was
+    the first try and changed nothing: the band was the trouble.
+  - Tests (TestJointFriction): a block thrown along its rail at 200 mm/s,
+    its weight across the slider, slows at mu_d g (1e-3 mm, the friction
+    mu_d m g to 1e-4) and stops at v0^2 / (2 mu_d g) (0.2 mm; 8.1566
+    against 8.157), dead; on a rail tilted 30 deg, steeper than mu_d, it
+    slides at g (sin a - mu_d cos a), at 10 deg the friction holds it
+    (0.01 mm in 0.1 s); a wheel spinning on its axle, its weight across
+    it, slows at mu_d R m g / I, the friction torque mu_d R m g (1e-3); a
+    preload torque alone, with no gravity, slows it at mu_d T / I. The
+    four run in a second. In the manual's video three blocks thrown at
+    300 mm/s with 0.1, 0.25 and 0.5 stop at 45.8873, 18.3549 and 9.1775 mm
+    against 45.8872, 18.3549 and 9.1774. TestGuiCommands: the command idle
+    until such a joint is selected, the friction ticked in the Dynamic
+    study and neither the Static nor the Kinematic one, a slider's
+    preload force shown and a turn's fields not, one undo.
+  - Not yet: the reaction's bending moment and the axial force as loads
+    (Adams' friction arm and bearing radius); a Kinematic run's inverse
+    dynamics, whose motor efforts leave the friction out; a Ball joint's.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

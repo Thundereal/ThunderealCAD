@@ -69,6 +69,7 @@ PyMOD_INIT_FUNC(AssemblyGui)
     AssemblyGui::ViewProviderSpringDamper::init();
     AssemblyGui::ViewProviderTorsionSpring::init();
     AssemblyGui::ViewProviderJointStop::init();
+    AssemblyGui::ViewProviderJointFriction::init();
     AssemblyGui::ViewProviderFramedItem::init();
     AssemblyGui::ViewProviderAppliedLoad::init();
     AssemblyGui::ViewProviderBushing::init();

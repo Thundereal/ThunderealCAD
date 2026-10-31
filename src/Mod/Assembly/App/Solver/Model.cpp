@@ -143,6 +143,15 @@ bool same(const Stop& a, const Stop& b)
         && a.restitution == b.restitution && a.k == b.k && a.c == b.c;
 }
 
+bool same(const Friction& a, const Friction& b)
+{
+    return a.source == b.source && a.frameI == b.frameI && a.frameJ == b.frameJ
+        && a.slides == b.slides && a.turns == b.turns && a.muStatic == b.muStatic
+        && a.muDynamic == b.muDynamic && a.vStiction == b.vStiction
+        && a.vFriction == b.vFriction && a.radius == b.radius
+        && a.preloadForce == b.preloadForce && a.preloadTorque == b.preloadTorque;
+}
+
 bool same(const Inertia& a, const Inertia& b)
 {
     if (slack > 0.0) {
@@ -230,7 +239,8 @@ bool sameBeyondBodies(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->contactShapes, b.dynamics->contactShapes)
                 || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)
                 || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)
-                || !sameRecords(a.dynamics->stops, b.dynamics->stops)))) {
+                || !sameRecords(a.dynamics->stops, b.dynamics->stops)
+                || !sameRecords(a.dynamics->frictions, b.dynamics->frictions)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.frames, b.frames)
@@ -277,7 +287,8 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->contactShapes, b.dynamics->contactShapes)
                 || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)
                 || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)
-                || !sameRecords(a.dynamics->stops, b.dynamics->stops)))) {
+                || !sameRecords(a.dynamics->stops, b.dynamics->stops)
+                || !sameRecords(a.dynamics->frictions, b.dynamics->frictions)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)
@@ -387,6 +398,15 @@ Model Assembly::Solver::scaled(const Model& model, double length)
                 stop.k *= length * length;
                 stop.c *= length * length;
             }
+        }
+        // A friction's speeds and radius as a length, its preloads as a
+        // force and a torque
+        for (auto& friction : out.dynamics->frictions) {
+            friction.vStiction *= length;
+            friction.vFriction *= length;
+            friction.radius *= length;
+            friction.preloadForce *= length;
+            friction.preloadTorque *= length * length;
         }
         // A speed scales as a length does, a turning rate not at all
         for (auto& initial : out.dynamics->initial) {

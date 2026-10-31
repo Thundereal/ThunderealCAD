@@ -104,6 +104,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_CreateSpring",
             "Assembly_CreateTorsionSpring",
             "Assembly_CreateJointStop",
+            "Assembly_CreateJointFriction",
             "Assembly_CreateLoad",
             "Assembly_CreateBushing",
             "Assembly_CreateContact",

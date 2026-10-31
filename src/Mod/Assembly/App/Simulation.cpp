@@ -234,6 +234,8 @@ const char* Sensor::QuantityEnums[] = {"Force",
                                        "ContactNormalForce",
                                        "ContactFrictionForce",
                                        "ContactPenetration",
+                                       "FrictionForce",
+                                       "FrictionTorque",
                                        nullptr};
 const char* Sensor::ComponentEnums[] = {"Magnitude", "X", "Y", "Z", nullptr};
 const char* Sensor::CompareEnums[] = {"Above", "Below", nullptr};
@@ -246,7 +248,8 @@ Sensor::Sensor()
                       "Sensor",
                       App::Prop_None,
                       "What reports the value: a joint (its reaction, or the effort of the motion "
-                      "driving it), a spring, a torsion spring, a bushing or a contact set");
+                      "driving it), a spring, a torsion spring, a bushing, a contact set or a "
+                      "joint's friction");
     ADD_PROPERTY_TYPE(Quantity, (0L), "Sensor", App::Prop_None, "The value watched");
     Quantity.setEnums(QuantityEnums);
     ADD_PROPERTY_TYPE(Component,

@@ -150,6 +150,8 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::TorsionSpringPython::init();
     Assembly::JointStop::init();
     Assembly::JointStopPython::init();
+    Assembly::JointFriction::init();
+    Assembly::JointFrictionPython::init();
 
     // The solver backends (docs/AssemblySolverInterface.md sec 4.3).
     Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::OndselBackend>());

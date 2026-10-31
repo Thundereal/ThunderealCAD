@@ -1833,7 +1833,7 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         dynamics.inertias.push_back(Solver::moved(inertia, model.bodies[body].placement.inverse()));
     }
     // Kept: the force elements, the initial velocities, the contact sets, the
-    // sensors and the stops addForces() put in first
+    // sensors, the stops and the frictions addForces() put in first
     if (model.dynamics) {
         dynamics.forces = std::move(model.dynamics->forces);
         dynamics.initial = std::move(model.dynamics->initial);
@@ -1841,6 +1841,7 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         dynamics.contacts = std::move(model.dynamics->contacts);
         dynamics.sensors = std::move(model.dynamics->sensors);
         dynamics.stops = std::move(model.dynamics->stops);
+        dynamics.frictions = std::move(model.dynamics->frictions);
     }
     model.dynamics = std::move(dynamics);
 }
@@ -2276,9 +2277,62 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
                 label.c_str());
         }
     };
+    // A joint's friction: on the joint's record that slides or turns, its
+    // frames; a second on one joint does nothing
+    auto addFriction = [&](JointFriction* friction) {
+        auto* joint = friction->Joint.getValue();
+        const std::string jointName = joint ? joint->getFullName() : std::string();
+        const std::string label = friction->getFullLabel();
+        const Solver::Joint* held = nullptr;
+        for (const auto& record : model.joints) {
+            if (model.sourceName(record.source) == jointName
+                && (record.kind == Solver::JointKind::Revolute
+                    || record.kind == Solver::JointKind::Cylindrical
+                    || record.kind == Solver::JointKind::Prismatic)) {
+                held = &record;
+                break;
+            }
+        }
+        if (!held) {
+            Base::Console().warning(
+                "Assembly: the joint friction %s is on no Slider, Cylindrical or Revolute joint "
+                "the simulation runs, and does nothing\n",
+                label.c_str());
+            return;
+        }
+        const auto& frictions = model.dynamics->frictions;
+        if (std::any_of(frictions.begin(), frictions.end(), [&](const Solver::Friction& other) {
+                return other.frameI == held->frameI && other.frameJ == held->frameJ;
+            })) {
+            Base::Console().warning(
+                "Assembly: the joint friction %s is on a joint another friction has, and does "
+                "nothing\n",
+                label.c_str());
+            return;
+        }
+        Solver::Friction record;
+        record.source = model.addSource(friction->getFullName());
+        record.frameI = held->frameI;
+        record.frameJ = held->frameJ;
+        record.slides = held->kind != Solver::JointKind::Revolute;
+        record.turns = held->kind != Solver::JointKind::Prismatic;
+        record.muStatic = friction->StaticFriction.getValue();
+        record.muDynamic = friction->DynamicFriction.getValue();
+        record.vStiction = friction->StictionVelocity.getValue();
+        record.vFriction = friction->FrictionVelocity.getValue();
+        // A turn's slip is at the radius: none, no speed to read it by
+        record.radius = std::max(friction->PinRadius.getValue(), 1e-6);
+        record.preloadForce = friction->PreloadForce.getValue();
+        record.preloadTorque = friction->PreloadTorque.getValue();
+        model.dynamics->frictions.push_back(record);
+    };
     for (auto* element : typed->Elements.getValues()) {
         if (auto* stop = freecad_cast<JointStop*>(element)) {
             addStop(stop);
+            continue;
+        }
+        if (auto* friction = freecad_cast<JointFriction*>(element)) {
+            addFriction(friction);
             continue;
         }
         if (auto* cam = freecad_cast<CamContact*>(element)) {

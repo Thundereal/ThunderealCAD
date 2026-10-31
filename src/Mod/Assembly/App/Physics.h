@@ -295,6 +295,52 @@ private:
 
 using JointStopPython = App::FeaturePythonT<JointStop>;
 
+/** A joint's friction in a dynamic run (docs/AssemblyDynamics.md sec 5.2,
+ * 2.2's joint friction: Inventor's coefficient and radius, Adams' FRICTION):
+ * Coulomb's against the joint's slip, its coefficient rising from none at
+ * rest to StaticFriction at StictionVelocity and going to DynamicFriction
+ * at FrictionVelocity, as a contact set's -- a slide's speed, a turn's at
+ * PinRadius. Its load is the joint's reaction across its axis, N, the last
+ * step's: along a Slider's or a Cylindrical joint's axis
+ * mu (N + PreloadForce), about a Revolute or a Cylindrical joint's
+ * mu (PinRadius N + PreloadTorque).
+ */
+class AssemblyExport JointFriction: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::JointFriction);
+
+public:
+    JointFriction();
+
+    /// A Slider, Cylindrical or Revolute joint
+    App::PropertyLink Joint;
+    App::PropertyFloatConstraint StaticFriction;
+    App::PropertyFloatConstraint DynamicFriction;
+    App::PropertySpeed StictionVelocity;
+    App::PropertySpeed FrictionVelocity;
+    /// A turn's: the radius its load acts at, and its slip is measured at
+    App::PropertyLength PinRadius;
+    /// A slide's: a load pressing whatever the reaction
+    App::PropertyForce PreloadForce;
+    /// A turn's: a torque the friction takes whatever the reaction
+    App::PropertyQuantity PreloadTorque;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderJointFriction";
+    }
+
+protected:
+    void onChanged(const App::Property* prop) override;
+    void onDocumentRestored() override;
+
+private:
+    /// Only the fields the joint's slide and turn use are shown
+    void updateEditable();
+};
+
+using JointFrictionPython = App::FeaturePythonT<JointFriction>;
+
 /** An item at a frame on a component (an applied load, a bushing): an
  * element's frame, the offsets applied, when the item has an element binding,
  * owned as a spring owns its ends -- Component and Frame are then its output,

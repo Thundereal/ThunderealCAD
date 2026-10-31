@@ -172,6 +172,8 @@ struct SimulationSpec
 //   "ContactNormalForce", "ContactFrictionForce"  its parts along the
 //                      contact points' normals and across them; width 3
 //   "ContactPenetration"  the deepest of its points, 0 apart
+//   "FrictionForce", "FrictionTorque"  a joint's friction on the body of its
+//                      frame I, along and about the joint's axis
 // 'unique' is false for a reaction a redundant joint shares with others (sec
 // 6.1): the run took out the rows that repeat others, and what it reports is
 // one split of the load among the joints, not the only one.

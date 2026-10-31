@@ -500,6 +500,31 @@ struct Stop
     double c = 0.0;
 };
 
+// A joint's friction (sec 5.2's JointDynamics Friction, the JointFriction):
+// Coulomb's against the joint's slip, its coefficient regularised as a
+// contact's (ContactLaw's muStatic to vFriction) by the slip's speed -- a
+// slide's, and a turn's at 'radius' -- and its load the joint's reaction
+// across its axis, N: along the axis mu (N + preloadForce), about it
+// mu (radius N + preloadTorque), each in the share of the slip it opposes.
+// On the joint's frames, which keep their ids through the reductions: a
+// Prismatic joint slides, a Revolute one turns, a Cylindrical one both. In
+// the model's units.
+struct Friction
+{
+    Id source = NoId;  // the document's JointFriction
+    Id frameI = NoId;
+    Id frameJ = NoId;
+    bool slides = false;
+    bool turns = false;
+    double muStatic = 0.3;
+    double muDynamic = 0.25;
+    double vStiction = 0.1;    // mm/s
+    double vFriction = 10.16;  // mm/s
+    double radius = 5.0;       // mm
+    double preloadForce = 0.0;   // mN
+    double preloadTorque = 0.0;  // mN mm
+};
+
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has
 // none. Grows with phase D1: forces, tables, contact, stops, initial
 // velocities, sensors.
@@ -513,6 +538,7 @@ struct Dynamics
     std::vector<ContactPair> contacts;
     std::vector<Sensor> sensors;
     std::vector<Stop> stops;  // at most one per limit
+    std::vector<Friction> frictions;
 };
 
 struct Model

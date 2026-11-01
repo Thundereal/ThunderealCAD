@@ -395,7 +395,7 @@ void StdCmdPythonHelp::activated(int iMsg)
                 snprintf(szBuf, 200, "http://localhost:%d", port);
                 PyObject* args = Py_BuildValue("(s)", szBuf);
 #if PY_VERSION_HEX < 0x03090000
-                PyObject* result = PyEval_CallObject(func,args);
+                PyObject* result = PyObject_CallObject(func,args);
 #else
                 PyObject* result = PyObject_CallObject(func,args);
 #endif
@@ -435,7 +435,7 @@ bool Gui::OpenURLInBrowser(const char * URL)
         if (func) {
             PyObject* args = Py_BuildValue("(s)", URL);
 #if PY_VERSION_HEX < 0x03090000
-            PyObject* result = PyEval_CallObject(func,args);
+            PyObject* result = PyObject_CallObject(func,args);
 #else
             PyObject* result = PyObject_CallObject(func,args);
 #endif

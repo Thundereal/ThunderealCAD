@@ -350,6 +350,34 @@ std::string Base::Tools::portableFileName(const std::string& name, std::size_t l
     return clean + ext;
 }
 
+namespace
+{
+// Python's rule for a character of an identifier, through its public API: the
+// private _PyUnicode_IsXidStart() and _PyUnicode_IsXidContinue() left its
+// headers in 3.13. Qt's categories are no substitute, at 9600 code points apart.
+// Nearly every name is ASCII, and that takes neither the GIL nor an allocation.
+bool isXidCharacter(char32_t c, bool start)
+{
+    if (c < 0x80) {
+        const bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+        return letter || (!start && c >= '0' && c <= '9');
+    }
+    if (!Py_IsInitialized()) {
+        return false;
+    }
+    Base::PyGILStateLocker lock;
+    PyObject* text = start ? PyUnicode_FromOrdinal(static_cast<int>(c))
+                           : PyUnicode_FromFormat("a%c", static_cast<int>(c));
+    if (!text) {
+        PyErr_Clear();
+        return false;
+    }
+    const int valid = PyUnicode_IsIdentifier(text);
+    Py_DECREF(text);
+    return valid == 1;
+}
+}  // namespace
+
 std::string Base::Tools::getIdentifier(const std::string& name)
 {
     if (name.empty()) {
@@ -364,13 +392,13 @@ std::string Base::Tools::getIdentifier(const std::string& name)
     // We'll replace all non Xid-Continue character as _. Special handling for
     // the first character. If it is non Xid-Start but a valid Xid-Continue,
     // insert an underscore as the new starting character.
-    if (CleanName[0] != '_' && _PyUnicode_IsXidContinue(CleanName[0])
-                            && !_PyUnicode_IsXidStart(CleanName[0])) {
+    if (CleanName[0] != '_' && isXidCharacter(CleanName[0], false)
+                            && !isXidCharacter(CleanName[0], true)) {
         CleanName.push_front('_');
     }
 
     for (auto &c : CleanName) {
-        if (!_PyUnicode_IsXidContinue(c))
+        if (!isXidCharacter(c, false))
             c = '_';
     }
     return QString::fromUcs4(&CleanName[0], CleanName.size()).toUtf8().constData();

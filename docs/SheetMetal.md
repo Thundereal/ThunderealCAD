@@ -563,7 +563,11 @@ saying a selection or a body they cannot use in the report view; Export Flat to 
 and is not. The panels (66d645d6c7, `GuiSheetMetalPanels`): a box for each value, of the property's
 type and named after it, so the panel mirror carries it; the rule's values said; what is wrong said
 in the panel after any recompute; the flange's edges listed, picked with Add, taken out with Remove.
-OK commits, Cancel takes a new feature away. Still to come: the flat pattern's panel (its root face,
+OK commits, Cancel takes a new feature away. Found writing the manual (6324cb9e49): the labels
+and choices are said in words (Material side, Outer sharp), the boxes still named after the
+properties; what is read only is greyed out, and the base wall makes Length, Reversed and Midplane
+read only on a plate; a value set elsewhere while the panel is open shows in its box, a box touched
+only where it differs. Still to come: the flat pattern's panel (its root face,
 the manufacturing values), and the rule's (its card, the values the card gives and the ones set by
 hand).
 
@@ -689,8 +693,10 @@ and not frozen.
   (a229435ab6), its command and panel (234138ce56): each face a wall's end across the sheet,
   carried along its normal by `Length` or up to `UpToFace`'s plane; a negative length cuts the
   wall back, one that leaves nothing is refused. The extension is the wall's own, so the model is
-  as it was and the flat grows with it. Still to come: the gaps and the clearance against walls it
-  would meet.
+  as it was and the flat grows with it. The fuse left a seam where the end was, across both skins
+  and caps (faa05f8c91): those seams alone are unified, every other edge kept, as a plain refine
+  would merge the caps across the bend lines. Still to come: the gaps and the clearance against
+  walls it would meet.
 - M1's flat pattern, `PartDesign::SheetMetalFlatPattern` (4.7), with `TestSheetMetalFlatPattern`
   (10) (ad6b48f059). As built:
   - `SheetMetal::flatten()` in the geometry layer, a pure function: each face of the folded

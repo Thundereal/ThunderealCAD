@@ -839,3 +839,26 @@ the view lists with each step's id and group (Python `getUndoSteps`,
 Gtests `aGroupOfStepsIsUndoneAndRedoneWhole`,
 `aGroupIsUndoneFromUnderAnotherStepAndInPart`; the migration tests check
 layout 4.
+
+**Grouped when the edit ends (Gui, built).** `Gui::Document` groups an
+edit's steps as its session ends (`_resetEditSession`), once the event that
+ended it is done -- the step OK opened is committed then. The group is the
+steps the session recorded, the step that was open when the edit began
+(the command that started it, a new object made in it: `firstStep`, which
+Cancel does not take back), and every step above the stack's top as the
+edit began (`startStep`) that no other running edit recorded and no group
+holds -- a panel's OK step is opened outside any view's event and no
+session records it (PartDesign's "OK, recompute"). Ended by Cancel, the
+steps are taken back first and grouped on the redo stack: one redo brings
+the edit back.
+
+**The drop-down (built).** `Gui::Dialog::UndoRedoMenu`, behind both the
+undo and the redo button: one row a step or a group, a group's row a menu
+of its steps, named by the step the edit began with and how many it has.
+Picking a row undoes down to it, a row an undo each; clicking a group's
+row -- not only hovering it -- takes the edit (Qt triggers nothing on a
+submenu's row: the menu handles the release and Enter); picking a step in
+it undoes the rows above, then the edit down to that step
+(`Gui::Document::undoTo`, `App::Document::undo(id)`). A view whose undo
+is not its document's -- a text editor -- lists names, as before
+(`MDIView::undoSteps` empty). GUI test `tests/gui/edit-group-undo.py`.

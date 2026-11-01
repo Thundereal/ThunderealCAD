@@ -628,6 +628,16 @@ QStringList MDIView::redoActions() const
     return actions;
 }
 
+std::vector<App::UndoStep> MDIView::undoSteps(bool redo) const
+{
+    Gui::Document* doc = getGuiDocument();
+    if (!doc)
+        return {};
+    App::UndoViewScope scope(undoView());
+    return redo ? doc->getDocument()->getAvailableRedoSteps()
+                : doc->getDocument()->getAvailableUndoSteps();
+}
+
 QSize MDIView::minimumSizeHint () const
 {
     return {400, 300};

@@ -606,6 +606,12 @@ public:
     void undo(int iSteps, bool ask = false);
     /// Will REDO one or more steps; \a ask as for undo()
     void redo(int iSteps, bool ask = false);
+    /** Undo (or with \a redo, redo) to the step with id \a id, that one
+     * included: inside a group of an edit's steps, the group's steps to it
+     * and no further (docs/MultiViewEdit.md sec 12.11) -- the drop-down's
+     * fine undo. A refusal is said in a dialog. False when nothing went.
+     */
+    bool undoTo(int id, bool redo = false);
     /** Whether undo/redo of \a iSteps here would ask the user first.
      *
      * checkTransactionID puts up a QMessageBox when a grouped transaction

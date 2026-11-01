@@ -108,6 +108,16 @@ private:
 };
 
 /// The document class
+/// A step an undo or a redo of a view lists: its id, its name and the group
+/// of an edit's steps it is one of, 0 for none (docs/MultiViewEdit.md sec
+/// 12.11)
+struct UndoStep
+{
+    int id {0};
+    std::string name;
+    int64_t group {0};
+};
+
 class AppExport Document : public App::PropertyContainer
 {
     PROPERTY_HEADER_WITH_OVERRIDE(App::Document);
@@ -1840,18 +1850,10 @@ public:
     int getAvailableRedos(int id=0) const;
     /// Returns a list of the Redo names.
     std::vector<std::string> getAvailableRedoNames() const;
-    /// A step an undo or a redo of the view's lists: its id, its name and
-    /// the group of an edit it is one of, 0 for none
-    struct StepInfo
-    {
-        int id {0};
-        std::string name;
-        int64_t group {0};
-    };
     /// The steps getAvailableUndoNames() names, newest first
-    std::vector<StepInfo> getAvailableUndoSteps() const;
+    std::vector<UndoStep> getAvailableUndoSteps() const;
     /// The steps getAvailableRedoNames() names, the next to redo first
-    std::vector<StepInfo> getAvailableRedoSteps() const;
+    std::vector<UndoStep> getAvailableRedoSteps() const;
     /** Steps \a ids, of either stack, made one group: the steps of an
      * edit ended with OK (docs/MultiViewEdit.md sec 12.11), which one
      * undo takes together and one redo brings back. Implicit steps are

@@ -654,7 +654,7 @@ PyObject*  DocumentPy::undo(PyObject * args)
 
 namespace
 {
-Py::List stepList(const std::vector<App::Document::StepInfo>& steps)
+Py::List stepList(const std::vector<App::UndoStep>& steps)
 {
     Py::List list;
     for (const auto& s : steps) {

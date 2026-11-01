@@ -37,6 +37,7 @@ QT_END_NAMESPACE
 namespace App
 {
 struct UndoView;
+struct UndoStep;
 }
 
 namespace Gui
@@ -139,6 +140,12 @@ public:
     //@{
     virtual QStringList undoActions() const;
     virtual QStringList redoActions() const;
+    /** The steps undoActions() (or with \a redo, redoActions()) names, each
+     * with its id and the group of an edit it is one of
+     * (docs/MultiViewEdit.md sec 12.11). Empty for a view whose undo is not
+     * its document's.
+     */
+    virtual std::vector<App::UndoStep> undoSteps(bool redo = false) const;
     /** The number the steps made in this view carry (App::Transaction::View,
      * docs/MultiViewEdit.md sec 12.9), one of its own for each view
      */

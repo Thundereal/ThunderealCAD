@@ -2105,18 +2105,18 @@ std::vector<std::string> Document::getAvailableRedoNames() const
     return vList;
 }
 
-std::vector<Document::StepInfo> Document::getAvailableUndoSteps() const
+std::vector<UndoStep> Document::getAvailableUndoSteps() const
 {
-    std::vector<StepInfo> out;
+    std::vector<UndoStep> out;
     for (auto step : stepsOf(mUndoTransactions, d->activeUndoTransaction,
                              d->transactionLog != nullptr))
         out.push_back({step->getID(), step->Name, step->Group});
     return out;
 }
 
-std::vector<Document::StepInfo> Document::getAvailableRedoSteps() const
+std::vector<UndoStep> Document::getAvailableRedoSteps() const
 {
-    std::vector<StepInfo> out;
+    std::vector<UndoStep> out;
     for (auto step : stepsOf(mRedoTransactions, nullptr, d->transactionLog != nullptr))
         out.push_back({step->getID(), step->Name, step->Group});
     return out;

@@ -159,6 +159,14 @@ struct EditSession
     bool wantsRestore = false;
     /// The undo steps this edit opened (Document::editStepsOf())
     std::vector<int> steps;
+    /// The step open when the edit started -- the command that started it,
+    /// a new object made in it: in the edit's group (docs/MultiViewEdit.md
+    /// sec 12.11), not among the steps a Cancel takes back
+    int firstStep = 0;
+    /// The newest step on the undo stack when the edit started: what is
+    /// above it when the edit ends is the edit's, a panel's OK step among
+    /// them, which no session records
+    int startStep = 0;
     /// Being ended (Document::_resetEditSession): what its edit mode does
     /// on the way out -- deleting the edited object -- does not end it
     /// again
@@ -1130,6 +1138,12 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     // docs/HandsOnQueue.md entry 232
     d->_editSessions.push_back(std::make_unique<EditSession>());
     EditSession *session = d->_editSessions.back().get();
+    if (getDocument()->hasPendingTransaction())
+        session->firstStep = getDocument()->getTransactionID(true, 0);
+    {
+        const auto steps = getDocument()->getAvailableUndoSteps();
+        session->startStep = steps.empty() ? 0 : steps.front().id;
+    }
     EditStartGuard guard(this, d, session);
     Application::Instance->setEditDocument(this);
 
@@ -1524,6 +1538,35 @@ void Document::_resetEditSession(EditSession *s)
     if (MDIView *selView = s->selectionView) {
         s->selectionView = nullptr;
         selView->releaseOwnSelection();
+    }
+    // Its steps one group (docs/MultiViewEdit.md sec 12.11): one undo
+    // takes the edit, its steps reachable one by one in the drop-down. Once
+    // the event that ended it is done, as the step OK opened is committed
+    // then; Cancel takes them back first, and they go back as one redo.
+    std::vector<int> group;
+    if (s->firstStep)
+        group.push_back(s->firstStep);
+    group.insert(group.end(), s->steps.begin(), s->steps.end());
+    // And whatever came above the stack's top as the edit began -- OK's
+    // step, opened by its panel outside any view's event -- that is no
+    // other edit's still running and in no group already
+    std::set<int> others;
+    for (auto& other : d->_editSessions) {
+        if (other.get() != s)
+            others.insert(other->steps.begin(), other->steps.end());
+    }
+    for (const auto& step : getDocument()->getAvailableUndoSteps()) {
+        if (step.id == s->startStep)
+            break;
+        if (!step.group && !others.count(step.id)
+                && std::find(group.begin(), group.end(), step.id) == group.end())
+            group.push_back(step.id);
+    }
+    if (group.size() > 1) {
+        QTimer::singleShot(0, [docName = std::string(getDocument()->getName()), group]() {
+            if (auto doc = App::GetApplication().getDocument(docName.c_str()))
+                doc->groupSteps(group);
+        });
     }
     auto it = std::find_if(d->_editSessions.begin(), d->_editSessions.end(),
             [s](const std::unique_ptr<EditSession> &e) { return e.get() == s; });
@@ -6901,6 +6944,27 @@ void Document::undoOrRedo(bool undo, int iSteps, bool ask)
     }
     // Once the run is all taken, not between its steps (sec 12.10)
     getDocument()->recomputeAfterUndo();
+}
+
+bool Document::undoTo(int id, bool redo)
+{
+    if (undoRedoInEdit(this, redo))
+        return false;
+    bool done = false;
+    {
+        Base::FlagToggler<> flag(d->_isTransacting);
+        Gui::Selection().clearCompleteSelection();
+        done = redo ? getDocument()->redo(id) : getDocument()->undo(id);
+    }
+    if (!done) {
+        const std::string why = getDocument()->undoRefusal();
+        if (!why.empty()) {
+            QMessageBox::warning(getMainWindow(), redo ? QObject::tr("Redo") : QObject::tr("Undo"),
+                                 QString::fromUtf8(why.c_str()));
+        }
+    }
+    getDocument()->recomputeAfterUndo();
+    return done;
 }
 
 /// Will UNDO one or more steps

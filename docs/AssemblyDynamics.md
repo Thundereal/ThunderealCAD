@@ -1555,10 +1555,59 @@ Phase D1 is under way (2026-10-28):
     first stale, kept; keeping nothing, not. TestGuiCommands: the panel
     opened on a study after another's run shows its kept frames, the
     player at the first, and the Keep row sets KeepResults.
-  - Not yet: sec 8.4's animated glTF export and the browser tier reading
-    the archive; the results' own channels (a plot of a channel the
-    archive lacks says so only through the panel's line); an archive
+  - Not yet: the browser tier reading the archive (the animated glTF
+    export: built, below); the results' own channels (a plot of a channel
+    the archive lacks says so only through the panel's line); an archive
     from a later schema is refused, not read in part.
+- Built: animated glTF export (sec 8.4's "the parts' meshes plus one node
+  animation per body, for Blender and web viewers"): the frames the
+  assembly holds -- a run's, or a study's read back from the document --
+  as glTF 2.0, a .glb or a .gltf with its .bin.
+  - Where: the panel's Save Animation offers "Animated glTF, binary"
+    (.glb) and "Animated glTF" (.gltf) beside the videos;
+    `SimulationGltf.exportGltf(assembly, path)` from Python, without a GUI
+    too, returns what it wrote (Frames, Nodes, Animated, Meshes, Bytes).
+  - The file (`SimulationGltf.py`, Python and numpy, no new dependency):
+    metres and Y up as glTF has them -- a root node turns the assembly's Z
+    up to Y, under it the assembly at its global placement. A node per
+    component as the assembly nests them (App::Part and sub-assemblies
+    are nodes with their children; a link, a link array, a body a leaf
+    with its shape), named by label, the document name in its extras;
+    the joints, studies, views and BOM groups and what the view hides
+    left out. Each leaf's shape (`Part.getShape(transform=False)`) is
+    meshed face by face at its view's Deviation, a normal per vertex from
+    the face's own triangles (smooth across a face, sharp at its edges),
+    one primitive per colour, its material the view's ShapeAppearance
+    (sRGB to linear, metallic 0, roughness 0.5, blended when transparent;
+    grey without a view). Components showing one shape the same way share
+    its mesh. A component the run moves has a translation and a rotation
+    channel, LINEAR, on one shared time input from the run's first frame
+    (its start time in the asset's extras), each quaternion on the side
+    of the one before so a viewer turns the short way; frames not after
+    the one before are dropped, as glTF wants. The asset's extras name the
+    study and say whether its results were stale (sec 8.4: "export works
+    on stale results too, and says so").
+  - Checked against others' readers: Khronos' glTF validator (2.0.0-dev.
+    3.10) reports nothing -- no error, warning, info or hint -- on a
+    pendulum's .glb and .gltf and the Geneva drive's .glb; three.js r170's
+    GLTFLoader and AnimationMixer, in headless Edge, play the Geneva
+    drive (one driver turn, 241 frames, 109 kB) with the wheel within
+    1.3e-5 deg of ThunderealCAD's own playback at every frame (float32),
+    from the same camera (the manual's `assembly/simulation/gltf-export`).
+  - Tests (TestSimulationResults): a pendulum's .glb read back -- the
+    rod's translation and rotation at each frame those playback writes
+    (1e-8 m, 1e-6), its times the run's from its start, the base still,
+    the rod's mesh its box in its own coordinates (1e-7 m), unit normals,
+    indices in range, accessors' bounds -- and the .gltf and .bin the
+    same; results read back from the document export byte for byte as
+    the run did; stale ones say so; a hidden part is left out.
+    TestGuiCommands: Save Animation's glTF format with no suffix typed
+    writes a .glb, a part coloured as its view shows it.
+  - Not yet: a test of nested components (App::Part, sub-assemblies,
+    links) -- the walk takes them, the tests are of flat assemblies; Joint
+    copies that follow a component (`relocateCopies`) stand still in the
+    file; a link's own scale is not looked at; textures; frames thinned
+    where the motion is straight.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

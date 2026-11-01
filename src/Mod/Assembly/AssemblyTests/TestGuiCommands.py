@@ -795,6 +795,54 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
+    def test_gltf_from_the_panel(self):
+        """Save Animation's glTF format, no suffix typed: a .glb of the run,
+        a component coloured as its view shows it"""
+        import json
+        import os
+        import shutil
+        import struct
+        import tempfile
+        from unittest import mock
+
+        import CommandCreateSimulation
+        import SimulationGltf
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.TimeEnd = 0.05
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.cyl1.ViewObject.ShapeColor = (0.2, 0.4, 0.8)
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        folder = tempfile.mkdtemp(prefix="GltfPanel")
+        try:
+            chosen = (os.path.join(folder, "run"), "Animated glTF, binary (*.glb)")
+            with mock.patch.object(
+                CommandCreateSimulation.QFileDialog, "getSaveFileName", return_value=chosen
+            ):
+                panel.saveAnimation()
+            with open(os.path.join(folder, "run.glb"), "rb") as f:
+                data = f.read()
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        self.assertEqual(data[:4], b"glTF")
+        (length,) = struct.unpack_from("<I", data, 12)
+        gltf = json.loads(data[20 : 20 + length])
+        self.assertEqual(gltf["asset"]["extras"]["study"], sim.Label)
+        node = next(n for n in gltf["nodes"] if n.get("extras", {}).get("name") == self.cyl1.Name)
+        (primitive,) = gltf["meshes"][node["mesh"]]["primitives"]
+        color = gltf["materials"][primitive["material"]]["pbrMetallicRoughness"]["baseColorFactor"]
+        want = [SimulationGltf.srgbToLinear(c) for c in (0.2, 0.4, 0.8)] + [1.0]
+        for a, b in zip(color, want):
+            self.assertAlmostEqual(a, b, places=6)
+        self.accept_task()
+        self.assertClean()
+
     def test_trace_button(self):
         """The panel's Trace button traces the selected vertex: a trace of
         its part, the point in the part's coordinates; with nothing

@@ -34,6 +34,7 @@ set(Assembly_Scripts
     CommandCreateBushing.py
     CommandCreateContact.py
     SimulationTrace.py
+    SimulationGltf.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
     CommandConvertAsm3.py

@@ -2599,6 +2599,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 formats["WebM Video"] = ".webm"
         except ImportError:
             pass  # Error out later
+        # Not upstream: the parts and their motion, for Blender and web viewers
+        formats["Animated glTF, binary"] = ".glb"
+        formats["Animated glTF"] = ".gltf"
 
         # Prompt user for file location and type
         file_path, selected_filter = QFileDialog.getSaveFileName(
@@ -2610,6 +2613,12 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
         if not file_path:
             return  # User cancelled
+
+        if not Path(file_path).suffix:
+            file_path += [v for v in formats.values() if v in selected_filter][0]
+        if Path(file_path).suffix.lower() in (".glb", ".gltf"):
+            self.saveGltf(file_path)
+            return
 
         # Get parameters
         view = Gui.ActiveDocument.ActiveView
@@ -2694,6 +2703,30 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 # Restore original state
                 self.assembly.updateForFrame(original_frame)
                 self.form.frameSlider.setValue(original_frame)
+
+    def saveGltf(self, file_path):
+        """The frames as an animated glTF (SimulationGltf), the parts as
+        the view shows them"""
+        import SimulationGltf
+
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            done = SimulationGltf.exportGltf(self.assembly, file_path)
+        except Exception as e:
+            QGuiApplication.restoreOverrideCursor()
+            QMessageBox.critical(
+                self.form,
+                "Error",
+                translate("Assembly", "An error occurred while saving the animation")
+                + ": "
+                + str(e),
+            )
+            return
+        QGuiApplication.restoreOverrideCursor()
+        App.Console.PrintMessage(
+            f"Animation saved to {file_path}: {done['Animated']} moving of "
+            f"{done['Nodes']} nodes, {done['Frames']} frames\n"
+        )
 
     def create_gif(self, output_path, frame_files, fps):
         """Creates an animated GIF from a list of image files using Pillow."""

@@ -4,8 +4,10 @@ run saved with the file as its KeepResults says, read back when the study is
 opened again, and marked stale when the mechanism changes after."""
 
 import io
+import json
 import os
 import shutil
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -17,6 +19,43 @@ import JointObject
 def plc(x=0.0, y=0.0, z=0.0, axis=None, angle=0.0):
     rot = App.Rotation(axis, angle) if axis is not None else App.Rotation()
     return App.Placement(App.Vector(x, y, z), rot)
+
+
+def readGltf(path):
+    """A glTF file's JSON and its buffer: a .glb's chunks, or a .gltf's .bin"""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:4] == b"glTF":
+        magic, version, total = struct.unpack_from("<4sII", data, 0)
+        assert version == 2 and total == len(data), (version, total, len(data))
+        length, kind = struct.unpack_from("<I4s", data, 12)
+        assert kind == b"JSON" and length % 4 == 0
+        gltf = json.loads(data[20 : 20 + length])
+        blength, bkind = struct.unpack_from("<I4s", data, 20 + length)
+        assert bkind == b"BIN\0"
+        blob = data[28 + length : 28 + length + blength]
+        assert 28 + length + blength == total
+    else:
+        gltf = json.loads(data)
+        with open(os.path.join(os.path.dirname(path), gltf["buffers"][0]["uri"]), "rb") as f:
+            blob = f.read()
+    assert len(blob) == gltf["buffers"][0]["byteLength"]
+    return gltf, blob
+
+
+def accessorData(gltf, blob, index):
+    import numpy
+
+    accessor = gltf["accessors"][index]
+    view = gltf["bufferViews"][accessor["bufferView"]]
+    assert view["byteOffset"] % 4 == 0
+    assert view["byteOffset"] + view["byteLength"] <= len(blob)
+    dtype = {5126: numpy.float32, 5125: numpy.uint32}[accessor["componentType"]]
+    width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}[accessor["type"]]
+    array = numpy.frombuffer(
+        blob, dtype=dtype, count=accessor["count"] * width, offset=view["byteOffset"]
+    )
+    return array.reshape(accessor["count"], width) if width > 1 else array
 
 
 class TestSimulationResults(unittest.TestCase):
@@ -227,3 +266,119 @@ class TestSimulationResults(unittest.TestCase):
         self.assertTrue(sim.ResultsStale)
         self.assertTrue(self.assembly.loadSimulationResults(sim))
         self.assertEqual(self.assembly.numberOfFrames(), 51)
+
+    def gltfNodes(self, gltf):
+        return {n["extras"]["name"]: i for i, n in enumerate(gltf["nodes"]) if "extras" in n}
+
+    def test_gltf(self):
+        """The frames as an animated glTF: the rod's node at each frame where
+        playback puts it, in metres (float32), its time from the run's
+        start; the grounded base still; each a mesh of its shape in its own
+        coordinates, under a root turning Z up to Y up. The same from the
+        .glb and from the .gltf and its .bin"""
+        import numpy
+        import SimulationGltf
+
+        rod = self.pendulum()
+        sim = self.simulate()
+        frames = self.placements(rod)
+        times = self.assembly.getSimulationResults()["Times"]
+        glb = os.path.join(self.folder, "run.glb")
+        done = SimulationGltf.exportGltf(self.assembly, glb)
+        self.assertEqual(done["Frames"], 51)
+        self.assertEqual(done["Animated"], 1)
+        self.assertEqual(done["Meshes"], 2)
+        self.assertEqual(done["Bytes"], os.path.getsize(glb))
+        gltf, blob = readGltf(glb)
+        self.assertEqual(gltf["asset"]["version"], "2.0")
+        self.assertEqual(gltf["asset"]["extras"]["study"], sim.Label)
+        self.assertFalse(gltf["asset"]["extras"]["stale"])
+        root = gltf["nodes"][gltf["scenes"][0]["nodes"][0]]
+        self.assertAlmostEqual(root["rotation"][0], -(0.5**0.5))
+        nodes = self.gltfNodes(gltf)
+        self.assertIn("Base", nodes)
+        self.assertIn(nodes["Rod"], gltf["nodes"][nodes["Assembly"]]["children"])
+
+        # The rod's motion, frame by frame
+        (animation,) = gltf["animations"]
+        paths = {}
+        for channel in animation["channels"]:
+            self.assertEqual(channel["target"]["node"], nodes["Rod"])
+            sampler = animation["samplers"][channel["sampler"]]
+            self.assertEqual(sampler["interpolation"], "LINEAR")
+            paths[channel["target"]["path"]] = sampler
+        self.assertEqual(set(paths), {"translation", "rotation"})
+        t = accessorData(gltf, blob, paths["rotation"]["input"])
+        numpy.testing.assert_allclose(t, numpy.array(times) - times[0], atol=1e-7)
+        self.assertEqual(gltf["accessors"][paths["rotation"]["input"]]["max"], [float(t[-1])])
+        translations = accessorData(gltf, blob, paths["translation"]["output"])
+        rotations = accessorData(gltf, blob, paths["rotation"]["output"])
+        for k, placement in enumerate(frames):
+            base = placement.Base
+            numpy.testing.assert_allclose(
+                translations[k], [base.x * 1e-3, base.y * 1e-3, base.z * 1e-3], atol=1e-8
+            )
+            q = numpy.array(placement.Rotation.Q)
+            self.assertLess(min(abs(rotations[k] - q).max(), abs(rotations[k] + q).max()), 1e-6)
+            if k:
+                self.assertGreaterEqual(float(numpy.dot(rotations[k], rotations[k - 1])), 0.0)
+        # The rod swung, about 10 deg: its last frame is not its first
+        self.assertGreater(abs(rotations[-1] - rotations[0]).max(), 0.05)
+
+        # The meshes: the rod's box in its own coordinates, triangles that
+        # index its vertices, a normal each
+        mesh = gltf["meshes"][gltf["nodes"][nodes["Rod"]]["mesh"]]
+        low, high = numpy.full(3, numpy.inf), numpy.full(3, -numpy.inf)
+        for primitive in mesh["primitives"]:
+            positions = accessorData(gltf, blob, primitive["attributes"]["POSITION"])
+            normals = accessorData(gltf, blob, primitive["attributes"]["NORMAL"])
+            indices = accessorData(gltf, blob, primitive["indices"])
+            self.assertEqual(len(normals), len(positions))
+            numpy.testing.assert_allclose(numpy.linalg.norm(normals, axis=1), 1.0, atol=1e-6)
+            self.assertEqual(len(indices) % 3, 0)
+            self.assertLess(int(indices.max()), len(positions))
+            accessor = gltf["accessors"][primitive["attributes"]["POSITION"]]
+            numpy.testing.assert_allclose(accessor["min"], positions.min(axis=0))
+            low = numpy.minimum(low, positions.min(axis=0))
+            high = numpy.maximum(high, positions.max(axis=0))
+        numpy.testing.assert_allclose(low, [0, 0, 0], atol=1e-7)
+        numpy.testing.assert_allclose(high, [0.1, 0.01, 0.01], atol=1e-7)
+        self.assertNotIn("animations", [k for k in gltf["nodes"][nodes["Base"]]])
+
+        # The .gltf and its .bin hold the same
+        path = os.path.join(self.folder, "run.gltf")
+        SimulationGltf.exportGltf(self.assembly, path)
+        other, other_blob = readGltf(path)
+        self.assertEqual(other["buffers"][0]["uri"], "run.bin")
+        self.assertEqual(other_blob, blob)
+        del other["buffers"][0]["uri"]
+        self.assertEqual(other, gltf)
+
+    def test_gltf_from_the_file(self):
+        """Results read back from the document export as the run did, byte
+        for byte; stale ones say so; a part hidden is left out"""
+        import SimulationGltf
+
+        self.pendulum()
+        sim = self.simulate()
+        first = os.path.join(self.folder, "first.glb")
+        SimulationGltf.exportGltf(self.assembly, first)
+        name = sim.Name
+        self.reopen()
+        sim = self.doc.getObject(name)
+        self.assertRaises(ValueError, SimulationGltf.exportGltf, self.assembly, first + ".x")
+        self.assertTrue(self.assembly.loadSimulationResults(sim))
+        again = os.path.join(self.folder, "again.glb")
+        SimulationGltf.exportGltf(self.assembly, again)
+        with open(first, "rb") as a, open(again, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+
+        sim.TimeEnd = 0.04
+        self.doc.recompute()
+        self.assertTrue(sim.ResultsStale)
+        self.doc.getObject("Base").Visibility = False
+        SimulationGltf.exportGltf(self.assembly, again)
+        gltf, _ = readGltf(again)
+        self.assertTrue(gltf["asset"]["extras"]["stale"])
+        self.assertNotIn("Base", self.gltfNodes(gltf))
+        self.assertIn("Rod", self.gltfNodes(gltf))

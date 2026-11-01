@@ -67,7 +67,15 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalFlange::getEditDialog()
             this,
             "PartDesign_SheetMetalFlange",
             QObject::tr("Flange parameters"),
-            {"Angle", "Length", "LengthType", "BendPosition", "Offset", "Gap1", "Gap2", "Reversed"},
+            {"Angle",
+             "Length",
+             "LengthType",
+             "BendPosition",
+             "Offset",
+             "Gap1",
+             "Gap2",
+             "Reversed",
+             "Profile"},
             "Edges",
             "Edge"));
 }

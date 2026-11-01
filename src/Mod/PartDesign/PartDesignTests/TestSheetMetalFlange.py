@@ -417,18 +417,17 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.assertEqual(len(bend), 1)
 
     def testProfileShape(self):
-        """A tapered leg with a hole: the bend 30 wide (x 5..35), the leg a
-        trapezoid from z = 2, 30 wide there and 20 at z = 10, a hole of
-        radius 2 in it; edited, the flange follows; the flat has the hole"""
+        """A tapered leg with a hole: the bend the edge's width, the leg a
+        trapezoid from z = 2, 40 wide there and 20 at z = 10, a hole of
+        radius 2 in it; edited, the flange follows; the flat has the hole.
+        (A bend narrower than its edge lays flat only with a relief, M2.)"""
         sketch = self.legSketch(
-            [(5, 0), (35, 0), (35, 2), (30, 10), (10, 10), (5, 2)], holes=[(20, 6, 2)]
+            [(0, 0), (40, 0), (40, 2), (30, 10), (10, 10), (0, 2)], holes=[(20, 6, 2)]
         )
         flange = self.far(Profile=sketch)
         self.checkValid(flange)
-        leg = (30 + 20) / 2 * 8 - math.pi * 4
-        self.assertAlmostEqual(
-            flange.Shape.Volume, 40 * 20 - 30 * 2 + 30 * RING + leg, places=6
-        )
+        leg = (40 + 20) / 2 * 8 - math.pi * 4
+        self.assertAlmostEqual(flange.Shape.Volume, 40 * 18 + 40 * RING + leg, places=6)
         self.assertNotIn(None, self.owners(flange))
         flat = self.flat(flange)
         self.assertNotIn("Invalid", flat.State)
@@ -444,10 +443,8 @@ class TestSheetMetalFlange(unittest.TestCase):
         sketch.addGeometry(Part.Circle(V(20, 7, 0), V(0, 0, 1), 1))
         self.Doc.recompute()
         self.checkValid(flange)
-        leg = (30 + 20) / 2 * 8 - math.pi
-        self.assertAlmostEqual(
-            flange.Shape.Volume, 40 * 20 - 30 * 2 + 30 * RING + leg, places=6
-        )
+        leg = (40 + 20) / 2 * 8 - math.pi
+        self.assertAlmostEqual(flange.Shape.Volume, 40 * 18 + 40 * RING + leg, places=6)
 
     def testProfileWiderLeg(self):
         """A leg wider than its bend above it: the bend x 10..30, the leg
@@ -529,7 +526,7 @@ class TestSheetMetalFlange(unittest.TestCase):
 
     def testProfileSaveAndRestore(self):
         sketch = self.legSketch(
-            [(5, 0), (35, 0), (35, 2), (30, 10), (10, 10), (5, 2)], holes=[(20, 6, 2)]
+            [(0, 0), (40, 0), (40, 2), (30, 10), (10, 10), (0, 2)], holes=[(20, 6, 2)]
         )
         flange = self.far(Profile=sketch)
         volume = flange.Shape.Volume
@@ -538,7 +535,7 @@ class TestSheetMetalFlange(unittest.TestCase):
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
         flange = self.Doc.getObject("Flange")
-        self.assertEqual(flange.Profile.Name, "LegSketch")
+        self.assertEqual(flange.Profile[0].Name, "LegSketch")
         self.assertIn("ReadOnly", flange.getPropertyStatus("Length"))
         flange.touch()
         self.Doc.recompute()

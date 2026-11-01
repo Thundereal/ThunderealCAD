@@ -31,9 +31,11 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
+#include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <TopExp.hxx>
 #include <TopoDS.hxx>
@@ -133,6 +135,13 @@ SheetMetalFlange::SheetMetalFlange()
                       "Sheet Metal",
                       App::Prop_None,
                       "Bend toward the other skin than the one the edge is on");
+    ADD_PROPERTY_TYPE(Profile,
+                      (nullptr),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "A closed sketch parallel to the leg, standing on the outer virtual sharp: "
+                      "a rectangle through the bend, which sets its width, and the leg's shape "
+                      "above it; on one edge, in place of Length, LengthType and the gaps");
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -152,7 +161,7 @@ short SheetMetalFlange::mustExecute() const
     if (Edges.isTouched() || Angle.isTouched() || Length.isTouched() || LengthType.isTouched()
         || BendPosition.isTouched() || Offset.isTouched() || Gap1.isTouched()
         || Gap2.isTouched() || Reversed.isTouched() || ParallelTo.isTouched()
-        || UpToFace.isTouched()) {
+        || UpToFace.isTouched() || Profile.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -167,7 +176,19 @@ void SheetMetalFlange::onChanged(const App::Property* prop)
         auto shadows = Edges.getShadowSubs();
         Edges.setValue(BaseFeature.getValue(), std::move(subs), std::move(shadows));
     }
+    if (prop == &Profile) {
+        showProfileValues();
+    }
     FeatureAddSub::onChanged(prop);
+}
+
+void SheetMetalFlange::showProfileValues()
+{
+    const bool shaped = Profile.getValue() != nullptr;
+    for (App::Property* prop :
+         std::initializer_list<App::Property*> {&Length, &LengthType, &Gap1, &Gap2}) {
+        prop->setStatus(App::Property::ReadOnly, shaped);
+    }
 }
 
 namespace
@@ -185,6 +206,93 @@ bool planeNormal(const TopoDS_Face& face, gp_Dir& normal)
         normal.Reverse();
     }
     return true;
+}
+
+double areaOf(const TopoDS_Shape& shape)
+{
+    GProp_GProps props;
+    BRepGProp::SurfaceProperties(shape, props);
+    return props.Mass();
+}
+
+/// What a profile makes of a flange: the bend's span along the edge, from
+/// the edge's first vertex, and the leg's faces on its outer skin
+struct LegShape
+{
+    double s0 = 0, s1 = 0;
+    std::vector<TopoShape> faces;
+};
+
+/** A closed profile's face taken onto the leg's outer skin. sharp is the
+ * outer virtual sharp at the edge's first vertex, along the edge's way,
+ * legUp the leg's way out from the bend and rise how far the bend reaches up
+ * the outer skin from the sharp. Throws Base::ValueError for a profile not
+ * parallel to the leg, not standing on the sharp, reaching past it, other
+ * than a rectangle through the bend, or with nothing above it.
+ */
+LegShape legShape(const TopoShape& face, const gp_Pnt& sharp, const gp_Dir& along,
+                  const gp_Dir& legUp, double rise, const App::StringHasherRef& hasher)
+{
+    // the leg's frame: x along the edge, y up the leg, z across the sheet
+    const gp_Ax3 frame(sharp, along.Crossed(legUp), along);
+    gp_Pln plane;
+    if (!face.findPlane(plane)
+        || !plane.Axis().Direction().IsParallel(frame.Direction(), Precision::Angular())) {
+        THROWM(Base::ValueError, "A flange's profile lies parallel to the leg");
+    }
+    gp_Trsf toLocal;
+    toLocal.SetTransformation(frame);
+    // and down onto the leg's outer skin, z = 0
+    gp_Trsf onto;
+    onto.SetTranslation(gp_Vec(0, 0, -plane.Location().Transformed(toLocal).Z()));
+    onto.Multiply(toLocal);
+    const TopoShape local = face.makETransform(onto);
+
+    const double tol = Precision::Confusion();
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(local.getShape(), box, false, false);
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    if (y0 < -tol) {
+        THROWM(Base::ValueError, "A flange's profile reaches past the outer virtual sharp");
+    }
+    if (y0 > tol) {
+        THROWM(Base::ValueError, "A flange's profile does not stand on the outer virtual sharp");
+    }
+
+    // within the bend, a rectangle the bend's height
+    auto part = [&](double from, double to) {
+        TopoDS_Shape slab =
+            BRepPrimAPI_MakeBox(gp_Pnt(x0 - 1, from, -1), gp_Pnt(x1 + 1, to, 1)).Solid();
+        return TopoShape(0, hasher).makEBoolean(Part::OpCodes::Common, {local, TopoShape(slab)});
+    };
+    const TopoShape bend = part(0, rise);
+    double bx0 = 0, by0, bz0, bx1 = 0, by1, bz1;
+    bool rectangle = bend.countSubShapes(TopAbs_FACE) == 1;
+    if (rectangle) {
+        Bnd_Box bendBox;
+        BRepBndLib::AddOptimal(bend.getShape(), bendBox, false, false);
+        bendBox.Get(bx0, by0, bz0, bx1, by1, bz1);
+        const double area = (bx1 - bx0) * rise;
+        rectangle = std::abs(areaOf(bend.getShape()) - area) <= 1e-7 * area;
+    }
+    if (!rectangle) {
+        THROWM(Base::ValueError,
+               "A flange's profile is a rectangle through the bend, from the outer virtual "
+               "sharp to where the leg starts");
+    }
+
+    LegShape result;
+    result.s0 = bx0;
+    result.s1 = bx1;
+    if (y1 > rise + tol) {
+        const TopoShape leg = part(rise, y1 + 1).makETransform(toLocal.Inverted());
+        result.faces = leg.getSubTopoShapes(TopAbs_FACE);
+    }
+    if (result.faces.empty()) {
+        THROWM(Base::ValueError, "A flange's profile has no leg above the bend");
+    }
+    return result;
 }
 
 }  // namespace
@@ -237,6 +345,30 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         const bool byParallel = planeOf(ParallelTo, parallel);
         const bool byUpTo = planeOf(UpToFace, upTo);
         const auto hasher = getDocument()->getStringHasher();
+
+        // the leg's shape from a closed sketch, on one edge
+        TopoShape profile;
+        if (Profile.getValue()) {
+            if (shadows.size() != 1) {
+                THROWM(Base::ValueError, "A flange shaped by a profile is on one edge only");
+            }
+            if (byUpTo) {
+                THROWM(Base::ValueError,
+                       "A flange shaped by a profile takes its length from it, not UpToFace");
+            }
+            const auto& subs = Profile.getSubValues();
+            const TopoShape sketch = Part::Feature::getTopoShape(
+                Profile.getValue(), subs.empty() ? "" : subs.front().c_str(), true);
+            const auto wires = sketch.getSubTopoShapes(TopAbs_WIRE);
+            bool closed = !wires.empty();
+            for (const auto& wire : wires) {
+                closed = closed && BRep_Tool::IsClosed(wire.getShape());
+            }
+            if (!closed) {
+                THROWM(Base::ValueError, "A flange's profile is a closed sketch");
+            }
+            profile = TopoShape(0, hasher).makEFace(wires);
+        }
         std::vector<TopoShape> pieces, cuts;
         // each edge's ends, its way out and up, and its pieces, for the miters
         struct Side
@@ -324,13 +456,28 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             }
             setback -= Offset.getValue();
 
-            const double width = p0.Distance(p1) - Gap1.getValue() - Gap2.getValue();
+            const gp_Vec e(endOut), u(up);
+            double gap1 = Gap1.getValue();
+            double width = p0.Distance(p1) - gap1 - Gap2.getValue();
+            LegShape shape;
+            if (!profile.isNull()) {
+                // where the leg's outer skin meets the wall's, at the first vertex
+                const gp_Dir axis = endOut.Crossed(up);
+                const gp_Dir legOut = up.Reversed().Rotated(gp_Ax1(p0, axis), A);
+                const double rise = (R + T) * std::tan(A / 2);
+                const gp_Pnt sharp = inner.Translated(-e * setback + u * R
+                                                      + gp_Vec(legOut) * (R + T)
+                                                      - gp_Vec(axis.Crossed(legOut)) * rise);
+                shape = legShape(profile, sharp, d, axis.Crossed(legOut), rise, hasher);
+                gap1 = shape.s0;
+                width = shape.s1 - shape.s0;
+            }
             if (width < Precision::Confusion()) {
                 FC_THROWM(Base::ValueError,
                           "The gaps leave nothing of edge " << shadow.second);
             }
-            const gp_Vec e(endOut), u(up), along = gp_Vec(d) * width;
-            const gp_Pnt edgeStart = inner.Translated(gp_Vec(d) * Gap1.getValue());
+            const gp_Vec along = gp_Vec(d) * width;
+            const gp_Pnt edgeStart = inner.Translated(gp_Vec(d) * gap1);
             const gp_Pnt bendStart = edgeStart.Translated(-e * setback);
 
             const std::string bendName = "Bend" + std::to_string(++bends);
@@ -368,7 +515,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             else if (LengthType.getValue() == 3) {
                 leg -= (R + T) * (A >= std::numbers::pi / 2 ? 1.0 : std::sin(A));
             }
-            if (leg < Precision::Confusion()) {
+            if (shape.faces.empty() && leg < Precision::Confusion()) {
                 FC_THROWM(Base::ValueError,
                           "Edge " << shadow.second << ": the flange is too short for its bend");
             }
@@ -377,8 +524,14 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
 
             pieces.push_back(TopoShape(0, hasher).makEPrism(
                 SheetMetal::bendSection(bend, bendName), along));
-            pieces.push_back(TopoShape(0, hasher).makEPrism(
-                SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
+            if (shape.faces.empty()) {
+                pieces.push_back(TopoShape(0, hasher).makEPrism(
+                    SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
+            }
+            for (const TopoShape& face : shape.faces) {
+                // from the outer skin in
+                pieces.push_back(TopoShape(0, hasher).makEPrism(face, gp_Vec(x2) * -T));
+            }
             if (setback < -Precision::Confusion()) {
                 // the wall carried on to where the bend starts
                 pieces.push_back(TopoShape(0, hasher).makEPrism(

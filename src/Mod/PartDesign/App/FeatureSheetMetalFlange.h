@@ -42,6 +42,12 @@ namespace PartDesign
  * length. BendPosition says where the bend sits against the wall's end, and
  * cuts the wall back under the flange where it starts inside it. All the
  * edges are joined in one boolean.
+ *
+ * On one edge, a closed sketch in Profile shapes the leg: the sketch lies
+ * parallel to the leg and its outline stands on the outer virtual sharp.
+ * Through the bend the outline is a rectangle, which sets the bend's width;
+ * above the bend it is the leg, holes and all. Length, LengthType and the
+ * gaps then say nothing and are read only.
  */
 class PartDesignExport SheetMetalFlange : public FeatureAddSub, public SheetMetalExtension
 {
@@ -73,6 +79,8 @@ public:
     /// A plane face the leg runs up to, in place of Length
     App::PropertyLinkSub UpToFace;
     App::PropertyBool Reversed;
+    /// A closed sketch parallel to the leg giving its shape, on one edge
+    App::PropertyLinkSub Profile;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
@@ -84,6 +92,9 @@ public:
     }
 
 private:
+    /// Length, LengthType and the gaps read only while a profile shapes the leg
+    void showProfileValues();
+
     static const char* LengthTypeEnums[];
     static const char* BendPositionEnums[];
 };

@@ -226,7 +226,7 @@ def run():
         pump(10)
         check(
             "a profile chosen is the flange's, Length and the gaps greyed out",
-            flange.Profile == sketch
+            flange.Profile and flange.Profile[0] == sketch
             and all(not w[n].isEnabled() for n in ("Length", "LengthType", "Gap1", "Gap2"))
             and w["Angle"].isEnabled(),
             (flange.Profile, [(n, w[n].isEnabled()) for n in ("Length", "Gap1")]),

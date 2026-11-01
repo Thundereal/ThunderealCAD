@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+#include <algorithm>
 #include <cstring>
 
 #include <QAction>
@@ -44,6 +45,8 @@
 #include <App/PropertyUnits.h>
 #include <Gui/QuantitySpinBox.h>
 #include <App/PropertyLinks.h>
+#include <Mod/Part/App/Part2DObject.h>
+#include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/SheetMetalExtension.h>
@@ -76,6 +79,24 @@ private:
 QString number(double v)
 {
     return QString::number(v, 'g', 6);
+}
+
+/// The sketches of obj's body it could take as a profile: none built on it
+std::vector<App::DocumentObject*> sketchesFor(App::DocumentObject* obj)
+{
+    std::vector<App::DocumentObject*> res;
+    auto body = obj ? PartDesign::Body::findBodyOf(obj) : nullptr;
+    if (!body) {
+        return res;
+    }
+    const auto after = obj->getInListRecursive();
+    for (auto child : body->Group.getValues()) {
+        if (child->isDerivedFrom<Part::Part2DObject>()
+            && std::find(after.begin(), after.end(), child) == after.end()) {
+            res.push_back(child);
+        }
+    }
+    return res;
 }
 
 }  // namespace
@@ -260,6 +281,27 @@ void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* 
         });
         box = check;
     }
+    else if (dynamic_cast<App::PropertyLinkSub*>(prop)) {
+        // a sketch of the body, or none: the items are filled by showValue()
+        auto combo = new QComboBox(proxy);
+        connect(combo,
+                qOverload<int>(&QComboBox::currentIndexChanged),
+                this,
+                [this, name, combo](int i) {
+                    auto link = dynamic_cast<App::PropertyLinkSub*>(property(name));
+                    auto obj = vp ? vp->getObject() : nullptr;
+                    if (!link || !obj) {
+                        return;
+                    }
+                    const QByteArray chosen = combo->itemData(i).toByteArray();
+                    setupTransaction(tr(name));
+                    link->setValue(chosen.isEmpty()
+                                       ? nullptr
+                                       : obj->getDocument()->getObject(chosen.constData()));
+                    recomputeFeature();
+                });
+        box = combo;
+    }
     if (!box) {
         return;
     }
@@ -302,6 +344,28 @@ void TaskSheetMetalParameters::showValue(const std::string& name)
         auto check = static_cast<QCheckBox*>(box);
         if (check->isChecked() != b->getValue()) {
             check->setChecked(b->getValue());
+        }
+    }
+    else if (auto link = dynamic_cast<App::PropertyLinkSub*>(prop)) {
+        // the body's sketches as they are now, the linked one current
+        auto combo = static_cast<QComboBox*>(box);
+        combo->clear();
+        combo->addItem(tr("None"), QByteArray());
+        for (auto sketch : sketchesFor(vp ? vp->getObject() : nullptr)) {
+            combo->addItem(QString::fromUtf8(sketch->Label.getValue()),
+                           QByteArray(sketch->getNameInDocument()));
+        }
+        App::DocumentObject* linked = link->getValue();
+        const int at =
+            linked ? combo->findData(QByteArray(linked->getNameInDocument())) : 0;
+        if (at < 0) {
+            // linked, but not one of the body's sketches: shown all the same
+            combo->addItem(QString::fromUtf8(linked->Label.getValue()),
+                           QByteArray(linked->getNameInDocument()));
+            combo->setCurrentIndex(combo->count() - 1);
+        }
+        else {
+            combo->setCurrentIndex(at);
         }
     }
 }

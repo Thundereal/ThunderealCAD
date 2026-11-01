@@ -689,7 +689,9 @@ and not frozen.
     moves the bend out, the wall carried on to it. Where the bend starts inside the wall, the
     wall is cut back under the flange, one cut before the join.
   - `Gap1`, `Gap2` narrow the flange at the edge's ends; the wall is cut back under it only. No
-    bend relief yet (M2).
+    bend relief yet (M2). So a flange narrower than its edge, by gaps or by a profile, does not
+    lay flat (found 2026-11-01): beside it the wall and the bend meet face to face across the
+    flange's side, which only a relief parts, and the flat says it does not close.
   - Added (9e98a08d8a): `Tangent` measures from the plane across the leg that touches the outside
     of the bend (the straight part L - (R + T) from 90 deg on, L - (R + T) sin A below); negative
     gaps carry the flange past the edge's ends; `ParallelTo` gives the angle from a plane face the
@@ -703,7 +705,19 @@ and not frozen.
     does not unroll into a plane, so its cut face is ruled between the two skins' unrolled
     edges; unrolling keeps a bend's volume only where it is cut square (0.19 mm^3 a corner at
     R = T = 1). Tested by `testMiter`, `testMiterTray`, `testNoMiterApart`.
-  - Still to come in M1: a closed sketch for the leg's shape.
+  - The leg's shape (ruled 2026-11-01: the sketch in the leg's plane, as SOLIDWORKS edits a
+    flange's profile; a sketch on the wall drawn as in the flat and wrapped through the bend,
+    which would allow a bend that is not a rectangle, is for later): `Profile`, a closed sketch
+    lying parallel to the leg -- anywhere, it is taken onto the leg's outer skin -- whose
+    outline stands on the outer virtual sharp, so the sketch's height is the length as
+    `OuterSharp` measures it. From the sharp to where the leg starts, (R + T) tan(A / 2) up the
+    outer skin, the outline is a rectangle, and its span along the edge is the bend's width (the
+    flange's gaps); above it the outline is the leg, holes and all, as wide as it likes. On one
+    edge only, and not with `UpToFace`; `Length`, `LengthType`, `Gap1` and `Gap2` are read only
+    while it is set. Refused: a sketch not parallel to the leg, open, not standing on the sharp
+    or reaching past it, narrower or holed within the bend, or with nothing above it. The panel
+    offers the body's sketches that are not built on the flange. Tested by `testProfile*` (7)
+    and the panel's GUI check.
 - M1's extend wall, `PartDesign::SheetMetalExtendWall` (5.1), with `TestSheetMetalExtendWall` (7)
   (a229435ab6), its command and panel (234138ce56): each face a wall's end across the sheet,
   carried along its normal by `Length` or up to `UpToFace`'s plane; a negative length cuts the

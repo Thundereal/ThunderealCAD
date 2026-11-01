@@ -51,6 +51,11 @@ class PartDesignExport SheetMetalFlatPattern : public Part::Feature
 public:
     SheetMetalFlatPattern();
 
+    const char* getViewProviderName() const override
+    {
+        return "PartDesignGui::ViewProviderSheetMetalFlatPattern";
+    }
+
     /// The folded part: a feature of the body, sheet metal or one after it
     App::PropertyLink Source;
     /// The wall's skin laid on XY; the first wall's first skin if none

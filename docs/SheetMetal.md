@@ -567,8 +567,10 @@ OK commits, Cancel takes a new feature away. Found writing the manual (6324cb9e4
 and choices are said in words (Material side, Outer sharp), the boxes still named after the
 properties; what is read only is greyed out, and the base wall makes Length, Reversed and Midplane
 read only on a plate; a value set elsewhere while the panel is open shows in its box, a box touched
-only where it differs. Still to come: the flat pattern's panel (its root face,
-the manufacturing values), and the rule's (its card, the values the card gives and the ones set by
+only where it differs. The flat pattern's panel (a double-click on it; it is a
+Part feature, its own view provider): what it lays flat, the root face picked in the view or the
+first wall's, the values a bill of materials takes, OK one undo step and Cancel putting it back.
+Still to come: the rule's (its card, the values the card gives and the ones set by
 hand).
 
 ### 8.2 In the view

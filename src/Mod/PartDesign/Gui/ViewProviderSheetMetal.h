@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <Mod/Part/Gui/ViewProvider.h>
+
 #include "ViewProviderAddSub.h"
 #include "ViewProviderSketchBased.h"
 
@@ -64,6 +66,21 @@ public:
 
 protected:
     TaskDlgFeatureParameters* getEditDialog() override;
+};
+
+/// A flat pattern, its panel what it lays flat, its root face and the values
+/// a bill of materials takes; a double-click opens it
+class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalFlatPattern);
+
+public:
+    ViewProviderSheetMetalFlatPattern();
+    bool doubleClicked() override;
+
+protected:
+    bool setEdit(int ModNum) override;
+    void unsetEdit(int ModNum) override;
 };
 
 }  // namespace PartDesignGui

@@ -46,6 +46,10 @@ class PropertyLinkSub;
 namespace PartDesignGui
 {
 
+/// A property's or a choice's name as words, as the panels say it:
+/// MaterialSide is "Material side", Gap1 "Gap 1"
+QString sheetMetalWords(const char* name);
+
 /** A sheet metal feature's panel (docs/SheetMetal.md sec 5.1)
  *
  * A box for each value it is given, by the property's name and of its type

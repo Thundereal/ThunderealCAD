@@ -78,9 +78,11 @@ QString number(double v)
     return QString::number(v, 'g', 6);
 }
 
+}  // namespace
+
 /// A name as words, as the panel says it: MaterialSide is "Material side",
 /// Gap1 "Gap 1"
-QString words(const char* name)
+QString PartDesignGui::sheetMetalWords(const char* name)
 {
     const QString s = QString::fromLatin1(name);
     QString out;
@@ -98,8 +100,6 @@ QString words(const char* name)
     return QCoreApplication::translate("PartDesignGui::TaskSheetMetalParameters",
                                        out.toUtf8().constData());
 }
-
-}  // namespace
 
 TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
                                                    const std::string& pixmap,
@@ -214,7 +214,7 @@ void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* 
     if (!prop) {
         return;
     }
-    const QString label = words(name);
+    const QString label = sheetMetalWords(name);
     const QString tip = QString::fromUtf8(prop->getDocumentation());
     QWidget* box = nullptr;
     if (auto quantity = dynamic_cast<App::PropertyQuantity*>(prop)) {
@@ -237,7 +237,7 @@ void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* 
     else if (auto choice = dynamic_cast<App::PropertyEnumeration*>(prop)) {
         auto combo = new QComboBox(proxy);
         for (const auto& item : choice->getEnumVector()) {
-            combo->addItem(words(item.c_str()));
+            combo->addItem(sheetMetalWords(item.c_str()));
         }
         connect(combo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, name](int i) {
             if (auto e = dynamic_cast<App::PropertyEnumeration*>(property(name))) {

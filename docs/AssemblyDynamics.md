@@ -1280,8 +1280,8 @@ Phase D1 is under way (2026-10-28):
     against its slide. A sliding block's deepest point is its leading
     edge, which friction's moment presses: 0.0223 mm against 0.020 at rest
     in the manual's video (allowed penetration 0.02 mm).
-  - Not yet: contact begin and end as events (sec 8.4), and a pair's own
-    channels within a set.
+  - Not yet: a pair's own channels within a set. Contact begin and end
+    as events: built (below).
 - Built: profile contact (sec 7.4's 2D path, rung 5), for mechanisms that
   move in a plane: a Geneva wheel and its driver, a pin in a slot.
   - The document: `Assembly::ProfileContact`, a `ContactSet` (Physics;
@@ -1401,6 +1401,59 @@ Phase D1 is under way (2026-10-28):
   - Not yet: the reaction's bending moment and the axial force as loads
     (Adams' friction arm and bearing radius); a Kinematic run's inverse
     dynamics, whose motor efforts leave the friction out; a Ball joint's.
+- Built: contact events (sec 8.4's "contact begin and end"; a cam's
+  lift-off is its contact's end): two bodies of a contact set starting to
+  press on each other and letting go, each pair of bodies on its own --
+  a set's load per pair (primitives, hulls and meshes, a cam, a profile).
+  Nothing to set: every dynamic run reports them.
+  - The model: `Event::Kind` {Sensor, ContactBegin, ContactEnd}
+    (`Backend.h`), the set as the source, `bodyA` and `bodyB` the pair's
+    bodies by their source names (the set's group A side first, a cam's
+    cam; "" the ground), `value` the speed the pair's deepest point comes
+    in at or leaves at, mm/s. A body standing for a rigid group (sec 6.1's
+    grouping) is named by the group's first part.
+  - The run (`advance()`, ChronoBackend): a load touches while its deepest
+    point presses (depth above none), read at the end of each substep
+    kept on the points found there, and from the run's start: what
+    presses at the start was never made, and makes no event. A change is
+    located within its substep where that point's depth crosses none, on
+    the line between the substep's two ends, both read on the points found
+    at its start (a change those points do not see: at the end, or at the
+    start). The speed comes from the free side, where the bodies are
+    apart: coming in, the start's speed and acceleration carried forward
+    to the crossing; a line between the ends took in the stiff contact's
+    braking, a ball landing at 139.99 mm/s for 140.05. Leaving, read
+    again a substep later and carried back -- HHT's accelerations at a
+    substep's end mix in the force at its start (-11.7 m/s^2 for g's -9.8
+    where the ball left), and its velocity settles in the next substep:
+    read where it left, 0.06% to 0.28% slower than its flight took, a
+    substep on 1e-6 of the speed it comes back in at. Static runs report
+    none.
+  - The events queue (`sendEvents()`): a sensor's and the contacts' wait
+    for their step to be kept -- a sensor's bisection takes its tries'
+    back with the rest of the state -- and go out in time order before
+    the frame that follows; a contact let go waits for its second reading,
+    holding back what comes after it to the next frame (the run's last
+    sends everything).
+  - Results: `getSimulationResults()["Events"]` entries gain `Kind`
+    ("Sensor", "ContactBegin", "ContactEnd") and, a contact's, `Bodies`
+    (the two components, None the ground); `Value` its speed. The panel's
+    lines under the player: "Contact at 0.0142809 s: Ball and Plate, in at
+    140.05 mm/s (Contact)", "Let go at ...: ..., out at ...".
+  - Tests (TestContact): a ball dropped a millimetre bouncing at
+    restitution 0.8 -- the events alternating, made and let go, each the
+    set's and the pair's, the ball first; made first at sqrt(2 h / g)
+    (1e-6 s) coming in at sqrt(2 g h) (1e-5); each let go at r times its
+    speed in (2%) and made again 2 v / g later (1e-6 s), coming in at the
+    speed it left at (1e-4); a sensor marking the force's rise among them,
+    in time order, with the first. A box resting from the start, sunk by
+    the allowed penetration: no event. The sensor stopping on landing has
+    the contact's event before its own. TestGuiCommands: the panel's
+    lines for a contact made and let go between a sensor's mark and stop.
+  - Not yet: which parts of a rigid group touched (the pair is the
+    group's bodies); a sensor on an event (stop on the first contact is
+    a sensor on the set's force today); events in the stored results,
+    which are not stored (sec 8.4's archive is not built).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

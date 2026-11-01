@@ -103,13 +103,79 @@ class TestContact(unittest.TestCase):
         )
         self.assertEqual(result, 0)
         results = self.assembly.getSimulationResults()
-        events = results["Events"]
+        events = [e for e in results["Events"] if e["Kind"] == "Sensor"]
         self.assertEqual(len(events), 1, events)
         self.assertTrue(events[0]["Stopped"])
         landing = math.sqrt(2 * 1.0 / 9806.65)
         self.assertAlmostEqual(events[0]["Time"], landing, delta=1e-6)
         self.assertAlmostEqual(results["Times"][-1], events[0]["Time"], delta=1e-12)
         self.assertAlmostEqual(self.heights(ball)[-1], 15.0, delta=1e-5)
+
+    def test_contact_events(self):
+        """A ball dropped a millimetre bounces, restitution 0.8: its
+        contact events (docs/AssemblyDynamics.md sec 8.4) alternate, made
+        and let go. The first is made at sqrt(2 h / g) (1e-6 s), coming in
+        at sqrt(2 g h) (1e-5 of it); each lets go at r times the speed it
+        came in at (2%), and is made again 2 v / g later (1e-6 s), v the
+        speed it left at (1e-4 of it), as it comes back in. Each names the
+        set and the pair, the ball first, its side of the set; a sensor's
+        event is among them in time order."""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate], StaticFriction=0.0, DynamicFriction=0.0)
+        contact.Restitution = 0.8
+        self.doc.recompute()
+        _, result = self.simulate(
+            0.06,
+            1e-3,
+            sensors=[
+                {
+                    "source": contact,
+                    "quantity": "ContactForce",
+                    "threshold": 0.0,
+                    "action": "Mark",
+                }
+            ],
+        )
+        self.assertEqual(result, 0)
+        events = self.assembly.getSimulationResults()["Events"]
+        times = [e["Time"] for e in events]
+        self.assertEqual(times, sorted(times))
+        sensors = [e for e in events if e["Kind"] == "Sensor"]
+        self.assertGreaterEqual(len(sensors), 1, events)
+        contacts = [e for e in events if e["Kind"] != "Sensor"]
+        self.assertGreaterEqual(len(contacts), 5, contacts)
+        for i, event in enumerate(contacts):
+            self.assertEqual(event["Kind"], "ContactEnd" if i % 2 else "ContactBegin")
+            self.assertEqual(event["Object"], contact)
+            self.assertEqual(event["Bodies"], (ball, plate))
+            self.assertFalse(event["Stopped"])
+        v0 = math.sqrt(2 * G * 1.0)
+        self.assertAlmostEqual(contacts[0]["Time"], math.sqrt(2 * 1.0 / G), delta=1e-6)
+        self.assertAlmostEqual(contacts[0]["Value"], v0, delta=v0 * 1e-5)
+        # The sensor's mark with the first contact: the force rises from it
+        self.assertAlmostEqual(sensors[0]["Time"], contacts[0]["Time"], delta=1e-6)
+        for made, left, again in zip(contacts[0::2], contacts[1::2], contacts[2::2]):
+            self.assertAlmostEqual(left["Value"], 0.8 * made["Value"], delta=made["Value"] * 0.02)
+            self.assertAlmostEqual(again["Time"] - left["Time"], 2 * left["Value"] / G, delta=1e-6)
+            self.assertAlmostEqual(again["Value"], left["Value"], delta=left["Value"] * 1e-4)
+
+    def test_no_events_at_rest(self):
+        """A box resting on the plate from the start, sunk by the allowed
+        penetration, makes no contact event: the contacts pressing at the
+        start are made already"""
+        plate = self.plate()
+        box = self.assembly.newObject("Part::Box", "Box")
+        box.Length, box.Width, box.Height = 20, 20, 10
+        box.Placement.Base = App.Vector(-10, -10, 10 - 0.005)
+        contact = self.contact([box], [plate], StaticFriction=0.0, DynamicFriction=0.0)
+        contact.StiffnessFrom = "Penetration"
+        contact.AllowedPenetration = 0.005
+        self.doc.recompute()
+        _, result = self.simulate(0.1, 1e-3)
+        self.assertEqual(result, 0)
+        self.assertLess(abs(self.heights(box)[-1] - self.heights(box)[0]), 1e-3)
+        self.assertEqual(self.assembly.getSimulationResults()["Events"], [])
 
     def heights(self, part):
         out = []

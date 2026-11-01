@@ -2394,7 +2394,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def showEvents(self):
         """Not upstream: the sensors that tripped and when, by their labels,
         which say what they watch and where they trip; the one that stopped
-        the run last"""
+        the run last. And the contacts made and let go, each pair's
+        components and its speed in or out"""
         events = (self.results or {}).get("Events", [])
         if not events:
             self.eventMessage.hide()
@@ -2404,11 +2405,25 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         for event in events[:shown]:
             obj = event["Object"]
             name = obj.Label if obj is not None else event["Name"]
+            time = "%.6g" % event["Time"]
+            kind = event.get("Kind", "Sensor")
+            if kind != "Sensor":
+                a, b = (
+                    o.Label if o is not None else translate("Assembly", "the ground")
+                    for o in event["Bodies"]
+                )
+                speed = App.Units.Quantity(event["Value"], App.Units.Velocity).UserString
+                if kind == "ContactBegin":
+                    text = translate("Assembly", "Contact at {} s: {} and {}, in at {} ({})")
+                else:
+                    text = translate("Assembly", "Let go at {} s: {} and {}, out at {} ({})")
+                lines.append(text.format(time, a, b, speed, name))
+                continue
             if event["Stopped"]:
                 text = translate("Assembly", "Stopped at {} s by {}")
             else:
                 text = translate("Assembly", "Marked at {} s by {}")
-            lines.append(text.format("%.6g" % event["Time"], name))
+            lines.append(text.format(time, name))
         if len(events) > shown:
             lines.append(translate("Assembly", "and {} more").format(len(events) - shown))
         self.eventMessage.setText("\n".join(lines))

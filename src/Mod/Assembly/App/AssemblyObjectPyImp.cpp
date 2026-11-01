@@ -278,17 +278,34 @@ PyObject* AssemblyObjectPy::getSimulationResults(PyObject* args) const
         Py::List events;
         if (trajectory) {
             App::Document* doc = getAssemblyObjectPtr()->getDocument();
+            auto nameOf = [](const std::string& source) {
+                const std::size_t hash = source.rfind('#');
+                return hash == std::string::npos ? source : source.substr(hash + 1);
+            };
+            auto objectOf = [&](const std::string& name) {
+                App::DocumentObject* obj =
+                    doc && !name.empty() ? doc->getObject(name.c_str()) : nullptr;
+                return obj ? Py::asObject(obj->getPyObject()) : Py::None();
+            };
             for (const auto& event : trajectory->events) {
-                const std::size_t hash = event.source.rfind('#');
-                const std::string name =
-                    hash == std::string::npos ? event.source : event.source.substr(hash + 1);
-                App::DocumentObject* obj = doc ? doc->getObject(name.c_str()) : nullptr;
+                const std::string name = nameOf(event.source);
                 Py::Dict entry;
                 entry.setItem("Time", Py::Float(event.time));
-                entry.setItem("Object", obj ? Py::asObject(obj->getPyObject()) : Py::None());
+                entry.setItem("Object", objectOf(name));
                 entry.setItem("Name", Py::String(name));
                 entry.setItem("Value", Py::Float(event.value));
                 entry.setItem("Stopped", Py::Boolean(event.stopped));
+                const char* kind = "Sensor";
+                if (event.kind != Solver::Event::Kind::Sensor) {
+                    kind = event.kind == Solver::Event::Kind::ContactBegin ? "ContactBegin"
+                                                                           : "ContactEnd";
+                    // The two components, None for the ground
+                    Py::Tuple bodies(2);
+                    bodies.setItem(0, objectOf(nameOf(event.bodyA)));
+                    bodies.setItem(1, objectOf(nameOf(event.bodyB)));
+                    entry.setItem("Bodies", bodies);
+                }
+                entry.setItem("Kind", Py::String(kind));
                 events.append(entry);
             }
         }

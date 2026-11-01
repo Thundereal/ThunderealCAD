@@ -910,7 +910,8 @@ class TestGuiCommands(unittest.TestCase):
 
     def test_sensor_events_shown(self):
         """After a run the panel says which sensors tripped and when, by
-        their labels; the one that stopped it says so"""
+        their labels; the one that stopped it says so. A contact made or let
+        go names its pair, its speed and its set"""
         import CommandCreateSimulation
         from PySide import QtWidgets
 
@@ -928,16 +929,39 @@ class TestGuiCommands(unittest.TestCase):
         holder = QtWidgets.QWidget()
         panel = Panel()
         panel.eventMessage = QtWidgets.QLabel(holder)
+        class Ball:
+            Label = "Ball"
+
+        def contact(time, kind, speed):
+            return {
+                "Time": time,
+                "Object": Contact(),
+                "Name": "C",
+                "Value": speed,
+                "Stopped": False,
+                "Kind": kind,
+                "Bodies": (Ball(), None),
+            }
+
         panel.results = {
             "Events": [
                 {"Time": 0.0125, "Object": Sensor(), "Name": "S", "Value": 4.0, "Stopped": False},
+                contact(0.0142809, "ContactBegin", 140.0),
+                contact(0.0143335, "ContactEnd", 112.0),
                 {"Time": 0.0258109, "Object": Contact(), "Name": "C", "Value": 2500.0, "Stopped": True},
             ]
         }
         CommandCreateSimulation.TaskAssemblyCreateSimulation.showEvents(panel)
+
+        def speed(value):
+            return App.Units.Quantity(value, App.Units.Velocity).UserString
+
         self.assertEqual(
             panel.eventMessage.text(),
-            "Marked at 0.0125 s by Spring length\nStopped at 0.0258109 s by Landing",
+            "Marked at 0.0125 s by Spring length\n"
+            "Contact at 0.0142809 s: Ball and the ground, in at {} (Landing)\n"
+            "Let go at 0.0143335 s: Ball and the ground, out at {} (Landing)\n"
+            "Stopped at 0.0258109 s by Landing".format(speed(140.0), speed(112.0)),
         )
         self.assertFalse(panel.eventMessage.isHidden())
         panel.results = {"Events": []}

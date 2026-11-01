@@ -996,6 +996,9 @@ public:
     double calm = 0.0;
     double period = 0.0;
     bool settled = false;
+    // Whether it pressed at the end of the last substep kept, for the
+    // contact events (advance())
+    bool touching = false;
 
     // The law's restitution as Hunt and Crossley's a (huntCrossley()), the
     // damping's factor a speed v0 makes
@@ -7101,6 +7104,29 @@ Status ChronoSession::simulateDynamics(
         sink.channels(channels);
     }
 
+    // The events found (sec 8.4), held until their step is kept -- a
+    // sensor's tries take theirs back -- and sent in time order before the
+    // frame that follows them. A contact let go has its speed read again
+    // after the next substep (noteTouch()), 'reading' its load until then,
+    // and holds back what comes after it to the next frame, or the run's
+    // last.
+    struct Queued
+    {
+        Event event;
+        ContactLoad* reading = nullptr;
+    };
+    std::vector<Queued> queued;
+    auto sendEvents = [&](bool all) {
+        std::ranges::stable_sort(queued, {}, [](const Queued& q) {
+            return q.event.time;
+        });
+        std::size_t n = 0;
+        for (; n < queued.size() && (all || !queued[n].reading); ++n) {
+            sink.event(queued[n].event);
+        }
+        queued.erase(queued.begin(), queued.begin() + static_cast<std::ptrdiff_t>(n));
+    };
+
     // The sensors (sec 5.2, P15): each on its channel's components, in
     // valuesNow()'s values, and what it read last. It trips where its value
     // is past its threshold and was not at the last reading.
@@ -7159,7 +7185,8 @@ Status ChronoSession::simulateDynamics(
             const double now = reading(watch, values);
             if (past(*watch.sensor, now) && !past(*watch.sensor, watch.last)) {
                 stop = stop || watch.sensor->stop;
-                sink.event({time, si.sourceName(watch.sensor->source), now, watch.sensor->stop});
+                queued.push_back(
+                    {Event {time, si.sourceName(watch.sensor->source), now, watch.sensor->stop}});
             }
             watch.last = now;
         }
@@ -7400,6 +7427,104 @@ Status ChronoSession::simulateDynamics(
         }
         return deepest;
     };
+    // The same, with how fast that point comes in, m/s, and how fast that
+    // grows, m/s^2
+    struct Touch
+    {
+        double depth = -std::numeric_limits<double>::infinity();
+        double rate = 0.0;
+        double accel = 0.0;
+    };
+    auto touchOf = [](const ContactLoad& load) {
+        Touch touch;
+        const auto a = load.GetBodyA();
+        const auto b = load.GetBodyB();
+        for (const auto& point : load.points) {
+            const double depth = -ch::Vdot(point.normal,
+                                           b->TransformPointLocalToParent(point.onB)
+                                               - a->TransformPointLocalToParent(point.onA));
+            if (depth > touch.depth) {
+                touch.depth = depth;
+                touch.rate = -ch::Vdot(point.normal,
+                                       b->PointSpeedLocalToParent(point.onB)
+                                           - a->PointSpeedLocalToParent(point.onA));
+                touch.accel = -ch::Vdot(point.normal,
+                                        b->PointAccelerationLocalToParent(point.onB)
+                                            - a->PointAccelerationLocalToParent(point.onA));
+            }
+        }
+        return touch;
+    };
+    // A dynamic run's contact events (sec 8.4): a load starting to press, or
+    // letting go, at the end of a substep kept, by the points found there.
+    // Located within the substep where its deepest point's depth crosses
+    // none, on the line between the substep's ends read on the points found
+    // at its start; a change those points do not see (a point found within
+    // the substep, or gone with its points) at the end, one they already had
+    // at the start there. Its speed there from the end where the bodies are
+    // apart, and move free: a line between the ends took a stiff contact's
+    // braking within the substep, a ball landing at 139.99 mm/s for 140.05
+    // and leaving 0.13% slower than its flight took. Leaving, read again
+    // after the next substep kept (readLeaving()), taken back to the time it
+    // let go: HHT's accelerations at a substep's end mix in the force at its
+    // start, -11.7 m/s^2 for g's -9.8 where the ball left, and its velocity
+    // settles in the substep after -- read where it left, the ball left
+    // 0.06% to 0.28% slower than its flight took; a substep on, to 1e-6 of
+    // the speed it comes back in at, and the same two and three on.
+    auto bodyName = [&](const ch::ChBody* body) {
+        for (std::size_t b = 0; b < run.d->bodies.size() && b < si.bodies.size(); ++b) {
+            if (run.d->bodies[b].get() == body) {
+                return std::string(si.sourceName(si.bodies[b].source));
+            }
+        }
+        return std::string();
+    };
+    auto readLeaving = [&](double time) {
+        for (auto& q : queued) {
+            if (!q.reading) {
+                continue;
+            }
+            const Touch touch = touchOf(*q.reading);
+            if (std::isfinite(touch.depth)) {
+                q.event.value =
+                    -(touch.rate - (time - q.event.time) * touch.accel) / SI::velocity;
+            }
+            q.reading = nullptr;
+        }
+    };
+    auto noteTouch =
+        [&](ContactLoad& load, double t0, double h, const Touch& from, const Touch& to) {
+            const bool now = pressing(load) > 0.0;
+            if (now == load.touching) {
+                return;
+            }
+            load.touching = now;
+            // Pressing again: what the last reading of its letting go gave
+            for (auto& q : queued) {
+                if (q.reading == &load) {
+                    q.reading = nullptr;
+                }
+            }
+            double f = 1.0;
+            double rate = to.rate;
+            if (std::isfinite(from.depth) && (from.depth > 0.0) == now) {
+                f = 0.0;
+                rate = from.rate;
+            }
+            else if (std::isfinite(from.depth) && std::isfinite(to.depth)
+                     && (to.depth > 0.0) == now) {
+                f = from.depth / (from.depth - to.depth);
+                rate = now ? from.rate + f * h * from.accel : to.rate - (1.0 - f) * h * to.accel;
+            }
+            Event event;
+            event.kind = now ? Event::Kind::ContactBegin : Event::Kind::ContactEnd;
+            event.time = t0 + f * h;
+            event.source = si.sourceName(si.dynamics->contacts[load.set].source);
+            event.value = (now ? rate : -rate) / SI::velocity;
+            event.bodyA = bodyName(load.GetBodyA().get());
+            event.bodyB = bodyName(load.GetBodyB().get());
+            queued.push_back({std::move(event), now ? nullptr : &load});
+        };
     // Whether a contact the last step found new is in too deep: deeper than a
     // tenth of how deep its impact goes at the speed it comes in at. A
     // contact found only once in -- the envelope is small -- had no force
@@ -7639,6 +7764,10 @@ Status ChronoSession::simulateDynamics(
         double done = 0.0;
         double cap = dt;
         std::vector<double> before(contactLoads.size());
+        // Each load's deepest point at the substep's start and at its end, on
+        // the points found at its start (noteTouch())
+        std::vector<Touch> from(contactLoads.size());
+        std::vector<Touch> to(contactLoads.size());
         bool fresh = false;  // collision detection last ran at the state now
         while (dt - done > 1e-12 * dt) {
             const double strict = contactStep(true);
@@ -7648,7 +7777,8 @@ Status ChronoSession::simulateDynamics(
                 h = dt - done;
             }
             for (std::size_t i = 0; i < contactLoads.size(); ++i) {
-                before[i] = pressing(*contactLoads[i]);
+                from[i] = touchOf(*contactLoads[i]);
+                before[i] = from[i].depth;
             }
             double t = 0.0;
             sys.StateGather(x, v, t);
@@ -7681,6 +7811,9 @@ Status ChronoSession::simulateDynamics(
                 implicit && implicit->GetNumTerminated() > terminated && h > 1e-9;
             bool tooDeep = !finite || unconverged;
             if (finite && !unconverged) {
+                for (std::size_t i = 0; i < contactLoads.size(); ++i) {
+                    to[i] = touchOf(*contactLoads[i]);
+                }
                 sys.ComputeCollisions();
                 fresh = true;
                 for (std::size_t i = 0; i < contactLoads.size() && !tooDeep; ++i) {
@@ -7709,8 +7842,14 @@ Status ChronoSession::simulateDynamics(
             }
             done += h;
             cap = std::min(dt, cap * 2.0);
-            for (const auto& load : contactLoads) {
-                keepCalm(*load, h);
+            if (!statics) {
+                readLeaving(t + h);
+            }
+            for (std::size_t i = 0; i < contactLoads.size(); ++i) {
+                keepCalm(*contactLoads[i], h);
+                if (!statics) {
+                    noteTouch(*contactLoads[i], t, h, from[i], to[i]);
+                }
             }
         }
     };
@@ -7844,11 +7983,12 @@ Status ChronoSession::simulateDynamics(
             struct LoadState
             {
                 double impact, low, high, calm, period;
-                bool settled;
+                bool settled, touching;
             };
             std::vector<LoadState> loads;
             std::vector<std::pair<double, bool>> cams;
             std::vector<double> frictions;
+            std::vector<Queued> queued;
         };
         auto snapshot = [&]() {
             Snapshot s;
@@ -7860,9 +8000,15 @@ Status ChronoSession::simulateDynamics(
             s.stops = stops;
             s.limitAngles = limitAngles;
             for (const auto& load : contactLoads) {
-                s.loads.push_back(
-                    {load->impact, load->low, load->high, load->calm, load->period, load->settled});
+                s.loads.push_back({load->impact,
+                                   load->low,
+                                   load->high,
+                                   load->calm,
+                                   load->period,
+                                   load->settled,
+                                   load->touching});
             }
+            s.queued = queued;
             if (contactHandover) {
                 for (const auto& cam : contactHandover->cams) {
                     s.cams.emplace_back(cam.u, cam.started);
@@ -7897,7 +8043,9 @@ Status ChronoSession::simulateDynamics(
                 load.calm = kept.calm;
                 load.period = kept.period;
                 load.settled = kept.settled;
+                load.touching = kept.touching;
             }
+            queued = s.queued;
             if (contactHandover) {
                 for (std::size_t i = 0; i < contactHandover->cams.size(); ++i) {
                     contactHandover->cams[i].u = s.cams[i].first;
@@ -7991,6 +8139,13 @@ Status ChronoSession::simulateDynamics(
                 const std::vector<BodyPose> poses = posesNow();
                 const std::vector<double> start = channels.empty() ? std::vector<double>()
                                                                    : valuesNow();
+                // The contacts pressing at the start: none of them begins
+                if (contact) {
+                    sys.ComputeCollisions();
+                    for (const auto& load : contactLoads) {
+                        load->touching = pressing(*load) > 0.0;
+                    }
+                }
                 std::vector<double> half;
                 for (int i = 0; i < tinySteps; ++i) {
                     stepOnce(tiny);
@@ -8059,6 +8214,7 @@ Status ChronoSession::simulateDynamics(
             }
             // A sensor that stops: the last frame where it tripped
             const double at = tripped && !statics ? sys.GetChTime() : time;
+            sendEvents(tripped || k == steps);
             if (!channels.empty()) {
                 sink.values(valuesNow());
             }

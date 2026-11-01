@@ -186,15 +186,31 @@ struct Channel
 };
 
 // Something a run found between its frames (docs/AssemblyDynamics.md sec
-// 8.4's events): a sensor (Model.h) tripping, at the time located, and the
-// value it read there; 'stopped' when the run ended there, its last frame
-// at that time
+// 8.4's events), at the time located:
+//   Sensor        a sensor (Model.h) tripping, and the value it read there;
+//                 'stopped' when the run ended there, its last frame at that
+//                 time
+//   ContactBegin  two bodies of a contact set starting to press on each
+//                 other; 'value' the speed their deepest point comes in at,
+//                 mm/s
+//   ContactEnd    and letting go; 'value' the speed it leaves at
 struct Event
 {
+    enum class Kind : std::uint8_t
+    {
+        Sensor,
+        ContactBegin,
+        ContactEnd,
+    };
     double time = 0.0;
-    std::string source;  // the model's source name of the sensor
+    std::string source;  // the model's source name of the sensor or the contact set
     double value = 0.0;
     bool stopped = false;
+    Kind kind = Kind::Sensor;
+    // A contact's two bodies, by their model source names (the set's group
+    // A side first, a cam's cam), "" for the ground
+    std::string bodyA;
+    std::string bodyB;
 };
 
 // Poses of the bodies at each output time; owned by the neutral layer, so

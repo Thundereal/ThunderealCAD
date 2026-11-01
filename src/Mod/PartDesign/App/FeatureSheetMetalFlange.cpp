@@ -561,12 +561,14 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 // beside it meets the bend's side face to face, and only a
                 // relief parts them for the flat: beside the bend, from the
                 // wall's end to the relief's depth past where the bend starts.
-                // A tear takes nothing away.
-                const double reliefWidth = rule->ReliefWidth.getValue();
-                const double depth = setback + rule->ReliefDepth.getValue();
+                // A tear is a slit the rule's gap wide, to where the bend starts.
                 const int reliefShape = rule->ReliefShape.getValue();
                 const bool obround = reliefShape == 1;
-                if (reliefShape != 2 && reliefWidth > Precision::Confusion()) {
+                const bool tear = reliefShape == 2;
+                const double reliefWidth =
+                    tear ? rule->Gap.getValue() : rule->ReliefWidth.getValue();
+                const double depth = tear ? setback : setback + rule->ReliefDepth.getValue();
+                if (reliefWidth > Precision::Confusion()) {
                     // the straight part of an obround stops at its half circle's middle
                     const double straight =
                         obround ? std::max(depth - reliefWidth / 2, 0.0) : depth;

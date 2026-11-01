@@ -402,10 +402,38 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
 
     def testReliefTear(self):
-        """Tear: the wall torn along the bend's side, nothing taken away, so
-        the solid is the one with no relief"""
+        """Tear (ruled 2026-11-02): the wall slit along the bend's side, the
+        rule's Gap wide (0.1), from the wall's end to where the bend starts,
+        x 4.9..5 and 35..35.1, y 18..20; the flat closes as the others'"""
         flange = self.far(Gap1=5, Gap2=5)
         flange.Rule.ReliefShape = "Tear"
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * 0.1 * 2 + 30 * RING + 30 * 8, places=6
+        )
+        shape = flange.Shape
+        for x in (4.95, 35.05):
+            self.assertFalse(shape.isInside(V(x, 19.5, 0.5), 1e-9, True), x)
+            self.assertTrue(shape.isInside(V(x, 17.9, 0.5), 1e-9, True), x)
+        for x in (4.85, 35.15):
+            self.assertTrue(shape.isInside(V(x, 19.5, 0.5), 1e-9, True), x)
+        self.assertNotIn(None, self.owners(flange))
+        self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
+
+    def testReliefTearFromRule(self):
+        """The tear follows the rule's Gap, and with no gap cuts nothing"""
+        flange = self.far(Gap1=5, Gap2=5)
+        rule = flange.Rule
+        rule.ReliefShape = "Tear"
+        rule.Gap = 0.5
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * 0.5 * 2 + 30 * RING + 30 * 8, places=6
+        )
+        self.assertFalse(flange.Shape.isInside(V(4.6, 19.5, 0.5), 1e-9, True))
+        rule.Gap = 0
         self.Doc.recompute()
         self.checkValid(flange)
         self.assertAlmostEqual(

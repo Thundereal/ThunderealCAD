@@ -228,6 +228,9 @@ struct DocumentP
     /// The rows the last undo was refused for that stand in its way
     /// (docs/MultiViewEdit.md sec 12.11): what Document::stepsInTheWay() lists
     std::set<int64_t> undoInTheWay;
+    /// What a step taken from the log does with a property changed since:
+    /// Document::UndoConflicts, Refuse but under undoKeepingTheirs()
+    int runConflicts {0};
     /// A saveCopy() without history: the copy embeds nothing, and the
     /// History property the live document had is put back afterwards.
     bool savingWithoutHistory {false};

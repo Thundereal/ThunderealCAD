@@ -1631,6 +1631,8 @@ bool Document::_revertStep(bool undo, Transaction* step)
     log->resolvePending();
     ColdRevert revert;
     revert.selective = true;
+    // what is changed since: refused, or with "keep theirs" left
+    revert.conflicts = static_cast<UndoConflicts>(d->runConflicts);
     // A step that changed nothing has nothing to take back: an implicit
     // one whose every write put back the value that was there rode with
     // the step below it into every undo of that step from under another's,
@@ -2369,6 +2371,26 @@ std::vector<UndoStep> Document::stepsInTheWay() const
         out.push_back(std::move(s));
     }
     return out;
+}
+
+std::vector<int> Document::getRunIds(bool undo, int skip) const
+{
+    std::vector<int> ids;
+    for (auto step : _myRun(undo, skip))
+        ids.push_back(step->getID());
+    return ids;
+}
+
+bool Document::undoKeepingTheirs(int skip)
+{
+    OperationScope scope;   // sec 27.38
+    if (!d->iUndoMode)
+        return false;
+    d->undoRefusal.clear();
+    d->undoInTheWay.clear();
+    RunStop conflicts {d->runConflicts,
+                       std::exchange(d->runConflicts, int(UndoConflicts::Skip))};
+    return _takeRun(true, skip);
 }
 
 bool Document::undoSteps(const std::vector<int>& want)

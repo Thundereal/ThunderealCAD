@@ -526,6 +526,8 @@ fc_add_gui_test(GuiTdStoredHatch_tests_run td-stored-hatch.py
                 --timeout 200)
 fc_add_gui_test(GuiEditGroupUndo_tests_run edit-group-undo.py
                 --timeout 200)
+fc_add_gui_test(GuiUndoInTheWay_tests_run undo-in-the-way.py
+                --timeout 200)
 
 # A view in a tab closed of itself, not through its tab: the tab goes with
 # it, and nothing reads the view that is gone (a segmentation fault).

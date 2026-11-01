@@ -884,3 +884,21 @@ implicit ones riding on each, newest first, all or none, whoever's (Python
 `undoSteps`): an undo with the steps in its way. Gtests
 `aLinkMadeSinceToWhatAStepMadeStandsInItsWay`,
 `aReferenceTheUndoWouldBreakStandsInItsWay`.
+
+**The dialog (Gui, built).** An undo of one's own (the button, Ctrl+Z, the
+list) refused for steps in its way says them -- each by name, and by its
+author when another's -- and offers:
+- **Undo with them** (the default): the undo and those steps together,
+  as one run (`undoSteps`), and every further step of one's own found in
+  the way on the way; not offered when one of them is another's, which is
+  that user's to agree to (sec 12.11, asked as the next part does);
+- **Keep theirs**: the undo with what they changed since left as it is
+  (`undoKeepingTheirs`, the log's `UndoConflicts::Skip` for every step of
+  the run): offered only when what stands in the way is properties set
+  again, not a link or a reference made since;
+- **Cancel**.
+"Undo anyway", which put the step's values back over a later one's while
+that step stayed in the history, is not offered: undo with them says the
+same honestly. A TechDraw page's undo asked about nothing it could not
+take (it called the document's undo without asking); it asks as a 3D
+view's does. GUI test `tests/gui/undo-in-the-way.py`.

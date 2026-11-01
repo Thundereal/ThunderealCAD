@@ -703,6 +703,14 @@ private:
     int takeSteps(bool undo, int iSteps, int skipped);
     /// Say a refused step and offer the one after; true to go on to it
     bool askToSkip(bool undo, int skipped, const std::string& why);
+    /** An undo refused for steps made since that depend on it
+     * (docs/MultiViewEdit.md sec 12.11): say them, and offer the undo with
+     * them, or with what they changed kept. True when the undo went.
+     */
+    bool resolveInTheWay(int skipped, const std::string& why);
+    /// The undo of the run \a skipped leaves with the steps \a with: every
+    /// step of one's own found in the way on the way taken too
+    bool undoWithThem(int skipped, std::vector<int> with);
     /// The scan behind checkTransactionID: the other documents that hold
     /// the same transaction ids, how many steps each, and which of them
     /// would need the user asked.

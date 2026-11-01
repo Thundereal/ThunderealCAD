@@ -6915,6 +6915,107 @@ bool Document::askToSkip(bool undo, int skipped, const std::string& why)
     return skip && box.clickedButton() == skip;
 }
 
+bool Document::undoWithThem(int skipped, std::vector<int> with)
+{
+    App::Document* doc = getDocument();
+    std::vector<int> ids = doc->getRunIds(true, skipped);
+    ids.insert(ids.end(), with.begin(), with.end());
+    // Steps in the way of those found as they go: one's own are taken too,
+    // a few times over; another's stops it -- what is the other's to say
+    for (int tries = 0; tries < 8; ++tries) {
+        bool done = false;
+        {
+            Base::FlagToggler<> flag(d->_isTransacting);
+            Gui::Selection().clearCompleteSelection();
+            done = doc->undoSteps(ids);
+        }
+        if (done)
+            return true;
+        std::vector<int> fresh;
+        bool others = false;
+        for (const auto& s : doc->stepsInTheWay()) {
+            if (std::find(ids.begin(), ids.end(), s.id) != ids.end())
+                continue;
+            others = others || !s.author.empty();
+            fresh.push_back(s.id);
+        }
+        if (fresh.empty() || others)
+            break;
+        ids.insert(ids.end(), fresh.begin(), fresh.end());
+    }
+    QMessageBox::warning(getMainWindow(), QObject::tr("Undo"),
+                         QObject::tr("The undo did not go: %1")
+                             .arg(QString::fromUtf8(doc->undoRefusal().c_str())));
+    return false;
+}
+
+bool Document::resolveInTheWay(int skipped, const std::string& why)
+{
+    App::Document* doc = getDocument();
+    const auto inTheWay = doc->stepsInTheWay();
+    if (inTheWay.empty())
+        return false;
+    const auto names = getUndoVector();
+    const QString refused = std::size_t(skipped) < names.size()
+        ? QCoreApplication::translate("Command", names[skipped].c_str())
+        : QString();
+    QStringList lines;
+    QStringList others;
+    for (const auto& s : inTheWay) {
+        QString line = QCoreApplication::translate("Command", s.name.c_str());
+        if (!s.author.empty()) {
+            const QString who = QString::fromUtf8(s.author.c_str());
+            line = QObject::tr("%1, by %2").arg(line, who);
+            if (!others.contains(who))
+                others << who;
+        }
+        lines << QStringLiteral("  ") + line;
+    }
+    // What is only properties set again since may be kept as they are; a
+    // link or a reference made since may not
+    const bool keepable = why.find("links to") == std::string::npos
+        && why.find("would no longer resolve") == std::string::npos;
+
+    QMessageBox box(getMainWindow());
+    box.setObjectName(QStringLiteral("undoInTheWay"));
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle(QObject::tr("Undo"));
+    box.setText(QObject::tr("'%1' cannot be undone on its own: steps made since depend "
+                            "on it.").arg(refused));
+    box.setInformativeText(lines.join(QLatin1Char('\n')));
+    box.setDetailedText(QString::fromUtf8(why.c_str()));
+    QAbstractButton* with = nullptr;
+    if (others.isEmpty())
+        with = box.addButton(QObject::tr("Undo with them"), QMessageBox::AcceptRole);
+    QAbstractButton* keep = nullptr;
+    if (keepable)
+        keep = box.addButton(QObject::tr("Keep theirs"), QMessageBox::ActionRole);
+    box.addButton(QMessageBox::Cancel);
+    if (with)
+        box.setDefaultButton(static_cast<QPushButton*>(with));
+    box.exec();
+    if (with && box.clickedButton() == with) {
+        std::vector<int> ids;
+        for (const auto& s : inTheWay)
+            ids.push_back(s.id);
+        return undoWithThem(skipped, ids);
+    }
+    if (keep && box.clickedButton() == keep) {
+        bool done = false;
+        {
+            Base::FlagToggler<> flag(d->_isTransacting);
+            Gui::Selection().clearCompleteSelection();
+            done = doc->undoKeepingTheirs(skipped);
+        }
+        if (!done)
+            QMessageBox::warning(getMainWindow(), QObject::tr("Undo"),
+                                 QObject::tr("The undo did not go: %1")
+                                     .arg(QString::fromUtf8(doc->undoRefusal().c_str())));
+        return done;
+    }
+    return false;
+}
+
 void Document::undoOrRedo(bool undo, int iSteps, bool ask)
 {
     // The view provider in edit may take the command as its own: asked
@@ -6933,6 +7034,15 @@ void Document::undoOrRedo(bool undo, int iSteps, bool ask)
         // Asked with nothing held: no guard, and the document not said to
         // be in a transaction while the dialog's loop turns.
         const std::string why = getDocument()->undoRefusal();
+        // Refused for steps made since that depend on it (sec 12.11): taken
+        // with them, or with what they changed kept, or not at all
+        if (undo && !why.empty() && !getDocument()->stepsInTheWay().empty()) {
+            if (!resolveInTheWay(skipped, why))
+                break;
+            if (--iSteps <= 0)
+                break;
+            continue;
+        }
         if (why.empty() || !askToSkip(undo, skipped, why))
             break;
         // The step refused is left, and was one of those asked for.

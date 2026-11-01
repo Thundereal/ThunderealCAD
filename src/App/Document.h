@@ -1876,6 +1876,16 @@ public:
      * an edit with the steps in its way.
      */
     bool undoSteps(const std::vector<int>& ids);
+    /// The steps the next undo (or redo) of whoever acts takes, by id
+    /// (docs/MultiViewEdit.md sec 12.11): a step with the implicit ones
+    /// riding on it, or a group; \a skip as for undoSkipping()
+    std::vector<int> getRunIds(bool undo, int skip = 0) const;
+    /** The next undo with what was changed since by others left as it is
+     * now ("keep theirs", sec 12.11): a property a step made since set
+     * again keeps that step's value, the rest goes back. A link or a
+     * reference made since still refuses it.
+     */
+    bool undoKeepingTheirs(int skip = 0);
     /// Will REDO one step, returns False if no redo was done (Redos == 0).
     bool redo(int id=0) ;
     /** Whether the next undo (or redo) of whoever acts goes through the log

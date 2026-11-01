@@ -424,3 +424,42 @@ state their rows recorded (journal sec 24.15). Now the view, the section
 and the detail come back marked.
 
 Test: `tests/gui/td-undo-stored-projection.py`, the two undos from the log.
+
+## 7. The hatch lines are stored (user, 2026-11-01)
+
+Ruled: what a view shows is in its properties, so that an undo in memory
+-- and an open -- costs no construction, only drawing. Measured first, to
+pick what is worth storing beside the projection:
+
+    plate 200x120, 84 holes, top face, the default PAT pattern
+    trimming the pattern to the face (a boolean)   5.0 s at scale 1, 9.8 s at 0.5
+    the same pattern on a plain rectangle           26 ms, 62 ms
+    a dimension measuring its edge on read          7 us (12 to 13 us read
+                                                    afresh, 5 us read cached)
+
+A dimension stays measured on read (sec 6.5): storing its reading would
+save microseconds once per change of its view, and cost a value in the
+log on every recompute. The hatch lines are the opposite: nothing kept
+them, and every redraw of the view (`QGIViewPart::drawViewPart`) and every
+page sent to a renderer (`PageFeed`) trimmed them again.
+
+`TechDraw::PropertyHatchLines` keeps the trimmed lines -- straight
+segments, two end points each, per face and per line of the pattern, with
+the box of their extent -- in `DrawGeomHatch::TrimmedLines` and, for a
+section's cut faces hatched with a PAT pattern,
+`DrawViewSection::CutHatchLines`. The coordinates are a binary file of
+their own beside the XML. They are trimmed when the view's faces are found
+(`postFaceExtractionTasks`, the section's `postHlrTasks`) and when the
+hatch recomputes, under `App::TransactionDerived` (journal sec 10.2), and
+only with `StoreProjectedGeometry` on.
+
+Read back only when they are the face's: each face keeps the box of the
+outline it was trimmed to, and the whole the pattern, scale, rotation and
+offset it was trimmed with. A hatch edited and not yet recomputed, a face
+whose outline moved, lines the log's cache let go before an undo from it,
+an older file: the drawing trims as it always did.
+
+On a plate of 28 holes (`tests/gui/td-stored-hatch.py`): a redraw 6 ms
+from the stored lines against 265 ms trimming, a section's cut face 3 ms
+against 162 ms; undo and redo put back the lines of the state they leave
+with nothing to recompute; a reopened document draws from them.

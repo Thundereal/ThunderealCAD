@@ -522,6 +522,8 @@ fc_add_gui_test(GuiTdModelInterleave_tests_run td-model-interleave.py
 # nothing left to recompute, and after an undo made while they project.
 fc_add_gui_test(GuiTdUndoStoredProjection_tests_run td-undo-stored-projection.py
                 --timeout 200)
+fc_add_gui_test(GuiTdStoredHatch_tests_run td-stored-hatch.py
+                --timeout 200)
 
 # A view in a tab closed of itself, not through its tab: the tab goes with
 # it, and nothing reads the view that is gone (a segmentation fault).

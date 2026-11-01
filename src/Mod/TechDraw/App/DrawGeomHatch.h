@@ -29,6 +29,7 @@
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
 #include "HatchLine.h"
+#include "PropertyHatchLines.h"
 
 
 class TopoDS_Edge;
@@ -67,6 +68,10 @@ public:
     //! subname.  A face is numbered by its area, so the number is the one
     //! thing about it that will not last; the name is what finds it again.
     App::PropertyStringList  SavedNames;
+    //! the pattern's lines trimmed to each face, as last trimmed: drawing
+    //! reads them rather than trimming again (docs/TechDrawStoredGeometry.md
+    //! sec 7)
+    PropertyHatchLines       TrimmedLines;
 
     App::DocumentObjectExecReturn *execute(void) override;
     void onChanged(const App::Property* prop) override;
@@ -90,6 +95,15 @@ public:
 
     std::vector<LineSet> getFaceOverlay(int i = 0);
     std::vector<LineSet> getTrimmedLines(int i = 0);
+    //! trim the pattern to every face of Source and keep the lines, once the
+    //! view has its faces
+    void makeTrimmedLines();
+    //! what the lines were trimmed with, beside the face outline
+    std::string trimSignature() const;
+    //! the box of face `iface`'s outline in `source`, to tell whether stored
+    //! lines were trimmed to it.  False when there is no such face
+    static bool outlineOf(DrawViewPart* source, int iface, double box[4]);
+    static bool outlineOf(const TopoDS_Face& face, double box[4]);
     static std::vector<LineSet> getTrimmedLines(DrawViewPart* dvp, std::vector<LineSet> lineSets, int iface,
                                                 double scale, double hatchRotation = 0.0,
                                                 Base::Vector3d hatchOffset = Base::Vector3d(0.0, 0.0, 0.0));

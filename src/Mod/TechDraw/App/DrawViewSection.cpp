@@ -64,6 +64,7 @@
 #include <ShapeFix_Shape.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <Standard_Failure.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
@@ -237,6 +238,12 @@ DrawViewSection::DrawViewSection()
                       App::Prop_None,
                       "Rotation of hatch pattern in degrees anti-clockwise");
     ADD_PROPERTY_TYPE(HatchOffset, (0.0, 0.0, 0.0), fgroup, App::Prop_None, "Hatch pattern offset");
+    // registered by hand, as ProjectedGeometry: it has no default to give
+    CutHatchLines.setContainer(this);
+    propertyData.addProperty(static_cast<App::PropertyContainer*>(this), "CutHatchLines",
+                             &CutHatchLines, fgroup,
+                             App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                             "The pattern's lines trimmed to each cut face, as last trimmed");
 
     ADD_PROPERTY_TYPE(SectionLineStretch, (1.0), agroup, App::Prop_None,
                       "Adjusts the length of the section line.  1.0 is normal length.  1.1 would be 10% longer, 0.9 would be 10% shorter.");
@@ -983,6 +990,7 @@ void DrawViewSection::postHlrTasks()
         BRepTools::Write(m_sectionTopoDSFaces, "DVSTopoSectionFaces.brep");// debug
     }
     m_tdSectionFaces = makeTDSectionFaces(m_sectionTopoDSFaces);
+    makeCutHatchLines();
 
     TechDraw::DrawViewPart* dvp = dynamic_cast<TechDraw::DrawViewPart*>(BaseView.getValue());
     if (dvp) {
@@ -1540,12 +1548,76 @@ std::vector<LineSet> DrawViewSection::getDrawableLines(int i)
     if (m_lineSetsPending) {
         makeLineSets();
     }
+    // as last trimmed, when that was to this face with this pattern
+    double outline[4];
+    if (DrawGeomHatch::outlineOf(getSectionTopoDSFace(i), outline)) {
+        if (auto stored = CutHatchLines.find(i, cutHatchSignature(), outline)) {
+            auto lines = PropertyHatchLines::restore(*stored, m_lineSets);
+            if (!lines.empty() || m_lineSets.empty()) {
+                return lines;
+            }
+        }
+    }
     return DrawGeomHatch::getTrimmedLinesSection(this,
                                                  m_lineSets,
                                                  getSectionTopoDSFace(i),
                                                  HatchScale.getValue(),
                                                  HatchRotation.getValue(),
                                                  HatchOffset.getValue());
+}
+
+std::string DrawViewSection::cutHatchSignature() const
+{
+    Base::Vector3d offset = HatchOffset.getValue();
+    std::ostringstream out;
+    out.precision(17);
+    out << NameGeomPattern.getValue() << '|'
+        << Base::FileInfo(FileGeomPattern.getValue()).fileName() << '|' << HatchScale.getValue()
+        << '|' << HatchRotation.getValue() << '|' << offset.x << ',' << offset.y;
+    return out.str();
+}
+
+//! trim the pattern to each cut face once the faces are there, rather than
+//! at each redraw (docs/TechDrawStoredGeometry.md sec 7)
+void DrawViewSection::makeCutHatchLines()
+{
+    // derived, as DrawViewPart::captureGeometry says
+    App::TransactionDerived derived(this);
+    if (!Preferences::storeProjectedGeometry() || !CutSurfaceDisplay.isValue("PatHatch")) {
+        CutHatchLines.clear();
+        return;
+    }
+    if (m_lineSetsPending) {
+        makeLineSets();
+    }
+    std::vector<PropertyHatchLines::Face> faces;
+    int count = 0;
+    for (TopExp_Explorer expl(m_sectionTopoDSFaces, TopAbs_FACE); expl.More(); expl.Next()) {
+        ++count;
+    }
+    for (int i = 0; i < count; i++) {
+        TopoDS_Face face = getSectionTopoDSFace(i);
+        double outline[4];
+        if (!DrawGeomHatch::outlineOf(face, outline)) {
+            continue;
+        }
+        try {
+            auto lines = DrawGeomHatch::getTrimmedLinesSection(this, m_lineSets, face,
+                                                               HatchScale.getValue(),
+                                                               HatchRotation.getValue(),
+                                                               HatchOffset.getValue());
+            faces.push_back(PropertyHatchLines::capture(i, outline, lines));
+        }
+        catch (const Standard_Failure& e) {
+            Base::Console().Log("DVS - %s: cut face %d not trimmed - %s\n", getNameInDocument(),
+                                i, e.GetMessageString());
+        }
+        catch (const Base::Exception& e) {
+            Base::Console().Log("DVS - %s: cut face %d not trimmed - %s\n", getNameInDocument(),
+                                i, e.what());
+        }
+    }
+    CutHatchLines.setValue(cutHatchSignature(), std::move(faces));
 }
 
 TopoDS_Face DrawViewSection::getSectionTopoDSFace(int i)

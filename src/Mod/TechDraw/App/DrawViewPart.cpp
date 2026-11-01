@@ -809,6 +809,8 @@ void DrawViewPart::postFaceExtractionTasks()
         hatch->fixByName();
         hatch->updateSavedNames();
         checkHatchFaces(hatch, hatch->Source.getSubValues());
+        // trimmed to the faces now, once, not at each redraw
+        hatch->makeTrimmedLines();
     }
 
     // Dimensions need to be recomputed because their references will be invalid

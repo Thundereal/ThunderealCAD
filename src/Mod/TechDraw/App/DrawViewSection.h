@@ -37,6 +37,7 @@
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
 #include "DrawViewPart.h"
+#include "PropertyHatchLines.h"
 
 class Bnd_Box;
 class BRepAlgoAPI_Cut;
@@ -105,6 +106,9 @@ public:
     App::PropertyFloat HatchScale;
     App::PropertyFloat HatchRotation;
     App::PropertyVector HatchOffset;
+    //! the pattern's lines trimmed to each cut face, as last trimmed
+    //! (docs/TechDrawStoredGeometry.md sec 7)
+    PropertyHatchLines CutHatchLines;
 
     App::PropertyBool FuseBeforeCut;
     App::PropertyBool TrimAfterCut;//new v021
@@ -176,6 +180,9 @@ public:
 
     void makeLineSets(void);
     std::vector<LineSet> getDrawableLines(int i = 0);
+    //! trim the cut faces' pattern and keep the lines
+    void makeCutHatchLines();
+    std::string cutHatchSignature() const;
     std::vector<PATLineSpec> getDecodedSpecsFromFile(std::string fileSpec, std::string myPattern);
 
     TopoDS_Shape getCutShape() const { return m_cutShape; }

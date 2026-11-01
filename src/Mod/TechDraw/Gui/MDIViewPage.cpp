@@ -221,13 +221,15 @@ bool MDIViewPage::onMsg(const char *pMsg, const char **ppReturn)
         return true;
     }
     else if (strcmp("Undo", pMsg) == 0) {
-        doc->undo(1);
+        // the user's own: a refused step is said and may be gone past
+        // (docs/TransactionLogJournal.md sec 33.11), as MDIView::onMsg's
+        doc->undo(1, true);
         Gui::Command::updateActive();
         fixSceneDependencies();    // check QGraphicsScene item parenting
         return true;
     }
     else if (strcmp("Redo", pMsg) == 0) {
-        doc->redo(1);
+        doc->redo(1, true);
         Gui::Command::updateActive();
         return true;
     }

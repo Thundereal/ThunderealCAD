@@ -152,7 +152,9 @@ window.addEventListener('fc:control', (e: Event) => {
   if (!p) return;
   pending.delete(d.id);
   clearTimeout(p.timer);
-  if (d.ok === false) p.reject({ code: d.code ?? 'Error', message: d.message });
+  // The whole answer, its code and message on top: a refusal may say more
+  // than why -- an undo's names the steps in its way (sec 12.11)
+  if (d.ok === false) p.reject({ ...d, code: d.code ?? 'Error', message: d.message });
   else p.resolve(d);
 });
 

@@ -530,6 +530,10 @@ fc_add_gui_test(GuiUndoInTheWay_tests_run undo-in-the-way.py
                 --timeout 200)
 fc_add_gui_test(GuiServeUndoConsent_tests_run serve-undo-consent.py
                 --timeout 300)
+# The browser half: the undo list's page (web/src/undolist.tsx); skips
+# without a built viewer, PUPPETEER_PATH and CHROME
+fc_add_gui_test(GuiServeUndoBrowser_tests_run serve-undo-browser.py
+                --timeout 600)
 
 # A view in a tab closed of itself, not through its tab: the tab goes with
 # it, and nothing reads the view that is gone (a segmentation fault).

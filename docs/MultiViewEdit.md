@@ -927,3 +927,18 @@ taken only from that owner. On the desktop the dialog's "Ask <user>" asks
 the same way. GUI test `tests/gui/serve-undo-consent.py` (synthetic socket
 clients: a group listed and undone, bob asked and agreeing, bob saying no,
 the desktop user asked in its dialog and agreeing, bob gone).
+
+**The browser's list (built).** A third button in the viewer's corner
+(`web/src/undolist.tsx`) opens what this user's undo and redo would take,
+read with `undo.list`: one row a step or a group, a group's row opening to
+its steps. A row taken undoes down to it (`undo {to}` of its last step: a
+group's whole edit); a step of a group, the edit down to that step. An undo
+refused for steps in its way raises a card in the list naming them and
+whose they are, offering "Undo with them" -- "Ask <user>" when one is
+another's -- "Keep theirs" when it may be kept, and Cancel; asked, it says
+it waits. A question put to this user (`consent.ask`) is a card over the
+view with Allow and Deny; what an asked user answered is said for a while
+(`consent.result`). A refusal's whole answer reaches the caller now
+(`control.ts` rejects with every field of it, its code and message on
+top). GUI test `tests/gui/serve-undo-browser.py` (Chrome on two pages,
+alice's and bob's, through `scripts/undo-drive.js`).

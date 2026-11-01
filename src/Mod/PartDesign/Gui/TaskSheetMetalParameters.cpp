@@ -25,9 +25,12 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+#include <cstring>
+
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QGridLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -73,6 +76,27 @@ private:
 QString number(double v)
 {
     return QString::number(v, 'g', 6);
+}
+
+/// A name as words, as the panel says it: MaterialSide is "Material side",
+/// Gap1 "Gap 1"
+QString words(const char* name)
+{
+    const QString s = QString::fromLatin1(name);
+    QString out;
+    for (int i = 0; i < s.size(); ++i) {
+        const QChar c = s[i];
+        const bool upper = c.isUpper() && (i + 1 >= s.size() || !s[i + 1].isUpper());
+        if (i > 0 && (upper || (c.isDigit() && !s[i - 1].isDigit()))) {
+            out += QLatin1Char(' ');
+            out += c.toLower();
+        }
+        else {
+            out += c;
+        }
+    }
+    return QCoreApplication::translate("PartDesignGui::TaskSheetMetalParameters",
+                                       out.toUtf8().constData());
 }
 
 }  // namespace
@@ -147,8 +171,25 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
         recomputed = obj->getDocument()->signalRecomputed.connect(
             [this](const App::Document&, const std::vector<App::DocumentObject*>&) {
                 QTimer::singleShot(0, this, [this] {
+                    // what a recompute made read only, too
+                    for (const auto& entry : boxes) {
+                        showValue(entry.first);
+                    }
                     showStatus();
                 });
+            });
+        // a value set elsewhere -- the property editor, Python -- shown here
+        changed = obj->getDocument()->signalChangedObject.connect(
+            [this, obj](const App::DocumentObject& o, const App::Property& prop) {
+                if (&o != obj || !prop.getName()) {
+                    return;
+                }
+                if (boxes.count(prop.getName())) {
+                    showValue(prop.getName());
+                }
+                else if (this->refs && std::strcmp(prop.getName(), this->refs) == 0) {
+                    fillList();
+                }
             });
     }
     refresh();
@@ -173,7 +214,7 @@ void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* 
     if (!prop) {
         return;
     }
-    const QString label = QString::fromLatin1(name);
+    const QString label = words(name);
     const QString tip = QString::fromUtf8(prop->getDocumentation());
     QWidget* box = nullptr;
     if (auto quantity = dynamic_cast<App::PropertyQuantity*>(prop)) {
@@ -196,7 +237,7 @@ void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* 
     else if (auto choice = dynamic_cast<App::PropertyEnumeration*>(prop)) {
         auto combo = new QComboBox(proxy);
         for (const auto& item : choice->getEnumVector()) {
-            combo->addItem(QString::fromUtf8(item.c_str()));
+            combo->addItem(words(item.c_str()));
         }
         connect(combo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, name](int i) {
             if (auto e = dynamic_cast<App::PropertyEnumeration*>(property(name))) {
@@ -221,7 +262,7 @@ void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* 
     if (!box) {
         return;
     }
-    box->setObjectName(label);
+    box->setObjectName(QString::fromLatin1(name));
     box->setToolTip(tip);
     if (dynamic_cast<QCheckBox*>(box)) {
         grid->addWidget(box, row, 0, 1, 2);
@@ -233,20 +274,41 @@ void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* 
     boxes[name] = box;
 }
 
+void TaskSheetMetalParameters::showValue(const std::string& name)
+{
+    auto it = boxes.find(name);
+    App::Property* prop = property(name.c_str());
+    if (it == boxes.end() || !prop) {
+        return;
+    }
+    QWidget* box = it->second;
+    box->setEnabled(!prop->testStatus(App::Property::ReadOnly));
+    // only what differs: a box being typed in is left as it is
+    QSignalBlocker block(box);
+    if (auto q = dynamic_cast<App::PropertyQuantity*>(prop)) {
+        auto spin = static_cast<Gui::QuantitySpinBox*>(box);
+        if (spin->rawValue() != q->getValue()) {
+            spin->setValue(q->getValue());
+        }
+    }
+    else if (auto e = dynamic_cast<App::PropertyEnumeration*>(prop)) {
+        auto combo = static_cast<QComboBox*>(box);
+        if (combo->currentIndex() != static_cast<int>(e->getValue())) {
+            combo->setCurrentIndex(static_cast<int>(e->getValue()));
+        }
+    }
+    else if (auto b = dynamic_cast<App::PropertyBool*>(prop)) {
+        auto check = static_cast<QCheckBox*>(box);
+        if (check->isChecked() != b->getValue()) {
+            check->setChecked(b->getValue());
+        }
+    }
+}
+
 void TaskSheetMetalParameters::refresh()
 {
-    for (const auto& [name, box] : boxes) {
-        App::Property* prop = property(name.c_str());
-        QSignalBlocker block(box);
-        if (auto q = dynamic_cast<App::PropertyQuantity*>(prop)) {
-            static_cast<Gui::QuantitySpinBox*>(box)->setValue(q->getValue());
-        }
-        else if (auto e = dynamic_cast<App::PropertyEnumeration*>(prop)) {
-            static_cast<QComboBox*>(box)->setCurrentIndex(static_cast<int>(e->getValue()));
-        }
-        else if (auto b = dynamic_cast<App::PropertyBool*>(prop)) {
-            static_cast<QCheckBox*>(box)->setChecked(b->getValue());
-        }
+    for (const auto& entry : boxes) {
+        showValue(entry.first);
     }
     fillList();
     showStatus();

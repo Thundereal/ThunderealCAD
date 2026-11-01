@@ -261,6 +261,13 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
         for (const auto& wire : profile.getSubTopoShapes(TopAbs_WIRE)) {
             closed = closed && BRep_Tool::IsClosed(wire.getShape());
         }
+        // a plate is the rule's thickness through the sketch's face: the
+        // profile wall's values say nothing of it
+        for (App::Property* prop : std::initializer_list<App::Property*> {&Length,
+                                                                          &Reversed,
+                                                                          &Midplane}) {
+            prop->setStatus(App::Property::ReadOnly, closed);
+        }
 
         const auto hasher = getDocument()->getStringHasher();
         TopoShape tool;

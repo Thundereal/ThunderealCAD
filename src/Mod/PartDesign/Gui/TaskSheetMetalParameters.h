@@ -79,6 +79,7 @@ private:
     App::PropertyLinkSub* references() const;
     App::DocumentObject* builtOn() const;
     void addValue(class QGridLayout* grid, int row, const char* name);
+    void showValue(const std::string& name);
     void fillList();
     void startPick(bool on);
     void removeCurrent();
@@ -95,6 +96,7 @@ private:
     std::map<std::string, QWidget*> boxes;
     bool picking = false;
     fastsignals::scoped_connection recomputed;
+    fastsignals::scoped_connection changed;
 };
 
 class TaskDlgSheetMetalParameters: public TaskDlgFeatureParameters

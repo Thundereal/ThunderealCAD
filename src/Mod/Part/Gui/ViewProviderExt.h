@@ -296,6 +296,10 @@ public:
     * This group of methods do the highlighting of elements.
     */
     //@{
+    /// Colours or materials shown on the faces in place of the appearance,
+    /// as a panel shows what it picks: held until unsetHighlightedFaces(),
+    /// through any rebuild of the visual -- a finer mesh landing from the
+    /// background builds it again, and applies the appearance
     void setHighlightedFaces(const std::vector<App::Color>& colors);
     void setHighlightedFaces(const std::vector<App::MaterialAppearance>& colors);
     void unsetHighlightedFaces();
@@ -982,9 +986,14 @@ protected:
     /// array counts as uniform). Any per-element color vector is carried
     /// by the face/line/point color-variant layers, so this only rises
     /// for per-face MATERIAL divergence beyond diffuse+transparency.
-    /// The setHighlightedFaces entry points maintain it and restructure
+    /// applyFaceColors() and applyFaceMaterials() maintain it and restructure
     /// on transitions.
     bool appliedFaceColorsDivergent = false;
+    /// What setHighlightedFaces() holds on the faces, one or the other
+    std::vector<App::Color> heldFaceColors;
+    std::vector<App::MaterialAppearance> heldFaceMaterials;
+    void applyFaceColors(const std::vector<App::Color>& colors);
+    void applyFaceMaterials(const std::vector<App::MaterialAppearance>& colors);
 
     std::string shapePropName;
     /// The shape shown where it is no property of the object (setGivenShape())

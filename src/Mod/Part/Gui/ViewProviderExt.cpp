@@ -3272,19 +3272,38 @@ void ViewProviderPartExt::applyShapeAppearance()
     // The colour path serves PBR mode too: the Phong reading keeps the
     // diffuse as the base colour (see getPhongMaterial), so a list whose
     // other fields are uniform is still a colour list here.
-    if (ShapeAppearance.variesOnlyInDiffuse()) {
-        setHighlightedFaces(DiffuseColor.getValues());
-        return;
+    if (ShapeAppearance.variesOnlyInDiffuse())
+        applyFaceColors(DiffuseColor.getValues());
+    else {
+        int count = ShapeAppearance.getSize();
+        std::vector<App::MaterialAppearance> mats;
+        mats.reserve(count);
+        for (int i = 0; i < count; ++i)
+            mats.push_back(ShapeAppearance.getPhongMaterial(i));
+        applyFaceMaterials(mats);
     }
-    int count = ShapeAppearance.getSize();
-    std::vector<App::MaterialAppearance> mats;
-    mats.reserve(count);
-    for (int i = 0; i < count; ++i)
-        mats.push_back(ShapeAppearance.getPhongMaterial(i));
-    setHighlightedFaces(mats);
+    // what a panel holds on the faces stays over the appearance
+    if (!heldFaceColors.empty())
+        applyFaceColors(heldFaceColors);
+    else if (!heldFaceMaterials.empty())
+        applyFaceMaterials(heldFaceMaterials);
 }
 
 void ViewProviderPartExt::setHighlightedFaces(const std::vector<App::Color>& colors)
+{
+    heldFaceColors = colors;
+    heldFaceMaterials.clear();
+    applyFaceColors(colors);
+}
+
+void ViewProviderPartExt::setHighlightedFaces(const std::vector<App::MaterialAppearance>& colors)
+{
+    heldFaceMaterials = colors;
+    heldFaceColors.clear();
+    applyFaceMaterials(colors);
+}
+
+void ViewProviderPartExt::applyFaceColors(const std::vector<App::Color>& colors)
 {
     // Not during a restore: the eager path touched and then had the touch
     // purged by afterRestore; the deferred drain runs after that purge, so
@@ -3376,7 +3395,7 @@ void ViewProviderPartExt::setHighlightedFaces(const std::vector<App::Color>& col
 
 }
 
-void ViewProviderPartExt::setHighlightedFaces(const std::vector<App::MaterialAppearance>& colors)
+void ViewProviderPartExt::applyFaceMaterials(const std::vector<App::MaterialAppearance>& colors)
 {
     // Not during a restore, for the same reason as the colour overload.
     if (getObject() && getObject()->testStatus(App::ObjectStatus::TouchOnColorChange)
@@ -3731,6 +3750,8 @@ void ViewProviderPartExt::setElementAppearances(
 
 void ViewProviderPartExt::unsetHighlightedFaces()
 {
+    heldFaceColors.clear();
+    heldFaceMaterials.clear();
     applyShapeAppearance();
 }
 

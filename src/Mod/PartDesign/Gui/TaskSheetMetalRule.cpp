@@ -238,6 +238,9 @@ void TaskSheetMetalRule::addValue(QGridLayout* grid, int row, const char* name, 
     }
     box->setObjectName(QString::fromLatin1(name));
     box->setToolTip(QString::fromUtf8(prop->getDocumentation()));
+    // a spin box asks for the width of its largest value; four columns have
+    // to fit the task view
+    box->setMinimumWidth(80);
     grid->addWidget(new QLabel(sheetMetalWords(name), proxy), row, 0);
     grid->addWidget(box, row, 1);
     boxes[name] = box;
@@ -250,7 +253,10 @@ void TaskSheetMetalRule::addValue(QGridLayout* grid, int row, const char* name, 
     sources[name] = source;
     auto reset = new QToolButton(proxy);
     reset->setObjectName(QStringLiteral("reset") + QString::fromLatin1(name));
+    // an icon only: the panel is as narrow as the task view
+    reset->setIcon(Gui::BitmapFactory().iconFromTheme("edit-undo"));
     reset->setText(tr("Card"));
+    reset->setToolButtonStyle(Qt::ToolButtonIconOnly);
     reset->setToolTip(tr("Give the value back to the card"));
     connect(reset, &QToolButton::clicked, this, [this, name] {
         if (auto r = rule()) {

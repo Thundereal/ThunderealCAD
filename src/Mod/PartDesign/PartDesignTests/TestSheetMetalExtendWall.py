@@ -72,6 +72,28 @@ class TestSheetMetalExtendWall(unittest.TestCase):
         owners = [ext.sheetElementOf("Face%d" % (i + 1)) for i in range(len(ext.Shape.Faces))]
         self.assertNotIn(None, owners)
 
+    def testNoSeam(self):
+        """The extension is one with its wall: no seam where the end was, on
+        a plate or on an L's leg, and the L's caps still split at its bend"""
+        plate = self.plate()
+        ext = self.extend(plate, [self.farEnd(plate)], Length=5)
+        self.assertEqual(len(ext.Shape.Faces), len(plate.Shape.Faces))
+        self.assertEqual(len(ext.Shape.Edges), len(plate.Shape.Edges))
+        # a sheet of its own, for its flat
+        self.Body = self.Doc.addObject("PartDesign::Body", "Body001")
+        wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+        end = self.faceWhere(wall, lambda b: abs(b.YMin - 10) < 1e-7 and abs(b.YMax - 10) < 1e-7)
+        ext = self.extend(wall, [end], Length=4)
+        self.assertNotIn("Invalid", ext.State)
+        self.assertTrue(ext.Shape.isValid())
+        self.assertEqual(len(ext.Shape.Faces), len(wall.Shape.Faces))
+        owners = [ext.sheetElementOf("Face%d" % (i + 1)) for i in range(len(ext.Shape.Faces))]
+        self.assertNotIn(None, owners)
+        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
+        flat.Source = ext
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flat.State)
+
     def testCutBack(self):
         """A negative length cuts the wall back"""
         plate = self.plate()

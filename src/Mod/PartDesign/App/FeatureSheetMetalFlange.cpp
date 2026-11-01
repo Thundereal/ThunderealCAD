@@ -71,6 +71,11 @@ const char* SheetMetalFlange::BendPositionEnums[] = {"MaterialInside",
                                                      "MaterialOutside",
                                                      "BendOutside",
                                                      nullptr};
+const char* SheetMetalFlange::ReliefShapeEnums[] = {"Rule",
+                                                    "Rectangle",
+                                                    "Obround",
+                                                    "Tear",
+                                                    nullptr};
 
 namespace
 {
@@ -143,6 +148,25 @@ SheetMetalFlange::SheetMetalFlange()
                       "A closed sketch parallel to the leg, standing on the outer virtual sharp: "
                       "a rectangle through the bend, which sets its width, and the leg's shape "
                       "above it; on one edge, in place of Length, LengthType and the gaps");
+    ADD_PROPERTY_TYPE(ReliefShape,
+                      (0L),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bend relief where the flange ends inside its wall's end: Rule follows "
+                      "the rule's; another shape is the flange's own, from the rule's width and "
+                      "depth when chosen; a tear is the rule's Gap wide");
+    ReliefShape.setEnums(ReliefShapeEnums);
+    ADD_PROPERTY_TYPE(ReliefWidth,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bend relief's width, when ReliefShape is not Rule");
+    ADD_PROPERTY_TYPE(ReliefDepth,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "How far the bend relief runs past the bend, when ReliefShape is not Rule");
+    showReliefValues();
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -162,7 +186,8 @@ short SheetMetalFlange::mustExecute() const
     if (Edges.isTouched() || Angle.isTouched() || Length.isTouched() || LengthType.isTouched()
         || BendPosition.isTouched() || Offset.isTouched() || Gap1.isTouched()
         || Gap2.isTouched() || Reversed.isTouched() || ParallelTo.isTouched()
-        || UpToFace.isTouched() || Profile.isTouched()) {
+        || UpToFace.isTouched() || Profile.isTouched() || ReliefShape.isTouched()
+        || ReliefWidth.isTouched() || ReliefDepth.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -180,7 +205,24 @@ void SheetMetalFlange::onChanged(const App::Property* prop)
     if (prop == &Profile) {
         showProfileValues();
     }
+    if (prop == &ReliefShape) {
+        // From the rule to the flange's own: it starts from the rule's
+        auto rule = getRule();
+        if (!isRestoring() && ReliefShape.getValue() != 0
+            && ReliefWidth.testStatus(App::Property::ReadOnly) && rule) {
+            ReliefWidth.setValue(rule->ReliefWidth.getValue());
+            ReliefDepth.setValue(rule->ReliefDepth.getValue());
+        }
+        showReliefValues();
+    }
     FeatureAddSub::onChanged(prop);
+}
+
+void SheetMetalFlange::showReliefValues()
+{
+    const bool byRule = ReliefShape.getValue() == 0;
+    ReliefWidth.setStatus(App::Property::ReadOnly, byRule);
+    ReliefDepth.setStatus(App::Property::ReadOnly, byRule);
 }
 
 void SheetMetalFlange::showProfileValues()
@@ -562,12 +604,19 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 // relief parts them for the flat: beside the bend, from the
                 // wall's end to the relief's depth past where the bend starts.
                 // A tear is a slit the rule's gap wide, to where the bend starts.
-                const int reliefShape = rule->ReliefShape.getValue();
+                // The flange's own relief, or the rule's.
+                const bool own = ReliefShape.getValue() != 0;
+                const int reliefShape =
+                    own ? ReliefShape.getValue() - 1 : rule->ReliefShape.getValue();
                 const bool obround = reliefShape == 1;
                 const bool tear = reliefShape == 2;
-                const double reliefWidth =
-                    tear ? rule->Gap.getValue() : rule->ReliefWidth.getValue();
-                const double depth = tear ? setback : setback + rule->ReliefDepth.getValue();
+                double reliefWidth = own ? ReliefWidth.getValue() : rule->ReliefWidth.getValue();
+                double depth =
+                    setback + (own ? ReliefDepth.getValue() : rule->ReliefDepth.getValue());
+                if (tear) {
+                    reliefWidth = rule->Gap.getValue();
+                    depth = setback;
+                }
                 if (reliefWidth > Precision::Confusion()) {
                     // the straight part of an obround stops at its half circle's middle
                     const double straight =

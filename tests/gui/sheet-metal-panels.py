@@ -247,6 +247,30 @@ def run():
             and "Invalid" not in flange.State,
             (flange.Profile, flange.State),
         )
+        relief = w.get("ReliefShape")
+        check(
+            "the relief follows the rule, its width and depth greyed out",
+            relief is not None
+            and flange.ReliefShape == "Rule"
+            and all(n in w and not w[n].isEnabled() for n in ("ReliefWidth", "ReliefDepth")),
+            [(n, n in w and w[n].isEnabled()) for n in ("ReliefShape", "ReliefWidth")],
+        )
+        if relief is not None:
+            relief.setCurrentIndex(1)
+            pump(20)
+            doc.recompute()
+            pump(10)
+            check(
+                "a shape of its own: the flange's, width and depth from the rule's, open",
+                flange.ReliefShape == "Rectangle"
+                and all(w[n].isEnabled() for n in ("ReliefWidth", "ReliefDepth"))
+                and abs(w["ReliefWidth"].property("rawValue") - 1) < 1e-9,
+                (flange.ReliefShape, w["ReliefWidth"].isEnabled(), flange.ReliefWidth),
+            )
+            relief.setCurrentIndex(0)
+            pump(20)
+            doc.recompute()
+            pump(10)
         accept()
         pump(20)
 

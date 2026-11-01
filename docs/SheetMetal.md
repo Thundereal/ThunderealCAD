@@ -444,7 +444,7 @@ its tracker, not ported.
 
 | Tool | What it does | Ref |
 |---|---|---|
-| **Bend relief** | Automatic on every bend that ends inside a wall: rectangle, obround or tear, from the rule; overridden per feature. The flange's own, from the rule, built in M1 (sec 12). | B1 5 |
+| **Bend relief** | Automatic on every bend that ends inside a wall: rectangle, obround or tear, from the rule; overridden per feature. The flange's own, from the rule, built in M1, and its override (sec 12). | B1 5 |
 | **Corner relief** | Where two or three bends meet: circle, square, tear, weld; sized absolutely or by thickness. Automatic from the rule, or a feature on picked corners. | B1 13 |
 | **Corner closure** | Two flanges brought to meet at a corner: overlap, underlap or butt, with a gap. | -- |
 | **Rip** | A gap cut along an edge of a closed solid, so it can unfold. | B1 15 |
@@ -734,9 +734,13 @@ and not frozen.
     rule's `Gap` wide, from the wall's end to where the bend starts, so its flat closes too;
     no gap, no slit). The relief's faces are named after the bend (`Bend1Relief1`,
     `Bend1Relief2`). In the model the bend stops at its sides there (two limit planes), as its
-    tube runs on through the wall beside it and owned the relief's faces. Overrides per
-    feature, and the relief where a bend meets another wall than its own, are M2's. Tested by
-    `testRelief*` (7).
+    tube runs on through the wall beside it and owned the relief's faces. Tested by
+    `testRelief*` (7). The relief where a bend meets another wall than its own is M2's.
+  - The relief overridden per flange (5.2, M2, 2026-11-02): the flange's `ReliefShape` is
+    `Rule` by default, following the rule, its `ReliefWidth` and `ReliefDepth` read only; any
+    other shape is the flange's own, its width and depth set from the rule's when chosen and no
+    longer following them. A tear is the rule's `Gap` wide either way. In the panel. Tested by
+    `testReliefOverride*` (4) and the panels' GUI check.
   - Added (9e98a08d8a): `Tangent` measures from the plane across the leg that touches the outside
     of the bend (the straight part L - (R + T) from 90 deg on, L - (R + T) sin A below); negative
     gaps carry the flange past the edge's ends; `ParallelTo` gives the angle from a plane face the

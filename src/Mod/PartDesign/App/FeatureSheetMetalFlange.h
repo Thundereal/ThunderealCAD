@@ -81,6 +81,11 @@ public:
     App::PropertyBool Reversed;
     /// A closed sketch parallel to the leg giving its shape, on one edge
     App::PropertyLinkSub Profile;
+    /// The bend relief: Rule follows the rule's; another shape is the
+    /// flange's own, with its own width and depth, read only under Rule
+    App::PropertyEnumeration ReliefShape;
+    App::PropertyLength ReliefWidth;
+    App::PropertyLength ReliefDepth;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
@@ -94,9 +99,12 @@ public:
 private:
     /// Length, LengthType and the gaps read only while a profile shapes the leg
     void showProfileValues();
+    /// The relief's width and depth read only while it follows the rule
+    void showReliefValues();
 
     static const char* LengthTypeEnums[];
     static const char* BendPositionEnums[];
+    static const char* ReliefShapeEnums[];
 };
 
 }  // namespace PartDesign

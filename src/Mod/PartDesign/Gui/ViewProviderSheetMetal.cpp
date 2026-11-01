@@ -75,7 +75,10 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalFlange::getEditDialog()
              "Gap1",
              "Gap2",
              "Reversed",
-             "Profile"},
+             "Profile",
+             "ReliefShape",
+             "ReliefWidth",
+             "ReliefDepth"},
             "Edges",
             "Edge"));
 }

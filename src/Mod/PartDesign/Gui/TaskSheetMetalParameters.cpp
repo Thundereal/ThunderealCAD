@@ -120,7 +120,8 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
     auto grid = new QGridLayout;
     int row = 0;
     if (refs) {
-        const QString kind = element == "Face" ? tr("faces") : tr("edges");
+        // the member: the argument is a pointer, never equal to a literal but by chance
+        const QString kind = this->element == "Face" ? tr("faces") : tr("edges");
         refList = new QListWidget(proxy);
         refList->setObjectName(QStringLiteral("list") + QString::fromLatin1(refs));
         refList->setMaximumHeight(110);

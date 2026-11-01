@@ -135,6 +135,11 @@ Continuity edgeContinuity(const TopoDS_Edge& edge,
             if (!a.ok || !b.ok || tangent.Magnitude() < 1e-12) {
                 continue;
             }
+            if (!any) {
+                // a measure that stays 0 is worst where it is first taken,
+                // on the edge, not at the origin
+                r.worstGap = r.worstAngle = r.worstCurvature = p;
+            }
             any = true;
             double gap = a.point.Distance(b.point);
             if (gap > r.maxGap) {

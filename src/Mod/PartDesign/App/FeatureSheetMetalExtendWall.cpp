@@ -26,10 +26,18 @@
 
 #include <cmath>
 
+#include <algorithm>
+#include <limits>
+
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepGProp.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRep_Tool.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -53,6 +61,27 @@ using SheetMetal::Element;
 
 namespace
 {
+
+/// How far along dir the shape's vertices reach from p: the least and the most
+std::pair<double, double>
+spanAlong(const TopoDS_Shape& shape, const gp_Pnt& p, const gp_Dir& dir)
+{
+    std::pair<double, double> res {std::numeric_limits<double>::max(),
+                                   -std::numeric_limits<double>::max()};
+    for (TopExp_Explorer it(shape, TopAbs_VERTEX); it.More(); it.Next()) {
+        const double d = gp_Vec(p, BRep_Tool::Pnt(TopoDS::Vertex(it.Current()))).Dot(gp_Vec(dir));
+        res.first = std::min(res.first, d);
+        res.second = std::max(res.second, d);
+    }
+    return res;
+}
+
+double volumeOf(const TopoDS_Shape& shape)
+{
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(shape, props);
+    return props.Mass();
+}
 
 /// Whether the edge lies on one of the planar ends carried out: a seam the
 /// fuse left where the end was
@@ -129,13 +158,24 @@ SheetMetalExtendWall::SheetMetalExtendWall()
                       "Sheet Metal",
                       App::Prop_None,
                       "A plane face to carry the ends up to, in place of Length");
+    ADD_PROPERTY_TYPE(Gap1,
+                      (0.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "How far in from the first end of a wall's end the extension starts");
+    ADD_PROPERTY_TYPE(Gap2,
+                      (0.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "How far in from the second end of a wall's end the extension stops");
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
 }
 
 short SheetMetalExtendWall::mustExecute() const
 {
-    if (Faces.isTouched() || Length.isTouched() || UpToFace.isTouched()) {
+    if (Faces.isTouched() || Length.isTouched() || UpToFace.isTouched() || Gap1.isTouched()
+        || Gap2.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -228,7 +268,60 @@ App::DocumentObjectExecReturn* SheetMetalExtendWall::execute()
             if (std::abs(distance) < Precision::Confusion()) {
                 continue;
             }
-            TopoShape prism = TopoShape(0, hasher).makEPrism(face, gp_Vec(out) * distance);
+
+            // across the end, from its first end to its second
+            const gp_Dir normal = model.elements[owner].frame.Direction();
+            const gp_Dir across(gp_Vec(out).Crossed(gp_Vec(normal)));
+            GProp_GProps props;
+            BRepGProp::SurfaceProperties(f, props);
+            const gp_Pnt center = props.CentreOfMass();
+            const auto [first, second] = spanAlong(f, center, across);
+            const double gap1 = Gap1.getValue(), gap2 = Gap2.getValue();
+            if (first + gap1 >= second - gap2 - Precision::Confusion()) {
+                FC_THROWM(Base::ValueError,
+                          "Face " << shadow.second << ": the gaps leave nothing of it");
+            }
+            // the band between the gaps, deep and long enough for any prism
+            auto band = [&](double length) {
+                const double reach = std::abs(length) + 1;
+                const double depth = 10 * (rule->Thickness.getValue() + second - first);
+                const gp_Pnt origin = center.Translated(gp_Vec(out) * (length < 0 ? -reach : -1)
+                                                        + gp_Vec(across) * (first + gap1)
+                                                        + gp_Vec(normal) * depth);
+                // X out, Y across, Z against the normal
+                return BRepPrimAPI_MakeBox(gp_Ax2(origin, normal.Reversed(), out),
+                                           reach + 1,
+                                           second - gap2 - first - gap1,
+                                           2 * depth)
+                    .Shape();
+            };
+            auto prismOf = [&](double length) {
+                TopoShape prism = TopoShape(0, hasher).makEPrism(face, gp_Vec(out) * length);
+                if (gap1 > 0 || gap2 > 0) {
+                    prism = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Common,
+                                                             {prism, TopoShape(band(length))});
+                }
+                return prism;
+            };
+
+            if (distance > 0) {
+                // a wall in the way, or met at the end: stop the rule's gap
+                // short of it
+                const double clearance = rule->Gap.getValue();
+                const TopoShape reach = prismOf(distance + clearance);
+                BRepAlgoAPI_Common meet(base.getShape(), reach.getShape());
+                if (meet.IsDone() && volumeOf(meet.Shape()) > Precision::Confusion()) {
+                    const double nearest = spanAlong(meet.Shape(), center, out).first;
+                    if (nearest - clearance <= Precision::Confusion()) {
+                        FC_THROWM(Base::ValueError,
+                                  "Face " << shadow.second
+                                          << " has no room: a wall is in the way, nearer than "
+                                             "the rule's gap");
+                    }
+                    distance = std::min(distance, nearest - clearance);
+                }
+            }
+            TopoShape prism = prismOf(distance);
             (distance > 0 ? pieces : cuts).push_back(prism);
             if (distance > 0) {
                 ends.push_back(f);

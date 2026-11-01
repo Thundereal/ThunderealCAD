@@ -710,8 +710,13 @@ and not frozen.
   wall back, one that leaves nothing is refused. The extension is the wall's own, so the model is
   as it was and the flat grows with it. The fuse left a seam where the end was, across both skins
   and caps (faa05f8c91): those seams alone are unified, every other edge kept, as a plain refine
-  would merge the caps across the bend lines. Still to come: the gaps and the clearance against
-  walls it would meet.
+  would merge the caps across the bend lines. The gaps and the clearance (as the addon's,
+  B1 7): `Gap1` and `Gap2` narrow the extension in from the end's two ends, the first and second
+  along the end face crossed with the wall's normal; gaps that leave nothing are refused. An
+  extension that would meet another wall of the part, run into it or end on it, stops the rule's
+  `Gap` short of it: the prism carried one gap further is put against the part, and the nearest
+  point of what they share sets the length; one with no room is refused. Both by length and up
+  to a face. Tested by `testGaps`, `testClearance`; the panel has the gaps.
 - M1's flat pattern, `PartDesign::SheetMetalFlatPattern` (4.7), with `TestSheetMetalFlatPattern`
   (10) (ad6b48f059). As built:
   - `SheetMetal::flatten()` in the geometry layer, a pure function: each face of the folded

@@ -37,8 +37,10 @@ namespace PartDesign
  *
  * Each face is a wall's end, across the sheet; it is carried along its
  * normal by Length, or up to UpToFace's plane when that is given. A
- * negative length cuts the wall back. The extension is the wall's own: the
- * sheet's model is as it was.
+ * negative length cuts the wall back. Gap1 and Gap2 narrow it at the end's
+ * two ends. An extension that would meet another wall of the part stops
+ * the rule's Gap short of it. The extension is the wall's own: the sheet's
+ * model is as it was.
  */
 class PartDesignExport SheetMetalExtendWall : public FeatureAddSub, public SheetMetalExtension
 {
@@ -52,6 +54,9 @@ public:
     App::PropertyDistance Length;
     /// A plane face to carry the ends up to, in place of Length
     App::PropertyLinkSub UpToFace;
+    /// How far in from each end of a wall's end the extension stops
+    App::PropertyLength Gap1;
+    App::PropertyLength Gap2;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;

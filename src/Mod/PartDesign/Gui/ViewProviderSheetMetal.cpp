@@ -81,13 +81,14 @@ ViewProviderSheetMetalExtendWall::ViewProviderSheetMetalExtendWall()
 
 TaskDlgFeatureParameters* ViewProviderSheetMetalExtendWall::getEditDialog()
 {
-    return new TaskDlgSheetMetalParameters(this,
-                                           new TaskSheetMetalParameters(this,
-                                                                        "PartDesign_SheetMetalExtendWall",
-                                                                        QObject::tr("Extend wall parameters"),
-                                                                        {"Length"},
-                                                                        "Faces",
-                                                                        "Face"));
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalExtendWall",
+                                     QObject::tr("Extend wall parameters"),
+                                     {"Length", "Gap1", "Gap2"},
+                                     "Faces",
+                                     "Face"));
 }
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)

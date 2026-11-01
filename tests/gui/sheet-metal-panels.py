@@ -8,8 +8,8 @@
   - Flange opens its panel with its edge listed; the angle set there is the
     flange's; the edge removed leaves it saying why it is invalid; another
     edge picked with Add is listed and the flange good again;
-  - Extend Wall's panel lists its face, its Add says it picks faces, its
-    length set there;
+  - Extend Wall's panel lists its face, has its gaps, its Add says it picks
+    faces, its length set there;
   - the flat pattern's panel, on a double-click: what it lays flat, its
     manufacturing values, the root face picked in the view (the flat
     recomputed on it), Cancel putting it back, OK keeping it;
@@ -235,6 +235,7 @@ def run():
             faces is not None and faces.count() == 1 and "Length" in w,
             (faces and faces.count(), "Length" in w),
         )
+        check("with its gaps", "Gap1" in w and "Gap2" in w)
         add = w.get("buttonAdd")
         check(
             "its Add picks faces, and says so",

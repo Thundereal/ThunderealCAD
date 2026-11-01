@@ -3,8 +3,9 @@
 
 The reporter's decisions: each change of an edit is a step of its own,
 OK keeps the steps, Cancel takes back the edit's own steps and no other
-view's; where the other view changed one of them since, the user picks
-"Undo anyway", "Skip" or "Keep". An object in edit in one view is not
+view's; where a step made since depends on them, the user picks as for
+an undo refused for it (docs/MultiViewEdit.md sec 12.11): "Undo with
+them", "Keep theirs" or "Keep the edit". An object in edit in one view is not
 put in edit in another. A view may edit what another view's edit depends
 on.
 
@@ -23,8 +24,9 @@ Claims:
   - a change to the pad in edit that is not its panel's -- a script's --
     is the edit's: its Cancel takes it back too;
   - Cancel of a new feature, its body changed since by a change that is
-    not the edit's, asks: "Skip" leaves the body's tip as changed, "Undo
-    anyway" puts it back; the new feature goes either way;
+    not the edit's, asks, naming that change: "Keep theirs" leaves the
+    body's tip as changed, "Undo with them" takes that change too; the new
+    feature goes either way;
   - a helix's edit in the second window, beside the fillet's, takes back
     its own on Cancel and keeps the fillet's;
   - OK of the fillet keeps its value and ends its edit;
@@ -187,10 +189,10 @@ def answer_later(text):
     """Click `text` in the Cancel question once it is up (it is modal)."""
     def click():
         for w in QtWidgets.QApplication.topLevelWidgets():
-            if w.objectName() == "CancelOwnSteps" and w.isVisible():
+            if w.objectName() == "undoInTheWay" and w.isVisible():
                 for b in w.buttons():
                     if b.text() == text:
-                        state["asked"] = True
+                        state["asked"] = w.informativeText()
                         b.click()
                         return
         QtCore.QTimer.singleShot(100, click)
@@ -334,7 +336,7 @@ def run():
         # A new feature: the step that made it changed its body too, and
         # the body was changed since by a change that is not the edit's
         tip = body.Tip
-        for n, (choice, expected) in enumerate((("Skip", box), ("Undo anyway", tip))):
+        for n, (choice, expected) in enumerate((("Keep theirs", box), ("Undo with them", tip))):
             activate(v2)
             FreeCAD.setActiveTransaction("Create Pad")
             pad2 = body.newObject("PartDesign::Pad", "New%d" % n)
@@ -351,8 +353,8 @@ def run():
             activate(v2)
             answer_later(choice)
             cancel(v2)
-            check("Cancel asks what to do with the body changed since (%s)" % choice,
-                  state["asked"])
+            check("Cancel asks what to do with the body changed since, naming it (%s)"
+                  % choice, state["asked"] and "theirs" in state["asked"], state["asked"])
             check("%s: the new feature is gone" % choice, doc.getObject(name) is None,
                   name)
             check("%s: the body's tip is %s" % (choice, expected.Name),

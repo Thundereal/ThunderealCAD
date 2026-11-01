@@ -734,7 +734,8 @@ An edit's Cancel with another view's step among the edit's goes through
 the log, as a step of its own that takes the edit's rows back
 (`Document::undoLogged`). That step is made in the view its input went to,
 as any step is: the Cancel of the edit's own panel is that view's, not a
-step every view lists.
+step every view lists. Refused for a step made since that depends on the
+edit's, it asks as an undo refused for one does (sec 12.11).
 
 Tests: `tests/gui/per-view-undo.py`; `tests/gui/td-model-interleave.py`, a
 drawing and the model it draws each in edit in a view of its own, their
@@ -902,6 +903,17 @@ that step stayed in the history, is not offered: undo with them says the
 same honestly. A TechDraw page's undo asked about nothing it could not
 take (it called the document's undo without asking); it asks as a 3D
 view's does. GUI test `tests/gui/undo-in-the-way.py`.
+
+A panel's Cancel refused the same way -- its edit's steps taken back from
+the log (sec 12.9), a step made since in the way -- asks with the same
+dialog (user, 2026-11-01), in place of its own "Undo anyway / Skip /
+Keep": undo with them (or ask their owner), keep theirs (the log's
+`UndoConflicts::Skip` for the edit's rows, what "Skip" was), or "Keep the
+edit", taking back nothing -- the edit has ended either way. For that,
+`undoLogged` of several rows names the rows in its way, as `stepsInTheWay`
+reads them, where its check before any is taken back said them only in
+the refusal's text. Refused for anything else, Cancel says why. GUI test
+`tests/gui/pd-edit-two-views.py`; gtest `severalRowsUndoneAreOneStep`.
 
 **Asking the other user (built).** A step of another user's in the way is
 theirs to agree to: the undo with it is asked for, and goes once they do

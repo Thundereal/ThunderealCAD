@@ -23,6 +23,7 @@
 #ifndef GUI_DOCUMENT_H
 #define GUI_DOCUMENT_H
 
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -532,11 +533,10 @@ public:
      *
      * With nothing of anyone else's above them, the plain undo down to the
      * oldest, as Cancel always was. With another view's steps among them,
-     * they are taken back from the log, as one step; where the other view
-     * changed something of theirs since, the user picks: undo anyway (put
-     * this edit's values back over), skip (take back only what nobody
-     * changed since), or keep (take back nothing). False when an undo was
-     * refused.
+     * they are taken back from the log, as one step; where a step made
+     * since depends on them, the user picks as for an undo refused for it
+     * (resolveInTheWay): with them, or what they changed kept, or nothing
+     * taken back. False when an undo was refused.
      */
     bool undoOwnSteps(const std::vector<int>& tids);
     /** The undo steps of \a vp's edit here, in the order they were
@@ -703,14 +703,18 @@ private:
     int takeSteps(bool undo, int iSteps, int skipped);
     /// Say a refused step and offer the one after; true to go on to it
     bool askToSkip(bool undo, int skipped, const std::string& why);
-    /** An undo refused for steps made since that depend on it
-     * (docs/MultiViewEdit.md sec 12.11): say them, and offer the undo with
-     * them, or with what they changed kept. True when the undo went.
+    /** An undo of the steps \a own, named \a what, refused for steps made
+     * since that depend on it (docs/MultiViewEdit.md sec 12.11): say them,
+     * and offer the undo with them -- asked of their owner when one is
+     * another user's -- or with what they changed kept, by \a keepTheirs.
+     * An undo's or, \a cancel, a panel's Cancel's. True when the undo went.
      */
-    bool resolveInTheWay(int skipped, const std::string& why);
-    /// The undo of the run \a skipped leaves with the steps \a with: every
-    /// step of one's own found in the way on the way taken too
-    bool undoWithThem(int skipped, std::vector<int> with);
+    bool resolveInTheWay(const std::vector<int>& own, const QString& what,
+                         const std::string& why, const std::function<bool()>& keepTheirs,
+                         bool cancel = false);
+    /// The undo of the steps \a own with the steps \a with: every step of
+    /// one's own found in the way on the way taken too
+    bool undoWithThem(std::vector<int> own, const std::vector<int>& with);
     /// The scan behind checkTransactionID: the other documents that hold
     /// the same transaction ids, how many steps each, and which of them
     /// would need the user asked.

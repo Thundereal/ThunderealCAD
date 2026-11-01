@@ -2615,8 +2615,14 @@ TEST_F(TransactionLogTest, severalRowsUndoneAreOneStep)
     EXPECT_EQ(log().store().transactions().size(), rows);
     EXPECT_EQ(doc()->getAvailableUndoNames(), undos);
     EXPECT_NE(doc()->undoRefusal().find("Float"), std::string::npos) << doc()->undoRefusal();
+    // The step in the way is named, as for an undo refused for it -- what
+    // an edit's Cancel asks about (docs/MultiViewEdit.md sec 12.11)
+    const auto inTheWay = doc()->stepsInTheWay();
+    ASSERT_EQ(inTheWay.size(), 1u) << doc()->undoRefusal();
+    EXPECT_EQ(inTheWay[0].id, stepNamed(doc(), "f2"));
     // The newer one alone is fine, as before.
     ASSERT_TRUE(doc()->undoLogged(std::vector<int64_t> {f3}));
+    EXPECT_TRUE(doc()->stepsInTheWay().empty());
     EXPECT_DOUBLE_EQ(a->Float.getValue(), 4.5);
     EXPECT_EQ(log().store().transactions().back().inverts, f3);
 

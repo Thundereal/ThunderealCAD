@@ -1387,6 +1387,8 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts confli
     if (rows.empty())
         return false;
     const bool several = rows.size() > 1;
+    d->undoRefusal.clear();
+    d->undoInTheWay.clear();
     if (d->activeUndoTransaction)
         _commitTransaction(true);
     log->resolvePending();
@@ -1400,10 +1402,13 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts confli
     if (several && conflicts == UndoConflicts::Refuse) {
         // What the log alone can say is asked of every row before any is
         // taken back: a row changed since refuses them all with nothing
-        // written, and each one that is in the way is named.
+        // written, and each one that is in the way is named -- and kept,
+        // for stepsInTheWay() (an edit's Cancel, sec 12.11).
         std::string all;
+        std::set<int64_t> inTheWay;
         for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
-            const std::string why = checkSelective(*log, *it, log->store().ops(*it), &rows);
+            const std::string why = checkSelective(*log, *it, log->store().ops(*it), &rows,
+                                                   nullptr, &inTheWay);
             if (why.empty())
                 continue;
             FC_ERR("Cannot undo '" << names[*it] << "' of " << getName() << " from the log:"
@@ -1412,6 +1417,7 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts confli
         }
         if (!all.empty()) {
             d->undoRefusal = all;
+            d->undoInTheWay = std::move(inTheWay);
             return false;
         }
     }

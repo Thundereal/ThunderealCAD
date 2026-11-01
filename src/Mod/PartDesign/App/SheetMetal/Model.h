@@ -67,7 +67,8 @@ struct PartDesignExport Element
     int after = -1;
     /// Planes the element stops at, its material on the side against each
     /// normal: a miter's, where two sides of a flange meet at a corner and
-    /// their slabs and tubes would overlap
+    /// their slabs and tubes would overlap; a bend's sides, where its flange
+    /// ends inside the wall's end and its tube runs on through the wall
     std::vector<gp_Pln> limits;
 };
 

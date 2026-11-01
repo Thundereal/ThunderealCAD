@@ -410,7 +410,7 @@ its tracker, not ported.
 
 | Tool | What it does | Ref |
 |---|---|---|
-| **Bend relief** | Automatic on every bend that ends inside a wall: rectangle, obround or tear, from the rule; overridden per feature. | B1 5 |
+| **Bend relief** | Automatic on every bend that ends inside a wall: rectangle, obround or tear, from the rule; overridden per feature. The flange's own, from the rule, built in M1 (sec 12). | B1 5 |
 | **Corner relief** | Where two or three bends meet: circle, square, tear, weld; sized absolutely or by thickness. Automatic from the rule, or a feature on picked corners. | B1 13 |
 | **Corner closure** | Two flanges brought to meet at a corner: overlap, underlap or butt, with a gap. | -- |
 | **Rip** | A gap cut along an edge of a closed solid, so it can unfold. | B1 15 |
@@ -688,10 +688,20 @@ and not frozen.
     back of (R + T) tan(A / 2) and R tan(A / 2)); `BendOutside` starts the bend there. `Offset`
     moves the bend out, the wall carried on to it. Where the bend starts inside the wall, the
     wall is cut back under the flange, one cut before the join.
-  - `Gap1`, `Gap2` narrow the flange at the edge's ends; the wall is cut back under it only. No
-    bend relief yet (M2). So a flange narrower than its edge, by gaps or by a profile, does not
-    lay flat (found 2026-11-01): beside it the wall and the bend meet face to face across the
-    flange's side, which only a relief parts, and the flat says it does not close.
+  - `Gap1`, `Gap2` narrow the flange at the edge's ends; the wall is cut back under it only.
+  - The bend relief (5.2, brought into M1 on 2026-11-01): a flange narrower than its edge, by
+    gaps or by a profile, leaves the wall beside it meeting the bend face to face across the
+    flange's side, and the flat did not close. So at each end where the flange stops inside the
+    wall's end, and the bend starts inside the wall (not `BendOutside`, nor carried out by
+    `Offset`), a relief is cut into the wall beside the bend, automatically, from the rule:
+    `ReliefWidth` along the edge, from the wall's end to `ReliefDepth` past where the bend
+    starts, through the sheet. `ReliefShape` `Rectangle`, or `Obround` (its deep end a half
+    circle of its width, the tip at the same depth); `Tear` takes nothing away, so the solid is
+    the one with no relief and its flat still does not close (the rip that would part it is
+    M3's). The relief's faces are named after the bend (`Bend1Relief1`, `Bend1Relief2`). In the
+    model the bend stops at its sides there (two limit planes), as its tube runs on through the
+    wall beside it and owned the relief's faces. Overrides per feature, and the relief where a
+    bend meets another wall than its own, are M2's. Tested by `testRelief*` (6).
   - Added (9e98a08d8a): `Tangent` measures from the plane across the leg that touches the outside
     of the bend (the straight part L - (R + T) from 90 deg on, L - (R + T) sin A below); negative
     gaps carry the flange past the edge's ends; `ParallelTo` gives the angle from a plane face the

@@ -33,6 +33,7 @@
 #include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
@@ -478,6 +479,8 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             }
             const gp_Vec along = gp_Vec(d) * width;
             const gp_Pnt edgeStart = inner.Translated(gp_Vec(d) * gap1);
+            // the edge's length left beyond the flange at its last vertex
+            const double gap2 = p0.Distance(p1) - gap1 - width;
             const gp_Pnt bendStart = edgeStart.Translated(-e * setback);
 
             const std::string bendName = "Bend" + std::to_string(++bends);
@@ -521,6 +524,15 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             }
             const int legWall = model.addWall(legName, gp_Ax3(legStart, x2, legAlong));
             const int bendIndex = model.addBend(bendName, bend, wall, legWall);
+            // Ending inside the wall's end, the bend stops at its sides: its
+            // tube runs on through the wall beside it, the relief's faces
+            // there among it
+            if (gap1 > Precision::Confusion()) {
+                model.elements[bendIndex].limits.emplace_back(edgeStart, d.Reversed());
+            }
+            if (gap2 > Precision::Confusion()) {
+                model.elements[bendIndex].limits.emplace_back(edgeStart.Translated(along), d);
+            }
 
             pieces.push_back(TopoShape(0, hasher).makEPrism(
                 SheetMetal::bendSection(bend, bendName), along));
@@ -545,6 +557,46 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                     SheetMetal::wallSection(bendStart, endOut, setback, up.Reversed(), T,
                                             bendName + "Cut"),
                     along));
+                // Where the flange ends inside the wall's end, the wall left
+                // beside it meets the bend's side face to face, and only a
+                // relief parts them for the flat: beside the bend, from the
+                // wall's end to the relief's depth past where the bend starts.
+                // A tear takes nothing away.
+                const double reliefWidth = rule->ReliefWidth.getValue();
+                const double depth = setback + rule->ReliefDepth.getValue();
+                const int reliefShape = rule->ReliefShape.getValue();
+                const bool obround = reliefShape == 1;
+                if (reliefShape != 2 && reliefWidth > Precision::Confusion()) {
+                    // the straight part of an obround stops at its half circle's middle
+                    const double straight =
+                        obround ? std::max(depth - reliefWidth / 2, 0.0) : depth;
+                    // each end with a gap, by where its relief starts along the edge
+                    std::vector<std::pair<int, double>> ends;
+                    if (gap1 > Precision::Confusion()) {
+                        ends.emplace_back(1, gap1 - reliefWidth);
+                    }
+                    if (gap2 > Precision::Confusion()) {
+                        ends.emplace_back(2, gap1 + width);
+                    }
+                    for (const auto& [n, from] : ends) {
+                        const std::string name = bendName + "Relief" + std::to_string(n);
+                        const gp_Pnt start = inner.Translated(gp_Vec(d) * from);
+                        if (straight > Precision::Confusion()) {
+                            cuts.push_back(TopoShape(0, hasher).makEPrism(
+                                SheetMetal::wallSection(start.Translated(-e * straight), endOut,
+                                                        straight, up.Reversed(), T, name),
+                                gp_Vec(d) * reliefWidth));
+                        }
+                        if (obround) {
+                            const gp_Pnt center = start.Translated(
+                                gp_Vec(d) * (reliefWidth / 2) - e * straight);
+                            cuts.push_back(TopoShape(
+                                BRepPrimAPI_MakeCylinder(gp_Ax2(center, up.Reversed()),
+                                                         reliefWidth / 2, T)
+                                    .Solid()));
+                        }
+                    }
+                }
             }
             sides.push_back({p0, p1, endOut, up, first, pieces.size(), bendIndex, legWall});
         }

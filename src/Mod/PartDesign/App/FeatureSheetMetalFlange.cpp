@@ -24,18 +24,23 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
 #include <BRep_Tool.hxx>
+#include <Bnd_Box.hxx>
 #include <Precision.hxx>
 #include <TopExp.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <gp_Ax1.hxx>
+#include <gp_Ax2.hxx>
 #include <gp_Pln.hxx>
 
 #include <App/Document.h>
@@ -233,7 +238,17 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         const bool byUpTo = planeOf(UpToFace, upTo);
         const auto hasher = getDocument()->getStringHasher();
         std::vector<TopoShape> pieces, cuts;
+        // each edge's ends, its way out and up, and its pieces, for the miters
+        struct Side
+        {
+            gp_Pnt p0, p1;
+            gp_Dir endOut, up;
+            std::size_t first, last;
+            int bend, leg;
+        };
+        std::vector<Side> sides;
         for (const auto& shadow : shadows) {
+            const std::size_t first = pieces.size();
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
             const TopoDS_Shape sub = base.getSubShape(ref.c_str(), true);
             if (sub.IsNull() || sub.ShapeType() != TopAbs_EDGE) {
@@ -358,7 +373,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                           "Edge " << shadow.second << ": the flange is too short for its bend");
             }
             const int legWall = model.addWall(legName, gp_Ax3(legStart, x2, legAlong));
-            model.addBend(bendName, bend, wall, legWall);
+            const int bendIndex = model.addBend(bendName, bend, wall, legWall);
 
             pieces.push_back(TopoShape(0, hasher).makEPrism(
                 SheetMetal::bendSection(bend, bendName), along));
@@ -378,6 +393,80 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                                             bendName + "Cut"),
                     along));
             }
+            sides.push_back({p0, p1, endOut, up, first, pieces.size(), bendIndex, legWall});
+        }
+        // A miter where two edges meet at a corner, bent the same way: each
+        // side stops at the plane halving the corner, the rule's gap between
+        // them. Exact for two flanges alike; any two are kept apart.
+        if (sides.size() > 1) {
+            Bnd_Box bound;
+            for (const auto& piece : pieces) {
+                BRepBndLib::Add(piece.getShape(), bound);
+            }
+            const double size = 4 * std::sqrt(bound.SquareExtent()) + 1;
+            const double gap = rule->Gap.getValue();
+            // the half-space on the plane's +m side, offset along m, as a box
+            auto halfSpace = [&](const gp_Pnt& at, const gp_Dir& m) {
+                const gp_Ax2 frame(at, m);
+                const gp_Pnt corner = at.Translated(gp_Vec(frame.XDirection()) * (-size / 2)
+                                                    + gp_Vec(frame.YDirection()) * (-size / 2));
+                return TopoShape(BRepPrimAPI_MakeBox(gp_Ax2(corner, m, frame.XDirection()),
+                                                     size,
+                                                     size,
+                                                     size)
+                                     .Solid());
+            };
+            auto cutAway = [&](const Side& side, const TopoShape& box) {
+                for (std::size_t k = side.first; k < side.last; ++k) {
+                    TopoShape cut(0, hasher);
+                    cut.makEBoolean(Part::OpCodes::Cut, {pieces[k], box});
+                    pieces[k] = cut.hasSubShape(TopAbs_SOLID) ? getSolid(cut) : TopoShape();
+                }
+            };
+            const double tol = Precision::Confusion();
+            for (std::size_t i = 0; i < sides.size(); ++i) {
+                for (std::size_t j = i + 1; j < sides.size(); ++j) {
+                    const Side &a = sides[i], &b = sides[j];
+                    gp_Pnt corner;
+                    bool meet = false;
+                    for (const gp_Pnt& p : {a.p0, a.p1}) {
+                        for (const gp_Pnt& q : {b.p0, b.p1}) {
+                            if (!meet && p.Distance(q) < tol) {
+                                corner = p;
+                                meet = true;
+                            }
+                        }
+                    }
+                    const gp_Vec halving = gp_Vec(a.endOut) + gp_Vec(b.endOut);
+                    if (!meet || !a.up.IsEqual(b.up, Precision::Angular())
+                        || halving.Magnitude() < tol) {
+                        continue;
+                    }
+                    gp_Dir m(gp_Vec(a.up).Crossed(halving));
+                    // a on the -m side
+                    const gp_Pnt middle((a.p0.XYZ() + a.p1.XYZ()) / 2);
+                    if (gp_Vec(corner, middle).Dot(gp_Vec(m)) > 0) {
+                        m.Reverse();
+                    }
+                    cutAway(a, halfSpace(corner.Translated(gp_Vec(m) * (-gap / 2)), m));
+                    cutAway(b,
+                            halfSpace(corner.Translated(gp_Vec(m) * (gap / 2)), m.Reversed()));
+                    // and in the model, where the two sides' slabs and tubes
+                    // overlap at the corner
+                    for (int k : {a.bend, a.leg}) {
+                        model.elements[k].limits.emplace_back(corner, m);
+                    }
+                    for (int k : {b.bend, b.leg}) {
+                        model.elements[k].limits.emplace_back(corner, m.Reversed());
+                    }
+                }
+            }
+            pieces.erase(std::remove_if(pieces.begin(),
+                                        pieces.end(),
+                                        [](const TopoShape& piece) {
+                                            return piece.isNull();
+                                        }),
+                         pieces.end());
         }
 
         if (!cuts.empty()) {

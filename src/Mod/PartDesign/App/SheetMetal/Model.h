@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <gp_Ax3.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 
@@ -64,13 +65,17 @@ struct PartDesignExport Element
     /// A bend's walls, by index
     int before = -1;
     int after = -1;
+    /// Planes the element stops at, its material on the side against each
+    /// normal: a miter's, where two sides of a flange meet at a corner and
+    /// their slabs and tubes would overlap
+    std::vector<gp_Pln> limits;
 };
 
 /** A sheet's walls and bends, and how they lie flat
  *
  * Which element a point of the solid is in is told by its geometry: in a
  * bend's tube sector, or in a wall's slab on the wall's side of each bend
- * it meets. Flat, a chosen wall (the root) stays where it is, and every
+ * it meets, short of any of its limits. Flat, a chosen wall (the root) stays where it is, and every
  * other element moves with the bends between it and the root unrolled.
  */
 class PartDesignExport Model

@@ -34,6 +34,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#include <BRepFill.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
@@ -126,12 +127,34 @@ struct Mapper
         return mk.Wire();
     }
 
-    /// A face of a bend, unrolled: it must lie flat as a plane
+    /// A face of a bend, unrolled: it must lie flat as a plane, but for a
+    /// cut across the thickness at a slant (a miter's), which unrolls into a
+    /// face ruled between its edges on the two skins
     TopoDS_Face face(int element, const TopoDS_Face& f, int index) const
     {
         const TopoDS_Wire outer = BRepTools::OuterWire(f);
-        BRepBuilderAPI_MakeFace mk(wire(element, outer, f), true);
+        const TopoDS_Wire unrolled = wire(element, outer, f);
+        BRepBuilderAPI_MakeFace mk(unrolled, true);
         if (!mk.IsDone()) {
+            std::vector<TopoDS_Edge> edges;
+            for (BRepTools_WireExplorer it(unrolled); it.More(); it.Next()) {
+                edges.push_back(it.Current());
+            }
+            int wires = 0;
+            for (TopExp_Explorer it(f, TopAbs_WIRE); it.More(); it.Next()) {
+                ++wires;
+            }
+            auto straight = [&](std::size_t i) {
+                return BRepAdaptor_Curve(edges[i % 4]).GetType() == GeomAbs_Line;
+            };
+            if (wires == 1 && edges.size() == 4) {
+                // the two edges across the thickness are straight; the face
+                // runs between the other two, set the same way round
+                const std::size_t a = straight(1) && straight(3) ? 0 : 1;
+                if (straight(a + 1) && straight(a + 3)) {
+                    return BRepFill::Face(edges[a], TopoDS::Edge(edges[a + 2].Reversed()));
+                }
+            }
             FC_THROWM(Base::ValueError,
                       "Face" << index << " of " << model.elements[element].name
                              << " does not lie flat as a plane");

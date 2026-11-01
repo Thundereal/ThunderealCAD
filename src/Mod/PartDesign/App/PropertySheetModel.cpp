@@ -82,6 +82,49 @@ gp_Ax3 frameOf(const char* text)
     return {gp_Pnt(v[0], v[1], v[2]), gp_Dir(v[3], v[4], v[5]), gp_Dir(v[6], v[7], v[8])};
 }
 
+/// Limit planes as six numbers each: a point on it and its normal
+std::string limitsText(const std::vector<gp_Pln>& limits)
+{
+    std::ostringstream s;
+    s << std::setprecision(17);
+    for (const gp_Pln& plane : limits) {
+        for (const gp_XYZ& v : {plane.Location().XYZ(), plane.Axis().Direction().XYZ()}) {
+            s << v.X() << ' ' << v.Y() << ' ' << v.Z() << ' ';
+        }
+    }
+    return s.str();
+}
+
+std::vector<gp_Pln> limitsOf(const char* text)
+{
+    std::istringstream s(text);
+    std::vector<gp_Pln> res;
+    double v[6];
+    while (s >> v[0]) {
+        for (int i = 1; i < 6; ++i) {
+            if (!(s >> v[i])) {
+                FC_THROWM(Base::ValueError, "Sheet metal model: bad limits '" << text << "'");
+            }
+        }
+        res.emplace_back(gp_Pnt(v[0], v[1], v[2]), gp_Dir(v[3], v[4], v[5]));
+    }
+    return res;
+}
+
+bool sameLimits(const std::vector<gp_Pln>& a, const std::vector<gp_Pln>& b)
+{
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (!a[i].Location().IsEqual(b[i].Location(), 0)
+            || !a[i].Axis().Direction().IsEqual(b[i].Axis().Direction(), 0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool sameFrame(const gp_Ax3& a, const gp_Ax3& b)
 {
     return a.Location().IsEqual(b.Location(), 0) && a.Direction().IsEqual(b.Direction(), 0)
@@ -111,6 +154,14 @@ PyObject* PropertySheetModel::getPyObject()
             d.setItem("Before", Py::String(model.elements[e.before].name));
             d.setItem("After", Py::String(model.elements[e.after].name));
         }
+        if (!e.limits.empty()) {
+            Py::List limits;
+            for (const gp_Pln& plane : e.limits) {
+                limits.append(Py::TupleN(vector(plane.Location().XYZ()),
+                                         vector(plane.Axis().Direction().XYZ())));
+            }
+            d.setItem("Limits", limits);
+        }
         elements.append(d);
     }
     Py::Dict res;
@@ -133,15 +184,20 @@ void PropertySheetModel::Save(Base::Writer& writer) const
         writer.Stream() << writer.ind();
         if (e.kind == Element::Kind::Wall) {
             writer.Stream() << "<Wall name=\"" << encodeAttribute(e.name) << "\" frame=\""
-                            << frameText(e.frame) << "\"/>\n";
+                            << frameText(e.frame) << "\"";
         }
         else {
             writer.Stream() << "<Bend name=\"" << encodeAttribute(e.name) << "\" frame=\""
                             << frameText(e.bend.frame) << "\" radius=\"" << e.bend.radius
                             << "\" thickness=\"" << e.bend.thickness << "\" angle=\""
                             << e.bend.angle << "\" k=\"" << e.bend.k << "\" before=\"" << e.before
-                            << "\" after=\"" << e.after << "\"/>\n";
+                            << "\" after=\"" << e.after << "\"";
         }
+        // only where there are any, so a file without miters reads as before
+        if (!e.limits.empty()) {
+            writer.Stream() << " limits=\"" << limitsText(e.limits) << "\"";
+        }
+        writer.Stream() << "/>\n";
     }
     writer.decInd();
     writer.Stream() << writer.ind() << "</SheetModel>\n";
@@ -156,8 +212,12 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
     for (long i = 0; i < count; ++i) {
         reader.readElement();
         const char* name = reader.getAttribute("name");
+        const std::vector<gp_Pln> limits =
+            reader.hasAttribute("limits") ? limitsOf(reader.getAttribute("limits"))
+                                          : std::vector<gp_Pln>();
         if (reader.localName() == std::string("Wall")) {
-            value.addWall(name, frameOf(reader.getAttribute("frame")));
+            value.elements[value.addWall(name, frameOf(reader.getAttribute("frame")))].limits =
+                limits;
             continue;
         }
         SheetMetal::CylBend bend;
@@ -166,10 +226,11 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
         bend.thickness = reader.getAttributeAsFloat("thickness");
         bend.angle = reader.getAttributeAsFloat("angle");
         bend.k = reader.getAttributeAsFloat("k");
-        value.addBend(name,
-                      bend,
-                      static_cast<int>(reader.getAttributeAsInteger("before")),
-                      static_cast<int>(reader.getAttributeAsInteger("after")));
+        value.elements[value.addBend(name,
+                                     bend,
+                                     static_cast<int>(reader.getAttributeAsInteger("before")),
+                                     static_cast<int>(reader.getAttributeAsInteger("after")))]
+            .limits = limits;
     }
     reader.readEndElement("SheetModel");
     setValue(value);
@@ -207,7 +268,8 @@ bool PropertySheetModel::isSame(const Property& other) const
         if (a.kind != b.kind || a.name != b.name || a.before != b.before || a.after != b.after
             || !sameFrame(a.frame, b.frame) || !sameFrame(a.bend.frame, b.bend.frame)
             || a.bend.radius != b.bend.radius || a.bend.thickness != b.bend.thickness
-            || a.bend.angle != b.bend.angle || a.bend.k != b.bend.k) {
+            || a.bend.angle != b.bend.angle || a.bend.k != b.bend.k
+            || !sameLimits(a.limits, b.limits)) {
             return false;
         }
     }

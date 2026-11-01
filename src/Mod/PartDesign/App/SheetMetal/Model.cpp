@@ -87,6 +87,11 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
 {
     checkIndex(index);
     const Element& element = elements[index];
+    for (const gp_Pln& limit : element.limits) {
+        if (gp_Vec(limit.Location(), point).Dot(gp_Vec(limit.Axis().Direction())) > tol) {
+            return false;
+        }
+    }
     if (element.kind == Element::Kind::Bend) {
         return element.bend.contains(point, tol);
     }
@@ -169,6 +174,9 @@ void Model::transform(const gp_Trsf& trsf)
     for (Element& element : elements) {
         element.frame.Transform(trsf);
         element.bend.frame.Transform(trsf);
+        for (gp_Pln& limit : element.limits) {
+            limit.Transform(trsf);
+        }
     }
 }
 

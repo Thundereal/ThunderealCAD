@@ -325,6 +325,38 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         self.assertEqual(labels, ["Bend1", "Bend2"])
         self.assertEqual([e for e in ents if e[1] == "INNER"], [])
 
+    def testTangentLines(self):
+        """Asked for, each bend's two tangent lines, where the bend meets its
+        walls: the bend allowance apart, the bend line midway, named after
+        the bend, on a layer of their own in the DXF"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+        flat = self.flat(wall)
+        self.assertFalse(flat.TangentLines)
+        self.assertEqual(len(flat.Shape.SubShapes), 2)
+        self.assertEqual([e for e in self.exportDXF(flat) if e[1] == "BEND_TANGENT"], [])
+        flat.TangentLines = True
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flat.State)
+        self.assertEqual(len(flat.Shape.SubShapes), 3)
+        tangents = flat.Shape.SubShapes[2].Edges
+        self.assertEqual(len(tangents), 2)
+        bend = self.lines(flat)[0]
+        along = bend.Curve.Direction
+        for t in tangents:
+            self.assertAlmostEqual(t.Length, 15, places=6)
+            self.assertAlmostEqual(abs(t.Curve.Direction.dot(along)), 1, places=9)
+            # as far from the bend line as half the allowance
+            self.assertAlmostEqual(bend.distToShape(t)[0], ba() / 2, places=6)
+        self.assertAlmostEqual(tangents[0].distToShape(tangents[1])[0], ba(), places=6)
+        names = sorted(
+            n.split(";")[0]
+            for k, n in flat.Shape.ElementReverseMap.items()
+            if k.startswith("Edge") and "Tangent" in n
+        )
+        self.assertEqual(names, ["Bend1Tangent1", "Bend1Tangent2"])
+        ents = self.exportDXF(flat)
+        self.assertEqual(len([e for e in ents if e[1] == "BEND_TANGENT" and e[0] == "LINE"]), 2)
+
     def testDXFHole(self):
         """A round hole is a circle on the inner layer"""
         wall = self.wall([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True)

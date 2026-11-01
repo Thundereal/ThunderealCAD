@@ -85,3 +85,31 @@ class TestTwoRailSweep(unittest.TestCase):
         self.doc.recompute()
         self.assertFalse(s.isValid())
         self.assertIn("section 1", s.getStatusString())
+
+    def testSectionsAtCurvedRailsEnds(self):
+        """Sections on the ends of rails that leave them at an angle: a
+        section's far end has no foot square on the first rail, and the
+        sweep still finds which end is on it"""
+
+        def spline(name, *pts):
+            c = Part.BSplineCurve()
+            c.interpolate([V(*p) for p in pts])
+            o = self.doc.addObject("Part::Feature", name)
+            o.Shape = c.toShape()
+            return o
+
+        r1 = spline("Rail1", (0, 0, 0), (20, -4, 1), (40, 0, 0))
+        r2 = spline("Rail2", (0, 15, 0), (20, 22, 2), (40, 25, 0))
+        s1 = self.arch("S1", (0, 0, 0), (0, 15, 0), 6)
+        s2 = self.arch("S2", (40, 0, 0), (40, 25, 0), 3)
+        s = self.doc.addObject("Surface::TwoRailSweep", "Sweep")
+        s.Rail1 = (r1, "Edge1")
+        s.Rail2 = (r2, "Edge1")
+        s.Sections = [(s1, "Edge1"), (s2, "Edge1")]
+        self.recompute(s)
+        face = s.Shape.Faces[0]
+        for o in (r1, r2, s1, s2):
+            self.assertLess(face.distToShape(o.Shape)[0], 2e-4, o.Name)
+        # either section given the other way round
+        s1.Shape = Part.Arc(V(0, 15, 0), V(0, 7.5, 6), V(0, 0, 0)).toShape()
+        self.recompute(s)

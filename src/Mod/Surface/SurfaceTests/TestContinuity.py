@@ -49,6 +49,17 @@ class TestContinuity(unittest.TestCase):
         self.assertLess(r["MaxAngle"], 1e-6)
         self.assertAlmostEqual(r["MaxCurvatureGap"], 0.5, places=5)
         self.assertEqual(r["Order"], 1)
+        # a measure that is 0 all along still says where: on the edge, not
+        # at the origin the box's corner is not at
+        box.Placement.Base = V(16, 0, 0)
+        self.doc.recompute()
+        shape = f.Shape
+        rounds = [x for x in shape.Faces if isinstance(x.Surface, Part.Cylinder)]
+        edge = [e for e in rounds[0].Edges if isinstance(e.Curve, Part.Line)][0]
+        flat = [x for x in facesOf(shape, edge) if not x.isSame(rounds[0])][0]
+        r = Surface.Geom.continuity(edge, rounds[0], flat)
+        for key in ("WorstGap", "WorstAngle", "WorstCurvature"):
+            self.assertLess(edge.distToShape(Part.Vertex(r[key]))[0], 1e-6, key)
 
     def testABlendIsWhatItSaid(self):
         low = self.doc.addObject("Part::Plane", "Low")

@@ -1621,6 +1621,8 @@ bool Document::_takeStep(bool undo, int id)
     Base::FlagToggler<bool> flag(d->undoing);
     if (step->Cold) {
         _applyRevert(cold);
+        if (d->runNotRestored)
+            d->runNotRestored->insert(cold.touched.begin(), cold.touched.end());
         // applied by no transaction, finished by the guard all the same:
         // what the objects keep beside their properties is made again
         // from them (onUndoRedoFinished)
@@ -1680,14 +1682,39 @@ bool Document::_takeRun(bool undo, int skip)
         ids.push_back(step->getID());
     if (ids.empty())
         return false;
+    std::set<long> notRestored;
     std::size_t taken = 0;
-    while (taken < ids.size() && _takeStep(undo, ids[taken]))
-        ++taken;
-    if (taken == ids.size())
+    {
+        struct Restore
+        {
+            std::set<long>*& ptr;
+            std::set<long>* old;
+            ~Restore() { ptr = old; }
+        } restore {d->runNotRestored, std::exchange(d->runNotRestored, &notRestored)};
+        while (taken < ids.size() && _takeStep(undo, ids[taken]))
+            ++taken;
+    }
+    // Touched again once the run is taken: a step under the one that
+    // touched them set the state its rows record (StepTouched), and does
+    // so after a guard still open has touched what it wrote
+    auto touchNotRestored = [&]() {
+        if (notRestored.empty())
+            return;
+        TransactionGuard::afterTouches([this, ids = std::move(notRestored)]() {
+            for (long id : ids) {
+                if (auto obj = getObjectByID(id))
+                    obj->touch();
+            }
+        });
+    };
+    if (taken == ids.size()) {
+        touchNotRestored();
         return true;
+    }
     if (!undo) {
         // The user's step is redone; an implicit one refused under it
         // stays where it is, to be asked for again or ended by a new step.
+        touchNotRestored();
         return taken > 0;
     }
     // The user's step, or an implicit one above it, was refused: what was

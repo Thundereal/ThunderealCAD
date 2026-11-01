@@ -18,7 +18,8 @@ Claims:
     showing the change and saying it is up to date: what was being made is
     dropped, and what the view stored before the change is drawn;
   - an undo past the steps kept in memory, taken from the log, draws what
-    it put back too.
+    it put back too; and when the log's cache has let the projection go,
+    the views are marked to recompute rather than shown as up to date.
 """
 import os
 import time
@@ -204,7 +205,7 @@ def run():
             doc.undo()
 
     # an undo from the log puts the projection back, and the view draws it
-    # (TransactionLogJournal.md sec 24.14)
+    # (TransactionLogJournal.md sec 24.14) ...
     doc.openTransaction("Length 30")
     box.Length = 30
     doc.commitTransaction()
@@ -217,6 +218,24 @@ def run():
     names = state("cold")
     check("an undo from the log draws 15 with nothing to recompute",
           box.Length.Value == 15 and tallest(view) == 15 and "View" not in names, str(names))
+
+    # ... and once the cache has let it go -- it is derived (sec 10.2) --
+    # the view is marked to recompute, through a run of steps (sec 24.15)
+    doc.openTransaction("Length 35")
+    box.Length = 35
+    doc.commitTransaction()
+    doc.recompute()
+    settle(lambda: tallest(view) == 35)
+    settle(seconds=2.0)
+    push_cold()
+    doc.resolveTransactionLog()
+    evicted = doc.evictTransactionCache(size=1, values=0)
+    doc.undo()
+    settle(seconds=1.0)
+    names = state("evicted")
+    check("an undo from the log after the cache let go draws 15 or is marked",
+          box.Length.Value == 15 and (tallest(view) == 15 or "View" in names),
+          "%s %s" % (evicted, names))
 
     FreeCAD.closeDocument(doc.Name)
 

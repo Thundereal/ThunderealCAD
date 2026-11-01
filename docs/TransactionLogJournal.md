@@ -3522,6 +3522,23 @@ a cold revert, and the guard runs it as for a hot one; `_revertStep` and
 when an object finishing touched itself. GUI test
 `td-undo-stored-projection.py`, the undo from the log.
 
+### 24.15 A derived value gone stays touched through the run (2026-11-01)
+
+A cold step whose derived value the cache has let go touches its owner
+(`_applyRevert`, sec 24.1). An undo takes a run -- the user's step and the
+implicit ones riding on it (sec 33.4), newest first -- and each step sets
+the touched state its own rows record (`StepTouched`, sec 27.63). A step
+under the one that touched an object set it back to the clean the rows
+say: a TechDraw page's projections, written by the implicit steps above
+the edit and evicted (sec 10.2), came back from an undo past the steps
+kept in memory still drawing the edit, marked clean.
+
+`_takeRun` gathers what its cold steps touched for a value gone
+(`DocumentP::runNotRestored`), and touches them again once the run is
+taken -- through `TransactionGuard::afterTouches`, after what a guard
+still open sets. A refused undo puts the steps back and touches nothing.
+GUI test `td-undo-stored-projection.py`, the undo after the cache let go.
+
 ## 25. Phase 7: crash recovery (design, 2026-09-25)
 
 Phase 7 as section 15 lists it is recovery *and* streaming; this section

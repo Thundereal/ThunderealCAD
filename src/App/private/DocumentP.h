@@ -218,6 +218,10 @@ struct DocumentP
     int64_t stateCounter {1};
     /// Why the last undo or redo was refused, empty when it was not.
     std::string undoRefusal;
+    /// While _takeRun takes a run: the objects a step from the log touched
+    /// for a derived value the log no longer has. A step taken after it
+    /// sets the touched state its own rows record, which would clear them.
+    std::set<long>* runNotRestored {nullptr};
     /// A saveCopy() without history: the copy embeds nothing, and the
     /// History property the live document had is put back afterwards.
     bool savingWithoutHistory {false};

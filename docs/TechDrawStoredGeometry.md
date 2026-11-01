@@ -407,3 +407,20 @@ its balloons recomputed (`enforceRecompute()` under `NoTouch`), and so do
 Tests: `TDTest/DrawViewUndoTest.py` (App, CoarseView, log on and off) and
 `tests/gui/td-undo-stored-projection.py` (real HLR, a dimension, a section
 and a detail, and an undo made while they project).
+
+### 6.8 An undo from the log (2026-11-01)
+
+Past the 20 steps an undo keeps in memory, or out of order, an undo reads
+its step from the transaction log. It put `ProjectedGeometry` back, and
+the view never heard: no object was told an undo from the log was done
+(journal sec 24.14), so the page went on drawing the box the undo took
+back, marked clean. Now it draws what was put back, as after an undo in
+memory.
+
+The projection is derived in the log (sec 6.2), and the cache may have let
+the old one go. Then the undo touches the view to recompute; that touch
+was cleared by the steps under it in the same undo, which set the touched
+state their rows recorded (journal sec 24.15). Now the view, the section
+and the detail come back marked.
+
+Test: `tests/gui/td-undo-stored-projection.py`, the two undos from the log.

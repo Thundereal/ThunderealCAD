@@ -130,6 +130,19 @@ subcommand form is not registered and only the `conda-smithy` executable works).
 say so deliberately rather than being rewritten ahead of the boxes. The pin
 above is what we PUBLISH; moving the dev envs to 3.13 is a separate rebuild.
 
+That gap is a trap: **a green 3.12 build says nothing about 3.13.** The first
+release build stopped on `_PyUnicode_IsXidStart`, which 3.13 took out of its
+headers, after hours of queueing that a local check would have saved. Python
+names cannot be left to the compiler to find here, but they can be diffed. Before
+pushing to a feedstock, install 3.13's headers somewhere throwaway (`conda create
+-p <dir> --no-deps -c conda-forge python=3.13`), collect every `_?Py\w+` token
+from each version's `include/python3.x`, leaving out `internal/`, and intersect
+what 3.12 has and 3.13 lacks with the tokens in `src/` and in the build tree's
+generated `*Py.cpp`, `*Py.h` and `*_wrapper.cpp`. Measured 2026-11-01: 394 names
+gone, 4 used by us, all 4 fixed or behind a version guard, and none of the three
+removed headers included. That covers only what is gone. What changed meaning
+in 3.13 still needs a test run on 3.13, and none has been made.
+
 ### Layout
 
 - **miniforge**: `~/miniforge3` (deliberately NOT activated in `.bashrc`).

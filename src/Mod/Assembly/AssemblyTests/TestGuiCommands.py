@@ -1039,6 +1039,68 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(dialog.compareCombo.itemText(0), "Speed at least")
         self.assertClean()
 
+    def test_sensor_count_and_pair(self):
+        """The sensor's dialog: a value can be crossed either way, an event
+        cannot; the pair, idle for a value, lists the set's components for
+        its events; the trip it acts on. The label says each, and the dialog
+        reopened on the sensor shows them again"""
+        import CommandCreateContact
+        import CommandCreateSimulation
+
+        contact = CommandCreateContact.newContactSet(self.assembly, [self.box], [self.cyl1])
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.AnalysisType = "Dynamic"
+
+        dialog = CommandCreateSimulation.SensorDialog(self.assembly)
+        dialog.sourceCombo.setCurrentIndex(dialog.sourceCombo.findData(contact))
+        quantity = dialog.quantityCombo
+        compare = dialog.compareCombo
+        quantity.setCurrentIndex(quantity.findData("ContactForce"))
+        self.assertGreaterEqual(compare.findData("Crosses"), 0)
+        self.assertFalse(dialog.pairCombos[0].isEnabled())
+        compare.setCurrentIndex(compare.findData("Crosses"))
+        dialog.countBox.setValue(4)
+        obj = CommandCreateSimulation.newSensor(sim, contact, "Force", 0.0)
+        dialog.apply(obj)
+        self.assertEqual(obj.Compare, "Crosses")
+        self.assertEqual(obj.Count, 4)
+        self.assertEqual(obj.Pair, [])
+        self.assertEqual(obj.Label, contact.Label + ": Contact force crossing 0 N, at the 4th")
+
+        quantity.setCurrentIndex(quantity.findData("ContactBegin"))
+        self.assertEqual(compare.findData("Crosses"), -1)
+        self.assertTrue(dialog.pairCombos[0].isEnabled())
+        parts = [dialog.pairCombos[1].itemData(i) for i in range(dialog.pairCombos[1].count())]
+        self.assertEqual(parts, [None, self.box, self.cyl1])
+        dialog.pairCombos[0].setCurrentIndex(dialog.pairCombos[0].findData(self.cyl1))
+        dialog.actionCombo.setCurrentIndex(dialog.actionCombo.findData("Mark"))
+        dialog.countBox.setValue(2)
+        dialog.apply(obj)
+        self.assertEqual(obj.Pair, [self.cyl1])
+        self.assertEqual(obj.Compare, "Above")
+        self.assertEqual(
+            obj.Label, contact.Label + ": Contact made by " + self.cyl1.Label + ", from the 2nd"
+        )
+        dialog.pairCombos[1].setCurrentIndex(dialog.pairCombos[1].findData(self.box))
+        dialog.apply(obj)
+        self.assertEqual(obj.Pair, [self.cyl1, self.box])
+        self.assertEqual(
+            obj.Label,
+            contact.Label
+            + ": Contact made by %s and %s, from the 2nd" % (self.cyl1.Label, self.box.Label),
+        )
+
+        # Reopened on it
+        dialog = CommandCreateSimulation.SensorDialog(self.assembly, obj)
+        self.assertEqual(dialog.pairCombos[0].currentData(), self.cyl1)
+        self.assertEqual(dialog.pairCombos[1].currentData(), self.box)
+        self.assertEqual(dialog.countBox.value(), 2)
+        self.assertEqual([CommandCreateSimulation.ordinal(n) for n in (1, 2, 3, 11, 12, 21, 112)],
+                         ["1st", "2nd", "3rd", "11th", "12th", "21st", "112th"])
+        self.assertClean()
+
     def test_sensor_events_shown(self):
         """After a run the panel says which sensors tripped and when, by
         their labels; the one that stopped it says so. A contact made or let

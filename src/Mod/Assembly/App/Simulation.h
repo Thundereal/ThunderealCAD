@@ -204,11 +204,12 @@ using InitialConditionPython = App::FeaturePythonT<InitialCondition>;
  * 5.2's Sensor, P15), a child of a Simulation as a motion is: one of the
  * values the run reports (getSimulationResults()) -- a vector's component,
  * or its magnitude -- watched after each step. It trips when the value
- * passes Threshold, rising above it, or falling below it: it stops the run
- * there, the time located to a small fraction of a step (a static study's
- * at its output times), or marks the time, and the run goes on. A value
- * already past the threshold at the start trips once it comes back and
- * passes it again. A kinematic study does not use it.
+ * passes Threshold, rising above it, or falling below it, or either way: it
+ * stops the run there, the time located to a small fraction of a step (a
+ * static study's at its output times), or marks the time, and the run goes
+ * on. A value already past the threshold at the start trips once it comes
+ * back and passes it again. Count says which pass it acts on, those before
+ * let by. A kinematic study does not use it.
  */
 class AssemblyExport Sensor: public App::DocumentObject
 {
@@ -226,13 +227,20 @@ public:
     /// A vector's: its magnitude or a component, in the assembly's axes; a
     /// single value is taken as it is
     App::PropertyEnumeration Component;
-    /// Above: trips rising above Threshold; Below: falling below it
+    /// Above: trips rising above Threshold; Below: falling below it;
+    /// Crosses: either
     App::PropertyEnumeration Compare;
     /// In the quantity's unit
     App::PropertyQuantity Threshold;
     /// Stop: the run ends where it trips; Mark: the time is noted and the
     /// run goes on
     App::PropertyEnumeration Action;
+    /// The trip it acts on, 1 the first: those before are let by; one that
+    /// marks marks that one and each after
+    App::PropertyIntegerConstraint Count;
+    /// A contact set's events: the pair's components, one (any pair with
+    /// it) or two (that pair); none, any pair
+    App::PropertyLinkList Pair;
 
     static const char* QuantityEnums[];
     static const char* ComponentEnums[];

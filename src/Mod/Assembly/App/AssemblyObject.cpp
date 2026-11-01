@@ -2595,11 +2595,38 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         record.quantity = sensor->Quantity.getValueAsString();
         record.component = static_cast<int>(sensor->Component.getValue()) - 1;
         record.below = sensor->Compare.getValue() == 1;
+        record.crosses = sensor->Compare.getValue() == 2;
         record.value = sensor->Threshold.getValue();
         if (record.quantity == "SpringAngle") {
             record.value *= std::numbers::pi / 180.0;
         }
         record.stop = sensor->Action.getValue() == 0;
+        record.count = static_cast<int>(std::max(1L, sensor->Count.getValue()));
+        // The pair an event's must be: a frame on each part, whose body the
+        // run knows through the reductions (a rigid group's is the group's)
+        const bool events = record.quantity == "ContactBegin" || record.quantity == "ContactEnd";
+        std::vector<App::DocumentObject*> pair = sensor->Pair.getValues();
+        if (!events && !pair.empty()) {
+            Base::Console().warning("Assembly: the sensor %s watches no contact events; its "
+                                    "pair is not used\n",
+                                    label.c_str());
+            pair.clear();
+        }
+        if (pair.size() > 2) {
+            Base::Console().warning("Assembly: the sensor %s names %d components for its pair; "
+                                    "the first two are used\n",
+                                    label.c_str(),
+                                    static_cast<int>(pair.size()));
+            pair.resize(2);
+        }
+        for (auto* part : pair) {
+            if (part) {
+                record.frames.push_back(
+                    frameOn(part,
+                            Base::Placement(),
+                            sensor->getFullName() + "-" + part->getNameInDocument()));
+            }
+        }
         model.dynamics->sensors.push_back(record);
     }
 

@@ -224,6 +224,115 @@ class TestContact(unittest.TestCase):
         self.assertAlmostEqual(results["Times"][-1], contacts[-1]["Time"], delta=1e-8)
         self.assertAlmostEqual(self.heights(ball)[-1], 15.0, delta=1e-5)
 
+    def test_sensor_counts(self):
+        """A sensor acts on the trip its Count says, those before let by:
+        stopping on the third contact made, the ball just touching there;
+        marking each contact made from the second; the contact force
+        crossing none either way, marked at each contact made and let go,
+        and stopping at its fourth crossing, the second let go"""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate], StaticFriction=0.0, DynamicFriction=0.0)
+        contact.Restitution = 0.8
+        self.doc.recompute()
+        start = ball.Placement
+
+        def run(**sensor):
+            ball.Placement = start
+            _, result = self.simulate(0.06, 1e-3, sensors=[dict(source=contact, **sensor)])
+            self.assertEqual(result, 0)
+            results = self.assembly.getSimulationResults()
+            events = results["Events"]
+            return (
+                results,
+                [e for e in events if e["Kind"] == "Sensor"],
+                [e for e in events if e["Kind"] != "Sensor"],
+            )
+
+        # All the contacts, made and let go, for the times
+        _, _, contacts = run(quantity="ContactBegin", threshold=0.0, action="Mark")
+        made = [e for e in contacts if e["Kind"] == "ContactBegin"]
+        self.assertEqual(len(made), 3, contacts)
+
+        results, stops, seen = run(quantity="ContactBegin", threshold=0.0, count=3)
+        self.assertEqual(len(stops), 1, stops)
+        self.assertTrue(stops[0]["Stopped"])
+        self.assertAlmostEqual(stops[0]["Time"], made[2]["Time"], delta=1e-8)
+        self.assertEqual(len([e for e in seen if e["Kind"] == "ContactBegin"]), 3)
+        self.assertAlmostEqual(results["Times"][-1], stops[0]["Time"], delta=1e-8)
+        self.assertAlmostEqual(self.heights(ball)[-1], 15.0, delta=1e-5)
+
+        _, marks, _ = run(quantity="ContactBegin", threshold=0.0, action="Mark", count=2)
+        self.assertEqual([m["Time"] for m in marks], [m["Time"] for m in made[1:]])
+
+        # The force crossing none: up at each landing, down at each let go,
+        # the third landing's too, an impact over within one of the watched
+        # pieces as they were cut before. Against the contacts of the same
+        # run: a sensor's bisection takes steps of its own, and the third
+        # landing moves by some tens of microseconds from run to run.
+        _, marks, contacts = run(
+            quantity="ContactForce", threshold=0.0, compare="Crosses", action="Mark"
+        )
+        self.assertEqual(len(contacts), 6, contacts)
+        self.assertEqual(len(marks), len(contacts), (marks, contacts))
+        for mark, event in zip(marks, contacts):
+            self.assertAlmostEqual(mark["Time"], event["Time"], delta=1e-6)
+            self.assertEqual(mark["Value"] > 0.0, event["Kind"] == "ContactBegin")
+        results, stops, contacts = run(
+            quantity="ContactForce", threshold=0.0, compare="Crosses", count=4
+        )
+        self.assertEqual(len(stops), 1, stops)
+        self.assertEqual([e["Kind"] for e in contacts], ["ContactBegin", "ContactEnd"] * 2)
+        self.assertAlmostEqual(stops[0]["Time"], contacts[3]["Time"], delta=1e-6)
+        self.assertAlmostEqual(results["Times"][-1], stops[0]["Time"], delta=1e-8)
+
+    def test_sensor_on_a_pair(self):
+        """A sensor on a set's contacts made, given a pair: two balls on the
+        plate, in one set, the second dropped from higher and landing after
+        the first's first landing -- on that second ball, or on it and the
+        plate, it stops where the second lands; on the two balls, which
+        never touch, it never trips. The second contact made of any pair is
+        the same landing."""
+        plate = self.plate()
+        first = self.ball(16)
+        second = self.ball(18)
+        first.Placement.Base.x = -15
+        second.Placement.Base.x = 15
+        contact = self.contact(
+            [first, second], [plate], StaticFriction=0.0, DynamicFriction=0.0
+        )
+        contact.Restitution = 0.8
+        self.doc.recompute()
+        starts = first.Placement, second.Placement
+        landing = math.sqrt(2 * 3.0 / G)
+
+        def run(**sensor):
+            first.Placement, second.Placement = starts
+            _, result = self.simulate(0.05, 1e-3, sensors=[dict(source=contact, **sensor)])
+            self.assertEqual(result, 0)
+            results = self.assembly.getSimulationResults()
+            stops = [e for e in results["Events"] if e["Kind"] == "Sensor"]
+            made = [e for e in results["Events"] if e["Kind"] == "ContactBegin"]
+            return results, stops, made
+
+        for pair in ([second], [second, plate], [plate, second]):
+            results, stops, made = run(quantity="ContactBegin", threshold=0.0, pair=pair)
+            self.assertEqual(len(stops), 1, (pair, stops))
+            self.assertAlmostEqual(stops[0]["Time"], landing, delta=1e-6)
+            self.assertEqual(made[-1]["Bodies"], (second, plate))
+            self.assertEqual(stops[0]["Time"], made[-1]["Time"])
+            self.assertAlmostEqual(results["Times"][-1], landing, delta=1e-6)
+        # The first's landing came before
+        self.assertEqual(made[0]["Bodies"], (first, plate))
+
+        results, stops, made = run(quantity="ContactBegin", threshold=0.0, pair=[first, second])
+        self.assertEqual(stops, [])
+        self.assertAlmostEqual(results["Times"][-1], 0.05, delta=1e-12)
+        self.assertGreaterEqual(len(made), 3)
+
+        results, stops, made = run(quantity="ContactBegin", threshold=0.0, count=2)
+        self.assertAlmostEqual(stops[0]["Time"], landing, delta=1e-6)
+
     def test_no_events_at_rest(self):
         """A box resting on the plate from the start, sunk by the allowed
         penetration, makes no contact event: the contacts pressing at the

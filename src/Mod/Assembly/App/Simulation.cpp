@@ -21,6 +21,7 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <climits>
 #include <cstring>
 #include <string>
 
@@ -256,8 +257,13 @@ const char* Sensor::QuantityEnums[] = {"Force",
                                        "ContactEnd",
                                        nullptr};
 const char* Sensor::ComponentEnums[] = {"Magnitude", "X", "Y", "Z", nullptr};
-const char* Sensor::CompareEnums[] = {"Above", "Below", nullptr};
+const char* Sensor::CompareEnums[] = {"Above", "Below", "Crosses", nullptr};
 const char* Sensor::ActionEnums[] = {"Stop", "Mark", nullptr};
+
+namespace
+{
+const App::PropertyIntegerConstraint::Constraints countRange {1, INT_MAX, 1};
+}
 
 Sensor::Sensor()
 {
@@ -281,8 +287,9 @@ Sensor::Sensor()
                       (0L),
                       "Sensor",
                       App::Prop_None,
-                      "Above: trips rising above the threshold; Below: falling below it. A "
-                      "contact made or let go trips at a speed at or above it, or below it");
+                      "Above: trips rising above the threshold; Below: falling below it; "
+                      "Crosses: either way. A contact made or let go trips at a speed at or "
+                      "above it, or below it");
     Compare.setEnums(CompareEnums);
     ADD_PROPERTY_TYPE(Threshold, (0.0), "Sensor", App::Prop_None, "In the quantity's unit");
     ADD_PROPERTY_TYPE(Action,
@@ -292,6 +299,19 @@ Sensor::Sensor()
                       "Stop: the run ends where the sensor trips; Mark: the time is noted and the "
                       "run goes on");
     Action.setEnums(ActionEnums);
+    ADD_PROPERTY_TYPE(Count,
+                      (1L),
+                      "Sensor",
+                      App::Prop_None,
+                      "The trip it acts on, 1 the first: those before are let by. A sensor that "
+                      "marks marks that one and each after it");
+    Count.setConstraints(&countRange);
+    ADD_PROPERTY_TYPE(Pair,
+                      (),
+                      "Sensor",
+                      App::Prop_None,
+                      "A contact set's events: the pair's components -- one, any pair with it; "
+                      "two, that pair; none, any pair of the set");
     updateUnit();
 }
 

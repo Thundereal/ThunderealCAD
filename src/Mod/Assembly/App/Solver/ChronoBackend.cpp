@@ -7130,17 +7130,27 @@ Status ChronoSession::simulateDynamics(
 
     // The sensors (sec 5.2, P15): each on its channel's components, in
     // valuesNow()'s values, and what it read last. It trips where its value
-    // is past its threshold and was not at the last reading.
+    // passed its threshold since the last reading; it acts on its count'th
+    // pass, 'passes' those kept so far.
     struct Watch
     {
         const Sensor* sensor = nullptr;
         std::size_t offset = 0;
         int width = 1;
         double last = 0.0;
+        int passes = 0;
     };
     std::vector<Watch> watches;
-    // And those on a contact set's events, a contact made or let go
-    std::vector<const Sensor*> eventWatches;
+    // And those on a contact set's events, a contact made or let go: the
+    // names of its pair's bodies, as the events name them, and the events it
+    // matched in the steps kept
+    struct EventWatch
+    {
+        const Sensor* sensor = nullptr;
+        std::vector<std::string> pair;
+        int passes = 0;
+    };
+    std::vector<EventWatch> eventWatches;
     {
         std::vector<std::size_t> offsets;
         std::size_t offset = 0;
@@ -7164,7 +7174,18 @@ Status ChronoSession::simulateDynamics(
                         set ? " (a Static run has none)" : "");
                     continue;
                 }
-                eventWatches.push_back(&sensor);
+                EventWatch watch {&sensor};
+                for (const Id frame : sensor.frames) {
+                    const auto body = run.d->validFrame(frame) ? run.d->bodyOf(frame) : nullptr;
+                    std::string name;
+                    for (std::size_t b = 0; b < run.d->bodies.size() && b < si.bodies.size(); ++b) {
+                        if (run.d->bodies[b] == body) {
+                            name = si.sourceName(si.bodies[b].source);
+                        }
+                    }
+                    watch.pair.push_back(name);
+                }
+                eventWatches.push_back(std::move(watch));
                 continue;
             }
             std::size_t c = 0;
@@ -7194,16 +7215,28 @@ Status ChronoSession::simulateDynamics(
         }
         return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
     };
-    auto past = [](const Sensor& sensor, double value) {
-        return sensor.below ? value < sensor.value : value > sensor.value;
+    // Whether the value passed the sensor's threshold from 'last' to 'now':
+    // rising above it, falling below it, or crossing it either way
+    auto passed = [](const Sensor& sensor, double last, double now) {
+        if (sensor.crosses) {
+            return (now > sensor.value) != (last > sensor.value);
+        }
+        if (sensor.below) {
+            return now < sensor.value && !(last < sensor.value);
+        }
+        return now > sensor.value && !(last > sensor.value);
+    };
+    // A pass it acts on: its count'th, and for a mark each after
+    auto acts = [](const Sensor& sensor, int passes) {
+        return sensor.stop ? passes == sensor.count : passes >= sensor.count;
     };
     // The sensors that trip at these values, the readings kept: an event
-    // each, sent; whether one stops the run
+    // each that acts, sent; whether one stops the run
     auto tripsAt = [&](double time, const std::vector<double>& values) {
         bool stop = false;
         for (auto& watch : watches) {
             const double now = reading(watch, values);
-            if (past(*watch.sensor, now) && !past(*watch.sensor, watch.last)) {
+            if (passed(*watch.sensor, watch.last, now) && acts(*watch.sensor, ++watch.passes)) {
                 stop = stop || watch.sensor->stop;
                 queued.push_back(
                     {Event {time, si.sourceName(watch.sensor->source), now, watch.sensor->stop}});
@@ -7212,52 +7245,90 @@ Status ChronoSession::simulateDynamics(
         }
         return stop;
     };
+    // Whether a sensor passes, on a pass it acts on: the step is then
+    // bisected to the time
     auto anyTrips = [&](const std::vector<double>& values) {
         return std::ranges::any_of(watches, [&](const Watch& watch) {
-            const double now = reading(watch, values);
-            return past(*watch.sensor, now) && !past(*watch.sensor, watch.last);
+            return passed(*watch.sensor, watch.last, reading(watch, values))
+                && acts(*watch.sensor, watch.passes + 1);
         });
     };
+    // The readings to watch from, as the run starts
     auto watchFrom = [&](const std::vector<double>& values) {
         for (auto& watch : watches) {
             watch.last = reading(watch, values);
         }
     };
+    // A step kept where no sensor acts: its passes counted
+    auto passBy = [&](const std::vector<double>& values) {
+        for (auto& watch : watches) {
+            const double now = reading(watch, values);
+            if (passed(*watch.sensor, watch.last, now)) {
+                ++watch.passes;
+            }
+            watch.last = now;
+        }
+    };
     // A sensor on a contact set's events trips at each contact made, or let
-    // go, coming in or leaving at a speed at or above its threshold -- or,
-    // below, under it
-    auto eventMatches = [&](const Sensor& sensor, const Event& event) {
+    // go, of its pair, coming in or leaving at a speed at or above its
+    // threshold -- or, below, under it
+    auto eventMatches = [&](const EventWatch& watch, const Event& event) {
+        const Sensor& sensor = *watch.sensor;
         const Event::Kind kind =
             sensor.quantity == "ContactBegin" ? Event::Kind::ContactBegin : Event::Kind::ContactEnd;
-        return event.kind == kind && event.source == si.sourceName(sensor.watched)
-            && (sensor.below ? event.value < sensor.value : !(event.value < sensor.value));
+        if (event.kind != kind || event.source != si.sourceName(sensor.watched)
+            || (sensor.below ? !(event.value < sensor.value) : event.value < sensor.value)) {
+            return false;
+        }
+        const auto& pair = watch.pair;
+        const auto in = [&](const std::string& name) {
+            return name == event.bodyA || name == event.bodyB;
+        };
+        if (pair.size() == 2) {
+            return (pair[0] == event.bodyA && pair[1] == event.bodyB)
+                || (pair[0] == event.bodyB && pair[1] == event.bodyA);
+        }
+        return pair.empty() || in(pair[0]);
     };
-    // Whether an event not yet seen trips a sensor that stops: one let go
-    // whose speed is still to be read again (readLeaving()) on its first
-    // reading, so the stop is located where it let go
+    // Whether the events not yet seen trip a sensor that stops, on the pass
+    // it acts on: one let go whose speed is still to be read again
+    // (readLeaving()) on its first reading, so the stop is located where it
+    // let go
     auto eventStops = [&]() {
-        return std::ranges::any_of(queued, [&](const Queued& q) {
-            return !q.seen && q.event.kind != Event::Kind::Sensor
-                && std::ranges::any_of(eventWatches, [&](const Sensor* sensor) {
-                       return sensor->stop && eventMatches(*sensor, q.event);
-                   });
+        return std::ranges::any_of(eventWatches, [&](const EventWatch& watch) {
+            if (!watch.sensor->stop) {
+                return false;
+            }
+            const auto matched = std::ranges::count_if(queued, [&](const Queued& q) {
+                return !q.seen && q.event.kind != Event::Kind::Sensor
+                    && eventMatches(watch, q.event);
+            });
+            return matched > 0 && watch.passes + matched >= watch.sensor->count;
         });
     };
-    // The events not yet seen, their speeds read: an event each sensor they
-    // trip, at the contact's time; whether one stops the run
+    // The events not yet seen, their speeds read, in time order: an event
+    // each sensor they trip on a pass it acts on, at the contact's time;
+    // whether one stops the run
     auto eventTrips = [&]() {
         bool stop = false;
         std::vector<Event> trips;
+        std::vector<Queued*> unseen;
         for (auto& q : queued) {
-            if (q.seen || q.reading || q.event.kind == Event::Kind::Sensor) {
-                continue;
+            if (!q.seen && !q.reading && q.event.kind != Event::Kind::Sensor) {
+                unseen.push_back(&q);
             }
-            q.seen = true;
-            for (const Sensor* sensor : eventWatches) {
-                if (eventMatches(*sensor, q.event)) {
-                    stop = stop || sensor->stop;
+        }
+        std::ranges::stable_sort(unseen, {}, [](const Queued* q) {
+            return q->event.time;
+        });
+        for (Queued* q : unseen) {
+            q->seen = true;
+            for (auto& watch : eventWatches) {
+                const Sensor& sensor = *watch.sensor;
+                if (eventMatches(watch, q->event) && acts(sensor, ++watch.passes)) {
+                    stop = stop || sensor.stop;
                     trips.push_back(
-                        {q.event.time, si.sourceName(sensor->source), q.event.value, sensor->stop});
+                        {q->event.time, si.sourceName(sensor.source), q->event.value, sensor.stop});
                 }
             }
         }
@@ -8150,9 +8221,48 @@ Status ChronoSession::simulateDynamics(
             Snapshot from = snapshot();
             const double t0 = sys.GetChTime();
             stepOnce(dt);
+            // An impact begun and over within the piece: advance() resolved
+            // it in substeps of its own, the contact found late, and the
+            // values are read only at the piece's end -- a ball's third
+            // landing went by its force's sensor unseen. The piece taken
+            // again halfway to the contact, the rest in the contact's
+            // substeps, which then see it coming. Not cut at the contact
+            // itself: the next piece starting where it touched read the
+            // impact's speed as none, and the bounce came out slower.
+            if (contact && !watches.empty()) {
+                double made = std::numeric_limits<double>::infinity();
+                for (const auto& q : queued) {
+                    if (!q.seen && q.event.kind == Event::Kind::ContactBegin && q.event.time > t0) {
+                        made = std::min(made, q.event.time);
+                    }
+                }
+                const bool over = std::ranges::any_of(queued, [&](const Queued& q) {
+                    return !q.seen && q.event.kind == Event::Kind::ContactEnd
+                        && q.event.time > made;
+                });
+                if (over && made - t0 > 2.0 * locate) {
+                    restore(from);
+                    const double half = 0.5 * (made - t0);
+                    if (watchedPiece(half)) {
+                        return true;
+                    }
+                    double done = half;
+                    while (dt - done > 1e-12 * dt) {
+                        double piece = std::min(dt - done, contactStep(false));
+                        if (dt - done - piece < 1e-9 * dt) {
+                            piece = dt - done;
+                        }
+                        if (watchedPiece(piece)) {
+                            return true;
+                        }
+                        done += piece;
+                    }
+                    return false;
+                }
+            }
             std::vector<double> values = valuesNow();
             if (!anyTrips(values) && !eventStops()) {
-                watchFrom(values);
+                passBy(values);
                 eventTrips();
                 return false;
             }

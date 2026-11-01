@@ -1497,7 +1497,8 @@ Phase D1 is under way (2026-10-28):
     labels -- and reopened on the sensor; the panel's lines past eight,
     the stop kept after the first seven contacts.
   - Not yet: a count (stop at the third contact), a pair within the set
-    (any pair trips it), and Crosses.
+    (any pair trips it), and Crosses. (Built since: "Built: a sensor's
+    count, its pair, and Crosses" below.)
 - Built: results kept in the document (sec 8.4's storage, open question
   5): each study keeps its last run, saved with the file, and shows it
   again when it is opened -- after another study's run, or in a later
@@ -1608,6 +1609,69 @@ Phase D1 is under way (2026-10-28):
     copies that follow a component (`relocateCopies`) stand still in the
     file; a link's own scale is not looked at; textures; frames thinned
     where the motion is straight.
+- Built: a sensor's count, its pair, and Crosses (the event sensors' "not
+  yet").
+  - The document: `Sensor::Count` (an integer, at least 1, default 1),
+    the trip it acts on -- those before counted and let by; a Stop stops
+    at it, a Mark marks it and each after; `Sensor::Pair` (a link list),
+    a contact set's events' pair -- one component, any pair with it; two,
+    that pair; none, any pair of the set (more than two warns, the first
+    two used; on another quantity it warns and is not used); `Compare`
+    gains Crosses, a value passing the threshold either way. The dialog's
+    rows "Between" (two combos of the set's components, GroupA, GroupB and
+    a profile contact's two, else the assembly's; idle but for events) and
+    "On trip"; Crosses offered for a value and not for an event, which
+    compares a speed. Labels: "Balls on plate: Contact made by Ball 4 mm,
+    from the 2nd", "...: Contact made, at the 7th", "...: Contact force
+    crossing 0 N".
+  - The model: `Solver::Sensor` gains `crosses`, `count` and `frames`, a
+    frame on each of the pair's parts (`frameOn()`): frames keep their ids
+    through the reductions, and the run names each one's body as the events
+    do -- a part in a rigid group, its group's body, so any of the group's
+    parts names the pair.
+  - The run (ChronoBackend): a value's sensor counts its passes in the
+    steps kept (`Watch::passes`; `passBy()` on a step where none acts, and
+    `tripsAt()`), and bisects only for a pass it acts on (`anyTrips()`
+    asks `acts(passes + 1)`), so a pass let by costs nothing. An event's
+    (`EventWatch`: its pair's body names, its passes) counts the events it
+    matches, in time order (`eventTrips()`); a stopping one bisects for
+    the event that brings its count to the mark (`eventStops()`).
+  - A fix found on the way: a value's sensor read the value only at the
+    end of each piece it watched, while `advance()` resolved an impact
+    within the piece in substeps of its own (the contact found late, the
+    substep taken again an eighth as long) -- a whole impact could begin
+    and end inside one piece, unseen. At 1 ms output steps a contact force
+    sensor marked a bouncing ball's first two landings and not the third.
+    Now a piece in which a contact was made and let go is taken again
+    halfway to the contact, the rest in the contact's own substeps, which
+    then see it coming. Not cut at the contact itself: a piece starting
+    where the ball touched read the impact's speed as none, and the
+    bounce came out at 53 mm/s for 72.
+  - A sensor's bisection takes steps of its own, so the run's path after
+    a located trip is not the path without the sensor: the ball's third
+    landing moved by up to 120 us between sensor settings (0.05563 s with
+    none, 0.05556 to 0.05568 s with one), each run's events and marks
+    agreeing with each other to 1e-6 s.
+  - Tests (TestContact): the ball dropped a millimetre, restitution 0.8:
+    stopping at the third contact made, there to 1e-8 s, the ball just
+    touching; marking from the second, each landing after the first; the
+    contact force crossing none, marked at each of the six contacts made
+    and let go to 1e-6 s, up at a landing and down at a let go, and
+    stopped at its fourth crossing, the second let go. Two balls in one
+    set, the second dropped from 3 mm landing after the first: a sensor on
+    the second ball, on it and the plate, or on the plate and it, stops at
+    its landing, sqrt(2 h / g) to 1e-6 s; on the two balls, which never
+    touch, never; the set's second contact made is the same landing.
+    TestGuiCommands: the dialog -- Crosses for the force and not for an
+    event (an event falling back to Above), the pair idle for a value and
+    the set's components for an event, the count, the labels, reopened.
+    In the manual's video (`assembly/simulation/sensor-counts`) three balls
+    in one set: marks at the 4 mm ball's second and third landings, the
+    stop at the set's seventh, the 10 mm ball's second, each at its
+    landing's time.
+  - Not yet: a count that starts again (every third); Crosses on an
+    event's speed; a pair of a cam's contact named by its cam and
+    follower.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

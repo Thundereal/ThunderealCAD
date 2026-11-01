@@ -462,11 +462,14 @@ struct ContactPair
 // A sensor (sec 5.2, P15): one of the values a run reports (Backend.h's
 // Channel) -- a vector's component, or its length -- watched after each
 // step. It trips when the value passes 'value', rising above it or, 'below',
-// falling under it: it stops the run there, the time located, or, 'stop'
-// false, marks the time and the run goes on. In the model's units, as the
-// run reports the value; scaled() leaves it. On a contact set's events,
-// quantity "ContactBegin" or "ContactEnd" (Backend.h's Event::Kind): it
-// trips at each one at a speed at or above 'value', or 'below' under it.
+// falling under it, or, 'crosses', either way: it stops the run there, the
+// time located, or, 'stop' false, marks the time and the run goes on. In the
+// model's units, as the run reports the value; scaled() leaves it. On a
+// contact set's events, quantity "ContactBegin" or "ContactEnd" (Backend.h's
+// Event::Kind): it trips at each one at a speed at or above 'value', or
+// 'below' under it, of a pair with the bodies of 'frames' (one, any pair
+// with it; two, that pair; none, any pair). It acts on its 'count'th trip,
+// the ones before let by: it stops there, or marks that one and each after.
 struct Sensor
 {
     Id source = NoId;   // the document's sensor
@@ -474,8 +477,11 @@ struct Sensor
     std::string quantity;  // the Channel's, or a contact event's kind
     int component = -1;    // a vector's x, y or z (0, 1, 2); -1 its length, a scalar itself
     bool below = false;
+    bool crosses = false;
     double value = 0.0;
     bool stop = true;
+    int count = 1;
+    std::vector<Id> frames;  // on the parts of the pair an event's must be
 };
 
 // How a dynamic or static run stops a limit (sec 5.2's JointStop, P10). A

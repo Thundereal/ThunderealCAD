@@ -133,8 +133,8 @@ bool same(const InitialVelocity& a, const InitialVelocity& b)
 bool same(const Sensor& a, const Sensor& b)
 {
     return a.source == b.source && a.watched == b.watched && a.quantity == b.quantity
-        && a.component == b.component && a.below == b.below && a.value == b.value
-        && a.stop == b.stop;
+        && a.component == b.component && a.below == b.below && a.crosses == b.crosses
+        && a.value == b.value && a.stop == b.stop && a.count == b.count && a.frames == b.frames;
 }
 
 bool same(const Stop& a, const Stop& b)

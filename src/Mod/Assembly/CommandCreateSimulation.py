@@ -1477,15 +1477,26 @@ def thresholdFactor(quantity):
 
 
 def newSensor(
-    sim, source, quantity, threshold, component="Magnitude", compare="Above", action="Stop"
+    sim,
+    source,
+    quantity,
+    threshold,
+    component="Magnitude",
+    compare="Above",
+    action="Stop",
+    count=1,
+    pair=(),
 ):
     """A sensor in the simulation: source's quantity (one of
     SensorQuantities' for its kind; a vector's component or its magnitude)
     passing threshold (a number in the quantity's internal unit -- mN, mN mm,
     mm, deg -- or a quantity) rising above it, or falling below it with
-    compare "Below"; action "Stop" ends the run there, "Mark" notes the time.
-    A contact set's ContactBegin or ContactEnd trips at each contact made or
-    let go at a speed (mm/s) at or above threshold, or below it"""
+    compare "Below", or either way with "Crosses"; action "Stop" ends the
+    run there, "Mark" notes the time. A contact set's ContactBegin or
+    ContactEnd trips at each contact made or let go at a speed (mm/s) at or
+    above threshold, or below it, by a pair with pair's components (one or
+    two; none, any pair). It acts on its count'th trip, those before let
+    by: it stops there, or marks that one and each after"""
     assembly = None
     for parent in sim.InListRecursive:
         if parent.isDerivedFrom("Assembly::AssemblyObject"):
@@ -1500,6 +1511,8 @@ def newSensor(
     obj.Compare = compare
     obj.Threshold = threshold
     obj.Action = action
+    obj.Count = count
+    obj.Pair = list(pair)
     group = list(sim.Group)
     if obj not in group:
         sim.Group = group + [obj]
@@ -1518,6 +1531,11 @@ def describeSensor(obj):
         label = "%s %s" % (translate("Assembly", label), obj.Component)
     else:
         label = translate("Assembly", label)
+    pair = [o.Label for o in sensorPair(obj)]
+    if len(pair) == 2:
+        label = translate("Assembly", "{} by {} and {}").format(label, *pair)
+    elif pair:
+        label = translate("Assembly", "{} by {}").format(label, pair[0])
     if obj.Quantity in SensorEvents:
         # As Contact: Contact made below 1 mm/s; every one, Contact: Contact made
         if obj.Compare == "Below":
@@ -1528,9 +1546,49 @@ def describeSensor(obj):
             text = "{}: {}"
     elif obj.Compare == "Below":
         text = translate("Assembly", "{}: {} below {}")
+    elif obj.Compare == "Crosses":
+        text = translate("Assembly", "{}: {} crossing {}")
     else:
         text = translate("Assembly", "{}: {} above {}")
-    obj.Label = text.format(obj.Source.Label, label, value.strip())
+    text = text.format(obj.Source.Label, label, value.strip())
+    # The trip it acts on, the first unsaid: Contact: ..., at the 3rd
+    if obj.Count > 1:
+        if obj.Action == "Mark":
+            text = translate("Assembly", "{}, from the {}").format(text, ordinal(obj.Count))
+        else:
+            text = translate("Assembly", "{}, at the {}").format(text, ordinal(obj.Count))
+    obj.Label = text
+
+
+def ordinal(n):
+    """1st, 2nd, 3rd, 4th, ..., 11th, 12th, 13th, 21st"""
+    if n % 100 in (11, 12, 13):
+        return "%dth" % n
+    return "%d%s" % (n, {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+
+
+def sensorPair(obj):
+    """The components of the pair a sensor on contact events watches, those
+    the run uses: two at most; none for another quantity"""
+    if obj.Quantity not in SensorEvents:
+        return []
+    return [o for o in getattr(obj, "Pair", []) if o is not None][:2]
+
+
+def contactComponents(contact):
+    """The components a contact set's pairs are of, for a sensor's pair"""
+    out = []
+    for name in ("GroupA", "GroupB"):
+        out += list(getattr(contact, name, None) or [])
+    for name in ("ProfileA", "ProfileB"):
+        link = getattr(contact, name, None)
+        if link:
+            out.append(link[0])
+    seen = []
+    for o in out:
+        if o is not None and o not in seen:
+            seen.append(o)
+    return seen
 
 
 class ViewProviderSensor:
@@ -1621,11 +1679,38 @@ class SensorDialog:
         layout.addWidget(self.compareCombo, 3, 1)
         layout.addWidget(self.thresholdBox, 3, 2)
 
+        # A contact's events: of a pair with these components
+        self.pairCombos = [QComboBox(self.dialog), QComboBox(self.dialog)]
+        for combo in self.pairCombos:
+            combo.setToolTip(
+                translate(
+                    "Assembly",
+                    "The pair whose contacts count: one component, any pair with it;\n"
+                    "two, that pair; any, every pair of the set",
+                )
+            )
+        self.pairLabel = QLabel(translate("Assembly", "Between"))
+        layout.addWidget(self.pairLabel, 4, 0)
+        layout.addWidget(self.pairCombos[0], 4, 1)
+        layout.addWidget(self.pairCombos[1], 4, 2)
+
         self.actionCombo = QComboBox(self.dialog)
         self.actionCombo.addItem(translate("Assembly", "Stop the run there"), "Stop")
         self.actionCombo.addItem(translate("Assembly", "Mark the time and go on"), "Mark")
-        layout.addWidget(QLabel(translate("Assembly", "Then")), 4, 0)
-        layout.addWidget(self.actionCombo, 4, 1, 1, 2)
+        layout.addWidget(QLabel(translate("Assembly", "Then")), 5, 0)
+        layout.addWidget(self.actionCombo, 5, 1, 1, 2)
+
+        self.countBox = QtWidgets.QSpinBox(self.dialog)
+        self.countBox.setRange(1, 1000000)
+        self.countBox.setToolTip(
+            translate(
+                "Assembly",
+                "The trip it acts on, 1 the first: those before are let by.\n"
+                "A sensor that marks marks that one and each after it.",
+            )
+        )
+        layout.addWidget(QLabel(translate("Assembly", "On trip")), 6, 0)
+        layout.addWidget(self.countBox, 6, 1)
 
         note = QLabel(
             translate(
@@ -1635,14 +1720,14 @@ class SensorDialog:
                 "made or let go, each pair's, trips it by its speed in or out (Dynamic only).",
             )
         )
-        layout.addWidget(note, 5, 0, 1, 3)
+        layout.addWidget(note, 7, 0, 1, 3)
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self.dialog
         )
         buttons.accepted.connect(self.dialog.accept)
         buttons.rejected.connect(self.dialog.reject)
         self.okButton = buttons.button(QDialogButtonBox.Ok)
-        layout.addWidget(buttons, 6, 0, 1, 3)
+        layout.addWidget(buttons, 8, 0, 1, 3)
 
         self.sourceCombo.currentIndexChanged.connect(self.fillQuantities)
         self.quantityCombo.currentIndexChanged.connect(self.showQuantity)
@@ -1657,12 +1742,33 @@ class SensorDialog:
             self.componentCombo.setCurrentIndex(
                 max(0, self.componentCombo.findData(obj.Component))
             )
+            self.showQuantity()
             self.compareCombo.setCurrentIndex(max(0, self.compareCombo.findData(obj.Compare)))
             self.actionCombo.setCurrentIndex(max(0, self.actionCombo.findData(obj.Action)))
             self.thresholdBox.setValue(obj.Threshold.Value * thresholdFactor(obj.Quantity))
+            self.countBox.setValue(obj.Count)
+            for combo, part in zip(self.pairCombos, sensorPair(obj)):
+                combo.setCurrentIndex(max(0, combo.findData(part)))
         self.showQuantity()
 
+    def fillPair(self):
+        """The components the source's pairs are of; any, first"""
+        source = self.sourceCombo.currentData()
+        parts = []
+        if sensorSourceKind(source) == "Contact":
+            parts = contactComponents(source)
+            if not parts:
+                parts = UtilsAssembly.getMovablePartsWithin(self.assembly)
+        for combo in self.pairCombos:
+            current = combo.currentData()
+            combo.clear()
+            combo.addItem(translate("Assembly", "Any component"), None)
+            for part in parts:
+                combo.addItem(part.Label, part)
+            combo.setCurrentIndex(max(0, combo.findData(current)))
+
     def fillQuantities(self):
+        self.fillPair()
         current = self.quantityCombo.currentData()
         self.quantityCombo.blockSignals(True)
         self.quantityCombo.clear()
@@ -1679,13 +1785,25 @@ class SensorDialog:
         vector = quantity in SensorVectors
         self.componentLabel.setEnabled(vector)
         self.componentCombo.setEnabled(vector)
-        # An event's speed is at or above the threshold, or below it
-        if quantity in SensorEvents:
+        # An event's speed is at or above the threshold, or below it; a
+        # value's can cross it either way
+        events = quantity in SensorEvents
+        if events:
             self.compareCombo.setItemText(0, translate("Assembly", "Speed at least"))
             self.compareCombo.setItemText(1, translate("Assembly", "Speed below"))
+            if self.compareCombo.count() > 2:
+                crossing = self.compareCombo.currentIndex() == 2
+                self.compareCombo.removeItem(2)
+                if crossing:
+                    self.compareCombo.setCurrentIndex(0)
         else:
             self.compareCombo.setItemText(0, translate("Assembly", "Rises above"))
             self.compareCombo.setItemText(1, translate("Assembly", "Falls below"))
+            if self.compareCombo.count() < 3:
+                self.compareCombo.addItem(translate("Assembly", "Crosses"), "Crosses")
+        self.pairLabel.setEnabled(events)
+        for combo in self.pairCombos:
+            combo.setEnabled(events)
         unit = ResultQuantities.get(quantity, ("", 1.0, ""))[2]
         self.thresholdBox.setSuffix(" " + unit if unit else "")
         self.okButton.setEnabled(quantity is not None)
@@ -1698,6 +1816,14 @@ class SensorDialog:
         obj.Compare = self.compareCombo.currentData()
         obj.Action = self.actionCombo.currentData()
         obj.Threshold = self.thresholdBox.value() / thresholdFactor(quantity)
+        obj.Count = self.countBox.value()
+        pair = []
+        if quantity in SensorEvents:
+            for combo in self.pairCombos:
+                part = combo.currentData()
+                if part is not None and part not in pair:
+                    pair.append(part)
+        obj.Pair = pair
         describeSensor(obj)
 
     def exec_(self):

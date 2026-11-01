@@ -87,6 +87,20 @@ class TestSheetMetalBaseWall(unittest.TestCase):
         self.assertAlmostEqual(wall.Shape.Volume, 400)
         self.assertAlmostEqual(wall.SheetModel["Thickness"], 2)
 
+    def testPlateLeavesProfileValues(self):
+        """Length, Reversed and Midplane are a profile wall's: read only on a
+        plate, editable again when its sketch opens"""
+        sketch = self.sketch([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True)
+        wall = self.wall(sketch)
+        for name in ("Length", "Reversed", "Midplane"):
+            self.assertIn("ReadOnly", wall.getPropertyStatus(name), name)
+        self.assertNotIn("ReadOnly", wall.getPropertyStatus("MaterialSide"))
+        sketch.delGeometry(3)
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", wall.State)
+        for name in ("Length", "Reversed", "Midplane"):
+            self.assertNotIn("ReadOnly", wall.getPropertyStatus(name), name)
+
     def checkL(self, side, setback):
         """An L of legs 20 and 10, 15 long; setback is where the sketch's
         corner leaves each leg's straight part, by the side"""

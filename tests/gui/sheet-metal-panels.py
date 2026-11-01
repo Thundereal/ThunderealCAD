@@ -9,7 +9,10 @@
     flange's; the edge removed leaves it saying why it is invalid; another
     edge picked with Add is listed and the flange good again;
   - Extend Wall's panel lists its face, its length set there;
-  - Cancel on a new base wall takes it away.
+  - Cancel on a new base wall takes it away;
+  - the panel says its values in words (Material side, Outer sharp), a
+    plate's Length, Reversed and Midplane greyed out, as the plate does not
+    use them, and a value set from Python while it is open shown in its box.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
@@ -68,6 +71,12 @@ def panel():
         if w.objectName() and w.isVisible():
             found.setdefault(w.objectName(), w)
     return found
+
+
+def labels():
+    view = FreeCADGui.getMainWindow().findChild(QtWidgets.QWidget, "TaskView")
+    return [w.text() for w in (view or FreeCADGui.getMainWindow()).findChildren(QtWidgets.QLabel)
+            if w.isVisible()]
 
 
 def edgeAt(feature, y, z):
@@ -129,6 +138,13 @@ def run():
         status = w.get("labelStatus")
         check("no status while it is good", status is not None and status.text() == "")
         check("while the panel is open the tool bar is offered", offered())
+        check("the panel says its values in words", "Material side" in labels(), labels())
+        check(
+            "a plate's Length, Reversed and Midplane greyed out",
+            all(n in w and not w[n].isEnabled() for n in ("Length", "Reversed", "Midplane"))
+            and w["MaterialSide"].isEnabled(),
+            [(n, w[n].isEnabled()) for n in ("Length", "Reversed", "Midplane") if n in w],
+        )
 
         side = w.get("MaterialSide")
         side.setCurrentIndex(2)
@@ -163,6 +179,16 @@ def run():
         doc.recompute()
         check("the angle set there is the flange's", abs(flange.Angle.Value - 45) < 1e-9,
               flange.Angle.Value)
+        kinds = w.get("LengthType")
+        items = [kinds.itemText(i) for i in range(kinds.count())] if kinds else []
+        check("the choices in words too", "Outer sharp" in items, items)
+        flange.Length = 17
+        pump(10)
+        check(
+            "a value set from Python shows in its box",
+            abs(w["Length"].property("rawValue") - 17) < 1e-9,
+            w["Length"].property("rawValue"),
+        )
         edges.setCurrentRow(0)
         w["buttonRemove"].click()
         pump(20)

@@ -50,6 +50,25 @@ class TestSketch3D(unittest.TestCase):
     def assertVector(self, a, b, tol=1e-7):
         self.assertLess((a - b).Length, tol, f"{a} != {b}")
 
+    def testDiagnosisAfterUndo(self):
+        """Undo and redo leave the diagnosis of what is there, not of what
+        was undone"""
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        line = sk.addGeometry(Part.LineSegment(V(0, 0, 0), V(10, 1, 2)))
+        sk.addConstraint(Sketcher.Constraint("AlongX", line))
+        self.doc.UndoMode = 1
+        self.doc.openTransaction("redundant")
+        sk.addConstraint(Sketcher.Constraint("DistanceX", line, 10.0))
+        sk.addConstraint(Sketcher.Constraint("Distance", line, 10.0))
+        self.doc.commitTransaction()
+        self.assertEqual(sk.Redundant, [2])
+        self.doc.undo()
+        self.assertEqual(len(sk.Constraints), 1)
+        self.assertEqual((sk.Redundant, sk.Conflicting, sk.DoF), ([], [], 4))
+        self.doc.redo()
+        self.assertEqual(len(sk.Constraints), 3)
+        self.assertEqual(sk.Redundant, [2])
+
     def testPathSolves(self):
         sk = self.doc.addObject("Sketcher::Sketch3DObject", "Path")
         addPath(sk)
@@ -67,6 +86,8 @@ class TestSketch3D(unittest.TestCase):
 
     def testDiagnosis(self):
         sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        # a new one, nothing in it: fully constrained, not unknown
+        self.assertEqual(sk.DoF, 0)
         line = sk.addGeometry(Part.LineSegment(V(0, 0, 0), V(10, 1, 2)))
         self.assertEqual(sk.DoF, 6)
         sk.addConstraint(Sketcher.Constraint("AlongX", line))

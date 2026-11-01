@@ -425,6 +425,11 @@ bool DatumValueEditor::isModified() const
         || driving != target.driving || measure != target.measure;
 }
 
+void DatumValueEditor::setTextReader(TextReader reader)
+{
+    textReader = std::move(reader);
+}
+
 void DatumValueEditor::showError(const QString& message)
 {
     result = message;
@@ -470,9 +475,16 @@ void DatumValueEditor::checkText()
     }
     else if (!text.isEmpty()) {
         Base::Quantity value;
+        QString says;
         if (!parseValue(text, value)) {
-            message = tr("Not a value");
-            level = 3;
+            if (textReader && textReader(text, says)) {
+                message = says;
+                level = 1;
+            }
+            else {
+                message = tr("Not a value");
+                level = 3;
+            }
         }
     }
     if (message != result || level != resultLevel) {

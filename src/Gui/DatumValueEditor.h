@@ -22,6 +22,7 @@
 #ifndef GUI_DATUMVALUEEDITOR_H
 #define GUI_DATUMVALUEEDITOR_H
 
+#include <functional>
 #include <memory>
 
 #include <QIcon>
@@ -175,6 +176,12 @@ public:
     bool isModified() const;
     /// Say under the line why what was typed was refused
     void showError(const QString& message);
+    /** Text its owner takes beyond a value or an expression -- the 3D
+     * sketch's three offsets, a dimension's kind ("z 12"): true for such
+     * text, with what Enter will do with it in \a says, shown in place of
+     * "Not a value". */
+    using TextReader = std::function<bool(const QString& text, QString& says)>;
+    void setTextReader(TextReader reader);
 
     void setKeysTo(Field field);
     /// Whether a widget of it has the Qt focus. Never on a view without widgets.
@@ -261,6 +268,7 @@ private:
     QString ownText;
     QString result;
     int resultLevel = 0;
+    TextReader textReader;
     QTimer checkTimer;
     SoNodeSensor* labelSensor = nullptr;
     SoNodeSensor* cameraSensor = nullptr;

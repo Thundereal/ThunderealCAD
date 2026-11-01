@@ -1352,6 +1352,40 @@ bool ViewProviderSketch3D::release(const SbVec2s& /*pos*/)
     return dragged;
 }
 
+namespace
+{
+
+/// A quantity's value, its unit dropped
+bool quantityOf(const QString& s, double& v)
+{
+    try {
+        v = Base::Quantity::parse(s.trimmed().toStdString()).getValue();
+        return true;
+    }
+    catch (const Base::Exception&) {
+        return false;
+    }
+}
+
+/// Three offsets typed for a placement, "dx, dy, dz": commas, semicolons or
+/// spaces between
+bool threeOffsets(const QString& text, double v[3])
+{
+    static const QRegularExpression separators(QStringLiteral("[,;]|\\s+(?=[-+.0-9])"));
+    QStringList parts = text.split(separators, Qt::SkipEmptyParts);
+    return parts.size() == 3 && quantityOf(parts[0], v[0]) && quantityOf(parts[1], v[1])
+        && quantityOf(parts[2], v[2]);
+}
+
+/// A distance's kind typed with its value: "x 20", "y 20", "z 20", "d 20"
+const QRegularExpression& kindText()
+{
+    static const QRegularExpression re(QStringLiteral("^\\s*([xyzdXYZD])\\s*([-+.0-9].*)$"));
+    return re;
+}
+
+}  // namespace
+
 namespace SketcherGui
 {
 
@@ -1383,6 +1417,11 @@ public:
     void setText(const QString& text)
     {
         editor->setText(text);
+    }
+
+    void setTextReader(Gui::DatumValueEditor::TextReader reader)
+    {
+        editor->setTextReader(std::move(reader));
     }
 
     void finish()
@@ -1458,6 +1497,18 @@ bool ViewProviderSketch3D::startTypedPlacement(const QString& text)
                     edit->placing = nullptr;
                 }
             });
+        // three offsets are no value, but Enter takes them: said as what they do
+        edit->placing->setTextReader([](const QString& typed, QString& says) {
+            double v[3];
+            if (!threeOffsets(typed, v)) {
+                return false;
+            }
+            says = QObject::tr("A point at %1, %2, %3 from the last")
+                       .arg(QString::number(v[0], 'g', 6),
+                            QString::number(v[1], 'g', 6),
+                            QString::number(v[2], 'g', 6));
+            return true;
+        });
     }
     edit->placing->setText(text);
     return true;
@@ -1479,25 +1530,13 @@ bool ViewProviderSketch3D::placeTyped(const QString& text, QString* why)
     if (!edit || edit->tool == Tool::None || edit->tool == Tool::Fillet) {
         return fail(QObject::tr("No tool placing points"));
     }
-    auto quantity = [](const QString& s, double& v) {
-        try {
-            v = Base::Quantity::parse(s.trimmed().toStdString()).getValue();
-            return true;
-        }
-        catch (const Base::Exception&) {
-            return false;
-        }
-    };
     // one value, a length; else three, the offsets
     double length = 0.;
     Base::Vector3d offset;
-    bool isLength = quantity(text, length);
+    bool isLength = quantityOf(text, length);
     if (!isLength) {
-        static const QRegularExpression separators(QStringLiteral("[,;]|\\s+(?=[-+.0-9])"));
-        QStringList parts = text.split(separators, Qt::SkipEmptyParts);
         double v[3];
-        if (parts.size() != 3 || !quantity(parts[0], v[0]) || !quantity(parts[1], v[1])
-            || !quantity(parts[2], v[2])) {
+        if (!threeOffsets(text, v)) {
             return fail(QObject::tr("A length, or three offsets: dx, dy, dz"));
         }
         offset = Base::Vector3d(v[0], v[1], v[2]);
@@ -2846,6 +2885,19 @@ public:
         Base::Placement plane =
             Base::Placement(vp->editingTransform()) * vp->edit->labelPlanes[index];
         editor = std::make_unique<Gui::DatumValueEditor>(viewer, plane);
+        // a distance's kind with its value is no value, but Enter takes it
+        editor->setTextReader([](const QString& typed, QString& says) {
+            auto match = kindText().match(typed);
+            double v = 0;
+            if (!match.hasMatch() || !quantityOf(match.captured(2), v)) {
+                return false;
+            }
+            const QChar kind = match.captured(1).at(0).toUpper();
+            says = kind == QLatin1Char('D')
+                ? QObject::tr("Distance %1").arg(match.captured(2).trimmed())
+                : QObject::tr("Distance %1 %2").arg(kind).arg(match.captured(2).trimmed());
+            return true;
+        });
         editor->setDrivingIcons(
             Gui::BitmapFactory().iconFromTheme("Sketcher_Toggle_Constraint_Driving"),
             Gui::BitmapFactory().iconFromTheme("Sketcher_Toggle_Constraint_Driven"));
@@ -2964,9 +3016,7 @@ public:
      */
     int retyped(int index)
     {
-        static const QRegularExpression kindText(
-            QStringLiteral("^\\s*([xyzdXYZD])\\s*([-+.0-9].*)$"));
-        auto match = kindText.match(editor->text());
+        auto match = kindText().match(editor->text());
         if (!match.hasMatch()) {
             return 0;
         }

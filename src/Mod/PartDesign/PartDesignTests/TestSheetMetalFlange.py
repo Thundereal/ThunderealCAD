@@ -250,6 +250,12 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.assertNotIn("Invalid", flat.State)
         self.assertEqual(flat.BendCount, 4)
         self.assertAlmostEqual(flat.Shape.Solids[0].Volume, flange.Shape.Volume, delta=1.0)
+        # the box's flat, by hand (sec 9, M1): each side the plate cut back
+        # R + T at both ends, and two legs of the bend's allowance
+        # (R + T / 2) pi / 2 and the straight 8
+        leg = 1.5 * math.pi / 2 + 8
+        self.assertAlmostEqual(flat.FlatLength.Value, 40 - 2 * 2 + 2 * leg, places=6)
+        self.assertAlmostEqual(flat.FlatWidth.Value, 20 - 2 * 2 + 2 * leg, places=6)
 
     def testNoMiterApart(self):
         """Edges that do not meet, or flanges bent to opposite sides, are

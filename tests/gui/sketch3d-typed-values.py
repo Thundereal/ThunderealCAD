@@ -7,6 +7,7 @@
     frame, with X and Z distances for the non-zero ones;
   - text that is neither is refused and the entry stays; Escape closes it;
   - a new distance's entry takes "z 7": the dimension becomes Distance Z, 7;
+  - the entry says what three offsets and a kind will do, not "Not a value";
   - after a ring turned the manipulator, its entry takes the angle exactly.
 
 The entries are typed into as a user types (the focused line of the value
@@ -68,6 +69,19 @@ def click(vp, p):
 
 def hover(vp, p):
     vp.move(*vp.toView(p))
+
+
+def editor_says():
+    for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QLabel, "DatumValueEditorResult"):
+        if w.isVisible():
+            return w.text()
+    return ""
+
+
+def enter():
+    w = QtWidgets.QApplication.focusWidget()
+    QtTest.QTest.keyClick(w, QtCore.Qt.Key_Return)
+    settle(0.2)
 
 
 def type_in(text, enter=True):
@@ -136,7 +150,14 @@ def run():
         click(vp, V(0, 20, 0))
         n = len(sk.Geometry)
         vp.startTypedPlacement("1")
-        type_in("0, 0, 5")
+        type_in("0, 0, 5", enter=False)
+        says = editor_says()
+        check(
+            "the entry says what three values will do, not 'Not a value'",
+            says and "Not a value" not in says and "10" in says,
+            says,
+        )
+        enter()
         g = sk.Geometry[n] if len(sk.Geometry) > n else None
         ok = check("three values: a point at that offset", g is not None, g)
         if ok:
@@ -186,7 +207,14 @@ def run():
         w = QtWidgets.QApplication.focusWidget()
         if isinstance(w, QtWidgets.QLineEdit):
             w.selectAll()
-        type_in("z 7")
+        type_in("z 7", enter=False)
+        says = editor_says()
+        check(
+            "and says what 'z 7' will make",
+            says and "Not a value" not in says and "Z" in says,
+            says,
+        )
+        enter()
         last = sk.Constraints[-1]
         check("'z 7' makes it Distance Z", last.Type == "DistanceZ", last.Type)
         gq, gp = sk.Geometry[q], sk.Geometry[p]

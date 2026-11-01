@@ -24,10 +24,14 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numbers>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
@@ -52,6 +56,7 @@
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <gp_Vec.hxx>
 
@@ -186,15 +191,86 @@ gp_Trsf rootToXY(const Model& model, int root, bool secondSkin)
     return t;
 }
 
+/// What turns the flat about Z so that the image of edge runs along X
+gp_Trsf alongXOf(const TopoDS_Shape& folded, const Mapper& mapper, const TopoDS_Edge& edge)
+{
+    TopTools_IndexedDataMapOfShapeListOfShape faces;
+    TopExp::MapShapesAndAncestors(folded, TopAbs_EDGE, TopAbs_FACE, faces);
+    const int index = faces.FindIndex(edge);
+    int owner = -1;
+    if (index > 0) {
+        for (const TopoDS_Shape& face : faces(index)) {
+            owner = mapper.model.owner(TopoDS::Face(face));
+            if (owner >= 0) {
+                break;
+            }
+        }
+    }
+    if (owner < 0) {
+        THROWM(Base::ValueError, "The edge to lay the flat by is on no wall or bend of the part");
+    }
+    BRepAdaptor_Curve c(edge);
+    const double f = c.FirstParameter(), l = c.LastParameter();
+    std::vector<gp_Pnt> pts;
+    for (int i = 0; i <= 8; ++i) {
+        pts.push_back(mapper.map(owner, c.Value(f + (l - f) * i / 8)));
+    }
+    gp_Vec chord(pts.front(), pts.back());
+    chord.SetZ(0);
+    bool straight = chord.Magnitude() > Precision::Confusion();
+    for (const gp_Pnt& p : pts) {
+        if (!straight) {
+            break;
+        }
+        gp_Vec v(pts.front(), p);
+        v.SetZ(0);
+        straight = v.Crossed(chord).Magnitude() / chord.Magnitude() <= Precision::Confusion();
+    }
+    if (!straight) {
+        THROWM(Base::ValueError,
+               "The edge to lay the flat by does not lie straight along the flat");
+    }
+    gp_Trsf turn;
+    turn.SetRotation(gp::OZ(), -std::atan2(chord.Y(), chord.X()));
+    return turn;
+}
+
 }  // namespace
 
-FlatResult flatten(const TopoDS_Shape& folded, const Model& model, int root, bool secondSkin)
+std::vector<TopoDS_Edge> grainArrow(const TopoDS_Shape& solid, double angle)
+{
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(solid, box, /*useTriangulation*/ false, /*useShapeTolerance*/ false);
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    const double length = 0.4 * std::min(x1 - x0, y1 - y0);
+    const gp_Pnt mid((x0 + x1) / 2, (y0 + y1) / 2, z1);
+    const gp_Vec along(std::cos(angle), std::sin(angle), 0);
+    const gp_Pnt tip = mid.Translated(along * (length / 2));
+    const gp_Pnt tail = mid.Translated(along * (-length / 2));
+    std::vector<TopoDS_Edge> res {BRepBuilderAPI_MakeEdge(tail, tip)};
+    for (double side : {1.0, -1.0}) {
+        const double a = angle + std::numbers::pi + side * std::numbers::pi / 6;
+        const gp_Vec back(std::cos(a), std::sin(a), 0);
+        res.push_back(BRepBuilderAPI_MakeEdge(tip, tip.Translated(back * (length / 4))));
+    }
+    return res;
+}
+
+FlatResult flatten(const TopoDS_Shape& folded,
+                   const Model& model,
+                   int root,
+                   bool secondSkin,
+                   const TopoDS_Edge& alongX)
 {
     if (root < 0 || root >= static_cast<int>(model.elements.size())
         || model.elements[root].kind != Element::Kind::Wall) {
         THROWM(Base::ValueError, "The flat's root is not a wall");
     }
-    const Mapper mapper {model, root, rootToXY(model, root, secondSkin)};
+    Mapper mapper {model, root, rootToXY(model, root, secondSkin)};
+    if (!alongX.IsNull()) {
+        mapper.toXY = alongXOf(folded, mapper, alongX) * mapper.toXY;
+    }
 
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(folded, TopAbs_FACE, faces);

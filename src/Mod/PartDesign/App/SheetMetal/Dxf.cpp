@@ -189,6 +189,9 @@ void writeDXF(std::ostream& out, const FlatResult& flat, bool tangents)
             w.edge("BEND_TANGENT", tangent);
         }
     }
+    for (const TopoDS_Edge& e : flat.grain) {
+        w.edge("GRAIN", e);
+    }
     w.pair(0, "ENDSEC");
     w.pair(0, "EOF");
 }

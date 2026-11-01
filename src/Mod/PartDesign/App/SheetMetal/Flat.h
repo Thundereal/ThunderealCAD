@@ -58,6 +58,8 @@ struct PartDesignExport FlatResult
     std::vector<BendLine> bendLines;
     /// Each face of the folded part and the face of the solid it lies flat as
     std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> faces;
+    /// The grain arrow, where asked for (grainArrow())
+    std::vector<TopoDS_Edge> grain;
 };
 
 /** Lay a folded sheet flat (docs/SheetMetal.md sec 4.7)
@@ -65,12 +67,21 @@ struct PartDesignExport FlatResult
  * Every face of the folded solid goes through the map of the element that
  * owns it: a wall's rigidly, a bend's unrolled. The root wall's skin --
  * its second if asked, else its first -- is laid on XY, the material above.
- * A pure function of its inputs, no document.
+ * A pure function of its inputs, no document. Given alongX, an edge of the
+ * folded part, the flat is turned about Z so that the edge's image runs
+ * along X, from its first parameter to its last.
  *
  * Throws Base::ValueError naming a face no element owns, a face of a bend
- * that does not lie flat as a plane, or a flat that does not close.
+ * that does not lie flat as a plane, a flat that does not close, or an
+ * alongX that is not on the part or does not lie straight along the flat.
  */
 PartDesignExport FlatResult flatten(const TopoDS_Shape& folded, const Model& model, int root,
-                                    bool secondSkin);
+                                    bool secondSkin, const TopoDS_Edge& alongX = TopoDS_Edge());
+
+/** The grain arrow on a flat solid: a shaft through the middle of its top,
+ * at angle (rad) from X, two fifths of its narrower side long, and the two
+ * lines of its head at the end it points to
+ */
+PartDesignExport std::vector<TopoDS_Edge> grainArrow(const TopoDS_Shape& solid, double angle);
 
 }  // namespace PartDesign::SheetMetal

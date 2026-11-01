@@ -38,8 +38,9 @@ namespace PartDesign::SheetMetal
  * From its face on XY: the outline on the layer OUTLINE, the inner
  * contours on INNER; the bend lines on BEND_UP and BEND_DOWN, each labelled
  * with its bend's name on LABELS; with tangents, each bend's tangent lines
- * on BEND_TANGENT. Lines, arcs and circles as they are, any other curve as
- * a polyline. Throws Base::ValueError for a flat with no face on XY.
+ * on BEND_TANGENT; its grain arrow on GRAIN. Lines, arcs and circles as they
+ * are, any other curve as a polyline. Throws Base::ValueError for a flat
+ * with no face on XY.
  */
 PartDesignExport void writeDXF(std::ostream& out, const FlatResult& flat, bool tangents = false);
 

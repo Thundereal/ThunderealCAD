@@ -60,6 +60,12 @@ public:
     App::PropertyLink Source;
     /// Each bend's tangent lines in the shape and the DXF
     App::PropertyBool TangentLines;
+    /// An edge of the folded part whose image the flat is turned to run along X
+    App::PropertyLinkSub AlignEdge;
+    /// The grain arrow in the shape and the DXF
+    App::PropertyBool Grain;
+    /// The grain's direction, from the flat's X
+    App::PropertyAngle GrainAngle;
     /// The wall's skin laid on XY; the first wall's first skin if none
     App::PropertyLinkSub RootFace;
 

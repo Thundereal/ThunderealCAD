@@ -81,6 +81,22 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       App::Prop_None,
                       "Draw each bend's tangent lines, where the bend meets its walls, in the "
                       "flat and its DXF");
+    ADD_PROPERTY_TYPE(AlignEdge,
+                      (nullptr),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "An edge of the folded part: the flat is turned about Z so that it runs "
+                      "along X");
+    ADD_PROPERTY_TYPE(Grain,
+                      (false),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Draw the grain or rolling direction as an arrow on the flat and in its DXF");
+    ADD_PROPERTY_TYPE(GrainAngle,
+                      (0.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The grain's direction, from the flat's X");
     Placement.setStatus(App::Property::Hidden, true);
 
     const auto out = App::PropertyType(App::Prop_Output | App::Prop_ReadOnly);
@@ -152,10 +168,29 @@ SheetMetal::FlatResult SheetMetalFlatPattern::buildFlat(SheetMetalExtension*& sh
             }
         }
 
+        TopoDS_Edge alongX;
+        if (AlignEdge.getValue() && !AlignEdge.getSubValues().empty()) {
+            if (AlignEdge.getValue() != source) {
+                THROWM(Base::ValueError,
+                       "The edge to lay the flat by is not on the part laid flat");
+            }
+            const TopoShape edge = folded.getSubTopoShape(AlignEdge.getSubValues().front().c_str(),
+                                                          /*silent*/ true);
+            if (edge.isNull() || edge.getShape().ShapeType() != TopAbs_EDGE) {
+                THROWM(Base::ValueError, "The edge to lay the flat by is not an edge");
+            }
+            alongX = TopoDS::Edge(edge.getShape());
+        }
+
         if (foldedOut) {
             *foldedOut = folded;
         }
-        return SheetMetal::flatten(folded.getShape(), model, root, secondSkin);
+        auto res = SheetMetal::flatten(folded.getShape(), model, root, secondSkin, alongX);
+        if (Grain.getValue()) {
+            res.grain = SheetMetal::grainArrow(res.solid,
+                                               Base::toRadians(GrainAngle.getValue()));
+        }
+        return res;
     }
 }
 
@@ -216,6 +251,17 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
         if (!tangents.empty()) {
             parts.push_back(TopoShape(0, getDocument()->getStringHasher())
                                 .makECompound(tangents, nullptr, /*force*/ true));
+        }
+        std::vector<TopoShape> grain;
+        for (std::size_t k = 0; k < flat.grain.size(); ++k) {
+            TopoShape edge(flat.grain[k]);
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
+                                Data::MappedName(k ? "GrainHead" + std::to_string(k) : "Grain"));
+            grain.push_back(edge);
+        }
+        if (!grain.empty()) {
+            parts.push_back(TopoShape(0, getDocument()->getStringHasher())
+                                .makECompound(grain, nullptr, /*force*/ true));
         }
         TopoShape res(0, getDocument()->getStringHasher());
         res.makECompound(parts, nullptr, /*force*/ true);

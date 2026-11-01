@@ -743,7 +743,14 @@ and not frozen.
     where it meets its walls, on the bend line's skin, the allowance apart; a third compound in
     the shape, named `Bend1Tangent1`, `Bend1Tangent2`, and the layer `BEND_TANGENT` in the DXF.
     Tested by `testTangentLines`.
-  - Still to come in M1: the flat's orientation (a picked edge, the grain arrow), and the SVG.
+  - The flat's orientation: `AlignEdge`, an edge of the folded part, turns the flat about Z so
+    that the edge's image runs along X (from its first parameter to its last); one that does not
+    lie straight along the flat (a hole's circle) is refused by name. `Grain` (off by default)
+    draws the grain or rolling direction, `GrainAngle` from the flat's X, as an arrow of three
+    lines on the flat's top through its middle, named `Grain`, `GrainHead1`, `GrainHead2`, and on
+    the layer `GRAIN` in the DXF. Tested by `testAlignEdge`, `testAlignEdgeNotStraight`,
+    `testGrain`.
+  - Still to come in M1: the SVG.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

@@ -361,3 +361,185 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.Doc.recompute()
         self.assertAlmostEqual(flange.Shape.Volume, volume)
         self.assertEqual(flange.SheetModel, model)
+
+    # The leg's shape from a closed sketch (sec 5.1): the sketch lies parallel
+    # to the leg, its outline standing on the outer virtual sharp. Through the
+    # bend it is a rectangle, which sets the bend's width; above the bend it
+    # is the leg, holes and all. The far flange's leg stands in y = 20, the
+    # sharp at z = 0, the bend reaching z = 2 (R + T at 90 deg).
+
+    def legSketch(self, points, holes=(), plane=None, name="LegSketch"):
+        """A closed sketch of points (x, z) in the plane y = 20, circles
+        (x, z, r) for holes"""
+        sketch = self.Body.newObject("Sketcher::SketchObject", name)
+        sketch.Placement = plane or FreeCAD.Placement(
+            V(0, 20, 0), FreeCAD.Rotation(V(1, 0, 0), 90)
+        )
+        for i in range(len(points)):
+            a, b = points[i], points[(i + 1) % len(points)]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        for x, z, r in holes:
+            sketch.addGeometry(Part.Circle(V(x, z, 0), V(0, 0, 1), r))
+        self.Doc.recompute()
+        return sketch
+
+    def testProfileRectangle(self):
+        """A rectangle as wide as the edge and 10 high is the plain flange,
+        OuterSharp 10; the values it takes the place of are read only"""
+        sketch = self.legSketch([(0, 0), (40, 0), (40, 10), (0, 10)])
+        flange = self.far(Profile=sketch)
+        self.checkValid(flange)
+        self.assertAlmostEqual(flange.Shape.Volume, 40 * 18 + 40 * RING + 40 * 8, places=6)
+        box = flange.Shape.BoundBox
+        self.assertAlmostEqual(box.YMax, 20)
+        self.assertAlmostEqual(box.ZMax, 10)
+        self.assertNotIn(None, self.owners(flange))
+        for name in ("Length", "LengthType", "Gap1", "Gap2"):
+            self.assertIn("ReadOnly", flange.getPropertyStatus(name), name)
+        flange.Profile = None
+        self.Doc.recompute()
+        for name in ("Length", "LengthType", "Gap1", "Gap2"):
+            self.assertNotIn("ReadOnly", flange.getPropertyStatus(name), name)
+
+    def testProfileNarrower(self):
+        """A profile narrower than the edge is the flange with gaps"""
+        sketch = self.legSketch([(10, 0), (30, 0), (30, 10), (10, 10)])
+        flange = self.far(Profile=sketch)
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 20 * 2 + 20 * RING + 20 * 8, places=6
+        )
+        box = flange.Shape.BoundBox
+        self.assertAlmostEqual(box.XMin, 0)
+        self.assertAlmostEqual(box.XMax, 40)
+        # the bend spans the profile only
+        bend = [e for e in flange.SheetModel["Elements"] if e["Name"] == "Bend1"]
+        self.assertEqual(len(bend), 1)
+
+    def testProfileShape(self):
+        """A tapered leg with a hole: the bend 30 wide (x 5..35), the leg a
+        trapezoid from z = 2, 30 wide there and 20 at z = 10, a hole of
+        radius 2 in it; edited, the flange follows; the flat has the hole"""
+        sketch = self.legSketch(
+            [(5, 0), (35, 0), (35, 2), (30, 10), (10, 10), (5, 2)], holes=[(20, 6, 2)]
+        )
+        flange = self.far(Profile=sketch)
+        self.checkValid(flange)
+        leg = (30 + 20) / 2 * 8 - math.pi * 4
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 + 30 * RING + leg, places=6
+        )
+        self.assertNotIn(None, self.owners(flange))
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertTrue(flat.Shape.isValid())
+        circles = [
+            e
+            for e in flat.Shape.Edges
+            if isinstance(e.Curve, Part.Circle) and abs(e.Curve.Radius - 2) < 1e-6
+        ]
+        self.assertTrue(circles)
+        # the hole moved up the leg in the sketch moves in the flange
+        sketch.delGeometry(6)
+        sketch.addGeometry(Part.Circle(V(20, 7, 0), V(0, 0, 1), 1))
+        self.Doc.recompute()
+        self.checkValid(flange)
+        leg = (30 + 20) / 2 * 8 - math.pi
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 + 30 * RING + leg, places=6
+        )
+
+    def testProfileWiderLeg(self):
+        """A leg wider than its bend above it: the bend x 10..30, the leg
+        x 5..35 from z = 4"""
+        sketch = self.legSketch(
+            [(10, 0), (30, 0), (30, 4), (35, 4), (35, 10), (5, 10), (5, 4), (10, 4)]
+        )
+        flange = self.far(Profile=sketch)
+        self.checkValid(flange)
+        leg = 20 * 2 + 30 * 6
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 20 * 2 + 20 * RING + leg, places=6
+        )
+
+    def testProfileOffPlane(self):
+        """The sketch may be anywhere parallel to the leg: it is taken onto
+        the leg's plane"""
+        sketch = self.legSketch(
+            [(0, 0), (40, 0), (40, 10), (0, 10)],
+            plane=FreeCAD.Placement(V(0, 35, 0), FreeCAD.Rotation(V(1, 0, 0), 90)),
+        )
+        flange = self.far(Profile=sketch)
+        self.checkValid(flange)
+        self.assertAlmostEqual(flange.Shape.Volume, 40 * 18 + 40 * RING + 40 * 8, places=6)
+
+    def testProfileErrors(self):
+        """Refused: a sketch not parallel to the leg, one not standing on the
+        sharp, one reaching past it, one narrowing within the bend, an open
+        one, a profile on two edges, a profile with UpToFace"""
+        flange = self.far()
+        cases = {
+            "not parallel": self.legSketch(
+                [(0, 0), (40, 0), (40, 10), (0, 10)],
+                plane=FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation()),
+                name="Flat",
+            ),
+            "off the sharp": self.legSketch([(0, 1), (40, 1), (40, 10), (0, 10)], name="Up"),
+            "past the sharp": self.legSketch([(0, -1), (40, -1), (40, 10), (0, 10)], name="Down"),
+            "narrowing": self.legSketch(
+                [(0, 0), (40, 0), (40, 1), (30, 1.5), (30, 10), (10, 10), (10, 1.5), (0, 1)],
+                name="Narrow",
+            ),
+            "hole in the bend": self.legSketch(
+                [(0, 0), (40, 0), (40, 10), (0, 10)], holes=[(20, 1, 0.5)], name="Holed"
+            ),
+            "only the bend": self.legSketch([(0, 0), (40, 0), (40, 2), (0, 2)], name="Short"),
+        }
+        for what, sketch in cases.items():
+            flange.Profile = sketch
+            self.Doc.recompute()
+            self.assertIn("Invalid", flange.State, what)
+        opened = self.Body.newObject("Sketcher::SketchObject", "Open")
+        opened.Placement = FreeCAD.Placement(V(0, 20, 0), FreeCAD.Rotation(V(1, 0, 0), 90))
+        opened.addGeometry(Part.LineSegment(V(0, 0, 0), V(0, 10, 0)))
+        opened.addGeometry(Part.LineSegment(V(0, 10, 0), V(40, 10, 0)))
+        opened.addGeometry(Part.LineSegment(V(40, 10, 0), V(40, 0, 0)))
+        self.Doc.recompute()
+        flange.Profile = opened
+        self.Doc.recompute()
+        self.assertIn("Invalid", flange.State, "open")
+
+        good = self.legSketch([(0, 0), (40, 0), (40, 10), (0, 10)], name="Good")
+        flange.Profile = good
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        flange.Edges = (
+            self.Plate,
+            [
+                self.edge(self.Plate, (0, 20, 1), (40, 20, 1)),
+                self.edge(self.Plate, (0, 0, 1), (40, 0, 1)),
+            ],
+        )
+        self.Doc.recompute()
+        self.assertIn("Invalid", flange.State, "two edges")
+        flange.Edges = (self.Plate, [self.edge(self.Plate, (0, 20, 1), (40, 20, 1))])
+        flange.UpToFace = (self.Plate, ["Face1"])
+        self.Doc.recompute()
+        self.assertIn("Invalid", flange.State, "UpToFace")
+
+    def testProfileSaveAndRestore(self):
+        sketch = self.legSketch(
+            [(5, 0), (35, 0), (35, 2), (30, 10), (10, 10), (5, 2)], holes=[(20, 6, 2)]
+        )
+        flange = self.far(Profile=sketch)
+        volume = flange.Shape.Volume
+        path = os.path.join(tempfile.mkdtemp(), "flange-profile.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        flange = self.Doc.getObject("Flange")
+        self.assertEqual(flange.Profile.Name, "LegSketch")
+        self.assertIn("ReadOnly", flange.getPropertyStatus("Length"))
+        flange.touch()
+        self.Doc.recompute()
+        self.assertAlmostEqual(flange.Shape.Volume, volume, places=6)

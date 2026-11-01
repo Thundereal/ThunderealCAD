@@ -7,7 +7,10 @@
     takes it away again;
   - Flange opens its panel with its edge listed; the angle set there is the
     flange's; the edge removed leaves it saying why it is invalid; another
-    edge picked with Add is listed and the flange good again;
+    edge picked with Add is listed and the flange good again; its profile
+    offered from the body's sketches, one chosen greying out Length and the
+    gaps, a sketch not parallel to the leg said in its status, None taking it
+    away;
   - Extend Wall's panel lists its face, has its gaps, its Add says it picks
     faces, its length set there;
   - the flat pattern's panel, on a double-click: what it lays flat, its
@@ -213,6 +216,36 @@ def run():
             "another edge picked with Add is listed, the flange good again",
             edges.count() == 1 and "Invalid" not in flange.State and w["labelStatus"].text() == "",
             (edges.count(), flange.State, w["labelStatus"].text()),
+        )
+        profile = w.get("Profile")
+        items = [profile.itemText(i) for i in range(profile.count())] if profile else []
+        check("a profile offered from the body's sketches", items == ["None", "Sketch"], items)
+        profile.setCurrentIndex(1)
+        pump(20)
+        doc.recompute()
+        pump(10)
+        check(
+            "a profile chosen is the flange's, Length and the gaps greyed out",
+            flange.Profile == sketch
+            and all(not w[n].isEnabled() for n in ("Length", "LengthType", "Gap1", "Gap2"))
+            and w["Angle"].isEnabled(),
+            (flange.Profile, [(n, w[n].isEnabled()) for n in ("Length", "Gap1")]),
+        )
+        check(
+            "the base wall's sketch is no profile for it: it says why",
+            "parallel to the leg" in w["labelStatus"].text(),
+            w["labelStatus"].text(),
+        )
+        profile.setCurrentIndex(0)
+        pump(20)
+        doc.recompute()
+        pump(10)
+        check(
+            "None takes it away again",
+            flange.Profile is None
+            and w["Length"].isEnabled()
+            and "Invalid" not in flange.State,
+            (flange.Profile, flange.State),
         )
         accept()
         pump(20)

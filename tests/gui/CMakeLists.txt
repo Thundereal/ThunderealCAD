@@ -192,6 +192,10 @@ fc_add_gui_test(GuiServeSheetMetal_tests_run serve-sheet-metal.py
 # (docs/SheetMetal.md sec 5.1, 8.1).
 fc_add_gui_test(GuiSheetMetalPanels_tests_run sheet-metal-panels.py
                 --timeout 120)
+# Sheet metal's rule panel: its card, the values the card gives and the ones
+# set by hand, reset, OK and Cancel (docs/SheetMetal.md sec 4.6, 8.1).
+fc_add_gui_test(GuiSheetMetalRulePanel_tests_run sheet-metal-rule-panel.py
+                --timeout 120)
 # Geometry picked for a Surface feature is taken as a sketch takes external
 # geometry: through SubShapeBinder::import, outside the feature's body by a
 # binder in it -- by its commands and every panel.

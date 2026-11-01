@@ -86,6 +86,9 @@ ResultQuantities = {
     "ContactPenetration": (QT_TRANSLATE_NOOP("Assembly", "Contact penetration"), 1.0, "mm"),
     "FrictionForce": (QT_TRANSLATE_NOOP("Assembly", "Friction force"), 1e-3, "N"),
     "FrictionTorque": (QT_TRANSLATE_NOOP("Assembly", "Friction torque"), 1e-6, "N m"),
+    # A contact set's events, which a sensor watches by their speed
+    "ContactBegin": (QT_TRANSLATE_NOOP("Assembly", "Contact made"), 1.0, "mm/s"),
+    "ContactEnd": (QT_TRANSLATE_NOOP("Assembly", "Contact let go"), 1.0, "mm/s"),
 }
 
 
@@ -1406,9 +1409,15 @@ SensorQuantities = {
         "ContactNormalForce",
         "ContactFrictionForce",
         "ContactPenetration",
+        "ContactBegin",
+        "ContactEnd",
     ),
     "Friction": ("FrictionForce", "FrictionTorque"),
 }
+
+# The contact events a sensor watches, which trip at a speed at or above
+# the threshold, or below it
+SensorEvents = ("ContactBegin", "ContactEnd")
 
 
 def sensorSourceKind(obj):
@@ -1474,7 +1483,9 @@ def newSensor(
     SensorQuantities' for its kind; a vector's component or its magnitude)
     passing threshold (a number in the quantity's internal unit -- mN, mN mm,
     mm, deg -- or a quantity) rising above it, or falling below it with
-    compare "Below"; action "Stop" ends the run there, "Mark" notes the time"""
+    compare "Below"; action "Stop" ends the run there, "Mark" notes the time.
+    A contact set's ContactBegin or ContactEnd trips at each contact made or
+    let go at a speed (mm/s) at or above threshold, or below it"""
     assembly = None
     for parent in sim.InListRecursive:
         if parent.isDerivedFrom("Assembly::AssemblyObject"):
@@ -1507,7 +1518,15 @@ def describeSensor(obj):
         label = "%s %s" % (translate("Assembly", label), obj.Component)
     else:
         label = translate("Assembly", label)
-    if obj.Compare == "Below":
+    if obj.Quantity in SensorEvents:
+        # As Contact: Contact made below 1 mm/s; every one, Contact: Contact made
+        if obj.Compare == "Below":
+            text = translate("Assembly", "{}: {} below {}")
+        elif obj.Threshold.Value > 0:
+            text = translate("Assembly", "{}: {} at {} or more")
+        else:
+            text = "{}: {}"
+    elif obj.Compare == "Below":
         text = translate("Assembly", "{}: {} below {}")
     else:
         text = translate("Assembly", "{}: {} above {}")
@@ -1612,7 +1631,8 @@ class SensorDialog:
             translate(
                 "Assembly",
                 "A Dynamic study watches it after each step and finds the time it trips to\n"
-                "a small fraction of a step; a Static study at each output time.",
+                "a small fraction of a step; a Static study at each output time. A contact\n"
+                "made or let go, each pair's, trips it by its speed in or out (Dynamic only).",
             )
         )
         layout.addWidget(note, 5, 0, 1, 3)
@@ -1659,6 +1679,13 @@ class SensorDialog:
         vector = quantity in SensorVectors
         self.componentLabel.setEnabled(vector)
         self.componentCombo.setEnabled(vector)
+        # An event's speed is at or above the threshold, or below it
+        if quantity in SensorEvents:
+            self.compareCombo.setItemText(0, translate("Assembly", "Speed at least"))
+            self.compareCombo.setItemText(1, translate("Assembly", "Speed below"))
+        else:
+            self.compareCombo.setItemText(0, translate("Assembly", "Rises above"))
+            self.compareCombo.setItemText(1, translate("Assembly", "Falls below"))
         unit = ResultQuantities.get(quantity, ("", 1.0, ""))[2]
         self.thresholdBox.setSuffix(" " + unit if unit else "")
         self.okButton.setEnabled(quantity is not None)
@@ -1751,7 +1778,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 "Assembly",
                 "Add a sensor: a reaction, effort, spring or contact force watched over a "
                 "Dynamic or Static run, which stops it or marks the time where it passes a "
-                "threshold",
+                "threshold, or a contact made or let go",
             )
         )
         self.addSensorButton.clicked.connect(self.addSensorClicked)
@@ -2395,14 +2422,21 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         """Not upstream: the sensors that tripped and when, by their labels,
         which say what they watch and where they trip; the one that stopped
         the run last. And the contacts made and let go, each pair's
-        components and its speed in or out"""
+        components and its speed in or out, from the first, in the lines the
+        sensors leave"""
         events = (self.results or {}).get("Events", [])
         if not events:
             self.eventMessage.hide()
             return
         lines = []
         shown = 8
-        for event in events[:shown]:
+        # The sensors' first, the contacts' from the start in what lines are
+        # left: a stop late in a run of bounces is still shown
+        sensors = [i for i, e in enumerate(events) if e.get("Kind", "Sensor") == "Sensor"]
+        contacts = [i for i, e in enumerate(events) if e.get("Kind", "Sensor") != "Sensor"]
+        picked = sorted(sensors[:shown] + contacts[: max(0, shown - len(sensors))])
+        for i in picked:
+            event = events[i]
             obj = event["Object"]
             name = obj.Label if obj is not None else event["Name"]
             time = "%.6g" % event["Time"]
@@ -2424,8 +2458,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             else:
                 text = translate("Assembly", "Marked at {} s by {}")
             lines.append(text.format(time, name))
-        if len(events) > shown:
-            lines.append(translate("Assembly", "and {} more").format(len(events) - shown))
+        if len(events) > len(picked):
+            lines.append(translate("Assembly", "and {} more").format(len(events) - len(picked)))
         self.eventMessage.setText("\n".join(lines))
         self.eventMessage.show()
 

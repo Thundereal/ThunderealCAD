@@ -1163,7 +1163,9 @@ Phase D1 is under way (2026-10-28):
     joint), a spring, a torsion spring, a bushing or a contact set (a cam
     contact too) -- and `Quantity` one of the run's channels (sec 8.4:
     Force, Torque, MotorTorque, MotorForce, SpringForce, SpringLength,
-    SpringTorque, SpringAngle, BushingForce, BushingTorque, ContactForce);
+    SpringTorque, SpringAngle, BushingForce, BushingTorque, ContactForce;
+    and a contact set's events, ContactBegin and ContactEnd, by their
+    speed: "Built: sensors on contact events" below);
     `Component` a vector's Magnitude, X, Y or Z in the assembly's axes;
     `Compare` Above or Below; `Threshold` a quantity in the quantity's
     unit (`Sensor::updateUnit()`: force, moment, length or angle);
@@ -1451,9 +1453,51 @@ Phase D1 is under way (2026-10-28):
     the contact's event before its own. TestGuiCommands: the panel's
     lines for a contact made and let go between a sensor's mark and stop.
   - Not yet: which parts of a rigid group touched (the pair is the
-    group's bodies); a sensor on an event (stop on the first contact is
-    a sensor on the set's force today); events in the stored results,
-    which are not stored (sec 8.4's archive is not built).
+    group's bodies); events in the stored results, which are not stored
+    (sec 8.4's archive is not built).
+- Built: sensors on contact events (P15's Stop_On_Event, on sec 8.4's
+  contact begin and end): a sensor on a contact set whose `Quantity` is
+  `ContactBegin` or `ContactEnd` trips at each contact made, or let go, by
+  any pair of the set, coming in or leaving at a speed at or above its
+  `Threshold` (a velocity; 0, every one) or, `Compare` Below, under it.
+  Stop on the first landing slower than 45 mm/s is a drop test run until
+  its bouncing is about over; stop on the first let go is a cam's first
+  lift-off.
+  - The document: `Sensor::QuantityEnums` gains the two after the
+    channels', `updateUnit()` makes the threshold a velocity. The label
+    says which and the speed when there is one: "Ball on plate: Contact
+    made below 45 mm/s", "...: Contact let go", "...: Contact made at 50
+    mm/s or more". The dialog offers them after a contact set's values,
+    the component idle, the compare worded "Speed at least" and "Speed
+    below".
+  - The run (ChronoBackend): `eventWatches`, the sensors on a set's events
+    (one on a set the run has none of, or in a Static run, warns and does
+    nothing). Each event queued is seen once, as the step that found it is
+    kept (`Queued::seen`, in the bisection's snapshot with the queue): a
+    sensor that marks adds its event at the contact's time and speed; one
+    that stops is located as a value's trip is -- the step bisected to
+    max(hMin, 1e-6 of the output step), each try asking whether an event
+    not yet seen trips a stopping sensor -- and the run's last frame is
+    there. A contact let go matches a stopping sensor on its first reading
+    of its speed; its speed is then read again a step on and the state
+    taken back (`settleReadings()`), as is a let go pending at any stop
+    and at the run's end, which before went out on its first reading.
+  - The panel's lines under the player: the sensors' first, the contacts'
+    from the start in the lines left, so a stop late in a run of bounces
+    shows: "Marked at 0.124812 s by Ball 0.5 on plate: Contact made below
+    100 mm/s", "Stopped at 0.383028 s by Ball 0.8 on plate: ...".
+  - Tests (TestContact): the ball dropped a millimetre, restitution 0.8:
+    marking each contact made below 100 mm/s, the third landing (about
+    90 mm/s) and not the first two, at the contact's time and speed;
+    stopping on the first let go, the last frame there (1e-8 s), the ball
+    just leaving at the contact's speed, 0.8 v0 (2%); stopping on the
+    first landing below 100 mm/s, the third, the ball just touching.
+    TestGuiCommands: the dialog on a contact set -- the two after its
+    values, the component idle, mm/s, the compare's words and back, the
+    labels -- and reopened on the sensor; the panel's lines past eight,
+    the stop kept after the first seven contacts.
+  - Not yet: a count (stop at the third contact), a pair within the set
+    (any pair trips it), and Crosses.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

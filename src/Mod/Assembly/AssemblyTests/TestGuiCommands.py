@@ -908,6 +908,54 @@ class TestGuiCommands(unittest.TestCase):
         self.assertAlmostEqual(dialog.thresholdBox.value(), 2.5, places=9)
         self.assertClean()
 
+    def test_sensor_on_contact_events(self):
+        """On a contact set the sensor's dialog offers its contacts made and
+        let go after its values, by their speed: the component idle, the
+        threshold in mm/s, the compare worded for a speed and back for a
+        value; the label says which, and the speed when there is one"""
+        import CommandCreateContact
+        import CommandCreateSimulation
+
+        contact = CommandCreateContact.newContactSet(self.assembly, [self.box], [self.cyl1])
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.AnalysisType = "Dynamic"
+
+        dialog = CommandCreateSimulation.SensorDialog(self.assembly)
+        combo = dialog.sourceCombo
+        combo.setCurrentIndex(combo.findData(contact))
+        combo = dialog.quantityCombo
+        quantities = [combo.itemData(i) for i in range(combo.count())]
+        self.assertEqual(quantities[-2:], ["ContactBegin", "ContactEnd"])
+        compare = dialog.compareCombo
+        self.assertEqual(compare.itemText(0), "Rises above")
+        combo.setCurrentIndex(combo.findData("ContactEnd"))
+        self.assertFalse(dialog.componentCombo.isEnabled())
+        self.assertEqual(dialog.thresholdBox.suffix(), " mm/s")
+        self.assertEqual([compare.itemText(i) for i in range(2)], ["Speed at least", "Speed below"])
+        obj = CommandCreateSimulation.newSensor(sim, contact, "Force", 0.0)
+        dialog.apply(obj)
+        self.assertEqual(obj.Quantity, "ContactEnd")
+        self.assertEqual(obj.Label, contact.Label + ": Contact let go")
+        dialog.thresholdBox.setValue(50)
+        dialog.compareCombo.setCurrentIndex(dialog.compareCombo.findData("Below"))
+        dialog.apply(obj)
+        self.assertAlmostEqual(obj.Threshold.getValueAs("mm/s").Value, 50.0, places=9)
+        self.assertEqual(obj.Label, contact.Label + ": Contact let go below 50 mm/s")
+        dialog.compareCombo.setCurrentIndex(dialog.compareCombo.findData("Above"))
+        dialog.apply(obj)
+        self.assertEqual(obj.Label, contact.Label + ": Contact let go at 50 mm/s or more")
+        combo.setCurrentIndex(combo.findData("ContactForce"))
+        self.assertEqual(compare.itemText(0), "Rises above")
+
+        # Reopened on it
+        dialog = CommandCreateSimulation.SensorDialog(self.assembly, obj)
+        self.assertEqual(dialog.quantityCombo.currentData(), "ContactEnd")
+        self.assertAlmostEqual(dialog.thresholdBox.value(), 50.0, places=9)
+        self.assertEqual(dialog.compareCombo.itemText(0), "Speed at least")
+        self.assertClean()
+
     def test_sensor_events_shown(self):
         """After a run the panel says which sensors tripped and when, by
         their labels; the one that stopped it says so. A contact made or let
@@ -964,6 +1012,19 @@ class TestGuiCommands(unittest.TestCase):
             "Stopped at 0.0258109 s by Landing".format(speed(140.0), speed(112.0)),
         )
         self.assertFalse(panel.eventMessage.isHidden())
+        # Past eight lines the sensors' stay, the contacts' fill the rest
+        bounces = [
+            contact(0.01 * (k + 1), "ContactEnd" if k % 2 else "ContactBegin", 100.0)
+            for k in range(10)
+        ]
+        stop = {"Time": 0.2, "Object": Contact(), "Name": "C", "Value": 1.0, "Stopped": True}
+        panel.results = {"Events": bounces + [stop] + bounces[:2]}
+        CommandCreateSimulation.TaskAssemblyCreateSimulation.showEvents(panel)
+        lines = panel.eventMessage.text().split("\n")
+        self.assertEqual(len(lines), 9, lines)
+        self.assertTrue(lines[0].startswith("Contact at 0.01 s: Ball and the ground"))
+        self.assertTrue(lines[6].startswith("Contact at 0.07 s"))
+        self.assertEqual(lines[7:], ["Stopped at 0.2 s by Landing", "and 5 more"])
         panel.results = {"Events": []}
         CommandCreateSimulation.TaskAssemblyCreateSimulation.showEvents(panel)
         self.assertTrue(panel.eventMessage.isHidden())

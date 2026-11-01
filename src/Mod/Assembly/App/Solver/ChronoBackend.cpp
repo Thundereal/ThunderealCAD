@@ -7114,6 +7114,7 @@ Status ChronoSession::simulateDynamics(
     {
         Event event;
         ContactLoad* reading = nullptr;
+        bool seen = false;  // by the sensors on events (eventTrips())
     };
     std::vector<Queued> queued;
     auto sendEvents = [&](bool all) {
@@ -7138,6 +7139,8 @@ Status ChronoSession::simulateDynamics(
         double last = 0.0;
     };
     std::vector<Watch> watches;
+    // And those on a contact set's events, a contact made or let go
+    std::vector<const Sensor*> eventWatches;
     {
         std::vector<std::size_t> offsets;
         std::size_t offset = 0;
@@ -7147,6 +7150,23 @@ Status ChronoSession::simulateDynamics(
         }
         for (const auto& sensor : si.dynamics->sensors) {
             const std::string watched = si.sourceName(sensor.watched);
+            if (sensor.quantity == "ContactBegin" || sensor.quantity == "ContactEnd") {
+                const bool set = std::ranges::any_of(si.dynamics->contacts, [&](const auto& c) {
+                    return si.sourceName(c.source) == watched;
+                });
+                if (!set || spec.analysis == Analysis::Static) {
+                    Base::Console().warning(
+                        "Assembly: the sensor %s watches the %s events of %s, which the run "
+                        "does not report%s; it does nothing\n",
+                        si.sourceName(sensor.source).c_str(),
+                        sensor.quantity.c_str(),
+                        watched.c_str(),
+                        set ? " (a Static run has none)" : "");
+                    continue;
+                }
+                eventWatches.push_back(&sensor);
+                continue;
+            }
             std::size_t c = 0;
             while (c < channels.size()
                    && (channels[c].source != watched || channels[c].quantity != sensor.quantity)) {
@@ -7202,6 +7222,49 @@ Status ChronoSession::simulateDynamics(
         for (auto& watch : watches) {
             watch.last = reading(watch, values);
         }
+    };
+    // A sensor on a contact set's events trips at each contact made, or let
+    // go, coming in or leaving at a speed at or above its threshold -- or,
+    // below, under it
+    auto eventMatches = [&](const Sensor& sensor, const Event& event) {
+        const Event::Kind kind =
+            sensor.quantity == "ContactBegin" ? Event::Kind::ContactBegin : Event::Kind::ContactEnd;
+        return event.kind == kind && event.source == si.sourceName(sensor.watched)
+            && (sensor.below ? event.value < sensor.value : !(event.value < sensor.value));
+    };
+    // Whether an event not yet seen trips a sensor that stops: one let go
+    // whose speed is still to be read again (readLeaving()) on its first
+    // reading, so the stop is located where it let go
+    auto eventStops = [&]() {
+        return std::ranges::any_of(queued, [&](const Queued& q) {
+            return !q.seen && q.event.kind != Event::Kind::Sensor
+                && std::ranges::any_of(eventWatches, [&](const Sensor* sensor) {
+                       return sensor->stop && eventMatches(*sensor, q.event);
+                   });
+        });
+    };
+    // The events not yet seen, their speeds read: an event each sensor they
+    // trip, at the contact's time; whether one stops the run
+    auto eventTrips = [&]() {
+        bool stop = false;
+        std::vector<Event> trips;
+        for (auto& q : queued) {
+            if (q.seen || q.reading || q.event.kind == Event::Kind::Sensor) {
+                continue;
+            }
+            q.seen = true;
+            for (const Sensor* sensor : eventWatches) {
+                if (eventMatches(*sensor, q.event)) {
+                    stop = stop || sensor->stop;
+                    trips.push_back(
+                        {q.event.time, si.sourceName(sensor->source), q.event.value, sensor->stop});
+                }
+            }
+        }
+        for (auto& event : trips) {
+            queued.push_back({std::move(event)});
+        }
+        return stop;
     };
 
     // Static (sec 4, step 4): the stable equilibrium at a time, by dynamic
@@ -8060,14 +8123,37 @@ Status ChronoSession::simulateDynamics(
             }
             run.d->commitAngles();
         };
+        // The run stopping: a contact let go has its speed read a step on,
+        // the state then taken back
+        auto settleReadings = [&]() {
+            if (std::ranges::none_of(queued, [](const Queued& q) {
+                    return q.reading != nullptr;
+                })) {
+                return;
+            }
+            Snapshot s = snapshot();
+            stepOnce(contactStep(false));
+            std::vector<double> read;
+            for (std::size_t i = 0; i < s.queued.size(); ++i) {
+                read.push_back(queued[i].event.value);
+            }
+            restore(s);
+            for (std::size_t i = 0; i < read.size(); ++i) {
+                if (queued[i].reading) {
+                    queued[i].event.value = read[i];
+                    queued[i].reading = nullptr;
+                }
+            }
+        };
         const double locate = std::max(spec.hMin, 1e-6 * spec.tOutput);
         std::function<bool(double)> watchedPiece = [&](double dt) {
             Snapshot from = snapshot();
             const double t0 = sys.GetChTime();
             stepOnce(dt);
             std::vector<double> values = valuesNow();
-            if (!anyTrips(values)) {
+            if (!anyTrips(values) && !eventStops()) {
                 watchFrom(values);
+                eventTrips();
                 return false;
             }
             double lo = 0.0;
@@ -8077,7 +8163,7 @@ Status ChronoSession::simulateDynamics(
                 restore(from);
                 stepOnce(mid - lo);
                 values = valuesNow();
-                if (anyTrips(values)) {
+                if (anyTrips(values) || eventStops()) {
                     hi = mid;
                 }
                 else {
@@ -8087,7 +8173,12 @@ Status ChronoSession::simulateDynamics(
             }
             restore(from);
             stepOnce(hi - lo);
-            if (tripsAt(t0 + hi, valuesNow())) {
+            bool stop = tripsAt(t0 + hi, valuesNow());
+            if (stop || eventStops()) {
+                settleReadings();
+            }
+            stop = eventTrips() || stop;
+            if (stop) {
                 return true;
             }
             return dt - hi > 1e-12 * dt ? watchedPiece(dt - hi) : false;
@@ -8098,7 +8189,7 @@ Status ChronoSession::simulateDynamics(
         // millisecond steps tripped its contact force's sensor at a later
         // bounce.
         auto stepWatched = [&](double dt) {
-            if (watches.empty()) {
+            if (watches.empty() && eventWatches.empty()) {
                 stepOnce(dt);
                 return false;
             }
@@ -8214,6 +8305,11 @@ Status ChronoSession::simulateDynamics(
             }
             // A sensor that stops: the last frame where it tripped
             const double at = tripped && !statics ? sys.GetChTime() : time;
+            // The run's end: a contact let go in its last step read too
+            if (!statics && !tripped && k == steps) {
+                settleReadings();
+                eventTrips();
+            }
             sendEvents(tripped || k == steps);
             if (!channels.empty()) {
                 sink.values(valuesNow());

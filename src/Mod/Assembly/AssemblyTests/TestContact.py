@@ -160,6 +160,70 @@ class TestContact(unittest.TestCase):
             self.assertAlmostEqual(again["Time"] - left["Time"], 2 * left["Value"] / G, delta=1e-6)
             self.assertAlmostEqual(again["Value"], left["Value"], delta=left["Value"] * 1e-4)
 
+    def test_sensors_on_contact_events(self):
+        """A sensor on a set's contact events: marking each contact made
+        slower than 100 mm/s, the ball bouncing at restitution 0.8 -- the
+        third landing, at about 90 mm/s, the first two faster -- with the
+        contact's time and speed; stopping on the first let go, the run's
+        last frame there (1e-8 s), the ball just leaving, at the speed the
+        contact's event has; stopping on the first contact made slower than
+        100 mm/s, the third landing, the ball just touching"""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate], StaticFriction=0.0, DynamicFriction=0.0)
+        contact.Restitution = 0.8
+        self.doc.recompute()
+
+        start = ball.Placement
+
+        def run(**sensor):
+            # heights() leaves the ball at the last frame
+            ball.Placement = start
+            _, result = self.simulate(0.06, 1e-3, sensors=[dict(source=contact, **sensor)])
+            self.assertEqual(result, 0)
+            results = self.assembly.getSimulationResults()
+            events = results["Events"]
+            return (
+                results,
+                [e for e in events if e["Kind"] == "Sensor"],
+                [e for e in events if e["Kind"] != "Sensor"],
+            )
+
+        # Marking the slow landings
+        results, marks, contacts = run(
+            quantity="ContactBegin", threshold=100.0, compare="Below", action="Mark"
+        )
+        made = [e for e in contacts if e["Kind"] == "ContactBegin"]
+        self.assertEqual(len(made), 3, contacts)
+        self.assertEqual(len(marks), 1, marks)
+        self.assertGreater(made[1]["Value"], 100.0)
+        self.assertLess(made[2]["Value"], 100.0)
+        self.assertEqual(marks[0]["Time"], made[2]["Time"])
+        self.assertEqual(marks[0]["Value"], made[2]["Value"])
+        self.assertFalse(marks[0]["Stopped"])
+        self.assertAlmostEqual(results["Times"][-1], 0.06, delta=1e-12)
+
+        # Stopping on the first let go
+        results, stops, contacts = run(quantity="ContactEnd", threshold=0.0)
+        self.assertEqual([e["Kind"] for e in contacts], ["ContactBegin", "ContactEnd"])
+        self.assertEqual(len(stops), 1, stops)
+        self.assertTrue(stops[0]["Stopped"])
+        self.assertEqual(stops[0]["Time"], contacts[1]["Time"])
+        self.assertEqual(stops[0]["Value"], contacts[1]["Value"])
+        self.assertAlmostEqual(results["Times"][-1], contacts[1]["Time"], delta=1e-8)
+        v0 = math.sqrt(2 * G * 1.0)
+        self.assertAlmostEqual(stops[0]["Value"], 0.8 * v0, delta=0.02 * v0)
+        self.assertAlmostEqual(self.heights(ball)[-1], 15.0, delta=1e-5)
+
+        # Stopping on the first slow landing
+        results, stops, contacts = run(quantity="ContactBegin", threshold=100.0, compare="Below")
+        self.assertEqual(len(stops), 1, stops)
+        self.assertEqual(len([e for e in contacts if e["Kind"] == "ContactBegin"]), 3)
+        self.assertEqual(stops[0]["Time"], contacts[-1]["Time"])
+        self.assertLess(stops[0]["Value"], 100.0)
+        self.assertAlmostEqual(results["Times"][-1], contacts[-1]["Time"], delta=1e-8)
+        self.assertAlmostEqual(self.heights(ball)[-1], 15.0, delta=1e-5)
+
     def test_no_events_at_rest(self):
         """A box resting on the plate from the start, sunk by the allowed
         penetration, makes no contact event: the contacts pressing at the

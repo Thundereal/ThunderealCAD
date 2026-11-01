@@ -236,6 +236,9 @@ const char* Sensor::QuantityEnums[] = {"Force",
                                        "ContactPenetration",
                                        "FrictionForce",
                                        "FrictionTorque",
+                                       // A contact set's events, by their speed
+                                       "ContactBegin",
+                                       "ContactEnd",
                                        nullptr};
 const char* Sensor::ComponentEnums[] = {"Magnitude", "X", "Y", "Z", nullptr};
 const char* Sensor::CompareEnums[] = {"Above", "Below", nullptr};
@@ -263,7 +266,8 @@ Sensor::Sensor()
                       (0L),
                       "Sensor",
                       App::Prop_None,
-                      "Above: trips rising above the threshold; Below: falling below it");
+                      "Above: trips rising above the threshold; Below: falling below it. A "
+                      "contact made or let go trips at a speed at or above it, or below it");
     Compare.setEnums(CompareEnums);
     ADD_PROPERTY_TYPE(Threshold, (0.0), "Sensor", App::Prop_None, "In the quantity's unit");
     ADD_PROPERTY_TYPE(Action,
@@ -284,6 +288,9 @@ void Sensor::updateUnit()
     }
     else if (quantity == "SpringAngle") {
         Threshold.setUnit(Base::Unit::Angle);
+    }
+    else if (quantity == "ContactBegin" || quantity == "ContactEnd") {
+        Threshold.setUnit(Base::Unit::Velocity);
     }
     else if (quantity.find("Torque") != std::string::npos) {
         Threshold.setUnit(Base::Unit::Moment);

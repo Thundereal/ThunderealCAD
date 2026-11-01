@@ -464,12 +464,14 @@ struct ContactPair
 // step. It trips when the value passes 'value', rising above it or, 'below',
 // falling under it: it stops the run there, the time located, or, 'stop'
 // false, marks the time and the run goes on. In the model's units, as the
-// run reports the value; scaled() leaves it.
+// run reports the value; scaled() leaves it. On a contact set's events,
+// quantity "ContactBegin" or "ContactEnd" (Backend.h's Event::Kind): it
+// trips at each one at a speed at or above 'value', or 'below' under it.
 struct Sensor
 {
     Id source = NoId;   // the document's sensor
     Id watched = NoId;  // what reports the value: a joint, a spring, a contact set
-    std::string quantity;  // the Channel's
+    std::string quantity;  // the Channel's, or a contact event's kind
     int component = -1;    // a vector's x, y or z (0, 1, 2); -1 its length, a scalar itself
     bool below = false;
     double value = 0.0;

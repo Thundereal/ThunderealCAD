@@ -1819,7 +1819,62 @@ Phase D1 is under way (2026-10-28):
     skipped, its sensor and event tests among them.
   - Not yet: a profile contact's points are fixed the same way through a
     substep (a Geneva wheel's pin slides in its slot); the profile is
-    found again only at collision detection.
+    found again only at collision detection. (For an arc against a line:
+    built, below.)
+- Built: a profile contact's arc against a line followed within a
+  substep (the "not yet" above), for a cam made of profiles: a disc
+  turning under a flat-faced follower, or a pin pressing a slot's wall.
+  - Measured first: the disk cam (E 6, R 20) at 10 rad/s as a profile
+    contact, a block of 60 x 10 x 10 riding it flat on a slider under
+    gravity, frictionless, its force m (g + y'') in closed form. With the
+    points fixed: 0.85% high on average and ringing up to 4% after each
+    long substep at rest, as the Cam joint's contact rang. Without the
+    long substeps (an experiment: no profile load settled) it was still
+    0.82% high, smooth -- the second half of the fault, which a substep
+    of any length has: the law's damping reads the approach speed at the
+    material point, which drifts from the contact's as it slides off the
+    curve, slip^2 t / rho, so its error is first order in the substep. On
+    the Cam joint the long substeps had hidden it.
+  - The run (ChronoBackend): profileTouches() keeps how each point was
+    found (`ProfileFound`); for an arc's point farthest across a line, the
+    other's nearest on that line, the load finds it again at each state
+    ComputeQ() is given (`ProfileFollow::place()`, through the load's
+    `follow`, which now takes all its points; the Cam joint's takes its
+    one): the arc's farthest point across the line, held at the arc's end
+    past it (`farthestOnOrEnd()`), and the nearest on the line, held at
+    its end (`nearestOnLine()`), the normal the line's. `pieceIn()` is one
+    piece of `profileIn()`, moved into A's plane at the state.
+  - Not followed, and why, each found on the way to the Geneva drive's
+    test (0.5 s) and its manual run (two turns at two output steps):
+    - An arc against an arc (the line of the centres): followed, the pin
+      striking its slot's mouth ran Newton's iterations off, 13 mm deep
+      in steps of 6 ns, and the wheel was left behind. Most such pairs
+      are a pin in a hollow of nearly its radius, on all of it at once;
+      their error, (slip h)^2 times the curvatures' difference, nearly
+      none.
+    - A point leaving its pieces dropped back to collision detection's:
+      the force jumped within Newton's iterations, and the second turn
+      ran off. Held at the pieces' ends instead.
+    - Off an end or a corner, the side read as nearestOn() reads it (along
+      x - y): a Newton iterate 10 mm off read 10 mm deep where the line
+      had it 10 mm clear. Now from the line; and a point whose other is a
+      corner is not followed -- both are points of their material, exact.
+    - An arc's point whose other's nearest is on a piece beside its line:
+      the farthest across that line is not the point nearest the other.
+    - A convex corner against the other's nearest piece: followed with
+      the arcs, the second turn ran off (50 kN); each alone did not, and
+      the cause was not found. A corner is a point of its material, exact
+      on its side; not followed.
+  - Tests (TestProfileContact, test_disk_cam_flat_follower): the block's
+    force m (g + y'') at every frame past 45 deg, to 1e-3 (7.3e-5
+    measured); 0.81% off before. The Geneva test as it was. TestAssembly-
+    Workbench 577 OK, 88 skipped. The manual's Geneva run, two turns at
+    output steps of 4.2 and 1.04 ms: the wheel's angles within 0.0013 deg
+    of each other (0.0076 with the points fixed), the pin's impact on its
+    slot's wall 1.615 N at both (0.555 and 1.336 N fixed: the impact's
+    peak lay between frames as the substeps fell).
+  - Not yet: an arc against an arc followed (a roller on a cam's arcs);
+    a corner against a curved piece; the cause of the corners' run-off.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

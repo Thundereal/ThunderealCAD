@@ -212,6 +212,67 @@ class TestProfileContact(unittest.TestCase):
         self.assertAlmostEqual(rotation.Axis.z, -1.0, delta=1e-6)
         self.assertAlmostEqual(math.degrees(rotation.Angle), 90.0, delta=0.2)
 
+    def test_disk_cam_flat_follower(self):
+        """A disk cam as a profile contact: a disc of 20 mm, its centre 6 mm
+        off its axis, turning once at 10 rad/s, a block's flat face riding
+        it on a slider along y, held on by gravity. The face's normal is
+        along the slider throughout, so the contact force is m (g + y''),
+        y = E sin theta + R, frictionless: to 1e-3 at every frame past
+        45 deg (the block starts at rest on the disc rising at 60 mm/s, and
+        rings a while). The contact's points found once a substep and fixed
+        on each body through it, the disc's point sliding off the block's
+        line under it, the force was up to 1.9% off and 0.85% high on
+        average: low through the long substeps a resting contact takes,
+        which no frame sees, and ringing after them."""
+        e, radius, rate = 6.0, 20.0, 10.0
+        base = self.assembly.newObject("Part::Box", "Base")
+        base.Length, base.Width, base.Height = 100, 100, 5
+        base.Placement.Base = App.Vector(-50, -50, -5)
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        cam = self.disc(e, 0, radius)
+        block = self.assembly.newObject("Part::Box", "Block")
+        block.Length, block.Width, block.Height = 60, 10, 10
+        block.Placement.Base = App.Vector(-30, radius, 0)
+        along_y = App.Rotation(App.Vector(1, 0, 0), -90)
+
+        def joint(kind, part, at_base, at_part):
+            j = self.joints.newObject("App::FeaturePython", kind)
+            JointObject.Joint(j, JointObject.JointTypes.index(kind))
+            j.Detach1 = True
+            j.Detach2 = True
+            j.Reference1 = (base, ["Face6"])
+            j.Reference2 = (part, ["Face1"])
+            j.Placement1 = at_base
+            j.Placement2 = at_part
+            return j
+
+        axle = joint("Revolute", cam, plc(50, 50, 5), plc(-e, 0, 0))
+        joint(
+            "Slider",
+            block,
+            App.Placement(App.Vector(50, 50, 15), along_y),
+            App.Placement(App.Vector(30, 0, 10), along_y),
+        )
+        contact = self.contact(cam, 10, block, 10)
+        turn = 2 * math.pi / rate
+        self.assertEqual(
+            self.simulate(contact, turn, turn / 240, motion=(axle, "%g*time" % rate)), 0
+        )
+        mass = block.Shape.Volume * DENSITY
+        forces = self.channel("ContactForce")
+        worst = 0.0
+        for k, t in enumerate(self.assembly.getSimulationResults()["Times"]):
+            theta = rate * t
+            if theta < math.radians(45):
+                continue
+            want = mass * (G - e * rate * rate * math.sin(theta))
+            self.assertAlmostEqual(forces[k].Length / want, 1.0, delta=1e-3, msg=(k, theta))
+            worst = max(worst, abs(forces[k].Length / want - 1.0))
+        App.Console.PrintMessage(
+            "Profile disk cam: the force within %.3g of m (g + y'')\n" % worst
+        )
+
     def faces(self, obj, z):
         """The names of obj's planar faces at height z"""
         self.doc.recompute()

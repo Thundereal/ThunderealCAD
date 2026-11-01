@@ -75,6 +75,12 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       "Sheet Metal",
                       App::Prop_None,
                       "The wall's skin laid on XY; the first wall's first skin if none");
+    ADD_PROPERTY_TYPE(TangentLines,
+                      (false),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Draw each bend's tangent lines, where the bend meets its walls, in the "
+                      "flat and its DXF");
     Placement.setStatus(App::Property::Hidden, true);
 
     const auto out = App::PropertyType(App::Prop_Output | App::Prop_ReadOnly);
@@ -161,6 +167,7 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
         const auto flat = buildFlat(sheet, &folded);
         const SheetMetal::Model& model = sheet->SheetModel.getValue();
         std::vector<TopoShape> lines;
+        std::vector<TopoShape> tangents;
         std::map<std::string, std::string> directions;
         double maxAngle = 0;
         for (const auto& line : flat.bendLines) {
@@ -168,6 +175,13 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
             edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
                                 Data::MappedName(line.name));
             lines.push_back(edge);
+            for (std::size_t k = 0; k < line.tangents.size() && TangentLines.getValue(); ++k) {
+                TopoShape tangent(line.tangents[k]);
+                tangent.setElementName(
+                    Data::IndexedName::fromConst("Edge", 1),
+                    Data::MappedName(line.name + "Tangent" + std::to_string(k + 1)));
+                tangents.push_back(tangent);
+            }
             directions[line.name] = line.up ? "Up" : "Down";
             maxAngle = std::max(maxAngle, line.angle);
         }
@@ -196,12 +210,15 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
         }
         TopoShape solid(0, getDocument()->getStringHasher());
         solid.makESHAPE(flat.solid, mapper, {folded}, FlatOp);
+        std::vector<TopoShape> parts {solid,
+                                      TopoShape(0, getDocument()->getStringHasher())
+                                          .makECompound(lines, nullptr, /*force*/ true)};
+        if (!tangents.empty()) {
+            parts.push_back(TopoShape(0, getDocument()->getStringHasher())
+                                .makECompound(tangents, nullptr, /*force*/ true));
+        }
         TopoShape res(0, getDocument()->getStringHasher());
-        res.makECompound({solid,
-                          TopoShape(0, getDocument()->getStringHasher())
-                              .makECompound(lines, nullptr, /*force*/ true)},
-                         nullptr,
-                         /*force*/ true);
+        res.makECompound(parts, nullptr, /*force*/ true);
         Shape.setValue(res);
     }
     catch (const Base::Exception& e) {
@@ -222,7 +239,7 @@ void SheetMetalFlatPattern::exportDXF(const char* path) const
     if (!out) {
         FC_THROWM(Base::FileException, "Cannot write " << path);
     }
-    SheetMetal::writeDXF(out, flat);
+    SheetMetal::writeDXF(out, flat, TangentLines.getValue());
 }
 
 PyObject* SheetMetalFlatPattern::getPyObject()

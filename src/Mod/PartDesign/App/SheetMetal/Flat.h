@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <array>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,6 +51,8 @@ struct PartDesignExport FlatResult
         /// bend's inner skin is on top
         bool up = false;
         double angle = 0;
+        /// Where the bend meets its walls, on the same skin as the line
+        std::array<TopoDS_Edge, 2> tangents;
     };
     /// Each bend's line, along its middle on the inner skin
     std::vector<BendLine> bendLines;

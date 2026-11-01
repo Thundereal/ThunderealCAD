@@ -58,6 +58,8 @@ public:
 
     /// The folded part: a feature of the body, sheet metal or one after it
     App::PropertyLink Source;
+    /// Each bend's tangent lines in the shape and the DXF
+    App::PropertyBool TangentLines;
     /// The wall's skin laid on XY; the first wall's first skin if none
     App::PropertyLinkSub RootFace;
 

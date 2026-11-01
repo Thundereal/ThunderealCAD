@@ -739,8 +739,11 @@ and not frozen.
     solid's fix; the feature names by that history, op code `SMF`), and its edges and vertices
     after the faces they bound; so a reference to the flat follows the part through an edit.
     Tested by `testFacesNamedAfterFolded`, `testFaceReferenceFollows`.
-  - Still to come in M1: the bend tangent lines, the flat's orientation (a picked edge, the
-    grain arrow), and the SVG.
+  - The bend tangent lines, asked for by `TangentLines` (off by default): each bend's two lines
+    where it meets its walls, on the bend line's skin, the allowance apart; a third compound in
+    the shape, named `Bend1Tangent1`, `Bend1Tangent2`, and the layer `BEND_TANGENT` in the DXF.
+    Tested by `testTangentLines`.
+  - Still to come in M1: the flat's orientation (a picked edge, the grain arrow), and the SVG.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

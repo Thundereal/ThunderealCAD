@@ -262,16 +262,20 @@ FlatResult flatten(const TopoDS_Shape& folded, const Model& model, int root, boo
             continue;
         }
         const CylBend& b = element.bend;
-        const double half = b.angle / 2;
-        const gp_Vec mid = gp_Vec(b.frame.XDirection()) * (b.radius * std::cos(half))
-            + gp_Vec(b.frame.YDirection()) * (b.radius * std::sin(half));
-        auto at = [&](double z) {
-            return mapper.map(static_cast<int>(i),
-                              b.frame.Location().Translated(mid + gp_Vec(b.frame.Direction()) * z));
+        // the line on the inner skin at an angle into the bend, flat
+        auto across = [&](double angle) {
+            const gp_Vec r = gp_Vec(b.frame.XDirection()) * (b.radius * std::cos(angle))
+                + gp_Vec(b.frame.YDirection()) * (b.radius * std::sin(angle));
+            auto at = [&](double z) {
+                const gp_Vec v = r + gp_Vec(b.frame.Direction()) * z;
+                return mapper.map(static_cast<int>(i), b.frame.Location().Translated(v));
+            };
+            return BRepBuilderAPI_MakeEdge(at(extent[i].first), at(extent[i].second)).Edge();
         };
         FlatResult::BendLine line;
         line.name = element.name;
-        line.edge = BRepBuilderAPI_MakeEdge(at(extent[i].first), at(extent[i].second)).Edge();
+        line.edge = across(b.angle / 2);
+        line.tangents = {across(0), across(b.angle)};
         line.up = mapper.map(static_cast<int>(i),
                              b.frame.Location().Translated(gp_Vec(b.frame.XDirection()) * b.radius))
                       .Z()

@@ -136,7 +136,7 @@ struct Writer
 
 }  // namespace
 
-void writeDXF(std::ostream& out, const FlatResult& flat)
+void writeDXF(std::ostream& out, const FlatResult& flat, bool tangents)
 {
     // the faces of one element each, merged where they lie in one plane
     ShapeUpgrade_UnifySameDomain unify(flat.solid, true, true, false);
@@ -182,6 +182,12 @@ void writeDXF(std::ostream& out, const FlatResult& flat)
         w.line(bend.up ? "BEND_UP" : "BEND_DOWN", a, b);
         const gp_Pnt mid((a.X() + b.X()) / 2, (a.Y() + b.Y()) / 2, 0);
         w.text("LABELS", mid, 2.5, bend.name);
+        if (!tangents) {
+            continue;
+        }
+        for (const TopoDS_Edge& tangent : bend.tangents) {
+            w.edge("BEND_TANGENT", tangent);
+        }
     }
     w.pair(0, "ENDSEC");
     w.pair(0, "EOF");

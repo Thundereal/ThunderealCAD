@@ -254,7 +254,6 @@ App::DocumentObjectExecReturn* Extend::extendEdges(const Part::TopoShape& input)
     }
     const auto mode = Extension.getValue() == 1 ? Geom::Extension::Linear
                                                 : Geom::Extension::Natural;
-    std::vector<Part::TopoShape> inputs {input};
     // up to a face: far enough past it from anywhere on the face, then cut
     // back where it crosses it
     Part::TopoShape upTo;
@@ -270,80 +269,96 @@ App::DocumentObjectExecReturn* Extend::extendEdges(const Part::TopoShape& input)
         Bnd_Box box;
         BRepBndLib::Add(face, box);
         BRepBndLib::Add(upTo.getShape(), box);
-        length = 1.5 * std::sqrt(box.SquareExtent());
+        length = std::sqrt(box.SquareExtent());
     }
-    for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
-        auto edge = Part::Feature::getTopoShape(objs[i], subs[i].c_str(), true);
-        const std::string name = std::string(objs[i]->Label.getValue()) + "." + subs[i];
-        if (edge.isNull() || edge.getShape().ShapeType() != TopAbs_EDGE) {
-            return new App::DocumentObjectExecReturn(name + " is not an edge");
+    // Up to a face, the shortest of these that crosses it: far enough past
+    // it from anywhere on the face at the last, but a natural extension that
+    // long of a face that curls folds back on itself and may miss what a
+    // shorter one meets
+    const std::vector<double> lengths = upTo.isNull()
+        ? std::vector<double> {length}
+        : std::vector<double> {length / 8, length / 4, length / 2, length, 1.5 * length};
+    const Handle(Geom_BSplineSurface) original = surface;
+    for (std::size_t attempt = 0; attempt < lengths.size(); ++attempt) {
+        const bool last = attempt + 1 == lengths.size();
+        surface = Handle(Geom_BSplineSurface)::DownCast(original->Copy());
+        std::vector<Part::TopoShape> inputs {input};
+        for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+            auto edge = Part::Feature::getTopoShape(objs[i], subs[i].c_str(), true);
+            const std::string name = std::string(objs[i]->Label.getValue()) + "." + subs[i];
+            if (edge.isNull() || edge.getShape().ShapeType() != TopAbs_EDGE) {
+                return new App::DocumentObjectExecReturn(name + " is not an edge");
+            }
+            BRepAdaptor_Curve adapt(TopoDS::Edge(edge.getShape()));
+            Handle(Geom_Curve) curve = new Geom_TrimmedCurve(adapt.Curve().Curve(),
+                                                             adapt.FirstParameter(),
+                                                             adapt.LastParameter());
+            if (!edge.getShape().Location().IsIdentity()) {
+                curve->Transform(edge.getShape().Location().Transformation());
+            }
+            int b = Geom::boundaryOf(surface, curve, 1e-6 + BRep_Tool::Tolerance(face));
+            if (b < 0) {
+                return new App::DocumentObjectExecReturn(
+                    name + " is not on the boundary of the face's surface; untrim the face "
+                           "to extend across it");
+            }
+            auto error = Geom::extendBoundary(surface, Geom::Boundary(b), lengths[attempt], mode);
+            if (!error.empty()) {
+                return new App::DocumentObjectExecReturn(name + ": " + error);
+            }
+            inputs.push_back(edge);
         }
-        BRepAdaptor_Curve adapt(TopoDS::Edge(edge.getShape()));
-        Handle(Geom_Curve) curve = new Geom_TrimmedCurve(adapt.Curve().Curve(),
-                                                         adapt.FirstParameter(),
-                                                         adapt.LastParameter());
-        if (!edge.getShape().Location().IsIdentity()) {
-            curve->Transform(edge.getShape().Location().Transformation());
-        }
-        int b = Geom::boundaryOf(surface, curve, 1e-6 + BRep_Tool::Tolerance(face));
-        if (b < 0) {
-            return new App::DocumentObjectExecReturn(
-                name + " is not on the boundary of the face's surface; untrim the face "
-                       "to extend across it");
-        }
-        auto error = Geom::extendBoundary(surface, Geom::Boundary(b), length, mode);
-        if (!error.empty()) {
-            return new App::DocumentObjectExecReturn(name + ": " + error);
-        }
-        inputs.push_back(edge);
-    }
 
-    BRepBuilderAPI_MakeFace mkFace(surface, Precision::Confusion());
-    if (upTo.isNull()) {
-        // the face carried on: the input face modified, the rest named from it
-        Part::ShapeMapper mapper;
-        mapper.insert(false, input.getShape(), mkFace.Face());
-        Part::TopoShape result(0, getDocument()->getStringHasher());
-        result.makESHAPE(mkFace.Face(), mapper, {input}, OpCodes::Extend);
-        Shape.setValue(result);
-        return StdReturn;
-    }
+        BRepBuilderAPI_MakeFace mkFace(surface, Precision::Confusion());
+        if (upTo.isNull()) {
+            // the face carried on: the input face modified, the rest named from it
+            Part::ShapeMapper mapper;
+            mapper.insert(false, input.getShape(), mkFace.Face());
+            Part::TopoShape result(0, getDocument()->getStringHasher());
+            result.makESHAPE(mkFace.Face(), mapper, {input}, OpCodes::Extend);
+            Shape.setValue(result);
+            return StdReturn;
+        }
 
-    // cut back where it crosses UpTo: the piece holding the face as it was
-    try {
-        Part::TopoShape extended(mkFace.Face());
-        BRepAlgoAPI_Splitter splitter;
-        TopTools_ListOfShape args, tools;
-        args.Append(mkFace.Face());
-        tools.Append(upTo.getShape());
-        splitter.SetArguments(args);
-        splitter.SetTools(tools);
-        splitter.Build();
-        if (!splitter.IsDone()) {
-            return new App::DocumentObjectExecReturn("The face could not be cut at UpTo");
+        // cut back where it crosses UpTo: the piece holding the face as it was
+        try {
+            BRepAlgoAPI_Splitter splitter;
+            TopTools_ListOfShape args, tools;
+            args.Append(mkFace.Face());
+            tools.Append(upTo.getShape());
+            splitter.SetArguments(args);
+            splitter.SetTools(tools);
+            splitter.Build();
+            if (!splitter.IsDone()) {
+                return new App::DocumentObjectExecReturn("The face could not be cut at UpTo");
+            }
+            Part::TopoShape pieces(0, getDocument()->getStringHasher());
+            pieces.makEShape(splitter, {input, upTo}, OpCodes::Extend);
+            const int count = (int)pieces.countSubShapes(TopAbs_FACE);
+            if (count < 2) {
+                if (!last) {
+                    continue;
+                }
+                return new App::DocumentObjectExecReturn(
+                    "The face does not reach UpTo, carried on along the edges given");
+            }
+            std::vector<TopoDS_Face> faces;
+            for (int i = 1; i <= count; ++i) {
+                faces.push_back(TopoDS::Face(pieces.getSubShape(TopAbs_FACE, i)));
+            }
+            // a point of the face as it was, well inside it
+            double fu1, fu2, fv1, fv2;
+            BRepTools::UVBounds(face, fu1, fu2, fv1, fv2);
+            BRepAdaptor_Surface before(face);
+            gp_Pnt inside = before.Value((fu1 + fu2) / 2, (fv1 + fv2) / 2);
+            int keep = Geom::nearestPiece(faces, inside, 1e-7);
+            Shape.setValue(pieces.getSubTopoShape(TopAbs_FACE, keep + 1));
+            return StdReturn;
         }
-        Part::TopoShape pieces(0, getDocument()->getStringHasher());
-        pieces.makEShape(splitter, {input, upTo}, OpCodes::Extend);
-        const int count = (int)pieces.countSubShapes(TopAbs_FACE);
-        if (count < 2) {
-            return new App::DocumentObjectExecReturn(
-                "The face does not reach UpTo, carried on along the edges given");
+        catch (Standard_Failure& e) {
+            return new App::DocumentObjectExecReturn(std::string("Cutting at UpTo failed: ")
+                                                     + e.what());
         }
-        std::vector<TopoDS_Face> faces;
-        for (int i = 1; i <= count; ++i) {
-            faces.push_back(TopoDS::Face(pieces.getSubShape(TopAbs_FACE, i)));
-        }
-        // a point of the face as it was, well inside it
-        double fu1, fu2, fv1, fv2;
-        BRepTools::UVBounds(face, fu1, fu2, fv1, fv2);
-        BRepAdaptor_Surface original(face);
-        gp_Pnt inside = original.Value((fu1 + fu2) / 2, (fv1 + fv2) / 2);
-        int keep = Geom::nearestPiece(faces, inside, 1e-7);
-        Shape.setValue(pieces.getSubTopoShape(TopAbs_FACE, keep + 1));
-    }
-    catch (Standard_Failure& e) {
-        return new App::DocumentObjectExecReturn(std::string("Cutting at UpTo failed: ")
-                                                 + e.what());
     }
     return StdReturn;
 }

@@ -453,6 +453,62 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         self.assertEqual([e[0] for e in inner], ["CIRCLE"])
         self.assertAlmostEqual(float(inner[0][2]["40"][0]), 2, places=6)
 
+    def exportSVG(self, flat):
+        """The layers of the flat's SVG: {id: [(tag, attributes, text)]}, and
+        the root's attributes"""
+        import xml.etree.ElementTree as ET
+
+        path = os.path.join(tempfile.mkdtemp(), "flat.svg")
+        flat.exportSVG(path)
+        root = ET.parse(path).getroot()
+        layers = {}
+        for g in root.iter("{http://www.w3.org/2000/svg}g"):
+            if g.get("id"):
+                layers[g.get("id")] = [
+                    (child.tag.split("}")[1], child.attrib, child.text) for child in g
+                ]
+        return layers, root.attrib
+
+    def testSVG(self):
+        """The same layers as the DXF, as groups: the outline, the bend lines
+        up and down, the labels; the drawing as large as the flat, in mm"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10), (40, 10)], Length=15)
+        flat = self.flat(wall)
+        layers, root = self.exportSVG(flat)
+        self.assertEqual([e[0] for e in layers["OUTLINE"]], ["line"] * 4)
+        self.assertEqual([e[0] for e in layers["BEND_UP"]], ["line"])
+        self.assertEqual([e[0] for e in layers["BEND_DOWN"]], ["line"])
+        self.assertEqual(sorted(e[2] for e in layers["LABELS"] if e[0] == "text"),
+                         ["Bend1", "Bend2"])
+        self.assertEqual(layers.get("INNER", []), [])
+        self.assertNotIn("BEND_TANGENT", layers)
+        size = sorted(float(v) for v in root["viewBox"].split()[2:])
+        self.assertAlmostEqual(size[1], flat.FlatLength.Value, places=6)
+        self.assertAlmostEqual(size[0], flat.FlatWidth.Value, places=6)
+        self.assertTrue(root["width"].endswith("mm") and root["height"].endswith("mm"), root)
+        xs = [float(e[1][k]) for e in layers["OUTLINE"] for k in ("x1", "x2")]
+        self.assertAlmostEqual(max(xs) - min(xs), float(root["viewBox"].split()[2]), places=6)
+        flat.TangentLines = True
+        flat.Grain = True
+        self.Doc.recompute()
+        layers, root = self.exportSVG(flat)
+        self.assertEqual([e[0] for e in layers["BEND_TANGENT"]], ["line"] * 4)
+        self.assertEqual([e[0] for e in layers["GRAIN"]], ["line"] * 3)
+
+    def testSVGHole(self):
+        """A round hole is a circle on the inner layer"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True)
+        sketch = self.Body.newObject("Sketcher::SketchObject", "HoleSketch")
+        sketch.addGeometry(Part.Circle(V(8, 5, 0), V(0, 0, 1), 2))
+        pocket = self.Body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = sketch
+        pocket.Type = "ThroughAll"
+        pocket.Midplane = True
+        self.Doc.recompute()
+        layers, root = self.exportSVG(self.flat(pocket))
+        self.assertEqual([e[0] for e in layers["INNER"]], ["circle"])
+        self.assertAlmostEqual(float(layers["INNER"][0][1]["r"]), 2, places=6)
+
     def testSaveAndRestore(self):
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
         flat = self.flat(wall)

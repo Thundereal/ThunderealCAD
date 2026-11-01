@@ -1795,6 +1795,28 @@ Phase D1 is under way (2026-10-28):
     manual's roller with its stem the force was 1.1% under to 4.3% over
     it, bumps and all; a headless run of the roller alone, now within
     8e-5 at output steps of 2.6 and 0.65 ms and at a tolerance of 1e-3.
+  - Found on the way, in the manual's video re-made: a sensor's mark
+    kicked the run. A step that trips a sensor was bisected along the
+    run itself, each half kept from the state before, so the run went
+    through steps halving down to the locating precision, 1.7 ns. HHT
+    holds the joints in position, and a step of h turns their round-off
+    e into a speed e / (beta h): the follower came out of each mark
+    moving 4e-5 m/s square to its slider, its force ringing (0.7%) and
+    its pressure angle, read from its speed's direction where it turns
+    round, 1.3 deg off at 271.5 deg. The bisection is now aside
+    (`watchedPiece()`): each try one step from the piece's start; a
+    stop ends the run at the state located, as before, and a mark goes
+    back to the piece's own step, so the run goes on as it would
+    unwatched -- a second trip within the piece located the same way
+    from the first. The piece's earlier marks are kept across the
+    restores.
+  - Tests (TestCamJoint, test_cam_contact_force): with and without a
+    sensor marking the side load's X crossing 0: the force as above,
+    the pressure angle atan(side / drive) at every frame (0.01 deg; 1e-6
+    measured), the marks at 90 and 270 deg (0.01 deg; 90.0000017 and
+    270.0000000). The marked cases failed on the bisection kept along
+    the run (0.5% and 0.7% off). TestAssemblyWorkbench 576 OK, 88
+    skipped, its sensor and event tests among them.
   - Not yet: a profile contact's points are fixed the same way through a
     substep (a Geneva wheel's pin slides in its slot); the profile is
     found again only at collision detection.

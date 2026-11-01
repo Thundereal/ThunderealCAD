@@ -532,10 +532,11 @@ class TestCamJoint(CamMechanism, JointTestBase):
                     if c["Object"] == lifted}
         self.assertIn("CamPressureAngle", channels)
 
-    def ride_on_gravity(self, roller, rate):
+    def ride_on_gravity(self, roller, rate, mark=False):
         """The disk cam turning once at rate, a cam contact holding the
-        follower on it under gravity down the slider, 200 frames: returns
-        the results, the contact's channels by quantity, and the follower"""
+        follower on it under gravity down the slider, 200 frames, with mark a
+        sensor marking its side load's X crossing 0: returns the results,
+        the contact's channels by quantity, and the follower"""
         import CommandCreateContact
 
         self.tearDown()
@@ -559,6 +560,12 @@ class TestCamJoint(CamMechanism, JointTestBase):
         motion.Joint = rev
         motion.MotionType = "Angular"
         motion.Formula = "%g*time" % rate
+        if mark:
+            import CommandCreateSimulation
+
+            CommandCreateSimulation.newSensor(
+                sim, lifted, "CamSideForce", 0.0, component="X", compare="Crosses", action="Mark"
+            )
         self.doc.recompute()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         results = self.assembly.getSimulationResults()
@@ -574,35 +581,63 @@ class TestCamJoint(CamMechanism, JointTestBase):
         touching unloaded, and settles). Its point found on the curve once
         a substep, fixed on the cam through it, the follower sliding under
         it, a substep at rest of 0.9 ms took it 4% deep, and the force was
-        up to 6% off, in bumps every five of the contact's periods"""
+        up to 6% off, in bumps every five of the contact's periods.
+
+        The same with a sensor marking the side load's X crossing 0, at 90
+        and 270 deg (0.01 deg), the force as unwatched, and the pressure
+        angle the force's lean from the slider (0.01 deg): run through the
+        tries locating the crossing, steps down to nanoseconds, the follower
+        came out of a mark moving across the slider, its pressure angle
+        1.3 deg off near 270 deg and its force ringing"""
         if "Chrono" not in self.backends():
             self.skipTest("the Chrono backend is not built")
         rate = 10.0
         g = 9806.65
         for roller in (0.0, ROLLER):
-            with self.subTest(roller=roller):
-                results, mine, f = self.ride_on_gravity(roller, rate)
-                # The default material's density, kg/mm^3 (MassProperties)
-                mass = f.Shape.Volume * 2.7e-6
-                worst = 0.0
-                for k, t in enumerate(results["Times"]):
-                    if t < 0.02:
-                        continue
-                    theta = rate * t
-                    e = 1e-4
-                    bend = (
-                        disk_lift(theta + e, roller)
-                        - 2 * disk_lift(theta, roller)
-                        + disk_lift(theta - e, roller)
-                    ) / (e * e)
-                    want = mass * (g + bend * rate * rate)
-                    lean = math.asin(CAM_E * math.cos(theta) / (CAM_R + roller))
-                    along = mine["ContactForce"][k].Length * math.cos(lean)
-                    self.assertAlmostEqual(along / want, 1.0, delta=1e-3, msg=(k, theta))
-                    worst = max(worst, abs(along / want - 1.0))
-                App.Console.PrintMessage(
-                    "Cam contact force within %.3g of m (g + y''), roller %g\n" % (worst, roller)
-                )
+            for mark in (False, True):
+                with self.subTest(roller=roller, mark=mark):
+                    results, mine, f = self.ride_on_gravity(roller, rate, mark)
+                    # The default material's density, kg/mm^3 (MassProperties)
+                    mass = f.Shape.Volume * 2.7e-6
+                    worst = [0.0, 0.0]
+                    for k, t in enumerate(results["Times"]):
+                        if t < 0.02:
+                            continue
+                        theta = rate * t
+                        e = 1e-4
+                        bend = (
+                            disk_lift(theta + e, roller)
+                            - 2 * disk_lift(theta, roller)
+                            + disk_lift(theta - e, roller)
+                        ) / (e * e)
+                        want = mass * (g + bend * rate * rate)
+                        lean = math.asin(CAM_E * math.cos(theta) / (CAM_R + roller))
+                        force = mine["ContactForce"][k]
+                        along = force.Length * math.cos(lean)
+                        self.assertAlmostEqual(along / want, 1.0, delta=1e-3, msg=(k, theta))
+                        worst[0] = max(worst[0], abs(along / want - 1.0))
+                        drive = mine["CamDriveForce"][k].Length
+                        side = mine["CamSideForce"][k].Length
+                        read = math.degrees(math.atan2(side, drive))
+                        angle = math.degrees(mine["CamPressureAngle"][k])
+                        self.assertAlmostEqual(angle, read, delta=0.01, msg=(k, theta))
+                        worst[1] = max(worst[1], abs(angle - read))
+                    marks = [
+                        math.degrees(rate * event["Time"])
+                        for event in results["Events"]
+                        if event["Kind"] == "Sensor"
+                    ]
+                    if mark:
+                        self.assertEqual(len(marks), 2, marks)
+                        self.assertAlmostEqual(marks[0], 90.0, delta=0.01)
+                        self.assertAlmostEqual(marks[1], 270.0, delta=0.01)
+                    else:
+                        self.assertEqual(marks, [])
+                    App.Console.PrintMessage(
+                        "Cam contact force within %.3g of m (g + y''), the pressure angle "
+                        "within %.3g deg of the force's lean, roller %g, marks %s\n"
+                        % (worst[0], worst[1], roller, marks)
+                    )
 
     def test_cam_pressure_angle_and_slip(self):
         """A cam contact reports its pressure angle and its slip

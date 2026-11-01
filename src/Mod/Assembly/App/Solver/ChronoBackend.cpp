@@ -8389,32 +8389,54 @@ Status ChronoSession::simulateDynamics(
                 eventTrips();
                 return false;
             }
+            // Located aside, each try one step from the piece's start; a
+            // mark then goes back to the piece's own step, so that the run
+            // goes on as it would unwatched. Run through the tries, the
+            // halving steps down to nanoseconds -- HHT holding the joints in
+            // position, a step of h turns their round-off e into a speed
+            // e / (beta h) -- the follower of a cam on a slider came out of
+            // a mark moving at 4e-5 m/s square to the slider, its force
+            // ringing 0.7% and its pressure angle 1.3 deg off (TestCamJoint).
+            Snapshot end = snapshot();
+            std::vector<Queued> marks;
             double lo = 0.0;
-            double hi = dt;
-            while (hi - lo > locate) {
-                const double mid = 0.5 * (lo + hi);
+            for (;;) {
+                double hi = dt;
+                while (hi - lo > locate) {
+                    const double mid = 0.5 * (lo + hi);
+                    restore(from);
+                    stepOnce(mid);
+                    values = valuesNow();
+                    if (anyTrips(values) || eventStops()) {
+                        hi = mid;
+                    }
+                    else {
+                        lo = mid;
+                    }
+                }
                 restore(from);
-                stepOnce(mid - lo);
+                stepOnce(hi);
+                const std::size_t was = queued.size();
+                bool stop = tripsAt(t0 + hi, valuesNow());
+                if (stop || eventStops()) {
+                    settleReadings();
+                    if (eventTrips() || stop) {
+                        // The run ends here, after the piece's marks before
+                        queued.insert(queued.begin() + was, marks.begin(), marks.end());
+                        return true;
+                    }
+                }
+                marks.insert(marks.end(), queued.begin() + was, queued.end());
+                lo = hi;
+                restore(end);
                 values = valuesNow();
-                if (anyTrips(values) || eventStops()) {
-                    hi = mid;
+                if (dt - hi > 1e-12 * dt && (anyTrips(values) || eventStops())) {
+                    continue;
                 }
-                else {
-                    lo = mid;
-                    from = snapshot();
-                }
+                passBy(values);
+                queued.insert(queued.end(), marks.begin(), marks.end());
+                return eventTrips();
             }
-            restore(from);
-            stepOnce(hi - lo);
-            bool stop = tripsAt(t0 + hi, valuesNow());
-            if (stop || eventStops()) {
-                settleReadings();
-            }
-            stop = eventTrips() || stop;
-            if (stop) {
-                return true;
-            }
-            return dt - hi > 1e-12 * dt ? watchedPiece(dt - hi) : false;
         };
         // With contact, in the contact's substeps (contactStep()): an
         // impact is over in tens of microseconds, and one watched at the

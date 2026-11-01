@@ -134,6 +134,49 @@ class TestSheetMetalExtendWall(unittest.TestCase):
         self.Doc.recompute()
         self.assertAlmostEqual(after.FlatLength.Value, before.FlatLength.Value + 4, places=6)
 
+    def testGaps(self):
+        """Gap1 and Gap2 narrow the extension at its two ends; gaps that
+        leave nothing are refused"""
+        plate = self.plate()
+        ext = self.extend(plate, [self.farEnd(plate)], Length=5, Gap1=3, Gap2=7)
+        self.assertNotIn("Invalid", ext.State)
+        self.assertTrue(ext.Shape.isValid())
+        self.assertAlmostEqual(ext.Shape.Volume, 40 * 20 + 30 * 5, places=6)
+        grown = [v.Point.x for v in ext.Shape.Vertexes if v.Point.y > 20 + 1e-7]
+        self.assertAlmostEqual(max(grown) - min(grown), 30, places=6)
+        self.assertIn(sorted([round(min(grown), 6), round(40 - max(grown), 6)]), [[3, 7]])
+        ext.Gap2 = 37
+        self.Doc.recompute()
+        self.assertIn("Invalid", ext.State)
+
+    def testClearance(self):
+        """An extension that would run into another wall of the part stops
+        the rule's gap short of it: a C's lip carried toward the other lip"""
+        wall = self.wall([(10, 10), (0, 10), (0, 0), (30, 0), (30, 10), (20, 10)], Length=15)
+        self.assertNotIn("Invalid", wall.State)
+        ends = sorted(
+            (f.BoundBox.XMin, "Face%d" % (i + 1))
+            for i, f in enumerate(wall.Shape.Faces)
+            if f.BoundBox.XLength < 1e-7 and abs(f.Area - 15) < 1e-6 and 5 < f.BoundBox.XMin < 25
+        )
+        self.assertEqual(len(ends), 2, ends)
+        (a, first), (b, second) = ends
+        ext = self.extend(wall, [first], Length=15)
+        self.assertNotIn("Invalid", ext.State)
+        self.assertTrue(ext.Shape.isValid())
+        gap = wall.Rule.Gap.Value
+        self.assertAlmostEqual(ext.Shape.Volume - wall.Shape.Volume, (b - gap - a) * 15, places=6)
+        # up to a face beyond the other lip, the same
+        ext.Length = 1
+        right = wall.Shape.BoundBox.XMax
+        beyond = self.faceWhere(
+            wall, lambda bb: abs(bb.XMin - right) < 1e-7 and bb.XLength < 1e-7
+        )
+        ext.UpToFace = (wall, [beyond])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", ext.State)
+        self.assertAlmostEqual(ext.Shape.Volume - wall.Shape.Volume, (b - gap - a) * 15, places=6)
+
     def testErrors(self):
         """A skin is no end; nothing left of a wall cut back past it"""
         plate = self.plate()

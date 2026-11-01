@@ -495,6 +495,14 @@ TouchedState touchedStateOf(const DocumentObject& obj)
 /// `prop`'s Touched bit set or cleared, the bit alone: setStatus(Touched)
 /// would touch() and signal a change. Cleared through purgeTouched(), which
 /// for a link also takes its target's revision as seen.
+/// The step a group's run ends at, put back as it was when the run is done
+struct RunStop
+{
+    int& ref;
+    int old;
+    ~RunStop() { ref = old; }
+};
+
 void setPropertyTouched(Property& prop, bool touched)
 {
     if (!touched) {
@@ -1470,6 +1478,7 @@ bool Document::_revertStep(bool undo, Transaction* step)
     auto inverse = new Transaction(step->getID());
     inverse->Name = step->Name;
     inverse->View = step->View;
+    inverse->Group = step->Group;
     d->activeUndoTransaction = inverse;
     {
         // The values go back as an undo's do: object code does not react to
@@ -1546,6 +1555,13 @@ std::vector<Transaction*> Document::_myRun(bool undo, int skip) const
     // step and the implicit ones above it, one redo the step and the
     // implicit ones it then finds under it.
     //
+    // docs/MultiViewEdit.md sec 12.11: the steps of an edit ended with OK
+    // are one group, and go together the same way -- one undo takes every
+    // step of the group with the implicit ones riding on each, passing
+    // over another's or another view's step between them (taken from the
+    // log, out of order); one redo brings them back. Up to the step
+    // runStopAt names, when one does: the fine undo of a part of it.
+    //
     // `skip` leaves that many of them where they are and gives the one
     // after (sec 33.11): what is taken when a step was refused and the user
     // goes on past it.
@@ -1556,39 +1572,88 @@ std::vector<Transaction*> Document::_myRun(bool undo, int skip) const
     // does not list is passed over, and the implicit ones that go with it.
     // The log on only, as for authors: what is passed over is above.
     const UndoView* view = authors ? UndoViewScope::current() : nullptr;
+    const int stopAt = d->runStopAt;
+    auto sees = [view](const Transaction* step) { return !view || view->sees(*step); };
     bool passed = false;
     std::vector<Transaction*> run;
+    // The group being gathered, 0 for none; and those left by `skip`
+    int64_t group = 0;
+    bool stopped = false;
+    std::set<int64_t> skipped;
+    // Implicit steps seen above a user step not yet reached (undo)
+    std::vector<Transaction*> pending;
     for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
         Transaction* step = *it;
         if (authors && !sameUser(step->Author.get(), actor.get()))
             continue;
         if (undo) {
-            if (!step->Implicit && view && !view->sees(*step)) {
+            if (group) {
+                // The rest of the group, under the steps of others
+                if (step->Implicit) {
+                    pending.push_back(step);
+                    continue;
+                }
+                if (step->Group == group && sees(step)) {
+                    run.insert(run.end(), pending.begin(), pending.end());
+                    run.push_back(step);
+                    if (step->getID() == stopAt)
+                        return run;
+                }
+                pending.clear();
+                continue;
+            }
+            if (!step->Implicit && (!sees(step) || skipped.count(step->Group))) {
                 run.clear();
                 continue;
             }
             run.push_back(step);
             if (!step->Implicit) {
-                if (skip-- <= 0)
-                    return run;
+                if (skip-- <= 0) {
+                    if (!step->Group || step->getID() == stopAt)
+                        return run;
+                    group = step->Group;
+                    continue;
+                }
+                if (step->Group)
+                    skipped.insert(step->Group);
                 run.clear();
             }
         }
         else {
             if (!step->Implicit) {
                 if (!run.empty()) {
+                    if (group && !stopped) {
+                        // the group's next step, or another's passed over
+                        // with the implicit ones under it
+                        passed = step->Group != group || !sees(step);
+                        if (!passed && step->getID() == stopAt)
+                            stopped = true;
+                        if (!passed)
+                            run.push_back(step);
+                        continue;
+                    }
                     if (skip <= 0)
                         return run;
                     --skip;
+                    if (group)
+                        skipped.insert(group);
                     run.clear();
+                    group = 0;
                 }
-                passed = view && !view->sees(*step);
+                passed = !sees(step) || skipped.count(step->Group);
+                if (!passed) {
+                    group = step->Group;
+                    stopped = !group || step->getID() == stopAt;
+                }
             }
             if (passed)
                 continue;
             run.push_back(step);
         }
     }
+    // A group gathered to the bottom of the stack
+    if (undo && group)
+        return run;
     // Implicit steps with no step of the user's below them: nothing to
     // undo, as when no log recorded them. And nothing where there are
     // fewer steps than were to be left.
@@ -1627,6 +1692,8 @@ bool Document::_takeStep(bool undo, int id)
     d->activeUndoTransaction->Name = step->Name;
     // Still the view's it was made in, whichever view takes it
     d->activeUndoTransaction->View = step->View;
+    // and still one of the edit's group, on the other stack
+    d->activeUndoTransaction->Group = step->Group;
     // Back in the state the step was made in; the other step is applied
     // from there.
     d->activeUndoTransaction->StateBefore = step->StateAfter;
@@ -1792,8 +1859,9 @@ bool Document::undo(int id)
                 std::optional<TransactionGuard> guard;
                 while (true) {
                     const auto run = _myRun(true);
-                    Transaction* top = run.empty() ? nullptr : run.back();
-                    if (!top || top == it->second)
+                    // the run it is in: a group's taken to it (sec 12.11)
+                    if (run.empty()
+                            || std::find(run.begin(), run.end(), it->second) != run.end())
                         break;
                     // One guard for the run, let go of around a step that
                     // goes through the log: it recomputes, and a guard's
@@ -1807,6 +1875,7 @@ bool Document::undo(int id)
                 }
             }
         }
+        RunStop stop {d->runStopAt, std::exchange(d->runStopAt, id)};
         return _takeRun(true);
     }
 
@@ -1849,8 +1918,9 @@ bool Document::redo(int id)
             std::optional<TransactionGuard> guard;
             while (true) {
                 const auto run = _myRun(false);
-                Transaction* top = run.empty() ? nullptr : run.front();
-                if (!top || top == it->second)
+                // the run it is in: a group's taken to it (sec 12.11)
+                if (run.empty()
+                        || std::find(run.begin(), run.end(), it->second) != run.end())
                     break;
                 if (_runNeedsLog(run))
                     guard.reset();
@@ -1860,6 +1930,7 @@ bool Document::redo(int id)
                     return false;   // a step refused (sec 24.3, 30.10)
             }
         }
+        RunStop stop {d->runStopAt, std::exchange(d->runStopAt, id)};
         return _takeRun(false);
     }
 
@@ -2032,6 +2103,65 @@ std::vector<std::string> Document::getAvailableRedoNames() const
     for (auto step : stepsOf(mRedoTransactions, nullptr, d->transactionLog != nullptr))
         vList.push_back(step->Name);
     return vList;
+}
+
+std::vector<Document::StepInfo> Document::getAvailableUndoSteps() const
+{
+    std::vector<StepInfo> out;
+    for (auto step : stepsOf(mUndoTransactions, d->activeUndoTransaction,
+                             d->transactionLog != nullptr))
+        out.push_back({step->getID(), step->Name, step->Group});
+    return out;
+}
+
+std::vector<Document::StepInfo> Document::getAvailableRedoSteps() const
+{
+    std::vector<StepInfo> out;
+    for (auto step : stepsOf(mRedoTransactions, nullptr, d->transactionLog != nullptr))
+        out.push_back({step->getID(), step->Name, step->Group});
+    return out;
+}
+
+bool Document::groupSteps(const std::vector<int>& ids)
+{
+    std::vector<Transaction*> steps;
+    for (int id : ids) {
+        auto it = mUndoMap.find(id);
+        if (it == mUndoMap.end()) {
+            it = mRedoMap.find(id);
+            if (it == mRedoMap.end())
+                continue;
+        }
+        Transaction* step = it->second;
+        if (!step->Implicit && std::find(steps.begin(), steps.end(), step) == steps.end())
+            steps.push_back(step);
+    }
+    if (steps.size() < 2)
+        return false;
+    // Keyed by the oldest step's row, which the rows keep; a step with no
+    // row (it changed nothing) is in the group for this session only. With
+    // no row at all, by the oldest step's id, negated: no row's seq.
+    std::vector<int64_t> seqs;
+    int oldest = 0;
+    for (auto step : steps) {
+        if (step->LogSeq > 0)
+            seqs.push_back(step->LogSeq);
+        if (!oldest || step->getID() < oldest)
+            oldest = step->getID();
+    }
+    const int64_t key = seqs.empty() ? -int64_t(oldest)
+                                     : *std::min_element(seqs.begin(), seqs.end());
+    for (auto step : steps)
+        step->Group = key;
+    if (auto log = getTransactionLog(); log && !seqs.empty()) {
+        try {
+            log->store().setGroup(seqs, key);
+        }
+        catch (Base::Exception& e) {
+            FC_ERR("transaction log: " << e.what());
+        }
+    }
+    return true;
 }
 
 void Document::openTransaction(const char* name) {
@@ -8550,6 +8680,7 @@ void Document::_rebuildUndoFromLog(int64_t after)
         std::shared_ptr<const Actor> author;
         int64_t before;
         int64_t after;
+        int64_t group;   ///< txn.grp (docs/MultiViewEdit.md sec 12.11)
     };
     std::vector<Step> undo;
     std::vector<Step> redo;
@@ -8593,7 +8724,7 @@ void Document::_rebuildUndoFromLog(int64_t after)
             continue;   // a record: save, snapshot, recompute, login
         const int64_t before = state;
         state = ++d->stateCounter;
-        undo.push_back({t.seq, t.name, t.kind == "implicit", author, before, state});
+        undo.push_back({t.seq, t.name, t.kind == "implicit", author, before, state, t.group});
         redo.erase(std::remove_if(redo.begin(), redo.end(),
                                   [&](const Step& s) {
                                       return sameUser(s.author.get(), author.get());
@@ -8609,6 +8740,7 @@ void Document::_rebuildUndoFromLog(int64_t after)
         t->Author = s.author;
         t->StateBefore = s.before;
         t->StateAfter = s.after;
+        t->Group = s.group;
         t->Cold = true;
         return t;
     };

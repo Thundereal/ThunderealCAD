@@ -267,6 +267,8 @@ public:
     std::vector<LogTransaction> chain(int64_t head, int64_t from) override
     { return inner().chain(head, from); }
     std::vector<LogTransaction> history(int64_t head) override { return inner().history(head); }
+    void setGroup(const std::vector<int64_t>& seqs, int64_t group) override
+    { inner().setGroup(seqs, group); }
     bool lastOpOn(const std::string& ckind, long cid, const std::string& prop, int64_t after,
                   int64_t head, LogOp& op) override
     { return inner().lastOpOn(ckind, cid, prop, after, head, op); }

@@ -799,3 +799,43 @@ sec 6 to 8, user 2026-11-01: an undo in memory constructs nothing). An undo
 leaves a drawing right and clean; `resultInProperties()` stays as the
 fallback, false for a part view only while the store is switched off or a
 projection is running.
+
+### 12.11 An edit's steps are one undo (user, 2026-10-31 and 2026-11-01)
+
+The user's model: "group all editing undo steps including the recompute
+before exit into one super undo step. Change ui to show expansion of small
+steps in the super step for user to optionally fine undo. Clicking the undo
+button is coarse." Ruled on the open questions: the drop-down is a menu
+whose group row takes the whole edit and opens its steps on hover; every
+edit ended with OK groups, Sketcher's too; a step of another view or user
+between the edit's is passed over; the browser gets the grouping and its
+list now; a dependency between steps is checked by reference as well as by
+property, and a step of another user in the way is undone only by asking
+that user.
+
+**The group, in App (built).** `Transaction::Group` keys the steps of one
+edit: the seq of its oldest row, or with no log its oldest step's id
+negated. `Document::groupSteps(ids)` makes one (Python `groupSteps`);
+implicit steps are not marked, they ride on the step they follow. The key
+is written to the rows, `txn.grp`, store layout 4 (a migration adds the
+column); the stacks rebuilt from the log keep it, an inverse step keeps
+its step's, and a cold stub its own.
+
+`Document::_myRun` gathers a group: on undo, from its newest step down
+through the stack, taking each step of the group with the implicit ones
+riding on it and passing over every other step -- another view's, another
+user's, or one of no group -- which stays as it is; the steps under one
+passed over are taken back from the log, out of order, and the run is all
+or none (`_takeRun`). On redo the same from the other end. `runStopAt`
+ends the run at a step of the group: `undo(id)` with a step inside the
+group at the top takes the group down to it and no further (Python
+`undoTo`, `redoTo`), what is left a group still on each stack. A run
+skipped past a refusal (sec 33.11) skips its group whole.
+
+`getAvailableUndoSteps()` / `getAvailableRedoSteps()` list what an undo of
+the view lists with each step's id and group (Python `getUndoSteps`,
+`getRedoSteps`).
+
+Gtests `aGroupOfStepsIsUndoneAndRedoneWhole`,
+`aGroupIsUndoneFromUnderAnotherStepAndInPart`; the migration tests check
+layout 4.

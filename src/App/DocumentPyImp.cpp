@@ -652,6 +652,75 @@ PyObject*  DocumentPy::undo(PyObject * args)
     } PY_CATCH;
 }
 
+namespace
+{
+Py::List stepList(const std::vector<App::Document::StepInfo>& steps)
+{
+    Py::List list;
+    for (const auto& s : steps) {
+        list.append(Py::TupleN(Py::Long(s.id), Py::String(s.name),
+                               Py::Long(static_cast<long long>(s.group))));
+    }
+    return list;
+}
+}  // namespace
+
+PyObject* DocumentPy::getUndoSteps(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(stepList(getDocumentPtr()->getAvailableUndoSteps()));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::getRedoSteps(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(stepList(getDocumentPtr()->getAvailableRedoSteps()));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::undoTo(PyObject* args)
+{
+    int id = 0;
+    if (!PyArg_ParseTuple(args, "i", &id))
+        return nullptr;
+    PY_TRY {
+        bool done = getDocumentPtr()->undo(id);
+        getDocumentPtr()->recomputeAfterUndo();
+        return Py::new_reference_to(Py::Boolean(done));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::redoTo(PyObject* args)
+{
+    int id = 0;
+    if (!PyArg_ParseTuple(args, "i", &id))
+        return nullptr;
+    PY_TRY {
+        bool done = getDocumentPtr()->redo(id);
+        getDocumentPtr()->recomputeAfterUndo();
+        return Py::new_reference_to(Py::Boolean(done));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::groupSteps(PyObject* args)
+{
+    PyObject* seq = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &seq))
+        return nullptr;
+    PY_TRY {
+        std::vector<int> ids;
+        Py::Sequence items(seq);
+        for (const auto& item : items)
+            ids.push_back(static_cast<int>(Py::Long(item)));
+        return Py::new_reference_to(Py::Boolean(getDocumentPtr()->groupSteps(ids)));
+    } PY_CATCH;
+}
+
 PyObject*  DocumentPy::redo(PyObject * args)
 {
     int skip = 0;

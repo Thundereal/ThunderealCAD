@@ -1840,6 +1840,25 @@ public:
     int getAvailableRedos(int id=0) const;
     /// Returns a list of the Redo names.
     std::vector<std::string> getAvailableRedoNames() const;
+    /// A step an undo or a redo of the view's lists: its id, its name and
+    /// the group of an edit it is one of, 0 for none
+    struct StepInfo
+    {
+        int id {0};
+        std::string name;
+        int64_t group {0};
+    };
+    /// The steps getAvailableUndoNames() names, newest first
+    std::vector<StepInfo> getAvailableUndoSteps() const;
+    /// The steps getAvailableRedoNames() names, the next to redo first
+    std::vector<StepInfo> getAvailableRedoSteps() const;
+    /** Steps \a ids, of either stack, made one group: the steps of an
+     * edit ended with OK (docs/MultiViewEdit.md sec 12.11), which one
+     * undo takes together and one redo brings back. Implicit steps are
+     * not marked: they go with the step they ride on. False, marking
+     * nothing, for fewer than two steps.
+     */
+    bool groupSteps(const std::vector<int>& ids);
     /// Will REDO one step, returns False if no redo was done (Redos == 0).
     bool redo(int id=0) ;
     /** Whether the next undo (or redo) of whoever acts goes through the log

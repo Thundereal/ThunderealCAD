@@ -269,6 +269,7 @@ Transaction* Transaction::coldCopy(const Transaction& t)
     stub->Unchanged = t.Unchanged;
     stub->Author = t.Author;   // the step's, not whoever trims the window
     stub->View = t.View;
+    stub->Group = t.Group;
     stub->StateBefore = t.StateBefore;
     stub->StateAfter = t.StateAfter;
     stub->Cold = true;

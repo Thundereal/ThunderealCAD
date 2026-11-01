@@ -235,6 +235,46 @@ Redo a previously undone step. 'skip' leaves that many of the steps next to
 be redone as they are and redoes the one after.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="getUndoSteps">
+      <Documentation>
+        <UserDocu>getUndoSteps() -> list of (id, name, group)
+
+The steps an undo lists, newest first, as UndoNames names them: each step's
+id, its name and the group of an edit's steps it is one of, 0 for none
+(docs/MultiViewEdit.md sec 12.11). One undo takes a group whole.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getRedoSteps">
+      <Documentation>
+        <UserDocu>getRedoSteps() -> list of (id, name, group)
+
+The steps a redo lists, the next first, as getUndoSteps().</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="undoTo">
+      <Documentation>
+        <UserDocu>undoTo(id) -> bool
+
+Undo down to the step with id 'id', that one included. Inside a group of an
+edit's steps, the group's steps down to it and no further.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="redoTo">
+      <Documentation>
+        <UserDocu>redoTo(id) -> bool
+
+Redo up to the step with id 'id', that one included, as undoTo().</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="groupSteps">
+      <Documentation>
+        <UserDocu>groupSteps(ids) -> bool
+
+Make the steps with ids 'ids' one group, as an edit ended with OK does
+(docs/MultiViewEdit.md sec 12.11): one undo takes them all and one redo brings
+them back. False for fewer than two steps.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="clearUndos">
       <Documentation>
         <UserDocu>Clear the undo stack of the document</UserDocu>

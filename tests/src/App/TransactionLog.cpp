@@ -2146,6 +2146,106 @@ TEST_F(TransactionLogTest, undoAndRedoAreLoggedAsInverses)
     EXPECT_EQ(obj->ExecCount.getValue(), again);
 }
 
+namespace
+{
+int stepNamed(App::Document* doc, const std::string& name, bool undo = true)
+{
+    for (const auto& s : undo ? doc->getAvailableUndoSteps() : doc->getAvailableRedoSteps()) {
+        if (s.name == name)
+            return s.id;
+    }
+    return 0;
+}
+}  // namespace
+
+TEST_F(TransactionLogTest, aGroupOfStepsIsUndoneAndRedoneWhole)
+{
+    // docs/MultiViewEdit.md sec 12.11: the steps of an edit ended with OK
+    // are one group. One undo takes them all, one redo brings them back; a
+    // step after the group is a step of its own.
+    doc()->openTransaction("create");
+    auto a = make("A");
+    doc()->commitTransaction();
+    doc()->recompute();
+    for (int i = 1; i <= 3; ++i) {
+        doc()->openTransaction(("edit " + std::to_string(i)).c_str());
+        a->Integer.setValue(i);
+        doc()->recompute();
+        doc()->commitTransaction();
+    }
+    doc()->openTransaction("after");
+    a->Float.setValue(2.5);
+    doc()->commitTransaction();
+    ASSERT_TRUE(doc()->groupSteps(
+        {stepNamed(doc(), "edit 1"), stepNamed(doc(), "edit 2"), stepNamed(doc(), "edit 3")}));
+    auto steps = doc()->getAvailableUndoSteps();
+    ASSERT_GE(steps.size(), 4u);
+    EXPECT_EQ(steps[0].group, 0);
+    EXPECT_NE(steps[1].group, 0);
+    EXPECT_EQ(steps[1].group, steps[2].group);
+    EXPECT_EQ(steps[1].group, steps[3].group);
+
+    // the rows keep the group, keyed by the oldest one's seq
+    log().resolvePending();
+    std::map<std::string, int64_t> groups;
+    for (const auto& t : log().store().transactions())
+        groups[t.name] = t.group;
+    EXPECT_EQ(groups["after"], 0);
+    EXPECT_EQ(groups["edit 1"], steps[1].group);
+    EXPECT_EQ(groups["edit 3"], steps[1].group);
+
+    ASSERT_TRUE(doc()->undo());   // the step after
+    EXPECT_NEAR(a->Float.getValue(), 47.11, 1e-5);   // its default
+    EXPECT_EQ(a->Integer.getValue(), 3);
+    ASSERT_TRUE(doc()->undo());   // the group, whole
+    EXPECT_EQ(a->Integer.getValue(), 4711);
+    EXPECT_EQ(doc()->getAvailableUndoNames().front(), "create");
+    ASSERT_TRUE(doc()->redo());
+    EXPECT_EQ(a->Integer.getValue(), 3);
+    EXPECT_NEAR(a->Float.getValue(), 47.11, 1e-5);   // its default
+    ASSERT_TRUE(doc()->redo());
+    EXPECT_EQ(a->Float.getValue(), 2.5);
+}
+
+TEST_F(TransactionLogTest, aGroupIsUndoneFromUnderAnotherStepAndInPart)
+{
+    // A step between the group's is passed over and stays (sec 12.11); and
+    // undoing down to a step inside the group takes the group to it only.
+    doc()->openTransaction("create");
+    auto a = make("A");
+    auto b = make("B");
+    doc()->commitTransaction();
+    doc()->recompute();
+    doc()->openTransaction("edit 1");
+    a->Integer.setValue(1);
+    doc()->commitTransaction();
+    doc()->openTransaction("between");
+    b->Integer.setValue(9);
+    doc()->commitTransaction();
+    doc()->openTransaction("edit 2");
+    a->Float.setValue(1.5);
+    doc()->commitTransaction();
+    ASSERT_TRUE(doc()->groupSteps({stepNamed(doc(), "edit 1"), stepNamed(doc(), "edit 2")}));
+
+    ASSERT_TRUE(doc()->undo()) << doc()->undoRefusal();
+    EXPECT_EQ(a->Integer.getValue(), 4711);
+    EXPECT_NEAR(a->Float.getValue(), 47.11, 1e-5);   // its default
+    EXPECT_EQ(b->Integer.getValue(), 9);
+    ASSERT_TRUE(doc()->redo()) << doc()->undoRefusal();
+    EXPECT_EQ(a->Integer.getValue(), 1);
+    EXPECT_EQ(a->Float.getValue(), 1.5);
+    EXPECT_EQ(b->Integer.getValue(), 9);
+
+    // in part: down to edit 2 leaves edit 1
+    ASSERT_TRUE(doc()->undo(stepNamed(doc(), "edit 2"))) << doc()->undoRefusal();
+    EXPECT_NEAR(a->Float.getValue(), 47.11, 1e-5);   // its default
+    EXPECT_EQ(a->Integer.getValue(), 1);
+    // and what is left is still a group of one step on each side
+    ASSERT_TRUE(doc()->undo()) << doc()->undoRefusal();
+    EXPECT_EQ(a->Integer.getValue(), 4711);
+    EXPECT_EQ(b->Integer.getValue(), 9);
+}
+
 TEST_F(TransactionLogTest, anUndoThatLeavesAnObjectCleanLeavesItsLinksClean)
 {
     // docs/TransactionLogJournal.md sec 24.17: a link is touched while its
@@ -3309,7 +3409,7 @@ TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
         kept.seq = 1;
         EXPECT_TRUE(store->keepValue(kept));
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 4);
     // Opened again: nothing left to do.
     EXPECT_NO_THROW(App::TransactionStore::openSQLite(path));
     Base::FileInfo(path).deleteFile();
@@ -3384,7 +3484,7 @@ TEST_F(TransactionLogTest, aStoreOfScannersLayoutIsMigrated)
         ASSERT_EQ(sessions.size(), 1U);
         EXPECT_EQ(sessions.front().user, 1);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 4);
     Base::FileInfo(path).deleteFile();
 }
 
@@ -3433,7 +3533,7 @@ TEST_F(TransactionLogTest, aStoreOfLayoutOneGetsObjectUids)
             uids.emplace(u.first, u.second);
         EXPECT_EQ(uids.count(5), 0U);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 4);
     Base::FileInfo(path).deleteFile();
 }
 
@@ -3505,7 +3605,9 @@ TEST_F(TransactionLogTest, aStoreOfLayoutTwoGetsItsOpsPacked)
         EXPECT_EQ(back[0].vbefore, h2);
         EXPECT_EQ(back[0].vafter, h1);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 4);
+    // 4: the group of a row (docs/MultiViewEdit.md sec 12.11)
+    EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM pragma_table_info('txn') WHERE name='grp'"), 1);
     EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM op WHERE typeof(prop)<>'integer'"), 0);
     EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM op WHERE typeof(vbefore)='blob'"), 2);
     EXPECT_EQ(rawInt(path, "SELECT length(vafter) FROM op WHERE txn=1 AND idx=0"), 20);
@@ -3611,7 +3713,7 @@ TEST_F(TransactionLogTest, aStoreNotOfThisBuildIsRefused)
     {
         auto store = App::TransactionStore::openSQLite(fresh);
     }
-    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 4);
     Base::FileInfo(fresh).deleteFile();
 }
 

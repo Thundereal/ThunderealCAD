@@ -149,6 +149,14 @@ public:
      * only, not written to the log.
      */
     int View {0};
+    /** The steps of one edit, grouped when it ends with OK
+     * (docs/MultiViewEdit.md sec 12.11): one undo takes them all, the
+     * implicit steps riding on them with them, and one redo brings them
+     * back. The key of the group -- its oldest step's row, or with no log
+     * its oldest step's id -- 0 for none. Written to the step's row
+     * (`txn.grp`), so the stacks rebuilt from the log keep it.
+     */
+    int64_t Group {0};
     /** The state of the document's values this step was made in and the
      * one it left (docs/TransactionLogJournal.md sec 30.10): tokens of the
      * document, a new one for every change. A step can be applied from its

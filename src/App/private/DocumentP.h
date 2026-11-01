@@ -222,6 +222,9 @@ struct DocumentP
     /// for a derived value the log no longer has. A step taken after it
     /// sets the touched state its own rows record, which would clear them.
     std::set<long>* runNotRestored {nullptr};
+    /// The step a run of a group ends at, 0 for the whole group: the fine
+    /// undo or redo of a part of it (docs/MultiViewEdit.md sec 12.11)
+    int runStopAt {0};
     /// A saveCopy() without history: the copy embeds nothing, and the
     /// History property the live document had is put back afterwards.
     bool savingWithoutHistory {false};

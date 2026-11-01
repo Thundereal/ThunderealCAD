@@ -2146,6 +2146,36 @@ TEST_F(TransactionLogTest, undoAndRedoAreLoggedAsInverses)
     EXPECT_EQ(obj->ExecCount.getValue(), again);
 }
 
+TEST_F(TransactionLogTest, anUndoThatLeavesAnObjectCleanLeavesItsLinksClean)
+{
+    // docs/TransactionLogJournal.md sec 24.17: a link is touched while its
+    // target has changed since it was purged. An undo writes the target
+    // back, and the object linking to it -- up to date by the rows, its
+    // output written back too -- must not run again at the next recompute.
+    doc()->openTransaction("create");
+    auto a = make("A");
+    auto b = make("B");
+    a->Link.setValue(b);
+    doc()->commitTransaction();
+    doc()->recompute();
+    ASSERT_FALSE(a->mustExecute());
+
+    doc()->openTransaction("edit");
+    b->Integer.setValue(7);
+    doc()->recompute();
+    doc()->commitTransaction();
+    ASSERT_FALSE(a->mustExecute());
+
+    ASSERT_TRUE(doc()->undo());
+    EXPECT_EQ(b->Integer.getValue(), 4711);
+    EXPECT_FALSE(a->isTouched());
+    EXPECT_FALSE(a->Link.isTouched());
+    EXPECT_FALSE(a->mustExecute());
+    ASSERT_TRUE(doc()->redo());
+    EXPECT_FALSE(a->Link.isTouched());
+    EXPECT_FALSE(a->mustExecute());
+}
+
 TEST_F(TransactionLogTest, aWriteFinishingItsOwnersRecomputeIsDerived)
 {
     // docs/TransactionLogJournal.md sec 10.2: what an object writes to its

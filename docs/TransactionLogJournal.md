@@ -3554,6 +3554,28 @@ model's steps, stopped working once the projection was derived.
 `_commitTransaction` does: a step that changed nothing has nothing to
 apply, and is taken without a row (`Transaction::Unchanged`, 24.7).
 
+### 24.17 A link the undo leaves clean is clean (2026-11-01)
+
+A link is touched while its target has changed since the link was
+purged (`PropertyLink*::isTouched`, the target's revision against the one
+taken at the purge), and an object with a touched link must execute. An
+undo writes the target back -- an input written bumps its object's
+revision -- and the object linking to it, its own output written back by
+the same undo and clean by the rows, kept a touched link: the next
+recompute, of anything, ran it again. A TechDraw view was re-projected,
+and everything drawn from it, after every undo that took back a change to
+its model, though the undo had put its projection back.
+
+Three places in the touched state the rows leave (sec 27.63):
+`setPropertyTouched` clears a property the rows say is clean by
+`isTouched()` rather than the bit, so a link is purged of its target's
+change; `StepTouched::leave` sets the state of every object it covers,
+not only those whose bits differ, as the bits do not show the link; and
+`StepTouched::begin` covers the objects linking to what the step writes,
+which keep the state they had. Gtest
+`anUndoThatLeavesAnObjectCleanLeavesItsLinksClean`, which fails without
+the change.
+
 ## 25. Phase 7: crash recovery (design, 2026-09-25)
 
 Phase 7 as section 15 lists it is recovery *and* streaming; this section

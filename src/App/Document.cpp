@@ -497,12 +497,17 @@ TouchedState touchedStateOf(const DocumentObject& obj)
 /// for a link also takes its target's revision as seen.
 void setPropertyTouched(Property& prop, bool touched)
 {
-    if (prop.hasTouchedBit() == touched)
-        return;
     if (!touched) {
-        prop.purgeTouched();
+        // isTouched(), not the bit: a link is touched too while its target
+        // has changed since it was purged, and an undo that writes the
+        // target back changes it. Left so, the object the rows say is up to
+        // date ran again at the next recompute (sec 24.17).
+        if (prop.isTouched())
+            prop.purgeTouched();
         return;
     }
+    if (prop.hasTouchedBit())
+        return;
     Property::StatusBits bit;
     bit.set(Property::Touched);
     prop.setStatus(bit, true);
@@ -714,8 +719,16 @@ struct StepTouched
         std::set<long> ids;
         for (auto obj : doc.getObjects()) {
             const long id = obj->getID();
-            if (fold.objects.count(id) || named.count(id) || step.hasObject(obj))
+            if (fold.objects.count(id) || named.count(id) || step.hasObject(obj)) {
                 ids.insert(id);
+                // What links to it sees the write as a change of its target
+                // (PropertyLink*::isTouched); the rows do not name it, so it
+                // keeps the state it has (sec 24.17)
+                if (named.count(id) || step.hasObject(obj)) {
+                    for (auto in : obj->getInList())
+                        ids.insert(in->getID());
+                }
+            }
         }
         before = fold.save(doc, ids);
         active = true;
@@ -755,8 +768,10 @@ struct StepTouched
         inverse.LogScript = end(doc, inverse, touch);
         TransactionGuard::afterTouches([&doc, after = after]() {
             for (const auto& kv : after) {
-                auto obj = doc.getObjectByID(kv.first);
-                if (obj && !(touchedStateOf(*obj) == kv.second))
+                // set even where the bits already agree: a link the rows
+                // say is clean is purged of its target's change too, which
+                // the bits do not show (sec 24.17)
+                if (auto obj = doc.getObjectByID(kv.first))
                     setTouchedState(*obj, kv.second);
             }
         });

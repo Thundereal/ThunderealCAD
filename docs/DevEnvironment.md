@@ -3,7 +3,7 @@
 How the development boxes are set up to build and debug the realthunder FreeCAD fork
 together with its companion forks.
 
-- **Linux (Ubuntu 24.04 / WSL2)** — two parallel stacks; **the conda stack is the
+- **Linux (Ubuntu 24.04 and 26.04 / WSL2)** -- two parallel stacks; **the conda stack is the
   primary one** because it is the only way to get a matched Qt6 + PySide6 on
   Ubuntu 24.04. This is what the bulk of this document describes.
 - **Windows 10 + MSVC 2022** — [Windows stack](#windows-stack-msvc-2022--conda).
@@ -136,8 +136,9 @@ above is what we PUBLISH; moving the dev envs to 3.13 is a separate rebuild.
 - **env**: `~/works/sw/fcad/.conda/freecad` — the path the repo's `conda-linux*`
   CMake presets hardcode. Gitignored.
 - **Solved/pinned versions**: Qt 6.11.2 + PySide6/shiboken6 6.11.2 and vtk 9.6.2
-  (all pinned in `<env>/conda-meta/pinned`), Python 3.12, gcc 15.2, cmake 4.2,
-  boost 1.90, eigen 5.0.1. The Qt/boost/vtk trio deliberately tracks the stack
+  (all pinned in `<env>/conda-meta/pinned`), Python 3.12, gcc 16.2, cmake 4.4,
+  boost 1.90, eigen 5.0.1. The compiler is **not** pinned: take what the solve
+  gives, see [Bringing up a fresh box](#bringing-up-a-fresh-box). The Qt/boost/vtk trio deliberately tracks the stack
   conda-forge builds smesh and FreeCAD against -- see the FEM section for why
   they cannot be chosen independently.
 - **Wrapper script**: `~/works/sw/fcad/.conda/run.sh` — activates the env and strips
@@ -151,8 +152,9 @@ above is what we PUBLISH; moving the dev envs to 3.13 is a separate rebuild.
   ```
 
   **`run.sh` does not put conda's compiler on `PATH` as `g++`.** Plain
-  `g++` and `gcc` still resolve to the system Ubuntu toolchain (13.3);
-  the tree is built with `$PREFIX/bin/x86_64-conda-linux-gnu-c++` (15.2),
+  `g++` and `gcc` still resolve to the system Ubuntu toolchain (13.3 on
+  24.04);
+  the tree is built with `$PREFIX/bin/x86_64-conda-linux-gnu-c++` (16.2),
   which is what `CMAKE_CXX_COMPILER` names. That only matters for
   hand-built scratch binaries that LINK the tree's own static libraries:
   compiled with the system `g++` they build and link without a
@@ -161,6 +163,138 @@ above is what we PUBLISH; moving the dev envs to 3.13 is a separate rebuild.
   defect in the library rather than in the harness. Use
   `$(grep CMAKE_CXX_COMPILER: <build>/CMakeCache.txt)` for such a
   binary, or build it through CMake.
+
+### Bringing up a fresh box
+
+Measured 2026-10-31 on a clean Ubuntu 26.04.1 install (12 threads, 30 GB, Intel
+UHD 630), from nothing but this clone. The sections below are the recipes; this
+is the order and what they leave out.
+
+*** **`.conda/run.sh` is untracked, so a fresh clone does not have it**, and every
+recipe here and half of `scripts/` calls it. Write it first, verbatim:
+
+```sh
+#!/bin/bash
+# Run a command inside the FreeCAD conda dev env.
+#
+#   ~/works/sw/fcad/.conda/run.sh <command...>
+#
+# Activating the env is only half the job. conda's compiler packages export
+# release-tuned CFLAGS/CXXFLAGS carrying -O2 -DNDEBUG, which would silently turn
+# CMAKE_BUILD_TYPE=Debug into an optimized-debug build. Strip exactly those two
+# and keep the rest -- the "-isystem $PREFIX/include" part is REQUIRED (that is
+# where GL/gl.h and friends come from). LDFLAGS is left untouched: it carries the
+# env's rpath wiring.
+set -e
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PREFIX=$HERE/freecad
+CONDA_ROOT=${CONDA_ROOT:-$HOME/miniforge3}
+
+if [ ! -d "$PREFIX" ]; then
+    echo "run.sh: no env at $PREFIX" >&2
+    exit 1
+fi
+
+# miniforge is deliberately not in .bashrc, so pull the hook in explicitly
+__conda_setup=$("$CONDA_ROOT/bin/conda" shell.bash hook 2>/dev/null)
+eval "$__conda_setup"
+unset __conda_setup
+conda activate "$PREFIX"
+
+strip_release_tuning() {
+    local out=() t
+    for t in $1; do
+        case $t in
+            -O*|-DNDEBUG) ;;
+            *) out+=("$t") ;;
+        esac
+    done
+    printf '%s' "${out[*]}"
+}
+CFLAGS=$(strip_release_tuning "$CFLAGS");     export CFLAGS
+CXXFLAGS=$(strip_release_tuning "$CXXFLAGS"); export CXXFLAGS
+
+exec "$@"
+```
+
+`.conda/limited.sh` is untracked too: a small wrapper that sets `ulimit -v`
+(24 GB by default) and `nice -n 15` before `exec "$@"`, so a runaway dies of a
+failed allocation instead of taking the box down. Build through both, bounded:
+`.conda/limited.sh .conda/run.sh ninja -C <dir> -j6 -l 12`.
+
+*** **Do not pin the compiler down to an older version.** The create line leaves
+`gcc_linux-64` free and conda-forge solves to 16.2, which is what the main box
+builds with. Forcing 15.2 builds green and is broken: gcc 15's speculative
+devirtualization leaves `IntTools_Context.cxx` calling `GeomAdaptor_Curve::GetType`,
+`FirstParameter` and `LastParameter` out of line, three in-class inline virtuals
+that conda's `-fvisibility-inlines-hidden` keeps out of `libTKG3d`. The same OCCT
+commit and the same flags have no such reference under gcc 16.2. Nothing fails until
+a process loads `Part`:
+
+    libTKBO.so.8.0: undefined symbol: _ZNK17GeomAdaptor_Curve7GetTypeEv
+
+ninja, the link and the configure all pass, so **run the import audit in
+`docs/Testing.md` right after the first build**, before any suite. `ldd -r` over
+`libTK*.so.8.0`, `lib/*.so` and `Mod/*/*.so` under the env finds the same thing and
+tells you how far it reaches. A changed compiler needs the build trees deleted:
+`CMAKE_CXX_COMPILER` is cached, so a reconfigure keeps the old one.
+
+The order that worked, and what each step needs beyond its own section:
+
+1. `sudo apt install xvfb` for the driven GUI tests. A desktop install has
+   everything else the build needs; the toolchain and libraries come from conda.
+2. Miniforge at `~/miniforge3`. The unversioned installer has no `.sha256` beside
+   it in the release: check the digest GitHub lists for the asset, or take the
+   versioned file. `~/.condarc` with `channel_priority: strict` and conda-forge.
+3. The forks over SSH, branches as in [Repositories](#repositories); pivy's
+   `rt-0.6.10` is on `realthunder/pivy`, not on upstream's origin.
+   `git submodule update --init --recursive` in this tree.
+4. The env in one solve, so the version traps below are settled together: the
+   create line, then on the same line `tbb-devel "vtk-base==9.6.2"
+   "vtk-io-ffmpeg==9.6.2" libmed "hdf5>=1.14.6,<1.14.7.0a0" libxml2-devel shapely
+   typing_extensions "cgal-cpp>=6.2.1,<6.3" libxml2 gmp mpfr
+   "rocksdb>=10.6.2,<10.7.0a0" zstd libzlib openimageio embree openimagedenoise
+   requests defusedxml gitpython pyshp pysolar debugpy six opencamlib`, and
+   `conda-meta/pinned` straight after. This box took `openimageio=3.1` and
+   `openexr=3.4` to stay on the versions Cycles was verified with (the solve
+   otherwise gives 3.2 and 3.5, not tried).
+5. `pip install cogapp ladybug-core` through `run.sh`. `ladybug-core` is not on
+   conda-forge, and naming it in the create line fails the whole solve.
+6. `libarea`, `smesh`, `v8-embed` and `ifcopenshell` by `@EXPLICIT` even with
+   anaconda.org reachable: the recipe under [When anaconda.org is
+   unreachable](#when-anaconda-org-is-unreachable), with the sha256 from the
+   channel's `repodata.json`, is what keeps `occt` out. Build 13 of
+   `ifcopenshell` (`py312hb2b98cf_13`) needs no plugin-path workaround.
+   `netgen` with `--no-deps`, the two PySide6 symlinks, then the empty check for
+   `occt` in the prefix.
+7. OCCT, Coin, pivy, in that order.
+8. The guest toolchain and the three wheels: `fcx-image` from PyPI, the pivy wheel
+   (needs pivy built first), `sandbox-fetch-wheels.py`. Give all three to the FIRST
+   configure and the preset-versus-cache trap never comes up.
+9. FreeCAD, then `install_runtime()`, then the import audit.
+10. `emsdk` 6.0.6 and the viewer: `EMSDK_PYTHON` at the env's python, cleared flag
+    variables, `emcmake cmake -S src/Gui/Renderer/wasm -B build/wasm -G Ninja
+    -DCMAKE_BUILD_TYPE=Release`. It takes `shaderc` from the desktop tree, so it
+    comes after FreeCAD. The DOM layer is `npm install && npm run build` in
+    `src/Gui/Renderer/web`, with emsdk's node on `PATH`.
+
+Times at `-j6 -l 12`: OCCT 21 min (5667 steps), Coin 1 min, pivy 3 min, the pivy
+wheel 2 min, FreeCAD with Cycles and FEM 72 min (9220 steps),
+the viewer 43 s.
+
+**ccache** is picked up by FreeCAD on its own (`FREECAD_USE_CCACHE`, ON, finds it on
+`PATH`, so it has to be in the env: it is not in the create line, add `ccache`).
+OCCT and Coin have no such option, so they do not use it unless configured with
+`-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`. The cache is keyed on the compiler, so a
+compiler change misses everything. One FreeCAD tree is about 2.5 GB of ccache's
+default 5 GB.
+
+On a Wayland session `xset dpms` does nothing; the panel goes off and stays
+`connected` with `busctl --user set-property org.gnome.Mutter.DisplayConfig
+/org/gnome/Mutter/DisplayConfig org.gnome.Mutter.DisplayConfig PowerSaveMode i 3`
+(0 is on).
+
 ### When anaconda.org is unreachable
 
 *** **Some networks refuse `conda.anaconda.org` outright**, and a box behind one
@@ -814,8 +948,8 @@ finds through `CUDA_BIN_PATH` (cuew), and `device/cuda/device.cpp` reports the
 CUDA device as available **only if that lookup succeeds**. Without the variable
 CUDA does not fail loudly -- it simply vanishes from the device list, in the
 standalone and in tree alike, which reads as a broken build rather than a
-missing environment variable. `.conda/run.sh` does not set it: run.sh is
-thirteen lines and knows nothing about CUDA. It must also reach a **serving**
+missing environment variable. `.conda/run.sh` does not set it: run.sh knows
+nothing about CUDA. It must also reach a **serving**
 process, not just an interactive one.
 
 Kernels are compiled from **installed** source (`path_get("source")` resolves
@@ -965,7 +1099,49 @@ solve cannot succeed" to "the solve now succeeds and does the wrong thing".
 
 `gmsh` and CalculiX are found through **preferences, not `PATH`**
 (`Mod/Fem/Gmsh:gmshBinaryPath`, `Mod/Fem/Ccx:ccxBinaryPath`); set them with
-`ParamGet(...).SetString`, never by hand-editing `user.cfg`.
+`ParamGet(...).SetString`, never by hand-editing `user.cfg`. With the preference
+empty, `gmshtools.py` falls back to `gmsh` on `PATH`.
+
+**Neither needs a second OCCT in `.conda/freecad`** (2026-11-01). `calculix` has no
+OCCT dependency at all: `arpack`, BLAS/LAPACK and the gfortran runtimes, so it goes
+straight into the env (`conda install -c conda-forge calculix`, which adds `ccx` and
+`arpack` and moves nothing). conda-forge's `gmsh` pins `occt >=8.0.0,<8.0.1`, so it
+is not an option, and `gmsh-feedstock` already builds `gmsh 4.15.2` against occt
+8.0.1 on the realthunder channel, so no fork or new build is needed. `gmsh` runs
+out of process, which is what makes this clean: it cannot borrow the OCCT a FreeCAD
+process has loaded, so it gets a prefix of its own with the channel's `novtk` OCCT,
+`.conda/gmsh`, and `.conda/freecad` stays free of OCCT.
+
+*** **A plain solve of the channel's `gmsh` fails**, with or without naming `occt`,
+though every dependency solves alone and all of them solve together. Install the
+dependencies from conda-forge and the two channel packages by `@EXPLICIT`:
+
+```sh
+G=~/works/sw/fcad/.conda/gmsh
+mamba create -y -p $G --override-channels -c conda-forge \
+  'cairo>=1.18.4,<2' 'fltk>=1.3.10,<1.4' 'gmp>=6.3,<7' 'libblas>=3.9,<4' \
+  'libglu>=9.0.3,<9.1' 'libjpeg-turbo>=3.2,<4' 'liblapack>=3.9,<4' \
+  'libmed=*=nompi_*' 'libmed>=4.2,<4.3' 'libpng>=1.6.58,<1.7' 'metis>=5.1,<5.1.1' \
+  'tinyxml2>=11,<11.1' 'voro>=0.4.6,<1' 'libgl>=1.7,<2' 'xorg-libxmu>=1.3.1,<2' \
+  xorg-libxrender xorg-libxfixes xorg-libxext xorg-libx11 fontconfig \
+  fonts-conda-ecosystem 'freeimage>=3.18,<3.19' freetype 'libexpat>=2.8.1,<3' \
+  rapidjson xorg-libxi xorg-libxt _openmp_mutex
+# then, @EXPLICIT with the sha256 from repodata.json, in this order:
+#   occt-8.0.1-novtk_h3d84f5b_101.conda
+#   gmsh-4.15.2-h3c388ce_9.conda
+conda install -y -p $G --file gmsh_explicit.txt
+$G/bin/gmsh -info | grep 'OCC version'            # 8.0.1
+```
+
+`gmshBinaryPath` then names `$G/bin/gmsh` (or put `$G/bin` on `PATH` for a run).
+
+*** **Without a gmsh the transfinite tests pass and test nothing.**
+`test_GMSHTransfiniteAutomation` and `test_GMSHTransfiniteManual` catch `GmshError`
+and `pass`, so a box with no gmsh reports them OK and the suite count does not
+change. With gmsh 4.15.2 here both FAIL ("Generated mesh does not have the same Node
+locations as golden sample", 2 of 3998): they compare exact node positions with a
+stored sample, which the test's own comment warns can vary between gmsh versions.
+Not yet chased.
 
 *** **Do not "fix" a FEM test failure before checking the build tree for stale
 files.** `fc_copy_sources` copies but never deletes, so a tree that once built

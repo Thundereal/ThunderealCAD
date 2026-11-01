@@ -478,6 +478,13 @@ std::vector<std::size_t> Sketch3DObject::rebuildExternalGeometry()
 
 int Sketch3DObject::solve(bool updateGeometry)
 {
+    int res = solveNow(updateGeometry);
+    signalSolverUpdate();
+    return res;
+}
+
+int Sketch3DObject::solveNow(bool updateGeometry)
+{
     Base::StateLocker lock(solving, true);
     lastDoF = solver.setUp(std::vector<const Part::Geometry*>(Geometry.getValues().begin(),
                                                               Geometry.getValues().end()),
@@ -785,7 +792,27 @@ void Sketch3DObject::onChanged(const App::Property* prop)
     if (prop == &Geometry && !isRestoring() && !solving) {
         acceptGeometry();
     }
+    // undo and redo put back geometry and constraints one by one: the
+    // status is taken once both are back
+    if ((prop == &Geometry || prop == &Constraints) && getDocument()
+        && getDocument()->isPerformingTransaction()) {
+        setStatus(App::PendingTransactionUpdate, true);
+    }
     Part::Feature::onChanged(prop);
+}
+
+void Sketch3DObject::onUndoRedoFinished()
+{
+    acceptGeometry();
+    // The status (DoF, conflicts) of what is there now, without moving it
+    solve(false);
+}
+
+void Sketch3DObject::setupObject()
+{
+    Part::Feature::setupObject();
+    // a new sketch's status is known: nothing in it, fully constrained
+    solve(false);
 }
 
 void Sketch3DObject::onDocumentRestored()

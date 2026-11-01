@@ -29,6 +29,8 @@
 // Separate from the 2D SketchObject, which Pad, Pocket and the rest rely on being
 // planar.
 
+#include <fastsignals/signal.h>
+
 #include <App/PropertyLinks.h>
 #include <Mod/Part/App/AttachExtension.h>
 #include <Mod/Part/App/PartFeature.h>
@@ -106,6 +108,9 @@ public:
      *         -5 malformed constraints (codes as the 2D sketch's).
      */
     int solve(bool updateGeometry = true);
+    /// After every solve, for what shows the status (DoF, conflicts): it
+    /// can change with no property changing
+    fastsignals::signal<void()> signalSolverUpdate;
     /// Drags a point (or a curve with PointPos::none); 0 when solved.
     int movePoint(int geoId, PointPos pos, const Base::Vector3d& to, bool relative = false);
     /** A corner fillet (S3c): the arc of radius tangent to two lines at the corner where
@@ -142,6 +147,8 @@ public:
 protected:
     void onChanged(const App::Property* prop) override;
     void onDocumentRestored() override;
+    void setupObject() override;
+    void onUndoRedoFinished() override;
     /// The geometry is in the sketch's frame, so the shape always takes Placement --
     /// also when a Python call solves outside a recompute.
     bool shouldApplyPlacement() override
@@ -150,6 +157,7 @@ protected:
     }
 
 private:
+    int solveNow(bool updateGeometry);
     void acceptGeometry();
     // Writes the solver's result into Geometry; false (nothing written) when the
     // solved geometry cannot be built.

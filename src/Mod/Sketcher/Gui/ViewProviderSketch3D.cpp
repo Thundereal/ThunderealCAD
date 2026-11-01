@@ -138,6 +138,7 @@ public:
         auto widget = new QWidget();
         auto layout = new QVBoxLayout(widget);
         status = new QLabel(widget);
+        status->setObjectName(QStringLiteral("Sketch3DStatus"));
         status->setWordWrap(true);
         status->setTextFormat(Qt::RichText);
         // a constraint number in the solver's message selects that constraint
@@ -479,6 +480,9 @@ struct ViewProviderSketch3D::EditData
     // The kept plane points are put on (section 6), or -1.
     int keptPlane {-1};
     std::unique_ptr<QObject> deleteFilter;
+    /// The status (DoF, conflicts) changes with a solve, with or without a
+    /// property changing: drawn again after each
+    fastsignals::scoped_connection solverUpdate;
     std::unique_ptr<ParameterGrp::ObserverType> colorObserver;
     // Typed values: the entries open, what a placement typed adds to the segment it
     // makes, and the ring turn the angle's entry sets
@@ -4616,6 +4620,9 @@ bool ViewProviderSketch3D::setEdit(int ModNum)
     Gui::getMainWindow()->installEventFilter(edit->deleteFilter.get());
     edit->dialog->list->installEventFilter(edit->deleteFilter.get());  // Delete in the list
     edit->colorObserver = std::make_unique<Sketch3DColorObserver>(this);
+    edit->solverUpdate = getSketch3DObject()->signalSolverUpdate.connect([this] {
+        draw();
+    });
 
     Workbench::enterEditMode();
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),

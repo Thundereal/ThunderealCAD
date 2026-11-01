@@ -687,8 +687,16 @@ and not frozen.
     of the bend (the straight part L - (R + T) from 90 deg on, L - (R + T) sin A below); negative
     gaps carry the flange past the edge's ends; `ParallelTo` gives the angle from a plane face the
     leg runs parallel to, `UpToFace` the length from one it runs up to.
-  - Still to come in M1: a miter where two flanges of one feature meet, and a closed sketch for
-    the leg's shape.
+  - The miter (96e7a8248c): two edges of one flange sharing a corner, bent the same way, each
+    side (bend, leg, any wall carried on) cut by the plane through the corner halving it, half
+    the rule's `Gap` off it each way; exact for two sides alike, any two kept apart. The model's
+    elements gained limit planes (`Element::limits`), the side of each an element stops at, as
+    the two sides' slabs and tubes overlap at the corner and a face there was owned by whichever
+    came first; saved as an attribute only where there are any. The flat: a bend cut at a slant
+    does not unroll into a plane, so its cut face is ruled between the two skins' unrolled
+    edges; unrolling keeps a bend's volume only where it is cut square (0.19 mm^3 a corner at
+    R = T = 1). Tested by `testMiter`, `testMiterTray`, `testNoMiterApart`.
+  - Still to come in M1: a closed sketch for the leg's shape.
 - M1's extend wall, `PartDesign::SheetMetalExtendWall` (5.1), with `TestSheetMetalExtendWall` (7)
   (a229435ab6), its command and panel (234138ce56): each face a wall's end across the sheet,
   carried along its normal by `Length` or up to `UpToFace`'s plane; a negative length cuts the

@@ -1149,8 +1149,9 @@ Phase D1 is under way (2026-10-28):
     penetration with no friction, ticked in the Dynamic study and not the
     Kinematic one, and one undo taking it out.
   - Not yet: a follower that is itself a curve (Adams CVCV), a cam's
-    pressure angle and slip in the results. (A planar cam between two
-    profiles is the profile contact, below.)
+    pressure angle and slip in the results (built since: "Built: a cam's
+    pressure angle and slip" below). (A planar cam between two profiles
+    is the profile contact, below.)
 - Built: sensors that stop a run or mark the time (sec 5.2's `Sensor`,
   P15: Adams' SENSOR, CATIA's stop on collision, NX's Stop_On_Event).
   - The document: `Assembly::Sensor` (SensorPython), a child of a
@@ -1672,6 +1673,58 @@ Phase D1 is under way (2026-10-28):
   - Not yet: a count that starts again (every third); Crosses on an
     event's speed; a pair of a cam's contact named by its cam and
     follower.
+- Built: a cam's pressure angle and slip (sec 8.5's measures "for a cam:
+  pressure angle and slip velocity"; the cams' "not yet").
+  - The run (ChronoBackend): a cam contact's set (`ContactPair::cam`)
+    reports two more channels after its four, `CamPressureAngle` (rad)
+    and `CamSlip` (mm/s), read at the one point its collision detection
+    last found (`camReading()`), touching or not. The pressure angle is
+    the acute angle between the contact's normal (N2 to the follower's
+    side) and the way the follower's point of contact moves -- its
+    velocity, or where it stands still (a rise's top) its acceleration; 0
+    at rest. The slip is that point's velocity from the cam's material
+    point under it, along the curve's unit tangent (`CamFollow::tangent`,
+    kept with the parameter at each detection), signed by the curve's
+    direction.
+  - The document and the panel: `Sensor::QuantityEnums` gains the two
+    (the angle's threshold in degrees, to the run's radians as a torsion
+    spring's angle; the slip's a velocity); `CommandCreateSimulation`'s
+    "CamContact" kind offers them for a cam contact, after its contact
+    values ("Pressure angle", deg; "Cam slip", mm/s), and the Results box,
+    CSV and spreadsheet carry them.
+  - Found on the way, two older faults:
+    - A run's start values were read before its first collision
+      detection, when the contact loads have no points: a cam's pressure
+      angle read 0 at the first frame, and so would a contact force of a
+      part resting from the start. Now detected first: the box resting
+      on the plate reads its weight, 105.9118 mN, at the first frame.
+    - A cam contact whose follower is fixed to another part (a roller
+      and its stem, one body of the rigid groups' smaller model) diverged
+      at once ("the contact's integration diverged"): the reduction
+      renumbers the joints it keeps (`jointOrigin`), and copied the
+      contacts with the cam joint's old id, which then named another
+      joint or none -- the run kept the cam's joint beside the contact.
+      The cam's id is now mapped to its new one; it is the only joint
+      reference in the model by id (limits, drivers and the rest are on
+      frames).
+  - Tests (TestCamJoint): the disk cam (E 6, R 20) at 10 rad/s under
+    gravity down the slider, a point follower and a roller of 3 mm: the
+    pressure angle asin(E |cos theta| / (R + r)) at each of 201 frames
+    (5e-4 rad; 2.0e-4 and 1.5e-4 measured), its largest asin(E / (R + r)),
+    the slip the follower's point's speed from the cam's along the
+    tangent (0.2 mm/s of some 200; 0.085 and 0.091 measured); the roller
+    fixed to a stem riding the cam as a lone roller does (0.02 mm), the
+    stem with it. TestGuiCommands: a sensor's dialog offers both for a
+    cam contact and not for a plain set, in degrees and mm/s, and its
+    label. In the manual's video (`assembly/simulation/cam-pressure-angle`)
+    a roller of 5 mm with its stem: the largest angle 13.892 deg against
+    13.887, within 0.007 deg over the turn; a sensor marking the angle
+    rising past 12 deg at 149.99 and 329.99 deg against 150.03 and
+    330.03; the slip -260 to -140 mm/s, the rate times R + E and R - E.
+  - Not yet: the angle's direction (which side the normal leans to); a
+    pressure angle for a profile contact's pairs; the contact force split
+    into the part along the follower's motion and the side load on its
+    guide.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

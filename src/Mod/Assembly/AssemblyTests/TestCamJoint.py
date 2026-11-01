@@ -485,6 +485,132 @@ class TestCamJoint(CamMechanism, JointTestBase):
                         self.assertLess(max(abs(g) for g in gaps), 0.02, gaps)
                         self.assertLess(max(gaps), 1e-6, gaps)
 
+    def test_cam_contact_on_a_rigid_group(self):
+        """A cam contact whose follower is a roller fixed to a stem: the two
+        one body of the run's smaller model, its joints renumbered -- the
+        contact's cam joint found again there, lifted, and the follower
+        riding the cam at 10 rad/s as a lone roller does (0.02 mm)"""
+        if "Chrono" not in self.backends():
+            self.skipTest("the Chrono backend is not built")
+        import CommandCreateContact
+
+        rate = 10.0
+        cam, rev, f = self.disk_mechanism(ROLLER)
+        stem = self.box("Stem", plc(-2, f.Placement.Base.y - 2, CAM_H + 4), size=4.0)
+        self.joint("Fixed", (f, ["Face2"]), plc(0, 0, 4), (stem, ["Face5"]), plc(2, 2, 0))
+        self.doc.recompute()
+        joint = [
+            o
+            for o in self.assembly.getGroup("Joints").Group
+            if getattr(o, "JointType", None) == "Cam"
+        ][0]
+        lifted = CommandCreateContact.newCamContact(self.assembly, joint)
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.Gravity = App.Vector(0, -9806.65, 0)
+        turn = 2 * math.pi / rate
+        sim.TimeEnd = turn
+        step = turn / 200
+        sim.TimeStepOutput = step
+        sim.Elements = [lifted]
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = rev
+        motion.MotionType = "Angular"
+        motion.Formula = "%g*time" % rate
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertEqual(self.assembly.numberOfFrames(), 201)
+        gaps = []
+        for k in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(k)
+            gaps.append(f.Placement.Base.y - disk_lift(rate * k * step, ROLLER))
+            self.assertAlmostEqual(stem.Placement.Base.y - f.Placement.Base.y, -2.0, delta=1e-9)
+        self.assertLess(max(abs(g) for g in gaps), 0.02, gaps)
+        self.assertLess(max(gaps), 1e-6, gaps)
+        channels = {c["Quantity"] for c in self.assembly.getSimulationResults()["Channels"]
+                    if c["Object"] == lifted}
+        self.assertIn("CamPressureAngle", channels)
+
+    def test_cam_pressure_angle_and_slip(self):
+        """A cam contact reports its pressure angle and its slip
+        (docs/AssemblyDynamics.md sec 8.5). The disk cam turning at 10 rad/s
+        under gravity down the slider, the follower riding it: the normal
+        runs from the disk's centre E (cos theta, sin theta) to the
+        follower's point on the slider x = 0, along which it moves, so the
+        pressure angle is asin(E |cos theta| / (R + r)) (5e-4 rad: the
+        follower sinks some hundredths of a millimetre, and is read where
+        the run's own contact point is); the slip the follower's point's
+        speed from the cam's material point under it, along the curve
+        (0.2 mm/s of some 200)"""
+        if "Chrono" not in self.backends():
+            self.skipTest("the Chrono backend is not built")
+        import CommandCreateContact
+
+        rate = 10.0
+        for roller in (0.0, ROLLER):
+            with self.subTest(roller=roller):
+                self.tearDown()
+                self.setUp()
+                cam, rev, f = self.disk_mechanism(roller)
+                joint = [
+                    o
+                    for o in self.assembly.getGroup("Joints").Group
+                    if getattr(o, "JointType", None) == "Cam"
+                ][0]
+                lifted = CommandCreateContact.newCamContact(self.assembly, joint)
+                sims = self.assembly.getGroup("Simulations", True)
+                sim = sims.newObject("Assembly::Simulation", "Simulation")
+                sim.AnalysisType = "Dynamic"
+                sim.Gravity = App.Vector(0, -9806.65, 0)
+                turn = 2 * math.pi / rate
+                sim.TimeEnd = turn
+                step = turn / 200
+                sim.TimeStepOutput = step
+                sim.Elements = [lifted]
+                motion = sim.newObject("Assembly::Motion", "Motion")
+                motion.Joint = rev
+                motion.MotionType = "Angular"
+                motion.Formula = "%g*time" % rate
+                self.doc.recompute()
+                self.assertEqual(self.assembly.generateSimulation(sim), 0)
+                results = self.assembly.getSimulationResults()
+                mine = {c["Quantity"]: c["Values"] for c in results["Channels"]
+                        if c["Object"] == lifted}
+                self.assertIn("CamPressureAngle", mine)
+                self.assertIn("CamSlip", mine)
+                angles, slips = mine["CamPressureAngle"], mine["CamSlip"]
+                worst = [0.0, 0.0]
+                for k, t in enumerate(results["Times"]):
+                    theta = rate * t
+                    want = math.asin(CAM_E * abs(math.cos(theta)) / (CAM_R + roller))
+                    self.assertAlmostEqual(angles[k], want, delta=5e-4, msg=(k, theta))
+                    worst[0] = max(worst[0], abs(angles[k] - want))
+                    # The slip: the follower's point (0, y) moving along y,
+                    # the cam's material point under it, at R from the
+                    # disk's centre along the normal, turning at the rate
+                    y = disk_lift(theta, roller)
+                    centre = App.Vector(CAM_E * math.cos(theta), CAM_E * math.sin(theta), 0)
+                    normal = App.Vector(0, y, 0) - centre
+                    normal.normalize()
+                    on = centre + normal * CAM_R
+                    cam_speed = App.Vector(-rate * on.y, rate * on.x, 0)
+                    e = 1e-6
+                    rise = (disk_lift(theta + e, roller) - disk_lift(theta - e, roller)) / (2 * e)
+                    relative = App.Vector(0, rise * rate, 0) - cam_speed
+                    tangent = App.Vector(-normal.y, normal.x, 0)
+                    want = abs(relative.dot(tangent))
+                    self.assertAlmostEqual(abs(slips[k]), want, delta=0.2, msg=(k, theta))
+                    worst[1] = max(worst[1], abs(abs(slips[k]) - want))
+                App.Console.PrintMessage(
+                    "Cam pressure angle within %.3g rad, slip within %.3g mm/s, roller %g\n"
+                    % (worst[0], worst[1], roller)
+                )
+                # The largest: asin(E / (R + r)) at theta 0 and pi
+                self.assertAlmostEqual(
+                    max(angles), math.asin(CAM_E / (CAM_R + roller)), delta=5e-4
+                )
+
 
 class TestSimulationMotions(CamMechanism, JointTestBase):
     """Which children of a Simulation are its motions (docs/AssemblyDynamics.md sec 1)."""

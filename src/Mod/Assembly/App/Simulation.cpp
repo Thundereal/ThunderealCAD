@@ -255,6 +255,9 @@ const char* Sensor::QuantityEnums[] = {"Force",
                                        // A contact set's events, by their speed
                                        "ContactBegin",
                                        "ContactEnd",
+                                       // A cam contact's
+                                       "CamPressureAngle",
+                                       "CamSlip",
                                        nullptr};
 const char* Sensor::ComponentEnums[] = {"Magnitude", "X", "Y", "Z", nullptr};
 const char* Sensor::CompareEnums[] = {"Above", "Below", "Crosses", nullptr};
@@ -321,10 +324,10 @@ void Sensor::updateUnit()
     if (quantity == "SpringLength" || quantity == "ContactPenetration") {
         Threshold.setUnit(Base::Unit::Length);
     }
-    else if (quantity == "SpringAngle") {
+    else if (quantity == "SpringAngle" || quantity == "CamPressureAngle") {
         Threshold.setUnit(Base::Unit::Angle);
     }
-    else if (quantity == "ContactBegin" || quantity == "ContactEnd") {
+    else if (quantity == "ContactBegin" || quantity == "ContactEnd" || quantity == "CamSlip") {
         Threshold.setUnit(Base::Unit::Velocity);
     }
     else if (quantity.find("Torque") != std::string::npos) {

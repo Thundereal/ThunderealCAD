@@ -1596,6 +1596,43 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(dynamic.Elements, [])
         self.assertClean()
 
+    def test_cam_sensor_quantities(self):
+        """A sensor on a cam contact can watch its pressure angle, in
+        degrees, and its slip, in mm/s; a plain contact set offers neither"""
+        import CommandCreateContact
+        import CommandCreateSimulation
+
+        j = self.jointgroup.newObject("App::FeaturePython", "Cam")
+        JointObject.Joint(j, JointObject.JointTypes.index("Cam"))
+        JointObject.ViewProviderJoint(j.ViewObject)
+        cam = CommandCreateContact.newCamContact(self.assembly, j)
+        plain = CommandCreateContact.newContactSet(self.assembly, [self.box], [self.cyl1])
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.AnalysisType = "Dynamic"
+
+        dialog = CommandCreateSimulation.SensorDialog(self.assembly)
+        dialog.sourceCombo.setCurrentIndex(dialog.sourceCombo.findData(plain))
+        quantity = dialog.quantityCombo
+        offered = [quantity.itemData(i) for i in range(quantity.count())]
+        self.assertNotIn("CamPressureAngle", offered)
+        dialog.sourceCombo.setCurrentIndex(dialog.sourceCombo.findData(cam))
+        offered = [quantity.itemData(i) for i in range(quantity.count())]
+        self.assertIn("CamPressureAngle", offered)
+        self.assertIn("CamSlip", offered)
+        quantity.setCurrentIndex(quantity.findData("CamPressureAngle"))
+        self.assertEqual(dialog.thresholdBox.suffix(), " deg")
+        dialog.thresholdBox.setValue(20.0)
+        obj = CommandCreateSimulation.newSensor(sim, cam, "ContactForce", 0.0)
+        dialog.apply(obj)
+        self.assertEqual(obj.Quantity, "CamPressureAngle")
+        self.assertAlmostEqual(obj.Threshold.getValueAs("deg").Value, 20.0, places=9)
+        self.assertEqual(obj.Label, cam.Label + ": Pressure angle above 20 deg")
+        quantity.setCurrentIndex(quantity.findData("CamSlip"))
+        self.assertEqual(dialog.thresholdBox.suffix(), " mm/s")
+        self.assertClean()
+
     def test_profile_contact(self):
         """Idle until planar faces of two components are selected -- not one
         component's, not a curved face; then a profile contact on them,

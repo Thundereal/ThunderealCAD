@@ -715,6 +715,19 @@ private:
             dynamics.initial = original.dynamics->initial;
             dynamics.contactShapes = original.dynamics->contactShapes;
             dynamics.contacts = original.dynamics->contacts;
+            // A cam contact's joint by its id, which the joints taken out of
+            // the smaller model renumber: kept as it was, it named another
+            // joint or none, and a roller fixed to its stem had the run keep
+            // the cam's joint beside the contact, which diverged
+            for (auto& pair : dynamics.contacts) {
+                if (pair.cam == NoId) {
+                    continue;
+                }
+                const auto at = std::ranges::find(jointOrigin, pair.cam);
+                pair.cam = at == jointOrigin.end()
+                    ? NoId
+                    : static_cast<Id>(std::distance(jointOrigin.begin(), at));
+            }
             dynamics.sensors = original.dynamics->sensors;
             dynamics.stops = original.dynamics->stops;
             dynamics.frictions = original.dynamics->frictions;

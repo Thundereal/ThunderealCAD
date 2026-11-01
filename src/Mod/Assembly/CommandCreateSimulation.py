@@ -89,6 +89,10 @@ ResultQuantities = {
     # A contact set's events, which a sensor watches by their speed
     "ContactBegin": (QT_TRANSLATE_NOOP("Assembly", "Contact made"), 1.0, "mm/s"),
     "ContactEnd": (QT_TRANSLATE_NOOP("Assembly", "Contact let go"), 1.0, "mm/s"),
+    # A cam contact's: the angle between the contact's normal and the way the
+    # follower moves, and the follower's slip along the cam
+    "CamPressureAngle": (QT_TRANSLATE_NOOP("Assembly", "Pressure angle"), 57.29577951308232, "deg"),
+    "CamSlip": (QT_TRANSLATE_NOOP("Assembly", "Cam slip"), 1.0, "mm/s"),
 }
 
 
@@ -1412,6 +1416,16 @@ SensorQuantities = {
         "ContactBegin",
         "ContactEnd",
     ),
+    "CamContact": (
+        "ContactForce",
+        "ContactNormalForce",
+        "ContactFrictionForce",
+        "ContactPenetration",
+        "CamPressureAngle",
+        "CamSlip",
+        "ContactBegin",
+        "ContactEnd",
+    ),
     "Friction": ("FrictionForce", "FrictionTorque"),
 }
 
@@ -1424,6 +1438,8 @@ def sensorSourceKind(obj):
     """Which of SensorQuantities' kinds obj is, or None"""
     if obj is None:
         return None
+    if obj.isDerivedFrom("Assembly::CamContact"):
+        return "CamContact"
     if obj.isDerivedFrom("Assembly::ContactSet"):
         return "Contact"
     if obj.isDerivedFrom("Assembly::SpringDamper"):
@@ -1471,7 +1487,7 @@ def thresholdFactor(quantity):
     """From a threshold's internal unit (mN, mN mm, mm, deg) to the one
     the panel shows; ResultQuantities' factors are from the run's values,
     which take an angle in radians"""
-    if quantity == "SpringAngle":
+    if quantity in ("SpringAngle", "CamPressureAngle"):
         return 1.0
     return ResultQuantities.get(quantity, ("", 1.0, ""))[1]
 
@@ -1755,7 +1771,7 @@ class SensorDialog:
         """The components the source's pairs are of; any, first"""
         source = self.sourceCombo.currentData()
         parts = []
-        if sensorSourceKind(source) == "Contact":
+        if sensorSourceKind(source) in ("Contact", "CamContact"):
             parts = contactComponents(source)
             if not parts:
                 parts = UtilsAssembly.getMovablePartsWithin(self.assembly)

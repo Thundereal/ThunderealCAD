@@ -2597,7 +2597,7 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         record.below = sensor->Compare.getValue() == 1;
         record.crosses = sensor->Compare.getValue() == 2;
         record.value = sensor->Threshold.getValue();
-        if (record.quantity == "SpringAngle") {
+        if (record.quantity == "SpringAngle" || record.quantity == "CamPressureAngle") {
             record.value *= std::numbers::pi / 180.0;
         }
         record.stop = sensor->Action.getValue() == 0;

@@ -5943,7 +5943,8 @@ Status ChronoSession::simulateDynamics(
         // body and B the follower's, frames I and J on them, the curve in
         // frame I's coordinates, the joint's offset (a roller's radius,
         // signed) and the follower's side; the curve's parameter at the
-        // closest point last found
+        // closest point last found, and its unit tangent there, in frame I's
+        // coordinates
         struct CamFollow
         {
             ContactLoad* load = nullptr;
@@ -5954,6 +5955,7 @@ Status ChronoSession::simulateDynamics(
             double offset = 0.0;
             double side = 1.0;
             double u = 0.0;
+            Base::Vector3d tangent;
             bool started = false;
 
             // The curve's normal in its plane at a point, N2 = T x N1, N1 the
@@ -6081,6 +6083,8 @@ Status ChronoSession::simulateDynamics(
                                                        : projectOnCurveGlobally(*cam.curve, x);
                 cam.u = at.u;
                 cam.started = true;
+                cam.tangent = at.at.d1;
+                cam.tangent.Normalize();
                 const Base::Vector3d n2 = cam.normal(at);
                 const ch::ChVector3d onCam = i.TransformPointLocalToParent(toCh(at.at.p));
                 const ch::ChVector3d onFollower =
@@ -6628,6 +6632,11 @@ Status ChronoSession::simulateDynamics(
         channels.push_back({name, "ContactNormalForce", 3});
         channels.push_back({name, "ContactFrictionForce", 3});
         channels.push_back({name, "ContactPenetration", 1});
+        // A cam's: its pressure angle and its slip (sec 8.5)
+        if (pair.cam != NoId) {
+            channels.push_back({name, "CamPressureAngle", 1});
+            channels.push_back({name, "CamSlip", 1});
+        }
     }
     for (const auto& load : frictions) {
         const std::string& name = si.sourceName(load->friction.source);
@@ -6834,6 +6843,43 @@ Status ChronoSession::simulateDynamics(
         }
     };
 
+    // A cam's pressure angle and slip (sec 8.5), at the point its collision
+    // detection last found, touching or not: the angle, rad, between the
+    // contact's normal and the way the follower's point of contact moves --
+    // its velocity, or where it stands still (a rise's top) its
+    // acceleration, as an acute angle; the slip, m/s, the follower's
+    // point's velocity from the cam's along the curve's tangent
+    auto camReading = [&](std::size_t set) -> std::pair<double, double> {
+        if (!contactHandover) {
+            return {0.0, 0.0};
+        }
+        for (const auto& cam : contactHandover->cams) {
+            const ContactLoad& load = *cam.load;
+            if (load.set != set || load.points.empty()) {
+                continue;
+            }
+            const auto& point = load.points.front();
+            const auto a = load.GetBodyA();
+            const auto b = load.GetBodyB();
+            const ch::ChVector3d normal = point.normal.GetNormalized();
+            const ch::ChVector3d v = b->PointSpeedLocalToParent(point.onB);
+            ch::ChVector3d way = v;
+            if (way.Length() < 1e-9) {
+                way = b->PointAccelerationLocalToParent(point.onB);
+            }
+            double pressure = 0.0;
+            if (way.Length() > 1e-12) {
+                const double c = std::abs(ch::Vdot(normal, way)) / way.Length();
+                pressure = std::acos(std::min(1.0, c));
+            }
+            const ch::ChFramed i = cam.frameI >> *a;
+            const ch::ChVector3d tangent = i.TransformDirectionLocalToParent(toCh(cam.tangent));
+            const double slip = ch::Vdot(v - a->PointSpeedLocalToParent(point.onA), tangent);
+            return {pressure, slip};
+        }
+        return {0.0, 0.0};
+    };
+
     auto valuesNow = [&]() {
         std::vector<double> out;
         out.reserve(6 * reactions.size() + rotationMotors.size() + linearMotors.size()
@@ -6918,6 +6964,11 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             out.push_back(deepest[s] / SI::length);
+            if (si.dynamics->contacts[s].cam != NoId) {
+                const auto [pressure, slip] = camReading(s);
+                out.push_back(pressure);
+                out.push_back(slip / SI::velocity);
+            }
         }
         // A friction's, on frame I's body: along its joint's axis, about it
         for (const auto& load : frictions) {
@@ -8338,15 +8389,18 @@ Status ChronoSession::simulateDynamics(
             const double time = spec.tStart + static_cast<double>(k) * spec.tOutput;
             if (!statics && k == 0) {
                 const std::vector<BodyPose> poses = posesNow();
-                const std::vector<double> start = channels.empty() ? std::vector<double>()
-                                                                   : valuesNow();
-                // The contacts pressing at the start: none of them begins
+                // The contacts pressing at the start: none of them begins.
+                // Found before the start's values are read: a cam's pressure
+                // angle read none there, and a part resting from the start
+                // no contact force
                 if (contact) {
                     sys.ComputeCollisions();
                     for (const auto& load : contactLoads) {
                         load->touching = pressing(*load) > 0.0;
                     }
                 }
+                const std::vector<double> start =
+                    channels.empty() ? std::vector<double>() : valuesNow();
                 std::vector<double> half;
                 for (int i = 0; i < tinySteps; ++i) {
                     stepOnce(tiny);

@@ -38,6 +38,7 @@ namespace App
 {
 
 class Document;
+class DocumentObject;
 class Property;
 class Transaction;
 class TransactionObject;
@@ -63,6 +64,29 @@ public:
     TransactionFollowing& operator=(const TransactionFollowing&) = delete;
     /// Whether this thread is inside one
     static bool active();
+};
+
+/** While one of these lives, what this thread writes to `owner`'s own
+ * properties finishes its recompute: made by work the recompute started and
+ * that ends after execute() has returned -- a TechDraw view's projection,
+ * stored when its thread finishes. A transaction records such a write as
+ * derived, as if execute() had made it: the log keeps it in the evictable
+ * cache tier, and an undo that finds it gone has the owner recompute
+ * (docs/TransactionLogJournal.md sec 10.2). Another object's properties are
+ * not covered: what `owner` sets on them is set by hand.
+ */
+class AppExport TransactionDerived
+{
+public:
+    explicit TransactionDerived(const DocumentObject* owner);
+    ~TransactionDerived();
+    TransactionDerived(const TransactionDerived&) = delete;
+    TransactionDerived& operator=(const TransactionDerived&) = delete;
+    /// Whether this thread is inside one for `obj`
+    static bool active(const DocumentObject* obj);
+
+private:
+    const DocumentObject* _owner;
 };
 
 /** Represents a atomic transaction of the document

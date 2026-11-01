@@ -28,8 +28,10 @@
 # include <cassert>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <vector>
 #include <Base/Console.h>
 #include <Base/ExceptionSafeCall.h>
 #include <Base/Tools.h>
@@ -69,6 +71,30 @@ TransactionFollowing::~TransactionFollowing()
 bool TransactionFollowing::active()
 {
     return followingDepth > 0;
+}
+
+namespace {
+/// The owners of the TransactionDerived this thread is in, innermost last
+thread_local std::vector<const DocumentObject*> derivedOwners;
+}
+
+TransactionDerived::TransactionDerived(const DocumentObject* owner)
+    : _owner(owner)
+{
+    derivedOwners.push_back(owner);
+}
+
+TransactionDerived::~TransactionDerived()
+{
+    auto it = std::find(derivedOwners.rbegin(), derivedOwners.rend(), _owner);
+    if (it != derivedOwners.rend())
+        derivedOwners.erase(std::next(it).base());
+}
+
+bool TransactionDerived::active(const DocumentObject* obj)
+{
+    return obj && std::find(derivedOwners.begin(), derivedOwners.end(), obj)
+                      != derivedOwners.end();
 }
 
 TYPESYSTEM_SOURCE(App::Transaction, Base::Persistence)
@@ -869,7 +895,7 @@ void TransactionObject::setProperty(const Property* pcProp)
         }
         data.propertyType = pcProp->getTypeId();
         if (auto obj = Base::freecad_dynamic_cast<DocumentObject>(pcProp->getContainer())) {
-            data.derived = obj->isRecomputing();
+            data.derived = obj->isRecomputing() || TransactionDerived::active(obj);
             // Sec 31.25: written because another value changed -- the
             // shape a reference names, the placement of a shape's object.
             data.followed = !data.derived && TransactionFollowing::active();

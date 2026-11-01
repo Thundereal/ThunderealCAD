@@ -297,14 +297,20 @@ bytes each (`docs/TransactionLogJournal.md` sec 23.2). Net, on this page,
 **the store costs the log 4 to 8.5 KB a recompute, 19 KB on the first**,
 three to six times what the step costs without it.
 
-They are logged as input, not derived (the op's `derived` is 0, the tier
+They were logged as input, not derived (the op's `derived` 0, the tier
 `durable`): the projection is written when its thread is done, after the
-recompute has returned, in an `<implicit script>` step of its own -- one
-that rides with the user step before it, which is what makes an undo take
-it back. A derived value would be evictable under the cache budget (sec 10
-of the journal); this one stays as long as the log. Whether a value an
-object writes into its own `Prop_Output` property outside a recompute
-should be logged as derived is a question for the log, left open.
+recompute has returned, in an implicit step of its own -- one that rides
+with the user step before it, which is what makes an undo take it back --
+and the log's rule reads a value as derived only while its owner's
+`execute()` runs. So it stayed as long as the log.
+
+Ruled derived (user, 2026-11-01; journal sec 10.2): `captureGeometry()`
+writes under `App::TransactionDerived`, and the op is `derived` 1 in the
+`cache` tier, evictable under its budget. The same three steps measured
+again: the durable tier ends at 17 KB where it ended at 48 KB, the cache
+tier holding the rest (46 KB). An undo within the steps kept in memory is
+as before; one from the log restores the projection while the cache holds
+it, and touches the view to recompute once it does not.
 
 ### 6.3 An undo draws what it put back
 

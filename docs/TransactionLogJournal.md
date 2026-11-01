@@ -596,6 +596,31 @@ shapes out first. Eviction weighs bytes against the cost to regenerate,
 which the log already knows -- the recompute record has per-object
 duration, and the import transaction records its own.
 
+### 10.2 A recompute that runs on past execute() (user, 2026-11-01)
+
+The rule above reads `isRecomputing()`, which holds only while
+`execute()` runs. A TechDraw view's `execute()` starts its projection in
+threads and returns; the projection is stored in `ProjectedGeometry` when
+they finish, on the main thread, after the recompute is over. That write
+was logged as an input: 4 to 8.5 KB kept for good on each recompute of a
+page of the 84-hole plate, against 1.5 KB with the store off
+(docs/TechDrawStoredGeometry.md sec 6.2). Ruled: it is derived.
+
+The object says so. `App::TransactionDerived scope(obj)` around the
+writes that finish `obj`'s recompute makes what this thread writes to
+`obj`'s own properties derived, as if `execute()` had written it
+(`Transactions.cpp`, `TransactionObject::setProperty`). What it writes to
+another object's properties is not covered, and is set by hand -- a
+change handler that writes elsewhere must not hide an input in the cache
+tier. Not a rule on `Prop_Output` either: an imported body's `Shape` is
+an output property, and an input (10.1).
+
+What follows is the derived rule's: the value goes to the cache tier under
+its budget; an undo within the in-memory steps applies it as it always
+did; a cold undo that finds it evicted touches the owner, which then
+recomputes; a merge leaves it to the owner's recompute. Gtest
+`aWriteFinishingItsOwnersRecomputeIsDerived`.
+
 ## 11. Pseudo transactions
 
 Rows in the transaction table that group no ops, or no user ops. They

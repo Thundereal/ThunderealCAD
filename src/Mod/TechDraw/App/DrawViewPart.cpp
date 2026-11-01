@@ -74,6 +74,7 @@
 #endif
 
 #include <App/Document.h>
+#include <App/Transactions.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
@@ -566,6 +567,9 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
 //! this view without running the projection again
 void DrawViewPart::captureGeometry()
 {
+    // the end of this view's recompute, run on in its threads: derived, as
+    // what execute() writes is (docs/TechDrawStoredGeometry.md sec 6.2)
+    App::TransactionDerived derived(this);
     if (!m_geometryObject || !Preferences::storeProjectedGeometry()) {
         ProjectedGeometry.clear();
         return;

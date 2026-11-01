@@ -2146,6 +2146,53 @@ TEST_F(TransactionLogTest, undoAndRedoAreLoggedAsInverses)
     EXPECT_EQ(obj->ExecCount.getValue(), again);
 }
 
+TEST_F(TransactionLogTest, aWriteFinishingItsOwnersRecomputeIsDerived)
+{
+    // docs/TransactionLogJournal.md sec 10.2: what an object writes to its
+    // own properties inside a TransactionDerived -- the end of a recompute
+    // run on in a thread -- is derived, as what execute() writes is; what
+    // it writes to another object's, and anything outside, is not.
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    auto other = make("Other");
+    doc()->commitTransaction();
+    doc()->recompute();
+
+    doc()->openTransaction("finish");
+    {
+        App::TransactionDerived derived(obj);
+        EXPECT_TRUE(App::TransactionDerived::active(obj));
+        EXPECT_FALSE(App::TransactionDerived::active(other));
+        obj->Integer.setValue(5);
+        other->Integer.setValue(6);
+    }
+    EXPECT_FALSE(App::TransactionDerived::active(obj));
+    obj->Float.setValue(1.5);
+    doc()->commitTransaction();
+    log().resolvePending();
+
+    auto& store = log().store();
+    int64_t seq = 0;
+    for (auto& t : store.transactions()) {
+        if (t.name == "finish")
+            seq = t.seq;
+    }
+    ASSERT_GT(seq, 0);
+    std::map<std::pair<long, std::string>, bool> derived;
+    for (auto& o : store.ops(seq)) {
+        if (o.op == "set")
+            derived[{o.cid, o.prop}] = o.derived;
+    }
+    const long id = obj->getID();
+    const long otherId = other->getID();
+    ASSERT_TRUE(derived.count({id, "Integer"}));
+    ASSERT_TRUE(derived.count({otherId, "Integer"}));
+    ASSERT_TRUE(derived.count({id, "Float"}));
+    EXPECT_TRUE((derived[{id, "Integer"}]));
+    EXPECT_FALSE((derived[{otherId, "Integer"}]));
+    EXPECT_FALSE((derived[{id, "Float"}]));
+}
+
 TEST_F(TransactionLogTest, coldUndoRevertsFromTheLog)
 {
     // docs/TransactionLogJournal.md sec 24.3: past the hot window a step keeps its

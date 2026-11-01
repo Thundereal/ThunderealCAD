@@ -80,6 +80,7 @@
 
 #include <App/Document.h>
 #include <App/FileBlobManager.h>
+#include <App/Transactions.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
@@ -1594,6 +1595,8 @@ void DrawViewSection::dropWorkingShapes()
 //! keep the cut faces beside the projection they belong to
 void DrawViewSection::captureGeometry()
 {
+    // derived, as DrawViewPart::captureGeometry says
+    App::TransactionDerived derived(this);
     if (!m_geometryObject || !Preferences::storeProjectedGeometry()) {
         ProjectedGeometry.clear();
         return;

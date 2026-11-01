@@ -2366,8 +2366,10 @@ std::vector<UndoStep> Document::stepsInTheWay() const
                 != out.end())
             continue;
         UndoStep s {owner->getID(), owner->Name, owner->Group};
-        if (!sameUser(owner->Author.get(), actor.get()))
+        if (!sameUser(owner->Author.get(), actor.get())) {
             s.author = owner->Author ? owner->Author->name : std::string("host");
+            s.authorActor = owner->Author;
+        }
         out.push_back(std::move(s));
     }
     return out;
@@ -2379,6 +2381,20 @@ std::vector<int> Document::getRunIds(bool undo, int skip) const
     for (auto step : _myRun(undo, skip))
         ids.push_back(step->getID());
     return ids;
+}
+
+bool Document::stepInfo(int id, UndoStep& out) const
+{
+    auto it = mUndoMap.find(id);
+    if (it == mUndoMap.end())
+        return false;
+    const Transaction* step = it->second;
+    out = UndoStep {step->getID(), step->Name, step->Group};
+    if (!sameUser(step->Author.get(), ActorScope::current().get())) {
+        out.author = step->Author ? step->Author->name : std::string("host");
+        out.authorActor = step->Author;
+    }
+    return true;
 }
 
 bool Document::undoKeepingTheirs(int skip)

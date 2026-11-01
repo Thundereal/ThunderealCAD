@@ -39,6 +39,15 @@ std::vector<std::shared_ptr<const Actor>>& actors()
 }
 }  // namespace
 
+bool Actor::sameUser(const Actor* a, const Actor* b)
+{
+    const bool deskA = !a || a->kind == Local;
+    const bool deskB = !b || b->kind == Local;
+    if (deskA || deskB)
+        return deskA && deskB;
+    return a->kind == b->kind && a->name == b->name;
+}
+
 const char* Actor::kindName(Kind kind)
 {
     switch (kind) {

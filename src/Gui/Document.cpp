@@ -53,6 +53,7 @@
 #include <sstream>
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <App/Actor.h>
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
@@ -80,6 +81,7 @@
 #include "Document.h"
 #include "DocumentPy.h"
 #include "Application.h"
+#include "UndoConsent.h"
 #include "Command.h"
 #include "Control.h"
 #include "DrainCursor.h"
@@ -6985,15 +6987,54 @@ bool Document::resolveInTheWay(int skipped, const std::string& why)
     box.setInformativeText(lines.join(QLatin1Char('\n')));
     box.setDetailedText(QString::fromUtf8(why.c_str()));
     QAbstractButton* with = nullptr;
+    QAbstractButton* ask = nullptr;
     if (others.isEmpty())
         with = box.addButton(QObject::tr("Undo with them"), QMessageBox::AcceptRole);
+    else
+        // theirs to agree to (sec 12.11): asked, the undo going once they do
+        ask = box.addButton(QObject::tr("Ask %1").arg(others.join(QStringLiteral(", "))),
+                            QMessageBox::AcceptRole);
     QAbstractButton* keep = nullptr;
     if (keepable)
         keep = box.addButton(QObject::tr("Keep theirs"), QMessageBox::ActionRole);
     box.addButton(QMessageBox::Cancel);
-    if (with)
-        box.setDefaultButton(static_cast<QPushButton*>(with));
+    if (with || ask)
+        box.setDefaultButton(static_cast<QPushButton*>(with ? with : ask));
     box.exec();
+    if (ask && box.clickedButton() == ask) {
+        UndoConsent::Request request;
+        request.doc = doc->getName();
+        request.steps = doc->getRunIds(true, skipped);
+        request.what = refused.toStdString();
+        for (const auto& s : inTheWay) {
+            request.steps.push_back(s.id);
+            if (s.author.empty())
+                continue;
+            request.theirs.push_back(s.name);
+            bool listed = false;
+            for (const auto& o : request.owners)
+                listed = listed || App::Actor::sameUser(o.get(), s.authorActor.get());
+            if (!listed)
+                request.owners.push_back(s.authorActor);
+        }
+        std::string whyNot;
+        if (!UndoConsent::ask(std::move(request), whyNot)) {
+            QMessageBox::warning(getMainWindow(), QObject::tr("Undo"),
+                                 QObject::tr("They cannot be asked now: %1")
+                                     .arg(QString::fromUtf8(whyNot.c_str())));
+            return false;
+        }
+        auto note = new QMessageBox(getMainWindow());
+        note->setObjectName(QStringLiteral("undoConsentAsked"));
+        note->setAttribute(Qt::WA_DeleteOnClose);
+        note->setWindowModality(Qt::NonModal);
+        note->setIcon(QMessageBox::Information);
+        note->setWindowTitle(QObject::tr("Undo"));
+        note->setText(QObject::tr("Asked %1. '%2' is undone once they agree.")
+                          .arg(others.join(QStringLiteral(", ")), refused));
+        note->show();
+        return false;
+    }
     if (with && box.clickedButton() == with) {
         std::vector<int> ids;
         for (const auto& s : inTheWay)

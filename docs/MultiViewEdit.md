@@ -902,3 +902,28 @@ that step stayed in the history, is not offered: undo with them says the
 same honestly. A TechDraw page's undo asked about nothing it could not
 take (it called the document's undo without asking); it asks as a 3D
 view's does. GUI test `tests/gui/undo-in-the-way.py`.
+
+**Asking the other user (built).** A step of another user's in the way is
+theirs to agree to: the undo with it is asked for, and goes once they do
+(`Gui::UndoConsent`). The request holds the steps the undo takes -- the
+asker's run and those in its way -- what was asked for, the owners'
+steps by name, whose agreement it waits for and who asked. Each served
+owner is asked on every connection of theirs (`consent.ask`, pushed by the
+serving tier's transport); the desktop user in a dialog that does not stop
+the desktop (`undoConsentAsk`). An owner with no connection cannot be
+asked, and the asker is told so at once. Every owner's yes makes the undo
+(`undoSteps`, as the one who asked: the inverse rows are theirs); one no
+ends it; the asker is told either way (`consent.result` to a served one, a
+dialog that does not stop the desktop to the desktop user).
+
+On the wire (`SceneControl.cpp`): `undo` and `redo` answer with each
+listed step's id and group beside the names (`undoSteps`, `redoSteps`);
+`to` takes the list's fine undo to a step; `keep` is keep theirs; `with`
+the steps in the way, the asker's own taken at once, another's asked for
+(`Asked` with the request's id, or `NotConnected`); a refusal for steps in
+the way is `InTheWay` with them, their authors and `keepable`. `undo.list`
+reads the stacks; `consent.answer {request, allow}` is an owner's answer,
+taken only from that owner. On the desktop the dialog's "Ask <user>" asks
+the same way. GUI test `tests/gui/serve-undo-consent.py` (synthetic socket
+clients: a group listed and undone, bob asked and agreeing, bob saying no,
+the desktop user asked in its dialog and agreeing, bob gone).

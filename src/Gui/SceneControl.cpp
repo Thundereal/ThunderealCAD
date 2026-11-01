@@ -58,6 +58,7 @@
 #include "PropertyGroupName.h"
 #include "SceneContextMenu.h"
 #include "SceneActors.h"
+#include "UndoConsent.h"
 #include "SceneControl.h"
 #include "SceneLog.h"
 #include "SceneWidgets.h"
@@ -1279,7 +1280,60 @@ QJsonObject viewVisibilityOp(const QJsonObject &req, const std::string &boundDoc
 /// others in front of it, and a modal on the GUI thread of a process
 /// serving several browsers stops serving all of them. The reply carries
 /// the stacks after the op, by transaction name, for a client's menu.
-QJsonObject undoRedoOp(const QJsonObject &req, const std::string &boundDoc, bool redo)
+/// The steps an undo or a redo of the asker lists, each with its id and the
+/// group of an edit it is one of (docs/MultiViewEdit.md sec 12.11): what a
+/// client's list shows a group by
+QJsonArray stepList(const std::vector<App::UndoStep>& steps)
+{
+    QJsonArray out;
+    for (const auto& s : steps) {
+        QJsonObject o;
+        o[QLatin1String("id")] = s.id;
+        o[QLatin1String("name")] = QString::fromUtf8(s.name.c_str());
+        if (s.group)
+            o[QLatin1String("group")] = double(s.group);
+        if (!s.author.empty())
+            o[QLatin1String("author")] = QString::fromUtf8(s.author.c_str());
+        out.append(o);
+    }
+    return out;
+}
+
+/// The stacks as the asker lists them, beside the names they always had
+void addStacks(QJsonObject& reply, App::Document* doc)
+{
+    QJsonArray undos;
+    for (const auto& name : doc->getAvailableUndoNames())
+        undos.append(QString::fromUtf8(name.c_str()));
+    QJsonArray redos;
+    for (const auto& name : doc->getAvailableRedoNames())
+        redos.append(QString::fromUtf8(name.c_str()));
+    reply[QLatin1String("undos")] = undos;
+    reply[QLatin1String("redos")] = redos;
+    reply[QLatin1String("undoSteps")] = stepList(doc->getAvailableUndoSteps());
+    reply[QLatin1String("redoSteps")] = stepList(doc->getAvailableRedoSteps());
+}
+
+/// A refusal: for steps made since that stand in the undo's way, which
+/// they are -- with whose they are and whether what they changed may be
+/// kept -- for the client to offer the undo with them (sec 12.11)
+QJsonObject refusalReply(const QJsonValue& id, App::Document* doc, const QString& what)
+{
+    const std::string why = doc->undoRefusal();
+    const auto inTheWay = doc->stepsInTheWay();
+    if (inTheWay.empty())
+        return errorReply(id, "Refused", QString::fromStdString(why));
+    QJsonObject reply = errorReply(id, "InTheWay", QString::fromStdString(why));
+    reply[QLatin1String("doc")] = QString::fromUtf8(doc->getName());
+    reply[QLatin1String("what")] = what;
+    reply[QLatin1String("steps")] = stepList(inTheWay);
+    reply[QLatin1String("keepable")] = why.find("links to") == std::string::npos
+        && why.find("would no longer resolve") == std::string::npos;
+    return reply;
+}
+
+QJsonObject undoRedoOp(const QJsonObject &req, const std::string &boundDoc, bool redo,
+                       uint64_t client)
 {
     const QJsonValue id = req.value(QLatin1String("id"));
 
@@ -1292,45 +1346,144 @@ QJsonObject undoRedoOp(const QJsonObject &req, const std::string &boundDoc, bool
     if (!gdoc)
         return errorReply(id, "UnknownDocument", QString::fromUtf8(doc->getName()));
 
-    const QJsonValue stepsValue = req.value(QLatin1String("steps"));
-    const int steps = stepsValue.isUndefined() ? 1 : stepsValue.toInt(0);
-    if (steps < 1)
-        return errorReply(id, "BadRequest", QStringLiteral("steps must be >= 1"));
-    const int available = redo ? doc->getAvailableRedos() : doc->getAvailableUndos();
-    if (available < steps)
-        return errorReply(id, redo ? "NothingToRedo" : "NothingToUndo",
-                          QStringLiteral("%1 of %2 available").arg(steps).arg(available));
-    if (gdoc->undoRedoWouldPrompt(!redo, steps))
-        return errorReply(id, "GroupedTransactions",
-                          QStringLiteral("grouped transactions in other documents "
-                                         "need the desktop user's answer"));
+    // What the asker's next undo is called: what a refusal says it was
+    const auto listed = redo ? doc->getAvailableRedoSteps() : doc->getAvailableUndoSteps();
+    const QString what = listed.empty() ? QString()
+                                        : QString::fromUtf8(listed.front().name.c_str());
+    auto done = [&]() {
+        doc->recomputeAfterUndo();
+        if (SceneServeSource *source = SceneServeSource::sourceFor(doc))
+            source->clearClientSelections();
+    };
 
-    // The steps are this connection's user's own (docs/TransactionLogJournal.md
-    // sec 30.10): the counts above, the steps taken and the stacks told
-    // back, all under the actor the request runs as.
-    if (redo)
-        gdoc->redo(steps);
-    else
-        gdoc->undo(steps);
-    if (SceneServeSource *source = SceneServeSource::sourceFor(doc))
-        source->clearClientSelections();
-    // Refused: someone else has since written what the step left (sec
-    // 30.4 P2), and the reason names what and by which row.
-    if (!doc->undoRefusal().empty())
-        return errorReply(id, "Refused", QString::fromStdString(doc->undoRefusal()));
+    // To a step of a group, or past it: the list's fine undo (sec 12.11)
+    const QJsonValue to = req.value(QLatin1String("to"));
+    if (!to.isUndefined()) {
+        const bool went = redo ? doc->redo(to.toInt()) : doc->undo(to.toInt());
+        done();
+        if (!went)
+            return refusalReply(id, doc, what);
+    }
+    // Keeping what the steps in its way changed since (sec 12.11)
+    else if (!redo && req.value(QLatin1String("keep")).toBool(false)) {
+        const bool went = doc->undoKeepingTheirs();
+        done();
+        if (!went)
+            return refusalReply(id, doc, what);
+    }
+    // With the steps in its way: the asker's own taken, another's asked
+    // for first -- the undo goes once its user agrees (sec 12.11)
+    else if (!redo && req.value(QLatin1String("with")).isArray()) {
+        std::vector<int> ids = doc->getRunIds(true);
+        if (ids.empty())
+            return errorReply(id, "NothingToUndo", QStringLiteral("nothing to undo"));
+        Gui::UndoConsent::Request request;
+        for (const auto& v : req.value(QLatin1String("with")).toArray()) {
+            App::UndoStep step;
+            if (!doc->stepInfo(v.toInt(), step))
+                return errorReply(id, "BadRequest",
+                                  QStringLiteral("no step %1 to undo").arg(v.toInt()));
+            ids.push_back(step.id);
+            if (step.author.empty())
+                continue;
+            request.theirs.push_back(step.name);
+            bool listedOwner = false;
+            for (const auto& o : request.owners)
+                listedOwner = listedOwner || App::Actor::sameUser(o.get(), step.authorActor.get());
+            if (!listedOwner)
+                request.owners.push_back(step.authorActor);
+        }
+        if (request.owners.empty()) {
+            const bool went = doc->undoSteps(ids);
+            done();
+            if (!went)
+                return refusalReply(id, doc, what);
+        }
+        else {
+            request.doc = doc->getName();
+            request.steps = ids;
+            request.what = what.toStdString();
+            request.requester = App::ActorScope::current();
+            request.requesterClient = client;
+            std::string why;
+            const int asked = Gui::UndoConsent::ask(std::move(request), why);
+            if (!asked)
+                return errorReply(id, "NotConnected", QString::fromUtf8(why.c_str()));
+            QJsonObject reply = errorReply(id, "Asked",
+                                           QStringLiteral("the undo goes once they agree"));
+            reply[QLatin1String("request")] = asked;
+            return reply;
+        }
+    }
+    else {
+        const QJsonValue stepsValue = req.value(QLatin1String("steps"));
+        const int steps = stepsValue.isUndefined() ? 1 : stepsValue.toInt(0);
+        if (steps < 1)
+            return errorReply(id, "BadRequest", QStringLiteral("steps must be >= 1"));
+        const int available = redo ? doc->getAvailableRedos() : doc->getAvailableUndos();
+        if (available < steps)
+            return errorReply(id, redo ? "NothingToRedo" : "NothingToUndo",
+                              QStringLiteral("%1 of %2 available").arg(steps).arg(available));
+        if (gdoc->undoRedoWouldPrompt(!redo, steps))
+            return errorReply(id, "GroupedTransactions",
+                              QStringLiteral("grouped transactions in other documents "
+                                             "need the desktop user's answer"));
+
+        // The steps are this connection's user's own (docs/TransactionLogJournal.md
+        // sec 30.10): the counts above, the steps taken and the stacks told
+        // back, all under the actor the request runs as.
+        if (redo)
+            gdoc->redo(steps);
+        else
+            gdoc->undo(steps);
+        if (SceneServeSource *source = SceneServeSource::sourceFor(doc))
+            source->clearClientSelections();
+        // Refused: someone else has since written what the step left (sec
+        // 30.4 P2), and the reason names what and by which row -- and
+        // which steps stand in the way, when it is that (sec 12.11).
+        if (!doc->undoRefusal().empty())
+            return refusalReply(id, doc, what);
+    }
 
     QJsonObject reply;
     reply[QLatin1String("id")] = id;
     reply[QLatin1String("ok")] = true;
     reply[QLatin1String("doc")] = QString::fromUtf8(doc->getName());
-    QJsonArray undos;
-    for (const auto &name : gdoc->getUndoVector())
-        undos.append(QString::fromUtf8(name.c_str()));
-    QJsonArray redos;
-    for (const auto &name : gdoc->getRedoVector())
-        redos.append(QString::fromUtf8(name.c_str()));
-    reply[QLatin1String("undos")] = undos;
-    reply[QLatin1String("redos")] = redos;
+    addStacks(reply, doc);
+    return reply;
+}
+
+/** `undo.list`: the stacks as the asker lists them -- the names, and each
+ * step with its id and group (sec 12.11) -- for a client's undo list.
+ */
+QJsonObject undoListOp(const QJsonObject &req, const std::string &boundDoc)
+{
+    const QJsonValue id = req.value(QLatin1String("id"));
+    App::Document *doc = requestDocument(req, boundDoc);
+    if (!doc)
+        return errorReply(id, "UnknownDocument", req.value(QLatin1String("doc")).toString());
+    QJsonObject reply;
+    reply[QLatin1String("id")] = id;
+    reply[QLatin1String("ok")] = true;
+    reply[QLatin1String("doc")] = QString::fromUtf8(doc->getName());
+    addStacks(reply, doc);
+    return reply;
+}
+
+/** `consent.answer`: a served user's answer to a request to undo steps of
+ * theirs with another's (sec 12.11): {request, allow}.
+ */
+QJsonObject consentAnswerOp(const QJsonObject &req, const std::string &, uint64_t client)
+{
+    const QJsonValue id = req.value(QLatin1String("id"));
+    std::string why;
+    if (!Gui::UndoConsent::answer(req.value(QLatin1String("request")).toInt(),
+                                  req.value(QLatin1String("allow")).toBool(false),
+                                  SceneActors::of(client).get(), why))
+        return errorReply(id, "Refused", QString::fromUtf8(why.c_str()));
+    QJsonObject reply;
+    reply[QLatin1String("id")] = id;
+    reply[QLatin1String("ok")] = true;
     return reply;
 }
 
@@ -1394,6 +1547,11 @@ Render::ClientAccess Gui::sceneControlAccess()
     return currentAccess();
 }
 
+namespace
+{
+void installUndoConsent();
+}
+
 std::string Gui::handleSceneControlRequest(const std::string &json,
                                            const std::string &boundDoc,
                                            Render::ClientAccess access,
@@ -1411,6 +1569,7 @@ std::string Gui::handleSceneControlRequest(const std::string &json,
     installSceneWidgetOps();
     installSceneContextMenuOps();
     installSceneLogOps();
+    installUndoConsent();
     QJsonParseError err;
     QJsonDocument parsed = QJsonDocument::fromJson(
             QByteArray(json.data(), int(json.size())), &err);
@@ -1472,9 +1631,11 @@ std::string Gui::handleSceneControlRequest(const std::string &json,
         else if (op == QLatin1String("view.visibility"))
             reply = viewVisibilityOp(req, boundDoc, client);
         else if (op == QLatin1String("undo"))
-            reply = undoRedoOp(req, boundDoc, false);
+            reply = undoRedoOp(req, boundDoc, false, client);
         else if (op == QLatin1String("redo"))
-            reply = undoRedoOp(req, boundDoc, true);
+            reply = undoRedoOp(req, boundDoc, true, client);
+        else if (op == QLatin1String("undo.list"))
+            reply = undoListOp(req, boundDoc);
         else if (OmniControl::handle(op, req, boundDoc, reply))
             ;
         else
@@ -1485,8 +1646,41 @@ std::string Gui::handleSceneControlRequest(const std::string &json,
         .toStdString();
 }
 
+namespace
+{
+/// Asking a served user to let steps of theirs be undone with another's
+/// (docs/MultiViewEdit.md sec 12.11): the question to each connection of
+/// theirs, the answer back as an op, the result to who asked. Once, from
+/// whichever handler a request comes through first, as the widget ops.
+void installUndoConsent()
+{
+    static bool installed = false;
+    if (installed)
+        return;
+    installed = true;
+    registerSceneControlOp(QStringLiteral("consent.answer"), true,
+                           SceneControlClientOpHandler(consentAnswerOp));
+    Gui::UndoConsent::setTransport(
+        [](const App::Actor* owner, const std::string& json) {
+            auto& server = Render::SceneStreamServer::instance();
+            std::vector<Render::SceneClientInfo> clients;
+            server.clients(clients);
+            bool sent = false;
+            for (const auto& c : clients) {
+                if (c.viewer && App::Actor::sameUser(SceneActors::of(c.id).get(), owner))
+                    sent = server.sendControl(c.id, json) || sent;
+            }
+            return sent;
+        },
+        [](uint64_t client, const std::string& json) {
+            Render::SceneStreamServer::instance().sendControl(client, json);
+        });
+}
+}  // namespace
+
 void Gui::installSceneControlHandler(const std::string &docName)
 {
+    installUndoConsent();
     // the widget stream's ops ride this channel (docs/Sandbox.md 7.18)
     installSceneWidgetOps();
     installSceneContextMenuOps();

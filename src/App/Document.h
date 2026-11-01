@@ -51,6 +51,7 @@ namespace Base {
 namespace App
 {
     class TransactionalObject;
+    struct Actor;
     class DocumentObject;
     class DocumentObjectExecReturn;
     class Document;
@@ -119,6 +120,8 @@ struct UndoStep
     /// Whose step it is when not the one asking's: the user's name; empty
     /// for one's own
     std::string author;
+    /// And that user, null for the desktop's (when \a author is set)
+    std::shared_ptr<const Actor> authorActor;
 };
 
 class AppExport Document : public App::PropertyContainer
@@ -1880,6 +1883,10 @@ public:
     /// (docs/MultiViewEdit.md sec 12.11): a step with the implicit ones
     /// riding on it, or a group; \a skip as for undoSkipping()
     std::vector<int> getRunIds(bool undo, int skip = 0) const;
+    /** Step \a id of the undo stack, whoever's: \a out its name, group
+     * and, when not the one asking's, its author. False for no such step.
+     */
+    bool stepInfo(int id, UndoStep& out) const;
     /** The next undo with what was changed since by others left as it is
      * now ("keep theirs", sec 12.11): a property a step made since set
      * again keeps that step's value, the rest goes back. A link or a

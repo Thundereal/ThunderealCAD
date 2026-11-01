@@ -1539,6 +1539,7 @@ SET(FreeCADGui_CPP_SRCS
     Control.cpp
     TaskOwner.cpp
     EditSteps.cpp
+    UndoConsent.cpp
     SpaceballEvent.cpp
     PreferencePackManager.cpp
     FreeCADStyle.cpp
@@ -1588,6 +1589,7 @@ SET(FreeCADGui_SRCS
     Control.h
     TaskOwner.h
     EditSteps.h
+    UndoConsent.h
     SpaceballEvent.h
     PreferencePackManager.h
     FreeCADStyle.h

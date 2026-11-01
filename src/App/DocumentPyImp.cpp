@@ -707,6 +707,37 @@ PyObject* DocumentPy::redoTo(PyObject* args)
     } PY_CATCH;
 }
 
+PyObject* DocumentPy::getStepsInTheWay(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        Py::List list;
+        for (const auto& s : getDocumentPtr()->stepsInTheWay()) {
+            list.append(Py::TupleN(Py::Long(s.id), Py::String(s.name),
+                                   Py::Long(static_cast<long long>(s.group)),
+                                   Py::String(s.author)));
+        }
+        return Py::new_reference_to(list);
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::undoSteps(PyObject* args)
+{
+    PyObject* seq = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &seq))
+        return nullptr;
+    PY_TRY {
+        std::vector<int> ids;
+        Py::Sequence items(seq);
+        for (const auto& item : items)
+            ids.push_back(static_cast<int>(Py::Long(item)));
+        bool done = getDocumentPtr()->undoSteps(ids);
+        getDocumentPtr()->recomputeAfterUndo();
+        return Py::new_reference_to(Py::Boolean(done));
+    } PY_CATCH;
+}
+
 PyObject* DocumentPy::groupSteps(PyObject* args)
 {
     PyObject* seq = nullptr;

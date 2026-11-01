@@ -225,6 +225,9 @@ struct DocumentP
     /// The step a run of a group ends at, 0 for the whole group: the fine
     /// undo or redo of a part of it (docs/MultiViewEdit.md sec 12.11)
     int runStopAt {0};
+    /// The rows the last undo was refused for that stand in its way
+    /// (docs/MultiViewEdit.md sec 12.11): what Document::stepsInTheWay() lists
+    std::set<int64_t> undoInTheWay;
     /// A saveCopy() without history: the copy embeds nothing, and the
     /// History property the live document had is put back afterwards.
     bool savingWithoutHistory {false};

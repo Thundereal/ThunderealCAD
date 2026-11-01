@@ -2246,6 +2246,69 @@ TEST_F(TransactionLogTest, aGroupIsUndoneFromUnderAnotherStepAndInPart)
     EXPECT_EQ(b->Integer.getValue(), 9);
 }
 
+TEST_F(TransactionLogTest, aLinkMadeSinceToWhatAStepMadeStandsInItsWay)
+{
+    // docs/MultiViewEdit.md sec 12.11: a step that made an object, linked to
+    // by a step made since, is not undone from under it -- the undo would
+    // leave the link to nothing. The step in the way is named, and the two
+    // undone together go.
+    doc()->openTransaction("make B");
+    auto b = make("B");
+    doc()->commitTransaction();
+    doc()->openTransaction("make A");
+    auto a = make("A");
+    doc()->commitTransaction();
+    doc()->openTransaction("link to A");
+    b->Link.setValue(a);
+    doc()->commitTransaction();
+    doc()->openTransaction("after");
+    b->Float.setValue(3.0);
+    doc()->commitTransaction();
+
+    const int makeA = stepNamed(doc(), "make A");
+    const int link = stepNamed(doc(), "link to A");
+    EXPECT_FALSE(doc()->undoSteps({makeA}));
+    EXPECT_NE(doc()->getObject("A"), nullptr);
+    EXPECT_NE(doc()->undoRefusal().find("links to"), std::string::npos) << doc()->undoRefusal();
+    const auto inTheWay = doc()->stepsInTheWay();
+    ASSERT_EQ(inTheWay.size(), 1u);
+    EXPECT_EQ(inTheWay[0].id, link);
+    EXPECT_TRUE(inTheWay[0].author.empty());
+
+    ASSERT_TRUE(doc()->undoSteps({makeA, link})) << doc()->undoRefusal();
+    EXPECT_EQ(doc()->getObject("A"), nullptr);
+    EXPECT_EQ(b->Link.getValue(), nullptr);
+    EXPECT_FLOAT_EQ(b->Float.getValue(), 3.0);   // the step after stays
+}
+
+TEST_F(TransactionLogTest, aReferenceTheUndoWouldBreakStandsInItsWay)
+{
+    // An expression set since on what the step added: its undo would leave
+    // the expression naming nothing, and is refused, naming the step.
+    doc()->openTransaction("make");
+    auto a = make("A");
+    auto b = make("B");
+    doc()->commitTransaction();
+    doc()->openTransaction("add Extra");
+    a->addDynamicProperty("App::PropertyInteger", "Extra");
+    doc()->commitTransaction();
+    doc()->openTransaction("refer to Extra");
+    b->setExpression(App::ObjectIdentifier::parse(b, "Integer"),
+                     std::shared_ptr<App::Expression>(App::Expression::parse(b, "A.Extra + 1")));
+    doc()->commitTransaction();
+    doc()->recompute();
+
+    const int add = stepNamed(doc(), "add Extra");
+    const int refer = stepNamed(doc(), "refer to Extra");
+    EXPECT_FALSE(doc()->undoSteps({add}));
+    EXPECT_NE(a->getPropertyByName("Extra"), nullptr);
+    const auto inTheWay = doc()->stepsInTheWay();
+    ASSERT_FALSE(inTheWay.empty()) << doc()->undoRefusal();
+    EXPECT_EQ(inTheWay[0].id, refer);
+    ASSERT_TRUE(doc()->undoSteps({add, refer})) << doc()->undoRefusal();
+    EXPECT_EQ(a->getPropertyByName("Extra"), nullptr);
+}
+
 TEST_F(TransactionLogTest, anUndoThatLeavesAnObjectCleanLeavesItsLinksClean)
 {
     // docs/TransactionLogJournal.md sec 24.17: a link is touched while its

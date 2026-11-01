@@ -862,3 +862,25 @@ it undoes the rows above, then the edit down to that step
 (`Gui::Document::undoTo`, `App::Document::undo(id)`). A view whose undo
 is not its document's -- a text editor -- lists names, as before
 (`MDIView::undoSteps` empty). GUI test `tests/gui/edit-group-undo.py`.
+
+**What stands in an undo's way (App, built).** A step taken back from under
+steps made since (out of order, from the log) is refused when one of them
+depends on it, and the refusal now says which: `stepsInTheWay()` lists the
+steps on the undo stack that made those rows, each with its author (Python
+`getStepsInTheWay`). A step depends on the one undone when it
+- changed since a property that one set (`checkSelective`, as before);
+- linked to an object that one made, which the undo removes and would
+  leave the link to nothing (`linksMadeSince`, before anything moves): a
+  Pad made in another view on a sketch the edit made;
+- set a reference the undo breaks: once the values are back, every link
+  with a sub-element and every expression of the objects referring to what
+  the undo wrote is resolved again, and one that resolved before and does
+  not now, set by a later row, refuses the undo -- put back as it was --
+  naming that row: an expression `A.Extra` on a property the undone step
+  added.
+A reference already broken before the undo, or one set before the undone
+step, does not refuse it. `undoSteps(ids)` undoes the steps given with the
+implicit ones riding on each, newest first, all or none, whoever's (Python
+`undoSteps`): an undo with the steps in its way. Gtests
+`aLinkMadeSinceToWhatAStepMadeStandsInItsWay`,
+`aReferenceTheUndoWouldBreakStandsInItsWay`.

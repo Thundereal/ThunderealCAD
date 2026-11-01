@@ -287,10 +287,15 @@ Frozen: the rebuild 3.42-3.70 s -> 2.62-2.82 s, one flange 124-130 ms -> 78-81 m
 50 is OCCT's boolean (the intersection, the solid rebuilt from its faces, the post-treatment), 10
 the element map. Not frozen, nothing changes (4.4 s, 230-250 ms): the transaction log writes each
 value at commit on the main thread there, by design, and the writer's test of a stored plane
-curve, answered once for a frozen edge, runs on each write of an unfrozen one. Left: the boolean's
-post-treatment skipping faces it may not change anyway (an OCCT change), and a recompute that
-starts at the edited feature. Tested by `testPCurvesStored`, `testBodyTakesTheTipAsIs`,
-`testLocatedTipIsBaked`.
+curve, answered once for a frozen edge, runs on each write of an unfrozen one. Tested by
+`testPCurvesStored`, `testBodyTakesTheTipAsIs`, `testLocatedTipIsBaked`.
+- **The boolean's post-treatment** (OCCT f6cbbbd901, TKBO): it checked the tolerances of every
+  face and edge of the result and then refused to change any of an argument's, which in a
+  non-destructive boolean is nearly all of them; it now leaves those out. No result changes (every
+  write went through the one refusal; the fork's suites as before, frozen and unfrozen). The
+  library swapped between interleaved runs: rebuilt 2.62 -> 2.48 s, one more flange 79 -> 75 ms
+  (median 85 -> 79). **Both targets are met, frozen.** Left: a recompute that starts at the edited
+  feature.
 - The first measurement was 26 s: the flange moved the base by its location and had its placement
   applied to its shape, and a location made of an identity placement is not an empty one, so every
   flange stacked another and every boolean keyed the edges' curves on their surfaces to it

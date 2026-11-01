@@ -16,6 +16,9 @@ import Part
 
 V = FreeCAD.Vector
 RING = 3 * math.pi / 4
+# the rule's bend relief, a rectangle 1 wide from the wall's end to 1 past
+# where the bend starts: 2 back at 90 deg (MaterialInside), so 1 x 3 each
+RELIEF = 1 * (2 + 1)
 
 
 class TestSheetMetalFlange(unittest.TestCase):
@@ -149,11 +152,11 @@ class TestSheetMetalFlange(unittest.TestCase):
 
     def testGaps(self):
         """Gaps at the ends make the flange narrower; the wall is cut back
-        under it only"""
+        under it only, and a relief each side parts it from the bend"""
         flange = self.far(Gap1=5, Gap2=5)
         self.checkValid(flange)
         self.assertAlmostEqual(
-            flange.Shape.Volume, 40 * 20 - 30 * 2 + 30 * RING + 30 * 8, places=6
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * RELIEF + 30 * RING + 30 * 8, places=6
         )
         box = flange.Shape.BoundBox
         self.assertAlmostEqual(box.XMin, 0)
@@ -312,6 +315,111 @@ class TestSheetMetalFlange(unittest.TestCase):
         )
         self.assertAlmostEqual(flange.Shape.BoundBox.XLength, 45)
 
+    # The bend relief (sec 5.2, brought into M1 2026-11-01): where a flange
+    # ends inside its wall's end, the wall left beside it meets the bend face
+    # to face, and only a cut into the wall there parts them so the part lays
+    # flat. Automatic, from the rule: ReliefShape, ReliefWidth beside the
+    # bend, from the wall's end to ReliefDepth past where the bend starts.
+
+    def checkFlat(self, flange, across, along):
+        """The flange's flat lays out in one valid solid of the flange's
+        volume (each bend cut square, K 0.5), across x along"""
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertEqual(len(flat.Shape.Solids), 1)
+        solid = flat.Shape.Solids[0]
+        self.assertTrue(solid.isValid())
+        self.assertEqual(flat.BendCount, 1)
+        self.assertAlmostEqual(solid.Volume, flange.Shape.Volume, places=6)
+        box = solid.BoundBox
+        lengths = sorted([box.XLength, box.YLength])
+        self.assertAlmostEqual(lengths[0], min(across, along), places=6)
+        self.assertAlmostEqual(lengths[1], max(across, along), places=6)
+        return flat
+
+    def testRelief(self):
+        """Gaps of 5: a relief x 4..5 and 35..36, y 17..20, through the
+        sheet; the flat is 40 across and the wall's 18, the bend's allowance
+        (R + T / 2) pi / 2 and the leg's 8 along"""
+        flange = self.far(Gap1=5, Gap2=5)
+        self.checkValid(flange)
+        shape = flange.Shape
+        for x in (4.5, 35.5):
+            for y in (19.5, 17.1):
+                self.assertFalse(shape.isInside(V(x, y, 0.5), 1e-9, True), (x, y))
+            self.assertTrue(shape.isInside(V(x, 16.9, 0.5), 1e-9, True), x)
+        for x in (3.9, 36.1):
+            self.assertTrue(shape.isInside(V(x, 19.5, 0.5), 1e-9, True), x)
+        self.assertNotIn(None, self.owners(flange))
+        self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
+
+    def testReliefOneEnd(self):
+        """A gap at one end only: one relief, at that end"""
+        flange = self.far(Gap2=5)
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 35 * 2 - RELIEF + 35 * RING + 35 * 8, places=6
+        )
+        self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
+
+    def testReliefFromRule(self):
+        """The rule's width and depth, followed when they change"""
+        flange = self.far(Gap1=5, Gap2=5)
+        rule = flange.Rule
+        rule.ReliefWidth = 2
+        rule.ReliefDepth = 0.5
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * 2 * 2.5 + 30 * RING + 30 * 8, places=6
+        )
+        self.assertFalse(flange.Shape.isInside(V(3.5, 17.6, 0.5), 1e-9, True))
+        self.assertTrue(flange.Shape.isInside(V(3.5, 17.4, 0.5), 1e-9, True))
+        self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
+
+    def testReliefObround(self):
+        """Obround: the rectangle's deep end a half circle of its width, the
+        same depth to its tip"""
+        flange = self.far(Gap1=5, Gap2=5)
+        flange.Rule.ReliefShape = "Obround"
+        self.Doc.recompute()
+        self.checkValid(flange)
+        relief = 1 * 2.5 + math.pi / 8
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * relief + 30 * RING + 30 * 8, places=6
+        )
+        shape = flange.Shape
+        # in the half circle about (4.5, 17.5), and in its corner left whole
+        self.assertFalse(shape.isInside(V(4.5, 17.1, 0.5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(4.05, 17.1, 0.5), 1e-9, True))
+        self.assertNotIn(None, self.owners(flange))
+        self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
+
+    def testReliefTear(self):
+        """Tear: the wall torn along the bend's side, nothing taken away, so
+        the solid is the one with no relief"""
+        flange = self.far(Gap1=5, Gap2=5)
+        flange.Rule.ReliefShape = "Tear"
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 + 30 * RING + 30 * 8, places=6
+        )
+
+    def testReliefNotNeeded(self):
+        """No relief where nothing meets the bend's side: the bend starting
+        at the wall's end (BendOutside), or the flange carried past the
+        edge's end (a negative gap)"""
+        flange = self.far(BendPosition="BendOutside", Gap1=5, Gap2=5)
+        self.checkValid(flange)
+        self.assertAlmostEqual(flange.Shape.Volume, 40 * 20 + 30 * RING + 30 * 8, places=6)
+        flange.BendPosition = "MaterialInside"
+        flange.Gap1 = -5
+        flange.Gap2 = 0
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertAlmostEqual(flange.Shape.Volume, 40 * 18 + 45 * RING + 45 * 8, places=6)
+
     def testParallelTo(self):
         """The angle from a face the leg runs parallel to"""
         plane = self.Body.newObject("PartDesign::Plane", "Plane")
@@ -402,13 +510,15 @@ class TestSheetMetalFlange(unittest.TestCase):
             self.assertNotIn("ReadOnly", flange.getPropertyStatus(name), name)
 
     def testProfileNarrower(self):
-        """A profile narrower than the edge is the flange with gaps"""
+        """A profile narrower than the edge is the flange with gaps, a
+        relief each side, and lays flat"""
         sketch = self.legSketch([(10, 0), (30, 0), (30, 10), (10, 10)])
         flange = self.far(Profile=sketch)
         self.checkValid(flange)
         self.assertAlmostEqual(
-            flange.Shape.Volume, 40 * 20 - 20 * 2 + 20 * RING + 20 * 8, places=6
+            flange.Shape.Volume, 40 * 20 - 20 * 2 - 2 * RELIEF + 20 * RING + 20 * 8, places=6
         )
+        self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
         box = flange.Shape.BoundBox
         self.assertAlmostEqual(box.XMin, 0)
         self.assertAlmostEqual(box.XMax, 40)
@@ -419,8 +529,7 @@ class TestSheetMetalFlange(unittest.TestCase):
     def testProfileShape(self):
         """A tapered leg with a hole: the bend the edge's width, the leg a
         trapezoid from z = 2, 40 wide there and 20 at z = 10, a hole of
-        radius 2 in it; edited, the flange follows; the flat has the hole.
-        (A bend narrower than its edge lays flat only with a relief, M2.)"""
+        radius 2 in it; edited, the flange follows; the flat has the hole"""
         sketch = self.legSketch(
             [(0, 0), (40, 0), (40, 2), (30, 10), (10, 10), (0, 2)], holes=[(20, 6, 2)]
         )
@@ -456,7 +565,7 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.checkValid(flange)
         leg = 20 * 2 + 30 * 6
         self.assertAlmostEqual(
-            flange.Shape.Volume, 40 * 20 - 20 * 2 + 20 * RING + leg, places=6
+            flange.Shape.Volume, 40 * 20 - 20 * 2 - 2 * RELIEF + 20 * RING + leg, places=6
         )
 
     def testProfileOffPlane(self):

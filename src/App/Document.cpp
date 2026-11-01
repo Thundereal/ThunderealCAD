@@ -1330,6 +1330,8 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts confli
         Base::FlagToggler<bool> flag(d->undoing);
         _applyRevert(revert);
     }
+    // under no guard, as _revertStep
+    TransactionGuard::finishObjects(*this);
 
     // The redo steps end here, with every row taken back: a refusal above
     // leaves them as they were. Cleared with the step set aside, as
@@ -1471,7 +1473,13 @@ bool Document::_revertStep(bool undo, Transaction* step)
                 obj->touch();
         }
     }
-    if (!revert.touched.empty()) {
+    // No guard here to finish the objects, as one does after a transaction
+    // is applied (it would defer the recompute's touches); one that finds
+    // what it keeps cannot be made from its properties touches itself
+    bool finishedTouched = false;
+    for (auto obj : TransactionGuard::finishObjects(*this))
+        finishedTouched = finishedTouched || obj->isTouched();
+    if (!revert.touched.empty() || finishedTouched) {
         if (Transaction::isApplying())
             FC_WARN((undo ? "undo" : "redo") << " of '" << step->Name << "' in " << getName()
                     << " left objects to recompute");
@@ -1611,8 +1619,13 @@ bool Document::_takeStep(bool undo, int id)
     d->stateToken = step->StateBefore ? step->StateBefore : ++d->stateCounter;
 
     Base::FlagToggler<bool> flag(d->undoing);
-    if (step->Cold)
+    if (step->Cold) {
         _applyRevert(cold);
+        // applied by no transaction, finished by the guard all the same:
+        // what the objects keep beside their properties is made again
+        // from them (onUndoRedoFinished)
+        TransactionGuard::addDocument(*this);
+    }
     else
         step->apply(*this, !undo);
     // The stacks are kept whatever the log makes of the step: an inverse

@@ -447,6 +447,17 @@ public:
      * touched state an undo leaves is set after those touches).
      */
     static void afterTouches(std::function<void()> fn);
+    /** Have the outermost guard finish `doc` as it does a document a
+     * transaction was applied to: an undo from the log applies none
+     * (docs/TransactionLogJournal.md sec 24.3).
+     */
+    static void addDocument(const Document& doc);
+    /** Run onUndoRedoFinished() of every object of `doc` an undo or redo
+     * marked (ObjectStatus::PendingTransactionUpdate), and clear the mark.
+     * The outermost guard does this; an undo from the log that runs under
+     * no guard calls it itself. Returns the objects it was run on.
+     */
+    static std::vector<DocumentObject*> finishObjects(Document& doc);
 
 private:
     TransactionType transactionType;

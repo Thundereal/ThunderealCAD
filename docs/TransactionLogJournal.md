@@ -3499,6 +3499,29 @@ log-on ctest run is `-j1` (about 20 minutes), with a check afterwards that
 from `-j6` runs and were at most partly log-on; the `OmniControl`
 failure 24.12 saw was real all the same.
 
+### 24.14 An undo from the log finishes its objects (2026-11-01)
+
+An object that keeps something beside its properties makes it again from
+them once an undo or redo is done: `onUndoRedoFinished()`, run for each
+object the undo marked `PendingTransactionUpdate` -- the sketch's solver
+state, a link array's elements, a TechDraw view's drawing of the
+projection the undo put back (docs/TechDrawStoredGeometry.md sec 6.3). The
+outermost `TransactionGuard` runs them, for the documents a transaction
+was applied to under it, and `Transaction::apply` is what registers a
+document there. An undo from the log applies no transaction: `_takeStep`
+reverts a cold step under a guard that never heard of the document, and
+`_revertStep` and `undoLogged` run under none (a guard would defer the
+touches their recompute needs). So no object was ever finished after an
+undo past the steps kept in memory, or out of order: a TechDraw view went
+on drawing the box the undo had taken back, marked clean.
+
+`TransactionGuard::finishObjects(doc)` is the guard's pass, made callable:
+`_takeStep` registers the document (`TransactionGuard::addDocument`) after
+a cold revert, and the guard runs it as for a hot one; `_revertStep` and
+`undoLogged` call it once the values are in, and `_revertStep` recomputes
+when an object finishing touched itself. GUI test
+`td-undo-stored-projection.py`, the undo from the log.
+
 ## 25. Phase 7: crash recovery (design, 2026-09-25)
 
 Phase 7 as section 15 lists it is recovery *and* streaming; this section

@@ -16,7 +16,9 @@ Claims:
     than the cut of the 20 box it held being used;
   - an undo while the change is still being projected leaves no drawing
     showing the change and saying it is up to date: what was being made is
-    dropped, and what the view stored before the change is drawn.
+    dropped, and what the view stored before the change is drawn;
+  - an undo past the steps kept in memory, taken from the log, draws what
+    it put back too.
 """
 import os
 import time
@@ -185,6 +187,36 @@ def run():
     stale = [n for n, v in shown.items() if v != 15 and n not in names]
     check("an undo during the projection leaves each drawing right or marked",
           box.Length.Value == 15 and not stale, "stale %s" % stale)
+    doc.recompute()
+    settle(lambda: tallest(view) == 15 and longest(detail) == 15)
+    settle(seconds=2.0)
+
+    def push_cold():
+        # past the 20 steps kept in memory: the next undo reads the log
+        doc.openTransaction("filler")
+        filler = doc.addObject("App::FeatureTest", "Filler")
+        doc.commitTransaction()
+        for i in range(21):
+            doc.openTransaction("filler %d" % i)
+            filler.Integer = i + 1
+            doc.commitTransaction()
+        for i in range(22):
+            doc.undo()
+
+    # an undo from the log puts the projection back, and the view draws it
+    # (TransactionLogJournal.md sec 24.14)
+    doc.openTransaction("Length 30")
+    box.Length = 30
+    doc.commitTransaction()
+    doc.recompute()
+    settle(lambda: tallest(view) == 30)
+    settle(seconds=2.0)
+    push_cold()
+    doc.undo()
+    settle(seconds=1.0)
+    names = state("cold")
+    check("an undo from the log draws 15 with nothing to recompute",
+          box.Length.Value == 15 and tallest(view) == 15 and "View" not in names, str(names))
 
     FreeCAD.closeDocument(doc.Name)
 

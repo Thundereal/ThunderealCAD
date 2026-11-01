@@ -401,21 +401,8 @@ TransactionGuard::~TransactionGuard()
     _PendingPropIndex = 0;
 
     for (auto &docName : _TransactionDocs) {
-        auto doc = GetApplication().getDocument(docName.c_str());
-        if (!doc)
-            continue;
-        for(auto obj : doc->getObjects()) {
-            if(obj->testStatus(ObjectStatus::PendingTransactionUpdate)) {
-                Base::exceptionSafeCall(errMsg,
-                        [](DocumentObject *obj){obj->onUndoRedoFinished();}, obj);
-                if(errMsg.size()) {
-                    FC_ERR("Exception on finishing transaction "
-                            << obj->getFullName() << ": " << errMsg);
-                    errMsg.clear();
-                }
-                obj->setStatus(ObjectStatus::PendingTransactionUpdate,false);
-            }
-        }
+        if (auto doc = GetApplication().getDocument(docName.c_str()))
+            finishObjects(*doc);
     }
 
     auto after = std::move(_AfterTouches);
@@ -480,6 +467,33 @@ void TransactionGuard::afterTouches(std::function<void()> fn)
         return;
     }
     _AfterTouches.push_back(std::move(fn));
+}
+
+void TransactionGuard::addDocument(const Document& doc)
+{
+    // as Transaction::apply registers the document it applies to
+    if (_TransactionActive && !_FlushingProps)
+        _TransactionDocs.insert(doc.getName());
+}
+
+std::vector<DocumentObject*> TransactionGuard::finishObjects(Document& doc)
+{
+    std::vector<DocumentObject*> finished;
+    std::string errMsg;
+    for (auto obj : doc.getObjects()) {
+        if (obj->testStatus(ObjectStatus::PendingTransactionUpdate)) {
+            Base::exceptionSafeCall(errMsg,
+                    [](DocumentObject *obj){obj->onUndoRedoFinished();}, obj);
+            if (errMsg.size()) {
+                FC_ERR("Exception on finishing transaction "
+                        << obj->getFullName() << ": " << errMsg);
+                errMsg.clear();
+            }
+            obj->setStatus(ObjectStatus::PendingTransactionUpdate, false);
+            finished.push_back(obj);
+        }
+    }
+    return finished;
 }
 
 bool TransactionGuard::addPendingRemove(TransactionalObject *obj)

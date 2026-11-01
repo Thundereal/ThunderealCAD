@@ -170,6 +170,92 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.assertEqual(sorted(names), ["Bend1", "Bend2", "Wall1", "Wall2", "Wall3"])
         self.assertNotIn(None, self.owners(flange))
 
+    def flat(self, source):
+        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
+        flat.Source = source
+        self.Doc.recompute()
+        return flat
+
+    def testMiter(self):
+        """Two edges of one flange meeting at the plate's corner: each leg
+        and bend stops at the plane halving the corner, the rule's gap
+        between them, and the flat lays out"""
+        flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        self.checkValid(flange)
+        gap = flange.Rule.Gap.Value
+        self.assertAlmostEqual(gap, 0.1)
+        shape = flange.Shape
+        # the legs: the far one's at y 19..20, the right one's at x 39..40;
+        # the corner's plane x - y = 20 between them, z 5 halfway up
+        self.assertTrue(shape.isInside(V(38.5, 19.5, 5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(39.5, 18.5, 5), 1e-9, True))
+        for x in (38.6, 39.0, 39.5, 39.96):
+            self.assertFalse(shape.isInside(V(x, x - 20, 5), 1e-9, True), x)
+        # just outside the gap on either side, just inside it
+        off = 0.06 * math.sqrt(2)
+        self.assertTrue(shape.isInside(V(39.5 - off / 2, 19.5 + off / 2, 5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(39.5 + off / 2, 19.5 - off / 2, 5), 1e-9, True))
+        near = 0.04 * math.sqrt(2)
+        self.assertFalse(shape.isInside(V(39.5 - near / 2, 19.5 + near / 2, 5), 1e-9, True))
+        # the bends at the corner apart too, halfway round
+        self.assertFalse(shape.isInside(V(39.3, 19.3, 1.5), 1e-9, True))
+        names = sorted(e["Name"] for e in flange.SheetModel["Elements"])
+        self.assertEqual(names, ["Bend1", "Bend2", "Wall1", "Wall2", "Wall3"])
+        self.assertNotIn(None, self.owners(flange))
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        solid = flat.Shape.Solids[0]
+        self.assertTrue(solid.isValid())
+        self.assertEqual(flat.BendCount, 2)
+        # unrolling keeps a bend's volume only where it is cut square across:
+        # cut at a slant, its inner and outer fibres stretch differently, by
+        # the integral of (r - (R + K T)) r cos(theta), 1/12 each bend here,
+        # 0.19 measured with the ruled face across
+        self.assertAlmostEqual(solid.Volume, flange.Shape.Volume, delta=0.25)
+        # the miter's limits saved with the model
+        limits = [e for e in flange.SheetModel["Elements"] if "Limits" in e]
+        self.assertEqual(sorted(e["Name"] for e in limits), ["Bend1", "Bend2", "Wall2", "Wall3"])
+        path = os.path.join(tempfile.mkdtemp(), "miter.FCStd")
+        names = flange.Name, flat.Name
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        flange, flat = (self.Doc.getObject(n) for n in names)
+        self.assertEqual(len([e for e in flange.SheetModel["Elements"] if "Limits" in e]), 4)
+        flat.touch()
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flat.State)
+
+    def testMiterTray(self):
+        """All four edges in one flange: four miters, a closed tray whose flat
+        is a cross"""
+        flange = self.flange(
+            [
+                ((0, 0, 1), (40, 0, 1)),
+                ((40, 0, 1), (40, 20, 1)),
+                ((0, 20, 1), (40, 20, 1)),
+                ((0, 0, 1), (0, 20, 1)),
+            ]
+        )
+        self.checkValid(flange)
+        for x, y in ((0, 0), (40, 0), (40, 20), (0, 20)):
+            sx, sy = (1 if x else -1), (1 if y else -1)
+            # on the corner's diagonal, 0.5 in from the outside, halfway up
+            p = V(x - 0.5 * sx, y - 0.5 * sy, 5)
+            self.assertFalse(flange.Shape.isInside(p, 1e-9, True), (x, y))
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertEqual(flat.BendCount, 4)
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, flange.Shape.Volume, delta=1.0)
+
+    def testNoMiterApart(self):
+        """Edges that do not meet, or flanges bent to opposite sides, are
+        left whole"""
+        flange = self.flange([((0, 20, 1), (40, 20, 1)), ((0, 0, 1), (40, 0, 1))])
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 16 + 2 * (40 * RING + 40 * 8), places=6
+        )
+
     def testFlangeOnFlange(self):
         """A flange on the first one's end: its leg is the wall it starts
         from"""

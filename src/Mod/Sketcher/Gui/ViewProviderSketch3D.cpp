@@ -529,6 +529,8 @@ struct ViewProviderSketch3D::EditData
 
         auto curves = new SoSeparator();
         curveMaterial = new SoMaterial();
+        // PER_PART on a line set is a colour per segment (draw() repeats each
+        // curve's for its segments); the picks read the part index this way
         auto binding = new SoMaterialBinding();
         binding->value = SoMaterialBinding::PER_PART;
         curveStyle = new SoDrawStyle();
@@ -1255,7 +1257,7 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos, bool ctrl)
     // A curve: selected.
     if (pp && pp->getPath()->getTail() == edit->curveLines) {
         auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
-        int part = detail ? detail->getPartIndex() : -1;
+        int part = detail ? detail->getLineIndex() : -1;  // the polyline: a curve
         if (part >= 0 && part < int(edit->curveRefs.size())) {
             Element e {edit->curveRefs[part], Sketcher::PointPos::none};
             select(e);
@@ -1695,7 +1697,7 @@ bool ViewProviderSketch3D::takePlaneAt(const SbVec2s& pos, SoPickedPoint* pp)
     // A kept plane: active again.
     if (pp && pp->getPath()->getTail() == edit->curveLines) {
         auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
-        int part = detail ? detail->getPartIndex() : -1;
+        int part = detail ? detail->getLineIndex() : -1;  // the polyline: a curve
         if (part >= 0 && part < int(edit->curveRefs.size())) {
             auto geo = getSketch3DObject()->getGeometry(edit->curveRefs[part]);
             if (geo && geo->isDerivedFrom<Part::GeomPlane>()) {
@@ -2021,7 +2023,7 @@ bool ViewProviderSketch3D::place(const SbVec2s& pos, Placed& placed) const
         }
         else if (tail == edit->curveLines) {
             auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
-            int part = detail ? detail->getPartIndex() : -1;
+            int part = detail ? detail->getLineIndex() : -1;  // the polyline: a curve
             if (part >= 0 && part < int(edit->curveRefs.size())) {
                 int geoId = edit->curveRefs[part];
                 auto curve =
@@ -4883,8 +4885,14 @@ void ViewProviderSketch3D::draw()
     edit->curveCoords->point.setNum(int(coords.size()));
     edit->curveLines->numVertices.setValues(0, int(counts.size()), counts.data());
     edit->curveLines->numVertices.setNum(int(counts.size()));
-    edit->curveMaterial->diffuseColor.setValues(0, int(colors.size()), colors.data());
-    edit->curveMaterial->diffuseColor.setNum(int(colors.size()));
+    // a colour per segment, as the binding is: a curve's own for each of its
+    // segments, or an arc's would take the colours of the curves after it
+    std::vector<SbColor> segmentColors;
+    for (std::size_t i = 0; i < counts.size() && i < colors.size(); ++i) {
+        segmentColors.insert(segmentColors.end(), std::max(1, counts[i] - 1), colors[i]);
+    }
+    edit->curveMaterial->diffuseColor.setValues(0, int(segmentColors.size()), segmentColors.data());
+    edit->curveMaterial->diffuseColor.setNum(int(segmentColors.size()));
     edit->curveStyle->lineWidth = 2.f * scale;
 
     edit->pointCoords->point.setValues(0, int(pts.size()), pts.data());

@@ -112,3 +112,49 @@ class TestSheetMetalPart(unittest.TestCase):
         self.Doc.recompute()
         self.assertNotIn("Invalid", flat.State)
         self.assertAlmostEqual(flat.Shape.Solids[0].Volume, second.Shape.Volume, places=6)
+
+    # The speed pass after M1 (sec 4.4): what it changed that can be seen
+    # from outside, each a cost paid per feature over the whole part
+
+    def pcurveCount(self, edge):
+        n = 0
+        while edge.curveOnSurface(n) is not None:
+            n += 1
+        return n
+
+    def testPCurvesStored(self):
+        """Each edge of a planar face keeps its curve on that face: OCCT
+        works one out on every request otherwise, and a join asks for every
+        face of the part"""
+        plate = self.plate()
+        flange = self.flange(plate, (0, 20, 1), (40, 20, 1))
+        shape = flange.Shape
+        for i, edge in enumerate(shape.Edges):
+            planes = [
+                f
+                for f in shape.ancestorsOfType(edge, Part.Face)
+                if isinstance(f.Surface, Part.Plane)
+            ]
+            self.assertGreaterEqual(self.pcurveCount(edge), len(planes), "Edge%d" % (i + 1))
+
+    def testBodyTakesTheTipAsIs(self):
+        """A tip with no placement of its own is the body's shape as it is,
+        not a copy of every face"""
+        plate = self.plate()
+        flange = self.flange(plate, (0, 20, 1), (40, 20, 1))
+        self.assertTrue(flange.Shape.Placement.isIdentity())
+        self.assertTrue(self.Body.Shape.isSame(flange.Shape))
+        for solid in self.Body.SolidBodies:
+            self.assertTrue(solid.Shape.isSame(flange.Shape))
+
+    def testLocatedTipIsBaked(self):
+        """A tip whose shape carries its placement still has it made part of
+        the body's geometry"""
+        box = self.Body.newObject("PartDesign::AdditiveBox", "Box")
+        box.Placement.Base = V(5, 0, 0)
+        self.Doc.recompute()
+        self.assertFalse(box.Shape.Placement.isIdentity())
+        self.assertTrue(self.Body.Shape.Placement.isIdentity())
+        self.assertFalse(self.Body.Shape.isSame(box.Shape))
+        self.assertTrue(self.Body.Shape.BoundBox.isInside(box.Shape.BoundBox))
+        self.assertAlmostEqual(self.Body.Shape.BoundBox.XMin, 5)

@@ -26,11 +26,17 @@
 
 #include <cmath>
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <gp_Pln.hxx>
 
@@ -44,6 +50,63 @@
 using namespace PartDesign;
 using Part::TopoShape;
 using SheetMetal::Element;
+
+namespace
+{
+
+/// Whether the edge lies on one of the planar ends carried out: a seam the
+/// fuse left where the end was
+bool onEnd(const TopoDS_Edge& edge, const std::vector<TopoDS_Face>& ends)
+{
+    BRepAdaptor_Curve curve(edge);
+    const double tol = Precision::Confusion();
+    for (const auto& end : ends) {
+        const gp_Pln plane = BRepAdaptor_Surface(end).Plane();
+        bool on = true;
+        for (double t : {0.0, 0.5, 1.0}) {
+            const gp_Pnt p = curve.Value(curve.FirstParameter()
+                                         + t * (curve.LastParameter() - curve.FirstParameter()));
+            const TopAbs_State state = BRepClass_FaceClassifier(end, p, tol).State();
+            if (plane.Distance(p) > tol || (state != TopAbs_IN && state != TopAbs_ON)) {
+                on = false;
+                break;
+            }
+        }
+        if (on) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// The walls made one with their extensions: the seams at the old ends
+/// unified and every other edge kept, so the faces of two elements stay apart
+/// (no plain refine, docs/SheetMetal.md sec 9)
+TopoShape unifySeams(const TopoShape& shape, const std::vector<TopoDS_Face>& ends)
+{
+    ShapeUpgrade_UnifySameDomain unify(shape.getShape(), true, true, false);
+    TopTools_IndexedMapOfShape edges;
+    TopExp::MapShapes(shape.getShape(), TopAbs_EDGE, edges);
+    bool seams = false;
+    for (int i = 1; i <= edges.Extent(); ++i) {
+        const TopoDS_Edge& edge = TopoDS::Edge(edges(i));
+        if (onEnd(edge, ends)) {
+            seams = true;
+        }
+        else {
+            unify.KeepShape(edge);
+        }
+    }
+    if (!seams) {
+        return shape;
+    }
+    unify.Build();
+    TopoShape res(shape.Tag, shape.Hasher);
+    res.makESHAPE(unify.Shape(), Part::MapperHistory(unify.History()), {shape});
+    return res;
+}
+
+}  // namespace
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalExtendWall, PartDesign::FeatureAddSub)
 
@@ -126,6 +189,7 @@ App::DocumentObjectExecReturn* SheetMetalExtendWall::execute()
 
         const auto hasher = getDocument()->getStringHasher();
         std::vector<TopoShape> pieces, cuts;
+        std::vector<TopoDS_Face> ends;
         for (const auto& shadow : shadows) {
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
             TopoShape face = base.getSubTopoShape(ref.c_str(), true);
@@ -166,6 +230,9 @@ App::DocumentObjectExecReturn* SheetMetalExtendWall::execute()
             }
             TopoShape prism = TopoShape(0, hasher).makEPrism(face, gp_Vec(out) * distance);
             (distance > 0 ? pieces : cuts).push_back(prism);
+            if (distance > 0) {
+                ends.push_back(f);
+            }
         }
 
         if (!cuts.empty()) {
@@ -185,7 +252,7 @@ App::DocumentObjectExecReturn* SheetMetalExtendWall::execute()
         if (isRecomputePaused()) {
             return App::DocumentObject::StdReturn;
         }
-        Shape.setValue(tool.isNull() ? base : makeBoolean(base, tool));
+        Shape.setValue(tool.isNull() ? base : unifySeams(makeBoolean(base, tool), ends));
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

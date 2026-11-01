@@ -52,6 +52,12 @@ PartDesignExport Part::TopoShape
 namedFace(const std::vector<std::pair<TopoDS_Edge, std::string>>& edges, const std::string& name);
 
 PartDesignExport TopoDS_Edge lineEdge(const gp_Pnt& a, const gp_Pnt& b);
+
+/** Each planar face's edges given their curve on it, stored: OCCT computes
+ * a curve on a plane it is not given each time it is asked, and a join walks
+ * every face of the part asking, each feature down a chain again
+ */
+PartDesignExport void storePCurves(const Part::TopoShape& shape);
 /// An arc about the frame's Z, from its X through angle, reversed if asked
 PartDesignExport TopoDS_Edge arcEdge(const gp_Ax3& frame, double radius, double angle,
                                      bool reversed);

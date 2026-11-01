@@ -289,8 +289,9 @@ App::DocumentObjectExecReturn *SolidBody::updateShape()
                 QT_TRANSLATE_NOOP("Exception", "Tip shape is empty"));
 
     // The tip's own placement becomes part of the geometry, as in
-    // Body::execute()
-    shape.transformShape(shape.getTransform(), true);
+    // Body::execute(); with none, there is nothing to copy
+    if (!shape.getShape().Location().IsIdentity())
+        shape.transformShape(shape.getTransform(), true);
     Shape.setValue(shape);
     shapeOf = tip->getNameInDocument();
     return App::DocumentObject::StdReturn;

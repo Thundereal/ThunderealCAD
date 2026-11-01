@@ -112,7 +112,9 @@ public:
     App::DocumentObject *getSubObject(const char *subname, 
         PyObject **pyObj, Base::Matrix4D *pmat, bool transform, int depth) const override;
 
-    TopoShape getSolid(const TopoShape &, bool force = true);
+    /// The shape's solid, its orientation fixed unless orient is false (a
+    /// boolean's result of oriented solids is oriented)
+    TopoShape getSolid(const TopoShape &, bool force = true, bool orient = true);
 
     /** Called by Body::removeObject() just before this feature's BaseFeature
      *  is rerouted from \a oldBase, which is being removed, to \a newBase.

@@ -97,7 +97,7 @@ bool Feature::allowMultiSolid() const
     return body && !body->SingleSolid.getValue();
 }
 
-TopoShape Feature::getSolid(const TopoShape& shape, bool force)
+TopoShape Feature::getSolid(const TopoShape& shape, bool force, bool orient)
 {
     if (shape.isNull())
         THROWM(Part::NullShapeException, "Null shape");
@@ -105,7 +105,8 @@ TopoShape Feature::getSolid(const TopoShape& shape, bool force)
     if(count>1) {
         if(allowMultiSolid()) {
             auto res = shape;
-            res.fixSolidOrientation();
+            if (orient)
+                res.fixSolidOrientation();
             return res;
         }
         THROWM(Base::RuntimeError, "Result has multiple solids.\n"
@@ -113,7 +114,8 @@ TopoShape Feature::getSolid(const TopoShape& shape, bool force)
     }
     if(count) {
         auto res = shape.getSubTopoShape(TopAbs_SOLID,1);
-        res.fixSolidOrientation();
+        if (orient)
+            res.fixSolidOrientation();
         return res;
     }
     if (force)

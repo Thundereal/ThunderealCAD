@@ -262,6 +262,35 @@ the shape, the rest the document's recompute. The join costs more than M0's 51 m
 named join; that, glue for material that only touches, and a recompute that starts at the edited
 feature are what is left to look at. **Ruled 2026-10-31: accepted for M1**; glue and a recompute
 from the edited feature are for a speed pass after it.
+
+**The speed pass, 2026-11-01** (the probe, plus the last flange recomputed 15 times; each change
+measured against the others switched off in one binary, runs interleaved, as this box's wall clock
+drifts by 20% with what the Windows host is doing). Profiled with perf's DWARF call graphs: the
+joins were not the walk alone.
+- **Pcurves on planes, stored.** OCCT keeps no curve on a plane for an edge built on one, and works
+  it out on each request (`BRep_Tool::CurveOnPlane`, a projection); the boolean's post-treatment
+  (`CorrectWires`, over every face of the result, the unchanged ones included), its solid builder
+  and the orientation check asked for every face of the part each join. The sheet metal features
+  now store them on what they add and cut (`SheetMetal::storePCurves()`), so the part carries them
+  down the chain. The file is unchanged: the BREP writer leaves out a plane's curve it can work out
+  again exactly.
+- **No orientation check after the join** (`makeBoolean(base, tool, oriented)`): a classification
+  over every face of the result, where a boolean of oriented solids is oriented. The sheet metal
+  features orient their own small tool instead.
+- **No copy of the part in the body.** `Body` and `SolidBody` baked the tip's placement into the
+  geometry with a copy of every face on every recompute, an identity placement included; a tip
+  with no location is now taken as it is (every PartDesign body, not sheet metal only).
+- Glue measured again and dropped: 3 ms of a 62 ms boolean, all of it in the intersection.
+
+Frozen: the rebuild 3.42-3.70 s -> 2.62-2.82 s, one flange 124-130 ms -> 78-81 ms (median
+155 -> 84). One more flange meets the target; the rebuild is within 10% of it. Of the 80 ms, about
+50 is OCCT's boolean (the intersection, the solid rebuilt from its faces, the post-treatment), 10
+the element map. Not frozen, nothing changes (4.4 s, 230-250 ms): the transaction log writes each
+value at commit on the main thread there, by design, and the writer's test of a stored plane
+curve, answered once for a frozen edge, runs on each write of an unfrozen one. Left: the boolean's
+post-treatment skipping faces it may not change anyway (an OCCT change), and a recompute that
+starts at the edited feature. Tested by `testPCurvesStored`, `testBodyTakesTheTipAsIs`,
+`testLocatedTipIsBaked`.
 - The first measurement was 26 s: the flange moved the base by its location and had its placement
   applied to its shape, and a location made of an identity placement is not an empty one, so every
   flange stacked another and every boolean keyed the edges' curves on their surfaces to it

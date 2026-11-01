@@ -54,6 +54,7 @@
 
 #include "FeatureSheetMetalExtendWall.h"
 #include "FeatureSheetMetalRule.h"
+#include "SheetMetal/Pieces.h"
 
 using namespace PartDesign;
 using Part::TopoShape;
@@ -329,6 +330,10 @@ App::DocumentObjectExecReturn* SheetMetalExtendWall::execute()
         }
 
         if (!cuts.empty()) {
+            // what the cut leaves of their faces is the part's from then on
+            for (const TopoShape& piece : cuts) {
+                SheetMetal::storePCurves(piece);
+            }
             TopoShape cut(0, hasher);
             cut.makEBoolean(Part::OpCodes::Cut, {base, TopoShape().makECompound(cuts)});
             if (!cut.hasSubShape(TopAbs_SOLID)) {
@@ -340,12 +345,15 @@ App::DocumentObjectExecReturn* SheetMetalExtendWall::execute()
         TopoShape tool;
         if (!pieces.empty()) {
             tool = pieces.size() == 1 ? pieces.front() : TopoShape(0, hasher).makEFuse(pieces);
+            // oriented, so the join need not check its result
+            tool.fixSolidOrientation();
+            SheetMetal::storePCurves(tool);
         }
         AddSubShape.setValue(tool);
         if (isRecomputePaused()) {
             return App::DocumentObject::StdReturn;
         }
-        Shape.setValue(tool.isNull() ? base : unifySeams(makeBoolean(base, tool), ends));
+        Shape.setValue(tool.isNull() ? base : unifySeams(makeBoolean(base, tool, true), ends));
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

@@ -676,8 +676,11 @@ App::DocumentObjectExecReturn *Body::execute()
             return new App::DocumentObjectExecReturn (QT_TRANSLATE_NOOP("Exception", "Tip shape is empty" ));
         }
 
-        // We should hide here the transformation of the baseFeature
-        tipShape.transformShape (tipShape.getTransform(), true );
+        // We should hide here the transformation of the baseFeature. With
+        // none, there is nothing to hide: the copy would rebuild every face of
+        // the part on each recompute
+        if (!tipShape.getShape().Location().IsIdentity())
+            tipShape.transformShape (tipShape.getTransform(), true );
 
     } else {
         tipShape = Part::TopoShape();

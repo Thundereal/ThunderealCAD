@@ -675,17 +675,24 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         }
 
         if (!cuts.empty()) {
+            // what the cut leaves of their faces is the part's from then on
+            for (const TopoShape& cut : cuts) {
+                SheetMetal::storePCurves(cut);
+            }
             base = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
                                                     {base, TopoShape().makECompound(cuts)});
             base = getSolid(base);
         }
         TopoShape tool = pieces.size() == 1 ? pieces.front()
                                              : TopoShape(0, hasher).makEFuse(pieces);
+        // oriented, so the join need not check its result
+        tool.fixSolidOrientation();
+        SheetMetal::storePCurves(tool);
         AddSubShape.setValue(tool);
         if (isRecomputePaused()) {
             return App::DocumentObject::StdReturn;
         }
-        Shape.setValue(makeBoolean(base, tool));
+        Shape.setValue(makeBoolean(base, tool, true));
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

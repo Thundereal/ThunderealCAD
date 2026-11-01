@@ -336,11 +336,14 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
                 QT_TRANSLATE_NOOP("Exception", "The sheet came out empty"));
         }
 
+        // oriented, so the join need not check its result
+        tool.fixSolidOrientation();
+        SheetMetal::storePCurves(tool);
         AddSubShape.setValue(tool);
         if (isRecomputePaused()) {
             return App::DocumentObject::StdReturn;
         }
-        Shape.setValue(makeBoolean(base, tool));
+        Shape.setValue(makeBoolean(base, tool, true));
         SheetModel.setValue(build.model);
     }
     catch (const Base::Exception& e) {

@@ -28,6 +28,10 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepLib.hxx>
+#include <BRep_Tool.hxx>
+#include <Geom_Plane.hxx>
+#include <TopExp_Explorer.hxx>
 #include <Precision.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
@@ -78,6 +82,19 @@ TopoShape namedFace(const std::vector<std::pair<TopoDS_Edge, std::string>>& edge
         }
     }
     return res;
+}
+
+void storePCurves(const TopoShape& shape)
+{
+    for (TopExp_Explorer f(shape.getShape(), TopAbs_FACE); f.More(); f.Next()) {
+        const TopoDS_Face& face = TopoDS::Face(f.Current());
+        if (!BRep_Tool::Surface(face)->IsKind(STANDARD_TYPE(Geom_Plane))) {
+            continue;
+        }
+        for (TopExp_Explorer e(face, TopAbs_EDGE); e.More(); e.Next()) {
+            BRepLib::BuildPCurveForEdgeOnPlane(TopoDS::Edge(e.Current()), face);
+        }
+    }
 }
 
 TopoDS_Edge lineEdge(const gp_Pnt& a, const gp_Pnt& b)

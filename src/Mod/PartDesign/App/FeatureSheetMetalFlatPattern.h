@@ -85,8 +85,10 @@ public:
     void exportDXF(const char* path) const;
 
 private:
-    /// The flat of Source from RootFace; throws Base::ValueError saying why not
-    SheetMetal::FlatResult buildFlat(SheetMetalExtension*& sheet) const;
+    /// The flat of Source from RootFace, the folded part in folded if given;
+    /// throws Base::ValueError saying why not
+    SheetMetal::FlatResult buildFlat(SheetMetalExtension*& sheet,
+                                     Part::TopoShape* folded = nullptr) const;
 };
 
 }  // namespace PartDesign

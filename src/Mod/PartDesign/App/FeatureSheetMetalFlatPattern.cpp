@@ -55,6 +55,12 @@
 using namespace PartDesign;
 using Part::TopoShape;
 
+namespace
+{
+/// The op code of a face laid flat, in its name
+constexpr const char* FlatOp = "SMF";
+}  // namespace
+
 PROPERTY_SOURCE(PartDesign::SheetMetalFlatPattern, Part::Feature)
 
 SheetMetalFlatPattern::SheetMetalFlatPattern()
@@ -87,7 +93,8 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       "down on the flat");
 }
 
-SheetMetal::FlatResult SheetMetalFlatPattern::buildFlat(SheetMetalExtension*& sheet) const
+SheetMetal::FlatResult SheetMetalFlatPattern::buildFlat(SheetMetalExtension*& sheet,
+                                                        TopoShape* foldedOut) const
 {
     auto source = Source.getValue();
     if (!source) {
@@ -139,6 +146,9 @@ SheetMetal::FlatResult SheetMetalFlatPattern::buildFlat(SheetMetalExtension*& sh
             }
         }
 
+        if (foldedOut) {
+            *foldedOut = folded;
+        }
         return SheetMetal::flatten(folded.getShape(), model, root, secondSkin);
     }
 }
@@ -147,7 +157,8 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
 {
     try {
         SheetMetalExtension* sheet = nullptr;
-        const auto flat = buildFlat(sheet);
+        TopoShape folded;
+        const auto flat = buildFlat(sheet, &folded);
         const SheetMetal::Model& model = sheet->SheetModel.getValue();
         std::vector<TopoShape> lines;
         std::map<std::string, std::string> directions;
@@ -177,8 +188,16 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
         auto rule = sheet->getRule();
         MaterialName.setValue(rule ? rule->ShapeMaterial.getValue().getName().toStdString()
                                    : std::string());
+        // each face named after the folded face it lays out; its edges and
+        // vertices after the faces they bound
+        Part::ShapeMapper mapper;
+        for (const auto& [from, to] : flat.faces) {
+            mapper.insert(/*generated*/ false, from, to);
+        }
+        TopoShape solid(0, getDocument()->getStringHasher());
+        solid.makESHAPE(flat.solid, mapper, {folded}, FlatOp);
         TopoShape res(0, getDocument()->getStringHasher());
-        res.makECompound({TopoShape(flat.solid),
+        res.makECompound({solid,
                           TopoShape(0, getDocument()->getStringHasher())
                               .makECompound(lines, nullptr, /*force*/ true)},
                          nullptr,

@@ -41,6 +41,7 @@
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Precision.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_Solid.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -198,6 +199,8 @@ FlatResult flatten(const TopoDS_Shape& folded, const Model& model, int root, boo
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(folded, TopAbs_FACE, faces);
     BRepBuilderAPI_Sewing sewing(1e-6);
+    // each folded face and the face it lies flat as, before sewing
+    std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> laid;
     std::vector<std::pair<double, double>> extent(model.elements.size(),
                                                   {std::numeric_limits<double>::max(),
                                                    -std::numeric_limits<double>::max()});
@@ -210,10 +213,12 @@ FlatResult flatten(const TopoDS_Shape& folded, const Model& model, int root, boo
         const Element& element = model.elements[owner];
         if (element.kind == Element::Kind::Wall) {
             gp_Trsf move = mapper.toXY * model.placement(owner, root);
-            sewing.Add(BRepBuilderAPI_Transform(face, move, true).Shape());
+            laid.emplace_back(face, BRepBuilderAPI_Transform(face, move, true).Shape());
+            sewing.Add(laid.back().second);
             continue;
         }
-        sewing.Add(mapper.face(owner, face, i));
+        laid.emplace_back(face, mapper.face(owner, face, i));
+        sewing.Add(laid.back().second);
         // how far along its axis the bend goes, for its line
         const gp_Ax3& f = element.bend.frame;
         for (TopExp_Explorer it(face, TopAbs_VERTEX); it.More(); it.Next()) {
@@ -240,6 +245,17 @@ FlatResult flatten(const TopoDS_Shape& folded, const Model& model, int root, boo
 
     FlatResult res;
     res.solid = fix.Solid();
+    // the faces as the solid has them: sewn, then as the fix left them
+    Handle(ShapeBuild_ReShape) context = fix.Context();
+    for (const auto& [from, to] : laid) {
+        TopoDS_Shape sewnFace = sewing.IsModified(to) ? sewing.Modified(to) : to;
+        if (!context.IsNull()) {
+            sewnFace = context->Apply(sewnFace);
+        }
+        if (!sewnFace.IsNull()) {
+            res.faces.emplace_back(from, sewnFace);
+        }
+    }
     for (std::size_t i = 0; i < model.elements.size(); ++i) {
         const Element& element = model.elements[i];
         if (element.kind != Element::Kind::Bend || extent[i].first > extent[i].second) {

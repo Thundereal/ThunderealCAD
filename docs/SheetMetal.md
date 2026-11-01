@@ -734,8 +734,13 @@ and not frozen.
     the flat pattern: R12 from the flat's face on XY with the faces of one plane merged, the
     outline on `OUTLINE`, inner contours on `INNER`, bend lines on `BEND_UP` and `BEND_DOWN`,
     each labelled on `LABELS`; lines, arcs and circles as they are, other curves as polylines.
-  - Still to come in M1: the flat's faces named after the folded ones, the bend tangent lines,
-    the flat's orientation (a picked edge, the grain arrow), and the SVG.
+  - The flat's faces are named after the folded faces they lay out (`flatten()` returns each
+    folded face with the face of the solid it became, followed through the sewing and the
+    solid's fix; the feature names by that history, op code `SMF`), and its edges and vertices
+    after the faces they bound; so a reference to the flat follows the part through an edit.
+    Tested by `testFacesNamedAfterFolded`, `testFaceReferenceFollows`.
+  - Still to come in M1: the bend tangent lines, the flat's orientation (a picked edge, the
+    grain arrow), and the SVG.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

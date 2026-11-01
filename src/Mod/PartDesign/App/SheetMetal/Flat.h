@@ -53,6 +53,8 @@ struct PartDesignExport FlatResult
     };
     /// Each bend's line, along its middle on the inner skin
     std::vector<BendLine> bendLines;
+    /// Each face of the folded part and the face of the solid it lies flat as
+    std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> faces;
 };
 
 /** Lay a folded sheet flat (docs/SheetMetal.md sec 4.7)

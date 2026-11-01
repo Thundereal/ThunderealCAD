@@ -108,7 +108,6 @@ private:
     ImportSetRecord* _outer;
 };
 
-/// The document class
 /// A step an undo or a redo of a view lists: its id, its name and the group
 /// of an edit's steps it is one of, 0 for none (docs/MultiViewEdit.md sec
 /// 12.11)
@@ -119,11 +118,12 @@ struct UndoStep
     int64_t group {0};
     /// Whose step it is when not the one asking's: the user's name; empty
     /// for one's own
-    std::string author;
+    std::string author {};
     /// And that user, null for the desktop's (when \a author is set)
-    std::shared_ptr<const Actor> authorActor;
+    std::shared_ptr<const Actor> authorActor {};
 };
 
+/// The document class
 class AppExport Document : public App::PropertyContainer
 {
     PROPERTY_HEADER_WITH_OVERRIDE(App::Document);

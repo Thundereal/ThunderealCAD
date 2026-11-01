@@ -35,7 +35,9 @@
 #include <GProp_GProps.hxx>
 #include <IntTools_Context.hxx>
 #include <Precision.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
 
 #include <algorithm>
@@ -72,6 +74,22 @@ TopoDS_Face makeFaceFromWire(const TopoDS_Wire& w, const gp_Pln& plane)
     }
     BRepBuilderAPI_MakeFace mf(plane, w);
     return mf.IsDone() ? mf.Face() : TopoDS_Face();
+}
+
+// Every vertex on two edge ends: one loop, not touching itself. Asked of the
+// edges after the splitters, which give coincident vertices one identity.
+bool isSimpleLoop(const TopTools_ListOfShape& edges)
+{
+    TopTools_IndexedDataMapOfShapeListOfShape ends;
+    for (TopTools_ListIteratorOfListOfShape it(edges); it.More(); it.Next()) {
+        TopExp::MapShapesAndAncestors(it.Value(), TopAbs_VERTEX, TopAbs_EDGE, ends);
+    }
+    for (int i = 1; i <= ends.Extent(); ++i) {
+        if (ends(i).Extent() != 2) {
+            return false;
+        }
+    }
+    return ends.Extent() > 0;
 }
 
 double shapeArea(const TopoDS_Shape& s)
@@ -187,8 +205,27 @@ void FaceMakerUnified::Build_Essence()
 
     gp_Pln plane;
     if (findPlane(edges, plane)) {
+        const int edgeCount = edges.Extent();
         edges = splitSelfIntersecting(edges, plane);
         edges = splitAtIntersections(edges);
+
+        // One closed wire of several edges that nothing split has nothing to
+        // resolve: the face is the wire's. collectBoundedFaces() traces its
+        // faces' boundaries anew, in an order of its own, so a triangle's
+        // edges came back last to first and its Edge1 and Vertex1 were other
+        // ones. A caller's numbering of a plain profile is the caller's: a
+        // transfinite mesh takes its corners and its directions from it
+        // (TestGMSHTransfinite). A single edge has no order to lose, and goes
+        // on as it did: the side an older file's Fit runs by reads its wire
+        // (testFitByTheOuterWiresTurn).
+        if (myWires.size() == 1 && edgeCount > 1 && edges.Extent() == edgeCount
+            && isSimpleLoop(edges)) {
+            TopoDS_Face face = makeFaceFromWire(myWires.front(), plane);
+            if (!face.IsNull() && shapeArea(face) > Precision::Confusion()) {
+                myShapesToReturn.push_back(face);
+                return;
+            }
+        }
 
         std::vector<TopoDS_Face> allFaces = collectBoundedFaces(edges, plane);
         if (allFaces.empty()) {

@@ -81,6 +81,7 @@
 #include "Physics.h"
 #include "ContactShapes.h"
 #include "Simulation.h"
+#include "SimulationArchive.h"
 #include "Views.h"
 #include "Solver/Backend.h"
 #include "Solver/ReferenceBackend.h"
@@ -843,15 +844,7 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
         cancelSimulation();
         finishSimulation();
     }
-    // The study the frames were of has none now
-    if (auto* last = freecad_cast<Simulation*>(lastSimulation())) {
-        last->ResultsStale.setValue(false);
-    }
-    trajectory.reset();
-    trajectoryParts.clear();
-    trajectorySimulation.reset();
-    trajectoryModel.reset();
-    trajectorySpec.reset();
+    dropFrames();
 
     if (int built = buildSimulation(sim); built != 0) {
         return built;
@@ -957,8 +950,141 @@ void AssemblyObject::keepFrames(App::DocumentObject* sim,
     trajectory = std::make_unique<Solver::Trajectory>(std::move(frames));
     trajectoryParts = parts;
     trajectorySimulation = sim;
-    trajectoryModel = std::make_unique<Solver::Model>(model);
-    trajectorySpec = std::make_unique<Solver::SimulationSpec>(spec);
+    Baseline& baseline = baselines[sim->getNameInDocument()];
+    baseline.model = std::make_unique<Solver::Model>(model);
+    baseline.spec = std::make_unique<Solver::SimulationSpec>(spec);
+    if (auto* typed = freecad_cast<Simulation*>(sim)) {
+        typed->ResultsStale.setValue(false);
+    }
+    archiveResults(sim);
+}
+
+void AssemblyObject::dropFrames()
+{
+    // The study the frames were of has none now, unless its archive keeps
+    // them: then it keeps its flag, and what it was run from
+    if (App::DocumentObject* last = lastSimulation()) {
+        auto* typed = freecad_cast<Simulation*>(last);
+        if (!typed || typed->Results.isEmpty()) {
+            if (typed) {
+                typed->ResultsStale.setValue(false);
+            }
+            baselines.erase(last->getNameInDocument());
+        }
+    }
+    trajectory.reset();
+    trajectoryParts.clear();
+    trajectorySimulation.reset();
+}
+
+namespace
+{
+// A part as an archive names it: by its name in the assembly's document, its
+// full name in another's
+std::string archivedName(const App::DocumentObject* part, const App::Document* doc)
+{
+    return part->getDocument() == doc ? std::string(part->getNameInDocument())
+                                      : part->getFullName();
+}
+
+App::DocumentObject* archivedObject(const std::string& name, App::Document* doc)
+{
+    const std::size_t hash = name.find('#');
+    if (hash == std::string::npos) {
+        return doc ? doc->getObject(name.c_str()) : nullptr;
+    }
+    App::Document* other = App::GetApplication().getDocument(name.substr(0, hash).c_str());
+    return other ? other->getObject(name.substr(hash + 1).c_str()) : nullptr;
+}
+}  // namespace
+
+void AssemblyObject::archiveResults(App::DocumentObject* sim)
+{
+    auto* typed = freecad_cast<Simulation*>(sim);
+    if (!typed || !trajectory) {
+        return;
+    }
+    const long keep = typed->KeepResults.getValue();
+    if (keep == 0) {
+        typed->Results.setValue("");
+        return;
+    }
+    std::vector<ArchivedPart> parts;
+    for (const auto& [part, data] : trajectoryParts) {
+        if (part && part->isAttachedToDocument()) {
+            parts.push_back({archivedName(part, getDocument()), data.body, data.offsetPlc});
+        }
+    }
+    std::ranges::sort(parts, {}, &ArchivedPart::name);
+    try {
+        const std::string path = typed->Results.getExchangeTempFile();
+        writeSimulationArchive(path, *trajectory, parts, keep == 2);
+        typed->Results.setValue(path.c_str(), "SimulationResults.zip");
+    }
+    catch (const Base::Exception& e) {
+        Base::Console().error("Assembly: the results of %s were not kept: %s\n",
+                              sim->getFullLabel().c_str(),
+                              e.what());
+    }
+}
+
+bool AssemblyObject::loadSimulationResults(App::DocumentObject* sim)
+{
+    if (!sim) {
+        return false;
+    }
+    if (trajectory && lastSimulation() == sim) {
+        return true;
+    }
+    auto* typed = freecad_cast<Simulation*>(sim);
+    if (simulationRun || !typed || typed->Results.isEmpty()) {
+        return false;
+    }
+    SimulationArchive archive;
+    try {
+        archive = readSimulationArchive(typed->Results.getValue());
+    }
+    catch (const Base::Exception& e) {
+        Base::Console().error("Assembly: the results of %s cannot be read: %s\n",
+                              sim->getFullLabel().c_str(),
+                              e.what());
+        return false;
+    }
+    dropFrames();
+    trajectory = std::make_unique<Solver::Trajectory>(std::move(archive.frames));
+    for (const auto& part : archive.parts) {
+        if (App::DocumentObject* obj = archivedObject(part.name, getDocument())) {
+            trajectoryParts[obj] = {part.body, part.offset};
+        }
+    }
+    trajectorySimulation = sim;
+    return true;
+}
+
+void AssemblyObject::captureBaselines()
+{
+    baselinesPending = false;
+    App::Document* doc = getDocument();
+    if (!doc) {
+        return;
+    }
+    for (auto* obj : doc->getObjectsOfType(Simulation::getClassTypeId())) {
+        auto* sim = static_cast<Simulation*>(obj);
+        const char* name = sim->getNameInDocument();
+        if (!name || sim->Results.isEmpty() || sim->ResultsStale.getValue()
+            || baselines.count(name)) {
+            continue;
+        }
+        // This assembly's studies only
+        const auto in = sim->getInListRecursive();
+        if (std::ranges::find(in, this) == in.end()) {
+            continue;
+        }
+        Baseline baseline;
+        if (buildAside(sim, baseline)) {
+            baselines[name] = std::move(baseline);
+        }
+    }
 }
 
 int AssemblyObject::startSimulation(App::DocumentObject* sim)
@@ -967,14 +1093,7 @@ int AssemblyObject::startSimulation(App::DocumentObject* sim)
         cancelSimulation();
         finishSimulation();
     }
-    if (auto* last = freecad_cast<Simulation*>(lastSimulation())) {
-        last->ResultsStale.setValue(false);
-    }
-    trajectory.reset();
-    trajectoryParts.clear();
-    trajectorySimulation.reset();
-    trajectoryModel.reset();
-    trajectorySpec.reset();
+    dropFrames();
 
     if (int built = buildSimulation(sim); built != 0) {
         return built;
@@ -1065,11 +1184,8 @@ bool sameSpec(const Solver::SimulationSpec& a, const Solver::SimulationSpec& b)
 }
 }  // namespace
 
-bool AssemblyObject::isSimulationStale(App::DocumentObject* sim)
+bool AssemblyObject::buildAside(App::DocumentObject* sim, Baseline& out)
 {
-    if (!sim || !trajectory || !trajectoryModel || !trajectorySpec || lastSimulation() != sim) {
-        return false;
-    }
     // A build replaces the session, the model, the spec and the parts the
     // last solve left, which the solve's status and a drag read: they are
     // put back after
@@ -1081,11 +1197,12 @@ bool AssemblyObject::isSimulationStale(App::DocumentObject* sim)
     const int keptBad = badFormulas;
     const bool wasChecking = checkingResults;
     checkingResults = true;
-    bool stale = true;
+    bool built = false;
     try {
         if (buildSimulation(sim) == 0 && solverModel && simulationSpec) {
-            stale = !Solver::sameMechanism(*trajectoryModel, *solverModel, 1e-9)
-                || !sameSpec(*trajectorySpec, *simulationSpec);
+            out.model = std::move(solverModel);
+            out.spec = std::move(simulationSpec);
+            built = true;
         }
     }
     catch (const Base::Exception& e) {
@@ -1099,7 +1216,24 @@ bool AssemblyObject::isSimulationStale(App::DocumentObject* sim)
     loadedBodies = keptBodies;
     badFormulas = keptBad;
     checkingResults = wasChecking;
-    return stale;
+    return built;
+}
+
+bool AssemblyObject::isSimulationStale(App::DocumentObject* sim)
+{
+    if (!sim || !sim->getNameInDocument()) {
+        return false;
+    }
+    auto it = baselines.find(sim->getNameInDocument());
+    if (it == baselines.end() || !it->second.model || !it->second.spec) {
+        return false;
+    }
+    Baseline now;
+    if (!buildAside(sim, now)) {
+        return true;
+    }
+    return !Solver::sameMechanism(*it->second.model, *now.model, 1e-9)
+        || !sameSpec(*it->second.spec, *now.spec);
 }
 
 void AssemblyObject::checkResults()
@@ -1108,14 +1242,32 @@ void AssemblyObject::checkResults()
         return;
     }
     resultsChanged = false;
-    auto* sim = freecad_cast<Simulation*>(lastSimulation());
-    if (!sim) {
-        return;
+    App::Document* doc = getDocument();
+    std::vector<std::string> gone;
+    for (const auto& entry : baselines) {
+        auto* sim = doc ? freecad_cast<Simulation*>(doc->getObject(entry.first.c_str())) : nullptr;
+        if (!sim) {
+            gone.push_back(entry.first);
+            continue;
+        }
+        const bool stale = isSimulationStale(sim);
+        if (sim->ResultsStale.getValue() != stale) {
+            sim->ResultsStale.setValue(stale);
+        }
     }
-    const bool stale = isSimulationStale(sim);
-    if (sim->ResultsStale.getValue() != stale) {
-        sim->ResultsStale.setValue(stale);
+    for (const auto& name : gone) {
+        // A study deleted, or one upstream's Python keeps no flag on
+        if (!doc || !doc->getObject(name.c_str())) {
+            baselines.erase(name);
+        }
     }
+}
+
+void AssemblyObject::onDocumentRestored()
+{
+    App::Part::onDocumentRestored();
+    // The archives' models are built at the first change (captureBaselines())
+    baselinesPending = true;
 }
 
 // Not upstream: whether a child of a Simulation is a motion. A child whose
@@ -4044,16 +4196,30 @@ void AssemblyObject::onSettingDocument()
     connConnectivityDeleted = doc->signalDeletedObject.connect(drop);
     // The stale flag (docs/AssemblyDynamics.md sec 8.4): a change while
     // frames are kept is looked at after the recompute that follows it
+    // A study's own results and their flags are not the mechanism
+    auto resultsOwn = [](const App::Property& prop) {
+        const char* name = prop.getName();
+        return name
+            && (std::strcmp(name, "ResultsStale") == 0 || std::strcmp(name, "Results") == 0
+                || std::strcmp(name, "KeepResults") == 0);
+    };
     connResultsChanged = doc->signalChangedObject.connect(
-        [this](const App::DocumentObject&, const App::Property& prop) {
-            if (!trajectory || checkingResults) {
-                return;
-            }
-            const char* name = prop.getName();
-            if (name && std::strcmp(name, "ResultsStale") == 0) {
+        [this, resultsOwn](const App::DocumentObject&, const App::Property& prop) {
+            if (baselines.empty() || checkingResults || resultsOwn(prop)) {
                 return;
             }
             resultsChanged = true;
+        });
+    // The archives read with the document: what they were run from is the
+    // document as it was saved, so it is built before the first change
+    connResultsBeforeChange = doc->signalBeforeChangeObject.connect(
+        [this, resultsOwn](const App::DocumentObject&, const App::Property& prop) {
+            App::Document* owner = getDocument();
+            if (!baselinesPending || checkingResults || resultsOwn(prop) || !owner
+                || owner->testStatus(App::Document::Restoring)) {
+                return;
+            }
+            captureBaselines();
         });
     connResultsRecomputed = doc->signalRecomputed.connect(
         [this](const App::Document&, const std::vector<App::DocumentObject*>&) {

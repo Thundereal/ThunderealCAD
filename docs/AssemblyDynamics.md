@@ -1453,8 +1453,8 @@ Phase D1 is under way (2026-10-28):
     the contact's event before its own. TestGuiCommands: the panel's
     lines for a contact made and let go between a sensor's mark and stop.
   - Not yet: which parts of a rigid group touched (the pair is the
-    group's bodies); events in the stored results, which are not stored
-    (sec 8.4's archive is not built).
+    group's bodies). (The events are kept in the document with the
+    results since: "Built: results kept in the document" below.)
 - Built: sensors on contact events (P15's Stop_On_Event, on sec 8.4's
   contact begin and end): a sensor on a contact set whose `Quantity` is
   `ContactBegin` or `ContactEnd` trips at each contact made, or let go, by
@@ -1498,6 +1498,67 @@ Phase D1 is under way (2026-10-28):
     the stop kept after the first seven contacts.
   - Not yet: a count (stop at the third contact), a pair within the set
     (any pair trips it), and Crosses.
+- Built: results kept in the document (sec 8.4's storage, open question
+  5): each study keeps its last run, saved with the file, and shows it
+  again when it is opened -- after another study's run, or in a later
+  session -- with no solver.
+  - The document: `Simulation::KeepResults` {None, Motion, All}, default
+    Motion (Motion: the poses and the events, which playback, the video
+    export and the traces read; All: the channels' values too; None:
+    nothing, the run lasting until another study runs, as before), and
+    `Simulation::Results`, an `App::PropertyFileIncluded` (hidden, an
+    output) through the blob store (docs/FileBlobsManager.md): an undo
+    step references it, an unchanged one is not written again.
+    `ResultsStale` is saved now. The panel's row "Keep in the document"
+    sets KeepResults.
+  - The archive (`SimulationArchive.{h,cpp}`): a zip of `index.json` --
+    format, schema 1, units, the tier kept, the bodies' ids, the parts each
+    moves (by name; another document's by full name) with their offsets,
+    the channels, the events -- and `times.npy` (frames), `poses.npy`
+    (frames, bodies, 7: position, then the quaternion x, y, z, w) and, All,
+    `values.npy` (frames, width), float64 little endian, deflated; numpy
+    reads each as it is. Written at the end of each run (`keepFrames()`,
+    `archiveResults()`), read only when asked
+    (`AssemblyObject::loadSimulationResults(sim)`, Python too): opening
+    the document reads none of it. The panel opened on a study loads its
+    results and shows the player at the first frame (a run shows the
+    last); kept as Motion, a Dynamic or Static study's panel says the
+    plots' values were not kept.
+  - Size, measured: 20 pendulums (41 bodies, 1001 frames): the poses
+    2.30 MB raw, 0.98 MB deflated (0.43); with All the values (120 a
+    frame) 0.96 MB raw, 0.74 MB deflated; the archive 0.98 MB as Motion,
+    1.72 MB as All. Sec 8.4's column-major delta coding with a byte
+    shuffle measured 0.32 on the same poses against deflate's 0.43: a
+    quarter smaller, at the price of numpy reading the blocks as they
+    are; not taken. So 100 bodies over 1000 frames is about 2.4 MB as
+    Motion -- Motion stays the default.
+  - The stale flag, per study: the model and spec each study's results
+    were run from (`baselines`, by the study's name), so every study with
+    results is checked after a recompute that followed a change, not only
+    the one whose frames are played. Another study's run leaves a study
+    with an archive as it was, its flag and baseline kept; one that keeps
+    nothing has its frames go and is not stale, as before. A study opened
+    from the file has no model in memory: it is built from the document
+    as it was saved, at the first change after opening
+    (`captureBaselines()`, on `signalBeforeChangeObject`, so before the
+    change lands); one saved stale stays stale. Upstream's Python joints
+    are converted to C++ joints when a file is opened, under other names:
+    results run on them are stale once opened.
+  - Tests (TestSimulationResults): a pendulum's run kept as All, saved,
+    closed and opened: read back, the same times, values and events bit
+    for bit and the same placement at each frame (1e-12), and numpy reads
+    the archive's blocks; Motion without the values, None with nothing to
+    read back; two studies each reading back their own; opened again, the
+    study stale on its end time and on a joint's frame and fresh when
+    each is put back, read back or not; saved stale, opened stale, and
+    played. TestDynamics' stale flag: another study's run leaves the
+    first stale, kept; keeping nothing, not. TestGuiCommands: the panel
+    opened on a study after another's run shows its kept frames, the
+    player at the first, and the Keep row sets KeepResults.
+  - Not yet: sec 8.4's animated glTF export and the browser tier reading
+    the archive; the results' own channels (a plot of a channel the
+    archive lacks says so only through the panel's line); an archive
+    from a later schema is refused, not read in part.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

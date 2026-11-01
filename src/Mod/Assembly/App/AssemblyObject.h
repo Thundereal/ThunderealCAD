@@ -167,11 +167,16 @@ public:
     {
         return *trajectorySimulation;
     }
-    // Whether the last frames, sim's, are of an older mechanism than sim
-    // builds now (docs/AssemblyDynamics.md sec 8.4): the model built again
-    // and compared, the parts' start poses left out; the session and the
-    // last solve are left as they were. False without frames of sim.
+    // Whether sim's results -- the frames kept, or its archive -- are of an
+    // older mechanism than sim builds now (docs/AssemblyDynamics.md sec
+    // 8.4): the model built again and compared with the one they were run
+    // from, the parts' start poses left out; the session and the last solve
+    // are left as they were. False without results of sim to compare.
     bool isSimulationStale(App::DocumentObject* sim);
+    // Makes sim's results the frames played (sec 8.4): those kept already,
+    // or its archive (Simulation::Results) read. False when it has none, or
+    // a run is going.
+    bool loadSimulationResults(App::DocumentObject* sim);
     void preDrag(std::vector<App::DocumentObject*> dragParts);
     /* One drag step: solves for the Placement the caller wrote on the dragged parts.
     Returns false when no drag is in progress or the step failed; a failed step leaves
@@ -527,6 +532,7 @@ public:
 
 protected:
     void onSettingDocument() override;
+    void onDocumentRestored() override;
     const char* getPartsGroupType() const override
     {
         return "Assembly::PartsGroup";
@@ -593,17 +599,37 @@ private:
                     const std::unordered_map<App::DocumentObject*, MbDPartData>& parts,
                     const Solver::Model& model,
                     const Solver::SimulationSpec& spec);
-    // The model and the spec the last frames were run from, for the stale
-    // flag; and whether the document changed since the flag was set
-    std::unique_ptr<Solver::Model> trajectoryModel;
-    std::unique_ptr<Solver::SimulationSpec> trajectorySpec;
+    // The model and the spec each study's results were run from, by the
+    // study's name, for the stale flag: the frames kept, and the studies'
+    // archives. An archive read with the document has its model built at
+    // the first change after the document is opened (captureBaselines()),
+    // the document then as it was saved. And whether the document changed
+    // since the flags were set.
+    struct Baseline
+    {
+        std::unique_ptr<Solver::Model> model;
+        std::unique_ptr<Solver::SimulationSpec> spec;
+    };
+    std::unordered_map<std::string, Baseline> baselines;
+    bool baselinesPending {false};
     bool resultsChanged {false};
     bool checkingResults {false};
     fastsignals::scoped_connection connResultsChanged;
     fastsignals::scoped_connection connResultsRecomputed;
+    fastsignals::scoped_connection connResultsBeforeChange;
     // The model and the spec of sim, as a run builds them: 0, or the code
     // generateSimulation() returns
     int buildSimulation(App::DocumentObject* sim);
+    // Builds them aside into out, the session, the model, the spec and the
+    // parts the last solve left put back: false when the build fails
+    bool buildAside(App::DocumentObject* sim, Baseline& out);
+    // The archived studies' models, as the document stands
+    void captureBaselines();
+    // The frames kept going: the study they were of keeps its stale flag and
+    // its baseline only with an archive to go back to
+    void dropFrames();
+    // sim's results written to its archive, as its KeepResults says
+    void archiveResults(App::DocumentObject* sim);
     // The run of the model and the spec built, the session loaded with them
     int runSimulation(App::DocumentObject* sim);
     // After a recompute that followed a change: sets the last run's study's

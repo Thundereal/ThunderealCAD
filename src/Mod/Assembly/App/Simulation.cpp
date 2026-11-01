@@ -85,16 +85,31 @@ Simulation::Simulation()
                       App::Prop_None,
                       "Kinematic: also the reactions and the motors' efforts the motions "
                       "take, from the masses, gravity and the Elements (inverse dynamics)");
-    ADD_PROPERTY_TYPE(ResultsStale,
-                      (false),
+    ADD_PROPERTY_TYPE(
+        ResultsStale,
+        (false),
+        "Simulation",
+        App::PropertyType(App::Prop_ReadOnly | App::Prop_Output | App::Prop_NoRecompute),
+        "The run kept for this study is of an older mechanism: the assembly, its "
+        "motions or the study changed since. Run it again.");
+    ADD_PROPERTY_TYPE(KeepResults,
+                      (1L),
                       "Simulation",
-                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output | App::Prop_Transient
+                      App::PropertyType(App::Prop_Output | App::Prop_NoRecompute),
+                      "What a run keeps in the document. None: nothing, the results last until "
+                      "another study runs; Motion: the frames and the events, for playback, the "
+                      "video and the traces; All: the reported values too, for the plots");
+    KeepResults.setEnums(KeepResultsEnums);
+    ADD_PROPERTY_TYPE(Results,
+                      (""),
+                      "Simulation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output | App::Prop_Hidden
                                         | App::Prop_NoRecompute),
-                      "The run kept for this study is of an older mechanism: the assembly, its "
-                      "motions or the study changed since. Run it again.");
+                      "The last run's results, as KeepResults keeps them");
 }
 
 const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", "Static", nullptr};
+const char* Simulation::KeepResultsEnums[] = {"None", "Motion", "All", nullptr};
 
 const std::map<std::string, std::string>& Simulation::upstreamNames()
 {

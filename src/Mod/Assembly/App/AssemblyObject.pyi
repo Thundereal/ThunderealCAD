@@ -151,16 +151,32 @@ class AssemblyObject(Part):
 
     def isSimulationStale(self, sim, /) -> bool:
         """
-        Whether the frames the assembly keeps, sim's last run, are of an
-        older mechanism than sim builds now: the assembly, its motions or the
-        study changed since (docs/AssemblyDynamics.md sec 8.4). Where the
-        parts stand does not count. False when the frames kept are not
-        sim's. The study's ResultsStale says the same after each recompute.
+        Whether sim's results -- the frames the assembly keeps of its last
+        run, or the run its Results keep -- are of an older mechanism than
+        sim builds now: the assembly, its motions or the study changed since
+        (docs/AssemblyDynamics.md sec 8.4). Where the parts stand does not
+        count. False when sim has no results to compare. The study's
+        ResultsStale says the same after each recompute.
 
         Args:
             sim: a Simulation.
 
         Returns: bool
+        """
+        ...
+
+    def loadSimulationResults(self, sim, /) -> bool:
+        """
+        Makes sim's results the frames that playback, numberOfFrames(),
+        updateForFrame() and getSimulationResults() read: those the assembly
+        keeps already, or the run sim's Results keep, read from the document
+        (docs/AssemblyDynamics.md sec 8.4). A study's KeepResults says what a
+        run keeps: with Motion, the frames and the events, no Channels.
+
+        Args:
+            sim: a Simulation.
+
+        Returns: bool, False when sim has no results or a run is going.
         """
         ...
 

@@ -760,6 +760,41 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
+    def test_results_shown_again(self):
+        """A study opened again after another's run shows the results it kept
+        in the document: the player at the first frame, the run's frames on
+        the slider; its Keep row shows what it keeps and sets it"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        first, second = self.proxies("Simulation")[:2]
+        first.TimeEnd = 0.05
+        second.TimeEnd = 0.02
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(first), 0)
+        self.assertEqual(self.assembly.generateSimulation(second), 0)
+        self.assertTrue(first.Results)
+        self.assertEqual(self.assembly.numberOfFrames(), 3)
+
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(first)
+        Gui.Control.showDialog(panel)
+        _process()
+        self.assertEqual(self.assembly.getSimulationResults()["Simulation"], first)
+        self.assertEqual(self.assembly.numberOfFrames(), 6)
+        self.assertTrue(panel.form.groupBox_player.isVisibleTo(panel.form))
+        self.assertEqual(panel.form.frameSlider.maximum(), 5)
+        self.assertEqual(panel.form.frameSlider.value(), 0)
+        self.assertTrue(panel.runMessage.isHidden())
+        self.assertEqual(panel.keepCombo.currentData(), "Motion")
+        panel.keepCombo.setCurrentIndex(panel.keepCombo.findData("All"))
+        self.assertEqual(first.KeepResults, "All")
+        self.accept_task()
+        self.assertClean()
+
     def test_trace_button(self):
         """The panel's Trace button traces the selected vertex: a trace of
         its part, the point in the part's coordinates; with nothing

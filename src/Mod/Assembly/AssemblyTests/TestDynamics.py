@@ -644,8 +644,9 @@ class TestDynamics(unittest.TestCase):
         """The stale flag (docs/AssemblyDynamics.md sec 8.4): a run's study is
         stale once the study, a joint or a part's shape changes, and fresh
         again once run; playing it, or moving a part, does not count; the
-        check leaves the last solve's status as it was; a study whose frames
-        are gone is not stale."""
+        check leaves the last solve's status as it was; another study's run
+        leaves it stale, its results kept in the document; one that keeps
+        nothing, its frames gone, is not stale."""
         rod = self.pendulum()
         sim, result = self.simulate(0.05, 1e-2)
         self.assertEqual(result, 0)
@@ -682,16 +683,27 @@ class TestDynamics(unittest.TestCase):
         rod.Length = 100
         self.assertFalse(stale())
 
-        # Another study's run: this one has no frames now
+        # Another study's run: this one keeps its results in the document,
+        # stale as they were
         sim.TimeEnd = 0.03
         self.assertTrue(stale())
         other, result = self.simulate(0.02, 1e-2, AnalysisType="Kinematic")
         self.assertEqual(result, 0)
-        self.assertFalse(sim.ResultsStale)
-        self.assertFalse(self.assembly.isSimulationStale(sim))
+        self.assertTrue(sim.ResultsStale)
+        self.assertTrue(self.assembly.isSimulationStale(sim))
         rod.Length = 90
         self.doc.recompute()
         self.assertFalse(other.ResultsStale)
+
+        # Keeping nothing, its frames gone with another's run: not stale
+        sim.KeepResults = "None"
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        sim.TimeEnd = 0.02
+        self.assertTrue(stale())
+        _, result = self.simulate(0.02, 1e-2, AnalysisType="Kinematic")
+        self.assertEqual(result, 0)
+        self.assertFalse(sim.ResultsStale)
+        self.assertFalse(self.assembly.isSimulationStale(sim))
 
     def test_motor_torque(self):
         """A Speed motion holding the rod still at horizontal applies its

@@ -1818,6 +1818,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.startTime = time.time()
         self.index = 0
 
+        # Not upstream: the study's results, kept by the assembly or in the
+        # document (docs/AssemblyDynamics.md sec 8.4), shown again
+        if not self.creating and self.assembly.loadSimulationResults(self.simFeaturePy):
+            self.showRun(fresh=False)
+
     @property
     def simValues(self):
         """Not upstream: the simulation's values by the C++ one's names"""
@@ -1897,6 +1902,28 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         elements.addWidget(self.elementsList)
         self.form.layout().insertWidget(1, self.elementsBox)
         self.elementsList.itemChanged.connect(self.onElementTicked)
+        # What a run keeps in the document (docs/AssemblyDynamics.md sec 8.4)
+        self.keepRow = QtWidgets.QWidget()
+        keep = QtWidgets.QHBoxLayout(self.keepRow)
+        keep.setContentsMargins(0, 0, 0, 0)
+        keep.addWidget(QtWidgets.QLabel(translate("Assembly", "Keep in the document")))
+        self.keepCombo = QComboBox()
+        for name, text in (
+            ("None", translate("Assembly", "Nothing")),
+            ("Motion", translate("Assembly", "The motion and the events")),
+            ("All", translate("Assembly", "Everything, the plots' values too")),
+        ):
+            self.keepCombo.addItem(text, name)
+        self.keepCombo.setToolTip(
+            translate(
+                "Assembly",
+                "What a run keeps in the document, saved with it and shown again when the\n"
+                "study is opened. Nothing: the results last until another study runs.",
+            )
+        )
+        keep.addWidget(self.keepCombo, 1)
+        self.form.layout().insertWidget(2, self.keepRow)
+        self.keepCombo.currentIndexChanged.connect(self.onKeepChanged)
         self.runMessage = QtWidgets.QLabel()
         self.runMessage.setWordWrap(True)
         self.runMessage.setStyleSheet("color: #c80000")
@@ -1997,7 +2024,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.reactionsCheck.hide()
             self.restitutionSpin.setEnabled(False)
             self.elementsBox.hide()
+            self.keepRow.hide()
             return
+        self.keepCombo.blockSignals(True)
+        self.keepCombo.setCurrentIndex(
+            max(0, self.keepCombo.findData(getattr(self.simFeaturePy, "KeepResults", "Motion")))
+        )
+        self.keepCombo.blockSignals(False)
         self.analysisCombo.blockSignals(True)
         self.analysisCombo.setCurrentIndex(
             max(0, self.analysisCombo.findData(self.simFeaturePy.AnalysisType))
@@ -2088,6 +2121,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def onRestitutionChanged(self, value):
         if hasattr(self.simFeaturePy, "Restitution"):
             self.simFeaturePy.Restitution = value
+
+    def onKeepChanged(self):
+        """Not upstream: what the next run keeps"""
+        if hasattr(self.simFeaturePy, "KeepResults"):
+            self.simFeaturePy.KeepResults = self.keepCombo.currentData()
 
     def setSpinboxPrecision(self, spinbox, precision, unit=App.Units.TimeSpan):
         q = App.Units.Quantity()
@@ -2215,18 +2253,39 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def cancelRun(self):
         self.assembly.cancelSimulation()
 
-    def showRun(self):
+    def showRun(self, fresh=True):
         """The frames of the run just taken in: the traces, the results and
-        the player"""
+        the player, at the last frame. Not fresh, the results the study kept,
+        shown again when it is opened: the traces as they are, the player at
+        the first frame"""
         nFrms = self.assembly.numberOfFrames()
-        # Not upstream: the study's traces follow its run
-        import SimulationTrace
+        if fresh:
+            # Not upstream: the study's traces follow its run
+            import SimulationTrace
 
-        SimulationTrace.updateTraces(self.simFeaturePy)
+            SimulationTrace.updateTraces(self.simFeaturePy)
         self.fillResults()
         self.showEvents()
+        if not fresh and not self.results["Channels"]:
+            # Kept without the plots' values
+            if (
+                getattr(self.simFeaturePy, "KeepResults", "") == "Motion"
+                and getattr(self.simFeaturePy, "AnalysisType", "Kinematic") != "Kinematic"
+            ):
+                self.runMessage.setText(
+                    translate(
+                        "Assembly",
+                        "The plots' values were not kept, only the motion: generate the "
+                        "results again for them, or keep everything.",
+                    )
+                )
+                self.runMessage.show()
         self.form.frameSlider.setMaximum(nFrms - 1)
-        self.setFrameValue(nFrms - 1)
+        if fresh:
+            self.setFrameValue(nFrms - 1)
+        else:
+            # The start, which setFrameValue() does not go to
+            self.form.frameSlider.setValue(0)
         # Not upstream: shown even when the slider stays where it was -- a
         # single frame (a Static study at one time) is frame 0, as before
         self.onFrameChanged(self.form.frameSlider.value())

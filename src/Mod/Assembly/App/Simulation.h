@@ -35,6 +35,7 @@
 #include <App/DocumentObject.h>
 #include <App/FeaturePython.h>
 #include <App/GroupExtension.h>
+#include <App/PropertyFile.h>
 #include <App/PropertyLinks.h>
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
@@ -80,11 +81,20 @@ public:
     App::PropertyBool Reactions;
     /// Whether the run kept for this study is of an older mechanism: the
     /// assembly, its motions or the study changed since (docs/
-    /// AssemblyDynamics.md sec 8.4). Set by the assembly after a recompute;
-    /// not saved
+    /// AssemblyDynamics.md sec 8.4). Set by the assembly after a recompute,
+    /// and saved with the results
     App::PropertyBool ResultsStale;
+    /// What a run keeps in the document (sec 8.4): None, nothing -- the
+    /// results last until another study runs or the document closes; Motion,
+    /// the frames' poses and the events, which playback, the video export
+    /// and the traces read; All, the reported values too, the plots'
+    App::PropertyEnumeration KeepResults;
+    /// The last run's results as KeepResults keeps them, an archive
+    /// (SimulationArchive.h); read when the study is opened again
+    App::PropertyFileIncluded Results;
 
     static const char* AnalysisTypeEnums[];
+    static const char* KeepResultsEnums[];
 
     /// Upstream's name of each property above, and the property's name
     static const std::map<std::string, std::string>& upstreamNames();

@@ -12,6 +12,8 @@ include_directories(
     ${PYTHON_INCLUDE_DIRS}
     ${XercesC_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
+    # SimulationArchive's index.json
+    ${CMAKE_SOURCE_DIR}/src/3rdParty/json/single_include/nlohmann/
 )
 link_directories(${OCC_LIBRARY_DIR})
 
@@ -140,6 +142,8 @@ SET(Assembly_SRCS
     Physics.h
     Simulation.cpp
     Simulation.h
+    SimulationArchive.cpp
+    SimulationArchive.h
     Views.cpp
     Views.h
     ${Module_SRCS}

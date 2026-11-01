@@ -334,6 +334,21 @@ PyObject* AssemblyObjectPy::isSimulationStale(PyObject* args)
     PY_CATCH
 }
 
+PyObject* AssemblyObjectPy::loadSimulationResults(PyObject* args)
+{
+    PyObject* pyObj {};
+    if (!PyArg_ParseTuple(args, "O!", &App::DocumentObjectPy::Type, &pyObj)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto* sim = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
+        return Py::new_reference_to(
+            Py::Boolean(getAssemblyObjectPtr()->loadSimulationResults(sim)));
+    }
+    PY_CATCH
+}
+
 PyObject* AssemblyObjectPy::getSimulationPlacements(PyObject* args, PyObject* kwds) const
 {
     PyObject* pyObj {};

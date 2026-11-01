@@ -244,6 +244,21 @@ DrawViewSection::DrawViewSection()
                              &CutHatchLines, fgroup,
                              App::PropertyType(App::Prop_Output | App::Prop_Hidden),
                              "The pattern's lines trimmed to each cut face, as last trimmed");
+    ADD_PROPERTY_TYPE(CutShape, (TopoDS_Shape()), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "The cut, as last made");
+    ADD_PROPERTY_TYPE(PreparedShape, (TopoDS_Shape()), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "The cut centred, scaled and rotated, as last projected");
+    ADD_PROPERTY_TYPE(CutFrame, (Base::Matrix4D()), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "CutShape to the global frame");
+    ADD_PROPERTY_TYPE(PreparedFrame, (Base::Matrix4D()), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "PreparedShape to the global frame");
+    ADD_PROPERTY_TYPE(FramesKnown, (0), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "1: CutFrame is known, 2: PreparedFrame is");
 
     ADD_PROPERTY_TYPE(SectionLineStretch, (1.0), agroup, App::Prop_None,
                       "Adjusts the length of the section line.  1.0 is normal length.  1.1 would be 10% longer, 0.9 would be 10% shorter.");
@@ -448,7 +463,6 @@ App::DocumentObjectExecReturn* DrawViewSection::execute()
     if (!keepUpdated()) {
         return App::DocumentObject::StdReturn;
     }
-    workingShapesMade();
 
     // What leaves the section nothing to cut is its error, and what may leave
     // it cut wrongly a warning (docs/TechDrawErrors.md 3.2)
@@ -465,11 +479,6 @@ App::DocumentObjectExecReturn* DrawViewSection::execute()
 
     if (baseShape.isNull()) {
         auto* base = static_cast<DrawViewPart*>(BaseView.getValue());
-        if (base->workingShapesDropped()) {
-            // it draws a stored projection and has no cut: it cuts again, and
-            // recomputes this once it has (postSectionCutTasks)
-            base->remakeWorkingShapes();
-        }
         if (base->waitingForResult()) {
             // a section still cutting: it recomputes this once it has its
             // shape (postSectionCutTasks)
@@ -1654,16 +1663,6 @@ void DrawViewSection::abortMaking()
     DrawViewPart::abortMaking();
 }
 
-void DrawViewSection::dropWorkingShapes()
-{
-    m_cutShape.Nullify();
-    m_cutShapeRaw = Part::TopoShape();
-    m_cutPieces = Part::TopoShape();
-    m_preparedShape = Part::TopoShape();
-    m_cutFrameValid = false;
-    m_preparedFrameValid = false;
-}
-
 //! keep the cut faces beside the projection they belong to
 void DrawViewSection::captureGeometry()
 {
@@ -1671,9 +1670,21 @@ void DrawViewSection::captureGeometry()
     App::TransactionDerived derived(this);
     if (!m_geometryObject || !Preferences::storeProjectedGeometry()) {
         ProjectedGeometry.clear();
+        if (!CutShape.getShape().isNull()) {
+            CutShape.setValue(TopoDS_Shape());
+        }
+        if (!PreparedShape.getShape().isNull()) {
+            PreparedShape.setValue(TopoDS_Shape());
+        }
         return;
     }
     ProjectedGeometry.capture(*m_geometryObject, m_saveCentroid, m_sectionTopoDSFaces);
+    // and what the views made from this one read (sec 8)
+    CutShape.setValue(m_cutShapeRaw);
+    PreparedShape.setValue(m_preparedShape);
+    CutFrame.setValue(Part::TopoShape::convert(m_cutFrame));
+    PreparedFrame.setValue(Part::TopoShape::convert(m_preparedFrame));
+    FramesKnown.setValue((m_cutFrameValid ? 1 : 0) | (m_preparedFrameValid ? 2 : 0));
 }
 
 //! put the projection and the cut faces back.  The TechDraw faces the cut
@@ -1685,11 +1696,28 @@ bool DrawViewSection::restoreStoredGeometry()
         return false;
     }
 
+    // stored before the shapes the views made from this one read were: the
+    // section is made again, as before anything was stored
+    if (PreparedShape.getShape().isNull()) {
+        return false;
+    }
+
     const TopoDS_Shape& cutFaces = ProjectedGeometry.getCutFaces();
     if (!cutFaces.IsNull() && cutFaces.ShapeType() == TopAbs_COMPOUND) {
         m_sectionTopoDSFaces = TopoDS::Compound(cutFaces);
         m_tdSectionFaces = makeTDSectionFaces(m_sectionTopoDSFaces);
     }
+
+    m_cutShapeRaw = CutShape.getShape();
+    // centred as prepareShape() centres it: a location, nothing built
+    m_cutShape = m_cutShapeRaw.isNull()
+        ? TopoDS_Shape()
+        : ShapeUtils::moveShape(m_cutShapeRaw.getShape(), m_saveCentroid * -1.0);
+    m_preparedShape = PreparedShape.getShape();
+    m_cutFrame = Part::TopoShape::convert(CutFrame.getValue());
+    m_preparedFrame = Part::TopoShape::convert(PreparedFrame.getValue());
+    m_cutFrameValid = (FramesKnown.getValue() & 1) != 0;
+    m_preparedFrameValid = (FramesKnown.getValue() & 2) != 0;
     return true;
 }
 

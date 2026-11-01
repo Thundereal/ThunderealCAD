@@ -623,16 +623,6 @@ void DrawViewPart::abortMaking()
     abortMakeGeometry();
 }
 
-void DrawViewPart::remakeWorkingShapes()
-{
-    m_workingShapesDropped = false;
-    // nothing of it is touched, and so it would be skipped (OptimizeRecompute)
-    Base::ObjectStatusLocker<App::ObjectStatus, App::DocumentObject> guard(
-        App::ObjectStatus::NoTouch, this);
-    enforceRecompute();
-    recomputeFeature();
-}
-
 bool DrawViewPart::resultInProperties() const
 {
     // while a projection runs, what is drawn and stored may be older than the
@@ -650,9 +640,6 @@ void DrawViewPart::onUndoRedoFinished()
 {
     abortMaking();
     if (restoreStoredGeometry()) {
-        // they are of the state the undo left, too
-        dropWorkingShapes();
-        m_workingShapesDropped = true;
         requestPaint();
         // what is drawn on the view reads its geometry when drawn
         for (auto dim : getDimensions()) {
@@ -677,10 +664,6 @@ void DrawViewPart::onDocumentRestored()
     // purged before the page that has to make that decision is reached.
     m_restoredOutOfDate = isTouched();
     m_geometryFromStore = restoreStoredGeometry();
-    if (m_geometryFromStore) {
-        dropWorkingShapes();
-        m_workingShapesDropped = true;
-    }
 
     DrawView::onDocumentRestored();
 }

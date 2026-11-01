@@ -793,13 +793,6 @@ void DrawComplexSection::abortMaking()
     DrawViewSection::abortMaking();
 }
 
-void DrawComplexSection::dropWorkingShapes()
-{
-    DrawViewSection::dropWorkingShapes();
-    m_alignResult.Nullify();
-    m_preparedShape = Part::TopoShape();
-}
-
 TopoDS_Shape DrawComplexSection::getShapeForDetail() const
 {
     if (ProjectionStrategy.getValue() == 0) {//Offset

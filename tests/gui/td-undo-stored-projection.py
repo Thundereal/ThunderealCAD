@@ -19,9 +19,13 @@ Claims:
     dropped, and what the view stored before the change is drawn;
   - an undo past the steps kept in memory, taken from the log, draws what
     it put back too; and when the log's cache has let the projection go,
-    the views are marked to recompute rather than shown as up to date.
+    the views are marked to recompute rather than shown as up to date;
+  - the section's cut and the detail's piece are stored with them: a
+    detail recomputed alone, after an undo or a reopen, cuts what is there
+    and does not recompute the section.
 """
 import os
+import tempfile
 import time
 import traceback
 
@@ -59,6 +63,21 @@ def settle(done=lambda: False, seconds=10.0):
             return True
         time.sleep(0.02)
     return False
+
+
+class Recomputed:
+    """The names of the objects recomputed while it watches"""
+
+    def __init__(self):
+        self.names = []
+        FreeCAD.addDocumentObserver(self)
+
+    def slotRecomputedObject(self, obj):
+        self.names.append(obj.Name)
+
+    def stop(self):
+        FreeCAD.removeDocumentObserver(self)
+        return self.names
 
 
 def tallest(view):
@@ -170,11 +189,13 @@ def run():
           longest(section) == 15 and longest(detail) == 15
           and "Section" not in names and "Detail" not in names, str(names))
     detail.Radius = 60
+    watch = Recomputed()
     doc.recompute()
     settle(seconds=3.0)
+    ran = watch.stop()
     state("detail")
-    check("the detail recomputed alone details the 15 box", longest(detail) == 15,
-          str(longest(detail)))
+    check("the detail recomputed alone details the 15 box, its section not recomputed",
+          longest(detail) == 15 and "Section" not in ran, "%s %s" % (longest(detail), ran))
     settle(seconds=2.0)
 
     doc.openTransaction("Length 25")
@@ -236,6 +257,31 @@ def run():
     check("an undo from the log after the cache let go draws 15 or is marked",
           box.Length.Value == 15 and (tallest(view) == 15 or "View" in names),
           "%s %s" % (evicted, names))
+
+    # what the views made from a view read is stored with it
+    # (TechDrawStoredGeometry.md sec 8): a reopened document has it
+    doc.recompute()
+    settle(lambda: tallest(view) == 15 and longest(detail) == 15)
+    settle(seconds=2.0)
+    path = os.path.join(tempfile.mkdtemp(prefix="td-undo-"), "stored.FCStd")
+    doc.saveAs(path)
+    FreeCAD.closeDocument(doc.Name)
+    settle(seconds=0.5)
+    doc = FreeCAD.openDocument(path)
+    view, section, detail = doc.View, doc.Section, doc.Detail
+    settle(seconds=1.0)
+    names = [o.Name for o in doc.Objects if "Touched" in o.State]
+    check("reopened: the section's cut and the detail's piece are back, nothing to recompute",
+          not section.CutShape.isNull() and not section.PreparedShape.isNull()
+          and not detail.DetailShape.isNull() and not detail.ScaledShape.isNull() and not names,
+          str(names))
+    detail.Radius = 55
+    watch = Recomputed()
+    doc.recompute()
+    settle(lambda: longest(detail) == 15, 10)
+    ran = watch.stop()
+    check("reopened: the detail recomputed alone details the 15 box, its section not recomputed",
+          longest(detail) == 15 and "Section" not in ran, "%s %s" % (longest(detail), ran))
 
     FreeCAD.closeDocument(doc.Name)
 

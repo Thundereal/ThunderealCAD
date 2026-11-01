@@ -47,6 +47,7 @@
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
@@ -55,6 +56,7 @@
 
 #include <App/Application.h>
 #include <App/Document.h>
+#include <App/Transactions.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/Parameter.h>
@@ -95,6 +97,26 @@ DrawViewDetail::DrawViewDetail() : m_saveDvp(nullptr), m_saveDvs(nullptr)
              "Show or hide the matting around the detail view");
     ADD_PROPERTY_TYPE(ShowHighlight, (Preferences::showDetailHighlight()), agroup, App::Prop_None,
              "Show or hide the detail highlight in the source view");
+
+    static const char* sgroup = "Stored";
+    ADD_PROPERTY_TYPE(DetailShape, (TopoDS_Shape()), sgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "The piece detailed, as last made");
+    ADD_PROPERTY_TYPE(ScaledShape, (TopoDS_Shape()), sgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "The piece centred, scaled and rotated, as last projected");
+    ADD_PROPERTY_TYPE(DetailFrame, (Base::Matrix4D()), sgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "DetailShape to the global frame");
+    ADD_PROPERTY_TYPE(ScaledFrame, (Base::Matrix4D()), sgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "ScaledShape to the global frame");
+    ADD_PROPERTY_TYPE(ViewAxis, (Base::Matrix4D()), sgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "The global frame to the axis ScaledShape was projected through");
+    ADD_PROPERTY_TYPE(FramesKnown, (false), sgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "Whether DetailFrame and ScaledFrame are known");
 
 
     getParameters();
@@ -145,7 +167,6 @@ App::DocumentObjectExecReturn* DrawViewDetail::execute()
     if (!keepUpdated()) {
         return DrawView::execute();
     }
-    workingShapesMade();
 
     // nothing to detail is the view's error, not an empty view
     // (docs/TechDrawErrors.md 3.2)
@@ -173,11 +194,6 @@ App::DocumentObjectExecReturn* DrawViewDetail::execute()
     }
 
     if (shape.IsNull()) {
-        if (dvp->workingShapesDropped()) {
-            // it draws a stored projection and has no cut: it cuts again, and
-            // recomputes this once it has (DrawViewSection::postSectionCutTasks)
-            dvp->remakeWorkingShapes();
-        }
         if (dvp->waitingForResult()) {
             // a section still cutting: it recomputes this once it has its
             // shape (DrawViewSection::postSectionCutTasks)
@@ -485,18 +501,56 @@ void DrawViewDetail::onMakeDetailFinished(std::shared_ptr<Output> output)
     buildGeometryObject(m_scaledShape, m_viewAxis);
 }
 
+//! the projection, and what the views made from this one read (sec 8)
+void DrawViewDetail::captureGeometry()
+{
+    // derived, as DrawViewPart::captureGeometry says
+    App::TransactionDerived derived(this);
+    DrawViewPart::captureGeometry();
+    if (ProjectedGeometry.isEmpty()) {
+        if (!DetailShape.getShape().isNull()) {
+            DetailShape.setValue(TopoDS_Shape());
+        }
+        if (!ScaledShape.getShape().isNull()) {
+            ScaledShape.setValue(TopoDS_Shape());
+        }
+        return;
+    }
+    DetailShape.setValue(m_detailShape);
+    ScaledShape.setValue(m_scaledShape);
+    DetailFrame.setValue(Part::TopoShape::convert(m_detailFrame));
+    ScaledFrame.setValue(Part::TopoShape::convert(m_scaledFrame));
+    gp_Trsf toAxis;
+    toAxis.SetTransformation(gp_Ax3(m_viewAxis));
+    ViewAxis.setValue(Part::TopoShape::convert(toAxis));
+    FramesKnown.setValue(m_detailFrameValid && m_scaledFrameValid);
+}
+
+bool DrawViewDetail::restoreStoredGeometry()
+{
+    if (!DrawViewPart::restoreStoredGeometry()) {
+        return false;
+    }
+    // stored before the piece was: the detail is made again, as before
+    // anything was stored
+    if (ScaledShape.getShape().isNull()) {
+        return false;
+    }
+    m_detailShape = DetailShape.getShape().getShape();
+    m_scaledShape = ScaledShape.getShape().getShape();
+    m_detailFrame = Part::TopoShape::convert(DetailFrame.getValue());
+    m_scaledFrame = Part::TopoShape::convert(ScaledFrame.getValue());
+    m_detailFrameValid = FramesKnown.getValue();
+    m_scaledFrameValid = FramesKnown.getValue();
+    gp_Trsf toAxis = Part::TopoShape::convert(ViewAxis.getValue());
+    m_viewAxis = gp_Ax2().Transformed(toAxis.Inverted());
+    return true;
+}
+
 void DrawViewDetail::abortMaking()
 {
     abortMakeDetail();
     DrawViewPart::abortMaking();
-}
-
-void DrawViewDetail::dropWorkingShapes()
-{
-    m_detailShape.Nullify();
-    m_scaledShape.Nullify();
-    m_detailFrameValid = false;
-    m_scaledFrameValid = false;
 }
 
 bool DrawViewDetail::waitingForResult() const

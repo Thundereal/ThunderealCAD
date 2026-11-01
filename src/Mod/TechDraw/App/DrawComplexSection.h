@@ -127,7 +127,6 @@ public:
     static gp_Vec projectVector(const gp_Vec& vec, gp_Ax2 sectionCS);
 
 protected:
-    void dropWorkingShapes() override;
     void abortMaking() override;
 
 private:

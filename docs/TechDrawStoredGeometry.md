@@ -344,15 +344,12 @@ which is the state the undo leaves.
 
 A section keeps its cut (`m_cutShape`, `m_cutShapeRaw`, `m_cutPieces`,
 `m_preparedShape` and their frames), a detail its piece, a complex section
-its aligned pieces. They are not stored: written into every recompute's
-row they would cost what sec 10 of the journal refuses for `Shape`. A view
-that installs a stored projection -- at a file's open or after an undo --
-drops them (`dropWorkingShapes()`) and says so (`workingShapesDropped()`).
-A section or detail that finds its base's shape missing for that reason
-has the base recompute (`remakeWorkingShapes()`), and waits for it the way
-it waits for a cut still running. Before, after an open the detail said
-its base had no shape, and after an undo it used the cut of the state the
-undo took back.
+its aligned pieces. They were not stored, and after an open the detail
+said its base had no shape, and after an undo it used the cut of the state
+the undo took back. As first corrected (`211e5a97f3`) a view that
+installed a stored projection dropped them, and a section or detail that
+found them missing had its base recompute. That is replaced by storing
+them (sec 8).
 
 The detail tells the sections made from it when its piece is made, as a
 section tells the views made from it when its cut is (`postSectionCutTasks`).
@@ -380,8 +377,8 @@ the section is still cutting, finds no cut, and waits;
 it, as nothing of it is touched (`OptimizeRecompute`,
 `Document::_recomputeFeature`). It drew at its next recompute of its own,
 from the cut before. The section now has it recomputed the way a view has
-its balloons recomputed (`enforceRecompute()` under `NoTouch`), and so do
-`remakeWorkingShapes()` and the detail's own call.
+its balloons recomputed (`enforceRecompute()` under `NoTouch`), and so
+does a detail for the sections made from it.
 
 ### 6.7 What this does not do
 
@@ -463,3 +460,38 @@ On a plate of 28 holes (`tests/gui/td-stored-hatch.py`): a redraw 6 ms
 from the stored lines against 265 ms trimming, a section's cut face 3 ms
 against 162 ms; undo and redo put back the lines of the state they leave
 with nothing to recompute; a reopened document draws from them.
+
+## 8. The shapes the views made from a view read are stored (user, 2026-11-01)
+
+Ruled with sec 7: an undo in memory, or an open, constructs nothing. What
+a view keeps for the views made from it -- and for the shaded underlay --
+is stored beside its projection, captured with it (`captureGeometry()`,
+derived in the log) and put back with it (`restoreStoredGeometry()`):
+
+- **A section:** `CutShape` (the cut, uncentred; the centred one read by a
+  detail is a location away, moved on restore), `PreparedShape` (centred,
+  scaled, rotated: what was projected, what a complex section's detail and
+  the underlay read), `CutFrame`, `PreparedFrame` and `FramesKnown`.
+- **A detail:** `DetailShape`, `ScaledShape`, their frames, and `ViewAxis`,
+  the axis the piece was projected through, which the underlay reads.
+- **A complex section:** nothing more. Its aligned pieces only make its
+  prepared shape, which the section stores.
+- **A broken view:** `CompressedCentroid`, the one thing read off its
+  compressed shape (the break positions); set by `execute()`.
+
+The drop-and-remake of `211e5a97f3` is gone; a detail of a section
+recomputed alone after an undo, or after an open, cuts the stored cut and
+the section is not recomputed. A view stored before these were -- a
+section or detail with a projection and no shape -- does not take the
+projection from the store, and is made as before anything was stored.
+
+On the 84-hole plate a section's cut is 48 KB of BRep, 7 KB compressed in
+the file: less than the plate's own shape, which the file holds already.
+In the log the shapes are derived (journal sec 10.2), in the cache tier.
+
+The underlay of a section or detail reads those shapes and draws nothing
+when they are missing, as they were after an open and after an undo
+(found by reading `ShadedUnderlay`, not seen); it now has them.
+
+Tests: `tests/gui/td-undo-stored-projection.py` -- the detail recomputed
+alone after an undo and after a reopen, the section not recomputed.

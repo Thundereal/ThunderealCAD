@@ -119,6 +119,9 @@ DrawBrokenView::DrawBrokenView()
                       sgroup,
                       App::Prop_None,
                       "The separation distance for breaks in this view (unscaled 3D length).");
+    ADD_PROPERTY_TYPE(CompressedCentroid, (0.0, 0.0, 0.0), sgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "The centroid of the compressed shape, as last made");
 }
 
 
@@ -172,6 +175,10 @@ App::DocumentObjectExecReturn* DrawBrokenView::execute()
             .toStdString());
     }
     m_compressedShape = compressShape(brokenShape);
+    if (!m_compressedShape.IsNull()) {
+        gp_Pnt center = ShapeUtils::findCentroid(m_compressedShape, getProjectionCS());
+        CompressedCentroid.setValue(Base::convertTo<Base::Vector3d>(center));
+    }
 
     partExec(m_compressedShape);
 
@@ -1141,12 +1148,9 @@ double  DrawBrokenView::getExpandGaps (double pointCoord,
 
 Base::Vector3d DrawBrokenView::getCompressedCentroid() const
 {
-    if (m_compressedShape.IsNull()) {
-        return Base::Vector3d(0.0, 0.0, 0.0);
-    }
-    gp_Ax2 cs = getProjectionCS();
-    gp_Pnt gCenter = ShapeUtils::findCentroid(m_compressedShape, cs);
-    return Base::convertTo<Base::Vector3d>(gCenter);
+    // as the last execute() found it: the compressed shape is not kept past
+    // an undo or an open
+    return CompressedCentroid.getValue();
 }
 
 //! construct a perpendicular direction in the projection CS

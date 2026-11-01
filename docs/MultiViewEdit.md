@@ -793,8 +793,9 @@ we shall correct that."** The projection was in a property all along
 (`ProjectedGeometry`, `docs/TechDrawStoredGeometry.md`), and the undo put
 it back; the view read it only when a file was opened. It reads it after
 an undo or a redo now, a dimension measures when read, and the 3D shapes a
-section or detail keeps for the views made from it are dropped and made
-again when asked for (`docs/TechDrawStoredGeometry.md` sec 6). An undo
+section or detail keeps for the views made from it, and a hatch's trimmed
+lines, are stored with the projection (`docs/TechDrawStoredGeometry.md`
+sec 6 to 8, user 2026-11-01: an undo in memory constructs nothing). An undo
 leaves a drawing right and clean; `resultInProperties()` stays as the
 fallback, false for a part view only while the store is switched off or a
 projection is running.

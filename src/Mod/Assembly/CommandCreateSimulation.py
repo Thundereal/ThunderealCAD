@@ -90,9 +90,12 @@ ResultQuantities = {
     "ContactBegin": (QT_TRANSLATE_NOOP("Assembly", "Contact made"), 1.0, "mm/s"),
     "ContactEnd": (QT_TRANSLATE_NOOP("Assembly", "Contact let go"), 1.0, "mm/s"),
     # A cam contact's: the angle between the contact's normal and the way the
-    # follower moves, and the follower's slip along the cam
+    # follower moves, the follower's slip along the cam, and the contact force
+    # split along the follower's motion and across it
     "CamPressureAngle": (QT_TRANSLATE_NOOP("Assembly", "Pressure angle"), 57.29577951308232, "deg"),
     "CamSlip": (QT_TRANSLATE_NOOP("Assembly", "Cam slip"), 1.0, "mm/s"),
+    "CamDriveForce": (QT_TRANSLATE_NOOP("Assembly", "Cam drive force"), 1e-3, "N"),
+    "CamSideForce": (QT_TRANSLATE_NOOP("Assembly", "Cam side load"), 1e-3, "N"),
 }
 
 
@@ -1423,6 +1426,8 @@ SensorQuantities = {
         "ContactPenetration",
         "CamPressureAngle",
         "CamSlip",
+        "CamDriveForce",
+        "CamSideForce",
         "ContactBegin",
         "ContactEnd",
     ),
@@ -1464,6 +1469,8 @@ SensorVectors = (
     "ContactForce",
     "ContactNormalForce",
     "ContactFrictionForce",
+    "CamDriveForce",
+    "CamSideForce",
 )
 
 

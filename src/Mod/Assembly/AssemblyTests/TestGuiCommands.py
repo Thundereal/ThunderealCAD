@@ -1598,7 +1598,8 @@ class TestGuiCommands(unittest.TestCase):
 
     def test_cam_sensor_quantities(self):
         """A sensor on a cam contact can watch its pressure angle, in
-        degrees, and its slip, in mm/s; a plain contact set offers neither"""
+        degrees, its slip, in mm/s, and its drive force and side load, by
+        component; a plain contact set offers none of them"""
         import CommandCreateContact
         import CommandCreateSimulation
 
@@ -1617,6 +1618,7 @@ class TestGuiCommands(unittest.TestCase):
         quantity = dialog.quantityCombo
         offered = [quantity.itemData(i) for i in range(quantity.count())]
         self.assertNotIn("CamPressureAngle", offered)
+        self.assertNotIn("CamSideForce", offered)
         dialog.sourceCombo.setCurrentIndex(dialog.sourceCombo.findData(cam))
         offered = [quantity.itemData(i) for i in range(quantity.count())]
         self.assertIn("CamPressureAngle", offered)
@@ -1631,6 +1633,20 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(obj.Label, cam.Label + ": Pressure angle above 20 deg")
         quantity.setCurrentIndex(quantity.findData("CamSlip"))
         self.assertEqual(dialog.thresholdBox.suffix(), " mm/s")
+        self.assertFalse(dialog.componentCombo.isEnabled())
+        # The force's parts along the follower's motion and across it,
+        # vectors: a component or the size
+        self.assertIn("CamDriveForce", offered)
+        self.assertIn("CamSideForce", offered)
+        quantity.setCurrentIndex(quantity.findData("CamSideForce"))
+        self.assertEqual(dialog.thresholdBox.suffix(), " N")
+        self.assertTrue(dialog.componentCombo.isEnabled())
+        dialog.componentCombo.setCurrentIndex(dialog.componentCombo.findData("X"))
+        dialog.thresholdBox.setValue(2.0)
+        dialog.apply(obj)
+        self.assertEqual(obj.Quantity, "CamSideForce")
+        self.assertEqual(obj.Component, "X")
+        self.assertEqual(obj.Label, cam.Label + ": Cam side load X above 2 N")
         self.assertClean()
 
     def test_profile_contact(self):

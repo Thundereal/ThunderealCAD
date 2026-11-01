@@ -1724,7 +1724,44 @@ Phase D1 is under way (2026-10-28):
   - Not yet: the angle's direction (which side the normal leans to); a
     pressure angle for a profile contact's pairs; the contact force split
     into the part along the follower's motion and the side load on its
-    guide.
+    guide. (The split, and with it the direction: built, below.)
+- Built: a cam's drive force and side load (the pressure angle's "not
+  yet"): a cam contact's force split along the follower's line of motion
+  and across it.
+  - The run (ChronoBackend): `camReading()` gains `way`, the unit vector
+    along the follower's point's velocity (at a standstill its
+    acceleration) turned away from the cam, the normal's side; with no
+    motion, the normal. `CamDriveForce`, the set's ContactForce's part
+    along it, and `CamSideForce`, the rest, width 3 each, after
+    `CamSlip`: they add up to ContactForce, the force on the cam, as the
+    normal and friction parts do. At rest the drive is the normal force
+    and the side load the friction.
+  - The angle's direction is the side load's: the pressure angle stays
+    its size, 0 to 90 deg -- what a design limits, and what a sensor
+    "above 30 deg" wants -- and the side load points to the side the
+    force leans to. atan(side / drive) along the guide's axis is the
+    signed angle.
+  - The document and the panel: `Sensor::QuantityEnums` gains the two
+    (a force's threshold); `CommandCreateSimulation`'s "CamContact" kind
+    offers them after the slip, as vectors (`SensorVectors`: a component
+    or the size), "Cam drive force" and "Cam side load", N.
+  - Tests (TestCamJoint): on the disk cam at 10 rad/s, for the point
+    follower and the roller: drive and side load adding up to the force
+    (1e-9), the drive along the slider and the side load across it (1e-5
+    of the force), the side load's X the force's size times
+    E cos theta / (R + r), signed (5e-4; 1.9e-4 and 1.5e-4 measured).
+    TestGuiCommands: the sensor's dialog offers both for a cam contact
+    and neither for a plain set, the component live, N, the label "...:
+    Cam side load X above 2 N". In the manual's video
+    (`assembly/simulation/cam-side-load`) the roller with its stem: the
+    lean within 0.007 deg of -asin(E cos theta / (R + r)), its size
+    within 0.005 deg of the pressure angle; a sensor on the side load's X
+    crossing 0 marks at 90.000 and 270.000 deg.
+  - Seen in the video, not this change's: the contact force bumps by
+    about 3% every 15 deg of the turn (10 output frames), up a frame and
+    down the next; ContactForce has it as the split does.
+  - Not yet: a pressure angle for a profile contact's pairs; the bumps'
+    cause.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

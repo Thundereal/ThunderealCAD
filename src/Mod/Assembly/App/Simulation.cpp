@@ -258,6 +258,8 @@ const char* Sensor::QuantityEnums[] = {"Force",
                                        // A cam contact's
                                        "CamPressureAngle",
                                        "CamSlip",
+                                       "CamDriveForce",
+                                       "CamSideForce",
                                        nullptr};
 const char* Sensor::ComponentEnums[] = {"Magnitude", "X", "Y", "Z", nullptr};
 const char* Sensor::CompareEnums[] = {"Above", "Below", "Crosses", nullptr};

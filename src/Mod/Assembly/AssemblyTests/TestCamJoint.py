@@ -542,7 +542,9 @@ class TestCamJoint(CamMechanism, JointTestBase):
         follower sinks some hundredths of a millimetre, and is read where
         the run's own contact point is); the slip the follower's point's
         speed from the cam's material point under it, along the curve
-        (0.2 mm/s of some 200)"""
+        (0.2 mm/s of some 200); and the contact force split along the slider
+        and across it, adding up to it, the side load along x the force's
+        size times E cos theta / (R + r), signed (5e-4)"""
         if "Chrono" not in self.backends():
             self.skipTest("the Chrono backend is not built")
         import CommandCreateContact
@@ -580,7 +582,11 @@ class TestCamJoint(CamMechanism, JointTestBase):
                 self.assertIn("CamPressureAngle", mine)
                 self.assertIn("CamSlip", mine)
                 angles, slips = mine["CamPressureAngle"], mine["CamSlip"]
-                worst = [0.0, 0.0]
+                forces = mine["ContactForce"]
+                drives, sides = mine["CamDriveForce"], mine["CamSideForce"]
+                biggest = max(f.Length for f in forces)
+                self.assertGreater(biggest, 0.0)
+                worst = [0.0, 0.0, 0.0]
                 for k, t in enumerate(results["Times"]):
                     theta = rate * t
                     want = math.asin(CAM_E * abs(math.cos(theta)) / (CAM_R + roller))
@@ -602,9 +608,24 @@ class TestCamJoint(CamMechanism, JointTestBase):
                     want = abs(relative.dot(tangent))
                     self.assertAlmostEqual(abs(slips[k]), want, delta=0.2, msg=(k, theta))
                     worst[1] = max(worst[1], abs(abs(slips[k]) - want))
+                    # The force on the cam, -|F| along the normal with no
+                    # friction, split along the slider and across it: the
+                    # drive along y, the side load along x, -|F| times the
+                    # normal's x, E cos theta / (R + r) -- the side the
+                    # normal leans to
+                    force = forces[k]
+                    size = force.Length
+                    drive, side = drives[k], sides[k]
+                    self.assertLess((drive + side - force).Length, 1e-9 * (1 + size), (k, theta))
+                    if size < 0.01 * biggest:
+                        continue
+                    self.assertLess(abs(drive.x) + abs(drive.z), 1e-5 * size, (k, theta))
+                    self.assertLess(abs(side.y) + abs(side.z), 1e-5 * size, (k, theta))
+                    self.assertAlmostEqual(side.x / size, -normal.x, delta=5e-4, msg=(k, theta))
+                    worst[2] = max(worst[2], abs(side.x / size + normal.x))
                 App.Console.PrintMessage(
-                    "Cam pressure angle within %.3g rad, slip within %.3g mm/s, roller %g\n"
-                    % (worst[0], worst[1], roller)
+                    "Cam pressure angle within %.3g rad, slip within %.3g mm/s, side load "
+                    "within %.3g of the force, roller %g\n" % (worst[0], worst[1], worst[2], roller)
                 )
                 # The largest: asin(E / (R + r)) at theta 0 and pi
                 self.assertAlmostEqual(

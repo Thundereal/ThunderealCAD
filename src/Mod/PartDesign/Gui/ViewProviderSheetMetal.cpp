@@ -30,6 +30,7 @@
 
 #include "TaskSheetMetalFlatPattern.h"
 #include "TaskSheetMetalParameters.h"
+#include "TaskSheetMetalRule.h"
 #include "ViewProviderSheetMetal.h"
 
 using namespace PartDesignGui;
@@ -115,6 +116,37 @@ bool ViewProviderSheetMetalFlatPattern::setEdit(int ModNum)
 }
 
 void ViewProviderSheetMetalFlatPattern::unsetEdit(int ModNum)
+{
+    if (ModNum != ViewProvider::Default) {
+        PartGui::ViewProviderPart::unsetEdit(ModNum);
+        return;
+    }
+    Gui::Control().closeDialog();
+}
+
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalRule, PartGui::ViewProviderPart)
+
+ViewProviderSheetMetalRule::ViewProviderSheetMetalRule() = default;
+
+bool ViewProviderSheetMetalRule::doubleClicked()
+{
+    auto doc = Gui::Application::Instance->getDocument(getObject()->getDocument());
+    return doc && doc->setEdit(this, ViewProvider::Default);
+}
+
+bool ViewProviderSheetMetalRule::setEdit(int ModNum)
+{
+    if (ModNum != ViewProvider::Default) {
+        return PartGui::ViewProviderPart::setEdit(ModNum);
+    }
+    if (Gui::Control().activeDialog()) {
+        return false;
+    }
+    Gui::Control().showDialog(new TaskDlgSheetMetalRule(this));
+    return true;
+}
+
+void ViewProviderSheetMetalRule::unsetEdit(int ModNum)
 {
     if (ModNum != ViewProvider::Default) {
         PartGui::ViewProviderPart::unsetEdit(ModNum);

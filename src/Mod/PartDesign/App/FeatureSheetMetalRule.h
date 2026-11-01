@@ -53,6 +53,11 @@ class PartDesignExport SheetMetalRule : public Part::Feature
 public:
     SheetMetalRule();
 
+    const char* getViewProviderName() const override
+    {
+        return "PartDesignGui::ViewProviderSheetMetalRule";
+    }
+
     App::PropertyLength Thickness;
     App::PropertyLength BendRadius;
     App::PropertyLength MinFlange;

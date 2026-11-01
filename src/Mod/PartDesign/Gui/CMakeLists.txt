@@ -21,6 +21,7 @@ set(PartDesignGui_LIBS
     SketcherGui
     PartGui
     SketcherGui
+    MatGui
     FreeCADGui
 )
 
@@ -186,6 +187,8 @@ SET(PartDesignGuiTaskDlgs_SRCS
     TaskSheetMetalParameters.h
     TaskSheetMetalFlatPattern.cpp
     TaskSheetMetalFlatPattern.h
+    TaskSheetMetalRule.cpp
+    TaskSheetMetalRule.h
     TaskThicknessParameters.h
     TaskDefeaturingParameters.ui
     TaskDefeaturingParameters.cpp

@@ -83,4 +83,18 @@ protected:
     void unsetEdit(int ModNum) override;
 };
 
+/// A sheet metal rule, its panel its card and values; a double-click opens it
+class PartDesignGuiExport ViewProviderSheetMetalRule: public PartGui::ViewProviderPart
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalRule);
+
+public:
+    ViewProviderSheetMetalRule();
+    bool doubleClicked() override;
+
+protected:
+    bool setEdit(int ModNum) override;
+    void unsetEdit(int ModNum) override;
+};
+
 }  // namespace PartDesignGui

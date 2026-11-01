@@ -570,8 +570,13 @@ read only on a plate; a value set elsewhere while the panel is open shows in its
 only where it differs. The flat pattern's panel (a double-click on it; it is a
 Part feature, its own view provider): what it lays flat, the root face picked in the view or the
 first wall's, the values a bill of materials takes, OK one undo step and Cancel putting it back.
-Still to come: the rule's (its card, the values the card gives and the ones set by
-hand).
+The rule's panel (a double-click on the rule; `GuiSheetMetalRulePanel`): its card, chosen from the
+material list, whose first entry is the body's material (the rule following the body again); the
+card said, whose it is and whether it has a gauge row for the thickness; a box for each value; for
+each value the card gives (bend radius, K, minimum flange, allowance method), whether it is the
+card's, the rule's own or set by hand, and a button giving it back to the card; the features that
+follow the rule, and what is wrong with the first that fails. A value set there rebuilds every
+feature following the rule; OK is one undo step, Cancel puts it all back.
 
 ### 8.2 In the view
 

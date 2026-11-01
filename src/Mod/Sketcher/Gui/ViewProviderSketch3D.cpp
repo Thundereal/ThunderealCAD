@@ -4476,6 +4476,11 @@ void ViewProviderSketch3D::drawLabels()
                 }
                 if (ok) {
                     Base::Vector3d x = (s0 - c0).Normalize();
+                    // in the arc's plane, from its front: seen from behind the
+                    // text reads mirrored
+                    if (n * toEye < 0) {
+                        n = -n;
+                    }
                     plane = Base::Placement(c0, Base::Rotation::makeRotationByAxes(x, n % x, n));
                     double r = (s0 - c0).Length();
                     p = c0;
@@ -4506,6 +4511,12 @@ void ViewProviderSketch3D::drawLabels()
                         Base::Vector3d vertex = ((a1 + d1 * s1) + (a2 + d2 * s2)) / 2;
                         Base::Vector3d x = Base::Vector3d(d1).Normalize();
                         n.Normalize();
+                        // from the front, the arc from the second line round to
+                        // the first: the same arc, its text not mirrored
+                        if (n * toEye < 0) {
+                            n = -n;
+                            x = Base::Vector3d(d2).Normalize();
+                        }
                         plane = Base::Placement(vertex,
                                                 Base::Rotation::makeRotationByAxes(x, n % x, n));
                         datumType = Gui::SoDatumLabel::ANGLE;

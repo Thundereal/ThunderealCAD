@@ -90,12 +90,14 @@ class TestNameEncoding(unittest.TestCase):
     def testForkFileKeepsItsReferences(self):
         """A document this fork wrote with whole names keeps them. Its loft
         is on another face than the upstream file's (the fork numbers the
-        pad's faces differently), hence the other loft volume"""
+        pad's faces differently), hence the other loft volume. The loft's
+        volume is the fork's integral, taken span by span on its B-spline
+        faces; upstream's reads 12238.1843"""
         self.open("FaceRefs_fork_whole_names.FCStd")
         self.assertFalse(self.Doc.Hasher.IndexedNames)
         self.editAndCheck(
             {
-                "Loft_loft": 12238.1843,
+                "Loft_loft": 12238.1739,
                 "Pocket_pocket": 11560.9649,
                 "Pad_pad": 11711.7613,
                 "Fillet_fillet": 11670.1179,

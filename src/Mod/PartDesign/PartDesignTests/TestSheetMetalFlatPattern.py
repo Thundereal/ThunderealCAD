@@ -357,6 +357,87 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         ents = self.exportDXF(flat)
         self.assertEqual(len([e for e in ents if e[1] == "BEND_TANGENT" and e[0] == "LINE"]), 2)
 
+    def testAlignEdge(self):
+        """Laid by an edge of the folded part: the flat turned about Z so the
+        edge's image runs along X, the root skin still on XY"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+        flat = self.flat(wall)
+        long = 19 + ba() + 9
+        box = self.solid(flat).BoundBox
+        self.assertAlmostEqual(box.XLength, long, places=6)
+        # the second wall's end edge across the width, along the folded Z
+        across = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(wall.Shape.Edges)
+            if e.Curve.TypeId == "Part::GeomLine"
+            and abs(abs(e.Curve.Direction.z) - 1) < 1e-9
+            and all(abs(v.Point.y - 10) < 1e-7 and abs(v.Point.x - 21) < 1e-7 for v in e.Vertexes)
+        ]
+        self.assertEqual(len(across), 1)
+        flat.AlignEdge = (wall, across)
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flat.State)
+        box = self.solid(flat).BoundBox
+        self.assertAlmostEqual(box.XLength, 15, places=6)
+        self.assertAlmostEqual(box.YLength, long, places=6)
+        self.assertAlmostEqual(box.ZMin, 0, places=6)
+        self.assertAlmostEqual(box.ZMax, 1, places=6)
+        # the bend line turned with it
+        self.assertAlmostEqual(abs(self.lines(flat)[0].Curve.Direction.x), 1, places=9)
+        self.assertAlmostEqual(flat.FlatLength.Value, long, places=6)
+
+    def testAlignEdgeNotStraight(self):
+        """An edge that does not lie straight in the flat is refused"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True)
+        sketch = self.Body.newObject("Sketcher::SketchObject", "HoleSketch")
+        sketch.addGeometry(Part.Circle(V(8, 5, 0), V(0, 0, 1), 2))
+        pocket = self.Body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = sketch
+        pocket.Type = "ThroughAll"
+        pocket.Midplane = True
+        self.Doc.recompute()
+        circle = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(pocket.Shape.Edges)
+            if e.Curve.TypeId == "Part::GeomCircle"
+        ]
+        flat = self.flat(pocket)
+        flat.AlignEdge = (pocket, circle[:1])
+        self.Doc.recompute()
+        self.assertIn("Invalid", flat.State)
+
+    def grainEdges(self, flat):
+        names = flat.Shape.ElementReverseMap
+        return [
+            flat.Shape.getElement(k)
+            for k, n in names.items()
+            if k.startswith("Edge") and n.startswith("Grain")
+        ]
+
+    def testGrain(self):
+        """Asked for, the grain arrow on the flat's top: its shaft along X at
+        angle 0, along Y at 90, three lines on the layer GRAIN"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+        flat = self.flat(wall)
+        self.assertFalse(flat.Grain)
+        self.assertEqual(self.grainEdges(flat), [])
+        flat.Grain = True
+        self.Doc.recompute()
+        edges = self.grainEdges(flat)
+        self.assertEqual(len(edges), 3)
+        shaft = max(edges, key=lambda e: e.Length)
+        self.assertAlmostEqual(abs(shaft.Curve.Direction.x), 1, places=9)
+        top = self.solid(flat).BoundBox.ZMax
+        for e in edges:
+            for v in e.Vertexes:
+                self.assertAlmostEqual(v.Point.z, top, places=6)
+        flat.GrainAngle = 90
+        self.Doc.recompute()
+        shaft = max(self.grainEdges(flat), key=lambda e: e.Length)
+        self.assertAlmostEqual(abs(shaft.Curve.Direction.y), 1, places=9)
+        ents = self.exportDXF(flat)
+        self.assertEqual(len([e for e in ents if e[1] == "GRAIN" and e[0] == "LINE"]), 3)
+
     def testDXFHole(self):
         """A round hole is a circle on the inner layer"""
         wall = self.wall([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True)

@@ -657,7 +657,10 @@ def verify():
               (sent_rows, out.get("sentActs"), out.get("withdrawSaid"), state.get("sent_after")))
         before_main = s.get("restored", {})
         check("nothing the page did moved the document the branch was served from",
-              before_main.get("main") == listed.get("main")
+              # By what it is and which branch it stands on. Not its undo count:
+              # what the host writes in the served document at its phases is
+              # mirrored into its active document as an empty "-> name" step.
+              before_main.get("main", ())[:2] == listed.get("main", ())[:2]
               and listed.get("main", ((), [], 0))[0] == (14, 12, 16)
               and len(listed.get("main", ((), [], 0))[1]) == 1
               and listed["main"][1][0] != BRANCH

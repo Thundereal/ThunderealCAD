@@ -83,11 +83,31 @@ const puppeteer = require(process.env.PUPPETEER_PATH || 'puppeteer-core');
     if (row) {
       // A real click, by where the row is: a browser opens a file chooser
       // only on its user's own gesture, and the menu redraws its rows, so a
-      // handle to one may be of a row that is gone.
-      const [chooser] = await Promise.all([
-        page.waitForFileChooser({ timeout }),
-        page.mouse.click(row.x, row.y),
-      ]);
+      // handle to one may be of a row that is gone. The host's answer can
+      // redraw them after the rows above were read, on a loaded box seconds
+      // after: read where it is now, stood still, and try again if the click
+      // landed where it used to be.
+      const standing = async () => {
+        let last = null;
+        for (;;) {
+          const now = (await rows()).find((r) => r.text.startsWith('Send my copy'));
+          const key = now && now.x + ',' + now.y;
+          if (key && key === last) return now;
+          last = key;
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      };
+      const give = Date.now() + timeout;
+      let chooser = null;
+      while (!chooser) {
+        const at = await standing();
+        const left = give - Date.now();
+        [chooser] = await Promise.all([
+          page.waitForFileChooser({ timeout: Math.min(8000, Math.max(left, 1)) })
+            .catch((e) => { if (left <= 8000) throw e; return null; }),
+          page.mouse.click(at.x, at.y),
+        ]);
+      }
       await chooser.accept([file]);
       // What the page says while it sends: a file larger than one message
       // goes in pieces (sec 32.36), and the line says how far it has got.

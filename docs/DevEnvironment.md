@@ -1112,24 +1112,17 @@ out of process, which is what makes this clean: it cannot borrow the OCCT a Free
 process has loaded, so it gets a prefix of its own with the channel's `novtk` OCCT,
 `.conda/gmsh`, and `.conda/freecad` stays free of OCCT.
 
-*** **A plain solve of the channel's `gmsh` fails**, with or without naming `occt`,
-though every dependency solves alone and all of them solve together. Install the
-dependencies from conda-forge and the two channel packages by `@EXPLICIT`:
+*** **Use `conda` here, not `mamba`.** mamba 2.9 reports the channel's `occt` as not
+installable, alone, under strict or reversed channel order, though all its
+dependencies solve and `conda` (same libmamba solver setting) takes it at once; with
+flexible priority mamba quietly takes conda-forge's `occt 8.0.1` instead of the fork.
+conda-forge publishes 8.0.1 now, so check the channel of what was installed. Name the
+`novtk` variant, or the solve takes `all_` and with it vtk and a python:
 
 ```sh
 G=~/works/sw/fcad/.conda/gmsh
-mamba create -y -p $G --override-channels -c conda-forge \
-  'cairo>=1.18.4,<2' 'fltk>=1.3.10,<1.4' 'gmp>=6.3,<7' 'libblas>=3.9,<4' \
-  'libglu>=9.0.3,<9.1' 'libjpeg-turbo>=3.2,<4' 'liblapack>=3.9,<4' \
-  'libmed=*=nompi_*' 'libmed>=4.2,<4.3' 'libpng>=1.6.58,<1.7' 'metis>=5.1,<5.1.1' \
-  'tinyxml2>=11,<11.1' 'voro>=0.4.6,<1' 'libgl>=1.7,<2' 'xorg-libxmu>=1.3.1,<2' \
-  xorg-libxrender xorg-libxfixes xorg-libxext xorg-libx11 fontconfig \
-  fonts-conda-ecosystem 'freeimage>=3.18,<3.19' freetype 'libexpat>=2.8.1,<3' \
-  rapidjson xorg-libxi xorg-libxt _openmp_mutex
-# then, @EXPLICIT with the sha256 from repodata.json, in this order:
-#   occt-8.0.1-novtk_h3d84f5b_101.conda
-#   gmsh-4.15.2-h3c388ce_9.conda
-conda install -y -p $G --file gmsh_explicit.txt
+conda create -y -p $G --override-channels -c realthunder -c conda-forge \
+  gmsh=4.15.2 'occt=8.0.1=novtk_*'
 $G/bin/gmsh -info | grep 'OCC version'            # 8.0.1
 ```
 
@@ -1138,10 +1131,11 @@ $G/bin/gmsh -info | grep 'OCC version'            # 8.0.1
 *** **Without a gmsh the transfinite tests pass and test nothing.**
 `test_GMSHTransfiniteAutomation` and `test_GMSHTransfiniteManual` catch `GmshError`
 and `pass`, so a box with no gmsh reports them OK and the suite count does not
-change. With gmsh 4.15.2 here both FAIL ("Generated mesh does not have the same Node
-locations as golden sample", 2 of 3998): they compare exact node positions with a
-stored sample, which the test's own comment warns can vary between gmsh versions.
-Not yet chased.
+change. Run the suite with `.conda/gmsh/bin` on `PATH`, or with the preference set.
+They are what found the default face maker renumbering a plain profile's edges (the
+commit that made `Part::FaceMakerUnified` the default, 2026-10-02): `Part.makeFace`
+of a triangle came back last edge first, a three-sided transfinite surface took
+another corner for its apex, and for a month no box with a real gmsh ran them.
 
 *** **Do not "fix" a FEM test failure before checking the build tree for stale
 files.** `fc_copy_sources` copies but never deletes, so a tree that once built

@@ -440,6 +440,82 @@ class TestSheetMetalFlange(unittest.TestCase):
             flange.Shape.Volume, 40 * 20 - 30 * 2 + 30 * RING + 30 * 8, places=6
         )
 
+    # The relief overridden per flange (sec 5.2, M2): ReliefShape "Rule"
+    # follows the rule, and ReliefWidth and ReliefDepth are read only then;
+    # another shape is the flange's own, its width and depth starting from
+    # the rule's and no longer following it. A tear is still the rule's Gap
+    # wide.
+
+    def testReliefOverride(self):
+        """A rectangle 2 wide, 0.5 deep, the rule's left as it is"""
+        flange = self.far(Gap1=5, Gap2=5)
+        self.assertEqual(flange.ReliefShape, "Rule")
+        self.assertIn("ReadOnly", flange.getPropertyStatus("ReliefWidth"))
+        self.assertIn("ReadOnly", flange.getPropertyStatus("ReliefDepth"))
+        flange.ReliefShape = "Rectangle"
+        self.assertNotIn("ReadOnly", flange.getPropertyStatus("ReliefWidth"))
+        self.assertAlmostEqual(flange.ReliefWidth.Value, 1)
+        self.assertAlmostEqual(flange.ReliefDepth.Value, 1)
+        flange.ReliefWidth = 2
+        flange.ReliefDepth = 0.5
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * 2 * 2.5 + 30 * RING + 30 * 8, places=6
+        )
+        self.assertAlmostEqual(flange.Rule.ReliefWidth.Value, 1)
+        self.assertAlmostEqual(flange.Rule.ReliefDepth.Value, 1)
+        self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
+
+    def testReliefOverrideIgnoresRule(self):
+        """Overridden, the flange's relief no longer follows the rule's
+        shape, width or depth; back to Rule, it does again"""
+        flange = self.far(Gap1=5, Gap2=5, ReliefShape="Obround")
+        rule = flange.Rule
+        rule.ReliefShape = "Tear"
+        rule.ReliefWidth = 3
+        rule.ReliefDepth = 2
+        self.Doc.recompute()
+        self.checkValid(flange)
+        relief = 1 * 2.5 + math.pi / 8
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * relief + 30 * RING + 30 * 8, places=6
+        )
+        flange.ReliefShape = "Rule"
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertIn("ReadOnly", flange.getPropertyStatus("ReliefWidth"))
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * 0.1 * 2 + 30 * RING + 30 * 8, places=6
+        )
+
+    def testReliefOverrideTear(self):
+        """A tear on the flange, the rule's a rectangle: the rule's Gap wide"""
+        flange = self.far(Gap1=5, Gap2=5, ReliefShape="Tear")
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, 40 * 20 - 30 * 2 - 2 * 0.1 * 2 + 30 * RING + 30 * 8, places=6
+        )
+        self.checkFlat(flange, 40, 18 + 1.5 * math.pi / 2 + 8)
+
+    def testReliefOverrideSaved(self):
+        """The override survives a save and reopen, read only status and all"""
+        flange = self.far(Gap1=5, Gap2=5, ReliefShape="Rectangle")
+        flange.ReliefWidth = 2
+        self.Doc.recompute()
+        volume = flange.Shape.Volume
+        path = os.path.join(tempfile.mkdtemp(), "relief.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        flange = self.Doc.getObject("Flange")
+        self.assertEqual(flange.ReliefShape, "Rectangle")
+        self.assertAlmostEqual(flange.ReliefWidth.Value, 2)
+        self.assertNotIn("ReadOnly", flange.getPropertyStatus("ReliefWidth"))
+        flange.touch()
+        self.Doc.recompute()
+        self.assertAlmostEqual(flange.Shape.Volume, volume, places=6)
+
     def testReliefNotNeeded(self):
         """No relief where nothing meets the bend's side: the bend starting
         at the wall's end (BendOutside), or the flange carried past the

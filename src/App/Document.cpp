@@ -1881,9 +1881,14 @@ void Document::logInverse(const Transaction& applied, const char* kind, const Co
     }
     else
         d->activeUndoTransaction->inheritDerived(applied);
+    // An inverse that wrote nothing -- a step of derived values only, taken
+    // back from the log, leaves them to recompute -- makes no row: taken
+    // the other way it has nothing to apply, not a row it lacks
+    bool unchanged = false;
     d->activeUndoTransaction->LogSeq =
         log->onCommit(*d->activeUndoTransaction, kind, Application::InvocationScope::current(),
-                      applied.LogSeq);
+                      applied.LogSeq, &unchanged);
+    d->activeUndoTransaction->Unchanged = unchanged;
 }
 
 App::Property* Document::addDynamicProperty(

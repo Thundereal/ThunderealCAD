@@ -3539,6 +3539,21 @@ taken -- through `TransactionGuard::afterTouches`, after what a guard
 still open sets. A refused undo puts the steps back and touches nothing.
 GUI test `td-undo-stored-projection.py`, the undo after the cache let go.
 
+### 24.16 An inverse that writes nothing (2026-11-01)
+
+A step taken back from the log does not restore its derived values; it
+touches their owners (24.1). A step of derived values only -- a TechDraw
+view's projection, derived since 10.2, written in an implicit step of its
+own -- is taken back by an inverse that writes nothing, and `onCommit`
+makes no row of an empty transaction: the step left on the other stack
+had seq 0, and taking it the other way was refused, "no log row". In
+`td-model-interleave.py` the page's redo of its format, from under the
+model's steps, stopped working once the projection was derived.
+
+`logInverse` passes `onCommit`'s `unchanged` on to the step, as
+`_commitTransaction` does: a step that changed nothing has nothing to
+apply, and is taken without a row (`Transaction::Unchanged`, 24.7).
+
 ## 25. Phase 7: crash recovery (design, 2026-09-25)
 
 Phase 7 as section 15 lists it is recovery *and* streaming; this section

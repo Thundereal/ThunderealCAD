@@ -226,6 +226,10 @@ fc_add_gui_test(GuiSketch3DWorkplanes_tests_run sketch3d-workplanes.py
 # Its curves each in its own colour in the edit, a curve after an arc too.
 fc_add_gui_test(GuiSketch3DCurveColours_tests_run sketch3d-curve-colours.py
                 --timeout 180)
+# Its dimension labels facing the eye from either side, a radius's and an
+# angle's too.
+fc_add_gui_test(GuiSketch3DLabelFacing_tests_run sketch3d-label-facing.py
+                --timeout 180)
 # Its corner fillet (S3c): the Sketcher's Fillet on two lines, on their corner
 # point and as a tool, its radius typed next, one undo step.
 fc_add_gui_test(GuiSketch3DFillet_tests_run sketch3d-fillet.py

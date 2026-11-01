@@ -804,20 +804,24 @@ double huntCrossley(double restitution)
 // How profileTouches() found a profile contact's point, to find it again
 // with the bodies moved (ContactHandover's ProfileFollow::place()): at an
 // arc of A's or B's ('at'), its point farthest across a line of the
-// other's ('across'), the other point the nearest on that line. None for
-// the others, not found again (profileTouches()). 'pair', the profiles'
-// pair of faces.
+// other's ('across'), the other point the nearest on that line; or at an
+// arc of A's against one of B's (ArcArc), each point on the line of their
+// centres, 'sides' the signs along it, from A's centre to B's, of A's point
+// from its centre, B's from its, and the normal. None for the others, not
+// found again (profileTouches()). 'pair', the profiles' pair of faces.
 struct ProfileFound
 {
     enum class Kind
     {
         None,
         ArcA,
-        ArcB
+        ArcB,
+        ArcArc
     };
     Kind kind = Kind::None;
     const void* at = nullptr;
     const void* across = nullptr;
+    std::array<double, 3> sides {1.0, 1.0, 1.0};
     std::size_t pair = 0;
 };
 
@@ -1531,21 +1535,38 @@ void profileTouches(const Profile2& a,
     };
     using Kind = ProfileFound::Kind;
     // How a point was found, for following it within a substep: an arc's
-    // farthest point across a line, only where the other's nearest is on
-    // that line -- not at a corner, or on a piece beside it, from which
-    // that point is not the farthest. Not a corner's: a point of its
-    // material, exact on its side; followed with the arcs, against the
-    // nearest on the other's piece, a Geneva drive's second turn ran its
-    // Newton iterations off (each alone did not; the cause not found).
-    // Not an arc's against an arc (profileTouches()).
-    auto followed = [](ProfileFound found, const OnProfile& y) {
+    // farthest point across a line, or an arc's against an arc on the line
+    // of their centres ('centres', the two arcs'; the sides it was found on
+    // kept), only where the other's nearest is on that line or arc -- not
+    // at a corner, or on a piece beside it, from which that point is not
+    // the one. Not a corner's: a point of its material, exact on its side;
+    // followed with the arcs, against the nearest on the other's piece, a
+    // Geneva drive's second turn ran its Newton iterations off (each alone
+    // did not; the cause not found).
+    auto followed = [](ProfileFound found,
+                       const OnProfile& y,
+                       V2 x,
+                       V2 normal,
+                       const std::array<V2, 2>& centres) {
         if (y.pieces[1] || y.pieces[0] != found.across) {
             found.kind = Kind::None;
+        }
+        if (found.kind == Kind::ArcArc) {
+            const V2 u = centres[1] - centres[0];
+            auto sign = [](double v) {
+                return v < 0.0 ? -1.0 : 1.0;
+            };
+            found.sides = {sign(dot(x - centres[0], u)),
+                           sign(dot(y.point - centres[1], u)),
+                           sign(dot(normal, u))};
         }
         return found;
     };
     // A's point x against B: in B, or within the envelope of it
-    auto fromA = [&](V2 x, std::array<const void*, 2> pieces, const ProfileFound& found) {
+    auto fromA = [&](V2 x,
+                     std::array<const void*, 2> pieces,
+                     const ProfileFound& found,
+                     const std::array<V2, 2>& centres = {}) {
         const OnProfile y = nearestOn(b, x);
         const V2 d = x - y.point;
         const double signedDistance = dot(d, y.normal);
@@ -1554,7 +1575,8 @@ void profileTouches(const Profile2& a,
         }
         // Out of B where they meet, exactly along x - y off a corner
         const V2 out = norm(d) > 1e-12 ? unit(d) * (signedDistance < 0.0 ? -1.0 : 1.0) : y.normal;
-        keep({x, y.point, out * -1.0, pieces, y.pieces, followed(found, y)});
+        keep(
+            {x, y.point, out * -1.0, pieces, y.pieces, followed(found, y, x, out * -1.0, centres)});
     };
     // B's point x against A, the same way round
     auto fromB = [&](V2 x, std::array<const void*, 2> pieces, const ProfileFound& found) {
@@ -1565,7 +1587,7 @@ void profileTouches(const Profile2& a,
             return;
         }
         const V2 out = norm(d) > 1e-12 ? unit(d) * (signedDistance < 0.0 ? -1.0 : 1.0) : y.normal;
-        keep({y.point, x, out, y.pieces, pieces, followed(found, y)});
+        keep({y.point, x, out, y.pieces, pieces, followed(found, y, x, out, {})});
     };
     auto near = [&](V2 x, const Profile2& other) {
         return x.x > other.low[0] - envelope && x.x < other.high[0] + envelope
@@ -1597,21 +1619,14 @@ void profileTouches(const Profile2& a,
                     }
                 }
                 else {
-                    // On the line of the centres, either way. Not followed
-                    // within a substep (Kind::None): a Geneva drive's pin
-                    // striking its slot's mouth, so followed against the
-                    // wheel's arcs, ran its Newton iterations off -- 13 mm
-                    // deep, steps of 6 ns, its wheel left behind. Most such
-                    // pairs are a pin in a hollow of nearly its radius, on
-                    // all of it at once, whose material points' error as
-                    // they slide, (slip h)^2 times their curvatures'
-                    // difference, is nearly none.
+                    // On the line of the centres, either way
                     const V2 c = q.centre - p.centre;
+                    const ProfileFound found {Kind::ArcArc, p.key, q.key};
                     if (farthestOn(p, c, x)) {
-                        fromA(x, {p.key, nullptr}, {});
+                        fromA(x, {p.key, nullptr}, found, {p.centre, q.centre});
                     }
                     if (farthestOn(p, c * -1.0, x)) {
-                        fromA(x, {p.key, nullptr}, {});
+                        fromA(x, {p.key, nullptr}, found, {p.centre, q.centre});
                     }
                 }
             }
@@ -6177,7 +6192,9 @@ Status ChronoSession::simulateDynamics(
             // A point found again with the bodies at a and b, the way it was
             // found (ProfileFound): the arc's point farthest across the line
             // (farthestOnOrEnd()), the nearest on the line (nearestOnLine()),
-            // the normal the line's outward one. Not looked for again among
+            // the normal the line's outward one; or two arcs' on the line of
+            // their centres, each on its side, the normal along it. Not
+            // looked for again among
             // the other pieces within a substep: one leaving its pieces is
             // held at their ends, smoothly -- left behind as collision
             // detection found it, the force jumped within Newton's
@@ -6207,6 +6224,25 @@ Status ChronoSession::simulateDynamics(
                 auto pieceB = [&](const void* key) {
                     return pieceIn(*static_cast<const ProfilePiece*>(key), into, mirrored);
                 };
+                if (found.kind == Kind::ArcArc) {
+                    // Each on the line of the centres, on the side it was
+                    // found
+                    const Profile2::Piece p = pieceA(found.at);
+                    const Profile2::Piece q = pieceB(found.across);
+                    const V2 u = unit(q.centre - p.centre);
+                    if (!known || norm(u) == 0.0) {
+                        return;
+                    }
+                    put(bodyA,
+                        bodyB,
+                        fa,
+                        height(into),
+                        farthestOnOrEnd(p, u * found.sides[0]),
+                        farthestOnOrEnd(q, u * found.sides[1]),
+                        u * found.sides[2],
+                        point);
+                    return;
+                }
                 // The arc's point farthest across the line, into its side;
                 // the nearest on the line, and its outward normal there
                 const bool onA = found.kind == Kind::ArcA;

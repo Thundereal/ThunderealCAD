@@ -1875,6 +1875,55 @@ Phase D1 is under way (2026-10-28):
     peak lay between frames as the substeps fell).
   - Not yet: an arc against an arc followed (a roller on a cam's arcs);
     a corner against a curved piece; the cause of the corners' run-off.
+    (An arc against an arc: built, below.)
+- Built: a profile contact's arc against an arc followed within a substep
+  (the "not yet" above): a roller on a cam's arc, a pin in a hole.
+  - Measured first: the disk cam under a roller of 5 mm on the slider, as
+    a profile contact, its force along the slider m (g + y''), y = E sin
+    theta + sqrt((R + r)^2 - (E cos theta)^2): 2.3% high at every frame,
+    smooth -- the damping's half of the fault, larger than the flat
+    face's 0.85% as the relative curvature, 1/R + 1/r, is five times
+    the flat's 1/R. A bar hung by a hole of 3.005 mm on a grounded pin of
+    3 mm, swinging from 30 deg frictionless: its swing died down, 30 to
+    29.93 deg over four swings, the law's damping reading the points'
+    slide off the arcs as an approach; its force rough, 250 mN frame to
+    frame on a 180 mN load at an output step of 1 ms.
+  - The run (ChronoBackend): profileTouches() keeps an arc of A's against
+    one of B's as `ProfileFound::Kind::ArcArc`, with the sides of the line
+    of the centres each point and the normal were found on (`sides`);
+    `ProfileFollow::place()` puts each on that line at the state, held at
+    its arc's end past it (farthestOnOrEnd()), the normal along it.
+  - Why it now holds where it ran off before (the "not followed" above):
+    tried again alone, on the arcs-against-lines follow as it stands, the
+    Geneva drive's two turns at both output steps are bit for bit the
+    same as without it -- its arcs touch the other's arcs only at corners
+    or past the arcs' reach, which are not followed -- so the run-off was
+    the dropped-back points and the reading off ends, since replaced. The
+    pin in a hole, the line of the centres 0.005 to 0.06 mm long and
+    turning as fast as the bar swings, stays smooth: holes of 3.0002,
+    3.005, 3.05 and 3.5 mm all run, the force rougher without it at each
+    (7, 40, 59 and 1546 mN frame to frame without, 0.5, 1.6, 14 and 532
+    with, the last bouncing in its hole).
+  - Tests (TestProfileContact): test_disk_cam_roller_follower, the
+    force along the slider m (g + y'') at every frame past 45 deg to 1e-3
+    (9.1e-5 measured; 2.3% before), its lean the pressure angle
+    asin(E cos theta / (R + r)) to 0.01 deg (0.006: the roller sinks the
+    law's allowance); test_pin_in_hole_pendulum, the bar at every turn of
+    its first second at 30 deg to 0.01 (0.0033 measured; 0.018 at the
+    second turn before). TestAssemblyWorkbench 579 OK, 88 skipped. In the
+    manual's video (`assembly/simulation/profile-roller`) a roller of 5 mm
+    on a stem: within 0.0091% of m (g + y'') past 45 deg, a frame here and
+    there flicking that far, and the lean within 0.0058 deg.
+  - Found on the way, not this change's: a part held only by profile
+    contacts tips out of their plane. The bar on its pin, free, tilted
+    from round-off, 1e-14 rad at 0.1 s, about tenfold each 0.1 s, until
+    at 1.4 s it left the pin and flew off -- with the points followed or
+    fixed. The force acts at the middle of where the two solids overlap
+    through the plane, which moves with the part's height, and nothing
+    stiffens its tilt; a real pin's contact along its length would. The
+    tests hold the bar with a parallel joint.
+  - Not yet: a corner against a curved piece; the cause of the corners'
+    run-off; a part on profile contacts alone kept in their plane.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

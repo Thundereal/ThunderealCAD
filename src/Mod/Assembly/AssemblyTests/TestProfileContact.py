@@ -13,6 +13,8 @@ import JointObject
 G = 9806.65  # mm/s^2
 DENSITY = 2.7e-6  # kg/mm^3, the default aluminium
 ALLOWANCE = 0.01  # mm, a new contact's allowed penetration
+# The disk cam: its centre off its axis, its radius (mm), its rate (rad/s)
+CAM_E, CAM_RADIUS, CAM_RATE = 6.0, 20.0, 10.0
 
 
 def plc(x=0.0, y=0.0, z=0.0):
@@ -224,16 +226,85 @@ class TestProfileContact(unittest.TestCase):
         line under it, the force was up to 1.9% off and 0.85% high on
         average: low through the long substeps a resting contact takes,
         which no frame sees, and ringing after them."""
-        e, radius, rate = 6.0, 20.0, 10.0
+        block = self.assembly.newObject("Part::Box", "Block")
+        block.Length, block.Width, block.Height = 60, 10, 10
+        block.Placement.Base = App.Vector(-30, CAM_RADIUS, 0)
+        self.ride_disk_cam(block, App.Vector(30, 0, 10), lambda theta: CAM_RADIUS, "flat")
+
+    def test_disk_cam_roller_follower(self):
+        """The same disk cam under a roller of 5 mm on the slider, fixed to
+        it: an arc against an arc. The force is along the line of the
+        centres, leaning off the slider by the pressure angle
+        asin(E cos theta / (R + r)); along the slider it is m (g + y''),
+        y = E sin theta + sqrt((R + r)^2 - (E cos theta)^2): to 1e-3 at
+        every frame past 45 deg, and the lean to 0.01 deg."""
+        r = 5.0
+        reach = CAM_RADIUS + r
+
+        def height(theta):
+            return math.sqrt(reach**2 - (CAM_E * math.cos(theta)) ** 2)
+
+        roller = self.disc(0, height(0), r)
+        self.ride_disk_cam(roller, App.Vector(0, 0, 10), height, "roller", reach)
+
+    def test_pin_in_hole_pendulum(self):
+        """A bar hung by a hole of 3.005 mm on a grounded pin of 3 mm, let go
+        at 30 deg, gravity in the plane, frictionless: an arc in a hollow of
+        nearly its radius, the contact sliding round both as it swings. It
+        loses nothing: at every turn it stands at 30 deg, to 0.01 deg. With
+        the points fixed through each substep, the law's damping read their
+        slide off the arcs as an approach, and the swing died down, 0.045
+        deg in a second. A parallel joint keeps it in its plane: a profile
+        contact gives it nothing against tipping."""
+        import Part
+
+        pin = self.plate(Part.makeCylinder(3.0, 10))
+        bar = self.assembly.newObject("Part::Feature", "Bar")
+        shape = Part.makeBox(10, 60, 10, App.Vector(-5, -55, 0))
+        bar.Shape = shape.cut(Part.makeCylinder(3.005, 10)).removeSplitter()
+        bar.Placement = App.Placement(App.Vector(), App.Rotation(App.Vector(0, 0, 1), 30))
+        flat = self.joints.newObject("App::FeaturePython", "Parallel")
+        JointObject.Joint(flat, JointObject.JointTypes.index("Parallel"))
+        flat.Detach1 = True
+        flat.Detach2 = True
+        flat.Reference1 = (pin, ["Face2"])
+        flat.Reference2 = (bar, ["Face1"])
+        flat.Placement1 = plc(0, 0, 10)
+        flat.Placement2 = plc(0, -20, 10)
+        contact = self.contact(pin, 10, bar, 10, Restitution=0.5)
+        self.assertEqual(self.simulate(contact, 1.0, 1e-3), 0)
+        angles = []
+        for k in range(self.assembly.numberOfFrames()):
+            r = self.at(bar, k).Rotation
+            angles.append(math.degrees(r.Angle) * (1 if r.Axis.z >= 0 else -1))
+        turns = [
+            abs(angles[k])
+            for k in range(1, len(angles) - 1)
+            if (angles[k] - angles[k - 1]) * (angles[k + 1] - angles[k]) < 0
+        ]
+        self.assertGreaterEqual(len(turns), 5)
+        for k, turn in enumerate(turns):
+            self.assertAlmostEqual(turn, 30.0, delta=0.01, msg=k)
+        App.Console.PrintMessage(
+            "Pin in a hole: %d turns within %.3g deg of 30\n"
+            % (len(turns), max(abs(t - 30.0) for t in turns))
+        )
+
+    def ride_disk_cam(self, follower, at_follower, height, name, reach=None):
+        """The disk cam (CAM_E, CAM_RADIUS) at the origin turning once at
+        CAM_RATE, the follower on a slider along y through x = 0 riding it
+        under gravity, at_follower its point on that line in its own frame.
+        The follower's centre or face is height(theta) above the cam's
+        centre. Its contact force along the slider is m (g + y''), to 1e-3
+        past 45 deg; with 'reach', the distance of the centres, it leans off
+        the slider by the pressure angle, to 0.01 deg."""
+        e, rate = CAM_E, CAM_RATE
         base = self.assembly.newObject("Part::Box", "Base")
         base.Length, base.Width, base.Height = 100, 100, 5
         base.Placement.Base = App.Vector(-50, -50, -5)
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
         JointObject.GroundedJoint(ground, base)
-        cam = self.disc(e, 0, radius)
-        block = self.assembly.newObject("Part::Box", "Block")
-        block.Length, block.Width, block.Height = 60, 10, 10
-        block.Placement.Base = App.Vector(-30, radius, 0)
+        cam = self.disc(e, 0, CAM_RADIUS)
         along_y = App.Rotation(App.Vector(1, 0, 0), -90)
 
         def joint(kind, part, at_base, at_part):
@@ -250,27 +321,40 @@ class TestProfileContact(unittest.TestCase):
         axle = joint("Revolute", cam, plc(50, 50, 5), plc(-e, 0, 0))
         joint(
             "Slider",
-            block,
+            follower,
             App.Placement(App.Vector(50, 50, 15), along_y),
-            App.Placement(App.Vector(30, 0, 10), along_y),
+            App.Placement(at_follower, along_y),
         )
-        contact = self.contact(cam, 10, block, 10)
+        contact = self.contact(cam, 10, follower, 10)
         turn = 2 * math.pi / rate
         self.assertEqual(
             self.simulate(contact, turn, turn / 240, motion=(axle, "%g*time" % rate)), 0
         )
-        mass = block.Shape.Volume * DENSITY
+        mass = follower.Shape.Volume * DENSITY
+
+        def y(theta):
+            return e * math.sin(theta) + height(theta)
+
+        step = 1e-3
         forces = self.channel("ContactForce")
-        worst = 0.0
+        worst = worst_lean = 0.0
         for k, t in enumerate(self.assembly.getSimulationResults()["Times"]):
             theta = rate * t
             if theta < math.radians(45):
                 continue
-            want = mass * (G - e * rate * rate * math.sin(theta))
-            self.assertAlmostEqual(forces[k].Length / want, 1.0, delta=1e-3, msg=(k, theta))
-            worst = max(worst, abs(forces[k].Length / want - 1.0))
+            curve = (y(theta + step) - 2 * y(theta) + y(theta - step)) / step**2
+            want = mass * (G + curve * rate * rate)
+            along = abs(forces[k].y)
+            self.assertAlmostEqual(along / want, 1.0, delta=1e-3, msg=(k, theta))
+            worst = max(worst, abs(along / want - 1.0))
+            if reach is not None:
+                lean = math.degrees(math.atan2(abs(forces[k].x), along))
+                angle = math.degrees(math.asin(e * abs(math.cos(theta)) / reach))
+                self.assertAlmostEqual(lean, angle, delta=0.01, msg=(k, theta))
+                worst_lean = max(worst_lean, abs(lean - angle))
         App.Console.PrintMessage(
-            "Profile disk cam: the force within %.3g of m (g + y'')\n" % worst
+            "Profile disk cam, %s: the force within %.3g of m (g + y''), the lean %.3g deg\n"
+            % (name, worst, worst_lean)
         )
 
     def faces(self, obj, z):

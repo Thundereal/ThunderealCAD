@@ -509,6 +509,40 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         self.assertEqual([e[0] for e in layers["INNER"]], ["circle"])
         self.assertAlmostEqual(float(layers["INNER"][0][1]["r"]), 2, places=6)
 
+    def testSVGArcs(self):
+        """An obround slot's two half circles bulge out of it, as cut: the
+        arcs drawn the way round they go, looking down with Y up"""
+        wall = self.wall([(0, 0), (40, 0), (40, 20), (0, 20)], closed=True)
+        sketch = self.Body.newObject("Sketcher::SketchObject", "SlotSketch")
+        half = math.pi / 2
+        sketch.addGeometry(Part.ArcOfCircle(Part.Circle(V(10, 10, 0), V(0, 0, 1), 3), half, 3 * half))
+        sketch.addGeometry(Part.ArcOfCircle(Part.Circle(V(20, 10, 0), V(0, 0, 1), 3), -half, half))
+        sketch.addGeometry(Part.LineSegment(V(10, 13, 0), V(20, 13, 0)))
+        sketch.addGeometry(Part.LineSegment(V(10, 7, 0), V(20, 7, 0)))
+        pocket = self.Body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = sketch
+        pocket.Type = "ThroughAll"
+        pocket.Midplane = True
+        self.Doc.recompute()
+        flat = self.flat(pocket)
+        layers, root = self.exportSVG(flat)
+        arcs = [e[1]["d"] for e in layers["INNER"] if e[0] == "path"]
+        self.assertEqual(len(arcs), 2)
+        # where the slot's straight sides are in the flat
+        sides = [e for e in layers["INNER"] if e[0] == "line"]
+        xs = [float(e[1][k]) for e in sides for k in ("x1", "x2")]
+        lo, hi = min(xs), max(xs)
+        for d in arcs:
+            # "M x0 y0 A r r 0 large sweep x1 y1", a half circle
+            parts = d.replace("M", "").replace("A", "").split()
+            x0, y0, x1, y1 = (float(parts[i]) for i in (0, 1, 7, 8))
+            sweep = int(parts[6])
+            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+            dx, dy = x0 - cx, y0 - cy
+            # a positive sweep turns from +x toward +y in the SVG's own frame
+            mx, my = (cx - dy, cy + dx) if sweep else (cx + dy, cy - dx)
+            self.assertTrue(mx < lo - 1 or mx > hi + 1, (d, lo, hi, mx))
+
     def testSaveAndRestore(self):
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
         flat = self.flat(wall)

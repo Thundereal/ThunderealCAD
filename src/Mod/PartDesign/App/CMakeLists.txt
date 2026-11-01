@@ -168,6 +168,8 @@ SET(SheetMetal_SRCS
     SheetMetal/Model.h
     SheetMetal/Pieces.cpp
     SheetMetal/Pieces.h
+    SheetMetal/Svg.cpp
+    SheetMetal/Svg.h
     FeatureSheetMetalRule.cpp
     FeatureSheetMetalRule.h
     FeatureSheetMetalBaseWall.cpp

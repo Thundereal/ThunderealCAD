@@ -50,6 +50,22 @@ PyObject* SheetMetalFlatPatternPy::exportDXF(PyObject* args) const
     PY_CATCH
 }
 
+PyObject* SheetMetalFlatPatternPy::exportSVG(PyObject* args) const
+{
+    char* path;
+    if (!PyArg_ParseTuple(args, "et", "utf-8", &path)) {
+        return nullptr;
+    }
+    const std::string name(path);
+    PyMem_Free(path);
+    PY_TRY
+    {
+        getSheetMetalFlatPatternPtr()->exportSVG(name.c_str());
+        Py_Return;
+    }
+    PY_CATCH
+}
+
 PyObject* SheetMetalFlatPatternPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

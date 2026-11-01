@@ -30,6 +30,7 @@
 #include <vector>
 
 #include <TopoDS_Edge.hxx>
+#include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 
 #include <Mod/PartDesign/PartDesignGlobal.h>
@@ -83,5 +84,11 @@ PartDesignExport FlatResult flatten(const TopoDS_Shape& folded, const Model& mod
  * lines of its head at the end it points to
  */
 PartDesignExport std::vector<TopoDS_Edge> grainArrow(const TopoDS_Shape& solid, double angle);
+
+/** The faces of a flat solid on XY, the faces of one element each merged
+ * where they lie in one plane: what a DXF or an SVG draws. Throws
+ * Base::ValueError for a flat with no face on XY.
+ */
+PartDesignExport std::vector<TopoDS_Face> facesOnXY(const TopoDS_Shape& solid);
 
 }  // namespace PartDesign::SheetMetal

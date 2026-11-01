@@ -49,6 +49,7 @@
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Dxf.h"
 #include "SheetMetal/Flat.h"
+#include "SheetMetal/Svg.h"
 #include "SheetMetalFlatPatternPy.h"
 #include "SheetMetalExtension.h"
 
@@ -286,6 +287,18 @@ void SheetMetalFlatPattern::exportDXF(const char* path) const
         FC_THROWM(Base::FileException, "Cannot write " << path);
     }
     SheetMetal::writeDXF(out, flat, TangentLines.getValue());
+}
+
+void SheetMetalFlatPattern::exportSVG(const char* path) const
+{
+    SheetMetalExtension* sheet = nullptr;
+    const auto flat = buildFlat(sheet);
+    Base::FileInfo fi(path);
+    Base::ofstream out(fi, std::ios::out | std::ios::trunc);
+    if (!out) {
+        FC_THROWM(Base::FileException, "Cannot write " << path);
+    }
+    SheetMetal::writeSVG(out, flat, TangentLines.getValue());
 }
 
 PyObject* SheetMetalFlatPattern::getPyObject()

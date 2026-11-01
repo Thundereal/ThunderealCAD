@@ -29,11 +29,9 @@
 #include <numbers>
 
 #include <BRepAdaptor_Curve.hxx>
-#include <BRepAdaptor_Surface.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
-#include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -51,8 +49,6 @@ namespace PartDesign::SheetMetal
 
 namespace
 {
-
-constexpr double flatTol = 1e-6;
 
 struct Writer
 {
@@ -138,29 +134,7 @@ struct Writer
 
 void writeDXF(std::ostream& out, const FlatResult& flat, bool tangents)
 {
-    // the faces of one element each, merged where they lie in one plane
-    ShapeUpgrade_UnifySameDomain unify(flat.solid, true, true, false);
-    unify.Build();
-    const TopoDS_Shape merged = unify.Shape();
-
-    std::vector<TopoDS_Face> bottom;
-    for (TopExp_Explorer it(merged, TopAbs_FACE); it.More(); it.Next()) {
-        const TopoDS_Face& face = TopoDS::Face(it.Current());
-        BRepAdaptor_Surface s(face);
-        if (s.GetType() != GeomAbs_Plane) {
-            continue;
-        }
-        bool onXY = true;
-        for (TopExp_Explorer v(face, TopAbs_VERTEX); v.More() && onXY; v.Next()) {
-            onXY = std::abs(BRep_Tool::Pnt(TopoDS::Vertex(v.Current())).Z()) < flatTol;
-        }
-        if (onXY) {
-            bottom.push_back(face);
-        }
-    }
-    if (bottom.empty()) {
-        THROWM(Base::ValueError, "The flat has no face on XY");
-    }
+    const std::vector<TopoDS_Face> bottom = facesOnXY(flat.solid);
 
     Writer w {out};
     w.pair(0, "SECTION");

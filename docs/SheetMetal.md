@@ -750,7 +750,14 @@ and not frozen.
     lines on the flat's top through its middle, named `Grain`, `GrainHead1`, `GrainHead2`, and on
     the layer `GRAIN` in the DXF. Tested by `testAlignEdge`, `testAlignEdgeNotStraight`,
     `testGrain`.
-  - Still to come in M1: the SVG.
+  - The SVG (`SheetMetal::writeSVG()`, `exportSVG(path)`; the command Export Flat... offers DXF
+    or SVG): the DXF's layers as groups of the same names, Inkscape layers, one with nothing on it
+    left out; as large as the flat, in mm, looking down on it with Y up; lines, circles and arcs as
+    they are, other curves as polylines. The faces on XY that both draw come from one function,
+    `facesOnXY()`. Tested by `testSVG`, `testSVGHole`, `testSVGArcs` (the last written when a
+    rendering showed a slot's half circles bulging into it: turning Y to run down turns SVG's
+    sweep too). Qt's own SVG renderer drops text of a small user-unit size at some scales, so a
+    label can be missing in a Qt view of the file; Chrome and Inkscape draw it.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

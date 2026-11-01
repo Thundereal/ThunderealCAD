@@ -19,7 +19,16 @@
 
 Write the flat as DXF R12: the outline on the layer OUTLINE, the inner
 contours on INNER, the bend lines on BEND_UP and BEND_DOWN, each labelled with
-its bend's name on LABELS.</UserDocu>
+its bend's name on LABELS; with TangentLines each bend's tangent lines on
+BEND_TANGENT, with Grain the grain arrow on GRAIN.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="exportSVG" Const="true">
+      <Documentation>
+        <UserDocu>exportSVG(path)
+
+Write the flat as SVG, in mm, looking down on it: the DXF's layers as groups
+(Inkscape layers) of the same names.</UserDocu>
       </Documentation>
     </Methode>
   </PythonExport>

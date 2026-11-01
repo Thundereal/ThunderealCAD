@@ -354,9 +354,10 @@ CmdPartDesignSheetMetalExportDXF::CmdPartDesignSheetMetalExportDXF()
 {
     sAppModule = "PartDesign";
     sGroup = QT_TR_NOOP("PartDesign");
-    sMenuText = QT_TR_NOOP("Export Flat to DXF...");
-    sToolTipText = QT_TR_NOOP("Writes the selected flat pattern as DXF: the outline, the inner\n"
-                              "contours, and the bend lines up and down on layers of their own");
+    sMenuText = QT_TR_NOOP("Export Flat...");
+    sToolTipText = QT_TR_NOOP("Writes the selected flat pattern as DXF or SVG: the outline,\n"
+                              "the inner contours, and the bend lines up and down on layers\n"
+                              "of their own");
     sWhatsThis = "PartDesign_SheetMetalExportDXF";
     sStatusTip = sToolTipText;
     sPixmap = "PartDesign_SheetMetalExportDXF";
@@ -382,16 +383,27 @@ void CmdPartDesignSheetMetalExportDXF::activated(int iMsg)
     if (!flat) {
         return;
     }
-    const QString path = Gui::FileDialog::getSaveFileName(
+    const QString svg = QStringLiteral("SVG (*.svg)");
+    QString filter;
+    QString path = Gui::FileDialog::getSaveFileName(
         Gui::getMainWindow(),
-        QObject::tr("Export Flat to DXF"),
+        QObject::tr("Export Flat"),
         QString::fromUtf8(flat->Label.getValue()) + QStringLiteral(".dxf"),
-        QStringLiteral("DXF (*.dxf)"));
+        QStringLiteral("DXF (*.dxf);;") + svg,
+        &filter);
     if (path.isEmpty()) {
         return;
     }
+    // by the name's suffix, else by the filter chosen
+    const bool asSVG = path.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive)
+        || (filter == svg && !path.endsWith(QStringLiteral(".dxf"), Qt::CaseInsensitive));
+    if (asSVG && !path.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".svg");
+    }
     const std::string file = Base::Tools::escapeEncodeFilename(path.toStdString());
-    Gui::cmdAppObject(flat, std::ostringstream() << "exportDXF(\"" << file << "\")");
+    Gui::cmdAppObject(flat,
+                      std::ostringstream() << (asSVG ? "exportSVG" : "exportDXF") << "(\"" << file
+                                           << "\")");
 }
 
 bool CmdPartDesignSheetMetalExportDXF::isActive()

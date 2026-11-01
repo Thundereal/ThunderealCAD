@@ -91,6 +91,8 @@ public:
 
     /// Write the flat as DXF (SheetMetal::writeDXF()); throws on failure
     void exportDXF(const char* path) const;
+    /// Write the flat as SVG (SheetMetal::writeSVG()); throws on failure
+    void exportSVG(const char* path) const;
 
 private:
     /// The flat of Source from RootFace, the folded part in folded if given;

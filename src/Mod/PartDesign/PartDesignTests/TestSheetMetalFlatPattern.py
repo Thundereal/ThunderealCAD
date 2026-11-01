@@ -175,6 +175,60 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         self.checkFlat(flat, 19 + ba() + 9, 25)
         self.assertEqual(self.Body.Tip, wall)
 
+    def foldedFace(self, flat, folded, i):
+        """The folded face, by index, that the flat's Face<i> is named after"""
+        name = flat.Shape.ElementReverseMap.get("Face%d" % i)
+        self.assertTrue(name, "the flat's Face%d has no name" % i)
+        history = flat.Shape.getElementHistory(name)
+        self.assertIsNotNone(history, name)
+        source = folded.getElementIndexedName(history[1])
+        self.assertTrue(source.startswith("Face"), (name, history))
+        return int(source[4:])
+
+    def testFacesNamedAfterFolded(self):
+        """Each face of the flat is named after the folded face it lays out:
+        one for one, a wall's of the same area, the wall's ends by their
+        roles"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+        flat = self.flat(wall)
+        solid = self.solid(flat)
+        folded = wall.Shape
+        sources = [self.foldedFace(flat, folded, i) for i in range(1, len(solid.Faces) + 1)]
+        self.assertEqual(sorted(sources), list(range(1, len(folded.Faces) + 1)))
+        roles = folded.ElementReverseMap
+        for i, j in enumerate(sources, 1):
+            role = roles.get("Face%d" % j, "")
+            if role.startswith("Wall1Start") or role.startswith("Wall2End"):
+                self.assertAlmostEqual(solid.Faces[i - 1].Area, folded.Faces[j - 1].Area, places=6)
+
+    def testFaceReferenceFollows(self):
+        """A reference to a face of the flat, by its name, follows the part
+        when it is edited"""
+        wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+        flat = self.flat(wall)
+        # the face the second wall's end lays out to, at the flat's far end
+        roles = wall.Shape.ElementReverseMap
+        end = [
+            i
+            for i in range(1, len(flat.Shape.Faces) + 1)
+            if roles.get("Face%d" % self.foldedFace(flat, wall.Shape, i), "").startswith("Wall2End")
+        ]
+        self.assertEqual(len(end), 1)
+        name = flat.Shape.getElementMappedName("Face%d" % end[0])
+        self.assertTrue(name)
+        wall.Length = 25
+        self.Doc.recompute()
+        face = flat.Shape.getElement(flat.Shape.getElementIndexedName(name))
+        # across the thickness and the new length, on the flat's edge
+        self.assertAlmostEqual(face.Area, 25, places=6)
+        box = self.solid(flat).BoundBox
+        c = face.CenterOfMass
+        self.assertTrue(
+            min(abs(c.x - box.XMin), abs(c.x - box.XMax), abs(c.y - box.YMin), abs(c.y - box.YMax))
+            < 1e-6,
+            (c, box),
+        )
+
     def testFaceNotOwned(self):
         """A face no wall or bend owns says which"""
         wall = self.wall([(0, 0), (20, 0), (20, 10), (0, 10)], closed=True)

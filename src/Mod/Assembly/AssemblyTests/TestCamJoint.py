@@ -532,6 +532,78 @@ class TestCamJoint(CamMechanism, JointTestBase):
                     if c["Object"] == lifted}
         self.assertIn("CamPressureAngle", channels)
 
+    def ride_on_gravity(self, roller, rate):
+        """The disk cam turning once at rate, a cam contact holding the
+        follower on it under gravity down the slider, 200 frames: returns
+        the results, the contact's channels by quantity, and the follower"""
+        import CommandCreateContact
+
+        self.tearDown()
+        self.setUp()
+        cam, rev, f = self.disk_mechanism(roller)
+        joint = [
+            o
+            for o in self.assembly.getGroup("Joints").Group
+            if getattr(o, "JointType", None) == "Cam"
+        ][0]
+        lifted = CommandCreateContact.newCamContact(self.assembly, joint)
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.Gravity = App.Vector(0, -9806.65, 0)
+        turn = 2 * math.pi / rate
+        sim.TimeEnd = turn
+        sim.TimeStepOutput = turn / 200
+        sim.Elements = [lifted]
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = rev
+        motion.MotionType = "Angular"
+        motion.Formula = "%g*time" % rate
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        mine = {c["Quantity"]: c["Values"] for c in results["Channels"] if c["Object"] == lifted}
+        return results, mine, f
+
+    def test_cam_contact_force(self):
+        """A cam contact's force is the one the follower's motion needs
+        (docs/AssemblyDynamics.md sec 8.5): the disk cam turning at 10 rad/s,
+        the follower held on it by gravity down the slider, frictionless, so
+        the force along the slider, |F| cos(pressure angle), is m (g + y'')
+        to 1e-3 at every frame past the first 20 ms (the follower starts
+        touching unloaded, and settles). Its point found on the curve once
+        a substep, fixed on the cam through it, the follower sliding under
+        it, a substep at rest of 0.9 ms took it 4% deep, and the force was
+        up to 6% off, in bumps every five of the contact's periods"""
+        if "Chrono" not in self.backends():
+            self.skipTest("the Chrono backend is not built")
+        rate = 10.0
+        g = 9806.65
+        for roller in (0.0, ROLLER):
+            with self.subTest(roller=roller):
+                results, mine, f = self.ride_on_gravity(roller, rate)
+                # The default material's density, kg/mm^3 (MassProperties)
+                mass = f.Shape.Volume * 2.7e-6
+                worst = 0.0
+                for k, t in enumerate(results["Times"]):
+                    if t < 0.02:
+                        continue
+                    theta = rate * t
+                    e = 1e-4
+                    bend = (
+                        disk_lift(theta + e, roller)
+                        - 2 * disk_lift(theta, roller)
+                        + disk_lift(theta - e, roller)
+                    ) / (e * e)
+                    want = mass * (g + bend * rate * rate)
+                    lean = math.asin(CAM_E * math.cos(theta) / (CAM_R + roller))
+                    along = mine["ContactForce"][k].Length * math.cos(lean)
+                    self.assertAlmostEqual(along / want, 1.0, delta=1e-3, msg=(k, theta))
+                    worst = max(worst, abs(along / want - 1.0))
+                App.Console.PrintMessage(
+                    "Cam contact force within %.3g of m (g + y''), roller %g\n" % (worst, roller)
+                )
+
     def test_cam_pressure_angle_and_slip(self):
         """A cam contact reports its pressure angle and its slip
         (docs/AssemblyDynamics.md sec 8.5). The disk cam turning at 10 rad/s
@@ -547,38 +619,10 @@ class TestCamJoint(CamMechanism, JointTestBase):
         size times E cos theta / (R + r), signed (5e-4)"""
         if "Chrono" not in self.backends():
             self.skipTest("the Chrono backend is not built")
-        import CommandCreateContact
-
         rate = 10.0
         for roller in (0.0, ROLLER):
             with self.subTest(roller=roller):
-                self.tearDown()
-                self.setUp()
-                cam, rev, f = self.disk_mechanism(roller)
-                joint = [
-                    o
-                    for o in self.assembly.getGroup("Joints").Group
-                    if getattr(o, "JointType", None) == "Cam"
-                ][0]
-                lifted = CommandCreateContact.newCamContact(self.assembly, joint)
-                sims = self.assembly.getGroup("Simulations", True)
-                sim = sims.newObject("Assembly::Simulation", "Simulation")
-                sim.AnalysisType = "Dynamic"
-                sim.Gravity = App.Vector(0, -9806.65, 0)
-                turn = 2 * math.pi / rate
-                sim.TimeEnd = turn
-                step = turn / 200
-                sim.TimeStepOutput = step
-                sim.Elements = [lifted]
-                motion = sim.newObject("Assembly::Motion", "Motion")
-                motion.Joint = rev
-                motion.MotionType = "Angular"
-                motion.Formula = "%g*time" % rate
-                self.doc.recompute()
-                self.assertEqual(self.assembly.generateSimulation(sim), 0)
-                results = self.assembly.getSimulationResults()
-                mine = {c["Quantity"]: c["Values"] for c in results["Channels"]
-                        if c["Object"] == lifted}
+                results, mine, f = self.ride_on_gravity(roller, rate)
                 self.assertIn("CamPressureAngle", mine)
                 self.assertIn("CamSlip", mine)
                 angles, slips = mine["CamPressureAngle"], mine["CamSlip"]

@@ -873,16 +873,28 @@ public:
         normalOnB = ch::VNULL;
         deepest = 0.0;
         count = 0;
+        // A cam's point found again at this state (follow): the points are
+        // collision detection's, at the substep's start, fixed on each body
+        // -- on a cam the follower slides along the curve, and a material
+        // point of it a substep later is off the curve under the follower by
+        // (slip h)^2 / 2 rho: a roller sinking 0.01 mm ended a substep of
+        // 0.9 ms, taken at rest (advance()), 4% deeper, and its force rang,
+        // up to 6% off, each time it rested
+        if (follow && points.size() == 1) {
+            moving = points;
+            follow(a, b, moving.front());
+        }
+        const std::vector<Point>& at = follow && points.size() == 1 ? moving : points;
         // Each patch's springs and their squares: a point's share is the
         // patch's spring, sum(s^2) / sum(s), over the sum. The deepest
         // point's spring, the first try, has a kink where the deepest
         // changes, and the Newton iterations of a cube landing flat on a
         // mesh ran off on it, the cube thrown off at 3 km/s.
-        depths.resize(points.size());
+        depths.resize(at.size());
         squares.assign(patches, 0.0);
         sum.assign(patches, 0.0);
-        for (std::size_t i = 0; i < points.size(); ++i) {
-            const Point& point = points[i];
+        for (std::size_t i = 0; i < at.size(); ++i) {
+            const Point& point = at[i];
             const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
             depths[i] = -ch::Vdot(point.normal, pB - pA);
@@ -893,8 +905,8 @@ public:
                 sum[point.patch] += spring;
             }
         }
-        for (std::size_t i = 0; i < points.size(); ++i) {
-            const Point& point = points[i];
+        for (std::size_t i = 0; i < at.size(); ++i) {
+            const Point& point = at[i];
             const double depth = depths[i];
             if (!(depth > 0.0)) {
                 continue;
@@ -980,6 +992,20 @@ public:
     ContactLaw law;
     std::size_t set = 0;  // the ContactPair's index
     std::vector<Point> points;
+    // A cam's (ContactHandover's CamFollow): its one point put where the
+    // curve is under the follower, the bodies at the frames given
+    std::function<void(const ch::ChFrame<>& a, const ch::ChFrame<>& b, Point& point)> follow;
+    std::vector<Point> moving;  // ComputeQ()'s, followed
+    // Its points with the bodies where they are now: a cam's found again
+    // there (follow), the others as collision detection left them
+    std::vector<Point> pointsNow() const
+    {
+        std::vector<Point> out = points;
+        if (follow && out.size() == 1) {
+            follow(*GetBodyA(), *GetBodyB(), out.front());
+        }
+        return out;
+    }
     std::size_t patches = 0;
     // Each patch's k and e
     std::vector<double> stiffness;
@@ -5969,13 +5995,41 @@ Status ChronoSession::simulateDynamics(
                 n1.Normalize();
                 return tangent % n1;
             }
-            // Frame J's origin in frame I's coordinates now
-            Base::Vector3d follower() const
+            // Frame J's origin in frame I's coordinates, the bodies at a and
+            // b (now by default)
+            Base::Vector3d follower(const ch::ChFrame<>& a, const ch::ChFrame<>& b) const
             {
-                const ch::ChFramed i = frameI >> *load->GetBodyA();
-                const ch::ChFramed j = frameJ >> *load->GetBodyB();
+                const ch::ChFramed i = frameI >> a;
+                const ch::ChFramed j = frameJ >> b;
                 const ch::ChVector3d local = i.TransformPointParentToLocal(j.GetPos());
                 return Base::Vector3d(local.x(), local.y(), local.z());
+            }
+            Base::Vector3d follower() const
+            {
+                return follower(*load->GetBodyA(), *load->GetBodyB());
+            }
+            // The cam's point with the bodies at a and b: the curve's closest
+            // to the follower, from u, on the cam, and the follower's nearest
+            // it -- a roller's centre less its radius along the curve's
+            // normal in its plane, N2 -- the normal N2 to the follower's
+            // side; the curve's projection, for its parameter and tangent
+            CurveProjection place(const ch::ChFrame<>& a,
+                                  const ch::ChFrame<>& b,
+                                  double from,
+                                  bool start,
+                                  ContactLoad::Point& point) const
+            {
+                const ch::ChFramed i = frameI >> a;
+                const Base::Vector3d x = follower(a, b);
+                const CurveProjection at =
+                    start ? projectOnCurveGlobally(*curve, x) : projectOnCurve(*curve, x, from);
+                const Base::Vector3d n2 = normal(at);
+                point.onA =
+                    a.TransformPointParentToLocal(i.TransformPointLocalToParent(toCh(at.at.p)));
+                point.onB = b.TransformPointParentToLocal(
+                    i.TransformPointLocalToParent(toCh(x - n2 * offset)));
+                point.normal = i.TransformDirectionLocalToParent(toCh(n2 * side));
+                return at;
             }
             // How far the follower is off the cam now, to its side
             double gap() const
@@ -6068,33 +6122,22 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             finder->found.clear();
-            // A cam's one point, where it is or not: the curve's closest
-            // point to the follower (frame J's origin), followed from the
-            // last, on the cam, and the follower's nearest it -- a roller's
-            // centre less its radius along the curve's normal in its plane
-            // (N2, as the joint's equations take it) -- the normal N2 to the
-            // follower's side. Exact on the curve, where Bullet would have a
-            // faceted cam's noise in the follower's accelerations.
+            // A cam's one point, where it is or not (CamFollow::place()),
+            // followed from the last: the curve's closest point to the
+            // follower, as the joint's equations take it. Exact on the
+            // curve, where Bullet would have a faceted cam's noise in the
+            // follower's accelerations; and the load finds it again at each
+            // state it is given within the substep (ContactLoad::follow)
             for (CamFollow& cam : cams) {
                 ContactLoad& load = *cam.load;
-                const ch::ChFramed i = cam.frameI >> *load.GetBodyA();
-                const Base::Vector3d x = cam.follower();
-                const CurveProjection at = cam.started ? projectOnCurve(*cam.curve, x, cam.u)
-                                                       : projectOnCurveGlobally(*cam.curve, x);
+                ContactLoad::Point point;
+                const CurveProjection at =
+                    cam.place(*load.GetBodyA(), *load.GetBodyB(), cam.u, !cam.started, point);
                 cam.u = at.u;
                 cam.started = true;
                 cam.tangent = at.at.d1;
                 cam.tangent.Normalize();
-                const Base::Vector3d n2 = cam.normal(at);
-                const ch::ChVector3d onCam = i.TransformPointLocalToParent(toCh(at.at.p));
-                const ch::ChVector3d onFollower =
-                    i.TransformPointLocalToParent(toCh(x - n2 * cam.offset));
-                load.points.push_back(
-                    {load.GetBodyA()->TransformPointParentToLocal(onCam),
-                     load.GetBodyB()->TransformPointParentToLocal(onFollower),
-                     i.TransformDirectionLocalToParent(toCh(n2 * cam.side)),
-                     nullptr,
-                     nullptr});
+                load.points.push_back(point);
             }
             // A profile contact's points: B's profile brought into A's
             // plane, where they touch (profileTouches()), each point at the
@@ -6364,6 +6407,13 @@ Status ChronoSession::simulateDynamics(
             follow.offset = joint->value;
             follow.side = pair.side;
             handover->cams.push_back(std::move(follow));
+            load->follow = [cams = &handover->cams,
+                            k = handover->cams.size() - 1](const ch::ChFrame<>& a,
+                                                           const ch::ChFrame<>& b,
+                                                           ContactLoad::Point& point) {
+                const auto& cam = (*cams)[k];
+                cam.place(a, b, cam.u, false, point);
+            };
         }
         // The profile contacts: a load per pair of bodies of each, and each
         // pair of faces on it, its points from the profiles at each
@@ -7646,7 +7696,7 @@ Status ChronoSession::simulateDynamics(
         Touch touch;
         const auto a = load.GetBodyA();
         const auto b = load.GetBodyB();
-        for (const auto& point : load.points) {
+        for (const auto& point : load.pointsNow()) {
             const double depth = -ch::Vdot(point.normal,
                                            b->TransformPointLocalToParent(point.onB)
                                                - a->TransformPointLocalToParent(point.onA));

@@ -1761,7 +1761,43 @@ Phase D1 is under way (2026-10-28):
     about 3% every 15 deg of the turn (10 output frames), up a frame and
     down the next; ContactForce has it as the split does.
   - Not yet: a pressure angle for a profile contact's pairs; the bumps'
-    cause.
+    cause. (The bumps: found and fixed, below.)
+- Built: a cam's point followed within a substep (the bumps' "not yet"):
+  the cam contact's force bumped, and its smooth part was off too.
+  - The cause: a contact load's points are collision detection's, found
+    as a substep starts and fixed on each body through it. On a cam the
+    follower slides along the curve, ~200 mm/s on the disk cam, and the
+    cam's material point under it a substep later is off the curve by
+    (slip h)^2 / 2 rho. At the run's substeps, a fiftieth of the
+    contact's period (0.1 ms of 5.2), that is nothing; but once the
+    contact has rested five periods (advance(), `settled`) a substep runs
+    to the output step's end, 0.4 to 0.9 ms, and the roller, sinking
+    0.01 mm, ended one 4% deeper. A step taken again (the depth's range
+    past 2%) left nothing behind; one kept -- most in the cam's falling
+    half, where the force eases -- set the follower ringing on the
+    contact's spring. So the bumps every 26 ms, the run's time and not
+    the cam's angle: as many at an output step of 0.65 ms as of 2.6, and
+    more and larger at a looser tolerance, whose wider rest kept more
+    long substeps. Measured with a trace of each substep's length, its
+    retakes and the load's rest.
+  - The fix (ChronoBackend): `ContactLoad::follow`, set for a cam's load,
+    puts its one point where the curve is under the follower at the
+    state ComputeQ() is given -- HHT's iterates and the jacobian's
+    differences included -- from the parameter collision detection found
+    (`CamFollow::place()`, which collision detection uses too). A
+    substep's end depth for the contact events (`touchOf()`) takes it
+    the same way (`pointsNow()`).
+  - Tests (TestCamJoint, test_cam_contact_force): the disk cam at
+    10 rad/s under gravity, frictionless, the point follower and the
+    roller: the force along the slider, |F| cos(pressure angle), is
+    m (g + y'') at every frame past the first 20 ms, to 1e-3 (1.2e-4 and
+    1.0e-4 measured). Before the fix it failed, 2.3% off for both. On the
+    manual's roller with its stem the force was 1.1% under to 4.3% over
+    it, bumps and all; a headless run of the roller alone, now within
+    8e-5 at output steps of 2.6 and 0.65 ms and at a tolerance of 1e-3.
+  - Not yet: a profile contact's points are fixed the same way through a
+    substep (a Geneva wheel's pin slides in its slot); the profile is
+    found again only at collision detection.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

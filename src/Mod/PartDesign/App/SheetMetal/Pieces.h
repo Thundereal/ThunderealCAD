@@ -29,6 +29,8 @@
 #include <vector>
 
 #include <TopoDS_Edge.hxx>
+#include <TopoDS_Face.hxx>
+#include <TopoDS_Shape.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -121,5 +123,10 @@ struct PartDesignExport WallEdge
  */
 PartDesignExport WallEdge wallEdge(const Part::TopoShape& base, const Model& model,
                                    const std::string& ref, const std::string& label);
+
+
+/// The faces of shape the wall owns lying on the plane
+PartDesignExport std::vector<TopoDS_Face>
+skinFaces(const TopoDS_Shape& shape, const Model& model, int wall, const gp_Pln& plane);
 
 }  // namespace PartDesign::SheetMetal

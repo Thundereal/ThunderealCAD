@@ -253,4 +253,26 @@ WallEdge wallEdge(const TopoShape& base, const Model& model, const std::string& 
     return res;
 }
 
+
+std::vector<TopoDS_Face> skinFaces(const TopoDS_Shape& shape, const Model& model, int wall,
+                                   const gp_Pln& plane)
+{
+    std::vector<TopoDS_Face> res;
+    for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
+        const TopoDS_Face& face = TopoDS::Face(it.Current());
+        BRepAdaptor_Surface surface(face);
+        if (surface.GetType() != GeomAbs_Plane) {
+            continue;
+        }
+        const gp_Pln pln = surface.Plane();
+        if (!pln.Axis().Direction().IsParallel(plane.Axis().Direction(), Precision::Angular())
+            || plane.Distance(pln.Location()) > Precision::Confusion()
+            || model.owner(face) != wall) {
+            continue;
+        }
+        res.push_back(face);
+    }
+    return res;
+}
+
 }  // namespace PartDesign::SheetMetal

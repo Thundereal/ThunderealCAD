@@ -211,6 +211,23 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalJog::getEditDialog()
                                      "Face"));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalTab, PartDesignGui::ViewProviderSketchBased)
+
+ViewProviderSheetMetalTab::ViewProviderSheetMetalTab()
+{
+    sPixmap = "PartDesign_SheetMetalTab";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalTab::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalTab",
+                                     QObject::tr("Tab parameters"),
+                                     {"Profile"}));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)
 
 ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()

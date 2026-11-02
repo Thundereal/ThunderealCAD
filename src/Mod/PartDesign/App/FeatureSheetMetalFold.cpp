@@ -66,6 +66,7 @@ using Part::TopoShape;
 using SheetMetal::CylBend;
 using SheetMetal::Element;
 using SheetMetal::Model;
+using SheetMetal::skinFaces;
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalFold, PartDesign::ProfileBased)
 
@@ -149,28 +150,6 @@ gp_Pnt centreOf(const TopoDS_Shape& shape)
     GProp_GProps props;
     BRepGProp::VolumeProperties(shape, props);
     return props.CentreOfMass();
-}
-
-/// The faces of shape a wall owns lying on the plane
-std::vector<TopoDS_Face> skinFaces(const TopoDS_Shape& shape, const Model& model, int wall,
-                                   const gp_Pln& plane)
-{
-    std::vector<TopoDS_Face> res;
-    for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
-        const TopoDS_Face& face = TopoDS::Face(it.Current());
-        BRepAdaptor_Surface surface(face);
-        if (surface.GetType() != GeomAbs_Plane) {
-            continue;
-        }
-        const gp_Pln pln = surface.Plane();
-        if (!pln.Axis().Direction().IsParallel(plane.Axis().Direction(), Precision::Angular())
-            || plane.Distance(pln.Location()) > Precision::Confusion()
-            || model.owner(face) != wall) {
-            continue;
-        }
-        res.push_back(face);
-    }
-    return res;
 }
 
 TopoDS_Compound compoundOf(const std::vector<TopoDS_Face>& faces)

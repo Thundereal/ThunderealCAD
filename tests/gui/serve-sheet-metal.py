@@ -96,6 +96,7 @@ COMMANDS = (
     "PartDesign_SheetMetalCutout",
     "PartDesign_SheetMetalFold",
     "PartDesign_SheetMetalJog",
+    "PartDesign_SheetMetalTab",
 )
 
 

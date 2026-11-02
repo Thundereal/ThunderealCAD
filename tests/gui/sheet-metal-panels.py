@@ -410,6 +410,31 @@ def run():
         pump(20)
         check("OK keeps a good jog", "Invalid" not in jog.State, jog.State)
 
+        # -- the tab's panel: its sketch
+        sketch = body.newObject("Sketcher::SketchObject", "TabSketch")
+        sketch.MapMode = "Deactivated"
+        sketch.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        pts = [(-8, 6), (0, 6), (0, 12), (-8, 12)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, sketch.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalTab")
+        pump()
+        tab = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalTab"][0]
+        w = panel() or {}
+        profile = w.get("Profile")
+        check(
+            "Tab opens its panel with its sketch, the one picked",
+            profile is not None and profile.currentText() == sketch.Label,
+            profile and profile.currentText(),
+        )
+        accept()
+        pump(20)
+        check("OK keeps a good tab", "Invalid" not in tab.State, tab.State)
+
         # -- the flat pattern's panel ------------------------------------------
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

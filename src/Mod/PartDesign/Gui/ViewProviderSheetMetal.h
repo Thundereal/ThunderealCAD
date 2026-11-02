@@ -128,6 +128,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A tab, its panel its sketch
+class PartDesignGuiExport ViewProviderSheetMetalTab: public ViewProviderSketchBased
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalTab);
+
+public:
+    ViewProviderSheetMetalTab();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A flat pattern, its panel what it lays flat, its root face and the values
 /// a bill of materials takes; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart

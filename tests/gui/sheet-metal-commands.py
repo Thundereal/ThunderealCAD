@@ -294,6 +294,36 @@ def run():
         )
         flange = jog
 
+        # a tab: an 8 x 6 rectangle on the plate's left edge
+        sketch = body.newObject("Sketcher::SketchObject", "TabSketch")
+        sketch.MapMode = "Deactivated"
+        sketch.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        pts = [(-8, 6), (0, 6), (0, 12), (-8, 12)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        doc.recompute()
+        pump()
+        volume = flange.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, sketch.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalTab")
+        pump()
+        check("Tab opens its panel, OK closes it", ok())
+        doc.recompute()
+        tab = newest(doc, before, "PartDesign::SheetMetalTab")
+        check(
+            "Tab on a selected sketch adds it to the wall it lies on",
+            tab is not None
+            and "Invalid" not in tab.State
+            and tab.Profile[0] == sketch
+            and len(tab.Shape.Solids) == 1
+            and abs(tab.Shape.Volume - volume - 48) < 1e-6,
+            tab and (tab.State, tab.Shape.Volume, volume),
+        )
+        flange = tab
+
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

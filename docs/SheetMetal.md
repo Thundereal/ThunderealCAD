@@ -977,6 +977,17 @@ and not frozen.
     into a slot by what the jog adds (`testHoleAcrossEnd`), and the missing faces are one cut
     from one rectangle, the hole and its stretch one face.
   - In the model: the run a wall after the first bend, the moving side a wall after the second.
+- M2's tab, `PartDesign::SheetMetalTab` (5.1), with `TestSheetMetalTab` (7), its command, icon
+  and panel. As built:
+  - `Profile`, a closed sketch (holes in it kept), on a wall's skin or a plane parallel to it:
+    of the walls parallel to it whose first skin the sketch, taken onto it, meets (touching an
+    edge is enough), the one whose slab it lies nearest. Made solid through that slab and
+    fused, so the part keeps one solid; a tab drawn over the wall adds only what lies off it.
+  - A wall is a slab bounded by the side of each bend it meets and its limits, so a tab inside
+    that is the wall's already: the model is the one before, and the flat lays it out with the
+    wall. Sampled at its vertices, its edges' middles and its faces' centres, a tab reaching
+    past a bend of the wall is refused, naming what it runs into; one meeting no wall, and an
+    open sketch, are refused too.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

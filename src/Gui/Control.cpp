@@ -681,6 +681,16 @@ bool ControlSingleton::hasOpenDialog() const
     return !openDialogs.empty();
 }
 
+std::vector<Gui::TaskView::TaskDialog*> ControlSingleton::shownDialogs() const
+{
+    std::vector<Gui::TaskView::TaskDialog*> out;
+    for (const OpenDialog &open : openDialogs) {
+        if (open.shown)
+            out.push_back(open.dialog);
+    }
+    return out;
+}
+
 Gui::ViewProvider* ControlSingleton::editViewProviderOf(const QObject *obj) const
 {
     const TaskOwner owner = ownerOfContent(obj);

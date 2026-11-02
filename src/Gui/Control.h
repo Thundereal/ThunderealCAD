@@ -98,6 +98,9 @@ public:
     TaskOwner ownerOfContent(const QObject *obj) const;
     /// Whether any task dialog is open, in any view
     bool hasOpenDialog() const;
+    /// The task dialogs shown now, in every view, in the order they were
+    /// opened (the panel mirror's, docs/TaskPanelPerView.md sec 6)
+    std::vector<Gui::TaskView::TaskDialog*> shownDialogs() const;
     /** Whether showDialog() for \a owner would show a dialog, or refuse.
      *
      * For a caller that has to know before it builds the dialog. Null is

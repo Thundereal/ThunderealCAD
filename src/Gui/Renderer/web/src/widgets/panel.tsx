@@ -303,9 +303,12 @@ export function TaskPanelCard(props: {
   /// window between a root's open and the list being re-laid.
   const dialogIds = createMemo(() => {
     version();
+    // the list names every view's roots; this client is sent its own
+    // (docs/TaskPanelPerView.md sec 6), so a root it does not have is
+    // another's
     const listed = planLayout(client?.store.get('panel')?.layout).items
       .map((it) => (it.kind === 'widget' ? it.id : undefined))
-      .filter((id): id is string => !!id && isDialogRoot(id));
+      .filter((id): id is string => !!id && isDialogRoot(id) && !!client?.store.has(id));
     for (const id of client?.dialogIds ?? []) {
       if (client?.store.has(id) && !listed.includes(id)) listed.push(id);
     }

@@ -41,6 +41,9 @@ namespace App {
 namespace Gui {
 class ControlSingleton;
 class MDIView;
+namespace Fw {
+class PanelMirror;
+}
 namespace TaskView {
 
 class TaskContent;
@@ -275,6 +278,8 @@ private:
     friend class TaskDialogPy;
     friend class TaskView;
     friend class Gui::ControlSingleton;
+    /// a dialog's button box, for the dialogs open before it started
+    friend class Gui::Fw::PanelMirror;
 };
 
 } //namespace TaskView

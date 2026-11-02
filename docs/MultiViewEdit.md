@@ -989,7 +989,7 @@ Pad1 in edit in one and Pad2 in the other, the preview on and off, each
 order of their OKs -- each OK makes its own feature, the other's waits
 with the preview, and nothing is left paused (22 checks; 7 failed before).
 
-**Found, not built: a browser user has no panel of an edit of their own.**
+**Found, then built: a browser user had no panel of an edit of their own.**
 With `PerViewEdit` a served client's edit runs in its own view, and its
 task dialog is that view's (docs/TaskPanelPerView.md). The panel mirror
 (`Fw::PanelMirror`) follows the one dialog the desktop's task view
@@ -997,7 +997,12 @@ shows, so a client's dialog never reaches it: the client can enter the
 edit but has no field to type into, and no OK or Cancel. That is
 TaskPanelPerView.md milestone M5, designed (its sec 6: every open dialog
 mirrored, each root carrying its owner, a client sent its own, its
-accept/reject acting on its own) and not built. Its test is written,
+accept/reject acting on its own), built 2026-11-02 at the user's word
+("continue m5"): TaskPanelPerView.md sec 16. Its test,
 `tests/gui/serve_pd_multi_user.py` with an entry script for each preview
-setting: two served users editing one body through their panels, one at
-a time, with a Cancel, and both at once.
+setting: two served users editing one body through their own panels, one
+at a time, with a Cancel, and both at once -- 15 checks with the preview,
+14 without, all passing. Without the preview typing makes the feature in
+edit at once and what is after it at the next recompute; with it the
+feature waits for its OK, and a change of another user's meanwhile is
+made on the body as it was.

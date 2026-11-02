@@ -2223,4 +2223,58 @@ Left, in the order I would take them:
    not run in any of this.
 6. Strings untranslated. `pre-commit` and `clang-format` are not on the box
    this was written on; the format hook ran on none of it.
-7. M5 of sec 9, the browser: a served client's panel is where it was.
+7. M5 of sec 9, the browser: DONE 2026-11-02, sec 16.
+
+## 16. Milestone 5: the browser (built 2026-11-02)
+
+Ordered by the user ("continue m5", 2026-11-02) after
+`tests/gui/serve_pd_multi_user.py` found a served user with no panel at
+all (docs/MultiViewEdit.md sec 12.12): with `PerViewEdit` a client's edit
+runs in its own view, its dialog is that view's, and the mirror followed
+the one dialog the desktop's task view shows -- its show tick asked
+`Control().activeDialog()`, the desktop's, and dropped the client's.
+
+As sec 6 designed it:
+
+- **Every dialog up is a root** (`Fw::PanelMirror`). A task root keeps its
+  owner, class, boxes, button box and `panel:<n>` model; there are as many
+  as dialogs open, keyed by owner (a view has one at most).
+  `signalShowDialog` / `signalRemoveDialog` carry the owner, and the show
+  tick finds that owner's dialog among `Control().shownDialogs()` (new).
+  `start()` mirrors every dialog shown, with the button box its page has
+  (`TaskDialogAttorney::getButtonBox`, the mirror a friend). `panelId()`
+  is the newest root, `panelIds()` all of them.
+- **Each root has an owner**: a task root its dialog's; a top-level
+  dialog's (`dialog:<n>`) the view being handled when its Show passed the
+  application filter -- a client's request, or the panel slot it ran.
+  `PanelMirror::ownerOf(id)` answers it for any mirror id by walking the
+  model tree up to its root; a root being closed keeps its owner while its
+  close goes out, so the close reaches whom the open did.
+- **The stream sends a client its own** (`SceneWidgetStream::wants`,
+  `panelIsClients`): with `PerViewEdit` a client's dialog goes to that
+  client -- `SceneServeSource::isClientView` (new) asks whether the
+  owner is the client's mirror in any document served -- a desktop
+  view's to no client, one with no view to name (the `panel` list
+  among them) to everybody. Without `PerViewEdit` every client is sent
+  every panel, the shared session's rule, as before.
+  `widgets.subscribe` names the client's own newest root in `panel`, and
+  lists only its own `dialogs`.
+- **OK and Cancel act on the root asked**: a root's request carries its
+  id; the click goes to that root's button box, else
+  `Control().accept(owner)` / `reject(owner)`.
+- **The viewer** keeps the dialog roots the `panel` list names that it
+  holds: the list names every view's.
+
+Test: `tests/gui/serve_pd_multi_user.py`, run by
+`serve-pd-multi-user-preview.py` and `serve-pd-multi-user-no-preview.py`
+(GuiServePdMultiUserPreview / NoPreview): two served users, alice and
+bob, with a desktop window, `PerViewEdit` on, a body of two pads. Each
+user types into the length field of their own panel and presses its OK or
+Cancel, as a browser does (`widgets.update` with `q_rawValue`,
+`widgets.custom` accept/reject): one editor while the other changes the
+body, a Cancel, and both editing at once -- each sent their own panel and
+not the other's, alice's OK leaving bob in his edit. 15 and 14 checks;
+before, no client had a panel (every typed value failed).
+
+Not done: pictures of a client's panel (sec 13.5: a hidden page grabs
+nothing); a real browser on two pages, by hand.

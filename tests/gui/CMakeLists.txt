@@ -538,6 +538,13 @@ fc_add_gui_test(GuiServeUndoDesktopAsk_tests_run serve-undo-desktop-ask.py
 # off: each edit's end makes its own feature and leaves the other's
 fc_add_gui_test(GuiPdTwoEditsPreview_tests_run pd-two-edits-preview.py
                 --timeout 300)
+# Two served users editing one PartDesign body through their own panels
+# (docs/TaskPanelPerView.md M5), with the edit preview on and off: both
+# ways are to work (serve_pd_multi_user.py)
+fc_add_gui_test(GuiServePdMultiUserPreview_tests_run serve-pd-multi-user-preview.py
+                --timeout 400)
+fc_add_gui_test(GuiServePdMultiUserNoPreview_tests_run serve-pd-multi-user-no-preview.py
+                --timeout 400)
 # The browser half: the undo list's page (web/src/undolist.tsx); skips
 # without a built viewer, PUPPETEER_PATH and CHROME
 fc_add_gui_test(GuiServeUndoBrowser_tests_run serve-undo-browser.py

@@ -243,6 +243,18 @@ struct PanelMirror::Walk
     QList<Widget*> changed;
 };
 
+/// One task dialog up (M5): whose it is, its class, its boxes and button
+/// box, and its root
+struct PanelMirror::TaskRoot
+{
+    TaskOwner owner;
+    QString dialogClass;
+    QList<QPointer<QWidget>> contents;
+    QPointer<::QDialogButtonBox> buttons;
+    QPointer<Widget> root;
+    QString rootId;
+};
+
 PanelMirror& PanelMirror::instance()
 {
     static PanelMirror mirror;
@@ -314,15 +326,27 @@ PanelMirror::PanelMirror()
     _showTimer.setSingleShot(true);
     _showTimer.setInterval(0);
     connect(&_showTimer, &QTimer::timeout, this, [this]() {
-        Gui::TaskView::TaskDialog* dlg = getMainWindow() ? Control().activeDialog() : nullptr;
-        if (!dlg)
-            return;
-        QList<QWidget*> contents;
-        for (const auto& c : _contents)
-            if (c)
-                contents.append(c.data());
-        _contents.clear();
-        show(QString::fromUtf8(dlg->metaObject()->className()), contents, _buttons.data());
+        QList<PendingShow> pending;
+        pending.swap(_pendingShows);
+        for (const PendingShow& p : pending) {
+            // that view's dialog, shown by now -- not the one the desktop
+            // shows, which a client's never is (M5)
+            Gui::TaskView::TaskDialog* dlg = nullptr;
+            if (getMainWindow()) {
+                for (auto d : Control().shownDialogs()) {
+                    if (d->owner() == p.owner)
+                        dlg = d;
+                }
+            }
+            if (!dlg)
+                continue;
+            QList<QWidget*> contents;
+            for (const auto& c : p.contents)
+                if (c)
+                    contents.append(c.data());
+            show(QString::fromUtf8(dlg->metaObject()->className()), contents, p.buttons.data(),
+                 p.owner);
+        }
     });
 }
 
@@ -336,7 +360,53 @@ bool PanelMirror::owns(const QString& id)
 
 QString PanelMirror::panelId() const
 {
-    return _root ? _rootId : QString();
+    return _tasks.isEmpty() ? QString() : _tasks.last()->rootId;
+}
+
+QStringList PanelMirror::panelIds() const
+{
+    QStringList ids;
+    for (const TaskRoot* t : _tasks)
+        ids.append(t->rootId);
+    return ids;
+}
+
+TaskOwner PanelMirror::ownerOf(const QString& id) const
+{
+    auto closing = _closingOwners.constFind(id);
+    if (closing != _closingOwners.constEnd())
+        return closing.value();
+    // up the model tree to the root it is under: a model's QObject parent
+    // is its container's model, a root's the list
+    for (QObject* o = Store::instance().object(id); o; o = o->parent()) {
+        for (const TaskRoot* t : _tasks) {
+            if (t->root == o)
+                return t->owner;
+        }
+        for (auto it = _roots.constBegin(); it != _roots.constEnd(); ++it) {
+            if (_models.value(it.key()) == o)
+                return _dialogOwners.value(it.key());
+        }
+    }
+    return TaskOwner();
+}
+
+PanelMirror::TaskRoot* PanelMirror::taskRootOf(const TaskOwner& owner)
+{
+    for (TaskRoot* t : _tasks) {
+        if (t->owner == owner)
+            return t;
+    }
+    return nullptr;
+}
+
+PanelMirror::TaskRoot* PanelMirror::taskRootById(const QString& id)
+{
+    for (TaskRoot* t : _tasks) {
+        if (t->rootId == id)
+            return t;
+    }
+    return nullptr;
 }
 
 QStringList PanelMirror::dialogIds() const
@@ -382,28 +452,22 @@ void PanelMirror::start()
     if (!getMainWindow())
         return;  // no task view to follow (a test drives `show` itself)
     _connShow = Control().signalShowDialog.connect(
-        [this](QWidget* view, std::vector<QWidget*>& contents, const TaskOwner&) {
-            onShowDialog(view, contents);
+        [this](QWidget* view, std::vector<QWidget*>& contents, const TaskOwner& owner) {
+            onShowDialog(view, contents, owner);
         },
         fastsignals::advanced_tag {});
     _connRemove = Control().signalRemoveDialog.connect(
-        [this](QWidget*, std::vector<QWidget*>&, const TaskOwner&) { onRemoveDialog(); },
+        [this](QWidget*, std::vector<QWidget*>&, const TaskOwner& owner) {
+            onRemoveDialog(owner);
+        },
         fastsignals::advanced_tag {});
-    if (Gui::TaskView::TaskDialog* dlg = Control().activeDialog()) {
+    // every dialog up, each view's (M5), with the button box its page has
+    for (Gui::TaskView::TaskDialog* dlg : Control().shownDialogs()) {
         QList<QWidget*> contents;
         for (QWidget* c : dlg->getDialogContent())
             contents.append(c);
-        ::QDialogButtonBox* buttons = nullptr;
-        for (auto view : getMainWindow()->findChildren<Gui::TaskView::TaskView*>()) {
-            buttons = buttonBoxOf(view);
-            if (buttons)
-                break;
-        }
-        // The page may be in its view, not under the task view
-        // (docs/TaskPanelPerView.md sec 5.2)
-        if (!buttons)
-            buttons = buttonBoxOf(getMainWindow());
-        show(QString::fromUtf8(dlg->metaObject()->className()), contents, buttons);
+        show(QString::fromUtf8(dlg->metaObject()->className()), contents,
+             Gui::TaskView::TaskDialogAttorney::getButtonBox(dlg), dlg->owner());
     }
 }
 
@@ -418,6 +482,7 @@ void PanelMirror::stop()
     // its own pushes can ask again: that one runs, finds it stopped, returns
     BusyScope busy(*this);
     _showTimer.stop();
+    _pendingShows.clear();
     _connShow.disconnect();
     _connRemove.disconnect();
     _dialogTimer.stop();
@@ -439,23 +504,31 @@ void PanelMirror::stop()
     }
 }
 
-void PanelMirror::onShowDialog(QWidget* view, const std::vector<QWidget*>& contents)
+void PanelMirror::onShowDialog(QWidget* view, const std::vector<QWidget*>& contents,
+                               const TaskOwner& owner)
 {
     // the signal comes before the dialog is active and before
     // `modifyStandardButtons` and `open()` ran: walk on the next tick,
-    // when the panel is what the desktop user sees
-    _contents.clear();
+    // when the panel is what its view's user sees
+    PendingShow p;
+    p.owner = owner;
     for (QWidget* c : contents)
-        _contents.append(c);
-    _buttons = buttonBoxOf(view);
+        p.contents.append(c);
+    p.buttons = buttonBoxOf(view);
+    _pendingShows.erase(std::remove_if(_pendingShows.begin(), _pendingShows.end(),
+                                       [&owner](const PendingShow& q) { return q.owner == owner; }),
+                        _pendingShows.end());
+    _pendingShows.append(p);
     _showTimer.start();
 }
 
-void PanelMirror::onRemoveDialog()
+void PanelMirror::onRemoveDialog(const TaskOwner& owner)
 {
-    _showTimer.stop();
-    _contents.clear();
-    hide();
+    // that view's dialog, of the several there may be (M5)
+    _pendingShows.erase(std::remove_if(_pendingShows.begin(), _pendingShows.end(),
+                                       [&owner](const PendingShow& q) { return q.owner == owner; }),
+                        _pendingShows.end());
+    hide(owner);
 }
 
 bool PanelMirror::allowed(const QString& dialogClass) const
@@ -472,28 +545,28 @@ bool PanelMirror::allowed(const QString& dialogClass) const
 }
 
 void PanelMirror::show(const QString& dialogClass, const QList<QWidget*>& contents,
-                       ::QDialogButtonBox* buttons)
+                       ::QDialogButtonBox* buttons, const TaskOwner& owner)
 {
     BusyScope busy(*this);
     if (!_running)
         start();
-    if (_root)
-        hide();
+    hide(owner);
     if (!allowed(dialogClass)) {
         Base::Console().Log("PanelMirror: %s not mirrored (Preferences/Fw/PanelMirror)\n",
                             qPrintable(dialogClass));
         return;
     }
-    _dialogClass = dialogClass;
-    _contents.clear();
+    auto t = new TaskRoot;
+    t->owner = owner;
+    t->dialogClass = dialogClass;
     for (QWidget* c : contents)
         if (c)
-            _contents.append(c);
-    _buttons = buttons;
-    _root = createWidget(QStringLiteral("QDialog"), _list);
-    _root->setQtClass(dialogClass);
+            t->contents.append(c);
+    t->buttons = buttons;
+    t->root = createWidget(QStringLiteral("QDialog"), _list);
+    t->root->setQtClass(dialogClass);
     QString title;
-    for (const auto& c : _contents) {
+    for (const auto& c : t->contents) {
         if (auto box = qobject_cast<Gui::TaskView::TaskBox*>(c.data()))
             title = box->headerText();
         else if (c)
@@ -501,36 +574,58 @@ void PanelMirror::show(const QString& dialogClass, const QList<QWidget*>& conten
         if (!title.isEmpty())
             break;
     }
-    _root->setInitial(QStringLiteral("windowTitle"), title);
-    _root->setInitial(QStringLiteral("visible"), true);
-    _rootId = QStringLiteral("panel:%1").arg(++panelSerial());
-    Store::instance().adopt(_rootId, _root, false);
-    connect(_root, &Widget::requested, this, &PanelMirror::onPanelRequest);
+    t->root->setInitial(QStringLiteral("windowTitle"), title);
+    t->root->setInitial(QStringLiteral("visible"), true);
+    t->rootId = QStringLiteral("panel:%1").arg(++panelSerial());
+    Store::instance().adopt(t->rootId, t->root, false);
+    const QString rootId = t->rootId;
+    connect(t->root, &Widget::requested, this,
+            [this, rootId](const QString& name, const QVariantList& args) {
+                onPanelRequest(rootId, name, args);
+            });
+    _tasks.append(t);
     rebuild();
 }
 
 void PanelMirror::hide()
 {
     BusyScope busy(*this);
-    if (!_root)
-        return;
+    while (!_tasks.isEmpty())
+        hideRoot(static_cast<int>(_tasks.size()) - 1);
+}
+
+void PanelMirror::hide(const TaskOwner& owner)
+{
+    BusyScope busy(*this);
+    for (int i = 0; i < _tasks.size(); ++i) {
+        if (_tasks[i]->owner == owner) {
+            hideRoot(i);
+            return;
+        }
+    }
+}
+
+void PanelMirror::hideRoot(int index)
+{
+    TaskRoot* t = _tasks.takeAt(index);
     Store& store = Store::instance();
     // a client's own request may have closed the dialog (its reject):
     // the close is the desktop's fact and must reach that client too
     Store::OriginScope scope(0);
-    const QString id = _rootId;
-    // the root's close implies the subtree: one message, the children
-    // released without one
-    store.release(id, true);
-    releaseDescendants(_root);
-    _signatures.remove(_root);
-    if (_list && _list->layout())
-        _list->layout()->removeWidget(_root);
-    delete _root.data();  // the models are its descendants
-    _root = nullptr;
-    _rootId.clear();
-    _contents.clear();
-    _buttons = nullptr;
+    const QString id = t->rootId;
+    if (t->root) {
+        // the root's close implies the subtree: one message, the children
+        // released without one -- to whom the open went
+        _closingOwners.insert(id, t->owner);
+        store.release(id, true);
+        _closingOwners.remove(id);
+        releaseDescendants(t->root);
+        _signatures.remove(t->root);
+        if (_list && _list->layout())
+            _list->layout()->removeWidget(t->root);
+        delete t->root.data();  // the models are its descendants
+    }
+    delete t;
     if (_list)
         store.notifyLayout(listId());
     idle();
@@ -557,6 +652,10 @@ void PanelMirror::scheduleDialog(QWidget* window)
 {
     if (_roots.contains(window))
         return;
+    // whose it is: the view being handled as it shows -- a client's
+    // request, or the panel slot it ran (docs/TaskPanelPerView.md sec 6)
+    if (!_dialogOwners.contains(window))
+        _dialogOwners.insert(window, TaskOwner::current());
     for (const auto& w : _pendingDialogs)
         if (w == window)
             return;
@@ -601,8 +700,10 @@ void PanelMirror::closeRoot(QWidget* window, bool announce)
 {
     const QString id = _roots.take(window);
     _rootOrder.removeAll(window);
+    const TaskOwner owner = _dialogOwners.take(window);
     if (id.isEmpty())
         return;
+    _closingOwners.insert(id, owner);
     // a client's own click may have dismissed it: the close is the
     // desktop's fact and reaches that client too
     Store::OriginScope scope(0);
@@ -610,6 +711,7 @@ void PanelMirror::closeRoot(QWidget* window, bool announce)
     if (model && _list && _list->layout())
         _list->layout()->removeWidget(model);
     releaseModel(window, announce);
+    _closingOwners.remove(id);
     if (_list)
         Store::instance().notifyLayout(listId());
     idle();
@@ -797,7 +899,11 @@ void PanelMirror::rebuild()
     ++_stats.rebuilds;
     Store& store = Store::instance();
     Store::OriginScope scope(0);  // the opens are the desktop's, whoever caused them
-    const bool rootNew = _root && !_signatures.contains(_root);
+    QList<TaskRoot*> newTasks;
+    for (TaskRoot* t : _tasks) {
+        if (t->root && !_signatures.contains(t->root))
+            newTasks.append(t);
+    }
     Walk w;
     QElapsedTimer walkClock;
     walkClock.start();
@@ -814,8 +920,8 @@ void PanelMirror::rebuild()
         if (_roots.contains(pair.first))
             newDialogs.append(_roots.value(pair.first));
     }
-    if (rootNew)
-        store.announceOpen(_rootId);
+    for (TaskRoot* t : newTasks)
+        store.announceOpen(t->rootId);
     for (Widget* container : w.changed) {
         const QString id = store.idOf(container);
         if (!id.isEmpty())
@@ -828,17 +934,17 @@ void PanelMirror::rebuild()
             gone.append(it.key());
     for (QWidget* real : gone)
         releaseModel(real, true);
-    if (rootNew)
-        _list->layout()->addWidget(_root);
+    for (TaskRoot* t : newTasks)
+        _list->layout()->addWidget(t->root);
     for (const auto& pair : w.created) {
         if (_roots.contains(pair.first))
             _list->layout()->addWidget(pair.second);
     }
-    if (rootNew || !newDialogs.isEmpty())
+    if (!newTasks.isEmpty() || !newDialogs.isEmpty())
         store.notifyLayout(listId());
     _walking = false;
-    if (rootNew)
-        Q_EMIT shown(_rootId);
+    for (TaskRoot* t : newTasks)
+        Q_EMIT shown(t->rootId);
     for (const QString& id : newDialogs)
         Q_EMIT shown(id);
     Q_EMIT rebuilt();
@@ -847,29 +953,33 @@ void PanelMirror::rebuild()
 void PanelMirror::walk(Walk& w)
 {
     bool isNew = false;
-    if (_root) {
+    // each task dialog up (M5)
+    for (TaskRoot* t : _tasks) {
+        Widget* root = t->root.data();
+        if (!root)
+            continue;
         QStringList signature;
         auto lay = new Layout(Layout::VBox);
-        for (const auto& c : _contents) {
+        for (const auto& c : t->contents) {
             if (!c)
                 continue;
-            Widget* m = mirrorWidget(w, c.data(), _root, isNew);
+            Widget* m = mirrorWidget(w, c.data(), root, isNew);
             lay->addWidget(m);
             signature.append(QStringLiteral("box:") + ptrKey(m));
         }
-        if (_buttons) {
-            Widget* m = mirrorWidget(w, _buttons.data(), _root, isNew);
+        if (t->buttons) {
+            Widget* m = mirrorWidget(w, t->buttons.data(), root, isNew);
             lay->addWidget(m);
             signature.append(QStringLiteral("buttons:") + ptrKey(m));
         }
-        const bool rootNew = !_signatures.contains(_root);
-        if (rootNew || _signatures.value(_root) != signature) {
-            Layout* old = _root->layout();
-            _root->setLayout(lay);
+        const bool rootNew = !_signatures.contains(root);
+        if (rootNew || _signatures.value(root) != signature) {
+            Layout* old = root->layout();
+            root->setLayout(lay);
             delete old;
-            _signatures.insert(_root, signature);
+            _signatures.insert(root, signature);
             if (!rootNew)
-                w.changed.append(_root);
+                w.changed.append(root);
         }
         else {
             delete lay;
@@ -1535,9 +1645,14 @@ void PanelMirror::onDialogRequest(QWidget* window, const QString& name,
     }
 }
 
-void PanelMirror::onPanelRequest(const QString& name, const QVariantList& args)
+void PanelMirror::onPanelRequest(const QString& rootId, const QString& name,
+                                 const QVariantList& args)
 {
-    ::QDialogButtonBox* box = _buttons.data();
+    // the dialog of the root the request names (M5), not the one the
+    // desktop shows
+    TaskRoot* t = taskRootById(rootId);
+    const TaskOwner owner = t ? t->owner : TaskOwner();
+    ::QDialogButtonBox* box = t ? t->buttons.data() : nullptr;
     auto clickRole = [box](::QDialogButtonBox::ButtonRole role) {
         if (!box)
             return false;
@@ -1550,12 +1665,20 @@ void PanelMirror::onPanelRequest(const QString& name, const QVariantList& args)
         return false;
     };
     if (name == QLatin1String("accept")) {
-        if (!clickRole(::QDialogButtonBox::AcceptRole) && getMainWindow())
-            Control().accept();
+        if (!clickRole(::QDialogButtonBox::AcceptRole) && getMainWindow()) {
+            if (owner.isNull())
+                Control().accept();
+            else
+                Control().accept(owner);
+        }
     }
     else if (name == QLatin1String("reject")) {
-        if (!clickRole(::QDialogButtonBox::RejectRole) && getMainWindow())
-            Control().reject();
+        if (!clickRole(::QDialogButtonBox::RejectRole) && getMainWindow()) {
+            if (owner.isNull())
+                Control().reject();
+            else
+                Control().reject(owner);
+        }
     }
     else if (name == QLatin1String("clicked")) {
         ::QAbstractButton* b = box ? box->button(static_cast<::QDialogButtonBox::StandardButton>(

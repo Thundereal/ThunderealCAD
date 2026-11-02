@@ -119,6 +119,10 @@ public:
 
     /// The source serving \a doc, or null.
     static SceneServeSource *sourceFor(App::Document *doc);
+    /// Whether \a view is the view \a client looks through -- its mirror
+    /// viewer -- in any document served: whose a task panel is, for the
+    /// widget stream (docs/TaskPanelPerView.md sec 6). GUI thread only.
+    static bool isClientView(uint64_t client, const ViewerContext *view);
     /// Whether \a doc is being served by a source. This — not whether
     /// the stream server's listener is up — is what document-scoped
     /// gates ask (docs/MultiDocServe.md §5): a listener can be running

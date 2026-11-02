@@ -287,6 +287,12 @@ private:
     /// grab was deferred (rate cap) or the widget has nothing to show.
     QString grabPicture(QWidget* real);
     void forgetPicture(QWidget* real);
+    /// Whether \a real shows wherever its dialog is: visible, or hidden
+    /// only by what holds the dialog -- the page of a dialog the desktop's
+    /// Tasks tab does not show, a served user's (docs/TaskPanelPerView.md
+    /// sec 13.5). Such a widget is never painted, so nothing but a look
+    /// finds its picture changed.
+    bool shownInDialog(QWidget* real) const;
     void bindModel(QWidget* real, Widget* model);
     void watchWidget(QWidget* real);
     void unwatchWidget(QWidget* real);
@@ -340,6 +346,9 @@ private:
     QSet<QWidget*> _pictures;
     QHash<QWidget*, qint64> _grabbedAt;
     QSet<QWidget*> _pendingGrabs;
+    /// each picture's last grab: its pixels' hash and its image id, so a
+    /// grab that finds nothing new encodes nothing
+    QHash<QWidget*, std::pair<size_t, QString>> _grabbedAs;
     /// the task dialogs up (M5), in show order: each one's owner, class,
     /// boxes, button box and root
     QList<TaskRoot*> _tasks;

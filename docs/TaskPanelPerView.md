@@ -1153,7 +1153,7 @@ and nothing in it may assume it is visible.
   desktop shows. The models -- every widget the mirror walks -- do not
   depend on it (`visible` is read as "not explicitly hidden"), and a
   picture was already missing whenever the desktop's Tasks tab was not
-  the one in front. For M5.
+  the one in front. For M5. Done 2026-11-02 (sec 16.1).
 - A page's widgets are used while its view is not active by exactly one
   path today: a keyed `Control().accept(owner)` and its siblings. The
   rest of sec 12.5's second point stands for view mode.
@@ -2276,5 +2276,32 @@ body, a Cancel, and both editing at once -- each sent their own panel and
 not the other's, alice's OK leaving bob in his edit. 15 and 14 checks;
 before, no client had a panel (every typed value failed).
 
-Not done: pictures of a client's panel (sec 13.5: a hidden page grabs
-nothing); a real browser on two pages, by hand.
+Not done: a real browser on two pages, by hand.
+
+### 16.1 Pictures on a page out of sight
+
+A custom-painted widget travels as a picture (a grab, by image id), and
+the mirror grabbed only what is visible, again when it is painted. A
+served user's page is never the one the desktop shows, so its pictures
+were never sent (sec 13.5). Now:
+
+- `PanelMirror::shownInDialog` -- what is grabbed: a visible widget, or
+  one hidden only by what holds its dialog, i.e. under one of a task
+  root's boxes with nothing between them hidden. A box's collapsed part
+  and a tab not in front stay without a picture.
+- The grab lays the hidden page out: `QWidget::render` activates the
+  layouts of hidden ancestors as if shown, so the size is read after the
+  render, and the render is done again when it moved (a page never shown
+  has its widgets at their pre-layout sizes).
+- Nothing paints a widget out of sight, so nothing announces a change:
+  the poll (`PanelPollMs`, 500 ms) grabs the pictures that are not
+  visible. A grab whose pixels hash as the last one's keeps that id and
+  encodes no PNG, so a still picture costs a render a poll and sends
+  nothing. The render invalidates no layout the mirror watches: no
+  rebuild.
+
+Test: `tests/gui/serve-panel-picture.py` (GuiServePanelPicture): alice's
+Pad1 panel, served under PerViewEdit, given a painted leaf -- its picture
+at its laid-out size and colour, a recolour reaching her within a poll,
+a still leaf keeping its id, the polls rebuilding nothing (5 checks).
+Before, the leaf had no picture at all.

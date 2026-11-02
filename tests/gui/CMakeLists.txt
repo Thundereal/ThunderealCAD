@@ -545,6 +545,9 @@ fc_add_gui_test(GuiServePdMultiUserPreview_tests_run serve-pd-multi-user-preview
                 --timeout 400)
 fc_add_gui_test(GuiServePdMultiUserNoPreview_tests_run serve-pd-multi-user-no-preview.py
                 --timeout 400)
+# A served user's own panel shows its pictures, though its page is one the
+# desktop does not show (docs/TaskPanelPerView.md sec 13.5)
+fc_add_gui_test(GuiServePanelPicture_tests_run serve-panel-picture.py --timeout 300)
 # The browser half: the undo list's page (web/src/undolist.tsx); skips
 # without a built viewer, PUPPETEER_PATH and CHROME
 fc_add_gui_test(GuiServeUndoBrowser_tests_run serve-undo-browser.py

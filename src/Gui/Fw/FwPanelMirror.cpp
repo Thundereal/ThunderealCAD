@@ -641,6 +641,7 @@ void PanelMirror::idle()
     _grabTimer.stop();
     _pictures.clear();
     _grabbedAt.clear();
+    _grabbedAs.clear();
     _pendingGrabs.clear();
     _pictureCapTold = false;
     _dirty.clear();
@@ -825,7 +826,9 @@ void PanelMirror::poll()
         if (it == _models.end() || !it.value())
             continue;
         ++_stats.widgetsRead;
-        refresh(w, it.value(), false, false);
+        // a picture nothing paints (a page out of sight) is looked at
+        // here; one that is painted is grabbed when it is
+        refresh(w, it.value(), false, !w->isVisible());
     }
 }
 
@@ -1405,9 +1408,22 @@ QVariantMap PanelMirror::read(QWidget* real, Widget* model) const
     return v;
 }
 
+bool PanelMirror::shownInDialog(QWidget* real) const
+{
+    if (real->isVisible())
+        return true;
+    for (const TaskRoot* task : _tasks) {
+        for (const auto& box : task->contents) {
+            if (box && (box.data() == real || box->isAncestorOf(real)))
+                return !box->isHidden() && (box.data() == real || real->isVisibleTo(box));
+        }
+    }
+    return false;
+}
+
 QString PanelMirror::grabPicture(QWidget* real)
 {
-    if (!real->isVisible() || real->width() <= 0 || real->height() <= 0)
+    if (!shownInDialog(real))
         return QString();
     const qint64 now = _clock.elapsed();
     const qint64 last = _grabbedAt.value(real, -grabIntervalMs());
@@ -1424,16 +1440,41 @@ QString PanelMirror::grabPicture(QWidget* real)
     ++_stats.grabs;
     QElapsedTimer grabClock;
     grabClock.start();
-    // at 1x whatever the screen's ratio; the size capped
-    QPixmap pixmap(real->size());
-    pixmap.fill(Qt::transparent);
+    // A hidden widget is laid out by the render itself: Qt lays out its
+    // hidden ancestors as if shown first, so the size is asked after.
     _grabbing = true;
-    real->render(&pixmap, QPoint(), QRegion(), QWidget::DrawChildren);
+    QPixmap pixmap;
+    for (int pass = 0; pass < 2; ++pass) {
+        if (real->width() <= 0 || real->height() <= 0)
+            break;
+        if (pixmap.size() == real->size())
+            break;
+        // at 1x whatever the screen's ratio; the size capped
+        pixmap = QPixmap(real->size());
+        pixmap.fill(Qt::transparent);
+        real->render(&pixmap, QPoint(), QRegion(), QWidget::DrawChildren);
+    }
     _grabbing = false;
+    if (pixmap.isNull() || pixmap.size() != real->size()) {
+        _stats.grabNs += grabClock.nsecsElapsed();
+        return QString();
+    }
     if (pixmap.width() > maxPictureSide() || pixmap.height() > maxPictureSide())
         pixmap = pixmap.scaled(maxPictureSide(), maxPictureSide(), Qt::KeepAspectRatio,
                                Qt::SmoothTransformation);
-    const QString id = ImageStore::instance().add(pixmap);
+    // a look that finds what the last one did keeps its id, unencoded:
+    // the poll looks at what nothing paints (shownInDialog)
+    const QImage image = pixmap.toImage();
+    const size_t sum = qHashBits(image.constBits(), static_cast<size_t>(image.sizeInBytes()),
+                                 static_cast<size_t>(image.width()) * 31 + image.height());
+    auto before = _grabbedAs.constFind(real);
+    if (before != _grabbedAs.constEnd() && before->first == sum
+        && ImageStore::instance().contains(before->second)) {
+        _stats.grabNs += grabClock.nsecsElapsed();
+        return before->second;
+    }
+    const QString id = ImageStore::instance().add(image);
+    _grabbedAs.insert(real, {sum, id});
     _stats.grabNs += grabClock.nsecsElapsed();
     return id;
 }
@@ -1443,6 +1484,7 @@ void PanelMirror::forgetPicture(QWidget* real)
     _pictures.remove(real);
     _grabbedAt.remove(real);
     _pendingGrabs.remove(real);
+    _grabbedAs.remove(real);
 }
 
 void PanelMirror::refresh(QWidget* real, Widget* model, bool initial, bool allowGrab)
@@ -1456,8 +1498,9 @@ void PanelMirror::refresh(QWidget* real, Widget* model, bool initial, bool allow
     QVariantMap v = read(real, model);
     // what has no name to send and travels by image id (M2)
     if (_pictures.contains(real)) {
-        // a poll skips this: grabPicture() forces a repaint, and a widget
-        // nothing is painting has no new picture to give anyway
+        // a poll skips this for a widget on screen: grabPicture() forces a
+        // repaint, and a widget nothing is painting has no new picture to
+        // give anyway
         if (allowGrab) {
             const QString id = grabPicture(real);
             if (!id.isNull())

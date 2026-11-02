@@ -994,6 +994,13 @@ and not frozen.
     the part and in the flat (`testOneSkin`, `testOneSkinOnFlange`). The feature's own Refine
     stays off, as it would merge faces of two elements. A merge that does not keep a valid
     solid of the same volume is dropped and the seams stay.
+- The model, a wall after a bend: it owned every point of its slab not before the bend by angle
+  about the axis, so a point far behind the bend, in the bend's angle but nowhere near its
+  radius, was the wall's -- a flange's leg on a plate's far end, as high as a jog's stepped side,
+  had its faces owned by that side, and its flat did not close. It now also stops at the line
+  where the bend ends, on the side it runs off to (`behindEnd()` in `Model::contains()`). The
+  wall before a bend keeps the angle alone: the wall beside a bend that ends inside its end runs
+  on past the bend's start (`TestSheetMetalJog.testFlangeBehind`).
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

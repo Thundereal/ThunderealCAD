@@ -30,6 +30,7 @@
 #include <BRep_Tool.hxx>
 #include <Geom_Surface.hxx>
 #include <TopoDS_Face.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Pnt2d.hxx>
 #include <gp_Vec.hxx>
 
@@ -38,6 +39,25 @@
 #include "Model.h"
 
 using namespace PartDesign::SheetMetal;
+
+namespace
+{
+
+/** Whether a point lies behind the line where a bend ends, as the wall after
+ * it runs off: none of that wall is. By angle about the axis alone, a point
+ * far behind the bend, in its angle but nowhere near its radius, is not
+ * before it, and the wall's slab goes on there.
+ */
+bool behindEnd(const CylBend& bend, const gp_Pnt& point, double tol)
+{
+    const gp_Ax1 axis(bend.frame.Location(), bend.frame.Direction());
+    const gp_Dir out = bend.frame.YDirection().Rotated(axis, bend.angle);
+    const gp_Pnt end = bend.frame.Location().Translated(
+        gp_Vec(bend.frame.XDirection().Rotated(axis, bend.angle)) * bend.radius);
+    return gp_Vec(end, point).Dot(gp_Vec(out)) < -tol;
+}
+
+}  // namespace
 
 int Model::addWall(const std::string& name, const gp_Ax3& frame)
 {
@@ -108,7 +128,8 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
         if (bend.before == index && bend.bend.side(point) > 0) {
             return false;
         }
-        if (bend.after == index && bend.bend.sideAfter(point) < 0) {
+        if (bend.after == index
+            && (bend.bend.sideAfter(point) < 0 || behindEnd(bend.bend, point, tol))) {
             return false;
         }
     }

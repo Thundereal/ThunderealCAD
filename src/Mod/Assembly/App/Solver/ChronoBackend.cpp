@@ -833,9 +833,11 @@ public:
         // a contact event names, where a body stands for a rigid group
         std::array<Id, 2> frames {NoId, NoId};
         // A sphere or a cylinder it is on, A's and B's, whose point moves
-        // over it as the body turns (rollAlong())
+        // over it as the body turns (rollAlong()); with one, the normal in
+        // the other body's frame, the face it turns with
         const ShapeOn* roundA = nullptr;
         const ShapeOn* roundB = nullptr;
+        ch::ChVector3d normalOn;
     };
 
     ContactLoad(std::shared_ptr<ch::ChBody> a,
@@ -2403,7 +2405,11 @@ bool roundSupport(const ShapeOn& on,
  * turns the ball on -- one on a level plate gained 5.7 mm/s^2 at 1 m/s. The
  * round side's point is its surface's farthest along the normal, the other
  * side's under it, as deep as the fixed points are: exact on a face. Two
- * spheres' normal is along their centres.
+ * spheres' normal is along their centres; a round shape's on a face turns
+ * with the face's body. Fixed in space it lags the face: a ball rolling
+ * down a plate tipping at 1 rad/s, against the exact model with the
+ * friction's slip, ended 0.5 s 6.3e-3 mm short at output steps of 1 ms and
+ * 3.2e-2 at 0.1 ms; turning, 2.4e-3 over and 6e-5.
  */
 void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Point& point)
 {
@@ -2413,7 +2419,13 @@ void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Poin
     const ch::ChVector3d atA = a.TransformPointLocalToParent(point.onA);
     const ch::ChVector3d atB = b.TransformPointLocalToParent(point.onB);
     ch::ChVector3d normal = point.normal;
-    if (point.roundA && point.roundB && point.roundA->ball > 0.0 && point.roundB->ball > 0.0) {
+    if (point.roundA && !point.roundB) {
+        normal = b.TransformDirectionLocalToParent(point.normalOn);
+    }
+    else if (point.roundB && !point.roundA) {
+        normal = a.TransformDirectionLocalToParent(point.normalOn);
+    }
+    else if (point.roundA->ball > 0.0 && point.roundB->ball > 0.0) {
         const ch::ChVector3d centres =
             (point.roundB->frame >> b).GetPos() - (point.roundA->frame >> a).GetPos();
         const double length = centres.Length();
@@ -6092,6 +6104,12 @@ Status ChronoSession::simulateDynamics(
                 ContactLoad::Point& point = load.points.back();
                 point.roundA = roundOf(point.shapeA);
                 point.roundB = roundOf(point.shapeB);
+                if (point.roundA && !point.roundB) {
+                    point.normalOn = load.GetBodyB()->TransformDirectionParentToLocal(point.normal);
+                }
+                else if (point.roundB && !point.roundA) {
+                    point.normalOn = load.GetBodyA()->TransformDirectionParentToLocal(point.normal);
+                }
                 if (point.roundA || point.roundB) {
                     load.follow = rollAll;
                 }
@@ -6105,7 +6123,44 @@ Status ChronoSession::simulateDynamics(
             std::set<std::pair<const ch::ChCollisionShape*, const ch::ChCollisionShape*>> done;
             std::vector<CylinderPoint> points;
             ch::ChVector3d normal;
-            for (const Found& f : finder->found) {
+            // A sphere's pair its one point, the other shape's nearest its
+            // centre: Bullet's manifold keeps a rolling ball's older points
+            // -- the ball's under one rolls off it without sliding, and
+            // nothing breaks it -- each with the normal it had when found. A
+            // ball on a plate tipping at 1 rad/s took more from 0.217 s on,
+            // up to 0.9 mm from its point and their normals up to 5e-3 rad
+            // old, and rode up to 4 um off the plate on them.
+            std::vector<bool> drop(finder->found.size(), false);
+            std::map<std::pair<const ch::ChCollisionShape*, const ch::ChCollisionShape*>,
+                     std::pair<std::size_t, double>>
+                nearest;
+            for (std::size_t i = 0; i < finder->found.size(); ++i) {
+                const Found& f = finder->found[i];
+                const ShapeOn* a = on(f.shapeA);
+                const ShapeOn* b = on(f.shapeB);
+                const ShapeOn* ball = a && a->ball > 0.0 ? a : b && b->ball > 0.0 ? b : nullptr;
+                if (!ball) {
+                    continue;
+                }
+                const ch::ChVector3d centre = (ball->frame >> *ball->body).GetPos();
+                const double distance = ((ball == a ? f.pB : f.pA) - centre).Length();
+                auto [it, added] = nearest.try_emplace({f.shapeA, f.shapeB}, i, distance);
+                if (added) {
+                    continue;
+                }
+                if (distance < it->second.second) {
+                    drop[it->second.first] = true;
+                    it->second = {i, distance};
+                }
+                else {
+                    drop[i] = true;
+                }
+            }
+            for (std::size_t i = 0; i < finder->found.size(); ++i) {
+                if (drop[i]) {
+                    continue;
+                }
+                const Found& f = finder->found[i];
                 const ShapeOn* a = on(f.shapeA);
                 const ShapeOn* b = on(f.shapeB);
                 const bool cylinderA = a && a->radius > 0.0 && b && b->features;

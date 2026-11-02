@@ -2312,8 +2312,40 @@ Phase D1 is under way (2026-10-28):
     to 5e-3 mm/s^2 and 1e-5; test_ball_rolls_on_level passes.
   - Not yet: the normal turning with the other body within the substep (a
     ball on a tipping plate: the force stays through the centre, its
-    direction a substep old); a round part that is a hull or a mesh, not a
-    sphere; a cylinder rolling on its rim.
+    direction a substep old) -- built in the entry below; a round part that
+    is a hull or a mesh, not a sphere; a cylinder rolling on its rim.
+- Built: a ball on a tipping plate, against its closed form -- and the two
+  faults it found. A plate turned at 1 rad/s about a horizontal axis in its
+  top face, a ball of radius 5 starting on the axis turning with it,
+  friction 0.5: along the plate s'' = 5/7 (s w^2 - g sin(w t)), so
+  s = 5 g / 12 (sinh(k t) / k - sin t), k = sqrt(5/7), 145 mm by 0.5 s.
+  - Found first: the ball rode up to 13 um off the plate from 0.11 s on
+    and ended 1.6 mm short; with the normal turned (below), 4 um from
+    0.217 s and 0.30 mm. Bullet's manifold kept the ball's older points:
+    the ball's point under one rolls off it without sliding and nothing
+    breaks it, and each keeps the normal it was found with -- up to 0.9 mm
+    from the ball's point, their normals up to 5e-3 rad old, 17400 of them
+    handed over in the run. A
+    sphere's pair now keeps one point, the other shape's nearest its
+    centre: the true one on a convex shape, which every one of Bullet's
+    shapes a sphere meets is.
+  - Then the normal: fixed in space through the substep, it lags the face
+    by omega h. Turning with the face's body (Point::normalOn, the other
+    side's frame), the plane through the face's point is the face. Against
+    the exact model with the friction law's slip (an RK4 of s, s' and the
+    ball's spin, F = -mu(slip) N, the cubic STEP to muStatic at the
+    stiction speed), at a stiction speed of 0.01 mm/s, over 0.5 s: turning,
+    2.4e-3 mm over at output steps of 1 ms and 6e-5 at 0.1 ms; fixed, 6.3e-3
+    short and 3.2e-2 -- worse the finer the steps. At the default 0.1 mm/s
+    the slip itself puts the ball 3.6e-3 ahead of rolling; the run ends
+    5.9e-3 ahead, at 4 rad/s 1.3e-3 for the slip's 0.9e-3.
+  - TestContact's test_ball_on_tipping_plate holds s to 0.015 mm of the
+    closed form and the ball within 1e-4 mm of the plate; with the one
+    point taken back out it read 0.30 mm and 4.4 um.
+  - Not yet: a box or a hull on a tipping plate -- its points fixed on each
+    body and the normal fixed in space, which face it belongs to not known
+    from Bullet's point; a round part that is a hull or a mesh; a cylinder
+    rolling on its rim.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

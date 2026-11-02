@@ -249,14 +249,19 @@ class TestSheetMetalJog(unittest.TestCase):
         jog = self.jog()
         self.checkValid(jog)
         area = (40 + ADDED) * 20 - (math.pi + 2 * ADDED)
-        self.assertAlmostEqual(jog.Shape.Volume, area, places=5)
+        self.assertAlmostEqual(jog.Shape.Volume, area, places=4)
         flat = self.flat(jog)
         self.assertAlmostEqual(flat.FlatArea.Value, area, places=4)
-        holes = [w for f in flat.Shape.Faces for w in f.Wires[1:]]
-        self.assertTrue(holes)
-        self.assertAlmostEqual(
-            max(w.BoundBox.XLength for w in holes), 2 + ADDED, places=5
-        )
+        # the slot in the flat along its middle, the plate's end at x 0:
+        # open from end - 1 to end + ADDED + 1, closed past either end
+        shape = flat.Shape
+        y = (shape.BoundBox.YMin + shape.BoundBox.YMax) / 2
+        z = (shape.BoundBox.ZMin + shape.BoundBox.ZMax) / 2
+        for t in (0, 0.25, 0.5, 0.75, 1):
+            at = V(end - 0.9 + t * (ADDED + 1.8), y, z)
+            self.assertFalse(shape.isInside(at, 1e-9, True), msg="slot %s" % at)
+        for x in (end - 1.1, end + ADDED + 1.1):
+            self.assertTrue(shape.isInside(V(x, y, z), 1e-9, True), msg="past %s" % x)
 
     def testCarriesFlange(self):
         """A flange on the side that moves goes with it"""

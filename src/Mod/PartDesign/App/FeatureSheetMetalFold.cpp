@@ -460,15 +460,50 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         const std::string legName = unique("Wall", walls);
 
         // what the strip has not of the wall -- a hole, a notch; past where
-        // the wall is taken, a jog adds the wall's whole span
+        // the wall is taken, a jog that adds material carries the wall's
+        // section there on, so a hole across that line is stretched with
+        // it. One cut, so a hole and its stretch are one face.
         std::vector<TopoDS_Face> missing;
         {
-            const double to = jog && taken < developed ? taken : taken + past;
-            BRepAlgoAPI_Cut cut(rectangle(start, e, -past, to, axis, d0, d1), compoundOf(pieces));
-            if (cut.IsDone()) {
-                for (TopExp_Explorer it(cut.Shape(), TopAbs_FACE); it.More(); it.Next()) {
-                    missing.push_back(TopoDS::Face(it.Current()));
+            const bool adds = jog && taken < developed;
+            std::vector<TopoDS_Face> present = pieces;
+            if (adds) {
+                present.clear();
+                BRepAlgoAPI_Common upTo(compoundOf(pieces),
+                                        rectangle(start, e, -past, taken, axis, -size, size));
+                const gp_Pnt end = start.Translated(gp_Vec(e) * taken);
+                BRepAlgoAPI_Common section(
+                    SheetMetal::lineEdge(end.Translated(gp_Vec(axis) * -size),
+                                         end.Translated(gp_Vec(axis) * size)),
+                    compoundOf(pieces));
+                if (!upTo.IsDone() || !section.IsDone()) {
+                    THROWM(Base::CADKernelError, "A jog could not take the wall's section");
                 }
+                for (TopExp_Explorer it(upTo.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+                    present.push_back(TopoDS::Face(it.Current()));
+                }
+                for (TopExp_Explorer it(section.Shape(), TopAbs_EDGE); it.More(); it.Next()) {
+                    double a = std::numeric_limits<double>::max(), b = -a;
+                    for (TopExp_Explorer v(it.Current(), TopAbs_VERTEX); v.More(); v.Next()) {
+                        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(v.Current()));
+                        const double d = gp_Vec(start, p).Dot(gp_Vec(axis));
+                        a = std::min(a, d);
+                        b = std::max(b, d);
+                    }
+                    if (b - a > Precision::Confusion()) {
+                        present.push_back(
+                            rectangle(start, e, taken, developed + past, axis, a, b));
+                    }
+                }
+            }
+            BRepAlgoAPI_Cut cut(
+                rectangle(start, e, -past, adds ? developed + past : taken + past, axis, d0, d1),
+                compoundOf(present));
+            if (!cut.IsDone()) {
+                FC_THROWM(Base::CADKernelError, "A " << noun << " could not lay out its strip");
+            }
+            for (TopExp_Explorer it(cut.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+                missing.push_back(TopoDS::Face(it.Current()));
             }
         }
         // the missing faces from from to to along e

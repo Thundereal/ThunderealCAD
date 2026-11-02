@@ -973,7 +973,9 @@ and not frozen.
     taken from the wall), so with the length fixed it is only lifted.
   - What the strip lacks of the wall (a hole, a notch) is taken from each bend along its
     radius and from the run straight through, as the fold's; past the width taken, a jog that
-    adds material adds the wall's whole span there.
+    adds material carries the wall's section at that line on, so a hole across it is stretched
+    into a slot by what the jog adds (`testHoleAcrossEnd`), and the missing faces are one cut
+    from one rectangle, the hole and its stretch one face.
   - In the model: the run a wall after the first bend, the moving side a wall after the second.
 
 **Ruled 2026-11-02, M2:**

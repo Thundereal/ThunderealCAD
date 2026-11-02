@@ -754,6 +754,19 @@ and not frozen.
     does not unroll into a plane, so its cut face is ruled between the two skins' unrolled
     edges; unrolling keeps a bend's volume only where it is cut square (0.19 mm^3 a corner at
     R = T = 1). Tested by `testMiter`, `testMiterTray`, `testNoMiterApart`.
+  - Mitered against an earlier flange (ruled 2026-11-02): an end of the edge that stops where an
+    earlier feature's bend on the same wall starts, that bend's material just beyond it, and
+    with no gap asked for there, meets that flange at a corner (a hem's fold, at 180 deg and
+    past, is not one). The flange is carried on past the corner, the wall cut back under its
+    edge only, and the two are mitered at the plane mirroring the earlier leg's outer skin onto
+    this one's, which for two flanges alike is the plane halving the corner: this flange's
+    pieces stop on their side, the earlier flange's material in front of where its bend starts
+    is cut from the part on the other, the rule's `Gap` between, the bend's and the leg's in two
+    cuts so the face each leaves is its own element's (one cut left one face across both, which
+    the flat could not lay out). The model gets the limits as one flange's miter does. The part
+    and its flat are then one flange's on both edges, the test's oracle: `testMiterAgainstEarlier`
+    (both orders), `testMiterAgainstEarlierTray` (four flanges round the plate),
+    `testNoMiterAgainstEarlierWithGap`.
   - The leg's shape (ruled 2026-11-01: the sketch in the leg's plane, as SOLIDWORKS edits a
     flange's profile; a sketch on the wall drawn as in the flat and wrapped through the bend,
     which would allow a bend that is not a rectangle, is for later): `Profile`, a closed sketch

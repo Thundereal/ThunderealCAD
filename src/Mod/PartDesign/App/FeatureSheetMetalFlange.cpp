@@ -31,6 +31,7 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -259,6 +260,46 @@ struct LegShape
  * parallel to the leg, not standing on the sharp, reaching past it, other
  * than a rectangle through the bend, or with nothing above it.
  */
+/** The bend of an earlier feature an edge's end meets at a corner: one of
+ * the first earlier elements, from the same wall, its sheet starting on the
+ * plane through q across out (the way the edge runs on past q), with its
+ * material in base just beyond q, back from the edge's end face; -1 for none
+ */
+int earlierBendAt(const Model& model, int earlier, const TopoDS_Shape& base, int wall,
+                  const gp_Pnt& q, const gp_Dir& out, const gp_Dir& endOut)
+{
+    for (int i = 0; i < earlier; ++i) {
+        const Element& element = model.elements[i];
+        // a flange's bend; a hem's fold, at 180 deg and past, has no leg to meet
+        if (element.kind != Element::Kind::Bend || element.before != wall
+            || element.bend.angle > std::numbers::pi - Precision::Angular()) {
+            continue;
+        }
+        const CylBend& b = element.bend;
+        // the way its sheet ran out of the wall, and where the bend starts
+        const gp_Dir up = b.frame.XDirection().Reversed();
+        const gp_Dir e = up.Crossed(b.frame.Direction());
+        if (e.Dot(out) < 1 - Precision::Angular()) {
+            continue;
+        }
+        const gp_Pnt start = b.frame.Location().Translated(gp_Vec(up) * -b.radius);
+        if (std::abs(gp_Vec(start, q).Dot(gp_Vec(e))) > Precision::Confusion()) {
+            continue;
+        }
+        const gp_Ax1 axis(b.frame.Location(), b.frame.Direction());
+        const double at = gp_Vec(b.frame.Location(), q).Dot(gp_Vec(axis.Direction()));
+        const gp_Dir radial = b.frame.XDirection().Rotated(axis, std::min(0.2, b.angle / 2));
+        const gp_Pnt probe = b.frame.Location().Translated(
+            gp_Vec(axis.Direction()) * at + gp_Vec(radial) * (b.radius + b.thickness / 2)
+            - gp_Vec(endOut) * (b.thickness / 10));
+        BRepClass3d_SolidClassifier classifier(base, probe, Precision::Confusion());
+        if (classifier.State() == TopAbs_IN) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 LegShape legShape(const TopoShape& face, const gp_Pnt& sharp, const gp_Dir& along,
                   const gp_Dir& legUp, double rise, const App::StringHasherRef& hasher)
 {
@@ -374,6 +415,12 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         const bool byParallel = planeOf(ParallelTo, parallel);
         const bool byUpTo = planeOf(UpToFace, upTo);
         const auto hasher = getDocument()->getStringHasher();
+        // the elements of the features before, and how far past an edge's
+        // end a flange meeting one of them at a corner is carried
+        const int earlier = static_cast<int>(model.elements.size());
+        Bnd_Box baseBound;
+        BRepBndLib::Add(base.getShape(), baseBound);
+        const double reach = std::sqrt(baseBound.SquareExtent()) + 1;
 
         // the leg's shape from a closed sketch, on one edge
         TopoShape profile;
@@ -406,6 +453,8 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             gp_Dir endOut, up;
             std::size_t first, last;
             int bend, leg;
+            // the earlier bend each end meets at a corner, -1 for none
+            int meets[2];
         };
         std::vector<Side> sides;
         for (const auto& shadow : shadows) {
@@ -469,6 +518,29 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             if (width < Precision::Confusion()) {
                 FC_THROWM(Base::ValueError,
                           "The gaps leave nothing of edge " << shadow.second);
+            }
+            // An end meeting an earlier flange at a corner (ruled 2026-11-02):
+            // the edge stops where the earlier bend starts, its material just
+            // beyond. The flange is carried on past the corner, to be mitered
+            // against it below; the wall is cut back under the edge only.
+            const gp_Vec cutAlong = gp_Vec(d) * width;
+            const gp_Pnt cutStart = inner.Translated(gp_Vec(d) * gap1);
+            int meets[2] = {-1, -1};
+            if (profile.isNull()) {
+                if (gap1 <= Precision::Confusion()) {
+                    meets[0] = earlierBendAt(model, earlier, base.getShape(), wall, p0,
+                                             d.Reversed(), endOut);
+                }
+                if (Gap2.getValue() <= Precision::Confusion()) {
+                    meets[1] = earlierBendAt(model, earlier, base.getShape(), wall, p1, d, endOut);
+                }
+                if (meets[0] >= 0) {
+                    gap1 -= reach;
+                    width += reach;
+                }
+                if (meets[1] >= 0) {
+                    width += reach;
+                }
             }
             const gp_Vec along = gp_Vec(d) * width;
             const gp_Pnt edgeStart = inner.Translated(gp_Vec(d) * gap1);
@@ -547,9 +619,9 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             else if (setback > Precision::Confusion()) {
                 // the wall cut back under the flange to where the bend starts
                 cuts.push_back(TopoShape(0, hasher).makEPrism(
-                    SheetMetal::wallSection(bendStart, endOut, setback, up.Reversed(), T,
-                                            bendName + "Cut"),
-                    along));
+                    SheetMetal::wallSection(cutStart.Translated(-e * setback), endOut, setback,
+                                            up.Reversed(), T, bendName + "Cut"),
+                    cutAlong));
                 // Where the flange ends inside the wall's end, the wall left
                 // beside it meets the bend's side face to face, and only a
                 // relief parts them for the flat: beside the bend, from the
@@ -577,12 +649,23 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                     cuts.push_back(std::move(cut));
                 }
             }
-            sides.push_back({p0, p1, endOut, up, first, pieces.size(), bendIndex, legWall});
+            sides.push_back({p0,
+                             p1,
+                             endOut,
+                             up,
+                             first,
+                             pieces.size(),
+                             bendIndex,
+                             legWall,
+                             {meets[0], meets[1]}});
         }
         // A miter where two edges meet at a corner, bent the same way: each
         // side stops at the plane halving the corner, the rule's gap between
         // them. Exact for two flanges alike; any two are kept apart.
-        if (sides.size() > 1) {
+        const bool corners = std::any_of(sides.begin(), sides.end(), [](const Side& side) {
+            return side.meets[0] >= 0 || side.meets[1] >= 0;
+        });
+        if (sides.size() > 1 || corners) {
             Bnd_Box bound;
             for (const auto& piece : pieces) {
                 BRepBndLib::Add(piece.getShape(), bound);
@@ -642,6 +725,59 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                     }
                     for (int k : {b.bend, b.leg}) {
                         model.elements[k].limits.emplace_back(corner, m.Reversed());
+                    }
+                }
+            }
+            // Against an earlier flange at a corner: the plane mirroring the
+            // earlier leg's outer skin onto this one's, which for two flanges
+            // alike is the plane halving the corner, as one flange on both
+            // edges has it. This side's pieces stop on their side of it; the
+            // earlier flange's material in front of where its bend starts, on
+            // this side, is cut from the part; the rule's gap between.
+            for (const Side& side : sides) {
+                for (int end : side.meets) {
+                    if (end < 0) {
+                        continue;
+                    }
+                    const Element& before = model.elements[end];
+                    const gp_Ax3& legA = model.elements[before.after].frame;
+                    const gp_Ax3& legB = model.elements[side.leg].frame;
+                    const gp_Vec n1(legA.Direction()), n2(legB.Direction());
+                    const gp_Vec normal = n1 - n2;
+                    if (normal.Magnitude() < tol) {
+                        continue;
+                    }
+                    // n1 . p = c1 on the one outer skin, n2 . p = c2 on the other
+                    const double c1 = n1.Dot(gp_Vec(legA.Location().XYZ())) + T;
+                    const double c2 = n2.Dot(gp_Vec(legB.Location().XYZ())) + T;
+                    gp_Dir m(normal);
+                    const gp_Pnt on(normal.XYZ() * ((c1 - c2) / normal.SquareMagnitude()));
+                    // this side on the +m side
+                    const gp_Pnt middle((side.p0.XYZ() + side.p1.XYZ()) / 2);
+                    if (gp_Vec(on, middle).Dot(gp_Vec(m)) < 0) {
+                        m.Reverse();
+                    }
+                    cutAway(side, halfSpace(on.Translated(gp_Vec(m) * (gap / 2)), m.Reversed()));
+                    const CylBend& b = before.bend;
+                    const gp_Dir bUp = b.frame.XDirection().Reversed();
+                    const gp_Dir bOut = bUp.Crossed(b.frame.Direction());
+                    const gp_Pnt bStart = b.frame.Location().Translated(gp_Vec(bUp) * -b.radius);
+                    // in two, the bend's and the leg's, so that the face the
+                    // cut leaves on each is that element's own
+                    auto common = [&](const TopoShape& a, const TopoShape& b) {
+                        return TopoShape(0, hasher).makEBoolean(Part::OpCodes::Common, {a, b});
+                    };
+                    const TopoShape beyond =
+                        common(halfSpace(on.Translated(gp_Vec(m) * (-gap / 2)), m),
+                               halfSpace(bStart, bOut));
+                    cuts.push_back(
+                        common(beyond, halfSpace(legA.Location(), legA.XDirection().Reversed())));
+                    cuts.push_back(common(beyond, halfSpace(legA.Location(), legA.XDirection())));
+                    for (int k : {end, before.after}) {
+                        model.elements[k].limits.emplace_back(on, m);
+                    }
+                    for (int k : {side.bend, side.leg}) {
+                        model.elements[k].limits.emplace_back(on, m.Reversed());
                     }
                 }
             }

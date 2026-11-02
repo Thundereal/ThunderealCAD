@@ -54,6 +54,7 @@
 #include "FeatureSheetMetalFlange.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Pieces.h"
+#include "SheetMetal/Profile.h"
 #include "SheetMetal/Refold.h"
 
 using namespace PartDesign;
@@ -425,7 +426,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
 
         // the leg's shape from a closed sketch, on one edge
         TopoShape profile;
-        if (Profile.getValue()) {
+        if (Profile.getValue() && !contour()) {
             if (shadows.size() != 1) {
                 THROWM(Base::ValueError, "A flange shaped by a profile is on one edge only");
             }
@@ -446,6 +447,58 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             }
             profile = TopoShape(0, hasher).makEFace(wires);
         }
+        // A contour's lines from where it starts, each point's way along the
+        // end's normal and the skin's of the edge it starts on: the same on
+        // every edge
+        std::vector<std::pair<double, double>> contourAt;
+        if (contour()) {
+            if (!Profile.getValue()) {
+                THROWM(Base::ValueError, "A contour flange needs a sketch");
+            }
+            const auto& subs = Profile.getSubValues();
+            const TopoShape sketch = Part::Feature::getTopoShape(
+                Profile.getValue(), subs.empty() ? "" : subs.front().c_str(), true);
+            auto wires = sketch.getSubTopoShapes(TopAbs_WIRE);
+            if (wires.empty() && sketch.hasSubShape(TopAbs_EDGE)) {
+                wires = sketch.makEWires().getSubTopoShapes(TopAbs_WIRE);
+            }
+            if (wires.size() != 1 || BRep_Tool::IsClosed(wires.front().getShape())) {
+                THROWM(Base::ValueError, "A contour flange's sketch is one open chain of lines");
+            }
+            auto points = SheetMetal::linePoints(TopoDS::Wire(wires.front().getShape()),
+                                                 "A contour flange's sketch");
+            // the edge it starts on, from either end
+            for (const auto& shadow : shadows) {
+                const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
+                const SheetMetal::WallEdge edge =
+                    SheetMetal::wallEdge(base, model, ref, shadow.second);
+                auto on = [&](const gp_Pnt& p) {
+                    return gp_Vec(edge.p0, p).Crossed(gp_Vec(edge.along)).Magnitude()
+                        < Precision::Confusion();
+                };
+                if (!on(points.front()) && on(points.back())) {
+                    std::reverse(points.begin(), points.end());
+                }
+                if (!on(points.front())) {
+                    continue;
+                }
+                for (const gp_Pnt& p : points) {
+                    const gp_Vec v(points.front(), p);
+                    if (std::abs(v.Dot(gp_Vec(edge.along))) > Precision::Confusion()) {
+                        FC_THROWM(Base::ValueError,
+                                  "A contour flange's sketch lies square to edge "
+                                      << shadow.second << ", which it starts on");
+                    }
+                    contourAt.emplace_back(v.Dot(gp_Vec(edge.endOut)),
+                                           v.Dot(gp_Vec(edge.skinOut)));
+                }
+                break;
+            }
+            if (contourAt.empty()) {
+                THROWM(Base::ValueError,
+                       "A contour flange's sketch starts on one of its edges, at either end");
+            }
+        }
         std::vector<TopoShape> pieces, cuts;
         // each edge's ends, its way out and up, and its pieces, for the miters
         struct Side
@@ -453,9 +506,12 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             gp_Pnt p0, p1;
             gp_Dir endOut, up;
             std::size_t first, last;
+            // the first bend (-1 for none) and the first wall after it
             int bend, leg;
             // the earlier bend each end meets at a corner, -1 for none
             int meets[2];
+            // every element the side made
+            std::vector<int> elements;
         };
         std::vector<Side> sides;
         for (const auto& shadow : shadows) {
@@ -466,10 +522,21 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             const gp_Dir d = edge.along, endOut = edge.endOut;
             const int wall = edge.wall;
 
-            // bending toward up, its inner skin the one facing that way
+            // bending toward up, its inner skin the one facing that way; a
+            // contour the way its first turn goes
             gp_Dir up = edge.skinOut;
             gp_Pnt inner = p0;
-            if (Reversed.getValue()) {
+            bool away = Reversed.getValue();
+            if (contour()) {
+                away = false;
+                for (const auto& at : contourAt) {
+                    if (std::abs(at.second) > Precision::Confusion()) {
+                        away = at.second < 0;
+                        break;
+                    }
+                }
+            }
+            if (away) {
                 up.Reverse();
                 inner = p0.Translated(gp_Vec(up) * T);
             }
@@ -535,6 +602,15 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 if (Gap2.getValue() <= Precision::Confusion()) {
                     meets[1] = earlierBendAt(model, earlier, base.getShape(), wall, p1, d, endOut);
                 }
+                for (int end : meets) {
+                    if (end >= 0 && contour()) {
+                        FC_THROWM(Base::ValueError,
+                                  "Edge " << shadow.second << " meets "
+                                          << model.elements[end].name
+                                          << " at a corner: a contour flange is not mitered "
+                                             "against an earlier flange, give it a gap there");
+                    }
+                }
                 if (meets[0] >= 0) {
                     gap1 -= reach;
                     width += reach;
@@ -547,68 +623,110 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             const gp_Pnt edgeStart = inner.Translated(gp_Vec(d) * gap1);
             // the edge's length left beyond the flange at its last vertex
             const double gap2 = p0.Distance(p1) - gap1 - width;
-            const gp_Pnt bendStart = edgeStart.Translated(-e * setback);
 
-            const std::string bendName = "Bend" + std::to_string(++bends);
-            const std::string legName = "Wall" + std::to_string(++walls);
-            CylBend bend;
-            bend.frame = gp_Ax3(bendStart.Translated(u * R), endOut.Crossed(up), up.Reversed());
-            bend.radius = R;
-            bend.thickness = T;
-            bend.angle = A;
-            bend.k = rule->modelK(A, R);
-
-            // the leg goes on from the bend's end
-            const gp_Dir x2 = bend.frame.XDirection().Rotated(
-                gp_Ax1(bend.frame.Location(), bend.frame.Direction()), A);
-            const gp_Dir legAlong = bend.frame.Direction().Crossed(x2);
-            const gp_Pnt legStart = bend.frame.Location().Translated(gp_Vec(x2) * R);
-
-            // the leg's straight part, by the length type or up to a face
-            double leg = Length.getValue();
-            if (byUpTo) {
-                const double across = legAlong.Dot(upTo.Axis().Direction());
-                if (std::abs(across) < Precision::Angular()) {
-                    FC_THROWM(Base::ValueError,
-                              "Edge " << shadow.second << ": the leg never meets that face");
+            int bendIndex = -1, legWall = -1;
+            std::vector<int> elements;
+            // what the wall carried on or cut back under it is named after
+            std::string bendName;
+            if (contour()) {
+                // The wall's skin through the edge runs on as the lines: the
+                // wall the chain's first line, its material from -T to 0 along
+                // its left (n x its way), the skin's outward normal
+                const gp_Pnt start = p0.Translated(gp_Vec(d) * gap1);
+                std::vector<gp_Pnt> chain {start.Translated(-e), start};
+                for (std::size_t i = 1; i < contourAt.size(); ++i) {
+                    chain.push_back(start.Translated(e * contourAt[i].first
+                                                     + gp_Vec(edge.skinOut) * contourAt[i].second));
                 }
-                leg = gp_Vec(legStart, upTo.Location()).Dot(gp_Vec(upTo.Axis().Direction()))
-                    / across;
+                SheetMetal::dropStraight(chain);
+                SheetMetal::ProfileBuilder build(model, walls, bends);
+                build.k = [rule](double angle, double radius) {
+                    return rule->modelK(angle, radius);
+                };
+                build.thickness = T;
+                build.radius = R;
+                build.first = wall;
+                build.profileAt(chain, endOut.Crossed(edge.skinOut), -T);
+                // the wall's straight part ends short of the edge, or past it
+                setback = gp_Vec(build.firstEnd, start).Dot(e);
+                for (const TopoShape& face : build.faces) {
+                    pieces.push_back(TopoShape(0, hasher).makEPrism(face, along));
+                }
+                bendIndex = build.firstBend;
+                elements = build.added;
+                for (int k : elements) {
+                    if (legWall < 0 && model.elements[k].kind == Element::Kind::Wall) {
+                        legWall = k;
+                    }
+                }
+                bendName = bendIndex >= 0 ? model.elements[bendIndex].name
+                                          : model.elements[wall].name;
             }
-            else if (LengthType.getValue() == 1) {
-                leg -= R * std::tan(A / 2);
+            else {
+                const gp_Pnt bendStart = edgeStart.Translated(-e * setback);
+
+                bendName = "Bend" + std::to_string(++bends);
+                const std::string legName = "Wall" + std::to_string(++walls);
+                CylBend bend;
+                bend.frame = gp_Ax3(bendStart.Translated(u * R), endOut.Crossed(up), up.Reversed());
+                bend.radius = R;
+                bend.thickness = T;
+                bend.angle = A;
+                bend.k = rule->modelK(A, R);
+
+                // the leg goes on from the bend's end
+                const gp_Dir x2 = bend.frame.XDirection().Rotated(
+                    gp_Ax1(bend.frame.Location(), bend.frame.Direction()), A);
+                const gp_Dir legAlong = bend.frame.Direction().Crossed(x2);
+                const gp_Pnt legStart = bend.frame.Location().Translated(gp_Vec(x2) * R);
+
+                // the leg's straight part, by the length type or up to a face
+                double leg = Length.getValue();
+                if (byUpTo) {
+                    const double across = legAlong.Dot(upTo.Axis().Direction());
+                    if (std::abs(across) < Precision::Angular()) {
+                        FC_THROWM(Base::ValueError,
+                                  "Edge " << shadow.second << ": the leg never meets that face");
+                    }
+                    leg = gp_Vec(legStart, upTo.Location()).Dot(gp_Vec(upTo.Axis().Direction()))
+                        / across;
+                }
+                else if (LengthType.getValue() == 1) {
+                    leg -= R * std::tan(A / 2);
+                }
+                else if (LengthType.getValue() == 2) {
+                    leg -= (R + T) * std::tan(A / 2);
+                }
+                else if (LengthType.getValue() == 3) {
+                    leg -= (R + T) * (A >= std::numbers::pi / 2 ? 1.0 : std::sin(A));
+                }
+                if (shape.faces.empty() && leg < Precision::Confusion()) {
+                    FC_THROWM(Base::ValueError,
+                              "Edge " << shadow.second << ": the flange is too short for its bend");
+                }
+                legWall = model.addWall(legName, gp_Ax3(legStart, x2, legAlong));
+                bendIndex = model.addBend(bendName, bend, wall, legWall);
+                elements = {bendIndex, legWall};
+
+                pieces.push_back(TopoShape(0, hasher).makEPrism(
+                    SheetMetal::bendSection(bend, bendName), along));
+                if (shape.faces.empty()) {
+                    pieces.push_back(TopoShape(0, hasher).makEPrism(
+                        SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
+                }
+                for (const TopoShape& face : shape.faces) {
+                    // from the outer skin in
+                    pieces.push_back(TopoShape(0, hasher).makEPrism(face, gp_Vec(x2) * -T));
+                }
             }
-            else if (LengthType.getValue() == 2) {
-                leg -= (R + T) * std::tan(A / 2);
-            }
-            else if (LengthType.getValue() == 3) {
-                leg -= (R + T) * (A >= std::numbers::pi / 2 ? 1.0 : std::sin(A));
-            }
-            if (shape.faces.empty() && leg < Precision::Confusion()) {
-                FC_THROWM(Base::ValueError,
-                          "Edge " << shadow.second << ": the flange is too short for its bend");
-            }
-            const int legWall = model.addWall(legName, gp_Ax3(legStart, x2, legAlong));
-            const int bendIndex = model.addBend(bendName, bend, wall, legWall);
             // Ending inside the wall's end, the bend stops at its sides: its
             // tube runs on through the wall beside it, the relief's faces
             // there among it
-            if (gap1 > Precision::Confusion()) {
+            if (bendIndex >= 0 && gap1 > Precision::Confusion()) {
                 model.elements[bendIndex].limits.emplace_back(edgeStart, d.Reversed());
             }
-            if (gap2 > Precision::Confusion()) {
+            if (bendIndex >= 0 && gap2 > Precision::Confusion()) {
                 model.elements[bendIndex].limits.emplace_back(edgeStart.Translated(along), d);
-            }
-
-            pieces.push_back(TopoShape(0, hasher).makEPrism(
-                SheetMetal::bendSection(bend, bendName), along));
-            if (shape.faces.empty()) {
-                pieces.push_back(TopoShape(0, hasher).makEPrism(
-                    SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
-            }
-            for (const TopoShape& face : shape.faces) {
-                // from the outer skin in
-                pieces.push_back(TopoShape(0, hasher).makEPrism(face, gp_Vec(x2) * -T));
             }
             if (setback < -Precision::Confusion()) {
                 // the wall carried on to where the bend starts
@@ -658,7 +776,8 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                              pieces.size(),
                              bendIndex,
                              legWall,
-                             {meets[0], meets[1]}});
+                             {meets[0], meets[1]},
+                             elements});
         }
         // the bends meeting at each miter, for the corner relief
         std::vector<std::pair<int, int>> mitered;
@@ -723,13 +842,15 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                             halfSpace(corner.Translated(gp_Vec(m) * (gap / 2)), m.Reversed()));
                     // and in the model, where the two sides' slabs and tubes
                     // overlap at the corner
-                    for (int k : {a.bend, a.leg}) {
+                    for (int k : a.elements) {
                         model.elements[k].limits.emplace_back(corner, m);
                     }
-                    for (int k : {b.bend, b.leg}) {
+                    for (int k : b.elements) {
                         model.elements[k].limits.emplace_back(corner, m.Reversed());
                     }
-                    mitered.emplace_back(a.bend, b.bend);
+                    if (a.bend >= 0 && b.bend >= 0) {
+                        mitered.emplace_back(a.bend, b.bend);
+                    }
                 }
             }
             // Against an earlier flange at a corner: the plane mirroring the
@@ -813,6 +934,18 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             return App::DocumentObject::StdReturn;
         }
         TopoShape result = makeBoolean(base, tool, true);
+        if (contour()) {
+            // a chain turning back into the sheet: the join less than both
+            auto volume = [](const TopoShape& shape) {
+                GProp_GProps props;
+                BRepGProp::VolumeProperties(shape.getShape(), props);
+                return props.Mass();
+            };
+            const double both = volume(base) + volume(tool);
+            if (std::abs(volume(result) - both) > 1e-7 * both) {
+                THROWM(Base::ValueError, "A contour flange runs into the sheet");
+            }
+        }
         // The corner relief at each miter, drawn in the flat and folded back
         // (sec 5.2); none for None, and a tear is the miter's gap itself
         const std::vector<TopoShape> reliefs = SheetMetal::cornerReliefs(
@@ -831,4 +964,21 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         return new App::DocumentObjectExecReturn(e.GetMessageString());
     }
     return App::DocumentObject::StdReturn;
+}
+
+PROPERTY_SOURCE(PartDesign::SheetMetalContourFlange, PartDesign::SheetMetalFlange)
+
+SheetMetalContourFlange::SheetMetalContourFlange()
+{
+    // the sketch says the angle, the length and where the bend sits
+    for (App::Property* prop : std::initializer_list<App::Property*> {&Angle,
+                                                                      &Length,
+                                                                      &LengthType,
+                                                                      &BendPosition,
+                                                                      &Offset,
+                                                                      &ParallelTo,
+                                                                      &UpToFace,
+                                                                      &Reversed}) {
+        prop->setStatus(App::Property::Hidden, true);
+    }
 }

@@ -96,6 +96,13 @@ public:
         return "PartDesignGui::ViewProviderSheetMetalFlange";
     }
 
+protected:
+    /// A contour flange's: the leg an open chain of lines sketched from the edge
+    virtual bool contour() const
+    {
+        return false;
+    }
+
 private:
     /// Length, LengthType and the gaps read only while a profile shapes the leg
     void showProfileValues();
@@ -105,6 +112,34 @@ private:
     static const char* LengthTypeEnums[];
     static const char* BendPositionEnums[];
     static const char* ReliefShapeEnums[];
+};
+
+/** A contour flange (docs/SheetMetal.md sec 5.1, ruled 2026-11-02)
+ *
+ * Profile is an open chain of lines on a plane square to one of the edges,
+ * starting on it. The wall's skin through the edge runs on as the chain's
+ * lines, the material on the side the wall's lies on: a bend where the
+ * first line leaves the wall and at each corner after, a wall on each line.
+ * The same profile goes on each edge, with the flange's gaps, relief and
+ * miters; the flange's angle, length and bend position say nothing.
+ */
+class PartDesignExport SheetMetalContourFlange : public SheetMetalFlange
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesign::SheetMetalContourFlange);
+
+public:
+    SheetMetalContourFlange();
+
+    const char* getViewProviderName() const override
+    {
+        return "PartDesignGui::ViewProviderSheetMetalContourFlange";
+    }
+
+protected:
+    bool contour() const override
+    {
+        return true;
+    }
 };
 
 }  // namespace PartDesign

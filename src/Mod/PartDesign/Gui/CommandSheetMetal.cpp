@@ -217,6 +217,79 @@ bool CmdPartDesignSheetMetalFlange::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalContourFlange
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalContourFlange)
+
+CmdPartDesignSheetMetalContourFlange::CmdPartDesignSheetMetalContourFlange()
+    : Command("PartDesign_SheetMetalContourFlange")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Contour Flange");
+    sToolTipText = QT_TR_NOOP("The selected sketch's chain of lines on each selected edge,\n"
+                              "sketched square to an edge from it: a bend there and at each "
+                              "corner");
+    sWhatsThis = "PartDesign_SheetMetalContourFlange";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalContourFlange";
+}
+
+void CmdPartDesignSheetMetalContourFlange::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    App::DocumentObject* sketch = nullptr;
+    std::ostringstream edges;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        if (!sketch && sel.getObject() && sel.getObject()->isDerivedFrom<Part::Part2DObject>()) {
+            sketch = sel.getObject();
+            continue;
+        }
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Edge")) {
+                continue;
+            }
+            if (base && base != sel.getObject()) {
+                continue;
+            }
+            base = sel.getObject();
+            edges << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue() || !sketch) {
+        warn(QT_TR_NOOP("No edge and sketch"),
+             QT_TR_NOOP("Select edges of the body's tip, each where a wall's skin meets its end, "
+                        "and an open sketch of lines drawn square to one of them, starting on "
+                        "it."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Contour Flange"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalContourFlange", "ContourFlange");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Edges = (" << getObjectCmd(base) << ", [" << edges.str() << "])");
+    Gui::cmdAppObject(feat, std::ostringstream() << "Profile = " << getObjectCmd(sketch));
+    FCMD_OBJ_HIDE(sketch);
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalContourFlange::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalExtendWall
 //===========================================================================
 
@@ -771,6 +844,7 @@ void CreatePartDesignSheetMetalCommands()
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
     mgr.addCommand(new CmdPartDesignSheetMetalBaseWall());
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
+    mgr.addCommand(new CmdPartDesignSheetMetalContourFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());

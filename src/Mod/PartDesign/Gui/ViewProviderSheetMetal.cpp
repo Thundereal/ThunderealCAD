@@ -83,6 +83,27 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalFlange::getEditDialog()
             "Edge"));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalContourFlange,
+                PartDesignGui::ViewProviderSheetMetalFlange)
+
+ViewProviderSheetMetalContourFlange::ViewProviderSheetMetalContourFlange()
+{
+    sPixmap = "PartDesign_SheetMetalContourFlange";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalContourFlange::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(
+            this,
+            "PartDesign_SheetMetalContourFlange",
+            QObject::tr("Contour flange parameters"),
+            {"Profile", "Gap1", "Gap2", "ReliefShape", "ReliefWidth", "ReliefDepth"},
+            "Edges",
+            "Edge"));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalExtendWall, PartDesignGui::ViewProviderAddSub)
 
 ViewProviderSheetMetalExtendWall::ViewProviderSheetMetalExtendWall()

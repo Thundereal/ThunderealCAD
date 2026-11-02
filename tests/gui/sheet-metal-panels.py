@@ -435,6 +435,49 @@ def run():
         pump(20)
         check("OK keeps a good tab", "Invalid" not in tab.State, tab.State)
 
+        # -- the contour flange's panel: its edges, sketch, gaps and relief
+        top = max(v.Point.z for v in tab.Shape.Vertexes if abs(v.Point.x + 8) < 1e-7)
+        edge = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(tab.Shape.Edges)
+            if all(abs(v.Point.x + 8) < 1e-7 and abs(v.Point.z - top) < 1e-7 for v in e.Vertexes)
+        ]
+        sketch = body.newObject("Sketcher::SketchObject", "ContourSketch")
+        sketch.MapMode = "Deactivated"
+        sketch.Placement = FreeCAD.Placement(
+            V(0, 9, 0), FreeCAD.Rotation(V(1, 0, 0), V(0, 0, 1), V(0, -1, 0), "ZXY")
+        )
+        sketch.addGeometry(Part.LineSegment(V(-8, top, 0), V(-8, top + 5, 0)))
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, tab.Name, edge[0])
+        FreeCADGui.Selection.addSelection(doc.Name, sketch.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalContourFlange")
+        pump()
+        contour = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalContourFlange"][0]
+        w = panel() or {}
+        names = ("Profile", "Gap1", "Gap2", "ReliefShape", "ReliefWidth", "ReliefDepth")
+        edges = w.get("listEdges")
+        check(
+            "Contour Flange opens its panel with its sketch, gaps and relief, its edge listed",
+            all(n in w for n in names) and edges is not None and edges.count() == 1,
+            (sorted(n for n in w if n[0].isupper()), edges and edges.count()),
+        )
+        check(
+            "and none of the flange's angle, length or bend position",
+            not any(n in w for n in ("Angle", "Length", "LengthType", "BendPosition")),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        if "Gap1" in w:
+            w["Gap1"].setProperty("rawValue", 1.0)
+            pump(20)
+            doc.recompute()
+            check("the gap set there is the contour flange's", abs(contour.Gap1.Value - 1) < 1e-9,
+                  contour.Gap1.Value)
+        accept()
+        pump(20)
+        check("OK keeps a good contour flange", "Invalid" not in contour.State, contour.State)
+
         # -- the flat pattern's panel ------------------------------------------
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")
@@ -447,8 +490,9 @@ def run():
         source = w.get("labelSource")
         check(
             "a double-click on the flat opens its panel, saying what it lays flat",
-            source is not None and flat.Source.Label in source.text(),
-            source and source.text(),
+            source is not None and flat.Source.Label in source.text()
+            and "Invalid" not in flat.State,
+            (source and source.text(), flat.State, flat.getStatusString()),
         )
         length = w.get("FlatLength")
         check(

@@ -168,6 +168,8 @@ SET(SheetMetal_SRCS
     SheetMetal/Model.h
     SheetMetal/Pieces.cpp
     SheetMetal/Pieces.h
+    SheetMetal/Profile.cpp
+    SheetMetal/Profile.h
     SheetMetal/Refold.cpp
     SheetMetal/Refold.h
     SheetMetal/Svg.cpp

@@ -56,6 +56,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A contour flange, its panel its edges, sketch, gaps and relief
+class PartDesignGuiExport ViewProviderSheetMetalContourFlange: public ViewProviderSheetMetalFlange
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalContourFlange);
+
+public:
+    ViewProviderSheetMetalContourFlange();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// An extend wall, its panel its faces and length
 class PartDesignGuiExport ViewProviderSheetMetalExtendWall: public ViewProviderAddSub
 {

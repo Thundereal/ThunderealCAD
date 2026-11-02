@@ -324,6 +324,44 @@ def run():
         )
         flange = tab
 
+        # a contour flange on the tab's end, up 5 from its top edge
+        top = max(v.Point.z for v in tab.Shape.Vertexes if abs(v.Point.x + 8) < 1e-7)
+        edge = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(tab.Shape.Edges)
+            if all(abs(v.Point.x + 8) < 1e-7 and abs(v.Point.z - top) < 1e-7 for v in e.Vertexes)
+        ]
+        sketch = body.newObject("Sketcher::SketchObject", "ContourSketch")
+        sketch.MapMode = "Deactivated"
+        sketch.Placement = FreeCAD.Placement(
+            V(0, 9, 0), FreeCAD.Rotation(V(1, 0, 0), V(0, 0, 1), V(0, -1, 0), "ZXY")
+        )
+        sketch.addGeometry(Part.LineSegment(V(-8, top, 0), V(-8, top + 5, 0)))
+        doc.recompute()
+        pump()
+        volume = flange.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, tab.Name, edge[0])
+        FreeCADGui.Selection.addSelection(doc.Name, sketch.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalContourFlange")
+        pump()
+        check("Contour Flange opens its panel, OK closes it", ok())
+        doc.recompute()
+        contour = newest(doc, before, "PartDesign::SheetMetalContourFlange")
+        check(
+            "Contour Flange on a selected edge and sketch bends the sketch's lines from there",
+            contour is not None
+            and "Invalid" not in contour.State
+            and contour.Profile[0] == sketch
+            and contour.Edges[1] == edge[:1]
+            and len(contour.Shape.Solids) == 1
+            and contour.Shape.Volume > volume + 1e-6,
+            contour and (contour.State, contour.Edges, contour.Shape.Volume, volume),
+        )
+        check("the sketch hidden", not sketch.Visibility)
+        flange = contour
+
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

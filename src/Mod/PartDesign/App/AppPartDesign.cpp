@@ -196,6 +196,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalExtension         ::init();
     PartDesign::SheetMetalBaseWall          ::init();
     PartDesign::SheetMetalFlange            ::init();
+    PartDesign::SheetMetalContourFlange     ::init();
     PartDesign::SheetMetalExtendWall        ::init();
     PartDesign::SheetMetalHem               ::init();
     PartDesign::SheetMetalCornerClosure     ::init();
@@ -209,6 +210,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     // sec 8.1): what a solid body holding one offers, what an edit of one does
     for (Base::Type type : {PartDesign::SheetMetalBaseWall::getClassTypeId(),
                             PartDesign::SheetMetalFlange::getClassTypeId(),
+                            PartDesign::SheetMetalContourFlange::getClassTypeId(),
                             PartDesign::SheetMetalExtendWall::getClassTypeId(),
                             PartDesign::SheetMetalHem::getClassTypeId(),
                             PartDesign::SheetMetalCornerClosure::getClassTypeId(),

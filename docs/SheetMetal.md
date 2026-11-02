@@ -429,7 +429,7 @@ its tracker, not ported.
 |---|---|---|
 | **Base wall** | A closed sketch makes a plate; an open sketch makes a profile wall with a bend at every corner, extruded by a length or symmetric. Material inside, outside or mid-plane of the sketch. | B1 3 |
 | **Flange** | One or more edges of walls: angle (or up to a face, or parallel to one), length measured as leg, tangent, inner sharp or outer sharp, bend position (material inside, outside, bend outside, offset), gaps and extents at each end, partial width, automatic miter where two flanges in the feature meet. A closed sketch on the end makes the leg's shape. | B1 5 |
-| **Contour flange** | An open sketch swept along one or more edges, a bend at each corner of the profile. | B1 5 (profile mode) |
+| **Contour flange** | An open chain of lines sketched square to an edge from it, swept along one or more edges: a bend where it leaves the wall and at each corner, the gaps, relief and miters as the flange's. | B1 5 (profile mode) |
 | **Hem** | Flat, open, teardrop, rolled. | B1 6 |
 | **Fold** | Bends a wall along a sketched line: radius, angle, which side moves, the line at the bend's start, middle or end. | B1 9 |
 | **Jog** | Two opposite bends along a line, by an offset, the far end kept or the material taken from the wall. | -- (SOLIDWORKS Jog) |
@@ -1001,6 +1001,31 @@ and not frozen.
   where the bend ends, on the side it runs off to (`behindEnd()` in `Model::contains()`). The
   wall before a bend keeps the angle alone: the wall beside a bend that ends inside its end runs
   on past the bend's start (`TestSheetMetalJog.testFlangeBehind`).
+- M2's contour flange, `PartDesign::SheetMetalContourFlange` (5.1, ruled 2026-11-02), with
+  `TestSheetMetalContourFlange` (12), its command, icon and panel. As built:
+  - A subclass of the flange (`contour()`), its angle, length, bend position, offset, parallel
+    and up-to faces and `Reversed` hidden; `Profile` is the open sketch, `Edges`, the gaps and
+    the relief as the flange's.
+  - The sketch is one open wire of lines (an arc is refused, a closed one too). Its start is
+    the end of it on one of the edges (either end); every point of it lies on the plane through
+    the start square to that edge. Its points are kept as their way along that edge's end
+    normal and skin normal, and laid so on every edge from where the gaps leave it.
+  - The base wall's profile builder is shared (`SheetMetal/Profile`, `ProfileBuilder`): the
+    chain is the wall's skin through the edge, then the sketch's points, its first line the
+    wall itself (`first`), the material from -T to 0 along the skin's normal. It makes a wall
+    and a section on each line after, a bend at each corner; where the wall's straight part
+    ends sets how far the wall is cut back under the flange (with the flange's relief at a
+    gap), or carried on when the first line goes straight on from the wall. The way the first
+    turn goes is the flange's `up`.
+  - On several edges the flange's miters cut every piece of each side and limit every element
+    it made; the corner relief goes between the first bends. An edge meeting an earlier
+    flange's bend at a corner is refused (the flange's miter against an earlier flange is for
+    its own leg only): give it a gap there.
+  - A chain turning back into the sheet is refused: the join must hold the part and the
+    flange's pieces whole (their volumes add up).
+- Open: a flange whose edge stops where a jog's bend starts treats that bend as an earlier
+  flange's at a corner and is mitered against the jog's run; its flat does not close. Seen
+  while building the contour flange; not chased.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

@@ -434,6 +434,180 @@ class TestProfileContact(unittest.TestCase):
             )
         )
 
+    def rocker(self, friction):
+        """A half disc of radius 10 on its arc on a plate, its flat side
+        up, tipped by 10 deg about its circle's centre and let go, gravity
+        in the plane: its point slides along the arc, and along the line
+        too unless it rolls. Its angle against the exact model of one
+        freedom by RK4: frictionless the centre of mass falls straight
+        down, (I + m d^2 sin^2) th'' + m d^2 sin cos th'^2 + m g d sin = 0;
+        rolling, the circle's centre moves r th, (I + m rho^2) th'' + m r d
+        sin th'^2 + m g d sin = 0, rho^2 = r^2 + d^2 - 2 r d cos. Returns
+        the run's angles and circle's centres, and the model's angles."""
+        import Part
+
+        r, end, step = 10.0, 1.0, 1e-3
+        plate = self.plate(Part.makeBox(120, 20, 10, App.Vector(-60, -20, 0)))
+        half = self.assembly.newObject("Part::Feature", "Half")
+        shape = Part.makeCylinder(r, 10, App.Vector(), App.Vector(0, 0, 1), 180)
+        shape.rotate(App.Vector(), App.Vector(0, 0, 1), 180)
+        shape.translate(App.Vector(0, r, 0))
+        # The feature takes the shape's placement: tipped on top of it
+        half.Shape = shape
+        own = App.Placement(half.Placement)
+        law = {"Restitution": 0.5}
+        if friction:
+            law.update(StaticFriction=friction, DynamicFriction=friction)
+        contact = self.contact(plate, 10, half, 10, **law)
+        tipped = App.Placement(
+            App.Vector(), App.Rotation(App.Vector(0, 0, 1), 10), App.Vector(0, r, 0)
+        )
+        half.Placement = tipped.multiply(own)
+        solid = shape.Solids[0]
+        gyration2 = solid.MatrixOfInertia.A[10] / solid.Mass
+        d = r - solid.CenterOfMass.y
+        self.assertAlmostEqual(d, 4 * r / (3 * math.pi), delta=1e-9)
+        self.assertEqual(self.simulate(contact, end, step), 0)
+
+        def slope(y):
+            th, w = y
+            sin, cos = math.sin(th), math.cos(th)
+            if friction:
+                rho2 = r * r + d * d - 2 * r * d * cos
+                return [w, -(r * d * sin * w * w + G * d * sin) / (gyration2 + rho2)]
+            return [
+                w,
+                -(d * d * sin * cos * w * w + G * d * sin) / (gyration2 + d * d * sin * sin),
+            ]
+
+        def ahead(y, s, h):
+            return [a + h * b for a, b in zip(y, s)]
+
+        y, h, model = [math.radians(10), 0.0], step / 20, []
+        for _ in range(round(end / step) + 1):
+            model.append(y[0])
+            for _ in range(20):
+                s1 = slope(y)
+                s2 = slope(ahead(y, s1, h / 2))
+                s3 = slope(ahead(y, s2, h / 2))
+                s4 = slope(ahead(y, s3, h))
+                y = [
+                    a + h / 6 * (b + 2 * c + 2 * e + f)
+                    for a, b, c, e, f in zip(y, s1, s2, s3, s4)
+                ]
+        angles, centres = [], []
+        for k in range(self.assembly.numberOfFrames()):
+            plc = self.at(half, k)
+            rot = plc.Rotation.multiply(own.Rotation.inverted())
+            a = rot.Angle * (1 if rot.Axis.z >= 0 else -1)
+            angles.append(math.atan2(math.sin(a), math.cos(a)))
+            centres.append(plc.multVec(App.Vector()))
+        return angles, centres, model
+
+    @staticmethod
+    def turns(angles):
+        return [
+            math.degrees(abs(angles[k]))
+            for k in range(1, len(angles) - 1)
+            if (angles[k] - angles[k - 1]) * (angles[k + 1] - angles[k]) < 0
+        ]
+
+    def test_half_disc_rocks(self):
+        """A half disc rocking on its arc, frictionless: its point slides
+        along the arc and along the line. Its angle to 0.06 deg of the exact
+        model for a second, 0.034 measured -- the model's rigid, the run's
+        disc sunk 0.01 mm on the contact's spring; every turn at 10 deg to
+        0.02, and its centre of mass straight above where it started, to
+        1e-6 mm (1e-11 measured): nothing pushes it sideways."""
+        angles, centres, model = self.rocker(0.0)
+        worst = max(abs(a - m) for a, m in zip(angles, model))
+        self.assertLess(math.degrees(worst), 0.06)
+        turns = self.turns(angles)
+        self.assertGreaterEqual(len(turns), 6)
+        for k, turn in enumerate(turns):
+            self.assertAlmostEqual(turn, 10.0, delta=0.02, msg=k)
+        d = 40 / (3 * math.pi)
+        drift = max(abs(c.x + d * math.sin(a) - d * math.sin(math.radians(10)))
+                    for a, c in zip(angles, centres))
+        self.assertLess(drift, 1e-6)
+        App.Console.PrintMessage(
+            "Half disc rocking: %.3g deg off the model, %d turns within %.3g deg of 10,"
+            " its centre of mass across by %.3g mm\n"
+            % (math.degrees(worst), len(turns), max(abs(t - 10) for t in turns), drift)
+        )
+
+    def test_half_disc_rolls(self):
+        """The half disc rocking on friction of 0.5: it rolls, its circle's
+        centre r th along, as far as its turn. Its angle to 0.1 deg of the
+        exact model for a second (0.059 measured), its centre where rolling
+        puts it to 0.01 mm (0.0011). Each turn lower than the last by 0.008
+        deg: the friction's stiction, a slip speed up to 0.1 mm/s that
+        holds it, takes that much a swing."""
+        angles, centres, model = self.rocker(0.5)
+        worst = max(abs(a - m) for a, m in zip(angles, model))
+        self.assertLess(math.degrees(worst), 0.1)
+        rolled = max(abs(c.x + 10.0 * (a - math.radians(10))) for a, c in zip(angles, centres))
+        self.assertLess(rolled, 0.01)
+        turns = self.turns(angles)
+        self.assertGreaterEqual(len(turns), 6)
+        for k, turn in enumerate(turns):
+            self.assertAlmostEqual(turn, 10.0, delta=0.06, msg=k)
+        App.Console.PrintMessage(
+            "Half disc rolling: %.3g deg off the model, %.3g mm off rolling, turns %.4f..%.4f\n"
+            % (math.degrees(worst), rolled, min(turns), max(turns))
+        )
+
+    def test_disc_in_bowl(self):
+        """A disc of radius 5 let go 10 deg up a hollow of 25, frictionless:
+        its point slides round the hollow the whole swing, the disc not
+        turning. Its centre swings on 20 mm and the disc's sink: the period
+        4 sqrt(l / g) K(sin(5 deg)), l that, to 1e-4 (4.6e-5 measured, l
+        20.010 mm); every turn at 10 deg to 0.003 (0.0018)."""
+        import Part
+
+        big, r, step = 25.0, 5.0, 1e-3
+        plate = self.plate(
+            Part.makeBox(60, 40, 10, App.Vector(-30, 0, 0))
+            .cut(Part.makeCylinder(big, 10, App.Vector(0, 40, 0)))
+            .removeSplitter()
+        )
+        disc = self.assembly.newObject("Part::Feature", "Disc")
+        disc.Shape = Part.makeCylinder(r, 10)
+        contact = self.contact(plate, 10, disc, 10, Restitution=0.5)
+        lever = big - r
+        start = math.radians(10)
+        disc.Placement = plc(lever * math.sin(start), 40 - lever * math.cos(start))
+        self.assertEqual(self.simulate(contact, 1.0, step), 0)
+        phis, radial = [], []
+        for k in range(self.assembly.numberOfFrames()):
+            p = self.at(disc, k).Base
+            phis.append(math.atan2(p.x, 40 - p.y))
+            radial.append(math.hypot(p.x, 40 - p.y))
+        # Swinging on what the disc's centre keeps from the hollow's
+        swung = sum(radial[100:]) / len(radial[100:])
+        a, b = 1.0, math.cos(start / 2)
+        while abs(a - b) > 1e-15:
+            a, b = (a + b) / 2, math.sqrt(a * b)
+        period = 4 * math.sqrt(swung / G) * math.pi / (2 * a)
+        cross = [
+            (k - 1 + phis[k - 1] / (phis[k - 1] - phis[k])) * step
+            for k in range(1, len(phis))
+            if phis[k - 1] > 0 >= phis[k]
+        ]
+        periods = [b - a for a, b in zip(cross, cross[1:])]
+        self.assertGreaterEqual(len(periods), 2)
+        for k, swing in enumerate(periods):
+            self.assertAlmostEqual(swing / period, 1.0, delta=1e-4, msg=k)
+        turns = self.turns(phis)
+        self.assertGreaterEqual(len(turns), 6)
+        for k, turn in enumerate(turns):
+            self.assertAlmostEqual(turn, 10.0, delta=0.003, msg=k)
+        App.Console.PrintMessage(
+            "Disc in a bowl: periods within %.3g of %.6f (on %.5f mm), turns within %.3g deg\n"
+            % (max(abs(p / period - 1) for p in periods), period, swung,
+               max(abs(t - 10) for t in turns))
+        )
+
     def ride_disk_cam(self, follower, at_follower, height, name, reach=None):
         """The disk cam (CAM_E, CAM_RADIUS) at the origin turning once at
         CAM_RATE, the follower on a slider along y through x = 0 riding it

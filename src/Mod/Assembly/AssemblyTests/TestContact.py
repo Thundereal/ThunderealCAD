@@ -602,6 +602,88 @@ class TestContact(unittest.TestCase):
                 )
                 self.assertLess(abs(friction[k].y) + abs(friction[k].z), weight * 1e-6, msg=t)
 
+    def roll(self, kind, end, slope=10.0, speed=0.0):
+        """A ball of radius 5, or a roller of radius 5 and 20 long on its
+        side, on a grounded plate 200 long, friction 0.5, gravity tipped by
+        'slope' deg along x; sent rolling at 'speed' mm/s with its matching
+        spin. Its acceleration along x: of a parabola through its x."""
+        import CommandCreateSimulation
+
+        plate = self.assembly.newObject("Part::Box", "Plate")
+        plate.Length, plate.Width, plate.Height = 200, 50, 10
+        plate.Placement.Base = App.Vector(-100, -25, 0)
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
+        JointObject.GroundedJoint(ground, plate)
+        if kind == "ball":
+            body = self.ball(15)
+            body.Placement = App.Placement(App.Vector(-80, 0, 15), App.Rotation())
+        else:
+            body = self.assembly.newObject("Part::Cylinder", "Roller")
+            body.Radius, body.Height = 5, 20
+            body.Placement = App.Placement(
+                App.Vector(-80, -10, 15), App.Rotation(App.Vector(1, 0, 0), -90)
+            )
+        self.contact([body], [plate], StaticFriction=0.5, DynamicFriction=0.5)
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        if speed:
+            CommandCreateSimulation.newInitialCondition(
+                sim,
+                component=body,
+                linear=App.Vector(speed, 0, 0),
+                angular=App.Vector(0, math.degrees(speed / 5.0), 0),
+            )
+        sim.AnalysisType = "Dynamic"
+        sim.Elements = self.sets
+        sim.TimeEnd = end
+        sim.TimeStepOutput = 1e-3
+        alpha = math.radians(slope)
+        sim.Gravity = App.Vector(G * math.sin(alpha), 0, -G * math.cos(alpha))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        n = self.assembly.numberOfFrames()
+        xs = []
+        for k in range(n):
+            self.assembly.updateForFrame(k)
+            xs.append(body.Placement.Base.x)
+        # x = c + v t + a t^2 / 2 by least squares, t about the middle
+        ts = [(k - (n - 1) / 2) * 1e-3 for k in range(n)]
+        s0, s2, s4 = n, sum(t * t for t in ts), sum(t**4 for t in ts)
+        y0, y2 = sum(xs), sum(x * t * t for x, t in zip(xs, ts))
+        return 2 * (s0 * y2 - s2 * y0) / (s0 * s4 - s2 * s2)
+
+    def test_ball_rolls_down(self):
+        """A ball on friction of 0.5 rolling down a slope of 10 deg: 5/7 g
+        sin 10 deg, to 2e-3 over 0.2 s (7e-4 measured) -- by a slip of
+        0.02 mm/s, the friction's stiction, that holds it the whole way."""
+        accel = self.roll("ball", 0.2)
+        closed = 5 / 7 * G * math.sin(math.radians(10))
+        self.assertAlmostEqual(accel / closed, 1.0, delta=2e-3)
+        App.Console.PrintMessage(
+            "Ball rolling down: %.4f mm/s^2, %.3g off 5/7 g sin\n" % (accel, accel / closed - 1)
+        )
+
+    def test_roller_rolls_down(self):
+        """A roller on its side rolling down the slope: 2/3 g sin 10 deg,
+        to 1.5e-3 over 0.1 s (6e-4 measured)."""
+        accel = self.roll("roller", 0.1)
+        closed = 2 / 3 * G * math.sin(math.radians(10))
+        self.assertAlmostEqual(accel / closed, 1.0, delta=1.5e-3)
+        App.Console.PrintMessage(
+            "Roller rolling down: %.4f mm/s^2, %.3g off 2/3 g sin\n" % (accel, accel / closed - 1)
+        )
+
+    @unittest.expectedFailure
+    def test_ball_rolls_on_level(self):
+        """A ball sent rolling at 1 m/s on a level plate keeps its speed.
+        Not yet: it gains 5.7 mm/s^2 (3.1 at 0.5 m/s; a roller 0.92 at 1
+        m/s). Its point is collision detection's, fixed on the ball through
+        each substep: the ball turns under it, carrying it v h / 2 behind
+        the centre, a few micrometres, and the normal force there turns
+        the ball on (docs/AssemblyDynamics.md)."""
+        accel = self.roll("ball", 0.15, slope=0.0, speed=1000.0)
+        self.assertLess(abs(accel), 0.5)
+
     def test_hull_rests(self):
         """A hexagonal prism, no primitive but convex, rests on its hull"""
         plate = self.plate()

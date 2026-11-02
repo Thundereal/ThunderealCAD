@@ -2268,6 +2268,36 @@ Phase D1 is under way (2026-10-28):
     contacts' points (the separating axis test, the clipping, a cylinder's
     points, the meshes'), checked the same way; each follow within a
     substep (ProfileFollow::place()) against the points found again.
+- Built: contacts whose points travel along their surfaces, against
+  closed forms -- the faults found since the cam's follow were each a point
+  carried through a substep, so scenes where the point moves the whole run.
+  - Profile contacts (TestProfileContact): a half disc of radius 10 rocking
+    on its arc from 10 deg, its angle against the exact model of one
+    freedom integrated by RK4 -- frictionless, its point sliding along the
+    arc and the line, to 0.034 deg for a second, every turn within 0.012
+    deg of 10, its centre of mass not across by 1e-11 mm; on friction of
+    0.5 it rolls, to 0.059 deg, its circle's centre where rolling puts it
+    to 0.0011 mm, each turn 0.008 deg lower than the last (the stiction's
+    slip). A disc of radius 5 swinging 10 deg in a hollow of 25,
+    frictionless: its period 4 sqrt(l / g) K(sin(5 deg)) to 4.6e-5, l the
+    20 mm and the disc's sink, 0.010 mm.
+  - 3D contacts (TestContact): a ball and a roller on their side rolling
+    down a slope of 10 deg on friction of 0.5: 5/7 and 2/3 g sin 10 deg,
+    to 7e-4 and 6.3e-4, their slip held at 0.02 mm/s.
+  - Found: a ball rolling on a level plate gains speed -- 3.1 mm/s^2 at 0.5
+    m/s, 5.7 at 1 m/s; a roller 0.92 at 1 m/s. Down the slope the same
+    shows as an acceleration too high by 2.4e-4 at 30 mm/s growing to
+    2.4e-3 at 460, at either output step. A 3D contact's point is
+    collision detection's, fixed on each body through the substep
+    (ContactLoad::follow is a cam's or a profile contact's only): the ball
+    turns under it, carrying it v h / 2 behind the centre, 2 um at 460
+    mm/s with substeps of 10 us, and the normal force there turns the ball
+    on -- e / (r tan(10 deg)) of the acceleration, the size measured.
+    TestContact's test_ball_rolls_on_level, expected to fail until it is
+    fixed.
+  - Not yet: that -- a sphere's point, a cylinder's side's, found again at
+    each state as the profile contact's arcs are, the other side's under
+    it; a ball rolling across a hull or a mesh.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

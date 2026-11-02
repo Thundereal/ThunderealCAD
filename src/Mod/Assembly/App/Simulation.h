@@ -209,7 +209,8 @@ using InitialConditionPython = App::FeaturePythonT<InitialCondition>;
  * static study's at its output times), or marks the time, and the run goes
  * on. A value already past the threshold at the start trips once it comes
  * back and passes it again. Count says which pass it acts on, those before
- * let by. A kinematic study does not use it.
+ * let by, and Repeat that one that marks acts on every Count'th. A
+ * kinematic study does not use it.
  */
 class AssemblyExport Sensor: public App::DocumentObject
 {
@@ -238,6 +239,9 @@ public:
     /// The trip it acts on, 1 the first: those before are let by; one that
     /// marks marks that one and each after
     App::PropertyIntegerConstraint Count;
+    /// One that marks: every Count'th trip instead -- that one, twice that,
+    /// and on; one that stops does not look at it
+    App::PropertyBool Repeat;
     /// A contact set's events: the pair's components, one (any pair with
     /// it) or two (that pair); none, any pair
     App::PropertyLinkList Pair;

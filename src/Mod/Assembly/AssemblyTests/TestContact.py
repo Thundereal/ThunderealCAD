@@ -224,6 +224,61 @@ class TestContact(unittest.TestCase):
         self.assertAlmostEqual(results["Times"][-1], contacts[-1]["Time"], delta=1e-8)
         self.assertAlmostEqual(self.heights(ball)[-1], 15.0, delta=1e-5)
 
+    def test_sensor_repeats(self):
+        """A sensor that marks with Repeat acts on every Count'th trip: on
+        the bouncing ball, every second contact made, the second, the
+        fourth and the sixth, at their times; the contact force crossing
+        none, every second crossing, each let go; one that stops does not
+        look at it, stopping at the second contact made"""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate], StaticFriction=0.0, DynamicFriction=0.0)
+        contact.Restitution = 0.8
+        self.doc.recompute()
+        start = ball.Placement
+
+        def run(**sensor):
+            ball.Placement = start
+            _, result = self.simulate(0.1, 1e-3, sensors=[dict(source=contact, **sensor)])
+            self.assertEqual(result, 0)
+            events = self.assembly.getSimulationResults()["Events"]
+            return (
+                [e for e in events if e["Kind"] == "Sensor"],
+                [e for e in events if e["Kind"] != "Sensor"],
+            )
+
+        marks, contacts = run(
+            quantity="ContactBegin", threshold=0.0, action="Mark", count=2, repeat=True
+        )
+        made = [e for e in contacts if e["Kind"] == "ContactBegin"]
+        self.assertGreaterEqual(len(made), 6, contacts)
+        self.assertEqual(len(marks), len(made) // 2, (marks, made))
+        for mark, event in zip(marks, made[1::2]):
+            self.assertAlmostEqual(mark["Time"], event["Time"], delta=1e-8)
+        self.assertFalse(any(m["Stopped"] for m in marks))
+
+        marks, contacts = run(
+            quantity="ContactForce",
+            threshold=0.0,
+            compare="Crosses",
+            action="Mark",
+            count=2,
+            repeat=True,
+        )
+        let_go = [e for e in contacts if e["Kind"] == "ContactEnd"]
+        self.assertGreaterEqual(len(let_go), 5, contacts)
+        self.assertEqual(len(marks), len(let_go), (marks, let_go))
+        for mark, event in zip(marks, let_go):
+            self.assertAlmostEqual(mark["Time"], event["Time"], delta=1e-6)
+            self.assertLess(mark["Value"], 1e-9)
+
+        stops, contacts = run(quantity="ContactBegin", threshold=0.0, count=2, repeat=True)
+        self.assertEqual(len(stops), 1, stops)
+        self.assertTrue(stops[0]["Stopped"])
+        made = [e for e in contacts if e["Kind"] == "ContactBegin"]
+        self.assertEqual(len(made), 2, contacts)
+        self.assertAlmostEqual(stops[0]["Time"], made[1]["Time"], delta=1e-8)
+
     def test_sensor_counts(self):
         """A sensor acts on the trip its Count says, those before let by:
         stopping on the third contact made, the ball just touching there;

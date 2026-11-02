@@ -473,7 +473,8 @@ struct ContactPair
 // Event::Kind): it trips at each one at a speed at or above 'value', or
 // 'below' under it, of a pair with the bodies of 'frames' (one, any pair
 // with it; two, that pair; none, any pair). It acts on its 'count'th trip,
-// the ones before let by: it stops there, or marks that one and each after.
+// the ones before let by: it stops there, or marks that one and each after
+// -- or, 'repeat', every 'count'th: that one, twice that, and on.
 struct Sensor
 {
     Id source = NoId;   // the document's sensor
@@ -485,6 +486,7 @@ struct Sensor
     double value = 0.0;
     bool stop = true;
     int count = 1;
+    bool repeat = false;     // a mark's: every count'th trip, not each from it
     std::vector<Id> frames;  // on the parts of the pair an event's must be
 };
 

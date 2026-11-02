@@ -311,6 +311,12 @@ Sensor::Sensor()
                       "The trip it acts on, 1 the first: those before are let by. A sensor that "
                       "marks marks that one and each after it");
     Count.setConstraints(&countRange);
+    ADD_PROPERTY_TYPE(Repeat,
+                      (false),
+                      "Sensor",
+                      App::Prop_None,
+                      "A sensor that marks: every Count'th trip instead -- that one, twice that, "
+                      "and on. One that stops does not look at it");
     ADD_PROPERTY_TYPE(Pair,
                       (),
                       "Sensor",

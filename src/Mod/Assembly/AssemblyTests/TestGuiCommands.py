@@ -1099,6 +1099,26 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(dialog.countBox.value(), 2)
         self.assertEqual([CommandCreateSimulation.ordinal(n) for n in (1, 2, 3, 11, 12, 21, 112)],
                          ["1st", "2nd", "3rd", "11th", "12th", "21st", "112th"])
+
+        # Every such trip: a mark's, idle for a stop
+        self.assertTrue(dialog.repeatCheck.isEnabled())
+        self.assertFalse(dialog.repeatCheck.isChecked())
+        dialog.repeatCheck.setChecked(True)
+        dialog.countBox.setValue(3)
+        dialog.apply(obj)
+        self.assertTrue(obj.Repeat)
+        self.assertEqual(
+            obj.Label,
+            contact.Label
+            + ": Contact made by %s and %s, every 3rd" % (self.cyl1.Label, self.box.Label),
+        )
+        dialog = CommandCreateSimulation.SensorDialog(self.assembly, obj)
+        self.assertTrue(dialog.repeatCheck.isChecked())
+        dialog.actionCombo.setCurrentIndex(dialog.actionCombo.findData("Stop"))
+        self.assertFalse(dialog.repeatCheck.isEnabled())
+        dialog.apply(obj)
+        self.assertFalse(obj.Repeat)
+        self.assertTrue(obj.Label.endswith(", at the 3rd"), obj.Label)
         self.assertClean()
 
     def test_sensor_events_shown(self):

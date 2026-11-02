@@ -1510,6 +1510,7 @@ def newSensor(
     action="Stop",
     count=1,
     pair=(),
+    repeat=False,
 ):
     """A sensor in the simulation: source's quantity (one of
     SensorQuantities' for its kind; a vector's component or its magnitude)
@@ -1520,7 +1521,8 @@ def newSensor(
     ContactEnd trips at each contact made or let go at a speed (mm/s) at or
     above threshold, or below it, by a pair with pair's components (one or
     two; none, any pair). It acts on its count'th trip, those before let
-    by: it stops there, or marks that one and each after"""
+    by: it stops there, or marks that one and each after -- or, with
+    repeat, every count'th"""
     assembly = None
     for parent in sim.InListRecursive:
         if parent.isDerivedFrom("Assembly::AssemblyObject"):
@@ -1536,6 +1538,7 @@ def newSensor(
     obj.Threshold = threshold
     obj.Action = action
     obj.Count = count
+    obj.Repeat = repeat
     obj.Pair = list(pair)
     group = list(sim.Group)
     if obj not in group:
@@ -1577,7 +1580,9 @@ def describeSensor(obj):
     text = text.format(obj.Source.Label, label, value.strip())
     # The trip it acts on, the first unsaid: Contact: ..., at the 3rd
     if obj.Count > 1:
-        if obj.Action == "Mark":
+        if obj.Action == "Mark" and getattr(obj, "Repeat", False):
+            text = translate("Assembly", "{}, every {}").format(text, ordinal(obj.Count))
+        elif obj.Action == "Mark":
             text = translate("Assembly", "{}, from the {}").format(text, ordinal(obj.Count))
         else:
             text = translate("Assembly", "{}, at the {}").format(text, ordinal(obj.Count))
@@ -1735,6 +1740,19 @@ class SensorDialog:
         )
         layout.addWidget(QLabel(translate("Assembly", "On trip")), 6, 0)
         layout.addWidget(self.countBox, 6, 1)
+        # A mark's: every count'th trip, not each from it
+        self.repeatCheck = QtWidgets.QCheckBox(
+            translate("Assembly", "Every such trip"), self.dialog
+        )
+        self.repeatCheck.setToolTip(
+            translate(
+                "Assembly",
+                "A sensor that marks: every such trip -- on trip 3, the 3rd, the 6th,\n"
+                "the 9th and on -- rather than that one and each after it.",
+            )
+        )
+        layout.addWidget(self.repeatCheck, 6, 2)
+        self.actionCombo.currentIndexChanged.connect(self.showAction)
 
         note = QLabel(
             translate(
@@ -1771,9 +1789,15 @@ class SensorDialog:
             self.actionCombo.setCurrentIndex(max(0, self.actionCombo.findData(obj.Action)))
             self.thresholdBox.setValue(obj.Threshold.Value * thresholdFactor(obj.Quantity))
             self.countBox.setValue(obj.Count)
+            self.repeatCheck.setChecked(getattr(obj, "Repeat", False))
             for combo, part in zip(self.pairCombos, sensorPair(obj)):
                 combo.setCurrentIndex(max(0, combo.findData(part)))
         self.showQuantity()
+        self.showAction()
+
+    def showAction(self):
+        """Every count'th trip is a mark's"""
+        self.repeatCheck.setEnabled(self.actionCombo.currentData() == "Mark")
 
     def fillPair(self):
         """The components the source's pairs are of; any, first"""
@@ -1841,6 +1865,7 @@ class SensorDialog:
         obj.Action = self.actionCombo.currentData()
         obj.Threshold = self.thresholdBox.value() / thresholdFactor(quantity)
         obj.Count = self.countBox.value()
+        obj.Repeat = self.repeatCheck.isChecked() and obj.Action == "Mark"
         pair = []
         if quantity in SensorEvents:
             for combo in self.pairCombos:

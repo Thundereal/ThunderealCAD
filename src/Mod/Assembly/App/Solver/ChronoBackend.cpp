@@ -7752,9 +7752,13 @@ Status ChronoSession::simulateDynamics(
         }
         return now > sensor.value && !(last > sensor.value);
     };
-    // A pass it acts on: its count'th, and for a mark each after
+    // A pass it acts on: its count'th, and for a mark each after -- or, one
+    // that repeats, every count'th
     auto acts = [](const Sensor& sensor, int passes) {
-        return sensor.stop ? passes == sensor.count : passes >= sensor.count;
+        if (sensor.stop) {
+            return passes == sensor.count;
+        }
+        return sensor.repeat ? passes % sensor.count == 0 : passes >= sensor.count;
     };
     // The sensors that trip at these values, the readings kept: an event
     // each that acts, sent; whether one stops the run

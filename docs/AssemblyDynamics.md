@@ -1674,7 +1674,7 @@ Phase D1 is under way (2026-10-28):
     landing's time.
   - Not yet: a count that starts again (every third); Crosses on an
     event's speed; a pair of a cam's contact named by its cam and
-    follower.
+    follower. (The count that starts again: built, below.)
 - Built: a cam's pressure angle and slip (sec 8.5's measures "for a cam:
   pressure angle and slip velocity"; the cams' "not yet").
   - The run (ChronoBackend): a cam contact's set (`ContactPair::cam`)
@@ -2078,6 +2078,32 @@ Phase D1 is under way (2026-10-28):
     part: 164 events, each naming "Left foot and Plate" or "Right foot and
     Pad", the first at 0.02474 s in at 242.57 mm/s against sqrt(2 h / g)
     and sqrt(2 g h), 0.024735 s and 242.5694.
+- Built: a sensor that marks every so many trips (the counts' "not yet"
+  above, "every third").
+  - The document: `Sensor::Repeat` (a bool, default off): a sensor that
+    marks acts on every Count'th trip -- that one, twice that, and on --
+    rather than that one and each after; one that stops does not look at
+    it (it stops at its Count'th either way). The dialog's "Every such
+    trip" beside "On trip", live for Mark only; the label "...: Contact
+    made, every 3rd".
+  - The model and the run: `Solver::Sensor::repeat`, set only for a mark
+    (AssemblyObject), compared in `same()`; ChronoBackend's `acts()` takes
+    a repeating mark's pass when `passes % count == 0`. A value's sensor
+    and an event's count their passes as before, so the counting -- and
+    the bisection only for a pass it acts on -- is unchanged.
+  - Tests (TestContact, test_sensor_repeats): the ball dropped a
+    millimetre, restitution 0.8, 0.1 s: a mark on every 2nd contact made
+    at the 2nd, 4th and 6th, at their times to 1e-8 s; on every 2nd
+    crossing of the contact force through none, at each let go (1e-6 s),
+    the force there none; a stop with Repeat at the 2nd contact made, the
+    run ending there. TestGuiCommands: the box live for a mark and idle
+    for a stop, the label "every 3rd", reopened checked, a stop clearing
+    it ("at the 3rd"). TestAssemblyWorkbench 583 OK, 88 skipped; the GUI
+    suite's TestGuiCommands 65 OK. In the manual's video
+    (`assembly/simulation/sensor-repeat`), a ball dropped 10 mm for 0.5 s:
+    27 contacts made and 9 marks of every 3rd, each at its contact's time
+    exactly; 26 let go and 26 marks of every 2nd force crossing, each
+    within 1e-7 s of its let go.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

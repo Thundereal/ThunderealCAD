@@ -2625,6 +2625,7 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         }
         record.stop = sensor->Action.getValue() == 0;
         record.count = static_cast<int>(std::max(1L, sensor->Count.getValue()));
+        record.repeat = !record.stop && sensor->Repeat.getValue();
         // The pair an event's must be: a frame on each part, whose body the
         // run knows through the reductions (a rigid group's is the group's)
         const bool events = record.quantity == "ContactBegin" || record.quantity == "ContactEnd";

@@ -1043,6 +1043,20 @@ and not frozen.
   bend, the side picked moves (else the smaller), and an offset too small for a straight run
   between the bends is refused, saying the least that fits.
 
+**Ruled 2026-11-02, M2's contour flange:**
+- Its own feature, as sec 5.1 lists it, sharing the flange's code: the gaps, the wall cut back under
+  it with its relief, and the miters.
+- The sketch is an open chain of lines on a plane square to an edge, its start on that edge; the
+  first line's angle to the wall sets the first bend, and a bend is made at every corner after.
+  The material lies on the side of the lines the wall's lies on: the wall's skin through the
+  edge runs on as the sketch's lines, so the sketch is that skin all along. Drawn from the edge
+  on the skin it bends toward, the leg's inner skin stands where the wall ended (the flange's
+  `MaterialOutside`); from the other skin's edge, its outer skin does (`MaterialInside`).
+- One edge or several, with the flange's gaps at each end and its miters where two edges meet;
+  the same profile on each edge, taken from the edge the sketch starts on.
+- Arcs in the sketch are refused, as the base wall's profile does; they come with the rolled wall
+  (M5).
+
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).
 

@@ -654,35 +654,44 @@ class TestContact(unittest.TestCase):
 
     def test_ball_rolls_down(self):
         """A ball on friction of 0.5 rolling down a slope of 10 deg: 5/7 g
-        sin 10 deg, to 2e-3 over 0.2 s (7e-4 measured) -- by a slip of
-        0.02 mm/s, the friction's stiction, that holds it the whole way."""
+        sin 10 deg, to 1e-5 over 0.2 s (2e-9 measured) -- by a slip of
+        0.02 mm/s, the friction's stiction, that holds it the whole way.
+        Its point where the ball meets the plate at each state (rollAlong());
+        fixed on the ball through a substep it read 7e-4 high."""
         accel = self.roll("ball", 0.2)
         closed = 5 / 7 * G * math.sin(math.radians(10))
-        self.assertAlmostEqual(accel / closed, 1.0, delta=2e-3)
+        self.assertAlmostEqual(accel / closed, 1.0, delta=1e-5)
         App.Console.PrintMessage(
             "Ball rolling down: %.4f mm/s^2, %.3g off 5/7 g sin\n" % (accel, accel / closed - 1)
         )
 
     def test_roller_rolls_down(self):
         """A roller on its side rolling down the slope: 2/3 g sin 10 deg,
-        to 1.5e-3 over 0.1 s (6e-4 measured)."""
+        to 1e-5 over 0.1 s (1e-8 measured)."""
         accel = self.roll("roller", 0.1)
         closed = 2 / 3 * G * math.sin(math.radians(10))
-        self.assertAlmostEqual(accel / closed, 1.0, delta=1.5e-3)
+        self.assertAlmostEqual(accel / closed, 1.0, delta=1e-5)
         App.Console.PrintMessage(
             "Roller rolling down: %.4f mm/s^2, %.3g off 2/3 g sin\n" % (accel, accel / closed - 1)
         )
 
-    @unittest.expectedFailure
     def test_ball_rolls_on_level(self):
         """A ball sent rolling at 1 m/s on a level plate keeps its speed.
-        Not yet: it gains 5.7 mm/s^2 (3.1 at 0.5 m/s; a roller 0.92 at 1
-        m/s). Its point is collision detection's, fixed on the ball through
-        each substep: the ball turns under it, carrying it v h / 2 behind
-        the centre, a few micrometres, and the normal force there turns
-        the ball on (docs/AssemblyDynamics.md)."""
+        With its point fixed on the ball through each substep it gained 5.7
+        mm/s^2: the ball turned under it, carrying it v h / 2 behind the
+        centre, and the normal force there turned the ball on
+        (docs/AssemblyDynamics.md). To 5e-3 (7e-12 measured)."""
         accel = self.roll("ball", 0.15, slope=0.0, speed=1000.0)
-        self.assertLess(abs(accel), 0.5)
+        App.Console.PrintMessage("Ball rolling on level: %.3g mm/s^2\n" % accel)
+        self.assertLess(abs(accel), 5e-3)
+
+    def test_roller_rolls_on_level(self):
+        """A roller sent rolling at 1 m/s on its side keeps its speed: it
+        gained 0.92 mm/s^2 with its points fixed on it; to 5e-3 (4e-4
+        measured)."""
+        accel = self.roll("roller", 0.15, slope=0.0, speed=1000.0)
+        App.Console.PrintMessage("Roller rolling on level: %.3g mm/s^2\n" % accel)
+        self.assertLess(abs(accel), 5e-3)
 
     def test_hull_rests(self):
         """A hexagonal prism, no primitive but convex, rests on its hull"""

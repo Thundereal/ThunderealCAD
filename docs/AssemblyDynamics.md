@@ -2294,10 +2294,26 @@ Phase D1 is under way (2026-10-28):
     mm/s with substeps of 10 us, and the normal force there turns the ball
     on -- e / (r tan(10 deg)) of the acceleration, the size measured.
     TestContact's test_ball_rolls_on_level, expected to fail until it is
-    fixed.
-  - Not yet: that -- a sphere's point, a cylinder's side's, found again at
-    each state as the profile contact's arcs are, the other side's under
-    it; a ball rolling across a hull or a mesh.
+    fixed -- fixed by the entry below.
+  - Not yet: a ball rolling across a hull or a mesh.
+- Built: a sphere's and a cylinder side's point found again at each state
+  (rollAlong(), as ContactLoad::follow) -- the fault the entry above found.
+  At each state the load is given within the substep, the round side's
+  point is its surface's farthest along the normal (a cylinder's at the
+  point's own place along its axis), the other side's under it, as deep
+  as the fixed points are: exact on a face, the force through the ball's
+  centre. Two spheres' normal along their centres. A cylinder's cap, the
+  normal within 60 deg of its axis as cylinderPoints() takes it, is a
+  face: its points stay fixed. Bullet's loads take it when a point of
+  theirs is on a sphere or a cylinder, and lose it when none is.
+  - Measured: a ball sent at 1 m/s on a level plate -7e-12 mm/s^2 (was
+    5.7), a roller 3.9e-4 (was 0.92); down the slope of 10 deg 2e-9 and
+    1e-8 off 5/7 and 2/3 g sin (were 7e-4 and 6.3e-4). The tests hold them
+    to 5e-3 mm/s^2 and 1e-5; test_ball_rolls_on_level passes.
+  - Not yet: the normal turning with the other body within the substep (a
+    ball on a tipping plate: the force stays through the centre, its
+    direction a substep old); a round part that is a hull or a mesh, not a
+    sphere; a cylinder rolling on its rim.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

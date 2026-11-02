@@ -810,6 +810,8 @@ bool isProfileSet(const Dynamics& dynamics, const ContactPair& pair)
         && dynamics.contactShapes[pair.groupA.front()].kind == ContactShape::Kind::Profile;
 }
 
+struct ShapeOn;
+
 class ContactLoad: public ch::ChLoadBodyBody
 {
 public:
@@ -830,6 +832,10 @@ public:
         // The model's frames of the shapes it is on, A's and B's: the parts
         // a contact event names, where a body stands for a rigid group
         std::array<Id, 2> frames {NoId, NoId};
+        // A sphere or a cylinder it is on, A's and B's, whose point moves
+        // over it as the body turns (rollAlong())
+        const ShapeOn* roundA = nullptr;
+        const ShapeOn* roundB = nullptr;
     };
 
     ContactLoad(std::shared_ptr<ch::ChBody> a,
@@ -1006,14 +1012,14 @@ public:
     std::size_t set = 0;  // the ContactPair's index
     std::vector<Point> points;
     // A cam's or a profile contact's (ContactHandover's CamFollow and
-    // ProfileFollow): its points put where they are found with the bodies at
-    // the frames given
+    // ProfileFollow), or one on a sphere or a cylinder's side (rollAlong()):
+    // its points put where they are found with the bodies at the frames given
     std::function<void(const ch::ChFrame<>& a, const ch::ChFrame<>& b, std::vector<Point>& points)>
         follow;
     std::vector<Point> moving;  // ComputeQ()'s, followed
-    // Its points with the bodies where they are now: a cam's or a profile
-    // contact's found again there (follow), the others as collision
-    // detection left them
+    // Its points with the bodies where they are now: a cam's, a profile
+    // contact's or a round shape's found again there (follow), the others as
+    // collision detection left them
     std::vector<Point> pointsNow() const
     {
         std::vector<Point> out = points;
@@ -2358,6 +2364,89 @@ struct ShapeOn
     const ch::ChVector3d* vertices = nullptr;
     std::size_t count = 0;
 };
+
+// Where a sphere or a cylinder's side, on its body at 'body', is farthest
+// out along 'outward', absolute: a cylinder's at the point's own place
+// along its axis ('at', absolute), within its caps. False on a cylinder's
+// cap, 'outward' within 60 deg of its axis as cylinderPoints() takes it: a
+// face, its points fixed on it
+bool roundSupport(const ShapeOn& on,
+                  const ch::ChFrame<>& body,
+                  const ch::ChVector3d& outward,
+                  const ch::ChVector3d& at,
+                  ch::ChVector3d& out)
+{
+    const ch::ChFramed frame = on.frame >> body;
+    if (on.ball > 0.0) {
+        out = frame.GetPos() + outward * on.ball;
+        return true;
+    }
+    if (!(on.radius > 0.0)) {
+        return false;
+    }
+    const ch::ChVector3d axis = frame.GetRotMat().GetAxisZ();
+    const double along = ch::Vdot(axis, outward);
+    const ch::ChVector3d side = outward - axis * along;
+    const double length = side.Length();
+    if (std::abs(along) >= 0.5 || !(length > 1e-9)) {
+        return false;
+    }
+    const double t = std::clamp(ch::Vdot(axis, at - frame.GetPos()), -on.half, on.half);
+    out = frame.GetPos() + axis * t + side * (on.radius / length);
+    return true;
+}
+
+/** A point on a sphere or a cylinder's side put where that surface meets
+ * the other at the bodies' frames a and b, as ContactLoad::follow: collision
+ * detection's point is fixed on each body, and a ball rolling turns it
+ * v h / 2 behind its centre by a substep's end, where the normal force
+ * turns the ball on -- one on a level plate gained 5.7 mm/s^2 at 1 m/s. The
+ * round side's point is its surface's farthest along the normal, the other
+ * side's under it, as deep as the fixed points are: exact on a face. Two
+ * spheres' normal is along their centres.
+ */
+void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Point& point)
+{
+    if (!point.roundA && !point.roundB) {
+        return;
+    }
+    const ch::ChVector3d atA = a.TransformPointLocalToParent(point.onA);
+    const ch::ChVector3d atB = b.TransformPointLocalToParent(point.onB);
+    ch::ChVector3d normal = point.normal;
+    if (point.roundA && point.roundB && point.roundA->ball > 0.0 && point.roundB->ball > 0.0) {
+        const ch::ChVector3d centres =
+            (point.roundB->frame >> b).GetPos() - (point.roundA->frame >> a).GetPos();
+        const double length = centres.Length();
+        if (length > 0.0) {
+            normal = centres / length;
+        }
+    }
+    ch::ChVector3d pA;
+    ch::ChVector3d pB;
+    const bool movesA = point.roundA && roundSupport(*point.roundA, a, normal, atA, pA);
+    const bool movesB = point.roundB && roundSupport(*point.roundB, b, -normal, atB, pB);
+    if (!movesA && !movesB) {
+        return;
+    }
+    if (!movesB) {
+        pB = pA + normal * ch::Vdot(normal, atB - pA);
+    }
+    if (!movesA) {
+        pA = pB + normal * ch::Vdot(normal, atA - pB);
+    }
+    point.onA = a.TransformPointParentToLocal(pA);
+    point.onB = b.TransformPointParentToLocal(pB);
+    point.normal = normal;
+}
+
+void rollAll(const ch::ChFrame<>& a,
+             const ch::ChFrame<>& b,
+             std::vector<ContactLoad::Point>& points)
+{
+    for (auto& point : points) {
+        rollAlong(a, b, point);
+    }
+}
 
 // A surface's curvature tensor at each vertex of its faces, convex
 // positive, in the tangent plane: that of the height quadric
@@ -5972,6 +6061,11 @@ Status ChronoSession::simulateDynamics(
             for (auto& load : *loads) {
                 load->points.clear();
             }
+            // Bullet's loads follow their points on a sphere or a cylinder
+            // (rollAlong()) when they have one
+            for (auto& [bodies, load] : finder->loads) {
+                load->follow = nullptr;
+            }
             // A point in the info's terms to its load's: the load's A first,
             // the normal from its A to its B
             auto handOver = [this](const Found& f,
@@ -5991,6 +6085,16 @@ Status ChronoSession::simulateDynamics(
                 };
                 load.points.back().frames = {frameOf(load.points.back().shapeA),
                                              frameOf(load.points.back().shapeB)};
+                auto roundOf = [this](const ch::ChCollisionShape* shape) -> const ShapeOn* {
+                    const ShapeOn* on = shapesOn.of(shape);
+                    return on && (on->ball > 0.0 || on->radius > 0.0) ? on : nullptr;
+                };
+                ContactLoad::Point& point = load.points.back();
+                point.roundA = roundOf(point.shapeA);
+                point.roundB = roundOf(point.shapeB);
+                if (point.roundA || point.roundB) {
+                    load.follow = rollAll;
+                }
             };
             auto on = [&](const ch::ChCollisionShape* shape) -> const ShapeOn* {
                 auto it = shapes->find(shape);

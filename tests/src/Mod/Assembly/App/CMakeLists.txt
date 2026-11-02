@@ -8,6 +8,7 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/OndselAdapter.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/ReferenceBackend.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/PointOnCurve.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/ProfileGeometry.cpp
 )
 # The Chrono backend's tests, when it is built (BUILD_ASSEMBLY_CHRONO).
 if (BUILD_ASSEMBLY_CHRONO)

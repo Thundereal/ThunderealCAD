@@ -2224,6 +2224,50 @@ Phase D1 is under way (2026-10-28):
     the same.
   - Not yet: that divergence; a profile contact's event speeds, carried
     the same way now, not measured against a closed form.
+- Measured, not built: a swinging pivot taken as at rest (the knife edge's
+  "not yet" above). The pin-in-hole pendulum (TestProfileContact's, a bar
+  on a 3 mm pin through a 3.005 mm hole, let go at 30 deg) counts as at
+  rest 18 times in two seconds, a quarter of a swing apart from 0.4 s on
+  -- at the turns and at the bottom, where the load on the pin, and so
+  the depth, stands still -- and its substeps grow while it is. Its
+  period through it: 0.394444 to 0.394446 s at an output step of 1 ms, 0.394438 to 0.394454 at 10 ms, where a settled substep may
+  grow to 10 ms; the closed form about the hole's centre 0.394379, the pin
+  5 um off it. The turns within 0.0033 deg of 30 at 1 ms, within 0.093 at
+  10 ms -- a turn read off the frame nearest it, 5 ms off at most, is
+  that much short. No harm found; `resting()` left as it is.
+- Built: a profile contact's geometry checked against brute force
+  (`Solver/ProfileGeometry.h`, moved out of ChronoBackend.cpp so that a
+  test reaches it: the profiles, their nearest points, profileTouches()).
+  - The test (tests/src/Mod/Assembly/App/ProfileGeometry.cpp,
+    `ProfileGeometry.pointsAgainstBruteForce`): 16 pairs of profiles -- a
+    disc, a box, rounded boxes, a knife, a V notch, a hole, a slot, a
+    groove -- B turned at random and brought along a way in turned at
+    random until the two overlap by a depth chosen, by bisection: a gap of
+    half the envelope, 1e-7, 1e-6, 1e-5 and 1e-4 m. Brute force walks each
+    boundary in 0.1 mm steps, its distance to the other's exact on its
+    lines and arcs, its side by a ray's crossings of them, each deepest
+    point found again by a golden-section search. Each place one boundary
+    goes into the other must have a point there at least as deep; each
+    point must be on its boundaries, its normal of length 1, its depth its
+    own point's, none deeper than the deepest; the deepest, or the nearest
+    within the envelope, found. Each case run both ways round, B as A.
+  - It catches the finder broken: an arc against an arc tried only one way
+    along the line of the centres, 48 of 480 cases failed (a pin as A in a
+    hole as B, which the test first lacked -- each pair had its hole as A
+    only); B's corners not tried, 205; the normal off a corner the nearest
+    piece's instead of along the line between the points, 9 (a knife's
+    edge sunk below a V notch's bottom, nearest its vertex, which a way in
+    turned by up to 30 deg never reached: that pair added, its way within
+    1e-3 rad).
+  - On the code as it stands: 480 cases, 1310 points, none failed, in 2.7
+    s. So where the profile contact's points are found, at one instant, is
+    right; the faults found since (the follows within a substep, the
+    corners, the event speeds) were each in how a point is carried through
+    the substep, not in where it is found.
+  - Not yet: the cam contact's point (its curve projection), the 3D
+    contacts' points (the separating axis test, the clipping, a cylinder's
+    points, the meshes'), checked the same way; each follow within a
+    substep (ProfileFollow::place()) against the points found again.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

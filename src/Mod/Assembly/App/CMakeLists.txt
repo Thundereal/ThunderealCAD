@@ -92,6 +92,8 @@ SET(Solver_SRCS
     Solver/Model.cpp
     Solver/OndselBackend.cpp
     Solver/OndselBackend.h
+    Solver/ProfileGeometry.cpp
+    Solver/ProfileGeometry.h
     Solver/ReferenceBackend.cpp
     Solver/ReferenceBackend.h
     Solver/Registry.cpp

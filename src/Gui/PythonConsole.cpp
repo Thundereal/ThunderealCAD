@@ -137,7 +137,7 @@ InteractiveInterpreter::InteractiveInterpreter()
     PyObject* args = Py_BuildValue("()");
     d = new InteractiveInterpreterP;
 #if PY_VERSION_HEX < 0x03090000
-    d->interpreter = PyEval_CallObject(func,args);
+    d->interpreter = PyObject_CallObject(func,args);
 #else
     d->interpreter = PyObject_CallObject(func,args);
 #endif
@@ -189,7 +189,7 @@ PyObject* InteractiveInterpreter::compile(const char* source) const
     PyObject* func = PyObject_GetAttrString(d->interpreter, "compile");
     PyObject* args = Py_BuildValue("(s)", source);
 #if PY_VERSION_HEX < 0x03090000
-    PyObject* eval = PyEval_CallObject(func,args);  // must decref later
+    PyObject* eval = PyObject_CallObject(func,args);  // must decref later
 #else
     PyObject* eval = PyObject_CallObject(func,args);  // must decref later
 #endif
@@ -225,7 +225,7 @@ int InteractiveInterpreter::compileCommand(const char* source) const
     PyObject* func = PyObject_GetAttrString(d->interpreter, "compile");
     PyObject* args = Py_BuildValue("(s)", source);
 #if PY_VERSION_HEX < 0x03090000
-    PyObject* eval = PyEval_CallObject(func,args);  // must decref later
+    PyObject* eval = PyObject_CallObject(func,args);  // must decref later
 #else
     PyObject* eval = PyObject_CallObject(func,args);  // must decref later
 #endif

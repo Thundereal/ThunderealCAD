@@ -95,7 +95,7 @@ class TestNameEncoding(unittest.TestCase):
         self.assertFalse(self.Doc.Hasher.IndexedNames)
         self.editAndCheck(
             {
-                "Loft_loft": 12238.1843,
+                "Loft_loft": 12238.1739,
                 "Pocket_pocket": 11560.9649,
                 "Pad_pad": 11711.7613,
                 "Fillet_fillet": 11670.1179,

@@ -4,6 +4,15 @@
 #include <vector>
 
 // NOLINTBEGIN(cppcoreguidelines-*,readability-*)
+TEST(BaseToolsSuite, TestGetIdentifier)
+{
+    EXPECT_EQ(Base::Tools::getIdentifier(""), "_");
+    EXPECT_EQ(Base::Tools::getIdentifier("Box"), "Box");
+    EXPECT_EQ(Base::Tools::getIdentifier("_Box_1"), "_Box_1");
+    EXPECT_EQ(Base::Tools::getIdentifier("1Box"), "_1Box");
+    EXPECT_EQ(Base::Tools::getIdentifier("a b-c"), "a_b_c");
+}
+
 TEST(BaseToolsSuite, TestUniqueName1)
 {
     // Spelled out because this fork carries a second overload taking a

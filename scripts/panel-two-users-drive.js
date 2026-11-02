@@ -204,6 +204,18 @@ const puppeteer = require(process.env.PUPPETEER_PATH || 'puppeteer-core');
     await alice.bringToFront();
     await sleep(1000);
     report.overlapOpen = await overlap(alice);
+    // every button its icon, as on the desktop; one drawn as its text
+    // is one whose icon the host did not send
+    report.faces = await alice.evaluate(() => {
+      const out = {buttons: 0, icons: 0, text: []};
+      for (const b of document.querySelectorAll('.fc-tbcard .fc-tb-btn')) {
+        out.buttons++;
+        const img = b.querySelector('img.fc-tb-icon');
+        if (img && img.complete && img.naturalWidth > 0) out.icons++;
+        else out.text.push(b.dataset.command || b.textContent.trim());
+      }
+      return out;
+    });
 
     report.aliceMenu = await editFromMenu(alice, 'PadA');
     report.alice = await until(alice, lengthIs(15), "alice's panel with PadA's 15");

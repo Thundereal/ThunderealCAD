@@ -36,6 +36,7 @@
 #include "Application.h"
 #include "BitmapFactory.h"
 #include "Command.h"
+#include "Fw/FwImage.h"
 #include "Fw/FwQtView.h"
 #include "Fw/FwStore.h"
 #include "Fw/FwToolBarMirror.h"
@@ -312,6 +313,18 @@ QString ToolBarMirror::areaOf(::QToolBar* bar)
 
 QString ToolBarMirror::iconNameOf(::QAction* real, const QString& command, int index)
 {
+    const QString name = namedIconOf(command, index);
+    if (!name.isEmpty() || !real || real->icon().isNull())
+        return name;
+    // an icon with no name to it (a group's plain members and its face
+    // over them, PartDesign's primitives): its pixels as the desktop
+    // draws them, filed by content -- at twice the stock 24 px, as the
+    // context menu does, for a high-DPI page
+    return ImageStore::instance().ofIcon(real->icon(), QSize(48, 48));
+}
+
+QString ToolBarMirror::namedIconOf(const QString& command, int index)
+{
     Command* cmd = commandByName(command);
     if (!cmd)
         return QString();
@@ -333,7 +346,6 @@ QString ToolBarMirror::iconNameOf(::QAction* real, const QString& command, int i
                 return px;
         }
     }
-    Q_UNUSED(real)
     return pixmapOf(cmd);
 }
 

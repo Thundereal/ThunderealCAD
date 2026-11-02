@@ -18,6 +18,7 @@ import { For, Show, createEffect, createMemo, createSignal, on, onCleanup,
 import { createStore, reconcile } from 'solid-js/store';
 import { isBrowserSafeCommand, onConnection, onPush, runTool, sendOp,
          stateCamera } from './control';
+import { isImageId } from './widgets/images';
 
 const REF = 'IPY_MODEL_';
 const unref = (r: unknown): string | null =>
@@ -58,13 +59,16 @@ const runnable = (safe: boolean, st: Record<string, any>) =>
 /// By (theme, name, pixel size): a name is the desktop's icon name, which
 /// a theme maps to different bytes, and a PNG is fetched at the size it
 /// is drawn. Promises, so two buttons asking at once make one request.
+/// An `img:` id is an action's QIcon with no name to it (a group's plain
+/// members), filed by its content: the same bytes at any theme and size.
 const iconCache = new Map<string, Promise<string | null>>();
 
 function iconUrl(theme: string, name: string, px: number): Promise<string | null> {
-  const key = `${theme}\n${name}\n${px}`;
+  const image = isImageId(name);
+  const key = image ? name : `${theme}\n${name}\n${px}`;
   let p = iconCache.get(key);
   if (!p) {
-    p = sendOp('widgets.icon', { name, size: px })
+    p = (image ? sendOp('widgets.image', { name }) : sendOp('widgets.icon', { name, size: px }))
       .then((r) => {
         if (r.format === 'svg' && typeof r.data === 'string')
           return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(r.data);

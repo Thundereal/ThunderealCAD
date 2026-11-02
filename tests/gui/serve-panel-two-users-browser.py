@@ -18,6 +18,8 @@ Asserted:
   - alice types 18 and presses OK: PadA is 18, her panel goes, bob's stays;
   - bob types 9 and presses Cancel: PadB is 5 again, his panel goes;
   - nobody is left in edit;
+  - every tool bar button shows its icon, as the desktop's do: Undo and
+    Redo, and the primitive groups whose members are plain QActions;
   - the tool bars' card covers none of the task panel card, the card open
     with no panel and with each user's, and stands beside her panel card
     dragged over where it starts.
@@ -234,6 +236,9 @@ def verify():
     check("the host: PadA 18 from her OK, PadB 5 again after his Cancel",
           length("PadA") == 18.0 and length("PadB") == 5.0, (length("PadA"), length("PadB")))
     check("nobody is left in edit", FreeCADGui.getDocument(DOC).getInEdit() is None)
+    faces = r.get("faces") or {}
+    check("every tool bar button shows its icon, as on the desktop",
+          faces.get("buttons") and faces.get("icons") == faces["buttons"], faces)
     covers = [r.get(k) or {} for k in ("overlapOpen", "overlapAlice", "overlapBob")]
     check("the tool bars keep clear of the task panel: opened, and in each edit",
           all(c.get("bars") and c.get("panel") and c.get("area") == 0 for c in covers),

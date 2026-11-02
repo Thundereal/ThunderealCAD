@@ -68,8 +68,65 @@ public:
         return "PartDesignGui::ViewProviderSheetMetalFold";
     }
 
+protected:
+    /** A jog's (SheetMetalJog) straight run between its two bends and the
+     * width of the wall it takes, given T, R, the angle and a bend's
+     * allowance ba; false for a fold's one bend, ba taken
+     */
+    virtual bool jogged(double T, double R, double A, double ba, double& run,
+                        double& taken) const;
+    /// The feature's name in its messages
+    virtual const char* featureNoun() const
+    {
+        return "fold";
+    }
+
 private:
     static const char* LinePositionEnums[];
+};
+
+/** A wall stepped along a sketched line (docs/SheetMetal.md sec 5.1, ruled
+ * 2026-11-02)
+ *
+ * A fold (SheetMetalFold) and a second bend turning back by the same
+ * angle, a straight run between them, so the moving side stays parallel,
+ * Offset away. The line is the first bend's, as a fold's. OffsetMeasure
+ * says what Offset is: the Step the wall moves (a skin to the same skin),
+ * the gap Inside between the facing skins, or the Overall of the outer
+ * skins. With FixProjectedLength the moving side's end stays where it was,
+ * the jog adding its material and the flat longer by that; without, the
+ * jog takes it from the wall, as a fold does.
+ */
+class PartDesignExport SheetMetalJog : public SheetMetalFold
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesign::SheetMetalJog);
+
+public:
+    SheetMetalJog();
+
+    /// How far the moving side is stepped, as OffsetMeasure says
+    App::PropertyLength Offset;
+    /// What Offset measures: Step, Inside, Overall
+    App::PropertyEnumeration OffsetMeasure;
+    /// The moving side's end stays where it was, the jog adding material
+    App::PropertyBool FixProjectedLength;
+
+    short mustExecute() const override;
+    const char* getViewProviderName() const override
+    {
+        return "PartDesignGui::ViewProviderSheetMetalJog";
+    }
+
+protected:
+    bool jogged(double T, double R, double A, double ba, double& run,
+                double& taken) const override;
+    const char* featureNoun() const override
+    {
+        return "jog";
+    }
+
+private:
+    static const char* OffsetMeasureEnums[];
 };
 
 }  // namespace PartDesign

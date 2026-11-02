@@ -200,6 +200,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalCornerClosure     ::init();
     PartDesign::SheetMetalCutout            ::init();
     PartDesign::SheetMetalFold              ::init();
+    PartDesign::SheetMetalJog               ::init();
     PartDesign::SheetMetalFlatPattern       ::init();
 
     // Sheet metal's own kind on a body, for its tool bar (docs/SheetMetal.md
@@ -211,6 +212,7 @@ PyMOD_INIT_FUNC(_PartDesign)
                             PartDesign::SheetMetalCornerClosure::getClassTypeId(),
                             PartDesign::SheetMetalCutout::getClassTypeId(),
                             PartDesign::SheetMetalFold::getClassTypeId(),
+                            PartDesign::SheetMetalJog::getClassTypeId(),
                             PartDesign::SheetMetalFlatPattern::getClassTypeId()}) {
         Part::BodyBase::allowType(type, "SheetMetal");
     }

@@ -186,6 +186,31 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalFold::getEditDialog()
                                      "Face"));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalJog, PartDesignGui::ViewProviderSketchBased)
+
+ViewProviderSheetMetalJog::ViewProviderSheetMetalJog()
+{
+    sPixmap = "PartDesign_SheetMetalJog";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalJog::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalJog",
+                                     QObject::tr("Jog parameters"),
+                                     {"Profile",
+                                      "Offset",
+                                      "OffsetMeasure",
+                                      "Angle",
+                                      "LinePosition",
+                                      "FixProjectedLength",
+                                      "Reversed"},
+                                     "Moving",
+                                     "Face"));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)
 
 ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()

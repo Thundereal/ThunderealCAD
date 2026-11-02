@@ -34,6 +34,7 @@
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -221,6 +222,7 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         return new App::DocumentObjectExecReturn(
             QT_TRANSLATE_NOOP("Exception", "A fold turns through an angle"));
     }
+    const char* noun = featureNoun();
     try {
         TopoShape base = getBaseShape();
         auto invObjLoc = positionByPrevious();
@@ -241,7 +243,7 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         for (const TopoShape& edge : profile.getSubTopoShapes(TopAbs_EDGE)) {
             BRepAdaptor_Curve curve(TopoDS::Edge(edge.getShape()));
             if (curve.GetType() != GeomAbs_Line) {
-                THROWM(Base::ValueError, "A fold's sketch is a line");
+                FC_THROWM(Base::ValueError, "A " << noun << "'s sketch is a line");
             }
             const gp_Lin l = curve.Line();
             if (!have) {
@@ -250,11 +252,11 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
             }
             else if (!l.Direction().IsParallel(line.Direction(), Precision::Angular())
                      || line.Distance(l.Location()) > Precision::Confusion()) {
-                THROWM(Base::ValueError, "A fold's sketch is one line");
+                FC_THROWM(Base::ValueError, "A " << noun << "'s sketch is one line");
             }
         }
         if (!have) {
-            THROWM(Base::ValueError, "A fold's sketch is a line");
+            FC_THROWM(Base::ValueError, "A " << noun << "'s sketch is a line");
         }
         const Base::Vector3d sketchNormal = getProfileNormal();
         gp_Vec n(sketchNormal.x, sketchNormal.y, sketchNormal.z);
@@ -306,7 +308,8 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
             }
         }
         if (wall < 0) {
-            THROWM(Base::ValueError, "A fold's line lies across no wall of the sheet");
+            FC_THROWM(Base::ValueError,
+                      "A " << noun << "'s line lies across no wall of the sheet");
         }
         const std::string wallName = model.elements[wall].name;
 
@@ -334,7 +337,7 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
                                              {base, slab(e0, -margin, margin)}));
         if (halves.size() != 2) {
             FC_THROWM(Base::ValueError,
-                      "A fold's line splits the sheet in "
+                      "A " << noun << "'s line splits the sheet in "
                           << halves.size()
                           << " pieces, not two: it runs across something else than its wall");
         }
@@ -373,20 +376,25 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         for (int k : owners[moving]) {
             if (owners[1 - moving].count(k)) {
                 FC_THROWM(Base::ValueError,
-                          "A fold's line runs across " << model.elements[k].name);
+                          "A " << noun << "'s line runs across " << model.elements[k].name);
             }
         }
 
-        // the bend: its strip in the flat, its allowance wide, from s0 along e
+        // the bend: its strip in the flat, its allowance wide, from s0 along
+        // e; a jog's run and second bend after it, the wall taken from s0
+        // to s1
         CylBend bend;
         bend.radius = R;
         bend.thickness = T;
         bend.angle = A;
         bend.k = rule->modelK(A, R);
         const double ba = A * bend.neutral();
+        double run = 0, taken = ba;
+        const bool jog = jogged(T, R, A, ba, run, taken);
+        const double developed = jog ? 2 * ba + run : ba;
         const long position = LinePosition.getValue();
         const double s0 = position == 0 ? -ba / 2 : (position == 1 ? 0.0 : -ba);
-        const double s1 = s0 + ba;
+        const double s1 = s0 + taken;
         const gp_Pnt start = l0.Translated(gp_Vec(e) * s0);
         bend.frame = gp_Ax3(start.Translated(gp_Vec(up) * R), e.Crossed(up), up.Reversed());
         const gp_Dir axis = bend.frame.Direction();
@@ -395,13 +403,14 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         {
             BRepAlgoAPI_Common strip(shape, slab(e, s0, s1).getShape());
             if (!strip.IsDone()) {
-                THROWM(Base::CADKernelError, "A fold could not take its strip from the wall");
+                FC_THROWM(Base::CADKernelError,
+                          "A " << noun << " could not take its strip from the wall");
             }
             for (TopExp_Explorer it(strip.Shape(), TopAbs_FACE); it.More(); it.Next()) {
                 const int owner = model.owner(TopoDS::Face(it.Current()));
                 if (owner >= 0 && owner != wall) {
                     FC_THROWM(Base::ValueError,
-                              "A fold's bend runs into " << model.elements[owner].name);
+                              "A " << noun << "'s bend runs into " << model.elements[owner].name);
                 }
             }
         }
@@ -410,7 +419,7 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         // bend's span along its axis
         const double past = margin;
         const auto skins = skinFaces(shape, model, wall, inner);
-        const TopoDS_Face wide = rectangle(start, e, -past, ba + past, axis, -size, size);
+        const TopoDS_Face wide = rectangle(start, e, -past, taken + past, axis, -size, size);
         std::vector<TopoDS_Face> pieces;
         {
             BRepAlgoAPI_Common common(compoundOf(skins), wide);
@@ -430,52 +439,129 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
             }
         }
         if (pieces.empty() || d1 - d0 < Precision::Confusion()) {
-            THROWM(Base::ValueError, "A fold's line lies across no wall of the sheet");
+            FC_THROWM(Base::ValueError,
+                      "A " << noun << "'s line lies across no wall of the sheet");
         }
 
         int walls = 0, bends = 0;
         for (const Element& el : model.elements) {
             ++(el.kind == Element::Kind::Wall ? walls : bends);
         }
-        std::string bendName, legName;
-        do {
-            bendName = "Bend" + std::to_string(++bends);
-        } while (model.find(bendName) >= 0);
-        do {
-            legName = "Wall" + std::to_string(++walls);
-        } while (model.find(legName) >= 0);
+        auto unique = [&](const char* prefix, int& count) {
+            std::string name;
+            do {
+                name = prefix + std::to_string(++count);
+            } while (model.find(name) >= 0);
+            return name;
+        };
+        const std::string bendName = unique("Bend", bends);
+        const std::string bend2Name = jog ? unique("Bend", bends) : std::string();
+        const std::string runName = jog ? unique("Wall", walls) : std::string();
+        const std::string legName = unique("Wall", walls);
 
-        CylBend span = bend;
-        span.frame.Translate(gp_Vec(axis) * d0);
-        TopoShape bendPiece = TopoShape(0, hasher).makEPrism(
-            SheetMetal::bendSection(span, bendName), gp_Vec(axis) * (d1 - d0));
-        // what the strip has not of the wall -- a hole, a notch -- taken
-        // from the bend along its radius
+        // what the strip has not of the wall -- a hole, a notch; past where
+        // the wall is taken, a jog adds the wall's whole span
+        std::vector<TopoDS_Face> missing;
         {
-            BRepAlgoAPI_Cut missing(rectangle(start, e, -past, ba + past, axis, d0, d1),
-                                    compoundOf(pieces));
+            const double to = jog && taken < developed ? taken : taken + past;
+            BRepAlgoAPI_Cut cut(rectangle(start, e, -past, to, axis, d0, d1), compoundOf(pieces));
+            if (cut.IsDone()) {
+                for (TopExp_Explorer it(cut.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+                    missing.push_back(TopoDS::Face(it.Current()));
+                }
+            }
+        }
+        // the missing faces from from to to along e
+        auto clip = [&](double from, double to) {
+            std::vector<TopoDS_Face> res;
+            if (missing.empty()) {
+                return res;
+            }
+            BRepAlgoAPI_Common common(compoundOf(missing),
+                                      rectangle(start, e, from, to, axis, -size, size));
+            if (common.IsDone()) {
+                for (TopExp_Explorer it(common.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+                    res.push_back(TopoDS::Face(it.Current()));
+                }
+            }
+            return res;
+        };
+        // a bend's piece less the faces given, taken onto it along its
+        // radius from its own flat, the faces moved there by onto
+        auto lessHoles = [&](TopoShape piece, const CylBend& b,
+                             const std::vector<TopoDS_Face>& faces, const gp_Vec& onto) {
+            gp_Trsf move;
+            move.SetTranslation(onto);
             std::vector<TopoShape> holes;
-            if (missing.IsDone()) {
-                for (TopExp_Explorer it(missing.Shape(), TopAbs_FACE); it.More(); it.Next()) {
-                    const TopoDS_Shape hole = SheetMetal::bendSolid(bend,
-                                                                    TopoDS::Face(it.Current()),
-                                                                    R - margin,
-                                                                    R + T + margin);
-                    if (!hole.IsNull()) {
-                        holes.emplace_back(hole);
-                    }
+            for (const TopoDS_Face& f : faces) {
+                const TopoDS_Face flat =
+                    onto.Magnitude() > 0
+                        ? TopoDS::Face(BRepBuilderAPI_Transform(f, move, true).Shape())
+                        : f;
+                const TopoDS_Shape hole =
+                    SheetMetal::bendSolid(b, flat, R - margin, R + T + margin);
+                if (!hole.IsNull()) {
+                    holes.emplace_back(hole);
                 }
             }
             if (!holes.empty()) {
-                bendPiece = TopoShape(0, hasher).makEBoolean(
-                    Part::OpCodes::Cut, {bendPiece, TopoShape().makECompound(holes)});
-                bendPiece = getSolid(bendPiece);
+                piece = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
+                                                         {piece, TopoShape().makECompound(holes)});
+                piece = getSolid(piece);
             }
+            return piece;
+        };
+        // a bend's piece over the wall's span, its section swept along its
+        // axis from d0 (from d1 on an axis the other way)
+        auto sweep = [&](const CylBend& b, const std::string& name) {
+            CylBend span = b;
+            const bool same = b.frame.Direction().Dot(axis) > 0;
+            span.frame.Translate(gp_Vec(axis) * (same ? d0 : d1));
+            return TopoShape(0, hasher).makEPrism(SheetMetal::bendSection(span, name),
+                                                  gp_Vec(span.frame.Direction()) * (d1 - d0));
+        };
+
+        TopoShape bendPiece = sweep(bend, bendName);
+        bendPiece = lessHoles(bendPiece, bend, jog ? clip(-past, ba + past) : missing, gp_Vec());
+        std::vector<TopoShape> added {bendPiece};
+
+        // the moving side carried rigidly where the bend leaves it, a
+        // jog's past its second bend, which turns back on the far skin,
+        // and pushed out by what the jog adds
+        const gp_Trsf carry1 = bend.refold();
+        gp_Trsf carry = carry1;
+        CylBend second;
+        if (jog) {
+            CylBend back = bend;
+            const gp_Pnt start2 = start.Translated(gp_Vec(e) * (ba + run) - gp_Vec(up) * T);
+            back.frame =
+                gp_Ax3(start2.Translated(gp_Vec(up) * -R), e.Crossed(up.Reversed()), up);
+            TopoShape piece2 = sweep(back, bend2Name);
+            piece2 = lessHoles(piece2,
+                               back,
+                               clip(ba + run - past, developed + past),
+                               gp_Vec(up) * -T);
+            added.push_back(piece2.makETransform(carry1));
+            if (run > Precision::Confusion()) {
+                BRepAlgoAPI_Cut straight(rectangle(start, e, ba, ba + run, axis, d0, d1),
+                                         compoundOf(missing));
+                if (!straight.IsDone()) {
+                    THROWM(Base::CADKernelError, "A jog could not make its run");
+                }
+                for (TopExp_Explorer it(straight.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+                    added.push_back(TopoShape(0, hasher)
+                                        .makEPrism(TopoShape(it.Current()), gp_Vec(up) * -T)
+                                        .makETransform(carry1));
+                }
+            }
+            second = back;
+            second.frame.Transform(carry1);
+            gp_Trsf out;
+            out.SetTranslation(gp_Vec(e) * (developed - taken));
+            carry = carry1 * back.refold() * out;
         }
 
-        // the part less the strip, each side; the moving side carried
-        // rigidly where the bend leaves it
-        const gp_Trsf carry = bend.refold();
+        // the part less the strip, each side
         std::vector<TopoShape> parts;
         bool fixedSide = false, movingSide = false;
         for (const TopoShape& s :
@@ -493,27 +579,43 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
             }
         }
         if (!fixedSide || !movingSide) {
-            THROWM(Base::ValueError, "A fold's strip leaves nothing of the wall on one side");
+            FC_THROWM(Base::ValueError,
+                      "A " << noun << "'s strip leaves nothing of the wall on one side");
         }
-        bendPiece.fixSolidOrientation();
-        SheetMetal::storePCurves(bendPiece);
-        AddSubShape.setValue(bendPiece);
+        for (TopoShape& piece : added) {
+            piece.fixSolidOrientation();
+            SheetMetal::storePCurves(piece);
+        }
+        AddSubShape.setValue(added.size() == 1 ? added.front()
+                                               : TopoShape(0, hasher).makECompound(added));
         if (isRecomputePaused()) {
             return App::DocumentObject::StdReturn;
         }
-        parts.push_back(bendPiece);
+        parts.insert(parts.end(), added.begin(), added.end());
         TopoShape result = getSolid(TopoShape(0, hasher).makEFuse(parts));
         if (result.countSubShapes(TopAbs_SOLID) != 1) {
-            THROWM(Base::ValueError, "A fold left the sheet in pieces");
+            FC_THROWM(Base::ValueError, "A " << noun << " left the sheet in pieces");
         }
 
         // the model: the wall's moving side a wall of its own after the
-        // bend, all on that side carried with it
+        // bend (a jog's after its run and second bend), all on that side
+        // carried with it
+        int before = wall;
+        const CylBend* into = &bend;
+        if (jog) {
+            Element runWall = model.elements[wall];
+            moveElement(runWall, carry1);
+            const int mid = model.addWall(runName, runWall.frame);
+            model.elements[mid].limits = runWall.limits;
+            model.addBend(bendName, bend, wall, mid);
+            before = mid;
+            into = &second;
+        }
         Element movedWall = model.elements[wall];
         moveElement(movedWall, carry);
         const int leg = model.addWall(legName, movedWall.frame);
         model.elements[leg].limits = movedWall.limits;
-        const int bendIndex = model.addBend(bendName, bend, wall, leg);
+        model.addBend(jog ? bend2Name : bendName, *into, before, leg);
         for (int k : owners[moving]) {
             Element& el = model.elements[k];
             moveElement(el, carry);
@@ -524,7 +626,6 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
                 el.after = leg;
             }
         }
-        (void)bendIndex;
 
         Shape.setValue(result);
         SheetModel.setValue(model);
@@ -536,4 +637,72 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         return new App::DocumentObjectExecReturn(e.GetMessageString());
     }
     return App::DocumentObject::StdReturn;
+}
+
+bool SheetMetalFold::jogged(double, double, double, double, double&, double&) const
+{
+    return false;
+}
+
+PROPERTY_SOURCE(PartDesign::SheetMetalJog, PartDesign::SheetMetalFold)
+
+const char* SheetMetalJog::OffsetMeasureEnums[] = {"Step", "Inside", "Overall", nullptr};
+
+namespace
+{
+const App::PropertyQuantityConstraint::Constraints jogAngleRange = {0.0, 90.0, 1.0};
+}
+
+SheetMetalJog::SheetMetalJog()
+{
+    Angle.setConstraints(&jogAngleRange);
+    ADD_PROPERTY_TYPE(Offset,
+                      (10.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "How far the moving side is stepped, as OffsetMeasure says");
+    ADD_PROPERTY_TYPE(OffsetMeasure,
+                      (0L),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "What Offset measures: Step, how far the wall moves; Inside, the gap "
+                      "between the facing skins; Overall, the outer skins");
+    OffsetMeasure.setEnums(OffsetMeasureEnums);
+    ADD_PROPERTY_TYPE(FixProjectedLength,
+                      (true),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The moving side's end stays where it was, the jog adding its material; "
+                      "off, the jog takes it from the wall");
+}
+
+short SheetMetalJog::mustExecute() const
+{
+    if (Offset.isTouched() || OffsetMeasure.isTouched() || FixProjectedLength.isTouched()) {
+        return 1;
+    }
+    return SheetMetalFold::mustExecute();
+}
+
+bool SheetMetalJog::jogged(double T, double R, double A, double ba, double& run,
+                           double& taken) const
+{
+    // the step a skin to the same skin; the least, with no run between
+    // the bends, as the offset is measured
+    const long measure = OffsetMeasure.getValue();
+    const double skins = measure == 1 ? -T : (measure == 2 ? T : 0.0);
+    const double step = Offset.getValue() - skins;
+    const double least = (T + 2 * R) * (1 - std::cos(A));
+    run = (step - least) / std::sin(A);
+    if (run < -Precision::Confusion()) {
+        FC_THROWM(Base::ValueError,
+                  "A jog's offset leaves no room between its bends: at this angle it takes at "
+                  "least "
+                      << least + skins << " mm");
+    }
+    run = std::max(run, 0.0);
+    // across, from where the first bend starts to where the second ends
+    const double across = (T + 2 * R) * std::sin(A) + run * std::cos(A);
+    taken = FixProjectedLength.getValue() ? across : 2 * ba + run;
+    return true;
 }

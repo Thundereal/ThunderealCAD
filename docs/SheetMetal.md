@@ -432,7 +432,7 @@ its tracker, not ported.
 | **Contour flange** | An open sketch swept along one or more edges, a bend at each corner of the profile. | B1 5 (profile mode) |
 | **Hem** | Flat, open, teardrop, rolled. | B1 6 |
 | **Fold** | Bends a wall along a sketched line: radius, angle, which side moves, the line at the bend's start, middle or end. | B1 9 |
-| **Jog** | Two opposite bends along a line, by an offset. | -- |
+| **Jog** | Two opposite bends along a line, by an offset, the far end kept or the material taken from the wall. | -- (SOLIDWORKS Jog) |
 | **Tab** | A closed sketch on a wall's skin adds a plate on that wall. | B1 8 |
 | **Extend wall** | A wall's end face pushed out by a length, or up to a face, with gaps and a clearance against walls it would meet. | B1 7 |
 | **Bend between walls** | Two walls picked, joined by a bend of the rule's radius; the walls trimmed or extended to meet it. Where two sheets of a part come together. | -- (Inventor Bend, Fusion Join by Bend, Creo Merge) |
@@ -956,6 +956,25 @@ and not frozen.
   - In the model, the wall's moving side is a wall of its own after the new bend, its limits
     with it; every element on the moving side is carried the same way, a bend on the wall moved
     over to the new one.
+- M2's jog, `PartDesign::SheetMetalJog` (5.1, ruled 2026-11-02), with `TestSheetMetalJog` (13),
+  its command, icon and panel. As built, a fold (it derives from `SheetMetalFold`, whose
+  execute() takes an optional run and second bend):
+  - The line, the wall, the side that moves and what is refused as the fold's; the line is the
+    first bend's (`LinePosition`). `Angle` is 0 to 90 deg, 90 by default.
+  - The step s, a skin to the same skin, is `Offset` (`Step`), `Offset` + T (`Inside`) or
+    `Offset` - T (`Overall`). The run between the bends is (s - (2R + T)(1 - cos A)) / sin A;
+    less than none is refused, giving the least offset in the measure chosen. The jog is
+    2 BA + run in the flat and (2R + T) sin A + run cos A across.
+  - The wall is taken from the strip's start for the jog's width across (`FixProjectedLength`,
+    the default) or for its length in the flat. The first bend is the fold's; the run the
+    wall's skin there made solid and carried by the first bend; the second bend is laid in the
+    flat after the run on the far skin, turning back, and carried by the first. The moving side
+    goes through both bends' `refold()`, pushed out first by what the jog adds (none when it is
+    taken from the wall), so with the length fixed it is only lifted.
+  - What the strip lacks of the wall (a hole, a notch) is taken from each bend along its
+    radius and from the run straight through, as the fold's; past the width taken, a jog that
+    adds material adds the wall's whole span there.
+  - In the model: the run a wall after the first bend, the moving side a wall after the second.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

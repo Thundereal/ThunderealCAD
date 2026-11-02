@@ -374,6 +374,42 @@ def run():
         pump(20)
         check("OK keeps a good fold", "Invalid" not in fold.State, fold.State)
 
+        # -- the jog's panel: its line, its values, the face on the side that moves
+        line = body.newObject("Sketcher::SketchObject", "JogLine")
+        line.MapMode = "Deactivated"
+        line.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        line.addGeometry(Part.LineSegment(V(-5, 16, 0), V(45, 16, 0)))
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, line.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalJog")
+        pump()
+        jog = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalJog"][0]
+        w = panel() or {}
+        names = ("Profile", "Offset", "OffsetMeasure", "Angle", "LinePosition",
+                 "FixProjectedLength", "Reversed")
+        check(
+            "Jog opens its panel with its line, offset and its measure, angle, line "
+            "position, the end kept and way",
+            all(n in w for n in names),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        moving = w.get("listMoving")
+        check(
+            "and a list of the face on the side that moves, none picked",
+            moving is not None and moving.count() == 0,
+            moving and moving.count(),
+        )
+        if "Offset" in w:
+            w["Offset"].setProperty("rawValue", 4.0)
+            pump(20)
+            doc.recompute()
+            check("the offset set there is the jog's", abs(jog.Offset.Value - 4) < 1e-9,
+                  jog.Offset.Value)
+        accept()
+        pump(20)
+        check("OK keeps a good jog", "Invalid" not in jog.State, jog.State)
+
         # -- the flat pattern's panel ------------------------------------------
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

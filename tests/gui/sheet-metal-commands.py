@@ -266,6 +266,34 @@ def run():
         )
         flange = fold
 
+        # a jog: a line across the plate at y 15.5, the smaller side stepped
+        # up, its end kept, so the jog adds material
+        line = body.newObject("Sketcher::SketchObject", "JogLine")
+        line.MapMode = "Deactivated"
+        line.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        line.addGeometry(Part.LineSegment(V(-5, 15.5, 0), V(45, 15.5, 0)))
+        doc.recompute()
+        pump()
+        volume = flange.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, line.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalJog")
+        pump()
+        check("Jog opens its panel, OK closes it", ok())
+        doc.recompute()
+        jog = newest(doc, before, "PartDesign::SheetMetalJog")
+        check(
+            "Jog on a selected line steps the plate there, adding what it takes",
+            jog is not None
+            and "Invalid" not in jog.State
+            and jog.Profile[0] == line
+            and len(jog.Shape.Solids) == 1
+            and jog.Shape.Volume > volume + 1e-6,
+            jog and (jog.State, jog.Shape.Volume, volume),
+        )
+        flange = jog
+
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

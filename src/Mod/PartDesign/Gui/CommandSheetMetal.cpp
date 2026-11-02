@@ -393,27 +393,17 @@ bool CmdPartDesignSheetMetalCutout::isActive()
 }
 
 //===========================================================================
-// PartDesign_SheetMetalFold
+// PartDesign_SheetMetalFold, PartDesign_SheetMetalJog
 //===========================================================================
 
-DEF_STD_CMD_A(CmdPartDesignSheetMetalFold)
-
-CmdPartDesignSheetMetalFold::CmdPartDesignSheetMetalFold()
-    : Command("PartDesign_SheetMetalFold")
+namespace
 {
-    sAppModule = "PartDesign";
-    sGroup = QT_TR_NOOP("PartDesign");
-    sMenuText = QT_TR_NOOP("Fold");
-    sToolTipText = QT_TR_NOOP("Bends a wall along the line of the selected sketch; a face\n"
-                              "selected too says which side moves, else the smaller one does");
-    sWhatsThis = "PartDesign_SheetMetalFold";
-    sStatusTip = sToolTipText;
-    sPixmap = "PartDesign_SheetMetalFold";
-}
 
-void CmdPartDesignSheetMetalFold::activated(int iMsg)
+/// A fold or a jog on the sketch selected, a face selected too the one on
+/// the side to move
+void makeFold(Gui::Command* cmd, const char* type, const char* name, const char* undo,
+              const char* hint)
 {
-    Q_UNUSED(iMsg);
     PartDesign::Body* body = activeBody();
     if (!body) {
         return;
@@ -438,29 +428,89 @@ void CmdPartDesignSheetMetalFold::activated(int iMsg)
         }
     }
     if (!sketch) {
-        warn(QT_TR_NOOP("No sketch"),
-             QT_TR_NOOP("Select a sketch of a line lying on a wall to fold it there, and a face "
-                        "on the side to move if not the smaller."));
+        warn(QT_TR_NOOP("No sketch"), hint);
         return;
     }
-    openCommand(QT_TRANSLATE_NOOP("Command", "Create Fold"));
-    auto feat = makeFeature(body, "PartDesign::SheetMetalFold", "Fold");
+    Gui::Command::openCommand(undo);
+    auto feat = makeFeature(body, type, name);
     if (!feat) {
-        abortCommand();
+        Gui::Command::abortCommand();
         return;
     }
-    Gui::cmdAppObject(feat, std::ostringstream() << "Profile = " << getObjectCmd(sketch));
+    Gui::cmdAppObject(feat,
+                      std::ostringstream() << "Profile = " << Gui::Command::getObjectCmd(sketch));
     if (faceOwner) {
         Gui::cmdAppObject(feat,
-                          std::ostringstream() << "Moving = (" << getObjectCmd(faceOwner) << ", ['"
-                                               << face << "'])");
+                          std::ostringstream()
+                              << "Moving = (" << Gui::Command::getObjectCmd(faceOwner) << ", ['"
+                              << face << "'])");
     }
     FCMD_OBJ_HIDE(sketch);
-    finishFeature(this, feat);
-    commitUnlessEditing(this);
+    finishFeature(cmd, feat);
+    commitUnlessEditing(cmd);
+}
+
+}  // namespace
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalFold)
+
+CmdPartDesignSheetMetalFold::CmdPartDesignSheetMetalFold()
+    : Command("PartDesign_SheetMetalFold")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Fold");
+    sToolTipText = QT_TR_NOOP("Bends a wall along the line of the selected sketch; a face\n"
+                              "selected too says which side moves, else the smaller one does");
+    sWhatsThis = "PartDesign_SheetMetalFold";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalFold";
+}
+
+void CmdPartDesignSheetMetalFold::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    makeFold(this,
+             "PartDesign::SheetMetalFold",
+             "Fold",
+             QT_TRANSLATE_NOOP("Command", "Create Fold"),
+             QT_TR_NOOP("Select a sketch of a line lying on a wall to fold it there, and a face "
+                        "on the side to move if not the smaller."));
 }
 
 bool CmdPartDesignSheetMetalFold::isActive()
+{
+    return hasActiveDocument();
+}
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalJog)
+
+CmdPartDesignSheetMetalJog::CmdPartDesignSheetMetalJog()
+    : Command("PartDesign_SheetMetalJog")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Jog");
+    sToolTipText = QT_TR_NOOP("Steps a wall along the line of the selected sketch by two\n"
+                              "opposite bends; a face selected too says which side moves,\n"
+                              "else the smaller one does");
+    sWhatsThis = "PartDesign_SheetMetalJog";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalJog";
+}
+
+void CmdPartDesignSheetMetalJog::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    makeFold(this,
+             "PartDesign::SheetMetalJog",
+             "Jog",
+             QT_TRANSLATE_NOOP("Command", "Create Jog"),
+             QT_TR_NOOP("Select a sketch of a line lying on a wall to step it there, and a face "
+                        "on the side to move if not the smaller."));
+}
+
+bool CmdPartDesignSheetMetalJog::isActive()
 {
     return hasActiveDocument();
 }
@@ -671,6 +721,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
     mgr.addCommand(new CmdPartDesignSheetMetalCutout());
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
+    mgr.addCommand(new CmdPartDesignSheetMetalJog());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatPattern());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
 }

@@ -229,6 +229,102 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.Doc.recompute()
         self.assertNotIn("Invalid", flat.State)
 
+    # The corner relief (sec 5.2, ruled 2026-11-02): where two bends meet at
+    # a miter, the rule's CornerReliefShape drawn in the flat, centred where
+    # the bends' lines cross, and folded back into the part through the fold
+    # maps, so the blank's outline carries exactly the shape asked for. A
+    # circle's CornerReliefSize is its diameter, a square's its side, along
+    # the bends' axes; None and Tear cut nothing more than the miter's gap.
+    # The far and right bends' lines, the middle of each strip, lie
+    # (R + K T) pi / 4 = 1.178 out from where each starts: the crossing is
+    # that far out each way from the plate's corner the two bends leave,
+    # wherever the flat puts the plate.
+
+    def reliefFlats(self, flange, shape, size):
+        """The flat with the rule's corner relief, the flat with none, and
+        the bends' lines' crossing in them: from the corner of the plate's
+        skin (38 x 18 after the cuts, along X and Y) that both bends' strips
+        leave, 1.178 out each way"""
+        rule = flange.Rule
+        rule.CornerReliefShape = "None"
+        self.Doc.recompute()
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        plain = flat.Shape.copy()
+        skin = [f for f in plain.Faces if abs(f.Area - 38 * 18) < 1e-6][0].BoundBox
+        self.assertAlmostEqual(skin.XLength, 38, places=6)
+        self.assertAlmostEqual(skin.YLength, 18, places=6)
+        box = plain.BoundBox
+        sx = 1 if box.XMax > skin.XMax + 1 else -1
+        sy = 1 if box.YMax > skin.YMax + 1 else -1
+        out = 1.5 * math.pi / 4
+        crossing = V(
+            (skin.XMax if sx > 0 else skin.XMin) + sx * out,
+            (skin.YMax if sy > 0 else skin.YMin) + sy * out,
+            0,
+        )
+        rule.CornerReliefShape = shape
+        rule.CornerReliefSize = size
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertNotIn(None, self.owners(flange))
+        return flat.Shape.Solids[0], plain.Solids[0], crossing
+
+    def checkCut(self, relieved, plain, tool):
+        """On each skin of the flat (z 0 and 1), nothing left inside the
+        shape and nothing changed outside it. Measured face by face in the
+        plane: the flat with none, mitered, overlaps itself a little at the
+        corner (a bend cut at a slant unrolls its skins differently), where
+        a boolean of its solid fails"""
+        for z in (0, 1):
+            on = lambda shape: [
+                f
+                for f in shape.Faces
+                if abs(f.BoundBox.ZMin - z) < 1e-7 and f.BoundBox.ZLength < 1e-7
+            ]
+            cut = tool.translated(V(0, 0, z))
+            left = sum(f.common(cut).Area for f in on(relieved))
+            self.assertLess(left, 1e-6, z)
+            before = sum(f.Area for f in on(plain)) - sum(f.common(cut).Area for f in on(plain))
+            self.assertAlmostEqual(sum(f.Area for f in on(relieved)), before, places=6)
+        self.assertLess(relieved.Volume, plain.Volume - 1e-3)
+
+    def testCornerReliefCircle(self):
+        """The rule's default, a circle 2 across"""
+        flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        self.assertEqual(flange.Rule.CornerReliefShape, "Circle")
+        relieved, plain, c = self.reliefFlats(flange, "Circle", 2)
+        self.checkCut(relieved, plain, Part.Face(Part.Wire(Part.makeCircle(1, c))))
+
+    def testCornerReliefSquare(self):
+        """A square 2 on a side, its sides along the bends' axes"""
+        flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        relieved, plain, c = self.reliefFlats(flange, "Square", 2)
+        square = [c + V(x, y, 0) for x, y in ((-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1))]
+        self.checkCut(relieved, plain, Part.Face(Part.makePolygon(square)))
+
+    def testCornerReliefNone(self):
+        """None and Tear: the miter's gap, nothing more"""
+        flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        flange.Rule.CornerReliefShape = "None"
+        self.Doc.recompute()
+        volume = flange.Shape.Volume
+        flange.Rule.CornerReliefShape = "Tear"
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertAlmostEqual(flange.Shape.Volume, volume, places=9)
+        flange.Rule.CornerReliefShape = "Circle"
+        self.Doc.recompute()
+        self.assertLess(flange.Shape.Volume, volume - 1e-3)
+
+    def testCornerReliefAgainstEarlier(self):
+        """A flange mitered against an earlier one gets the relief too"""
+        first = self.far()
+        second = self.flange([((40, 0, 1), (40, 18, 1))], base=first, name="Flange2")
+        relieved, plain, c = self.reliefFlats(second, "Circle", 2)
+        self.checkCut(relieved, plain, Part.Face(Part.Wire(Part.makeCircle(1, c))))
+
     def testMiterTray(self):
         """All four edges in one flange: four miters, a closed tray whose flat
         is a cross"""

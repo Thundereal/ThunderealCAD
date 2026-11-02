@@ -957,3 +957,47 @@ view with Allow and Deny; what an asked user answered is said for a while
 (`control.ts` rejects with every field of it, its code and message on
 top). GUI test `tests/gui/serve-undo-browser.py` (Chrome on two pages,
 alice's and bob's, through `scripts/undo-drive.js`).
+
+### 12.12 PartDesign's edit preview, with several edits at once (user, 2026-11-02)
+
+The user: "construct more tests with multi user editing, with and without
+preview. We shall accept both use cases." The preview (Mod/Part
+`PreviewOnEdit`, on by default) pauses the feature in edit
+(`PartDesign::Feature::setPauseRecompute`): its own solid, and so
+everything made from it -- the features after it, a drawing, another
+user's view -- waits for the edit's end, while the edit shows what the
+feature adds. Without it each change is made at once. Both are to work
+with several edits running, one per view or user.
+
+**Found: one edit's end acted on another's.** The PartDesign Gui monitor
+(`src/Mod/PartDesign/Gui/Utils.cpp`, one instance) kept one edit's state:
+the feature, its preview and pause, what it showed on top and which
+features it showed. A second edit replaced it, and the end of either
+(`signalResetEdit`, its view provider ignored) acted on the newest: the
+first edit's OK un-paused the second's feature, mid-edit, and left its own
+paused for good -- its solid never made again, whatever was set after, the
+model silently wrong until reopened. `pd-edit-two-views.py` missed it: its
+fillet does not pause. Fixed: each edit's state is a record of its own
+(`Monitor::EditState`), the current one's in the old fields; whatever
+acts on an edit -- its start (`beforeEdit`, the panel's check boxes,
+`slotInEdit`), its end, its panel's "Show preview", a primitive's move --
+brings that edit's record in first (`Monitor::enter`), and at an edit's
+end the newest kept aside is the current one again. The edit timer
+recomputes the object that started it, and the wrap panels are a list,
+one a dialog. GUI test `tests/gui/pd-two-edits-preview.py`: two windows,
+Pad1 in edit in one and Pad2 in the other, the preview on and off, each
+order of their OKs -- each OK makes its own feature, the other's waits
+with the preview, and nothing is left paused (22 checks; 7 failed before).
+
+**Found, not built: a browser user has no panel of an edit of their own.**
+With `PerViewEdit` a served client's edit runs in its own view, and its
+task dialog is that view's (docs/TaskPanelPerView.md). The panel mirror
+(`Fw::PanelMirror`) follows the one dialog the desktop's task view
+shows, so a client's dialog never reaches it: the client can enter the
+edit but has no field to type into, and no OK or Cancel. That is
+TaskPanelPerView.md milestone M5, designed (its sec 6: every open dialog
+mirrored, each root carrying its owner, a client sent its own, its
+accept/reject acting on its own) and not built. Its test is written,
+`tests/gui/serve_pd_multi_user.py` with an entry script for each preview
+setting: two served users editing one body through their panels, one at
+a time, with a Cancel, and both at once.

@@ -280,6 +280,29 @@ class TestSheetMetalJog(unittest.TestCase):
         self.assertAlmostEqual(flat.FlatWidth.Value, size[1], places=6)
         self.assertAlmostEqual(flat.FlatArea.Value, size[2] + ADDED * 20, places=5)
 
+    def testFlangeBehind(self):
+        """A flange on the plate's far end, its leg as high as the stepped side:
+        the stepped side's slab goes on behind the jog's bends, but its wall
+        starts where the bend ends; the leg's faces are the flange's own"""
+        jog = self.jog()
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (jog, [edgeOf(jog, (0, 0, 1), (0, 20, 1))])
+        # the leg's straight part from z 2 to 9, its middle in the stepped
+        # side's slab, z 5 to 6
+        flange.BendPosition = "MaterialInside"
+        flange.LengthType = "Leg"
+        flange.Length = 7
+        self.Doc.recompute()
+        self.checkValid(flange)
+        legs = {
+            flange.sheetElementOf("Face%d" % (i + 1))
+            for i, f in enumerate(flange.Shape.Faces)
+            if f.BoundBox.XMax < 1 + 1e-7 and f.BoundBox.ZMin > 2 - 1e-7
+        }
+        self.assertEqual(legs, {"Wall4"})
+        flat = self.flat(flange)
+        self.assertEqual(flat.BendCount, 3)
+
     def testRefused(self):
         """A step too small for a run between the bends, saying the least;
         a line off the sheet; a circle; a line across a flange's bend"""

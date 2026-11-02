@@ -166,6 +166,10 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-02 18:12: entry 241 -- every PD on-view value's label at its active handle's
+base point (the dress-ups' common radius too); a drag activates its
+handle; ASSIGNED to dwin.** Under the entries.
+
 **2026-10-30 21:21: 227 -- per-view undo ruled ("for 3D views it is 3. other views
 1"), built and pushed on MultiViewEdit (40e09a85c5) by x16; done on the
 branch, landing is the reporter's call.** Under the entries.
@@ -4556,6 +4560,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 238 | 2026-10-28 | a defect: panning lags noticeably, in the 3D view and (worse) on a TechDraw page | OPEN; said to the note-taker 2026-10-28 15:20; build not said (the reporter's dev build was in use for 233); NOT reproduced, cause NOT found; leads from today's work, NOT verified: OverlayManager's application-wide filter now calls OverlayScrollBars::pointerMoved on every mouse move (OverlayManager.cpp 2120, `ea124fd624`), which visits every area with auto bars (revealNear, OverlayScrollBars.cpp 515); on the page a pan scrolls, and every scroll step reveals the bars (follow -> reveal, raise, fade); an A/B against the build before `8e49bf9df2` would tell; ASSIGNED to dwin (fcad-88), NEXT after 235 (a possible regression of unpushed work). 2026-10-28 15:38 dwin (relayed): MEASURED, today's overlay scroll bar work NOT the cause -- tests/gui/pan-timing.py, real screen, the reporter's config, Blender style, 60 pan steps with their redraw: staged d04054d9b0 3D 9.9/12.0 ms (median/p90), page 25.5/30.7; dev build (ea124fd624 + 235 work) 3D 9.7/30.9, page 16.1/18.5; the bars' trace: page about 11 of 980 ms (1%), 3D about 0.3 ms; NOT measured: a lag before a pan starts or the view trailing the pointer; no baseline before today (needs a second tree); questions to the reporter: start lag or trailing, which style, since when. 2026-10-28 16:10 pan-timing.py committed by dwin as `98a1ffb0a0` (a diagnostic) |
 | 239 | 2026-10-28 | a defect: creating or editing a PD Box shows the origin planes whatever their visibility, at another size; with the origin group INVISIBLE the origin shown in the edit does not react to the highlight (pre-selection), only once the group is made visible | OPEN; said to the note-taker 2026-10-28 17:59; READ by the note-taker: the Box panel shows the origin's axes and planes on purpose (TaskPrimitiveParameters.cpp 85, setTemporaryVisibility(true, true)), as an edit visibility in the views of the edit (ViewProviderCoordinateSystem::setTemporaryVisibilityInEdit, ViewProviderCoordinateSystem.cpp 144-185, Gui::Document::setEditVisibility) -- the objects' Visibility untouched; the attacher grows them by DatumTemporaryScaleFactor (2.0, TaskAttacher.cpp 350); the highlight missing while the group's own Visibility is off -- cause NOT found (the 235 pick-first path or the selection's visibility test, a lead); ASSIGNED to dwin (fcad-88). 2026-10-28 18:05 the reporter: "entry 239, temp scale is fine and desired. just fix the highlight. there is no highlight before the pick fix" -- the showing and the temporary scale stay; only the highlight; it was missing BEFORE 235's pick fix (so 235 is not its cause); relayed to dwin. 2026-10-28 18:16 DONE by dwin `fb8b27d61d`, local, NOT pushed, NOT staged: cause (older than 235) -- an object shown by an edit visibility is carried TAGGED in the shared scene capture (Render::perViewShownModeId), each view admitting it by its own visibility; the highlight cache built from it kept the tag, so neither renderer drew the highlight (GL leaves tagged draws out, bgfx admits them by a visibility the highlight draws lack); fix -- buildHighlightCache() takes the tag off (a highlight is of what the pointer was over in that view); selection highlights covered; the temporary origin and its size untouched; pd-edit-origin-highlight.py 4/4 (Origin hidden: 4104 pixels change round the plane, as visible; the staged copy 0), origin-plane-highlight.py 14/14; PUSHED (3f3174731f..1a2436c219) and RESTAGED (stage31) by dwin 2026-10-28 22:00 on the reporter's word (relayed) |
 | 240 | 2026-10-28 | a change request: every PD primitive's on-view value labels shown BESIDE their handle, only while that handle is active; and every on-view label gets a see-through background in the tree item's background colour | OPEN; said to the note-taker 2026-10-28 18:03; READ by the note-taker: the primitives put every label at the top middle (TaskPrimitiveParameters.cpp 205, Place::TopMiddle; entry 170's rule then); Place::AtHandle (OnViewValue.h 103, 'shown beside its handle while that one is active') is used by pad/pocket, revolution, hole, fillet, chamfer, which fall back to the top middle with handles off; the tree item background is TreeParams ItemBackground (TreeParams.py 137, the overlaid tree's item background, default 0); the labels draw no background now (OnViewValue.cpp 193 is a button's frame); ASSIGNED to dwin (fcad-88) after 239. 2026-10-28 18:16 dwin started; taking the note-taker's defaults: with handles off a primitive's labels at the top middle; ItemBackground unset -> the tree's own palette base colour; the see-through level dwin's, to be reported. 2026-10-28 18:33 DONE by dwin `664e51d94a`, local, NOT pushed, NOT staged: (a) box, cylinder, sphere values Place::AtHandle, shown only while the handle is active, top middle with handles off (the other primitive types have no handles: setupGizmos returns for them, TaskPrimitiveParameters.cpp 235-237, read by the note-taker); (b) every on-view value label gets a rounded see-through ground -- SoDatumLabel backgroundColor/backgroundAlpha (default none: the Sketcher's labels unchanged), painted into the text image; colour the tree's item ground as painted (effectiveOverlayItemBackground), else ItemBackground, else the palette base; opacity clamped 96..200 of 255 (the reporter's ItemBackground is black at 20, raised to 96); pd-primitive-labels-at-handle.py 6/6 (the staged copy fails 6, and showed the box's labels in the next edit), pd-values-in-view 37 (its box claim updated), chamfer 19, fillet 21; the ground's opacity then made a setting, Gizmos/OnViewLabelBackgroundOpacity 0-100 %%, default 0, also in the on-view settings menu (`1af7e47607`, asked of dwin by the reporter, relayed; the note-taker did not hear it); PUSHED (3f3174731f..1a2436c219) and RESTAGED (stage31) by dwin 2026-10-28 22:00 on the reporter's word (relayed); then, asked of dwin by the reporter (relayed): PD on-view labels get the Sketcher's outline (`14b17ae490`) and their text a little darker on a light background (`d7c714f31e`); PUSHED (1a2436c219..c1ce3df7d1) and RESTAGED (stage33) by dwin 2026-10-28 23:25 on the reporter's word (relayed) |
+| 241 | 2026-11-02 | a change request: EVERY PD on-view value with a handle -- the dress-ups' common radius included -- shows its label anchored to the ACTIVE handle's BASE point, offset so as not to cover the handle; a drag on a handle not yet active makes it active, so the label follows once the drag starts | OPEN; said to the note-taker 2026-11-02 18:12; READ by the note-taker: values with handles still at the top middle -- pad/pocket Length (TaskExtrudeParameters.cpp 245), revolution Angle (184), helix Height (93), hole Depth (245), draft Angle (111), thickness (116), the fillet's common Radius (280), chamfer Size/Size 2/Angle (531-542); the anchor is the handle's dragger placement (OnViewValue.cpp 663), the label up-right by HandleOffset 24 px (OnViewValue.h 268, OnViewValue.cpp 1044-1046); a drag's Started event does not make the handle active (OnViewValue.cpp 545-554); ASSIGNED to dwin (fcad-88) on the reporter's word |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -31808,6 +31813,49 @@ copy only when MultiViewEdit lands on LinkVibe.
 call); more create-mode dialogs to undo each change (TD create modes,
 Part dialogs); the make+remove fold (deferred by the reporter).
 
+## 241. Every PD on-view value's label at its active handle's base point; a drag makes its handle active (a change request) -- OPEN
+
+**2026-11-02 18:12, the reporter (to the note-taker), after asking how other CAD places
+on-view labels:** "new request. I want the same for all partdesign on
+view edit, include dressup feature common radius, anchor the label to
+the active handle base point. it can have some offset to note obscure
+the handle itself. also note, dragging can happen when the handle is
+not activated yet, I want it become active, hence label sync once
+dragging starts."
+Then: "ask fcad-88 to do it".
+The note-taker's reading:
+(a) Every PD on-view value that has a handle shows its label beside
+    its ACTIVE handle -- not at the top middle -- as 240 did for the
+    primitives; the dress-ups' common (default) value included (the
+    fillet's Radius, which has a handle on every edge: the label at the
+    active one).
+(b) The anchor is the handle's BASE point (where it stands, not its
+    arrow tip), with an offset so the label does not cover the handle.
+(c) A drag started on a handle that is not active makes it the active
+    one, so its label shows there from the drag's start.
+READ by the note-taker:
+- At the top middle today though they have handles: pad/pocket Length
+  (src/Mod/PartDesign/Gui/TaskExtrudeParameters.cpp 245), revolution
+  Angle (TaskRevolutionParameters.cpp 184), helix Height
+  (TaskHelixParameters.cpp 93), hole Depth (TaskHoleParameters.cpp
+  245), draft Angle (TaskDraftParameters.cpp 111), thickness
+  (TaskThicknessParameters.cpp 116), the fillet's common Radius
+  (TaskFilletParameters.cpp 280), chamfer Size, Size 2, Angle
+  (TaskChamferParameters.cpp 531-542). Without a handle: helix Pitch,
+  Turns, Cone angle, Radial growth; hole Diameter.
+- The anchor now: the handle's dragger placement
+  (OnViewValueSet::placeAnchors, src/Gui/OnViewValue.cpp 659-670) or
+  one an owner sets (setHandleAnchor: fillet, chamfer); the label goes
+  up and to the right of it by HandleOffset, 24 px (OnViewValue.h 268,
+  OnViewValue.cpp 1043-1046), whichever way the handle points.
+- A drag's Started event (OnViewValue.cpp 545-554) opens the step but
+  does not make the dragged handle active.
+NOT said: what of values with no handle (the note-taker's default: they
+stay at the top middle); what with handles off (default: the top
+middle, as 240); whether the offset should depend on which way the
+handle points.
+ASSIGNED to dwin (fcad-88) on the reporter's word.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -31819,5 +31867,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 240
+the build session, 131 and 132 found by it; entries 134 to 241
 are of 2026-10-15, 134 said to the build session)

@@ -9,6 +9,8 @@
 # what the jog adds; else the jog takes it from the wall, as a fold does.
 
 import math
+import os
+import tempfile
 import unittest
 
 import FreeCAD
@@ -302,6 +304,26 @@ class TestSheetMetalJog(unittest.TestCase):
         self.assertEqual(legs, {"Wall4"})
         flat = self.flat(flange)
         self.assertEqual(flat.BendCount, 3)
+
+    def testSaveAndRestore(self):
+        """Saved and opened again, the model of a jog carrying a flange on its
+        moving side comes back: that bend now starts from the jog's own wall,
+        made after it"""
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (self.Plate, [edgeOf(self.Plate, (40, 0, 1), (40, 20, 1))])
+        self.Doc.recompute()
+        jog = self.jog()
+        self.checkValid(jog)
+        area = self.flat(jog).FlatArea.Value
+        path = os.path.join(tempfile.mkdtemp(), "jog.FCStd")
+        self.Doc.saveAs(path)
+        name = jog.Name
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        self.Body = self.Doc.getObject("Body")
+        flat = self.flat(self.Doc.getObject(name))
+        self.assertEqual(flat.BendCount, 3)
+        self.assertAlmostEqual(flat.FlatArea.Value, area, places=6)
 
     def testRefused(self):
         """A step too small for a run between the bends, saying the least;

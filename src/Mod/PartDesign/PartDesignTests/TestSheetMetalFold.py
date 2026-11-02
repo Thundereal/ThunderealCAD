@@ -10,6 +10,8 @@
 # pi / 2 * 1.5, and the part keeps its volume.
 
 import math
+import os
+import tempfile
 import unittest
 
 import FreeCAD
@@ -212,6 +214,26 @@ class TestSheetMetalFold(unittest.TestCase):
         self.assertAlmostEqual(flat.FlatLength.Value, size[0], places=6)
         self.assertAlmostEqual(flat.FlatWidth.Value, size[1], places=6)
         self.assertAlmostEqual(flat.FlatArea.Value, size[2], places=5)
+
+    def testSaveAndRestore(self):
+        """Saved and opened again, the model of a fold carrying a flange on its
+        moving side comes back: that bend now starts from the fold's own wall,
+        made after it"""
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (self.Plate, [edgeOf(self.Plate, (40, 0, 1), (40, 20, 1))])
+        self.Doc.recompute()
+        fold = self.fold()
+        self.checkValid(fold)
+        area = self.flat(fold).FlatArea.Value
+        path = os.path.join(tempfile.mkdtemp(), "fold.FCStd")
+        self.Doc.saveAs(path)
+        name = fold.Name
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        self.Body = self.Doc.getObject("Body")
+        flat = self.flat(self.Doc.getObject(name))
+        self.assertEqual(flat.BendCount, 2)
+        self.assertAlmostEqual(flat.FlatArea.Value, area, places=6)
 
     def testRefused(self):
         """A line off the sheet; a line across a flange's bend; a circle"""

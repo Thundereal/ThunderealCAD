@@ -8100,24 +8100,73 @@ Status ChronoSession::simulateDynamics(
         double accel = 0.0;
         std::array<Id, 2> frames {NoId, NoId};  // its shapes' (Point::frames)
     };
-    auto touchOf = [](const ContactLoad& load) {
+    // A body's frame dt on along its motion now: its place to the second
+    // order, its velocities to the first
+    auto ahead = [](const ch::ChBody& body, double dt) {
+        const ch::ChVector3d v = body.GetPosDt();
+        const ch::ChVector3d acc = body.GetPosDt2();
+        const ch::ChVector3d w = body.GetAngVelParent();
+        const ch::ChVector3d alpha = body.GetAngAccParent();
+        ch::ChQuaterniond turn;
+        turn.SetFromRotVec(w * dt + alpha * (0.5 * dt * dt));
+        ch::ChFrameMoving<> frame;
+        frame.SetPos(body.GetPos() + v * dt + acc * (0.5 * dt * dt));
+        frame.SetRot(turn * body.GetRot());
+        frame.SetPosDt(v + acc * dt);
+        frame.SetAngVelParent(w + alpha * dt);
+        return frame;
+    };
+    // How fast a point comes in, m/s, the bodies at a and b
+    auto rateOf = [](const ContactLoad::Point& point,
+                     const ch::ChFrameMoving<>& a,
+                     const ch::ChFrameMoving<>& b) {
+        return -ch::Vdot(point.normal,
+                         b.PointSpeedLocalToParent(point.onB)
+                             - a.PointSpeedLocalToParent(point.onA));
+    };
+    // The deepest point's growth in speed, where the load follows its
+    // points (a cam's, a profile contact's), is its speed's own: taken a
+    // microsecond either side along the bodies' motion, the points found
+    // again there. The material points' accelerations are not it: the point
+    // slides along each body and the normal turns -- a roller on a disk cam
+    // turning at 45 rad/s, the disk's point under it pulled round at 5e4
+    // mm/s^2, read -39550 mm/s^2 where its speed grew by -1080, and a
+    // landing at 328.04 mm/s, carried over a substep the wrong way, read
+    // 326.7. The others' points are fixed on each body, their normal fixed:
+    // the material points' is theirs.
+    auto touchOf = [&](const ContactLoad& load) {
         Touch touch;
         const auto a = load.GetBodyA();
         const auto b = load.GetBodyB();
-        for (const auto& point : load.pointsNow()) {
+        const std::vector<ContactLoad::Point> now = load.pointsNow();
+        std::size_t deepest = now.size();
+        for (std::size_t i = 0; i < now.size(); ++i) {
+            const ContactLoad::Point& point = now[i];
             const double depth = -ch::Vdot(point.normal,
                                            b->TransformPointLocalToParent(point.onB)
                                                - a->TransformPointLocalToParent(point.onA));
             if (depth > touch.depth) {
                 touch.depth = depth;
                 touch.frames = point.frames;
-                touch.rate = -ch::Vdot(point.normal,
-                                       b->PointSpeedLocalToParent(point.onB)
-                                           - a->PointSpeedLocalToParent(point.onA));
+                touch.rate = rateOf(point, *a, *b);
                 touch.accel = -ch::Vdot(point.normal,
                                         b->PointAccelerationLocalToParent(point.onB)
                                             - a->PointAccelerationLocalToParent(point.onA));
+                deepest = i;
             }
+        }
+        if (load.follow && deepest < now.size()) {
+            const double dt = 1e-6;
+            double rates[2] {};
+            for (int side = 0; side < 2; ++side) {
+                const double step = side == 0 ? -dt : dt;
+                const ch::ChFrameMoving<> atA = ahead(*a, step);
+                const ch::ChFrameMoving<> atB = ahead(*b, step);
+                std::vector<ContactLoad::Point> there = load.points;
+                load.follow(atA, atB, there);
+                rates[side] = rateOf(there[deepest], atA, atB);
+            }
+            touch.accel = (rates[1] - rates[0]) / (2.0 * dt);
         }
         return touch;
     };
@@ -8136,12 +8185,12 @@ Status ChronoSession::simulateDynamics(
     // start, -11.7 m/s^2 for g's -9.8 where the ball left, and its velocity
     // settles in the substep after -- read where it left, the ball left
     // 0.06% to 0.28% slower than its flight took; a substep on, to 1e-6 of
-    // the speed it comes back in at, and the same two and three on. Never
-    // below none: the depth crossed none the way it went, and a speed the
-    // other way is the carry's, whose acceleration is the one at an end --
-    // a cam's follower grazing its cam, the free acceleration changing fast,
-    // read coming in at -12.8 mm/s and leaving at -32.6 (the manual's
-    // cam-pair video), and a sensor on every contact made missed those.
+    // the speed it comes back in at, and the same two and three on. The
+    // carry by the speed's own growth (touchOf()): by the material points'
+    // accelerations, a cam's follower read coming in at -12.8 mm/s and
+    // leaving at -32.6 (the manual's cam-pair video), and a sensor on every
+    // contact made missed those. Never below none still: the depth crossed
+    // none the way it went, and a speed the other way is the carry's.
     auto bodyName = [&](const ch::ChBody* body) {
         for (std::size_t b = 0; b < run.d->bodies.size() && b < si.bodies.size(); ++b) {
             if (run.d->bodies[b].get() == body) {

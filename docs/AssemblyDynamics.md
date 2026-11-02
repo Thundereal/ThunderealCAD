@@ -2137,7 +2137,8 @@ Phase D1 is under way (2026-10-28):
     boxes offer the cam and the follower alone (before: every part).
   - Not yet: a grazing contact's speed itself -- floored, not found: the
     carry takes the acceleration at one end, which a hop's lift-off and
-    a grazing landing change within the substep.
+    a grazing landing change within the substep. (Built, below: the
+    acceleration carried was not the speed's.)
 - Measured, not built: a profile contact's point whose other's nearest is
   a vertex, followed within a substep (the corners' "not yet" above).
   - Where it presses: only at a hollow vertex. At a convex one the point
@@ -2182,6 +2183,47 @@ Phase D1 is under way (2026-10-28):
   - Not yet: a swinging pivot taken as at rest -- `resting()` reads the
     deepest point's depth alone, which a pin or a knife edge keeps while
     the part swings past it.
+- Built: a contact event's speed carried along its substep by the speed's
+  own growth (the grazing contact's "not yet" above).
+  - Measured first: the disk cam at 45 rad/s, its roller on a stem thrown
+    off, landing, bouncing, landing again and thrown off as the cam comes
+    round, five events a turn. Each flight is free, y'' = -g along the
+    slider: a parabola fitted to its frames, solved against the disk,
+    gives how fast it lands and goes off along the line of the centres.
+    The landings read within 2.7 mm/s of that, the bounces up to 25 mm/s
+    slow (104.2 read 89.9 at an output step of a 480th of a turn), and the
+    roller leaving as the cam came round at 0 for 1.68 -- carried below
+    none and floored.
+  - The cause: the carry's acceleration (`touchOf()`) was the material
+    points' relative acceleration along the normal. On a cam the point
+    slides along each body and the normal turns, and the disk's material
+    point under the roller is pulled round at 5e4 mm/s^2: leaving, the
+    speed grew at -1080 mm/s^2 and read -39550; within a landing's
+    substep it grew at +18000 and read -20400, so the carry went the wrong
+    way.
+  - The run (ChronoBackend): for a load that follows its points (a cam
+    contact's, a profile contact's), the deepest point's speed is taken
+    again a microsecond either side along the bodies' motion (`ahead()`),
+    its points found again there, and the carry is their difference. The
+    others' points are fixed on each body, their normal fixed: the
+    material points' acceleration is theirs, as before. The floor at none
+    stays, no longer reached in these runs.
+  - Tests (TestCamJoint, test_cam_contact_event_speeds): the speed of every
+    event whose flight has two frames clear of the disk, 34 of 40 at a
+    120th of a turn, to 0.1 mm/s (0.041 measured); on the code before, the
+    first let go read 0 for 1.68. `hopping_roller()` builds the scene for
+    it and for the events' names test. TestAssemblyWorkbench 586 OK, 88
+    skipped. At other output steps and rates, the same scene by a probe:
+    a 480th of a turn 0.094 mm/s at most, a 1000th 0.33, 42 rad/s 0.034.
+    In the manual's video (`assembly/simulation/event-speeds`), its roller
+    5 mm: 32 of 40 within 0.18 mm/s, the landings within 0.0024; 21.4 on
+    the code before.
+  - Found on the way: the same scene at an output step of a 1200th of a
+    turn (0.116 ms) stops, "the contact's integration diverged"; at a
+    1000th and coarser it runs. Not this change's: the code before stops
+    the same.
+  - Not yet: that divergence; a profile contact's event speeds, carried
+    the same way now, not measured against a closed form.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

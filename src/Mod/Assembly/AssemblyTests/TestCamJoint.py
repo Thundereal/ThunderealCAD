@@ -48,6 +48,58 @@ def disk_lift(theta, roller=0.0):
     return CAM_E * math.sin(theta) + math.sqrt((CAM_R + roller) ** 2 - c * c)
 
 
+def flight_speed(times, ys, t0, t1, at, rate, roller):
+    """How fast the follower on the disk cam turning at rate comes in, or
+    goes off, along the line of the centres, where it touches the disk near
+    the time at: its flight between t0 and t1 is free, y'' = -g, a parabola
+    fitted to the frames of it where it is clear of the disk; None for a
+    flight of fewer than two such frames. Positive coming in at the flight's
+    end, going off at its start."""
+    g = 9806.65
+    reach = CAM_R + roller
+
+    def gap(time, y):
+        theta = rate * time
+        return math.hypot(CAM_E * math.cos(theta), y - CAM_E * math.sin(theta)) - reach
+
+    free = [k for k in range(len(times)) if t0 < times[k] < t1 and gap(times[k], ys[k]) > 1e-6]
+    if len(free) < 2:
+        return None
+    # y + g t^2 / 2 = a + b t, least squares
+    n = len(free)
+    sx = sum(times[k] for k in free)
+    sxx = sum(times[k] ** 2 for k in free)
+    sy = sum(ys[k] + 0.5 * g * times[k] ** 2 for k in free)
+    sxy = sum(times[k] * (ys[k] + 0.5 * g * times[k] ** 2) for k in free)
+    b = (n * sxy - sx * sy) / (n * sxx - sx * sx)
+    a = (sy - b * sx) / n
+
+    def flight(time):
+        return gap(time, a + b * time - 0.5 * g * time * time)
+
+    # The root nearest 'at', within three frames of it
+    frame = times[1] - times[0]
+    lo = at - 3 * frame
+    found = None
+    for k in range(600):
+        x0, x1 = lo + k * frame / 100, lo + (k + 1) * frame / 100
+        if (flight(x0) > 0) != (flight(x1) > 0):
+            for _ in range(60):
+                m = 0.5 * (x0 + x1)
+                if (flight(m) > 0) == (flight(x0) > 0):
+                    x0 = m
+                else:
+                    x1 = m
+            root = 0.5 * (x0 + x1)
+            if found is None or abs(root - at) < abs(found - at):
+                found = root
+    if found is None:
+        return None
+    d = 1e-7
+    speed = (flight(found + d) - flight(found - d)) / (2 * d)
+    return speed if found < 0.5 * (t0 + t1) else -speed
+
+
 def turn_about_z(placement):
     x, y, z, w = placement.Rotation.Q
     return 2.0 * math.atan2(z, w)
@@ -547,33 +599,10 @@ class TestCamJoint(CamMechanism, JointTestBase):
         sensor at none missed, 18 marks of 20"""
         if "Chrono" not in self.backends():
             self.skipTest("the Chrono backend is not built")
-        import CommandCreateContact
         import CommandCreateSimulation
 
-        rate = 45.0
-        cam, rev, f = self.disk_mechanism(ROLLER)
-        stem = self.box("Stem", plc(-2, f.Placement.Base.y - 2, CAM_H + 4), size=4.0)
-        self.joint("Fixed", (stem, ["Face5"]), plc(2, 2, 0), (f, ["Face2"]), plc(0, 0, 4))
-        self.doc.recompute()
-        joint = [
-            o
-            for o in self.assembly.getGroup("Joints").Group
-            if getattr(o, "JointType", None) == "Cam"
-        ][0]
-        lifted = CommandCreateContact.newCamContact(self.assembly, joint)
+        cam, f, stem, lifted, sim = self.hopping_roller()
         self.assertEqual(CommandCreateSimulation.contactComponents(lifted), [cam, f])
-        sims = self.assembly.getGroup("Simulations", True)
-        sim = sims.newObject("Assembly::Simulation", "Simulation")
-        sim.AnalysisType = "Dynamic"
-        sim.Gravity = App.Vector(0, -9806.65, 0)
-        turn = 2 * math.pi / rate
-        sim.TimeEnd = 4 * turn
-        sim.TimeStepOutput = turn / 120
-        sim.Elements = [lifted]
-        motion = sim.newObject("Assembly::Motion", "Motion")
-        motion.Joint = rev
-        motion.MotionType = "Angular"
-        motion.Formula = "%g*time" % rate
         on_roller = CommandCreateSimulation.newSensor(
             sim, lifted, "ContactBegin", 0.0, action="Mark", pair=[f, cam]
         )
@@ -594,6 +623,87 @@ class TestCamJoint(CamMechanism, JointTestBase):
         self.assertEqual([m["Time"] for m in marks], [e["Time"] for e in made])
         self.assertEqual([e for e in events if e["Kind"] == "Sensor" and e["Object"] == on_stem],
                          [])
+
+    def hopping_roller(self, rate=45.0):
+        """The disk cam turning four times at rate, its roller fixed to a
+        stem (the stem first in their group) on the slider, a cam contact
+        letting it off the cam, gravity down the slider, an output step of
+        a 120th of a turn: the cam, the roller, the stem, the contact and
+        the simulation, not run"""
+        import CommandCreateContact
+
+        cam, rev, f = self.disk_mechanism(ROLLER)
+        stem = self.box("Stem", plc(-2, f.Placement.Base.y - 2, CAM_H + 4), size=4.0)
+        self.joint("Fixed", (stem, ["Face5"]), plc(2, 2, 0), (f, ["Face2"]), plc(0, 0, 4))
+        self.doc.recompute()
+        joint = [
+            o
+            for o in self.assembly.getGroup("Joints").Group
+            if getattr(o, "JointType", None) == "Cam"
+        ][0]
+        lifted = CommandCreateContact.newCamContact(self.assembly, joint)
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.Gravity = App.Vector(0, -9806.65, 0)
+        turn = 2 * math.pi / rate
+        sim.TimeEnd = 4 * turn
+        sim.TimeStepOutput = turn / 120
+        sim.Elements = [lifted]
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = rev
+        motion.MotionType = "Angular"
+        motion.Formula = "%g*time" % rate
+        return cam, f, stem, lifted, sim
+
+    def test_cam_contact_event_speeds(self):
+        """A cam contact's events' speeds, against the closed form: the
+        roller of the test above, thrown off at 45 rad/s, lands and bounces
+        off, five times a turn, and leaves the cam as it comes round. Each
+        flight is free, y'' = -g along the slider, so a parabola through its
+        frames, solved against the disk, gives how fast it lands and how
+        fast it goes off, along the line of the centres: the speed of every
+        event whose flight has two frames clear of the disk (34 of 40), to
+        0.1 mm/s (0.041 measured). The speed is carried along a substep by
+        its own derivative, the points found again a microsecond either
+        side: by the material points' accelerations, the disk's pulled round
+        at 5e4 mm/s^2 under a roller sliding over it, the bounces read up to
+        25 mm/s slow, and the roller leaving as the cam came round at none
+        for 1.68 -- carried below none and floored."""
+        if "Chrono" not in self.backends():
+            self.skipTest("the Chrono backend is not built")
+        rate = 45.0
+        cam, f, stem, lifted, sim = self.hopping_roller(rate)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        times = list(results["Times"])
+        ys = []
+        for k in range(len(times)):
+            self.assembly.updateForFrame(k)
+            ys.append(f.Placement.Base.y)
+        events = [e for e in results["Events"] if e["Kind"] in ("ContactBegin", "ContactEnd")]
+        self.assertGreaterEqual(len(events), 30)
+        checked = 0
+        worst = 0.0
+        for i, e in enumerate(events):
+            if e["Kind"] == "ContactBegin":
+                t0 = events[i - 1]["Time"] if i > 0 else 0.0
+                t1 = e["Time"]
+            else:
+                t0 = e["Time"]
+                t1 = events[i + 1]["Time"] if i + 1 < len(events) else times[-1]
+            speed = flight_speed(times, ys, t0, t1, e["Time"], rate, ROLLER)
+            if speed is None:
+                continue
+            checked += 1
+            self.assertAlmostEqual(e["Value"], speed, delta=0.1, msg=e)
+            worst = max(worst, abs(e["Value"] - speed))
+        self.assertGreaterEqual(checked, 30)
+        App.Console.PrintMessage(
+            "Cam contact events: %d of %d speeds within %.3g mm/s of the closed form\n"
+            % (checked, len(events), worst)
+        )
 
     def ride_on_gravity(self, roller, rate, mark=False):
         """The disk cam turning once at rate, a cam contact holding the

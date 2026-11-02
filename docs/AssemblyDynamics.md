@@ -2001,7 +2001,8 @@ Phase D1 is under way (2026-10-28):
     profile-knife`): within 0.0064% past 45 deg, a frame here and there
     flicking that far, the lean within 0.0005 deg.
   - Not yet: a point whose other's nearest is a vertex -- a corner on a
-    corner, an arc past the end of a line -- is not followed.
+    corner, an arc past the end of a line -- is not followed. (Measured,
+    below: not needed, and left so.)
 - Built: a profile contact's pressure angle, slip, drive force and side
   load (the cam's pressure angle's "not yet" above), its B the follower.
   - The run (ChronoBackend): a profile contact's set (`isProfileSet()`)
@@ -2137,6 +2138,50 @@ Phase D1 is under way (2026-10-28):
   - Not yet: a grazing contact's speed itself -- floored, not found: the
     carry takes the acceleration at one end, which a hop's lift-off and
     a grazing landing change within the substep.
+- Measured, not built: a profile contact's point whose other's nearest is
+  a vertex, followed within a substep (the corners' "not yet" above).
+  - Where it presses: only at a hollow vertex. At a convex one the point
+    is outside the other, within the envelope; inside, the nearest is on a
+    piece. So the case is a corner in a hollow corner -- a knife edge in a
+    V notch, the pivot of a balance or a Kater pendulum -- or an arc's
+    point sunk behind a notch's bottom, which takes an arc deeper than its
+    pieces either side.
+  - The scene: a knife 30 mm long, its edge 30 deg either side, across two
+    posts notched 45 deg either side, a bob hanging between them, let go
+    at 10 deg, frictionless (restitution 0.5), a profile contact between
+    the knife's end face and both posts' faces. On the code as it stands
+    (the points fixed through a substep) it swings about the edge as
+    about a pin: its period 4 sqrt(I / m g d) K(sin(5 deg)) to 7e-5,
+    every turn of two seconds at 10 deg to 0.0021 deg, the edge sunk
+    6.3 um and shaking across the notches by up to 2 um -- the contact's
+    spring holds it there and, frictionless, nothing damps a shake
+    across it.
+  - Tried: each such point followed, the other's nearest on its two pieces
+    at the vertex, the normal along x - v there, out of the material (away
+    from a convex vertex, towards a hollow one). The swing the same: the
+    period, the turns within 0.0023 deg, five seconds' loss 0.011 deg
+    against 0.007 fixed. The shake a little smaller: 1.1 um against 1.9
+    in the test's scene, 1.6 against 1.8 in the manual's, which differs
+    only in the posts' height.
+  - Found on the way, with the points followed: the knife twisted 1e-4 rad
+    about the vertical at 1.36 s of the manual's scene, its ends 0.8 um
+    across their notches either way, and stayed so to the end, the shake
+    gone with it. A twist given at the start comes back within 50 ms. The
+    contact counts as resting from 18 ms on -- a swing changes its depth
+    by under the 2% of `resting()` -- and its substeps grow to the output
+    step; from 1.34 s it stayed settled. Fixed, the same scene neither
+    stayed settled nor twisted. Not built: the gain, a shake a few tenths
+    of a micrometre smaller, is not worth a twist held for no cause found.
+  - Tests (TestProfileContact, test_knife_in_notch_pendulum): the period
+    to 2e-4 (7e-5 measured), every turn at 10 deg to 0.02, the edge
+    across the notches under 3 um (1.95) and sunk under 7 (6.35).
+    TestAssemblyWorkbench 585 OK, 88 skipped. In the manual's video
+    (`assembly/simulation/profile-knife-edge`) the posts taller, on a
+    base: the period to 1.3e-4, the turns within 0.012 deg, the edge
+    1.8 um across at most.
+  - Not yet: a swinging pivot taken as at rest -- `resting()` reads the
+    deepest point's depth alone, which a pin or a knife edge keeps while
+    the part swings past it.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

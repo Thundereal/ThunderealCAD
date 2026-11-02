@@ -321,6 +321,119 @@ class TestProfileContact(unittest.TestCase):
             % (len(turns), max(abs(t - 30.0) for t in turns), max(tilts), max(tilts[-100:]))
         )
 
+    def test_knife_in_notch_pendulum(self):
+        """A pendulum hung by a knife edge in V notches, let go at 10 deg,
+        gravity in the plane, frictionless: the knife's corner in the
+        notches' bottoms, a corner on a hollow corner, each point the
+        other's nearest to the other -- not followed within a substep,
+        fixed as collision detection found them. A knife 30 long across two
+        notched posts, the bob hanging between them. It swings about the
+        edge as about a pin: its period 4 sqrt(I / m g d) K(sin(10 deg /
+        2)), I about the edge, d the edge to the centre of mass, to 2e-4;
+        every turn at 10 deg to 0.02 deg, and the edge no farther across
+        the notch than 0.003 mm, sunk at most 0.007 (the allowance less the
+        swing's lighter load). The edge shakes across the notch, a
+        micrometre or two: the contact's spring holds it there, and nothing
+        damps a shake across it, frictionless. Followed within a substep,
+        the normal turning with the points (tried), it swung the same, the
+        shake a little smaller."""
+        import Part
+
+        import CommandCreateContact
+
+        def prism(points, z, height):
+            points = [App.Vector(x, y, z) for x, y in points]
+            face = Part.Face(Part.makePolygon(points + points[:1]))
+            return face.extrude(App.Vector(0, 0, height))
+
+        # Two posts, at z 0..10 and 20..30, each notched down to y = 14 at
+        # 45 deg either side; the knife's edge at its origin, 30 deg either
+        # side, so that it swings 15 deg each way before its sides touch
+        posts = [
+            Part.makeBox(30, 20, 10, App.Vector(-15, 0, z)).cut(
+                prism([(0, 14), (10, 24), (-10, 24)], z, 10)
+            )
+            for z in (0, 20)
+        ]
+        support = self.plate(Part.makeCompound(posts))
+        half = 8 * math.tan(math.radians(30))
+        knife = prism([(0, 0), (half, 8), (-half, 8)], 0, 30)
+        bob = Part.makeBox(4, 60, 10, App.Vector(-2, -52, 10))
+        pendulum = self.assembly.newObject("Part::Feature", "Pendulum")
+        pendulum.Shape = knife.fuse(bob).removeSplitter()
+        swing = math.radians(10)
+        pendulum.Placement = App.Placement(
+            App.Vector(0, 14, 0), App.Rotation(App.Vector(0, 0, 1), math.degrees(swing))
+        )
+        contact = CommandCreateContact.newProfileContact(
+            self.assembly,
+            pendulum,
+            [self.face(pendulum, 30)],
+            support,
+            [self.face(support, 10), self.face(support, 30)],
+        )
+        contact.Restitution = 0.5
+        self.doc.recompute()
+        mass = [
+            c
+            for c in self.assembly.getMassProperties()["Components"]
+            if c["Object"] == pendulum
+        ][0]
+        d = (mass["CenterOfMass"] - App.Vector(0, 14, 15)).Length
+        inertia = mass["Inertia"][2] + mass["Mass"] * d * d
+
+        def agm(a, b):
+            while abs(a - b) > 1e-15 * a:
+                a, b = 0.5 * (a + b), math.sqrt(a * b)
+            return a
+
+        k = math.sin(swing / 2)
+        elliptic = math.pi / (2 * agm(1, math.sqrt(1 - k * k)))
+        period = 4 * math.sqrt(inertia / (mass["Mass"] * G * d)) * elliptic
+
+        step = 1e-3
+        self.assertEqual(self.simulate(contact, 2.0, step), 0)
+        angles = []
+        tips = []
+        for k in range(self.assembly.numberOfFrames()):
+            p = self.at(pendulum, k)
+            angles.append(math.degrees(p.Rotation.Angle) * (1 if p.Rotation.Axis.z >= 0 else -1))
+            tips.append(p.Base)
+        turns = [
+            abs(angles[k])
+            for k in range(1, len(angles) - 1)
+            if (angles[k] - angles[k - 1]) * (angles[k + 1] - angles[k]) < 0
+        ]
+        # Through the middle the way it was let go, between frames
+        crossings = [
+            (k + angles[k] / (angles[k] - angles[k + 1])) * step
+            for k in range(len(angles) - 1)
+            if angles[k] > 0.0 >= angles[k + 1]
+        ]
+        periods = [b - a for a, b in zip(crossings, crossings[1:])]
+        self.assertGreaterEqual(len(turns), 7)
+        self.assertGreaterEqual(len(periods), 2)
+        for n, turn in enumerate(turns):
+            self.assertAlmostEqual(turn, 10.0, delta=0.02, msg=n)
+        for n, measured in enumerate(periods):
+            self.assertAlmostEqual(measured / period, 1.0, delta=2e-4, msg=n)
+        across = max(abs(t.x) for t in tips)
+        self.assertLess(across, 0.003)
+        self.assertLess(max(14 - t.y for t in tips), 0.007)
+        self.assertGreaterEqual(min(14 - t.y for t in tips[1:]), 0.0)
+        App.Console.PrintMessage(
+            "Knife in a notch: the period %.6g s against %.6g, %d turns within %.3g deg of 10,"
+            " the edge across the notch %.3g mm at most, sunk %.3g\n"
+            % (
+                sum(periods) / len(periods),
+                period,
+                len(turns),
+                max(abs(t - 10.0) for t in turns),
+                across,
+                max(14 - t.y for t in tips),
+            )
+        )
+
     def ride_disk_cam(self, follower, at_follower, height, name, reach=None):
         """The disk cam (CAM_E, CAM_RADIUS) at the origin turning once at
         CAM_RATE, the follower on a slider along y through x = 0 riding it

@@ -28,19 +28,29 @@
 #include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp.hxx>
+#include <BRepTools_History.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <gp_Pln.hxx>
 
 #include <App/Document.h>
 #include <Base/Exception.h>
+
+#include <Mod/Part/App/TopoShapeOpCode.h>
 
 #include "FeatureSheetMetalRule.h"
 #include "FeatureSheetMetalTab.h"
@@ -137,6 +147,78 @@ int pastBend(const Model& model, int wall, const gp_Pnt& point, double tol)
         }
     }
     return -1;
+}
+
+/// Whether two faces lie in one plane
+bool samePlane(const TopoDS_Face& a, const TopoDS_Face& b)
+{
+    BRepAdaptor_Surface sa(a, false), sb(b, false);
+    if (sa.GetType() != GeomAbs_Plane || sb.GetType() != GeomAbs_Plane) {
+        return false;
+    }
+    const gp_Pln pa = sa.Plane(), pb = sb.Plane();
+    return pa.Axis().IsParallel(pb.Axis(), Precision::Angular())
+        && pa.Distance(pb.Location()) < Precision::Confusion();
+}
+
+/** The join's result with the faces split along the tab's outline merged:
+ * an edge goes only where its two faces lie in one plane and it lies on the
+ * tab, so no face of another element is merged with this wall's. A null
+ * shape where nothing merges, or the merge does not keep the solid.
+ */
+TopoDS_Shape mergeSeams(const TopoDS_Shape& shape,
+                        const TopoDS_Shape& tab,
+                        Handle(BRepTools_History) & history)
+{
+    TopTools_IndexedDataMapOfShapeListOfShape ef;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, ef);
+    BRepClass3d_SolidClassifier onTab(tab);
+    std::vector<TopoDS_Shape> keep;
+    for (int i = 1; i <= ef.Extent(); ++i) {
+        const auto& faces = ef(i);
+        bool seam = faces.Extent() == 2
+            && samePlane(TopoDS::Face(faces.First()), TopoDS::Face(faces.Last()));
+        if (seam) {
+            BRepAdaptor_Curve curve(TopoDS::Edge(ef.FindKey(i)));
+            onTab.Perform(curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2),
+                          Precision::Confusion());
+            seam = onTab.State() == TopAbs_ON;
+        }
+        if (!seam) {
+            keep.push_back(ef.FindKey(i));
+        }
+    }
+    if (static_cast<int>(keep.size()) == ef.Extent()) {
+        return TopoDS_Shape();
+    }
+    try {
+        // on a copy: UnifySameDomain edits the edges it is given
+        BRepBuilderAPI_Copy copier(shape, true, false);
+        TopTools_ListOfShape args;
+        args.Append(shape);
+        Handle(BRepTools_History) copyHistory = new BRepTools_History(args, copier);
+        ShapeUpgrade_UnifySameDomain unify(copier.Shape(), true, true, false);
+        for (const auto& e : keep) {
+            for (const auto& c : copyHistory->Modified(e)) {
+                unify.KeepShape(c);
+            }
+        }
+        unify.Build();
+        GProp_GProps g0, g1;
+        BRepGProp::VolumeProperties(shape, g0);
+        BRepGProp::VolumeProperties(unify.Shape(), g1);
+        if (std::abs(g1.Mass() - g0.Mass()) > 1e-9 * std::abs(g0.Mass())
+            || !BRepCheck_Analyzer(unify.Shape()).IsValid()) {
+            return TopoDS_Shape();
+        }
+        history = new BRepTools_History;
+        history->Merge(copyHistory);
+        history->Merge(unify.History());
+        return unify.Shape();
+    }
+    catch (Standard_Failure&) {
+        return TopoDS_Shape();
+    }
 }
 
 }  // namespace
@@ -243,7 +325,15 @@ App::DocumentObjectExecReturn* SheetMetalTab::execute()
         if (fused.countSubShapes(TopAbs_SOLID) != 1) {
             THROWM(Base::ValueError, "A tab left the sheet in pieces");
         }
-        Shape.setValue(getSolid(fused));
+        fused = getSolid(fused);
+        Handle(BRepTools_History) history;
+        const TopoDS_Shape merged = mergeSeams(fused.getShape(), tab.getShape(), history);
+        if (!merged.IsNull()) {
+            fused = TopoShape(0, hasher)
+                        .makESHAPE(merged, Part::MapperHistory(history), {fused},
+                                   Part::OpCodes::Refine);
+        }
+        Shape.setValue(fused);
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

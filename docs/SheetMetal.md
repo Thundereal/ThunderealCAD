@@ -977,7 +977,7 @@ and not frozen.
     into a slot by what the jog adds (`testHoleAcrossEnd`), and the missing faces are one cut
     from one rectangle, the hole and its stretch one face.
   - In the model: the run a wall after the first bend, the moving side a wall after the second.
-- M2's tab, `PartDesign::SheetMetalTab` (5.1), with `TestSheetMetalTab` (7), its command, icon
+- M2's tab, `PartDesign::SheetMetalTab` (5.1), with `TestSheetMetalTab` (9), its command, icon
   and panel. As built:
   - `Profile`, a closed sketch (holes in it kept), on a wall's skin or a plane parallel to it:
     of the walls parallel to it whose first skin the sketch, taken onto it, meets (touching an
@@ -988,6 +988,12 @@ and not frozen.
     wall. Sampled at its vertices, its edges' middles and its faces' centres, a tab reaching
     past a bend of the wall is refused, naming what it runs into; one meeting no wall, and an
     open sketch, are refused too.
+  - The fuse leaves the wall's skin split along the tab's outline and the wall's old edge; those
+    seams are merged (UnifySameDomain keeping every other edge: an edge goes only where its two
+    faces lie in one plane and it lies on the tab), so the wall's skin is one face each side, on
+    the part and in the flat (`testOneSkin`, `testOneSkinOnFlange`). The feature's own Refine
+    stays off, as it would merge faces of two elements. A merge that does not keep a valid
+    solid of the same volume is dropped and the seams stay.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

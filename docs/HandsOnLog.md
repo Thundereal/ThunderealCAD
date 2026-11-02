@@ -8399,3 +8399,13 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   Sent to x16. The 10-28 error (testAHeldPathLeavingTheFolderIsNotWritten)
   is gone.
 - stage35 INSTALL-USER OK, fcad 4021ece528, clean.
+- CORRECTION, same morning: the 15 FolderSaveCases failures were my
+  harness, not MultiViewEdit. The suite was started from Git Bash, whose
+  TMPDIR=/tmp reaches cmd as C:\Users\LEI~1.ZHE\AppData\Local\Temp, and
+  Python's tempfile takes TMPDIR first: every folder had an 8.3 name. Started
+  from PowerShell, -t Document.FolderSaveCases is 28 OK (1 skipped) on rtx62;
+  x16 had 28/28 on linux. The runners now clear TMPDIR.
+- What is left is real but narrow: a folder save to a path spelled with an
+  8.3 short name keeps nothing on its next save (same folder, long name:
+  kept 4; short name: kept 0). Not fixed; a folder picked in a dialog
+  comes in its long form.

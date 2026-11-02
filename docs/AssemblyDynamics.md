@@ -2344,8 +2344,35 @@ Phase D1 is under way (2026-10-28):
     point taken back out it read 0.30 mm and 4.4 um.
   - Not yet: a box or a hull on a tipping plate -- its points fixed on each
     body and the normal fixed in space, which face it belongs to not known
-    from Bullet's point; a round part that is a hull or a mesh; a cylinder
-    rolling on its rim.
+    from Bullet's point (built in the entry below); a round part that is a
+    hull or a mesh; a cylinder rolling on its rim.
+- Built: a face's normal turned with its body, any shape's. A point of two
+  flat shapes -- a box's, a hull's, a mesh triangle's -- takes the body
+  whose face the normal is (hasFace(): a face of B's whose outward normal
+  is the normal reversed, else one of A's that is the normal; the
+  clipping's normal is its face's own, exactly; a triangle's either way);
+  an edge against an edge, neither, its normal fixed as before. A cylinder's
+  cap on a face, which left rollAlong() before its normal was turned, now
+  turns too. The load follows its points (ContactLoad::follow) when one has
+  a face or a round shape.
+  - A 10 mm cube on the tipping plate, its centre over the axis, turning
+    with it. Frictionless it slides from the start, s = g / (2 w^2)
+    (sinh(w t) - sin(w t)), 105 mm by 0.4 s: with the normal fixed in space
+    3.8e-2 mm short at output steps of 1 ms and 2.8e-2 at 0.1 ms, all but
+    not converging; turned, 2.3e-3 over and 2e-4. On friction of 0.5 it
+    sticks, creeping by the friction's slip, until tan(theta) passes 0.5
+    at 0.46 s and slides off: against the exact model with the slip (the
+    ball's RK4, its spin held to the plate's) at 0.6 s, 4.857 mm, fixed
+    9.9e-3 short and 3.6e-3, turned 5.4e-4 over and 4e-5.
+  - The probe gave the cube its centre's velocity at first, where an
+    initial condition's linear velocity is its origin's -- the cube's
+    corner: a kick of 5 mm/s, 0.7 um of slide in its first 5 ms. Turning
+    with the plate is the origin's (0, 0, 5) there, w x its position.
+  - TestContact's test_cube_on_tipping_plate (frictionless) holds s to
+    0.01 mm of the closed form; with the faces' turning taken out it read
+    3.8e-2. The ball's and the cube's share the scene (tipping()).
+  - Not yet: a round part that is a hull or a mesh; a cylinder rolling on
+    its rim; an edge against an edge on a turning body.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

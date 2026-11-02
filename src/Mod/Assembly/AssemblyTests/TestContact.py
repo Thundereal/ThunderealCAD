@@ -693,15 +693,11 @@ class TestContact(unittest.TestCase):
         App.Console.PrintMessage("Roller rolling on level: %.3g mm/s^2\n" % accel)
         self.assertLess(abs(accel), 5e-3)
 
-    def test_ball_on_tipping_plate(self):
-        """A ball on a plate turned at 1 rad/s about a horizontal axis in its
-        top face, starting on the axis turning with it, rolls down along it
-        as s = 5 g / 12 (sinh(k t) / k - sin t), k = sqrt(5/7): to 0.015 mm
-        over 0.5 s (5.9e-3 measured, 3.6e-3 of it the friction's slip by
-        the exact model with it) -- its point found again on the ball and
-        the normal turned with the plate at each state (rollAlong()). And it
-        stays on the plate: Bullet's manifold kept the ball's older points,
-        their normals as they were found, and it rode up to 4 um off."""
+    def tipping(self, part, end, **law):
+        """'part' on a plate 400 x 50 turned at 1 rad/s about the y axis, in
+        its top face at z = 0, the plate's x end going down; 'part' starting
+        turning with it. Each frame's time, and the point (0, 0, 5) of
+        'part' in the plate's axes: along it down the slope, and above it."""
         import CommandCreateSimulation
 
         base = self.assembly.newObject("Part::Box", "Base")
@@ -712,7 +708,6 @@ class TestContact(unittest.TestCase):
         plate = self.assembly.newObject("Part::Box", "Plate")
         plate.Length, plate.Width, plate.Height = 400, 50, 10
         plate.Placement.Base = App.Vector(-200, -25, -10)
-        ball = self.ball(5)
         self.doc.recompute()
         # The hinge along y through the origin, in the plate's top face
         along = App.Rotation(App.Vector(1, 0, 0), -90)
@@ -724,14 +719,15 @@ class TestContact(unittest.TestCase):
         hinge.Reference2 = (plate, ["Face6"])
         hinge.Placement1 = App.Placement(App.Vector(5, 0, 10), along)
         hinge.Placement2 = App.Placement(App.Vector(200, 55, 10), along)
-        self.contact([ball], [plate], StaticFriction=0.5, DynamicFriction=0.5)
+        self.contact([part], [plate], **law)
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
-        # Turning with the plate, 1 rad/s about y
+        # Turning with the plate, 1 rad/s about y: its origin's velocity
+        spin = App.Vector(0, 1, 0)
         CommandCreateSimulation.newInitialCondition(
             sim,
-            component=ball,
-            linear=App.Vector(5, 0, 0),
+            component=part,
+            linear=spin.cross(part.Placement.Base),
             angular=App.Vector(0, math.degrees(1), 0),
         )
         motion = sim.newObject("Assembly::Motion", "Motion")
@@ -740,31 +736,63 @@ class TestContact(unittest.TestCase):
         motion.Formula = "time"
         sim.AnalysisType = "Dynamic"
         sim.Elements = self.sets
-        sim.TimeEnd = 0.5
+        sim.TimeEnd = end
         sim.TimeStepOutput = 1e-3
         sim.Gravity = App.Vector(0, 0, -G)
         self.doc.recompute()
+        local = part.Placement.inverse().multVec(App.Vector(0, 0, 5))
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
-        k = math.sqrt(5 / 7)
-        worst = highest = 0.0
+        out = []
         for i in range(self.assembly.numberOfFrames()):
             t = i * 1e-3
             self.assembly.updateForFrame(i)
-            # Its x end going down: the ball rolls that way
             down = plate.Placement.Rotation.multVec(App.Vector(1, 0, 0))
             up = plate.Placement.Rotation.multVec(App.Vector(0, 0, 1))
             self.assertAlmostEqual(math.atan2(-down.z, down.x), t, delta=1e-9)
-            centre = ball.Placement.Base
-            centre.y = 0
+            point = part.Placement.multVec(local)
+            point.y = 0
+            out.append((t, point.dot(down), point.dot(up)))
+        return out
+
+    def test_ball_on_tipping_plate(self):
+        """A ball on the tipping plate, starting on the axis, rolls down it
+        as s = 5 g / 12 (sinh(k t) / k - sin t), k = sqrt(5/7): to 0.015 mm
+        over 0.5 s (5.9e-3 measured, 3.6e-3 of it the friction's slip by
+        the exact model with it) -- its point found again on the ball and
+        the normal turned with the plate at each state (rollAlong()). And it
+        stays on the plate: Bullet's manifold kept the ball's older points,
+        their normals as they were found, and it rode up to 4 um off."""
+        frames = self.tipping(self.ball(5), 0.5, StaticFriction=0.5, DynamicFriction=0.5)
+        k = math.sqrt(5 / 7)
+        worst = highest = 0.0
+        for t, along, above in frames:
             exact = 5 * G / 12 * (k * math.sinh(k * t) * 7 / 5 - math.sin(t))
-            worst = max(worst, abs(centre.dot(down) - exact))
-            highest = max(highest, centre.dot(up) - 5)
+            worst = max(worst, abs(along - exact))
+            highest = max(highest, above - 5)
         App.Console.PrintMessage(
             "Ball on a tipping plate: %.3g mm off, %.3g mm above\n" % (worst, highest)
         )
         self.assertGreater(exact, 140)
         self.assertLess(worst, 0.015)
         self.assertLess(highest, 1e-4)
+
+    def test_cube_on_tipping_plate(self):
+        """A cube of 10 on the tipping plate, frictionless, its centre over
+        the axis, slides down it as s = g / 2 (sinh t - sin t): to 0.01 mm
+        over 0.4 s (2.3e-3 measured) -- the face's normal turned with the
+        plate at each state (rollAlong()); fixed in space through each
+        substep it lagged the plate and read 3.8e-2 short."""
+        cube = self.assembly.newObject("Part::Box", "Cube")
+        cube.Length = cube.Width = cube.Height = 10
+        cube.Placement.Base = App.Vector(-5, -5, 0)
+        frames = self.tipping(cube, 0.4, StaticFriction=0.0, DynamicFriction=0.0)
+        worst = 0.0
+        for t, along, above in frames:
+            exact = G / 2 * (math.sinh(t) - math.sin(t))
+            worst = max(worst, abs(along - exact))
+        App.Console.PrintMessage("Cube on a tipping plate: %.3g mm off\n" % worst)
+        self.assertGreater(exact, 100)
+        self.assertLess(worst, 0.01)
 
     def test_hull_rests(self):
         """A hexagonal prism, no primitive but convex, rests on its hull"""

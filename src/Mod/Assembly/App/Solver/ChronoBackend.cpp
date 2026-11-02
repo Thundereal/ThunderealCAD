@@ -833,10 +833,11 @@ public:
         // a contact event names, where a body stands for a rigid group
         std::array<Id, 2> frames {NoId, NoId};
         // A sphere or a cylinder it is on, A's and B's, whose point moves
-        // over it as the body turns (rollAlong()); with one, the normal in
-        // the other body's frame, the face it turns with
+        // over it as the body turns (rollAlong()); and the body whose face
+        // the normal is, 1 A, 2 B, 0 neither, the normal in its frame
         const ShapeOn* roundA = nullptr;
         const ShapeOn* roundB = nullptr;
+        int face = 0;
         ch::ChVector3d normalOn;
     };
 
@@ -2398,6 +2399,34 @@ bool roundSupport(const ShapeOn& on,
     return true;
 }
 
+// Whether a box's or a hull's shape, or a mesh's triangle, on its body has
+// a face whose outward normal is 'outward', absolute: the clipping's
+// normal is its face's own, exactly (PolyhedralAlgorithm, cylinderPoints()).
+// A triangle's either way.
+bool hasFace(const ShapeOn& on, const ch::ChCollisionShape* shape, const ch::ChVector3d& outward)
+{
+    constexpr double parallel = 1.0 - 1e-8;
+    if (on.vertices && shape->GetType() == ch::ChCollisionShape::Type::MESHTRIANGLE) {
+        const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+        const ch::ChVector3d n = on.body->TransformDirectionLocalToParent(
+            ch::Vcross(*triangle->V2 - *triangle->V1, *triangle->V3 - *triangle->V1));
+        const double length = n.Length();
+        return length > 0.0 && std::abs(ch::Vdot(n, outward)) > parallel * length;
+    }
+    if (!on.features) {
+        return false;
+    }
+    const ch::ChMatrix33d turn = (on.frame >> *on.body).GetRotMat();
+    for (int f = 0; f < on.features->m_faces.size(); ++f) {
+        const cbtScalar* plane = on.features->m_faces[f].m_plane;
+        const ch::ChVector3d n = turn * ch::ChVector3d(plane[0], plane[1], plane[2]);
+        if (ch::Vdot(n, outward) > parallel * n.Length()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** A point on a sphere or a cylinder's side put where that surface meets
  * the other at the bodies' frames a and b, as ContactLoad::follow: collision
  * detection's point is fixed on each body, and a ball rolling turns it
@@ -2405,27 +2434,32 @@ bool roundSupport(const ShapeOn& on,
  * turns the ball on -- one on a level plate gained 5.7 mm/s^2 at 1 m/s. The
  * round side's point is its surface's farthest along the normal, the other
  * side's under it, as deep as the fixed points are: exact on a face. Two
- * spheres' normal is along their centres; a round shape's on a face turns
- * with the face's body. Fixed in space it lags the face: a ball rolling
- * down a plate tipping at 1 rad/s, against the exact model with the
- * friction's slip, ended 0.5 s 6.3e-3 mm short at output steps of 1 ms and
- * 3.2e-2 at 0.1 ms; turning, 2.4e-3 over and 6e-5.
+ * spheres' normal is along their centres; any other turns with the body
+ * whose face it is (Point::face), a round shape's the other's, a point of
+ * two flat shapes either's whose face it is, an edge's against an edge
+ * neither. Fixed in space it lags the face: a ball rolling down a plate
+ * tipping at 1 rad/s, against the exact model with the friction's slip,
+ * ended 0.5 s 6.3e-3 mm short at output steps of 1 ms and 3.2e-2 at 0.1
+ * ms; turning, 2.4e-3 over and 6e-5. A cube on it, friction 0.5, sliding
+ * off from 0.46 s: at 0.6 s 9.9e-3 short of the model's 4.857 mm and
+ * 3.6e-3; turning, 5.4e-4 over and 4e-5. Frictionless, against its closed
+ * form to 0.4 s: 3.8e-2 short and 2.8e-2; turning, 2.3e-3 over and 2e-4.
  */
 void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Point& point)
 {
-    if (!point.roundA && !point.roundB) {
+    if (!point.roundA && !point.roundB && !point.face) {
         return;
     }
     const ch::ChVector3d atA = a.TransformPointLocalToParent(point.onA);
     const ch::ChVector3d atB = b.TransformPointLocalToParent(point.onB);
     ch::ChVector3d normal = point.normal;
-    if (point.roundA && !point.roundB) {
+    if (point.face == 2) {
         normal = b.TransformDirectionLocalToParent(point.normalOn);
     }
-    else if (point.roundB && !point.roundA) {
+    else if (point.face == 1) {
         normal = a.TransformDirectionLocalToParent(point.normalOn);
     }
-    else if (point.roundA->ball > 0.0 && point.roundB->ball > 0.0) {
+    else if (point.roundA && point.roundB && point.roundA->ball > 0.0 && point.roundB->ball > 0.0) {
         const ch::ChVector3d centres =
             (point.roundB->frame >> b).GetPos() - (point.roundA->frame >> a).GetPos();
         const double length = centres.Length();
@@ -2438,6 +2472,7 @@ void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Poin
     const bool movesA = point.roundA && roundSupport(*point.roundA, a, normal, atA, pA);
     const bool movesB = point.roundB && roundSupport(*point.roundB, b, -normal, atB, pB);
     if (!movesA && !movesB) {
+        point.normal = normal;
         return;
     }
     if (!movesB) {
@@ -6073,8 +6108,9 @@ Status ChronoSession::simulateDynamics(
             for (auto& load : *loads) {
                 load->points.clear();
             }
-            // Bullet's loads follow their points on a sphere or a cylinder
-            // (rollAlong()) when they have one
+            // Bullet's loads follow their points on a sphere or a cylinder,
+            // and turn their normals with their faces (rollAlong()), when
+            // they have one
             for (auto& [bodies, load] : finder->loads) {
                 load->follow = nullptr;
             }
@@ -6104,13 +6140,24 @@ Status ChronoSession::simulateDynamics(
                 ContactLoad::Point& point = load.points.back();
                 point.roundA = roundOf(point.shapeA);
                 point.roundB = roundOf(point.shapeB);
-                if (point.roundA && !point.roundB) {
-                    point.normalOn = load.GetBodyB()->TransformDirectionParentToLocal(point.normal);
-                }
-                else if (point.roundB && !point.roundA) {
-                    point.normalOn = load.GetBodyA()->TransformDirectionParentToLocal(point.normal);
-                }
                 if (point.roundA || point.roundB) {
+                    point.face = point.roundB ? (point.roundA ? 0 : 1) : 2;
+                }
+                else {
+                    const ShapeOn* a = shapesOn.of(point.shapeA);
+                    const ShapeOn* b = shapesOn.of(point.shapeB);
+                    if (b && hasFace(*b, point.shapeB, -point.normal)) {
+                        point.face = 2;
+                    }
+                    else if (a && hasFace(*a, point.shapeA, point.normal)) {
+                        point.face = 1;
+                    }
+                }
+                if (point.face) {
+                    const auto& body = point.face == 1 ? load.GetBodyA() : load.GetBodyB();
+                    point.normalOn = body->TransformDirectionParentToLocal(point.normal);
+                }
+                if (point.roundA || point.roundB || point.face) {
                     load.follow = rollAll;
                 }
             };

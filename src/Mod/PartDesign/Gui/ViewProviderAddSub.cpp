@@ -448,7 +448,7 @@ bool ViewProviderAddSub::resolvePreview(const App::SubObjectT &occurrence,
 
 bool ViewProviderAddSub::showPreviewInSession(const App::SubObjectT &occurrence)
 {
-    auto gdoc = Gui::Application::Instance->editDocument();
+    auto gdoc = Gui::Application::Instance->editDocumentOf(getObject());
     if (!gdoc || !gdoc->editingViewer())
         return false;
     Gui::EditingRoot *root = gdoc->editingRoot();

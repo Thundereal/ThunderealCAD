@@ -76,6 +76,8 @@ TaskPipeParameters::TaskPipeParameters(ViewProviderPipe *PipeView, bool /*newObj
     : TaskSketchBasedParameters(PipeView, parent, "PartDesign_AdditivePipe", tr("Pipe parameters"))
     , ui(new Ui_TaskPipeParameters)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     proxy = new QWidget(this);
     ui->setupUi(proxy);
@@ -174,6 +176,8 @@ TaskPipeOrientation::TaskPipeOrientation(ViewProviderPipe* PipeView, bool /*newO
     : TaskSketchBasedParameters(PipeView, parent, "PartDesign_AdditivePipe", tr("Section orientation"))
     , ui(new Ui_TaskPipeOrientation)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     proxy = new QWidget(this);
     ui->setupUi(proxy);
@@ -295,6 +299,8 @@ TaskPipeScaling::TaskPipeScaling(ViewProviderPipe* PipeView, bool /*newObj*/, QW
     : TaskSketchBasedParameters(PipeView, parent, "PartDesign_AdditivePipe", tr("Section transformation"))
     , ui(new Ui_TaskPipeScaling)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     proxy = new QWidget(this);
     ui->setupUi(proxy);
@@ -425,9 +431,13 @@ void TaskDlgPipeParameters::onSelectionModeChanged(TaskSketchBasedParameters *so
 bool TaskDlgPipeParameters::accept()
 {
     PartDesign::Pipe* pcPipe = static_cast<PartDesign::Pipe*>(getPipeView()->getObject());
+    // OK's recompute a step of its own, where the steps are the panels'
+    // own (docs/HandsOnQueue.md entry 232)
+    parameter->beginAcceptStep();
     try {
         parameter->setupTransaction();
-        Gui::cmdGuiDocument(pcPipe, "resetEdit()");
+        // its own edit, of the several the document may have
+        resetOwnEdit();
         Gui::cmdAppDocument(pcPipe, "recompute()");
         if (!vp->getObject()->isValid())
             THROWM(Base::RuntimeError, vp->getObject()->getStatusString())

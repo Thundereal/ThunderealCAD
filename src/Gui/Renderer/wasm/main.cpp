@@ -9866,6 +9866,19 @@ static bool applyScenePayload(const char *data, size_t size)
                (unsigned long long)snap.manifestVersion,
                snap.baseVersion ? " (delta)" : " (full)",
                snap.objectUpdates.size(), snap.objectsRemoved.size());
+        // What the live scene took in since its last commit goes into
+        // the model first. Clearing the flag dropped it: the arrival
+        // that lands a root's last manifests schedules both the drain
+        // of a delta held behind them and the commit of what it
+        // brought, and the drain runs first. A group that had come
+        // ahead of its materials was taken by nobody then -- the
+        // staged delta re-describes no object, and the root's groups
+        // go with the root -- and its object stayed a box for the
+        // rest of the session.
+        if (s_liveUnapplied && s_haveScene && !assembleResolved(s_snap))
+            decLog("live v%llu would not assemble before staging v%llu",
+                   (unsigned long long)s_snap.manifestVersion,
+                   (unsigned long long)snap.manifestVersion);
         // Payloads the publish only named are fetched before it is
         // applied; with none outstanding (the usual case, every key
         // already cached) this commits inline.

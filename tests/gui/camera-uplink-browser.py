@@ -264,6 +264,13 @@ def poll():
         state["seen_phases"] += 1
         rows = counters()
         state["samples"][name] = (clock(), rows[-1] if rows else None)
+        if name == "settled":
+            # An invited client's picks are its own until the host routes
+            # them (64cbe98558): this desktop's selection is where the
+            # clicks are read, so route them here, as the roster would.
+            for c in rows:
+                if c.get("selection") != "host":
+                    FreeCADGui.serveSetClientSelection(c["id"], "host")
         if name == "clicked":
             state["samples"]["selection"] = FreeCADGui.Selection.getSelectionEx(DOC)
     if run.is_alive():

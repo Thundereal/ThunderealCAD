@@ -55,6 +55,10 @@ public:
     App::PropertyStringList Achieved;  // Output
 
     App::DocumentObjectExecReturn* execute() override;
+    const char* getViewProviderName() const override
+    {
+        return "SurfaceGui::ViewProviderBlendSurface";
+    }
 };
 
 }  // namespace Surface

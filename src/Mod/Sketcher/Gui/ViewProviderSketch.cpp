@@ -128,6 +128,7 @@
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/ViewParams.h>
+#include <Gui/ViewerContext.h>
 #include <Gui/DlgEditFileIncludePropertyExternal.h>
 #include <Gui/SoDatumLabel.h>
 #include <Gui/SoTextImage.h>
@@ -1347,7 +1348,7 @@ Base::BoundBox3d ViewProviderSketch::_getBoundingBox(const char *subname,
 }
 
 Base::Matrix4D ViewProviderSketch::getEditingPlacement() const {
-    auto doc = Gui::Application::Instance->editDocument();
+    auto doc = Gui::Application::Instance->editDocumentOf(getObject());
     if(!doc || doc->getInEdit()!=this)
         return getSketchObject()->globalPlacement().toMatrix();
 
@@ -9510,6 +9511,7 @@ bool ViewProviderSketch::setEdit(int ModNum)
         sketch->dumpToStream(backup, 0);
         editBackup = backup.str();
         editUndoMark = sketch->getDocument()->getTransactionID(true, 0);
+        editOwnSteps.clear();
     }
 
     // clear the selection (convenience)
@@ -9540,7 +9542,7 @@ bool ViewProviderSketch::setEdit(int ModNum)
 
     createEditInventorNodes();
 
-    auto editDoc = Gui::Application::Instance->editDocument();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(getSketchObject());
     App::DocumentObject *editObj = getSketchObject();
     std::string editSubName;
     ViewProviderDocumentObject *editVp = 0;
@@ -10168,9 +10170,19 @@ void ViewProviderSketch::unsetEdit(int ModNum)
     if (ModNum == Transform || ModNum == TransformAt)
         return inherited::unsetEdit(ModNum);
 
-    // leaving is a click elsewhere: a value being typed is taken
-    if (datumEdit)
+    // leaving is a click elsewhere: a value being typed is taken, as a
+    // step of this edit's
+    if (datumEdit) {
+        Gui::EditStepScope scope(this);
         datumEdit->finish(true, false);
+    }
+
+    // The steps of the session ending, kept for cancelEditing(): another
+    // may follow under the same task panel (docs/HandsOnQueue.md entry 232)
+    if (Gui::Document* gdoc = getDocument()) {
+        for (int tid : gdoc->editStepsOf(this))
+            editOwnSteps.push_back(tid);
+    }
 
     Workbench::leaveEditMode();
 
@@ -10274,8 +10286,7 @@ void ViewProviderSketch::cancelEditing()
         purgeHandler();
     // Left as any edit is, then reverted: nothing of the edit is torn down
     // while an undo runs through it.
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()",
-                            doc->getName());
+    resetOwnEdit();
     App::GetApplication().closeActiveTransaction();
 
     // How many undos back to where the edit began; -1 when the history no
@@ -10298,7 +10309,12 @@ void ViewProviderSketch::cancelEditing()
         }
     }
 
-    if (steps > 0) {
+    if (steps > 0 && Gui::ViewParams::getPerViewEdit()) {
+        // Its own steps, and those only: another view's edit of the
+        // document may have made steps between them (entry 232)
+        gdoc->undoOwnSteps(editOwnSteps);
+    }
+    else if (steps > 0) {
         gdoc->undo(steps);
     }
     else if (steps < 0 && !editBackup.empty()) {
@@ -10313,6 +10329,37 @@ void ViewProviderSketch::cancelEditing()
         }
     }
     editBackup.clear();
+    editOwnSteps.clear();
+}
+
+void ViewProviderSketch::resetOwnEdit()
+{
+    Gui::Document* gdoc = getDocument();
+    if (!gdoc)
+        return;
+    // In the view this edit runs in, whichever is active
+    Gui::ViewerScope scope(gdoc->editingViewerOf(this));
+    Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()",
+                            gdoc->getDocument()->getName());
+}
+
+bool ViewProviderSketch::editOwnsCommand(const char* name) const
+{
+    // The Sketcher's commands work on the sketch in edit, but those that
+    // start or end an edit, or make another sketch
+    static const std::set<std::string_view> others {
+        "Sketcher_NewSketch", "Sketcher_EditSketch", "Sketcher_LeaveSketch",
+        "Sketcher_MirrorSketch", "Sketcher_MergeSketches",
+    };
+    std::string_view n(name ? name : "");
+    return n.starts_with("Sketcher_") && !others.count(n);
+}
+
+bool ViewProviderSketch::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum != Transform && ModNum != TransformAt && Gui::ViewParams::getPerViewEdit())
+        return false;
+    return inherited::editHoldsTransaction(ModNum);
 }
 
 void ViewProviderSketch::setEditViewer(Gui::ViewerContext* viewer, int ModNum)
@@ -10352,7 +10399,7 @@ void ViewProviderSketch::setEditViewer(Gui::ViewerContext* viewer, int ModNum)
         }
     }
 
-    auto editDoc = Gui::Application::Instance->editDocument();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(getSketchObject());
     editDocName.clear();
     editObjT = App::SubObjectT();
     if(editDoc) {

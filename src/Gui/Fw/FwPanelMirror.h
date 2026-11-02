@@ -67,6 +67,13 @@
  * only when the bytes changed, so many pictures per panel at most.
  * Button icons and label pixmaps travel the same way.
  *
+ * M5 (docs/TaskPanelPerView.md sec 6): every task dialog open is a root,
+ * not the one the desktop's task view shows -- each view may have one,
+ * a served client's included -- and each root, a top-level dialog's too,
+ * has an owner: the dialog's view, or the view being handled when the
+ * window showed. `ownerOf` answers it for any of the mirror's ids, which
+ * is what the widget stream sends a client by.
+ *
  * M3: a top-level `QDialog` shown while the mirror runs -- a panel
  * slot's `QMessageBox`, a non-native `QFileDialog`, a workbench's own
  * dialog, modal or not -- is a further root `dialog:<n>` in the `panel`
@@ -95,6 +102,7 @@
 #include <fastsignals/signal.h>
 
 #include <FCGlobal.h>
+#include <Gui/TaskOwner.h>
 
 class QLayout;
 class QWidget;
@@ -128,8 +136,15 @@ public:
     {
         return QStringLiteral("panel");
     }
-    /// The id of the task panel's root up now, or empty.
+    /// The id of the newest task panel's root up now, or empty.
     QString panelId() const;
+    /// The ids of the task panels' roots up now, in show order (M5).
+    QStringList panelIds() const;
+    /// Whose a mirrored id is (M5): the owner of the root it is under --
+    /// a task dialog's view, or for a top-level dialog the view being
+    /// handled when it showed. Nobody for the list, an id not the
+    /// mirror's, and a dialog shown with no view to name.
+    TaskOwner ownerOf(const QString& id) const;
     /// The ids of the top-level dialogs mirrored now (M3), in show order.
     QStringList dialogIds() const;
     int dialogCount() const
@@ -145,14 +160,17 @@ public:
 
     /// Mirror a dialog's content now: `dialogClass` the TaskDialog's
     /// class name, `contents` its boxes (what `getDialogContent` gives),
-    /// `buttons` the task view's button box or nullptr.  What the
-    /// `Control` hook does on its tick; a test calls it directly.  A
-    /// dialog already up is hidden first.
+    /// `buttons` the task view's button box or nullptr, `owner` the
+    /// dialog's.  What the `Control` hook does on its tick; a test calls
+    /// it directly.  A dialog of the same owner already up is hidden
+    /// first.
     void show(const QString& dialogClass, const QList<QWidget*>& contents,
-              ::QDialogButtonBox* buttons);
-    /// Close the dialog up (the root's close message; the subtree goes
-    /// with it, silently).
+              ::QDialogButtonBox* buttons, const TaskOwner& owner = TaskOwner());
+    /// Close every task dialog up (each root's close message; the subtree
+    /// goes with it, silently).
     void hide();
+    /// Close \a owner's task dialog, if it is up.
+    void hide(const TaskOwner& owner);
     /// Re-walk the dialog now (what the structure triggers do on a tick).
     void rebuild();
     /// Re-read the dirty widgets now (what the flush timer does).
@@ -239,7 +257,7 @@ private:
     /// Whether anything is mirrored: the panel root or a dialog root.
     bool active() const
     {
-        return _root || !_roots.isEmpty();
+        return !_tasks.isEmpty() || !_roots.isEmpty();
     }
     /// Nothing left up: the timers stop, the picture state goes.
     void idle();
@@ -251,8 +269,14 @@ private:
     void scheduleRebuild();
     void scheduleFlush();
     void markDirty(QWidget* widget);
-    void onShowDialog(QWidget* view, const std::vector<QWidget*>& contents);
-    void onRemoveDialog();
+    void onShowDialog(QWidget* view, const std::vector<QWidget*>& contents,
+                      const TaskOwner& owner);
+    void onRemoveDialog(const TaskOwner& owner);
+    /// The task roots' entries (M5): one for each dialog up
+    struct TaskRoot;
+    TaskRoot* taskRootOf(const TaskOwner& owner);
+    TaskRoot* taskRootById(const QString& id);
+    void hideRoot(int index);
     bool allowed(const QString& dialogClass) const;
     void walk(Walk& walk);
     Widget* mirrorWidget(Walk& walk, QWidget* real, Widget* parentModel, bool& isNew);
@@ -263,6 +287,12 @@ private:
     /// grab was deferred (rate cap) or the widget has nothing to show.
     QString grabPicture(QWidget* real);
     void forgetPicture(QWidget* real);
+    /// Whether \a real shows wherever its dialog is: visible, or hidden
+    /// only by what holds the dialog -- the page of a dialog the desktop's
+    /// Tasks tab does not show, a served user's (docs/TaskPanelPerView.md
+    /// sec 13.5). Such a widget is never painted, so nothing but a look
+    /// finds its picture changed.
+    bool shownInDialog(QWidget* real) const;
     void bindModel(QWidget* real, Widget* model);
     void watchWidget(QWidget* real);
     void unwatchWidget(QWidget* real);
@@ -274,7 +304,7 @@ private:
     void onModelWritten(QWidget* real, Widget* model, const QStringList& names, int source);
     void onModelRequest(QWidget* real, Widget* model, const QString& name,
                         const QVariantList& args);
-    void onPanelRequest(const QString& name, const QVariantList& args);
+    void onPanelRequest(const QString& rootId, const QString& name, const QVariantList& args);
     void onDialogRequest(QWidget* window, const QString& name, const QVariantList& args);
     void withoutBackends(const std::function<void()>& fn);
 
@@ -316,19 +346,33 @@ private:
     QSet<QWidget*> _pictures;
     QHash<QWidget*, qint64> _grabbedAt;
     QSet<QWidget*> _pendingGrabs;
-    /// the dialog up: its class, boxes and button box
-    QString _dialogClass;
-    QList<QPointer<QWidget>> _contents;
-    QPointer<::QDialogButtonBox> _buttons;
+    /// each picture's last grab: its pixels' hash and its image id, so a
+    /// grab that finds nothing new encodes nothing
+    QHash<QWidget*, std::pair<size_t, QString>> _grabbedAs;
+    /// the task dialogs up (M5), in show order: each one's owner, class,
+    /// boxes, button box and root
+    QList<TaskRoot*> _tasks;
+    /// the dialogs shown and waiting for their tick: their owners, boxes
+    /// and button boxes
+    struct PendingShow
+    {
+        TaskOwner owner;
+        QList<QPointer<QWidget>> contents;
+        QPointer<::QDialogButtonBox> buttons;
+    };
+    QList<PendingShow> _pendingShows;
     QPointer<Widget> _list;
-    QPointer<Widget> _root;
-    QString _rootId;
     /// the top-level dialogs (M3): the windows waiting for their tick,
     /// the roots up (window -> id) and their show order
     QTimer _dialogTimer;
     QList<QPointer<QWidget>> _pendingDialogs;
     QHash<QWidget*, QString> _roots;
     QList<QWidget*> _rootOrder;
+    /// a top-level dialog's owner: the view being handled at its Show
+    QHash<QWidget*, TaskOwner> _dialogOwners;
+    /// a root being closed: its owner, while its close goes out, so the
+    /// close reaches whom its open did
+    QHash<QString, TaskOwner> _closingOwners;
     /// real widget -> its model
     QHash<QWidget*, QPointer<Widget>> _models;
     /// a container model -> the signature its layout was sent with

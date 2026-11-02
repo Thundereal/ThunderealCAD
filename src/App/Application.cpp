@@ -614,6 +614,20 @@ bool Application::closeDocument(const char* name)
     // Trigger observers before removing the document from the internal map.
     // Some observers might rely on this document still being there.
     signalDeleteDocument(*pos->second);
+    // Its edit, if it had one, ended with it; a binding left by one that
+    // did not end the usual way must not outlive the document
+    _boundTransactions.erase(pos->second);
+    // Nor is a step listed in it any more (sec 12.2 rule 4)
+    if (_inputDocument == pos->second)
+        _inputDocument = nullptr;
+    if (_activeTransactionListing == pos->second)
+        _activeTransactionListing = nullptr;
+    if (_lastStep.listing == pos->second)
+        _lastStep.listing = nullptr;
+    for (auto &v : _boundTransactions) {
+        if (v.second.listing == pos->second)
+            v.second.listing = nullptr;
+    }
 
     // For exception-safety use a smart pointer
     if (_pActiveDoc == pos->second)

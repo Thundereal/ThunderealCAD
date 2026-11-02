@@ -34,6 +34,8 @@
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
+#include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 
 #include <Mod/TechDraw/App/LineGroup.h>
 #include <Mod/TechDraw/App/DrawLeaderLine.h>
@@ -98,8 +100,19 @@ bool ViewProviderLeader::setEdit(int ModNum)
 bool ViewProviderLeader::doubleClicked()
 {
 //    Base::Console().Message("VPL::doubleClicked()\n");
-    setEdit(ViewProvider::Default);
+    // The document's edit, as a dimension's is: the object locked, the
+    // tree marking it, the session the page's (docs/HandsOnQueue.md
+    // entry 232)
+    startDefaultEditMode();
     return true;
+}
+
+bool ViewProviderLeader::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()) {
+        return false;
+    }
+    return ViewProviderDrawingView::editHoldsTransaction(ModNum);
 }
 
 void ViewProviderLeader::updateData(const App::Property* p)

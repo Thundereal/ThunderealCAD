@@ -33,6 +33,7 @@ class SoDragger;
 
 namespace Gui
 {
+  class Document;
   class QuantitySpinBox;
   class SoFCCSysDragger;
   class ViewProviderDragger;
@@ -60,6 +61,8 @@ namespace Gui
     private:
       static void dragStartCallback(void * data, SoDragger * d);
       void setupGui();
+      /// The document in edit with this dragger's object, null for none
+      Gui::Document *editingDocument() const;
       App::DocumentObjectT vpObject;
       SoFCCSysDragger *dragger;
       QuantitySpinBox *tSpinBox;

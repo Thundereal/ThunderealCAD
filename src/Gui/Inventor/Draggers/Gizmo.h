@@ -361,6 +361,11 @@ public:
     void setMultFactor(const double val);
     void setAddFactor(const double val);
     void setDraggerStyle(LinearDraggerStyle style);
+    /** The value a drag moves it by, whatever the zoom: for a value that is
+     * not a length -- a surface's weight -- whose steps the view's scale
+     * (powers of ten of a millimetre) does not suit. None for the scale's.
+     */
+    void setValueStep(std::optional<double> step);
     void setClickCallback(ClickCallback callback);
     void setReleaseCallback(ReleaseCallback callback) override;
     void setVisibility(bool visible);
@@ -384,6 +389,8 @@ private:
     QMetaObject::Connection quantityChangedConnection;
     QMetaObject::Connection formulaDialogConnection;
     LinearDraggerStyle draggerStyle = LinearDraggerStyle::Arrow;
+    std::optional<double> valueStep;
+    float geometryScale = 1.0F;
     bool hasDragged = false;
     bool highlighted = false;
     bool focusBoxOnRelease = true;

@@ -36,6 +36,7 @@
 #include "Application.h"
 #include "BitmapFactory.h"
 #include "Command.h"
+#include "Fw/FwImage.h"
 #include "Fw/FwQtView.h"
 #include "Fw/FwStore.h"
 #include "Fw/FwToolBarMirror.h"
@@ -312,6 +313,18 @@ QString ToolBarMirror::areaOf(::QToolBar* bar)
 
 QString ToolBarMirror::iconNameOf(::QAction* real, const QString& command, int index)
 {
+    const QString name = namedIconOf(command, index);
+    if (!name.isEmpty() || !real || real->icon().isNull())
+        return name;
+    // an icon with no name to it (a group's plain members and its face
+    // over them, PartDesign's primitives): its pixels as the desktop
+    // draws them, filed by content -- at twice the stock 24 px, as the
+    // context menu does, for a high-DPI page
+    return ImageStore::instance().ofIcon(real->icon(), QSize(48, 48));
+}
+
+QString ToolBarMirror::namedIconOf(const QString& command, int index)
+{
     Command* cmd = commandByName(command);
     if (!cmd)
         return QString();
@@ -333,7 +346,6 @@ QString ToolBarMirror::iconNameOf(::QAction* real, const QString& command, int i
                 return px;
         }
     }
-    Q_UNUSED(real)
     return pixmapOf(cmd);
 }
 
@@ -601,6 +613,19 @@ void ToolBarMirror::rebuild()
                 fresh.append(w);
                 items.append(w);
                 continue;
+            }
+            // a command's stand-in on a tool bar: UndoAction and RedoAction
+            // put a QAction of their own there (it carries the history
+            // menu), parented to the Action, and it is that command's
+            // button -- its icon, its tool tip, run as the command
+            if (!_commands.contains(a)) {
+                auto owner = qobject_cast<Action*>(a->parent());
+                Command* cmd = owner ? owner->command() : nullptr;
+                if (cmd && owner->action() != a && !_models.contains(owner->action())) {
+                    CommandRef own;
+                    own.name = QString::fromUtf8(cmd->getName());
+                    _commands.insert(a, own);
+                }
             }
             if (Fw::QAction* m = commandModel(a)) {
                 signature.append(store.idOf(m));

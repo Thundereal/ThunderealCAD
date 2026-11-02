@@ -49,6 +49,7 @@
 #include <Gui/SoFCUnifiedSelection.h>
 #include <Gui/CommandT.h>
 #include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 #include <Gui/Tree.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>
@@ -102,6 +103,14 @@ App::DocumentObject *ViewProvider::getPickedVisibilityTarget() const
     if (body && body->isSolidFeature(obj))
         return body;
     return nullptr;
+}
+
+bool ViewProvider::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()
+            && panelOwnsItsSteps())
+        return false;
+    return PartGui::ViewProviderPart::editHoldsTransaction(ModNum);
 }
 
 bool ViewProvider::doubleClicked()
@@ -752,7 +761,7 @@ void ViewProvider::onChanged(const App::Property* prop) {
         Base::StateLocker guard(autoCorrectingLink);
 
         auto body = PartDesign::Body::findBodyOf(getObject());
-        auto editDoc = Gui::Application::Instance->editDocument();
+        auto editDoc = Gui::Application::Instance->editDocumentOf(getObject());
         if (body && editDoc && editDoc->getInEdit() == this
                  && linkProp->getScope() == App::LinkScope::Local
                  && (prop->isDerivedFrom(App::PropertyLink::getClassTypeId())

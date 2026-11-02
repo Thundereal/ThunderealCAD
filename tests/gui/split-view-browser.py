@@ -110,9 +110,16 @@ class Run(threading.Thread):
     def run(self):
         try:
             node = os.environ.get("NODE") or shutil.which("node") or "node"
+            env = dict(os.environ)
+            # The bundled Chrome needs libasound from the conda env this
+            # build runs against, and conda activation replaces
+            # LD_LIBRARY_PATH before we get here (scripts/wasm-chrome.js).
+            env["LD_LIBRARY_PATH"] = (
+                os.path.join(REPO, ".conda", "freecad", "lib")
+                + os.pathsep + env.get("LD_LIBRARY_PATH", ""))
             with open(self.log_path, "w") as log:
                 proc = subprocess.Popen([node, DRIVER, self.url, self.result_path],
-                                        stdout=log, stderr=subprocess.STDOUT)
+                                        stdout=log, stderr=subprocess.STDOUT, env=env)
                 proc.wait()
             if proc.returncode != 0:
                 self.error = "node exited %d" % proc.returncode

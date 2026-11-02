@@ -87,6 +87,9 @@ struct AppExport Actor
     static bool kindFromName(const std::string& name, Kind& kind);
     /// Sec 30.6 U4, U6: whether this user's writes may be an author's.
     bool mayWrite() const { return kind != Declared; }
+    /// Sec 30.10 item 1: one user, whichever login -- by kind and name; no
+    /// actor, or a local one, is the desktop user.
+    static bool sameUser(const Actor* a, const Actor* b);
 };
 
 /** The actor of what this thread does while the scope lives (sec 30.3

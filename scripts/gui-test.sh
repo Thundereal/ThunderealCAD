@@ -81,10 +81,44 @@ ISO="$OUT/.iso"
 # Every run starts from a fresh profile: what an earlier run stored -- a
 # theme, a language, a window's geometry in Thundereal.conf -- fails the
 # next run of any test that reads a default. The cache is kept (Qt's and
-# Mesa's shader caches), as it only makes the start faster.
+# Mesa's shader caches), as it only makes the start faster -- but for the
+# application's own: a run killed at its timeout leaves its documents'
+# transient directories there, and the next run's start offers to recover
+# them in a modal box that takes the active window (a lock file alone is
+# not the trigger: a directory with no lock is offered too). Under the
+# application's name, which is no longer FreeCAD.
 rm -rf "$ISO/user.cfg" "$ISO/config"
+rm -rf "$ISO/cache/FreeCAD/Cache" "$ISO/cache/Thundereal/Cache"
 mkdir -p "$ISO/cache" "$ISO/config"
-rm -f "$ISO/cache/FreeCAD/Cache/FreeCAD_"*.lock 2>/dev/null
+# What a browser test's driver wrote in an earlier run: appended to, so a
+# second run read the first's phases and sampled the host at the wrong times.
+rm -f "$OUT/phases.txt"
+
+# The font is stated too, the one the conda env brings. The box's default
+# otherwise decides what a test sees: a panel's minimum widths, the room left
+# for a view in a 1280 px window, a sketch's label size. Noto Sans, Ubuntu's
+# default, is 3 px taller than DejaVu Sans at the same size, and that alone
+# failed four tests on 26.04 (docs/Testing.md, the fifth trap).
+FONT_ENV=()
+CONDA_FONTS="$REPO/.conda/freecad/fonts"
+if [ -z "${FONTCONFIG_FILE:-}" ] && [ -f "$CONDA_FONTS/DejaVuSans.ttf" ]; then
+    {
+        echo '<?xml version="1.0"?>'
+        echo '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">'
+        echo '<fontconfig>'
+        echo "  <include ignore_missing=\"yes\">$REPO/.conda/freecad/etc/fonts/fonts.conf</include>"
+        echo "  <dir>$CONDA_FONTS</dir>"
+        for family in "sans-serif" "Sans Serif" "Helvetica" "Arial" "Liberation Sans" \
+                      "Noto Sans"; do
+            echo "  <match target=\"pattern\"><test name=\"family\" qual=\"any\">"
+            echo "    <string>$family</string></test>"
+            echo "    <edit name=\"family\" mode=\"prepend\" binding=\"strong\">"
+            echo "    <string>DejaVu Sans</string></edit></match>"
+        done
+        echo '</fontconfig>'
+    } > "$ISO/fonts.conf"
+    FONT_ENV=(FONTCONFIG_FILE="$ISO/fonts.conf")
+fi
 
 # Mesa's shader cache is shared by every run instead of living in $ISO:
 # what llvmpipe compiles depends on the driver and the shader, not on the
@@ -105,7 +139,7 @@ LOG="$OUT/run.log"
 
 echo "GUI test $(basename "$SCRIPT") (log: $LOG)"
 if [ "$WINDOW" = 1 ]; then
-    env -u WAYLAND_DISPLAY DISPLAY="${GT_DISPLAY:-:0}" "${GL[@]}" "${MESA_ENV[@]}" \
+    env -u WAYLAND_DISPLAY DISPLAY="${GT_DISPLAY:-:0}" "${GL[@]}" "${MESA_ENV[@]}" "${FONT_ENV[@]}" \
         XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \
@@ -114,7 +148,7 @@ if [ "$WINDOW" = 1 ]; then
         "$REPO/scripts/gui-test-profile.py" "$SCRIPT" \
         > "$LOG" 2>&1 </dev/null
 else
-    env -u WAYLAND_DISPLAY "${GL[@]}" "${MESA_ENV[@]}" \
+    env -u WAYLAND_DISPLAY "${GL[@]}" "${MESA_ENV[@]}" "${FONT_ENV[@]}" \
         XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \

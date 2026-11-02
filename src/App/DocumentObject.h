@@ -426,6 +426,18 @@ public:
      */
     virtual short mustExecute() const;
 
+    /** Whether all execute() makes is in the object's properties, true
+     * by default: an undo or redo that writes them back brings the result
+     * back as well, and leaves the object clean if it was. An object that
+     * keeps some of it elsewhere -- a TechDraw view its projection --
+     * answers false, and an undo or redo that writes it, or anything it
+     * depends on, leaves it touched (docs/MultiViewEdit.md sec 12.10).
+     */
+    virtual bool resultInProperties() const
+    {
+        return true;
+    }
+
     /** Recompute only this feature
      *
      * @param recursive: set to true to recompute any dependent objects as well

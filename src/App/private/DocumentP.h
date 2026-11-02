@@ -218,6 +218,19 @@ struct DocumentP
     int64_t stateCounter {1};
     /// Why the last undo or redo was refused, empty when it was not.
     std::string undoRefusal;
+    /// While _takeRun takes a run: the objects a step from the log touched
+    /// for a derived value the log no longer has. A step taken after it
+    /// sets the touched state its own rows record, which would clear them.
+    std::set<long>* runNotRestored {nullptr};
+    /// The step a run of a group ends at, 0 for the whole group: the fine
+    /// undo or redo of a part of it (docs/MultiViewEdit.md sec 12.11)
+    int runStopAt {0};
+    /// The rows the last undo was refused for that stand in its way
+    /// (docs/MultiViewEdit.md sec 12.11): what Document::stepsInTheWay() lists
+    std::set<int64_t> undoInTheWay;
+    /// What a step taken from the log does with a property changed since:
+    /// Document::UndoConflicts, Refuse but under undoKeepingTheirs()
+    int runConflicts {0};
     /// A saveCopy() without history: the copy embeds nothing, and the
     /// History property the live document had is put back afterwards.
     bool savingWithoutHistory {false};

@@ -133,6 +133,11 @@ def round_(doc, grp, item, dim, how, spacing):
 
 
 def run():
+    # The edit that holds one transaction to OK, which this is about --
+    # the group's edit, one step: View/EditStepEachChange off; each change a step of
+    # its own, the default, is tests/gui/edit-step-each-change.py
+    FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool(
+        "EditStepEachChange", False)
     try:
         doc = FreeCAD.newDocument(DOC)
         doc.UndoMode = 1

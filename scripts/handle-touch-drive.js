@@ -502,12 +502,19 @@ async function hudCamera(page) {
     out.emptyAt = empty;
     if (empty) {
       out.cameraBeforeSketchOrbit = await hudCamera(page);
+      // what went up before this drag is not its doing: the line drag
+      // above has one input arrive after its own phase
+      phase('sketchempty');
+      await sleep(1000);
       await drag(empty[0], empty[1], 6, 0, 10);
       await sleep(1500);
       out.cameraAfterSketchOrbit = await hudCamera(page);
     }
     await shot(page, '12-sketchorbited');
     phase('sketchorbited');
+    // the host samples a phase from its poll: the reset straight after the
+    // mark was read into it (the edit gone, the reset an input)
+    await sleep(1000);
     await page.evaluate(() => window.fcviewerResetEdit());
     await sleep(1500);
     phase('done');

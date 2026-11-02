@@ -103,23 +103,29 @@ App::DocumentObjectExecReturn *DrawViewDimExtent::execute(void)
     resetAngular();
     resetArc();
 
-    if ( Type.isValue("Distance")  ||
-        Type.isValue("DistanceX") ||
-        Type.isValue("DistanceY") )  {
-        try {
-            setLinearPoints(getPointsExtent(references));
-        }
-        catch (const Base::Exception& e) {
-            return new App::DocumentObjectExecReturn(
-                QCoreApplication::translate("TechDraw", "The extent dimension on %1 failed: %2")
-                    .arg(QString::fromUtf8(dvp->Label.getValue()), QString::fromUtf8(e.what()))
-                    .toStdString(),
-                this);
-        }
+    try {
+        measure(references);
     }
+    catch (const Base::Exception& e) {
+        keepMeasurement();
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The extent dimension on %1 failed: %2")
+                .arg(QString::fromUtf8(dvp->Label.getValue()), QString::fromUtf8(e.what()))
+                .toStdString(),
+            this);
+    }
+    keepMeasurement();
 
     overrideKeepUpdated(false);
     return DrawView::execute();
+}
+
+//! the extent of the references, along the direction asked for
+void DrawViewDimExtent::measure(const ReferenceVector& references)
+{
+    if (Type.isValue("Distance") || Type.isValue("DistanceX") || Type.isValue("DistanceY")) {
+        setLinearPoints(getPointsExtent(references));
+    }
 }
 
 //! validate 2D references - only checks if the target exists

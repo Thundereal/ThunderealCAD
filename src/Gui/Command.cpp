@@ -40,6 +40,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/replace.hpp>
+#include <optional>
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
@@ -606,7 +607,17 @@ void Command::_invoke(int id, bool disablelog)
         // check if it really works NOW (could be a delay between click deactivation of the button)
         if (isActive()) {
             auto manager = getGuiApplication()->macroManager();
-            auto editDoc = getGuiApplication()->editDocument();
+            auto editStarts = getGuiApplication()->editStartCount();
+
+            // A command of the edit in the active view works on it: what it
+            // opens is a step of that edit's own (docs/HandsOnQueue.md entry
+            // 232)
+            std::optional<EditStepScope> editStep;
+            if (Gui::Document *gdoc = getGuiApplication()->activeDocument()) {
+                ViewProvider *vp = gdoc->getInEdit();
+                if (vp && vp->editOwnsCommand(sName))
+                    editStep.emplace(vp);
+            }
 
             if (!logdisabler) {
                 activated(id);
@@ -644,7 +655,7 @@ void Command::_invoke(int id, bool disablelog)
                 getMainWindow()->updateActions();
 
             // If this command starts an editing, let the transaction persist
-            if (!editDoc && getGuiApplication()->editDocument())
+            if (editStarts != getGuiApplication()->editStartCount() && getGuiApplication()->editDocument())
                 committer.setEnable(false);
         }
     }
@@ -825,11 +836,16 @@ QString Command::translatedGroupName() const
  *  operation default is the Command name.
  *  @see CommitCommand(),AbortCommand()
  */
+namespace {
+/// The step openCommand() set last, 0 when it joined one already open
+int openedStep = 0;
+}
+
 void Command::openCommand(const char* sCmdName)
 {
     if (!sCmdName)
         sCmdName = "Command";
-    App::GetApplication().setActiveTransaction(sCmdName);
+    openedStep = App::GetApplication().setActiveTransaction(sCmdName);
 }
 
 void Command::commitCommand()
@@ -839,6 +855,13 @@ void Command::commitCommand()
 
 void Command::abortCommand()
 {
+    // Committed at the end of its input's group already: an abort now
+    // would take another's step (docs/MultiViewEdit.md sec 12.2 rule 6)
+    if (App::GetApplication().isGroupStepClosed(openedStep)) {
+        FC_LOG("abort of a step its group closed, ignored");
+        openedStep = 0;
+        return;
+    }
     App::GetApplication().closeActiveTransaction(true);
 }
 

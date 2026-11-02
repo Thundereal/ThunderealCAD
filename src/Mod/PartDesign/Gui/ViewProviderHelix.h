@@ -34,6 +34,13 @@ class PartDesignGuiExport ViewProviderHelix : public ViewProviderAddSub
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderHelix);
 
 public:
+    /// Its panel owns its steps (docs/HandsOnQueue.md entry 232)
+    bool panelOwnsItsSteps() const override
+    {
+        return true;
+    }
+
+public:
     /// constructor
     ViewProviderHelix();
     /// destructor

@@ -52,6 +52,13 @@ public:
     // Name of menu dialog
     virtual QString getMenuName() const = 0;
 
+    /// Its panel's changes steps of their own with PerViewEdit on
+    /// (docs/HandsOnQueue.md entry 232)
+    bool panelOwnsItsSteps() const override
+    {
+        return true;
+    }
+
 protected:
     virtual void updateAddSubShapeIndicator() override;
     bool checkDlgOpen(TaskDlgTransformedParameters* transformedDlg);

@@ -25,6 +25,7 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <set>
 
 #include <QWidget>
@@ -46,6 +47,8 @@ class QToolButton;
 
 namespace SurfaceGui
 {
+
+class EdgeMarkers;
 
 class ViewProviderNetwork: public PartGui::ViewProviderSpline
 {
@@ -119,6 +122,9 @@ private:
     void separate();
     void applyToAll();
     bool listed(App::DocumentObject* obj, const std::string& sub) const;
+    /// A curve listed through a binder: a pick to remove is told by the
+    /// pick itself (refersTo), which the gate does not see
+    bool bindersListed() const;
 
     ViewProviderNetwork* vp;
     App::DocumentObjectT objT;
@@ -142,6 +148,8 @@ private:
     QLabel* readout;
     QLabel* achieved;
     QLabel* status;
+    /// The four conditions in the view
+    std::unique_ptr<EdgeMarkers> markers;
 };
 
 class TaskNetwork: public Gui::TaskView::TaskDialog

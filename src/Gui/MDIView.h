@@ -34,6 +34,12 @@ QT_BEGIN_NAMESPACE
 class QPrinter;
 QT_END_NAMESPACE
 
+namespace App
+{
+struct UndoView;
+struct UndoStep;
+}
+
 namespace Gui
 {
 class Document;
@@ -109,6 +115,8 @@ public:
     void deleteSelf() override;
     PyObject *getPyObject() override;
     MDIViewPy *getMDIViewPyObject();
+    /// The MDIViewPy of \a pyObj, or of the view it wraps (cast_to_base()):
+    /// borrowed, valid while \a pyObj is
     static MDIViewPy *castFrom(PyObject *);
     /** @name Printing */
     //@{
@@ -132,6 +140,22 @@ public:
     //@{
     virtual QStringList undoActions() const;
     virtual QStringList redoActions() const;
+    /** The steps undoActions() (or with \a redo, redoActions()) names, each
+     * with its id and the group of an edit it is one of
+     * (docs/MultiViewEdit.md sec 12.11). Empty for a view whose undo is not
+     * its document's.
+     */
+    virtual std::vector<App::UndoStep> undoSteps(bool redo = false) const;
+    /** The number the steps made in this view carry (App::Transaction::View,
+     * docs/MultiViewEdit.md sec 12.9), one of its own for each view
+     */
+    int undoViewId() const;
+    /// A number no view's steps carry yet
+    static int newUndoViewId();
+    /** What this view's undo lists and takes (sec 12.9), the one in a
+     * container's place: Gui::Document::undoViewOf()
+     */
+    App::UndoView undoView() const;
     //@}
 
     QSize minimumSizeHint () const override;
@@ -237,6 +261,7 @@ private:
     int ownSelectionTakes = 0;
     /// Its own for good (PerViewSelection), not for the length of a take
     bool ownSelectionKept = false;
+    int undoId;
 
     ViewMode currentMode;
     Qt::WindowStates wstate;

@@ -71,6 +71,7 @@
 
 #include <App/Document.h>
 #include <App/SaveTrigger.h>
+#include <App/Transactions.h>
 #include <optional>
 #include <App/ViewObjectRequest.h>
 #include <App/DocumentObjectPy.h>
@@ -283,7 +284,9 @@ struct ApplicationP
     std::map<const App::Document*, Gui::Document*> documents;
     /// Active document
     Gui::Document*   activeDocument{nullptr};
-    Gui::Document*  editDocument{nullptr};
+    /// Documents in edit, in the order their edits started
+    std::vector<Gui::Document*> editDocuments;
+    unsigned long editStartCount = 0;
     MacroManager*  macroMngr;
     PreferencePackManager* prefPackManager;
     /// Evaluates the style parameters themed stylesheets substitute
@@ -1188,6 +1191,9 @@ void Application::slotDeleteDocument(const App::Document& Doc)
     // Inside beforeDelete() a view provider may finish editing mode
     // and therefore can alter the selection.
     doc->second->beforeDelete();
+    // beforeDelete() ends the edits that involve it; this one is going
+    // whatever it did, so it leaves no pointer in the list behind
+    unsetEditDocument(doc->second);
 
     // We must clear the selection here to notify all observers.
     // And because of possible cross document link, better clear all selection
@@ -1388,10 +1394,22 @@ void Application::onLastWindowClosed(Gui::Document* pcDoc)
     }
 }
 
+namespace {
+/// Whether \a msg is an undo or a redo, which takes the steps the view
+/// lists (docs/MultiViewEdit.md sec 12.9)
+bool isUndoMsg(const char* msg)
+{
+    return strcmp(msg, "Undo") == 0 || strcmp(msg, "Redo") == 0;
+}
+}
+
 /// send Messages to the active view
 bool Application::sendMsgToActiveView(const char* pMsg, const char** ppReturn)
 {
     MDIView* pView = getMainWindow()->activeWindow();
+    std::optional<App::UndoViewScope> undoView;
+    if (pView && isUndoMsg(pMsg))
+        undoView.emplace(pView->undoView());
     // A save's message names the view it went to, under whatever sent it
     // (docs/HandsOnQueue.md entry 167): Ctrl+S with a drawing page active
     // reads "Std_Save/Save@TechDrawGui::MDIViewPage"
@@ -1407,6 +1425,9 @@ bool Application::sendMsgToActiveView(const char* pMsg, const char** ppReturn)
 bool Application::sendHasMsgToActiveView(const char* pMsg)
 {
     MDIView* pView = getMainWindow()->activeWindow();
+    std::optional<App::UndoViewScope> undoView;
+    if (pView && isUndoMsg(pMsg))
+        undoView.emplace(pView->undoView());
     return pView ? pView->onHasMsg(pMsg) : false;
 }
 
@@ -1497,28 +1518,98 @@ Gui::Document* Application::activeDocument() const
 
 Gui::Document* Application::editDocument() const
 {
-    return d->editDocument;
+    if (d->editDocuments.empty())
+        return nullptr;
+    // The one the user is looking at, where there is a choice
+    if (isInEdit(d->activeDocument))
+        return d->activeDocument;
+    return d->editDocuments.front();
+}
+
+Gui::Document* Application::editDocument(const std::function<bool(Gui::Document*)>& eval) const
+{
+    auto it = std::find_if(d->editDocuments.begin(), d->editDocuments.end(), eval);
+    return it == d->editDocuments.end() ? nullptr : *it;
+}
+
+std::vector<Gui::Document*> Application::editDocuments() const
+{
+    return d->editDocuments;
+}
+
+Gui::Document* Application::editDocumentOf(const App::DocumentObject* obj) const
+{
+    for (auto doc : d->editDocuments) {
+        if (doc->isStartingEdit())
+            return doc;
+    }
+    if (obj) {
+        for (auto doc : d->editDocuments) {
+            if (doc->isEditingObject(obj))
+                return doc;
+        }
+    }
+    return editDocument();
+}
+
+bool Application::isInEdit(Gui::Document* pcDocument) const
+{
+    return pcDocument
+        && std::find(d->editDocuments.begin(), d->editDocuments.end(), pcDocument)
+               != d->editDocuments.end();
+}
+
+unsigned long Application::editStartCount() const
+{
+    return d->editStartCount;
 }
 
 Gui::MDIView* Application::editViewOfNode(SoNode *node) const
 {
-    // getViewOfNode() searches the scene graph that can be slow. It can be
-    // simplified here since we only allow one editing view at the moment.
-    //
-    // return d->editDocument?d->editDocument->getViewOfNode(node):nullptr;
-    
-    (void)node;
-    return d->editDocument?d->editDocument->getEditingViewOfViewProvider(nullptr):nullptr;
+    // getViewOfNode() searches the scene graph, which can be slow, so it is
+    // asked only when there is more than one edit to tell apart.
+    if (d->editDocuments.size() == 1)
+        return d->editDocuments.front()->getEditingViewOfViewProvider(nullptr);
+    for (auto doc : d->editDocuments) {
+        if (MDIView *view = doc->getViewOfNode(node))
+            return view;
+    }
+    return nullptr;
 }
 
 void Application::setEditDocument(Gui::Document *doc) {
-    if(doc == d->editDocument)
+    if (!doc) {
+        unsetEditDocumentIf([](Gui::Document*) { return true; });
         return;
-    if(!doc)
-        d->editDocument = nullptr;
-    for(auto &v : d->documents)
-        v.second->_resetEdit();
-    d->editDocument = doc;
+    }
+    ++d->editStartCount;
+    if (isInEdit(doc))
+        return;
+    d->editDocuments.push_back(doc);
+    updateActions();
+}
+
+void Application::unsetEditDocument(Gui::Document *doc)
+{
+    auto it = std::find(d->editDocuments.begin(), d->editDocuments.end(), doc);
+    if (it == d->editDocuments.end())
+        return;
+    d->editDocuments.erase(it);
+    doc->_resetEdit();
+    updateActions();
+}
+
+void Application::unsetEditDocumentIf(const std::function<bool(Gui::Document*)>& eval)
+{
+    std::vector<Gui::Document*> matched;
+    std::vector<Gui::Document*> kept;
+    for (auto doc : d->editDocuments)
+        (eval(doc) ? matched : kept).push_back(doc);
+    if (matched.empty())
+        return;
+    d->editDocuments = std::move(kept);
+    for (auto doc : matched)
+        doc->_resetEdit();
     updateActions();
 }
 
@@ -1695,9 +1786,12 @@ void Application::viewClosed(MDIView* pcView)
     // bound to, and the view's own selection, going with the view, told
     // the edit mode to read it again through that viewer.
     if (Gui::Document* doc = pcView->getGuiDocument()) {
-        ViewerContext* editing = doc->editingViewer();
-        if (editing && TaskOwner(editing) == TaskOwner(pcView))
-            doc->resetEdit();
+        // That edit, of the several there may be (PerViewEdit): its 3D
+        // view's, or a page's (docs/HandsOnQueue.md entry 232)
+        doc->resetEditIn(pcView);
+        // Its undo steps are every view's, unless something shows them
+        // again (docs/MultiViewEdit.md sec 12.9)
+        doc->releaseUndoViewOf(pcView);
     }
     // And a task dialog it owns goes with it (Gui::TaskView::TaskView)
     signalCloseView(pcView);

@@ -799,8 +799,8 @@ public:
                 std::bind(&Monitor::slotInEdit, this, sp::_1));
 
         Gui::Application::Instance->signalResetEdit.connect(
-            [this](const Gui::ViewProviderDocumentObject &) {
-                resetEdit();
+            [this](const Gui::ViewProviderDocumentObject &vp) {
+                endEdit(vp.getObject());
             });
 
         Gui::Control().signalShowDialog.connect(
@@ -808,24 +808,30 @@ public:
 
         Gui::Control().signalRemoveDialog.connect(
             [this](QWidget *, std::vector<QWidget*> &contents, const Gui::TaskOwner &) {
-                if (!taskWidget)
-                    return;
+                // the dialog's own, of those of the edits there may be
                 for (auto it=contents.begin(); it!=contents.end(); ) {
-                    if (*it == taskWidget) {
+                    auto found = std::find(taskWidgets.begin(), taskWidgets.end(), *it);
+                    if (*it && found != taskWidgets.end()) {
+                        (*it)->deleteLater();
+                        taskWidgets.erase(found);
                         it = contents.erase(it);
-                        taskWidget->deleteLater();
                     } else
                         ++it;
                 }
+                taskWidgets.erase(std::remove(taskWidgets.begin(), taskWidgets.end(), nullptr),
+                                  taskWidgets.end());
             });
 
     }
 
     void slotInEdit(const Gui::ViewProviderDocumentObject & vp)
     {
-        auto doc = Gui::Application::Instance->editDocument();
+        // The document whose edit this is: another may be in edit too
+        auto doc = Gui::Application::Instance->editDocument(
+            [&vp](Gui::Document *editDoc) { return editDoc->isEditViewProvider(&vp); });
         if (!doc)
             return;
+        enter(vp.getObject());
         auto view = Base::freecad_dynamic_cast<Gui::View3DInventor>(doc->getEditingView());
         // A served client's session has no window in it when the document
         // has none. The preview is the session's and needs no window; the
@@ -897,10 +903,15 @@ public:
                                 PartDesign::FeaturePrimitive::getClassTypeId())) {
                         connPrimitiveMoved = static_cast<Part::Feature*>(
                                 editObj)->Placement.signalChanged.connect(
-                                    [this](const App::Property &) {
-                                        if (!this->editPreview)
-                                            this->editTimer.start(
-                                                    PartGui::PartParams::getEditRecomputeWait());
+                                    [this, objT = App::DocumentObjectT(editObj)](
+                                            const App::Property &) {
+                                        // this edit's preview, whichever is current
+                                        enter(objT.getObject());
+                                        if (this->editPreview)
+                                            return;
+                                        this->timerObjT = objT;
+                                        this->editTimer.start(
+                                                PartGui::PartParams::getEditRecomputeWait());
                                     });
                     }
                     if (PartGui::PartParams::getPreviewOnEdit()) {
@@ -995,7 +1006,8 @@ public:
             auto wrapVp = Base::freecad_dynamic_cast<ViewProviderWrap>(
                     Gui::Application::Instance->getViewProvider(wrap));
             if (wrapVp) {
-                taskWidget = new TaskWrapParameters(wrapVp, parent);
+                QWidget *taskWidget = new TaskWrapParameters(wrapVp, parent);
+                taskWidgets.emplace_back(taskWidget);
                 contents.insert(contents.begin(), taskWidget);
             }
             break;
@@ -1248,7 +1260,7 @@ public:
      */
     bool beforeEditInSession(PartDesign::Body *body, App::DocumentObject *editingObj)
     {
-        auto gdoc = Gui::Application::Instance->editDocument();
+        auto gdoc = Gui::Application::Instance->editDocumentOf(editingObj);
         if (!gdoc || !gdoc->canSetEditVisibility())
             return false;
         Gui::ViewProviderDocumentObject *parentVp = nullptr;
@@ -1285,6 +1297,7 @@ public:
         auto body = PartDesign::Body::findBodyOf(editingObj);
         if (!body)
             return;
+        enter(editingObj);
         visibleFeatures.clear();
         hideEditObject = false;
         editShownInSession = beforeEditInSession(body, editingObj);
@@ -1601,7 +1614,8 @@ public:
     std::map<App::SubObjectT, bool> onTopUserObjs;
     
     Gui::View3DInventor *editView = nullptr;
-    QPointer<QWidget> taskWidget;
+    /// The wrap panels added to the dialogs shown, one an edit
+    std::vector<QPointer<QWidget>> taskWidgets;
     /// The panel's "Show preview" box: the edit's menu shows the same switch
     /// (docs/OnViewValueEditing.md 8.6 a, the reporter 2026-10-19 09:34:
     /// "show preview should behave the same as the task panel")
@@ -1623,6 +1637,102 @@ public:
     /// the earlier name decides, and the preview's -- which hides the
     /// feature this shows -- has to: keep this one after "PartDesign.Preview".
     static constexpr const char *EditSwaps = "PartDesign.Shown";
+
+    /// The object whose edit the state above is
+    App::DocumentObjectT editKeyT;
+    /// What the edit timer recomputes when it fires: the object of the
+    /// edit that started it, not whichever edit is current then
+    App::DocumentObjectT timerObjT;
+
+    /// The state above that is one edit's. With several edits at once, one
+    /// per view (docs/MultiViewEdit.md sec 12.12), each edit's is kept here
+    /// while another's is the current one, and brought back to act on it:
+    /// the end of one edit un-pauses its own feature, not the newest's.
+    struct EditState
+    {
+        App::DocumentObjectT editKeyT;
+        fastsignals::scoped_connection connVisibilityChanged;
+        fastsignals::scoped_connection connPrimitiveMoved;
+        App::DocumentObjectT editObjT;
+        App::SubObjectT editOccurrenceT;
+        App::SubObjectT editBodyT;
+        App::DocumentT editDoc;
+        App::SubObjectT editOnTopT;
+        std::map<App::SubObjectT, bool> onTopUserObjs;
+        Gui::View3DInventor *editView = nullptr;
+        QPointer<QCheckBox> previewBox;
+        bool hasEditCheckBox = false;
+        bool editPreview = false;
+        std::vector<std::vector<App::DocumentObjectT> > visibleFeatures;
+        bool hideEditObject = false;
+        bool editShownInSession = false;
+    };
+    /// The edits kept aside, the newest last
+    std::vector<EditState> otherEdits;
+
+    void swapState(EditState &s)
+    {
+        using std::swap;
+        swap(editKeyT, s.editKeyT);
+        swap(connVisibilityChanged, s.connVisibilityChanged);
+        swap(connPrimitiveMoved, s.connPrimitiveMoved);
+        swap(editObjT, s.editObjT);
+        swap(editOccurrenceT, s.editOccurrenceT);
+        swap(editBodyT, s.editBodyT);
+        swap(editDoc, s.editDoc);
+        swap(editOnTopT, s.editOnTopT);
+        swap(onTopUserObjs, s.onTopUserObjs);
+        swap(editView, s.editView);
+        swap(previewBox, s.previewBox);
+        swap(hasEditCheckBox, s.hasEditCheckBox);
+        swap(editPreview, s.editPreview);
+        swap(visibleFeatures, s.visibleFeatures);
+        swap(hideEditObject, s.hideEditObject);
+        swap(editShownInSession, s.editShownInSession);
+    }
+
+    /// Makes \a obj's edit the current one: the current, another's, kept
+    /// aside; \a obj's brought back if it was kept; a new one started from
+    /// nothing
+    void enter(const App::DocumentObject *obj)
+    {
+        if (!obj || editKeyT.getObject() == obj)
+            return;
+        // an edit whose object is gone has nothing left to act on
+        otherEdits.erase(std::remove_if(otherEdits.begin(), otherEdits.end(),
+                                        [](const EditState &s) {
+                                            return !s.editKeyT.getObject();
+                                        }),
+                         otherEdits.end());
+        EditState state;
+        auto it = std::find_if(otherEdits.begin(), otherEdits.end(),
+                               [obj](const EditState &s) { return s.editKeyT.getObject() == obj; });
+        if (it != otherEdits.end()) {
+            state = std::move(*it);
+            otherEdits.erase(it);
+        }
+        else {
+            state.editKeyT = obj;
+        }
+        swapState(state);
+        if (state.editKeyT.getObject())
+            otherEdits.push_back(std::move(state));
+    }
+
+    /// \a obj's edit ended: reset as its own, and the newest kept aside is
+    /// the current one again
+    void endEdit(const App::DocumentObject *obj)
+    {
+        enter(obj);
+        resetEdit();
+        EditState none;
+        swapState(none);
+        if (!otherEdits.empty()) {
+            EditState state = std::move(otherEdits.back());
+            otherEdits.pop_back();
+            swapState(state);
+        }
+    }
 };
 
 static Monitor *_MonitorInstance;
@@ -1819,6 +1929,7 @@ QCheckBox *hookPropertyBool(App::DocumentObject *obj,
             }
             Base::ObjectStatusLocker<App::Property::Status, App::Property> guard(App::Property::User3, propBool);
             propBool->setValue(checked);
+            _MonitorInstance->timerObjT = App::DocumentObjectT(objT.getObject());
             _MonitorInstance->editTimer.start(PartGui::PartParams::getEditRecomputeWait());
         });
     return checkbox;
@@ -1837,7 +1948,13 @@ QGridLayout *Monitor::addCheckBox(Gui::ViewProviderDocumentObject *vp, QWidget *
     checkbox->setText(QObject::tr("Show preview"));
     checkbox->setToolTip(QObject::tr("Show base feature with preview shape"));
     checkbox->setChecked(PartGui::PartParams::getPreviewOnEdit());
-    QObject::connect(checkbox, SIGNAL(toggled(bool)), &proxy, SLOT(onPreview(bool)));
+    // the box of this panel's edit, whichever edit is current
+    QObject::connect(checkbox, &QCheckBox::toggled, &proxy,
+                     [this, objT = App::DocumentObjectT(vp ? vp->getObject() : nullptr)](bool on) {
+                         enter(objT.getObject());
+                         QMetaObject::invokeMethod(&proxy, "onPreview", Qt::DirectConnection,
+                                                   Q_ARG(bool, on));
+                     });
     grid->addWidget(checkbox, 0, 0);
     previewBox = checkbox;
 
@@ -1907,7 +2024,7 @@ void MonitorProxy::onPreviewTransparency(bool checked)
 
 void MonitorProxy::onEditTimer()
 {
-    auto obj = _MonitorInstance->editObjT.getObject();
+    auto obj = _MonitorInstance->timerObjT.getObject();
     if (obj) {
         App::AutoTransaction guard("Recompute");
         obj->recomputeFeature(true);
@@ -1917,6 +2034,8 @@ void MonitorProxy::onEditTimer()
 QGridLayout *addTaskCheckBox(Gui::ViewProviderDocumentObject *vp, QWidget * widget, int index)
 {
     initMonitor();
+    if (vp)
+        _MonitorInstance->enter(vp->getObject());
     _MonitorInstance->hasEditCheckBox = true;
     return _MonitorInstance->addCheckBox(vp, widget, index);
 }

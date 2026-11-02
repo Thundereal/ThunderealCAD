@@ -35,6 +35,8 @@
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
 #include <BSplCLib.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
+#include <GeomAdaptor_Curve.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomLProp_SLProps.hxx>
@@ -664,6 +666,39 @@ MatchReport matchBoundary(Handle(Geom_BSplineSurface)& surface,
     Conditions c;
     c[int(boundary)] = condition;
     return matchBoundaries(surface, c, options)[int(boundary)];
+}
+
+BoundaryMarker boundaryMarker(const Handle(Geom_BSplineSurface) & surface, Boundary boundary)
+{
+    double u0, u1, v0, v1;
+    surface->Bounds(u0, u1, v0, v1);
+    const bool alongU = boundary == Boundary::VMin || boundary == Boundary::VMax;
+    const double u = alongU ? (u0 + u1) / 2 : boundary == Boundary::UMin ? u0 : u1;
+    const double v = !alongU ? (v0 + v1) / 2 : boundary == Boundary::VMin ? v0 : v1;
+    BoundaryMarker m;
+    gp_Vec du, dv;
+    surface->D1(u, v, m.middle, du, dv);
+    // into the surface: the parameter across growing at a minimum side
+    gp_Vec cross = alongU ? dv : du;
+    if (boundary == Boundary::UMax || boundary == Boundary::VMax) {
+        cross.Reverse();
+    }
+    gp_Vec along = alongU ? du : dv;
+    gp_Vec normal = du.Crossed(dv);
+    gp_Vec inward = cross;
+    if (normal.Magnitude() > gp::Resolution() && along.Magnitude() > gp::Resolution()) {
+        inward = normal.Crossed(along);
+        if (inward.Dot(cross) < 0) {
+            inward.Reverse();
+        }
+    }
+    if (inward.Magnitude() > gp::Resolution()) {
+        m.inward = gp_Dir(inward);
+    }
+    Handle(Geom_Curve) iso = alongU ? surface->VIso(v) : surface->UIso(u);
+    GeomAdaptor_Curve curve(iso);
+    m.length = GCPnts_AbscissaPoint::Length(curve);
+    return m;
 }
 
 }  // namespace Surface::Geom

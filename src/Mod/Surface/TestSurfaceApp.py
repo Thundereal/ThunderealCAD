@@ -23,6 +23,7 @@
 # Unit test for the Surface module
 from SurfaceTests.TestBlendCurve import TestBlendCurve
 from SurfaceTests.TestBlendSurface import TestBlendSurface
+from SurfaceTests.TestBody import TestBody
 from SurfaceTests.TestContinuity import TestContinuity
 from SurfaceTests.TestCurves import TestCurves
 from SurfaceTests.TestEdgeConditions import TestEdgeConditions

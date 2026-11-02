@@ -136,10 +136,18 @@ fc_add_gui_test(GuiSurfaceTrim_tests_run surface-trim.py
 # panel mirrored and cancelled.
 fc_add_gui_test(GuiServeSurfaceTrim_tests_run serve-surface-trim.py
                 --timeout 180)
+# And the older panels, Sections, Filling and GeomFillSurface: made from a
+# browser's connection, OK refused without a dialog, Cancel.
+fc_add_gui_test(GuiServeSurfacePanels_tests_run serve-surface-panels.py
+                --timeout 240)
 # Its U3 commands: Blend surface, Two-rail sweep and Pipeshell from the
 # selection, as one undo step each; a selection they cannot use said without
 # a dialog.
 fc_add_gui_test(GuiSurfaceSweeps_tests_run surface-sweeps.py
+                --timeout 180)
+# And their task panels: a blend's conditions, a sweep's sections and
+# stations, a pipe's mode, OK and Cancel, no dialog.
+fc_add_gui_test(GuiSurfaceToolPanels_tests_run surface-tool-panels.py
                 --timeout 180)
 # Its Edge continuity command (U4): a crease, a fillet's tangent edge, two
 # faces picked; a selection it cannot use said without a dialog.
@@ -149,6 +157,29 @@ fc_add_gui_test(GuiSurfaceContinuity_tests_run surface-continuity.py
 # curves joined and an edge extended from the selection, one undo step each;
 # a selection they cannot use said without a dialog.
 fc_add_gui_test(GuiSurfaceCurves_tests_run surface-curves.py
+                --timeout 180)
+# Its edge conditions in the view (sec 8): an arrow on each outer boundary of
+# a network or a blend, a click stepping the continuity, a drag or a typed
+# value the weight, the menu the continuity.
+fc_add_gui_test(GuiSurfaceEdgeMarkers_tests_run surface-edge-markers.py
+                --timeout 180)
+# The same for Sections and GeomFillSurface, whose own panels do not show
+# their conditions: a box of them in each dialog, and their arrows.
+fc_add_gui_test(GuiSurfaceFillMarkers_tests_run surface-fill-markers.py
+                --timeout 180)
+# Its features in a PartDesign Body, as a sketch is: the commands put what
+# they make into the active body, and nowhere else.
+fc_add_gui_test(GuiSurfaceInBody_tests_run surface-in-body.py
+                --timeout 180)
+# Geometry picked for a Surface feature is taken as a sketch takes external
+# geometry: through SubShapeBinder::import, outside the feature's body by a
+# binder in it -- by its commands and every panel.
+fc_add_gui_test(GuiSurfaceImport_tests_run surface-import.py
+                --timeout 180)
+# PartDesign Thicken's command and panel: the selected face made a solid,
+# the panel's fields the feature's, a face outside the body bound in, Remove,
+# OK and Cancel.
+fc_add_gui_test(GuiPDThicken_tests_run pd-thicken.py
                 --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
@@ -456,6 +487,102 @@ fc_add_gui_test(GuiServeLogKept_tests_run serve-log-kept.py
 # window joins, as before.
 fc_add_gui_test(GuiEditPerView_tests_run edit-per-view.py
                 --timeout 300)
+
+# Two documents in edit at once (docs/HandsOnQueue.md entry 232): each
+# has its panel, each edit's step is its document's own, and Cancel in one
+# takes back nothing of the other's.
+fc_add_gui_test(GuiEditTwoDocuments_tests_run edit-two-documents.py
+                --timeout 180)
+
+# Two PartDesign edits in one document, one per view, with PerViewEdit
+# (entry 232): each change a step of its own, Cancel takes back the edit's
+# own steps and asks about a change another view made over them since.
+fc_add_gui_test(GuiPdEditTwoViews_tests_run pd-edit-two-views.py
+                --timeout 240)
+
+# Each change in an edit's panel an undo step of its own with
+# View/EditStepEachChange, PerViewEdit off: a pad, a pattern, a TechDraw
+# dimension; undone one at a time with the dialog open.
+fc_add_gui_test(GuiEditStepEachChange_tests_run edit-step-each-change.py
+                --timeout 240)
+
+# Each view's undo (entry 227, docs/MultiViewEdit.md sec 12.9): a 3D view in
+# edit lists the edit's steps, another 3D view all but those, a TechDraw
+# page its own and those made in no view; a page or sheet opened again its
+# steps from before.
+fc_add_gui_test(GuiPerViewUndo_tests_run per-view-undo.py --timeout 300)
+
+# A drawing and the model it draws, each in edit in a view of its own, their
+# changes interleaved with recomputes, undo and redo from either view.
+fc_add_gui_test(GuiTdModelInterleave_tests_run td-model-interleave.py
+                --timeout 300)
+
+# An undo puts a drawing back as it was: a part view, a dimension on it, a
+# section and a detail of the section, all right after undo and redo with
+# nothing left to recompute, and after an undo made while they project.
+fc_add_gui_test(GuiTdUndoStoredProjection_tests_run td-undo-stored-projection.py
+                --timeout 200)
+fc_add_gui_test(GuiTdStoredHatch_tests_run td-stored-hatch.py
+                --timeout 200)
+fc_add_gui_test(GuiEditGroupUndo_tests_run edit-group-undo.py
+                --timeout 200)
+fc_add_gui_test(GuiUndoInTheWay_tests_run undo-in-the-way.py
+                --timeout 200)
+fc_add_gui_test(GuiServeUndoConsent_tests_run serve-undo-consent.py
+                --timeout 300)
+# The desktop's half: its undo refused for a served user's step asks him
+# from the dialog, and is told how it went
+fc_add_gui_test(GuiServeUndoDesktopAsk_tests_run serve-undo-desktop-ask.py
+                --timeout 300)
+# Two PartDesign edits at once, one per view, with the edit preview on and
+# off: each edit's end makes its own feature and leaves the other's
+fc_add_gui_test(GuiPdTwoEditsPreview_tests_run pd-two-edits-preview.py
+                --timeout 300)
+# Two served users editing one PartDesign body through their own panels
+# (docs/TaskPanelPerView.md M5), with the edit preview on and off: both
+# ways are to work (serve_pd_multi_user.py)
+fc_add_gui_test(GuiServePdMultiUserPreview_tests_run serve-pd-multi-user-preview.py
+                --timeout 400)
+fc_add_gui_test(GuiServePdMultiUserNoPreview_tests_run serve-pd-multi-user-no-preview.py
+                --timeout 400)
+# A served user's own panel shows its pictures, though its page is one the
+# desktop does not show (docs/TaskPanelPerView.md sec 13.5)
+fc_add_gui_test(GuiServePanelPicture_tests_run serve-panel-picture.py --timeout 300)
+# The browser half of the two users' own panels: two Chrome pages, each
+# taking Edit from the host's menu and working in its own panel; skips
+# without a built viewer, PUPPETEER_PATH and CHROME
+fc_add_gui_test(GuiServePanelTwoUsersBrowser_tests_run serve-panel-two-users-browser.py
+                --timeout 500)
+# The browser half: the undo list's page (web/src/undolist.tsx); skips
+# without a built viewer, PUPPETEER_PATH and CHROME
+fc_add_gui_test(GuiServeUndoBrowser_tests_run serve-undo-browser.py
+                --timeout 600)
+
+# A view in a tab closed of itself, not through its tab: the tab goes with
+# it, and nothing reads the view that is gone (a segmentation fault).
+fc_add_gui_test(GuiViewCloseDirect_tests_run view-close-direct.py --timeout 180)
+
+# Two sketches in edit in one document, one per view (entry 232, the
+# Sketcher round): Cancel of one takes back its own steps only.
+fc_add_gui_test(GuiSketchEditTwoViews_tests_run sketch-edit-two-views.py
+                --timeout 240)
+
+# TechDraw edits one per page, beside a 3D view's (entry 232, the TechDraw
+# round): Cancel of one takes back its own steps only.
+fc_add_gui_test(GuiTdEditTwoPages_tests_run td-edit-two-pages.py
+                --timeout 300)
+
+# A linked pair changed in one step undoes together however the step was
+# opened, and a step is listed in the document of the view its input went
+# to, not in the active one (docs/MultiViewEdit.md sec 12.2 rules 2, 4).
+fc_add_gui_test(GuiXdocUndoPair_tests_run xdoc-undo-pair.py
+                --timeout 180)
+
+# A step an input's handling left open is closed at the end of its group
+# unless held: persist, a task dialog, a mouse button down; a console
+# line's is a script's (docs/MultiViewEdit.md sec 12.2 rules 1, 5).
+fc_add_gui_test(GuiUndoGroupByInput_tests_run undo-group-by-input.py
+                --timeout 180)
 
 # An edit started after the main window is activated again, or with
 # another document's view the active one, is bound to the 3D view: the

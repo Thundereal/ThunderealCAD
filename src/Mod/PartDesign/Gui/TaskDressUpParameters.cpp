@@ -164,6 +164,8 @@ TaskDressUpParameters::TaskDressUpParameters(ViewProviderDressUp *DressUpView, b
     , allowEdges(selectEdges)
 {
     selectionMode = none;
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
 
     onTopEnabled = Gui::ViewParams::getShowSelectionOnTop();
     if(!onTopEnabled)
@@ -1531,7 +1533,7 @@ App::DocumentObject *TaskDressUpParameters::getInEdit(std::string &subname, App:
         if(!base)
             return nullptr;
     }
-    auto editDoc = Gui::Application::Instance->editDocument();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(pcDressUp);
     if(!editDoc)
         return nullptr;
 
@@ -1606,7 +1608,9 @@ bool TaskDressUpParameters::getItemElement(QTreeWidgetItem *item, std::string &s
     auto under = [&](bool preview) {
         subname.clear();
         ViewProviderDocumentObject *editVp = nullptr;
-        auto editDoc = Gui::Application::Instance->editDocument();
+        auto dressUpView = getDressUpView();
+        auto editDoc = Gui::Application::Instance->editDocumentOf(
+            dressUpView ? dressUpView->getObject() : nullptr);
         if (!editDoc)
             return false;
         editDoc->getInEdit(&editVp,&subname);
@@ -2019,7 +2023,10 @@ bool TaskDlgDressUpParameters::accept()
 
 bool TaskDlgDressUpParameters::reject()
 {
-    auto editDoc = Gui::Application::Instance->editDocument();
+    // Its own steps, taken back by the base (docs/HandsOnQueue.md entry 232)
+    if (!holdsTransaction())
+        return TaskDlgFeatureParameters::reject();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(vp ? vp->getObject() : nullptr);
     if (editDoc) {
         App::Document* doc = editDoc->getDocument();
         // Down to the transaction open when the edit began; when that one

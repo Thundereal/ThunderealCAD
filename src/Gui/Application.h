@@ -25,8 +25,10 @@
 #define APPLICATION_H
 
 #include <QPixmap>
+#include <functional>
 #include <map>
 #include <string>
+#include <vector>
 
 #define  putpix()
 
@@ -200,11 +202,50 @@ public:
     Gui::Document* activeDocument() const;
     /// Set the active document
     void setActiveDocument(Gui::Document* pcDocument);
-    /// Getter for the editing document
+    /** @name Documents in edit
+     *
+     * Several documents may be in edit at once (upstream's API, kept by
+     * name so ported code applies). A caller that means the edit of a
+     * particular object or document asks with a functor or isInEdit();
+     * editDocument() with no argument is for one that means "any".
+     */
+    //@{
+    /// The active document when it is in edit, else the first in edit
     Gui::Document* editDocument() const;
+    /// The first document in edit that \a eval accepts
+    Gui::Document* editDocument(const std::function<bool(Gui::Document*)>& eval) const;
+    /// Every document in edit, none of them null
+    std::vector<Gui::Document*> editDocuments() const;
+    /** The document in edit whose edit \a obj is part of.
+     *
+     * The one starting an edit, while its view provider starts (code run by
+     * startEditing(), a link forwarding the edit to its linked object's
+     * included); else the one editing \a obj; else editDocument().
+     */
+    Gui::Document* editDocumentOf(const App::DocumentObject* obj) const;
+    /// Whether \a pcDocument is in edit
+    bool isInEdit(Gui::Document* pcDocument) const;
+    /// The view showing \a node's edit, among the documents in edit
     Gui::MDIView* editViewOfNode(SoNode *node) const;
-    /// Set editing document, which will reset editing of all other document
+    /** Add \a pcDocument to the documents in edit.
+     *
+     * Null ends the edit of every document, which is what it meant when
+     * only one could be in edit (Gui.resetEdit()).
+     */
     void setEditDocument(Gui::Document* pcDocument);
+    /// End \a pcDocument's edit; after this isInEdit(pcDocument) is false
+    void unsetEditDocument(Gui::Document* pcDocument);
+    /// End the edit of every document in edit that \a eval accepts
+    void unsetEditDocumentIf(const std::function<bool(Gui::Document*)>& eval);
+    /** Bumped each time an edit starts in any document.
+     *
+     * For a caller that has to know whether what it ran started an edit
+     * (a command's transaction is left open for it): compare before and
+     * after. "No document in edit before, one after" misses an edit
+     * started while another document is in edit.
+     */
+    unsigned long editStartCount() const;
+    //@}
     /** Retrieves a pointer to the Gui::Document whose App::Document has the name \a name.
     * If no such document exists 0 is returned.
     */
@@ -540,6 +581,7 @@ public:
     static PyObject* sActivateView             (PyObject *self,PyObject *args);
     static PyObject* sGetDocument              (PyObject *self,PyObject *args);
     static PyObject* sEditDocument             (PyObject *self,PyObject *args);
+    static PyObject* sEditDocuments            (PyObject *self,PyObject *args);
     static PyObject* sResetEdit                (PyObject *self,PyObject *args);
 
     static PyObject* sDoCommand                (PyObject *self,PyObject *args);

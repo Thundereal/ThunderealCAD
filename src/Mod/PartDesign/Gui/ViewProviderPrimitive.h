@@ -41,6 +41,13 @@ public:
     /// destructor
     ~ViewProviderPrimitive() override;
 
+    /// Its dialog's changes steps of their own with PerViewEdit on, the
+    /// attachment's too (docs/HandsOnQueue.md entry 232)
+    bool panelOwnsItsSteps() const override
+    {
+        return true;
+    }
+
     void attach(App::DocumentObject*) override;
     void updateData(const App::Property*) override;
 

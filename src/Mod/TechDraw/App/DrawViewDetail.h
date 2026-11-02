@@ -32,6 +32,9 @@
 #include <App/PropertyLinks.h>
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
+#include <App/PropertyGeo.h>
+#include <Mod/Part/App/PropertyTopoShape.h>
+
 #include "DrawViewPart.h"
 
 
@@ -64,6 +67,16 @@ public:
 
     App::PropertyBool   ShowMatting;
     App::PropertyBool   ShowHighlight;
+
+    //! what the views made from this one read -- a section of it, the shaded
+    //! underlay -- kept beside the projection so that an undo or an open
+    //! makes none of it again (docs/TechDrawStoredGeometry.md sec 8)
+    Part::PropertyPartShape DetailShape;    //!< the piece, uncentred
+    Part::PropertyPartShape ScaledShape;    //!< centred, scaled, rotated
+    App::PropertyMatrix DetailFrame;        //!< DetailShape -> global
+    App::PropertyMatrix ScaledFrame;        //!< ScaledShape -> global
+    App::PropertyMatrix ViewAxis;           //!< global -> the axis projected through
+    App::PropertyBool   FramesKnown;
 
     short mustExecute() const override;
     App::DocumentObjectExecReturn *execute() override;
@@ -103,6 +116,10 @@ public:
     bool getScaledFrame(gp_Trsf& frame) const;
 
 protected:
+    void abortMaking() override;
+    void captureGeometry() override;
+    bool restoreStoredGeometry() override;
+
     struct Output {
         TopoDS_Shape shape;
         TopoDS_Shape detailShape;

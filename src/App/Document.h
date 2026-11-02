@@ -51,6 +51,7 @@ namespace Base {
 namespace App
 {
     class TransactionalObject;
+    struct Actor;
     class DocumentObject;
     class DocumentObjectExecReturn;
     class Document;
@@ -105,6 +106,21 @@ public:
 
 private:
     ImportSetRecord* _outer;
+};
+
+/// A step an undo or a redo of a view lists: its id, its name and the group
+/// of an edit's steps it is one of, 0 for none (docs/MultiViewEdit.md sec
+/// 12.11)
+struct UndoStep
+{
+    int id {0};
+    std::string name;
+    int64_t group {0};
+    /// Whose step it is when not the one asking's: the user's name; empty
+    /// for one's own
+    std::string author {};
+    /// And that user, null for the desktop's (when \a author is set)
+    std::shared_ptr<const Actor> authorActor {};
 };
 
 /// The document class
@@ -1299,6 +1315,28 @@ public:
      * step is named by what it undid and names no single row it inverts.
      */
     bool undoLogged(const std::vector<int64_t>& seqs);
+    /// What a selective undo does with a property changed since the row
+    /// set it (docs/HandsOnQueue.md entry 232)
+    enum class UndoConflicts
+    {
+        /// Refuses the undo, as undoLogged() always has
+        Refuse,
+        /// Puts the row's value back over the later change ("undo anyway")
+        Overwrite,
+        /// Leaves the later change and takes back the rest ("skip")
+        Skip,
+    };
+    /** undoLogged(seqs) with what to do with a property changed since.
+     *
+     * Only a property's value: a row whose object is gone, or whose
+     * removed object's name or id is taken, is refused whichever is asked.
+     */
+    bool undoLogged(const std::vector<int64_t>& seqs, UndoConflicts conflicts);
+    /** The log rows of the undo steps with transaction ids \a tids, newest
+     * first: what undoLogged() takes. A step that is not on the undo stack,
+     * or has no row, is left out.
+     */
+    std::vector<int64_t> logSeqsOf(const std::vector<int>& tids);
 
     /** How App reaches an object's view provider (docs/TransactionLogJournal.md
      * sec 24.9): the Gui registers a resolver; without one (FreeCADCmd)
@@ -1818,6 +1856,43 @@ public:
     int getAvailableRedos(int id=0) const;
     /// Returns a list of the Redo names.
     std::vector<std::string> getAvailableRedoNames() const;
+    /// The steps getAvailableUndoNames() names, newest first
+    std::vector<UndoStep> getAvailableUndoSteps() const;
+    /// The steps getAvailableRedoNames() names, the next to redo first
+    std::vector<UndoStep> getAvailableRedoSteps() const;
+    /** Steps \a ids, of either stack, made one group: the steps of an
+     * edit ended with OK (docs/MultiViewEdit.md sec 12.11), which one
+     * undo takes together and one redo brings back. Implicit steps are
+     * not marked: they go with the step they ride on. False, marking
+     * nothing, for fewer than two steps.
+     */
+    bool groupSteps(const std::vector<int>& ids);
+    /** The steps on the undo stack that stand in the way of the undo just
+     * refused (docs/MultiViewEdit.md sec 12.11): one that changed since a
+     * property the step undone set, linked to an object it made, or set a
+     * reference its undo would break -- whoever's, each with its author.
+     */
+    std::vector<UndoStep> stepsInTheWay() const;
+    /** Undo steps \a ids of the undo stack, each with the implicit steps
+     * riding on it, newest first, whoever's -- the caller has asked whoever
+     * had to be asked -- as one run: all of them or none. "Undo with them":
+     * an edit with the steps in its way.
+     */
+    bool undoSteps(const std::vector<int>& ids);
+    /// The steps the next undo (or redo) of whoever acts takes, by id
+    /// (docs/MultiViewEdit.md sec 12.11): a step with the implicit ones
+    /// riding on it, or a group; \a skip as for undoSkipping()
+    std::vector<int> getRunIds(bool undo, int skip = 0) const;
+    /** Step \a id of the undo stack, whoever's: \a out its name, group
+     * and, when not the one asking's, its author. False for no such step.
+     */
+    bool stepInfo(int id, UndoStep& out) const;
+    /** The next undo with what was changed since by others left as it is
+     * now ("keep theirs", sec 12.11): a property a step made since set
+     * again keeps that step's value, the rest goes back. A link or a
+     * reference made since still refuses it.
+     */
+    bool undoKeepingTheirs(int skip = 0);
     /// Will REDO one step, returns False if no redo was done (Redos == 0).
     bool redo(int id=0) ;
     /** Whether the next undo (or redo) of whoever acts goes through the log
@@ -1836,8 +1911,18 @@ public:
      */
     bool undoSkipping(int skip);
     bool redoSkipping(int skip);
+    /** After a run of undos or redos, taken once it is all taken: with
+     * DocumentParams RecomputeOnUndo on, the document recomputed when it
+     * has objects to recompute (docs/MultiViewEdit.md sec 12.10). Returns
+     * whether it was.
+     */
+    bool recomputeAfterUndo();
     /// Why the last undo() or redo() was refused, empty when it was not.
     const std::string& undoRefusal() const;
+    /** The steps made in view \a view (Transaction::View) are every view's:
+     * that view closed (docs/MultiViewEdit.md sec 12.9)
+     */
+    void releaseStepView(int view);
     /// returns true if the document is in an Transaction phase, e.g. currently performing a redo/undo or rollback,
     /// or replaying transaction log rows (a branch switch, a crash recovery)
     bool isPerformingTransaction() const;
@@ -2085,15 +2170,21 @@ protected:
     /// Whether a step of `run`, taken in its order from where the document
     /// stands, goes through the log.
     bool _runNeedsLog(const std::vector<Transaction*>& run) const;
+    /// Whether the undo of the view asking lists \a step (UndoViewScope)
+    bool stepListed(const Transaction& step) const;
     /// Whether `step` can be applied as it is: the document is in the state
     /// the step left.
     bool _atState(const Transaction* step) const;
     /// Take `step` back through the log as a transaction of its own; false
     /// when refused. It leaves a cold step on the other stack.
     bool _revertStep(bool undo, Transaction* step);
+    /// Take steps \a ids, all or none (the body of _takeRun)
+    bool _takeIds(bool undo, const std::vector<int>& ids);
     /// What a cold step reverts (docs/TransactionLogJournal.md sec 24.3), read
     /// from the log and checked against the document before anything moves.
     struct ColdRevert;
+    /// Links made after row \a seq to an object it made (sec 12.11)
+    std::string linksMadeSince(TransactionLog& log, int64_t seq, ColdRevert& revert);
     /// Read and check the revert of cold `step`; false, with the reason
     /// reported, when it cannot be applied -- the undo is then refused.
     bool _prepareRevert(int64_t seq, const std::string& name, ColdRevert& revert);
@@ -2248,6 +2339,11 @@ protected:
     /// step become the earlier one's. True when folded; the caller then
     /// drops `later`.
     bool _coalesceStep(Transaction* later);
+    /// Without a log (docs/MultiViewEdit.md sec 12.2 rule 7): an implicit
+    /// step just committed with no step of the user's under it, nothing
+    /// undoes, or one that follows an implicit step, folded into it. True
+    /// when dropped or folded; the caller then drops `later`.
+    bool _foldImplicit(Transaction* later);
 
     /// refresh the internal dependency graph
     void _rebuildDependencyList(

@@ -72,6 +72,9 @@ public:
     {
         return false;
     }
+    /// None with PerViewEdit on: beside another view's dialog of the
+    /// document (docs/HandsOnQueue.md entry 232)
+    bool holdsTransaction() const override;
 
     /// Ok leaves the sketch, Cancel reverts it (upstream 189d86ee53)
     QDialogButtonBox::StandardButtons getStandardButtons() const override;

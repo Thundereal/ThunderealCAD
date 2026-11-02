@@ -32,6 +32,7 @@
 namespace Gui
 {
 class Document;
+class EditSteps;
 }
 namespace App
 {
@@ -64,6 +65,9 @@ public:
     TechDraw::DrawViewBalloon *getBalloonFeat();
     ViewProviderBalloon *getBalloonView();
     void setupTransaction();
+    /// Whether its changes go in a transaction held to OK or Cancel; not
+    /// when each is a step of its own (Gui::EditSteps, PerViewEdit)
+    bool holdsTransaction() const;
 
 private Q_SLOTS:
     void onTextChanged();
@@ -86,6 +90,7 @@ private:
     App::Document* m_appDocument;
     Gui::Document* m_guiDocument;
     int m_transactionID = 0;
+    Gui::EditSteps* m_steps;
 };
 
 class TaskDlgBalloon : public Gui::TaskView::TaskDialog
@@ -109,6 +114,7 @@ public:
     void helpRequested() override { return;}
     bool isAllowedAlterDocument() const override
     { return false; }
+    bool holdsTransaction() const override;
 
     void update();
 

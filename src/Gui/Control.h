@@ -45,6 +45,7 @@ namespace App
 
 namespace Gui
 {
+class ViewProvider;
 namespace TaskView
 {
     class TaskDialog;
@@ -86,6 +87,20 @@ public:
     /// The dialog of \a owner's view, or null. A dialog that has no owner
     /// is everybody's.
     Gui::TaskView::TaskDialog* activeDialog(const TaskOwner &owner) const;
+    /** The view provider in edit whose dialog \a obj is part of -- a widget
+     * of the dialog's content, at any depth -- or null: whose edit an
+     * event to it works on (Gui::EditStepScope, docs/HandsOnQueue.md
+     * entry 232).
+     */
+    Gui::ViewProvider* editViewProviderOf(const QObject *obj) const;
+    /// The owner of the open dialog \a obj is part of -- a widget of its
+    /// content, at any depth -- or nobody
+    TaskOwner ownerOfContent(const QObject *obj) const;
+    /// Whether any task dialog is open, in any view
+    bool hasOpenDialog() const;
+    /// The task dialogs shown now, in every view, in the order they were
+    /// opened (the panel mirror's, docs/TaskPanelPerView.md sec 6)
+    std::vector<Gui::TaskView::TaskDialog*> shownDialogs() const;
     /** Whether showDialog() for \a owner would show a dialog, or refuse.
      *
      * For a caller that has to know before it builds the dialog. Null is
@@ -195,13 +210,16 @@ private:
     QTabBar* findTabBar(QDockWidget*) const;
     void aboutToShowDialog(QDockWidget* widget);
     void aboutToHideDialog(QDockWidget* widget);
-    /** Whether at most one dialog may be open in the process.
+    /** Whether at most one dialog may be open in the process, but for
+     * the dialogs of edits in other documents.
      *
-     * True until a transaction has an owner too: the application has one
-     * active transaction, and a second dialog opening its own would
-     * commit the first one's work in progress (docs/TaskPanelPerView.md
-     * sec 8). Only dialogOf() and blockerOf() depend on which way this
-     * says.
+     * The application has one active transaction, and a second dialog
+     * opening its own would commit the first one's work in progress
+     * (docs/TaskPanelPerView.md sec 8). An edit's transaction is its
+     * document's own while the edit runs (App::Application::
+     * bindActiveTransaction), so a dialog of another document's edit is
+     * let be (blockerOf(); docs/HandsOnQueue.md entry 232). Only
+     * dialogOf() and blockerOf() depend on which way this says.
      *
      * A hidden parameter, TaskView/TaskPanelAllowConcurrent, says false
      * instead. It is for tests, which open dialogs that hold no
@@ -213,8 +231,10 @@ private:
     /// the argument left out.
     Gui::TaskView::TaskDialog* dialogOf(const TaskOwner &owner) const;
     /// The open dialog that keeps one from being shown for \a owner (null
-    /// here is nobody), or null.
-    Gui::TaskView::TaskDialog* blockerOf(const TaskOwner &owner) const;
+    /// here is nobody), or null. \a incoming is the dialog to be shown,
+    /// when it is known (TaskDialog::holdsTransaction()).
+    Gui::TaskView::TaskDialog* blockerOf(const TaskOwner &owner,
+            const Gui::TaskView::TaskDialog *incoming = nullptr) const;
     /// Whether \a dlg is one of the open dialogs
     bool isOpen(const Gui::TaskView::TaskDialog *dlg) const;
     /// The three entry points with the dialog settled; null is whatever

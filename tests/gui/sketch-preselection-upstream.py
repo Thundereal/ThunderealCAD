@@ -56,6 +56,12 @@ def run():
         if mode is not None:
             FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
                 "RenderCache", int(mode))
+        # The curve-over-dimension case probes 16 px either side of a line whose
+        # dimension's number stands 12 mm along it. Its left end is the label's
+        # width from there: at the application font's height the last column of
+        # probes is on the number. The test is of a dimension's LINE.
+        FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
+            "EditSketcherFontSize", 13)
         from SketcherTests import TestConstraintPreselectionGui
 
         suite = unittest.defaultTestLoader.loadTestsFromModule(TestConstraintPreselectionGui)

@@ -2073,7 +2073,9 @@ QList<QWidget*> MainWindow::windows(QMdiArea::WindowOrder order) const
     QList<QWidget*> mdis;
     QList<QMdiSubWindow*> wnds = d->mdiArea->subWindowList(order);
     for (const auto & wnd : wnds) {
-        mdis << wnd->widget();
+        // Not a tab whose view is gone before it (MDIView::closeEvent)
+        if (QWidget *widget = wnd->widget())
+            mdis << widget;
     }
     return mdis;
 }

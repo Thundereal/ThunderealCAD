@@ -103,6 +103,8 @@ TaskHoleParameters::TaskHoleParameters(ViewProviderHole* HoleView, QWidget* pare
     , observer(new Observer(this, static_cast<PartDesign::Hole*>(vp->getObject())))
     , ui(new Ui_TaskHoleParameters)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     proxy = new QWidget(this);
     ui->setupUi(proxy);
@@ -241,6 +243,8 @@ void TaskHoleParameters::setupGizmos(ViewProviderHole* vp)
     const bool handles = GizmoContainer::isEnabled();
     const auto top = Gui::OnViewValueSet::Place::TopMiddle;
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     onViewValues->addValue(ui->Diameter, tr("Diameter"), top);
     onViewValues->addValue(ui->Depth, tr("Depth"), top);
     onViewValues->addValue(ui->StartOffset, tr("Start offset"),

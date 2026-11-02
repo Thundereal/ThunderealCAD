@@ -86,6 +86,8 @@ TaskRevolutionParameters::TaskRevolutionParameters(PartDesignGui::ViewProvider* 
       proxy(new QWidget(this)),
       isGroove(isGrooveView(RevolutionView))
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     ui->setupUi(proxy);
 
@@ -181,6 +183,8 @@ void TaskRevolutionParameters::setupGizmos(ViewProvider* vp)
     const auto beside = handles ? Gui::OnViewValueSet::Place::AtHandle
                                 : Gui::OnViewValueSet::Place::TopMiddle;
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     onViewValues->addValue(ui->revolveAngle, tr("Angle"), Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->addValue(ui->revolveAngle2, tr("Angle 2"), beside);
     onViewValues->addValue(ui->startOffsetEdit, tr("Start offset"), beside);

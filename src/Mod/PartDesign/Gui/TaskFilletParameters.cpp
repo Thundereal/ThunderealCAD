@@ -189,6 +189,7 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
     PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(getDressUpView()->getObject());
     bool useAllEdges = pcFillet->UseAllEdges.getValue();
     ui->checkBoxUseAllEdges->setChecked(useAllEdges);
+    ui->checkBoxFullRound->setChecked(pcFillet->FullRound.getValue());
 
     ui->filletRadius->setUnit(Base::Unit::Length);
     ui->filletRadius->setMinimum(0);
@@ -262,6 +263,8 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
 
     Base::connect(ui->checkBoxUseAllEdges, &QCheckBox::toggled,
         this, &TaskFilletParameters::onCheckBoxUseAllEdgesToggled);
+    Base::connect(ui->checkBoxFullRound, &QCheckBox::toggled,
+        this, &TaskFilletParameters::onCheckBoxFullRoundToggled);
 
     Base::connect(static_cast<QTreeWidget*>(ui->treeWidgetReferences), &QTreeWidget::currentItemChanged,
         [this](QTreeWidgetItem *, QTreeWidgetItem *) { setCornerGizmoPositions(); });
@@ -1783,6 +1786,22 @@ void TaskFilletParameters::onCheckBoxUseAllEdgesToggled(bool checked)
         setupTransaction(checked ? tr("use all edges") : tr("use the listed edges"));
         auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
         pcFillet->UseAllEdges.setValue(checked);
+        recompute();
+    }
+    catch (Base::Exception &e) {
+        e.ReportException();
+    }
+}
+
+void TaskFilletParameters::onCheckBoxFullRoundToggled(bool checked)
+{
+    auto DressUpView = getDressUpView();
+    if (!DressUpView)
+        return;
+    try {
+        setupTransaction();
+        auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
+        pcFillet->FullRound.setValue(checked);
         recompute();
     }
     catch (Base::Exception &e) {

@@ -99,7 +99,8 @@ public:
 
         vpDoc = vp->getDocument();
         vpParent = vp;
-        auto doc = Application::Instance->editDocument();
+        auto doc = Application::Instance->editDocument(
+            [vp](Gui::Document *editDoc) { return editDoc->isEditViewProvider(vp); });
         if(doc) {
             auto editVp = doc->getInEdit(&vpParent,&editSub);
             if(editVp == vp) {
@@ -356,6 +357,15 @@ public:
 
     void accept() {
         App::GetApplication().closeActiveTransaction();
+    }
+
+    /// End the edit this panel runs in, if it runs in one: that one
+    /// alone -- another may be in edit, in another view or document
+    void resetEdit() {
+        auto obj = vp;
+        if (auto editDoc = Application::Instance->editDocument(
+                [obj](Gui::Document *doc) { return doc->isEditViewProvider(obj); }))
+            editDoc->resetEditOf(obj);
     }
 
     void removeAll() {
@@ -763,14 +773,14 @@ void ElementColors::onRemoveAllClicked()
 bool ElementColors::accept()
 {
     d->accept();
-    Application::Instance->setEditDocument(nullptr);
+    d->resetEdit();
     return true;
 }
 
 bool ElementColors::reject()
 {
     d->reset();
-    Application::Instance->setEditDocument(nullptr);
+    d->resetEdit();
     return true;
 }
 

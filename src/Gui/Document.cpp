@@ -53,6 +53,7 @@
 #include <sstream>
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <App/Actor.h>
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
@@ -80,6 +81,7 @@
 #include "Document.h"
 #include "DocumentPy.h"
 #include "Application.h"
+#include "UndoConsent.h"
 #include "Command.h"
 #include "Control.h"
 #include "DrainCursor.h"
@@ -128,6 +130,51 @@ struct CameraInfo {
     {}
 };
 
+/** One object in edit (docs/HandsOnQueue.md entry 232).
+ *
+ * Started in one view, its viewer. With PerViewEdit off it is the
+ * document's only session and every other view joins it; with it on it is
+ * that view's alone, and other views of the document may each have one of
+ * their own beside it.
+ */
+struct EditSession
+{
+    int mode = 0;
+    ViewProvider* viewProvider = nullptr;
+    ViewProviderDocumentObject* parent = nullptr;
+    App::DocumentObject* object = nullptr;
+    std::string subname;
+    std::string subElement;
+    Base::Matrix4D transform;
+    ViewerContext* viewer = nullptr;
+    /// The view of its own the edit runs in, where that is no 3D view --
+    /// a TechDraw page: what tells it from another view's edit, as \a
+    /// viewer does for a 3D view's (docs/HandsOnQueue.md entry 232)
+    QPointer<MDIView> view;
+    /// The session root (Document::editingRoot); rootNode is its node
+    /// while the session runs.
+    std::unique_ptr<EditingRoot> root;
+    CoinPtr<SoNode> rootNode;
+    /// The view that took a selection instance of its own for the edit
+    QPointer<MDIView> selectionView;
+    std::set<const App::DocumentObject*> objs;
+    bool wantsRestore = false;
+    /// The undo steps this edit opened (Document::editStepsOf())
+    std::vector<int> steps;
+    /// The step open when the edit started -- the command that started it,
+    /// a new object made in it: in the edit's group (docs/MultiViewEdit.md
+    /// sec 12.11), not among the steps a Cancel takes back
+    int firstStep = 0;
+    /// The newest step on the undo stack when the edit started: what is
+    /// above it when the edit ends is the edit's, a panel's OK step among
+    /// them, which no session records
+    int startStep = 0;
+    /// Being ended (Document::_resetEditSession): what its edit mode does
+    /// on the way out -- deleting the edited object -- does not end it
+    /// again
+    bool ending = false;
+};
+
 // Pimpl class
 struct DocumentP
 {
@@ -143,25 +190,115 @@ struct DocumentP
     bool       _isTransacting;
     bool       _hasExpansion;
     bool       _changeViewTouchDocument;
-    int                         _editMode;
+    /// The objects in edit, in the order they were started
+    std::vector<std::unique_ptr<EditSession>> _editSessions;
+    /// The undo view number of each object's view, by object id
+    /// (Document::undoViewIdOf)
+    std::map<long, int> _undoViewIds;
+    /// The one setEdit() is starting, from when it is made to setEdit()'s
+    /// return: whatever the edit mode asks while it starts is about it
+    EditSession*                _editStarting = nullptr;
+    /// The root a caller gets with no session to ask about
+    std::unique_ptr<EditingRoot> _idleEditRoot;
+    /// The last session's, to re-enter it (Document::setEditRestore)
     int                         _editModePrevious = 0;
-    CoinPtr<SoNode>             _editRootNode;
-    /// The session root (Document::editingRoot); _editRootNode is its
-    /// node while a session runs.
-    std::unique_ptr<EditingRoot> _editRoot;
-    ViewProvider*               _editViewProvider;
     ViewProvider*               _editViewProviderPrevious = nullptr;
-    bool                        _editWantsRestore = false;
     bool                        _editWantsRestorePrevious = false;
-    App::DocumentObject*        _editingObject;
-    ViewProviderDocumentObject* _editViewProviderParent;
-    std::string                 _editSubname;
-    std::string                 _editSubElement;
-    Base::Matrix4D              _editingTransform;
-    ViewerContext*              _editingViewer;
-    /// The view that took a selection instance of its own for the edit
-    QPointer<MDIView>           _editSelectionView;
-    std::set<const App::DocumentObject*> _editObjs;
+
+    /** The session a call acts on.
+     *
+     * The one being started; else the one of the view being handled
+     * (ViewerContext::current(), a view that joined a shared session
+     * included) -- and none for a served client's view that is in none;
+     * else the active 3D view's; else, with PerViewEdit on, that of the
+     * active view of another kind (a TechDraw page), none for one in no
+     * edit, as for a 3D view; else, with no view to ask (a served
+     * document) or one edit at a time, the latest.
+     */
+    EditSession* currentSession(const Document *doc) const
+    {
+        if (_editStarting)
+            return _editStarting;
+        if (_editSessions.empty())
+            return nullptr;
+        if (ViewerContext *current = ViewerContext::current()) {
+            if (EditSession *s = sessionOf(current))
+                return s;
+            if (current->cameraIsRemote())
+                return nullptr;
+        }
+        MDIView *active = doc->getActiveView();
+        if (auto view3d = dynamic_cast<View3DInventor *>(active))
+            return sessionOf(view3d->getViewer());
+        if (active && ViewParams::getPerViewEdit())
+            return sessionIn(active);
+        return _editSessions.back().get();
+    }
+
+    /// The session a call that describes "the" edit means: the current
+    /// one, else the latest -- as there was one edit before
+    EditSession* describedSession(const Document *doc) const
+    {
+        if (EditSession *s = currentSession(doc))
+            return s;
+        return _editSessions.empty() ? nullptr : _editSessions.back().get();
+    }
+
+    /// The session \a viewer started or joined, null for none
+    EditSession* sessionOf(const ViewerContext *viewer) const
+    {
+        if (!viewer)
+            return nullptr;
+        for (auto &s : _editSessions) {
+            if (s->viewer == viewer)
+                return s.get();
+        }
+        // A joiner of a shared session: the session's view provider, and
+        // a session's root is its own
+        if (ViewProvider *vp = viewer->getEditingViewProvider()) {
+            for (auto &s : _editSessions) {
+                if (s->viewProvider == vp && s->root.get() == viewer->editingRoot())
+                    return s.get();
+            }
+        }
+        return nullptr;
+    }
+
+    /// The session started in \a view: its 3D view's, or one that runs
+    /// in a view of its own (a page); for a container (Gui::ViewArea), its
+    /// active embedded view's. Null for none -- and for a 3D view that
+    /// only joined a session (sessionOf() finds that).
+    EditSession* sessionIn(const MDIView *view) const
+    {
+        if (!view)
+            return nullptr;
+        const TaskOwner owner(const_cast<MDIView *>(view));
+        for (auto &s : _editSessions) {
+            if (ownerOf(s.get()) == owner)
+                return s.get();
+        }
+        return nullptr;
+    }
+
+    /// The view \a s runs in, as the task panels know it
+    static TaskOwner ownerOf(const EditSession *s)
+    {
+        if (!s)
+            return TaskOwner();
+        if (s->viewer)
+            return TaskOwner(s->viewer);
+        return TaskOwner(s->view.data());
+    }
+
+    /// The session editing \a obj, null for none
+    EditSession* sessionEditing(const App::DocumentObject *obj) const
+    {
+        for (auto &s : _editSessions) {
+            if (s->object == obj)
+                return s.get();
+        }
+        return nullptr;
+    }
 
     std::vector<CameraInfo>     _savedViews;
     std::map<int, std::string>  _view3DContents;
@@ -378,6 +515,7 @@ struct DocumentP
     Connection connectRecomputed;
     Connection connectSkipRecompute;
     Connection connectTransactionAppend;
+    Connection connectOpenTransaction;
     Connection connectTransactionRemove;
     Connection connectPinsReleased;
     Connection connectLogKept;
@@ -433,12 +571,6 @@ Document::Document(App::Document* pcDocument,Application * app)
     d->_pcAppWnd = app;
     d->_pcDocument = pcDocument;
     d->thumb.setUpdateOnSave(pcDocument->SaveThumbnail.getValue());
-    d->_editViewProvider = nullptr;
-    d->_editRootNode = nullptr;
-    d->_editingObject = nullptr;
-    d->_editViewProviderParent = nullptr;
-    d->_editingViewer = nullptr;
-    d->_editMode = 0;
 
     //NOLINTBEGIN
     // Setup the connections
@@ -499,6 +631,24 @@ Document::Document(App::Document* pcDocument,Application * app)
 
     d->connectTransactionAppend = pcDocument->signalTransactionAppend.connect
         (std::bind(&Gui::Document::slotTransactionAppend, this, sp::_1, sp::_2));
+    // A step of an edit's own, where the code running says whose
+    // (EditStepScope, docs/HandsOnQueue.md entry 232)
+    d->connectOpenTransaction = pcDocument->signalOpenTransaction.connect(
+        [this](const App::Document &doc, std::string) {
+            EditSession *s = nullptr;
+            if (!EditStepScope::isSet())
+                s = d->sessionOf(ViewerContext::current());
+            else if (const ViewProvider *vp = EditStepScope::current()) {
+                for (auto &session : d->_editSessions) {
+                    if (session->viewProvider == vp)
+                        s = session.get();
+                }
+            }
+            else
+                s = d->sessionOf(EditStepScope::viewerInside());
+            if (s)
+                s->steps.push_back(doc.getBookedTransactionID());
+        });
     d->connectTransactionRemove = pcDocument->signalTransactionRemove.connect
         (std::bind(&Gui::Document::slotTransactionRemove, this, sp::_1, sp::_2));
     d->connectPinsReleased = pcDocument->signalPinsReleased.connect
@@ -611,6 +761,7 @@ Document::~Document()
     d->connectRecomputed.disconnect();
     d->connectSkipRecompute.disconnect();
     d->connectTransactionAppend.disconnect();
+    d->connectOpenTransaction.disconnect();
     d->connectTransactionRemove.disconnect();
     d->connectLogKept.disconnect();
     d->connectBranches.disconnect();
@@ -648,16 +799,98 @@ Document::~Document()
 // 3D viewer handling
 //*****************************************************************************************************
 
-struct EditDocumentGuard {
-    EditDocumentGuard():active(true) {}
+namespace {
 
-    ~EditDocumentGuard() {
-        if(active)
-            Application::Instance->setEditDocument(0);
+/** The session setEdit() starts, for as long as it is starting: dropped
+ * again when setEdit() fails -- that one alone, another view's session
+ * runs on -- and the document out of edit when it was the only one.
+ */
+struct EditStartGuard {
+    EditStartGuard(Document *doc, DocumentP *d, EditSession *s) : doc(doc), d(d), s(s)
+    {
+        d->_editStarting = s;
     }
 
-    bool active;
+    ~EditStartGuard()
+    {
+        if (d->_editStarting == s)
+            d->_editStarting = nullptr;
+        if (!active)
+            return;
+        auto it = std::find_if(d->_editSessions.begin(), d->_editSessions.end(),
+                [this](const std::unique_ptr<EditSession> &e) { return e.get() == s; });
+        if (it != d->_editSessions.end()) {
+            if (s->root)
+                s->root->endSession();
+            d->_editSessions.erase(it);
+        }
+        if (d->_editSessions.empty())
+            Application::Instance->unsetEditDocument(doc);
+    }
+
+    Document *doc;
+    DocumentP *d;
+    EditSession *s;
+    bool active = true;
 };
+
+} // namespace
+
+namespace {
+
+/** Refuse an edit of \a obj, which \a editDoc's edit has: say in which
+ * view, and offer to go there (docs/HandsOnQueue.md entry 232).
+ *
+ * Not modal: setEdit() is called from scripts and from a served client's
+ * request as well as from a click, and none of them may be held up by a
+ * box. A client's request gets no desktop box at all.
+ */
+/** Whether an edit of \a vp in mode \a mode cannot run beside the
+ * session \a s (PerViewEdit): \a s holds a transaction open across its
+ * user's work, or the new edit would -- a second would commit the first
+ * one's work in progress (docs/HandsOnQueue.md entry 232)
+ */
+bool cannotRunBeside(const EditSession &s, const ViewProvider *vp, int mode)
+{
+    return !s.viewProvider || s.viewProvider->editHoldsTransaction(s.mode)
+        || vp->editHoldsTransaction(mode);
+}
+
+void refuseEditInUse(const App::DocumentObject *obj, Gui::Document *editDoc,
+                     MDIView *holderView = nullptr)
+{
+    QPointer<MDIView> view = holderView;
+    if (!view) {
+        ViewerContext *viewer = editDoc->editingViewer();
+        view = viewer ? TaskOwner(viewer).mdiView() : nullptr;
+    }
+    QString where = view ? view->windowTitle().remove(QStringLiteral("[*]"))
+                         : QObject::tr("another view");
+    const QString label = QString::fromUtf8(obj->Label.getValue());
+    Base::Console().Warning("%s is being edited in %s\n",
+                            label.toUtf8().constData(), where.toUtf8().constData());
+
+    ViewerContext *asking = ViewerContext::current();
+    if ((asking && asking->cameraIsRemote()) || !getMainWindow())
+        return;
+    auto box = new QMessageBox(QMessageBox::Information,
+                               QObject::tr("Already in edit"),
+                               QObject::tr("%1 is being edited in %2.").arg(label, where),
+                               QMessageBox::Close, getMainWindow());
+    box->setObjectName(QStringLiteral("EditInUse"));
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    if (view) {
+        QPushButton *go = box->addButton(QObject::tr("Go there"), QMessageBox::AcceptRole);
+        QObject::connect(go, &QPushButton::clicked, [view]() {
+            if (view)
+                getMainWindow()->setActiveWindow(view);
+        });
+    }
+    box->setModal(false);
+    box->show();
+}
+
+} // namespace
 
 bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
 {
@@ -677,10 +910,12 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
 
     // Fix regression: https://forum.freecad.org/viewtopic.php?f=19&t=43629&p=371972#p371972
     // When an object is already in edit mode a subsequent call for editing is only possible
-    // when resetting the currently edited object.
-    if (d->_editViewProvider) {
+    // when resetting the currently edited object. With PerViewEdit on it is
+    // the edits this one cannot run beside that end, once the view it is
+    // started in is known (below).
+    const bool perView = ViewParams::getPerViewEdit();
+    if (!perView && !d->_editSessions.empty())
         _resetEdit();
-    }
 
     auto obj = vp->getObject();
     if(!obj->isAttachedToDocument()) {
@@ -773,7 +1008,7 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         return false;
     }
 
-    d->_editingTransform = Base::Matrix4D();
+    Base::Matrix4D editTransform;
     // Geo feature group now handles subname like link group. So no need of the
     // following code.
     //
@@ -781,22 +1016,22 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     //     auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj);
     //     if(group) {
     //         auto ext = group->getExtensionByType<App::GeoFeatureGroupExtension>();
-    //         d->_editingTransform = ext->globalGroupPlacement().toMatrix();
+    //         editTransform = ext->globalGroupPlacement().toMatrix();
     //     }
     // }
-    d->_editSubElement.clear();
-    d->_editSubname.clear();
+    std::string editSubname;
+    std::string editSubElement;
     if (subname) {
         const char *element = Data::findElementName(subname);
         if (element) {
-            d->_editSubname = std::string(subname,element-subname);
-            d->_editSubElement = element;
+            editSubname = std::string(subname,element-subname);
+            editSubElement = element;
         }
         else {
-            d->_editSubname = subname;
+            editSubname = subname;
         }
     }
-    auto sobj = obj->getSubObject(d->_editSubname.c_str(),nullptr,&d->_editingTransform);
+    auto sobj = obj->getSubObject(editSubname.c_str(),nullptr,&editTransform);
     if(!sobj || !sobj->isAttachedToDocument()) {
         FC_ERR("Invalid sub object '" << obj->getFullName()
                 << '.' << (subname?subname:"") << "'");
@@ -812,6 +1047,80 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         }
     }
 
+    // The view this edit session belongs to. A replayed client event names
+    // its own before it is handled, and there is no other way to know which
+    // it was: reaching for the active window in a process serving several
+    // browsers names either nothing or somebody else's (docs/ThinClient.md
+    // sec 8.9). Nothing on the desktop opens such a scope, so there the
+    // active 3D view is found and activated exactly as before -- and one is
+    // created for the document if it has none, which is a thing only a
+    // desktop may do.
+    ViewerContext *editViewer = ViewerContext::current();
+    // An object with a view of its own -- a TechDraw page's -- is edited
+    // in that view, which no 3D view is: the session is that view's, as
+    // another is its 3D view's (docs/HandsOnQueue.md entry 232)
+    MDIView *editView = nullptr;
+    View3DInventor *view3d = nullptr;
+    if (!editViewer && svp->hasOwnView()) {
+        // In its own view whichever window is active: a dimension edited
+        // from the tree with a 3D view in front is its page's edit
+        editView = svp->getMDIView();
+        if (!editView)
+            editView = svp->getOrCreateMDIView();
+        if (qobject_cast<View3DInventor *>(editView))
+            editView = nullptr;
+        else if (editView)
+            getMainWindow()->setActiveWindow(editView);
+    }
+    if (!editViewer && !editView) {
+        view3d = dynamic_cast<View3DInventor *>(getActiveView());
+        // if the currently active view is not the 3d view search for it and activate it
+        if (view3d)
+            getMainWindow()->setActiveWindow(view3d);
+        else {
+            MDIView *view = setActiveView(vp);
+            view3d = dynamic_cast<View3DInventor *>(view);
+            if (!view3d)
+                editView = view;
+        }
+        if (view3d)
+            editViewer = view3d->getViewer();
+    }
+
+    // With PerViewEdit on, the session this view has ends, and so does any
+    // this one cannot run beside: one whose edit holds a transaction open
+    // across the user's work, or when this one's does -- a second would
+    // commit the first one's work in progress (docs/HandsOnQueue.md entry
+    // 232). The others run on, each in its own view.
+    std::vector<EditSession*> ending;
+    if (perView) {
+        for (auto &s : d->_editSessions) {
+            const bool sameView = editViewer ? s->viewer == editViewer
+                                             : !s->viewer && s->view == editView;
+            if (sameView || cannotRunBeside(*s, svp, ModNum))
+                ending.push_back(s.get());
+        }
+    }
+
+    // One edit of an object at a time: it is ObjEditing for as long as an
+    // edit has it -- another view's, or another document's through a link
+    // (docs/HandsOnQueue.md entry 232). Asked of the edits that go on, and
+    // before any ends: a refused edit ends none.
+    if (sobj->testStatus(App::ObjEditing)) {
+        Gui::Document *editDoc = Application::Instance->editDocument(
+                [sobj](Gui::Document *doc) { return doc->isEditingObject(sobj); });
+        EditSession *holder = editDoc ? editDoc->d->sessionEditing(sobj) : nullptr;
+        if (editDoc && (editDoc != this
+                        || std::find(ending.begin(), ending.end(), holder) == ending.end())) {
+            refuseEditInUse(sobj, editDoc,
+                            holder ? DocumentP::ownerOf(holder).mdiView() : nullptr);
+            return false;
+        }
+    }
+
+    for (EditSession *s : ending)
+        _resetEditSession(s);
+
     // A feature of an old file opened without its migration recompute: it
     // and what it needs, recomputed alone, so the edit's preview has the
     // element names it is read by (docs/HandsOnQueue.md entry 211). Only
@@ -825,47 +1134,35 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         }
     }
 
-    // The view this edit session belongs to. A replayed client event names
-    // its own before it is handled, and there is no other way to know which
-    // it was: reaching for the active window in a process serving several
-    // browsers names either nothing or somebody else's (docs/ThinClient.md
-    // sec 8.9). Nothing on the desktop opens such a scope, so there the
-    // active 3D view is found and activated exactly as before -- and one is
-    // created for the document if it has none, which is a thing only a
-    // desktop may do.
-    ViewerContext *editViewer = ViewerContext::current();
-    View3DInventor *view3d = nullptr;
-    if (!editViewer) {
-        view3d = dynamic_cast<View3DInventor *>(getActiveView());
-        // if the currently active view is not the 3d view search for it and activate it
-        if (view3d)
-            getMainWindow()->setActiveWindow(view3d);
-        else
-            view3d = dynamic_cast<View3DInventor *>(setActiveView(vp));
-        if (view3d)
-            editViewer = view3d->getViewer();
+    // Another document's edit runs on beside this one: its transaction is
+    // its document's own while it runs (bindActiveTransaction below), and
+    // its dialog does not keep this one's out (Control's blockerOf()) --
+    // docs/HandsOnQueue.md entry 232
+    d->_editSessions.push_back(std::make_unique<EditSession>());
+    EditSession *session = d->_editSessions.back().get();
+    if (getDocument()->hasPendingTransaction())
+        session->firstStep = getDocument()->getTransactionID(true, 0);
+    {
+        const auto steps = getDocument()->getAvailableUndoSteps();
+        session->startStep = steps.empty() ? 0 : steps.front().id;
     }
-
-    EditDocumentGuard guard;
+    EditStartGuard guard(this, d, session);
     Application::Instance->setEditDocument(this);
 
-    d->_editViewProviderParent = vp;
+    session->parent = vp;
+    session->view = editView;
+    session->subname = std::move(editSubname);
+    session->subElement = std::move(editSubElement);
+    session->transform = editTransform;
 
     auto sobjs = obj->getSubObjectList(subname);
-    d->_editObjs.clear();
-    d->_editObjs.insert(sobjs.begin(),sobjs.end());
-    d->_editingObject = sobj;
+    session->objs.insert(sobjs.begin(),sobjs.end());
+    session->object = sobj;
 
     Base::ObjectStatusLocker<App::ObjectStatus, App::DocumentObject> 
         guard2(App::ObjEditing, sobj);
 
-    d->_editMode = ModNum;
-    // What a session holds for its views can be put there from here on --
-    // an edit mode's visibility automation runs as it starts, before any
-    // view is bound (setEditVisibility) -- so nothing of an earlier one
-    // may be left to meet it.
-    if (d->_editRoot)
-        d->_editRoot->endSession();
+    session->mode = ModNum;
 
     // The view the edit starts in selects into an instance of its own
     // from here to the edit's end (docs/TaskPanelPerView.md sec 12), and
@@ -874,32 +1171,23 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     // the selection on its way in is done to that one. A client's view has
     // had its own all along, made current by its scope.
     std::optional<SelectionScope> editSelection;
-    if (MDIView *selView = d->_editSelectionView) {
-        // Left behind by an edit that did not end the usual way
-        d->_editSelectionView = nullptr;
-        selView->releaseOwnSelection();
-    }
     if (editViewer) {
         if (MDIView *selView = TaskOwner(editViewer).mdiView()) {
             selView->takeOwnSelection();
-            d->_editSelectionView = selView;
+            session->selectionView = selView;
         }
         if (SelectionSingleton *sel = editViewer->selectionInstance())
             editSelection.emplace(*sel);
     }
 
-    d->_editViewProvider = svp->startEditing(ModNum);
-    if(!d->_editViewProvider) {
-        if (MDIView *selView = d->_editSelectionView) {
-            d->_editSelectionView = nullptr;
+    session->viewProvider = svp->startEditing(ModNum);
+    if(!session->viewProvider) {
+        if (MDIView *selView = session->selectionView) {
+            session->selectionView = nullptr;
             selView->releaseOwnSelection();
         }
-        // Refused, and whatever it swapped on the way goes with it
-        if (d->_editRoot)
-            d->_editRoot->endSession();
-        d->_editViewProviderParent = nullptr;
-        d->_editObjs.clear();
-        d->_editingObject = nullptr;
+        // Refused, and whatever it swapped on the way goes with it (the
+        // guard drops the session)
         FC_LOG("object '" << sobj->getFullName() << "' refuse to edit");
         // Some code somewhere may try to delete the editing object (e.g.
         // undo), but couldn't because of the App::ObjEditing status we set
@@ -908,11 +1196,13 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         guard2.detach();
         App::Document::clearPendingRemove();
         return false;
-    } else if (Application::Instance->editDocument() != this) {
+    } else if (!Application::Instance->isInEdit(this) || !hasEditSession(session)) {
         // It is possible when calling startEditing() above show triggers some
-        // code to call resetEdit(), which prematrually clears the
-        // Application::editDocument(). In this cause we shall abort.
-        _resetEdit();
+        // code to call resetEdit(), which prematrually takes this document
+        // out of Application::editDocuments(). In this cause we shall abort.
+        if (hasEditSession(session))
+            _resetEditSession(session);
+        guard.active = false;
         guard2.detach();
         App::Document::clearPendingRemove();
         return false;
@@ -922,10 +1212,10 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         EditingRoot *root = editingRoot();
         // Whose session this is, for as long as it runs: every view's, or
         // the one it is started in (the user's choice, PerViewEdit).
-        root->setShared(!ViewParams::getPerViewEdit());
-        editViewer->setEditingViewProvider(d->_editViewProvider, ModNum, root);
-        d->_editingViewer = editViewer;
-        d->_editRootNode = root->node();
+        root->setShared(!perView);
+        session->viewer = editViewer;
+        editViewer->setEditingViewProvider(session->viewProvider, ModNum, root);
+        session->rootNode = root->node();
         // One session, every view (docs/ThinClient.md 8.11): the other 3D
         // windows of this document join it -- the same root hung, their
         // events routed to the same tool -- so a sketch entered in one
@@ -937,61 +1227,111 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
             for (auto view : d->baseViews) {
                 auto view3d = dynamic_cast<View3DInventor *>(view);
                 if (view3d && view3d->getViewer() && view3d->getViewer() != editViewer)
-                    view3d->getViewer()->joinEditing(d->_editViewProvider, root);
+                    view3d->getViewer()->joinEditing(session->viewProvider, root);
             }
         }
     }
     // The dialog of the view the edit runs in, which is where an edit
     // mode shows its panel -- not of whichever view is being handled
-    Gui::TaskView::TaskDialog* dlg = Gui::Control().activeDialog(TaskOwner(editViewer));
+    Gui::TaskView::TaskDialog* dlg = Gui::Control().activeDialog(DocumentP::ownerOf(session));
     if (dlg)
         dlg->setDocumentName(this->getDocument()->getName());
-    if (d->_editViewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
-        auto vpd = static_cast<ViewProviderDocumentObject*>(d->_editViewProvider);
+    if (session->viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
+        auto vpd = static_cast<ViewProviderDocumentObject*>(session->viewProvider);
         vpd->getDocument()->signalInEdit(*vpd);
     }
     guard.active = false;
     App::AutoTransaction::setEnable(false);
-    guard2.detach(/*reset*/d->_editViewProvider==nullptr);
+    // The edit's transaction is this document's from here to its end: a
+    // step another document's edit opens does not commit it, and this
+    // edit's steps go in this document (docs/HandsOnQueue.md entry 232)
+    App::GetApplication().bindActiveTransaction(getDocument());
+    const bool started = hasEditSession(session) && session->viewProvider;
+    guard2.detach(/*reset*/!started);
     App::Document::clearPendingRemove();
-    return d->_editViewProvider != nullptr;
+    return started;
 }
 
 const Base::Matrix4D &Document::getEditingTransform() const {
-    return d->_editingTransform;
+    static const Base::Matrix4D identity;
+    EditSession *s = d->describedSession(this);
+    return s ? s->transform : identity;
 }
 
 void Document::setEditingTransform(const Base::Matrix4D &mat) {
-    d->_editObjs.clear();
-    d->_editingTransform = mat;
+    EditSession *s = d->currentSession(this);
+    if (s) {
+        s->objs.clear();
+        s->transform = mat;
+    }
     // The view the session is bound to, not the one that happens to be
     // active -- with two 3D views open those are the same view only until
     // someone clicks the other, and the editing transform belongs to the
     // one doing the editing. Outside a session there is nothing bound and
     // the active view is still the only candidate.
-    if (d->_editingViewer)
-        d->_editingViewer->setEditingTransform(mat);
+    if (s && s->viewer)
+        s->viewer->setEditingTransform(mat);
     else if (auto activeView = dynamic_cast<View3DInventor *>(getActiveView()))
         activeView->getViewer()->setEditingTransform(mat);
 }
 
 ViewerContext *Document::editingViewer() const {
-    return d->_editingViewer;
+    EditSession *s = d->describedSession(this);
+    return s ? s->viewer : nullptr;
+}
+
+bool Document::isEditingIn(const ViewerContext *viewer) const
+{
+    if (!viewer)
+        return false;
+    for (auto &s : d->_editSessions) {
+        if (s->viewer == viewer)
+            return true;
+    }
+    return false;
+}
+
+bool Document::editEndsAnother(const ViewProvider *vp, int mode,
+                               const ViewerContext *viewer) const
+{
+    for (auto &s : d->_editSessions) {
+        // The view's own, which an edit started there ends anyway
+        if (viewer && s->viewer == viewer)
+            continue;
+        if (cannotRunBeside(*s, vp, mode))
+            return true;
+    }
+    return false;
+}
+
+std::vector<ViewerContext*> Document::editingViewers() const
+{
+    std::vector<ViewerContext*> viewers;
+    for (auto &s : d->_editSessions) {
+        if (s->viewer)
+            viewers.push_back(s->viewer);
+    }
+    return viewers;
 }
 
 EditingRoot *Document::editingRoot() {
-    if (!d->_editRoot)
-        d->_editRoot = std::make_unique<EditingRoot>(this);
-    return d->_editRoot.get();
+    // The session's own, one a session (docs/HandsOnQueue.md entry 232);
+    // with none to ask about, one of the document's that no view shows
+    EditSession *s = d->describedSession(this);
+    std::unique_ptr<EditingRoot> &root = s ? s->root : d->_idleEditRoot;
+    if (!root)
+        root = std::make_unique<EditingRoot>(this);
+    return root.get();
 }
 
 bool Document::canSetEditVisibility() const
 {
-    if (Application::Instance->editDocument() != this)
+    if (!Application::Instance->isInEdit(const_cast<Document *>(this)))
         return false;
     // The view the session runs in, else the one setEdit is about to
     // start it in: found the way setEdit finds it.
-    ViewerContext *viewer = d->_editingViewer;
+    EditSession *s = d->currentSession(this);
+    ViewerContext *viewer = s ? s->viewer : nullptr;
     if (!viewer)
         viewer = ViewerContext::current();
     if (!viewer) {
@@ -1050,10 +1390,11 @@ bool Document::setEditVisibility(const char *owner, const App::DocumentObject *o
 int Document::getEditVisibility(const char *owner, const App::DocumentObject *obj,
                                 const char *subname) const
 {
-    if (!owner || !obj || !obj->isAttachedToDocument() || !d->_editRoot)
+    EditSession *s = d->describedSession(this);
+    if (!owner || !obj || !obj->isAttachedToDocument() || !s || !s->root)
         return -1;
     const std::string sub = subname ? subname : "";
-    if (auto entries = d->_editRoot->visibilitySwaps(owner)) {
+    if (auto entries = s->root->visibilitySwaps(owner)) {
         for (const auto &entry : *entries) {
             if (sameEntry(entry, obj, sub))
                 return entry.visible ? 1 : 0;
@@ -1063,8 +1404,36 @@ int Document::getEditVisibility(const char *owner, const App::DocumentObject *ob
 }
 
 void Document::resetEdit() {
-    bool vpIsNotNull = d->_editViewProvider != nullptr;
-    bool vpHasChanged = d->_editViewProvider != d->_editViewProviderPrevious;
+    // The session of the view asking (docs/HandsOnQueue.md entry 232),
+    // else the latest: asked from no view in one, it is still the edit
+    // that is meant, as when there was only one
+    EditSession *s = d->currentSession(this);
+    if (!s && !d->_editSessions.empty())
+        s = d->_editSessions.back().get();
+    if (!s) {
+        // An edit is the document's whose object is at the top of the
+        // edited path, and the object edited may be another document's,
+        // reached by a link: a panel ends it through the edited object's
+        // document (Gui::cmdGuiDocument(feature, "resetEdit()")). When only
+        // one document could be in edit, that ended it whichever document
+        // was asked.
+        Application::Instance->unsetEditDocumentIf([this](Gui::Document *editDoc) {
+            for (auto &session : editDoc->d->_editSessions) {
+                auto vp = dynamic_cast<ViewProviderDocumentObject*>(session->viewProvider);
+                if (vp && vp->getDocument() == this)
+                    return true;
+            }
+            return false;
+        });
+        return;
+    }
+    _endEdit(s);
+}
+
+void Document::_endEdit(EditSession *s)
+{
+    bool vpIsNotNull = s->viewProvider != nullptr;
+    bool vpHasChanged = s->viewProvider != d->_editViewProviderPrevious;
     int modeToRestore = d->_editModePrevious;
     Gui::ViewProvider* vpToRestore = d->_editViewProviderPrevious;
     bool shouldRestorePrevious = d->_editWantsRestorePrevious;
@@ -1081,9 +1450,14 @@ void Document::resetEdit() {
     // a timer (ViewProvider::eventCallback), and a deferred call runs with
     // no scope open at all -- which is the hazard sec 8.10 names, and this
     // is the one path known to walk into it.
-    ViewerScope scope(d->_editingViewer);
+    ViewerScope scope(s->viewer);
 
-    Application::Instance->setEditDocument(nullptr);
+    // The last session takes the document out of edit, the others end
+    // alone
+    if (d->_editSessions.size() == 1)
+        Application::Instance->unsetEditDocument(this);
+    else
+        _resetEditSession(s);
 
     // Re-enter the edit session that was interrupted by the one that just
     // ended, if it asked for that with setEditRestore(true) -- e.g. an
@@ -1095,69 +1469,127 @@ void Document::resetEdit() {
 
 void Document::setEditRestore(bool askRestore)
 {
-    d->_editWantsRestore = askRestore;
+    if (EditSession *s = d->currentSession(this))
+        s->wantsRestore = askRestore;
+}
+
+bool Document::hasEditSession(const EditSession *s) const
+{
+    for (auto &session : d->_editSessions) {
+        if (session.get() == s)
+            return true;
+    }
+    return false;
+}
+
+void Document::_resetEditSession(EditSession *s)
+{
+    if (!s || s->ending || !hasEditSession(s))
+        return;
+    s->ending = true;
+    if (s->viewProvider) {
+        // The initiator first: it gives the view provider its geometry
+        // back out of the session's root, and a view that is not one of
+        // this document's -- a client's mirror, which belongs to the
+        // serving source rather than to the document -- is not in the list
+        // below. Then every other view in this session leaves it; a view
+        // in another session stays (docs/HandsOnQueue.md entry 232).
+        if (s->viewer)
+            s->viewer->resetEditingViewProvider();
+        for (auto view : d->baseViews) {
+            auto view3d = dynamic_cast<View3DInventor *>(view);
+            ViewerContext *viewer = view3d ? view3d->getViewer() : nullptr;
+            if (viewer && d->sessionOf(viewer) == s)
+                viewer->resetEditingViewProvider();
+        }
+
+        if (s->object)
+            s->object->setStatus(App::ObjEditing, false);
+        s->viewProvider->finishEditing();
+
+        // Have to check s->viewProvider below, because there is a chance
+        // the editing object gets deleted inside the above call to
+        // 'finishEditing()', which will trigger our slotDeletedObject(), which
+        // nullifies it.
+        if (s->viewProvider && s->viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
+            auto vpd = static_cast<ViewProviderDocumentObject*>(s->viewProvider);
+            vpd->getDocument()->signalResetEdit(*vpd);
+        }
+        d->_editViewProviderPrevious = s->viewProvider;
+        d->_editModePrevious = s->mode;
+        d->_editWantsRestorePrevious = s->wantsRestore;
+        s->viewProvider = nullptr;
+        // The initiating view ended the session as it left; an edit that
+        // never had one -- no 3D view to start in -- ends here.
+        if (s->root)
+            s->root->endSession();
+
+        // The edit's transaction ends with the document's last session.
+        // One ending beside another closes none: under PerViewEdit an edit
+        // holds no transaction across the user's work, and the step open
+        // now may be the other view's (a drag in progress).
+        if (d->_editSessions.size() == 1) {
+            if (App::GetApplication().isActiveTransactionBound(getDocument()))
+                App::GetApplication().unbindActiveTransaction(getDocument());
+            else
+                App::GetApplication().closeActiveTransaction();
+        }
+    }
+    // The edit's view gives its selection back: what the edit left
+    // selected goes to the room, as its user expects to find it.
+    if (MDIView *selView = s->selectionView) {
+        s->selectionView = nullptr;
+        selView->releaseOwnSelection();
+    }
+    // Its steps one group (docs/MultiViewEdit.md sec 12.11): one undo
+    // takes the edit, its steps reachable one by one in the drop-down. Once
+    // the event that ended it is done, as the step OK opened is committed
+    // then; Cancel takes them back first, and they go back as one redo.
+    std::vector<int> group;
+    if (s->firstStep)
+        group.push_back(s->firstStep);
+    group.insert(group.end(), s->steps.begin(), s->steps.end());
+    // And whatever came above the stack's top as the edit began -- OK's
+    // step, opened by its panel outside any view's event -- that is no
+    // other edit's still running and in no group already
+    std::set<int> others;
+    for (auto& other : d->_editSessions) {
+        if (other.get() != s)
+            others.insert(other->steps.begin(), other->steps.end());
+    }
+    for (const auto& step : getDocument()->getAvailableUndoSteps()) {
+        if (step.id == s->startStep)
+            break;
+        if (!step.group && !others.count(step.id)
+                && std::find(group.begin(), group.end(), step.id) == group.end())
+            group.push_back(step.id);
+    }
+    if (group.size() > 1) {
+        QTimer::singleShot(0, [docName = std::string(getDocument()->getName()), group]() {
+            if (auto doc = App::GetApplication().getDocument(docName.c_str()))
+                doc->groupSteps(group);
+        });
+    }
+    auto it = std::find_if(d->_editSessions.begin(), d->_editSessions.end(),
+            [s](const std::unique_ptr<EditSession> &e) { return e.get() == s; });
+    if (it != d->_editSessions.end())
+        d->_editSessions.erase(it);
+    if (d->_editSessions.empty())
+        Application::Instance->unsetEditDocument(this);
 }
 
 void Document::_resetEdit()
 {
-    std::list<Gui::BaseView*>::iterator it;
-    if (d->_editViewProvider) {
-        // The initiator first: it gives the view provider its geometry
-        // back out of the shared root, and a view that is not one of this
-        // document's -- a client's mirror, which belongs to the serving
-        // source rather than to the document -- is not in the list below.
-        // Then every other view leaves the session it joined. Both are
-        // idempotent, so the initiator being named twice is unharmed.
-        if (d->_editingViewer)
-            d->_editingViewer->resetEditingViewProvider();
-        for (it = d->baseViews.begin();it != d->baseViews.end();++it) {
-            auto activeView = dynamic_cast<View3DInventor *>(*it);
-            if (activeView && activeView->getViewer())
-                activeView->getViewer()->resetEditingViewProvider();
+    // Every session: the document is out of edit
+    while (!d->_editSessions.empty()) {
+        EditSession *s = d->_editSessions.back().get();
+        if (s->ending) {
+            // Ending already, further up the stack: it is dropped there
+            break;
         }
-
-        if (d->_editingObject)
-            d->_editingObject->setStatus(App::ObjEditing, false);
-        d->_editViewProvider->finishEditing();
-
-        // Have to check d->_editViewProvider below, because there is a chance
-        // the editing object gets deleted inside the above call to
-        // 'finishEditing()', which will trigger our slotDeletedObject(), which
-        // nullifies _editViewProvider.
-        if (d->_editViewProvider && d->_editViewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
-            auto vpd = static_cast<ViewProviderDocumentObject*>(d->_editViewProvider);
-            vpd->getDocument()->signalResetEdit(*vpd);
-        }
-        d->_editViewProviderPrevious = d->_editViewProvider;
-        d->_editModePrevious = d->_editMode;
-        d->_editWantsRestorePrevious = d->_editWantsRestore;
-        d->_editWantsRestore = false;
-        d->_editViewProvider = nullptr;
-        // The initiating view ended the session as it left; an edit that
-        // never had one -- no 3D view to start in -- ends here.
-        if (d->_editRoot)
-            d->_editRoot->endSession();
-
-        // The logic below is not necessary anymore, because this method is
-        // changed into a private one,  _resetEdit(). And the exposed
-        // resetEdit() above calls into Application->setEditDocument(0) which
-        // will prevent recursive calling.
-
-        App::GetApplication().closeActiveTransaction();
+        _resetEditSession(s);
     }
-    d->_editViewProviderParent = nullptr;
-    d->_editingViewer = nullptr;
-    d->_editObjs.clear();
-    d->_editingObject = nullptr;
-    d->_editRootNode.reset();
-    // The edit's view gives its selection back: what the edit left
-    // selected goes to the room, as its user expects to find it.
-    if (MDIView *selView = d->_editSelectionView) {
-        d->_editSelectionView = nullptr;
-        selView->releaseOwnSelection();
-    }
-    if(Application::Instance->editDocument() == this)
-        Application::Instance->setEditDocument(nullptr);
+    Application::Instance->unsetEditDocument(this);
 }
 
 App::SubObjectT Document::getInEditT(int *mode) const
@@ -1175,50 +1607,282 @@ App::SubObjectT Document::getInEditT(int *mode) const
 ViewProvider *Document::getInEdit(ViewProviderDocumentObject **parentVp,
         std::string *subname, int *mode, std::string *subelement) const
 {
-    if(parentVp) *parentVp = d->_editViewProviderParent;
-    if(subname) *subname = d->_editSubname;
-    if(subelement) *subelement = d->_editSubElement;
-    if(mode) *mode = d->_editMode;
+    // The session of the view asking (DocumentP::currentSession): a served
+    // client's request and its replayed events run under a scope on its
+    // own mirror, and the answer is that view's -- whether IT is in the
+    // session (docs/ThinClient.md 8.12 item D); else the active 3D window,
+    // the desktop user's, which with a session that is another view's
+    // alone (PerViewEdit) need not be in one. The edit described is that
+    // session's, else the latest one's, as there was only one before.
+    EditSession *s = d->currentSession(this);
+    EditSession *described = s ? s
+        : (d->_editSessions.empty() ? nullptr : d->_editSessions.back().get());
+    if(parentVp) *parentVp = described ? described->parent : nullptr;
+    if(subname) *subname = described ? described->subname : std::string();
+    if(subelement) *subelement = described ? described->subElement : std::string();
+    if(mode) *mode = described ? described->mode : 0;
 
-    if (d->_editViewProvider) {
-        // The view asking, when there is one to name: a served client's
-        // request and its replayed events run under a scope on its own
-        // mirror, and the answer is that view's -- whether IT is in the
-        // session (docs/ThinClient.md 8.12 item D). The active 3D window
-        // below is the desktop user's, and with a session that is its
-        // initiator's alone (PerViewEdit) it need not have joined.
-        //
-        // Only a client's view is answered "no" here. A desktop viewer
-        // opens a scope around its own events too, and whatever runs under
-        // one of those -- a nested event loop reaches a long way -- is
-        // still the desktop asking, for which the active window answers
-        // as it always has.
-        if (ViewerContext *current = ViewerContext::current()) {
-            if (current->getEditingViewProvider() == d->_editViewProvider)
-                return d->_editViewProvider;
-            if (current->cameraIsRemote())
-                return nullptr;
-        }
-        // there is only one 3d view which is in edit mode
-        auto activeView = dynamic_cast<View3DInventor *>(getActiveView());
-        if (activeView)
-            return activeView->getViewer()->isEditingViewProvider()
-                ? d->_editViewProvider : nullptr;
-        // No 3D view of this document to ask. A served document has none --
-        // its edit session is bound to a client's mirror instead
-        // (docs/ThinClient.md sec 8.9) -- so ask the view the session was
-        // actually bound to.
-        if (d->_editingViewer && d->_editingViewer->isEditingViewProvider())
-            return d->_editViewProvider;
+    if (!s || !s->viewProvider)
+        return nullptr;
+    // Being started: the edit mode asks about itself, before any view is
+    // bound to it
+    if (s == d->_editStarting)
+        return s->viewProvider;
+    // No 3D view of this document to ask. A served document has none --
+    // its edit session is bound to a client's mirror instead
+    // (docs/ThinClient.md sec 8.9) -- so ask the view the session was
+    // actually bound to.
+    if (s->viewer && !s->viewer->isEditingViewProvider())
+        return nullptr;
+    return s->viewProvider;
+}
+
+ViewProvider *Document::getEditViewProvider() const
+{
+    EditSession *s = d->currentSession(this);
+    if (!s && !d->_editSessions.empty())
+        s = d->_editSessions.back().get();
+    return s ? s->viewProvider : nullptr;
+}
+
+bool Document::isEditViewProvider(const ViewProvider *vp) const
+{
+    if (!vp)
+        return false;
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp)
+            return true;
+    }
+    return false;
+}
+
+App::DocumentObject *Document::getEditingObject() const
+{
+    EditSession *s = d->currentSession(this);
+    if (!s && !d->_editSessions.empty())
+        s = d->_editSessions.back().get();
+    return s ? s->object : nullptr;
+}
+
+bool Document::isEditingObject(const App::DocumentObject *obj) const
+{
+    return obj && d->sessionEditing(obj);
+}
+
+bool Document::isStartingEdit() const
+{
+    return d->_editStarting != nullptr;
+}
+
+bool Document::undoOwnSteps(const std::vector<int>& tids)
+{
+    App::Document *doc = getDocument();
+    std::set<int> mine;
+    for (int tid : tids) {
+        if (tid > 0)
+            mine.insert(tid);
+    }
+    if (mine.empty())
+        return true;
+    // An open step is committed first, as undo() does
+    if (doc->hasPendingTransaction())
+        doc->commitTransaction();
+
+    // Those still on the undo stack: one undone in the edit since is on
+    // the redo stack, where it stays, and is no reason to look further
+    // down for it
+    std::set<int> onStack;
+    for (unsigned pos = 0;; ++pos) {
+        const int tid = doc->getTransactionID(/*undo*/true, pos);
+        if (!tid)
+            break;
+        if (mine.count(tid))
+            onStack.insert(tid);
     }
 
+    // Nothing of anyone else's above the oldest of them: the plain undo
+    // down to it, as a panel's Cancel always was, and redo keeps them
+    int oldest = 0;
+    std::size_t seen = 0;
+    bool interleaved = false;
+    for (unsigned pos = 0; seen < onStack.size(); ++pos) {
+        const int tid = doc->getTransactionID(/*undo*/true, pos);
+        if (!tid)
+            break;
+        if (mine.count(tid)) {
+            ++seen;
+            oldest = tid;
+        }
+        else
+            interleaved = true;
+    }
+    if (!oldest)
+        return true;   // none of them is on the undo stack any more
+    if (!interleaved)
+        return doc->undo(oldest);
+
+    // Another view's steps are among them (docs/HandsOnQueue.md entry
+    // 232): this edit's own are taken back from the log, as one step
+    const std::vector<int64_t> seqs = doc->logSeqsOf(tids);
+    if (seqs.empty())
+        return false;
+    if (doc->undoLogged(seqs))
+        return true;
+
+    // Steps made since in the way: the user's to say, as for an undo
+    // refused for them (docs/MultiViewEdit.md sec 12.11)
+    const std::string why = doc->undoRefusal();
+    if (doc->stepsInTheWay().empty()) {
+        QMessageBox::warning(getMainWindow(), QObject::tr("Cancel"),
+                             QObject::tr("What this edit changed cannot be taken back: %1")
+                                 .arg(QString::fromUtf8(why.c_str())));
+        return false;
+    }
+    App::UndoStep step;
+    const QString what = doc->stepInfo(oldest, step)
+        ? QCoreApplication::translate("Command", step.name.c_str())
+        : QString();
+    const std::vector<int> own(onStack.begin(), onStack.end());
+    return resolveInTheWay(own, what, why, [doc, seqs] {
+        return doc->undoLogged(seqs, App::Document::UndoConflicts::Skip);
+    }, /*cancel*/true);
+}
+
+std::vector<int> Document::editStepsOf(const ViewProvider *vp) const
+{
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp)
+            return s->steps;
+    }
+    return {};
+}
+
+namespace {
+const ViewProvider *editStepOwner = nullptr;
+bool editStepSet = false;
+/// The view scoped when the innermost EditStepScope was opened
+ViewerContext *editStepViewer = nullptr;
+}
+
+EditStepScope::EditStepScope(const ViewProvider *vp)
+    : previous(editStepOwner), wasSet(editStepSet), previousViewer(editStepViewer)
+{
+    editStepOwner = vp;
+    editStepSet = true;
+    editStepViewer = ViewerContext::current();
+}
+
+EditStepScope::~EditStepScope()
+{
+    editStepOwner = previous;
+    editStepSet = wasSet;
+    editStepViewer = previousViewer;
+}
+
+ViewerContext *EditStepScope::viewerInside()
+{
+    ViewerContext *current = ViewerContext::current();
+    return current != editStepViewer ? current : nullptr;
+}
+
+bool EditStepScope::isSet()
+{
+    return editStepSet;
+}
+
+const ViewProvider *EditStepScope::current()
+{
+    return editStepOwner;
+}
+
+void Document::resetEditOf(const ViewProvider *vp)
+{
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp) {
+            _endEdit(s.get());
+            return;
+        }
+    }
+}
+
+void Document::resetEditIn(const MDIView *view)
+{
+    if (EditSession *s = d->sessionIn(view))
+        _endEdit(s);
+}
+
+ViewProvider *Document::editViewProviderIn(const MDIView *view) const
+{
+    EditSession *s = d->sessionIn(view);
+    // A 3D view that joined another's session draws in it too
+    if (!s) {
+        if (auto view3d = qobject_cast<View3DInventor *>(TaskOwner(const_cast<MDIView *>(view)).mdiView()))
+            s = d->sessionOf(view3d->getViewer());
+    }
+    return s ? s->viewProvider : nullptr;
+}
+
+ViewerContext *Document::editingViewerOf(const ViewProvider *vp) const
+{
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp)
+            return s->viewer;
+    }
+    return nullptr;
+}
+
+App::UndoView Document::undoViewOf(const MDIView *view) const
+{
+    App::UndoView filter;
+    if (!view)
+        return filter;
+    if (view->isDerivedFrom(View3DInventor::getClassTypeId())) {
+        if (auto vp = editViewProviderIn(view)) {
+            filter.limited = true;
+            for (int id : editStepsOf(vp))
+                filter.only.insert(id);
+            return filter;
+        }
+        for (auto &s : d->_editSessions)
+            filter.hide.insert(s->steps.begin(), s->steps.end());
+        return filter;
+    }
+    filter.view = view->undoViewId();
+    return filter;
+}
+
+int Document::undoViewIdOf(const App::DocumentObject *obj) const
+{
+    if (!obj)
+        return 0;
+    int &id = d->_undoViewIds[obj->getID()];
+    if (!id)
+        id = MDIView::newUndoViewId();
+    return id;
+}
+
+void Document::releaseUndoViewOf(const MDIView *view) const
+{
+    if (!view || view->isDerivedFrom(View3DInventor::getClassTypeId())
+            || objectOfView(view))
+        return;
+    getDocument()->releaseStepView(view->undoViewId());
+}
+
+MDIView *Document::editViewOf(const ViewProvider *vp) const
+{
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp)
+            return DocumentP::ownerOf(s.get()).mdiView();
+    }
     return nullptr;
 }
 
 void Document::setInEdit(ViewProviderDocumentObject *parentVp, const char *subname) {
-    if (d->_editViewProvider) {
-        d->_editViewProviderParent = parentVp;
-        d->_editSubname = subname?subname:"";
+    EditSession *s = d->currentSession(this);
+    if (s && s->viewProvider) {
+        s->parent = parentVp;
+        s->subname = subname?subname:"";
     }
 }
 
@@ -1500,13 +2164,26 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
         d->_editViewProviderPrevious = nullptr;
         d->_editWantsRestorePrevious = false;
     }
-    if (d->_editViewProvider==viewProvider || d->_editViewProviderParent==viewProvider)
-        _resetEdit();
-    else if(Application::Instance->editDocument()) {
-        auto editDoc = Application::Instance->editDocument();
-        if(editDoc->d->_editViewProvider==viewProvider ||
-           editDoc->d->_editViewProviderParent==viewProvider)
-            Application::Instance->setEditDocument(nullptr);
+    // The sessions editing it, this document's and any other's -- one
+    // ending already only lets go of it
+    for (auto editDoc : Application::Instance->editDocuments()) {
+        std::vector<EditSession*> ending;
+        for (auto &s : editDoc->d->_editSessions) {
+            if (s->viewProvider != viewProvider && s->parent != viewProvider)
+                continue;
+            if (s->ending) {
+                if (s->viewProvider == viewProvider)
+                    s->viewProvider = nullptr;
+                continue;
+            }
+            ending.push_back(s.get());
+        }
+        for (EditSession *s : ending) {
+            if (editDoc->d->_editSessions.size() == 1)
+                Application::Instance->unsetEditDocument(editDoc);
+            else
+                editDoc->_resetEditSession(s);
+        }
     }
 
     handleChildren3D(viewProvider,true);
@@ -1557,17 +2234,17 @@ void Document::beforeDelete() {
     d->_deferSweep.clear();
     d->_deferFinish.clear();
 
-    auto editDoc = Application::Instance->editDocument();
-    if(editDoc) {
-        auto vp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->d->_editViewProvider);
-        auto vpp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->d->_editViewProviderParent);
-        if(editDoc == this ||
-           (vp && vp->getDocument()==this) ||
-           (vpp && vpp->getDocument()==this))
-        {
-            Application::Instance->setEditDocument(nullptr);
+    Application::Instance->unsetEditDocumentIf([this](Gui::Document *editDoc) {
+        if (editDoc == this)
+            return true;
+        for (auto &s : editDoc->d->_editSessions) {
+            auto vp = dynamic_cast<ViewProviderDocumentObject*>(s->viewProvider);
+            auto vpp = s->parent;
+            if ((vp && vp->getDocument() == this) || (vpp && vpp->getDocument() == this))
+                return true;
         }
-    }
+        return false;
+    });
     for(auto &v : d->_ViewProviderMap) {
         v.second->childSet.clear();
         v.second->parentSet.clear();
@@ -1583,6 +2260,23 @@ void Document::beforeDelete() {
 
 void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Property& Prop)
 {
+    // A change to an object in edit is a step of that edit's, whoever makes
+    // it -- a pick in the tree, the property editor, a script -- as nobody
+    // else may edit it (docs/HandsOnQueue.md entry 232). Not a recompute's
+    // output, nor an undo's replay.
+    if (!d->_editSessions.empty() && d->_pcDocument->hasPendingTransaction()
+            && !d->_pcDocument->testStatus(App::Document::Recomputing)
+            && !d->_pcDocument->isPerformingTransaction()) {
+        for (auto &s : d->_editSessions) {
+            auto vpd = dynamic_cast<ViewProviderDocumentObject*>(s->viewProvider);
+            if (!vpd || vpd->getObject() != &Obj)
+                continue;
+            const int tid = d->_pcDocument->getBookedTransactionID();
+            if (tid && std::find(s->steps.begin(), s->steps.end(), tid) == s->steps.end())
+                s->steps.push_back(tid);
+        }
+    }
+
     // A change made while the drain still owes this document its records:
     // the record, replayed later (phase three), would put the file's
     // visibility back. Kept, and re-applied after it.
@@ -1603,20 +2297,19 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
         ViewProvider::clearBoundingBoxCache();
         try {
             viewProvider->update(&Prop);
-            if(d->_editingViewer
-                    && d->_editingObject
-                    && d->_editViewProviderParent
-                    && (Prop.isDerivedFrom(App::PropertyPlacement::getClassTypeId())
-                        // Issue ID 0004230 : getName() can return null in which case strstr() crashes
-                        || (Prop.getName() && strstr(Prop.getName(),"Scale")))
-                    && d->_editObjs.count(&Obj))
-            {
+            // Every session whose edited path goes through it
+            const bool moves = Prop.isDerivedFrom(App::PropertyPlacement::getClassTypeId())
+                // Issue ID 0004230 : getName() can return null in which case strstr() crashes
+                || (Prop.getName() && strstr(Prop.getName(),"Scale"));
+            for (auto &s : d->_editSessions) {
+                if(!moves || !s->viewer || !s->object || !s->parent || !s->objs.count(&Obj))
+                    continue;
                 Base::Matrix4D mat;
-                auto sobj = d->_editViewProviderParent->getObject()->getSubObject(
-                                                        d->_editSubname.c_str(),nullptr,&mat);
-                if(sobj == d->_editingObject && d->_editingTransform!=mat) {
-                    d->_editingTransform = mat;
-                    d->_editingViewer->setEditingTransform(d->_editingTransform);
+                auto sobj = s->parent->getObject()->getSubObject(
+                                                        s->subname.c_str(),nullptr,&mat);
+                if(sobj == s->object && s->transform!=mat) {
+                    s->transform = mat;
+                    s->viewer->setEditingTransform(s->transform);
                     signalEditingTransformChanged(*this);
                 }
             }
@@ -1746,9 +2439,8 @@ void Document::slotSkipRecompute(const App::Document& doc, const std::vector<App
        !doc.testStatus(App::Document::AllowPartialRecompute))
         return;
     App::DocumentObject *obj = nullptr;
-    auto editDoc = Application::Instance->editDocument();
-    if(editDoc) {
-        auto vp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->getInEdit());
+    if(Application::Instance->isInEdit(this)) {
+        auto vp = dynamic_cast<ViewProviderDocumentObject*>(getInEdit());
         if(vp)
             obj = vp->getObject();
     }
@@ -1837,8 +2529,10 @@ ViewProviderDocumentObject* Document::getViewProviderByPathFromHead(SoPath * pat
     for (int i = 0; i < path->getLength(); i++) {
         SoNode *node = path->getNode(i);
         if (node->isOfType(SoSeparator::getClassTypeId())) {
-            if (node == d->_editRootNode && d->_editViewProvider)
-                return Base::freecad_dynamic_cast<ViewProviderDocumentObject>(d->_editViewProvider);
+            for (auto &s : d->_editSessions) {
+                if (node == s->rootNode && s->viewProvider)
+                    return Base::freecad_dynamic_cast<ViewProviderDocumentObject>(s->viewProvider);
+            }
             auto it = d->_CoinMap.find(static_cast<SoSeparator*>(node));
             if(it!=d->_CoinMap.end())
                 return it->second;
@@ -5283,9 +5977,11 @@ View3DInventor *Document::createView3D()
         auto view3D = new View3DInventor(this, getMainWindow(), shareWidget);
         // A window opened while a session runs shows it too
         // (docs/ThinClient.md 8.11) -- a shared one.
-        if (d->_editViewProvider && d->_editingViewer && view3D->getViewer()
-                && editingRoot()->isShared())
-            view3D->getViewer()->joinEditing(d->_editViewProvider, editingRoot());
+        for (auto &s : d->_editSessions) {
+            if (s->viewProvider && s->viewer && view3D->getViewer()
+                    && s->root && s->root->isShared())
+                view3D->getViewer()->joinEditing(s->viewProvider, s->root.get());
+        }
 
         // Views can now have independent draw styles (i.e. override modes)
         //
@@ -5351,22 +6047,30 @@ MDIView *Document::createView(const Base::Type& typeId)
 
 std::string Document::objectViewToken(const MDIView *view) const
 {
-    // What the layouts name such a view by (see Document::Save): an
-    // object view carries its object's name as its widget's
+    // What the layouts name such a view by (see Document::Save)
+    auto obj = objectOfView(view);
+    if (!obj)
+        return {};
+    return std::string("O:") + obj->getNameInDocument();
+}
+
+App::DocumentObject *Document::objectOfView(const MDIView *view) const
+{
+    // An object view carries its object's name as its widget's
     // (MDIViewPage::setDocumentObject), and the object's view provider
     // answers with it.
     if (!view)
-        return {};
+        return nullptr;
     QByteArray objName = view->objectName().toUtf8();
     if (objName.isEmpty())
-        return {};
+        return nullptr;
     auto obj = getDocument()->getObject(objName.constData());
     if (!obj)
-        return {};
+        return nullptr;
     auto vp = getViewProvider(obj);
     if (!vp || vp->getMDIView() != view)
-        return {};
-    return std::string("O:") + objName.constData();
+        return nullptr;
+    return obj;
 }
 
 const Document::ViewTaskState *Document::savedViewTaskState(const MDIView *view) const
@@ -5410,9 +6114,12 @@ Gui::MDIView* Document::cloneView(Gui::MDIView* oldview, bool transferEdit)
         // (ViewArea::cloneChildFor) leaves it where the user works --
         // the fresh cell must not steal the dragger out from under an
         // ongoing edit.
-        if (transferEdit && d->_editViewProvider) {
+        EditSession *s = transferEdit ? d->sessionOf(firstView->getViewer()) : nullptr;
+        if (s && s->viewProvider) {
             firstView->getViewer()->resetEditingViewProvider();
-            view3D->getViewer()->setEditingViewProvider(d->_editViewProvider, d->_editMode);
+            view3D->getViewer()->setEditingViewProvider(s->viewProvider, s->mode);
+            if (s->viewer == firstView->getViewer())
+                s->viewer = view3D->getViewer();
         }
 
         ViewProviderShaderBinding::onViewCreated(getDocument());
@@ -5694,7 +6401,7 @@ bool Document::canClose (bool checkModify, bool checkLink)
                 // a 3D view and that it is in edit mode. However, when closing a
                 // document then the edit mode must be reset independent of the
                 // active view.
-                if (d->_editViewProvider)
+                if (!d->_editSessions.empty())
                     this->_resetEdit();
             }
         }
@@ -6095,12 +6802,13 @@ bool Document::isPerformingTransaction() const {
     return d->_isTransacting;
 }
 
-/// Whether the view provider in edit, in whichever document it is,
-/// takes an undo or redo as its own (ViewProvider::undoRedoInEdit). A
-/// transaction may span documents, so not only this one's.
-static bool undoRedoInEdit(bool redo)
+/// Whether the view provider in edit takes an undo or redo of \a doc as
+/// its own (ViewProvider::undoRedoInEdit): \a doc's edit, else the edit
+/// of whichever document it is -- a transaction may span documents.
+static bool undoRedoInEdit(Gui::Document* doc, bool redo)
 {
-    Gui::Document* editDoc = Application::Instance->editDocument();
+    Gui::Document* editDoc = Application::Instance->isInEdit(doc)
+        ? doc : Application::Instance->editDocument();
     ViewProvider* vp = editDoc ? editDoc->getInEdit() : nullptr;
     return vp && vp->undoRedoInEdit(redo);
 }
@@ -6211,26 +6919,185 @@ bool Document::askToSkip(bool undo, int skipped, const std::string& why)
     return skip && box.clickedButton() == skip;
 }
 
+bool Document::undoWithThem(std::vector<int> own, const std::vector<int>& with)
+{
+    App::Document* doc = getDocument();
+    std::vector<int> ids = std::move(own);
+    ids.insert(ids.end(), with.begin(), with.end());
+    // Steps in the way of those found as they go: one's own are taken too,
+    // a few times over; another's stops it -- what is the other's to say
+    for (int tries = 0; tries < 8; ++tries) {
+        bool done = false;
+        {
+            Base::FlagToggler<> flag(d->_isTransacting);
+            Gui::Selection().clearCompleteSelection();
+            done = doc->undoSteps(ids);
+        }
+        if (done)
+            return true;
+        std::vector<int> fresh;
+        bool others = false;
+        for (const auto& s : doc->stepsInTheWay()) {
+            if (std::find(ids.begin(), ids.end(), s.id) != ids.end())
+                continue;
+            others = others || !s.author.empty();
+            fresh.push_back(s.id);
+        }
+        if (fresh.empty() || others)
+            break;
+        ids.insert(ids.end(), fresh.begin(), fresh.end());
+    }
+    QMessageBox::warning(getMainWindow(), QObject::tr("Undo"),
+                         QObject::tr("The undo did not go: %1")
+                             .arg(QString::fromUtf8(doc->undoRefusal().c_str())));
+    return false;
+}
+
+bool Document::resolveInTheWay(const std::vector<int>& own, const QString& refused,
+                               const std::string& why, const std::function<bool()>& keepTheirs,
+                               bool cancel)
+{
+    App::Document* doc = getDocument();
+    const auto inTheWay = doc->stepsInTheWay();
+    if (inTheWay.empty())
+        return false;
+    QStringList lines;
+    QStringList others;
+    for (const auto& s : inTheWay) {
+        QString line = QCoreApplication::translate("Command", s.name.c_str());
+        if (!s.author.empty()) {
+            const QString who = QString::fromUtf8(s.author.c_str());
+            line = QObject::tr("%1, by %2").arg(line, who);
+            if (!others.contains(who))
+                others << who;
+        }
+        lines << QStringLiteral("  ") + line;
+    }
+    // What is only properties set again since may be kept as they are; a
+    // link or a reference made since may not
+    const bool keepable = why.find("links to") == std::string::npos
+        && why.find("would no longer resolve") == std::string::npos;
+
+    QMessageBox box(getMainWindow());
+    box.setObjectName(QStringLiteral("undoInTheWay"));
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle(cancel ? QObject::tr("Cancel") : QObject::tr("Undo"));
+    box.setText(cancel ? QObject::tr("Cancel cannot take back '%1' on its own: steps made "
+                                     "since depend on it.").arg(refused)
+                       : QObject::tr("'%1' cannot be undone on its own: steps made since "
+                                     "depend on it.").arg(refused));
+    box.setInformativeText(lines.join(QLatin1Char('\n')));
+    box.setDetailedText(QString::fromUtf8(why.c_str()));
+    QAbstractButton* with = nullptr;
+    QAbstractButton* ask = nullptr;
+    if (others.isEmpty())
+        with = box.addButton(QObject::tr("Undo with them"), QMessageBox::AcceptRole);
+    else
+        // theirs to agree to (sec 12.11): asked, the undo going once they do
+        ask = box.addButton(QObject::tr("Ask %1").arg(others.join(QStringLiteral(", "))),
+                            QMessageBox::AcceptRole);
+    QAbstractButton* keep = nullptr;
+    if (keepable)
+        keep = box.addButton(QObject::tr("Keep theirs"), QMessageBox::ActionRole);
+    // A panel's Cancel has ended the edit: nothing taken back keeps it
+    if (cancel)
+        box.addButton(QObject::tr("Keep the edit"), QMessageBox::RejectRole);
+    else
+        box.addButton(QMessageBox::Cancel);
+    if (with || ask)
+        box.setDefaultButton(static_cast<QPushButton*>(with ? with : ask));
+    box.exec();
+    if (ask && box.clickedButton() == ask) {
+        UndoConsent::Request request;
+        request.doc = doc->getName();
+        request.steps = own;
+        request.what = refused.toStdString();
+        for (const auto& s : inTheWay) {
+            request.steps.push_back(s.id);
+            if (s.author.empty())
+                continue;
+            request.theirs.push_back(s.name);
+            bool listed = false;
+            for (const auto& o : request.owners)
+                listed = listed || App::Actor::sameUser(o.get(), s.authorActor.get());
+            if (!listed)
+                request.owners.push_back(s.authorActor);
+        }
+        std::string whyNot;
+        if (!UndoConsent::ask(std::move(request), whyNot)) {
+            QMessageBox::warning(getMainWindow(), QObject::tr("Undo"),
+                                 QObject::tr("They cannot be asked now: %1")
+                                     .arg(QString::fromUtf8(whyNot.c_str())));
+            return false;
+        }
+        auto note = new QMessageBox(getMainWindow());
+        note->setObjectName(QStringLiteral("undoConsentAsked"));
+        note->setAttribute(Qt::WA_DeleteOnClose);
+        note->setWindowModality(Qt::NonModal);
+        note->setIcon(QMessageBox::Information);
+        note->setWindowTitle(QObject::tr("Undo"));
+        note->setText(QObject::tr("Asked %1. '%2' is undone once they agree.")
+                          .arg(others.join(QStringLiteral(", ")), refused));
+        note->show();
+        return false;
+    }
+    if (with && box.clickedButton() == with) {
+        std::vector<int> ids;
+        for (const auto& s : inTheWay)
+            ids.push_back(s.id);
+        return undoWithThem(own, ids);
+    }
+    if (keep && box.clickedButton() == keep) {
+        bool done = false;
+        {
+            Base::FlagToggler<> flag(d->_isTransacting);
+            Gui::Selection().clearCompleteSelection();
+            done = keepTheirs();
+        }
+        if (!done)
+            QMessageBox::warning(getMainWindow(), QObject::tr("Undo"),
+                                 QObject::tr("The undo did not go: %1")
+                                     .arg(QString::fromUtf8(doc->undoRefusal().c_str())));
+        return done;
+    }
+    return false;
+}
+
 void Document::undoOrRedo(bool undo, int iSteps, bool ask)
 {
     // The view provider in edit may take the command as its own: asked
     // once, before any step of the document's is looked at.
-    if (undoRedoInEdit(!undo))
+    if (undoRedoInEdit(this, !undo))
         return;
 
     int skipped = 0;
     while (iSteps > 0) {
         const int taken = takeSteps(undo, iSteps, skipped);
         if (taken < 0)
-            return;
+            break;
         iSteps -= taken;
         if (iSteps <= 0 || !ask)
-            return;
+            break;
         // Asked with nothing held: no guard, and the document not said to
         // be in a transaction while the dialog's loop turns.
         const std::string why = getDocument()->undoRefusal();
+        // Refused for steps made since that depend on it (sec 12.11): taken
+        // with them, or with what they changed kept, or not at all
+        if (undo && !why.empty() && !getDocument()->stepsInTheWay().empty()) {
+            const auto names = getUndoVector();
+            const QString refused = std::size_t(skipped) < names.size()
+                ? QCoreApplication::translate("Command", names[skipped].c_str())
+                : QString();
+            App::Document* doc = getDocument();
+            if (!resolveInTheWay(doc->getRunIds(true, skipped), refused, why,
+                                 [doc, skipped] { return doc->undoKeepingTheirs(skipped); }))
+                break;
+            if (--iSteps <= 0)
+                break;
+            continue;
+        }
         if (why.empty() || !askToSkip(undo, skipped, why))
-            return;
+            break;
         // The step refused is left, and was one of those asked for.
         ++skipped;
         --iSteps;
@@ -6238,6 +7105,29 @@ void Document::undoOrRedo(bool undo, int iSteps, bool ask)
         if (iSteps <= 0)
             iSteps = 1;
     }
+    // Once the run is all taken, not between its steps (sec 12.10)
+    getDocument()->recomputeAfterUndo();
+}
+
+bool Document::undoTo(int id, bool redo)
+{
+    if (undoRedoInEdit(this, redo))
+        return false;
+    bool done = false;
+    {
+        Base::FlagToggler<> flag(d->_isTransacting);
+        Gui::Selection().clearCompleteSelection();
+        done = redo ? getDocument()->redo(id) : getDocument()->undo(id);
+    }
+    if (!done) {
+        const std::string why = getDocument()->undoRefusal();
+        if (!why.empty()) {
+            QMessageBox::warning(getMainWindow(), redo ? QObject::tr("Redo") : QObject::tr("Undo"),
+                                 QString::fromUtf8(why.c_str()));
+        }
+    }
+    getDocument()->recomputeAfterUndo();
+    return done;
 }
 
 /// Will UNDO one or more steps

@@ -568,7 +568,9 @@ private:
         else
             str << tr("document").toUtf8().constData();
         str << ' ' << prop->getName();
-        transactionID = app.setActiveTransaction(str.str().c_str());
+        // Kept over the inputs typed into the editor, closed with it
+        // (docs/MultiViewEdit.md sec 12.2 rule 5)
+        transactionID = app.setActiveTransaction(str.str().c_str(), true);
         docT = doc;
     }
 

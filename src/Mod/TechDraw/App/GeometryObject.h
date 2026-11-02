@@ -83,8 +83,13 @@ public:
     const BaseGeomPtrVector getVisibleFaceEdges(bool smooth, bool seam) const;
     const std::vector<FacePtr>& getFaceGeometry() const { return faceGeom; }
 
-    void setVertexGeometry(std::vector<VertexPtr> newVerts) { vertexGeom = newVerts; }
-    void setEdgeGeometry(BaseGeomPtrVector newGeoms) { edgeGeom = newGeoms; }
+    void setVertexGeometry(std::vector<VertexPtr> newVerts) { changed(); vertexGeom = newVerts; }
+    void setEdgeGeometry(BaseGeomPtrVector newGeoms) { changed(); edgeGeom = newGeoms; }
+
+    //! changes whenever the edges, vertices or faces do, and differs between
+    //! any two objects: what a reading of the geometry -- a dimension's
+    //! measurement -- can tell it is stale by
+    unsigned long stamp() const { return m_stamp; }
 
     void projectShape(const Part::TopoShape& input, const gp_Ax2& viewAxis);
     void projectShapeWithPolygonAlgo(const Part::TopoShape& input, const gp_Ax2& viewAxis);
@@ -197,6 +202,9 @@ protected:
     bool findVertex(Base::Vector3d v);
     double getScale() const;
 
+    static unsigned long nextStamp();
+    void changed() { m_stamp = nextStamp(); }
+
     App::DocumentObjectT m_parent;
     mutable double m_scale = 1;
     int m_isoCount;
@@ -204,6 +212,7 @@ protected:
     double m_focus;
     bool m_usePolygonHLR;
     int m_scrubCount;
+    unsigned long m_stamp;
 };
 
 using GeometryObjectPtr = std::shared_ptr<GeometryObject>;

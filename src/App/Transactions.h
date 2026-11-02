@@ -27,6 +27,7 @@
 
 #include <functional>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <vector>
 #include <Base/Factory.h>
@@ -37,6 +38,7 @@ namespace App
 {
 
 class Document;
+class DocumentObject;
 class Property;
 class Transaction;
 class TransactionObject;
@@ -62,6 +64,29 @@ public:
     TransactionFollowing& operator=(const TransactionFollowing&) = delete;
     /// Whether this thread is inside one
     static bool active();
+};
+
+/** While one of these lives, what this thread writes to `owner`'s own
+ * properties finishes its recompute: made by work the recompute started and
+ * that ends after execute() has returned -- a TechDraw view's projection,
+ * stored when its thread finishes. A transaction records such a write as
+ * derived, as if execute() had made it: the log keeps it in the evictable
+ * cache tier, and an undo that finds it gone has the owner recompute
+ * (docs/TransactionLogJournal.md sec 10.2). Another object's properties are
+ * not covered: what `owner` sets on them is set by hand.
+ */
+class AppExport TransactionDerived
+{
+public:
+    explicit TransactionDerived(const DocumentObject* owner);
+    ~TransactionDerived();
+    TransactionDerived(const TransactionDerived&) = delete;
+    TransactionDerived& operator=(const TransactionDerived&) = delete;
+    /// Whether this thread is inside one for `obj`
+    static bool active(const DocumentObject* obj);
+
+private:
+    const DocumentObject* _owner;
 };
 
 /** Represents a atomic transaction of the document
@@ -99,6 +124,10 @@ public:
     /// The row the transaction log wrote for this transaction (its seq),
     /// 0 when none was written (docs/TransactionLogJournal.md sec 24.2).
     int64_t LogSeq {0};
+    /// No row because nothing in it changed anything: every write put back
+    /// the value that was there (TransactionLog::onCommit). Taken back from
+    /// the log, it has nothing to take back, rather than no row to read.
+    bool Unchanged {false};
     /// For a transaction the document makes to undo a log row (sec 24.4):
     /// the kind the log records ("undo") and the row it inverts.
     std::string LogKind;
@@ -114,6 +143,20 @@ public:
     /// row written later -- at the event loop, by whoever closes it -- is
     /// still its author's.
     std::shared_ptr<const Actor> Author;
+    /** The view the input that made it went to (Application::getStepView),
+     * 0 for none: a tree's, a property view's, a script's, which is every
+     * view's. What a view's undo lists by (UndoViewScope); the session's
+     * only, not written to the log.
+     */
+    int View {0};
+    /** The steps of one edit, grouped when it ends with OK
+     * (docs/MultiViewEdit.md sec 12.11): one undo takes them all, the
+     * implicit steps riding on them with them, and one redo brings them
+     * back. The key of the group -- its oldest step's row, or with no log
+     * its oldest step's id -- 0 for none. Written to the step's row
+     * (`txn.grp`), so the stacks rebuilt from the log keep it.
+     */
+    int64_t Group {0};
     /** The state of the document's values this step was made in and the
      * one it left (docs/TransactionLogJournal.md sec 30.10): tokens of the
      * document, a new one for every change. A step can be applied from its
@@ -412,9 +455,58 @@ public:
      * touched state an undo leaves is set after those touches).
      */
     static void afterTouches(std::function<void()> fn);
+    /** Have the outermost guard finish `doc` as it does a document a
+     * transaction was applied to: an undo from the log applies none
+     * (docs/TransactionLogJournal.md sec 24.3).
+     */
+    static void addDocument(const Document& doc);
+    /** Run onUndoRedoFinished() of every object of `doc` an undo or redo
+     * marked (ObjectStatus::PendingTransactionUpdate), and clear the mark.
+     * The outermost guard does this; an undo from the log that runs under
+     * no guard calls it itself. Returns the objects it was run on.
+     */
+    static std::vector<DocumentObject*> finishObjects(Document& doc);
 
 private:
     TransactionType transactionType;
+};
+
+/** What a view's undo lists and takes (docs/MultiViewEdit.md sec 12.9):
+ * set by the Gui around a view's Undo, Redo and their lists, read by the
+ * document's. The log on only: a step that is not the newest is taken back
+ * from the log, so with it off every step is listed, as before.
+ */
+struct AppExport UndoView
+{
+    /// The steps made in this view and those made in none; 0 for all
+    int view = 0;
+    /// Only the steps in \a only (an edit's), when set
+    bool limited = false;
+    std::set<int> only;
+    /// The steps left out (other views' open edits)
+    std::set<int> hide;
+
+    /// Whether \a step, a user's step, is listed
+    bool sees(const Transaction& step) const;
+};
+
+/// The UndoView of what this thread does while the scope lives. Scopes
+/// nest; the innermost wins.
+class AppExport UndoViewScope
+{
+public:
+    explicit UndoViewScope(UndoView view);
+    ~UndoViewScope();
+
+    UndoViewScope(const UndoViewScope&) = delete;
+    UndoViewScope& operator=(const UndoViewScope&) = delete;
+
+    /// The innermost scope's, null for none: every step is listed
+    static const UndoView* current();
+
+private:
+    UndoView mine;
+    const UndoView* previous;
 };
 
 } //namespace App

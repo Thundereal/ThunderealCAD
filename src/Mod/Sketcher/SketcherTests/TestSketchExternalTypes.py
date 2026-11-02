@@ -251,6 +251,44 @@ class TestSketchExternalTypes(unittest.TestCase):
         self.assertAlmostEqual(point.X, 12)
         self.assertAlmostEqual(point.Y, 0)
 
+    def testCurvedFaceCutIsFitted(self):
+        # A face of revolution of a B-spline, cut by the sketch plane: the cut
+        # is a section the kernel walks, and it must come fitted, on the
+        # surface. Asked for after the section was already made, the fitting
+        # was skipped: the cut came as a polyline of the walking points
+        # (degree 1, a thousand poles), off the surface by 6.6e-5 in
+        # realthunder/FreeCAD#617, and a pad from it could not be fused back.
+        profile = Part.BSplineCurve()
+        profile.interpolate([Vector(5, 0, -10), Vector(12, 0, -4), Vector(8, 0, 3),
+                             Vector(14, 0, 10)])
+        edge = profile.toShape()
+        axis = Part.LineSegment(Vector(0, 0, -10), Vector(0, 0, 10)).toShape()
+        caps = [Part.LineSegment(Vector(0, 0, z), Vector(x, 0, z)).toShape()
+                for x, z in ((5, -10), (14, 10))]
+        face = Part.Face(Part.Wire(Part.__sortEdges__([edge, axis] + caps)))
+        solid = face.revolve(Vector(), Vector(0, 0, 1), 360)
+        rev = self.doc.addObject("Part::Feature", "Revolved")
+        rev.Shape = solid
+        side = [i + 1 for i, f in enumerate(solid.Faces)
+                if f.Surface.__class__.__name__ == "SurfaceOfRevolution"][0]
+        sketch = self.doc.addObject("Sketcher::SketchObject", "SketchCut")
+        sketch.Placement = App.Placement(Vector(0, 0, 1), App.Rotation())
+        sketch.addExternal("Revolved", "Face%d" % side, False, True)
+        self.doc.recompute()
+        surface = solid.Faces[side - 1]
+        cut = [geo for _, _, geo in externals(sketch)]
+        self.assertTrue(cut)
+        for geo in cut:
+            if isinstance(geo, Part.BSplineCurve):
+                self.assertGreater(geo.Degree, 1)
+                self.assertLess(geo.NbPoles, 300)
+            shape = geo.toShape()
+            shape.Placement = sketch.Placement
+            for k in range(21):
+                p = shape.valueAt(shape.FirstParameter
+                                  + (shape.LastParameter - shape.FirstParameter) * k / 20)
+                self.assertLess(surface.distToShape(Part.Vertex(p))[0], 1e-5)
+
     def testFaceBothWays(self):
         self.sketch.addExternal("Box", self.face, False, True)
         cut = shapes(self.sketch)

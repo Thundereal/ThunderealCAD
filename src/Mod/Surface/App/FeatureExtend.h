@@ -57,6 +57,8 @@ public:
     App::PropertyLinkSubList Edges;
     App::PropertyDistance Length;
     App::PropertyEnumeration Extension;
+    /// A face to extend up to, in place of Length
+    App::PropertyLinkSub UpTo;
 
     // recalculate the feature
     App::DocumentObjectExecReturn* execute() override;

@@ -421,7 +421,7 @@ MirrorViewer::MirrorViewer(Document* doc, SoNode* scene,
     if (doc) {
         pimpl->resetEditConn = doc->signalResetEdit.connect(
             [this](const ViewProviderDocumentObject&) {
-                if (pimpl->doc && pimpl->doc->editingViewer() == this) {
+                if (pimpl->doc && pimpl->doc->isEditingIn(this)) {
                     pimpl->selection.rmvPreselect();
                     pimpl->selection.clearSelection();
                 }
@@ -445,7 +445,7 @@ MirrorViewer::~MirrorViewer()
     // to a mirror that no longer exists -- and it is the whole session
     // that has to end, not just this view's half, because a served
     // document has no other view to carry it on in.
-    if (pimpl->doc && pimpl->doc->editingViewer() == this) {
+    if (pimpl->doc && pimpl->doc->isEditingIn(this)) {
         // In this view, so that what the edit mode does to selection on
         // its way out is done to this client's instance and not to the
         // room's -- a client dropping mid-edit must not leave the sketch

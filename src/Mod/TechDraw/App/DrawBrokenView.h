@@ -74,6 +74,10 @@ public:
 
     App::PropertyLinkList Breaks;   // NOLINT
     App::PropertyLength   Gap;      // NOLINT
+    //! the centroid of the shape the breaks closed up, as last made: what
+    //! points on the view are read against, after an undo or an open too
+    //! (docs/TechDrawStoredGeometry.md sec 8)
+    App::PropertyVector   CompressedCentroid;   // NOLINT
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;

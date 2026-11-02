@@ -123,6 +123,22 @@ App::DocumentObjectExecReturn* Sections::execute()
 
     Handle(Geom_BSplineSurface) aSurf;
     if (guides.empty()) {
+        // each section the way the one before runs: given the other way
+        // round, the loft between them was twisted -- a side lofted between
+        // a dome's edge and a floor line drawn back came out a saddle of
+        // half its area. With guides, the network turns them itself.
+        for (int i = 2; i <= curveSeq.Length(); ++i) {
+            const Handle(Geom_Curve)& prev = curveSeq(i - 1);
+            const Handle(Geom_Curve)& cur = curveSeq(i);
+            const gp_Pnt a0 = prev->Value(prev->FirstParameter());
+            const gp_Pnt a1 = prev->Value(prev->LastParameter());
+            const gp_Pnt b0 = cur->Value(cur->FirstParameter());
+            const gp_Pnt b1 = cur->Value(cur->LastParameter());
+            // a closed section ties, and stays as it is
+            if (a0.Distance(b1) + a1.Distance(b0) < a0.Distance(b0) + a1.Distance(b1)) {
+                curveSeq.SetValue(i, cur->Reversed());
+            }
+        }
         GeomFill_NSections fillOp(curveSeq);
         fillOp.ComputeSurface();
         aSurf = fillOp.BSplineSurface();

@@ -47,6 +47,8 @@ class Property;
 }
 
 namespace Gui {
+class MDIView;
+class OnViewValueSet;
 class PrefCheckBox;
 }
 
@@ -118,6 +120,31 @@ public:
     void beginAcceptStep();
     //@}
 
+    /** @name Its own steps, beside another view's edit (docs/HandsOnQueue.md
+     * entry 232)
+     *
+     * With PerViewEdit on, a panel that has been made to (stepsPerView)
+     * runs as fineUndo does -- every change a step of its own -- and more:
+     * a step is opened for every user event that reaches the panel, so no
+     * change of it lands outside its steps, and the panel keeps the ids of
+     * all of them. OK keeps them; Cancel takes back these and no other
+     * view's (Gui::Document::undoOwnSteps). Such an edit may run beside
+     * another view's edit of the same document.
+     */
+    //@{
+    bool ownsItsSteps() const {
+        return stepsPerView && perViewAtOpen;
+    }
+    /// The steps this panel opened, the edit's first among them
+    std::vector<int> ownSteps() const;
+    /// Commits the step open now, if it is this panel's
+    void closeOwnStep();
+    /// A user event reached the panel: a step for what it changes
+    void openStepForEvent();
+    /// The window this panel's edit runs in, null for none (a client's)
+    Gui::MDIView *editView() const;
+    //@}
+
     /// Orders the panels' full recomputes of their feature; 0 for none
     unsigned long getComputedSequence() const {
         return computedSequence;
@@ -149,6 +176,13 @@ protected:
 
     /// One undo step per operation (entry 136); set by a panel that has it
     bool fineUndo = false;
+    /// Steps of its own with PerViewEdit on (ownsItsSteps); set by a panel
+    /// whose changes have been checked to go through setupTransaction()
+    bool stepsPerView = false;
+    /// fineUndo, or ownsItsSteps()
+    bool stepwise() const {
+        return fineUndo || ownsItsSteps();
+    }
     /// A drag, a label open for typing: one step until endHeldStep(); \a
     /// abort rolls it back (a cancelled drag)
     void beginHeldStep();
@@ -171,6 +205,12 @@ protected:
     /// focus leaving it: what is typed in a panel box is one step, not one
     /// per key
     void holdStepWhileFocused(QWidget* box);
+    /** A drag of a handle of  values, or a label of it open for typing,
+     * one held step, where the panel owns its steps (ownsItsSteps) and is
+     * not fineUndo -- a fineUndo panel holds them itself: a step per write
+     * of the drag otherwise (docs/HandsOnQueue.md entry 232).
+     */
+    void holdStepsOf(Gui::OnViewValueSet* values);
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
@@ -214,6 +254,13 @@ private:
 
     int stepTid = 0;
     int firstStepTid = 0;
+    /// PerViewEdit when the panel was made: what ownsItsSteps() goes by
+    bool perViewAtOpen = false;
+    /// Every step it opened (ownsItsSteps)
+    std::vector<int> ownStepTids;
+    /// The step open was opened for an event, not named by what it does: a
+    /// name given before it closes is its name
+    bool stepGeneric = false;
     int heldSteps = 0;
     bool stepCloseQueued = false;
     /// OK's step is open: a second call (the dress-up's, then the base's)
@@ -248,8 +295,20 @@ public:
     /// Returns the view provider dialog is runed for
      PartDesignGui::ViewProvider *viewProvider() const { return vp; }
 
+    /// False when every panel of it owns its steps (ownsItsSteps): it may
+    /// be open beside another view's dialog of the document
+    bool holdsTransaction() const override;
+
 protected:
     PartDesignGui::ViewProvider *vp;
+
+    /** Whether the panels own their steps (ownsItsSteps) and Cancel takes
+     * back those: then it is done, with the edit ended, and true. False
+     * for a dialog that holds a transaction, whose Cancel aborts it.
+     */
+    bool rejectOwnSteps();
+    /// Ends this dialog's edit -- its own, of the several there may be
+    void resetOwnEdit();
 };
 
 } //namespace PartDesignGui

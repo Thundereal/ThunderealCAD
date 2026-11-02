@@ -29,6 +29,9 @@
 # include <QTimer>
 #endif
 
+#include <QAbstractSpinBox>
+#include <QPointer>
+
 #include <App/Document.h>
 #include <App/Origin.h>
 #include <Base/Console.h>
@@ -65,6 +68,13 @@ TaskBoxPrimitives::TaskBoxPrimitives(ViewProviderPrimitive* vp, QWidget* parent)
     ui->setupUi(proxy);
 
     this->groupLayout()->addWidget(proxy);
+
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232); what is
+    // typed into a box one step
+    stepsPerView = true;
+    for (auto box : proxy->findChildren<QAbstractSpinBox*>())
+        holdStepWhileFocused(box);
 
     PartDesignGui::addTaskCheckBox(vp, proxy);
     this->addOperationCombo(qobject_cast<QBoxLayout*>(proxy->layout()));
@@ -215,6 +225,8 @@ void TaskBoxPrimitives::setupGizmos()
         return gizmo;
     };
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     switch (feat->getPrimitiveType()) {
         case PartDesign::FeaturePrimitive::Box:
             lengthGizmo = value(ui->boxLength, tr("Length"));
@@ -1125,6 +1137,15 @@ TaskPrimitiveParameters::TaskPrimitiveParameters(ViewProviderPrimitive* Primitiv
 
     parameter = new PartGui::TaskAttacher(PrimitiveView, nullptr, QString(), tr("Attachment"));
     Content.push_back(parameter);
+    // The attachment's changes steps of the primitive panel's, which Cancel
+    // takes back with its own
+    if (primitive->ownsItsSteps()) {
+        QPointer<TaskBoxPrimitives> panel(primitive);
+        parameter->setStepper([panel]() {
+            if (panel)
+                panel->openStepForEvent();
+        });
+    }
     if (parameter->getPartner())
         Content.push_back(parameter->getPartner());
 }

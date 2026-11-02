@@ -44,11 +44,15 @@ PROPERTY_SOURCE(Surface::Sewing, Part::Feature)
 Sewing::Sewing()
 {
     ADD_PROPERTY_TYPE(ShapeList, (nullptr, ""), "Sewing", App::Prop_None, "Input shapes");
+    // a thousandth of a millimetre: surfaces built on one curve meet within
+    // their fit (a network's is 1e-4 by default), not to Precision::Confusion,
+    // and under it a network and a side lofted from its edge stayed apart.
+    // A file keeps the tolerance it was saved with.
     ADD_PROPERTY_TYPE(Tolerance,
-                      (Precision::Confusion()),
+                      (1e-3),
                       "Sewing",
                       App::Prop_None,
-                      "Sewing tolerance");
+                      "Sewing tolerance: edges closer than this are joined");
     ADD_PROPERTY_TYPE(SewingOption, (true), "Sewing", App::Prop_None, "Sewing option");
     ADD_PROPERTY_TYPE(DegenerateShape,
                       (true),

@@ -58,6 +58,9 @@ public:
     void updateData(const App::Property*) override;
     void onChanged(const App::Property* p) override;
     bool setEdit(int ModNum) override;
+    /// None in its panel's edit with PerViewEdit on: each change is a
+    /// step of its own (docs/HandsOnQueue.md entry 232)
+    bool editHoldsTransaction(int ModNum) const override;
     bool doubleClicked() override;
     bool onDelete(const std::vector<std::string> &) override;
     bool canDelete(App::DocumentObject* obj) const override;

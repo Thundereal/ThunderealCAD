@@ -729,8 +729,11 @@ public:
         if (nextEditingItem == item) {
             nextEditingItem = nullptr;
         }
-        if (master->editingItem == item) {
-            master->editingItem = nullptr;
+        for (auto it = master->editingItems.begin(); it != master->editingItems.end();) {
+            if (it->second == item)
+                it = master->editingItems.erase(it);
+            else
+                ++it;
         }
         if (master->hiddenItem == item) {
             master->hiddenItem = nullptr;
@@ -1137,7 +1140,10 @@ QWidget* TreeWidgetItemDelegate::createEditor(
 
     std::ostringstream str;
     str << "Change " << obj->getNameInDocument() << '.' << prop.getName();
-    App::GetApplication().setActiveTransaction(str.str().c_str());
+    // Kept over the inputs typed into the editor, closed with it below
+    // (docs/MultiViewEdit.md sec 12.2 rule 5); before, the next step set
+    // closed it
+    const int tid = App::GetApplication().setActiveTransaction(str.str().c_str(), true);
     FC_LOG("create editor transaction " << App::GetApplication().getActiveTransaction());
 
     QLineEdit *editor;
@@ -1151,6 +1157,14 @@ QWidget* TreeWidgetItemDelegate::createEditor(
         editor = new QLineEdit(parent);
     editor->setReadOnly(prop.isReadOnly());
     LineEditStyle::setup(editor);
+    // Its value is written (setModelData) before it goes
+    if (tid) {
+        QObject::connect(editor, &QObject::destroyed, [tid]() {
+            int active = 0;
+            if (App::GetApplication().getActiveTransaction(&active) && active == tid)
+                App::GetApplication().closeActiveTransaction(false, tid);
+        });
+    }
     return editor;
 }
 
@@ -1172,7 +1186,6 @@ TreeWidget::TreeWidget(const char *name, QWidget* parent)
     , searchObject(nullptr)
     , searchDoc(nullptr)
     , searchContextDoc(nullptr)
-    , editingItem(nullptr)
     , myName(name)
 {
     // The selection of the view the user is working in, whatever scope
@@ -1983,9 +1996,20 @@ void TreeWidget::onStartEditing()
 
 void TreeWidget::onFinishEditing()
 {
-    auto doc = Application::Instance->editDocument();
-    if(doc)  {
+    // The edit of the item the menu was opened on: another document may be
+    // in edit too (the action is offered for an item that is in edit)
+    Gui::Document *doc = nullptr;
+    ViewProviderDocumentObject *vp = nullptr;
+    if (this->contextItem && this->contextItem->type() == ObjectType) {
+        vp = static_cast<DocumentObjectItem*>(this->contextItem)->object();
+        doc = Application::Instance->editDocument(
+            [vp](Gui::Document *editDoc) { return editDoc->isEditViewProvider(vp); });
+    }
+    if (doc)
+        doc->resetEditOf(vp);
+    else if ((doc = Application::Instance->editDocument()))
         doc->resetEdit();
+    if(doc)  {
         doc->getDocument()->recompute();
         doc->commitCommand();
     }
@@ -2796,7 +2820,7 @@ bool TreeWidget::onDoubleClickItem(QTreeWidgetItem *item)
 
             const char* commandText = vp->getTransactionText();
             if (commandText) {
-                auto editDoc = Application::Instance->editDocument();
+                auto editStarts = Application::Instance->editStartCount();
                 App::AutoTransaction committer(commandText, true);
 
                 if (!vp->doubleClicked())
@@ -2805,7 +2829,7 @@ bool TreeWidget::onDoubleClickItem(QTreeWidgetItem *item)
                     manager->addLine(MacroManager::Gui, ss.str().c_str());
 
                 // If the double click starts an editing, let the transaction persist
-                if (!editDoc && Application::Instance->editDocument())
+                if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                     committer.setEnable(false);
             }
             else {
@@ -3299,13 +3323,13 @@ void TreeWidget::mousePressEvent(QMouseEvent *event) {
                 || tag == treeUnselectableIconTag())
         {
             ViewProviderDocumentObject* vp = oitem->object();
-            auto editDoc = Application::Instance->editDocument();
+            auto editStarts = Application::Instance->editStartCount();
             App::AutoTransaction committer("Item clicked", true);
             try {
                 SelectionContext sctx(oitem->getSubObjectT());
                 if(vp->iconMouseEvent(event, tag)) {
                     // If the icon click starts an editing, let the transaction persist
-                    if (!editDoc && Application::Instance->editDocument())
+                    if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                         committer.setEnable(false);
                     pimpl->skipMouseRelease = true;
                     event->setAccepted(true);
@@ -3366,7 +3390,7 @@ void TreeWidget::mouseReleaseEvent(QMouseEvent *ev)
         auto oitem = pimpl->itemHitTest(ev->pos(), &tag);
         if (oitem) {
             ViewProviderDocumentObject* vp = oitem->object();
-            auto editDoc = Application::Instance->editDocument();
+            auto editStarts = Application::Instance->editStartCount();
             App::AutoTransaction committer("Item click released", true);
             bool handled = false;
             try {
@@ -3392,7 +3416,7 @@ void TreeWidget::mouseReleaseEvent(QMouseEvent *ev)
             if (handled) {
                 pimpl->skipMouseRelease = false;
                 // If the icon release starts an editing, let the transaction persist
-                if (!editDoc && Application::Instance->editDocument())
+                if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                     committer.setEnable(false);
                 ev->setAccepted(true);
                 return;
@@ -6261,30 +6285,39 @@ void DocumentItem::slotInEdit(const Gui::ViewProviderDocumentObject& v)
     unsigned long col = TreeParams::getTreeEditColor();
     QColor color(App::Color::fromPackedRGB<QColor>(col));
 
-    auto doc = Application::Instance->editDocument();
+    // The document whose edit this is: another may be in edit too
+    auto doc = Application::Instance->editDocument(
+        [&v](Gui::Document *editDoc) { return editDoc->isEditViewProvider(&v); });
     if(!doc)
         return;
     auto docitem = getTree()->getDocumentItem(doc);
     if (!docitem)
         return;
 
+    // This edit's item; the others' keep their mark
+    DocumentObjectItem *editingItem = nullptr;
     if(getTree()->pimpl->nextEditingItem)
-        getTree()->editingItem = getTree()->pimpl->nextEditingItem;
+        editingItem = getTree()->pimpl->nextEditingItem;
     else {
+        // the session starting, which this signal is sent from
         ViewProviderDocumentObject *parentVp=nullptr;
         std::string subname;
         auto vp = doc->getInEdit(&parentVp,&subname);
         if(!parentVp)
             parentVp = dynamic_cast<ViewProviderDocumentObject*>(vp);
         if(parentVp)
-            getTree()->editingItem = docitem->findItemByObject(
+            editingItem = docitem->findItemByObject(
                     true,parentVp->getObject(),subname.c_str());
     }
+    if (editingItem)
+        getTree()->editingItems[&v] = editingItem;
+    else
+        getTree()->editingItems.erase(&v);
 
-    if(getTree()->editingItem) {
-        getTree()->editingItem->setBackground(0,color);
-        docitem->showItem(getTree()->editingItem, false, true);
-        getTree()->scrollToItem(getTree()->editingItem);
+    if(editingItem) {
+        editingItem->setBackground(0,color);
+        docitem->showItem(editingItem, false, true);
+        getTree()->scrollToItem(editingItem);
     } else{
         FOREACH_ITEM(item,v)
             item->setBackground(0,color);
@@ -6359,17 +6392,21 @@ void DocumentItem::sortObjectItems()
 
 void DocumentItem::slotResetEdit(const Gui::ViewProviderDocumentObject& v)
 {
+    // This edit's item only: another may be in edit still (entry 232)
     auto tree = getTree();
+    auto found = tree->editingItems.find(&v);
+    DocumentObjectItem *editingItem = found != tree->editingItems.end() ? found->second : nullptr;
     FOREACH_ITEM_ALL(item)
-        if(tree->editingItem) {
-            if(item == tree->editingItem) {
+        if(editingItem) {
+            if(item == editingItem) {
                 item->setHighlight(true, item->highlightMode);
                 break;
             }
         }else if(item->object() == &v)
             item->setHighlight(true, item->highlightMode);
     END_FOREACH_ITEM
-    tree->editingItem = nullptr;
+    if (found != tree->editingItems.end())
+        tree->editingItems.erase(found);
 }
 
 void DocumentItem::slotNewObject(const Gui::ViewProviderDocumentObject& obj) {

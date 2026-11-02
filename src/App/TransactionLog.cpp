@@ -267,6 +267,8 @@ public:
     std::vector<LogTransaction> chain(int64_t head, int64_t from) override
     { return inner().chain(head, from); }
     std::vector<LogTransaction> history(int64_t head) override { return inner().history(head); }
+    void setGroup(const std::vector<int64_t>& seqs, int64_t group) override
+    { inner().setGroup(seqs, group); }
     bool lastOpOn(const std::string& ckind, long cid, const std::string& prop, int64_t after,
                   int64_t head, LogOp& op) override
     { return inner().lastOpOn(ckind, cid, prop, after, head, op); }
@@ -3897,10 +3899,15 @@ bool TransactionLog::rowsBackTo(int64_t seq, std::vector<TouchedRow>& rows)
 }
 
 int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const char* origin,
-                                 int64_t inverts)
+                                 int64_t inverts, bool* unchanged)
 {
-    if (txn.isEmpty())
+    if (unchanged)
+        *unchanged = false;
+    if (txn.isEmpty()) {
+        if (unchanged)
+            *unchanged = true;
         return 0;
+    }
     try {
         // The strings minted since, ahead of the values that name them
         // (sec 27.50 item 2): a recovery has every one a value it replays
@@ -4195,6 +4202,8 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                     writeValues(tasks, none);
                 });
             }
+            if (unchanged)
+                *unchanged = true;
             return 0;
         }
         number(t);

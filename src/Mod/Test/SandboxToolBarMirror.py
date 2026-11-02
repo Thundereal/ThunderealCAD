@@ -379,6 +379,49 @@ class SandboxToolBarMirrorTest(unittest.TestCase):
         self.Gui.activateWorkbench("DraftWorkbench")
         self.spin(60, 6)
 
+    def test_undo_redo(self):
+        """Undo and Redo put a QAction of their own on the bar (it carries
+        the history menu): the button is still their command's, with its
+        icon, run as the command."""
+        ids = [_ref(item.get("action")) for bar in self.order() for item in self.bar_items(bar)]
+        for name in ("Std_Undo", "Std_Redo"):
+            self.assertIn("cmd:" + name, ids)
+            st = self.FW.snapshot("cmd:" + name)["state"]
+            self.assertEqual(st["q_command"], name)
+            self.assertTrue(st["q_icon"], st)
+            reply = self.control({"op": "widgets.icon", "name": st["q_icon"], "size": 24})
+            self.assertTrue(reply["ok"] and reply["data"], reply)
+
+    def test_unnamed_icons(self):
+        """An icon with no name to it -- PartDesign's primitive groups,
+        whose members are plain QActions given an icon -- travels as its
+        pixels by id (`img:`), and every button on the bars has one."""
+        self.Gui.activateWorkbench("PartDesignWorkbench")
+        self.spin(60, 6)
+        self.FW.mirrorFlush()
+        try:
+            for group in ("PartDesign_CompPrimitiveAdditive",
+                          "PartDesign_CompPrimitiveSubtractive"):
+                st = self.FW.snapshot("cmd:" + group)["state"]
+                members = [_ref(r) for r in st["q_members"]]
+                self.assertGreater(len(members), 2, st)
+                for aid in ["cmd:" + group] + members:
+                    icon = self.FW.snapshot(aid)["state"]["q_icon"]
+                    self.assertTrue(icon.startswith("img:"), (aid, icon))
+                    reply = self.control({"op": "widgets.image", "name": icon})
+                    self.assertTrue(reply["ok"] and reply["data"], (aid, reply))
+            bare = []
+            for bar in self.order():
+                for item in self.bar_items(bar):
+                    aid = _ref(item.get("action"))
+                    st = self.FW.snapshot(aid)["state"] if aid else {}
+                    if aid and not st.get("q_separator") and not st.get("q_icon"):
+                        bare.append(aid)
+            self.assertEqual(bare, [])
+        finally:
+            self.Gui.activateWorkbench("DraftWorkbench")
+            self.spin(60, 6)
+
     def test_gone_subscriber_stops_mid_rebuild(self):
         """A subscriber whose connection is gone, as the only one: its
         subscribe starts the mirror, the start's rebuild pushes to it, the

@@ -57,6 +57,10 @@ public:
     void onChanged(const App::Property *prop) override;
     bool setEdit(int ModNum) override;
     bool doubleClicked() override;
+    /// None in a section view's panel's edit with PerViewEdit on: each
+    /// change is a step of its own (docs/HandsOnQueue.md entry 232). A
+    /// complex section's panel holds one.
+    bool editHoldsTransaction(int ModNum) const override;
 
     void updateGraphic();
     void getParameters();

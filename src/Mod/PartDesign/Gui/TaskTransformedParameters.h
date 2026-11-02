@@ -45,6 +45,7 @@ class QListWidget;
 class QTimer;
 
 namespace Gui {
+class EditSteps;
 namespace Dialog {
 class DlgPropertyLink;
 class Placement;
@@ -118,6 +119,15 @@ public:
     int getTransactionID() const {
         return transactionID;
     }
+
+    /** With PerViewEdit on, each change a step of its own, so the edit may
+     * run beside another view's of the document (docs/HandsOnQueue.md entry
+     * 232): the panel's, or its MultiTransform's for one inside it. Null for
+     * a feature whose panel holds its transaction.
+     */
+    Gui::EditSteps *editSteps() const;
+    /// Whether its changes are steps of their own (editSteps() on)
+    bool ownsItsSteps() const;
 
     /**
      * Returns the base transformation view provider
@@ -241,6 +251,7 @@ protected:
     QTimer *updateViewTimer = nullptr;
 
     int transactionID = 0;
+    Gui::EditSteps *steps = nullptr;
     bool onTopEnabled = true;
 
     bool blockUpdate;
@@ -277,6 +288,8 @@ public:
     bool accept() override;
     /// is called by the framework if the dialog is rejected (Cancel)
     bool reject() override;
+    /// False when its changes are steps of their own (ownsItsSteps)
+    bool holdsTransaction() const override;
 
 protected Q_SLOTS:
     void onToggledTaskParameters();

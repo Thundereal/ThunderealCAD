@@ -25,6 +25,7 @@
 #ifndef _PreComp_
 #include <QAction>
 #include <QMenu>
+#include <QLabel>
 #include <QMessageBox>
 #include <QTimer>
 #include <TopExp.hxx>
@@ -42,7 +43,10 @@
 #include <Gui/Widgets.h>
 #include <Mod/Part/Gui/ViewProvider.h>
 
+#include "EndEdit.h"
+#include "Import.h"
 #include "TaskGeomFillSurface.h"
+#include "TaskTools.h"
 #include "ui_TaskGeomFillSurface.h"
 
 
@@ -125,7 +129,7 @@ void ViewProviderGeomFillSurface::highlightReferences(bool on)
                     colors.resize(eMap.Extent(), svp->LineColor.getValue());
 
                     for (const auto& jt : it.second) {
-                        std::size_t idx = static_cast<std::size_t>(std::stoi(jt.substr(4)) - 1);
+                        std::size_t idx = static_cast<std::size_t>(elementIndex(jt) - 1);
                         assert(idx < colors.size());
                         colors[idx] = App::Color(1.0, 0.0, 1.0);  // magenta
                     }
@@ -192,7 +196,7 @@ bool GeomFillSurface::EdgeSelection::allow(App::Document*,
         }
     }
 
-    return appendEdges;
+    return appendEdges || anyBinder(links);
 }
 
 // ----------------------------------------------------------------------------
@@ -201,6 +205,10 @@ GeomFillSurface::GeomFillSurface(ViewProviderGeomFillSurface* vp, Surface::GeomF
 {
     ui = new Ui_GeomFillSurface();
     ui->setupUi(this);
+    statusLabel = new QLabel(this);
+    statusLabel->setObjectName(QStringLiteral("statusLabel"));
+    statusLabel->setWordWrap(true);
+    layout()->addWidget(statusLabel);
     setupConnections();
 
     selectionMode = None;
@@ -377,17 +385,11 @@ bool GeomFillSurface::accept()
     selectionMode = None;
     Gui::Selection().rmvSelectionGate();
 
+    // what stops it is said here, not in a dialog: a dialog's event loop
+    // would stop a serving process for every browser it serves
     int count = ui->listWidget->count();
-    if (count > 4) {
-        QMessageBox::warning(this,
-                             tr("Too many edges"),
-                             tr("The tool requires two, three or four edges"));
-        return false;
-    }
-    else if (count < 2) {
-        QMessageBox::warning(this,
-                             tr("Too less edges"),
-                             tr("The tool requires two, three or four edges"));
+    if (count > 4 || count < 2) {
+        statusLabel->setText(tr("The tool requires two, three or four edges"));
         return false;
     }
 
@@ -395,17 +397,16 @@ bool GeomFillSurface::accept()
         editedObject->recomputeFeature();
     }
     if (!editedObject->isValid()) {
-        QMessageBox::warning(this,
-                             tr("Invalid object"),
-                             QString::fromUtf8(editedObject->getStatusString()));
+        statusLabel->setText(
+            tr("Not built: %1").arg(QString::fromUtf8(editedObject->getStatusString())));
         return false;
     }
 
     this->vp->highlightReferences(false);
 
+    std::string doc = editedObject->getDocument()->getName();
     Gui::Command::commitCommand();
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-    Gui::Command::updateActive();
+    endEdit(doc);
     return true;
 }
 
@@ -415,9 +416,10 @@ bool GeomFillSurface::reject()
     selectionMode = None;
     Gui::Selection().rmvSelectionGate();
 
+    // the object's document, read before the abort may take the object
+    std::string doc = editedObject->getDocument()->getName();
     Gui::Command::abortCommand();
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-    Gui::Command::updateActive();
+    endEdit(doc);
     return true;
 }
 
@@ -485,22 +487,26 @@ void GeomFillSurface::onSelectionChanged(const Gui::SelectionChanges& msg)
             item->setIcon(Gui::BitmapFactory().pixmap("view-rotate-right"));
             ui->listWidget->addItem(item);
 
-            Gui::SelectionObject sel(msg);
+            // as a sketch takes external geometry: in scope directly, else
+            // through a binder in the feature's body (Import.h)
+            const App::SubObjectT link = importPick(editedObject, pickOf(msg));
+            App::DocumentObject* linked = link.getObject();
+            const std::string linkedSub = link.getSubName();
             QString text = QStringLiteral("%1.%2").arg(
-                QString::fromUtf8(sel.getObject()->Label.getValue()),
-                QString::fromUtf8(msg.pSubName));
+                QString::fromUtf8(linked->Label.getValue()),
+                QString::fromStdString(linkedSub));
             item->setText(text);
 
             QList<QVariant> data;
-            data << QByteArray(msg.pDocName);
-            data << QByteArray(msg.pObjectName);
-            data << QByteArray(msg.pSubName);
+            data << QByteArray(linked->getDocument()->getName());
+            data << QByteArray(linked->getNameInDocument());
+            data << QByteArray(linkedSub.c_str());
             item->setData(Qt::UserRole, data);
 
             auto objects = editedObject->BoundaryList.getValues();
-            objects.push_back(sel.getObject());
+            objects.push_back(linked);
             auto element = editedObject->BoundaryList.getSubValues();
-            element.emplace_back(msg.pSubName);
+            element.emplace_back(linkedSub);
             editedObject->BoundaryList.setValues(objects, element);
             auto booleans = editedObject->ReversedList.getValues();
             booleans.push_back(false);
@@ -508,12 +514,15 @@ void GeomFillSurface::onSelectionChanged(const Gui::SelectionChanges& msg)
             this->vp->highlightReferences(true);
         }
         else {
-            Gui::SelectionObject sel(msg);
+            // the link it is, as listed: itself, or through a binder of it
+            const auto listed = listedAs(editedObject->BoundaryList, pickOf(msg));
+            App::DocumentObject* listedObj = listed.first;
+            const std::string listedSub = listed.second;
             QList<QVariant> data;
             int row = 0;
-            data << QByteArray(msg.pDocName);
-            data << QByteArray(msg.pObjectName);
-            data << QByteArray(msg.pSubName);
+            data << QByteArray(listedObj->getDocument()->getName());
+            data << QByteArray(listedObj->getNameInDocument());
+            data << QByteArray(listedSub.c_str());
             for (int i = 0; i < ui->listWidget->count(); i++) {
                 QListWidgetItem* item = ui->listWidget->item(i);
                 if (item && item->data(Qt::UserRole) == data) {
@@ -524,8 +533,8 @@ void GeomFillSurface::onSelectionChanged(const Gui::SelectionChanges& msg)
             }
 
             this->vp->highlightReferences(false);
-            App::DocumentObject* obj = sel.getObject();
-            std::string sub = msg.pSubName;
+            App::DocumentObject* obj = listedObj;
+            std::string sub = listedSub;
             auto objects = editedObject->BoundaryList.getValues();
             auto element = editedObject->BoundaryList.getSubValues();
             auto it = objects.begin();
@@ -664,25 +673,44 @@ TaskGeomFillSurface::TaskGeomFillSurface(ViewProviderGeomFillSurface* vp,
                                          nullptr);
     taskbox->groupLayout()->addWidget(widget);
     Content.push_back(taskbox);
+
+    conditions = conditionsPanel(obj);
+    conditionsBox =
+        new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("Surface_BSplineSurface"),
+                                   conditions->windowTitle(),
+                                   true,
+                                   nullptr);
+    conditionsBox->groupLayout()->addWidget(conditions);
+    Content.push_back(conditionsBox);
 }
 
 void TaskGeomFillSurface::setEditedObject(Surface::GeomFillSurface* obj)
 {
     widget->setEditedObject(obj);
+    // another object's edit in the same dialog: its conditions
+    if (conditions->object() != obj) {
+        delete conditions;
+        conditions = conditionsPanel(obj);
+        conditionsBox->groupLayout()->addWidget(conditions);
+        conditions->open();
+    }
 }
 
 void TaskGeomFillSurface::open()
 {
     widget->open();
+    conditions->open();
 }
 
 bool TaskGeomFillSurface::accept()
 {
+    conditions->endPick();
     return widget->accept();
 }
 
 bool TaskGeomFillSurface::reject()
 {
+    conditions->endPick();
     return widget->reject();
 }
 

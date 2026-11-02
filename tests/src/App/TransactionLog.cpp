@@ -2146,6 +2146,338 @@ TEST_F(TransactionLogTest, undoAndRedoAreLoggedAsInverses)
     EXPECT_EQ(obj->ExecCount.getValue(), again);
 }
 
+namespace
+{
+int stepNamed(App::Document* doc, const std::string& name, bool undo = true)
+{
+    for (const auto& s : undo ? doc->getAvailableUndoSteps() : doc->getAvailableRedoSteps()) {
+        if (s.name == name)
+            return s.id;
+    }
+    return 0;
+}
+}  // namespace
+
+TEST_F(TransactionLogTest, aGroupOfStepsIsUndoneAndRedoneWhole)
+{
+    // docs/MultiViewEdit.md sec 12.11: the steps of an edit ended with OK
+    // are one group. One undo takes them all, one redo brings them back; a
+    // step after the group is a step of its own.
+    doc()->openTransaction("create");
+    auto a = make("A");
+    doc()->commitTransaction();
+    doc()->recompute();
+    for (int i = 1; i <= 3; ++i) {
+        doc()->openTransaction(("edit " + std::to_string(i)).c_str());
+        a->Integer.setValue(i);
+        doc()->recompute();
+        doc()->commitTransaction();
+    }
+    doc()->openTransaction("after");
+    a->Float.setValue(2.5);
+    doc()->commitTransaction();
+    ASSERT_TRUE(doc()->groupSteps(
+        {stepNamed(doc(), "edit 1"), stepNamed(doc(), "edit 2"), stepNamed(doc(), "edit 3")}));
+    auto steps = doc()->getAvailableUndoSteps();
+    ASSERT_GE(steps.size(), 4u);
+    EXPECT_EQ(steps[0].group, 0);
+    EXPECT_NE(steps[1].group, 0);
+    EXPECT_EQ(steps[1].group, steps[2].group);
+    EXPECT_EQ(steps[1].group, steps[3].group);
+
+    // the rows keep the group, keyed by the oldest one's seq
+    log().resolvePending();
+    std::map<std::string, int64_t> groups;
+    for (const auto& t : log().store().transactions())
+        groups[t.name] = t.group;
+    EXPECT_EQ(groups["after"], 0);
+    EXPECT_EQ(groups["edit 1"], steps[1].group);
+    EXPECT_EQ(groups["edit 3"], steps[1].group);
+
+    ASSERT_TRUE(doc()->undo());   // the step after
+    EXPECT_NEAR(a->Float.getValue(), 47.11, 1e-5);   // its default
+    EXPECT_EQ(a->Integer.getValue(), 3);
+    ASSERT_TRUE(doc()->undo());   // the group, whole
+    EXPECT_EQ(a->Integer.getValue(), 4711);
+    EXPECT_EQ(doc()->getAvailableUndoNames().front(), "create");
+    ASSERT_TRUE(doc()->redo());
+    EXPECT_EQ(a->Integer.getValue(), 3);
+    EXPECT_NEAR(a->Float.getValue(), 47.11, 1e-5);   // its default
+    ASSERT_TRUE(doc()->redo());
+    EXPECT_EQ(a->Float.getValue(), 2.5);
+}
+
+TEST_F(TransactionLogTest, aGroupIsOneStepAgainOnStacksRebuiltFromTheLog)
+{
+    // docs/MultiViewEdit.md sec 12.11: a group is kept in its rows, and the
+    // stacks rebuilt from the rows -- a crashed session recovered (sec 25),
+    // a branch arrived back on (sec 26) -- have it again, on either stack:
+    // one undo or one redo takes it whole. (A plain open starts with no
+    // steps, sec 26.4.)
+    doc()->openTransaction("create");
+    auto a = make("A");
+    doc()->commitTransaction();
+    auto edit = [&](const char* name, int value) {
+        doc()->openTransaction(name);
+        a->Integer.setValue(value);
+        doc()->commitTransaction();
+    };
+    edit("edit 1", 1);
+    edit("edit 2", 2);
+    ASSERT_TRUE(doc()->groupSteps({stepNamed(doc(), "edit 1"), stepNamed(doc(), "edit 2")}));
+    doc()->openTransaction("after");
+    a->Float.setValue(2.5);
+    doc()->commitTransaction();
+    edit("edit 3", 3);
+    edit("edit 4", 4);
+    ASSERT_TRUE(doc()->groupSteps({stepNamed(doc(), "edit 3"), stepNamed(doc(), "edit 4")}));
+    ASSERT_TRUE(doc()->undo()) << doc()->undoRefusal();   // the second group, to redo
+    ASSERT_EQ(a->Integer.getValue(), 2);
+    log().flush();
+
+    auto rebuilt = [](App::Document* d, App::FeatureTest* obj) {
+        const auto undos = d->getAvailableUndoSteps();
+        ASSERT_EQ(undos.size(), 4u);
+        EXPECT_EQ(undos[0].name, "after");
+        EXPECT_EQ(undos[0].group, 0);
+        EXPECT_NE(undos[1].group, 0);
+        EXPECT_EQ(undos[1].group, undos[2].group);
+        EXPECT_EQ(undos[3].group, 0);
+        const auto redos = d->getAvailableRedoSteps();
+        ASSERT_EQ(redos.size(), 2u);
+        EXPECT_NE(redos[0].group, 0);
+        EXPECT_EQ(redos[0].group, redos[1].group);
+        EXPECT_NE(redos[0].group, undos[1].group);
+
+        ASSERT_TRUE(d->redo()) << d->undoRefusal();   // the second group, whole
+        EXPECT_EQ(obj->Integer.getValue(), 4);
+        EXPECT_TRUE(d->getAvailableRedoSteps().empty());
+        ASSERT_TRUE(d->undo()) << d->undoRefusal();   // and back, whole
+        EXPECT_EQ(obj->Integer.getValue(), 2);
+        ASSERT_TRUE(d->undo()) << d->undoRefusal();   // the step after
+        EXPECT_DOUBLE_EQ(obj->Float.getValue(), 47.11f);
+        ASSERT_TRUE(d->undo()) << d->undoRefusal();   // the first group, whole
+        EXPECT_EQ(obj->Integer.getValue(), 4711);
+        ASSERT_FALSE(d->getAvailableUndoNames().empty());
+        EXPECT_EQ(d->getAvailableUndoNames().front(), "create");
+    };
+
+    // A crash: the session's directory as it stands, recovered
+    const std::string crashed = Base::FileInfo::getTempPath() + "txnlog-crashed-group";
+    Base::FileInfo(crashed).deleteDirectoryRecursive();
+    for (const char* sub : {"history", "blobs"}) {
+        const std::string from = doc()->TransientDir.getStrValue() + "/" + sub;
+        const std::string to = crashed + "/" + sub;
+        Base::FileInfo(to).createDirectories();
+        if (!Base::FileInfo(from).isDir())
+            continue;
+        for (const auto& file : Base::FileInfo(from).getDirectoryContent()) {
+            if (file.isFile())
+                file.copyTo((to + "/" + file.fileName()).c_str());
+        }
+    }
+    auto recovered = App::GetApplication().recoverDocument(crashed.c_str(), false);
+    ASSERT_TRUE(recovered);
+    const std::string name = recovered->getName();
+    auto ra = dynamic_cast<App::FeatureTest*>(recovered->getObject("A"));
+    ASSERT_TRUE(ra);
+    {
+        SCOPED_TRACE("recovered");
+        rebuilt(recovered, ra);
+    }
+    App::GetApplication().closeDocument(name.c_str());
+
+    // A branch left and arrived back on
+    doc()->createBranch("side");
+    doc()->openTransaction("side edit");
+    a->String.setValue("side");
+    doc()->commitTransaction();
+    ASSERT_TRUE(doc()->switchBranch("main"));
+    {
+        SCOPED_TRACE("back on main");
+        rebuilt(doc(), a);
+    }
+}
+
+TEST_F(TransactionLogTest, aGroupIsUndoneFromUnderAnotherStepAndInPart)
+{
+    // A step between the group's is passed over and stays (sec 12.11); and
+    // undoing down to a step inside the group takes the group to it only.
+    doc()->openTransaction("create");
+    auto a = make("A");
+    auto b = make("B");
+    doc()->commitTransaction();
+    doc()->recompute();
+    doc()->openTransaction("edit 1");
+    a->Integer.setValue(1);
+    doc()->commitTransaction();
+    doc()->openTransaction("between");
+    b->Integer.setValue(9);
+    doc()->commitTransaction();
+    doc()->openTransaction("edit 2");
+    a->Float.setValue(1.5);
+    doc()->commitTransaction();
+    ASSERT_TRUE(doc()->groupSteps({stepNamed(doc(), "edit 1"), stepNamed(doc(), "edit 2")}));
+
+    ASSERT_TRUE(doc()->undo()) << doc()->undoRefusal();
+    EXPECT_EQ(a->Integer.getValue(), 4711);
+    EXPECT_NEAR(a->Float.getValue(), 47.11, 1e-5);   // its default
+    EXPECT_EQ(b->Integer.getValue(), 9);
+    ASSERT_TRUE(doc()->redo()) << doc()->undoRefusal();
+    EXPECT_EQ(a->Integer.getValue(), 1);
+    EXPECT_EQ(a->Float.getValue(), 1.5);
+    EXPECT_EQ(b->Integer.getValue(), 9);
+
+    // in part: down to edit 2 leaves edit 1
+    ASSERT_TRUE(doc()->undo(stepNamed(doc(), "edit 2"))) << doc()->undoRefusal();
+    EXPECT_NEAR(a->Float.getValue(), 47.11, 1e-5);   // its default
+    EXPECT_EQ(a->Integer.getValue(), 1);
+    // and what is left is still a group of one step on each side
+    ASSERT_TRUE(doc()->undo()) << doc()->undoRefusal();
+    EXPECT_EQ(a->Integer.getValue(), 4711);
+    EXPECT_EQ(b->Integer.getValue(), 9);
+}
+
+TEST_F(TransactionLogTest, aLinkMadeSinceToWhatAStepMadeStandsInItsWay)
+{
+    // docs/MultiViewEdit.md sec 12.11: a step that made an object, linked to
+    // by a step made since, is not undone from under it -- the undo would
+    // leave the link to nothing. The step in the way is named, and the two
+    // undone together go.
+    doc()->openTransaction("make B");
+    auto b = make("B");
+    doc()->commitTransaction();
+    doc()->openTransaction("make A");
+    auto a = make("A");
+    doc()->commitTransaction();
+    doc()->openTransaction("link to A");
+    b->Link.setValue(a);
+    doc()->commitTransaction();
+    doc()->openTransaction("after");
+    b->Float.setValue(3.0);
+    doc()->commitTransaction();
+
+    const int makeA = stepNamed(doc(), "make A");
+    const int link = stepNamed(doc(), "link to A");
+    EXPECT_FALSE(doc()->undoSteps({makeA}));
+    EXPECT_NE(doc()->getObject("A"), nullptr);
+    EXPECT_NE(doc()->undoRefusal().find("links to"), std::string::npos) << doc()->undoRefusal();
+    const auto inTheWay = doc()->stepsInTheWay();
+    ASSERT_EQ(inTheWay.size(), 1u);
+    EXPECT_EQ(inTheWay[0].id, link);
+    EXPECT_TRUE(inTheWay[0].author.empty());
+
+    ASSERT_TRUE(doc()->undoSteps({makeA, link})) << doc()->undoRefusal();
+    EXPECT_EQ(doc()->getObject("A"), nullptr);
+    EXPECT_EQ(b->Link.getValue(), nullptr);
+    EXPECT_FLOAT_EQ(b->Float.getValue(), 3.0);   // the step after stays
+}
+
+TEST_F(TransactionLogTest, aReferenceTheUndoWouldBreakStandsInItsWay)
+{
+    // An expression set since on what the step added: its undo would leave
+    // the expression naming nothing, and is refused, naming the step.
+    doc()->openTransaction("make");
+    auto a = make("A");
+    auto b = make("B");
+    doc()->commitTransaction();
+    doc()->openTransaction("add Extra");
+    a->addDynamicProperty("App::PropertyInteger", "Extra");
+    doc()->commitTransaction();
+    doc()->openTransaction("refer to Extra");
+    b->setExpression(App::ObjectIdentifier::parse(b, "Integer"),
+                     std::shared_ptr<App::Expression>(App::Expression::parse(b, "A.Extra + 1")));
+    doc()->commitTransaction();
+    doc()->recompute();
+
+    const int add = stepNamed(doc(), "add Extra");
+    const int refer = stepNamed(doc(), "refer to Extra");
+    EXPECT_FALSE(doc()->undoSteps({add}));
+    EXPECT_NE(a->getPropertyByName("Extra"), nullptr);
+    const auto inTheWay = doc()->stepsInTheWay();
+    ASSERT_FALSE(inTheWay.empty()) << doc()->undoRefusal();
+    EXPECT_EQ(inTheWay[0].id, refer);
+    ASSERT_TRUE(doc()->undoSteps({add, refer})) << doc()->undoRefusal();
+    EXPECT_EQ(a->getPropertyByName("Extra"), nullptr);
+}
+
+TEST_F(TransactionLogTest, anUndoThatLeavesAnObjectCleanLeavesItsLinksClean)
+{
+    // docs/TransactionLogJournal.md sec 24.17: a link is touched while its
+    // target has changed since it was purged. An undo writes the target
+    // back, and the object linking to it -- up to date by the rows, its
+    // output written back too -- must not run again at the next recompute.
+    doc()->openTransaction("create");
+    auto a = make("A");
+    auto b = make("B");
+    a->Link.setValue(b);
+    doc()->commitTransaction();
+    doc()->recompute();
+    ASSERT_FALSE(a->mustExecute());
+
+    doc()->openTransaction("edit");
+    b->Integer.setValue(7);
+    doc()->recompute();
+    doc()->commitTransaction();
+    ASSERT_FALSE(a->mustExecute());
+
+    ASSERT_TRUE(doc()->undo());
+    EXPECT_EQ(b->Integer.getValue(), 4711);
+    EXPECT_FALSE(a->isTouched());
+    EXPECT_FALSE(a->Link.isTouched());
+    EXPECT_FALSE(a->mustExecute());
+    ASSERT_TRUE(doc()->redo());
+    EXPECT_FALSE(a->Link.isTouched());
+    EXPECT_FALSE(a->mustExecute());
+}
+
+TEST_F(TransactionLogTest, aWriteFinishingItsOwnersRecomputeIsDerived)
+{
+    // docs/TransactionLogJournal.md sec 10.2: what an object writes to its
+    // own properties inside a TransactionDerived -- the end of a recompute
+    // run on in a thread -- is derived, as what execute() writes is; what
+    // it writes to another object's, and anything outside, is not.
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    auto other = make("Other");
+    doc()->commitTransaction();
+    doc()->recompute();
+
+    doc()->openTransaction("finish");
+    {
+        App::TransactionDerived derived(obj);
+        EXPECT_TRUE(App::TransactionDerived::active(obj));
+        EXPECT_FALSE(App::TransactionDerived::active(other));
+        obj->Integer.setValue(5);
+        other->Integer.setValue(6);
+    }
+    EXPECT_FALSE(App::TransactionDerived::active(obj));
+    obj->Float.setValue(1.5);
+    doc()->commitTransaction();
+    log().resolvePending();
+
+    auto& store = log().store();
+    int64_t seq = 0;
+    for (auto& t : store.transactions()) {
+        if (t.name == "finish")
+            seq = t.seq;
+    }
+    ASSERT_GT(seq, 0);
+    std::map<std::pair<long, std::string>, bool> derived;
+    for (auto& o : store.ops(seq)) {
+        if (o.op == "set")
+            derived[{o.cid, o.prop}] = o.derived;
+    }
+    const long id = obj->getID();
+    const long otherId = other->getID();
+    ASSERT_TRUE(derived.count({id, "Integer"}));
+    ASSERT_TRUE(derived.count({otherId, "Integer"}));
+    ASSERT_TRUE(derived.count({id, "Float"}));
+    EXPECT_TRUE((derived[{id, "Integer"}]));
+    EXPECT_FALSE((derived[{otherId, "Integer"}]));
+    EXPECT_FALSE((derived[{id, "Float"}]));
+}
+
 TEST_F(TransactionLogTest, coldUndoRevertsFromTheLog)
 {
     // docs/TransactionLogJournal.md sec 24.3: past the hot window a step keeps its
@@ -2375,8 +2707,14 @@ TEST_F(TransactionLogTest, severalRowsUndoneAreOneStep)
     EXPECT_EQ(log().store().transactions().size(), rows);
     EXPECT_EQ(doc()->getAvailableUndoNames(), undos);
     EXPECT_NE(doc()->undoRefusal().find("Float"), std::string::npos) << doc()->undoRefusal();
+    // The step in the way is named, as for an undo refused for it -- what
+    // an edit's Cancel asks about (docs/MultiViewEdit.md sec 12.11)
+    const auto inTheWay = doc()->stepsInTheWay();
+    ASSERT_EQ(inTheWay.size(), 1u) << doc()->undoRefusal();
+    EXPECT_EQ(inTheWay[0].id, stepNamed(doc(), "f2"));
     // The newer one alone is fine, as before.
     ASSERT_TRUE(doc()->undoLogged(std::vector<int64_t> {f3}));
+    EXPECT_TRUE(doc()->stepsInTheWay().empty());
     EXPECT_DOUBLE_EQ(a->Float.getValue(), 4.5);
     EXPECT_EQ(log().store().transactions().back().inverts, f3);
 
@@ -3232,7 +3570,7 @@ TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
         kept.seq = 1;
         EXPECT_TRUE(store->keepValue(kept));
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 4);
     // Opened again: nothing left to do.
     EXPECT_NO_THROW(App::TransactionStore::openSQLite(path));
     Base::FileInfo(path).deleteFile();
@@ -3307,7 +3645,7 @@ TEST_F(TransactionLogTest, aStoreOfScannersLayoutIsMigrated)
         ASSERT_EQ(sessions.size(), 1U);
         EXPECT_EQ(sessions.front().user, 1);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 4);
     Base::FileInfo(path).deleteFile();
 }
 
@@ -3356,7 +3694,7 @@ TEST_F(TransactionLogTest, aStoreOfLayoutOneGetsObjectUids)
             uids.emplace(u.first, u.second);
         EXPECT_EQ(uids.count(5), 0U);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 4);
     Base::FileInfo(path).deleteFile();
 }
 
@@ -3428,7 +3766,9 @@ TEST_F(TransactionLogTest, aStoreOfLayoutTwoGetsItsOpsPacked)
         EXPECT_EQ(back[0].vbefore, h2);
         EXPECT_EQ(back[0].vafter, h1);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 4);
+    // 4: the group of a row (docs/MultiViewEdit.md sec 12.11)
+    EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM pragma_table_info('txn') WHERE name='grp'"), 1);
     EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM op WHERE typeof(prop)<>'integer'"), 0);
     EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM op WHERE typeof(vbefore)='blob'"), 2);
     EXPECT_EQ(rawInt(path, "SELECT length(vafter) FROM op WHERE txn=1 AND idx=0"), 20);
@@ -3534,7 +3874,7 @@ TEST_F(TransactionLogTest, aStoreNotOfThisBuildIsRefused)
     {
         auto store = App::TransactionStore::openSQLite(fresh);
     }
-    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 4);
     Base::FileInfo(fresh).deleteFile();
 }
 

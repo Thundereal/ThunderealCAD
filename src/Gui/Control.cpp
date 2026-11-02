@@ -44,6 +44,8 @@
 #include "MDIView.h"
 #include "Selection.h"
 #include "Tree.h"
+#include "ViewParams.h"
+#include "ViewerContext.h"
 #include "TaskView/TaskView.h"
 
 
@@ -66,7 +68,8 @@ struct OpenDialog
     /// dialog was not the active one while its own open() ran
     bool shown {false};
 };
-/// The open dialogs. One at most while ControlSingleton::exclusive().
+/// The open dialogs: one for a view at most, and as many views as may
+/// have one beside each other (ControlSingleton::blockerOf()).
 std::vector<OpenDialog> openDialogs;
 
 OpenDialog *recordOf(const Gui::TaskView::TaskDialog *dlg)
@@ -244,29 +247,54 @@ Gui::TaskView::TaskDialog* ControlSingleton::dialogOf(const TaskOwner &owner) co
         if (open.shown && open.dialog->owner().isNull())
             return open.dialog;
     }
-    // Asked for nobody in particular: THE dialog while there can be only
-    // one, else the dialog of the view being handled.
-    const bool any = owner.isNull() && exclusive();
-    const TaskOwner whose = (owner.isNull() && !any) ? TaskOwner::current() : owner;
+    // Asked for nobody in particular: the dialog of the view being
+    // handled, else the one that stands in the way of a dialog of its --
+    // which is THE dialog while only one may be open, and the one a
+    // command asking "is a dialog open?" means. A dialog that may be open
+    // beside one of this view's (another document's edit) is not it.
+    const TaskOwner whose = owner.isNull() ? TaskOwner::current() : owner;
     for (const OpenDialog &open : openDialogs) {
-        if (open.shown && (any || open.dialog->owner() == whose))
+        if (open.shown && open.dialog->owner() == whose)
             return open.dialog;
     }
-    return nullptr;
+    if (!owner.isNull())
+        return nullptr;
+    return blockerOf(whose);
 }
 
-Gui::TaskView::TaskDialog* ControlSingleton::blockerOf(const TaskOwner &owner) const
+Gui::TaskView::TaskDialog* ControlSingleton::blockerOf(const TaskOwner &owner,
+        const Gui::TaskView::TaskDialog *incoming) const
 {
     const bool one = exclusive();
     for (const OpenDialog &open : openDialogs) {
         if (!open.shown)
             continue;
-        // One at a time. And where several may be open, one for a view:
-        // a dialog nobody owns is everybody's, so it shares the task view
-        // with no other, whichever of the two comes first.
+        // One for a view: a dialog nobody owns is everybody's, so it shares
+        // the task view with no other, whichever of the two comes first.
         const TaskOwner &its = open.dialog->owner();
-        if (one || owner.isNull() || its.isNull() || its == owner)
+        if (owner.isNull() || its.isNull() || its == owner)
             return open.dialog;
+        if (!one)
+            continue;
+        // The application has one active transaction, and a dialog opening
+        // its own would commit another's work in progress (docs/
+        // TaskPanelPerView.md sec 8) -- unless that one is an edit's in
+        // another document, whose transaction is its document's own while
+        // the edit runs (App::Application::bindActiveTransaction; docs/
+        // HandsOnQueue.md entry 232).
+        Gui::Document *itsDoc = its.document();
+        Gui::Document *ownerDoc = owner.document();
+        if (itsDoc && ownerDoc && itsDoc != ownerDoc
+                && App::GetApplication().isActiveTransactionBound(itsDoc->getDocument()))
+            continue;
+        // Another view of the same document, each with an edit of its own
+        // (PerViewEdit): beside a dialog that holds no transaction, which a
+        // new dialog has to say of itself too (showDialogFor)
+        if (itsDoc && itsDoc == ownerDoc && ViewParams::getPerViewEdit()
+                && !open.dialog->holdsTransaction()
+                && (!incoming || !incoming->holdsTransaction()))
+            continue;
+        return open.dialog;
     }
     return nullptr;
 }
@@ -315,7 +343,7 @@ void ControlSingleton::showDialogFor(Gui::TaskView::TaskDialog *dlg, const TaskO
         return;
     }
     // only one dialog at a time, print a warning instead of raising an assert
-    if (!isOpen(dlg) && blockerOf(owner)) {
+    if (!isOpen(dlg) && blockerOf(owner, dlg)) {
         qWarning() << "ControlSingleton::showDialog: Can't show "
                    << dlg->metaObject()->className()
                    << " since there is already an active task dialog";
@@ -635,6 +663,44 @@ void ControlSingleton::destruct ()
 
 // -------------------------------------------
 
+
+TaskOwner ControlSingleton::ownerOfContent(const QObject *obj) const
+{
+    for (const QObject *o = obj; o; o = o->parent()) {
+        for (const OpenDialog &open : openDialogs) {
+            const auto &content = open.dialog->getDialogContent();
+            if (std::find(content.begin(), content.end(), o) != content.end())
+                return open.dialog->owner();
+        }
+    }
+    return TaskOwner();
+}
+
+bool ControlSingleton::hasOpenDialog() const
+{
+    return !openDialogs.empty();
+}
+
+std::vector<Gui::TaskView::TaskDialog*> ControlSingleton::shownDialogs() const
+{
+    std::vector<Gui::TaskView::TaskDialog*> out;
+    for (const OpenDialog &open : openDialogs) {
+        if (open.shown)
+            out.push_back(open.dialog);
+    }
+    return out;
+}
+
+Gui::ViewProvider* ControlSingleton::editViewProviderOf(const QObject *obj) const
+{
+    const TaskOwner owner = ownerOfContent(obj);
+    if (ViewerContext *viewer = owner.context())
+        return viewer->getEditingViewProvider();
+    // A view of its own an edit runs in: a TechDraw page's
+    MDIView *view = owner.mdiView();
+    Gui::Document *doc = view ? view->getGuiDocument() : nullptr;
+    return doc ? doc->editViewProviderIn(view) : nullptr;
+}
 
 #include "moc_Control.cpp"
 

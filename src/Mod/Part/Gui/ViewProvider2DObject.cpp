@@ -307,7 +307,7 @@ void ViewProvider2DObjectGrid::updateGridScale(Gui::ViewerContext *viewer)
         init = true;
         gdoc = viewer->getDocument();
     } else
-        gdoc  = Gui::Application::Instance->editDocument();
+        gdoc  = Gui::Application::Instance->editDocumentOf(getObject());
     if (!gdoc)
         return;
 

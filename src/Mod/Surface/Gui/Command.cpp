@@ -25,6 +25,7 @@
 #ifndef _PreComp_
 #include <QApplication>
 #include <QMessageBox>
+#include <algorithm>
 #include <sstream>
 
 #include <BRepAdaptor_Curve.hxx>
@@ -39,12 +40,14 @@
 #endif
 
 #include "Mod/Part/App/PartFeature.h"
+#include "Import.h"
 #include <App/Document.h>
 #include <Base/Console.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
 #include <Gui/Control.h>
 #include <Gui/Document.h>
+#include <Gui/MDIView.h>
 #include <Gui/MainWindow.h>
 #include <Gui/SelectionFilter.h>
 #include <Gui/SelectionObject.h>
@@ -113,6 +116,123 @@ void CmdSurfaceCut::activated(int iMsg)
 }
 
 
+
+namespace
+{
+
+/** A new feature placed: into the active PartDesign Body of the view the
+ * command came through, as a sketch goes -- a body takes Surface features
+ * (Part::BodyBase::allowType), not solid, never its Tip; through the body's
+ * own Python, as Surface does not link PartDesign. Then `_edit`, the edit
+ * context the picks are imported for (linkOf), set where it now is; the
+ * command drops it with dropEditContext().
+ */
+void placeFeature(Gui::Document* gdoc, const std::string& feat)
+{
+    App::Document* doc = gdoc ? gdoc->getDocument() : nullptr;
+    if (!doc) {
+        return;
+    }
+    Gui::MDIView* view = gdoc->getActiveView();
+    auto body = view ? view->getActiveObject<App::DocumentObject*>("pdbody") : nullptr;
+    if (body && body->getDocument() == doc) {
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "App.getDocument('%s').getObject('%s').addObject("
+                                "App.getDocument('%s').getObject('%s'))",
+                                body->getDocument()->getName(),
+                                body->getNameInDocument(),
+                                doc->getName(),
+                                feat.c_str());
+    }
+    if (auto obj = doc->getObject(feat.c_str())) {
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "%s",
+                                SurfaceGui::editContextPython(obj).c_str());
+    }
+}
+
+void dropEditContext()
+{
+    Gui::Command::doCommand(Gui::Command::Doc, "_edit = None\ndel _edit");
+}
+
+/** A pick of the selection: as it was picked, from the top -- what import
+ * needs to tell what is in the feature's scope -- and the Part::Feature and
+ * element it resolves to
+ */
+struct Picked
+{
+    App::SubObjectT path;
+    App::DocumentObject* obj;
+    std::string element;
+};
+
+/// The selection by the object each pick is in, in the order picked
+std::vector<std::vector<Picked>> selectedGroups()
+{
+    std::vector<std::vector<Picked>> groups;
+    for (const auto& path : Gui::Selection().getSelectionT(nullptr, Gui::ResolveMode::NoResolve)) {
+        App::DocumentObject* obj = path.getSubObject();
+        if (!obj || !obj->isDerivedFrom<Part::Feature>()) {
+            continue;
+        }
+        Picked pick {path, obj, path.getOldElementName()};
+        auto it = std::find_if(groups.begin(), groups.end(), [obj](const auto& group) {
+            return group.front().obj == obj;
+        });
+        if (it == groups.end()) {
+            groups.push_back({pick});
+        }
+        else {
+            it->push_back(pick);
+        }
+    }
+    return groups;
+}
+
+/// A pick as a link of the feature placed (placeFeature), as Python: taken as
+/// a sketch takes external geometry -- in scope directly, else through a
+/// binder in the feature's body (Import.h)
+std::string linkOf(const Picked& pick)
+{
+    return SurfaceGui::importPython(pick.path);
+}
+
+/// The same for the element `element` of the object `pick` is in
+std::string linkOf(const Picked& pick, const std::string& element)
+{
+    App::SubObjectT path(pick.path.getObject(),
+                         (pick.path.getSubNameNoElement() + element).c_str());
+    return SurfaceGui::importPython(path);
+}
+
+/// A new surface of `type` in the document of the view the command came
+/// through, its panel opened: named, not "Active", since a served document
+/// is never Python's ActiveDocument
+void makeAndEdit(Gui::Command* cmd, const char* type)
+{
+    Gui::Document* gdoc = cmd->getActiveGuiDocument();
+    if (!gdoc) {
+        return;
+    }
+    const char* doc = gdoc->getDocument()->getName();
+    std::string feat = gdoc->getDocument()->getUniqueObjectName("Surface");
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Create surface"));
+    Gui::Command::doCommand(Gui::Command::Doc,
+                            "App.getDocument('%s').addObject('%s', '%s')",
+                            doc,
+                            type,
+                            feat.c_str());
+    placeFeature(gdoc, feat);
+    dropEditContext();
+    Gui::Command::doCommand(Gui::Command::Gui,
+                            "Gui.getDocument('%s').setEdit('%s', 0)",
+                            doc,
+                            feat.c_str());
+}
+
+}  // namespace
+
 DEF_STD_CMD_A(CmdSurfaceFilling)
 
 CmdSurfaceFilling::CmdSurfaceFilling()
@@ -132,11 +252,7 @@ CmdSurfaceFilling::CmdSurfaceFilling()
 void CmdSurfaceFilling::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string FeatName = getUniqueObjectName("Surface");
-
-    openCommand(QT_TRANSLATE_NOOP("Command", "Create surface"));
-    doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Filling\",\"%s\")", FeatName.c_str());
-    doCommand(Doc, "Gui.ActiveDocument.setEdit('%s',0)", FeatName.c_str());
+    makeAndEdit(this, "Surface::Filling");
 }
 
 bool CmdSurfaceFilling::isActive()
@@ -169,13 +285,7 @@ bool CmdSurfaceGeomFillSurface::isActive()
 void CmdSurfaceGeomFillSurface::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string FeatName = getUniqueObjectName("Surface");
-
-    openCommand(QT_TRANSLATE_NOOP("Command", "Create surface"));
-    doCommand(Doc,
-              "App.ActiveDocument.addObject(\"Surface::GeomFillSurface\",\"%s\")",
-              FeatName.c_str());
-    doCommand(Doc, "Gui.ActiveDocument.setEdit('%s',0)", FeatName.c_str());
+    makeAndEdit(this, "Surface::GeomFillSurface");
 }
 
 
@@ -237,40 +347,33 @@ CmdBlendCurve::CmdBlendCurve()
 
 void CmdBlendCurve::activated(int)
 {
-    std::string docName = App::GetApplication().getActiveDocument()->getName();
-    std::string objName[2];
-    std::string edge[2];
     std::string featName = getUniqueObjectName("BlendCurve");
-    std::vector<Gui::SelectionObject> sel =
-        getSelection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
-
-    objName[0] = sel[0].getFeatName();
-    edge[0] = sel[0].getSubNames()[0];
-
-    if (sel.size() == 1) {
-        objName[1] = sel[0].getFeatName();
-        edge[1] = sel[0].getSubNames()[1];
+    // the two edges, in the order picked
+    std::vector<Picked> edges;
+    for (const auto& group : selectedGroups()) {
+        for (const auto& pick : group) {
+            if (pick.element.rfind("Edge", 0) == 0) {
+                edges.push_back(pick);
+            }
+        }
     }
-    else {
-        objName[1] = sel[1].getFeatName();
-        edge[1] = sel[1].getSubNames()[0];
+    if (edges.size() < 2) {
+        return;
     }
     openCommand(QT_TRANSLATE_NOOP("Command", "Blend Curve"));
     doCommand(Doc,
               "App.ActiveDocument.addObject(\"Surface::FeatureBlendCurve\",\"%s\")",
               featName.c_str());
+    placeFeature(getActiveGuiDocument(), featName);
     doCommand(Doc,
-              "App.ActiveDocument.%s.StartEdge = (App.getDocument('%s').getObject('%s'),['%s'])",
+              "App.ActiveDocument.%s.StartEdge = %s",
               featName.c_str(),
-              docName.c_str(),
-              objName[0].c_str(),
-              edge[0].c_str());
+              linkOf(edges[0]).c_str());
     doCommand(Doc,
-              "App.ActiveDocument.%s.EndEdge = (App.getDocument('%s').getObject('%s'),['%s'])",
+              "App.ActiveDocument.%s.EndEdge = %s",
               featName.c_str(),
-              docName.c_str(),
-              objName[1].c_str(),
-              edge[1].c_str());
+              linkOf(edges[1]).c_str());
+    dropEditContext();
     updateActive();
     commitCommand();
 }
@@ -304,14 +407,22 @@ void CmdSurfaceExtendFace::activated(int)
         if (sub.size() == 1) {
             openCommand(QT_TRANSLATE_NOOP("Command", "Extend surface"));
             std::string FeatName = getUniqueObjectName("Surface");
-            std::string supportString = faceFilter.Result[0][0].getAsPropertyLinkSubString();
             doCommand(Doc,
                       "App.ActiveDocument.addObject(\"Surface::Extend\",\"%s\")",
                       FeatName.c_str());
-            doCommand(Doc,
-                      "App.ActiveDocument.%s.Face = %s",
-                      FeatName.c_str(),
-                      supportString.c_str());
+            placeFeature(getActiveGuiDocument(), FeatName);
+            for (const auto& group : selectedGroups()) {
+                for (const auto& pick : group) {
+                    if (pick.element.rfind("Face", 0) == 0) {
+                        doCommand(Doc,
+                                  "App.ActiveDocument.%s.Face = %s",
+                                  FeatName.c_str(),
+                                  linkOf(pick).c_str());
+                        break;
+                    }
+                }
+            }
+            dropEditContext();
             updateActive();
             commitCommand();
         }
@@ -345,11 +456,7 @@ CmdSurfaceSections::CmdSurfaceSections()
 void CmdSurfaceSections::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string FeatName = getUniqueObjectName("Surface");
-
-    openCommand(QT_TRANSLATE_NOOP("Command", "Create surface"));
-    doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Sections\",\"%s\")", FeatName.c_str());
-    doCommand(Doc, "Gui.ActiveDocument.setEdit('%s',0)", FeatName.c_str());
+    makeAndEdit(this, "Surface::Sections");
 }
 
 bool CmdSurfaceSections::isActive()
@@ -380,16 +487,10 @@ void CmdSurfaceNetwork::activated(int iMsg)
     // what is selected is the whole network: edges, or objects given whole
     // (a 3D sketch), sorted into the families as the surface is built
     std::ostringstream links;
-    auto selection = Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
-    for (const auto& sel : selection) {
-        std::string obj = Gui::Command::getObjectCmd(sel.getObject());
-        const auto& subs = sel.getSubNames();
-        if (subs.empty()) {
-            links << "(" << obj << ", ''), ";
-        }
-        for (const auto& sub : subs) {
-            if (sub.rfind("Edge", 0) == 0) {
-                links << "(" << obj << ", '" << sub << "'), ";
+    for (const auto& group : selectedGroups()) {
+        for (const auto& pick : group) {
+            if (pick.element.empty() || pick.element.rfind("Edge", 0) == 0) {
+                links << linkOf(pick) << ", ";
             }
         }
     }
@@ -407,6 +508,7 @@ void CmdSurfaceNetwork::activated(int iMsg)
               "App.getDocument('%s').addObject('Surface::Network', '%s')",
               doc,
               FeatName.c_str());
+    placeFeature(gdoc, FeatName);
     if (!links.str().empty()) {
         doCommand(Doc,
                   "App.getDocument('%s').getObject('%s').Profiles = [%s]",
@@ -415,6 +517,7 @@ void CmdSurfaceNetwork::activated(int iMsg)
                   links.str().c_str());
         doCommand(Doc, "App.getDocument('%s').recompute()", doc);
     }
+    dropEditContext();
     doCommand(Gui, "Gui.getDocument('%s').setEdit('%s', 0)", doc, FeatName.c_str());
 }
 
@@ -426,18 +529,13 @@ bool CmdSurfaceNetwork::isActive()
 namespace
 {
 
-/// A selected object's links as Python: its subs, or the object whole
-std::string linksOf(const Gui::SelectionObject& sel, bool (*keep)(const std::string&))
+/// A selected object's links as Python (linkOf): its subs, or the object whole
+std::string linksOf(const std::vector<Picked>& group, bool (*keep)(const std::string&))
 {
     std::ostringstream links;
-    std::string obj = Gui::Command::getObjectCmd(sel.getObject());
-    const auto& subs = sel.getSubNames();
-    if (subs.empty()) {
-        links << "(" << obj << ", ''), ";
-    }
-    for (const auto& sub : subs) {
-        if (keep(sub)) {
-            links << "(" << obj << ", '" << sub << "'), ";
+    for (const auto& pick : group) {
+        if (pick.element.empty() || keep(pick.element)) {
+            links << linkOf(pick) << ", ";
         }
     }
     return links.str();
@@ -468,7 +566,7 @@ void makeCut(Gui::Command* cmd, const char* type, const char* name, bool edit)
         return;
     }
     const char* doc = gdoc->getDocument()->getName();
-    auto selection = Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
+    auto selection = selectedGroups();
     std::string base, tools;
     for (std::size_t i = 0; i < selection.size(); ++i) {
         (i == 0 ? base : tools) += linksOf(selection[i], i == 0 ? isFace : isEdgeOrFace);
@@ -484,6 +582,7 @@ void makeCut(Gui::Command* cmd, const char* type, const char* name, bool edit)
                             doc,
                             type,
                             feat.c_str());
+    placeFeature(gdoc, feat);
     if (!base.empty()) {
         Gui::Command::doCommand(Gui::Command::Doc,
                                 "App.getDocument('%s').getObject('%s').Base = [%s]",
@@ -498,6 +597,7 @@ void makeCut(Gui::Command* cmd, const char* type, const char* name, bool edit)
                                 feat.c_str(),
                                 tools.c_str());
     }
+    dropEditContext();
     if (edit) {
         Gui::Command::doCommand(Gui::Command::Gui,
                                 "Gui.getDocument('%s').setEdit('%s', 0)",
@@ -585,28 +685,32 @@ void CmdSurfaceUntrim::activated(int)
         return;
     }
     const char* doc = gdoc->getDocument()->getName();
-    std::vector<std::string> links;
-    for (const auto& sel :
-         Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
-        for (const auto& sub : sel.getSubNames()) {
-            if (isFace(sub)) {
-                links.push_back("(" + Gui::Command::getObjectCmd(sel.getObject()) + ", '" + sub
-                                + "')");
+    std::vector<Picked> faces;
+    for (const auto& group : selectedGroups()) {
+        for (const auto& pick : group) {
+            if (isFace(pick.element)) {
+                faces.push_back(pick);
             }
         }
     }
-    if (links.empty()) {
+    if (faces.empty()) {
         tell(QT_TRANSLATE_NOOP("Surface", "Select the faces to untrim"));
         return;
     }
     openCommand(QT_TRANSLATE_NOOP("Command", "Untrim"));
-    for (const auto& link : links) {
+    for (const auto& pick : faces) {
         std::string feat = gdoc->getDocument()->getUniqueObjectName("Untrim");
         doCommand(Doc,
-                  "App.getDocument('%s').addObject('Surface::Untrim', '%s').Face = %s",
+                  "App.getDocument('%s').addObject('Surface::Untrim', '%s')",
+                  doc,
+                  feat.c_str());
+        placeFeature(gdoc, feat);
+        doCommand(Doc,
+                  "App.getDocument('%s').getObject('%s').Face = %s",
                   doc,
                   feat.c_str(),
-                  link.c_str());
+                  linkOf(pick).c_str());
+        dropEditContext();
     }
     doCommand(Doc, "App.getDocument('%s').recompute()", doc);
     commitCommand();
@@ -640,18 +744,18 @@ void CmdSurfaceExtendEdges::activated(int)
         return;
     }
     const char* doc = gdoc->getDocument()->getName();
-    auto selection = Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
+    auto selection = selectedGroups();
     if (selection.size() != 1) {
         tell(QT_TRANSLATE_NOOP("Surface", "Select edges of one face to extend across"));
         return;
     }
-    const auto& sel = selection.front();
-    auto shape = Part::Feature::getTopoShape(sel.getObject());
+    const auto& group = selection.front();
+    auto shape = Part::Feature::getTopoShape(group.front().obj);
     // the one face every edge picked is an edge of
     int face = 0;
     std::ostringstream edges;
-    std::string obj = Gui::Command::getObjectCmd(sel.getObject());
-    for (const auto& sub : sel.getSubNames()) {
+    for (const auto& pick : group) {
+        const std::string& sub = pick.element;
         if (sub.rfind("Edge", 0) != 0) {
             continue;
         }
@@ -663,7 +767,7 @@ void CmdSurfaceExtendEdges::activated(int)
             return;
         }
         face = faces.front();
-        edges << "(" << obj << ", '" << sub << "'), ";
+        edges << linkOf(pick) << ", ";
     }
     if (!face) {
         tell(QT_TRANSLATE_NOOP("Surface", "Select edges of one face to extend across"));
@@ -675,17 +779,18 @@ void CmdSurfaceExtendEdges::activated(int)
               "App.getDocument('%s').addObject('Surface::Extend', '%s')",
               doc,
               feat.c_str());
+    placeFeature(gdoc, feat);
     doCommand(Doc,
               "_ext = App.getDocument('%s').getObject('%s')\n"
-              "_ext.Face = (%s, 'Face%d')\n"
+              "_ext.Face = %s\n"
               "_ext.Mode = 'Edges'\n"
               "_ext.Edges = [%s]\n"
               "del _ext",
               doc,
               feat.c_str(),
-              obj.c_str(),
-              face,
+              linkOf(group.front(), "Face" + std::to_string(face)).c_str(),
               edges.str().c_str());
+    dropEditContext();
     doCommand(Doc, "App.getDocument('%s').recompute()", doc);
     commitCommand();
 }
@@ -698,16 +803,14 @@ bool CmdSurfaceExtendEdges::isActive()
 namespace
 {
 
-/// The edges selected, in the order picked, as (object, sub) Python tuples
+/// The edges selected, in the order picked, as links (linkOf)
 std::vector<std::string> selectedEdges()
 {
     std::vector<std::string> edges;
-    for (const auto& sel :
-         Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
-        std::string obj = Gui::Command::getObjectCmd(sel.getObject());
-        for (const auto& sub : sel.getSubNames()) {
-            if (sub.rfind("Edge", 0) == 0) {
-                edges.push_back("(" + obj + ", '" + sub + "')");
+    for (const auto& group : selectedGroups()) {
+        for (const auto& pick : group) {
+            if (pick.element.rfind("Edge", 0) == 0) {
+                edges.push_back(linkOf(pick));
             }
         }
     }
@@ -732,10 +835,13 @@ void makeFeature(Gui::Command* cmd,
                             doc,
                             type,
                             feat.c_str());
+    // placed first: the links are made for it where it is (linkOf)
+    placeFeature(gdoc, feat);
     for (const auto& a : assignments) {
         Gui::Command::doCommand(Gui::Command::Doc, "_f.%s", a.c_str());
     }
     Gui::Command::doCommand(Gui::Command::Doc, "del _f");
+    dropEditContext();
     Gui::Command::doCommand(Gui::Command::Doc, "App.getDocument('%s').recompute()", doc);
     Gui::Command::commitCommand();
 }
@@ -832,7 +938,7 @@ void CmdSurfacePipeShell::activated(int)
 {
     // the first object picked is the spine, the rest the profiles; a whole
     // object, or its edges
-    auto selection = Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
+    auto selection = selectedGroups();
     if (selection.size() < 2) {
         tell(QT_TRANSLATE_NOOP("Surface", "Select the spine first, then the profiles"));
         return;
@@ -984,25 +1090,24 @@ namespace
 struct Picks
 {
     std::vector<std::string> curves, faces, all;
+    /// How many of the faces were picked as faces, not objects whole
+    int faceElements = 0;
 };
 
 Picks picks()
 {
     Picks p;
-    for (const auto& sel :
-         Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
-        std::string obj = Gui::Command::getObjectCmd(sel.getObject());
-        const auto& subs = sel.getSubNames();
-        if (subs.empty()) {
-            std::string link = "(" + obj + ", '')";
-            auto shape = Part::Feature::getTopoShape(sel.getObject());
-            (shape.countSubShapes(TopAbs_FACE) > 0 ? p.faces : p.curves).push_back(link);
-            p.all.push_back(link);
-        }
-        for (const auto& sub : subs) {
-            std::string link = "(" + obj + ", '" + sub + "')";
-            if (sub.rfind("Face", 0) == 0) {
+    for (const auto& group : selectedGroups()) {
+        for (const auto& pick : group) {
+            std::string link = linkOf(pick);
+            const std::string& sub = pick.element;
+            if (sub.empty()) {
+                auto shape = Part::Feature::getTopoShape(pick.obj);
+                (shape.countSubShapes(TopAbs_FACE) > 0 ? p.faces : p.curves).push_back(link);
+            }
+            else if (sub.rfind("Face", 0) == 0) {
                 p.faces.push_back(link);
+                ++p.faceElements;
             }
             else if (sub.rfind("Edge", 0) == 0) {
                 p.curves.push_back(link);
@@ -1041,7 +1146,7 @@ CmdSurfaceIsocurve::CmdSurfaceIsocurve()
 void CmdSurfaceIsocurve::activated(int)
 {
     auto p = picks();
-    if (p.faces.size() != 1 || p.faces.front().find("'Face") == std::string::npos) {
+    if (p.faces.size() != 1 || p.faceElements != 1) {
         tell(QT_TRANSLATE_NOOP("Surface", "Select one face"));
         return;
     }
@@ -1197,14 +1302,9 @@ void CmdSurfaceSewing::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
     std::ostringstream links;
-    for (const auto& sel : Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
-        const auto& subs = sel.getSubNames();
-        std::string obj = Gui::Command::getObjectCmd(sel.getObject());
-        if (subs.empty()) {
-            links << "(" << obj << ", ''), ";
-        }
-        for (const auto& sub : subs) {
-            links << "(" << obj << ", '" << sub << "'), ";
+    for (const auto& group : selectedGroups()) {
+        for (const auto& pick : group) {
+            links << linkOf(pick) << ", ";
         }
     }
     if (links.str().empty()) {
@@ -1216,10 +1316,12 @@ void CmdSurfaceSewing::activated(int iMsg)
     std::string FeatName = getUniqueObjectName("Sewing");
     openCommand(QT_TRANSLATE_NOOP("Command", "Sew"));
     doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Sewing\",\"%s\")", FeatName.c_str());
+    placeFeature(getActiveGuiDocument(), FeatName);
     doCommand(Doc,
               "App.ActiveDocument.%s.ShapeList = [%s]",
               FeatName.c_str(),
               links.str().c_str());
+    dropEditContext();
     updateActive();
     commitCommand();
 }

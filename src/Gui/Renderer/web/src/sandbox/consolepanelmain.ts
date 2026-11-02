@@ -76,14 +76,21 @@ if (params.has('drive')) (async () => {
     got = await enter("App.newDocument('ConsoleNope')");
     check('the host refuses what a client may not do', /PermissionError/.test(got), got);
 
-    type('App.Vect');
-    key('Tab');
-    await until('a completion', () => input().value !== 'App.Vect', 10000).catch(() => {});
+    // Tab asks and the list comes up; Tab again takes its highlighted
+    // item (944e2d150d, one list for completion everywhere)
+    const listed = () => document.querySelector('[role="listbox"]') !== null;
+    const complete = async (text: string) => {
+      type(text);
+      key('Tab');
+      await until('a completion list', listed, 10000).catch(() => {});
+      key('Tab');
+      await until('a completion', () => input().value !== text, 2000).catch(() => {});
+    };
+
+    await complete('App.Vect');
     check('Tab completes a module name', input().value === 'App.Vector(', input().value);
 
-    type('b.Leng');
-    key('Tab');
-    await until('a completion', () => input().value !== 'b.Leng', 10000).catch(() => {});
+    await complete('b.Leng');
     check('Tab completes a document object\'s attribute over the bridge',
           input().value.startsWith('b.Length'), input().value);
 

@@ -79,6 +79,34 @@ and keeps only the cache. So a run with the freeze off is the gtest
 binaries' alone (`ctest -E '^(Gui|Render)'` with the home), and the
 driven tests run once, with no home, the freeze as it defaults.
 
+**On Ubuntu 26.04.1, gcc 16.2, `main` (2026-11-01): Python 3998 OK, 19 skipped, 6
+expected failures, with a real gmsh and CalculiX; `ctest` 1054 of 1054 not driven, and
+driven 345 of 346, the one `GuiServeRequestBrowser`, whose driver's race is fixed since
+(4 of 4 alone, two of them with the box saturated; no full driven run after that fix).**
+
+A fifth trap, found 2026-11-01 on the first run on Ubuntu 26.04: **the box's
+default font decided four driven tests.** `GuiPdPanelWidthsStickyColumn`,
+`GuiExpressionEditor`, `GuiSheetViewOnRequest` and `GuiCaptureWaitsForExactEdges`
+failed with Noto Sans, Ubuntu's default (9 pt: 17 px high, 7 average) and passed
+with DejaVu Sans (14 and 6), nothing else changed. It reaches further than widths:
+a spin box's narrow minimum is ten average characters and a line, so it stays at
+80 px with the taller font; the docks grow, and a 1280 px window then has no room
+for the split a spreadsheet's view asks for; a sketch's label is the application
+font's height. `scripts/gui-test.sh` now states the font, DejaVu Sans from the conda
+env, through `FONTCONFIG_FILE`, and `scripts/gui-test-profile.py` takes the variable
+out again once Qt has read it: `GuiServeRequestBrowser` clicks a menu row by where
+it stands, and a browser started by a test keeps the box's own fonts. A box with its
+own `FONTCONFIG_FILE` exported keeps that one. **What a user of Ubuntu sees is the
+Noto case, and nothing here tests it.**
+
+A sixth, the same day: **a browser test's `phases.txt` was appended to and never
+cleared**, so a SECOND run in the same work directory read the first's phases,
+sampled the host at the wrong moments and failed 14 of 45 checks of
+`GuiServeLogActsBrowser` with no defect behind them. `scripts/gui-test.sh` clears it
+with the result file. A browser test SKIPS and passes with no `PUPPETEER_PATH`,
+`CHROME` or `build/wasm`, in a few seconds: a green one on a box without them says
+nothing.
+
 **Read the python total as a checksum on the build, not just on the code.**
 A short count means a module is missing rather than a test failing, and the
 run still says OK, so nothing draws attention to it. Two seen so far:
@@ -1037,6 +1065,8 @@ env's copy into `~/.cache/puppeteer/lib` and pass that directory as
 `sandbox-console-viewer-browser.py` and `sandbox-latency-browser.py` take the
 same four variables (the latency one also `SANDBOX_LATENCY_RTTS` and
 `SANDBOX_LATENCY_MODES`, and about seven minutes for the prefetch on and off).
+
+`serve-matcap-browser.py` (docs/Surface.md sec 7, U4) takes the same variables and checks that the surface analysis matcaps -- curvature, draft and zebra, set from the page on the served view as its property editor sets them -- are drawn by the browser's viewer. It first waits up to `MATCAP_SETTLE` ms (60000) for the whole scene, the sphere's mesh after its bounding box, and says so apart when it never comes. It did not come in 3 of 8 runs on 2026-10-28 and 5 of 6 on 2026-10-29: both objects stayed the browser's bounding-box stand-ins for good. The serve was not at fault -- it published all six draws -- but the viewer was: the arrival that landed the root's last manifests released a delta held behind them before the root's groups were applied, and the staged delta dropped them (fixed in `wasm/main.cpp`, where a delta is staged; `?stream&decisions` on the page URL is what showed it).
 
 `build/wasm` on this box (configured 2026-09-15; the CMakeLists' own
 instructions name `~/works/sw/emsdk`, which is not here): the emsdk of the

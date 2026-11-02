@@ -996,6 +996,8 @@ bool DatumEditSession::eventFilter(QObject* watched, QEvent* event)
                 if (ended || editor->hasFocus() || editor->isCompleting()) {
                     return;
                 }
+                // the sketch's step, though a timer's (entry 232)
+                Gui::EditStepScope scope(vp);
                 finish(true);
             });
             break;

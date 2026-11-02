@@ -438,9 +438,15 @@ def do(name):
     elif name == "desktop-leave":
         gdoc.resetEdit()
     elif name.startswith("sample:"):
-        sample = {"open": bool(Control.activeDialog())}
+        # Document B's dialog, by its document: a client's edit whose
+        # dialog holds no transaction is not in the way of b1, the current
+        # view, so a bare query does not see it (docs/HandsOnQueue.md
+        # entry 232)
+        docB = FreeCAD.getDocument(DOC_B)
+        sample = {"open": bool(Control.activeDialog(attachTo=docB))}
         try:
-            sample["owner"] = owner()
+            dlg = Control.activeTaskDialog(attachTo=docB)
+            sample["owner"] = (dlg.getOwnerKind(), which(dlg.getAssociatedView())) if dlg                 else ("no dialog", "")
             sample["b1"] = bool(Control.activeDialog(view=b1))
             sample["docB"] = bool(Control.activeDialog(attachTo=FreeCAD.getDocument(DOC_B)))
             sample["docA"] = bool(Control.activeDialog(attachTo=FreeCAD.getDocument(DOC_A)))

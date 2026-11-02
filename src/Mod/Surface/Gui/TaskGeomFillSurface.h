@@ -39,10 +39,13 @@ namespace Gui
 class ButtonGroup;
 }
 
+class QLabel;
+
 namespace SurfaceGui
 {
 
 class Ui_GeomFillSurface;
+class ToolPanel;
 
 class ViewProviderGeomFillSurface: public PartGui::ViewProviderSpline
 {
@@ -74,6 +77,7 @@ protected:
 
 private:
     Ui_GeomFillSurface* ui;
+    QLabel* statusLabel;
     ViewProviderGeomFillSurface* vp;
     Gui::ButtonGroup* buttonGroup;
 
@@ -136,6 +140,9 @@ public:
 private:
     GeomFillSurface* widget;
     Gui::TaskView::TaskBox* taskbox;
+    /// The boundaries' conditions, in a box of their own
+    Gui::TaskView::TaskBox* conditionsBox;
+    ToolPanel* conditions;
 };
 
 }  // namespace SurfaceGui

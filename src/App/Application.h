@@ -28,6 +28,7 @@
 
 #include <deque>
 #include <list>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -241,8 +242,39 @@ public:
      * transactions will share the same ID, and will be undo/redo together.
      */
     int setActiveTransaction(const char *name, bool persist=false);
+    /** setActiveTransaction() for a change about to be made to \a doc:
+     * \a doc's bound one (bindActiveTransaction) when it is bound, else as
+     * for no document. For a caller that knows its document and may run
+     * before its view is activated (a panel's event).
+     */
+    int setActiveTransaction(const char *name, bool persist, const Document *doc);
     /// Return the current active transaction name and ID
     const char *getActiveTransaction(int *tid=nullptr) const;
+    /** The active transaction a change to \a doc goes in.
+     *
+     * \a doc's bound one (bindActiveTransaction), else the active
+     * document's bound one -- a document changed in another's edit, a part
+     * edited in place in an assembly, shares that edit's step as it always
+     * did -- else the application's.
+     */
+    const char *getActiveTransaction(int *tid, const Document *doc) const;
+    /** Bind the active transaction to \a doc while \a doc is in edit.
+     *
+     * Several documents may be in edit at once, each with its own active
+     * transaction (docs/HandsOnQueue.md entry 232). The application's
+     * active transaction, the one the command that started the edit left
+     * open, becomes \a doc's. From here, while \a doc is the active
+     * document, setActiveTransaction(), getActiveTransaction() and
+     * closeActiveTransaction() act on \a doc's, and a new active
+     * transaction set anywhere commits no document's open transaction that
+     * belongs to another binding. Nothing changes for a document that is
+     * not bound.
+     */
+    void bindActiveTransaction(Document *doc);
+    /// End the binding of \a doc, committing (or aborting) its transaction
+    void unbindActiveTransaction(Document *doc, bool abort=false);
+    /// Whether \a doc has its own active transaction
+    bool isActiveTransactionBound(const Document *doc) const;
     /** Commit/abort current active transactions
      *
      * @param abort: whether to abort or commit the transactions
@@ -253,6 +285,62 @@ public:
      * aborted
      */
     void closeActiveTransaction(bool abort=false, int id=0);
+    /** The document of the view the input being handled went to
+     * (docs/MultiViewEdit.md sec 12.2 rule 4).
+     *
+     * The Gui sets it as an input event arrives and clears it once the
+     * work the event queued has run. A step opened meanwhile is listed in
+     * that document too -- as an empty `-> <name>` where it changes only
+     * others -- so an in-place edit of a linked document is undone from
+     * the document worked in. Null, as for a timer, a script, FreeCADCmd:
+     * a step is listed only in the documents it changes.
+     */
+    void setInputDocument(Document *doc);
+    Document *getInputDocument() const;
+    /// The document the step \a id is listed in besides those it changes
+    /// (setInputDocument() as it was opened), or null
+    Document *getListingDocument(int id) const;
+    /** The step a change to \a doc joins where getActiveTransaction() names
+     * none and \a doc is not bound: the step set active last, while \a doc
+     * is recomputing and a document it depends on has that step open. An
+     * edit's bound step takes in the recompute it causes in a document
+     * that is not bound (sec 12.2 rule 2); a change made to \a doc
+     * directly is not the step's. Returns its name, null for none.
+     */
+    const char *getOpenStep(int *tid, const Document *doc) const;
+    /** The group of work the input being handled starts
+     * (docs/MultiViewEdit.md sec 12.2 rule 1).
+     *
+     * The Gui sets a new serial as an input arrives and 0 once the work it
+     * queued has run; 0 too for an input to the Python console, which is
+     * a script's. The application's active transaction set meanwhile is
+     * the group's, for closeGroupStep().
+     */
+    void setInputGroup(int serial);
+    int getInputGroup() const;
+    /** The view the input being handled went to (docs/MultiViewEdit.md
+     * sec 12.9), a number the Gui gives each of its views; 0 for none --
+     * the tree, the property view, the Python console. Set and cleared
+     * with setInputDocument().
+     */
+    void setInputView(int view);
+    int getInputView() const;
+    /// The view the step \a id was made in: the input's as the step was
+    /// set active, else the input's now (Transaction::View)
+    int getStepView(int id) const;
+    /** At the end of an input's group: commit the application's active
+     * transaction when an input's group set it and nothing holds it -- a
+     * running command, a TransactionLocker, setActiveTransaction() with
+     * persist (an editor that keeps its step over several inputs, a task
+     * dialog's). The Gui checks its own holds first: an open task dialog,
+     * an edit, a mouse button down (rule 5). Before, such a step stayed
+     * open, and every later change joined it, until the next was set.
+     * Returns the id committed, 0 for none.
+     */
+    int closeGroupStep();
+    /// Whether \a id is the step closeGroupStep() committed last: an
+    /// abort its opener asks for later finds nothing to abort (rule 6)
+    bool isGroupStepClosed(int id) const;
     //@}
 
     /** @name Signals of the Application */
@@ -682,6 +770,9 @@ private:
 
     static PyObject *sSetActiveTransaction  (PyObject *self,PyObject *args);
     static PyObject *sGetActiveTransaction  (PyObject *self,PyObject *args);
+    static PyObject *sBindActiveTransaction (PyObject *self,PyObject *args);
+    static PyObject *sUnbindActiveTransaction(PyObject *self,PyObject *args);
+    static PyObject *sIsActiveTransactionBound(PyObject *self,PyObject *args);
     static PyObject *sCloseActiveTransaction(PyObject *self,PyObject *args);
 
     static PyObject *sStartTransactionMeasure(PyObject *self,PyObject *args);
@@ -767,6 +858,43 @@ private:
     int _activeTransactionGuard{0};
     std::vector<const char*> _invocations;
     bool _activeTransactionTmpName{false};
+    /// Where the application's active transaction is listed (getListingDocument)
+    Document *_activeTransactionListing{nullptr};
+    Document *_inputDocument{nullptr};
+    /// The input's view (setInputView), and the one the application's
+    /// active transaction was set in
+    int _inputView{0};
+    int _activeTransactionView{0};
+    /// The input's group (setInputGroup), the one the application's active
+    /// transaction was set in, whether it is held, and the step
+    /// closeGroupStep() committed last
+    int _inputGroup{0};
+    int _activeTransactionGroup{0};
+    bool _activeTransactionHeld{false};
+    int _closedGroupStep{0};
+
+    /// A document's own active transaction (bindActiveTransaction)
+    struct BoundTransaction {
+        std::string name;
+        int id = 0;
+        bool tmpName = false;
+        Document *listing = nullptr;
+        int view = 0;
+    };
+    std::map<const Document*, BoundTransaction> _boundTransactions;
+    /// The step set active last (getOpenStep)
+    BoundTransaction _lastStep;
+    /// Whether some document has the step \a id open
+    bool _isStepOpen(int id) const;
+    /// The binding a call made for \a doc acts on, null for the
+    /// application's own: \a doc's, else the active document's
+    BoundTransaction *_boundTransaction(const Document *doc = nullptr);
+    const BoundTransaction *_boundTransaction(const Document *doc = nullptr) const;
+    /// The temporary-name flag of the active transaction a call acts on
+    bool &_activeTmpName();
+    /// Whether committing \a doc's open transaction would end another
+    /// binding's than \a bound's (null: the application's)
+    bool _ownedByOtherBinding(const Document *doc, const BoundTransaction *bound) const;
 
     static Base::ConsoleObserverStd  *_pConsoleObserverStd;
     static Base::ConsoleObserverFile *_pConsoleObserverFile;

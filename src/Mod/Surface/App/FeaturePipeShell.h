@@ -56,6 +56,10 @@ public:
     App::PropertyBool Solid;
 
     App::DocumentObjectExecReturn* execute() override;
+    const char* getViewProviderName() const override
+    {
+        return "SurfaceGui::ViewProviderPipeShell";
+    }
 };
 
 }  // namespace Surface

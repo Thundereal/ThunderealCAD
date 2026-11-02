@@ -19,7 +19,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import type { Accessor, JSX } from 'solid-js';
 
-import { NARROW, draggable, fitOnScreen, loadPos, posStyle } from '../panel.ts';
+import { NARROW, announcePanel, draggable, fitOnScreen, loadPos, posStyle } from '../panel.ts';
 import type { Pos } from '../panel.ts';
 import { Portal } from 'solid-js/web';
 
@@ -189,6 +189,11 @@ export function TaskPanelCard(props: {
   const [picked, setPicked] = createSignal<Record<string, string>>({});
   let client: PanelClient | null = null;
   let panelRef: HTMLDivElement | undefined;
+  // a drag moves the card without resizing it: announced from here
+  createEffect(() => {
+    pos();
+    window.dispatchEvent(new CustomEvent('fc:panelsmoved'));
+  });
 
   // The client is made on first open and let go on close: the host stops
   // the mirror with its last subscriber, so a closed card costs the
@@ -303,9 +308,12 @@ export function TaskPanelCard(props: {
   /// window between a root's open and the list being re-laid.
   const dialogIds = createMemo(() => {
     version();
+    // the list names every view's roots; this client is sent its own
+    // (docs/TaskPanelPerView.md sec 6), so a root it does not have is
+    // another's
     const listed = planLayout(client?.store.get('panel')?.layout).items
       .map((it) => (it.kind === 'widget' ? it.id : undefined))
-      .filter((id): id is string => !!id && isDialogRoot(id));
+      .filter((id): id is string => !!id && isDialogRoot(id) && !!client?.store.has(id));
     for (const id of client?.dialogIds ?? []) {
       if (client?.store.has(id) && !listed.includes(id)) listed.push(id);
     }
@@ -928,7 +936,11 @@ export function TaskPanelCard(props: {
 
   return (
     <Show when={props.open()}>
-      <div class="fc-panel" ref={panelRef} style={posStyle(pos())}>
+      <div class="fc-panel" style={posStyle(pos())}
+           ref={(el: HTMLDivElement) => {
+             panelRef = el;
+             announcePanel(el);
+           }}>
         <div class="fc-panel-head"
              ref={(el: HTMLDivElement) => {
                draggable(el, () => panelRef as HTMLDivElement, setPos, POS_KEY);

@@ -37,6 +37,8 @@
 #include <App/DocumentObject.h>
 #include <Gui/ActionFunction.h>
 #include <Gui/Control.h>
+#include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 
 #include <Mod/TechDraw/App/LineGroup.h>
 #include <Mod/TechDraw/App/LandmarkDimension.h>
@@ -165,6 +167,14 @@ bool ViewProviderDimension::setEdit(int ModNum)
         Gui::Control().showDialog(new TaskDlgDimension(qgivDimension, this));
     }
     return true;
+}
+
+bool ViewProviderDimension::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()) {
+        return false;
+    }
+    return ViewProviderDrawingView::editHoldsTransaction(ModNum);
 }
 
 void ViewProviderDimension::updateData(const App::Property* prop)

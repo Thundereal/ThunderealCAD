@@ -287,11 +287,12 @@ public:
     Private(ViewProviderDocumentObject* obj) : object(obj) {
         set(obj);
     }
-    void deletedDocument(const Gui::Document& doc) {
-        // When deleting document then there is no way to undo it
-        if (object && object->getDocument() == &doc) {
-            reset();
-        }
+    void deletedDocument(const Gui::Document&) {
+        // When deleting document then there is no way to undo it. Heard
+        // from its own document only, so not asked which: the view provider
+        // of an object removed and kept for an undo may be gone by now, with
+        // the step that kept it, and nothing told this pointer.
+        reset();
     }
     void createdObject(const Gui::ViewProvider& obj) noexcept {
         // When undoing the removal

@@ -66,6 +66,7 @@
 #endif// #ifndef _PreComp_
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 
 #include <Base/Console.h>
@@ -87,9 +88,16 @@ using DU = DrawUtil;
 
 GeometryObject::GeometryObject(const string& /*parent*/, TechDraw::DrawView* parentObj)
     : m_parent(parentObj), m_isoCount(0), m_isPersp(false), m_focus(100.0),
-      m_usePolygonHLR(false), m_scrubCount(0)
-
+      m_usePolygonHLR(false), m_scrubCount(0), m_stamp(nextStamp())
 {}
+
+//! a value no geometry has had yet: a reading made against an older one is stale,
+//! whichever object it was
+unsigned long GeometryObject::nextStamp()
+{
+    static std::atomic<unsigned long> last {0};
+    return ++last;
+}
 
 GeometryObject::~GeometryObject() { clear(); }
 
@@ -137,6 +145,7 @@ const BaseGeomPtrVector GeometryObject::getVisibleFaceEdges(const bool smooth,
 
 void GeometryObject::clear()
 {
+    changed();
     //shared pointers will delete v/e/f when reference counts go to zero.
 
     vertexGeom.clear();
@@ -882,6 +891,7 @@ void GeometryObject::extractGeometry(edgeClass category, bool hlrVisible)
 void GeometryObject::addGeomFromCompound(TopoDS_Shape edgeCompound, edgeClass category,
                                          bool hlrVisible)
 {
+    changed();
 //    Base::Console().Message("GO::addGeomFromCompound(%d, %d)\n", category, hlrVisible);
     if (edgeCompound.IsNull()) {
         return;    // There is no OpenCascade Geometry to be calculated
@@ -996,9 +1006,17 @@ void GeometryObject::addGeomFromCompound(TopoDS_Shape edgeCompound, edgeClass ca
     }//end TopExp
 }
 
-void GeometryObject::addVertex(TechDraw::VertexPtr v) { vertexGeom.push_back(v); }
+void GeometryObject::addVertex(TechDraw::VertexPtr v)
+{
+    changed();
+    vertexGeom.push_back(v);
+}
 
-void GeometryObject::addEdge(TechDraw::BaseGeomPtr bg) { edgeGeom.push_back(bg); }
+void GeometryObject::addEdge(TechDraw::BaseGeomPtr bg)
+{
+    changed();
+    edgeGeom.push_back(bg);
+}
 
 double GeometryObject::getScale() const
 {
@@ -1017,6 +1035,7 @@ double GeometryObject::getScale() const
 // insertGeomForCV(cv)
 int GeometryObject::addCosmeticVertex(CosmeticVertex* cv)
 {
+    changed();
     Base::Vector3d pos = cv->scaled(getScale());
     TechDraw::VertexPtr v(std::make_shared<TechDraw::Vertex>(pos.x, pos.y));
     v->setCosmetic(true);
@@ -1032,6 +1051,7 @@ int GeometryObject::addCosmeticVertex(CosmeticVertex* cv)
 //should probably be called addVertex since not connect to CV by tag
 int GeometryObject::addCosmeticVertex(Base::Vector3d pos)
 {
+    changed();
     Base::Console().Message("GO::addCosmeticVertex() 1 - deprec?\n");
     TechDraw::VertexPtr v(std::make_shared<TechDraw::Vertex>(pos.x, pos.y));
     v->setCosmetic(true);
@@ -1044,6 +1064,7 @@ int GeometryObject::addCosmeticVertex(Base::Vector3d pos)
 
 int GeometryObject::addCosmeticVertex(Base::Vector3d pos, std::string tagString)
 {
+    changed();
     //    Base::Console().Message("GO::addCosmeticVertex() 2\n");
     TechDraw::VertexPtr v(std::make_shared<TechDraw::Vertex>(pos.x, pos.y));
     v->setCosmetic(true);
@@ -1061,6 +1082,7 @@ int GeometryObject::addCosmeticVertex(Base::Vector3d pos, std::string tagString)
 // insertGeomForCE(ce)
 int GeometryObject::addCosmeticEdge(CosmeticEdge* ce)
 {
+    changed();
     //    Base::Console().Message("GO::addCosmeticEdge(%X) 0\n", ce);
     double scale = getScale();
     TechDraw::BaseGeomPtr e = ce->scaledGeometry(scale);
@@ -1076,6 +1098,7 @@ int GeometryObject::addCosmeticEdge(CosmeticEdge* ce)
 //this should be made obsolete and the variant with tag used instead
 int GeometryObject::addCosmeticEdge(Base::Vector3d start, Base::Vector3d end)
 {
+    changed();
     //    Base::Console().Message("GO::addCosmeticEdge() 1 - deprec?\n");
     gp_Pnt gp1(start.x, start.y, start.z);
     gp_Pnt gp2(end.x, end.y, end.z);
@@ -1092,6 +1115,7 @@ int GeometryObject::addCosmeticEdge(Base::Vector3d start, Base::Vector3d end)
 
 int GeometryObject::addCosmeticEdge(Base::Vector3d start, Base::Vector3d end, std::string tagString)
 {
+    changed();
     //    Base::Console().Message("GO::addCosmeticEdge() 2\n");
     gp_Pnt gp1(start.x, start.y, start.z);
     gp_Pnt gp2(end.x, end.y, end.z);
@@ -1108,6 +1132,7 @@ int GeometryObject::addCosmeticEdge(Base::Vector3d start, Base::Vector3d end, st
 
 int GeometryObject::addCosmeticEdge(TechDraw::BaseGeomPtr base, std::string tagString)
 {
+    changed();
     //    Base::Console().Message("GO::addCosmeticEdge(%X, %s) 3\n", base, tagString.c_str());
     base->setCosmetic(true);
     base->setHlrVisible(true);
@@ -1122,6 +1147,7 @@ int GeometryObject::addCosmeticEdge(TechDraw::BaseGeomPtr base, std::string tagS
 int GeometryObject::addCenterLine(TechDraw::BaseGeomPtr base, std::string tag)
 //                                    int s, int si)
 {
+    changed();
     //    Base::Console().Message("GO::addCenterLine()\n");
     base->setCosmetic(true);
     base->setCosmeticTag(tag);
@@ -1134,13 +1160,22 @@ int GeometryObject::addCenterLine(TechDraw::BaseGeomPtr base, std::string tag)
 
 
 //! empty Face geometry
-void GeometryObject::clearFaceGeom() { faceGeom.clear(); }
+void GeometryObject::clearFaceGeom()
+{
+    changed();
+    faceGeom.clear();
+}
 
 //! add a Face to Face Geometry
-void GeometryObject::addFaceGeom(FacePtr f) { faceGeom.push_back(f); }
+void GeometryObject::addFaceGeom(FacePtr f)
+{
+    changed();
+    faceGeom.push_back(f);
+}
 
 void GeometryObject::setFaces(std::vector<FacePtr> &&faces)
 {
+    changed();
     faceGeom = std::move(faces);
 }
 
@@ -1212,6 +1247,7 @@ Base::BoundBox3d GeometryObject::calcBoundingBox() const
 
 void GeometryObject::pruneVertexGeom(Base::Vector3d center, double radius)
 {
+    changed();
     const std::vector<VertexPtr>& oldVerts = getVertexGeometry();
     std::vector<VertexPtr> newVerts;
     for (auto& v : oldVerts) {

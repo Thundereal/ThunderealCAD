@@ -54,6 +54,8 @@ TaskLoftParameters::TaskLoftParameters(ViewProviderLoft *LoftView, bool /*newObj
     : TaskSketchBasedParameters(LoftView, parent, "PartDesign_AdditiveLoft", tr("Loft parameters"))
     , ui(new Ui_TaskLoftParameters)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     proxy = new QWidget(this);
     ui->setupUi(proxy);

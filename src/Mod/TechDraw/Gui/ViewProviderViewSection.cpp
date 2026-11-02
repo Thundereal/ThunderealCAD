@@ -38,6 +38,8 @@
 #include <Gui/Document.h>
 #include <Gui/Control.h>
 #include <Gui/Selection.h>
+#include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 
 #include <Mod/TechDraw/App/DrawComplexSection.h>
 #include <Mod/TechDraw/App/DrawGeomHatch.h>
@@ -151,6 +153,15 @@ bool ViewProviderViewSection::setEdit(int ModNum)
     }
     Gui::Control().showDialog(new TaskDlgSectionView(getViewObject()));
     return true;
+}
+
+bool ViewProviderViewSection::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()
+            && !dynamic_cast<TechDraw::DrawComplexSection*>(getViewObject())) {
+        return false;
+    }
+    return ViewProviderViewPart::editHoldsTransaction(ModNum);
 }
 
 bool ViewProviderViewSection::doubleClicked()

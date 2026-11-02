@@ -99,6 +99,12 @@ public:
     bool isTouched() const { return touched; }
 
     void setupTransaction();
+    /** Each change a step of the dialog's other panel, which owns its steps
+     * (docs/HandsOnQueue.md entry 232): \a stepper opens it, in place of
+     * the transaction this panel holds to OK. The base attachment's panel
+     * too.
+     */
+    void setStepper(std::function<void()> stepper);
 
     QColor messageColor() const {return msgColor;}
     void setMessageColor(const QColor &);
@@ -179,6 +185,7 @@ private:
     std::unique_ptr<Ui_TaskAttacher> ui;
     VisibilityFunction visibilityFunc;
     int transactionID = 0;
+    std::function<void()> stepper;
     QString errMessage;
     Gui::SelectionGate *selectionGate = nullptr;
 

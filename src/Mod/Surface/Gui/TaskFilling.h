@@ -146,6 +146,7 @@ public:
 
 private:
     Gui::ButtonGroup* buttonGroup;
+    std::string docName;
     FillingPanel* widget1;
     FillingEdgePanel* widget2;
     FillingVertexPanel* widget3;

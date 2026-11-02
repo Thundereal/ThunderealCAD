@@ -133,7 +133,8 @@ bool ViewProviderDragger::checkLink(int mode) {
     // ViewProvider::Transform request by itself.
     ViewProviderDocumentObject *vpParent = nullptr;
     std::string subname;
-    auto doc = Application::Instance->editDocument();
+    // The document whose edit this is: another may be in edit too
+    auto doc = Application::Instance->editDocumentOf(getObject());
     if(!doc)
         return false;
     doc->getInEdit(&vpParent,&subname);

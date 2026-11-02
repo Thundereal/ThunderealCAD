@@ -57,6 +57,8 @@ TaskHelixParameters::TaskHelixParameters(PartDesignGui::ViewProviderHelix* Helix
     : TaskSketchBasedParameters(HelixView, parent, "PartDesign_AdditiveHelix", tr("Helix parameters"))
     , ui(new Ui_TaskHelixParameters)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     proxy = new QWidget(this);
     ui->setupUi(proxy);
@@ -88,6 +90,8 @@ void TaskHelixParameters::setupGizmos(ViewProviderHelix* vp)
     // each value the mode shows has its label at the top middle, but the
     // height, which has a handle: beside it while it is active (entry 241)
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     const auto top = Gui::OnViewValueSet::Place::TopMiddle;
     onViewValues->addValue(ui->pitch, tr("Pitch"), top);
     onViewValues->addValue(ui->height, tr("Height"), top);

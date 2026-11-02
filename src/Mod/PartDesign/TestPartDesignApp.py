@@ -65,10 +65,12 @@ from PartDesignTests.TestFillet import (
     TestFilletGroups,
     TestFilletSlivers,
     TestFilletPastFeatures,
+    TestFilletFullRound,
 )
 from PartDesignTests.TestChamfer import TestChamfer, TestChamferGroups
 from PartDesignTests.TestDraft import TestDraft
 from PartDesignTests.TestThickness import TestThickness
+from PartDesignTests.TestThicken import TestThicken
 from PartDesignTests.TestDefeaturing import TestDefeaturing
 from PartDesignTests.TestSuppressed import TestSuppressed
 

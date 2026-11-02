@@ -80,6 +80,14 @@ public:
     static BodyBase* findBodyOf(const App::DocumentObject* f);
     PyObject* getPyObject() override;
 
+    /** Types a body takes besides its own: what a module registers -- the
+     * Surface workbench its features -- for them to go into a body as a
+     * sketch does, not solid, without the body's module knowing the type
+     * (PartDesign::Body::isAllowed consults it)
+     */
+    static void allowType(Base::Type type);
+    static bool isTypeAllowed(Base::Type type);
+
 protected:
     /// If BaseFeature is getting changed and Tip points to it reset the Tip
     void onBeforeChange (const App::Property* prop) override;

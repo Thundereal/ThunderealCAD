@@ -23,6 +23,10 @@
 #include "PreCompiled.h"
 #ifndef _PreComp_
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
@@ -49,6 +53,7 @@
 #include "FeatureExtend.h"
 #include "Geom/EdgeCondition.h"
 #include "Geom/Extend.h"
+#include "Geom/Trim.h"
 
 
 using namespace Surface;
@@ -110,6 +115,13 @@ Extend::Extend()
                       "Natural: the same surface carried on, smooth with itself (G2 and "
                       "more).\nLinear: straight on, tangent to the surface (G1)");
     Extension.setEnums(ExtensionEnums);
+    ADD_PROPERTY_TYPE(UpTo,
+                      (nullptr),
+                      "Edges",
+                      App::Prop_None,
+                      "A face to extend up to, in place of Length: the face is carried on "
+                      "past it and cut back where it crosses it");
+    UpTo.setScope(App::LinkScope::Global);
 }
 
 short Extend::mustExecute() const
@@ -129,7 +141,8 @@ short Extend::mustExecute() const
     if (ExtendVPos.isTouched()) {
         return 1;
     }
-    if (Mode.isTouched() || Edges.isTouched() || Length.isTouched() || Extension.isTouched()) {
+    if (Mode.isTouched() || Edges.isTouched() || Length.isTouched() || Extension.isTouched()
+        || UpTo.isTouched()) {
         return 1;
     }
     return 0;
@@ -242,6 +255,23 @@ App::DocumentObjectExecReturn* Extend::extendEdges(const Part::TopoShape& input)
     const auto mode = Extension.getValue() == 1 ? Geom::Extension::Linear
                                                 : Geom::Extension::Natural;
     std::vector<Part::TopoShape> inputs {input};
+    // up to a face: far enough past it from anywhere on the face, then cut
+    // back where it crosses it
+    Part::TopoShape upTo;
+    double length = Length.getValue();
+    if (UpTo.getValue()) {
+        const auto& upSubs = UpTo.getSubValues();
+        upTo = Part::Feature::getTopoShape(UpTo.getValue(),
+                                           upSubs.empty() ? "" : upSubs.front().c_str(),
+                                           true);
+        if (upTo.isNull() || upTo.countSubShapes(TopAbs_FACE) == 0) {
+            return new App::DocumentObjectExecReturn("UpTo is not a face");
+        }
+        Bnd_Box box;
+        BRepBndLib::Add(face, box);
+        BRepBndLib::Add(upTo.getShape(), box);
+        length = 1.5 * std::sqrt(box.SquareExtent());
+    }
     for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
         auto edge = Part::Feature::getTopoShape(objs[i], subs[i].c_str(), true);
         const std::string name = std::string(objs[i]->Label.getValue()) + "." + subs[i];
@@ -261,7 +291,7 @@ App::DocumentObjectExecReturn* Extend::extendEdges(const Part::TopoShape& input)
                 name + " is not on the boundary of the face's surface; untrim the face "
                        "to extend across it");
         }
-        auto error = Geom::extendBoundary(surface, Geom::Boundary(b), Length.getValue(), mode);
+        auto error = Geom::extendBoundary(surface, Geom::Boundary(b), length, mode);
         if (!error.empty()) {
             return new App::DocumentObjectExecReturn(name + ": " + error);
         }
@@ -269,12 +299,52 @@ App::DocumentObjectExecReturn* Extend::extendEdges(const Part::TopoShape& input)
     }
 
     BRepBuilderAPI_MakeFace mkFace(surface, Precision::Confusion());
-    // the face carried on: the input face modified, the rest named from it
-    Part::ShapeMapper mapper;
-    mapper.insert(false, input.getShape(), mkFace.Face());
-    Part::TopoShape result(0, getDocument()->getStringHasher());
-    result.makESHAPE(mkFace.Face(), mapper, {input}, OpCodes::Extend);
-    Shape.setValue(result);
+    if (upTo.isNull()) {
+        // the face carried on: the input face modified, the rest named from it
+        Part::ShapeMapper mapper;
+        mapper.insert(false, input.getShape(), mkFace.Face());
+        Part::TopoShape result(0, getDocument()->getStringHasher());
+        result.makESHAPE(mkFace.Face(), mapper, {input}, OpCodes::Extend);
+        Shape.setValue(result);
+        return StdReturn;
+    }
+
+    // cut back where it crosses UpTo: the piece holding the face as it was
+    try {
+        Part::TopoShape extended(mkFace.Face());
+        BRepAlgoAPI_Splitter splitter;
+        TopTools_ListOfShape args, tools;
+        args.Append(mkFace.Face());
+        tools.Append(upTo.getShape());
+        splitter.SetArguments(args);
+        splitter.SetTools(tools);
+        splitter.Build();
+        if (!splitter.IsDone()) {
+            return new App::DocumentObjectExecReturn("The face could not be cut at UpTo");
+        }
+        Part::TopoShape pieces(0, getDocument()->getStringHasher());
+        pieces.makEShape(splitter, {input, upTo}, OpCodes::Extend);
+        const int count = (int)pieces.countSubShapes(TopAbs_FACE);
+        if (count < 2) {
+            return new App::DocumentObjectExecReturn(
+                "The face does not reach UpTo, carried on along the edges given");
+        }
+        std::vector<TopoDS_Face> faces;
+        for (int i = 1; i <= count; ++i) {
+            faces.push_back(TopoDS::Face(pieces.getSubShape(TopAbs_FACE, i)));
+        }
+        // a point of the face as it was, well inside it
+        double fu1, fu2, fv1, fv2;
+        BRepTools::UVBounds(face, fu1, fu2, fv1, fv2);
+        BRepAdaptor_Surface original(face);
+        gp_Pnt inside = original.Value((fu1 + fu2) / 2, (fv1 + fv2) / 2);
+        int keep = Geom::nearestPiece(faces, inside, 1e-7);
+        Shape.setValue(pieces.getSubTopoShape(TopAbs_FACE, keep + 1));
+    }
+    catch (Standard_Failure& e) {
+        return new App::DocumentObjectExecReturn(std::string("Cutting at UpTo failed: ")
+                                                 + e.what());
+    }
     return StdReturn;
 }
 

@@ -8312,3 +8312,28 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   sketch-constraint-highlight-view 12/12.
 - The local gui.cmd runs dev and staged on the hidden desktop by default
   too; GT_ON_SCREEN=1 for the old way.
+
+### 2026-11-02: entry 241 -- COMMITTED `6465589eb0`, not pushed, not staged
+
+- The reporter: every PD on-view value's label at its active handle's base
+  point, offset off the handle; a drag of a handle not active makes it
+  active, the label following from the drag's start. (d): the handle's tool
+  tip leads with the label's text; the ruling: it follows the value in a
+  drag and hides while the pointer moves, back once it rests.
+- OnViewValueSet: a value with a handle shown stands by its active handle
+  whatever place the panel gave it (pad length, revolution angle, helix
+  height, hole depth, draft, thickness, fillet/chamfer defaults). No handle,
+  handles off, or an expression (never active): the top middle.
+- Gizmo::getHandleBase(): an arrow's foot (moves with the value), a rotation
+  knob. Beside an arrow on its upper/right side, label edge 10 px off; out
+  from a knob, 20 px. DragEvent::Moved keeps it on the handle in a drag.
+- Drag start activates; the dress-up's edge selection waits for the drag's
+  end (the view's release would clear it); a cancelled drag gives back the
+  value active before.
+- Tool tip "Length 8 mm" over the old hint, on the active handle too; shown
+  by the handle's own rest timer (Qt asks for no tip with a button down).
+- rtx58b: ctest 1088/1088. GUI (hidden desktop): pd-label-at-handle-foot
+  25/25 (after a fade wait fix), pd-values-in-view 39, chamfer 21, fillet
+  radius 23, fillet edge 17, fillet point 6, fillet undo 23, primitive labels
+  20, pad drag-reverse 13, edit menu 25 (button at the middle now; Settings
+  has 3 spin boxes since the label ground setting), serve handle hint 10.

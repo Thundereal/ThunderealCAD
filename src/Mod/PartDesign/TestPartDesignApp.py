@@ -80,6 +80,7 @@ from PartDesignTests.TestSheetMetalCornerClosure import TestSheetMetalCornerClos
 from PartDesignTests.TestSheetMetalCutout import TestSheetMetalCutout
 from PartDesignTests.TestSheetMetalFold import TestSheetMetalFold
 from PartDesignTests.TestSheetMetalJog import TestSheetMetalJog
+from PartDesignTests.TestSheetMetalTab import TestSheetMetalTab
 from PartDesignTests.TestSheetMetalFlatPattern import TestSheetMetalFlatPattern
 from PartDesignTests.TestSheetMetalPart import TestSheetMetalPart
 from PartDesignTests.TestChainLocations import TestChainLocations

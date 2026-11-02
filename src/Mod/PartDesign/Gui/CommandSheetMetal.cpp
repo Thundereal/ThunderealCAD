@@ -338,6 +338,61 @@ bool CmdPartDesignSheetMetalHem::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalCutout
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalCutout)
+
+CmdPartDesignSheetMetalCutout::CmdPartDesignSheetMetalCutout()
+    : Command("PartDesign_SheetMetalCutout")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Cutout");
+    sToolTipText = QT_TR_NOOP("Cuts the selected closed sketch through the sheet, normal to it\n"
+                              "on every wall and bend in the sketch's way");
+    sWhatsThis = "PartDesign_SheetMetalCutout";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalCutout";
+}
+
+void CmdPartDesignSheetMetalCutout::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* sketch = nullptr;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        if (sel.getObject() && sel.getObject()->isDerivedFrom<Part::Part2DObject>()) {
+            sketch = sel.getObject();
+            break;
+        }
+    }
+    if (!sketch) {
+        warn(QT_TR_NOOP("No sketch"),
+             QT_TR_NOOP("Select a closed sketch to cut through the sheet."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Cutout"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalCutout", "Cutout");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat, std::ostringstream() << "Profile = " << getObjectCmd(sketch));
+    FCMD_OBJ_HIDE(sketch);
+    finishFeature(this, feat);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalCutout::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalCornerClosure
 //===========================================================================
 
@@ -541,6 +596,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
+    mgr.addCommand(new CmdPartDesignSheetMetalCutout());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatPattern());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
 }

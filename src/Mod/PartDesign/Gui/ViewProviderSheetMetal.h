@@ -92,6 +92,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A cutout, its panel its sketch, its way and how far
+class PartDesignGuiExport ViewProviderSheetMetalCutout: public ViewProviderSketchBased
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalCutout);
+
+public:
+    ViewProviderSheetMetalCutout();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A flat pattern, its panel what it lays flat, its root face and the values
 /// a bill of materials takes; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart

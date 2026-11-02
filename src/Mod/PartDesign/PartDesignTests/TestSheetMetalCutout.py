@@ -176,14 +176,14 @@ class TestSheetMetalCutout(unittest.TestCase):
         self.assertAlmostEqual(area, before - 10 * math.pi / 3 * 1.5, places=4)
 
     def testAcrossBendInner(self):
-        """From above the plate, across the far bend: the plate's top and
+        """From above the part, across the far bend: the plate's top and
         the bend's inner skin face the sketch, the leg stands edge on; the
         plate goes to where the bend starts, the bend whole, the leg stays"""
         self.flange("Far", FAR)
         volume = self.Tip.Shape.Volume
         _, before = self.flatArea(self.Tip)
-        sketch = self.sketch(FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation()),
-                             rects=[[(10, 15, 1), (20, 15, 1), (20, 25, 1), (10, 25, 1)]])
+        sketch = self.sketch(FreeCAD.Placement(V(0, 0, 11), FreeCAD.Rotation()),
+                             rects=[[(10, 15, 11), (20, 15, 11), (20, 25, 11), (10, 25, 11)]])
         cutout = self.cut(sketch)
         self.checkValid(cutout)
         self.assertAlmostEqual(cutout.Shape.Volume, volume - 10 * (3 + RING), places=5)
@@ -192,6 +192,19 @@ class TestSheetMetalCutout(unittest.TestCase):
         self.assertFalse(shape.isInside(V(15, 16, 0.5), 1e-9, True))
         _, area = self.flatArea(cutout)
         self.assertAlmostEqual(area, before - 10 * (3 + STRIP), places=4)
+
+    def testBehindSketch(self):
+        """The same drawn on the plate's top: the bend rises behind the
+        sketch, out of its way, and stays whole"""
+        self.flange("Far", FAR)
+        volume = self.Tip.Shape.Volume
+        sketch = self.sketch(FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation()),
+                             rects=[[(10, 15, 1), (20, 15, 1), (20, 25, 1), (10, 25, 1)]])
+        cutout = self.cut(sketch)
+        self.checkValid(cutout)
+        self.assertAlmostEqual(cutout.Shape.Volume, volume - 30, places=5)
+        self.assertTrue(cutout.Shape.isInside(V(15, 19.06, 0.94), 1e-9, True))
+        self.flatArea(cutout)
 
     def twoLegs(self):
         self.flange("Near", NEAR)

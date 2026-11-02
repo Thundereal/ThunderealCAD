@@ -28,6 +28,8 @@
 #include <vector>
 
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Shape.hxx>
+#include <gp_Dir.hxx>
 
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
@@ -70,5 +72,23 @@ PartDesignExport TopoDS_Face cornerReliefFace(const Model& model, int root, int 
 PartDesignExport std::vector<Part::TopoShape>
 cornerReliefs(const Model& model, const std::vector<std::pair<int, int>>& corners, int shape,
               double size);
+
+/** A cutout's tools (docs/SheetMetal.md sec 5.2, ruled 2026-11-02): cut
+ * normal to the sheet everywhere, so the hole is what is cut in the blank
+ *
+ * profile is planar faces, way the cut's direction. Their prism, from just
+ * behind them on along way, is taken onto each skin of the part facing
+ * them (its normal out of the material against way; a bend's cylinder
+ * split where it turns side on), firstOnly dropping what another such skin
+ * hides from the sketch. Each piece is laid flat through its element's map
+ * and folded back through the sheet (refold()): a wall's straight through,
+ * a bend's along its radius.
+ *
+ * Throws Base::ValueError for a prism that meets no skin facing it.
+ */
+PartDesignExport std::vector<Part::TopoShape> cutoutTools(const Model& model,
+                                                          const TopoDS_Shape& part,
+                                                          const TopoDS_Shape& profile,
+                                                          const gp_Dir& way, bool firstOnly);
 
 }  // namespace PartDesign::SheetMetal

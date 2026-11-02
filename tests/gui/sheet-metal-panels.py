@@ -307,6 +307,40 @@ def run():
         accept()
         pump(20)
 
+        # -- the cutout's panel: its sketch, its way and how far ----------------
+        hole = body.newObject("Sketcher::SketchObject", "Hole")
+        hole.MapMode = "Deactivated"
+        hole.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        hole.addGeometry(Part.Circle(V(20, 10, 0), V(0, 0, 1), 3))
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, hole.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalCutout")
+        pump()
+        cutout = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalCutout"][0]
+        w = panel() or {}
+        check(
+            "Cutout opens its panel with its sketch, its way and how far",
+            all(n in w for n in ("Profile", "Reversed", "UpToFirst")),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        profile = w.get("Profile")
+        check(
+            "its sketch the one picked",
+            profile is not None and profile.currentText() == hole.Label,
+            profile and profile.currentText(),
+        )
+        first = w.get("UpToFirst")
+        if first is not None:
+            first.click()
+            pump(20)
+            doc.recompute()
+            check("the first only, set there, is the feature's", cutout.UpToFirst,
+                  cutout.UpToFirst)
+        accept()
+        pump(20)
+        check("OK keeps a good cutout", "Invalid" not in cutout.State, cutout.State)
+
         # -- the flat pattern's panel ------------------------------------------
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

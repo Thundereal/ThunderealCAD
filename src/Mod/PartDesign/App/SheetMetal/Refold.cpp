@@ -27,7 +27,9 @@
 #include <cmath>
 #include <numbers>
 
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -47,16 +49,20 @@
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <Geom2dConvert.hxx>
 #include <Geom2d_BSplineCurve.hxx>
+#include <Geom2d_TrimmedCurve.hxx>
 #include <GeomConvert.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_CylindricalSurface.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <Precision.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_Solid.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
+#include <TColgp_Array1OfPnt.hxx>
 #include <TColgp_Array1OfPnt2d.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -68,6 +74,8 @@
 #include <gp_Ax2.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Pln.hxx>
+
+#include <Base/Exception.h>
 
 #include <Mod/Part/App/TopoShapeOpCode.h>
 
@@ -312,10 +320,23 @@ std::vector<TopoShape> refold(const Model& model, int root, const TopoDS_Face& f
             builder.MakeCompound(pieces);
             bool any = false;
             for (TopExp_Explorer it(common.Shape(), TopAbs_FACE); it.More(); it.Next()) {
-                const TopoDS_Shape piece = radial(b,
-                                                  TopoDS::Face(it.Current()),
-                                                  b.radius - margin,
-                                                  b.radius + b.thickness + margin);
+                const TopoDS_Face& part = TopoDS::Face(it.Current());
+                TopoDS_Shape piece =
+                    radial(b, part, b.radius - margin, b.radius + b.thickness + margin);
+                // radial() takes the outer wire; a hole in the face stays
+                const TopoDS_Wire outerWire = BRepTools::OuterWire(part);
+                for (TopExp_Explorer w(part, TopAbs_WIRE); !piece.IsNull() && w.More(); w.Next()) {
+                    if (w.Current().IsSame(outerWire)) {
+                        continue;
+                    }
+                    const TopoDS_Face hole =
+                        BRepBuilderAPI_MakeFace(TopoDS::Wire(w.Current()), true).Face();
+                    const TopoDS_Shape island =
+                        radial(b, hole, b.radius - 2 * margin, b.radius + b.thickness + 2 * margin);
+                    if (!island.IsNull()) {
+                        piece = cutAway(piece, island);
+                    }
+                }
                 if (!piece.IsNull()) {
                     builder.Add(pieces, piece);
                     any = true;
@@ -408,6 +429,325 @@ std::vector<TopoShape> cornerReliefs(const Model& model,
         for (TopoShape& tool : refold(model, root, face, {root, a, b, ea.after, eb.after})) {
             res.push_back(std::move(tool));
         }
+    }
+    return res;
+}
+
+namespace
+{
+
+/// The faces of a boolean's result
+std::vector<TopoDS_Face> facesOf(const TopoDS_Shape& shape)
+{
+    std::vector<TopoDS_Face> res;
+    for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
+        res.push_back(TopoDS::Face(it.Current()));
+    }
+    return res;
+}
+
+/** A piece of a bend's skin laid in the bend's own flat (toFlat()'s): the
+ * cylinder's (u, v) to the flat's (Y, Z) is affine, so each pcurve, made a
+ * B-spline, keeps its knots and weights and has its poles mapped. A null
+ * face if the piece is not on a cylinder about the bend's axis.
+ */
+TopoDS_Face bendPieceFlat(const CylBend& b, const TopoDS_Face& piece)
+{
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(piece);
+    if (auto trimmed = Handle(Geom_RectangularTrimmedSurface)::DownCast(surface)) {
+        surface = trimmed->BasisSurface();
+    }
+    auto cylinder = Handle(Geom_CylindricalSurface)::DownCast(surface);
+    if (cylinder.IsNull()) {
+        return {};
+    }
+    // the cylinder's angle and height as the bend's
+    const gp_Ax3& own = cylinder->Position();
+    const gp_Vec x(b.frame.XDirection()), y(b.frame.YDirection()), z(b.frame.Direction());
+    const gp_Vec ox(own.XDirection()), oy(own.YDirection()), oz(own.Direction());
+    const double phi = std::atan2(ox.Dot(y), ox.Dot(x));
+    const double turn = ox.Crossed(oy).Dot(z) > 0 ? 1 : -1;
+    const double rise = oz.Dot(z) > 0 ? 1 : -1;
+    const double lift = gp_Vec(b.frame.Location(), own.Location()).Dot(z);
+    // the bend's own angles, about its middle (CylBend::from())
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(piece, u0, u1, v0, v1);
+    double shift = 0;
+    {
+        const double from = b.angle / 2 - std::numbers::pi;
+        double a = phi + turn * (u0 + u1) / 2;
+        while (a < from) {
+            a += 2 * std::numbers::pi;
+            shift += 2 * std::numbers::pi;
+        }
+        while (a >= from + 2 * std::numbers::pi) {
+            a -= 2 * std::numbers::pi;
+            shift -= 2 * std::numbers::pi;
+        }
+    }
+    const gp_Pnt o = b.frame.Location().Translated(x * b.radius);
+    const double nu = b.neutral();
+    auto flat = [&](const gp_Pnt2d& uv) {
+        const double a = phi + turn * uv.X() + shift;
+        return o.Translated(y * (a * nu) + z * (lift + rise * uv.Y()));
+    };
+
+    std::vector<TopoDS_Wire> wires;
+    const TopoDS_Wire outerWire = BRepTools::OuterWire(piece);
+    for (TopExp_Explorer w(piece, TopAbs_WIRE); w.More(); w.Next()) {
+        const TopoDS_Wire& wire = TopoDS::Wire(w.Current());
+        BRepBuilderAPI_MakeWire mk;
+        for (BRepTools_WireExplorer it(wire, piece); it.More(); it.Next()) {
+            const TopoDS_Edge& e = it.Current();
+            double f, l;
+            Handle(Geom2d_Curve) c = BRep_Tool::CurveOnSurface(e, piece, f, l);
+            if (c.IsNull()) {
+                return {};
+            }
+            Handle(Geom2d_BSplineCurve) s =
+                Geom2dConvert::CurveToBSplineCurve(new Geom2d_TrimmedCurve(c, f, l));
+            TColgp_Array1OfPnt poles(1, s->NbPoles());
+            for (int i = 1; i <= s->NbPoles(); ++i) {
+                poles.SetValue(i, flat(s->Pole(i)));
+            }
+            TColStd_Array1OfReal knots(1, s->NbKnots());
+            TColStd_Array1OfInteger mults(1, s->NbKnots());
+            s->Knots(knots);
+            s->Multiplicities(mults);
+            Handle(Geom_BSplineCurve) c3d;
+            if (s->IsRational()) {
+                TColStd_Array1OfReal weights(1, s->NbPoles());
+                s->Weights(weights);
+                c3d = new Geom_BSplineCurve(poles, weights, knots, mults, s->Degree());
+            }
+            else {
+                c3d = new Geom_BSplineCurve(poles, knots, mults, s->Degree());
+            }
+            TopoDS_Edge on = BRepBuilderAPI_MakeEdge(c3d).Edge();
+            if (e.Orientation() == TopAbs_REVERSED) {
+                on.Reverse();
+            }
+            mk.Add(on);
+        }
+        if (!mk.IsDone()) {
+            return {};
+        }
+        if (wire.IsSame(outerWire)) {
+            wires.insert(wires.begin(), mk.Wire());
+        }
+        else {
+            wires.push_back(mk.Wire());
+        }
+    }
+    if (wires.empty()) {
+        return {};
+    }
+    BRepBuilderAPI_MakeFace mk(gp_Pln(o, x), wires.front(), true);
+    for (std::size_t i = 1; i < wires.size(); ++i) {
+        mk.Add(wires[i]);
+    }
+    if (!mk.IsDone()) {
+        return {};
+    }
+    ShapeFix_Face fix(mk.Face());
+    fix.FixOrientation();
+    fix.Perform();
+    return fix.Face();
+}
+
+}  // namespace
+
+std::vector<TopoShape> cutoutTools(const Model& model, const TopoDS_Shape& part,
+                                   const TopoDS_Shape& profile, const gp_Dir& way, bool firstOnly)
+{
+    const double T = model.thickness;
+    const double margin = T / 10;
+    Bnd_Box box;
+    BRepBndLib::Add(part, box);
+    BRepBndLib::Add(profile, box);
+    const double size = 4 * (std::sqrt(box.SquareExtent()) + 10 * T) + 1;
+
+    // the sketch's prism on along the way; and from just behind it, for a
+    // skin it is drawn on: what lies behind the sketch is not in its way
+    const TopoDS_Shape ahead = BRepPrimAPI_MakePrism(profile, gp_Vec(way) * size).Shape();
+    gp_Trsf behind;
+    behind.SetTranslation(gp_Vec(way) * -margin);
+    const TopoDS_Shape onPlane =
+        BRepPrimAPI_MakePrism(BRepBuilderAPI_Transform(profile, behind, true).Shape(),
+                              gp_Vec(way) * (size + margin))
+            .Shape();
+    gp_Pnt sketchAt;
+    {
+        TopExp_Explorer v(profile, TopAbs_VERTEX);
+        if (!v.More()) {
+            THROWM(Base::ValueError, "A cutout's sketch is empty");
+        }
+        sketchAt = BRep_Tool::Pnt(TopoDS::Vertex(v.Current()));
+    }
+
+    int root = -1;
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
+        if (model.elements[i].kind == Element::Kind::Wall) {
+            root = static_cast<int>(i);
+            break;
+        }
+    }
+    if (root < 0) {
+        THROWM(Base::ValueError, "A cutout builds on a sheet with a wall");
+    }
+
+    // what the prism covers on each skin facing the sketch
+    std::vector<std::pair<int, TopoDS_Face>> pieces;
+    const double facing = 1e-6;
+    for (TopExp_Explorer it(part, TopAbs_FACE); it.More(); it.Next()) {
+        const TopoDS_Face& face = TopoDS::Face(it.Current());
+        const int index = model.owner(face);
+        if (index < 0) {
+            continue;
+        }
+        const Element& el = model.elements[index];
+        BRepAdaptor_Surface surface(face);
+        TopoDS_Shape keep;
+        const TopoDS_Shape* prism = &ahead;
+        if (el.kind == Element::Kind::Wall) {
+            if (surface.GetType() != GeomAbs_Plane) {
+                continue;
+            }
+            gp_Dir n = surface.Plane().Axis().Direction();
+            if (face.Orientation() == TopAbs_REVERSED) {
+                n.Reverse();
+            }
+            if (!n.IsParallel(el.frame.Direction(), Precision::Angular())
+                || n.Dot(way) > -facing) {
+                continue;
+            }
+            const gp_Pnt on = surface.Plane().Location();
+            if (n.IsParallel(way, Precision::Angular())
+                && std::abs(gp_Vec(sketchAt, on).Dot(gp_Vec(way))) < Precision::Confusion()) {
+                prism = &onPlane;
+            }
+        }
+        else {
+            if (surface.GetType() != GeomAbs_Cylinder) {
+                continue;
+            }
+            const gp_Ax1 axis = surface.Cylinder().Axis();
+            if (!axis.Direction().IsParallel(el.bend.frame.Direction(), Precision::Angular())) {
+                continue;
+            }
+            // the way across the axis: none along it
+            const gp_Vec along(axis.Direction());
+            const gp_Vec across = gp_Vec(way) - along * gp_Vec(way).Dot(along);
+            if (across.Magnitude() < facing) {
+                continue;
+            }
+            // the skin's normal out of the material is outward (+1) or in
+            double u0, u1, v0, v1;
+            BRepTools::UVBounds(face, u0, u1, v0, v1);
+            auto radialAt = [&](double u, gp_Pnt& p) {
+                gp_Vec du, dv;
+                surface.D1(u, (v0 + v1) / 2, p, du, dv);
+                const gp_Vec r(axis.Location(), p);
+                return r - along * r.Dot(along);
+            };
+            double sense;
+            {
+                gp_Pnt p;
+                gp_Vec du, dv;
+                surface.D1((u0 + u1) / 2, (v0 + v1) / 2, p, du, dv);
+                gp_Vec normal = du.Crossed(dv);
+                if (face.Orientation() == TopAbs_REVERSED) {
+                    normal.Reverse();
+                }
+                gp_Pnt q;
+                sense = normal.Dot(radialAt((u0 + u1) / 2, q)) > 0 ? 1 : -1;
+            }
+            // facing where the normal runs against the way: all of it, none,
+            // or the half of the cylinder on that side of its axis
+            bool any = false, all = true;
+            const int samples = 16;
+            for (int i = 0; i <= samples; ++i) {
+                gp_Pnt p;
+                const gp_Vec r = radialAt(u0 + (u1 - u0) * i / samples, p);
+                const double g = sense * r.Normalized().Dot(across.Normalized());
+                any = any || g < -facing;
+                all = all && g < facing;
+            }
+            if (!any) {
+                continue;
+            }
+            if (!all) {
+                gp_Pnt middle;
+                radialAt((u0 + u1) / 2, middle);
+                keep = halfSpace(axis.Location(), gp_Dir(across * -sense), middle, size);
+            }
+        }
+        BRepAlgoAPI_Common common(face, *prism);
+        if (!common.IsDone()) {
+            continue;
+        }
+        TopoDS_Shape covered = common.Shape();
+        if (!keep.IsNull()) {
+            BRepAlgoAPI_Common half(covered, keep);
+            if (!half.IsDone()) {
+                continue;
+            }
+            covered = half.Shape();
+        }
+        for (const TopoDS_Face& piece : facesOf(covered)) {
+            pieces.emplace_back(index, piece);
+        }
+    }
+
+    // the first met only: each piece less what lies behind the others
+    if (firstOnly && pieces.size() > 1) {
+        std::vector<TopoDS_Shape> shadows;
+        for (const auto& [index, piece] : pieces) {
+            shadows.push_back(BRepPrimAPI_MakePrism(piece, gp_Vec(way) * size).Shape());
+        }
+        std::vector<std::pair<int, TopoDS_Face>> seen;
+        for (std::size_t i = 0; i < pieces.size(); ++i) {
+            TopoDS_Compound others;
+            BRep_Builder builder;
+            builder.MakeCompound(others);
+            for (std::size_t j = 0; j < shadows.size(); ++j) {
+                if (j != i) {
+                    builder.Add(others, shadows[j]);
+                }
+            }
+            BRepAlgoAPI_Cut cut(pieces[i].second, others);
+            if (!cut.IsDone()) {
+                continue;
+            }
+            for (const TopoDS_Face& piece : facesOf(cut.Shape())) {
+                seen.emplace_back(pieces[i].first, piece);
+            }
+        }
+        pieces = std::move(seen);
+    }
+
+    std::vector<TopoShape> res;
+    for (const auto& [index, piece] : pieces) {
+        const Element& el = model.elements[index];
+        TopoDS_Face flat;
+        if (el.kind == Element::Kind::Wall) {
+            flat = piece;
+        }
+        else {
+            flat = bendPieceFlat(el.bend, piece);
+            if (flat.IsNull()) {
+                FC_THROWM(Base::ValueError,
+                          "A cutout could not lay its piece on " << el.name << " flat");
+            }
+        }
+        flat = TopoDS::Face(
+            BRepBuilderAPI_Transform(flat, model.placement(index, root), true).Shape());
+        for (TopoShape& tool : refold(model, root, flat, {index})) {
+            res.push_back(std::move(tool));
+        }
+    }
+    if (res.empty()) {
+        THROWM(Base::ValueError, "A cutout's sketch meets no skin of the sheet facing it");
     }
     return res;
 }

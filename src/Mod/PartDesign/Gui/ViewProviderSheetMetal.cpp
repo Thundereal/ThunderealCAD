@@ -149,6 +149,24 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalCornerClosure::getEditDialog()
                                      "Face"));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalCutout,
+                PartDesignGui::ViewProviderSketchBased)
+
+ViewProviderSheetMetalCutout::ViewProviderSheetMetalCutout()
+{
+    sPixmap = "PartDesign_SheetMetalCutout";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalCutout::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalCutout",
+                                     QObject::tr("Cutout parameters"),
+                                     {"Profile", "Reversed", "UpToFirst"}));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)
 
 ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()

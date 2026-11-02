@@ -16,6 +16,7 @@
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
 
+import math
 import os
 import traceback
 
@@ -208,6 +209,34 @@ def run():
             hem and (hem.State, hem.Edges, hem.Shape.Volume, volume),
         )
         flange = hem
+
+        # a cutout: a circle drawn on the plate's top, through it
+        hole = body.newObject("Sketcher::SketchObject", "Hole")
+        hole.MapMode = "Deactivated"
+        hole.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        hole.addGeometry(Part.Circle(V(20, 10, 0), V(0, 0, 1), 3))
+        doc.recompute()
+        pump()
+        volume = flange.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, hole.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalCutout")
+        pump()
+        check("Cutout opens its panel, OK closes it", ok())
+        doc.recompute()
+        cutout = newest(doc, before, "PartDesign::SheetMetalCutout")
+        check(
+            "Cutout on a selected sketch cuts it through the sheet",
+            cutout is not None
+            and "Invalid" not in cutout.State
+            and cutout.Profile[0] == hole
+            and abs(cutout.Shape.Volume - (volume - 9 * math.pi)) < 1e-6,
+            cutout and (cutout.State, cutout.Shape.Volume, volume),
+        )
+        check("and it is the body's tip, the sketch hidden", body.Tip == cutout
+              and not hole.Visibility)
+        flange = cutout
 
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()

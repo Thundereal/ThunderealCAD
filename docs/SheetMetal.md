@@ -917,6 +917,26 @@ and not frozen.
   - Tested by `testCornerRelief*` (4): on each skin of the flat nothing is left inside the shape
     and nothing changed outside it, within 1e-5 mm^2 (the outline in the flat is a B-spline
     through samples of its image), face by face in the plane.
+- M2's cutout, `PartDesign::SheetMetalCutout` (5.2, ruled 2026-11-02), with
+  `TestSheetMetalCutout` (9), its command, icon and panel. As built
+  (`SheetMetal::cutoutTools()`):
+  - A closed sketch (`Profile`, a `ProfileBased`'s), cut against its normal as a pocket's,
+    `Reversed` along it. Its prism runs on from the sketch: what lies behind the sketch is not in
+    its way, so a sketch drawn on the plate's top across a bend line leaves the bend, which rises
+    behind it, whole; a skin in the sketch's own plane is taken by a prism from just behind it.
+  - The skins facing the sketch: a wall's whose normal out of the material runs against the
+    way (one edge on, a leg standing under a sketch above the plate, is not cut), and of a bend's
+    cylinders the part where the normal out of the material does, the cylinder split by the
+    plane through its axis across the way where it turns side on. What the prism covers on each
+    is a piece; `UpToFirst` takes from each piece what the others' prisms along the way cover,
+    so only what the sketch meets first is left.
+  - Each piece is laid in its element's flat, a wall's as it is, a bend's exactly (the
+    cylinder's (u, v) to the flat's (Y, Z) is affine, so each pcurve, made a B-spline, has its
+    poles mapped), and folded back by `refold()`: through the sheet, trimmed to its element. The
+    hole's sides are normal to the sheet everywhere, a bend's along its radius. `refold()` now
+    keeps a hole in a face it folds back onto a bend.
+  - The model is the one before; the flat lays the hole out as any other face. Refused by name:
+    an open sketch, one that meets no skin facing it.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

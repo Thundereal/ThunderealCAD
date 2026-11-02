@@ -262,6 +262,45 @@ class TestSheetMetalHem(unittest.TestCase):
         self.assertNotIn(None, self.owners(hem))
         self.checkFlat(hem, 40, 18 + 2.25 * math.pi)
 
+    # Gaps at the hem's ends, as a flange's (Gap1, Gap2): the hem narrower
+    # than its edge, and where it stops inside the wall's end with the wall
+    # cut back, the rule's bend relief beside the fold, 1 wide, from the
+    # wall's end to 1 past where the fold starts (1.05 + 1 deep)
+
+    def testGaps(self):
+        """Gaps of 5: the hem 30 wide; a relief x 4..5 and 35..36, y
+        17.95..20; the flat 40 across, as the hem's along"""
+        hem = self.far(Gap1=5, Gap2=5)
+        self.checkValid(hem)
+        shape = hem.Shape
+        self.assertAlmostEqual(
+            shape.Volume,
+            40 * 20 - 30 * 1.05 - 2 * 1 * 2.05 + 30 * (CLOSED + 4.95),
+            places=6,
+        )
+        for x in (4.5, 35.5):
+            self.assertFalse(shape.isInside(V(x, 19.5, 0.5), 1e-9, True), x)
+            self.assertFalse(shape.isInside(V(x, 18.0, 0.5), 1e-9, True), x)
+            self.assertTrue(shape.isInside(V(x, 17.9, 0.5), 1e-9, True), x)
+        for x in (3.9, 36.1):
+            self.assertTrue(shape.isInside(V(x, 19.5, 0.5), 1e-9, True), x)
+        self.assertFalse(shape.isInside(V(4.9, 17, 1.6), 1e-9, True))
+        self.assertTrue(shape.isInside(V(5.1, 17, 1.6), 1e-9, True))
+        self.assertNotIn(None, self.owners(hem))
+        self.checkFlat(hem, 40, 18.95 + 0.55 * math.pi + 4.95)
+
+    def testGapsOutside(self):
+        """Outside nothing is cut back, so no relief is needed"""
+        hem = self.far(Gap1=5, Gap2=5, Position="Outside")
+        self.checkValid(hem)
+        self.assertAlmostEqual(
+            hem.Shape.Volume, 40 * 20 + 30 * (CLOSED + 4.95), places=6
+        )
+
+    def testGapsLeaveNothing(self):
+        hem = self.far(Gap1=20, Gap2=20)
+        self.assertIn("Invalid", hem.State)
+
     def testSaved(self):
         """Saved and reopened, it recomputes to the same solid"""
         hem = self.far(HemType="Open", Gap=0.5)

@@ -166,6 +166,10 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-02 20:04: 242 DONE by dwin (0f41b13b35), local -- the boxes were modal,
+the load went on under them; now it waits. dwin's queue empty; 241 and
+242 unpushed.** Under the entries.
+
 **2026-11-02 19:09: 241 DONE by dwin (6465589eb0), local; dwin on 242.** Under the
 entries.
 
@@ -4567,7 +4571,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 239 | 2026-10-28 | a defect: creating or editing a PD Box shows the origin planes whatever their visibility, at another size; with the origin group INVISIBLE the origin shown in the edit does not react to the highlight (pre-selection), only once the group is made visible | OPEN; said to the note-taker 2026-10-28 17:59; READ by the note-taker: the Box panel shows the origin's axes and planes on purpose (TaskPrimitiveParameters.cpp 85, setTemporaryVisibility(true, true)), as an edit visibility in the views of the edit (ViewProviderCoordinateSystem::setTemporaryVisibilityInEdit, ViewProviderCoordinateSystem.cpp 144-185, Gui::Document::setEditVisibility) -- the objects' Visibility untouched; the attacher grows them by DatumTemporaryScaleFactor (2.0, TaskAttacher.cpp 350); the highlight missing while the group's own Visibility is off -- cause NOT found (the 235 pick-first path or the selection's visibility test, a lead); ASSIGNED to dwin (fcad-88). 2026-10-28 18:05 the reporter: "entry 239, temp scale is fine and desired. just fix the highlight. there is no highlight before the pick fix" -- the showing and the temporary scale stay; only the highlight; it was missing BEFORE 235's pick fix (so 235 is not its cause); relayed to dwin. 2026-10-28 18:16 DONE by dwin `fb8b27d61d`, local, NOT pushed, NOT staged: cause (older than 235) -- an object shown by an edit visibility is carried TAGGED in the shared scene capture (Render::perViewShownModeId), each view admitting it by its own visibility; the highlight cache built from it kept the tag, so neither renderer drew the highlight (GL leaves tagged draws out, bgfx admits them by a visibility the highlight draws lack); fix -- buildHighlightCache() takes the tag off (a highlight is of what the pointer was over in that view); selection highlights covered; the temporary origin and its size untouched; pd-edit-origin-highlight.py 4/4 (Origin hidden: 4104 pixels change round the plane, as visible; the staged copy 0), origin-plane-highlight.py 14/14; PUSHED (3f3174731f..1a2436c219) and RESTAGED (stage31) by dwin 2026-10-28 22:00 on the reporter's word (relayed) |
 | 240 | 2026-10-28 | a change request: every PD primitive's on-view value labels shown BESIDE their handle, only while that handle is active; and every on-view label gets a see-through background in the tree item's background colour | OPEN; said to the note-taker 2026-10-28 18:03; READ by the note-taker: the primitives put every label at the top middle (TaskPrimitiveParameters.cpp 205, Place::TopMiddle; entry 170's rule then); Place::AtHandle (OnViewValue.h 103, 'shown beside its handle while that one is active') is used by pad/pocket, revolution, hole, fillet, chamfer, which fall back to the top middle with handles off; the tree item background is TreeParams ItemBackground (TreeParams.py 137, the overlaid tree's item background, default 0); the labels draw no background now (OnViewValue.cpp 193 is a button's frame); ASSIGNED to dwin (fcad-88) after 239. 2026-10-28 18:16 dwin started; taking the note-taker's defaults: with handles off a primitive's labels at the top middle; ItemBackground unset -> the tree's own palette base colour; the see-through level dwin's, to be reported. 2026-10-28 18:33 DONE by dwin `664e51d94a`, local, NOT pushed, NOT staged: (a) box, cylinder, sphere values Place::AtHandle, shown only while the handle is active, top middle with handles off (the other primitive types have no handles: setupGizmos returns for them, TaskPrimitiveParameters.cpp 235-237, read by the note-taker); (b) every on-view value label gets a rounded see-through ground -- SoDatumLabel backgroundColor/backgroundAlpha (default none: the Sketcher's labels unchanged), painted into the text image; colour the tree's item ground as painted (effectiveOverlayItemBackground), else ItemBackground, else the palette base; opacity clamped 96..200 of 255 (the reporter's ItemBackground is black at 20, raised to 96); pd-primitive-labels-at-handle.py 6/6 (the staged copy fails 6, and showed the box's labels in the next edit), pd-values-in-view 37 (its box claim updated), chamfer 19, fillet 21; the ground's opacity then made a setting, Gizmos/OnViewLabelBackgroundOpacity 0-100 %%, default 0, also in the on-view settings menu (`1af7e47607`, asked of dwin by the reporter, relayed; the note-taker did not hear it); PUSHED (3f3174731f..1a2436c219) and RESTAGED (stage31) by dwin 2026-10-28 22:00 on the reporter's word (relayed); then, asked of dwin by the reporter (relayed): PD on-view labels get the Sketcher's outline (`14b17ae490`) and their text a little darker on a light background (`d7c714f31e`); PUSHED (1a2436c219..c1ce3df7d1) and RESTAGED (stage33) by dwin 2026-10-28 23:25 on the reporter's word (relayed) |
 | 241 | 2026-11-02 | a change request: EVERY PD on-view value with a handle -- the dress-ups' common radius included -- shows its label anchored to the ACTIVE handle's BASE point, offset so as not to cover the handle; a drag on a handle not yet active makes it active, so the label follows once the drag starts | OPEN; said to the note-taker 2026-11-02 18:12; READ by the note-taker: values with handles still at the top middle -- pad/pocket Length (TaskExtrudeParameters.cpp 245), revolution Angle (184), helix Height (93), hole Depth (245), draft Angle (111), thickness (116), the fillet's common Radius (280), chamfer Size/Size 2/Angle (531-542); the anchor is the handle's dragger placement (OnViewValue.cpp 663), the label up-right by HandleOffset 24 px (OnViewValue.h 268, OnViewValue.cpp 1044-1046); a drag's Started event does not make the handle active (OnViewValue.cpp 545-554); ASSIGNED to dwin (fcad-88) on the reporter's word; 2026-11-02 18:28 the reporter added (d): a highlighted handle shows a tool tip with its label's text and value, as the FIRST line where the handle has a tool tip already (it has: "Drag to change the value; click to type it." / "Right click for the menu.", OnViewValue.cpp 513-514); also read: a handle becomes active at RELEASE (setReleaseCallback, 500-502); relayed to dwin; 2026-11-02 18:33 the reporter on (d): the tool tip's text follows the value while dragging, and it behaves as an ordinary tool tip -- hidden on a timer when the mouse moves, back after a delay once it stops; relayed to dwin; 2026-11-02 19:09 DONE by dwin, `6465589eb0`, local, NOT pushed, NOT restaged: one rule in OnViewValueSet -- a value whose handle is shown puts its label beside the ACTIVE handle (top middle kept for no handle, handles off, and expression-driven values, dwin's choice); anchor Gizmo::getHandleBase() (an arrow's foot, which moves with the value; a rotation handle's knob), 10 px off the arrow line / 20 px off a knob, following the drag; a drag activates its handle at START (Escape gives the earlier one back, dwin's choice); the tool tip's first line the label text, the active handle too (dwin's choice), following a drag, Qt's hide/wake timing; pd-label-at-handle-foot.py 25/25, ctest 1088/1088 |
-| 242 | 2026-11-02 | a defect: the migration recompute box (asked after opening an old file) is not modal, nor is the recompute error box after it | OPEN; said to the note-taker 2026-11-02 18:15; READ by the note-taker: both are static QMessageBox calls parented to the main window (QMessageBox::warning, Application.cpp 616-621; QMessageBox::critical, 634-636), from a signalFinishOpenDocument handler (604-637) -- Qt makes such a box application modal, so the code asks for modal; no setWindowModality anywhere in Gui that would undo it (only DocumentRecovery.cpp 1401); cause NOT found, NOT reproduced; ASSIGNED to dwin (fcad-88) after 241 |
+| 242 | 2026-11-02 | a defect: the migration recompute box (asked after opening an old file) is not modal, nor is the recompute error box after it | OPEN; said to the note-taker 2026-11-02 18:15; READ by the note-taker: both are static QMessageBox calls parented to the main window (QMessageBox::warning, Application.cpp 616-621; QMessageBox::critical, 634-636), from a signalFinishOpenDocument handler (604-637) -- Qt makes such a box application modal, so the code asks for modal; no setWindowModality anywhere in Gui that would undo it (only DocumentRecovery.cpp 1401); cause NOT found, NOT reproduced; ASSIGNED to dwin (fcad-88) after 241; 2026-11-02 20:04 DONE by dwin, `0f41b13b35`, local, NOT pushed, NOT restaged: reproduced on a scanner2 copy (dev and staged) -- the boxes ARE input modal (menu bar and 3D view wheel blocked), but the progressive LOAD went on under them (the box's event loop ran the visual-building slices: 616 of 616 built under the box in a test file); dwin read "load modal" as the load waiting for the answer; fix Gui::Application::isLoadHeld() (a modal widget up): the view provider and Part visual drains' timed slices wait and ask again 100 ms later, an explicit flush still runs to the end; modal-box-holds-the-load.py 6/6 (the old build fails 2) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -31968,6 +31972,38 @@ places: pd-values, chamfer, fillet-radius, fillet-edge, edit-menu (the
 edit-menu test also had a stale count: Settings has 3 spin boxes since
 the label-ground setting).
 dwin on 242 next.
+
+**2026-11-02 20:04, dwin (fcad-88; relayed): 242 FIXED, committed `0f41b13b35`
+(+ log); local, NOT pushed, NOT restaged.**
+Reproduced on a scanner2.FCStd COPY, in the dev build and the staged
+copy.
+- What does NOT get past: both boxes ARE input modal --
+  ApplicationModal, owned by the main window, whose native window
+  Windows disables while they are up. A click on the main menu bar and
+  a native mouse wheel in the 3D view are both blocked (the same wheel
+  moves the camera with no box up).
+- What DOES get past: the load. The migration prompt comes at the end
+  of the open while the progressive load is still building the scene
+  off timers (isBuildingVisuals() true when the box shows and 3 s into
+  it); the box's own event loop kept running those slices -- a
+  600-object test file built all 616 of its visuals behind the modal
+  box. The recompute after "Yes" runs events too, so the error box can
+  come up mid-load as well.
+dwin's reading of "load modal": the load must wait for the answer.
+(The note-taker had read it as "modal"; dwin's reading fits the
+finding -- the boxes block input, the load did not wait.)
+Fix: Gui::Application::isLoadHeld() (true while a modal widget is up);
+the view provider drain's and the Part visual drain's timed slices wait
+while it holds and ask again 100 ms later; an explicit flush still
+runs to the end, so nothing deadlocks.
+Results: the scanner2 copy -- no visual built under either box (1 -> 1
+under the migration prompt, 418 -> 418 under the error box; the 417
+between them come from the recompute; the load finishes after the
+boxes). New test modal-box-holds-the-load.py: fails 2 on the old build
+(616 built under the box), 6/6 with the fix. drain-waits-for-premesh
+14, pd-label-at-handle-foot 25, ctest 1088/1088.
+Unpushed: `6465589eb0` (241), `0f41b13b35` (242), docs. dwin's queue
+EMPTY.
 
 ## Inbox
 

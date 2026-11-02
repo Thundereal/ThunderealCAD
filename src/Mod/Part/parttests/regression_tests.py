@@ -509,11 +509,12 @@ class RegressionTests(unittest.TestCase):
         """The fork's loop builder broke thickness on faces with a seam: a
         closed edge found twice, one seam wire allowed per face, a closed edge
         losing its orientation; and the offset of an ellipse, a closed B-spline,
-        was stretched past its ends. Upstream OCCT gave these volumes
-        (docs/TransactionLogJournal.md sec 27.89). The ellipse's are what
-        Shape.Volume answers, not the truth: "ellipse top, out" is 609.8912
-        in closed form and by mesh, so BRepGProp's plain integral is 1.2
-        short there, and the fork's span by span integral moved it 0.001."""
+        was stretched past its ends. Upstream OCCT gives these volumes
+        (docs/TransactionLogJournal.md sec 27.89), but for the ellipse's: upstream
+        reads them 1.2 short (608.6631 and 473.2070), the integral's fixed
+        order on an offset surface's wall, which the fork's takes in pieces
+        where the normal turns unevenly. They are the solids' own, 609.8911
+        and 474.1842 by Steiner (occt tests/fork/thickness/sweep/hand.py)."""
         hole = lambda: Part.makeCylinder(5, 10).cut(Part.makeCylinder(2, 10))
         ellipse = lambda: Part.Face(
             Part.Wire(Part.Ellipse(Vector(0, 0, 0), 10, 5).toShape())
@@ -523,8 +524,8 @@ class RegressionTests(unittest.TestCase):
             ("cylinder top, in", lambda: Part.makeCylinder(4, 20), 1, -1.0, 468.0973),
             ("hole wall, out", hole, 3, 1.0, 531.0589),
             ("outer wall, in", hole, 0, -1.0, 257.6106),
-            ("ellipse top, out", ellipse, 2, 1.0, 608.6621),
-            ("ellipse bottom, in", ellipse, 1, -1.0, 473.2070),
+            ("ellipse top, out", ellipse, 2, 1.0, 609.8911),
+            ("ellipse bottom, in", ellipse, 1, -1.0, 474.1842),
             ("pocketed cylinder bottom, in", pocket, 2, -1.0, 346.7660),
         ]
         for name, make, face, offset, volume in cases:

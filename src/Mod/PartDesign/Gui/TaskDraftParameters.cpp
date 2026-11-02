@@ -105,8 +105,8 @@ TaskDraftParameters::TaskDraftParameters(ViewProviderDressUp *DressUpView,QWidge
     setup(ui->message, ui->treeWidgetReferences, ui->buttonRefAdd, touched);
 
     // The angle in the view (docs/OnViewValueEditing.md 3.4, entry 170): its
-    // label always at the top middle, typed once its handle is made active by
-    // a click or Tab
+    // label beside its handle while that is active (entry 241) -- at the top
+    // middle without handles -- typed once made active by a click or Tab
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
     onViewValues->addValue(ui->draftAngle, tr("Angle"), Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->setMenu(0, [this](QMenu& menu, Gui::Gizmo*) {

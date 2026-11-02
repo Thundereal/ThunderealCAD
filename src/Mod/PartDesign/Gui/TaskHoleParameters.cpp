@@ -234,9 +234,9 @@ PartDesign::Hole* TaskHoleParameters::editHole()
 void TaskHoleParameters::setupGizmos(ViewProviderHole* vp)
 {
     // The values in the view (docs/OnViewValueEditing.md 3.3, entry 170): the
-    // diameter's and the depth's labels always at the top middle, the start
-    // offset's beside its handle while it is active -- at the top middle too
-    // without handles. A click on the depth's arrow no longer reverses the
+    // diameter's label always at the top middle, the depth's and the start
+    // offset's beside their handle while it is active (entry 241) -- at the
+    // top middle without handles. A click on the depth's arrow no longer reverses the
     // hole: the handles' menu does (3.3).
     const bool handles = GizmoContainer::isEnabled();
     const auto top = Gui::OnViewValueSet::Place::TopMiddle;

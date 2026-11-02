@@ -42,6 +42,7 @@ class QKeyEvent;
 class QMenu;
 class QWidget;
 class SoNodeSensor;
+class SbVec2s;
 
 namespace App
 {
@@ -84,10 +85,13 @@ class ViewerContext;
  *
  * A value may have several handles -- a fillet's default radius has one on
  * every edge that takes it; making one active highlights them all. A label is
- * either always shown at the top middle of the view (a feature's default
- * value, which stands for no single place) or shown beside its active handle
- * only. A right click on a handle opens the value's menu, and the pointer over
- * it shows a tool tip saying so.
+ * shown beside its active handle while it is active -- at the handle's foot,
+ * clear of the handle, following it through a drag (entry 241, the reporter
+ * 2026-11-02: "the same for all partdesign on view edit") -- or, a value with
+ * no handle shown, always at the top middle of the view (Place::TopMiddle).
+ * A drag of a handle not active makes it active from the drag's start. A
+ * right click on a handle opens the value's menu, and the pointer over it
+ * shows a tool tip saying so.
  */
 class GuiExport OnViewValueSet: public QObject
 {
@@ -98,7 +102,8 @@ class GuiExport OnViewValueSet: public QObject
 public:
     enum class Place
     {
-        /// always shown, at the top middle of the view
+        /// always shown, at the top middle of the view -- while the value
+        /// has no handle shown; with one it is AtHandle (entry 241)
         TopMiddle,
         /// shown beside its handle while that one is active
         AtHandle,
@@ -135,6 +140,12 @@ public:
      * where their labels go.
      */
     void placeAnchors(const Base::Matrix4D& toWorld);
+    /** The handles' container frame (GizmoContainer::getWorldMatrix): a
+     * label stands at its handle's foot as the handle is now
+     * (Gizmo::getHandleBase), where setHandleAnchor() said otherwise.
+     * placeAnchors() sets it too.
+     */
+    void setFrame(const Base::Matrix4D& toWorld);
     /// What the menu of the value at \a index offers
     void setMenu(int index, MenuProvider provider);
     /// The handle that stands for what the pointer is over in the scene, or null
@@ -264,8 +275,12 @@ public:
 
     /// Where the default value's label is put: this far below the view's top.
     static constexpr int TopMargin = 28;
-    /// Where a handle's label is put: this far right of and above the handle
+    /// Where a handle's label is put without a foot to stand by: this far
+    /// right of and above the handle's anchor
     static constexpr int HandleOffset = 24;
+    /// Between a handle and its label's nearest edge, beside an arrow's
+    /// foot or out from a rotation handle's knob
+    static constexpr int HandleClearance = 10;
 
 Q_SIGNALS:
     /// The view's camera moved: a handle that depends on it may move too.
@@ -296,7 +311,23 @@ private:
     void placeLabels();
     void showLabels();
     void updateLabel(int index);
+    /// The text of the label of the value at \a index: "Radius 2 mm"
+    QString labelText(int index) const;
+    /// What a handle's tool tip says it does, after its value
+    static QString handleHint();
+    /// The tool tips of the value's handles: its text over the hint
+    void updateHandleTips(int index);
     void highlight();
+    /// The value at \a index has a handle shown: its label stands by it --
+    /// not one an expression drives, never active, whose label stays where
+    /// its place says
+    bool atHandle(int index) const;
+    /// Where the label of the active value goes beside \a handle, in
+    /// viewport pixels; \a anchor when the handle cannot say where it stands
+    SbVec2s handleLabelPixel(Gizmo* handle, const Base::Vector3d& anchor,
+                             EditableDatumLabel* label) const;
+    /// activeHandleChanged() for the handle now named, if not told yet
+    void announceHandle();
     void setupHandle(int index, Gizmo* handle);
     void onCamera();
     void onLabelClicked(EditableDatumLabel* label);
@@ -330,6 +361,8 @@ private:
     int clearMiddle(int needed) const;
 
     std::vector<std::unique_ptr<Entry>> entries;
+    /// The handles' container frame, once told (setFrame())
+    std::optional<Base::Matrix4D> frame;
     /// "Show handles": the values' handles shown in this view
     /// (Gizmo::setHiddenInView)
     bool handlesShown = true;
@@ -353,6 +386,16 @@ private:
     /// what activeHandleChanged() tells; null when the value was made
     /// active by its label or a key, its first handle taken
     Gizmo* namedHandle = nullptr;
+    /// The named handle activeHandleChanged() told last
+    Gizmo* announcedHandle = nullptr;
+    /// A drag made its handle active at its start: activeHandleChanged()
+    /// waits for its end -- a dress-up selects the handle's edge then, and
+    /// the view's release would clear that -- and a cancelled drag gives
+    /// back the value active before it
+    bool holdAnnouncement = false;
+    bool dragActivated = false;
+    int dragPrevActive = -1;
+    Gizmo* dragPrevHandle = nullptr;
     int typing = -1;
     /// The handle being dragged, between its drag's start and end
     Gizmo* dragHandle = nullptr;

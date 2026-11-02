@@ -34,6 +34,7 @@
 #include <Inventor/fields/SoSFBool.h>
 #include <Inventor/sensors/SoFieldSensor.h>
 #include <Inventor/nodekits/SoBaseKit.h>
+#include <Inventor/SbVec2s.h>
 #include <Inventor/SbVec3f.h>
 #include <Inventor/SbColor.h>
 #include <QMetaObject>
@@ -92,6 +93,23 @@ public:
     virtual void setDraggerPlacement(const SbVec3f& pos, const SbVec3f& dir) = 0;
     void setDraggerPlacement(const Base::Vector3d& pos, const Base::Vector3d& dir);
 
+    /** Where the handle stands now, in its container's frame, and which way
+     * it reaches from there: an arrow's foot and the way it points, a
+     * rotation handle's knob and the way out from its axis (\a radial). Its
+     * value's label goes beside it (docs/HandsOnQueue.md entry 241). None
+     * before the handle is made.
+     */
+    struct HandleBase
+    {
+        SbVec3f point;
+        SbVec3f direction;
+        bool radial = false;
+    };
+    virtual std::optional<HandleBase> getHandleBase()
+    {
+        return std::nullopt;
+    }
+
     virtual void setGeometryScale(float scale) = 0;
     virtual void orientAlongCamera([[maybe_unused]] SoCamera* camera) {};
     /// What the gizmo has beside its dragger, put in the container after it:
@@ -145,6 +163,11 @@ public:
      * hint right click for context menu"). Null for neither.
      */
     void setMenu(MenuCallback callback, const QString& toolTip = QString());
+    /** The tool tip alone, the menu kept -- its value's text leads it and
+     * changes with the value (entry 241 (d)); a tip showing it now shows
+     * the new text
+     */
+    void setMenuToolTip(const QString& toolTip);
     /// The pointer is over the handle, as the scene last said
     bool isHovered() const
     {
@@ -177,11 +200,14 @@ public:
      * Esc or another mouse button while it lasts (the reporter, 2026-10-15
      * 09:58: "when dragging, any other button click, or esc shall cancel and
      * restore to before the drag"). The owner holds one transaction for it.
+     * Moved: the handle moved in the drag, its value set -- a label beside
+     * it follows (entry 241).
      */
     //@{
     enum class DragEvent
     {
         Started,
+        Moved,
         Finished,
         Cancelled,
     };
@@ -249,6 +275,15 @@ protected:
     /// while it is, and a moment after it is off, as a thin arrow's pick
     /// misses now and then (entry 141)
     void setHovered(bool over);
+    /** The pointer moved over the handle, or in its drag, at viewport pixel
+     * \a pos: a tip up hides, and comes back -- with the value as it is
+     * then -- once the pointer rests, as an ordinary tool tip does (entry
+     * 241 (d), the reporter 2026-11-02: "Tooltips text update as dragging
+     * ... hide with some timer when mouse move and reappear with some timer
+     * when mouse stop"). Qt asks for no tip while a button is down.
+     */
+    void restTip(const SbVec2s& pos);
+    int tipSerial = 0;
     /// No longer the handle whose hint shows; its tip hidden
     void dropTip();
     /// The view with no widget -- a browser's -- this handle's hint was
@@ -315,6 +350,7 @@ public:
     // Returns the position and rotation of the base of the dragger
     GizmoPlacement getDraggerPlacement() override;
     void setDraggerPlacement(const SbVec3f& pos, const SbVec3f& dir) override;
+    std::optional<HandleBase> getHandleBase() override;
     void reverseDir();
     // Returns the drag distance from the base of the feature
     double getDragLength();
@@ -383,6 +419,7 @@ public:
     // Returns the position and rotation of the base of the dragger
     GizmoPlacement getDraggerPlacement() override;
     void setDraggerPlacement(const SbVec3f& pos, const SbVec3f& dir) override;
+    std::optional<HandleBase> getHandleBase() override;
     void reverseDir();
     // The two gizmos are separated by sepDistance units
     void placeOverLinearGizmo(LinearGizmo* gizmo);

@@ -269,10 +269,11 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
     refresh();
     ui->filletRadius->selectAll();
 
-    // The radii in the view (docs/OnViewValueEditing.md 3.1 to 3.3): the
-    // default's label always at the top middle, an arrow on every edge --
-    // an edge that takes the default drives it, a customised one its own
-    // radius, whose label shows beside the arrow while it is active
+    // The radii in the view (docs/OnViewValueEditing.md 3.1 to 3.3): an
+    // arrow on every edge -- an edge that takes the default drives it, a
+    // customised one its own radius -- and each label beside its active
+    // arrow (entry 241); the default's at the top middle while no edge
+    // takes it
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
     // a handle made active selects its edge (entry 213)
     connect(onViewValues.get(), &Gui::OnViewValueSet::activeHandleChanged, this,
@@ -307,7 +308,7 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
                 if (event == Gui::Gizmo::DragEvent::Started) {
                     beginHeldStep();
                 }
-                else {
+                else if (event != Gui::Gizmo::DragEvent::Moved) {
                     endHeldStep(event == Gui::Gizmo::DragEvent::Cancelled);
                 }
             });
@@ -355,6 +356,10 @@ Base::Matrix4D TaskFilletParameters::gizmoToWorld() const
 void TaskFilletParameters::placeEdgeHandles()
 {
     const Base::Matrix4D toWorld = gizmoToWorld();
+    if (onViewValues) {
+        // a label at its handle's foot, as the handle stands (entry 241)
+        onViewValues->setFrame(toWorld);
+    }
     bool moved = false;
     for (auto& handle : edgeHandles) {
         if (!handle.placed) {

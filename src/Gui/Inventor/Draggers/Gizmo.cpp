@@ -31,6 +31,7 @@
 
 #include <QCursor>
 #include <QHelpEvent>
+#include <QPointer>
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QToolTip>
@@ -322,8 +323,9 @@ protected:
         if (!inView || text.isEmpty()) {
             return false;
         }
-        auto help = static_cast<QHelpEvent*>(event);
-        QToolTip::showText(help->globalPos(), text, static_cast<QWidget*>(watched));
+        // Taken, not answered: the handle's own rest shows its tip
+        // (Gizmo::restTip()), which hides it while the pointer moves; Qt's
+        // request comes 20 ms after a move while a tip was up a moment ago
         return true;
     }
 };
@@ -337,6 +339,56 @@ void Gizmo::setMenu(MenuCallback callback, const QString& toolTip)
     if (!filtered && !toolTip.isEmpty() && qApp) {
         filtered = true;
         qApp->installEventFilter(new HandleTipFilter(qApp));
+    }
+}
+
+void Gizmo::restTip(const SbVec2s& pos)
+{
+    if (menuToolTip.isEmpty()) {
+        return;
+    }
+    // a view with no widget has its hint from setHovered()
+    ViewerContext* view = ViewerContext::current();
+    QWidget* widget = view ? view->getGLWidget() : nullptr;
+    if (!widget && view) {
+        widget = view->getWidget();
+    }
+    if (!widget) {
+        return;
+    }
+    tipHandle = this;
+    if (QToolTip::isVisible() && QToolTip::text() == menuToolTip) {
+        QToolTip::hideText();
+    }
+    const int serial = ++tipSerial;
+    std::weak_ptr<bool> life = alive;
+    QPointer<QWidget> where(widget);
+    const QPoint local = view->toQPoint(pos);
+    const int wait = qApp ? qApp->style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay) : 700;
+    QTimer::singleShot(wait, [this, life, serial, where, local]() {
+        auto still = life.lock();
+        if (!still || !*still || serial != tipSerial || !where || tipHandle != this
+            || !(hovered || isDragging())) {
+            return;
+        }
+        QToolTip::showText(where->mapToGlobal(local), menuToolTip, where);
+    });
+}
+
+void Gizmo::setMenuToolTip(const QString& toolTip)
+{
+    if (toolTip == menuToolTip) {
+        return;
+    }
+    const QString old = menuToolTip;
+    menuToolTip = toolTip;
+    // the tip or the hint up now, of this handle, reads anew
+    if (tipHandle == this && QToolTip::isVisible() && QToolTip::text() == old) {
+        QToolTip::showText(QCursor::pos(), toolTip);
+    }
+    ViewerContext* view = hintView;
+    if (view && !hintViewLife.expired() && view->hint() == old) {
+        view->setHint(toolTip);
     }
 }
 
@@ -469,6 +521,9 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
     if (cb->getEvent()->isOfType(SoLocation2Event::getClassTypeId())) {
         // The hint, while the pointer is over the handle (entries 135, 141)
         self->setHovered(over);
+        if (over) {
+            self->restTip(cb->getEvent()->getPosition());
+        }
         return;
     }
     const auto* event = static_cast<const SoMouseButtonEvent*>(cb->getEvent());
@@ -645,6 +700,19 @@ void LinearGizmo::setDraggerPlacement(const SbVec3f& pos, const SbVec3f& dir)
     assert(draggerContainer && "Forgot to call GizmoContainer::initGizmos?");
     draggerContainer->translation = pos;
     draggerContainer->setPointerDirection(dir);
+}
+
+std::optional<Gizmo::HandleBase> LinearGizmo::getHandleBase()
+{
+    if (!draggerContainer || !dragger) {
+        return std::nullopt;
+    }
+    // The arrow stands as far along as its dragger is moved -- the value --
+    // from the container's place
+    SbVec3f along;
+    draggerContainer->rotation.getValue().multVec(dragger->translation.getValue(), along);
+    return HandleBase {draggerContainer->translation.getValue() + along,
+                       draggerContainer->getPointerDirection(), false};
 }
 
 void LinearGizmo::reverseDir()
@@ -846,6 +914,10 @@ void LinearGizmo::draggingContinued()
     property->setValue(value);
     // the arrow where the pointer is, behind its start once turned
     setDragLength(reversedInDrag ? -value : value);
+    notifyDrag(DragEvent::Moved);
+    if (const SoEvent* event = dragger->getEvent()) {
+        restTip(event->getPosition());
+    }
 }
 
 
@@ -980,6 +1052,29 @@ void RotationGizmo::setDraggerPlacement(const SbVec3f& pos, const SbVec3f& dir)
     assert(draggerContainer && "Forgot to call GizmoContainer::initGizmos?");
     draggerContainer->translation = pos;
     draggerContainer->setPointerDirection(dir);
+}
+
+std::optional<Gizmo::HandleBase> RotationGizmo::getHandleBase()
+{
+    if (!draggerContainer || !dragger) {
+        return std::nullopt;
+    }
+    auto rotator = SO_GET_PART(dragger, "rotator", SoRotatorGeometryKit);
+    if (!rotator) {
+        return std::nullopt;
+    }
+    // The knob, turned by the angle; its place is in the geometry's scaled
+    // space, sized to the screen
+    SbVec3f knob = rotator->pivotPosition.getValue();
+    const SbVec3f scale = dragger->geometryScale.getValue();
+    knob = SbVec3f(knob[0] * scale[0], knob[1] * scale[1], knob[2] * scale[2]);
+    dragger->rotation.getValue().multVec(knob, knob);
+    draggerContainer->rotation.getValue().multVec(knob, knob);
+    SbVec3f out = knob;
+    if (out.normalize() == 0.0F) {
+        out = draggerContainer->getPointerDirection();
+    }
+    return HandleBase {draggerContainer->translation.getValue() + knob, out, true};
 }
 
 void RotationGizmo::reverseDir()
@@ -1164,6 +1259,10 @@ void RotationGizmo::draggingContinued()
     property->setValue(value);
     // the arc where the pointer is, behind its start once turned
     setRotAngle(reversedInDrag ? -value : value);
+    notifyDrag(DragEvent::Moved);
+    if (const SoEvent* event = dragger->getEvent()) {
+        restTip(event->getPosition());
+    }
 }
 
 void RotationGizmo::orientAlongCamera(SoCamera* camera)

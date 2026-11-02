@@ -287,8 +287,10 @@ def run():
               segments(fillet) == [[(0.0, 2.0, 0.0), (1.0, 1.0, 0.0)]], (typed, segments(fillet)))
         labels = text_labels()
         note("INFO labels: %s" % labels)
-        check("its label '1  R1 2 mm' (group, point, value) is shown with the default's", "1  R1 2 mm" in labels
-              and "Radius 1 mm" in labels, labels)
+        # the default's own label by its arrow only while it is active (entry
+        # 241), no longer always at the top middle
+        check("its label '1  R1 2 mm' (group, point, value) is shown", "1  R1 2 mm" in labels,
+              labels)
 
         if os.environ.get("GT_PICTURE"):
             view().saveRenderDump(os.path.join(OUT, "fillet-point-active.png"), metadata=False)

@@ -937,6 +937,7 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("PartDesign_SheetMetalBaseWall"),
         QStringLiteral("PartDesign_SheetMetalFlange"),
         QStringLiteral("PartDesign_SheetMetalContourFlange"),
+        QStringLiteral("PartDesign_SheetMetalJoin"),
         QStringLiteral("PartDesign_SheetMetalExtendWall"),
         QStringLiteral("PartDesign_SheetMetalHem"),
         QStringLiteral("PartDesign_SheetMetalCornerClosure"),

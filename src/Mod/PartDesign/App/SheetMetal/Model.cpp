@@ -29,6 +29,7 @@
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_Surface.hxx>
+#include <Precision.hxx>
 #include <TopoDS_Face.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Pnt2d.hxx>
@@ -55,6 +56,22 @@ bool behindEnd(const CylBend& bend, const gp_Pnt& point, double tol)
     const gp_Pnt end = bend.frame.Location().Translated(
         gp_Vec(bend.frame.XDirection().Rotated(axis, bend.angle)) * bend.radius);
     return gp_Vec(end, point).Dot(gp_Vec(out)) < -tol;
+}
+
+/** Whether a point lies beside a bend, past one of its ends along its axis:
+ * a bend stopping inside its wall's end bounds that wall over its own
+ * length only, the wall running on beside it
+ */
+bool besideBend(const Element& bend, const gp_Pnt& point, double tol)
+{
+    for (const gp_Pln& limit : bend.limits) {
+        const gp_Dir n = limit.Axis().Direction();
+        if (n.IsParallel(bend.bend.frame.Direction(), Precision::Angular())
+            && gp_Vec(limit.Location(), point).Dot(gp_Vec(n)) > tol) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace
@@ -125,11 +142,13 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
         if (bend.kind != Element::Kind::Bend) {
             continue;
         }
-        if (bend.before == index && bend.bend.side(point) > 0) {
+        if (bend.before == index && bend.bend.side(point) > 0
+            && !besideBend(bend, point, tol)) {
             return false;
         }
         if (bend.after == index
-            && (bend.bend.sideAfter(point) < 0 || behindEnd(bend.bend, point, tol))) {
+            && (bend.bend.sideAfter(point) < 0 || behindEnd(bend.bend, point, tol))
+            && !besideBend(bend, point, tol)) {
             return false;
         }
     }

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's join by bend: a plate and a wall standing apart, joined by a bend -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the plate -->
+  <path
+     d="M 4,50 30,50 38,44 12,44 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 4,50 30,50 V 55 H 4 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the wall standing beyond its end -->
+  <path
+     d="M 44,36 52,30 V 4 L 44,10 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 44,10 49,10 V 36 H 44 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the bend joining them -->
+  <path
+     d="M 30,50 Q 44,50 44,36 L 52,30 Q 52,44 38,44 Z"
+     style="fill:#f3c27a;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 30,50 Q 44,50 44,36 H 49 Q 49,55 30,55 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+</svg>

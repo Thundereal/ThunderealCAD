@@ -362,6 +362,57 @@ def run():
         check("the sketch hidden", not sketch.Visibility)
         flange = contour
 
+        # a plate of its own, 10 above the contour's leg and 10 beyond it,
+        # joined to the leg's top end by a bend
+        pieces = contour.AddSubShape
+        legTop = max(v.Point.z for v in pieces.Vertexes)
+        top = [v.Point for v in pieces.Vertexes if abs(v.Point.z - legTop) < 1e-7]
+        legX = max(p.x for p in top)
+        y0, y1 = min(p.y for p in top), max(p.y for p in top)
+        x0, z0 = legX + 10, legTop + 10
+        plateSketch = body.newObject("Sketcher::SketchObject", "JoinSketch")
+        plateSketch.MapMode = "Deactivated"
+        plateSketch.Placement = FreeCAD.Placement(V(x0, y0, z0), FreeCAD.Rotation())
+        pts = [(0, 0), (20, 0), (20, y1 - y0), (0, y1 - y0)]
+        for i in range(4):
+            p, q = pts[i], pts[(i + 1) % 4]
+            plateSketch.addGeometry(Part.LineSegment(V(p[0], p[1], 0), V(q[0], q[1], 0)))
+        plate = body.newObject("PartDesign::SheetMetalBaseWall", "JoinPlate")
+        plate.Profile = plateSketch
+        doc.recompute()
+        pump()
+
+        def along_y(shape, x, z):
+            return [
+                "Edge%d" % (i + 1)
+                for i, e in enumerate(shape.Edges)
+                if all(abs(v.Point.x - x) < 1e-7 and abs(v.Point.z - z) < 1e-7 for v in e.Vertexes)
+            ]
+
+        ends = along_y(plate.Shape, legX, legTop)[:1] + along_y(plate.Shape, x0, z0)[:1]
+        volume = plate.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        if not check("two edges to join, the leg's top end and the plate's", len(ends) == 2, ends):
+            raise RuntimeError("no edges to join")
+        for sub in ends:
+            FreeCADGui.Selection.addSelection(doc.Name, plate.Name, sub)
+        FreeCADGui.runCommand("PartDesign_SheetMetalJoin")
+        pump()
+        check("Join by Bend opens its panel, OK closes it", ok())
+        doc.recompute()
+        join = newest(doc, before, "PartDesign::SheetMetalJoin")
+        check(
+            "Join by Bend on two selected edges joins their walls by a bend, one solid",
+            join is not None
+            and "Invalid" not in join.State
+            and join.Edges[1] == ends
+            and len(join.Shape.Solids) == 1
+            and join.Shape.Volume > volume + 1e-6,
+            join and (join.State, join.getStatusString(), ends, join.Shape.Volume, volume),
+        )
+        flange = join
+
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

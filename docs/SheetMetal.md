@@ -435,7 +435,7 @@ its tracker, not ported.
 | **Jog** | Two opposite bends along a line, by an offset, the far end kept or the material taken from the wall. | -- (SOLIDWORKS Jog) |
 | **Tab** | A closed sketch on a wall's skin adds a plate on that wall. | B1 8 |
 | **Extend wall** | A wall's end face pushed out by a length, or up to a face, with gaps and a clearance against walls it would meet. | B1 7 |
-| **Bend between walls** | Two walls picked, joined by a bend of the rule's radius; the walls trimmed or extended to meet it. Where two sheets of a part come together. | -- (Inventor Bend, Fusion Join by Bend, Creo Merge) |
+| **Bend between walls** | Two edges picked, one at each wall's end, joined by a bend of the rule's radius; the walls trimmed or extended to meet it, over the length the edges share. Where two sheets of a part come together. Built in M2 as Join by Bend. | -- (Inventor Bend, Fusion Join by Bend, Creo Merge) |
 | **Rolled wall** | An open sketch of lines and arcs revolved or rolled into a cylindrical or conical sheet, its arcs developed exactly as a lofted flange's are. | -- (Inventor Contour Roll, CATIA Rolled Wall) |
 | **Starter shapes** | A parametric L, U, tub, hat or box as a first feature, made of base wall and flanges. | B1 1 |
 | **Lofted flange** | Between two profiles (a round to a square, a cone): developed exactly where the surface is a cone, cylinder or plane, and as conical facets where it is not, with the facet count a parameter. | -- (#603) |
@@ -1032,6 +1032,34 @@ and not frozen.
 - Open: a flange whose edge stops where a jog's bend starts treats that bend as an earlier
   flange's at a corner and is mitered against the jog's run; its flat does not close. Seen
   while building the contour flange; not chased.
+- M2's bend between walls, `PartDesign::SheetMetalJoin` (5.1, ruled 2026-11-03), with
+  `TestSheetMetalJoin` (10), its command (**Join by Bend**), icon and panel. As built:
+  - Two sheets come from two base walls in one body: each base wall adds its walls to the one
+    model, so a body may hold walls no bend joins yet, and its flat fails until one does
+    (`Model::placement()` says the element is not joined to the root).
+  - `Edges` is two edges of the base, each a flange's (`wallEdge()`): the first's wall is the
+    bend's before, the second's its after. The way out of the first wall is its end's normal,
+    the way into the second against its end's; each wall's inner skin is the one facing the
+    turn's inside, so either skin's edge picks the same end. The bend's centre lies R in from
+    both inner skins, its angle the turn's; each wall is extended (a wall section) or cut back
+    to the line its inner skin meets the bend on, over the length the two edges share along
+    the bend. A wall cut back and running on past that length gets the flange's relief beside
+    the bend (`ReliefShape`, the rule's or the join's own), and the bend is limited at its
+    ends there.
+  - Refused: not two edges; both on one wall; walls already joined (`placement()` reaches one
+    from the other: a loop does not lie flat without a rip); edges not parallel; parallel
+    walls; edges sharing no length; a cut-back leaving nothing of the wall where the bend
+    starts; the cut-back parting the part into more solids; the bend running into the sheet
+    (the join's volume is not the part's and the pieces' added).
+  - The model: a bend stopping inside its wall's end bounded that wall by angle over all its
+    length, so the part of a wall running on beside the bend, past the angle the bend turns
+    from its start (the second wall's, cut back under the bend), was nobody's. A bend now
+    bounds its walls only between its limits along its axis (`besideBend()` in
+    `SheetMetal/Model.cpp`); `testWiderTrimmed` failed without it.
+- Open: a wall's slab has no extent across it in the model, so with two sheets in one body a
+  face of one lying in the plane of the other's skin can be taken for that wall's (an end face
+  at x 50 beside a wall whose skin is x 50 was, and `wallEdge()` refused the edge). Seen while
+  building the join; the tests keep clear of it.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

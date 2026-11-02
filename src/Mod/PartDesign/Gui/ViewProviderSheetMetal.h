@@ -68,6 +68,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A join by bend, its panel its two edges and relief
+class PartDesignGuiExport ViewProviderSheetMetalJoin: public ViewProviderAddSub
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalJoin);
+
+public:
+    ViewProviderSheetMetalJoin();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// An extend wall, its panel its faces and length
 class PartDesignGuiExport ViewProviderSheetMetalExtendWall: public ViewProviderAddSub
 {

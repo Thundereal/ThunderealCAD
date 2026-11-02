@@ -290,6 +290,69 @@ bool CmdPartDesignSheetMetalContourFlange::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalJoin
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalJoin)
+
+CmdPartDesignSheetMetalJoin::CmdPartDesignSheetMetalJoin()
+    : Command("PartDesign_SheetMetalJoin")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Join by Bend");
+    sToolTipText = QT_TR_NOOP("Joins the walls of the two selected edges by a bend, each wall\n"
+                              "extended or trimmed to it");
+    sWhatsThis = "PartDesign_SheetMetalJoin";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalJoin";
+}
+
+void CmdPartDesignSheetMetalJoin::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream edges;
+    int count = 0;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Edge") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            edges << "'" << sub << "', ";
+            ++count;
+        }
+    }
+    if (!base || base != body->Tip.getValue() || count != 2) {
+        warn(QT_TR_NOOP("No two edges"),
+             QT_TR_NOOP("Select two edges of the body's tip, one at the end of each wall to "
+                        "join, where a skin meets it."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Join by Bend"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalJoin", "Join");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Edges = (" << getObjectCmd(base) << ", [" << edges.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalJoin::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalExtendWall
 //===========================================================================
 
@@ -845,6 +908,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalBaseWall());
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalContourFlange());
+    mgr.addCommand(new CmdPartDesignSheetMetalJoin());
     mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());

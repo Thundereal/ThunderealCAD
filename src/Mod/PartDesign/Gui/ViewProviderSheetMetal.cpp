@@ -104,6 +104,25 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalContourFlange::getEditDialog()
             "Edge"));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalJoin, PartDesignGui::ViewProviderAddSub)
+
+ViewProviderSheetMetalJoin::ViewProviderSheetMetalJoin()
+{
+    sPixmap = "PartDesign_SheetMetalJoin";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalJoin::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalJoin",
+                                     QObject::tr("Join by bend parameters"),
+                                     {"ReliefShape", "ReliefWidth", "ReliefDepth"},
+                                     "Edges",
+                                     "Edge"));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalExtendWall, PartDesignGui::ViewProviderAddSub)
 
 ViewProviderSheetMetalExtendWall::ViewProviderSheetMetalExtendWall()

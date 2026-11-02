@@ -483,6 +483,59 @@ def run():
         pump(20)
         check("OK keeps a good contour flange", "Invalid" not in contour.State, contour.State)
 
+        # -- the join by bend's panel: its two edges and relief; a plate 10
+        # above the contour's leg and 10 beyond it
+        pieces = contour.AddSubShape
+        legTop = max(v.Point.z for v in pieces.Vertexes)
+        top = [v.Point for v in pieces.Vertexes if abs(v.Point.z - legTop) < 1e-7]
+        legX = max(p.x for p in top)
+        y0, y1 = min(p.y for p in top), max(p.y for p in top)
+        x0, z0 = legX + 10, legTop + 10
+        plateSketch = body.newObject("Sketcher::SketchObject", "JoinSketch")
+        plateSketch.MapMode = "Deactivated"
+        plateSketch.Placement = FreeCAD.Placement(V(x0, y0, z0), FreeCAD.Rotation())
+        pts = [(0, 0), (20, 0), (20, y1 - y0), (0, y1 - y0)]
+        for i in range(4):
+            p, q = pts[i], pts[(i + 1) % 4]
+            plateSketch.addGeometry(Part.LineSegment(V(p[0], p[1], 0), V(q[0], q[1], 0)))
+        plate = body.newObject("PartDesign::SheetMetalBaseWall", "JoinPlate")
+        plate.Profile = plateSketch
+        doc.recompute()
+        pump()
+
+        def along_y(shape, x, z):
+            return [
+                "Edge%d" % (i + 1)
+                for i, e in enumerate(shape.Edges)
+                if all(abs(v.Point.x - x) < 1e-7 and abs(v.Point.z - z) < 1e-7 for v in e.Vertexes)
+            ]
+
+        ends = along_y(plate.Shape, legX, legTop)[:1] + along_y(plate.Shape, x0, z0)[:1]
+        if not check("two edges to join, the leg's top end and the plate's", len(ends) == 2, ends):
+            raise RuntimeError("no edges to join")
+        FreeCADGui.Selection.clearSelection()
+        for sub in ends:
+            FreeCADGui.Selection.addSelection(doc.Name, plate.Name, sub)
+        FreeCADGui.runCommand("PartDesign_SheetMetalJoin")
+        pump()
+        join = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalJoin"][0]
+        w = panel() or {}
+        edges = w.get("listEdges")
+        check(
+            "Join by Bend opens its panel with its relief, its two edges listed",
+            all(n in w for n in ("ReliefShape", "ReliefWidth", "ReliefDepth"))
+            and edges is not None
+            and edges.count() == 2,
+            (sorted(n for n in w if n[0].isupper()), edges and edges.count()),
+        )
+        accept()
+        pump(20)
+        check(
+            "OK keeps a good join, one solid",
+            "Invalid" not in join.State and len(join.Shape.Solids) == 1,
+            (join.State, join.getStatusString()),
+        )
+
         # -- the flat pattern's panel ------------------------------------------
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

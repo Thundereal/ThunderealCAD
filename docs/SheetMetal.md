@@ -1081,6 +1081,19 @@ and not frozen.
   bend, the side picked moves (else the smaller), and an offset too small for a straight run
   between the bends is refused, saying the least that fits.
 
+**Ruled 2026-11-03, M2's bend between walls:**
+- Its own feature, `PartDesign::SheetMetalJoin`, the tool **Join by Bend**.
+- Two edges are picked, one on each wall, each where a skin meets the wall's end, as a flange's;
+  they lie parallel. Either skin's edge at an end picks that end.
+- Nothing else is set: the bend is the rule's radius, its inner skin touching both walls' inner
+  skins, the inside of the turn the side the walls lie toward. Each wall is extended or trimmed
+  to where the bend starts.
+- Its width is the length the two edges share along the bend. Where a wall runs past that, the
+  rest stays as it was, with the bend relief beside the bend where the wall is trimmed under it.
+- Refused: a trim that cuts off something the wall carries, or takes all of the wall; parallel
+  walls (two bends between them, as Inventor offers, maybe later: a jog steps a wall); walls
+  already joined, as a loop does not lie flat without a rip; two edges sharing no length.
+
 **Ruled 2026-11-02, M2's contour flange:**
 - Its own feature, as sec 5.1 lists it, sharing the flange's code: the gaps, the wall cut back under
   it with its relief, and the miters.

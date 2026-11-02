@@ -82,6 +82,7 @@ from PartDesignTests.TestSheetMetalFold import TestSheetMetalFold
 from PartDesignTests.TestSheetMetalJog import TestSheetMetalJog
 from PartDesignTests.TestSheetMetalTab import TestSheetMetalTab
 from PartDesignTests.TestSheetMetalContourFlange import TestSheetMetalContourFlange
+from PartDesignTests.TestSheetMetalJoin import TestSheetMetalJoin
 from PartDesignTests.TestSheetMetalFlatPattern import TestSheetMetalFlatPattern
 from PartDesignTests.TestSheetMetalPart import TestSheetMetalPart
 from PartDesignTests.TestChainLocations import TestChainLocations

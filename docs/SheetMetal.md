@@ -626,10 +626,10 @@ feature following the rule; OK is one undo step, Cancel puts it all back.
 |---|---|---|---|
 | M0 | **Foundation and the speed gate.** The module, its `Geom/` layer and test target. The sheet model and the fold maps of a wall and a cylindrical bend. Bend allowance: K, DIN, BA and BD tables, Y. The rule object. **Measure the join** (4.4) on a 64-flange part: a glue boolean against replacing the end face directly; set the speed target from it. | gtests: a bend's map sends known points where hand computation says; every allowance method against worked examples, the addon's table case among them. A timing test for the join at N = 1, 4, 16, 64. | M |
 | M1 | **A first part end to end.** Base wall (plate and profile), Flange with the full option set, extend wall, names by role, the model carried by name through a Pocket and a Hole (4.2 way 2), the flat pattern with both skins and its orientation, the manufacturing properties, the DXF. | Python: flat length of an L, U and box equals the hand sum of legs and allowances at 1e-6; a countersunk hole survives into the flat; a flange end referenced downstream survives an edit upstream; save and reopen; frozen and unfrozen. A 64-flange chain against M0's target. | L |
-| M2 | **Edges, corners, cuts.** Hem, fold, jog, tab, contour flange, bend between walls, rolled wall; bend relief, corner relief, corner closure; hinge and perforation cuts; cutout, wrap cutout; checks (7). | per tool, as M1; a wrap cutout across two bends is the same hole in the flat as cut there directly. | L |
+| M2 | **Edges, corners, cuts.** In this order (ruled 2026-11-02): hem; corner relief and corner closure; cutout; fold and jog; tab; contour flange; bend between walls; wrap cutout; hinge and perforation cuts; checks (7). The bend relief's override per feature first (built). | per tool, as M1; a wrap cutout across two bends is the same hole in the flat as cut there directly. | L |
 | M3 | **Convert and recognise.** Convert a solid or shell, rip; the geometry recogniser for imported parts. | the M1 parts exported to STEP and read back give the same flat as their features do; a hand-made shell converts and flattens to the hand value. | M |
 | M4 | **Flat state, the table and drawings.** Unfold / refold of picked bends, notches, the bend table panel with overrides, cross break, multi-sheet export, the drawings of 5.6. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
-| M5 | **Forms and lofted flanges.** User tools and the built-in set (gusset among them); starter shapes; tab and slot; the flat's three ways of showing a form; lofted flange developed exactly for cones and by facets otherwise. | a cone's development against the closed form; a form kept in the flat is the same solid moved. | M |
+| M5 | **Forms, lofted flanges and the rolled wall** (moved from M2, ruled 2026-11-02: it needs walls that are not plane in the sheet model, and the lofted flange's development). User tools and the built-in set (gusset among them); starter shapes; tab and slot; the flat's three ways of showing a form; lofted flange developed exactly for cones and by facets otherwise. | a cone's development against the closed form; a form kept in the flat is the same solid moved. | M |
 | M6 | **Not built** (question e). **The addon's documents** (6). | a set of addon files saved by addon 0.8.26, converted, and their flats against hand values. The files are made by the user or from the addon's own examples; this session does not run the addon (3.5). | S |
 
 **Test rule, from the 3D sketch and Surface:** each phase's tests are written first and scored on
@@ -826,6 +826,20 @@ and not frozen.
     rendering showed a slot's half circles bulging into it: turning Y to run down turns SVG's
     sweep too). Qt's own SVG renderer drops text of a small user-unit size at some scales, so a
     label can be missing in a Qt view of the file; Chrome and Inkscape draw it.
+
+**Ruled 2026-11-02, M2:**
+- The order of M2's tools as sec 9 has it; the rolled wall moves to M5.
+- The hem: four types, closed (flat), open, teardrop and rolled; no double hem. It sits
+  `Inside`, the fold's outer face where the wall ended and the wall cut back so the part keeps its
+  size (the default), or `Outside`, added past the wall's end.
+- A closed hem's skins never touch, as one solid would not stay valid: it is a 180 deg bend
+  whose inner skins are the rule's `Gap` apart, an inner radius of half that, an ordinary bend
+  for ownership and the flat. Its allowance is K's at that radius unless the material card's
+  bend table has a 180 deg row, which wins. An open hem is the same with a gap of its own; a
+  teardrop bends past 180 deg and its leg closes back to the wall the gap short of it; a rolled
+  hem is one bend of an angle and a radius, with no leg.
+- A fold on a sketched line moves the side of the part picked, and what is already on that side
+  (holes, pockets) goes with it, through each element's fold map.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

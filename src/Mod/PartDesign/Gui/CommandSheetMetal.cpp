@@ -277,6 +277,67 @@ bool CmdPartDesignSheetMetalExtendWall::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalHem
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalHem)
+
+CmdPartDesignSheetMetalHem::CmdPartDesignSheetMetalHem()
+    : Command("PartDesign_SheetMetalHem")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Hem");
+    sToolTipText = QT_TR_NOOP("Folds the end of a wall back over its skin at each selected edge\n"
+                              "where a wall's skin meets its end, closed or open");
+    sWhatsThis = "PartDesign_SheetMetalHem";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalHem";
+}
+
+void CmdPartDesignSheetMetalHem::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream edges;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Edge") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            edges << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue()) {
+        warn(QT_TR_NOOP("No edge"),
+             QT_TR_NOOP("Select edges of the body's tip, each where a wall's skin meets its "
+                        "end."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Hem"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalHem", "Hem");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Edges = (" << getObjectCmd(base) << ", [" << edges.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalHem::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatPattern
 //===========================================================================
 
@@ -417,6 +478,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalBaseWall());
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
+    mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatPattern());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
 }

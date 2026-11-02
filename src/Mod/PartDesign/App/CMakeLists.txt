@@ -176,6 +176,8 @@ SET(SheetMetal_SRCS
     FeatureSheetMetalBaseWall.h
     FeatureSheetMetalExtendWall.cpp
     FeatureSheetMetalExtendWall.h
+    FeatureSheetMetalHem.cpp
+    FeatureSheetMetalHem.h
     FeatureSheetMetalFlange.cpp
     FeatureSheetMetalFlange.h
     FeatureSheetMetalFlatPattern.cpp

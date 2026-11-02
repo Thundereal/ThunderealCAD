@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's hem: a plate with its back edge folded back over its top -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the plate -->
+  <path
+     d="M 32,30 60,44 32,58 4,44 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 4,44 32,58 V 62 L 4,48 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the fold at the back edge, round to the leg above -->
+  <path
+     d="M 32,30 Q 27,26 32,21 L 60,35 Q 65,40 60,44 Z"
+     style="fill:#b97d22;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the leg, lying back over the plate -->
+  <path
+     d="M 32,21 60,35 46,42 18,28 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+</svg>

@@ -102,6 +102,25 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalExtendWall::getEditDialog()
                                      "Face"));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalHem, PartDesignGui::ViewProviderAddSub)
+
+ViewProviderSheetMetalHem::ViewProviderSheetMetalHem()
+{
+    sPixmap = "PartDesign_SheetMetalHem";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalHem::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalHem",
+                                     QObject::tr("Hem parameters"),
+                                     {"HemType", "Length", "Gap", "Position", "Reversed"},
+                                     "Edges",
+                                     "Edge"));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)
 
 ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()

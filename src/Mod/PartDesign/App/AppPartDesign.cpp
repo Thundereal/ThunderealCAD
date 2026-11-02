@@ -73,6 +73,7 @@
 #include "FeatureSheetMetalBaseWall.h"
 #include "FeatureSheetMetalFlange.h"
 #include "FeatureSheetMetalExtendWall.h"
+#include "FeatureSheetMetalHem.h"
 #include "FeatureSheetMetalFlatPattern.h"
 #include "PropertySheetModel.h"
 #include "SheetMetalExtension.h"
@@ -192,6 +193,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalBaseWall          ::init();
     PartDesign::SheetMetalFlange            ::init();
     PartDesign::SheetMetalExtendWall        ::init();
+    PartDesign::SheetMetalHem               ::init();
     PartDesign::SheetMetalFlatPattern       ::init();
 
     // Sheet metal's own kind on a body, for its tool bar (docs/SheetMetal.md
@@ -199,6 +201,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     for (Base::Type type : {PartDesign::SheetMetalBaseWall::getClassTypeId(),
                             PartDesign::SheetMetalFlange::getClassTypeId(),
                             PartDesign::SheetMetalExtendWall::getClassTypeId(),
+                            PartDesign::SheetMetalHem::getClassTypeId(),
                             PartDesign::SheetMetalFlatPattern::getClassTypeId()}) {
         Part::BodyBase::allowType(type, "SheetMetal");
     }

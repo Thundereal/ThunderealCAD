@@ -37,6 +37,7 @@
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
 #include "Fold.h"
+#include "Model.h"
 
 namespace PartDesign::SheetMetal
 {
@@ -73,5 +74,24 @@ PartDesignExport Part::TopoShape bendSection(const CylBend& bend, const std::str
 PartDesignExport Part::TopoShape wallSection(const gp_Pnt& start, const gp_Dir& along,
                                              double length, const gp_Dir& across,
                                              double thickness, const std::string& name);
+
+/// A straight edge where a wall's skin meets its end, as a flange or a hem takes it
+struct PartDesignExport WallEdge
+{
+    /// its ends and its way from the first to the last
+    gp_Pnt p0, p1;
+    gp_Dir along;
+    /// the skin's and the end's outward normals
+    gp_Dir skinOut, endOut;
+    /// the wall's index in the model
+    int wall = -1;
+};
+
+/** The edge ref of base, a wall's in the model; label names it in errors.
+ * Throws Base::ValueError for no edge, one not straight, or one not where a
+ * wall's skin meets an end across the sheet.
+ */
+PartDesignExport WallEdge wallEdge(const Part::TopoShape& base, const Model& model,
+                                   const std::string& ref, const std::string& label);
 
 }  // namespace PartDesign::SheetMetal

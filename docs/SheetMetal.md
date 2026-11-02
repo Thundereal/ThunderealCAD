@@ -826,6 +826,22 @@ and not frozen.
     rendering showed a slot's half circles bulging into it: turning Y to run down turns SVG's
     sweep too). Qt's own SVG renderer drops text of a small user-unit size at some scales, so a
     label can be missing in a Qt view of the file; Chrome and Inkscape draw it.
+- M2's hem, `PartDesign::SheetMetalHem` (5.1, ruled 2026-11-02), closed and open, with
+  `TestSheetMetalHem` (10), its command, icon and panel. As built:
+  - On edges where a wall's skin meets its end, as the flange's (the edge read by
+    `SheetMetal::wallEdge()`, which the flange now uses too); toward the side of that skin,
+    `Reversed` toward the other.
+  - `HemType` `Closed`: a 180 deg bend whose inner skins are the rule's `Gap` apart, an inner
+    radius of half that; `Open`: the same with the hem's own `Gap`, read only while closed.
+    `Length` runs from the fold's outer face to the leg's end; one no longer than the fold
+    leaves no leg and is refused.
+  - `Position` `Inside` (the default) cuts the wall back R + T so the fold's outer face is where
+    the wall ended; `Outside` adds the fold past the end.
+  - In the model, a bend and a wall (the leg) as a flange's; the flat lays the hem out with
+    K's allowance at its radius.
+  - Two edges of one hem meeting at a corner are refused, as their folds would run into each
+    other; a hem narrower than its edge (gaps, so a relief) is not built yet, nor the teardrop
+    and rolled types.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

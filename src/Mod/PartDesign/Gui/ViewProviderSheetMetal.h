@@ -68,6 +68,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A hem, its panel its edges and values
+class PartDesignGuiExport ViewProviderSheetMetalHem: public ViewProviderAddSub
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalHem);
+
+public:
+    ViewProviderSheetMetalHem();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A flat pattern, its panel what it lays flat, its root face and the values
 /// a bill of materials takes; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart

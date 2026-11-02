@@ -180,6 +180,35 @@ def run():
         )
         flange = ext
 
+        # a hem on the near end's top edge, where the extend wall left it
+        ymin = flange.Shape.BoundBox.YMin
+        edge = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(flange.Shape.Edges)
+            if all(abs(v.Point.y - ymin) < 1e-7 and abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes)
+        ]
+        volume = flange.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, edge[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalHem")
+        pump()
+        check("Hem opens its panel, OK closes it", ok())
+        doc.recompute()
+        hem = newest(doc, before, "PartDesign::SheetMetalHem")
+        check(
+            "Hem on a selected edge folds the end back over the skin",
+            hem is not None
+            and "Invalid" not in hem.State
+            and hem.Edges[1] == edge
+            and hem.Shape.isInside(
+                FreeCAD.Vector(hem.Shape.BoundBox.Center.x, ymin + 3, 1.6), 1e-9, True
+            )
+            and hem.Shape.Volume > volume,
+            hem and (hem.State, hem.Edges, hem.Shape.Volume, volume),
+        )
+        flange = hem
+
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

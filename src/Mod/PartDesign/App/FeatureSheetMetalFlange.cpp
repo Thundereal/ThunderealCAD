@@ -237,20 +237,6 @@ void SheetMetalFlange::showProfileValues()
 namespace
 {
 
-/// A face's outward normal, at a planar face; false for another face
-bool planeNormal(const TopoDS_Face& face, gp_Dir& normal)
-{
-    BRepAdaptor_Surface surface(face);
-    if (surface.GetType() != GeomAbs_Plane) {
-        return false;
-    }
-    normal = surface.Plane().Axis().Direction();
-    if (face.Orientation() == TopAbs_REVERSED) {
-        normal.Reverse();
-    }
-    return true;
-}
-
 double areaOf(const TopoDS_Shape& shape)
 {
     GProp_GProps props;
@@ -425,48 +411,13 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         for (const auto& shadow : shadows) {
             const std::size_t first = pieces.size();
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
-            const TopoDS_Shape sub = base.getSubShape(ref.c_str(), true);
-            if (sub.IsNull() || sub.ShapeType() != TopAbs_EDGE) {
-                FC_THROWM(Base::ValueError, "No edge " << shadow.second);
-            }
-            const TopoDS_Edge& edge = TopoDS::Edge(sub);
-            if (BRepAdaptor_Curve(edge).GetType() != GeomAbs_Line) {
-                FC_THROWM(Base::ValueError, "Edge " << shadow.second << " is not straight");
-            }
-            TopoDS_Vertex v0, v1;
-            TopExp::Vertices(edge, v0, v1);
-            const gp_Pnt p0 = BRep_Tool::Pnt(v0), p1 = BRep_Tool::Pnt(v1);
-            const gp_Dir d(gp_Vec(p0, p1));
-
-            // the skin the edge is on, the wall it belongs to, and its end
-            int wall = -1;
-            gp_Dir skinOut, endOut;
-            bool haveEnd = false;
-            for (const auto& f : base.findAncestorsShapes(edge, TopAbs_FACE)) {
-                const TopoDS_Face& face = TopoDS::Face(f);
-                gp_Dir n;
-                if (!planeNormal(face, n)) {
-                    continue;
-                }
-                const int owner = model.owner(face);
-                if (owner >= 0 && model.elements[owner].kind == Element::Kind::Wall
-                    && n.IsParallel(model.elements[owner].frame.Direction(),
-                                    Precision::Angular())) {
-                    wall = owner;
-                    skinOut = n;
-                }
-                else {
-                    endOut = n;
-                    haveEnd = true;
-                }
-            }
-            if (wall < 0 || !haveEnd || std::abs(endOut.Dot(skinOut)) > Precision::Angular()) {
-                FC_THROWM(Base::ValueError,
-                          "Edge " << shadow.second << " is not where a wall's skin meets its end");
-            }
+            const SheetMetal::WallEdge edge = SheetMetal::wallEdge(base, model, ref, shadow.second);
+            const gp_Pnt p0 = edge.p0, p1 = edge.p1;
+            const gp_Dir d = edge.along, endOut = edge.endOut;
+            const int wall = edge.wall;
 
             // bending toward up, its inner skin the one facing that way
-            gp_Dir up = skinOut;
+            gp_Dir up = edge.skinOut;
             gp_Pnt inner = p0;
             if (Reversed.getValue()) {
                 up.Reverse();

@@ -24,17 +24,22 @@
 
 #include "PreCompiled.h"
 
+#include <cmath>
+
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepLib.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_Plane.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <Precision.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
@@ -138,6 +143,70 @@ TopoShape wallSection(const gp_Pnt& start, const gp_Dir& along, double length,
                       {lineEdge(c, d), name + "Skin2"},
                       {lineEdge(d, a), name + "Start"}},
                      name);
+}
+
+namespace
+{
+
+/// A face's outward normal, at a planar face; false for another face
+bool planeNormal(const TopoDS_Face& face, gp_Dir& normal)
+{
+    BRepAdaptor_Surface surface(face);
+    if (surface.GetType() != GeomAbs_Plane) {
+        return false;
+    }
+    normal = surface.Plane().Axis().Direction();
+    if (face.Orientation() == TopAbs_REVERSED) {
+        normal.Reverse();
+    }
+    return true;
+}
+
+}  // namespace
+
+WallEdge wallEdge(const TopoShape& base, const Model& model, const std::string& ref,
+                  const std::string& label)
+{
+    const TopoDS_Shape sub = base.getSubShape(ref.c_str(), true);
+    if (sub.IsNull() || sub.ShapeType() != TopAbs_EDGE) {
+        FC_THROWM(Base::ValueError, "No edge " << label);
+    }
+    const TopoDS_Edge& edge = TopoDS::Edge(sub);
+    if (BRepAdaptor_Curve(edge).GetType() != GeomAbs_Line) {
+        FC_THROWM(Base::ValueError, "Edge " << label << " is not straight");
+    }
+    WallEdge res;
+    TopoDS_Vertex v0, v1;
+    TopExp::Vertices(edge, v0, v1);
+    res.p0 = BRep_Tool::Pnt(v0);
+    res.p1 = BRep_Tool::Pnt(v1);
+    res.along = gp_Dir(gp_Vec(res.p0, res.p1));
+
+    // the skin the edge is on, the wall it belongs to, and its end
+    bool haveEnd = false;
+    for (const auto& f : base.findAncestorsShapes(edge, TopAbs_FACE)) {
+        const TopoDS_Face& face = TopoDS::Face(f);
+        gp_Dir n;
+        if (!planeNormal(face, n)) {
+            continue;
+        }
+        const int owner = model.owner(face);
+        if (owner >= 0 && model.elements[owner].kind == Element::Kind::Wall
+            && n.IsParallel(model.elements[owner].frame.Direction(), Precision::Angular())) {
+            res.wall = owner;
+            res.skinOut = n;
+        }
+        else {
+            res.endOut = n;
+            haveEnd = true;
+        }
+    }
+    if (res.wall < 0 || !haveEnd
+        || std::abs(res.endOut.Dot(res.skinOut)) > Precision::Angular()) {
+        FC_THROWM(Base::ValueError,
+                  "Edge " << label << " is not where a wall's skin meets its end");
+    }
+    return res;
 }
 
 }  // namespace PartDesign::SheetMetal

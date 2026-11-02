@@ -1001,6 +1001,12 @@ and not frozen.
   where the bend ends, on the side it runs off to (`behindEnd()` in `Model::contains()`). The
   wall before a bend keeps the angle alone: the wall beside a bend that ends inside its end runs
   on past the bend's start (`TestSheetMetalJog.testFlangeBehind`).
+- The model saved with a bend from a later wall: a fold or a jog carries what is on its moving
+  side and starts those bends from its own wall, made after them. Reading the model back added
+  each bend as it came and refused a wall not read yet, so the whole model was lost on opening
+  and a flat, or any sheet metal feature after, failed. The bends' walls are now checked once
+  all are read (`PropertySheetModel::Restore()`; `testSaveAndRestore` in the fold's and the
+  jog's tests).
 - M2's contour flange, `PartDesign::SheetMetalContourFlange` (5.1, ruled 2026-11-02), with
   `TestSheetMetalContourFlange` (12), its command, icon and panel. As built:
   - A subclass of the flange (`contour()`), its angle, length, bend position, offset, parallel

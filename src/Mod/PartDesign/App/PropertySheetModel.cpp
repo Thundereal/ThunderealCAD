@@ -220,19 +220,35 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
                 limits;
             continue;
         }
-        SheetMetal::CylBend bend;
-        bend.frame = frameOf(reader.getAttribute("frame"));
-        bend.radius = reader.getAttributeAsFloat("radius");
-        bend.thickness = reader.getAttributeAsFloat("thickness");
-        bend.angle = reader.getAttributeAsFloat("angle");
-        bend.k = reader.getAttributeAsFloat("k");
-        value.elements[value.addBend(name,
-                                     bend,
-                                     static_cast<int>(reader.getAttributeAsInteger("before")),
-                                     static_cast<int>(reader.getAttributeAsInteger("after")))]
-            .limits = limits;
+        // A bend a fold or a jog carries starts from that feature's wall,
+        // made after it: its walls are checked once all are read
+        Element element;
+        element.kind = Element::Kind::Bend;
+        element.name = name;
+        element.bend.frame = frameOf(reader.getAttribute("frame"));
+        element.bend.radius = reader.getAttributeAsFloat("radius");
+        element.bend.thickness = reader.getAttributeAsFloat("thickness");
+        element.bend.angle = reader.getAttributeAsFloat("angle");
+        element.bend.k = reader.getAttributeAsFloat("k");
+        element.before = static_cast<int>(reader.getAttributeAsInteger("before"));
+        element.after = static_cast<int>(reader.getAttributeAsInteger("after"));
+        element.limits = limits;
+        value.elements.push_back(element);
     }
     reader.readEndElement("SheetModel");
+    for (const Element& e : value.elements) {
+        if (e.kind != Element::Kind::Bend) {
+            continue;
+        }
+        for (int index : {e.before, e.after}) {
+            if (index < 0 || index >= static_cast<int>(value.elements.size())
+                || value.elements[index].kind != Element::Kind::Wall) {
+                FC_THROWM(Base::IndexError,
+                          "Sheet metal: " << e.name << " joins element " << index
+                                          << ", which is no wall");
+            }
+        }
+    }
     setValue(value);
 }
 

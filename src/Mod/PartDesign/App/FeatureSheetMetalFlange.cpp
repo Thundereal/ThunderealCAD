@@ -230,7 +230,8 @@ void SheetMetalFlange::showReliefValues()
 
 void SheetMetalFlange::showProfileValues()
 {
-    const bool shaped = Profile.getValue() != nullptr;
+    // a contour flange's profile is its chain: its gaps stay its own
+    const bool shaped = Profile.getValue() != nullptr && !contour();
     for (App::Property* prop :
          std::initializer_list<App::Property*> {&Length, &LengthType, &Gap1, &Gap2}) {
         prop->setStatus(App::Property::ReadOnly, shaped);

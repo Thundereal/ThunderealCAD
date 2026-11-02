@@ -78,4 +78,8 @@ endif()
 SET_BIN_DIR(area libarea /Mod/Area)
 SET_PYTHON_PREFIX_SUFFIX(area)
 
-install(TARGETS area DESTINATION ${CMAKE_INSTALL_LIBDIR})
+# Beside the module's scripts in Mod/Area, as in the build tree, and not in
+# lib: there it is lib/libarea.so, the libarea package's own file. conda-build
+# then counted it as that package's and left the module out of ours, and
+# "import libarea" found the C++ library, which took every CAM test with it.
+install(TARGETS area DESTINATION Mod/Area)

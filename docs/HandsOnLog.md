@@ -8356,3 +8356,26 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   copy: 1 -> 1 under the migration box, 418 -> 418 under the error box, the
   load ends after. drain-waits-for-premesh 14, pd-label-at-handle-foot 25,
   ctest 1088/1088.
+
+### 2026-11-03: MultiViewEdit merged -- PUSHED `19cb94f183`, STAGED (stage34)
+
+- The user: merge x16's MultiViewEdit once pushed, build, test, push and
+  restage. 8b020b264e merged as `c0638f0d8e` (clean; cycles submodule to
+  bb7c0e4c5d); 241 and 242 go out with it.
+- rtx60: build OK, wasm viewer build OK; GUI on the hidden desktop: the 31
+  non-browser tests the branch added or changed plus 8 PD on-view / load
+  tests, 39/39 green; ctest 1099/1099 (the two-browser panel test skips here).
+- Pushed thundereal/LinkVibe 3d26fa74de..19cb94f183; stage34 INSTALL-USER OK
+  (binaries rtx60; "dirty" was the uncommitted 237 edit, not in the build).
+
+### 2026-11-03: entry 237 reopened -- COMMITTED `f88afe9703`, not pushed, not staged
+
+- The reporter: "Two button press should not open menu". On a page in the
+  Blender style, left + right down and up without a move, the left up first,
+  opened the page menu (either press order): only a pan set the flag.
+- Fix: QGVNavStyleBlender marks the gesture at the press that makes both
+  buttons down too (`panned` -> `twoButtons`).
+- 3D view's Blender style: no menu for the same press, both release orders
+  (PANNING holds until both are up); a right click alone gives the menu.
+- techdraw-blender-pan-no-menu.py: rtx60 (before) 2 FAIL, the two left-up-
+  first cases; rtx61 13/13 with the 3D view checks. td-edit-two-pages 32/32.

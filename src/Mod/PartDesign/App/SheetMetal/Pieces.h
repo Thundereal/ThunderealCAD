@@ -75,6 +75,34 @@ PartDesignExport Part::TopoShape wallSection(const gp_Pnt& start, const gp_Dir& 
                                              double length, const gp_Dir& across,
                                              double thickness, const std::string& name);
 
+/// A bend relief: its shape, its width along the edge and its depth from the wall's end
+struct PartDesignExport Relief
+{
+    enum class Shape
+    {
+        Rectangle,
+        Obround,
+        Slit,
+    };
+    Shape shape = Shape::Rectangle;
+    double width = 0;
+    double depth = 0;
+};
+
+/** The cuts of a bend relief beside a bend that ends inside its wall's end
+ * (docs/SheetMetal.md sec 5.2): the wall's inner skin at the edge's first
+ * vertex is inner, the edge runs along, the end faces endOut, and the bend
+ * turns toward up. The bend spans span along the edge from gap1 in, gap2
+ * left after it; at each end with a gap, a relief the width wide right
+ * beside the bend, from the wall's end back the depth, through the sheet,
+ * named name + "1" or "2". An obround's straight part stops at its half
+ * circle's middle, the circle reaching the depth.
+ */
+PartDesignExport std::vector<Part::TopoShape>
+reliefCuts(const Relief& relief, const gp_Pnt& inner, const gp_Dir& along, const gp_Dir& endOut,
+           const gp_Dir& up, double thickness, double gap1, double span, double gap2,
+           const std::string& name, const App::StringHasherRef& hasher);
+
 /// A straight edge where a wall's skin meets its end, as a flange or a hem takes it
 struct PartDesignExport WallEdge
 {

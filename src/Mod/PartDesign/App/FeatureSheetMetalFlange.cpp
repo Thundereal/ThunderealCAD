@@ -559,7 +559,6 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 const bool own = ReliefShape.getValue() != 0;
                 const int reliefShape =
                     own ? ReliefShape.getValue() - 1 : rule->ReliefShape.getValue();
-                const bool obround = reliefShape == 1;
                 const bool tear = reliefShape == 2;
                 double reliefWidth = own ? ReliefWidth.getValue() : rule->ReliefWidth.getValue();
                 double depth =
@@ -568,36 +567,14 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                     reliefWidth = rule->Gap.getValue();
                     depth = setback;
                 }
-                if (reliefWidth > Precision::Confusion()) {
-                    // the straight part of an obround stops at its half circle's middle
-                    const double straight =
-                        obround ? std::max(depth - reliefWidth / 2, 0.0) : depth;
-                    // each end with a gap, by where its relief starts along the edge
-                    std::vector<std::pair<int, double>> ends;
-                    if (gap1 > Precision::Confusion()) {
-                        ends.emplace_back(1, gap1 - reliefWidth);
-                    }
-                    if (gap2 > Precision::Confusion()) {
-                        ends.emplace_back(2, gap1 + width);
-                    }
-                    for (const auto& [n, from] : ends) {
-                        const std::string name = bendName + "Relief" + std::to_string(n);
-                        const gp_Pnt start = inner.Translated(gp_Vec(d) * from);
-                        if (straight > Precision::Confusion()) {
-                            cuts.push_back(TopoShape(0, hasher).makEPrism(
-                                SheetMetal::wallSection(start.Translated(-e * straight), endOut,
-                                                        straight, up.Reversed(), T, name),
-                                gp_Vec(d) * reliefWidth));
-                        }
-                        if (obround) {
-                            const gp_Pnt center = start.Translated(
-                                gp_Vec(d) * (reliefWidth / 2) - e * straight);
-                            cuts.push_back(TopoShape(
-                                BRepPrimAPI_MakeCylinder(gp_Ax2(center, up.Reversed()),
-                                                         reliefWidth / 2, T)
-                                    .Solid()));
-                        }
-                    }
+                SheetMetal::Relief relief;
+                relief.shape = static_cast<SheetMetal::Relief::Shape>(reliefShape);
+                relief.width = reliefWidth;
+                relief.depth = depth;
+                for (TopoShape& cut : SheetMetal::reliefCuts(relief, inner, d, endOut, up, T, gap1,
+                                                             width, gap2, bendName + "Relief",
+                                                             hasher)) {
+                    cuts.push_back(std::move(cut));
                 }
             }
             sides.push_back({p0, p1, endOut, up, first, pieces.size(), bendIndex, legWall});

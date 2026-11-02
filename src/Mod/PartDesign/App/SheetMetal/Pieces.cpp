@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include <BRepAdaptor_Curve.hxx>
@@ -32,6 +33,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepLib.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_Plane.hxx>
 #include <TopExp.hxx>
@@ -143,6 +145,48 @@ TopoShape wallSection(const gp_Pnt& start, const gp_Dir& along, double length,
                       {lineEdge(c, d), name + "Skin2"},
                       {lineEdge(d, a), name + "Start"}},
                      name);
+}
+
+std::vector<TopoShape> reliefCuts(const Relief& relief, const gp_Pnt& inner, const gp_Dir& along,
+                                  const gp_Dir& endOut, const gp_Dir& up, double thickness,
+                                  double gap1, double span, double gap2, const std::string& name,
+                                  const App::StringHasherRef& hasher)
+{
+    std::vector<TopoShape> cuts;
+    const double tol = Precision::Confusion();
+    const double w = relief.width;
+    if (w < tol) {
+        return cuts;
+    }
+    const bool obround = relief.shape == Relief::Shape::Obround;
+    const gp_Vec e(endOut);
+    // the straight part of an obround stops at its half circle's middle
+    const double straight = obround ? std::max(relief.depth - w / 2, 0.0) : relief.depth;
+    // each end with a gap, by where its relief starts along the edge
+    std::vector<std::pair<int, double>> ends;
+    if (gap1 > tol) {
+        ends.emplace_back(1, gap1 - w);
+    }
+    if (gap2 > tol) {
+        ends.emplace_back(2, gap1 + span);
+    }
+    for (const auto& [n, from] : ends) {
+        const std::string named = name + std::to_string(n);
+        const gp_Pnt start = inner.Translated(gp_Vec(along) * from);
+        if (straight > tol) {
+            cuts.push_back(TopoShape(0, hasher).makEPrism(
+                wallSection(start.Translated(-e * straight), endOut, straight, up.Reversed(),
+                            thickness, named),
+                gp_Vec(along) * w));
+        }
+        if (obround) {
+            const gp_Pnt center = start.Translated(gp_Vec(along) * (w / 2) - e * straight);
+            cuts.push_back(TopoShape(
+                BRepPrimAPI_MakeCylinder(gp_Ax2(center, up.Reversed()), w / 2, thickness)
+                    .Solid()));
+        }
+    }
+    return cuts;
 }
 
 namespace

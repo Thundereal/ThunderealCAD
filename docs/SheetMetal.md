@@ -827,7 +827,7 @@ and not frozen.
     sweep too). Qt's own SVG renderer drops text of a small user-unit size at some scales, so a
     label can be missing in a Qt view of the file; Chrome and Inkscape draw it.
 - M2's hem, `PartDesign::SheetMetalHem` (5.1, ruled 2026-11-02), with `TestSheetMetalHem`
-  (13), its command, icon and panel. As built:
+  (16), its command, icon and panel. As built:
   - On edges where a wall's skin meets its end, as the flange's (the edge read by
     `SheetMetal::wallEdge()`, which the flange now uses too); toward the side of that skin,
     `Reversed` toward the other.
@@ -855,8 +855,13 @@ and not frozen.
     from halfway round the turn it leaves out, so a roll past 270 deg is its own; nothing
     changes for a bend up to 180 deg. gtests `SheetMetalModel.pastHalfTurn`,
     `SheetMetalFold.roll`.
+  - `Gap1`, `Gap2` narrow the hem at the edge's ends, as a flange's; where it stops inside the
+    wall's end with the wall cut back (`Inside`), the rule's bend relief is cut beside the fold
+    and the fold stops at its sides in the model, as a flange's bend does. The relief's cuts are
+    `SheetMetal::reliefCuts()`, which the flange now uses too. The relief overridden per hem
+    is not built.
   - Two edges of one hem meeting at a corner are refused, as their folds would run into each
-    other; a hem narrower than its edge (gaps, so a relief) is not built yet.
+    other.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

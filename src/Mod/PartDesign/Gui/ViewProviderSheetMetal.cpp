@@ -122,6 +122,8 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalHem::getEditDialog()
                                       "Radius",
                                       "Angle",
                                       "Position",
+                                      "Gap1",
+                                      "Gap2",
                                       "Reversed"},
                                      "Edges",
                                      "Edge"));

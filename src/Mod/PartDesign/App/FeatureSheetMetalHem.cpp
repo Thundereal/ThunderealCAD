@@ -101,6 +101,18 @@ SheetMetalHem::SheetMetalHem()
                       "Inside: the fold's outer face where the wall ended, the wall cut back; "
                       "Outside: the fold past the wall's end");
     Position.setEnums(PositionEnums);
+    ADD_PROPERTY_TYPE(Gap1,
+                      (0.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Taken off the hem's width at the edge's first vertex; a negative one "
+                      "carries the hem past it");
+    ADD_PROPERTY_TYPE(Gap2,
+                      (0.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Taken off the hem's width at the edge's last vertex; a negative one "
+                      "carries the hem past it");
     ADD_PROPERTY_TYPE(Reversed,
                       (false),
                       "Sheet Metal",
@@ -116,7 +128,7 @@ short SheetMetalHem::mustExecute() const
 {
     if (Edges.isTouched() || HemType.isTouched() || Length.isTouched() || Gap.isTouched()
         || Position.isTouched() || Reversed.isTouched() || Radius.isTouched()
-        || Angle.isTouched()) {
+        || Angle.isTouched() || Gap1.isTouched() || Gap2.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -218,9 +230,11 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
         }
 
         std::vector<SheetMetal::WallEdge> edges;
+        std::vector<std::string> labels;
         for (const auto& shadow : shadows) {
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
             edges.push_back(SheetMetal::wallEdge(base, model, ref, shadow.second));
+            labels.push_back(shadow.second);
             for (std::size_t i = 0; i + 1 < edges.size(); ++i) {
                 for (const gp_Pnt& p : {edges[i].p0, edges[i].p1}) {
                     for (const gp_Pnt& q : {edges.back().p0, edges.back().p1}) {
@@ -236,7 +250,8 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
         }
 
         std::vector<TopoShape> pieces, cuts;
-        for (const SheetMetal::WallEdge& edge : edges) {
+        for (std::size_t k = 0; k < edges.size(); ++k) {
+            const SheetMetal::WallEdge& edge = edges[k];
             // folding toward up, its inner skin the one facing that way
             gp_Dir up = edge.skinOut;
             gp_Pnt inner = edge.p0;
@@ -245,18 +260,43 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
                 inner = inner.Translated(gp_Vec(up) * T);
             }
             const gp_Vec e(edge.endOut), u(up);
-            const gp_Vec along = gp_Vec(edge.p0, edge.p1);
+            // the hem's span along the edge, the gaps taken off its ends
+            const double length = edge.p0.Distance(edge.p1);
+            const double gap1 = Gap1.getValue(), gap2 = Gap2.getValue();
+            const double width = length - gap1 - gap2;
+            if (width < Precision::Confusion()) {
+                FC_THROWM(Base::ValueError, "The gaps leave nothing of edge " << labels[k]);
+            }
+            const gp_Vec along = gp_Vec(edge.along) * width;
+            const gp_Pnt edgeStart = inner.Translated(gp_Vec(edge.along) * gap1);
             const std::string bendName = "Bend" + std::to_string(++bends);
             const std::string legName = "Wall" + std::to_string(++walls);
 
             // Inside, the fold's outer face where the wall ended
-            gp_Pnt bendStart = inner;
-            if (Position.getValue() == 0) {
-                bendStart = inner.Translated(-e * (R + T));
+            gp_Pnt bendStart = edgeStart;
+            const bool inside = Position.getValue() == 0;
+            if (inside) {
+                bendStart = edgeStart.Translated(-e * (R + T));
                 cuts.push_back(TopoShape(0, hasher).makEPrism(
                     SheetMetal::wallSection(bendStart, edge.endOut, R + T, up.Reversed(), T,
                                             bendName + "Cut"),
                     along));
+                // Where the hem stops inside the wall's end, the rule's bend
+                // relief beside the fold, as a flange's (sec 5.2)
+                SheetMetal::Relief relief;
+                relief.shape =
+                    static_cast<SheetMetal::Relief::Shape>(rule->ReliefShape.getValue());
+                relief.width = rule->ReliefWidth.getValue();
+                relief.depth = R + T + rule->ReliefDepth.getValue();
+                if (relief.shape == SheetMetal::Relief::Shape::Slit) {
+                    relief.width = rule->Gap.getValue();
+                    relief.depth = R + T;
+                }
+                for (TopoShape& cut : SheetMetal::reliefCuts(relief, inner, edge.along,
+                                                             edge.endOut, up, T, gap1, width,
+                                                             gap2, bendName + "Relief", hasher)) {
+                    cuts.push_back(std::move(cut));
+                }
             }
             CylBend bend;
             bend.frame =
@@ -272,7 +312,16 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             const gp_Dir legAlong = bend.frame.Direction().Crossed(x2);
             const gp_Pnt legStart = bend.frame.Location().Translated(gp_Vec(x2) * R);
             const int legWall = model.addWall(legName, gp_Ax3(legStart, x2, legAlong));
-            model.addBend(bendName, bend, edge.wall, legWall);
+            const int bendIndex = model.addBend(bendName, bend, edge.wall, legWall);
+            // Ending inside the wall's end, the fold stops at its sides, as a
+            // flange's bend does: its tube runs on through the wall beside it
+            if (gap1 > Precision::Confusion()) {
+                model.elements[bendIndex].limits.emplace_back(edgeStart, edge.along.Reversed());
+            }
+            if (gap2 > Precision::Confusion()) {
+                model.elements[bendIndex].limits.emplace_back(edgeStart.Translated(along),
+                                                              edge.along);
+            }
             if (type >= 2) {
                 // A teardrop's leg, or a roll's end with none, stops: its slab
                 // would run on through the wall it heads back to

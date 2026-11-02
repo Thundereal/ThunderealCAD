@@ -68,6 +68,10 @@ public:
     /// A teardrop's or a rolled hem's inner radius and angle
     App::PropertyLength Radius;
     App::PropertyAngle Angle;
+    /// Taken off the hem's width at the edge's first and last vertex; where
+    /// it stops inside the wall's end, the rule's bend relief beside it
+    App::PropertyDistance Gap1;
+    App::PropertyDistance Gap2;
     /// Inside: the fold's outer face where the wall ended; Outside: past it
     App::PropertyEnumeration Position;
     App::PropertyBool Reversed;

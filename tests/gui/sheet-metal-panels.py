@@ -468,6 +468,11 @@ def run():
             not any(n in w for n in ("Angle", "Length", "LengthType", "BendPosition")),
             sorted(n for n in w if n[0].isupper()),
         )
+        check(
+            "its gaps open to edit",
+            "Gap1" in w and w["Gap1"].isEnabled() and not w["Gap1"].isReadOnly(),
+            "Gap1" in w and (w["Gap1"].isEnabled(), w["Gap1"].isReadOnly()),
+        )
         if "Gap1" in w:
             w["Gap1"].setProperty("rawValue", 1.0)
             pump(20)

@@ -218,6 +218,9 @@ class TestSheetMetalContourFlange(unittest.TestCase):
         """Gaps at both ends: the wall cut back under it only, with the
         rule's relief, as the flange's"""
         c = self.contour(self.sketch([(40, 1), (40, 11)]), RIGHT, Gap1=5, Gap2=5)
+        # the sketch is the profile, but the gaps are still the user's
+        for name in ("Gap1", "Gap2"):
+            self.assertNotIn("ReadOnly", c.getPropertyStatus(name), msg=name)
         self.checkBox(c.Shape, YMin=0, YMax=20)
         f = self.flange(
             RIGHT,

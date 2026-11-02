@@ -257,6 +257,104 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.assertAlmostEqual(flat.FlatLength.Value, 40 - 2 * 2 + 2 * leg, places=6)
         self.assertAlmostEqual(flat.FlatWidth.Value, 20 - 2 * 2 + 2 * leg, places=6)
 
+    # A later flange meeting an earlier one at a corner (ruled 2026-11-02):
+    # it miters itself against it, the same plane and the rule's gap as one
+    # flange on both edges, so the part and its flat are that flange's
+
+    def reference(self, edges):
+        """One flange on the plate's edges, in a document of its own: its
+        volume and its flat's length and width"""
+        doc = FreeCAD.newDocument("PartDesignTestSheetMetalFlangeReference")
+        try:
+            body = doc.addObject("PartDesign::Body", "Body")
+            sketch = body.newObject("Sketcher::SketchObject", "Sketch")
+            pts = [(0, 0), (40, 0), (40, 20), (0, 20)]
+            for i in range(4):
+                a, b = pts[i], pts[(i + 1) % 4]
+                sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+            plate = body.newObject("PartDesign::SheetMetalBaseWall", "Plate")
+            plate.Profile = sketch
+            doc.recompute()
+            flange = body.newObject("PartDesign::SheetMetalFlange", "Flange")
+            flange.Edges = (plate, [self.edge(plate, a, b) for a, b in edges])
+            doc.recompute()
+            flat = body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
+            flat.Source = flange
+            doc.recompute()
+            self.assertNotIn("Invalid", flat.State)
+            return flange.Shape.Volume, flat.FlatLength.Value, flat.FlatWidth.Value
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+
+    def checkAsReference(self, flange, reference, bends):
+        volume, length, width = reference
+        self.checkValid(flange)
+        self.assertAlmostEqual(flange.Shape.Volume, volume, places=6)
+        self.assertNotIn(None, self.owners(flange))
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertEqual(len(flat.Shape.Solids), 1)
+        self.assertTrue(flat.Shape.Solids[0].isValid())
+        self.assertEqual(flat.BendCount, bends)
+        self.assertAlmostEqual(flat.FlatLength.Value, length, places=6)
+        self.assertAlmostEqual(flat.FlatWidth.Value, width, places=6)
+
+    def testMiterAgainstEarlier(self):
+        """The far edge's flange, then one on the right edge, cut short at
+        y 18 by the first: the second carried on to the corner and both
+        mitered there, as one flange on both edges; and the other way round"""
+        far, right = ((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))
+        reference = self.reference([far, right])
+        first = self.far()
+        second = self.flange([((40, 0, 1), (40, 18, 1))], base=first, name="Flange2")
+        self.checkAsReference(second, reference, 2)
+        shape = second.Shape
+        # the corner's plane x - y = 20 between the legs, the gap open
+        for x in (38.6, 39.0, 39.5, 39.96):
+            self.assertFalse(shape.isInside(V(x, x - 20, 5), 1e-9, True), x)
+        self.assertTrue(shape.isInside(V(38.5, 19.5, 5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(39.5, 18.5, 5), 1e-9, True))
+        self.assertFalse(shape.isInside(V(39.3, 19.3, 1.5), 1e-9, True))
+
+        self.Body.removeObject(second)
+        self.Body.removeObject(first)
+        self.Doc.removeObject(second.Name)
+        self.Doc.removeObject(first.Name)
+        self.Doc.recompute()
+        first = self.flange([right], name="Right")
+        second = self.flange([((0, 20, 1), (38, 20, 1))], base=first, name="Far")
+        self.checkAsReference(second, reference, 2)
+
+    def testMiterAgainstEarlierTray(self):
+        """Four flanges, one edge each, round the plate: the tray of one
+        flange on all four edges, and its cross of a flat"""
+        reference = self.reference(
+            [
+                ((0, 0, 1), (40, 0, 1)),
+                ((40, 0, 1), (40, 20, 1)),
+                ((0, 20, 1), (40, 20, 1)),
+                ((0, 0, 1), (0, 20, 1)),
+            ]
+        )
+        far = self.far()
+        right = self.flange([((40, 0, 1), (40, 18, 1))], base=far, name="Right")
+        near = self.flange([((0, 0, 1), (38, 0, 1))], base=right, name="Near")
+        left = self.flange([((0, 2, 1), (0, 18, 1))], base=near, name="Left")
+        self.checkAsReference(left, reference, 4)
+        leg = 1.5 * math.pi / 2 + 8
+        self.assertAlmostEqual(reference[1], 40 - 2 * 2 + 2 * leg, places=6)
+
+    def testNoMiterAgainstEarlierWithGap(self):
+        """A gap at the corner's end keeps the later flange short of it, and
+        the earlier one whole there"""
+        first = self.far()
+        second = self.flange(
+            [((40, 0, 1), (40, 18, 1))], base=first, name="Flange2", Gap2=3
+        )
+        self.checkValid(second)
+        self.assertTrue(second.Shape.isInside(V(39.9, 19.5, 5), 1e-9, True))
+        self.assertFalse(second.Shape.isInside(V(39.5, 16, 5), 1e-9, True))
+
     def testNoMiterApart(self):
         """Edges that do not meet, or flanges bent to opposite sides, are
         left whole"""

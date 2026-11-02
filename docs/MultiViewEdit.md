@@ -820,7 +820,10 @@ negated. `Document::groupSteps(ids)` makes one (Python `groupSteps`);
 implicit steps are not marked, they ride on the step they follow. The key
 is written to the rows, `txn.grp`, store layout 4 (a migration adds the
 column); the stacks rebuilt from the log keep it, an inverse step keeps
-its step's, and a cold stub its own.
+its step's, and a cold stub its own. Those are a crashed session's
+recovered and a branch's arrived back on, a group on either stack one
+undo or redo again (gtest `aGroupIsOneStepAgainOnStacksRebuiltFromTheLog`);
+a plain open starts with no steps (TransactionLogJournal sec 26.4).
 
 `Document::_myRun` gathers a group: on undo, from its newest step down
 through the stack, taking each step of the group with the implicit ones

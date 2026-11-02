@@ -2207,6 +2207,98 @@ TEST_F(TransactionLogTest, aGroupOfStepsIsUndoneAndRedoneWhole)
     EXPECT_EQ(a->Float.getValue(), 2.5);
 }
 
+TEST_F(TransactionLogTest, aGroupIsOneStepAgainOnStacksRebuiltFromTheLog)
+{
+    // docs/MultiViewEdit.md sec 12.11: a group is kept in its rows, and the
+    // stacks rebuilt from the rows -- a crashed session recovered (sec 25),
+    // a branch arrived back on (sec 26) -- have it again, on either stack:
+    // one undo or one redo takes it whole. (A plain open starts with no
+    // steps, sec 26.4.)
+    doc()->openTransaction("create");
+    auto a = make("A");
+    doc()->commitTransaction();
+    auto edit = [&](const char* name, int value) {
+        doc()->openTransaction(name);
+        a->Integer.setValue(value);
+        doc()->commitTransaction();
+    };
+    edit("edit 1", 1);
+    edit("edit 2", 2);
+    ASSERT_TRUE(doc()->groupSteps({stepNamed(doc(), "edit 1"), stepNamed(doc(), "edit 2")}));
+    doc()->openTransaction("after");
+    a->Float.setValue(2.5);
+    doc()->commitTransaction();
+    edit("edit 3", 3);
+    edit("edit 4", 4);
+    ASSERT_TRUE(doc()->groupSteps({stepNamed(doc(), "edit 3"), stepNamed(doc(), "edit 4")}));
+    ASSERT_TRUE(doc()->undo()) << doc()->undoRefusal();   // the second group, to redo
+    ASSERT_EQ(a->Integer.getValue(), 2);
+    log().flush();
+
+    auto rebuilt = [](App::Document* d, App::FeatureTest* obj) {
+        const auto undos = d->getAvailableUndoSteps();
+        ASSERT_EQ(undos.size(), 4u);
+        EXPECT_EQ(undos[0].name, "after");
+        EXPECT_EQ(undos[0].group, 0);
+        EXPECT_NE(undos[1].group, 0);
+        EXPECT_EQ(undos[1].group, undos[2].group);
+        EXPECT_EQ(undos[3].group, 0);
+        const auto redos = d->getAvailableRedoSteps();
+        ASSERT_EQ(redos.size(), 2u);
+        EXPECT_NE(redos[0].group, 0);
+        EXPECT_EQ(redos[0].group, redos[1].group);
+        EXPECT_NE(redos[0].group, undos[1].group);
+
+        ASSERT_TRUE(d->redo()) << d->undoRefusal();   // the second group, whole
+        EXPECT_EQ(obj->Integer.getValue(), 4);
+        EXPECT_TRUE(d->getAvailableRedoSteps().empty());
+        ASSERT_TRUE(d->undo()) << d->undoRefusal();   // and back, whole
+        EXPECT_EQ(obj->Integer.getValue(), 2);
+        ASSERT_TRUE(d->undo()) << d->undoRefusal();   // the step after
+        EXPECT_DOUBLE_EQ(obj->Float.getValue(), 47.11f);
+        ASSERT_TRUE(d->undo()) << d->undoRefusal();   // the first group, whole
+        EXPECT_EQ(obj->Integer.getValue(), 4711);
+        ASSERT_FALSE(d->getAvailableUndoNames().empty());
+        EXPECT_EQ(d->getAvailableUndoNames().front(), "create");
+    };
+
+    // A crash: the session's directory as it stands, recovered
+    const std::string crashed = Base::FileInfo::getTempPath() + "txnlog-crashed-group";
+    Base::FileInfo(crashed).deleteDirectoryRecursive();
+    for (const char* sub : {"history", "blobs"}) {
+        const std::string from = doc()->TransientDir.getStrValue() + "/" + sub;
+        const std::string to = crashed + "/" + sub;
+        Base::FileInfo(to).createDirectories();
+        if (!Base::FileInfo(from).isDir())
+            continue;
+        for (const auto& file : Base::FileInfo(from).getDirectoryContent()) {
+            if (file.isFile())
+                file.copyTo((to + "/" + file.fileName()).c_str());
+        }
+    }
+    auto recovered = App::GetApplication().recoverDocument(crashed.c_str(), false);
+    ASSERT_TRUE(recovered);
+    const std::string name = recovered->getName();
+    auto ra = dynamic_cast<App::FeatureTest*>(recovered->getObject("A"));
+    ASSERT_TRUE(ra);
+    {
+        SCOPED_TRACE("recovered");
+        rebuilt(recovered, ra);
+    }
+    App::GetApplication().closeDocument(name.c_str());
+
+    // A branch left and arrived back on
+    doc()->createBranch("side");
+    doc()->openTransaction("side edit");
+    a->String.setValue("side");
+    doc()->commitTransaction();
+    ASSERT_TRUE(doc()->switchBranch("main"));
+    {
+        SCOPED_TRACE("back on main");
+        rebuilt(doc(), a);
+    }
+}
+
 TEST_F(TransactionLogTest, aGroupIsUndoneFromUnderAnotherStepAndInPart)
 {
     // A step between the group's is passed over and stays (sec 12.11); and

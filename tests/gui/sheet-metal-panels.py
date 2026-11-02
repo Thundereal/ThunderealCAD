@@ -341,6 +341,39 @@ def run():
         pump(20)
         check("OK keeps a good cutout", "Invalid" not in cutout.State, cutout.State)
 
+        # -- the fold's panel: its line, its values, the face on the side that moves
+        line = body.newObject("Sketcher::SketchObject", "FoldLine")
+        line.MapMode = "Deactivated"
+        line.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        line.addGeometry(Part.LineSegment(V(-5, 23, 0), V(45, 23, 0)))
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, line.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalFold")
+        pump()
+        fold = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalFold"][0]
+        w = panel() or {}
+        check(
+            "Fold opens its panel with its line, angle, line position and way",
+            all(n in w for n in ("Profile", "Angle", "LinePosition", "Reversed")),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        moving = w.get("listMoving")
+        check(
+            "and a list of the face on the side that moves, none picked",
+            moving is not None and moving.count() == 0,
+            moving and moving.count(),
+        )
+        if "Angle" in w:
+            w["Angle"].setProperty("rawValue", 60.0)
+            pump(20)
+            doc.recompute()
+            check("the angle set there is the fold's", abs(fold.Angle.Value - 60) < 1e-9,
+                  fold.Angle.Value)
+        accept()
+        pump(20)
+        check("OK keeps a good fold", "Invalid" not in fold.State, fold.State)
+
         # -- the flat pattern's panel ------------------------------------------
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

@@ -238,6 +238,34 @@ def run():
               and not hole.Visibility)
         flange = cutout
 
+        # a fold: a line across the plate at y 4, the smaller side, with the
+        # hem on it, turned up
+        line = body.newObject("Sketcher::SketchObject", "FoldLine")
+        line.MapMode = "Deactivated"
+        line.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        line.addGeometry(Part.LineSegment(V(-5, 4, 0), V(45, 4, 0)))
+        doc.recompute()
+        pump()
+        volume = flange.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, line.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalFold")
+        pump()
+        check("Fold opens its panel, OK closes it", ok())
+        doc.recompute()
+        fold = newest(doc, before, "PartDesign::SheetMetalFold")
+        check(
+            "Fold on a selected line bends the plate there, its volume kept",
+            fold is not None
+            and "Invalid" not in fold.State
+            and fold.Profile[0] == line
+            and abs(fold.Shape.Volume - volume) < 1e-6
+            and fold.Shape.BoundBox.ZMax > flange.Shape.BoundBox.ZMax - 1e-6,
+            fold and (fold.State, fold.Shape.Volume, volume),
+        )
+        flange = fold
+
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

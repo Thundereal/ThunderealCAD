@@ -126,6 +126,7 @@ SHEET_METAL_COMMANDS = {"PartDesign_SheetMetalBaseWall", "PartDesign_SheetMetalF
                         "PartDesign_SheetMetalExtendWall", "PartDesign_SheetMetalHem",
                         "PartDesign_SheetMetalCornerClosure",
                         "PartDesign_SheetMetalCutout",
+                        "PartDesign_SheetMetalFold",
                         "PartDesign_SheetMetalFlatPattern"}
 
 

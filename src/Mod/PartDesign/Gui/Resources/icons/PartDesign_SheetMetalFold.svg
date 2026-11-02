@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's fold: a plate bent up along a sketched line, the line marked -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the plate, the side that stays -->
+  <path
+     d="M 4,38 26,27 50,39 28,50 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 4,38 28,50 V 54 L 4,42 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the side folded up along the line -->
+  <path
+     d="M 28,50 50,39 V 13 L 28,24 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the sketched line it folds along -->
+  <path
+     d="M 24,52 54,37"
+     style="fill:none;stroke:#c0392b;stroke-width:3;stroke-linecap:round;stroke-dasharray:5,3;" />
+  <!-- which way it turns -->
+  <path
+     d="M 58,30 C 62,22 60,14 54,9"
+     style="fill:none;stroke:#1c2128;stroke-width:2;" />
+  <path
+     d="M 51,12 54,9 57,13"
+     style="fill:none;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+</svg>

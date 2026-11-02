@@ -104,6 +104,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A fold, its panel its sketch, its values and the face on the side that moves
+class PartDesignGuiExport ViewProviderSheetMetalFold: public ViewProviderSketchBased
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalFold);
+
+public:
+    ViewProviderSheetMetalFold();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A flat pattern, its panel what it lays flat, its root face and the values
 /// a bill of materials takes; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart

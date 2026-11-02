@@ -937,6 +937,25 @@ and not frozen.
     keeps a hole in a face it folds back onto a bend.
   - The model is the one before; the flat lays the hole out as any other face. Refused by name:
     an open sketch, one that meets no skin facing it.
+- M2's fold, `PartDesign::SheetMetalFold` (5.1, ruled 2026-11-02), with `TestSheetMetalFold`
+  (11), its command, icon and panel. As built:
+  - `Profile`, a sketch of a line (collinear pieces taken as one) parallel to a wall, taken onto
+    the wall's inner skin and across it whole; the nearest such wall. It bends through `Angle`
+    with the rule's radius toward the sketch's normal (`Reversed` the other way).
+  - `LinePosition`: the strip the bend takes in the flat, the allowance wide, about the line
+    (`Middle`, the default), from it on the moving side (`Start`), or up to it (`End`).
+  - The side that moves: the one `Moving`'s face is on, else the smaller by volume. The part is
+    split at the line through the wall's thickness; each side's faces tell the elements on it,
+    and an element on both (a flange's bend along an edge the line crosses) is refused by name,
+    as is any but the wall in the strip.
+  - The strip is cut from the wall; the bend is its section swept along the axis over the
+    wall's span there, and what the strip lacks of the wall -- a hole, a notch -- is taken from
+    it along its radius (`SheetMetal::bendSolid()`, the face of the bend's flat taken onto its
+    cylinder, now refold()'s too). The moving side is carried by the bend's `refold()` and the
+    three fused, so the flat is the part as it was, holes and flanges on the moving side with it.
+  - In the model, the wall's moving side is a wall of its own after the new bend, its limits
+    with it; every element on the moving side is carried the same way, a bend on the wall moved
+    over to the new one.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

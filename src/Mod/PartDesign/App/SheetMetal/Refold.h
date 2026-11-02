@@ -56,6 +56,14 @@ PartDesignExport std::vector<Part::TopoShape> refold(const Model& model, int roo
                                                      const TopoDS_Face& face,
                                                      const std::vector<int>& elements);
 
+/** A face of a bend's own flat (CylBend::toFlat()'s frame) taken onto its
+ * cylinder, from radius inner to outer: each point at its angle and height,
+ * the outline's curves exactly, a hole in the face left. Null if the solid
+ * could not be made.
+ */
+PartDesignExport TopoDS_Shape bendSolid(const CylBend& bend, const TopoDS_Face& flat, double inner,
+                                        double outer);
+
 /** A corner relief's shape in the flat (docs/SheetMetal.md sec 5.2): where
  * the two bends' lines cross (the middle of each one's strip), on the root
  * wall's first skin, as refold() takes it. shape 1 is a circle of size

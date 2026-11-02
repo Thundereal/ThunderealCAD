@@ -231,6 +231,25 @@ TopoDS_Shape radial(const CylBend& b, const TopoDS_Face& flat, double inner, dou
 
 }  // namespace
 
+TopoDS_Shape bendSolid(const CylBend& bend, const TopoDS_Face& flat, double inner, double outer)
+{
+    TopoDS_Shape piece = radial(bend, flat, inner, outer);
+    // radial() takes the outer wire; a hole in the face stays
+    const TopoDS_Wire outerWire = BRepTools::OuterWire(flat);
+    const double margin = (outer - inner) / 10;
+    for (TopExp_Explorer w(flat, TopAbs_WIRE); !piece.IsNull() && w.More(); w.Next()) {
+        if (w.Current().IsSame(outerWire)) {
+            continue;
+        }
+        const TopoDS_Face hole = BRepBuilderAPI_MakeFace(TopoDS::Wire(w.Current()), true).Face();
+        const TopoDS_Shape island = radial(bend, hole, inner - margin, outer + margin);
+        if (!island.IsNull()) {
+            piece = cutAway(piece, island);
+        }
+    }
+    return piece;
+}
+
 std::vector<TopoShape> refold(const Model& model, int root, const TopoDS_Face& face,
                               const std::vector<int>& elements)
 {
@@ -320,23 +339,10 @@ std::vector<TopoShape> refold(const Model& model, int root, const TopoDS_Face& f
             builder.MakeCompound(pieces);
             bool any = false;
             for (TopExp_Explorer it(common.Shape(), TopAbs_FACE); it.More(); it.Next()) {
-                const TopoDS_Face& part = TopoDS::Face(it.Current());
-                TopoDS_Shape piece =
-                    radial(b, part, b.radius - margin, b.radius + b.thickness + margin);
-                // radial() takes the outer wire; a hole in the face stays
-                const TopoDS_Wire outerWire = BRepTools::OuterWire(part);
-                for (TopExp_Explorer w(part, TopAbs_WIRE); !piece.IsNull() && w.More(); w.Next()) {
-                    if (w.Current().IsSame(outerWire)) {
-                        continue;
-                    }
-                    const TopoDS_Face hole =
-                        BRepBuilderAPI_MakeFace(TopoDS::Wire(w.Current()), true).Face();
-                    const TopoDS_Shape island =
-                        radial(b, hole, b.radius - 2 * margin, b.radius + b.thickness + 2 * margin);
-                    if (!island.IsNull()) {
-                        piece = cutAway(piece, island);
-                    }
-                }
+                const TopoDS_Shape piece = bendSolid(b,
+                                                     TopoDS::Face(it.Current()),
+                                                     b.radius - margin,
+                                                     b.radius + b.thickness + margin);
                 if (!piece.IsNull()) {
                     builder.Add(pieces, piece);
                     any = true;

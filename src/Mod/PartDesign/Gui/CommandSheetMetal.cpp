@@ -393,6 +393,79 @@ bool CmdPartDesignSheetMetalCutout::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalFold
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalFold)
+
+CmdPartDesignSheetMetalFold::CmdPartDesignSheetMetalFold()
+    : Command("PartDesign_SheetMetalFold")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Fold");
+    sToolTipText = QT_TR_NOOP("Bends a wall along the line of the selected sketch; a face\n"
+                              "selected too says which side moves, else the smaller one does");
+    sWhatsThis = "PartDesign_SheetMetalFold";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalFold";
+}
+
+void CmdPartDesignSheetMetalFold::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* sketch = nullptr;
+    App::DocumentObject* faceOwner = nullptr;
+    std::string face;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        App::DocumentObject* obj = sel.getObject();
+        if (!obj) {
+            continue;
+        }
+        if (obj->isDerivedFrom<Part::Part2DObject>()) {
+            sketch = obj;
+            continue;
+        }
+        for (const auto& sub : sel.getSubNames()) {
+            if (face.empty() && sub.find("Face") != std::string::npos) {
+                faceOwner = obj;
+                face = sub;
+            }
+        }
+    }
+    if (!sketch) {
+        warn(QT_TR_NOOP("No sketch"),
+             QT_TR_NOOP("Select a sketch of a line lying on a wall to fold it there, and a face "
+                        "on the side to move if not the smaller."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Fold"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalFold", "Fold");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat, std::ostringstream() << "Profile = " << getObjectCmd(sketch));
+    if (faceOwner) {
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "Moving = (" << getObjectCmd(faceOwner) << ", ['"
+                                               << face << "'])");
+    }
+    FCMD_OBJ_HIDE(sketch);
+    finishFeature(this, feat);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalFold::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalCornerClosure
 //===========================================================================
 
@@ -597,6 +670,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
     mgr.addCommand(new CmdPartDesignSheetMetalCutout());
+    mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatPattern());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
 }

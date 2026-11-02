@@ -194,6 +194,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderSheetMetalHem::init();
     PartDesignGui::ViewProviderSheetMetalCornerClosure::init();
     PartDesignGui::ViewProviderSheetMetalCutout::init();
+    PartDesignGui::ViewProviderSheetMetalFold::init();
     PartDesignGui::ViewProviderSheetMetalFlatPattern::init();
     PartDesignGui::ViewProviderSheetMetalRule::init();
 
@@ -213,6 +214,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
              << "PartDesign_SheetMetalHem"
              << "PartDesign_SheetMetalCornerClosure"
              << "PartDesign_SheetMetalCutout"
+             << "PartDesign_SheetMetalFold"
              << "Separator"
              << "PartDesign_SheetMetalFlatPattern"
              << "PartDesign_SheetMetalExportDXF";

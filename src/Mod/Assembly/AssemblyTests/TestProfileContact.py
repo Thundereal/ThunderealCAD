@@ -254,8 +254,14 @@ class TestProfileContact(unittest.TestCase):
         loses nothing: at every turn it stands at 30 deg, to 0.01 deg. With
         the points fixed through each substep, the law's damping read their
         slide off the arcs as an approach, and the swing died down, 0.045
-        deg in a second. A parallel joint keeps it in its plane: a profile
-        contact gives it nothing against tipping."""
+        deg in a second.
+
+        Nothing but the contact holds it, and it is let go tipped out of the
+        plane by 1e-4 rad about its width: the contact, taken at two heights
+        through the pin's length, rights it, the tilt under 1e-5 rad in the
+        last tenth of the second. At one height, the middle, it held no
+        tilt, and the bar tipped further tenfold each 0.1 s until it left
+        the pin."""
         import Part
 
         pin = self.plate(Part.makeCylinder(3.0, 10))
@@ -263,20 +269,23 @@ class TestProfileContact(unittest.TestCase):
         shape = Part.makeBox(10, 60, 10, App.Vector(-5, -55, 0))
         bar.Shape = shape.cut(Part.makeCylinder(3.005, 10)).removeSplitter()
         bar.Placement = App.Placement(App.Vector(), App.Rotation(App.Vector(0, 0, 1), 30))
-        flat = self.joints.newObject("App::FeaturePython", "Parallel")
-        JointObject.Joint(flat, JointObject.JointTypes.index("Parallel"))
-        flat.Detach1 = True
-        flat.Detach2 = True
-        flat.Reference1 = (pin, ["Face2"])
-        flat.Reference2 = (bar, ["Face1"])
-        flat.Placement1 = plc(0, 0, 10)
-        flat.Placement2 = plc(0, -20, 10)
         contact = self.contact(pin, 10, bar, 10, Restitution=0.5)
+        bar.Placement = App.Placement(
+            App.Vector(),
+            App.Rotation(App.Vector(0, 0, 1), 30).multiply(
+                App.Rotation(App.Vector(1, 0, 0), math.degrees(1e-4))
+            ),
+        )
         self.assertEqual(self.simulate(contact, 1.0, 1e-3), 0)
         angles = []
+        tilts = []
         for k in range(self.assembly.numberOfFrames()):
             r = self.at(bar, k).Rotation
             angles.append(math.degrees(r.Angle) * (1 if r.Axis.z >= 0 else -1))
+            up = r.multVec(App.Vector(0, 0, 1))
+            tilts.append(math.atan2(math.hypot(up.x, up.y), up.z))
+        self.assertLess(max(tilts), 2e-4)
+        self.assertLess(max(tilts[-100:]), 1e-5)
         turns = [
             abs(angles[k])
             for k in range(1, len(angles) - 1)
@@ -286,8 +295,9 @@ class TestProfileContact(unittest.TestCase):
         for k, turn in enumerate(turns):
             self.assertAlmostEqual(turn, 30.0, delta=0.01, msg=k)
         App.Console.PrintMessage(
-            "Pin in a hole: %d turns within %.3g deg of 30\n"
-            % (len(turns), max(abs(t - 30.0) for t in turns))
+            "Pin in a hole: %d turns within %.3g deg of 30, tilted at most %.3g rad,"
+            " %.3g at the end\n"
+            % (len(turns), max(abs(t - 30.0) for t in turns), max(tilts), max(tilts[-100:]))
         )
 
     def ride_disk_cam(self, follower, at_follower, height, name, reach=None):

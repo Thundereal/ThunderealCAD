@@ -1923,7 +1923,45 @@ Phase D1 is under way (2026-10-28):
     stiffens its tilt; a real pin's contact along its length would. The
     tests hold the bar with a parallel joint.
   - Not yet: a corner against a curved piece; the cause of the corners'
-    run-off; a part on profile contacts alone kept in their plane.
+    run-off; a part on profile contacts alone kept in their plane. (The
+    plane: built, below.)
+- Built: a part on profile contacts alone kept in their plane (the "not
+  yet" above): a bar hung by its hole on a pin, nothing else holding it.
+  - The cause: a pair's points were taken at one height, the middle of
+    where the two solids overlap through the plane, and B's profile was
+    brought into A's plane whatever its tilt -- so a tilt changed no
+    depth, and the force, at one point, held none. A free part's tilt
+    grew from round-off, tenfold each 0.1 s; let go tipped by 1e-4 rad,
+    the bar went past 0.1 rad in 0.19 s and slid 27 mm off the pin.
+  - The run (ChronoBackend): each pair's points are taken at two heights
+    through the overlap, the two-point Gauss rule's, the middle plus or
+    minus a 2 sqrt(3)-th of its length (`ProfileFollow::levels()`,
+    `height()`), each its own point in the pair's patch -- so the patch's
+    force is what one point's was, split in two, and its moment against a
+    tilt that of a contact spread evenly along the overlap, for a force
+    linear in the depth. At each height B's profile is its section there:
+    B's frame slid along its own axis to that height (`sectionAt()`), its
+    prism's profile the same anywhere along it, exact to within the
+    square of the tilt. A tilted part's section moves across the plane
+    with the height, deeper at one point than the other. The followed
+    points (`ProfileFound::level`) are found again at their own height.
+  - Untilted, the two points are one split in two: the Geneva drive's two
+    turns at both output steps as before within 5e-6 deg and 5e-5 N, the
+    profile tests as they were.
+  - Tests (TestProfileContact, test_pin_in_hole_pendulum): the bar free,
+    its parallel joint gone, let go tipped by 1e-4 rad about its width:
+    every turn of its first second at 30 deg to 0.01 (0.0031 measured),
+    the tilt never past 2e-4 rad (1e-4) and under 1e-5 in the last tenth
+    (1.2e-6). Before, it tipped to 3.08 rad. TestAssemblyWorkbench 579
+    OK, 88 skipped. In the manual's video (`assembly/simulation/
+    profile-plane`) the same bar, its tilt dying down to 3.3e-7 rad in
+    the last tenth of the second, 4.6e-3 mm along the pin at most; the
+    run on the code before, its tilt past 0.1 rad at 0.19 s.
+    Tipped about its length instead, along the contact's normal, where
+    the hole's section moves along the pin's arc: held as well, 1.2e-4
+    rad down to 1.2e-6 in the second.
+  - Not yet: a corner against a curved piece; the cause of the corners'
+    run-off.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

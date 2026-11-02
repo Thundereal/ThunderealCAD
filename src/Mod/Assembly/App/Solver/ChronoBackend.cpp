@@ -808,7 +808,9 @@ double huntCrossley(double restitution)
 // arc of A's against one of B's (ArcArc), each point on the line of their
 // centres, 'sides' the signs along it, from A's centre to B's, of A's point
 // from its centre, B's from its, and the normal. None for the others, not
-// found again (profileTouches()). 'pair', the profiles' pair of faces.
+// found again (profileTouches()). 'pair', the profiles' pair of faces;
+// 'level', the height through their overlap it was taken at
+// (ProfileFollow::height()).
 struct ProfileFound
 {
     enum class Kind
@@ -823,6 +825,7 @@ struct ProfileFound
     const void* across = nullptr;
     std::array<double, 3> sides {1.0, 1.0, 1.0};
     std::size_t pair = 0;
+    double level = 0.0;
 };
 
 class ContactLoad: public ch::ChLoadBodyBody
@@ -6155,11 +6158,36 @@ Status ChronoSession::simulateDynamics(
             Profile2 profileA;
             bool mirrored = false;
 
-            // The middle of where the two solids overlap through the plane,
-            // B's frame in A's 'into', so that a free part is pushed through
-            // its centre's height and not turned out of its plane (half way
-            // between them when they do not overlap)
-            double height(const ch::ChFramed& into) const
+            // The heights a pair's points are taken at, through where the two
+            // solids overlap through the plane, B's frame in A's 'into': the
+            // two-point Gauss rule's, level -1 and 1, so that the force acts
+            // where a contact spread evenly along that overlap does and
+            // holds a part's tilt as it would -- one point at the middle
+            // held none, and a part on profile contacts alone tipped out of
+            // their plane from round-off, tenfold each 0.1 s. Level 0, the
+            // middle; half way between the solids when they do not overlap,
+            // its one level.
+            std::vector<double> levels(const ch::ChFramed& into) const
+            {
+                double low = 0.0;
+                double high = 0.0;
+                if (overlap(into, low, high) && high > low) {
+                    return {-1.0, 1.0};
+                }
+                return {0.0};
+            }
+            double height(const ch::ChFramed& into, double level) const
+            {
+                double low = 0.0;
+                double high = 0.0;
+                if (!overlap(into, low, high)) {
+                    return 0.5 * (low + high);
+                }
+                return 0.5 * (low + high) + level * (high - low) / (2.0 * std::sqrt(3.0));
+            }
+            // Where the solids overlap through the plane, low to high; false
+            // when they do not, low and high then the middles of A's and B's
+            bool overlap(const ch::ChFramed& into, double& low, double& high) const
             {
                 const double up = into.GetRotMat().GetAxisZ().z() < 0.0 ? -1.0 : 1.0;
                 double lowB = into.GetPos().z() + up * b->size.x;
@@ -6167,10 +6195,30 @@ Status ChronoSession::simulateDynamics(
                 if (lowB > highB) {
                     std::swap(lowB, highB);
                 }
-                const double low = std::max(a->size.x, lowB);
-                const double high = std::min(a->size.y, highB);
-                return low <= high ? 0.5 * (low + high)
-                                   : 0.25 * (a->size.x + a->size.y + lowB + highB);
+                low = std::max(a->size.x, lowB);
+                high = std::min(a->size.y, highB);
+                if (low <= high) {
+                    return true;
+                }
+                low = 0.5 * (a->size.x + a->size.y);
+                high = 0.5 * (lowB + highB);
+                return false;
+            }
+            // B's frame in A's 'into' slid along B's axis to the height z:
+            // B's profile there is its solid's section through A's plane at
+            // z, to within the square of its tilt -- the profile of a solid
+            // extruded along that axis is the same at any height along it.
+            // A tilted part's section moves across the plane with the
+            // height, which is what holds the tilt.
+            static ch::ChFramed sectionAt(const ch::ChFramed& into, double z)
+            {
+                const ch::ChVector3d axis = into.GetRotMat().GetAxisZ();
+                if (!(std::abs(axis.z()) > 1e-9)) {
+                    return into;
+                }
+                ch::ChFramed out = into;
+                out.SetPos(into.GetPos() + axis * ((z - into.GetPos().z()) / axis.z()));
+                return out;
             }
             // A point in the plane's terms to the load's, the bodies at a and
             // b, frame A's plane there fa
@@ -6211,6 +6259,8 @@ Status ChronoSession::simulateDynamics(
                 }
                 const ch::ChFramed fa = frameA >> bodyA;
                 const ch::ChFramed into = fa.TransformParentToLocal(frameB >> bodyB);
+                const double h = height(into, found.level);
+                const ch::ChFramed section = sectionAt(into, h);
                 bool known = true;
                 auto pieceA = [&](const void* key) {
                     for (const auto& p : profileA.pieces) {
@@ -6222,7 +6272,7 @@ Status ChronoSession::simulateDynamics(
                     return Profile2::Piece {};
                 };
                 auto pieceB = [&](const void* key) {
-                    return pieceIn(*static_cast<const ProfilePiece*>(key), into, mirrored);
+                    return pieceIn(*static_cast<const ProfilePiece*>(key), section, mirrored);
                 };
                 if (found.kind == Kind::ArcArc) {
                     // Each on the line of the centres, on the side it was
@@ -6236,7 +6286,7 @@ Status ChronoSession::simulateDynamics(
                     put(bodyA,
                         bodyB,
                         fa,
-                        height(into),
+                        h,
                         farthestOnOrEnd(p, u * found.sides[0]),
                         farthestOnOrEnd(q, u * found.sides[1]),
                         u * found.sides[2],
@@ -6255,7 +6305,6 @@ Status ChronoSession::simulateDynamics(
                 if (!known) {
                     return;
                 }
-                const double h = height(into);
                 if (onA) {
                     put(bodyA, bodyB, fa, h, x, y, out * -1.0, point);
                 }
@@ -6350,34 +6399,40 @@ Status ChronoSession::simulateDynamics(
                 load.points.push_back(point);
             }
             // A profile contact's points: B's profile brought into A's
-            // plane, where they touch (profileTouches()), each point at the
-            // height the solids overlap through the plane (height()); how
-            // each was found kept, for the load to find it again at each
-            // state it is given within the substep (ProfileFollow::place())
+            // plane, where they touch (profileTouches()), at each of the
+            // heights through where the solids overlap (levels()), B's
+            // section there; how each was found kept, for the load to find
+            // it again at each state it is given within the substep
+            // (ProfileFollow::place())
             for (std::size_t k = 0; k < profiles.size(); ++k) {
                 const ProfileFollow& follow = profiles[k];
                 ContactLoad& load = *follow.load;
                 const ch::ChFramed fa = follow.frameA >> *load.GetBodyA();
                 const ch::ChFramed fb = follow.frameB >> *load.GetBodyB();
                 const ch::ChFramed into = fa.TransformParentToLocal(fb);
-                const Profile2 profileB = profileIn(*follow.b, into, follow.mirrored);
-                profileTouches(follow.profileA, profileB, envelope, touches);
-                const double height = follow.height(into);
-                for (const ProfileTouch& touch : touches) {
-                    ContactLoad::Point point;
-                    ProfileFollow::put(*load.GetBodyA(),
-                                       *load.GetBodyB(),
-                                       fa,
-                                       height,
-                                       touch.onA,
-                                       touch.onB,
-                                       touch.normal,
-                                       point);
-                    point.piecesA = touch.piecesA;
-                    point.piecesB = touch.piecesB;
-                    point.found = touch.found;
-                    point.found.pair = k;
-                    load.points.push_back(point);
+                for (const double level : follow.levels(into)) {
+                    const double height = follow.height(into, level);
+                    const Profile2 profileB = profileIn(*follow.b,
+                                                        ProfileFollow::sectionAt(into, height),
+                                                        follow.mirrored);
+                    profileTouches(follow.profileA, profileB, envelope, touches);
+                    for (const ProfileTouch& touch : touches) {
+                        ContactLoad::Point point;
+                        ProfileFollow::put(*load.GetBodyA(),
+                                           *load.GetBodyB(),
+                                           fa,
+                                           height,
+                                           touch.onA,
+                                           touch.onB,
+                                           touch.normal,
+                                           point);
+                        point.piecesA = touch.piecesA;
+                        point.piecesB = touch.piecesB;
+                        point.found = touch.found;
+                        point.found.pair = k;
+                        point.found.level = level;
+                        load.points.push_back(point);
+                    }
                 }
             }
             for (auto& load : *loads) {

@@ -8337,3 +8337,22 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   radius 23, fillet edge 17, fillet point 6, fillet undo 23, primitive labels
   20, pad drag-reverse 13, edit menu 25 (button at the middle now; Settings
   has 3 spin boxes since the label ground setting), serve handle hint 10.
+
+### 2026-11-02: entry 242 -- COMMITTED `0f41b13b35`, not pushed, not staged
+
+- The reporter: the migration recompute box and the recompute error box are
+  not load modal.
+- Probed on a scanner2 copy, dev and staged: both boxes ARE input modal --
+  ApplicationModal, owned by the main window, the main HWND disabled, a menu
+  click and a native wheel in the 3D view blocked (the wheel moves the
+  camera with no box up). But the migration prompt comes from the end of the
+  open with the scene still building (isBuildingVisuals true at the box and
+  3 s into it): the box's event loop ran the progressive load's slices on.
+- Fix: Gui::Application::isLoadHeld() (a modal widget up); the view
+  provider drain's and the Part visual drain's timed slices wait, ask again
+  in 100 ms; a flush still runs through.
+- modal-box-holds-the-load.py: before (rtx58b) 616 visuals built under the
+  box, 2 FAIL; rtx59 6/6, none built under it, 600 of 600 after. scanner2
+  copy: 1 -> 1 under the migration box, 418 -> 418 under the error box, the
+  load ends after. drain-waits-for-premesh 14, pd-label-at-handle-foot 25,
+  ctest 1088/1088.

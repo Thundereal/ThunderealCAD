@@ -944,6 +944,16 @@ and not frozen.
 - A corner relief is drawn in the flat and folded back through the fold maps: the blank is what
   is cut, so its DXF carries the shape asked for.
 
+**Ruled 2026-11-02, M2's cutout:**
+- A cutout cuts normal to the sheet everywhere, across bends too: what the sketch's prism covers
+  on the sheet's skin is laid flat through the element's fold map and cut through the sheet from
+  there (a wall's straight through, a bend's along its radius), as the corner relief is; the hole
+  is then what a laser cuts in the blank. Pocket stays as it is, cutting along the sketch.
+- The sketch is taken onto the skin facing it: the side of the sheet the sketch looks at, along
+  the cut's way (against the sketch's normal, as a pocket's; `Reversed` the other way).
+- Through every wall and bend in the sketch's way by default (a U channel cut across both legs);
+  `UpToFirst` only the first the sketch meets.
+
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).
 

@@ -209,6 +209,59 @@ class TestSheetMetalHem(unittest.TestCase):
             hem, 40, 18 + 0.75 * math.pi + 6.95 + 0.55 * math.pi + 4.95, bends=2
         )
 
+    # The teardrop and the rolled hem (ruled 2026-11-02): a bend of their own
+    # Radius past 180 deg. A teardrop's leg heads back toward the wall and
+    # stops the hem's Gap short of the skin, so its Length is read only; a
+    # rolled hem is the bend alone, no Length and no Gap.
+
+    def testTeardrop(self):
+        """Radius 1, 225 deg, Gap 1: the leg's lowest corner starts
+        R (1 - cos 225) = 1.707 over the skin, and coming down at 45 deg
+        stops 1 over it after (1.707 - 1) / sin 45 = 1; the wall cut back
+        R + T = 2. A sector of (5 pi / 8) (2^2 - 1^2) = 15 pi / 8; the flat
+        18 + (1 + 0.5) 5 pi / 4 + 1 along"""
+        hem = self.far(HemType="Teardrop", Radius=1, Angle=225, Gap=1)
+        self.checkValid(hem)
+        self.assertIn("ReadOnly", hem.getPropertyStatus("Length"))
+        self.assertNotIn("ReadOnly", hem.getPropertyStatus("Gap"))
+        shape = hem.Shape
+        self.assertAlmostEqual(
+            shape.Volume, 40 * 20 - 40 * 2 + 40 * (15 * math.pi / 8 + 1), places=6
+        )
+        box = shape.BoundBox
+        self.assertAlmostEqual(box.YMax, 20, places=6)
+        self.assertAlmostEqual(box.ZMax, 4, places=6)
+        # in the leg, under it the gap, under that the wall
+        self.assertTrue(shape.isInside(V(20, 16.586, 2.707), 1e-9, True))
+        self.assertFalse(shape.isInside(V(20, 16.586, 1.5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(20, 16.586, 0.5), 1e-9, True))
+        # the drop's hollow
+        self.assertFalse(shape.isInside(V(20, 18, 2), 1e-9, True))
+        self.assertNotIn(None, self.owners(hem))
+        self.checkFlat(hem, 40, 19 + 15 * math.pi / 8)
+
+    def testTeardropTooTight(self):
+        """A bend too tight to reach its gap over the skin leaves no leg"""
+        hem = self.far(HemType="Teardrop", Radius=0.2, Angle=225, Gap=1)
+        self.assertIn("Invalid", hem.State)
+
+    def testRolled(self):
+        """Radius 1 through 270 deg, no leg: the wall cut back 2, a sector
+        of (3 pi / 4) (2^2 - 1^2); the flat 18 + (1 + 0.5) 3 pi / 2 along"""
+        hem = self.far(HemType="Rolled", Radius=1, Angle=270)
+        self.checkValid(hem)
+        self.assertIn("ReadOnly", hem.getPropertyStatus("Length"))
+        self.assertIn("ReadOnly", hem.getPropertyStatus("Gap"))
+        shape = hem.Shape
+        self.assertAlmostEqual(shape.Volume, 40 * 20 - 40 * 2 + 40 * 9 * math.pi / 4, places=6)
+        self.assertAlmostEqual(shape.BoundBox.ZMax, 4, places=6)
+        self.assertAlmostEqual(shape.BoundBox.YMax, 20, places=6)
+        # the roll at 225 deg, its middle; its hollow
+        self.assertTrue(shape.isInside(V(20, 16.94, 3.06), 1e-9, True))
+        self.assertFalse(shape.isInside(V(20, 18, 2), 1e-9, True))
+        self.assertNotIn(None, self.owners(hem))
+        self.checkFlat(hem, 40, 18 + 2.25 * math.pi)
+
     def testSaved(self):
         """Saved and reopened, it recomputes to the same solid"""
         hem = self.far(HemType="Open", Gap=0.5)

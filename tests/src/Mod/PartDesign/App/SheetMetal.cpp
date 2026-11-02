@@ -363,6 +363,54 @@ TEST(SheetMetalModel, owner)
     EXPECT_FALSE(m.contains(u.bottom, gp_Pnt(u.R + 1, 0, u.R + 5)));
 }
 
+// A teardrop (docs/SheetMetal.md sec 5.1): a bend past 180 deg, its leg
+// heading back down toward the plate it came from. The leg runs through 270
+// deg about the axis, where angles taken from -90 deg turned it into the
+// plate's side of the bend; the plate under it and far behind is the plate's.
+TEST(SheetMetalModel, pastHalfTurn)
+{
+    const double R = 1, T = 1, A = deg(225);
+    Model m;
+    m.thickness = T;
+    const int plate = m.addWall("Wall1", gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, -1)));
+    const CylBend b = upBend(R, T, A, 0.5);
+    // the leg's inner skin from the bend's end, the material out from the axis
+    const gp_Dir out(std::sin(A), 0, -std::cos(A));
+    const gp_Dir legAlong(std::cos(A), 0, std::sin(A));
+    const gp_Pnt legStart = gp_Pnt(0, 0, R).Translated(gp_Vec(out) * R);
+    const int leg = m.addWall("Wall2", gp_Ax3(legStart, out));
+    const int bend = m.addBend("Bend1", b, plate, leg);
+
+    for (double s : {0.5, 1.0, 2.0, 2.5}) {
+        const gp_Pnt p = legStart.Translated(gp_Vec(out) * 0.5 + gp_Vec(legAlong) * s);
+        EXPECT_EQ(m.owner(p), leg) << s;
+    }
+    EXPECT_EQ(m.owner(inBend(b, deg(200), 0.5, 0)), bend);
+    EXPECT_EQ(m.owner(gp_Pnt(-2.5, 0, -0.5)), plate);
+    EXPECT_EQ(m.owner(gp_Pnt(-50, 0, -0.5)), plate);
+    EXPECT_EQ(m.owner(gp_Pnt(-0.2, 0, -0.5)), plate);
+    // flat, the leg's inner skin goes on from the bend's arc along X
+    const gp_Pnt tip = legStart.Translated(gp_Vec(legAlong) * 2);
+    const gp_Pnt flat = m.toFlat(leg, tip, plate);
+    EXPECT_NEAR(flat.X(), A * (R + 0.5 * T) + 2, 1e-12);
+    EXPECT_NEAR(flat.Z(), 0, 1e-12);
+}
+
+// A roll of 300 deg: its end comes round below the axis, past where angles
+// taken from -90 deg turn; the bend's material there is the bend's, and lies
+// flat at its angle's length
+TEST(SheetMetalFold, roll)
+{
+    const CylBend b = upBend(1, 1, deg(300), 0.5);
+    for (double a : {deg(10), deg(150), deg(275), deg(299)}) {
+        const gp_Pnt p = inBend(b, a, 0.5, 0);
+        EXPECT_TRUE(b.contains(p)) << a;
+        EXPECT_NEAR(b.toFlat(p).Distance(b.toFlat(inBend(b, 0, 0.5, 0))), a * 1.5, 1e-12) << a;
+    }
+    EXPECT_FALSE(b.contains(inBend(b, deg(-10), 0.5, 0)));
+    EXPECT_FALSE(b.contains(inBend(b, deg(320), 0.5, 0)));
+}
+
 // Flat from the bottom: the top's far end on the inner skin is the hand sum
 // of the legs and the two allowances along X; from the top, the same sheet
 // moved, the top staying where it is

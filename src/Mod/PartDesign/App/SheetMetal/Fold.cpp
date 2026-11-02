@@ -34,7 +34,12 @@
 
 using namespace PartDesign::SheetMetal;
 
-void CylBend::polar(const gp_Pnt& point, double& a, double& r, double& z) const
+double CylBend::from() const
+{
+    return angle / 2 - std::numbers::pi;
+}
+
+void CylBend::polar(const gp_Pnt& point, double from, double& a, double& r, double& z) const
 {
     const gp_Vec v(frame.Location(), point);
     const double x = v.Dot(gp_Vec(frame.XDirection()));
@@ -42,15 +47,18 @@ void CylBend::polar(const gp_Pnt& point, double& a, double& r, double& z) const
     z = v.Dot(gp_Vec(frame.Direction()));
     r = std::hypot(x, y);
     a = std::atan2(y, x);
-    if (a < -std::numbers::pi / 2) {
+    while (a < from) {
         a += 2 * std::numbers::pi;
+    }
+    while (a >= from + 2 * std::numbers::pi) {
+        a -= 2 * std::numbers::pi;
     }
 }
 
 gp_Pnt CylBend::toFlat(const gp_Pnt& folded) const
 {
     double a, r, z;
-    polar(folded, a, r, z);
+    polar(folded, from(), a, r, z);
     return frame.Location().Translated(gp_Vec(frame.XDirection()) * r
                                        + gp_Vec(frame.YDirection()) * (a * neutral())
                                        + gp_Vec(frame.Direction()) * z);
@@ -84,7 +92,17 @@ gp_Trsf CylBend::refold() const
 int CylBend::side(const gp_Pnt& point) const
 {
     double a, r, z;
-    polar(point, a, r, z);
+    polar(point, -std::numbers::pi / 2, a, r, z);
+    if (a < 0) {
+        return -1;
+    }
+    return a > angle ? 1 : 0;
+}
+
+int CylBend::sideAfter(const gp_Pnt& point) const
+{
+    double a, r, z;
+    polar(point, angle + std::numbers::pi / 2 - 2 * std::numbers::pi, a, r, z);
     if (a < 0) {
         return -1;
     }
@@ -94,6 +112,6 @@ int CylBend::side(const gp_Pnt& point) const
 bool CylBend::contains(const gp_Pnt& point, double tol) const
 {
     double a, r, z;
-    polar(point, a, r, z);
+    polar(point, from(), a, r, z);
     return a >= 0 && a <= angle && r >= radius - tol && r <= radius + thickness + tol;
 }

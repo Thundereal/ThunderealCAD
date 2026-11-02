@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 
+#include <cmath>
 #include <numbers>
 
 #include <Precision.hxx>
@@ -45,7 +46,12 @@ using SheetMetal::Model;
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalHem, PartDesign::FeatureAddSub)
 
-const char* SheetMetalHem::HemTypeEnums[] = {"Closed", "Open", nullptr};
+const char* SheetMetalHem::HemTypeEnums[] = {"Closed", "Open", "Teardrop", "Rolled", nullptr};
+
+namespace
+{
+const App::PropertyQuantityConstraint::Constraints angleRange = {90.0, 330.0, 1.0};
+}
 const char* SheetMetalHem::PositionEnums[] = {"Inside", "Outside", nullptr};
 
 SheetMetalHem::SheetMetalHem()
@@ -61,18 +67,33 @@ SheetMetalHem::SheetMetalHem()
                       (0L),
                       "Sheet Metal",
                       App::Prop_None,
-                      "Closed: the skins the rule's Gap apart inside the fold; Open: Gap apart");
+                      "Closed: the skins the rule's Gap apart inside the fold; Open: Gap apart; "
+                      "Teardrop: a bend past 180 deg, its leg stopping Gap short of the skin; "
+                      "Rolled: the bend alone");
     HemType.setEnums(HemTypeEnums);
     ADD_PROPERTY_TYPE(Length,
                       (6.0),
                       "Sheet Metal",
                       App::Prop_None,
-                      "From the fold's outer face to the leg's end");
+                      "From the fold's outer face to the leg's end, a closed or open hem's");
     ADD_PROPERTY_TYPE(Gap,
                       (1.0),
                       "Sheet Metal",
                       App::Prop_None,
-                      "An open hem's gap between the skins inside the fold");
+                      "An open hem's gap between the skins inside the fold; a teardrop's "
+                      "between its leg and the skin");
+    ADD_PROPERTY_TYPE(Radius,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "A teardrop's or a rolled hem's inner radius");
+    ADD_PROPERTY_TYPE(Angle,
+                      (225.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "A teardrop's or a rolled hem's bend angle; a teardrop's past 180 deg, up "
+                      "to 270");
+    Angle.setConstraints(&angleRange);
     ADD_PROPERTY_TYPE(Position,
                       (0L),
                       "Sheet Metal",
@@ -85,7 +106,7 @@ SheetMetalHem::SheetMetalHem()
                       "Sheet Metal",
                       App::Prop_None,
                       "Fold toward the other skin than the one the edge is on");
-    showGapValue();
+    showTypeValues();
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -94,7 +115,8 @@ SheetMetalHem::SheetMetalHem()
 short SheetMetalHem::mustExecute() const
 {
     if (Edges.isTouched() || HemType.isTouched() || Length.isTouched() || Gap.isTouched()
-        || Position.isTouched() || Reversed.isTouched()) {
+        || Position.isTouched() || Reversed.isTouched() || Radius.isTouched()
+        || Angle.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -110,14 +132,19 @@ void SheetMetalHem::onChanged(const App::Property* prop)
         Edges.setValue(BaseFeature.getValue(), std::move(subs), std::move(shadows));
     }
     if (prop == &HemType) {
-        showGapValue();
+        showTypeValues();
     }
     FeatureAddSub::onChanged(prop);
 }
 
-void SheetMetalHem::showGapValue()
+void SheetMetalHem::showTypeValues()
 {
-    Gap.setStatus(App::Property::ReadOnly, HemType.getValue() == 0);
+    const long type = HemType.getValue();
+    const bool bent = type >= 2;
+    Length.setStatus(App::Property::ReadOnly, bent);
+    Gap.setStatus(App::Property::ReadOnly, type == 0 || type == 3);
+    Radius.setStatus(App::Property::ReadOnly, !bent);
+    Angle.setStatus(App::Property::ReadOnly, !bent);
 }
 
 App::DocumentObjectExecReturn* SheetMetalHem::execute()
@@ -146,16 +173,48 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
         }
         const auto hasher = getDocument()->getStringHasher();
 
-        // the skins' gap inside the fold, and the fold's inner radius
-        const double gap = HemType.getValue() == 0 ? rule->Gap.getValue() : Gap.getValue();
-        if (gap < Precision::Confusion()) {
-            THROWM(Base::ValueError, "A hem's skins are kept a gap apart, more than nothing");
+        // the bend's radius and angle, and the leg's length after it
+        const long type = HemType.getValue();
+        double R = 0, A = std::numbers::pi, leg = 0;
+        if (type <= 1) {
+            // the skins' gap inside the fold, the inner radius half of it
+            const double gap = type == 0 ? rule->Gap.getValue() : Gap.getValue();
+            if (gap < Precision::Confusion()) {
+                THROWM(Base::ValueError, "A hem's skins are kept a gap apart, more than nothing");
+            }
+            R = gap / 2;
+            leg = Length.getValue() - (R + T);
+            if (leg < Precision::Confusion()) {
+                THROWM(Base::ValueError,
+                       "A hem's length is more than its fold, the gap and the sheet");
+            }
         }
-        const double R = gap / 2;
-        const double A = std::numbers::pi;
-        const double leg = Length.getValue() - (R + T);
-        if (leg < Precision::Confusion()) {
-            THROWM(Base::ValueError, "A hem's length is more than its fold, the gap and the sheet");
+        else {
+            R = Radius.getValue();
+            A = Angle.getValue() * std::numbers::pi / 180;
+            if (R < Precision::Confusion()) {
+                THROWM(Base::ValueError, "A hem's radius is more than nothing");
+            }
+            if (type == 2) {
+                if (A <= std::numbers::pi + Precision::Angular()
+                    || A > 1.5 * std::numbers::pi + Precision::Angular()) {
+                    THROWM(Base::ValueError, "A teardrop bends past 180 deg, up to 270");
+                }
+                // The leg's corner nearest the skin starts R (1 - cos A) over
+                // it and comes down at -sin A a length; it stops Gap short
+                leg = (R * (1 - std::cos(A)) - Gap.getValue()) / -std::sin(A);
+                if (leg < Precision::Confusion()) {
+                    THROWM(Base::ValueError,
+                           "A teardrop's bend comes within its gap of the skin, with no room "
+                           "for a leg");
+                }
+            }
+            else if (A > 1.5 * std::numbers::pi
+                     && R - (R + T) * std::cos(A) < rule->Gap.getValue()) {
+                // past 270 deg, the roll's end comes back down to the skin
+                THROWM(Base::ValueError,
+                       "A rolled hem's end comes within the rule's gap of the skin");
+            }
         }
 
         std::vector<SheetMetal::WallEdge> edges;
@@ -207,18 +266,26 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             bend.angle = A;
             bend.k = rule->modelK(A, R);
 
-            // the leg goes on from the bend's end, back over the wall
+            // the leg goes on from the bend's end, back toward the wall
             const gp_Dir x2 = bend.frame.XDirection().Rotated(
                 gp_Ax1(bend.frame.Location(), bend.frame.Direction()), A);
             const gp_Dir legAlong = bend.frame.Direction().Crossed(x2);
             const gp_Pnt legStart = bend.frame.Location().Translated(gp_Vec(x2) * R);
             const int legWall = model.addWall(legName, gp_Ax3(legStart, x2, legAlong));
             model.addBend(bendName, bend, edge.wall, legWall);
+            if (type >= 2) {
+                // A teardrop's leg, or a roll's end with none, stops: its slab
+                // would run on through the wall it heads back to
+                model.elements[legWall].limits.emplace_back(
+                    legStart.Translated(gp_Vec(legAlong) * leg), legAlong);
+            }
 
             pieces.push_back(TopoShape(0, hasher).makEPrism(
                 SheetMetal::bendSection(bend, bendName), along));
-            pieces.push_back(TopoShape(0, hasher).makEPrism(
-                SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
+            if (leg > Precision::Confusion()) {
+                pieces.push_back(TopoShape(0, hasher).makEPrism(
+                    SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
+            }
         }
 
         if (!cuts.empty()) {

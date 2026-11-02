@@ -71,18 +71,28 @@ struct PartDesignExport CylBend
     gp_Trsf refold() const;
     /** Which part of the sheet a point is in, by its angle about the axis:
      * below 0 before the bend (the wall it starts from), 0 in it, above 0
-     * after it. Angles are taken from -90 deg, so a hem's far wall, beyond
-     * 180 deg, is after it.
+     * after it, as the wall before the bend sees it. Angles are taken from
+     * -90 deg, where that wall runs off to, so none of its points is after
+     * the bend.
      */
     int side(const gp_Pnt& point) const;
+    /** side() as the wall after the bend sees it: angles taken from where
+     * that wall runs off to, the bend's angle + 90 deg, so none of its points
+     * is before the bend. For a bend past 180 deg, a teardrop's, they run
+     * through -90 deg.
+     */
+    int sideAfter(const gp_Pnt& point) const;
     /// Whether the point is in the bend's material: in its angle, and
     /// between its skins within tol
     bool contains(const gp_Pnt& point, double tol = 1e-7) const;
 
 private:
-    /// The point's angle about the axis in [-pi / 2, 3 pi / 2), its distance
+    /// The point's angle about the axis in [from, from + 2 pi), its distance
     /// from the axis and its place along it
-    void polar(const gp_Pnt& point, double& a, double& r, double& z) const;
+    void polar(const gp_Pnt& point, double from, double& a, double& r, double& z) const;
+    /// Where the bend's own angles are taken from: halfway round the turn it
+    /// leaves out, so a roll's material past 270 deg is the bend's
+    double from() const;
 };
 
 }  // namespace PartDesign::SheetMetal

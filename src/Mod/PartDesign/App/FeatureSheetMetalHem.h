@@ -40,10 +40,13 @@ namespace PartDesign
  * hem folds toward the side of that skin, Reversed toward the other. A
  * closed hem is a 180 deg bend whose inner skins are the rule's Gap apart,
  * so that they never touch (ruled 2026-11-02); an open one the same with a
- * gap of its own. Inside puts the fold's outer face where the wall ended,
- * the wall cut back under it; Outside adds the fold past the end. Length
- * runs from the fold's outer face to the leg's end. Edges meeting at a
- * corner are refused, as their hems would fold into each other.
+ * gap of its own. Length runs from the fold's outer face to the leg's end.
+ * A teardrop bends through Angle, past 180 deg, with Radius, and its leg
+ * heads back toward the skin and stops Gap short of it; a rolled hem is
+ * that bend alone. Inside puts the fold's outer face where the wall ended,
+ * the wall cut back under it; Outside adds the fold past the end. Edges
+ * meeting at a corner are refused, as their hems would fold into each
+ * other.
  */
 class PartDesignExport SheetMetalHem : public FeatureAddSub, public SheetMetalExtension
 {
@@ -54,12 +57,17 @@ public:
 
     /// The edges, of the feature the hem builds on
     App::PropertyLinkSub Edges;
-    /// Closed: the rule's Gap inside; Open: Gap inside
+    /// Closed: the rule's Gap inside; Open: Gap inside; Teardrop: a bend
+    /// past 180 deg, its leg stopping Gap short of the skin; Rolled: the bend
     App::PropertyEnumeration HemType;
-    /// From the fold's outer face to the leg's end
+    /// From the fold's outer face to the leg's end, a closed or open hem's
     App::PropertyLength Length;
-    /// An open hem's gap between the skins; read only for a closed one
+    /// An open hem's gap between the skins, a teardrop's between its leg and
+    /// the skin
     App::PropertyLength Gap;
+    /// A teardrop's or a rolled hem's inner radius and angle
+    App::PropertyLength Radius;
+    App::PropertyAngle Angle;
     /// Inside: the fold's outer face where the wall ended; Outside: past it
     App::PropertyEnumeration Position;
     App::PropertyBool Reversed;
@@ -78,8 +86,8 @@ public:
     }
 
 private:
-    /// Gap read only while the hem is closed
-    void showGapValue();
+    /// The values a hem's type does not use, read only
+    void showTypeValues();
 
     static const char* HemTypeEnums[];
     static const char* PositionEnums[];

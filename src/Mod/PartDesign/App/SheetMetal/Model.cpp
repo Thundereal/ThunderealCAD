@@ -108,7 +108,7 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
         if (bend.before == index && bend.bend.side(point) > 0) {
             return false;
         }
-        if (bend.after == index && bend.bend.side(point) < 0) {
+        if (bend.after == index && bend.bend.sideAfter(point) < 0) {
             return false;
         }
     }

@@ -826,8 +826,8 @@ and not frozen.
     rendering showed a slot's half circles bulging into it: turning Y to run down turns SVG's
     sweep too). Qt's own SVG renderer drops text of a small user-unit size at some scales, so a
     label can be missing in a Qt view of the file; Chrome and Inkscape draw it.
-- M2's hem, `PartDesign::SheetMetalHem` (5.1, ruled 2026-11-02), closed and open, with
-  `TestSheetMetalHem` (10), its command, icon and panel. As built:
+- M2's hem, `PartDesign::SheetMetalHem` (5.1, ruled 2026-11-02), with `TestSheetMetalHem`
+  (13), its command, icon and panel. As built:
   - On edges where a wall's skin meets its end, as the flange's (the edge read by
     `SheetMetal::wallEdge()`, which the flange now uses too); toward the side of that skin,
     `Reversed` toward the other.
@@ -837,11 +837,26 @@ and not frozen.
     leaves no leg and is refused.
   - `Position` `Inside` (the default) cuts the wall back R + T so the fold's outer face is where
     the wall ended; `Outside` adds the fold past the end.
-  - In the model, a bend and a wall (the leg) as a flange's; the flat lays the hem out with
-    K's allowance at its radius.
+  - `Teardrop`: a bend of the hem's own `Radius` through `Angle`, past 180 deg up to 270, its
+    leg heading back toward the skin and stopping `Gap` short of it (its corner nearest the
+    skin starts R (1 - cos A) over it and comes down at -sin A a length), so `Length` is read
+    only; one whose bend comes within its gap of the skin has no leg and is refused. `Rolled`:
+    the bend alone, from 90 deg up to where its end would come back within the rule's `Gap` of
+    the skin; `Length` and `Gap` read only. Inside cuts both back R + T, their reach past the
+    wall's end.
+  - In the model, a bend and a wall (the leg) as a flange's; a teardrop's leg and a roll's end
+    (a wall with no material) stop at a limit plane where the leg ends, as their slabs would
+    run on through the wall they head back to. The flat lays the hem out with K's allowance at
+    its radius.
+  - A bend past 180 deg: which side of a bend a point is on was its angle about the axis taken
+    from -90 deg, where the wall before the bend runs off to; a teardrop's leg runs through
+    there, and was taken as before the bend, owned by nothing. Each wall now takes the angles
+    from where it runs off to (`CylBend::side()`, `sideAfter()`), and the bend's own material
+    from halfway round the turn it leaves out, so a roll past 270 deg is its own; nothing
+    changes for a bend up to 180 deg. gtests `SheetMetalModel.pastHalfTurn`,
+    `SheetMetalFold.roll`.
   - Two edges of one hem meeting at a corner are refused, as their folds would run into each
-    other; a hem narrower than its edge (gaps, so a relief) is not built yet, nor the teardrop
-    and rolled types.
+    other; a hem narrower than its edge (gaps, so a relief) is not built yet.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

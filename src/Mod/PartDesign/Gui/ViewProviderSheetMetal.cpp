@@ -116,7 +116,13 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalHem::getEditDialog()
         new TaskSheetMetalParameters(this,
                                      "PartDesign_SheetMetalHem",
                                      QObject::tr("Hem parameters"),
-                                     {"HemType", "Length", "Gap", "Position", "Reversed"},
+                                     {"HemType",
+                                      "Length",
+                                      "Gap",
+                                      "Radius",
+                                      "Angle",
+                                      "Position",
+                                      "Reversed"},
                                      "Edges",
                                      "Edge"));
 }

@@ -807,8 +807,10 @@ double huntCrossley(double restitution)
 // other's ('across'), the other point the nearest on that line; or at an
 // arc of A's against one of B's (ArcArc), each point on the line of their
 // centres, 'sides' the signs along it, from A's centre to B's, of A's point
-// from its centre, B's from its, and the normal. None for the others, not
-// found again (profileTouches()). 'pair', the profiles' pair of faces;
+// from its centre, B's from its, and the normal; or at a convex corner of
+// A's or B's, the 'from' of piece 'at', against a piece of the other's, the
+// other point the nearest on it (CornerA, CornerB). None for the others,
+// not found again (profileTouches()). 'pair', the profiles' pair of faces;
 // 'level', the height through their overlap it was taken at
 // (ProfileFollow::height()).
 struct ProfileFound
@@ -818,7 +820,9 @@ struct ProfileFound
         None,
         ArcA,
         ArcB,
-        ArcArc
+        ArcArc,
+        CornerA,
+        CornerB
     };
     Kind kind = Kind::None;
     const void* at = nullptr;
@@ -1538,19 +1542,22 @@ void profileTouches(const Profile2& a,
     };
     using Kind = ProfileFound::Kind;
     // How a point was found, for following it within a substep: an arc's
-    // farthest point across a line, or an arc's against an arc on the line
-    // of their centres ('centres', the two arcs'; the sides it was found on
-    // kept), only where the other's nearest is on that line or arc -- not
-    // at a corner, or on a piece beside it, from which that point is not
-    // the one. Not a corner's: a point of its material, exact on its side;
-    // followed with the arcs, against the nearest on the other's piece, a
-    // Geneva drive's second turn ran its Newton iterations off (each alone
-    // did not; the cause not found).
+    // farthest point across a line, an arc's against an arc on the line of
+    // their centres ('centres', the two arcs'; the sides it was found on
+    // kept), or a corner's against the piece of the other's nearest it --
+    // only where the other's nearest is on that line or arc, not at a
+    // corner, or on a piece beside it, from which that point is not the
+    // one. The corner is a point of its material, but the other's nearest
+    // slides along its piece: fixed, a knife-edge follower's force on a
+    // disk cam read 4.5% off.
     auto followed = [](ProfileFound found,
                        const OnProfile& y,
                        V2 x,
                        V2 normal,
                        const std::array<V2, 2>& centres) {
+        if (found.kind == Kind::CornerA || found.kind == Kind::CornerB) {
+            found.across = y.pieces[0];
+        }
         if (y.pieces[1] || y.pieces[0] != found.across) {
             found.kind = Kind::None;
         }
@@ -1599,13 +1606,13 @@ void profileTouches(const Profile2& a,
     for (std::size_t k = 0; k < a.pieces.size(); ++k) {
         const Profile2::Piece& p = a.pieces[k];
         if (a.corner[k] && near(p.from, b)) {
-            fromA(p.from, {a.pieces[p.prev].key, p.key}, {});
+            fromA(p.from, {a.pieces[p.prev].key, p.key}, {Kind::CornerA, p.key, nullptr});
         }
     }
     for (std::size_t k = 0; k < b.pieces.size(); ++k) {
         const Profile2::Piece& q = b.pieces[k];
         if (b.corner[k] && near(q.from, a)) {
-            fromB(q.from, {b.pieces[q.prev].key, q.key}, {});
+            fromB(q.from, {b.pieces[q.prev].key, q.key}, {Kind::CornerB, q.key, nullptr});
         }
     }
     for (const auto& p : a.pieces) {
@@ -6291,6 +6298,39 @@ Status ChronoSession::simulateDynamics(
                         farthestOnOrEnd(q, u * found.sides[1]),
                         u * found.sides[2],
                         point);
+                    return;
+                }
+                if (found.kind == Kind::CornerA || found.kind == Kind::CornerB) {
+                    // The corner where it is; the nearest on the other's
+                    // piece, a line's (nearestOnLine()), or an arc's on the
+                    // line from its centre through the corner, each held at
+                    // its ends, the normal out of its material there
+                    const bool cornerA = found.kind == Kind::CornerA;
+                    const V2 x = cornerA ? pieceA(found.at).from : pieceB(found.at).from;
+                    const Profile2::Piece other =
+                        cornerA ? pieceB(found.across) : pieceA(found.across);
+                    if (!known) {
+                        return;
+                    }
+                    V2 y;
+                    V2 out;
+                    if (other.sweep == 0.0) {
+                        nearestOnLine(other, x, y, out);
+                    }
+                    else {
+                        const V2 u = unit(x - other.centre);
+                        if (norm(u) == 0.0) {
+                            return;
+                        }
+                        y = farthestOnOrEnd(other, u);
+                        out = other.sweep > 0.0 ? u : u * -1.0;
+                    }
+                    if (cornerA) {
+                        put(bodyA, bodyB, fa, h, x, y, out * -1.0, point);
+                    }
+                    else {
+                        put(bodyA, bodyB, fa, h, y, x, out, point);
+                    }
                     return;
                 }
                 // The arc's point farthest across the line, into its side;

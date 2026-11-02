@@ -1961,7 +1961,43 @@ Phase D1 is under way (2026-10-28):
     the hole's section moves along the pin's arc: held as well, 1.2e-4
     rad down to 1.2e-6 in the second.
   - Not yet: a corner against a curved piece; the cause of the corners'
-    run-off.
+    run-off. (Both: built, and not reproduced, below.)
+- Built: a profile contact's corner followed within a substep (the "not
+  yet" above): a knife-edge follower on a cam, a slot's corner sliding on
+  a locking disc.
+  - Measured first: the disk cam under a knife edge -- a wedge's corner
+    on a stem, on the slider -- its force along the slider m (g + y''),
+    y = E sin theta + sqrt(R^2 - (E cos theta)^2): 4.5% off at worst with
+    the points fixed. The corner is a point of its material, but the
+    disk's point under it slid off as the cam turned, and with it the
+    normal: the damping's error again, first order in the substep.
+  - The run (ChronoBackend): profileTouches() keeps a convex corner of
+    A's or B's against the piece of the other's nearest it as
+    `ProfileFound::Kind::CornerA` / `CornerB` -- 'at' the piece the corner
+    starts, 'across' that nearest piece, only where the nearest is on one
+    piece; `ProfileFollow::place()` takes the corner where it is and the
+    nearest on that piece: a line's (nearestOnLine()), or an arc's on the
+    line from its centre through the corner, held at its ends
+    (farthestOnOrEnd()), the normal out of its material there, as
+    nearestOn() has it.
+  - The run-off (the "not followed" of the arcs against lines): not
+    reproduced. With corners followed beside the arcs, the Geneva drive's
+    two turns run at both output steps, the wheel's angles within 0.00087
+    deg of each other (0.0013 before, the slots' corners sliding on the
+    locking disc now followed), within 0.008 deg of the run before. As
+    for the arcs against arcs, the run-off came with the attempts since
+    replaced -- the points dropped back to collision detection's, the
+    side read off ends.
+  - Tests (TestProfileContact, test_disk_cam_knife_follower): the force
+    along the slider m (g + y'') at every frame past 45 deg to 1e-3
+    (6.4e-5 measured; 0.87% off at 45 deg before), its lean the pressure
+    angle asin(E cos theta / R') to 0.01 deg, R' the disk's radius less
+    the allowance the edge sinks (4.5e-4 deg). TestAssemblyWorkbench 580
+    OK, 88 skipped. In the manual's video (`assembly/simulation/
+    profile-knife`): within 0.0064% past 45 deg, a frame here and there
+    flicking that far, the lean within 0.0005 deg.
+  - Not yet: a point whose other's nearest is a vertex -- a corner on a
+    corner, an arc past the end of a line -- is not followed.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

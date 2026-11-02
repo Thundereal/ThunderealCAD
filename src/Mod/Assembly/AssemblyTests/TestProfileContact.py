@@ -247,6 +247,27 @@ class TestProfileContact(unittest.TestCase):
         roller = self.disc(0, height(0), r)
         self.ride_disk_cam(roller, App.Vector(0, 0, 10), height, "roller", reach)
 
+    def test_disk_cam_knife_follower(self):
+        """The same disk cam under a knife edge, a wedge's corner on a stem:
+        a corner against an arc, the point on the disk sliding round it. The
+        force is along the disk's radius through the edge, leaning off the
+        slider by asin(E cos theta / R), R the disk's less the allowance the
+        edge sinks; along the slider it is m (g + y''), y = E sin theta +
+        sqrt(R^2 - (E cos theta)^2): to 1e-3 at every frame past 45 deg, and
+        the lean to 0.01 deg. With the disk's point fixed through each
+        substep, the force read 4.5% off."""
+        import Part
+
+        def height(theta):
+            return math.sqrt(CAM_RADIUS**2 - (CAM_E * math.cos(theta)) ** 2)
+
+        corners = [App.Vector(0, 0, 0), App.Vector(5, 8, 0), App.Vector(-5, 8, 0)]
+        wedge = Part.Face(Part.makePolygon(corners + corners[:1])).extrude(App.Vector(0, 0, 10))
+        knife = self.assembly.newObject("Part::Feature", "Knife")
+        knife.Shape = wedge.fuse(Part.makeBox(6, 30, 10, App.Vector(-3, 8, 0))).removeSplitter()
+        knife.Placement.Base = App.Vector(0, height(0), 0)
+        self.ride_disk_cam(knife, App.Vector(0, 0, 10), height, "knife", CAM_RADIUS - ALLOWANCE)
+
     def test_pin_in_hole_pendulum(self):
         """A bar hung by a hole of 3.005 mm on a grounded pin of 3 mm, let go
         at 30 deg, gravity in the plane, frictionless: an arc in a hollow of

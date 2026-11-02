@@ -163,6 +163,48 @@ class TestSheetMetalTab(unittest.TestCase):
         self.assertEqual(flat.BendCount, 1)
         self.assertAlmostEqual(flat.FlatArea.Value, before + 50, places=5)
 
+    @staticmethod
+    def facesIn(shape, point, normal):
+        """How many faces of a shape lie in the plane through point, normal"""
+        p, n = V(*point), V(*normal)
+        count = 0
+        for f in shape.Faces:
+            s = f.Surface
+            if not isinstance(s, Part.Plane) or abs(abs(s.Axis.dot(n)) - 1) > 1e-9:
+                continue
+            if abs((s.Position - p).dot(n)) < 1e-7:
+                count += 1
+        return count
+
+    def testOneSkin(self):
+        """The wall a tab joins keeps a skin of one face each side, no seam
+        where the tab meets it, on the part and in the flat"""
+        tab = self.tab(self.sketch(rect=((35, 5), (50, 15))))
+        self.checkValid(tab)
+        for z in (0, 1):
+            self.assertEqual(self.facesIn(tab.Shape, (0, 0, z), (0, 0, 1)), 1, msg=z)
+        flat = self.flat(tab)
+        bb = flat.Shape.BoundBox
+        for z in (bb.ZMin, bb.ZMax):
+            self.assertEqual(self.facesIn(flat.Shape, (0, 0, z), (0, 0, 1)), 1, msg=z)
+
+    def testOneSkinOnFlange(self):
+        """A tab on a flange's leg past its end: the leg's skins one face each"""
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (self.Plate, [edgeOf(self.Plate, (40, 0, 1), (40, 20, 1))])
+        self.Doc.recompute()
+        bb = flange.Shape.BoundBox
+        rot = FreeCAD.Rotation(V(0, 1, 0), V(0, 0, 1), V(1, 0, 0), "ZXY")
+        tab = self.tab(
+            self.sketch(
+                placement=FreeCAD.Placement(V(bb.XMax, 0, 0), rot),
+                rect=((5, bb.ZMax - 1), (15, bb.ZMax + 5)),
+            )
+        )
+        self.checkValid(tab)
+        for x in (bb.XMax - 1, bb.XMax):
+            self.assertEqual(self.facesIn(tab.Shape, (x, 0, 0), (1, 0, 0)), 1, msg=x)
+
     def testRefused(self):
         """Off the plate; an open sketch; past a bend of its wall"""
         tab = self.tab(self.sketch(rect=((45, 5), (55, 15))))

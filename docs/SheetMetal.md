@@ -890,16 +890,17 @@ and not frozen.
 - A fold on a sketched line moves the side of the part picked, and what is already on that side
   (holes, pockets) goes with it, through each element's fold map.
 
-**Ruled 2026-11-02, M2's corners:**
+**Ruled 2026-11-02, M2's corners** (Butt's meaning and the relief's cut the same day):
 - Two flanges of separate features meeting at a corner: the later one miters itself against the
   earlier, the same halving plane and the rule's `Gap` as within one flange, and the corner
   relief applies there too.
 - Corner closure: a feature on two legs meeting at a corner, `Butt` (the default), `Overlap` or
   `Underlap`, with the rule's `Gap`; it carries the legs' sides on to close the corner, as
-  SOLIDWORKS's Closed Corner.
-- How a corner relief is cut is open: drawn in the flat and folded back through the fold maps
-  (recommended: the blank is what is cut, so its DXF carries the shape asked for), or cut
-  through the folded part.
+  SOLIDWORKS's Closed Corner. `Butt` is both legs carried on to the plane halving the corner,
+  the gap between (a miter, as the automatic one), not square ends leaving the outside corner
+  open.
+- A corner relief is drawn in the flat and folded back through the fold maps: the blank is what
+  is cut, so its DXF carries the shape asked for.
 
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).

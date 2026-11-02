@@ -1605,8 +1605,14 @@ def sensorPair(obj):
 
 
 def contactComponents(contact):
-    """The components a contact set's pairs are of, for a sensor's pair"""
+    """The components a contact set's pairs are of, for a sensor's pair: a
+    cam contact's its cam and its follower"""
     out = []
+    joint = getattr(contact, "Joint", None)
+    if contact.isDerivedFrom("Assembly::CamContact") and joint is not None:
+        import JointObject
+
+        out += [JointObject.sideMovingPart(joint, 1), JointObject.sideMovingPart(joint, 2)]
     for name in ("GroupA", "GroupB"):
         out += list(getattr(contact, name, None) or [])
     for name in ("ProfileA", "ProfileB"):

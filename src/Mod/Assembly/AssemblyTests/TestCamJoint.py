@@ -532,6 +532,69 @@ class TestCamJoint(CamMechanism, JointTestBase):
                     if c["Object"] == lifted}
         self.assertIn("CamPressureAngle", channels)
 
+    def test_cam_contact_events_name_cam_and_follower(self):
+        """A cam contact's events name its cam and its follower, the cam
+        first: the roller fixed to a stem (the stem first in their group),
+        thrown off the cam at 45 rad/s, a little faster than gravity keeps it
+        on (40.4 rad/s), hops along it four turns, every let go and landing
+        (cam, roller), not the stem its group is. A sensor on the roller and
+        the cam marks each landing, one on the stem and the cam none.
+
+        No speed below none: some hops graze the cam, the free acceleration
+        changing fast, and their speeds, carried from an end with the
+        acceleration there, read below none: here the first let go at -5.9
+        mm/s; in the manual's video (cam-pair) landings at -12.8, which the
+        sensor at none missed, 18 marks of 20"""
+        if "Chrono" not in self.backends():
+            self.skipTest("the Chrono backend is not built")
+        import CommandCreateContact
+        import CommandCreateSimulation
+
+        rate = 45.0
+        cam, rev, f = self.disk_mechanism(ROLLER)
+        stem = self.box("Stem", plc(-2, f.Placement.Base.y - 2, CAM_H + 4), size=4.0)
+        self.joint("Fixed", (stem, ["Face5"]), plc(2, 2, 0), (f, ["Face2"]), plc(0, 0, 4))
+        self.doc.recompute()
+        joint = [
+            o
+            for o in self.assembly.getGroup("Joints").Group
+            if getattr(o, "JointType", None) == "Cam"
+        ][0]
+        lifted = CommandCreateContact.newCamContact(self.assembly, joint)
+        self.assertEqual(CommandCreateSimulation.contactComponents(lifted), [cam, f])
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.Gravity = App.Vector(0, -9806.65, 0)
+        turn = 2 * math.pi / rate
+        sim.TimeEnd = 4 * turn
+        sim.TimeStepOutput = turn / 120
+        sim.Elements = [lifted]
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = rev
+        motion.MotionType = "Angular"
+        motion.Formula = "%g*time" % rate
+        on_roller = CommandCreateSimulation.newSensor(
+            sim, lifted, "ContactBegin", 0.0, action="Mark", pair=[f, cam]
+        )
+        on_stem = CommandCreateSimulation.newSensor(
+            sim, lifted, "ContactBegin", 0.0, action="Mark", pair=[stem, cam]
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        events = self.assembly.getSimulationResults()["Events"]
+        contacts = [e for e in events if e["Kind"] in ("ContactBegin", "ContactEnd")]
+        self.assertEqual(contacts[0]["Kind"], "ContactEnd", contacts)
+        made = [e for e in contacts if e["Kind"] == "ContactBegin"]
+        self.assertGreaterEqual(len(made), 12, contacts)
+        for e in contacts:
+            self.assertEqual(e["Bodies"], (cam, f), e)
+            self.assertGreaterEqual(e["Value"], 0.0, e)
+        marks = [e for e in events if e["Kind"] == "Sensor" and e["Object"] == on_roller]
+        self.assertEqual([m["Time"] for m in marks], [e["Time"] for e in made])
+        self.assertEqual([e for e in events if e["Kind"] == "Sensor" and e["Object"] == on_stem],
+                         [])
+
     def ride_on_gravity(self, roller, rate, mark=False):
         """The disk cam turning once at rate, a cam contact holding the
         follower on it under gravity down the slider, 200 frames, with mark a

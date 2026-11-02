@@ -8136,7 +8136,12 @@ Status ChronoSession::simulateDynamics(
     // start, -11.7 m/s^2 for g's -9.8 where the ball left, and its velocity
     // settles in the substep after -- read where it left, the ball left
     // 0.06% to 0.28% slower than its flight took; a substep on, to 1e-6 of
-    // the speed it comes back in at, and the same two and three on.
+    // the speed it comes back in at, and the same two and three on. Never
+    // below none: the depth crossed none the way it went, and a speed the
+    // other way is the carry's, whose acceleration is the one at an end --
+    // a cam's follower grazing its cam, the free acceleration changing fast,
+    // read coming in at -12.8 mm/s and leaving at -32.6 (the manual's
+    // cam-pair video), and a sensor on every contact made missed those.
     auto bodyName = [&](const ch::ChBody* body) {
         for (std::size_t b = 0; b < run.d->bodies.size() && b < si.bodies.size(); ++b) {
             if (run.d->bodies[b].get() == body) {
@@ -8172,7 +8177,8 @@ Status ChronoSession::simulateDynamics(
             const Touch touch = touchOf(*q.reading);
             if (std::isfinite(touch.depth)) {
                 q.event.value =
-                    -(touch.rate - (time - q.event.time) * touch.accel) / SI::velocity;
+                    std::max(-(touch.rate - (time - q.event.time) * touch.accel) / SI::velocity,
+                             0.0);
             }
             q.reading = nullptr;
         }
@@ -8205,7 +8211,7 @@ Status ChronoSession::simulateDynamics(
             event.kind = now ? Event::Kind::ContactBegin : Event::Kind::ContactEnd;
             event.time = t0 + f * h;
             event.source = si.sourceName(si.dynamics->contacts[load.set].source);
-            event.value = (now ? rate : -rate) / SI::velocity;
+            event.value = std::max((now ? rate : -rate) / SI::velocity, 0.0);
             // The parts of its deepest point where it presses: at the end
             // made, at the start let go
             const Touch& pressed =

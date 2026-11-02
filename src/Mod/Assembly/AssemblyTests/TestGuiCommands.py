@@ -1627,8 +1627,12 @@ class TestGuiCommands(unittest.TestCase):
         j = self.jointgroup.newObject("App::FeaturePython", "Cam")
         JointObject.Joint(j, JointObject.JointTypes.index("Cam"))
         JointObject.ViewProviderJoint(j.ViewObject)
+        j.Detach1 = True
+        j.Detach2 = True
+        j.Reference1 = (self.cyl1, ["Edge1"])
+        j.Reference2 = (self.box, ["Vertex1"])
         cam = CommandCreateContact.newCamContact(self.assembly, j)
-        plain = CommandCreateContact.newContactSet(self.assembly, [self.box], [self.cyl1])
+        plain =CommandCreateContact.newContactSet(self.assembly, [self.box], [self.cyl1])
         profile = CommandCreateContact.newProfileContact(
             self.assembly, self.box, ["Face6"], self.cyl1, ["Face2"]
         )
@@ -1675,6 +1679,13 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(obj.Quantity, "CamSideForce")
         self.assertEqual(obj.Component, "X")
         self.assertEqual(obj.Label, cam.Label + ": Cam side load X above 2 N")
+        # Its events' pair: of its cam and its follower, the joint's sides,
+        # not of every component
+        quantity.setCurrentIndex(quantity.findData("ContactEnd"))
+        self.assertTrue(dialog.pairCombos[0].isEnabled())
+        for combo in dialog.pairCombos:
+            parts = [combo.itemData(i) for i in range(combo.count())]
+            self.assertEqual(parts, [None, self.cyl1, self.box])
         self.assertClean()
 
     def test_profile_contact(self):

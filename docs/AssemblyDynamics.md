@@ -1674,7 +1674,8 @@ Phase D1 is under way (2026-10-28):
     landing's time.
   - Not yet: a count that starts again (every third); Crosses on an
     event's speed; a pair of a cam's contact named by its cam and
-    follower. (The count that starts again: built, below.)
+    follower. (The count that starts again, and the cam's pair: built,
+    below.)
 - Built: a cam's pressure angle and slip (sec 8.5's measures "for a cam:
   pressure angle and slip velocity"; the cams' "not yet").
   - The run (ChronoBackend): a cam contact's set (`ContactPair::cam`)
@@ -2104,6 +2105,38 @@ Phase D1 is under way (2026-10-28):
     27 contacts made and 9 marks of every 3rd, each at its contact's time
     exactly; 26 let go and 26 marks of every 2nd force crossing, each
     within 1e-7 s of its let go.
+- Built: a cam contact's pair named by its cam and its follower (the
+  counts' "not yet" above).
+  - The run named them already: a cam contact's points carry the Cam
+    joint's frames, I on the cam and J on the follower, and an event the
+    parts of those (`partName()`), the cam first -- a follower fixed to a
+    stem, the stem first in their group, is the follower and not the stem.
+  - The dialog did not: `contactComponents()` read a set's GroupA and
+    GroupB and a profile contact's profiles, which a cam contact has none
+    of, and fell back to every movable part of the assembly. It now takes
+    a cam contact's Joint's two sides (`JointObject.sideMovingPart()`),
+    the cam and the follower, so its sensor's pair offers those two.
+  - Found on the way, and fixed: an event's speed read below none. A
+    contact made is carried forward from its substep's start, and one let
+    go back from a substep after, each with the acceleration at that end;
+    where the free acceleration changes fast -- a cam's follower grazing
+    the cam -- that takes it past none, a hop's landing at -12.8 mm/s and
+    a lift-off at -32.6, and a sensor on every contact made (speed at
+    least 0) missed those landings. The depth crossed none the way it
+    went, so the speed is now never below none (`noteTouch()`,
+    `readLeaving()`).
+  - Tests: TestCamJoint, test_cam_contact_events_name_cam_and_follower --
+    the disk cam at 45 rad/s, a little above the 40.4 at which gravity
+    keeps the follower on, a roller fixed to a stem (the stem first in
+    their group) hopping along it four turns: every let go and landing
+    (cam, roller) and none below none; a sensor on (roller, cam) marking
+    every landing at its time, one on (stem, cam) none;
+    contactComponents() the cam and the roller. Before, the first let go
+    read -5.9 mm/s. TestGuiCommands' cam sensor quantities: the pair's
+    boxes offer the cam and the follower alone (before: every part).
+  - Not yet: a grazing contact's speed itself -- floored, not found: the
+    carry takes the acceleration at one end, which a hop's lift-off and
+    a grazing landing change within the substep.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

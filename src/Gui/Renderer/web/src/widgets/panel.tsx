@@ -19,7 +19,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import type { Accessor, JSX } from 'solid-js';
 
-import { NARROW, draggable, fitOnScreen, loadPos, posStyle } from '../panel.ts';
+import { NARROW, announcePanel, draggable, fitOnScreen, loadPos, posStyle } from '../panel.ts';
 import type { Pos } from '../panel.ts';
 import { Portal } from 'solid-js/web';
 
@@ -189,6 +189,11 @@ export function TaskPanelCard(props: {
   const [picked, setPicked] = createSignal<Record<string, string>>({});
   let client: PanelClient | null = null;
   let panelRef: HTMLDivElement | undefined;
+  // a drag moves the card without resizing it: announced from here
+  createEffect(() => {
+    pos();
+    window.dispatchEvent(new CustomEvent('fc:panelsmoved'));
+  });
 
   // The client is made on first open and let go on close: the host stops
   // the mirror with its last subscriber, so a closed card costs the
@@ -931,7 +936,11 @@ export function TaskPanelCard(props: {
 
   return (
     <Show when={props.open()}>
-      <div class="fc-panel" ref={panelRef} style={posStyle(pos())}>
+      <div class="fc-panel" style={posStyle(pos())}
+           ref={(el: HTMLDivElement) => {
+             panelRef = el;
+             announcePanel(el);
+           }}>
         <div class="fc-panel-head"
              ref={(el: HTMLDivElement) => {
                draggable(el, () => panelRef as HTMLDivElement, setPos, POS_KEY);

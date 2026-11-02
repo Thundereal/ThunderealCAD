@@ -2276,7 +2276,7 @@ body, a Cancel, and both editing at once -- each sent their own panel and
 not the other's, alice's OK leaving bob in his edit. 15 and 14 checks;
 before, no client had a panel (every typed value failed).
 
-Not done: a real browser on two pages, by hand.
+A real browser on two pages: sec 16.2.
 
 ### 16.1 Pictures on a page out of sight
 
@@ -2305,3 +2305,34 @@ Pad1 panel, served under PerViewEdit, given a painted leaf -- its picture
 at its laid-out size and colour, a recolour reaching her within a poll,
 a still leaf keeping its id, the polls rebuilding nothing (5 checks).
 Before, the leaf had no picture at all.
+
+### 16.2 Two real browsers
+
+`tests/gui/serve-panel-two-users-browser.py` (GuiServePanelTwoUsersBrowser,
+driver `scripts/panel-two-users-drive.js`): two Chrome pages, alice and
+bob, each right-clicking their own pad and taking Edit from the host's
+menu (the object's submenu, "Edit pad"), each seeing their own panel and
+not the other's, typing with the keyboard and pressing OK / Cancel; the
+host has what each did. Skips without PUPPETEER_PATH and CHROME.
+
+Found by it:
+
+- The tool bars' card covered the task panel's top rows. Now the card
+  keeps clear of every task panel card in its rows (toolbar.tsx, the user
+  2026-11-02: "make the tool bars aware of the edit panels and not overlap
+  with it"): it stops short of the panel, a bar wider than the room
+  wrapping its buttons, or -- standing under the panel, or with no room
+  for a bar before it -- is shown beside it, where it was put kept for
+  when the panel goes. The panel says when it opens, moves, resizes or
+  closes (`fc:panelsmoved`); the card judges by its own height as it is,
+  so neither state flips the other. Not on a phone. The test measures
+  every bar against the panel, opened, in each edit, and with the panel
+  dragged over where the bars start.
+- The task panel card does not come up by itself for an ordinary edit,
+  only for a value-diff one (main.tsx); the test opens it with `?panel`.
+- After alice's OK, a cell of bob's open panel is taken out of his page
+  and put back about 2 s later (the driver's MutationObserver sees it):
+  his field keeps its element, but a field out of the page loses focus,
+  so bob typing at that moment would lose his place. Open.
+- A page behind another runs no rendering steps, so a ResizeObserver
+  there waits until it is in front: measure a page in front.

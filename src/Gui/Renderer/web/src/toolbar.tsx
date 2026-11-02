@@ -349,6 +349,71 @@ export function ToolbarStrip(props: {
     requestAnimationFrame(() => { clamp(); moved(); });
   }));
 
+  // ---- Clear of the task panel (the user, 2026-11-02: "make the tool bars
+  // aware of the edit panels and not overlap with it") ----------------------
+  // A task panel card in the card's rows: the card stops short of it, its
+  // bars wrapping into more rows, or -- standing under the panel, or with
+  // no room for a bar before it -- is shown beside it, where it was put
+  // kept for when the panel goes. Judged by the
+  // card's own height as it is, so a card narrowed into reaching the panel
+  // stays narrowed and one that clears it at full width stays full: no
+  // state flips the other. Not on a phone, where the panel is a sheet.
+  const [room, setRoom] = createSignal<{ x: number; width: number } | null>(null);
+  const AVOID_GAP = 8;
+  const MIN_ROOM = 120;
+  const avoid = () => {
+    const el = card;
+    let next: { x: number; width: number } | null = null;
+    if (el && !collapsed() && !props.narrow()) {
+      const p = pos();
+      const r = el.getBoundingClientRect();
+      // the card's max-width in style.css
+      const reach = Math.min(780, window.innerWidth - 12);
+      let x = p.x;
+      let right = p.x + reach;
+      for (const panel of Array.from(document.querySelectorAll('.fc-panel'))) {
+        const q = panel.getBoundingClientRect();
+        if (q.width <= 0 || q.height <= 0)
+          continue;
+        if (q.bottom <= r.top || q.top >= r.bottom || q.right <= x || q.left >= right)
+          continue;
+        // short of the panel when that leaves room for a bar; beside it
+        // when the card starts under it, or as good as
+        if (q.left - AVOID_GAP - x >= MIN_ROOM)
+          right = Math.min(right, q.left - AVOID_GAP);
+        else if (window.innerWidth - (q.right + AVOID_GAP) >= MIN_ROOM) {
+          x = q.right + AVOID_GAP;
+          right = Math.min(window.innerWidth - 6, x + reach);
+        }
+      }
+      if (x !== p.x || right !== p.x + reach)
+        next = { x, width: Math.max(MIN_ROOM, right - x) };
+    }
+    const cur = room();
+    if (cur?.x === next?.x && cur?.width === next?.width)
+      return;
+    setRoom(next);
+    requestAnimationFrame(moved);
+  };
+  window.addEventListener('fc:panelsmoved', avoid);
+  window.addEventListener('resize', avoid);
+  onCleanup(() => {
+    window.removeEventListener('fc:panelsmoved', avoid);
+    window.removeEventListener('resize', avoid);
+  });
+  createEffect(on([pos, collapsed, () => props.narrow()], () => requestAnimationFrame(avoid)));
+  // The bars arriving or changing: the card's height changes with them.
+  // Watched from the element itself, as a signal its ref sets
+  const [cardEl, setCardEl] = createSignal<HTMLDivElement | undefined>();
+  createEffect(() => {
+    const el = cardEl();
+    if (!el)
+      return;
+    const ro = new ResizeObserver(() => avoid());
+    ro.observe(el);
+    onCleanup(() => ro.disconnect());
+  });
+
   /// A drag by `e`'s pointer of the card or the button; `click` when it did
   /// not move (the button's click opens the card)
   const drag = (e: PointerEvent, click?: () => void) => {
@@ -398,9 +463,10 @@ export function ToolbarStrip(props: {
     <Show when={shown()}>
       <div class="fc-tbcard"
            classList={{ 'fc-tbcard-collapsed': collapsed(), 'fc-tbcard-narrow': props.narrow(),
-                        'fc-tbcard-side': side() }}
-           ref={(el) => { card = el; strip = el; }}
-           style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
+                        'fc-tbcard-side': side(), 'fc-tbcard-fitted': !!room() }}
+           ref={(el) => { card = el; strip = el; setCardEl(el); }}
+           style={{ left: `${room()?.x ?? pos().x}px`, top: `${pos().y}px`,
+                    'max-width': room() ? `${room()!.width}px` : undefined }}
            onPointerDown={(e) => e.stopPropagation()}>
         <Show when={!collapsed()} fallback={
           <button class="fc-tbcard-button" title="Tool bars (drag to move, click to open)"

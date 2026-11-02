@@ -2,6 +2,7 @@
 // how it is dragged, and how it is kept on screen. Split out of the
 // inspector when the HUD became a card of its own — the panels differ
 // in what they show, not in how they behave.
+import { onCleanup } from 'solid-js';
 import type { JSX } from 'solid-js';
 
 /// A dragged panel's top-left, in viewport pixels.
@@ -60,6 +61,19 @@ export const posStyle = (p: Pos | null): JSX.CSSProperties | undefined =>
   p && window.innerWidth > NARROW
     ? { left: `${p.x}px`, top: `${p.y}px`, right: 'auto', bottom: 'auto' }
     : undefined;
+
+/// A task panel card opened, moved, changed size or closed: the tool bars
+/// keep clear of it (toolbar.tsx). Watches \a el from its mount to its
+/// unmount, which must run inside the card's reactive scope.
+export function announcePanel(el: HTMLElement) {
+  const tell = () => window.dispatchEvent(new CustomEvent('fc:panelsmoved'));
+  const ro = new ResizeObserver(tell);
+  ro.observe(el);
+  onCleanup(() => {
+    ro.disconnect();
+    tell();
+  });
+}
 
 /// Pull a panel back inside the viewport once it is mounted and its real
 /// size is known — a position handed over from a smaller panel, or one

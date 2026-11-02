@@ -2,7 +2,7 @@
 // one's own task panel (docs/TaskPanelPerView.md sec 16): each user right-
 // clicks their pad in the view and takes "Edit" from the host's menu, sees
 // their own panel and not the other's, types a length into it and presses
-// OK or Cancel.
+// OK or Cancel. The tool bars' card is measured against the panel card.
 //
 // Usage:  node scripts/panel-two-users-drive.js <alice url> <bob url> <out dir> [timeout_ms]
 //   each url wants `?doc=<name>&token=<secret>&client=<name>&panel`, the
@@ -63,6 +63,32 @@ const puppeteer = require(process.env.PUPPETEER_PATH || 'puppeteer-core');
         .map((el) => el.value),
       empty: empty ? (empty.textContent || '').trim() : null,
     };
+  });
+  /// How much of the task panel card the tool bars cover, in px^2
+  const overlap = (page) => page.evaluate(() => {
+    const rect = (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0
+        ? [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]
+        : null;
+    };
+    // the card and every bar in it: a bar can run on past its card
+    const t = rect('.fc-tbcard'), p = rect('.fc-panel');
+    const all = [t].concat([...document.querySelectorAll('.fc-tbcard .fc-tb-bar')].map((el) => {
+      const r = el.getBoundingClientRect();
+      return [r.left, r.top, r.right, r.bottom];
+    }));
+    let area = 0;
+    for (const b of all) {
+      if (!b || !p) continue;
+      const w = Math.max(0, Math.min(b[2], p[2]) - Math.max(b[0], p[0]));
+      const h = Math.max(0, Math.min(b[3], p[3]) - Math.max(b[1], p[1]));
+      area += Math.round(w * h);
+    }
+    const right = Math.round(Math.max(...all.filter(Boolean).map((b) => b[2])));
+    return { bars: t, barsRight: right, panel: p, area };
   });
   const until = async (page, test, what) => {
     const t0 = Date.now();
@@ -173,6 +199,11 @@ const puppeteer = require(process.env.PUPPETEER_PATH || 'puppeteer-core');
     await sleep(+(process.env.FC_PANEL_SETTLE || 8000));
     report.aliceBefore = await panel(alice);
     report.bobBefore = await panel(bob);
+    // measured in front: a page behind another runs no rendering steps,
+    // where the card is told of the panel (a ResizeObserver)
+    await alice.bringToFront();
+    await sleep(1000);
+    report.overlapOpen = await overlap(alice);
 
     report.aliceMenu = await editFromMenu(alice, 'PadA');
     report.alice = await until(alice, lengthIs(15), "alice's panel with PadA's 15");
@@ -185,6 +216,12 @@ const puppeteer = require(process.env.PUPPETEER_PATH || 'puppeteer-core');
     step('bob in edit');
     await sleep(2000);
     report.aliceWhileBob = await panel(alice);
+    await alice.bringToFront();
+    await sleep(500);
+    report.overlapAlice = await overlap(alice);
+    await bob.bringToFront();
+    await sleep(500);
+    report.overlapBob = await overlap(bob);
     await alice.screenshot({ path: path.join(outDir, 'alice.png') });
     await bob.screenshot({ path: path.join(outDir, 'bob.png') });
 
@@ -231,6 +268,19 @@ const puppeteer = require(process.env.PUPPETEER_PATH || 'puppeteer-core');
     report.bobAfterCancel = await until(bob, (p) => p.fields.length === 0,
                                         "bob's panel gone after his Cancel");
     step('bob Cancel');
+
+    // her panel card dragged by its title bar over where the bars start:
+    // the bars go beside it
+    await alice.bringToFront();
+    const head = await alice.$('.fc-panel-head');
+    const hb = await head.boundingBox();
+    await alice.mouse.move(hb.x + 60, hb.y + hb.height / 2);
+    await alice.mouse.down();
+    await alice.mouse.move(200, 120, { steps: 12 });
+    await alice.mouse.move(70, 20, { steps: 12 });
+    await alice.mouse.up();
+    await sleep(1000);
+    report.overlapDragged = await overlap(alice);
     code = 0;
   } catch (e) {
     console.log('[drive] ' + e.message);

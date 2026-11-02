@@ -1697,7 +1697,10 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
 }
 /* a bar wider than the phone wraps inside itself: every tool reached by
    scrolling up and down alone */
-.fc-tbcard-narrow .fc-tb-bar {
+.fc-tbcard-narrow .fc-tb-bar,
+/* narrowed clear of a task panel (toolbar.tsx): a bar wider than the room
+ * wraps its own buttons rather than running on under the panel */
+.fc-tbcard-fitted .fc-tb-bar {
   flex: 0 1 auto;
   flex-wrap: wrap;
   max-width: 100%;

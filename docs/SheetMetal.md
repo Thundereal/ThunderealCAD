@@ -993,6 +993,18 @@ and not frozen.
 - Through every wall and bend in the sketch's way by default (a U channel cut across both legs);
   `UpToFirst` only the first the sketch meets.
 
+**Ruled 2026-11-02, M2's jog:**
+- By default the far end stays where it was (`FixProjectedLength`): the jog adds the material
+  its two bends and the run between them take, and the flat is longer by that. Off, the jog takes
+  it from the wall as a fold does, the flat the part as it was. A jog usually steps a wall over
+  another part's edge, where the far end's place is what has to fit.
+- The offset is measured three ways (`OffsetMeasure`): `Step` (the default), how far the wall
+  moves, a skin to the same skin; `Inside`, the gap between the facing skins, the step less the
+  thickness; `Overall`, the outer skins, the step and the thickness.
+- Otherwise as the fold: the angle 90 deg by default, the line's position that of the first
+  bend, the side picked moves (else the smaller), and an offset too small for a straight run
+  between the bends is refused, saying the least that fits.
+
 **Ruled 2026-10-30:** c (2), from a material card; d, M0 to M5 for the end-2026 release; e, nothing
 for the addon's files; f, both; g, not run. a and b stand as proposed (a revised to (3)).
 

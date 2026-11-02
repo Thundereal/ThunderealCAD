@@ -602,6 +602,19 @@ void ToolBarMirror::rebuild()
                 items.append(w);
                 continue;
             }
+            // a command's stand-in on a tool bar: UndoAction and RedoAction
+            // put a QAction of their own there (it carries the history
+            // menu), parented to the Action, and it is that command's
+            // button -- its icon, its tool tip, run as the command
+            if (!_commands.contains(a)) {
+                auto owner = qobject_cast<Action*>(a->parent());
+                Command* cmd = owner ? owner->command() : nullptr;
+                if (cmd && owner->action() != a && !_models.contains(owner->action())) {
+                    CommandRef own;
+                    own.name = QString::fromUtf8(cmd->getName());
+                    _commands.insert(a, own);
+                }
+            }
             if (Fw::QAction* m = commandModel(a)) {
                 signature.append(store.idOf(m));
                 items.append(m);

@@ -379,6 +379,19 @@ class SandboxToolBarMirrorTest(unittest.TestCase):
         self.Gui.activateWorkbench("DraftWorkbench")
         self.spin(60, 6)
 
+    def test_undo_redo(self):
+        """Undo and Redo put a QAction of their own on the bar (it carries
+        the history menu): the button is still their command's, with its
+        icon, run as the command."""
+        ids = [_ref(item.get("action")) for bar in self.order() for item in self.bar_items(bar)]
+        for name in ("Std_Undo", "Std_Redo"):
+            self.assertIn("cmd:" + name, ids)
+            st = self.FW.snapshot("cmd:" + name)["state"]
+            self.assertEqual(st["q_command"], name)
+            self.assertTrue(st["q_icon"], st)
+            reply = self.control({"op": "widgets.icon", "name": st["q_icon"], "size": 24})
+            self.assertTrue(reply["ok"] and reply["data"], reply)
+
     def test_gone_subscriber_stops_mid_rebuild(self):
         """A subscriber whose connection is gone, as the only one: its
         subscribe starts the mirror, the start's rebuild pushes to it, the

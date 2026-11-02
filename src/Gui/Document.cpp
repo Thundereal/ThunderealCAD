@@ -4003,8 +4003,18 @@ void Document::scheduleDeferredRestore(int delayMs)
     // then, and a name that no longer answers means nothing to do.
     std::string name = d->_pcDocument->getName();
     QTimer::singleShot(delayMs, QCoreApplication::instance(), [name]() {
-        if (auto doc = Application::Instance->getDocument(name.c_str()))
-            doc->runDeferredRestoreSlice();
+        auto doc = Application::Instance->getDocument(name.c_str());
+        if (!doc)
+            return;
+        // A modal box up -- the migration prompt shown from the open's end:
+        // the load waits for its answer (entry 242)
+        if (Application::isLoadHeld()) {
+            doc->d->_deferScheduled = false;
+            doc->d->_deferPace.idle();
+            doc->scheduleDeferredRestore(100);
+            return;
+        }
+        doc->runDeferredRestoreSlice();
     });
 }
 

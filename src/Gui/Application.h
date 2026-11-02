@@ -252,6 +252,13 @@ public:
      */
     void setBuildingVisuals(bool building);
     bool isBuildingVisuals() const;
+    /** A modal dialog is up -- the migration prompt, the recompute error
+     * box: a progressive load's timed slices wait for its answer, so that
+     * the box is modal to the load as well as to the input (entry 242, the
+     * reporter 2026-11-02: "the migration recompute dialog is not load
+     * modal, neither is recompute error dialog"). A flush runs regardless.
+     */
+    static bool isLoadHeld();
 
     /** Re-decide whether a progressive load owns the GUI, and say so.
      *

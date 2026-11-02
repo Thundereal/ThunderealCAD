@@ -6448,8 +6448,19 @@ void ViewProviderPartExt::scheduleDeferredVisualSlice(int delayMs)
     if (visuals.scheduled || visuals.docs.empty())
         return;
     visuals.scheduled = true;
-    QTimer::singleShot(delayMs, QCoreApplication::instance(),
-                       []() { ViewProviderPartExt::runDeferredVisualSlice(); });
+    QTimer::singleShot(delayMs, QCoreApplication::instance(), []() {
+        // A modal box up -- the migration prompt, the recompute error box:
+        // the load waits for its answer (entry 242, Gui::Application::
+        // isLoadHeld)
+        if (Gui::Application::isLoadHeld()) {
+            auto &visuals = deferredVisuals();
+            visuals.scheduled = false;
+            visuals.pace.idle();
+            ViewProviderPartExt::scheduleDeferredVisualSlice(100);
+            return;
+        }
+        ViewProviderPartExt::runDeferredVisualSlice();
+    });
 }
 
 /// The load's parallel pre-mesh, collected (docs/DocumentLoad.md sec 18).

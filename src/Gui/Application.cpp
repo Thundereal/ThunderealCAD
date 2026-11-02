@@ -2408,6 +2408,11 @@ bool Application::isBuildingVisuals() const
     return s_buildingVisuals;
 }
 
+bool Application::isLoadHeld()
+{
+    return QApplication::activeModalWidget() != nullptr;
+}
+
 MacroManager *Application::macroManager()
 {
     return d->macroMngr;

@@ -92,6 +92,7 @@ COMMANDS = (
     "PartDesign_SheetMetalFlatPattern",
     "PartDesign_SheetMetalExtendWall",
     "PartDesign_SheetMetalHem",
+    "PartDesign_SheetMetalCornerClosure",
 )
 
 

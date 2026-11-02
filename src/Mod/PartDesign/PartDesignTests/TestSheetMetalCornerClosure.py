@@ -195,6 +195,43 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
         flat = self.flat(closure)
         self.assertAlmostEqual(flat.Shape.Volume, shape.Volume, places=4)
 
+    def testOverlapOnMiter(self):
+        """A corner the automatic miter made (gaps at the far ends only),
+        its legs' slanted ends picked: Overlap as on the open corner, with
+        no reliefs at the corner to leave"""
+        doc = FreeCAD.newDocument("PartDesignTestSheetMetalCornerClosureMiter")
+        try:
+            body, (far, right) = build(doc, (5, 0), (5, 0))
+            ends = [
+                "Face%d" % (i + 1)
+                for i, f in enumerate(right.Shape.Faces)
+                if f.BoundBox.ZMax > 9
+                and f.BoundBox.XMin > 38.9
+                and f.BoundBox.YMin > 18.9
+                and f.BoundBox.XLength > 0.5
+                and f.BoundBox.YLength > 0.5
+            ]
+            self.assertEqual(len(ends), 2, ends)
+            # the far leg's first
+            ends.sort(key=lambda n: -right.Shape.getElement(n).BoundBox.Center.y)
+            closure = body.newObject("PartDesign::SheetMetalCornerClosure", "Closure")
+            closure.Faces = (right, ends)
+            closure.CornerType = "Overlap"
+            doc.recompute()
+            self.checkValid(closure)
+            self.assertAlmostEqual(
+                closure.Shape.Volume,
+                self.PLATE + 2 + 35 * (RING + 8) + 12.9 * RING + 13.9 * 8,
+                places=6,
+            )
+            flat = body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
+            flat.Source = closure
+            doc.recompute()
+            self.assertNotIn("Invalid", flat.State)
+            self.assertAlmostEqual(flat.Shape.Volume, closure.Shape.Volume, places=4)
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+
     def testRefused(self):
         """Two faces, each a leg's end; the plate's skin is not one"""
         closure = self.Body.newObject("PartDesign::SheetMetalCornerClosure", "Closure")

@@ -80,6 +80,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A corner closure, its panel its two faces and its type
+class PartDesignGuiExport ViewProviderSheetMetalCornerClosure: public ViewProviderAddSub
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalCornerClosure);
+
+public:
+    ViewProviderSheetMetalCornerClosure();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A flat pattern, its panel what it lays flat, its root face and the values
 /// a bill of materials takes; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart

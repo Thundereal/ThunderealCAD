@@ -338,6 +338,67 @@ bool CmdPartDesignSheetMetalHem::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalCornerClosure
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalCornerClosure)
+
+CmdPartDesignSheetMetalCornerClosure::CmdPartDesignSheetMetalCornerClosure()
+    : Command("PartDesign_SheetMetalCornerClosure")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Corner Closure");
+    sToolTipText = QT_TR_NOOP("Carries two flanges' legs on to close the corner between them:\n"
+                              "select the end of each leg there");
+    sWhatsThis = "PartDesign_SheetMetalCornerClosure";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalCornerClosure";
+}
+
+void CmdPartDesignSheetMetalCornerClosure::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream faces;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            faces << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue()) {
+        warn(QT_TR_NOOP("No leg end"),
+             QT_TR_NOOP("Select the end of each of two flanges' legs at a corner, on the "
+                        "body's tip."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Corner Closure"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalCornerClosure", "CornerClosure");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Faces = (" << getObjectCmd(base) << ", [" << faces.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalCornerClosure::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatPattern
 //===========================================================================
 
@@ -479,6 +540,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
+    mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatPattern());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
 }

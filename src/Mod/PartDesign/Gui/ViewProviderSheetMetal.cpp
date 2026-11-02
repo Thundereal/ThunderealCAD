@@ -129,6 +129,26 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalHem::getEditDialog()
                                      "Edge"));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalCornerClosure,
+                PartDesignGui::ViewProviderAddSub)
+
+ViewProviderSheetMetalCornerClosure::ViewProviderSheetMetalCornerClosure()
+{
+    sPixmap = "PartDesign_SheetMetalCornerClosure";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalCornerClosure::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalCornerClosure",
+                                     QObject::tr("Corner closure parameters"),
+                                     {"CornerType"},
+                                     "Faces",
+                                     "Face"));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)
 
 ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()

@@ -446,7 +446,7 @@ its tracker, not ported.
 |---|---|---|
 | **Bend relief** | Automatic on every bend that ends inside a wall: rectangle, obround or tear, from the rule; overridden per feature. The flange's own, from the rule, built in M1, and its override (sec 12). | B1 5 |
 | **Corner relief** | Where two or three bends meet: circle, square, tear, weld; sized absolutely or by thickness. Automatic from the rule, or a feature on picked corners. | B1 13 |
-| **Corner closure** | Two flanges brought to meet at a corner: overlap, underlap or butt, with a gap. | -- |
+| **Corner closure** | Two flanges brought to meet at a corner: overlap, underlap or butt, with a gap. Built in M2 (sec 12). | -- |
 | **Rip** | A gap cut along an edge of a closed solid, so it can unfold. | B1 15 |
 | **Cutout** | A closed sketch cut normal to the sheet on every wall and bend it crosses. | B1 18 |
 | **Wrap cutout** | A sketch cut as if drawn on the flat: through the flat, and folded back (refold, 4.1). | B1 17 |
@@ -875,6 +875,24 @@ and not frozen.
     is not built.
   - Two edges of one hem meeting at a corner are refused, as their folds would run into each
     other.
+- M2's corner closure, `PartDesign::SheetMetalCornerClosure` (5.2, ruled 2026-11-02), with
+  `TestSheetMetalCornerClosure` (6), its command, icon and panel. As built:
+  - `Faces`: the end of a flange's leg on each side of the corner, the first then the second,
+    both flanges bent from the same wall; anything else is refused by name. The ends may be
+    square (a corner the gaps left open) or slanted (one a miter made).
+  - Each side is made again from far enough back that what a miter took comes back (behind
+    where the other side's bend starts, a thickness more): its bend's and its leg's sections,
+    from the model, carried on past the corner; what was there, and the wall at the corner in
+    front of where each bend starts, is cut from the part.
+  - `CornerType` `Butt` (the default) stops both at the plane mirroring one leg's outer skin
+    onto the other's, the rule's `Gap` between, as the automatic miter; `Overlap` carries the
+    first side's bend and leg on to the second leg's outer skin, the second leg stopping the gap
+    short of the first's inner skin and its bend the gap short of where the first's bend starts,
+    so the bends never meet; `Underlap` the other way round. In the model each side's limits
+    toward the corner (a miter's, a gap's) give way to the new ones.
+  - A gap's relief at the corner stays where it reaches below where the bends start (1 x 1 each
+    with the rule's defaults); filling it is not built. Oracle: `Butt` on an open corner is the
+    automatic miter's part less those two, with the same flat.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

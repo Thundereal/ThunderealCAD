@@ -938,6 +938,7 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("PartDesign_SheetMetalFlange"),
         QStringLiteral("PartDesign_SheetMetalExtendWall"),
         QStringLiteral("PartDesign_SheetMetalHem"),
+        QStringLiteral("PartDesign_SheetMetalCornerClosure"),
         QStringLiteral("PartDesign_SheetMetalFlatPattern"),
     };
     // Sketcher_External's three siblings start the same handler in another

@@ -8379,3 +8379,23 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   (PANNING holds until both are up); a right click alone gives the menu.
 - techdraw-blender-pan-no-menu.py: rtx60 (before) 2 FAIL, the two left-up-
   first cases; rtx61 13/13 with the 3D view checks. td-edit-two-pages 32/32.
+
+### 2026-11-03: OcctFix and main merged, OCCT synced -- STAGED (stage35), not pushed
+
+- The user: merge OcctFix, then main, sync the repos including OCCT, build,
+  test, restage. thundereal/OcctFix 0ec61d2798 merged as `09c083b9f5`
+  (regression_tests.py / TestFillet.py: OcctFix's ellipse volumes, the
+  doc renamed TransactionLogJournal.md on LinkVibe); thundereal/main
+  bb2636d770 as `4021ece528` (comment-only conflicts, main's wording;
+  cycles to 6ba58e1202). OCCT LinkVibe-801 fast-forwarded 37cb17ed8e ->
+  318d7f1478 (72 commits, tests/fork 0874cbd), rebuilt and installed; coin
+  already current; no feedstock clones on this box.
+- rtx62: OCCT OK, FreeCAD OK, ctest 1099/1099; GUI 11/11 (PD on-view,
+  thicken, two views, TD pages, Blender menu, modal load, surface in body).
+- Python suite 4076: 15 FAIL, all Document.FolderSaveCases ("kept" 0: a
+  second folder save keeps no file). NOT from today's merges: the staged
+  rtx60 (MultiViewEdit merge only) fails the same 15; t55 (10-28) passed
+  them. The keep branch is never reached (no "nothing kept" log line).
+  Sent to x16. The 10-28 error (testAHeldPathLeavingTheFolderIsNotWritten)
+  is gone.
+- stage35 INSTALL-USER OK, fcad 4021ece528, clean.

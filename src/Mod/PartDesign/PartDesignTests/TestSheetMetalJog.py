@@ -240,6 +240,24 @@ class TestSheetMetalJog(unittest.TestCase):
         flat = self.flat(jog)
         self.assertAlmostEqual(flat.FlatArea.Value, area, places=4)
 
+    def testHoleAcrossEnd(self):
+        """A hole across where the jog's width ends, its end kept: the jog
+        adds the wall's section there, so the hole is stretched into a slot
+        by what the jog adds, one piece in the flat"""
+        end = 25 - HALF + 3
+        self.hole(end, 10, 1)
+        jog = self.jog()
+        self.checkValid(jog)
+        area = (40 + ADDED) * 20 - (math.pi + 2 * ADDED)
+        self.assertAlmostEqual(jog.Shape.Volume, area, places=5)
+        flat = self.flat(jog)
+        self.assertAlmostEqual(flat.FlatArea.Value, area, places=4)
+        holes = [w for f in flat.Shape.Faces for w in f.Wires[1:]]
+        self.assertTrue(holes)
+        self.assertAlmostEqual(
+            max(w.BoundBox.XLength for w in holes), 2 + ADDED, places=5
+        )
+
     def testCarriesFlange(self):
         """A flange on the side that moves goes with it"""
         flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")

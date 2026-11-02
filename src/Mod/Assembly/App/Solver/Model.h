@@ -86,6 +86,10 @@ struct Frame
     Id body = NoId;
     Base::Placement local;
     Id label = NoId;  // index into Model::sources: a name for dumps and native formats
+    // Index into Model::sources: the component the frame is on, where the
+    // model's body is not its own -- a rigid group's, or the ground for one
+    // placed on it (RigidGroups.h); NoId, its body's source
+    Id part = NoId;
 };
 
 enum class JointKind : std::uint8_t

@@ -75,7 +75,8 @@ bool same(const Body& a, const Body& b)
 
 bool same(const Frame& a, const Frame& b)
 {
-    return a.id == b.id && a.body == b.body && same(a.local, b.local) && a.label == b.label;
+    return a.id == b.id && a.body == b.body && same(a.local, b.local) && a.label == b.label
+        && a.part == b.part;
 }
 
 bool same(const Joint& a, const Joint& b)

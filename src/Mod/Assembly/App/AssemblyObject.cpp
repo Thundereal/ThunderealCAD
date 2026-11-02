@@ -867,8 +867,12 @@ int AssemblyObject::buildSimulation(App::DocumentObject* sim)
     }
 
     std::vector<App::DocumentObject*> joints = getJoints();
+    std::vector<App::DocumentObject*> unconnected = joints;
 
     removeUnconnectedJoints(joints, groundedObjs);
+    std::erase_if(unconnected, [&](App::DocumentObject* joint) {
+        return std::ranges::find(joints, joint) != joints.end();
+    });
 
     jointParts(joints);
 
@@ -914,6 +918,25 @@ int AssemblyObject::buildSimulation(App::DocumentObject* sim)
             Base::Console().Error("Generation of simulation failed\n");
             motions.clear();
             return -1;
+        }
+        // The joints of parts the run moves though nothing joins them to the
+        // ground -- a contact set's or a spring's, made bodies above -- and
+        // of the parts those joints reach, before the masses weigh them:
+        // left out, a rocker of a beam and two feet fixed to it, dropped on
+        // a plate, fell apart into three
+        for (bool added = true; added;) {
+            added = false;
+            for (auto it = unconnected.begin(); it != unconnected.end();) {
+                if (objectPartMap.contains(getMovingPartFromRef(*it, "Reference1"))
+                    || objectPartMap.contains(getMovingPartFromRef(*it, "Reference2"))) {
+                    jointParts({*it});
+                    it = unconnected.erase(it);
+                    added = true;
+                }
+                else {
+                    ++it;
+                }
+            }
         }
         addDynamics(*solverModel);
         if (auto* typed = freecad_cast<Simulation*>(sim);

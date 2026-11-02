@@ -856,6 +856,9 @@ public:
         std::array<const void*, 2> piecesA {};
         std::array<const void*, 2> piecesB {};
         ProfileFound found;
+        // The model's frames of the shapes it is on, A's and B's: the parts
+        // a contact event names, where a body stands for a rigid group
+        std::array<Id, 2> frames {NoId, NoId};
     };
 
     ContactLoad(std::shared_ptr<ch::ChBody> a,
@@ -2740,6 +2743,7 @@ struct ShapeOn
 {
     ch::ChBody* body = nullptr;
     ch::ChFramed frame;
+    Id source = NoId;     // the model's frame of its ContactShape
     double radius = 0.0;  // a cylinder's, 0 for any other
     double half = 0.0;
     const cbtConvexPolyhedron* features = nullptr;
@@ -6376,10 +6380,10 @@ Status ChronoSession::simulateDynamics(
             }
             // A point in the info's terms to its load's: the load's A first,
             // the normal from its A to its B
-            auto handOver = [](const Found& f,
-                               const ch::ChVector3d& pA,
-                               const ch::ChVector3d& pB,
-                               const ch::ChVector3d& normal) {
+            auto handOver = [this](const Found& f,
+                                   const ch::ChVector3d& pA,
+                                   const ch::ChVector3d& pB,
+                                   const ch::ChVector3d& normal) {
                 ContactLoad& load = *f.load;
                 load.points.push_back(
                     {load.GetBodyA()->TransformPointParentToLocal(f.swapped ? pB : pA),
@@ -6387,6 +6391,12 @@ Status ChronoSession::simulateDynamics(
                      f.swapped ? -normal : normal,
                      f.swapped ? f.shapeB : f.shapeA,
                      f.swapped ? f.shapeA : f.shapeB});
+                auto frameOf = [this](const ch::ChCollisionShape* shape) {
+                    const ShapeOn* on = shapesOn.of(shape);
+                    return on ? on->source : NoId;
+                };
+                load.points.back().frames = {frameOf(load.points.back().shapeA),
+                                             frameOf(load.points.back().shapeB)};
             };
             auto on = [&](const ch::ChCollisionShape* shape) -> const ShapeOn* {
                 auto it = shapes->find(shape);
@@ -6443,6 +6453,7 @@ Status ChronoSession::simulateDynamics(
                 cam.started = true;
                 cam.tangent = at.at.d1;
                 cam.tangent.Normalize();
+                point.frames = {cam.joint->frameI, cam.joint->frameJ};
                 load.points.push_back(point);
             }
             // A profile contact's points: B's profile brought into A's
@@ -6478,6 +6489,7 @@ Status ChronoSession::simulateDynamics(
                         point.found = touch.found;
                         point.found.pair = k;
                         point.found.level = level;
+                        point.frames = {follow.a->frame, follow.b->frame};
                         load.points.push_back(point);
                     }
                 }
@@ -6579,6 +6591,7 @@ Status ChronoSession::simulateDynamics(
             ShapeOn& where = (*shapesOn)[made.get()];
             where.body = body.get();
             where.frame = run.d->localOf(shape.frame);
+            where.source = shape.frame;
             where.envelope = envelope;
             if (shape.kind == ContactShape::Kind::Cylinder) {
                 where.radius = shape.size.x;
@@ -7683,13 +7696,17 @@ Status ChronoSession::simulateDynamics(
                         set ? " (a Static run has none)" : "");
                     continue;
                 }
+                // Its parts by the names the events give them (partName())
                 EventWatch watch {&sensor};
                 for (const Id frame : sensor.frames) {
-                    const auto body = run.d->validFrame(frame) ? run.d->bodyOf(frame) : nullptr;
                     std::string name;
-                    for (std::size_t b = 0; b < run.d->bodies.size() && b < si.bodies.size(); ++b) {
-                        if (run.d->bodies[b] == body) {
-                            name = si.sourceName(si.bodies[b].source);
+                    if (frame < si.frames.size()) {
+                        const Frame& f = si.frames[frame];
+                        if (f.part != NoId) {
+                            name = si.sourceName(f.part);
+                        }
+                        else if (f.body != NoId && f.body < si.bodies.size()) {
+                            name = si.sourceName(si.bodies[f.body].source);
                         }
                     }
                     watch.pair.push_back(name);
@@ -8077,6 +8094,7 @@ Status ChronoSession::simulateDynamics(
         double depth = -std::numeric_limits<double>::infinity();
         double rate = 0.0;
         double accel = 0.0;
+        std::array<Id, 2> frames {NoId, NoId};  // its shapes' (Point::frames)
     };
     auto touchOf = [](const ContactLoad& load) {
         Touch touch;
@@ -8088,6 +8106,7 @@ Status ChronoSession::simulateDynamics(
                                                - a->TransformPointLocalToParent(point.onA));
             if (depth > touch.depth) {
                 touch.depth = depth;
+                touch.frames = point.frames;
                 touch.rate = -ch::Vdot(point.normal,
                                        b->PointSpeedLocalToParent(point.onB)
                                            - a->PointSpeedLocalToParent(point.onA));
@@ -8121,6 +8140,25 @@ Status ChronoSession::simulateDynamics(
             }
         }
         return std::string();
+    };
+    // The component a frame is on (Frame::part): where a body stands for a
+    // rigid group, the part of it that touched, not the group's first -- and
+    // a part placed on the ground itself, not the ground; a frame not known,
+    // the body's name
+    auto partName = [&](Id frame, const ch::ChBody* body) {
+        if (frame < si.frames.size()) {
+            const Frame& f = si.frames[frame];
+            if (f.part != NoId) {
+                return std::string(si.sourceName(f.part));
+            }
+            if (f.body == NoId) {
+                return std::string();
+            }
+            if (f.body < si.bodies.size()) {
+                return std::string(si.sourceName(si.bodies[f.body].source));
+            }
+        }
+        return bodyName(body);
     };
     auto readLeaving = [&](double time) {
         for (auto& q : queued) {
@@ -8164,8 +8202,12 @@ Status ChronoSession::simulateDynamics(
             event.time = t0 + f * h;
             event.source = si.sourceName(si.dynamics->contacts[load.set].source);
             event.value = (now ? rate : -rate) / SI::velocity;
-            event.bodyA = bodyName(load.GetBodyA().get());
-            event.bodyB = bodyName(load.GetBodyB().get());
+            // The parts of its deepest point where it presses: at the end
+            // made, at the start let go
+            const Touch& pressed =
+                std::isfinite((now ? to : from).depth) ? (now ? to : from) : (now ? from : to);
+            event.bodyA = partName(pressed.frames[0], load.GetBodyA().get());
+            event.bodyB = partName(pressed.frames[1], load.GetBodyB().get());
             queued.push_back({std::move(event), now ? nullptr : &load});
         };
     // Whether a contact the last step found new is in too deep: deeper than a

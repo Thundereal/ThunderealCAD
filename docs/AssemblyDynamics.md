@@ -1414,7 +1414,8 @@ Phase D1 is under way (2026-10-28):
     bodies by their source names (the set's group A side first, a cam's
     cam; "" the ground), `value` the speed the pair's deepest point comes
     in at or leaves at, mm/s. A body standing for a rigid group (sec 6.1's
-    grouping) is named by the group's first part.
+    grouping) is named by the group's first part. (Since: the part that
+    touched, "Built: contact events name the parts that touched" below.)
   - The run (`advance()`, ChronoBackend): a load touches while its deepest
     point presses (depth above none), read at the end of each substep
     kept on the points found there, and from the run's start: what
@@ -1455,7 +1456,8 @@ Phase D1 is under way (2026-10-28):
     lines for a contact made and let go between a sensor's mark and stop.
   - Not yet: which parts of a rigid group touched (the pair is the
     group's bodies). (The events are kept in the document with the
-    results since: "Built: results kept in the document" below.)
+    results since: "Built: results kept in the document" below; the
+    parts: built, below.)
 - Built: sensors on contact events (P15's Stop_On_Event, on sec 8.4's
   contact begin and end): a sensor on a contact set whose `Quantity` is
   `ContactBegin` or `ContactEnd` trips at each contact made, or let go, by
@@ -2031,6 +2033,51 @@ Phase D1 is under way (2026-10-28):
     within 0.0011 mN, the slip within 0.0024 mm/s; a sensor marking the
     angle past 12 deg at 149.992 and 329.990 deg against 149.992 and
     329.992.
+- Built: contact events name the parts that touched (the events' "not
+  yet" above): a body standing for a rigid group, or a part placed on the
+  ground, named by the part of it whose shape touched.
+  - The model: `Frame::part` (Model.h), the component a frame is on where
+    the model's body is not its own; the grouping (`RigidGroups.cpp`)
+    sets it from the original body's source on every frame it moves, a
+    member's onto its group's body and a placed part's onto the ground.
+    Before, a part placed on the ground -- a pad fixed to the grounded
+    plate -- was named as the ground, None.
+  - The run (ChronoBackend): each contact point keeps its shapes' frames
+    (`ContactLoad::Point::frames`): a Bullet point's from its shapes
+    (`ShapeOn::source`, a mesh triangle's by its mesh), a cam's the
+    joint's I and J, a profile contact's its two profiles'. A touch's
+    deepest point carries them (`Touch::frames`), and an event names the
+    parts at the one where it presses -- at the end made, at the start let
+    go (`partName()`: the frame's part, else its body's source, the
+    ground ""; a frame not known, the body's name as before). A sensor's
+    pair is named the same way, so a pair of parts within groups matches
+    their events.
+  - Found on the way, and fixed: a dynamic run left out the joints of
+    parts nothing joins to the ground. `buildSimulation()` drops the
+    joints that do not reach a grounded part (`removeUnconnectedJoints()`,
+    as a solve does), but a contact set or a spring makes bodies of such
+    parts after -- so a rocker of a beam and two feet fixed to it, dropped
+    on a plate, fell apart into three, and a cube fixed on top of one a
+    spring holds stayed put while the other swung alone. Those joints now
+    come back where one of their parts is a body of the run, until none
+    is left to add, before the masses weigh the bodies.
+  - Tests: TestContact, test_events_name_the_parts_that_touched -- a ball
+    fixed under a holder (the group, the holder first) dropped a
+    millimetre onto a pad fixed to the grounded plate: its landing at
+    sqrt(2 h / g) (1e-6 s) names (ball, pad), the ball still under the
+    holder at the end (1e-6 mm), and a sensor on that pair stops there;
+    before, the pad read None. TestDynamics, test_spring_holds_fixed_pair
+    -- a cube a spring holds, no gravity, a second fixed on top: the two
+    10 mm apart at every frame (1e-6) and swinging by half a period of
+    sqrt(2 m / k) (1e-3); before, the top one stayed put, and the two were
+    off their 10 mm in the first frames. TestAssemblyWorkbench 582 OK, 88
+    skipped; the GUI
+    suite's TestGuiCommands 65 OK. In the manual's video
+    (`assembly/simulation/event-parts`): the rocker, its right foot over a
+    pad 3 mm high, the left over the plate, the beam its group's first
+    part: 164 events, each naming "Left foot and Plate" or "Right foot and
+    Pad", the first at 0.02474 s in at 242.57 mm/s against sqrt(2 h / g)
+    and sqrt(2 g h), 0.024735 s and 242.5694.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

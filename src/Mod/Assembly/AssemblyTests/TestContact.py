@@ -333,6 +333,59 @@ class TestContact(unittest.TestCase):
         results, stops, made = run(quantity="ContactBegin", threshold=0.0, count=2)
         self.assertAlmostEqual(stops[0]["Time"], landing, delta=1e-6)
 
+    def test_events_name_the_parts_that_touched(self):
+        """A rigid group's contact events name the part of it that touched,
+        and a part placed on the ground the part: a ball fixed under a
+        holder (the group, the holder its first part) dropped a millimetre
+        onto a pad fixed to the grounded plate lands as (ball, pad), not as
+        the group's first part and the ground; and a sensor on that pair
+        stops the run there."""
+        plate = self.plate()
+        pad = self.assembly.newObject("Part::Box", "Pad")
+        pad.Length, pad.Width, pad.Height = 10, 10, 2
+        pad.Placement.Base = App.Vector(-5, -5, 10)
+        holder = self.assembly.newObject("Part::Box", "Holder")
+        holder.Length, holder.Width, holder.Height = 20, 20, 4
+        holder.Placement.Base = App.Vector(-10, -10, 25)
+        ball = self.ball(18)
+
+        def fixed(a, b, at):
+            j = self.joints.newObject("App::FeaturePython", "Fixed")
+            JointObject.Joint(j, JointObject.JointTypes.index("Fixed"))
+            j.Detach1 = True
+            j.Detach2 = True
+            j.Reference1 = (a, ["Face1"])
+            j.Reference2 = (b, ["Face1"])
+            j.Placement1 = App.Placement(at - a.Placement.Base, App.Rotation())
+            j.Placement2 = App.Placement(at - b.Placement.Base, App.Rotation())
+
+        fixed(plate, pad, App.Vector(0, 0, 10))
+        fixed(holder, ball, App.Vector(0, 0, 25))
+        contact = self.contact([holder, ball], [plate, pad], StaticFriction=0.0)
+        contact.DynamicFriction = 0.0
+        starts = holder.Placement, ball.Placement
+        landing = math.sqrt(2 * 1.0 / G)
+
+        def run(*sensors):
+            holder.Placement, ball.Placement = starts
+            _, result = self.simulate(0.03, 1e-3, sensors=sensors)
+            self.assertEqual(result, 0)
+            return self.assembly.getSimulationResults()["Events"]
+
+        made = [e for e in run() if e["Kind"] == "ContactBegin"]
+        self.assertGreaterEqual(len(made), 1)
+        self.assertAlmostEqual(made[0]["Time"], landing, delta=1e-6)
+        self.assertEqual(made[0]["Bodies"], (ball, pad))
+        # The ball held under its holder through the landing: their joint,
+        # though nothing joins them to the ground, is the run's
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        apart = ball.Placement.Base - holder.Placement.Base
+        self.assertLess((apart - (starts[1].Base - starts[0].Base)).Length, 1e-6)
+        sensor = dict(source=contact, quantity="ContactBegin", threshold=0.0, pair=[ball, pad])
+        stops = [e for e in run(sensor) if e["Kind"] == "Sensor"]
+        self.assertEqual(len(stops), 1, stops)
+        self.assertAlmostEqual(stops[0]["Time"], landing, delta=1e-6)
+
     def test_no_events_at_rest(self):
         """A box resting on the plate from the start, sunk by the allowed
         penetration, makes no contact event: the contacts pressing at the

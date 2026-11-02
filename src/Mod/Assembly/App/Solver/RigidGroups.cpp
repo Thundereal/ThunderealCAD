@@ -654,6 +654,11 @@ private:
         }
         for (Frame frame : original.frames) {
             if (frame.body < n) {
+                // Which component it is on, for what names one (a contact
+                // event's parts)
+                if (frame.part == NoId) {
+                    frame.part = original.bodies[frame.body].source;
+                }
                 const BodyMap& m = map[frame.body];
                 switch (m.role) {
                     case Role::Kept:

@@ -336,6 +336,42 @@ class TestDynamics(unittest.TestCase):
         self.assertAlmostEqual(max(z for _, z in heights), 16.0, delta=1e-3)
         self.assertAlmostEqual(min(z for _, z in heights), 12.0, delta=1e-6)
 
+    def test_spring_holds_fixed_pair(self):
+        """A cube a spring alone holds over the grounded one, without
+        gravity, and a second fixed on top of it: nothing joins the pair to
+        the ground, and their joint is the run's all the same -- they swing
+        as one, between 12 and 16 by half a period of sqrt(2 m / k), the top
+        one 10 above the other. Left out, the top one stayed where it was
+        and the other swung alone."""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        block = self.box("Block", (10, 10, 10), (0, 0, 12))
+        top = self.box("Top", (10, 10, 10), (0, 0, 22))
+        self.doc.recompute()
+        self.joint("Fixed", (block, ["Face6"]), plc(5, 5, 10), (top, ["Face5"]), plc(5, 5, 0))
+        physics = self.assembly.getGroup("Physics", True)
+        spring = physics.newObject("Assembly::SpringDamper", "Spring")
+        spring.Component1 = base
+        spring.Point1 = App.Vector(5, 5, 10)
+        spring.Component2 = block
+        spring.Point2 = App.Vector(5, 5, 0)
+        spring.Stiffness = "%g N/m" % self.K
+        spring.FreeLength = 4.0
+        _, result = self.simulate(0.3, 1e-4, GravityEnabled=False, Elements=[spring])
+        self.assertEqual(result, 0)
+        heights = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            heights.append((i * 1e-4, block.Placement.Base.z))
+            self.assertAlmostEqual(top.Placement.Base.z - block.Placement.Base.z, 10.0, delta=1e-6)
+        half = math.pi * math.sqrt(2 * self.MASS / self.K)
+        crossed = self.crossings(heights, 14.0)
+        self.assertGreaterEqual(len(crossed), 3)
+        for a, b in zip(crossed, crossed[1:]):
+            self.assertAlmostEqual(b - a, half, delta=half * 1e-3)
+        self.assertAlmostEqual(max(z for _, z in heights), 16.0, delta=1e-3)
+
     def test_damper_decrement(self):
         """Damped at 5% of critical, each swing is smaller than the last by
         the logarithmic decrement 2 pi z / sqrt(1 - z^2)."""

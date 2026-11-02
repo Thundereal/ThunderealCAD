@@ -278,16 +278,22 @@ class TestSheetMetalFlange(unittest.TestCase):
         corner (a bend cut at a slant unrolls its skins differently), where
         a boolean of its solid fails"""
         for z in (0, 1):
+            # a skin's faces: planes across Z there (a face with a relief's
+            # B-spline edge has a loose bounding box)
             on = lambda shape: [
                 f
                 for f in shape.Faces
-                if abs(f.BoundBox.ZMin - z) < 1e-7 and f.BoundBox.ZLength < 1e-7
+                if isinstance(f.Surface, Part.Plane)
+                and abs(abs(f.Surface.Axis.z) - 1) < 1e-9
+                and abs(f.Surface.Position.z - z) < 1e-6
             ]
             cut = tool.translated(V(0, 0, z))
+            # within the relief's outline as the flat carries it, a B-spline
+            # through samples of its image
             left = sum(f.common(cut).Area for f in on(relieved))
-            self.assertLess(left, 1e-6, z)
+            self.assertLess(left, 1e-5, z)
             before = sum(f.Area for f in on(plain)) - sum(f.common(cut).Area for f in on(plain))
-            self.assertAlmostEqual(sum(f.Area for f in on(relieved)), before, places=6)
+            self.assertAlmostEqual(sum(f.Area for f in on(relieved)), before, delta=1e-5)
         self.assertLess(relieved.Volume, plain.Volume - 1e-3)
 
     def testCornerReliefCircle(self):

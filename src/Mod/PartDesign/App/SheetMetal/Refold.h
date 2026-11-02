@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+/***************************************************************************
+ *   Copyright (c) 2026 Zheng Lei (realthunder) <realthunder.dev@gmail.com> *
+ *                                                                         *
+ *   This file is part of the FreeCAD CAx development system.              *
+ *                                                                         *
+ *   This library is free software; you can redistribute it and/or         *
+ *   modify it under the terms of the GNU Library General Public           *
+ *   License as published by the Free Software Foundation; either          *
+ *   version 2 of the License, or (at your option) any later version.      *
+ *                                                                         *
+ *   This library  is distributed in the hope that it will be useful,      *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU Library General Public License for more details.                  *
+ *                                                                         *
+ *   You should have received a copy of the GNU Library General Public     *
+ *   License along with this library; see the file COPYING.LIB. If not,    *
+ *   write to the Free Software Foundation, Inc., 59 Temple Place,         *
+ *   Suite 330, Boston, MA  02111-1307, USA                                *
+ *                                                                         *
+ ***************************************************************************/
+
+#pragma once
+
+#include <utility>
+#include <vector>
+
+#include <TopoDS_Face.hxx>
+
+#include <Mod/Part/App/TopoShape.h>
+#include <Mod/PartDesign/PartDesignGlobal.h>
+
+#include "Model.h"
+
+namespace PartDesign::SheetMetal
+{
+
+/** A shape drawn on the flat folded back into the part (docs/SheetMetal.md
+ * sec 5.2, ruled 2026-11-02: the blank is what is cut, so the cut is drawn
+ * there)
+ *
+ * face is planar, in the frame Model::toFlat() maps to with root fixed,
+ * on the root wall's first skin. For each element listed, the part of the
+ * face in its flat goes back through its map and through the sheet: a
+ * wall's rigidly, a bend's onto its cylinder, exactly (the outline's
+ * curves carried as curves on it), the sheet's depth along its radius.
+ * Each solid is trimmed to its element, by its limits and the side of each
+ * bend it meets, so that the cut takes only what lies flat inside the
+ * face. Cut them from the part.
+ */
+PartDesignExport std::vector<Part::TopoShape> refold(const Model& model, int root,
+                                                     const TopoDS_Face& face,
+                                                     const std::vector<int>& elements);
+
+/** A corner relief's shape in the flat (docs/SheetMetal.md sec 5.2): where
+ * the two bends' lines cross (the middle of each one's strip), on the root
+ * wall's first skin, as refold() takes it. shape 1 is a circle of size
+ * across, 2 a square of size on a side along the bends' axes. A null face
+ * for another shape, a size of nothing, or bends whose lines do not cross.
+ */
+PartDesignExport TopoDS_Face cornerReliefFace(const Model& model, int root, int bendA, int bendB,
+                                              int shape, double size);
+
+/** The corner reliefs of bends meeting in pairs at a miter, each pair's
+ * shape (cornerReliefFace()) folded back (refold()) through their wall, the
+ * two bends and the walls after them: the solids to cut from the part
+ */
+PartDesignExport std::vector<Part::TopoShape>
+cornerReliefs(const Model& model, const std::vector<std::pair<int, int>>& corners, int shape,
+              double size);
+
+}  // namespace PartDesign::SheetMetal

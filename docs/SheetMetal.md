@@ -445,7 +445,7 @@ its tracker, not ported.
 | Tool | What it does | Ref |
 |---|---|---|
 | **Bend relief** | Automatic on every bend that ends inside a wall: rectangle, obround or tear, from the rule; overridden per feature. The flange's own, from the rule, built in M1, and its override (sec 12). | B1 5 |
-| **Corner relief** | Where two or three bends meet: circle, square, tear, weld; sized absolutely or by thickness. Automatic from the rule, or a feature on picked corners. | B1 13 |
+| **Corner relief** | Where two or three bends meet: circle, square, tear, weld; sized absolutely or by thickness. Automatic from the rule, or a feature on picked corners. Two bends' automatic one, from the rule, built in M2 (sec 12). | B1 13 |
 | **Corner closure** | Two flanges brought to meet at a corner: overlap, underlap or butt, with a gap. Built in M2 (sec 12). | -- |
 | **Rip** | A gap cut along an edge of a closed solid, so it can unfold. | B1 15 |
 | **Cutout** | A closed sketch cut normal to the sheet on every wall and bend it crosses. | B1 18 |
@@ -893,6 +893,30 @@ and not frozen.
   - A gap's relief at the corner stays where it reaches below where the bends start (1 x 1 each
     with the rule's defaults); filling it is not built. Oracle: `Butt` on an open corner is the
     automatic miter's part less those two, with the same flat.
+- M2's corner relief (5.2, ruled 2026-11-02: drawn in the flat, folded back), at every miter -- one
+  flange's, a flange's against an earlier one, a corner closure's `Butt` -- from the rule:
+  `CornerReliefShape` `Circle` (the default) of `CornerReliefSize` across, or `Square` of that
+  side along the bends' axes, centred where the two bends' lines (each strip's middle) cross in
+  the flat; `None` and `Tear` cut nothing more than the miter's gap. As built:
+  - `SheetMetal::cornerReliefFace()` draws the shape on the root wall's first skin, in the frame
+    `Model::toFlat()` maps to; `SheetMetal::refold()` takes it back: for a wall rigidly, through
+    its thickness; for a bend the part in its strip onto its cylinder, exactly -- the flat's
+    (Y, Z) to the cylinder's (u, v) is affine, so each outline curve, made a B-spline, keeps its
+    knots and weights and has its poles mapped -- capped on two cylinders a little inside and
+    outside the sheet, ruled between them (radial lines). Each solid is trimmed to its element
+    by its limits and the side of each bend it meets, and all are cut from the part.
+  - A plane's point may lie anywhere on it -- a miter against an earlier flange keeps one 34 mm
+    from the corner, a carried-on bend's frame sits far down its axis -- so every box standing
+    for a half-space or a strip is placed about the shape, taken onto the plane: placed about
+    the point, the corner was out of reach and went uncut.
+  - `flatten()` lays out a bend's face across the thickness that the relief has cut as well as a
+    miter (neither plane nor ruled) as a surface filled to its outline, the edges its
+    neighbours share as they are. The flat with none overlaps itself a little at a mitered
+    corner (a bend cut at a slant unrolls its skins differently, sec 12 above), where booleans of
+    its solid fail; the relief cuts that away.
+  - Tested by `testCornerRelief*` (4): on each skin of the flat nothing is left inside the shape
+    and nothing changed outside it, within 1e-5 mm^2 (the outline in the flat is a B-spline
+    through samples of its image), face by face in the plane.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

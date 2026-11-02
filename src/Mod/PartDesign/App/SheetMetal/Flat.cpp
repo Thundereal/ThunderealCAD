@@ -40,6 +40,7 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepFill.hxx>
+#include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
@@ -161,6 +162,21 @@ struct Mapper
                 const std::size_t a = straight(1) && straight(3) ? 0 : 1;
                 if (straight(a + 1) && straight(a + 3)) {
                     return BRepFill::Face(edges[a], TopoDS::Edge(edges[a + 2].Reversed()));
+                }
+            }
+            if (wires == 1 && edges.size() >= 3) {
+                // Across the thickness, cut by a corner relief as well as a
+                // miter: neither plane nor ruled. A surface filled to its
+                // outline, the edges its neighbours share as they are.
+                BRepOffsetAPI_MakeFilling fill;
+                for (const TopoDS_Edge& e : edges) {
+                    fill.Add(e, GeomAbs_C0);
+                }
+                fill.Build();
+                if (fill.IsDone()) {
+                    for (TopExp_Explorer it(fill.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+                        return TopoDS::Face(it.Current());
+                    }
                 }
             }
             FC_THROWM(Base::ValueError,

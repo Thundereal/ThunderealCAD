@@ -50,6 +50,7 @@
 #include "FeatureSheetMetalCornerClosure.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Pieces.h"
+#include "SheetMetal/Refold.h"
 
 using namespace PartDesign;
 using Part::TopoShape;
@@ -370,7 +371,21 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
         if (isRecomputePaused()) {
             return App::DocumentObject::StdReturn;
         }
-        Shape.setValue(makeBoolean(base, tool, true));
+        TopoShape result = makeBoolean(base, tool, true);
+        if (type == 0) {
+            // Butt is a miter: the rule's corner relief, as the automatic
+            // miter's (sec 5.2)
+            const std::vector<TopoShape> reliefs =
+                SheetMetal::cornerReliefs(model,
+                                          {{sides[0].bend, sides[1].bend}},
+                                          rule->CornerReliefShape.getValue(),
+                                          rule->CornerReliefSize.getValue());
+            if (!reliefs.empty()) {
+                result = getSolid(TopoShape(0, hasher).makEBoolean(
+                    Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));
+            }
+        }
+        Shape.setValue(result);
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

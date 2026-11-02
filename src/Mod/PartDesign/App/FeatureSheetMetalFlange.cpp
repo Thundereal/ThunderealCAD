@@ -54,6 +54,7 @@
 #include "FeatureSheetMetalFlange.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Pieces.h"
+#include "SheetMetal/Refold.h"
 
 using namespace PartDesign;
 using Part::TopoShape;
@@ -659,6 +660,8 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                              legWall,
                              {meets[0], meets[1]}});
         }
+        // the bends meeting at each miter, for the corner relief
+        std::vector<std::pair<int, int>> mitered;
         // A miter where two edges meet at a corner, bent the same way: each
         // side stops at the plane halving the corner, the rule's gap between
         // them. Exact for two flanges alike; any two are kept apart.
@@ -726,6 +729,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                     for (int k : {b.bend, b.leg}) {
                         model.elements[k].limits.emplace_back(corner, m.Reversed());
                     }
+                    mitered.emplace_back(a.bend, b.bend);
                 }
             }
             // Against an earlier flange at a corner: the plane mirroring the
@@ -779,6 +783,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                     for (int k : {side.bend, side.leg}) {
                         model.elements[k].limits.emplace_back(on, m.Reversed());
                     }
+                    mitered.emplace_back(end, side.bend);
                 }
             }
             pieces.erase(std::remove_if(pieces.begin(),
@@ -807,7 +812,16 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         if (isRecomputePaused()) {
             return App::DocumentObject::StdReturn;
         }
-        Shape.setValue(makeBoolean(base, tool, true));
+        TopoShape result = makeBoolean(base, tool, true);
+        // The corner relief at each miter, drawn in the flat and folded back
+        // (sec 5.2); none for None, and a tear is the miter's gap itself
+        const std::vector<TopoShape> reliefs = SheetMetal::cornerReliefs(
+            model, mitered, rule->CornerReliefShape.getValue(), rule->CornerReliefSize.getValue());
+        if (!reliefs.empty()) {
+            result = getSolid(TopoShape(0, hasher).makEBoolean(
+                Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));
+        }
+        Shape.setValue(result);
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

@@ -584,7 +584,9 @@ public:
  * is where the face is, in the plane, whatever its height. The law as a
  * contact set's (GroupA and GroupB unused), its stiffness by a value or an
  * allowed penetration (Materials, which a profile has no width for, runs as
- * Penetration).
+ * Penetration). Its results, beside a contact set's, are a cam contact's,
+ * ProfileB's component the follower: the pressure angle, the slip, and the
+ * force along the follower's motion and across it.
  */
 class AssemblyExport ProfileContact: public ContactSet
 {

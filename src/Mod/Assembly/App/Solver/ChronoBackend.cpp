@@ -832,6 +832,13 @@ struct ProfileFound
     double level = 0.0;
 };
 
+// Whether a contact set is a profile contact's, its shapes profiles
+bool isProfileSet(const Dynamics& dynamics, const ContactPair& pair)
+{
+    return !pair.groupA.empty() && pair.groupA.front() < dynamics.contactShapes.size()
+        && dynamics.contactShapes[pair.groupA.front()].kind == ContactShape::Kind::Profile;
+}
+
 class ContactLoad: public ch::ChLoadBodyBody
 {
 public:
@@ -6987,8 +6994,9 @@ Status ChronoSession::simulateDynamics(
         channels.push_back({name, "ContactFrictionForce", 3});
         channels.push_back({name, "ContactPenetration", 1});
         // A cam's: its pressure angle, its slip, and the force's parts along
-        // the follower's motion and across it (sec 8.5)
-        if (pair.cam != NoId) {
+        // the follower's motion and across it (sec 8.5); a profile
+        // contact's the same, its B the follower
+        if (pair.cam != NoId || isProfileSet(*si.dynamics, pair)) {
             channels.push_back({name, "CamPressureAngle", 1});
             channels.push_back({name, "CamSlip", 1});
             channels.push_back({name, "CamDriveForce", 3});
@@ -7214,6 +7222,22 @@ Status ChronoSession::simulateDynamics(
         double slip = 0.0;
         ch::ChVector3d way;
     };
+    // The angle and the way from the normal and the follower's point's
+    // velocity v, or at a standstill its acceleration
+    auto leaning = [](const ch::ChVector3d& normal,
+                      const ch::ChVector3d& v,
+                      const ch::ChVector3d& acceleration) {
+        CamReading out;
+        out.way = normal;
+        ch::ChVector3d way = v.Length() < 1e-9 ? acceleration : v;
+        if (way.Length() > 1e-12) {
+            way.Normalize();
+            const double c = ch::Vdot(normal, way);
+            out.pressure = std::acos(std::min(1.0, std::abs(c)));
+            out.way = c < 0.0 ? -way : way;
+        }
+        return out;
+    };
     auto camReading = [&](std::size_t set) -> CamReading {
         if (!contactHandover) {
             return {};
@@ -7226,26 +7250,82 @@ Status ChronoSession::simulateDynamics(
             const auto& point = load.points.front();
             const auto a = load.GetBodyA();
             const auto b = load.GetBodyB();
-            const ch::ChVector3d normal = point.normal.GetNormalized();
             const ch::ChVector3d v = b->PointSpeedLocalToParent(point.onB);
-            ch::ChVector3d way = v;
-            if (way.Length() < 1e-9) {
-                way = b->PointAccelerationLocalToParent(point.onB);
-            }
-            CamReading out;
-            out.way = normal;
-            if (way.Length() > 1e-12) {
-                way.Normalize();
-                const double c = ch::Vdot(normal, way);
-                out.pressure = std::acos(std::min(1.0, std::abs(c)));
-                out.way = c < 0.0 ? -way : way;
-            }
+            CamReading out = leaning(point.normal.GetNormalized(),
+                                     v,
+                                     b->PointAccelerationLocalToParent(point.onB));
             const ch::ChFramed i = cam.frameI >> *a;
             const ch::ChVector3d tangent = i.TransformDirectionLocalToParent(toCh(cam.tangent));
             out.slip = ch::Vdot(v - a->PointSpeedLocalToParent(point.onA), tangent);
             return out;
         }
         return {};
+    };
+    // A profile contact's the same way, its B the follower, from the points
+    // where they are now (pointsNow()): the normal the set's normal force's
+    // on B, 'pushed', the follower's point's velocity and acceleration, and
+    // A's, the pressing points' by their depths -- a touch is two points,
+    // taken at two heights, and a flat on a flat two corners; touching none,
+    // the nearest point's, its normal. The slip along A's outline, the way
+    // it runs with A's face to its left.
+    auto profileReading = [&](std::size_t set, const ch::ChVector3d& pushed) -> CamReading {
+        if (!contactHandover) {
+            return {};
+        }
+        double weights = 0.0;
+        double nearest = -std::numeric_limits<double>::infinity();
+        ch::ChVector3d v, acceleration, vA, normal, plane;
+        ch::ChVector3d vNearest, accelerationNearest, vANearest, normalNearest;
+        for (const auto& follow : contactHandover->profiles) {
+            const ContactLoad& load = *follow.load;
+            if (load.set != set) {
+                continue;
+            }
+            const auto a = load.GetBodyA();
+            const auto b = load.GetBodyB();
+            if (plane == ch::VNULL) {
+                plane = (follow.frameA >> *a).GetRotMat().GetAxisZ();
+            }
+            for (const auto& point : load.pointsNow()) {
+                const double depth = -ch::Vdot(point.normal,
+                                               b->TransformPointLocalToParent(point.onB)
+                                                   - a->TransformPointLocalToParent(point.onA));
+                const ch::ChVector3d speed = b->PointSpeedLocalToParent(point.onB);
+                const ch::ChVector3d accel = b->PointAccelerationLocalToParent(point.onB);
+                const ch::ChVector3d speedA = a->PointSpeedLocalToParent(point.onA);
+                if (depth > 0.0) {
+                    weights += depth;
+                    v += speed * depth;
+                    acceleration += accel * depth;
+                    vA += speedA * depth;
+                }
+                if (depth > nearest) {
+                    nearest = depth;
+                    vNearest = speed;
+                    accelerationNearest = accel;
+                    vANearest = speedA;
+                    normalNearest = point.normal;
+                }
+            }
+        }
+        if (!std::isfinite(nearest)) {
+            return {};
+        }
+        if (weights > 0.0 && pushed.Length() > 0.0) {
+            v /= weights;
+            acceleration /= weights;
+            vA /= weights;
+            normal = pushed.GetNormalized();
+        }
+        else {
+            v = vNearest;
+            acceleration = accelerationNearest;
+            vA = vANearest;
+            normal = normalNearest.GetNormalized();
+        }
+        CamReading out = leaning(normal, v, acceleration);
+        out.slip = ch::Vdot(v - vA, ch::Vcross(plane, normal).GetNormalized());
+        return out;
     };
 
     auto valuesNow = [&]() {
@@ -7332,8 +7412,10 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             out.push_back(deepest[s] / SI::length);
-            if (si.dynamics->contacts[s].cam != NoId) {
-                const CamReading cam = camReading(s);
+            const ContactPair& pair = si.dynamics->contacts[s];
+            const bool profile = isProfileSet(*si.dynamics, pair);
+            if (pair.cam != NoId || profile) {
+                const CamReading cam = profile ? profileReading(s, -normalOnSet[s]) : camReading(s);
                 out.push_back(cam.pressure);
                 out.push_back(cam.slip / SI::velocity);
                 // The set's force split along the follower's line of motion

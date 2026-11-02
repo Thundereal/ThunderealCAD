@@ -1599,7 +1599,8 @@ class TestGuiCommands(unittest.TestCase):
     def test_cam_sensor_quantities(self):
         """A sensor on a cam contact can watch its pressure angle, in
         degrees, its slip, in mm/s, and its drive force and side load, by
-        component; a plain contact set offers none of them"""
+        component; a profile contact all of them, its B the follower; a
+        plain contact set none of them"""
         import CommandCreateContact
         import CommandCreateSimulation
 
@@ -1608,6 +1609,9 @@ class TestGuiCommands(unittest.TestCase):
         JointObject.ViewProviderJoint(j.ViewObject)
         cam = CommandCreateContact.newCamContact(self.assembly, j)
         plain = CommandCreateContact.newContactSet(self.assembly, [self.box], [self.cyl1])
+        profile = CommandCreateContact.newProfileContact(
+            self.assembly, self.box, ["Face6"], self.cyl1, ["Face2"]
+        )
         self.run_command("Assembly_CreateSimulation")
         self.accept_task()
         sim = self.proxies("Simulation")[0]
@@ -1619,6 +1623,10 @@ class TestGuiCommands(unittest.TestCase):
         offered = [quantity.itemData(i) for i in range(quantity.count())]
         self.assertNotIn("CamPressureAngle", offered)
         self.assertNotIn("CamSideForce", offered)
+        dialog.sourceCombo.setCurrentIndex(dialog.sourceCombo.findData(profile))
+        offered = [quantity.itemData(i) for i in range(quantity.count())]
+        for name in ("CamPressureAngle", "CamSlip", "CamDriveForce", "CamSideForce"):
+            self.assertIn(name, offered)
         dialog.sourceCombo.setCurrentIndex(dialog.sourceCombo.findData(cam))
         offered = [quantity.itemData(i) for i in range(quantity.count())]
         self.assertIn("CamPressureAngle", offered)

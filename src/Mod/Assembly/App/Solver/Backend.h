@@ -174,10 +174,12 @@ struct SimulationSpec
 //   "ContactPenetration"  the deepest of its points, 0 apart
 //   "CamPressureAngle", "CamSlip"  a cam contact's: the angle, rad, between
 //                      its normal and the follower's motion, 0 to pi/2; the
-//                      follower's point's speed along the cam from the cam's
-//   "CamDriveForce", "CamSideForce"  a cam contact's ContactForce split
-//                      along the follower's line of motion and across it;
-//                      width 3
+//                      follower's point's speed along the cam from the cam's.
+//                      A profile contact's the same, its B the follower, the
+//                      slip along A's outline, with A's face to its left
+//   "CamDriveForce", "CamSideForce"  a cam contact's or a profile contact's
+//                      ContactForce split along the follower's line of
+//                      motion and across it; width 3
 //   "FrictionForce", "FrictionTorque"  a joint's friction on the body of its
 //                      frame I, along and about the joint's axis
 // 'unique' is false for a reaction a redundant joint shares with others (sec

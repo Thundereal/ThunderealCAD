@@ -1761,7 +1761,8 @@ Phase D1 is under way (2026-10-28):
     about 3% every 15 deg of the turn (10 output frames), up a frame and
     down the next; ContactForce has it as the split does.
   - Not yet: a pressure angle for a profile contact's pairs; the bumps'
-    cause. (The bumps: found and fixed, below.)
+    cause. (The bumps: found and fixed, below; a profile contact's angle:
+    built, below.)
 - Built: a cam's point followed within a substep (the bumps' "not yet"):
   the cam contact's force bumped, and its smooth part was off too.
   - The cause: a contact load's points are collision detection's, found
@@ -1998,6 +1999,38 @@ Phase D1 is under way (2026-10-28):
     flicking that far, the lean within 0.0005 deg.
   - Not yet: a point whose other's nearest is a vertex -- a corner on a
     corner, an arc past the end of a line -- is not followed.
+- Built: a profile contact's pressure angle, slip, drive force and side
+  load (the cam's pressure angle's "not yet" above), its B the follower.
+  - The run (ChronoBackend): a profile contact's set (`isProfileSet()`)
+    reports CamPressureAngle, CamSlip, CamDriveForce and CamSideForce
+    after its contact channels, as a cam contact's does, read by
+    `profileReading()`: from the set's points where they are now
+    (pointsNow()), the pressing ones by their depths -- a touch is two
+    points, at its two heights, and a flat on a flat two corners -- the
+    normal the set's normal force's, the follower's point's velocity and
+    acceleration and A's the points' weighted the same; touching none,
+    the nearest point's. The angle and the way from them as a cam's
+    (`leaning()`, which camReading() now shares); the slip along A's
+    outline, z_A x normal, the way it runs with A's face to its left.
+  - The panel: `sensorSourceKind()` takes a ProfileContact as a
+    "CamContact", so a sensor's dialog offers the four on it.
+  - Tests (TestProfileContact's disk cam, ride_disk_cam(), for the flat
+    follower, the roller and the knife edge): the pressure angle at every
+    frame past 45 deg, 0 for the flat and asin(E |cos theta| / reach)
+    for the others, to 0.01 deg (4.4e-5, 0.0059, 4.5e-4 measured); the
+    drive and side load adding up to the force, the drive along the
+    slider and the side load across it, to 1e-5 of the force (1e-12);
+    the slip, the follower's point's speed from the disk's along its
+    outline at the disk's point under it, to 0.05 mm/s (0.0007 to
+    0.0035). TestGuiCommands' sensor quantities: a profile contact
+    offers the four. TestAssemblyWorkbench 580 OK, 88 skipped; the GUI
+    suite's TestGuiCommands 65 OK. In the manual's video
+    (`assembly/simulation/profile-pressure`), the roller: the pressure
+    angle within 2.1e-4 deg of asin(E |cos theta| / R'), R' the centres
+    apart less the allowance, the drive within 0.0091%, the side load
+    within 0.0011 mN, the slip within 0.0024 mm/s; a sensor marking the
+    angle past 12 deg at 149.992 and 329.990 deg against 149.992 and
+    329.992.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

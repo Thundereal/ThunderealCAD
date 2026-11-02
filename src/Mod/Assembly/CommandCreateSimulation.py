@@ -1443,7 +1443,8 @@ def sensorSourceKind(obj):
     """Which of SensorQuantities' kinds obj is, or None"""
     if obj is None:
         return None
-    if obj.isDerivedFrom("Assembly::CamContact"):
+    # A profile contact reports a cam's readings too, its B the follower
+    if obj.isDerivedFrom("Assembly::CamContact") or obj.isDerivedFrom("Assembly::ProfileContact"):
         return "CamContact"
     if obj.isDerivedFrom("Assembly::ContactSet"):
         return "Contact"

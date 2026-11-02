@@ -368,7 +368,11 @@ class TestProfileContact(unittest.TestCase):
 
         step = 1e-3
         forces = self.channel("ContactForce")
-        worst = worst_lean = 0.0
+        pressures = self.channel("CamPressureAngle")
+        slips = self.channel("CamSlip")
+        drives = self.channel("CamDriveForce")
+        sides = self.channel("CamSideForce")
+        worst = worst_lean = worst_pressure = worst_slip = worst_split = 0.0
         for k, t in enumerate(self.assembly.getSimulationResults()["Times"]):
             theta = rate * t
             if theta < math.radians(45):
@@ -378,14 +382,37 @@ class TestProfileContact(unittest.TestCase):
             along = abs(forces[k].y)
             self.assertAlmostEqual(along / want, 1.0, delta=1e-3, msg=(k, theta))
             worst = max(worst, abs(along / want - 1.0))
+            angle = 0.0
             if reach is not None:
                 lean = math.degrees(math.atan2(abs(forces[k].x), along))
                 angle = math.degrees(math.asin(e * abs(math.cos(theta)) / reach))
                 self.assertAlmostEqual(lean, angle, delta=0.01, msg=(k, theta))
                 worst_lean = max(worst_lean, abs(lean - angle))
+            # The contact's own readings, the follower its B: the pressure
+            # angle; the force along the slider and across it; the slip, the
+            # follower's point's speed from the disk's along the disk's
+            # outline, counterclockwise, at the disk's point under it
+            self.assertAlmostEqual(math.degrees(pressures[k]), angle, delta=0.01, msg=(k, theta))
+            worst_pressure = max(worst_pressure, abs(math.degrees(pressures[k]) - angle))
+            split = (drives[k] + sides[k] - forces[k]).Length + abs(drives[k].x) + abs(sides[k].y)
+            self.assertLess(split, 1e-5 * forces[k].Length, msg=(k, theta))
+            worst_split = max(worst_split, split / forces[k].Length)
+            centre = App.Vector(e * math.cos(theta), e * math.sin(theta), 0)
+            if reach is None:
+                normal = App.Vector(0, 1, 0)
+            else:
+                normal = App.Vector(0, y(theta), 0) - centre
+                normal.normalize()
+            at = centre + normal * CAM_RADIUS
+            cam = App.Vector(0, 0, rate).cross(at)
+            follower = App.Vector(0, rate * (y(theta + step) - y(theta - step)) / (2 * step), 0)
+            slip = (follower - cam).dot(App.Vector(0, 0, 1).cross(normal))
+            self.assertAlmostEqual(slips[k], slip, delta=0.05, msg=(k, theta))
+            worst_slip = max(worst_slip, abs(slips[k] - slip))
         App.Console.PrintMessage(
-            "Profile disk cam, %s: the force within %.3g of m (g + y''), the lean %.3g deg\n"
-            % (name, worst, worst_lean)
+            "Profile disk cam, %s: the force within %.3g of m (g + y''), the lean %.3g deg;"
+            " the pressure angle %.3g deg, the split %.3g, the slip %.3g mm/s\n"
+            % (name, worst, worst_lean, worst_pressure, worst_split, worst_slip)
         )
 
     def faces(self, obj, z):

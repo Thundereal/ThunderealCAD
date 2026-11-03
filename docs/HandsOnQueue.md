@@ -166,6 +166,11 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-03 10:44: entry 247 -- a REGRESSION (242's hold): opening scanner, after the
+migration box the recompute runs with a black view, no error box, and
+once Section007 left empty unmarked; ASSIGNED to dwin, first.** Under the
+entries.
+
 **2026-11-03 10:41: entries 244 (a regression: a PD Box label's edit box opens away
 from the label), 245 (the measure pre-selection tip ignores the overlay
 panels), 246 (a handle's tip: round border, square corners -- use the
@@ -4595,6 +4600,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 244 | 2026-11-03 | a REGRESSION: creating a PD Box, a click on an on-view label or Enter to type opens the edit box somewhere else, not in place of the label | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the box is placed by EditableDatumLabel::positionSpinbox (EditableDatumLabel.cpp 413-451) at getTextCenterPoint() (453-485); OnViewValueSet::placeLabels puts the label with setPlacement + setPoints(0,0) (OnViewValue.cpp 1109-1111), the primitives' labels at the active handle's foot since 241 (`6465589eb0`, the only change to OnViewValue.cpp since 11-01); avoidMouseCursor ruled out (false for these labels); cause NOT found; ASSIGNED to dwin (fcad-88) |
 | 245 | 2026-11-03 | a defect: the Measure (pre)selected geometry macro's tool tip ignores the OVERLAY PANELS -- shown under a panel; the reporter wants it aware of them whatever it did before | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: Selection.cpp 1223-1233 shows PreselectionText by Gui::ToolTip::showText with the active view, overlay=true and the corner PreselectionToolTipCorner + offsets; ToolTip::onShowTimer (Widgets.cpp 1601-1623) places it in the corner of the WHOLE view widget -- nothing there asks what the overlay panels cover; whether it once did NOT checked; ASSIGNED to dwin (fcad-88) |
 | 246 | 2026-11-03 | a defect: an on-view handle's tool tip draws a ROUND-cornered border on a RECTANGULAR widget -- the square corners show; the reporter: use the tooltip helper the measure pre-selection macro uses | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the handle's tip is Qt's own QToolTip::showText (Gizmo.cpp 374, 387; 241's tip); the helper is Gui::ToolTip::showText / TipLabel (Widgets.cpp 1471-1640), which the pre-selection text uses (Selection.cpp 1228); ASSIGNED to dwin (fcad-88), with 245 (same helper) |
+| 247 | 2026-11-03 | a REGRESSION, the reporter relates it to 242's fix: opening scanner, the migration box now holds the load, but after OK the recompute runs with the 3D view BLACK, the model appearing at once at its end (no progressive load); NO recompute error box although objects fail; the first try also failed Dimension014, through Section007 left with no shape and NOT marked as an error (a manual recompute of Section007 fixed it) | OPEN; said to the note-taker 2026-11-03 10:44; READ by the note-taker: the handler (Application.cpp 607-640) recomputes right after the box, inside signalFinishOpenDocument, and shows the error box when hasError; 242's hold (isLoadHeld = activeModalWidget(), Application.cpp 2505-2508) also holds Document::scheduleDeferredRestore (Document.cpp 4703-4710) -- the deferred RESTORE, not only the visuals -- so the recompute may run on a document not fully restored (a lead for Section007, NOT verified); a modal SequencerDialog in the recompute (ProgressDialog.cpp 105) would keep the hold on through it (a lead, NOT verified); causes NOT found; ASSIGNED to dwin (fcad-88), FIRST |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -32195,6 +32201,50 @@ NOT said: 241's tip timing (Qt's hide and wake-up delays) -- read as
 kept; the other on-view tips (the menu button) -- read as the same.
 ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
 
+## 247. Opening scanner: after the migration box, the recompute runs with a black view, no error box, and Section007 left empty (a regression) -- OPEN
+
+**2026-11-03 10:44, the reporter (to the note-taker):** "new regression, I think it
+is related to the migration dialog fix, now I open scanner, it prompt
+for migration and background load does stop. but then when I click ok
+it recomputes, the 3d view turns black, and only change to normal when
+recomptue finishes and the model appear at once instead of progressive
+loading. And worse, even if there is recompute error, no recompute
+failed dialog pops anymore. And the first time, I tried the above
+procedure, in addition to the expected failure of Section003,
+Dimension014 failed too, which is caused by Section007 (not marked as
+error) not producing any shape. manual recompute Section007 fix the
+problem."
+The note-taker's reading, three faults after answering the migration
+box (242's hold works while the box is up):
+(a) during the recompute that follows, the 3D view is black; the model
+    appears all at once when the recompute ends -- no progressive load;
+(b) the "Recompute error" box no longer appears, though objects fail;
+(c) the first time only: besides Section003 (an expected failure),
+    Dimension014 failed, because Section007 produced no shape and was
+    NOT marked as an error; recomputing Section007 by hand fixed it.
+The reporter relates it to 242's fix (`0f41b13b35`).
+READ by the note-taker:
+- The handler (src/Gui/Application.cpp 607-640): the box, then on Yes
+  doc->recompute for the dependent documents in the same call, then the
+  error box if hasError.
+- 242's hold: Application::isLoadHeld() is
+  QApplication::activeModalWidget() != nullptr (2505-2508). It holds the
+  view provider and Part drains AND Document::scheduleDeferredRestore
+  (src/Gui/Document.cpp 4703-4710), the deferred RESTORE of the document
+  -- not only the visual building. Before 242 the box's own event loop
+  let the restore and the visuals finish under the box.
+- Leads, NOT verified: (c) the recompute runs on a document whose
+  deferred restore has not finished (Section007's input not there yet);
+  (a) a modal widget during the recompute -- SequencerDialog sets itself
+  modal on the GUI thread (src/Gui/ProgressDialog.cpp 105) -- keeps the
+  hold on through the recompute; (b) not read -- whether hasError stays
+  false (Section007 not marked) or the box is never reached.
+- Causes NOT found.
+NOT said: the reporter's build (read as the staged copy, stage34 or the
+one after); "No" to the box; other files.
+ASSIGNED to dwin (fcad-88), FIRST -- before 244 (the note-taker
+coordinating).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -32206,5 +32256,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 246
+the build session, 131 and 132 found by it; entries 134 to 247
 are of 2026-10-15, 134 said to the build session)

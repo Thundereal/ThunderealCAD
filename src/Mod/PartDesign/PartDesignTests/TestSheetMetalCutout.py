@@ -351,6 +351,28 @@ class TestSheetMetalCutout(unittest.TestCase):
         self.assertAlmostEqual(min(holes[0].XLength, holes[0].YLength), 10, places=5)
         self.assertAlmostEqual(max(holes[0].XLength, holes[0].YLength), 30, places=5)
 
+    def testWrapCircleOnBend(self):
+        """A circle 1 in radius drawn on the bend's middle line: wholly on
+        the bend, it lies flat as that circle, pi of the blank, the hole's
+        wall square to the flat all round, not twisted between its two skins"""
+        self.flange("Far", FAR)
+        volume = self.Tip.Shape.Volume
+        _, before = self.flatArea(self.Tip)
+        sketch = self.sketch(self.top(), circles=[((20, 18 + STRIP / 2, 1), 1)])
+        cutout = self.cut(sketch, Wrap=True)
+        self.checkValid(cutout)
+        self.assertAlmostEqual(cutout.Shape.Volume, volume - math.pi, places=6)
+        flat, area = self.flatArea(cutout)
+        self.assertAlmostEqual(area, before - math.pi, places=6)
+        walls = [f for f in flat.Shape.Solids[0].Faces if not isinstance(f.Surface, Part.Plane)]
+        self.assertTrue(walls)
+        for f in walls:
+            u0, u1, v0, v1 = f.ParameterRange
+            for i in range(41):
+                u = u0 + (u1 - u0) * i / 40
+                p, q = f.valueAt(u, v0), f.valueAt(u, v1)
+                self.assertLess(math.hypot(p.x - q.x, p.y - q.y), 1e-6)
+
     def testWrapPlanes(self):
         """The same cut from the plate's top, its bottom, planes above and
         below it, and the top with the sketch turned over: taken onto the

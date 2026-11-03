@@ -7195,6 +7195,8 @@ public:
         PassDepthOnly,   // depth-write-only prepass of on-top fills
         PassLineHidden,  // on-top lines/points, no depth test, dimmed
         PassLineSolid,   // on-top lines/points, depth LEQUAL, full color
+        PassLineMark,    // a plain line where it is front-most: stencil 0x80,
+                         // no colour, no depth written (entry 243)
     };
 
     /// Per-frame PBR/shadow uniform + sampler state shared by every
@@ -8347,6 +8349,11 @@ public:
     /// new to try.
     bool targetsFailed = false;
     bool ontop = false;   // route submits to the highlight pass
+    // Plain lines in front of a highlighted one marked the stencil this
+    // frame (PassLineMark): each depth-tested highlight line or point in
+    // the highlight view is submitted again over the mark with no depth
+    // test -- over every line, still under a face in front (entry 243).
+    bool overLines = false;
     // This frame's shaded image comes from the attached consumer
     // (Renderer::setExternalBaseLayer): scene triangles rasterize
     // depth-only, lines/points and non-on-top selections draw in

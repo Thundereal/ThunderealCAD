@@ -49,7 +49,12 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalBaseWall::getEditDialog()
         new TaskSheetMetalParameters(this,
                                      "PartDesign_SheetMetalBaseWall",
                                      QObject::tr("Base wall parameters"),
-                                     {"MaterialSide", "Length", "Reversed", "Midplane"}));
+                                     {"MaterialSide",
+                                      "Length",
+                                      "Reversed",
+                                      "Midplane",
+                                      "UseRuleRadius",
+                                      "BendRadius"}));
 }
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlange, PartDesignGui::ViewProviderAddSub)
@@ -75,6 +80,8 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalFlange::getEditDialog()
              "Gap1",
              "Gap2",
              "Reversed",
+             "UseRuleRadius",
+             "BendRadius",
              "Profile",
              "ReliefShape",
              "ReliefWidth",
@@ -99,7 +106,14 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalContourFlange::getEditDialog()
             this,
             "PartDesign_SheetMetalContourFlange",
             QObject::tr("Contour flange parameters"),
-            {"Profile", "Gap1", "Gap2", "ReliefShape", "ReliefWidth", "ReliefDepth"},
+            {"Profile",
+             "Gap1",
+             "Gap2",
+             "UseRuleRadius",
+             "BendRadius",
+             "ReliefShape",
+             "ReliefWidth",
+             "ReliefDepth"},
             "Edges",
             "Edge"));
 }
@@ -118,7 +132,11 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalJoin::getEditDialog()
         new TaskSheetMetalParameters(this,
                                      "PartDesign_SheetMetalJoin",
                                      QObject::tr("Join by bend parameters"),
-                                     {"ReliefShape", "ReliefWidth", "ReliefDepth"},
+                                     {"UseRuleRadius",
+                                      "BendRadius",
+                                      "ReliefShape",
+                                      "ReliefWidth",
+                                      "ReliefDepth"},
                                      "Edges",
                                      "Edge"));
 }
@@ -246,7 +264,12 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalFold::getEditDialog()
         new TaskSheetMetalParameters(this,
                                      "PartDesign_SheetMetalFold",
                                      QObject::tr("Fold parameters"),
-                                     {"Profile", "Angle", "LinePosition", "Reversed"},
+                                     {"Profile",
+                                      "Angle",
+                                      "LinePosition",
+                                      "Reversed",
+                                      "UseRuleRadius",
+                                      "BendRadius"},
                                      "Moving",
                                      "Face"));
 }
@@ -271,7 +294,9 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalJog::getEditDialog()
                                       "Angle",
                                       "LinePosition",
                                       "FixProjectedLength",
-                                      "Reversed"},
+                                      "Reversed",
+                                      "UseRuleRadius",
+                                      "BendRadius"},
                                      "Moving",
                                      "Face"));
 }

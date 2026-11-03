@@ -59,6 +59,10 @@ public:
     /// A face on the side that moves, of the feature this builds on; none
     /// for the smaller side
     App::PropertyLinkSub Moving;
+    /// Bend at the rule's radius; off, at BendRadius (docs/SheetMetal.md
+    /// sec 12, ruled 2026-11-03)
+    App::PropertyBool UseRuleRadius;
+    App::PropertyLength BendRadius;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;

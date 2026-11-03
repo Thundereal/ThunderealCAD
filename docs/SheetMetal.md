@@ -1096,6 +1096,14 @@ and not frozen.
   - Found while testing: a tile measured with a box padded by the shape's tolerance (1e-7 a side)
     did not fit where it just fits, and one was dropped; the tile's extent is taken exactly now
     (`testSketchFits`). A tiled circle's flat was 0.015 mm^2 off: the flat's fault, below.
+- A bend radius of a feature's own (ruled 2026-11-03), on the flange (and so the contour
+  flange), the join by bend, the fold (and so the jog) and the base wall's profile: `UseRuleRadius`
+  and `BendRadius`, in their panels; `SheetMetalExtension::bendRadius()` gives the one a feature
+  bends at, `radiusSwitched()` greys `BendRadius` while the rule's is used and starts it at the
+  rule's when turned off. Each feature took the rule's radius in one place; K follows the radius
+  given (`modelK()`), and every length worked from R (the cut back, the leg, the sharps) with it.
+  Refused: a radius not more than 0. `testOwnRadius` (flange, join, fold) and
+  `testProfileOwnRadius` (base wall).
 - The flat, found by the bend cuts: a hole cut across a bend lay flat 2.7e-5 mm^2 short of the
   shape drawn (its outline a B-spline through 24 samples of its image), and its wall, ruled
   between the outlines on the two skins, each sampled on its own parameters, leaned up to

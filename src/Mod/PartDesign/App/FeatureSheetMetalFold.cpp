@@ -100,6 +100,17 @@ SheetMetalFold::SheetMetalFold()
                       App::Prop_None,
                       "A face on the side that moves; none for the smaller side");
     // A refined result would merge faces of two elements
+    ADD_PROPERTY_TYPE(UseRuleRadius,
+                      (true),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Bend at the rule's radius; off, at BendRadius");
+    ADD_PROPERTY_TYPE(BendRadius,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bends' inner radius, when not the rule's");
+    BendRadius.setStatus(App::Property::ReadOnly, true);
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
     for (App::Property* prop : std::initializer_list<App::Property*> {&Midplane,
@@ -117,7 +128,8 @@ SheetMetalFold::SheetMetalFold()
 
 short SheetMetalFold::mustExecute() const
 {
-    if (Angle.isTouched() || LinePosition.isTouched() || Moving.isTouched()) {
+    if (Angle.isTouched() || LinePosition.isTouched() || Moving.isTouched()
+        || UseRuleRadius.isTouched() || BendRadius.isTouched()) {
         return 1;
     }
     return ProfileBased::mustExecute();
@@ -125,6 +137,9 @@ short SheetMetalFold::mustExecute() const
 
 void SheetMetalFold::onChanged(const App::Property* prop)
 {
+    if (prop == &UseRuleRadius) {
+        radiusSwitched(UseRuleRadius, BendRadius);
+    }
     // The face picked is of the feature this builds on, as a dress-up's Base is
     if (prop == &BaseFeature && BaseFeature.getValue() && Moving.getValue()
         && Moving.getValue() != BaseFeature.getValue()) {
@@ -195,7 +210,11 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
             QT_TRANSLATE_NOOP("Exception", "The sheet has no rule"));
     }
     const double T = rule->Thickness.getValue();
-    const double R = rule->BendRadius.getValue();
+    const double R = bendRadius(*rule, UseRuleRadius, BendRadius);
+    if (R <= 0.0) {
+        return new App::DocumentObjectExecReturn(
+            QT_TRANSLATE_NOOP("Exception", "The bend radius is not more than 0"));
+    }
     const double A = Base::toRadians(Angle.getValue());
     if (A < Precision::Angular()) {
         return new App::DocumentObjectExecReturn(

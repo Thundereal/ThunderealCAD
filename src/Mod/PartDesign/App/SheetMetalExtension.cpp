@@ -59,6 +59,25 @@ SheetMetalRule* SheetMetalExtension::getRule() const
     return dynamic_cast<SheetMetalRule*>(Rule.getValue());
 }
 
+double SheetMetalExtension::bendRadius(const SheetMetalRule& rule,
+                                       const App::PropertyBool& useRule,
+                                       const App::PropertyLength& own)
+{
+    return useRule.getValue() ? rule.BendRadius.getValue() : own.getValue();
+}
+
+void SheetMetalExtension::radiusSwitched(const App::PropertyBool& useRule,
+                                         App::PropertyLength& own) const
+{
+    auto obj = getExtendedObject();
+    auto rule = getRule();
+    if (!useRule.getValue() && own.testStatus(App::Property::ReadOnly) && rule && obj
+        && !obj->isRestoring()) {
+        own.setValue(rule->BendRadius.getValue());
+    }
+    own.setStatus(App::Property::ReadOnly, useRule.getValue());
+}
+
 SheetMetalExtension* SheetMetalExtension::findBefore(const App::DocumentObject* feature)
 {
     auto pd = dynamic_cast<const PartDesign::Feature*>(feature);

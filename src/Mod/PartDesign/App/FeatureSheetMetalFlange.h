@@ -81,6 +81,10 @@ public:
     App::PropertyBool Reversed;
     /// A closed sketch parallel to the leg giving its shape, on one edge
     App::PropertyLinkSub Profile;
+    /// Bend at the rule's radius; off, at BendRadius (docs/SheetMetal.md
+    /// sec 12, ruled 2026-11-03)
+    App::PropertyBool UseRuleRadius;
+    App::PropertyLength BendRadius;
     /// The bend relief: Rule follows the rule's; another shape is the
     /// flange's own, with its own width and depth, read only under Rule
     App::PropertyEnumeration ReliefShape;

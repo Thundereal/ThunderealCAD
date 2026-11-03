@@ -62,6 +62,17 @@ SheetMetalBaseWall::SheetMetalBaseWall()
                       "Sheet Metal",
                       App::Prop_None,
                       "How far a profile wall goes along the sketch's normal");
+    ADD_PROPERTY_TYPE(UseRuleRadius,
+                      (true),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Bend at the rule's radius; off, at BendRadius");
+    ADD_PROPERTY_TYPE(BendRadius,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bends' inner radius, when not the rule's");
+    BendRadius.setStatus(App::Property::ReadOnly, true);
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -75,6 +86,23 @@ SheetMetalBaseWall::SheetMetalBaseWall()
                                                                       &Linearize}) {
         prop->setStatus(App::Property::Hidden, true);
     }
+}
+
+short SheetMetalBaseWall::mustExecute() const
+{
+    if (MaterialSide.isTouched() || Length.isTouched() || UseRuleRadius.isTouched()
+        || BendRadius.isTouched()) {
+        return 1;
+    }
+    return ProfileBased::mustExecute();
+}
+
+void SheetMetalBaseWall::onChanged(const App::Property* prop)
+{
+    if (prop == &UseRuleRadius) {
+        radiusSwitched(UseRuleRadius, BendRadius);
+    }
+    ProfileBased::onChanged(prop);
 }
 
 namespace
@@ -98,7 +126,11 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
         return rule->modelK(angle, radius);
     };
     build.thickness = rule->Thickness.getValue();
-    build.radius = rule->BendRadius.getValue();
+    build.radius = bendRadius(*rule, UseRuleRadius, BendRadius);
+    if (build.radius <= 0.0) {
+        return new App::DocumentObjectExecReturn(
+            QT_TRANSLATE_NOOP("Exception", "The bend radius is not more than 0"));
+    }
     if (build.thickness < Precision::Confusion()) {
         return new App::DocumentObjectExecReturn(
             QT_TRANSLATE_NOOP("Exception", "The sheet has no thickness"));

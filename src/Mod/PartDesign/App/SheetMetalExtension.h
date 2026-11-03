@@ -28,6 +28,8 @@
 
 #include <App/DocumentObjectExtension.h>
 #include <App/PropertyLinks.h>
+#include <App/PropertyStandard.h>
+#include <App/PropertyUnits.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
 #include "PropertySheetModel.h"
@@ -67,6 +69,15 @@ public:
      * the rule's.
      */
     SheetMetal::Model modelBefore(double thickness) const;
+
+    /** The radius a feature's bends take (docs/SheetMetal.md sec 12, ruled
+     * 2026-11-03): the rule's, or the feature's own where useRule is off
+     */
+    static double bendRadius(const SheetMetalRule& rule, const App::PropertyBool& useRule,
+                             const App::PropertyLength& own);
+    /// useRule changed: own is read only while it is on; turned off, own
+    /// starts at the rule's
+    void radiusSwitched(const App::PropertyBool& useRule, App::PropertyLength& own) const;
 
     /// The name of the element that owns a face of the feature's shape,
     /// empty if none

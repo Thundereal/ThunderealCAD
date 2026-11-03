@@ -170,6 +170,17 @@ SheetMetalFlange::SheetMetalFlange()
                       App::Prop_None,
                       "How far the bend relief runs past the bend, when ReliefShape is not Rule");
     showReliefValues();
+    ADD_PROPERTY_TYPE(UseRuleRadius,
+                      (true),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Bend at the rule's radius; off, at BendRadius");
+    ADD_PROPERTY_TYPE(BendRadius,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bends' inner radius, when not the rule's");
+    BendRadius.setStatus(App::Property::ReadOnly, true);
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -190,7 +201,8 @@ short SheetMetalFlange::mustExecute() const
         || BendPosition.isTouched() || Offset.isTouched() || Gap1.isTouched()
         || Gap2.isTouched() || Reversed.isTouched() || ParallelTo.isTouched()
         || UpToFace.isTouched() || Profile.isTouched() || ReliefShape.isTouched()
-        || ReliefWidth.isTouched() || ReliefDepth.isTouched()) {
+        || ReliefWidth.isTouched() || ReliefDepth.isTouched() || UseRuleRadius.isTouched()
+        || BendRadius.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -198,6 +210,9 @@ short SheetMetalFlange::mustExecute() const
 
 void SheetMetalFlange::onChanged(const App::Property* prop)
 {
+    if (prop == &UseRuleRadius) {
+        radiusSwitched(UseRuleRadius, BendRadius);
+    }
     // The edges are of the feature this builds on, as a dress-up's Base is
     if (prop == &BaseFeature && BaseFeature.getValue() && Edges.getValue()
         && Edges.getValue() != BaseFeature.getValue()) {
@@ -378,7 +393,11 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             QT_TRANSLATE_NOOP("Exception", "The sheet has no rule"));
     }
     const double T = rule->Thickness.getValue();
-    const double R = rule->BendRadius.getValue();
+    const double R = bendRadius(*rule, UseRuleRadius, BendRadius);
+    if (R <= 0.0) {
+        return new App::DocumentObjectExecReturn(
+            QT_TRANSLATE_NOOP("Exception", "The bend radius is not more than 0"));
+    }
     try {
         Model model = modelBefore(T);
         if (model.elements.empty()) {

@@ -58,6 +58,10 @@ public:
     App::PropertyEnumeration ReliefShape;
     App::PropertyLength ReliefWidth;
     App::PropertyLength ReliefDepth;
+    /// Bend at the rule's radius; off, at BendRadius (docs/SheetMetal.md
+    /// sec 12, ruled 2026-11-03)
+    App::PropertyBool UseRuleRadius;
+    App::PropertyLength BendRadius;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;

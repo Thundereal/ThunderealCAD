@@ -54,8 +54,14 @@ public:
     App::PropertyEnumeration MaterialSide;
     /// How far a profile wall goes along the sketch's normal
     App::PropertyLength Length;
+    /// Bend at the rule's radius; off, at BendRadius (docs/SheetMetal.md
+    /// sec 12, ruled 2026-11-03)
+    App::PropertyBool UseRuleRadius;
+    App::PropertyLength BendRadius;
 
     App::DocumentObjectExecReturn* execute() override;
+    short mustExecute() const override;
+    void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {
         return "PartDesignGui::ViewProviderSheetMetalBaseWall";

@@ -271,6 +271,29 @@ def run():
             pump(20)
             doc.recompute()
             pump(10)
+        own = w.get("UseRuleRadius")
+        check(
+            "the radius the rule's, its own greyed out",
+            own is not None and own.isChecked() and "BendRadius" in w
+            and not w["BendRadius"].isEnabled(),
+            [(n, n in w and w[n].isEnabled()) for n in ("UseRuleRadius", "BendRadius")],
+        )
+        if own is not None:
+            own.click()
+            pump(20)
+            doc.recompute()
+            pump(10)
+            check(
+                "a radius of its own: the flange's, from the rule's, open",
+                not flange.UseRuleRadius and w["BendRadius"].isEnabled()
+                and abs(w["BendRadius"].property("rawValue") - flange.Rule.BendRadius.Value)
+                < 1e-9,
+                (flange.UseRuleRadius, w["BendRadius"].isEnabled(), flange.BendRadius),
+            )
+            own.click()
+            pump(20)
+            doc.recompute()
+            pump(10)
         accept()
         pump(20)
 

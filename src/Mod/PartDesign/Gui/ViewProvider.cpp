@@ -93,18 +93,6 @@ ViewProvider::ViewProvider()
 
 ViewProvider::~ViewProvider() = default;
 
-App::DocumentObject *ViewProvider::getPickedVisibilityTarget() const
-{
-    // What is picked in the view is the body's shape, whichever feature the
-    // face came from: toggling that feature hid nothing, or showed it in
-    // place of the Tip (upstream bd03414893, 20c01000a1)
-    auto obj = getObject();
-    auto body = PartDesign::Body::findBodyOf(obj);
-    if (body && body->isSolidFeature(obj))
-        return body;
-    return nullptr;
-}
-
 bool ViewProvider::editHoldsTransaction(int ModNum) const
 {
     if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()

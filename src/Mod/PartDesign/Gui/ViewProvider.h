@@ -68,7 +68,6 @@ public:
     {
         return false;
     }
-    App::DocumentObject *getPickedVisibilityTarget() const override;
     void updateData(const App::Property*) override;
     void onChanged(const App::Property* prop) override;
     /// Shown or hidden, the feature takes the highlight of its solid body along

@@ -25,8 +25,11 @@ user meets it.
     51f4ad7432);
   - the Hole panel chooses what a hole is centred on, a sketch's points
     among them (upstream 774ec2cc93);
-  - Space on a face picked in the view toggles the body, on a feature
-    selected in the tree the feature (upstream bd03414893, 20c01000a1).
+  - Space toggles what is selected: a feature selected in the tree, and
+    the feature a face picked in the view belongs to -- not its body
+    (upstream bd03414893, 20c01000a1 were taken and reverted: a body holds
+    more than one solid and more than solids, docs/HandsOnQueue.md entry
+    249).
 
 Each was reproduced on the tree before its fix by the same steps, driven
 through the MCP console. The Pad delete is the control, which showed its
@@ -509,8 +512,9 @@ def test_space_toggle():
           got == (True, False, True), got)
     before = space("Box.")
     got = space("Cyl.Face1")
-    check("Space on a face picked in the view toggles the body",
-          got == (not before[0],) + before[1:], "%s -> %s" % (before, got))
+    # (the body shows one feature at a time: the box goes as the cylinder comes)
+    check("Space on a face picked in the view toggles the picked feature, not the body",
+          got[0] == before[0] and got[2] == (not before[2]), "%s -> %s" % (before, got))
     FreeCAD.closeDocument(doc.Name)
     events()
 

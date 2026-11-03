@@ -1104,6 +1104,24 @@ and not frozen.
   given (`modelK()`), and every length worked from R (the cut back, the leg, the sharps) with it.
   Refused: a radius not more than 0. `testOwnRadius` (flange, join, fold) and
   `testProfileOwnRadius` (base wall).
+- The flat as a view (ruled 2026-11-03), its first step: `PartDesign::layFlat()`
+  (`SheetMetalFlat.h`) lays any feature of a sheet flat -- a sheet metal feature, or one after
+  them by the sheet's model -- by `FlatSettings`, with what a bill of materials takes; what the
+  flat pattern did, without the feature. The sheet's solid (`SolidBody`, which a sheet always
+  has) holds the settings (`FlatRoot` by the wall's name, `FlatSecondSkin`, `FlatAlignEdge` by
+  element name, `TangentLines`, `Grain`, `GrainAngle`) and the tip's values, read only and
+  hidden on a solid of no sheet metal (`FlatLength` ... `BendDirections`, and `FlatStatus`, why
+  the tip does not lie flat). `SolidBody::flatOf()` keeps a feature's flat until its shape or
+  the settings change. The sub-object `Flat` of every feature of the solid, and of the solid
+  (its tip's), is that flat, an element of it after the dot (`Flange.Flat.Face3`).
+  - Part keeps a sub-object's shape until the object itself changes; a feature's Flat depends on
+    its solid's settings, so the solid clears its features' (`PropertyShapeCache::clearShapes()`,
+    new) when one changes.
+  - The solid lays its tip flat on each recompute, for the values: the sheet metal suites take
+    about 40% longer (the flange's 10 s to 14 s).
+  - Open: a flange whose end runs into a bend of the wall it is on (on the top edge of an L's
+    leg, up to the L's bend) is valid folded, but does not lie flat ("faces overlap or are
+    missing"); the flat pattern the same. Found writing `testSolidFlat`.
 - The flat, found by the bend cuts: a hole cut across a bend lay flat 2.7e-5 mm^2 short of the
   shape drawn (its outline a B-spline through 24 samples of its image), and its wall, ruled
   between the outlines on the two skins, each sampled on its own parameters, leaned up to

@@ -590,6 +590,14 @@ void Feature::updateSuppressedShape()
 App::DocumentObject *Feature::getSubObject(const char *subname, 
         PyObject **pyObj, Base::Matrix4D *pmat, bool transform, int depth) const
 {
+    // The feature laid flat, where it is of a sheet's solid (docs/SheetMetal.md
+    // sec 12): the solid lays it out and keeps it
+    if (const char *element = SolidBody::flatSubName(subname)) {
+        auto body = PartDesign::Body::findBodyOf(this);
+        auto solid = body ? body->getSolidBody(this) : nullptr;
+        return solid ? solid->flatSubObject(this, this, element, pyObj, pmat, transform)
+                     : nullptr;
+    }
     if (subname && subname != Data::findElementName(subname)) {
         const char * dot = strchr(subname,'.');
         if (dot) {

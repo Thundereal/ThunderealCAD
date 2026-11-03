@@ -23,11 +23,16 @@
 #ifndef PARTDESIGN_SolidBody_H
 #define PARTDESIGN_SolidBody_H
 
+#include <map>
 #include <string>
 
 #include <App/PropertyLinks.h>
+#include <App/PropertyStandard.h>
+#include <App/PropertyUnits.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
+
+#include "SheetMetalFlat.h"
 
 namespace PartDesign
 {
@@ -139,7 +144,66 @@ public:
      */
     App::DocumentObject *referenceFrom(const App::DocumentObject *user, std::string &sub) const;
 
+    /** @name The sheet's flat (docs/SheetMetal.md sec 12, ruled 2026-11-03)
+     *
+     * A solid holding sheet metal lays any of its features flat when asked
+     * (flatOf()), by its settings, and has its tip's values; every feature's
+     * flat is its sub-object Flat. On another solid these are hidden.
+     */
+    //@{
+    /// The wall laid on XY, by its name; the first wall if empty
+    App::PropertyString FlatRoot;
+    /// The root wall's second skin on XY, not its first
+    App::PropertyBool FlatSecondSkin;
+    /// An edge of the solid, by its element name, the flat is turned to run
+    /// along X by, where the feature laid flat has it
+    App::PropertyString FlatAlignEdge;
+    /// Each bend's tangent lines in the flat
+    App::PropertyBool TangentLines;
+    /// The grain arrow in the flat
+    App::PropertyBool Grain;
+    /// The grain's direction, from the flat's X
+    App::PropertyAngle GrainAngle;
+    /// What a bill of materials takes, of the tip's flat (sec 5.4)
+    App::PropertyLength FlatLength;
+    App::PropertyLength FlatWidth;
+    App::PropertyArea FlatArea;
+    App::PropertyLength Thickness;
+    App::PropertyString MaterialName;
+    App::PropertyInteger BendCount;
+    App::PropertyAngle MaxBendAngle;
+    App::PropertyMap BendDirections;
+    /// Why the tip does not lie flat, empty if it does
+    App::PropertyString FlatStatus;
+
+    /// Whether the solid holds sheet metal
+    bool isSheetMetal() const;
+    /// The flat of a feature of the solid, its tip's if null, kept until the
+    /// feature's shape or the settings change. Throws Base::ValueError saying
+    /// why it does not lie flat.
+    const SheetFlat &flatOf(const App::DocumentObject *feature = nullptr) const;
+
+    /// What follows "Flat." in a subname naming a flat, null if it names none
+    static const char *flatSubName(const char *subname);
+    /** The flat of \a part, or the element of it \a element names, as the
+     * sub-object of \a owner (getSubObject()), moved as \a owner's shape is:
+     * null if it does not lie flat
+     */
+    App::DocumentObject *flatSubObject(const App::DocumentObject *owner,
+                                       const App::DocumentObject *part, const char *element,
+                                       PyObject **pyObj, Base::Matrix4D *pmat,
+                                       bool transform) const;
+    //@}
+
 private:
+    /// The flat's properties: its settings and values
+    std::vector<App::Property*> flatProperties();
+    /// The flat settings as they are
+    FlatSettings flatSettings() const;
+    /// The flat's properties shown on a solid of sheet metal only
+    void showFlatProperties();
+    /// The tip's flat values, or why it does not lie flat
+    void updateFlat();
     /// Whether somebody gave the faces, the lines or the points a look (it is
     /// not the material card's, nor the preference's)
     bool isLookGiven() const;
@@ -158,6 +222,16 @@ private:
     std::string shapeOf;
     /// What keepOutOfItself() last said is wrong, not to say it again
     std::string reported;
+
+    /// A feature's flat, by the feature's name, with what it was laid from
+    struct FlatCache
+    {
+        const void *shape = nullptr;
+        FlatSettings settings;
+        SheetFlat flat;
+        bool valid = false;
+    };
+    mutable std::map<std::string, FlatCache> flats;
 };
 
 } //namespace PartDesign

@@ -495,6 +495,9 @@ public:
     static PropertyShapeCache *get(const App::DocumentObject *obj, bool create);
     static bool getShape(const App::DocumentObject *obj, TopoShape &shape, const char *subname=0);
     static void setShape(const App::DocumentObject *obj, const TopoShape &shape, const char *subname=0);
+    /// Forget what is kept for obj: a sub-object's shape that depends on
+    /// another object (a sheet metal feature's Flat, on its solid's settings)
+    static void clearShapes(const App::DocumentObject *obj);
 
 private:
     void slotChanged(const App::DocumentObject &, const App::Property &prop);

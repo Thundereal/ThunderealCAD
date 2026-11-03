@@ -22,8 +22,12 @@ protected:
         _fuse = dynamic_cast<Part::Fuse*>(_doc->addObject("Part::Fuse"));
     }
 
+    // Closed, or the process ends with it open and its transient directory stays
+    // in the user cache -- one per test run
     void TearDown() override
-    {}
+    {
+        App::GetApplication().closeDocument(_doc->getName());
+    }
 
     Part::Fuse* _fuse = nullptr;  // NOLINT Can't be private in a test framework
 };

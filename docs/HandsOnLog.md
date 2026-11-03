@@ -8429,3 +8429,33 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   Python suite 4077 OK (0 failures, 0 errors); ctest 1100/1100 with the new
   FileHistorySamePath gtest; GUI 5/5 (two documents, TD pages, per-view
   undo, modal load, PD values).
+
+### 2026-11-03: entries 243, 247, 244, 243 b, 246 -- COMMITTED, not pushed, not staged
+
+- 243 `5e3a5917c4`: a highlighted line over every other line (the user chose
+  "over lines, not faces"). From the top the side-on XZ plane's edges are IN
+  FRONT of the X axis (z 0.01, 0.157). Both renderers: plain lines mark the
+  stencil where front-most, highlight/selection lines drawn again over the
+  mark without the depth test; bgfx's last redraw selection first, then the
+  preselection. Traps on the way: draw bounds are not where a draw is (the
+  origin's axes share one cached line, bboxes identical) -- marks every plain
+  line; the plane's dashes are its annotation-order through-copy.
+  origin-plane-highlight 17/17 bgfx and Legacy.
+- 247 `dfc36122fe`: 242's hold held for ANY modal widget -- the progress
+  dialog of the migration recompute held restore and visuals through it.
+  Now only a QMessageBox, never while recomputing. And recompute's
+  "Recompute failed!" now sets *hasError (SectionView003 logs its empty cut
+  and returns OK: no error box -- older than 242). scanner COPY: the box now.
+  ctest 1100, Python 4077 OK.
+- 244 `de8f488698`: a label in edit has blank text, and 241 places it by its
+  text size: it moved (18 px left, 30 down), the edit box with it. Placed by
+  the size it had shown. pd-primitive-labels-at-handle 28/28.
+- 243 b `e6a285fa4d`: measured both renderers -- pattern 0: hidden part solid
+  over a line in front (69/69, already so); a dash pattern: 243's copy drew
+  it solid under the line. No copy while a dash pattern is set; dashes over
+  the line, the line between (36/33). hidden-selected-edge-over-line.py new.
+- 246 `d4344a8a82`: handle and menu button tips in Gui::ToolTip's rounded
+  overlay label beside the pointer (2, 16); 241's timing kept. Three tests
+  read the label; fillet-handle-click's 141 claim now 241's rule.
+- 245 moved to x16 by the note-taker; not started here.
+- Git Bash trap: TMPDIR=/tmp reaches cmd as the 8.3 temp (memory note).

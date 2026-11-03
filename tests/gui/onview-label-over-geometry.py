@@ -16,6 +16,12 @@ top-middle label ("Radius ...") lies over the box. Claims:
 
 Run through scripts/gui-test.sh (xvfb, isolated configuration, external
 timeout), or by hand as `FreeCAD <this script>` with GT_OUT set.
+
+With the handles off: a value with handles has its label beside its active
+handle since 6465589eb0, and shows none while no value is active, so the
+label at the top middle that these claims are about is a value's with no
+handle shown. Active, it opens its edit box where the label stood
+(de8f488698), which is what the click is seen by here.
 """
 import os
 import time
@@ -175,6 +181,8 @@ def run():
     try:
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt(
             "AutoSaveTimeout", 0)
+        FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Gui/Gizmos").SetBool(
+            "EnableGizmos", False)
         mw().activateWindow()
         doc = FreeCAD.newDocument(DOC)
         body = doc.addObject("PartDesign::Body", "Body")
@@ -241,8 +249,10 @@ def run():
         after = arrow_colours()
         note("INFO arrows before %s, after the click %s" % (before, after))
         check("entry 196 point 3: a click on the label selects nothing behind it", sel == [], sel)
-        check("... and makes its value active (the arrows change colour)",
-              bool(after) and after != before, (before, after))
+        editor = QtWidgets.QApplication.focusWidget()
+        check("... and makes its value active (its edit box has the keys)",
+              isinstance(editor, QtWidgets.QAbstractSpinBox)
+              or (bool(after) and after != before), (before, after, editor))
         gui.resetEdit()
         pump(40)
     except Exception:

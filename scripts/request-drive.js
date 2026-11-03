@@ -58,23 +58,26 @@ const puppeteer = require(process.env.PUPPETEER_PATH || 'puppeteer-core');
       });
     });
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
-    // The first launcher is the viewer menu; the second is the selection
-    // menu, which has no such row.
-    await page.waitForSelector('.fc-launch', { timeout });
+    // The viewer menu by its name: the launchers are the undo list, the
+    // viewer menu and the selection menu, and only the viewer menu has the
+    // row. The first used to be the viewer menu, until the undo list came.
+    const LAUNCH = '.fc-launch[aria-label="Viewer menu"]';
+    const ITEMS = '.fc-menu[aria-label="Viewer menu"] .fc-menu-item';
+    await page.waitForSelector(LAUNCH, { timeout });
     // The row is there only for a connection that may write, and the page
     // learns what it may do from the host's answer to its hello: until
     // then it draws the row. Give the answer time to arrive before reading
     // the menu, or a view-only page is reported as having one.
     await new Promise((r) => setTimeout(r, +(process.env.FC_REQUEST_SETTLE || 4000)));
     const rows = async () => {
-      if (!(await page.$('.fc-menu'))) await page.click('.fc-launch');
-      await page.waitForSelector('.fc-menu .fc-menu-item', { timeout });
-      return page.evaluate(() =>
-        [...document.querySelectorAll('.fc-menu .fc-menu-item')].map((el) => {
+      if (!(await page.$(ITEMS))) await page.click(LAUNCH);
+      await page.waitForSelector(ITEMS, { timeout });
+      return page.evaluate((items) =>
+        [...document.querySelectorAll(items)].map((el) => {
           const box = el.getBoundingClientRect();
           return { text: (el.textContent || '').trim(),
                    x: box.left + box.width / 2, y: box.top + box.height / 2 };
-        }));
+        }), ITEMS);
     };
     const found = await rows();
     report.rows = found.map((r) => r.text);

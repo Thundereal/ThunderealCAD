@@ -191,6 +191,11 @@ def make():
     group.Y = 130
     doc.recompute()
     STATE["anchor"] = group.Anchor.Name
+    # Frames on, as every page had them when this was written: a view
+    # preselected is drawn in the preselection colour by its frame and
+    # label (QGIView::setPreselect), and a new page has none to show since
+    # 5bb09a4fe1 made ShowFrames default off.
+    FreeCADGui.getDocument(DOC).getObject("Page").ShowFrames = True
     FreeCADGui.getDocument(DOC).getObject("Page").show()
 
 
@@ -292,7 +297,10 @@ def preselected():
     v = page_view()
     now = pixels(v, "6-preselected")
     n = coloured(now)
-    check("an edge preselected is in the preselection colour on the page",
+    # Edge2 is named, but what lights up is the view's frame and label: a
+    # preselection from Python reaches the page as its view's (MDIViewPage);
+    # only the mouse over the edge lights the edge itself.
+    check("the view of an edge preselected is in the preselection colour on the page",
           n > STATE["plain"] + 20, "%d coloured pixels, %d before" % (n, STATE["plain"]))
     FreeCADGui.Selection.clearPreselection()
 

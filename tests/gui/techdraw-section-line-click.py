@@ -134,6 +134,12 @@ def click_line():
 def make():
     import TechDrawGui  # the view providers
     GEN.SetBool("PageRendererVg", False)
+    # Each drag its own step, however quickly the next follows: the document
+    # folds commits of one property under one name within this window into a
+    # single step (TransactionLogJournal sec 37.4 P4, 3 s by default), and
+    # this script's drags come 2.5 s apart, so on a fast box two moves were one.
+    FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt(
+        "TransactionLogCoalesceSeconds", 0)
     doc = FreeCAD.newDocument(DOC)
     box = doc.addObject("Part::Box", "Box")
     box.Length = 20

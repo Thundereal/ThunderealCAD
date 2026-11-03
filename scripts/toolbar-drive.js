@@ -106,7 +106,8 @@ const HELPERS = () => {
     let item = Array.from(document.querySelectorAll('.fc-menu-item'))
       .find(el => /Toolbars/.test(el.textContent));
     if (!item) {
-      document.querySelector('.fc-launch').click();
+      // The viewer menu by its name: the undo list's launcher comes first.
+      document.querySelector('.fc-launch[aria-label="Viewer menu"]').click();
       item = Array.from(document.querySelectorAll('.fc-menu-item'))
         .find(el => /Toolbars/.test(el.textContent));
     }

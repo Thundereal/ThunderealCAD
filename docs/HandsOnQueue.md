@@ -166,6 +166,9 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-03 12:14: 248 DONE by x16 (a7bf62e050, on its tree), local -- Defeaturing's
+hover lights the faces it changed. x16 on 249 (b).** Under the entries.
+
 **2026-11-03 12:07: 244 DONE by dwin (de8f488698), local -- the label in edit kept its
 place, the edit box opens over it. Unpushed: 243, 247, 244. dwin on
 243 b.** Under the entries.
@@ -4623,8 +4626,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 245 | 2026-11-03 | a defect: the Measure (pre)selected geometry macro's tool tip ignores the OVERLAY PANELS -- shown under a panel; the reporter wants it aware of them whatever it did before | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: Selection.cpp 1223-1233 shows PreselectionText by Gui::ToolTip::showText with the active view, overlay=true and the corner PreselectionToolTipCorner + offsets; ToolTip::onShowTimer (Widgets.cpp 1601-1623) places it in the corner of the WHOLE view widget -- nothing there asks what the overlay panels cover; whether it once did NOT checked; ASSIGNED to dwin (fcad-88) |
 | 246 | 2026-11-03 | a defect: an on-view handle's tool tip draws a ROUND-cornered border on a RECTANGULAR widget -- the square corners show; the reporter: use the tooltip helper the measure pre-selection macro uses | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the handle's tip is Qt's own QToolTip::showText (Gizmo.cpp 374, 387; 241's tip); the helper is Gui::ToolTip::showText / TipLabel (Widgets.cpp 1471-1640), which the pre-selection text uses (Selection.cpp 1228); ASSIGNED to dwin (fcad-88), with 245 (same helper); 2026-11-03 10:45 the reporter: the helper NOT required -- its code or styling may be taken as reference; the handle tips stand NEAR THE MOUSE POINTER (not in a corner, as the pre-selection macro's tip) |
 | 247 | 2026-11-03 | a REGRESSION, the reporter relates it to 242's fix: opening scanner, the migration box now holds the load, but after OK the recompute runs with the 3D view BLACK, the model appearing at once at its end (no progressive load); NO recompute error box although objects fail; the first try also failed Dimension014, through Section007 left with no shape and NOT marked as an error (a manual recompute of Section007 fixed it) | OPEN; said to the note-taker 2026-11-03 10:44; READ by the note-taker: the handler (Application.cpp 607-640) recomputes right after the box, inside signalFinishOpenDocument, and shows the error box when hasError; 242's hold (isLoadHeld = activeModalWidget(), Application.cpp 2505-2508) also holds Document::scheduleDeferredRestore (Document.cpp 4703-4710) -- the deferred RESTORE, not only the visuals -- so the recompute may run on a document not fully restored (a lead for Section007, NOT verified); a modal SequencerDialog in the recompute (ProgressDialog.cpp 105) would keep the hold on through it (a lead, NOT verified); causes NOT found; ASSIGNED to dwin (fcad-88), FIRST; 2026-11-03 11:49 DONE by dwin, `dfc36122fe`, local, NOT pushed, NOT staged: (a)+(c) 242's hold held for ANY modal widget, so the recompute's modal progress dialog held the deferred restore and the visuals through the whole recompute; now only a QMessageBox holds, never while a document recomputes (modal-box-holds-the-load.py: staged 0 visuals under a progress dialog, fixed 616); (b) an OLDER fault, not 242's: Document::recompute printed "Recompute failed!" but set hasError only on a failed execute -- SectionView003 logs its empty cut and returns OK; now the caller is told, the error box shows on a scanner copy (staged: none); the black view and Section007/Dimension014 NOT reproduced on the hidden desktop (no progress dialog there; no object NAMED Section007 -- a label?), both follow from the hold removed; ctest 1100/1100, Python 4077 OK |
-| 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full); 2026-11-03 10:55 the reporter's steps: a Box, a Pocket of the top face with -2 "tolerance" (a square blind hole in the top), then Defeaturing picking the hole's bottom and one side face; the session the note-taker calls x16 (bridge 01Gifk77, it signs fcad-86) asked whether x16win was meant -- told no, it takes 248 |
-| 249 | 2026-11-03 | a defect, two parts: (a) a Body with a Box: a face of the box picked in the 3D view, Space hides the BODY -- it should hide the selected object; (b) with the body hidden (by Space or by the body's eye icon in the tree), the still-selected box is drawn on top but CLIPPED -- the scene's clipping ignores what is shown on top | OPEN; said to the note-taker 2026-11-03 11:17; READ by the note-taker: (a) is ON PURPOSE since `cccbe6cc5c` (2026-09-26, upstream bd03414893/20c01000a1 adapted): SelectionSingleton::setVisible cuts a view pick's path to ViewProvider::getPickedVisibilityTarget() (Selection.cpp 1874-1899), a PD feature naming its body -- its reason, a face of a non-Tip feature (Body.Box.Face6 under a pocket) toggled a hidden feature; the reporter now wants the selected object; (b) SoFCRenderer::getBoundingBox takes the selection's and highlight's bounds (SoFCRenderer.cpp 1843-1853) -- what the near/far planes are computed from NOT read; causes for (b) NOT found; ASSIGNED to x16 after 248; 2026-11-03 11:21 (a) ON HOLD, the reporter: "wait, let's see upstream's rational about this override first. I am not convinced yet" -- upstream's rationale read (FreeCAD #29110 fixing issue #11132, then #30231), x16 told to hold (a); (b) goes on |
+| 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full); 2026-11-03 10:55 the reporter's steps: a Box, a Pocket of the top face with -2 "tolerance" (a square blind hole in the top), then Defeaturing picking the hole's bottom and one side face; the session the note-taker calls x16 (bridge 01Gifk77, it signs fcad-86) asked whether x16win was meant -- told no, it takes 248; 2026-11-03 12:14 DONE by x16 (relayed), `3291bf8336` + `a7bf62e050` on its LinkVibe tree (on 0a4d49eda5), local, NOT pushed, NOT staged (not in this tree): the hover lights the faces getGeneratedIndices reports, by default only those mapped as GENERATED (;:G); Defeaturing generates nothing, and BRepAlgoAPI_Defeaturing rebuilds EVERY face, so all six are ;:M;DEF, the untouched ones too -- own elements [] -> the whole shape; fix: Defeaturing::isElementGenerated also counts a modified face that DIFFERS from its source (traced by getElementHistory, compared by edge count and area); the reporter's case lights the top face made whole (area 64 -> 100) and its edges/vertices, sides and bottom out; element names UNCHANGED; new read-only Feature.getGeneratedElements(); TestDefeaturing 6/6 (testHoverLightsWhatChanged fails before), TestPartDesignApp 500 OK; follow-up for the reporter: untouched faces keeping their source names (a naming change for saved files), NOT done |
+| 249 | 2026-11-03 | a defect, two parts: (a) a Body with a Box: a face of the box picked in the 3D view, Space hides the BODY -- it should hide the selected object; (b) with the body hidden (by Space or by the body's eye icon in the tree), the still-selected box is drawn on top but CLIPPED -- the scene's clipping ignores what is shown on top | OPEN; said to the note-taker 2026-11-03 11:17; READ by the note-taker: (a) is ON PURPOSE since `cccbe6cc5c` (2026-09-26, upstream bd03414893/20c01000a1 adapted): SelectionSingleton::setVisible cuts a view pick's path to ViewProvider::getPickedVisibilityTarget() (Selection.cpp 1874-1899), a PD feature naming its body -- its reason, a face of a non-Tip feature (Body.Box.Face6 under a pocket) toggled a hidden feature; the reporter now wants the selected object; (b) SoFCRenderer::getBoundingBox takes the selection's and highlight's bounds (SoFCRenderer.cpp 1843-1853) -- what the near/far planes are computed from NOT read; causes for (b) NOT found; ASSIGNED to x16 after 248; 2026-11-03 11:21 (a) ON HOLD, the reporter: "wait, let's see upstream's rational about this override first. I am not convinced yet" -- upstream's rationale read (FreeCAD #29110 fixing issue #11132, then #30231), x16 told to hold (a); (b) goes on; 2026-11-03 12:14 x16 on (b), (a) held |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -32500,6 +32503,40 @@ pushed, NOT staged.** Now on 243 b, then 246, 245.
   feature's edit (dwin's test then picked it up) -- maybe a stale
   widget; dwin offers to look. The note-taker asks the reporter.
 Unpushed: `5e3a5917c4` (243), `dfc36122fe` (247), `de8f488698` (244).
+
+**2026-11-03 12:14, x16 (bridge session_01Gifk77, signs fcad-86; relayed): 248
+DONE, on its LinkVibe tree (on `0a4d49eda5`), local, NOT pushed, NOT
+staged -- not in the note-taker's tree.**
+- `3291bf8336` PD: a feature tells Python the elements its tree hover
+  lights; `a7bf62e050` PD: Defeaturing's tree hover lights the faces it
+  changed, not the whole shape.
+- Cause, measured on the reporter's case (PD Box 10, a SubtractiveBox
+  6x6x4 as the square blind hole, Defeaturing of its bottom and one
+  side): a tree hover lights a PD feature's own elements -- the faces
+  getGeneratedIndices() reports, through the view provider's
+  highlightIndices; an empty list lights the whole shape. "Own" by
+  default: faces whose mapped name says this feature GENERATED them
+  (;:G) -- a Fillet generates its round. Defeaturing generates nothing
+  (picked faces go, neighbours extend), and OCCT's
+  BRepAlgoAPI_Defeaturing rebuilds EVERY face -- none of the 6 result
+  faces is the same TShape, so the history marks all six ";:M;DEF", the
+  untouched ones too. The mapping is there but cannot tell what changed
+  (the reporter's reading held).
+- Fix: Defeaturing::isElementGenerated also counts a face the history
+  calls modified when it DIFFERS from its source face (traced by
+  getElementHistory into the base shape, compared by edge count and
+  area, both surviving a placement reset). The reporter's case: the top
+  face made whole (area 64 -> 100), its 4 edges and 4 vertices; the 4
+  sides and the bottom out. The same with Refine on. Element names
+  UNCHANGED -- no naming or file impact. In the GUI: highlightIndices
+  [1] (Face2); before, empty.
+- Test PartDesignTests.TestDefeaturing.testHoverLightsWhatChanged: fails
+  without the fix ([] != ['Face2']); TestDefeaturing 6/6,
+  TestPartDesignApp 500 OK. New read-only Python API:
+  Feature.getGeneratedElements().
+- A follow-up for the reporter, NOT done: makEDefeaturing keeping the
+  untouched faces' source names -- a naming change for saved files.
+x16 now on 249 (b); (a) held.
 
 ## Inbox
 

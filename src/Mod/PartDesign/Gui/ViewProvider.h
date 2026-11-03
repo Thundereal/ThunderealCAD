@@ -31,9 +31,14 @@
 #include <Base/Placement.h>
 #include <Mod/Part/Gui/ViewProvider.h>
 #include "ViewProviderBody.h"
+#include <Gui/InventorBase.h>
 #include <Gui/ViewProviderPythonFeature.h>
 
 #include <Mod/Part/Gui/ViewProviderAttachExtension.h>
+
+class SoGroup;
+class SoSeparator;
+class SoTransform;
 
 namespace PartDesignGui {
 
@@ -118,14 +123,15 @@ public:
                                      const Gui::View3DInventorViewer *view = nullptr,
                                      int depth = 0) const override;
 
-    /** Draw the feature laid flat in place of its shape, while the user has
-     * its sheet's solid's Flatten on and it is shown (docs/SheetMetal.md sec
-     * 12); its shape again otherwise, or where it does not lie flat. Picked,
-     * an element of the flat is named FlatFace3, as SolidBody::flatSubName()
-     * reads it.
+    /** Draw the feature laid flat, while the user has its sheet's solid's
+     * Flatten on and it is shown (docs/SheetMetal.md sec 12): in place of its
+     * shape, or beside it, as the solid's Sheet View says, moved by its Flat
+     * Offset; its shape alone otherwise, or where it does not lie flat.
+     * Picked, an element of the flat is named FlatFace3, as
+     * SolidBody::flatSubName() reads it.
      */
     void refreshFlat();
-    /// Whether the flat is drawn in place of the shape
+    /// Whether the flat is drawn, in place of the shape or beside it
     bool showsFlat() const { return flatShown; }
 
     /// The cosmetic threads of the holes before this feature, on the
@@ -180,7 +186,14 @@ protected:
     std::unique_ptr<PartGui::ViewProviderPart> pSuppressedView;
     /// The flat, a display mode of this view while it is drawn (refreshFlat())
     std::unique_ptr<PartGui::ViewProviderPart> pFlatView;
+    /// The flat moved by the solid's Flat Offset, the display mode SheetFlat
+    Gui::CoinPtr<SoSeparator> pcFlatGroup;
+    Gui::CoinPtr<SoTransform> pcFlatOffset;
+    /// The shape's display mode and the flat, the solid's Sheet View Both
+    Gui::CoinPtr<SoGroup> pcFlatBoth;
     bool flatShown = false;
+    /// Whether the shape is drawn too, the solid's Sheet View Both
+    bool foldedShown = false;
 
     bool autoCorrectingLink = false;
     /// Whether the render material last stated a thread, so a shape

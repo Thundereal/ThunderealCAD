@@ -305,9 +305,22 @@ const Gui::ToolContext::Spec *solidContext(App::DocumentObject *obj)
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSolidBody, PartGui::ViewProviderPart)
 
+static const char *SheetViewEnums[] = {"Flat", "Folded", "Both", nullptr};
+
 ViewProviderSolidBody::ViewProviderSolidBody()
 {
     sPixmap = "PartDesign_SolidBody.svg";
+
+    ADD_PROPERTY_TYPE(SheetView, ((long)0), "Flat", App::Prop_None,
+            "While Flatten is on, what each feature shown draws: laid flat,\n"
+            "folded as it is, or both");
+    SheetView.setEnums(SheetViewEnums);
+    ADD_PROPERTY_TYPE(FlatOffset, (Base::Vector3d()), "Flat", App::Prop_None,
+            "The flat drawn moved by this, in the frame it is laid in, e.g. off\n"
+            "the folded part where both are drawn");
+    // Shown with the solid's flat settings, on a sheet only (updateData())
+    SheetView.setStatus(App::Property::Hidden, true);
+    FlatOffset.setStatus(App::Property::Hidden, true);
 
     // Lives as long as the application: the selection it listens to is gone
     // before a static of this library would be
@@ -420,14 +433,37 @@ void ViewProviderSolidBody::updateData(const App::Property *prop)
                   || prop == &owner->FlatSecondSkin || prop == &owner->FlatAlignEdge
                   || prop == &owner->TangentLines || prop == &owner->Grain
                   || prop == &owner->GrainAngle)) {
-        // Each feature shown draws its flat, or its shape again
-        for (auto obj : owner->Group.getValues()) {
-            if (auto vp = Base::freecad_dynamic_cast<PartDesignGui::ViewProvider>(
-                        Gui::Application::Instance->getViewProvider(obj)))
-                vp->refreshFlat();
+        refreshFlats();
+    }
+    if (owner) {
+        // Shown as the solid's flat settings are
+        const bool hidden = owner->Flatten.testStatus(App::Property::Hidden);
+        if (SheetView.testStatus(App::Property::Hidden) != hidden) {
+            SheetView.setStatus(App::Property::Hidden, hidden);
+            FlatOffset.setStatus(App::Property::Hidden, hidden);
         }
     }
     inherited::updateData(prop);
+}
+
+void ViewProviderSolidBody::onChanged(const App::Property *prop)
+{
+    if (prop == &SheetView || prop == &FlatOffset)
+        refreshFlats();
+    inherited::onChanged(prop);
+}
+
+void ViewProviderSolidBody::refreshFlats() const
+{
+    // Each feature shown draws its flat, or its shape again
+    auto owner = Base::freecad_dynamic_cast<PartDesign::SolidBody>(getObject());
+    if (!owner)
+        return;
+    for (auto obj : owner->Group.getValues()) {
+        if (auto vp = Base::freecad_dynamic_cast<PartDesignGui::ViewProvider>(
+                    Gui::Application::Instance->getViewProvider(obj)))
+            vp->refreshFlat();
+    }
 }
 
 void ViewProviderSolidBody::getExtraIcons(std::vector<std::pair<QByteArray, QPixmap> > &icons) const

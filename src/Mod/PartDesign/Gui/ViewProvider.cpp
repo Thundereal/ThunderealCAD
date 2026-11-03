@@ -25,6 +25,8 @@
 
 #include <Inventor/SoPickedPoint.h>
 #include <Inventor/SoFullPath.h>
+#include <Inventor/nodes/SoSeparator.h>
+#include <Inventor/nodes/SoTransform.h>
 
 #ifndef _PreComp_
 # include <QMessageBox>
@@ -731,10 +733,15 @@ void ViewProvider::refreshFlat()
         return;
     auto body = PartDesign::Body::findBodyOf(feature);
     auto solid = body ? body->getSolidBody(feature) : nullptr;
+    auto solidVp = solid ? Base::freecad_dynamic_cast<ViewProviderSolidBody>(
+                                   Gui::Application::Instance->getViewProvider(solid))
+                         : nullptr;
+    const std::string sheetView = solidVp ? solidVp->SheetView.getValueAsString() : "Flat";
     Part::TopoShape flat;
     // Only while the user has Flatten on, and only where the feature is
-    // shown: a hidden feature is not laid flat
-    if (solid && solid->Flatten.getValue() && Visibility.getValue() && solid->isSheetMetal()) {
+    // shown: a hidden feature is not laid flat, nor one only drawn folded
+    if (solid && solid->Flatten.getValue() && Visibility.getValue() && solid->isSheetMetal()
+            && sheetView != "Folded") {
         try {
             flat = solid->flatOf(feature).shape;
         }
@@ -747,8 +754,10 @@ void ViewProvider::refreshFlat()
         // Where it does not lie flat, its shape as it is
         if (flatShown) {
             flatShown = false;
+            foldedShown = false;
             clearBoundingBoxCache();
-            setDisplayMode(DisplayMode.getValueAsString());
+            // (as hidden as it was)
+            setActiveMode();
         }
         return;
     }
@@ -758,7 +767,16 @@ void ViewProvider::refreshFlat()
         pFlatView->setStatus(Gui::SecondaryView, true);
         pFlatView->attach(feature);
         pFlatView->show();
-        addDisplayMaskMode(pFlatView->getRoot(), "SheetFlat");
+        // The flat moved by the solid's Flat Offset, as a display mode of its
+        // own, and with the shape's in another, its child set by
+        // setDisplayMode()
+        pcFlatOffset = new SoTransform;
+        pcFlatGroup = new SoSeparator;
+        pcFlatGroup->addChild(pcFlatOffset);
+        pcFlatGroup->addChild(pFlatView->getRoot());
+        addDisplayMaskMode(pcFlatGroup, "SheetFlat");
+        pcFlatBoth = new SoGroup;
+        addDisplayMaskMode(pcFlatBoth, "SheetBoth");
     }
     pFlatView->ShapeColor.setValue(ShapeColor.getValue());
     pFlatView->LineColor.setValue(LineColor.getValue());
@@ -766,8 +784,18 @@ void ViewProvider::refreshFlat()
         pFlatView->setGivenShape(flat);
         clearBoundingBoxCache();
     }
+    Base::Vector3d offset = solidVp ? solidVp->FlatOffset.getValue() : Base::Vector3d();
+    SbVec3f translation((float)offset.x, (float)offset.y, (float)offset.z);
+    if (pcFlatOffset->translation.getValue() != translation) {
+        pcFlatOffset->translation = translation;
+        clearBoundingBoxCache();
+    }
+    bool both = sheetView == "Both";
+    if (!flatShown || both != foldedShown)
+        clearBoundingBoxCache();
+    foldedShown = both;
     flatShown = true;
-    setDisplayMode(DisplayMode.getValueAsString());
+    setActiveMode();
 }
 
 void ViewProvider::setDisplayMode(const char *ModeName)
@@ -780,7 +808,21 @@ void ViewProvider::setDisplayMode(const char *ModeName)
             pFlatView->DisplayMode.setValue(ModeName);
             pFlatView->setDisplayMode(ModeName);
         }
-        setDisplayMaskMode("SheetFlat");
+        if (!foldedShown) {
+            setDisplayMaskMode("SheetFlat");
+            return;
+        }
+        // Both: the shape as this mode draws it, and the flat
+        SoNode *shape = ModeName ? getDisplayMaskMode(ModeName) : nullptr;
+        if (!shape)
+            shape = getDisplayMaskMode("Flat Lines");
+        if (pcFlatBoth->getNumChildren() != 2 || pcFlatBoth->getChild(0) != shape) {
+            pcFlatBoth->removeAllChildren();
+            if (shape)
+                pcFlatBoth->addChild(shape);
+            pcFlatBoth->addChild(pcFlatGroup);
+        }
+        setDisplayMaskMode("SheetBoth");
     }
 }
 
@@ -789,8 +831,8 @@ Base::BoundBox3d ViewProvider::_getBoundingBox(const char *subname, const Base::
                                                const Gui::View3DInventorViewer *view,
                                                int depth) const
 {
-    // While the flat is drawn, its bounds: a view fitted to the feature
-    // fits what it shows
+    // While the flat is drawn, its bounds, with the shape's where both are:
+    // a view fitted to the feature fits what it shows
     auto feature = Base::freecad_dynamic_cast<Part::Feature>(getObject());
     if (flatShown && pFlatView && feature && !(subname && subname[0])) {
         TopoDS_Shape shape = pFlatView->getShape().getShape();
@@ -802,11 +844,18 @@ Base::BoundBox3d ViewProvider::_getBoundingBox(const char *subname, const Base::
             Standard_Real x0, y0, z0, x1, y1, z1;
             bounds.Get(x0, y0, z0, x1, y1, z1);
             Base::BoundBox3d bbox(x0, y0, z0, x1, y1, z1);
-            // drawn under the feature's placement, as its shape is
+            // moved by the offset, then drawn under the feature's placement,
+            // as its shape is
+            const SbVec3f &t = pcFlatOffset->translation.getValue();
+            bbox.MoveX(t[0]);
+            bbox.MoveY(t[1]);
+            bbox.MoveZ(t[2]);
             if (transform)
                 bbox = bbox.Transformed(feature->Placement.getValue().toMatrix());
             if (mat)
                 bbox = bbox.Transformed(*mat);
+            if (foldedShown)
+                bbox.Add(inherited::_getBoundingBox(subname, mat, transform, view, depth));
             return bbox;
         }
     }
@@ -1380,6 +1429,9 @@ bool ViewProvider::getDetailPath(
         if (append) {
             path->append(pcRoot);
             path->append(pcModeSwitch);
+            if (foldedShown)
+                path->append(pcFlatBoth);
+            path->append(pcFlatGroup);
         }
         if (!pFlatView->getDetailPath(element, path, true, det)) {
             path->truncate(len);

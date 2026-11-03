@@ -1133,6 +1133,12 @@ and not frozen.
     its shape. Picked, the flat's elements are `FlatFace3`, and those names select and highlight
     them. The command Flatten (Sheet Metal tool bar, checked while on) turns the active body's
     sheet's `Flatten` on and off, one undo step each. Checked by `sheet-metal-commands.py`.
+  - Then (ruled 2026-11-03) the folded part with it: the solid's view has `SheetView` (Flat,
+    Folded, Both) and `FlatOffset`, shown with its flat settings. The flat is drawn moved by the
+    offset in the frame it is laid in, as the display mode `SheetFlat`; Both is `SheetBoth`, the
+    shape's display mode and the flat under one group, so picking and highlighting either still
+    go through the feature's mode switch. Folded lays nothing flat. A feature's bounds are what
+    it draws. Checked by `sheet-metal-commands.py` (picks on both, both selected, the bounds).
   - Its fourth step, the flat pattern retired: `PartDesign::SheetMetalFlatPattern`, its Python
     binding, view, panel and command are gone, and Flatten has its icon. Not kept for older
     files, as nothing has been released: one made by a build before this loads without the
@@ -1275,6 +1281,15 @@ every recompute, which made the sheet metal suites about 40% slower.)
   size, area, bend count, ...) are read-only values of the solid, from its tip; the flat is a
   sub-object (`Solid.Flat`, `Flange001.Flat`) for a drawing and for links; DXF and SVG export
   from a feature or the solid. The flange handles stay as 8.2 has them.
+
+**Ruled 2026-11-03, what is drawn while flattening:** the folded part can be shown with
+`Flatten` on, without turning it off. A view property of its own, not more entries in the
+display mode (which would have to pair each with shaded, wireframe, ...): the solid's
+`SheetView`, Flat, Folded or Both, and `FlatOffset`, a vector moving the flat drawn (off the
+folded part in Both, where the two would lie on each other at the root wall).
+
+**Ruled 2026-11-03, sec 7's checks on demand:** run when the user asks, as Flatten is, not on a
+recompute; where they are listed and marked is designed with them.
 
 **Ruled 2026-11-02, M2's contour flange:**
 - Its own feature, as sec 5.1 lists it, sharing the flange's code: the gaps, the wall cut back under

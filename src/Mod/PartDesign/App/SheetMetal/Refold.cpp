@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -425,7 +426,7 @@ TopoDS_Face cornerReliefFace(const Model& model, int root, int bendA, int bendB,
 
 std::vector<TopoShape> cornerReliefs(const Model& model,
                                      const std::vector<std::pair<int, int>>& corners, int shape,
-                                     double size)
+                                     double size, double cover)
 {
     std::vector<TopoShape> res;
     for (const auto& [a, b] : corners) {
@@ -434,8 +435,13 @@ std::vector<TopoShape> cornerReliefs(const Model& model,
         if (ea.before != eb.before) {
             continue;
         }
+        // the strips' widths flat, where they cross
+        const double wa = std::abs(ea.bend.angle) * ea.bend.neutral();
+        const double wb = std::abs(eb.bend.angle) * eb.bend.neutral();
+        const double covered = shape == 1 ? std::hypot(wa, wb) : std::max(wa, wb);
         const int root = ea.before;
-        const TopoDS_Face face = cornerReliefFace(model, root, a, b, shape, size);
+        const TopoDS_Face face =
+            cornerReliefFace(model, root, a, b, shape, std::max(size, cover * covered));
         if (face.IsNull()) {
             continue;
         }

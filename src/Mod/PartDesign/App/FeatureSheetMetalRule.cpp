@@ -162,6 +162,12 @@ SheetMetalRule::SheetMetalRule()
     CornerReliefShape.setEnums(CornerReliefEnums);
     ADD_PROPERTY_TYPE(CornerReliefSize, (2.0), group, App::Prop_None,
                       "The corner relief's size");
+    ADD_PROPERTY_TYPE(CornerReliefCover, (1.0), group, App::Prop_None,
+                      "How much of the bends' crossing a corner relief covers at least: 1 all\n"
+                      "of it, so the flat does not overlap there; the size is used where\n"
+                      "larger. 0 for the size alone");
+    static const App::PropertyFloatConstraint::Constraints coverRange = {0.0, 10.0, 0.05};
+    CornerReliefCover.setConstraints(&coverRange);
     ADD_PROPERTY_TYPE(Overridden, (), group, App::Prop_Hidden,
                       "The values set by hand over the card's");
 

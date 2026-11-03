@@ -559,7 +559,8 @@ recompute; nothing kept):
   - `Overlap`: the bottom skins of two elements on each other in the flat by more than 1e-6
     mm^2. Found building it: the rule's default corner relief, a circle 2 across, leaves 0.0175
     mm^2 of two mitered bends' flats on each other at a corner (their strips are 2.356 wide where
-    they cross); a square 2 on a side clears it, none leaves 0.35 mm^2.
+    they cross); a square 2 on a side clears it, none leaves 0.35 mm^2. Hence the rule's
+    `CornerReliefCover` (5.2's notes below), after which the default is clean.
   - `Relief`: a feature's own relief (not "Rule") narrower or shallower than the rule's.
   - `NoFlat`: why the flat cannot be laid.
 - Check Sheet (Sheet Metal tool bar): a panel of the bend table and the problems for the selected
@@ -938,6 +939,15 @@ and not frozen.
     knots and weights and has its poles mapped -- capped on two cylinders a little inside and
     outside the sheet, ruled between them (radial lines). Each solid is trimmed to its element
     by its limits and the side of each bend it meets, and all are cut from the part.
+  - **Ruled 2026-11-03, the relief covers the bends' crossing:** the rule's `CornerReliefCover`
+    (default 1, 0 to 10). Each corner's relief is as large as `CornerReliefSize`, or as the cover
+    asks if larger: that share of the rectangle the two bends' strips make where they cross, each
+    strip as wide as its bend lies flat (angle x (R + K T)) -- a circle that rectangle's diagonal
+    times the cover across, a square its longer side times the cover. 0 takes the size alone, as
+    before. Measured (the least relief clearing the overlap of two mitered 90 deg bends, over
+    radius 0.5 to 3, K 0.3 to 0.5, angles 60 to 120 deg): a circle 1.02 to 1.32 x the strip
+    width across, a square 0.72 to 0.93 x on a side; covering the whole crossing (sqrt(2) and 1)
+    clears every case. On the default sheet the circle grows from 2 to 3.33 across.
   - A plane's point may lie anywhere on it -- a miter against an earlier flange keeps one 34 mm
     from the corner, a carried-on bend's frame sits far down its axis -- so every box standing
     for a half-space or a strip is placed about the shape, taken onto the plane: placed about

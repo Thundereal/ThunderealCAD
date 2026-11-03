@@ -379,7 +379,8 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
                 SheetMetal::cornerReliefs(model,
                                           {{sides[0].bend, sides[1].bend}},
                                           rule->CornerReliefShape.getValue(),
-                                          rule->CornerReliefSize.getValue());
+                                          rule->CornerReliefSize.getValue(),
+                                          rule->CornerReliefCover.getValue());
             if (!reliefs.empty()) {
                 result = getSolid(TopoShape(0, hasher).makEBoolean(
                     Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));

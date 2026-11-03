@@ -76,10 +76,15 @@ PartDesignExport TopoDS_Face cornerReliefFace(const Model& model, int root, int 
 /** The corner reliefs of bends meeting in pairs at a miter, each pair's
  * shape (cornerReliefFace()) folded back (refold()) through their wall, the
  * two bends and the walls after them: the solids to cut from the part
+ *
+ * Each as large as size, or as cover asks if larger (ruled 2026-11-03):
+ * that share of the rectangle the two bends' strips make where they cross,
+ * each strip as wide as its bend lies flat -- a circle its diagonal times
+ * cover across, a square its longer side times cover. 0 takes size alone.
  */
 PartDesignExport std::vector<Part::TopoShape>
 cornerReliefs(const Model& model, const std::vector<std::pair<int, int>>& corners, int shape,
-              double size);
+              double size, double cover = 0);
 
 /** A cutout's tools (docs/SheetMetal.md sec 5.2, ruled 2026-11-02): cut
  * normal to the sheet everywhere, so the hole is what is cut in the blank

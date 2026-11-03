@@ -72,6 +72,7 @@ public:
     App::PropertyLength ReliefDepth;
     App::PropertyEnumeration CornerReliefShape;
     App::PropertyLength CornerReliefSize;
+    App::PropertyFloatConstraint CornerReliefCover;
     /// The names of the values set by hand over the card's
     App::PropertyStringList Overridden;
 

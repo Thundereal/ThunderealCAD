@@ -969,7 +969,8 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         // The corner relief at each miter, drawn in the flat and folded back
         // (sec 5.2); none for None, and a tear is the miter's gap itself
         const std::vector<TopoShape> reliefs = SheetMetal::cornerReliefs(
-            model, mitered, rule->CornerReliefShape.getValue(), rule->CornerReliefSize.getValue());
+            model, mitered, rule->CornerReliefShape.getValue(), rule->CornerReliefSize.getValue(),
+            rule->CornerReliefCover.getValue());
         if (!reliefs.empty()) {
             result = getSolid(TopoShape(0, hasher).makEBoolean(
                 Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));

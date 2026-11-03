@@ -71,7 +71,8 @@ const char* const ownValues[] = {"MinHoleToBend",
                                  "ReliefWidth",
                                  "ReliefDepth",
                                  "CornerReliefShape",
-                                 "CornerReliefSize"};
+                                 "CornerReliefSize",
+                                 "CornerReliefCover"};
 
 QString number(double v)
 {
@@ -210,11 +211,17 @@ void TaskSheetMetalRule::addValue(QGridLayout* grid, int row, const char* name, 
                 });
         box = spin;
     }
-    else if (dynamic_cast<App::PropertyFloat*>(prop)) {
+    else if (auto value = dynamic_cast<App::PropertyFloat*>(prop)) {
         auto spin = new QDoubleSpinBox(proxy);
         spin->setDecimals(4);
         spin->setRange(0.0, 1.0);
         spin->setSingleStep(0.01);
+        // a value with a range of its own: that range
+        auto ranged = dynamic_cast<App::PropertyFloatConstraint*>(value);
+        if (auto c = ranged ? ranged->getConstraints() : nullptr) {
+            spin->setRange(c->LowerBound, c->UpperBound);
+            spin->setSingleStep(c->StepSize);
+        }
         connect(spin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [set](double v) {
             set([v](App::Property* p) {
                 if (auto f = dynamic_cast<App::PropertyFloat*>(p)) {

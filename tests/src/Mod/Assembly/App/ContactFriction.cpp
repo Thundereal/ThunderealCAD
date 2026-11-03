@@ -73,13 +73,31 @@ TEST_F(ContactFriction, pairsReadEitherWayRound)
     const FrictionTable& table = FrictionTable::instance();
     const auto* steel = table.pairOf("Steel", "Steel");
     ASSERT_NE(steel, nullptr);
-    EXPECT_DOUBLE_EQ(steel->muStatic, 0.30);
-    EXPECT_DOUBLE_EQ(steel->muDynamic, 0.25);
+    EXPECT_DOUBLE_EQ(steel->muStatic, 0.50);
+    EXPECT_DOUBLE_EQ(steel->muDynamic, 0.42);
     const auto* one = table.pairOf("PTFE", "Steel");
     const auto* other = table.pairOf("Steel", "PTFE");
     ASSERT_NE(one, nullptr);
     EXPECT_EQ(one, other);
     EXPECT_EQ(table.pairOf("Steel", "Wood"), nullptr);
+}
+
+// The pairs on one scale: on steel, steel slides harder than nylon, nylon
+// than PTFE -- not a metal pair's figure for parts in air against a
+// plastic's clean and dry one, which had nylon over steel
+TEST_F(ContactFriction, pairsStandOnOneScale)
+{
+    const FrictionTable& table = FrictionTable::instance();
+    const auto* steel = table.pairOf("Steel", "Steel");
+    const auto* nylon = table.pairOf("Nylon", "Steel");
+    const auto* ptfe = table.pairOf("PTFE", "Steel");
+    ASSERT_NE(steel, nullptr);
+    ASSERT_NE(nylon, nullptr);
+    ASSERT_NE(ptfe, nullptr);
+    EXPECT_GT(steel->muDynamic, nylon->muDynamic);
+    EXPECT_GT(nylon->muDynamic, ptfe->muDynamic);
+    EXPECT_GT(steel->muStatic, nylon->muStatic);
+    EXPECT_GT(nylon->muStatic, ptfe->muStatic);
 }
 
 // Every pair of families the table has, each coefficient as a law takes it:

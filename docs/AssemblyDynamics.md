@@ -2698,10 +2698,9 @@ Phase D1 is under way (2026-10-28):
     the round's torus, are Bullet's facets; a cylinder's rim on a bore's
     rim (a pin standing in a hole too narrow for it).
 - Built: friction by the pair of materials (P6, the material-pair table), the
-  last of D2's deliverables (sec 4). Engineering values, chosen 2026-11-03
-  over the clean-and-dry handbook ones, which for metals run two to three
-  times higher (mild steel on mild steel 0.74 / 0.57 against the sets'
-  0.30 / 0.25).
+  last of D2's deliverables (sec 4). One scale, clean and dry in air, from
+  one source: the Engineering ToolBox. Steel on steel is 0.50 / 0.42 there,
+  above the sets' own 0.30 / 0.25, which stay for a pair the table has not.
   - The table is data: `Mod/Assembly/ContactFriction.json`, and a user's of
     that name in `<user data>/Assembly` read over it -- its families tried
     first, its pairs in place of the module's (FrictionTable). A family is
@@ -2711,18 +2710,24 @@ Phase D1 is under way (2026-10-28):
     are no guide -- PC and PET inherit Acrylic's, Copper-230, a red brass,
     Bronze's -- their tags are: "Brasses", "Phosphor Bronze", "Aluminum
     Bronze" (a bronze, so brass and bronze are tried before aluminium).
-  - Its fourteen pairs, each with its source and what the source gave:
-    eleven from Deulin, Mikhailov, Panfilov and Nevshupa, "Mechanics and
-    Physics of Precise Vacuum Mechanisms", friction in air (as tribonet.org
-    tabulates it) -- steel 0.30 (Fe-Fe, the sets' default), stainless 0.5,
-    stainless on aluminium 0.4, aluminium 0.8, brass 0.4, brass on steel
-    0.35, copper 0.5, glass 0.9, graphite on steel and on graphite 0.1, PTFE
-    0.04; three from the Engineering ToolBox, clean and dry -- PTFE on steel
-    0.05, nylon on steel 0.4, acrylic on steel 0.4. One coefficient given is
-    the static one, the dynamic five sixths of it (the defaults' ratio); a
-    range, its low end. Left out: cast iron on steel (the ToolBox's 0.4
-    clean and dry, above steel's 0.3 in air -- the two bases do not mix),
-    and restitution, which the speed sets more than the pair.
+  - Its 21 pairs, each with what the source gave, static / dynamic: steel
+    0.50 / 0.42; on steel, aluminium 0.61 / 0.47, brass 0.51 / 0.44, copper
+    0.53 / 0.36, nylon 0.40, acrylic 0.40, bronze 0.35, cast iron 0.23,
+    PTFE 0.05, graphite 0.10; on cast iron, copper 1.05 / 0.29, brass 0.30,
+    bronze 0.22; each on itself, copper 1.6, aluminium 1.05 / 0.40, glass
+    0.90 / 0.40, acrylic 0.80, wood 0.25, nylon 0.15, graphite 0.10, PTFE
+    0.04 / 0.04. One coefficient given is the static one, the dynamic five
+    sixths of it (the source's own steel on steel, 0.42 / 0.50); a range,
+    or two rows, its low end. Not in it: stainless steel and titanium, which
+    the source has not; restitution, which the speed sets more than the
+    pair.
+  - The first table (2026-11-03, the same day) had the metals from Deulin,
+    Mikhailov, Panfilov and Nevshupa's friction in air (tribonet.org) --
+    steel 0.30, the sets' default -- and the plastics on steel from the
+    ToolBox, clean and dry. The two scales did not mix: nylon on steel, at
+    0.40, slid harder than steel on steel, and the manual's video showed
+    it. Most sources have dry steel on steel at 0.5 to 0.8; a nylon's
+    datasheet (Ertalon 6 SA) has it on steel at 0.4 to 0.6 dynamic.
   - The set: `FrictionFrom` {Materials, Value}, a new set's Materials, a cam's
     and a profile's Value (frictionless as given), a set saved before it
     Value. The builder gives each contact shape its component's family
@@ -2740,10 +2745,11 @@ Phase D1 is under way (2026-10-28):
     steel's 0.25 until "PA6" was one of its words.
   - Tests: TestContact's test_friction_from_materials, a block sliding on a
     steel plate at 200 mm/s, its friction over its normal force: PTFE 0.04,
-    Copper-230 0.29 (a brass by its tags), PA6 0.33, wood the set's 0.25, PTFE by
-    Value 0.25, each to 1e-3; ContactFriction.* (C++): FreeCAD's own cards
-    in their families, pairs either way round, every pair of the table's
-    families with dynamic <= static, a missing file nothing.
+    steel 0.42, Copper-230 0.44 (a brass by its tags), PA6 0.33, wood the
+    set's 0.25, PTFE by Value 0.25, each to 1e-3; ContactFriction.* (C++):
+    FreeCAD's own cards in their families, pairs either way round, every
+    pair of the table's families with dynamic <= static, steel over nylon
+    over PTFE on steel, a missing file nothing.
   - Not yet: per-pair restitution; a component of several materials takes
     its first shape's family; the panel does not show the pairs the
     materials give before the run.

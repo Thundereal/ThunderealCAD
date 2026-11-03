@@ -638,15 +638,15 @@ class TestContact(unittest.TestCase):
     def test_friction_from_materials(self):
         """A set's friction by the pair of its components' materials
         (FrictionFrom Materials, a new set's; ContactFriction.json): a PTFE
-        block sliding on a steel plate at the table's 0.04, a red brass's
-        (Copper-230, a brass by its tags) at 0.29, a nylon's (PA6-Generic)
-        at 0.33; wood on steel, which the
-        table has not, at the set's own 0.25, as is PTFE with FrictionFrom
-        Value"""
+        block sliding on a steel plate at the table's 0.04, a steel's at
+        0.42, a red brass's (Copper-230, a brass by its tags) at 0.44, a
+        nylon's (PA6-Generic) at 0.33; wood on steel, which the table has
+        not, at the set's own 0.25, as is PTFE with FrictionFrom Value"""
         steel = "90bbd8ef-8623-4d78-b3bf-e0bdb9b74dd3"
         cases = [
             ("8ce226db-43ef-4471-93f1-07e7276aa276", {}, 0.04),
-            ("0bcac89d-ba24-4fca-a1bd-a3c52ff09e26", {}, 0.29),
+            (steel, {}, 0.42),
+            ("0bcac89d-ba24-4fca-a1bd-a3c52ff09e26", {}, 0.44),
             # Its name is its file's, PA6-Generic, not the Polyamide 6 in it
             ("9d59dc3b-ce66-4bec-82c9-b962082e7c9e", {}, 0.33),
             ("b588224e-e8d6-47ad-ba1f-a058333fd1c6", {}, 0.25),

@@ -2561,6 +2561,12 @@ fc_add_gui_test(GuiNaviCubeClearOfPanels_tests_run
                 navicube-clear-of-panels.py
                 --timeout 240)
 
+# A pre-selection macro's tip stands in its corner of the view, and of what
+# the overlay panels leave of it (docs/HandsOnQueue.md entry 245).
+fc_add_gui_test(GuiPreselTipClearOfPanels_tests_run
+                presel-tip-clear-of-panels.py
+                --timeout 240)
+
 # The navigation cube's axes are drawn over the cube's faces, where they ran
 # behind them from most directions, and the corner coordinate system is off
 # unless asked for (docs/HandsOnQueue.md entry 75).

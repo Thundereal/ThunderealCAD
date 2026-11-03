@@ -77,6 +77,34 @@ class TestDefeaturing(unittest.TestCase):
         self.assertNotIn("Invalid", defeat.State)
         self.assertAlmostEqual(defeat.Shape.Volume, 1200, places=6)
 
+    def testHoverLightsWhatChanged(self):
+        # docs/HandsOnQueue.md entry 248: a square blind hole, its bottom
+        # and one side picked. The tree hover lights the feature's own
+        # elements (getGeneratedElements): the top face it made whole, not
+        # the whole shape. OCCT rebuilds every face, so its history calls
+        # all six modified; the four sides and the bottom are as they were.
+        hole = self.Body.newObject("PartDesign::SubtractiveBox", "Hole")
+        hole.Length = hole.Width = 6
+        hole.Height = 4
+        hole.Placement.Base = FreeCAD.Vector(2, 2, 6)
+        self.Doc.recompute()
+        bottom = self.faceWhere(hole, lambda f: abs(f.CenterOfMass.z - 6) < 1e-6)
+        side = self.faceWhere(
+            hole, lambda f: abs(f.CenterOfMass.x - 2) < 1e-6 and f.Area < 30)
+        defeat = self.Body.newObject("PartDesign::Defeaturing", "Defeaturing")
+        defeat.Base = (hole, [bottom, side])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", defeat.State)
+        self.assertAlmostEqual(defeat.Shape.Volume, 1000, places=6)
+        own = defeat.getGeneratedElements()
+        top = self.faceWhere(defeat, lambda f: abs(f.CenterOfMass.z - 10) < 1e-6)
+        self.assertEqual([n for n in own if n.startswith("Face")], [top])
+        self.assertEqual(len([n for n in own if n.startswith("Edge")]), 4)
+        self.assertEqual(len([n for n in own if n.startswith("Vertex")]), 4)
+        # the hole's own are its five faces, as before
+        self.assertEqual(len([n for n in hole.getGeneratedElements()
+                              if n.startswith("Face")]), 5)
+
     def testShapeDefeaturing(self):
         # Shape.defeaturing() maps its elements too
         shape = self.Box.Shape.copy()

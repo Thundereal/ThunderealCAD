@@ -326,13 +326,18 @@ void View3DInventorSelection::extendByOnTop(SoGetBoundingBoxAction *action)
         onTopBoundsStale = false;
         onTopBoundsKey = key;
         onTopBounds = Base::BoundBox3d();
+        // The object an entry names, not its element: a face selected in a
+        // body that is then hidden is drawn on top as its whole object, and
+        // the face's box alone put the far plane through it
+        // (docs/HandsOnQueue.md entry 249). The object's box holds the
+        // element's, so it only ever widens.
         auto addBox = [this](const App::SubObjectT &objT) {
             auto obj = objT.getObject();
             auto vp = obj ? Application::Instance->getViewProvider(obj) : nullptr;
             if (!vp)
                 return;
             const Base::BoundBox3d box =
-                vp->getBoundingBox(objT.getSubName().c_str(), nullptr, true, owner);
+                vp->getBoundingBox(objT.getSubNameNoElement().c_str(), nullptr, true, owner);
             if (box.IsValid())
                 onTopBounds.Add(box);
         };

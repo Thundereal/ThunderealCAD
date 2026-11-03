@@ -4723,7 +4723,11 @@ bool BGFXRenderer::Private::render(const QColor &col,
         if (!draw.material.ontop)
             continue;
         if (layered(draw)) {
-            onTopLayers.push_back(draw.material.ontoplayer);
+            // A hidden draw opens no order: the Origin a PartDesign edit
+            // showed stays in the feed hidden after it (entry 250), and
+            // its datums' order ran the passes below for nothing.
+            if (!isHidden(draw))
+                onTopLayers.push_back(draw.material.ontoplayer);
             continue;
         }
         (isTriangle(draw) ? sceneOnTopTri : sceneOnTopLine) = true;
@@ -4744,6 +4748,7 @@ bool BGFXRenderer::Private::render(const QColor &col,
     }
     bool sceneTwoPass = sceneOnTopTri && sceneOnTopLine;
     bool twoPass = sceneTwoPass || selOnTopLine || hlWholeOnTop;
+
 
 
     // The same object selected through several ids draws its
@@ -6495,17 +6500,26 @@ bool BGFXRenderer::Private::render(const QColor &col,
     // above drew them; the preselection's lines are drawn after this
     // anyway unless they are whole on top.
     if (!onTopLayers.empty()) {
-        // routed as step 6 routes the selections' fills
-        for (const auto &sel : selections) {
-            view->ontop = sel.first > 0;
-            view->selPass = sel.first <= 0;
-            for (const auto &draw : sel.second) {
-                if (isTriangle(draw) || isDup(draw) || draw.material.ontoplayer != 0)
-                    continue;
-                if (sel.first > 0)
-                    view->submit(draw, viewMat, BGFXView::PassLineSolid);
-                else
-                    view->submit(draw, viewMat);
+        // In step 5's order: the uncoloured whole-on-top companions first,
+        // the coloured highlight lines last. In list order a companion
+        // came after the highlight it coincides with and covered it at
+        // equal depth -- a selected edge in front showed its plain line
+        // down its middle, one behind a face (the companion failing the
+        // depth test there) kept its colour (docs/HandsOnQueue.md entry
+        // 250). Routed as step 6 routes the selections' fills.
+        for (int hlphase = 0; hlphase < 2; ++hlphase) {
+            for (const auto &sel : selections) {
+                view->ontop = sel.first > 0;
+                view->selPass = sel.first <= 0;
+                for (const auto &draw : sel.second) {
+                    if (isTriangle(draw) || isDup(draw) || draw.material.ontoplayer != 0
+                            || draw.material.highlightline != (hlphase == 1))
+                        continue;
+                    if (sel.first > 0)
+                        view->submit(draw, viewMat, BGFXView::PassLineSolid);
+                    else
+                        view->submit(draw, viewMat);
+                }
             }
         }
         view->ontop = true;

@@ -8409,3 +8409,23 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   8.3 short name keeps nothing on its next save (same folder, long name:
   kept 4; short name: kept 0). Not fixed; a folder picked in a dialog
   comes in its long form.
+
+### 2026-11-03: the 8.3 folder save -- COMMITTED `4e6155fd75`, not pushed, STAGED (stage36)
+
+- The user: "Push and fix the path problem. Then restage". Pushed first
+  (thundereal/LinkVibe 19cb94f183..0a4d49eda5: MultiViewEdit, OcctFix, main
+  merges, 237).
+- Cause, by a temporary trace: the save writes by std::filesystem's
+  canonical form, which makes C:\Users\<8.3>\... long; FileName, Qt's
+  canonical form and all that is read from the file keep the short one. The
+  "own file" check after the save never matched, so the folder state was
+  never kept; then the history copy's folder, the open's keep guard and the
+  blob paths each compared the two spellings as strings (7 more failures
+  after the first fix, all of this kind).
+- Fix: FileHistory::samePath (long form, case folded, on Windows) and the
+  registry keyed by it; the save keeps the spelling it was given when the
+  canonical form is the same file; the same-file checks use samePath.
+- rtx65/66: FolderSaveCases 29/29 with TMPDIR the 8.3 temp and without;
+  Python suite 4077 OK (0 failures, 0 errors); ctest 1100/1100 with the new
+  FileHistorySamePath gtest; GUI 5/5 (two documents, TD pages, per-view
+  undo, modal load, PD values).

@@ -18,6 +18,14 @@
                     <UserDocu>getBaseObject: returns feature this one fuses itself to, or None. Normally, this should be the same as BaseFeature property, except for legacy workflow. In legacy workflow, it will look up the support of referenced sketch.</UserDocu>
             </Documentation>
     </Methode>
+    <Methode Name="getGeneratedElements" Const="true">
+      <Documentation>
+        <UserDocu>getGeneratedElements() -> list of element names
+
+The faces, then the edges and vertices of those faces, that this feature
+made itself (Face3, Edge7, ...): what its tree hover lights.</UserDocu>
+      </Documentation>
+    </Methode>
     <Attribute Name="Body" ReadOnly="true">
         <Documentation>
             <UserDocu>Return the body of this feature</UserDocu>

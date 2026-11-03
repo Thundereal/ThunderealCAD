@@ -59,6 +59,26 @@ PyObject* FeaturePy::getBaseObject(PyObject * /*args*/)
         return Py::new_reference_to(Py::None());
 }
 
+PyObject* FeaturePy::getGeneratedElements(PyObject *args) const
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        std::vector<int> faces;
+        std::vector<int> edges;
+        std::vector<int> vertices;
+        getFeaturePtr()->getGeneratedIndices(faces, edges, vertices);
+        Py::List res;
+        for (int i : faces)
+            res.append(Py::String("Face" + std::to_string(i + 1)));
+        for (int i : edges)
+            res.append(Py::String("Edge" + std::to_string(i + 1)));
+        for (int i : vertices)
+            res.append(Py::String("Vertex" + std::to_string(i + 1)));
+        return Py::new_reference_to(res);
+    } PY_CATCH
+}
+
 Py::Object FeaturePy::getBody() const {
     auto body = getFeaturePtr()->getFeatureBody();
     if(body)

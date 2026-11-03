@@ -80,7 +80,8 @@ set(PartDesign_TestScripts
     PartDesignTests/TestSheetMetalJoin.py
     PartDesignTests/TestSheetMetalBendCuts.py
     PartDesignTests/TestSheetMetalFlat.py
-    PartDesignTests/TestSheetMetalFlatPattern.py
+    PartDesignTests/TestSheetMetalFlatLayout.py
+    PartDesignTests/SheetMetalFlatView.py
     PartDesignTests/TestSheetMetalPart.py
     PartDesignTests/TestChainLocations.py
     PartDesignTests/TestDefeaturing.py

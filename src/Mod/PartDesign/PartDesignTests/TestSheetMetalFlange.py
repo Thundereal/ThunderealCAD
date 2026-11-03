@@ -14,6 +14,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 RING = 3 * math.pi / 4
 # the rule's bend relief, a rectangle 1 wide from the wall's end to 1 past
@@ -206,9 +208,8 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.assertNotIn(None, self.owners(flange))
 
     def flat(self, source):
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-        flat.Source = source
         self.Doc.recompute()
+        flat = Flat(source)
         return flat
 
     def testMiter(self):
@@ -251,15 +252,13 @@ class TestSheetMetalFlange(unittest.TestCase):
         limits = [e for e in flange.SheetModel["Elements"] if "Limits" in e]
         self.assertEqual(sorted(e["Name"] for e in limits), ["Bend1", "Bend2", "Wall2", "Wall3"])
         path = os.path.join(tempfile.mkdtemp(), "miter.FCStd")
-        names = flange.Name, flat.Name
+        name = flange.Name
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
-        flange, flat = (self.Doc.getObject(n) for n in names)
+        flange = self.Doc.getObject(name)
         self.assertEqual(len([e for e in flange.SheetModel["Elements"] if "Limits" in e]), 4)
-        flat.touch()
-        self.Doc.recompute()
-        self.assertNotIn("Invalid", flat.State)
+        self.assertNotIn("Invalid", Flat(flange).State)
 
     # The corner relief (sec 5.2, ruled 2026-11-02): where two bends meet at
     # a miter, the rule's CornerReliefShape drawn in the flat, centred where
@@ -299,6 +298,7 @@ class TestSheetMetalFlange(unittest.TestCase):
         rule.CornerReliefSize = size
         self.Doc.recompute()
         self.checkValid(flange)
+        flat = Flat(flange)
         self.assertNotIn("Invalid", flat.State)
         self.assertNotIn(None, self.owners(flange))
         return flat.Shape.Solids[0], plain.Solids[0], crossing
@@ -412,9 +412,8 @@ class TestSheetMetalFlange(unittest.TestCase):
             flange = body.newObject("PartDesign::SheetMetalFlange", "Flange")
             flange.Edges = (plate, [self.edge(plate, a, b) for a, b in edges])
             doc.recompute()
-            flat = body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-            flat.Source = flange
             doc.recompute()
+            flat = Flat(flange)
             self.assertNotIn("Invalid", flat.State)
             return flange.Shape.Volume, flat.FlatLength.Value, flat.FlatWidth.Value
         finally:

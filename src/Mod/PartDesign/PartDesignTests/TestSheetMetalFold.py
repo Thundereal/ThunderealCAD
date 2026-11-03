@@ -17,6 +17,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
 HALF = BA / 2
@@ -83,9 +85,8 @@ class TestSheetMetalFold(unittest.TestCase):
         )
 
     def flat(self, feature):
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-        flat.Source = feature
         self.Doc.recompute()
+        flat = Flat(feature)
         self.assertNotIn("Invalid", flat.State)
         self.assertEqual(len(flat.Shape.Solids), 1)
         self.assertTrue(flat.Shape.Solids[0].isValid())
@@ -166,7 +167,11 @@ class TestSheetMetalFold(unittest.TestCase):
         self.assertAlmostEqual(fold.Shape.Volume, 800, places=6)
         flat = self.flat(fold)
         self.assertAlmostEqual(flat.FlatLength.Value, 40, places=6)
-        self.assertAlmostEqual(flat.MaxBendAngle.Value, 45, places=6)
+        # the tip's, its sheet's solid's while flattening is on
+        sheet = self.Body.getSolidBody(fold)
+        sheet.Flatten = True
+        self.Doc.recompute()
+        self.assertAlmostEqual(sheet.MaxBendAngle.Value, 45, places=6)
 
     def testCarriesHole(self):
         """A hole on the side that moves goes with it, onto the leg"""

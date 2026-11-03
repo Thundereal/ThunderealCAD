@@ -13,6 +13,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 
 
@@ -89,9 +91,8 @@ class TestSheetMetalExtendWall(unittest.TestCase):
         self.assertEqual(len(ext.Shape.Faces), len(wall.Shape.Faces))
         owners = [ext.sheetElementOf("Face%d" % (i + 1)) for i in range(len(ext.Shape.Faces))]
         self.assertNotIn(None, owners)
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-        flat.Source = ext
         self.Doc.recompute()
+        flat = Flat(ext)
         self.assertNotIn("Invalid", flat.State)
 
     def testCutBack(self):
@@ -127,11 +128,9 @@ class TestSheetMetalExtendWall(unittest.TestCase):
         ext = self.extend(wall, [end], Length=4)
         self.assertNotIn("Invalid", ext.State)
         self.assertAlmostEqual(ext.Shape.Volume, wall.Shape.Volume + 4 * 1 * 15)
-        before = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-        before.Source = wall
-        after = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat001")
-        after.Source = ext
         self.Doc.recompute()
+        before = Flat(wall)
+        after = Flat(ext)
         self.assertAlmostEqual(after.FlatLength.Value, before.FlatLength.Value + 4, places=6)
 
     def testGaps(self):

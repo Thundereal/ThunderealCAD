@@ -9,6 +9,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 
 
@@ -77,9 +79,8 @@ class TestSheetMetalPart(unittest.TestCase):
         cones = [f for f in flange.Shape.Faces if f.Surface.TypeId == "Part::GeomCone"]
         self.assertEqual(len(cones), 1)
 
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "FlatPattern")
-        flat.Source = flange
         self.Doc.recompute()
+        flat = Flat(flange)
         self.assertNotIn("Invalid", flat.State)
         solid = flat.Shape.Solids[0]
         self.assertTrue(solid.isValid())
@@ -107,9 +108,8 @@ class TestSheetMetalPart(unittest.TestCase):
         model = second.SheetModel["Elements"]
         bend = [e for e in model if e["Name"] == "Bend2"][0]
         self.assertEqual((bend["Before"], bend["After"]), ("Wall2", "Wall3"))
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "FlatPattern")
-        flat.Source = second
         self.Doc.recompute()
+        flat = Flat(second)
         self.assertNotIn("Invalid", flat.State)
         self.assertAlmostEqual(flat.Shape.Solids[0].Volume, second.Shape.Volume, places=6)
 

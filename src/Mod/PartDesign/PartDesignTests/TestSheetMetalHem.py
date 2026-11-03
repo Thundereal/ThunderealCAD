@@ -16,6 +16,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 # the closed hem's half ring at r = 0.05: (pi / 2) (1.05^2 - 0.05^2)
 CLOSED = 0.55 * math.pi
@@ -73,9 +75,8 @@ class TestSheetMetalHem(unittest.TestCase):
     def checkFlat(self, feature, across, along, bends=1):
         """The flat lays out in one valid solid of the feature's volume
         (K 0.5), across x along"""
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-        flat.Source = feature
         self.Doc.recompute()
+        flat = Flat(feature)
         self.assertNotIn("Invalid", flat.State)
         self.assertEqual(len(flat.Shape.Solids), 1)
         solid = flat.Shape.Solids[0]

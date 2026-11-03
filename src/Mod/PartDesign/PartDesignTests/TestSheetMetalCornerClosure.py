@@ -17,6 +17,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 RING = 3 * math.pi / 4
 FAR = ((0, 20, 1), (40, 20, 1))
@@ -111,9 +113,8 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
         )
 
     def flat(self, feature):
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-        flat.Source = feature
         self.Doc.recompute()
+        flat = Flat(feature)
         self.assertNotIn("Invalid", flat.State)
         self.assertEqual(len(flat.Shape.Solids), 1)
         self.assertTrue(flat.Shape.Solids[0].isValid())
@@ -138,9 +139,8 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
         try:
             body, (far, right) = build(doc, (5, 0), (5, 0))
             volume = right.Shape.Volume
-            flat = body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-            flat.Source = right
             doc.recompute()
+            flat = Flat(right)
             size = flat.FlatLength.Value, flat.FlatWidth.Value
         finally:
             FreeCAD.closeDocument(doc.Name)
@@ -224,9 +224,8 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
                 self.PLATE + 2 + 35 * (RING + 8) + 12.9 * RING + 13.9 * 8,
                 places=6,
             )
-            flat = body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-            flat.Source = closure
             doc.recompute()
+            flat = Flat(closure)
             self.assertNotIn("Invalid", flat.State)
             self.assertAlmostEqual(flat.Shape.Volume, closure.Shape.Volume, places=4)
         finally:

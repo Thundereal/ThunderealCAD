@@ -12,6 +12,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 
 
@@ -83,9 +85,8 @@ class TestSheetMetalTab(unittest.TestCase):
         )
 
     def flat(self, feature):
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-        flat.Source = feature
         self.Doc.recompute()
+        flat = Flat(feature)
         self.assertNotIn("Invalid", flat.State)
         self.assertEqual(len(flat.Shape.Solids), 1)
         self.assertTrue(flat.Shape.Solids[0].isValid())

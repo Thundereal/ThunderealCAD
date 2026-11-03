@@ -13,6 +13,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 
 # a quarter bend of radius 1 and thickness 1: its volume per unit width,
@@ -118,11 +120,8 @@ class TestSheetMetalContourFlange(unittest.TestCase):
         )
 
     def flat(self, feature):
-        flat = feature.getParentGeoFeatureGroup().newObject(
-            "PartDesign::SheetMetalFlatPattern", "Flat"
-        )
-        flat.Source = feature
         self.Doc.recompute()
+        flat = Flat(feature)
         self.assertNotIn("Invalid", flat.State)
         self.assertEqual(len(flat.Shape.Solids), 1)
         self.assertTrue(flat.Shape.Solids[0].isValid())

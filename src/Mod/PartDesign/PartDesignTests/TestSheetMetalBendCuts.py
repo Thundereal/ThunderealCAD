@@ -21,6 +21,8 @@ import unittest
 import FreeCAD
 import Part
 
+from .SheetMetalFlatView import Flat
+
 V = FreeCAD.Vector
 STRIP = math.pi / 2 * 1.5
 FAR = ((0, 20, 1), (40, 20, 1))
@@ -103,9 +105,8 @@ class TestSheetMetalBendCuts(unittest.TestCase):
         )
 
     def flatArea(self, feature):
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "Flat")
-        flat.Source = feature
         self.Doc.recompute()
+        flat = Flat(feature)
         self.assertNotIn("Invalid", flat.State)
         self.assertEqual(len(flat.Shape.Solids), 1)
         self.assertTrue(flat.Shape.Solids[0].isValid())

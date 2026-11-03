@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-# Sheet metal's flat pattern, PartDesign::SheetMetalFlatPattern
-# (docs/SheetMetal.md sec 4.7): every face of the folded part sent through
-# its element's map, a root wall laid on XY. The flat lengths below are the
-# hand sums of the straight lengths and of each bend's allowance
-# A (R + K T), at 1e-6.
+# Sheet metal's flat layout (docs/SheetMetal.md sec 4.7): every face of the
+# folded part sent through its element's map, a root wall laid on XY. Each
+# feature's flat is its element Flat, laid by its sheet's solid's settings
+# (sec 12; these were the flat pattern object's tests, which it retired).
+# The flat lengths below are the hand sums of the straight lengths and of
+# each bend's allowance A (R + K T), at 1e-6.
 
 import math
 import os
@@ -13,6 +14,9 @@ import unittest
 
 import FreeCAD
 import Part
+import PartDesign
+
+from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
 
@@ -21,9 +25,9 @@ def ba(angle=90, R=1.0, T=1.0, K=0.5):
     return math.radians(angle) * (R + K * T)
 
 
-class TestSheetMetalFlatPattern(unittest.TestCase):
+class TestSheetMetalFlatLayout(unittest.TestCase):
     def setUp(self):
-        self.Doc = FreeCAD.newDocument("PartDesignTestSheetMetalFlatPattern")
+        self.Doc = FreeCAD.newDocument("PartDesignTestSheetMetalFlatLayout")
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
 
     def tearDown(self):
@@ -46,12 +50,14 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         return wall
 
     def flat(self, source, root=None):
-        flat = self.Body.newObject("PartDesign::SheetMetalFlatPattern", "FlatPattern")
-        flat.Source = source
+        """The flat of source, laid from the wall named root if given"""
         if root:
-            flat.RootFace = (source, [root])
+            self.sheet(source).FlatRoot = root
         self.Doc.recompute()
-        return flat
+        return Flat(source)
+
+    def sheet(self, feature):
+        return self.Body.getSolidBody(feature)
 
     def solid(self, flat):
         self.assertNotIn("Invalid", flat.State)
@@ -134,14 +140,7 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         """Laid from another wall, the same flat moved"""
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
         first = self.extents(self.solid(self.flat(wall)))
-        # the second leg's outer skin, x = 21
-        root = [
-            "Face%d" % (i + 1)
-            for i, f in enumerate(wall.Shape.Faces)
-            if abs(f.BoundBox.XMin - 21) < 1e-7 and abs(f.BoundBox.XMax - 21) < 1e-7
-        ]
-        self.assertEqual(len(root), 1)
-        flat = self.flat(wall, root[0])
+        flat = self.flat(wall, "Wall2")
         second = self.solid(flat)
         for a, b in zip(first, self.extents(second)):
             self.assertAlmostEqual(a, b, places=6)
@@ -168,11 +167,10 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
     def testLive(self):
         """The flat recomputes with the part"""
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
-        flat = self.flat(wall)
+        self.flat(wall)
         wall.Length = 25
         self.Doc.recompute()
-        self.assertNotIn("Touched", flat.State)
-        self.checkFlat(flat, 19 + ba() + 9, 25)
+        self.checkFlat(Flat(wall), 19 + ba() + 9, 25)
         self.assertEqual(self.Body.Tip, wall)
 
     def foldedFace(self, flat, folded, i):
@@ -218,6 +216,7 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         self.assertTrue(name)
         wall.Length = 25
         self.Doc.recompute()
+        flat = Flat(wall)
         face = flat.Shape.getElement(flat.Shape.getElementIndexedName(name))
         # across the thickness and the new length, on the flat's edge
         self.assertAlmostEqual(face.Area, 25, places=6)
@@ -237,6 +236,10 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         self.Doc.recompute()
         flat = self.flat(box)
         self.assertIn("Invalid", flat.State)
+        sheet = self.sheet(box)
+        sheet.Flatten = True
+        self.Doc.recompute()
+        self.assertIn("is in no wall or bend", sheet.FlatStatus)
 
     def testManufacturing(self):
         """What a bill of materials takes (sec 5.4): the flat's size and area,
@@ -247,7 +250,9 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         card = Materials.Material()
         card.Name = "Sheet test"
         wall.Rule.ShapeMaterial = card
-        flat = self.flat(wall)
+        flat = self.sheet(wall)
+        flat.Flatten = True
+        self.Doc.recompute()
         self.assertAlmostEqual(flat.FlatLength.Value, 19 + ba() + 9, places=6)
         self.assertAlmostEqual(flat.FlatWidth.Value, 15, places=6)
         self.assertAlmostEqual(flat.FlatArea.Value, (19 + ba() + 9) * 15, places=6)
@@ -262,16 +267,12 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         """Up where the material comes up toward one looking down on the
         flat; turned over, every bend the other way"""
         wall = self.wall([(0, 0), (20, 0), (20, 10), (40, 10)], Length=15)
-        flat = self.flat(wall)
+        flat = self.sheet(wall)
+        flat.Flatten = True
+        self.Doc.recompute()
         self.assertEqual(flat.BendDirections, {"Bend1": "Up", "Bend2": "Down"})
-        # the first wall's other skin, y = 0, laid down
-        root = [
-            "Face%d" % (i + 1)
-            for i, f in enumerate(wall.Shape.Faces)
-            if abs(f.BoundBox.YMin) < 1e-7 and abs(f.BoundBox.YMax) < 1e-7
-        ]
-        self.assertEqual(len(root), 1)
-        flat.RootFace = (wall, root)
+        # the first wall's other skin laid down
+        flat.FlatSecondSkin = True
         self.Doc.recompute()
         self.assertEqual(flat.BendDirections, {"Bend1": "Down", "Bend2": "Up"})
 
@@ -302,7 +303,7 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
 
     def exportDXF(self, flat):
         path = os.path.join(tempfile.mkdtemp(), "flat.dxf")
-        flat.exportDXF(path)
+        PartDesign.exportFlat(flat.Source, path)
         return self.readDXF(path)
 
     def testDXF(self):
@@ -331,11 +332,12 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         the bend, on a layer of their own in the DXF"""
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
         flat = self.flat(wall)
-        self.assertFalse(flat.TangentLines)
+        sheet = self.sheet(wall)
+        self.assertFalse(sheet.TangentLines)
         self.assertEqual(len(flat.Shape.SubShapes), 2)
         self.assertEqual([e for e in self.exportDXF(flat) if e[1] == "BEND_TANGENT"], [])
-        flat.TangentLines = True
-        self.Doc.recompute()
+        sheet.TangentLines = True
+        flat = self.flat(wall)
         self.assertNotIn("Invalid", flat.State)
         self.assertEqual(len(flat.Shape.SubShapes), 3)
         tangents = flat.Shape.SubShapes[2].Edges
@@ -374,8 +376,8 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
             and all(abs(v.Point.y - 10) < 1e-7 and abs(v.Point.x - 21) < 1e-7 for v in e.Vertexes)
         ]
         self.assertEqual(len(across), 1)
-        flat.AlignEdge = (wall, across)
-        self.Doc.recompute()
+        self.sheet(wall).FlatAlignEdge = across[0]
+        flat = self.flat(wall)
         self.assertNotIn("Invalid", flat.State)
         box = self.solid(flat).BoundBox
         self.assertAlmostEqual(box.XLength, 15, places=6)
@@ -401,9 +403,8 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
             for i, e in enumerate(pocket.Shape.Edges)
             if e.Curve.TypeId == "Part::GeomCircle"
         ]
+        self.sheet(pocket).FlatAlignEdge = circle[0]
         flat = self.flat(pocket)
-        flat.AlignEdge = (pocket, circle[:1])
-        self.Doc.recompute()
         self.assertIn("Invalid", flat.State)
 
     def grainEdges(self, flat):
@@ -419,10 +420,11 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         angle 0, along Y at 90, three lines on the layer GRAIN"""
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
         flat = self.flat(wall)
-        self.assertFalse(flat.Grain)
+        sheet = self.sheet(wall)
+        self.assertFalse(sheet.Grain)
         self.assertEqual(self.grainEdges(flat), [])
-        flat.Grain = True
-        self.Doc.recompute()
+        sheet.Grain = True
+        flat = self.flat(wall)
         edges = self.grainEdges(flat)
         self.assertEqual(len(edges), 3)
         shaft = max(edges, key=lambda e: e.Length)
@@ -431,8 +433,8 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         for e in edges:
             for v in e.Vertexes:
                 self.assertAlmostEqual(v.Point.z, top, places=6)
-        flat.GrainAngle = 90
-        self.Doc.recompute()
+        sheet.GrainAngle = 90
+        flat = self.flat(wall)
         shaft = max(self.grainEdges(flat), key=lambda e: e.Length)
         self.assertAlmostEqual(abs(shaft.Curve.Direction.y), 1, places=9)
         ents = self.exportDXF(flat)
@@ -459,7 +461,7 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         import xml.etree.ElementTree as ET
 
         path = os.path.join(tempfile.mkdtemp(), "flat.svg")
-        flat.exportSVG(path)
+        PartDesign.exportFlat(flat.Source, path)
         root = ET.parse(path).getroot()
         layers = {}
         for g in root.iter("{http://www.w3.org/2000/svg}g"):
@@ -488,9 +490,9 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
         self.assertTrue(root["width"].endswith("mm") and root["height"].endswith("mm"), root)
         xs = [float(e[1][k]) for e in layers["OUTLINE"] for k in ("x1", "x2")]
         self.assertAlmostEqual(max(xs) - min(xs), float(root["viewBox"].split()[2]), places=6)
-        flat.TangentLines = True
-        flat.Grain = True
-        self.Doc.recompute()
+        self.sheet(wall).TangentLines = True
+        self.sheet(wall).Grain = True
+        flat = self.flat(wall)
         layers, root = self.exportSVG(flat)
         self.assertEqual([e[0] for e in layers["BEND_TANGENT"]], ["line"] * 4)
         self.assertEqual([e[0] for e in layers["GRAIN"]], ["line"] * 3)
@@ -544,15 +546,28 @@ class TestSheetMetalFlatPattern(unittest.TestCase):
             self.assertTrue(mx < lo - 1 or mx > hi + 1, (d, lo, hi, mx))
 
     def testSaveAndRestore(self):
+        """The sheet's settings are saved with it; the flat, which is not,
+        laid again by them after the document is opened"""
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+        flat = self.flat(wall, "Wall2")
+        sheet = self.sheet(wall)
+        sheet.TangentLines = True
+        sheet.Flatten = True
         flat = self.flat(wall)
         volume = self.solid(flat).Volume
+        center = self.solid(flat).CenterOfMass
+        area = sheet.FlatArea.Value
         path = os.path.join(tempfile.mkdtemp(), "flat.FCStd")
+        names = wall.Name, self.Body.Name
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
-        flat = self.Doc.getObject("FlatPattern")
+        wall, self.Body = (self.Doc.getObject(n) for n in names)
+        sheet = self.sheet(wall)
+        self.assertEqual(sheet.FlatRoot, "Wall2")
+        self.assertTrue(sheet.TangentLines and sheet.Flatten)
+        self.assertAlmostEqual(sheet.FlatArea.Value, area, places=6)
+        flat = Flat(wall)
         self.assertAlmostEqual(self.solid(flat).Volume, volume, places=6)
-        flat.touch()
-        self.Doc.recompute()
-        self.assertAlmostEqual(self.solid(flat).Volume, volume, places=6)
+        self.assertTrue(self.solid(flat).CenterOfMass.isEqual(center, 1e-6))
+        self.assertEqual(len(flat.Shape.SubShapes), 3)

@@ -1075,6 +1075,17 @@ and not frozen.
     folded (`testWrapCornerGap` holds that).
   - `Reversed` and `UpToFirst` are read-only while `Wrap` is on. Refused by name: a sketch
     parallel to no wall, one lying on none of the flat.
+- The flat, found by the bend cuts (M2's hinge and perforation cuts, next): a hole cut across a bend lay flat 2.7e-5 mm^2 short of the
+  shape drawn (its outline a B-spline through 24 samples of its image), and its wall, ruled
+  between the outlines on the two skins, each sampled on its own parameters, leaned up to
+  0.25 mm across the hole, so the flat's volume, and `FlatArea` with it, was off (0.015 mm^2 for
+  eleven circles). Now (`SheetMetal/Flat.cpp`): an edge on a bend's cylinder is mapped exactly,
+  its pcurve's poles sent through the unrolling, which is affine in the cylinder's (u, v); each
+  edge is mapped once, the bends' skins first, so the faces sharing it meet on it; and a face
+  across the sheet whose edge on one skin lies over its edge on the other (within 1e-4, the
+  boolean leaving them 4e-6 apart) is upright, on the extrusion of the one, its edges' tolerance
+  taking the rest. A miter's slanted face is ruled as before. `testWrapCircleOnBend` holds a
+  circle on a bend to pi of the blank at 1e-6, its wall square to 1e-6; it was 4.8e-5 off.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

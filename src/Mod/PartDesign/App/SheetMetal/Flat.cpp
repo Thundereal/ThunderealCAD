@@ -40,17 +40,26 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepFill.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepOffsetAPI_MakeFilling.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
+#include <Geom2dConvert.hxx>
+#include <Geom2d_BSplineCurve.hxx>
+#include <Geom2d_TrimmedCurve.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Precision.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_Solid.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -59,8 +68,10 @@
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
+#include <TopTools_DataMapOfShapeShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <gp_Lin.hxx>
 #include <gp_Vec.hxx>
 
 #include <Base/Exception.h>
@@ -86,9 +97,98 @@ struct Mapper
         return model.toFlat(element, p, root).Transformed(toXY);
     }
 
-    /// An edge of a bend's face, mapped: a line where it maps to one, else
-    /// a B-spline through samples
-    TopoDS_Edge edge(int element, const TopoDS_Edge& e) const
+    /// Each edge mapped so far, forward: an edge two faces share is mapped
+    /// once, so they meet on it
+    mutable TopTools_DataMapOfShapeShape done;
+
+    /// An edge of a bend's face, mapped: exactly on the bend's cylinders,
+    /// else a line where it maps to one, else a B-spline through samples
+    TopoDS_Edge edge(int element, const TopoDS_Edge& e, const TopoDS_Face& face) const
+    {
+        const TopoDS_Shape key = e.Oriented(TopAbs_FORWARD);
+        TopoDS_Edge res;
+        if (done.IsBound(key)) {
+            res = TopoDS::Edge(done(key));
+        }
+        else {
+            res = onCylinder(element, TopoDS::Edge(key), face);
+            if (res.IsNull()) {
+                res = sampled(element, TopoDS::Edge(key));
+            }
+            done.Bind(key, res);
+        }
+        res.Orientation(e.Orientation());
+        return res;
+    }
+
+    /** An edge on a cylinder about the bend's axis, mapped exactly: unrolled,
+     * the cylinder's (u, v) goes to the flat affinely, so the poles of the
+     * edge's pcurve there, made a B-spline, are mapped. The hole a sketch
+     * cuts across a bend lies flat as the shape drawn, and its outlines on
+     * the two skins as one curve, the wall between them square to the flat.
+     * Null for an edge on another surface, or with no pcurve on it.
+     */
+    TopoDS_Edge onCylinder(int element, const TopoDS_Edge& e, const TopoDS_Face& face) const
+    {
+        BRepAdaptor_Surface s(face);
+        if (s.GetType() != GeomAbs_Cylinder) {
+            return {};
+        }
+        const gp_Ax1 axis = s.Cylinder().Axis();
+        const gp_Ax3& frame = model.elements[element].bend.frame;
+        if (!axis.IsParallel(frame.Axis(), Precision::Angular())
+            || gp_Lin(frame.Axis()).Distance(axis.Location()) > Precision::Confusion()) {
+            return {};
+        }
+        double f, l;
+        Handle(Geom2d_Curve) c2d = BRep_Tool::CurveOnSurface(e, face, f, l);
+        if (c2d.IsNull()) {
+            return {};
+        }
+        // the map about the face's middle, from where (u, v) moves it
+        double u0, u1, v0, v1;
+        BRepTools::UVBounds(face, u0, u1, v0, v1);
+        const double um = (u0 + u1) / 2, vm = (v0 + v1) / 2;
+        const double du = std::max((u1 - u0) / 4, 1e-3), dv = std::max((v1 - v0) / 4, 1.0);
+        const gp_Pnt o = map(element, s.Value(um, vm));
+        const gp_Vec alongU = gp_Vec(o, map(element, s.Value(um + du, vm))) / du;
+        const gp_Vec alongV = gp_Vec(o, map(element, s.Value(um, vm + dv))) / dv;
+
+        Handle(Geom2d_BSplineCurve) b =
+            Geom2dConvert::CurveToBSplineCurve(new Geom2d_TrimmedCurve(c2d, f, l));
+        const int n = b->NbPoles();
+        TColgp_Array1OfPnt poles(1, n);
+        for (int i = 1; i <= n; ++i) {
+            const gp_Pnt2d p = b->Pole(i);
+            poles.SetValue(i, o.Translated(alongU * (p.X() - um) + alongV * (p.Y() - vm)));
+        }
+        if (b->Degree() == 1 && n == 2) {
+            if (poles(1).Distance(poles(2)) <= Precision::Confusion()) {
+                return {};
+            }
+            return BRepBuilderAPI_MakeEdge(poles(1), poles(2)).Edge();
+        }
+        TColStd_Array1OfReal knots(1, b->NbKnots());
+        TColStd_Array1OfInteger mults(1, b->NbKnots());
+        b->Knots(knots);
+        b->Multiplicities(mults);
+        Handle(Geom_BSplineCurve) curve;
+        if (b->IsRational()) {
+            TColStd_Array1OfReal weights(1, n);
+            b->Weights(weights);
+            curve = new Geom_BSplineCurve(poles, weights, knots, mults, b->Degree(),
+                                          b->IsPeriodic());
+        }
+        else {
+            curve = new Geom_BSplineCurve(poles, knots, mults, b->Degree(), b->IsPeriodic());
+        }
+        BRepBuilderAPI_MakeEdge mk(curve);
+        return mk.IsDone() ? mk.Edge() : TopoDS_Edge();
+    }
+
+    /// An edge mapped by points: a line where it maps to one, else a
+    /// B-spline through samples
+    TopoDS_Edge sampled(int element, const TopoDS_Edge& e) const
     {
         BRepAdaptor_Curve c(e);
         const double f = c.FirstParameter(), l = c.LastParameter();
@@ -120,7 +220,6 @@ struct Mapper
             GeomAPI_PointsToBSpline fit(arr, 3, 8, GeomAbs_C2, Precision::Confusion());
             res = BRepBuilderAPI_MakeEdge(fit.Curve()).Edge();
         }
-        res.Orientation(e.Orientation());
         return res;
     }
 
@@ -128,12 +227,63 @@ struct Mapper
     {
         BRepBuilderAPI_MakeWire mk;
         for (BRepTools_WireExplorer it(w, face); it.More(); it.Next()) {
-            mk.Add(edge(element, it.Current()));
+            mk.Add(edge(element, it.Current(), face));
         }
         if (!mk.IsDone()) {
             THROWM(Base::ValueError, "A face of a bend does not unroll into a closed outline");
         }
         return mk.Wire();
+    }
+
+    /** A face across the sheet cut square to it (a hole's wall, a slot's
+     * side): its edge on one skin lies straight over its edge on the other,
+     * and it is upright, on the extrusion of the one along Z, bounded by the
+     * outline's own edges. Ruled between the two instead, a hole's closed
+     * outlines, parametrised apart, would twist it. The two lie apart by what
+     * the boolean that cut them left (4e-6 for a hole made by refold()),
+     * which goes into the edges' tolerance. Null where they do not lie so
+     * (a miter's slant).
+     */
+    static TopoDS_Face upright(const TopoDS_Wire& outline, const TopoDS_Edge& a,
+                               const TopoDS_Edge& b)
+    {
+        constexpr double tol = 1e-4;
+        BRepAdaptor_Curve ca(a), cb(b);
+        const double z = ca.Value(ca.FirstParameter()).Z();
+        const double dz = cb.Value(cb.FirstParameter()).Z() - z;
+        if (std::abs(dz) <= tol) {
+            return {};
+        }
+        constexpr int n = 16;
+        for (int i = 0; i <= n; ++i) {
+            const double ta =
+                ca.FirstParameter() + (ca.LastParameter() - ca.FirstParameter()) * i / n;
+            const double tb =
+                cb.FirstParameter() + (cb.LastParameter() - cb.FirstParameter()) * i / n;
+            if (std::abs(ca.Value(ta).Z() - z) > tol
+                || std::abs(cb.Value(tb).Z() - z - dz) > tol) {
+                return {};
+            }
+            const gp_Pnt under = cb.Value(tb).Translated(gp_Vec(0, 0, -dz));
+            BRepExtrema_DistShapeShape dist(BRepBuilderAPI_MakeVertex(under).Vertex(), a);
+            if (!dist.IsDone() || dist.Value() > tol) {
+                return {};
+            }
+        }
+        double f, l;
+        Handle(Geom_Curve) curve = BRep_Tool::Curve(a, f, l);
+        if (curve.IsNull()) {
+            return {};
+        }
+        Handle(Geom_Surface) surface =
+            new Geom_SurfaceOfLinearExtrusion(new Geom_TrimmedCurve(curve, f, l), gp::DZ());
+        BRepBuilderAPI_MakeFace mk(surface, outline, true);
+        if (!mk.IsDone()) {
+            return {};
+        }
+        ShapeFix_Face fix(mk.Face());
+        fix.Perform();
+        return fix.Face();
     }
 
     /// A face of a bend, unrolled: it must lie flat as a plane, but for a
@@ -161,6 +311,10 @@ struct Mapper
                 // runs between the other two, set the same way round
                 const std::size_t a = straight(1) && straight(3) ? 0 : 1;
                 if (straight(a + 1) && straight(a + 3)) {
+                    const TopoDS_Face square = upright(unrolled, edges[a], edges[a + 2]);
+                    if (!square.IsNull()) {
+                        return square;
+                    }
                     return BRepFill::Face(edges[a], TopoDS::Edge(edges[a + 2].Reversed()));
                 }
             }
@@ -326,9 +480,24 @@ FlatResult flatten(const TopoDS_Shape& folded,
     std::vector<std::pair<double, double>> extent(model.elements.size(),
                                                   {std::numeric_limits<double>::max(),
                                                    -std::numeric_limits<double>::max()});
+    // each face's element; and the edges of the bends' skins mapped first,
+    // exactly (Mapper::onCylinder()), for the faces across the sheet that
+    // share them
+    std::vector<int> owners(faces.Extent() + 1, -1);
     for (int i = 1; i <= faces.Extent(); ++i) {
         const TopoDS_Face& face = TopoDS::Face(faces(i));
-        const int owner = model.owner(face);
+        owners[i] = model.owner(face);
+        if (owners[i] < 0 || model.elements[owners[i]].kind != Element::Kind::Bend
+            || BRepAdaptor_Surface(face).GetType() != GeomAbs_Cylinder) {
+            continue;
+        }
+        for (TopExp_Explorer e(face, TopAbs_EDGE); e.More(); e.Next()) {
+            mapper.edge(owners[i], TopoDS::Edge(e.Current()), face);
+        }
+    }
+    for (int i = 1; i <= faces.Extent(); ++i) {
+        const TopoDS_Face& face = TopoDS::Face(faces(i));
+        const int owner = owners[i];
         if (owner < 0) {
             FC_THROWM(Base::ValueError, "Face" << i << " is in no wall or bend of the sheet");
         }

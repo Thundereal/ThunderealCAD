@@ -87,8 +87,13 @@ class TestSheetMetalRule(unittest.TestCase):
             "ReliefDepth",
             "CornerReliefShape",
             "CornerReliefSize",
+            "CornerReliefCover",
+            "MinHoleToBend",
         ):
             self.assertIn(name, rule.PropertiesList)
+        # the corner relief covers the bends' crossing (sec 5.2, ruled
+        # 2026-11-03)
+        self.assertAlmostEqual(rule.CornerReliefCover, 1)
         self.assertFalse(rule.hasGauge())
         self.assertAlmostEqual(box.Shape.Volume, 1000)
 

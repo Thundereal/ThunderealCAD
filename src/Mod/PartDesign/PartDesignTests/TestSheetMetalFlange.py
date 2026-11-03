@@ -271,12 +271,14 @@ class TestSheetMetalFlange(unittest.TestCase):
     # that far out each way from the plate's corner the two bends leave,
     # wherever the flat puts the plate.
 
-    def reliefFlats(self, flange, shape, size):
+    def reliefFlats(self, flange, shape, size, cover=0):
         """The flat with the rule's corner relief, the flat with none, and
         the bends' lines' crossing in them: from the corner of the plate's
         skin (38 x 18 after the cuts, along X and Y) that both bends' strips
-        leave, 1.178 out each way"""
+        leave, 1.178 out each way. The relief as large as size, or as the
+        cover asks (0: size alone)"""
         rule = flange.Rule
+        rule.CornerReliefCover = cover
         rule.CornerReliefShape = "None"
         self.Doc.recompute()
         flat = self.flat(flange)
@@ -341,6 +343,26 @@ class TestSheetMetalFlange(unittest.TestCase):
         relieved, plain, c = self.reliefFlats(flange, "Square", 2)
         square = [c + V(x, y, 0) for x, y in ((-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1))]
         self.checkCut(relieved, plain, Part.Face(Part.makePolygon(square)))
+
+    def testCornerReliefCover(self):
+        """The rule's CornerReliefCover, 1 at first: the relief covers that
+        share of the bends' crossing at least, the square their strips make,
+        2.356 (pi / 2 x 1.5) on a side: a circle sqrt(2) x 2.356 across, a
+        square 2.356 on a side. A size larger than that is cut as it is; a
+        cover of 0.5 asks less than the size 2"""
+        flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        self.assertAlmostEqual(flange.Rule.CornerReliefCover, 1)
+        w = math.pi / 2 * 1.5
+        relieved, plain, c = self.reliefFlats(flange, "Circle", 2, cover=1)
+        self.checkCut(relieved, plain, Part.Face(Part.Wire(Part.makeCircle(w / math.sqrt(2), c))))
+        relieved, plain, c = self.reliefFlats(flange, "Square", 2, cover=1)
+        h = w / 2
+        square = [c + V(x, y, 0) for x, y in ((-h, -h), (h, -h), (h, h), (-h, h), (-h, -h))]
+        self.checkCut(relieved, plain, Part.Face(Part.makePolygon(square)))
+        relieved, plain, c = self.reliefFlats(flange, "Circle", 4, cover=1)
+        self.checkCut(relieved, plain, Part.Face(Part.Wire(Part.makeCircle(2, c))))
+        relieved, plain, c = self.reliefFlats(flange, "Circle", 2, cover=0.5)
+        self.checkCut(relieved, plain, Part.Face(Part.Wire(Part.makeCircle(1, c))))
 
     def testCornerReliefNone(self):
         """None and Tear: the miter's gap, nothing more"""

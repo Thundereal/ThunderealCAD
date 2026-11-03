@@ -2567,6 +2567,22 @@ fc_add_gui_test(GuiPreselTipClearOfPanels_tests_run
                 presel-tip-clear-of-panels.py
                 --timeout 240)
 
+# Where lines are highlighted over one another -- the same edge, coinciding
+# edges, crossing lines, a hidden line solid and dashed, a point -- the
+# render engine draws what "Legacy" draws, also with an on-top order in the
+# scene (docs/HandsOnQueue.md entry 250). Once per renderer, MSAA 4x (the
+# test profile turns it off; entry 250 hid behind that too).
+fc_add_gui_test(GuiHighlightLineMatrixEngine_tests_run
+                highlight-line-matrix.py
+                --timeout 300)
+set_tests_properties(GuiHighlightLineMatrixEngine_tests_run PROPERTIES ENVIRONMENT
+                     "FC_BUILD=${CMAKE_BINARY_DIR};GT_RENDER_TYPE=bgfx - OpenGL;GT_AA=3")
+fc_add_gui_test(GuiHighlightLineMatrixLegacy_tests_run
+                highlight-line-matrix.py
+                --timeout 300)
+set_tests_properties(GuiHighlightLineMatrixLegacy_tests_run PROPERTIES ENVIRONMENT
+                     "FC_BUILD=${CMAKE_BINARY_DIR};GT_RENDER_TYPE=Legacy;GT_AA=3")
+
 # The navigation cube's axes are drawn over the cube's faces, where they ran
 # behind them from most directions, and the corner coordinate system is off
 # unless asked for (docs/HandsOnQueue.md entry 75).

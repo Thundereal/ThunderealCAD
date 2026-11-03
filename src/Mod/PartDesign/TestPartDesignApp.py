@@ -86,6 +86,7 @@ from PartDesignTests.TestSheetMetalJoin import TestSheetMetalJoin
 from PartDesignTests.TestSheetMetalBendCuts import TestSheetMetalBendCuts
 from PartDesignTests.TestSheetMetalFlat import TestSheetMetalFlat
 from PartDesignTests.TestSheetMetalFlatLayout import TestSheetMetalFlatLayout
+from PartDesignTests.TestSheetMetalCheck import TestSheetMetalCheck
 from PartDesignTests.TestSheetMetalPart import TestSheetMetalPart
 from PartDesignTests.TestChainLocations import TestChainLocations
 from PartDesignTests.TestDefeaturing import TestDefeaturing

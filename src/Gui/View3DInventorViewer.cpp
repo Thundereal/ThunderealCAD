@@ -5016,10 +5016,12 @@ void View3DInventorViewer::actualRedraw()
     RenderTiming::setEnabled(RenderParams::getDebugTiming());
     ScenePublishDelta::setLogging(RenderParams::getDebugDelta());
 
+    // A recompute is drawn too (entry 247): its progress pumps the event loop,
+    // and a paint that draws nothing presents a cleared buffer -- the view went
+    // black for the whole recompute, and a load running behind it showed
+    // nothing until the end.
     switch (renderType) {
     case Native:
-        if (guiDocument && guiDocument->getDocument()->testStatus(App::Document::Recomputing))
-            break;
         renderScene();
         break;
     case Framebuffer:
@@ -5031,8 +5033,8 @@ void View3DInventorViewer::actualRedraw()
     }
 
     // What a frame costs is what the redraw throttle budgets against. A
-    // sub-millisecond result means nothing was drawn (the Recomputing case
-    // above), and feeding that in would tell the throttle the scene is cheap.
+    // sub-millisecond result means nothing was drawn, and feeding that in
+    // would tell the throttle the scene is cheap.
     const double ms = double(frameTimer.nsecsElapsed()) / 1e6;
     if (ms >= 1.0)
         _pimpl->noteFrameCost(ms);

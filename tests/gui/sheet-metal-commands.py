@@ -456,6 +456,13 @@ def run():
             FreeCADGui.Command.get("PartDesign_SheetMetalExportDXF").isActive(),
         )
         folded = flange.ViewObject.getBoundingBox()
+
+        def switchChild(name):
+            # the feature's mode switch's field, as Coin writes it
+            value = flange.ViewObject.SwitchNode.getField(name).get()
+            return int(value.getString() if hasattr(value, "getString") else str(value))
+
+        foldedDefault = switchChild("defaultChild")
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 1)
         pump()
         thick = solid.Thickness.Value
@@ -504,6 +511,12 @@ def run():
             and len(sel[0].SubObjects) == 1
             and sel[0].SubObjects[0].isPartner(laid.Faces[0]),
             sel and [(s.ObjectName, s.SubElementNames) for s in sel],
+        )
+        check(
+            "a selection drawn on top shows the flat, not the folded part: the mode switch's"
+            " default child is the flat's",
+            switchChild("defaultChild") == switchChild("whichChild") != foldedDefault,
+            (switchChild("defaultChild"), switchChild("whichChild"), foldedDefault),
         )
         FreeCADGui.Selection.clearSelection()
 
@@ -715,6 +728,11 @@ def run():
         # tool bar's update does
         cmd.isActive()
         box = flange.ViewObject.getBoundingBox()
+        check(
+            "and its default child given back",
+            switchChild("defaultChild") == foldedDefault,
+            (switchChild("defaultChild"), foldedDefault),
+        )
         check(
             "again, folded back: Flatten off, the tip drawn as it is, unchecked",
             not solid.Flatten

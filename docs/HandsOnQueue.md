@@ -166,6 +166,9 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-03 10:54: entry 248 -- PD Defeaturing's tree hover highlights the whole
+shape, not its changed elements; ASSIGNED to x16.** Under the entries.
+
 **2026-11-03 10:49: 243 DONE by dwin (5e3a5917c4), local -- a highlighted line now
 over every other line, pre-selection over selection, both renderers;
 faces in front still hide it (the reporter's choice to dwin). dwin on
@@ -4606,6 +4609,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 245 | 2026-11-03 | a defect: the Measure (pre)selected geometry macro's tool tip ignores the OVERLAY PANELS -- shown under a panel; the reporter wants it aware of them whatever it did before | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: Selection.cpp 1223-1233 shows PreselectionText by Gui::ToolTip::showText with the active view, overlay=true and the corner PreselectionToolTipCorner + offsets; ToolTip::onShowTimer (Widgets.cpp 1601-1623) places it in the corner of the WHOLE view widget -- nothing there asks what the overlay panels cover; whether it once did NOT checked; ASSIGNED to dwin (fcad-88) |
 | 246 | 2026-11-03 | a defect: an on-view handle's tool tip draws a ROUND-cornered border on a RECTANGULAR widget -- the square corners show; the reporter: use the tooltip helper the measure pre-selection macro uses | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the handle's tip is Qt's own QToolTip::showText (Gizmo.cpp 374, 387; 241's tip); the helper is Gui::ToolTip::showText / TipLabel (Widgets.cpp 1471-1640), which the pre-selection text uses (Selection.cpp 1228); ASSIGNED to dwin (fcad-88), with 245 (same helper); 2026-11-03 10:45 the reporter: the helper NOT required -- its code or styling may be taken as reference; the handle tips stand NEAR THE MOUSE POINTER (not in a corner, as the pre-selection macro's tip) |
 | 247 | 2026-11-03 | a REGRESSION, the reporter relates it to 242's fix: opening scanner, the migration box now holds the load, but after OK the recompute runs with the 3D view BLACK, the model appearing at once at its end (no progressive load); NO recompute error box although objects fail; the first try also failed Dimension014, through Section007 left with no shape and NOT marked as an error (a manual recompute of Section007 fixed it) | OPEN; said to the note-taker 2026-11-03 10:44; READ by the note-taker: the handler (Application.cpp 607-640) recomputes right after the box, inside signalFinishOpenDocument, and shows the error box when hasError; 242's hold (isLoadHeld = activeModalWidget(), Application.cpp 2505-2508) also holds Document::scheduleDeferredRestore (Document.cpp 4703-4710) -- the deferred RESTORE, not only the visuals -- so the recompute may run on a document not fully restored (a lead for Section007, NOT verified); a modal SequencerDialog in the recompute (ProgressDialog.cpp 105) would keep the hold on through it (a lead, NOT verified); causes NOT found; ASSIGNED to dwin (fcad-88), FIRST |
+| 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -32286,6 +32290,34 @@ finished green, so dwin committed it before switching; now on 247, then
   Legacy; 8 neighbouring highlight/selection GUI tests green.
 Unpushed: `5e3a5917c4` (243). Origin still `0a4d49eda5`.
 
+## 248. PD Defeaturing: the tree hover highlights the whole shape, not the changed elements (a defect) -- OPEN
+
+**2026-11-03 10:54, the reporter (to the note-taker):** "new defect, it seem the
+defatureing in partdesign does not have effective element mapping,
+becuase when mouse over tree item highlight, it hightlights the whole
+shape, rather then the modified elements like the other partdesign
+featgures."
+The note-taker's reading: hovering a PD Defeaturing in the tree should
+highlight only the elements that feature changed (as for Fillet, Pad
+...); it highlights the whole body. The reporter's reading of the
+cause: the feature's element mapping is not effective.
+READ by the note-taker:
+- PartDesign::Defeaturing::execute (src/Mod/PartDesign/App/
+  FeatureDefeaturing.cpp 41-77): getFaces, then
+  TopoShape::makEDefeaturing, refine if active, getSolid.
+- makEDefeaturing (src/Mod/Part/App/TopoShapeEx.cpp 5934-5965):
+  BRepAlgoAPI_Defeaturing with SetToFillHistory(true), the result mapped
+  by makEShape(mkDefeaturing, shape, op) -- so a mapping is made from
+  OCCT's history. The start, TopoShape(0, hasher), is the same as in
+  Fillet, Chamfer, Draft.
+- Not read: what the tree hover asks of the element map to pick the
+  changed elements; what BRepAlgoAPI_Defeaturing's history reports for
+  the neighbours it extends.
+- Cause NOT found.
+NOT said: the file or model (read as any Defeaturing).
+ASSIGNED to x16 (the note-taker coordinating: x16 idle since
+MultiViewEdit landed; dwin has 247, 244, 246, 245).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -32297,5 +32329,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 247
+the build session, 131 and 132 found by it; entries 134 to 248
 are of 2026-10-15, 134 said to the build session)

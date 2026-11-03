@@ -693,6 +693,56 @@ class TestContact(unittest.TestCase):
         App.Console.PrintMessage("Roller rolling on level: %.3g mm/s^2\n" % accel)
         self.assertLess(abs(accel), 5e-3)
 
+    def test_hull_roller_rolls_down(self):
+        """A roller of radius 5 and 20 long, its rims chamfered 0.5: no
+        cylinder, a hull of its mesh, 50 facets round. Down the slope of 10
+        deg it rolls within 4% of g sin / (1 + k^2/r^2), k its own (2.1%
+        slow measured, its facets' knocks), and never off the plate. Its
+        curvature was read off the mesh's fit at the hull's point farthest
+        out, which a facet lying face down ties at its corners: 1/7.7 mm one
+        way and 1/3.9 and 1/12 another, its law a line's and then a ball's,
+        150 times the force at one depth -- it leapt 0.89 mm, 12% slow. Now
+        the solid's own (ContactShape::surfaces)."""
+        import Part
+
+        plate = self.assembly.newObject("Part::Box", "Plate")
+        plate.Length, plate.Width, plate.Height = 200, 50, 10
+        plate.Placement.Base = App.Vector(-100, -25, 0)
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
+        JointObject.GroundedJoint(ground, plate)
+        centre = App.Vector(-80, 0, 15)
+        shape = Part.makeCylinder(5, 20, centre + App.Vector(0, -10, 0), App.Vector(0, 1, 0))
+        rims = [e for e in shape.Edges if e.Curve.TypeId == "Part::GeomCircle"]
+        roller = self.assembly.newObject("Part::Feature", "Roller")
+        roller.Shape = shape.makeChamfer(0.5, rims)
+        self.contact([roller], [plate], StaticFriction=0.5, DynamicFriction=0.5)
+        solid = roller.Shape.Solids[0]
+        k2 = solid.MatrixOfInertia.A[5] / solid.Volume
+        local = roller.Placement.inverse().multVec(centre)
+        alpha = math.radians(10)
+        _, result = self.simulate(
+            0.1, 1e-3, Gravity=App.Vector(G * math.sin(alpha), 0, -G * math.cos(alpha))
+        )
+        self.assertEqual(result, 0)
+        n = self.assembly.numberOfFrames()
+        xs = []
+        highest = 0.0
+        for k in range(n):
+            self.assembly.updateForFrame(k)
+            point = roller.Placement.multVec(local)
+            xs.append(point.x)
+            highest = max(highest, point.z - 15)
+        ts = [(k - (n - 1) / 2) * 1e-3 for k in range(n)]
+        s0, s2, s4 = n, sum(t * t for t in ts), sum(t**4 for t in ts)
+        y0, y2 = sum(xs), sum(x * t * t for x, t in zip(xs, ts))
+        accel = 2 * (s0 * y2 - s2 * y0) / (s0 * s4 - s2 * s2)
+        closed = G * math.sin(alpha) / (1 + k2 / 25)
+        App.Console.PrintMessage(
+            "Hull roller rolling down: %.4g off, %.3g mm above\n" % (accel / closed - 1, highest)
+        )
+        self.assertAlmostEqual(accel / closed, 1.0, delta=0.04)
+        self.assertLess(highest, 1e-3)
+
     def tipping(self, part, end, **law):
         """'part' on a plate 400 x 50 turned at 1 rad/s about the y axis, in
         its top face at z = 0, the plate's x end going down; 'part' starting

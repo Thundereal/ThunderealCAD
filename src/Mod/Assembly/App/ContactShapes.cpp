@@ -34,12 +34,14 @@
 #include <BRepBndLib.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepGProp.hxx>
+#include <BRepLProp_SLProps.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom2dAdaptor_Curve.hxx>
 #include <Geom2dConvert_ApproxArcsSegments.hxx>
+#include <Poly_Triangulation.hxx>
 #include <Precision.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopoDS_Edge.hxx>
@@ -313,12 +315,36 @@ bool orientOutward(const std::vector<gp_XYZ>& points, std::vector<std::array<int
 // front of its plane by more than tol. Local, so a long thin triangle -- an
 // ellipsoid's at its poles -- is not held against points beyond its
 // neighbours, which on a curved surface stand in front of its plane by more
-// than the deflection.
+// than the deflection. An edge whose two triangles' corners are all on one
+// face of the solid that is convex at each ('convexOn', each point's faces
+// convex there) is the mesher's: a ball flatted across its parallels came
+// meshed with diagonals the wrong way by its rim, folds 0.11 mm deep at a
+// deflection of 0.01 -- any four points of a sphere make a fold one way.
 bool convexMesh(const std::vector<gp_XYZ>& points,
                 const std::vector<std::array<int, 3>>& triangles,
-                double tol)
+                double tol,
+                const std::vector<std::vector<int>>& convexOn)
 {
+    auto oneConvexFace = [&convexOn](const std::array<int, 4>& corners) {
+        for (const int face : convexOn[static_cast<std::size_t>(corners[0])]) {
+            bool all = true;
+            for (int k = 1; k < 4 && all; ++k) {
+                const auto& on = convexOn[static_cast<std::size_t>(corners[k])];
+                all = std::find(on.begin(), on.end(), face) != on.end();
+            }
+            if (all) {
+                return true;
+            }
+        }
+        return false;
+    };
     for (const auto& [key, on] : edgesOf(triangles)) {
+        if (oneConvexFace({triangles[on[0].first][0],
+                           triangles[on[0].first][1],
+                           triangles[on[0].first][2],
+                           triangles[on[1].first][(on[1].second + 2) % 3]})) {
+            continue;
+        }
         for (int side = 0; side < 2; ++side) {
             const std::size_t t = on[side].first;
             const std::size_t other = on[1 - side].first;
@@ -406,9 +432,82 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
     BRepBndLib::Add(solid, box);
     const double diagonal = box.IsVoid() ? 1.0 : std::sqrt(box.SquareExtent());
     const double tol = 2.0 * mesh->deflection() + 1e-9 * diagonal;
+    // The solid at each point: the faces of the mesh's copy it is a node
+    // of, each one's normal and curvature there by its node's parameters --
+    // a seam's node twice, one face's both times. OCCT's triangle set places
+    // the nodes as here, so they meet the points exactly.
+    std::vector<std::vector<Solver::ContactShape::Surface>> surfaces(points.size());
+    // And the faces convex at each, by their number (convexMesh())
+    std::vector<std::vector<int>> convexOn(points.size());
+    int faceNumber = -1;
+    for (TopExp_Explorer it(mesh->mesh(), TopAbs_FACE); it.More(); it.Next()) {
+        ++faceNumber;
+        const TopoDS_Face& face = TopoDS::Face(it.Current());
+        TopLoc_Location location;
+        const auto& triangulation = BRep_Tool::Triangulation(face, location);
+        if (triangulation.IsNull() || !triangulation->HasUVNodes()) {
+            continue;
+        }
+        const gp_Trsf trsf = location.Transformation();
+        const BRepAdaptor_Surface surface(face);
+        const double outward = face.Orientation() == TopAbs_REVERSED ? -1.0 : 1.0;
+        for (int i = 1; i <= triangulation->NbNodes(); ++i) {
+            const gp_Pnt p = triangulation->Node(i).Transformed(trsf);
+            const auto found = index.find(std::make_tuple(p.X(), p.Y(), p.Z()));
+            if (found == index.end()) {
+                continue;
+            }
+            const gp_Pnt2d uv = triangulation->UVNode(i);
+            BRepLProp_SLProps props(surface, uv.X(), uv.Y(), 2, Precision::Confusion());
+            // A pole has no normal: a hair off it, inside the parameters
+            const double du = 1e-7 * (surface.LastUParameter() - surface.FirstUParameter());
+            const double dv = 1e-7 * (surface.LastVParameter() - surface.FirstVParameter());
+            for (const auto& [su, sv] : {std::pair {0, 1}, {0, -1}, {1, 0}, {-1, 0}}) {
+                if (props.IsNormalDefined() && props.IsCurvatureDefined()) {
+                    break;
+                }
+                props.SetParameters(std::clamp(uv.X() + su * du,
+                                               surface.FirstUParameter(),
+                                               surface.LastUParameter()),
+                                    std::clamp(uv.Y() + sv * dv,
+                                               surface.FirstVParameter(),
+                                               surface.LastVParameter()));
+            }
+            if (!props.IsNormalDefined() || !props.IsCurvatureDefined()) {
+                continue;
+            }
+            // OCCT's curvature is along the surface's normal, a convex
+            // face's negative where that normal is outward
+            const gp_Dir normal = props.Normal();
+            gp_Dir way1;
+            gp_Dir way2;
+            if (props.IsUmbilic()) {
+                const gp_Ax3 frame(props.Value(), normal);
+                way1 = frame.XDirection();
+                way2 = frame.YDirection();
+            }
+            else {
+                props.CurvatureDirections(way1, way2);
+            }
+            Solver::ContactShape::Surface at;
+            at.normal = vec(normal.XYZ()) * outward;
+            at.way1 = vec(way1.XYZ());
+            at.way2 = vec(way2.XYZ());
+            at.k1 = -outward * props.MaxCurvature();
+            at.k2 = -outward * props.MinCurvature();
+            if (at.k2 > at.k1) {
+                std::swap(at.k1, at.k2);
+                std::swap(at.way1, at.way2);
+            }
+            surfaces[static_cast<std::size_t>(found->second)].push_back(at);
+            if (at.k2 >= -1e-9) {
+                convexOn[static_cast<std::size_t>(found->second)].push_back(faceNumber);
+            }
+        }
+    }
     const bool closed = orientOutward(points, triangles);
-    const bool convex =
-        closed ? convexMesh(points, triangles, tol) : convexByPlanes(points, triangles, tol);
+    const bool convex = closed ? convexMesh(points, triangles, tol, convexOn)
+                               : convexByPlanes(points, triangles, tol);
     if (!convex && !closed) {
         return std::nullopt;
     }
@@ -424,6 +523,17 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
         where.Transforms(p);
         out.points.push_back(vec(p));
     }
+    auto turned = [&where](const Base::Vector3d& v) {
+        return vec(gp_Vec(v.x, v.y, v.z).Transformed(where).XYZ());
+    };
+    for (auto& at : surfaces) {
+        for (auto& face : at) {
+            face.normal = turned(face.normal);
+            face.way1 = turned(face.way1);
+            face.way2 = turned(face.way2);
+        }
+    }
+    out.surfaces = std::move(surfaces);
     return out;
 }
 

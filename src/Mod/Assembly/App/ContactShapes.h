@@ -51,6 +51,8 @@ struct SolidContactShape
     std::vector<Base::Vector3d> points;         // a hull's or a mesh's, in the given coordinates
     std::vector<std::array<int, 3>> triangles;  // on points, a hull's mesh's too
     double deflection = 0.0;                    // the mesh's chord error, a hull's or a mesh's
+    // The solid's faces at each point (ContactShape::surfaces), a hull's or a mesh's
+    std::vector<std::vector<Solver::ContactShape::Surface>> surfaces;
 };
 
 // Its contact shape, or none when the solid is no primitive, not convex and

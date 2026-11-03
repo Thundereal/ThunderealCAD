@@ -2363,6 +2363,15 @@ struct ShapeOn
     double size = 0.0;
     std::vector<ch::ChMatrix33d> curvatures;
     std::vector<ch::ChVector3d> hull;
+    // The solid at each of a hull's or a mesh's points (ContactShape::
+    // surfaces), in the hull's frame or the mesh's body's: each face's
+    // outward normal and curvature tensor there
+    struct Surface
+    {
+        ch::ChVector3d normal;
+        ch::ChMatrix33d tensor;
+    };
+    std::vector<std::vector<Surface>> surfaces;
     // A mesh's vertices, in its body's frame: its triangles point into them
     const ch::ChVector3d* vertices = nullptr;
     std::size_t count = 0;
@@ -2704,6 +2713,9 @@ struct ShapesOn
                     best = index;
                 }
             }
+            if (const ch::ChMatrix33d* exact = surfaceAt(*on, best, turn.transpose() * outward)) {
+                return ch::ChMatrix33d(turn * *exact * turn.transpose());
+            }
             if (best >= on->curvatures.size()) {
                 return ch::ChMatrix33d::Zero();
             }
@@ -2726,6 +2738,27 @@ struct ShapesOn
             return ch::ChMatrix33d(ch::TensorProduct(round, round) / on->radius);
         }
         const ch::ChVector3d local = frame.transpose() * (turn.transpose() * outward);
+        const ch::ChMatrix33d whole = turn * frame;
+        // The solid's own, at the hull's point nearest: the point farthest
+        // out ties on a facet face down, a roller's corners at both its
+        // ends, and the fits there differed -- a 5 mm roller read as 1/7.7
+        // mm round one way, 1/3.9 and 1/12 another, its law a line's and
+        // then a ball's, the force at one depth 150 times as much
+        if (!on->surfaces.empty()) {
+            const ch::ChVector3d point = on->frame.TransformPointParentToLocal(at);
+            std::size_t nearest = on->hull.size();
+            double least = std::numeric_limits<double>::infinity();
+            for (std::size_t v = 0; v < on->hull.size(); ++v) {
+                const double apart = (on->hull[v] - point).Length2();
+                if (apart < least) {
+                    least = apart;
+                    nearest = v;
+                }
+            }
+            if (const ch::ChMatrix33d* exact = surfaceAt(*on, nearest, local)) {
+                return ch::ChMatrix33d(whole * *exact * whole.transpose());
+            }
+        }
         std::size_t best = on->hull.size();
         double most = -std::numeric_limits<double>::infinity();
         for (std::size_t v = 0; v < on->hull.size(); ++v) {
@@ -2738,8 +2771,27 @@ struct ShapesOn
         if (best >= on->curvatures.size()) {
             return ch::ChMatrix33d::Zero();
         }
-        const ch::ChMatrix33d whole = turn * frame;
         return ch::ChMatrix33d(whole * on->curvatures[best] * whole.transpose());
+    }
+
+    // The curvature of the solid's face at a hull's or a mesh's point v
+    // whose normal is nearest 'outward' (the same frame), none without them
+    static const ch::ChMatrix33d*
+    surfaceAt(const ShapeOn& on, std::size_t v, const ch::ChVector3d& outward)
+    {
+        if (v >= on.surfaces.size()) {
+            return nullptr;
+        }
+        const ch::ChMatrix33d* best = nullptr;
+        double most = -std::numeric_limits<double>::infinity();
+        for (const auto& face : on.surfaces[v]) {
+            const double along = ch::Vdot(face.normal, outward);
+            if (along > most) {
+                most = along;
+                best = &face.tensor;
+            }
+        }
+        return best;
     }
 };
 
@@ -2808,9 +2860,12 @@ double lineLength(const std::vector<ch::ChVector3d>& at,
         }
         path = degree[k] <= 2;
     }
+    // -- not a straight line's: a roller's facet touches at its four
+    // corners, a path end to end whose ends are as far apart, and the line
+    // read twice its length
     if (path && ends.size() == 2) {
         const double gap = (at[line[ends[0]]] - at[line[ends[1]]]).Length();
-        if (gap <= 1.5 * longest) {
+        if (gap <= 1.5 * longest && gap < 0.5 * length) {
             length += gap;
         }
     }
@@ -6417,6 +6472,20 @@ Status ChronoSession::simulateDynamics(
                 where.vertices = vertices.data();
                 where.count = vertices.size();
                 where.curvatures = meshCurvatures(vertices, meshMade->GetIndicesVertexes());
+            }
+            // A mesh's into its body's frame, as its vertices
+            const ch::ChFramed into = meshMade ? run.d->localOf(shape.frame) : ch::ChFramed();
+            for (const auto& faces : shape.surfaces) {
+                auto& at = where.surfaces.emplace_back();
+                for (const auto& face : faces) {
+                    const ch::ChVector3d way1 =
+                        into.TransformDirectionLocalToParent(toCh(face.way1));
+                    const ch::ChVector3d way2 =
+                        into.TransformDirectionLocalToParent(toCh(face.way2));
+                    at.push_back({into.TransformDirectionLocalToParent(toCh(face.normal)),
+                                  ch::TensorProduct(way1, way1) * face.k1
+                                      + ch::TensorProduct(way2, way2) * face.k2});
+                }
             }
         }
         auto finder = std::make_shared<ContactFinder>();

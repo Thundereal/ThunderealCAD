@@ -432,6 +432,19 @@ struct ContactShape
     std::vector<Base::Vector3d> points;
     // A mesh's; a hull's mesh's, its points', for its curvature
     std::vector<std::array<int, 3>> triangles;
+    // A hull's or a mesh's solid at each of its points: each face of the
+    // solid the point is on, its outward normal there and its principal
+    // curvatures, convex positive, with their ways -- exact, where the
+    // mesh's own are fitted to its facets
+    struct Surface
+    {
+        Base::Vector3d normal;
+        Base::Vector3d way1;
+        Base::Vector3d way2;
+        double k1 = 0.0;
+        double k2 = 0.0;
+    };
+    std::vector<std::vector<Surface>> surfaces;
     // A profile's pieces, each loop's in order, and where each loop starts;
     // its size.x and size.y the lowest and highest its solid reaches along
     // z, for the height its force acts at

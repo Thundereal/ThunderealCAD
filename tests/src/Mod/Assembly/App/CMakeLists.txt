@@ -9,6 +9,7 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/ReferenceBackend.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/PointOnCurve.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/ProfileGeometry.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/ContactShapes.cpp
 )
 # The Chrono backend's tests, when it is built (BUILD_ASSEMBLY_CHRONO).
 if (BUILD_ASSEMBLY_CHRONO)

@@ -186,7 +186,7 @@ bool same(const ContactShape& a, const ContactShape& b)
     if (a.frame != b.frame || a.kind != b.kind || !same(a.size, b.size)
         || a.points.size() != b.points.size() || a.triangles != b.triangles
         || a.modulus != b.modulus || a.volume != b.volume || a.loops != b.loops
-        || a.pieces.size() != b.pieces.size()) {
+        || a.pieces.size() != b.pieces.size() || a.surfaces.size() != b.surfaces.size()) {
         return false;
     }
     for (std::size_t i = 0; i < a.points.size(); ++i) {
@@ -425,6 +425,13 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             shape.size = shape.size * length;
             for (auto& point : shape.points) {
                 point = point * length;
+            }
+            // A curvature as a length to the -1
+            for (auto& faces : shape.surfaces) {
+                for (auto& face : faces) {
+                    face.k1 /= length;
+                    face.k2 /= length;
+                }
             }
             for (auto& piece : shape.pieces) {
                 piece.from = piece.from * length;

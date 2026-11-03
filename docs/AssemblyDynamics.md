@@ -2371,8 +2371,57 @@ Phase D1 is under way (2026-10-28):
   - TestContact's test_cube_on_tipping_plate (frictionless) holds s to
     0.01 mm of the closed form; with the faces' turning taken out it read
     3.8e-2. The ball's and the cube's share the scene (tipping()).
-  - Not yet: a round part that is a hull or a mesh; a cylinder rolling on
-    its rim; an edge against an edge on a turning body.
+  - Not yet: a round part that is a hull or a mesh (measured in the entry
+    below); a cylinder rolling on its rim; an edge against an edge on a
+    turning body.
+- Measured: round parts that are hulls. A solid is a sphere, a cylinder or a
+  box only when it is that primitive exactly; any other convex one is the
+  hull of its mesh (chord 1e-4 of its size, at least 0.01 mm), any other
+  closed one the mesh -- a real wheel, roller or ball with a chamfer, a
+  fillet or a hub is a hull. A roller of radius 5 and 20 long, its rims
+  chamfered 0.5 (50 facets round), and a ball of radius 5 flatted 0.5 deep
+  at both sides, against the closed forms the primitives pass to 1e-8,
+  their k^2 their own:
+  - Rolling down 10 deg: the roller 12% slow, leaping 0.89 mm off the plate
+    at 20 mm/s, its speed rippling 11.6 mm/s; the ball (a mesh then, below)
+    1.7% slow. On the level at 1 m/s they lost 130 and 135 mm/s^2 and
+    hopped 0.35 and 1.0 mm.
+  - The leap: the law flipped between Johnson's line and Hertz's ball from
+    one collision detection to the next, at one depth 106 N and 0.68 N on a
+    roller of 0.041 N. A hull's curvature was the mesh's fit at the hull's
+    point farthest out along the normal, which a facet lying face down ties
+    at its corners, and the fits there read 1/7.7 mm round (130 1/m, 0) one
+    way and (259, 81) the other -- a ball's. And the line read 38.9 mm for
+    19: a facet's four corners, a path end to end, taken for a ring
+    (lineLength()) and closed.
+  - Built: the solid's own curvature (ContactShape::surfaces): at each of a
+    hull's or a mesh's points, each face of the solid it is a node of, its
+    outward normal and principal curvatures there by the node's
+    parameters (BRepLProp_SLProps), a pole's a hair off it; the backend
+    takes the hull's point nearest the contact and its face nearest the
+    normal (ShapesOn::curvatureAt()), a mesh's at the triangle's corner
+    nearest as before, the fit where there are none. A line closes into a
+    ring only when its ends are nearer than half its length.
+  - Found on the way: the flatted ball was no hull but a mesh. Its sphere
+    cut across its parallels came meshed with diagonals the wrong way by
+    the rim, folds 0.11 mm deep at a chord of 0.01, and convexMesh() took
+    them for the solid's -- any four points of a sphere fold one way or the
+    other. An edge whose two triangles are all on one face of the solid
+    convex at each of their corners is now the mesher's; the solid's edges
+    between faces and its saddles and hollows are judged as before.
+  - Now: rolling down, the roller 2.1% slow and never off the plate,
+    rippling 2.2 mm/s; the ball (a hull) 2.1% slow, never off. On the level
+    at 1 m/s the roller loses 64 mm/s^2, hopping 0.38 mm, the ball 117,
+    0.34 mm. What is left is the facets: a polygon rolling knocks at each
+    edge, a 50-gon's about 40 mm/s^2 at 100 mm/s were each knock wholly
+    inelastic (an estimate, not measured apart), and past sqrt(g r), 0.22
+    m/s here, each edge throws it up -- 0.2 mm at 1 m/s.
+  - Tests: ContactShapes.chamferedRollerCurvature and flattedBallCurvature
+    (C++), every point's faces against the solid's own; TestContact's
+    test_hull_roller_rolls_down, within 4% and never 1 um off the plate.
+  - Not yet: a hull rolling as round as it is -- a solid whose touching
+    face is a cylinder or a sphere taken as that primitive, or a hull's
+    curved faces rolled on their own surface.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

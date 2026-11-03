@@ -19040,8 +19040,15 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
     FC_TIME_LOG(t,"Recompute total");
 
     if (d->recomputeLogAdded != logAddedBefore) {
-        if (!testStatus(Status::IgnoreErrorOnRecompute))
+        if (!testStatus(Status::IgnoreErrorOnRecompute)) {
             Base::Console().Error("Recompute failed!\n");
+            // The caller told the same: an object can log its failure (a
+            // TechDraw section whose cut meets nothing) and still return
+            // without an error, and the migration prompt's recompute then
+            // put up no error box (entry 247)
+            if (hasError)
+                *hasError = true;
+        }
     }
 
     clearPendingRemove();

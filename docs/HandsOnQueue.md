@@ -4609,7 +4609,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 245 | 2026-11-03 | a defect: the Measure (pre)selected geometry macro's tool tip ignores the OVERLAY PANELS -- shown under a panel; the reporter wants it aware of them whatever it did before | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: Selection.cpp 1223-1233 shows PreselectionText by Gui::ToolTip::showText with the active view, overlay=true and the corner PreselectionToolTipCorner + offsets; ToolTip::onShowTimer (Widgets.cpp 1601-1623) places it in the corner of the WHOLE view widget -- nothing there asks what the overlay panels cover; whether it once did NOT checked; ASSIGNED to dwin (fcad-88) |
 | 246 | 2026-11-03 | a defect: an on-view handle's tool tip draws a ROUND-cornered border on a RECTANGULAR widget -- the square corners show; the reporter: use the tooltip helper the measure pre-selection macro uses | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the handle's tip is Qt's own QToolTip::showText (Gizmo.cpp 374, 387; 241's tip); the helper is Gui::ToolTip::showText / TipLabel (Widgets.cpp 1471-1640), which the pre-selection text uses (Selection.cpp 1228); ASSIGNED to dwin (fcad-88), with 245 (same helper); 2026-11-03 10:45 the reporter: the helper NOT required -- its code or styling may be taken as reference; the handle tips stand NEAR THE MOUSE POINTER (not in a corner, as the pre-selection macro's tip) |
 | 247 | 2026-11-03 | a REGRESSION, the reporter relates it to 242's fix: opening scanner, the migration box now holds the load, but after OK the recompute runs with the 3D view BLACK, the model appearing at once at its end (no progressive load); NO recompute error box although objects fail; the first try also failed Dimension014, through Section007 left with no shape and NOT marked as an error (a manual recompute of Section007 fixed it) | OPEN; said to the note-taker 2026-11-03 10:44; READ by the note-taker: the handler (Application.cpp 607-640) recomputes right after the box, inside signalFinishOpenDocument, and shows the error box when hasError; 242's hold (isLoadHeld = activeModalWidget(), Application.cpp 2505-2508) also holds Document::scheduleDeferredRestore (Document.cpp 4703-4710) -- the deferred RESTORE, not only the visuals -- so the recompute may run on a document not fully restored (a lead for Section007, NOT verified); a modal SequencerDialog in the recompute (ProgressDialog.cpp 105) would keep the hold on through it (a lead, NOT verified); causes NOT found; ASSIGNED to dwin (fcad-88), FIRST |
-| 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full) |
+| 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full); 2026-11-03 10:55 the reporter's steps: a Box, a Pocket of the top face with -2 "tolerance" (a square blind hole in the top), then Defeaturing picking the hole's bottom and one side face; the session the note-taker calls x16 (bridge 01Gifk77, it signs fcad-86) asked whether x16win was meant -- told no, it takes 248 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -32317,6 +32317,21 @@ READ by the note-taker:
 NOT said: the file or model (read as any Defeaturing).
 ASSIGNED to x16 (the note-taker coordinating: x16 idle since
 MultiViewEdit landed; dwin has 247, 244, 246, 245).
+
+**2026-11-03 10:55, the reporter (to the note-taker), 248's steps:** "I tested
+create a box. pocket the top face with -2 tolerance, resulting a box
+with a square top blind hole. then defeaturing by selecting the bottom
+and one the side face of the hole"
+The note-taker's reading: a PD Box; a Pocket on the Box's top face with
+-2 (the reporter's "tolerance" -- read as the pocket's offset of the
+face's outline, inward by 2, leaving a square blind hole); then a
+Defeaturing with the hole's bottom face and ONE of its side faces
+picked. Hovering the Defeaturing in the tree highlights the whole
+shape.
+The session the note-taker calls x16 (bridge session_01Gifk77, which
+signs itself fcad-86 and did 232) asked whether the task was meant for
+x16win; told no -- x16win is left out on the reporter's word -- so it
+takes 248. Steps passed to it.
 
 ## Inbox
 

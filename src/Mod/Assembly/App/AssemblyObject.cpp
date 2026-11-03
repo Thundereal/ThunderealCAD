@@ -2205,6 +2205,7 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             record.points = std::move(contact->points);
             record.triangles = std::move(contact->triangles);
             record.surfaces = std::move(contact->surfaces);
+            record.rounds = std::move(contact->rounds);
             record.modulus = modulus;
             GProp_GProps props;
             BRepGProp::VolumeProperties(solid.getShape(), props);

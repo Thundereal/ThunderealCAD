@@ -2421,7 +2421,48 @@ Phase D1 is under way (2026-10-28):
     test_hull_roller_rolls_down, within 4% and never 1 um off the plate.
   - Not yet: a hull rolling as round as it is -- a solid whose touching
     face is a cylinder or a sphere taken as that primitive, or a hull's
-    curved faces rolled on their own surface.
+    curved faces rolled on their own surface (built in the entry below).
+- Built: a hull's or a mesh's round faces rolled as the primitives roll.
+  Not the solid taken for a primitive: a wheel's hub, a roller's chamfers,
+  a ball's flats and a shaft's flat stay the hull's or the mesh's. Each face
+  of the solid that is a cylinder's or a sphere's bulging out (its normal
+  away from the axis or the centre at its middle) is a round
+  (ContactShape::rounds): its axis or centre, radius, a cylinder's reach
+  along the axis and its angles about it from the face's parameters; each
+  point's faces (ContactShape::surfaces) name theirs. A point collision
+  detection finds on the hull or the mesh is on a round when, at the
+  shape's point nearest (a hull's, a triangle's corner), the solid's face
+  whose normal is nearest the contact's is a round's, within 0.3 rad
+  (roundOn()); the point is then that round's, a sphere or a cylinder on
+  the body as a primitive is (ShapeOn::rounds), found again on it at each
+  state (rollAlong()) -- and put there as it is handed over, for the laws
+  to read the depth off the round, not off the facet a deflection inside
+  it. A part of a round only -- a D shaft's cylinder beside its flat -- is
+  that only: past its angles roundSupport() leaves the point to the facets.
+  Concave rounds -- a bore, an inner race -- are not rounds: a hole's
+  contact is not a primitive's.
+  - Measured, against the closed forms the primitives pass: the chamfered
+    roller rolling down 10 deg -3e-9 (2.1% slow on its facets), the
+    flatted ball -9e-9 (2.1%), a ring -- a bore of 2 through the roller,
+    a mesh -- 2.8e-5 with k^2/r^2 0.58; all three on the level at 1 m/s
+    keep 1000.0000 mm/s and never leave the plate (the roller lost 64
+    mm/s^2 and hopped 0.38 mm, the ball 117 and 0.34). The roller's run
+    took 0.1 s of wall time where its facets' took 0.5. A D shaft rolls
+    on its round at the axis's height, dips over its flat, and rests on
+    it.
+  - Tests: TestContact's test_hull_roller_rolls_down to 1e-4 (rollRound()),
+    test_mesh_ring_rolls_on_level to 5e-3 mm/s^2, and
+    test_d_shaft_rests_on_its_flat within 2 um of its flat.
+  - Found, not explained: the D shaft rests 0.97 um low on its flat where
+    its law's sink is 39 nm (k 5.39e9, e 1.5, its four points 38.6 nm
+    deep) -- its hull lies about 0.93 um inside the solid's flat. The same
+    with the rounds taken out; a hexagonal prism's hull rests at its law's
+    sink (test_hull_rests). Not chased.
+  - Not yet: a pin in a bore -- a concave round; two rounds of hulls
+    meeting, a cylinder's against a cylinder's (as two primitive
+    cylinders: their normal stays the one found); a round whose face is
+    trimmed across its parameters, its angles the face's box (the flatted
+    ball's sphere: the point there is on the flat's face anyway).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -443,8 +443,27 @@ struct ContactShape
         Base::Vector3d way2;
         double k1 = 0.0;
         double k2 = 0.0;
+        int round = -1;  // its face's in rounds, or none
     };
     std::vector<std::vector<Surface>> surfaces;
+    // A hull's or a mesh's faces that are a convex cylinder's or sphere's,
+    // to roll on as the primitives do: a point of the axis or the centre,
+    // the axis, the way of a cylinder's angle 0, the radius; a cylinder's
+    // reach along its axis from that point, from..to, and its angles about
+    // it, right handed about the axis, angleTo - angleFrom 2 pi all round
+    struct Round
+    {
+        bool sphere = false;
+        Base::Vector3d centre;
+        Base::Vector3d axis;
+        Base::Vector3d way;
+        double radius = 0.0;
+        double from = 0.0;
+        double to = 0.0;
+        double angleFrom = 0.0;
+        double angleTo = 0.0;
+    };
+    std::vector<Round> rounds;
     // A profile's pieces, each loop's in order, and where each loop starts;
     // its size.x and size.y the lowest and highest its solid reaches along
     // z, for the height its force acts at

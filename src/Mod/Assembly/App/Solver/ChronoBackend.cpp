@@ -2370,8 +2370,16 @@ struct ShapeOn
     {
         ch::ChVector3d normal;
         ch::ChMatrix33d tensor;
+        int round = -1;  // its face's in rounds, or none
     };
     std::vector<std::vector<Surface>> surfaces;
+    // Its faces that are a convex cylinder's or sphere's (ContactShape::
+    // rounds), each a sphere or a cylinder on the body as a primitive is,
+    // a cylinder's frame at the middle of its reach; and a round's angles,
+    // from..to about its z from x, all round when to - from is 2 pi
+    std::vector<ShapeOn> rounds;
+    double angleFrom = 0.0;
+    double angleTo = 2.0 * pi;
     // A mesh's vertices, in its body's frame: its triangles point into them
     const ch::ChVector3d* vertices = nullptr;
     std::size_t count = 0;
@@ -2403,9 +2411,74 @@ bool roundSupport(const ShapeOn& on,
     if (std::abs(along) >= 0.5 || !(length > 1e-9)) {
         return false;
     }
+    // A part of a round only: a D shaft's, beside its flat
+    if (on.angleTo - on.angleFrom < 2.0 * pi - 1e-9) {
+        const double angle = std::atan2(ch::Vdot(side, frame.GetRotMat().GetAxisY()),
+                                        ch::Vdot(side, frame.GetRotMat().GetAxisX()));
+        const double from = on.angleFrom + std::fmod(angle - on.angleFrom + 4.0 * pi, 2.0 * pi);
+        if (from > on.angleTo) {
+            return false;
+        }
+    }
     const double t = std::clamp(ch::Vdot(axis, at - frame.GetPos()), -on.half, on.half);
     out = frame.GetPos() + axis * t + side * (on.radius / length);
     return true;
+}
+
+// The round a point of a hull or a mesh is on ('at' in its body's frame,
+// the surface facing 'outward', absolute): its face's, at the shape's point
+// nearest -- a hull's, or the triangle's corner -- the face there whose
+// normal is nearest, when it is a round's (ShapeOn::rounds) and within 0.3
+// rad of the facet's: none on the solid's other faces
+const ShapeOn* roundOn(const ShapeOn& on,
+                       const ch::ChCollisionShape* shape,
+                       const ch::ChVector3d& at,
+                       const ch::ChVector3d& outward)
+{
+    if (on.rounds.empty()) {
+        return nullptr;
+    }
+    std::size_t nearest = on.surfaces.size();
+    ch::ChVector3d facing;
+    if (on.vertices && shape->GetType() == ch::ChCollisionShape::Type::MESHTRIANGLE) {
+        const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+        double least = std::numeric_limits<double>::infinity();
+        for (const ch::ChVector3d* corner : {triangle->V1, triangle->V2, triangle->V3}) {
+            const double apart = (*corner - at).Length2();
+            if (apart < least) {
+                least = apart;
+                nearest = static_cast<std::size_t>(corner - on.vertices);
+            }
+        }
+        facing = on.body->TransformDirectionParentToLocal(outward);
+    }
+    else if (!on.hull.empty()) {
+        const ch::ChVector3d point = on.frame.TransformPointParentToLocal(at);
+        double least = std::numeric_limits<double>::infinity();
+        for (std::size_t v = 0; v < on.hull.size(); ++v) {
+            const double apart = (on.hull[v] - point).Length2();
+            if (apart < least) {
+                least = apart;
+                nearest = v;
+            }
+        }
+        facing = on.frame.TransformDirectionParentToLocal(
+            on.body->TransformDirectionParentToLocal(outward));
+    }
+    if (nearest >= on.surfaces.size()) {
+        return nullptr;
+    }
+    const ShapeOn::Surface* best = nullptr;
+    for (const auto& face : on.surfaces[nearest]) {
+        if (!best || ch::Vdot(face.normal, facing) > ch::Vdot(best->normal, facing)) {
+            best = &face;
+        }
+    }
+    if (!best || best->round < 0 || static_cast<std::size_t>(best->round) >= on.rounds.size()
+        || ch::Vdot(best->normal, facing) < std::cos(0.3)) {
+        return nullptr;
+    }
+    return &on.rounds[static_cast<std::size_t>(best->round)];
 }
 
 // Whether a box's or a hull's shape, or a mesh's triangle, on its body has
@@ -6195,6 +6268,17 @@ Status ChronoSession::simulateDynamics(
                 ContactLoad::Point& point = load.points.back();
                 point.roundA = roundOf(point.shapeA);
                 point.roundB = roundOf(point.shapeB);
+                // A hull's or a mesh's round face (roundOn())
+                if (!point.roundA) {
+                    if (const ShapeOn* on = shapesOn.of(point.shapeA)) {
+                        point.roundA = roundOn(*on, point.shapeA, point.onA, point.normal);
+                    }
+                }
+                if (!point.roundB) {
+                    if (const ShapeOn* on = shapesOn.of(point.shapeB)) {
+                        point.roundB = roundOn(*on, point.shapeB, point.onB, -point.normal);
+                    }
+                }
                 if (point.roundA || point.roundB) {
                     point.face = point.roundB ? (point.roundA ? 0 : 1) : 2;
                 }
@@ -6293,6 +6377,16 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             finder->found.clear();
+            // Their points on round shapes put where they are now, and the
+            // normals of the faces' (rollAlong()): the laws read them
+            // (patchStiffness()), a hull's round face's exact where the
+            // facet's are a deflection off
+            std::set<ContactLoad*> rolled;
+            for (auto& [bodies, load] : finder->loads) {
+                if (load->follow && rolled.insert(load).second) {
+                    rollAll(*load->GetBodyA(), *load->GetBodyB(), load->points);
+                }
+            }
             // A cam's one point, where it is or not (CamFollow::place()),
             // followed from the last: the curve's closest point to the
             // follower, as the joint's equations take it. Exact on the
@@ -6484,7 +6578,33 @@ Status ChronoSession::simulateDynamics(
                         into.TransformDirectionLocalToParent(toCh(face.way2));
                     at.push_back({into.TransformDirectionLocalToParent(toCh(face.normal)),
                                   ch::TensorProduct(way1, way1) * face.k1
-                                      + ch::TensorProduct(way2, way2) * face.k2});
+                                      + ch::TensorProduct(way2, way2) * face.k2,
+                                  face.round});
+                }
+            }
+            // Its rounds, on the body: in the shape's frame (where.frame),
+            // a hull's points' and a mesh's before they were put on it
+            for (const auto& round : shape.rounds) {
+                ShapeOn& made = where.rounds.emplace_back();
+                made.body = where.body;
+                made.source = where.source;
+                made.envelope = where.envelope;
+                made.modulus = where.modulus;
+                made.size = where.size;
+                const ch::ChVector3d z = toCh(round.axis);
+                const ch::ChVector3d x = toCh(round.way);
+                ch::ChMatrix33d turn;
+                turn.SetFromDirectionAxes(x, ch::Vcross(z, x), z);
+                const double middle = round.sphere ? 0.0 : 0.5 * (round.from + round.to);
+                made.frame = ch::ChFramed(toCh(round.centre) + z * middle, turn) >> where.frame;
+                if (round.sphere) {
+                    made.ball = round.radius;
+                }
+                else {
+                    made.radius = round.radius;
+                    made.half = 0.5 * (round.to - round.from);
+                    made.angleFrom = round.angleFrom;
+                    made.angleTo = round.angleTo;
                 }
             }
         }

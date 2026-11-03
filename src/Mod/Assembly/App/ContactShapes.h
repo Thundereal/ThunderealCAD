@@ -53,6 +53,8 @@ struct SolidContactShape
     double deflection = 0.0;                    // the mesh's chord error, a hull's or a mesh's
     // The solid's faces at each point (ContactShape::surfaces), a hull's or a mesh's
     std::vector<std::vector<Solver::ContactShape::Surface>> surfaces;
+    // Its faces that are a convex cylinder's or sphere's (ContactShape::rounds)
+    std::vector<Solver::ContactShape::Round> rounds;
 };
 
 // Its contact shape, or none when the solid is no primitive, not convex and

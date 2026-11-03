@@ -693,17 +693,14 @@ class TestContact(unittest.TestCase):
         App.Console.PrintMessage("Roller rolling on level: %.3g mm/s^2\n" % accel)
         self.assertLess(abs(accel), 5e-3)
 
-    def test_hull_roller_rolls_down(self):
-        """A roller of radius 5 and 20 long, its rims chamfered 0.5: no
-        cylinder, a hull of its mesh, 50 facets round. Down the slope of 10
-        deg it rolls within 4% of g sin / (1 + k^2/r^2), k its own (2.1%
-        slow measured, its facets' knocks), and never off the plate. Its
-        curvature was read off the mesh's fit at the hull's point farthest
-        out, which a facet lying face down ties at its corners: 1/7.7 mm one
-        way and 1/3.9 and 1/12 another, its law a line's and then a ball's,
-        150 times the force at one depth -- it leapt 0.89 mm, 12% slow. Now
-        the solid's own (ContactShape::surfaces)."""
-        import Part
+    def rollRound(self, shape, end, slope=10.0, speed=0.0, step=1e-3):
+        """'shape', round about the y axis through (-80, 0, 15), a part on a
+        grounded plate 200 long whose top is at z = 10, friction 0.5,
+        gravity tipped 'slope' deg along x; sent at 'speed' mm/s along x
+        with its rolling spin. Its acceleration along x (a parabola through
+        that point's x), g sin / (1 + k^2/r^2) for radius 5, k its own, and
+        how far that point went above and below z = 15."""
+        import CommandCreateSimulation
 
         plate = self.assembly.newObject("Part::Box", "Plate")
         plate.Length, plate.Width, plate.Height = 200, 50, 10
@@ -711,37 +708,111 @@ class TestContact(unittest.TestCase):
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
         JointObject.GroundedJoint(ground, plate)
         centre = App.Vector(-80, 0, 15)
-        shape = Part.makeCylinder(5, 20, centre + App.Vector(0, -10, 0), App.Vector(0, 1, 0))
-        rims = [e for e in shape.Edges if e.Curve.TypeId == "Part::GeomCircle"]
-        roller = self.assembly.newObject("Part::Feature", "Roller")
-        roller.Shape = shape.makeChamfer(0.5, rims)
-        self.contact([roller], [plate], StaticFriction=0.5, DynamicFriction=0.5)
-        solid = roller.Shape.Solids[0]
+        part = self.assembly.newObject("Part::Feature", "Round")
+        part.Shape = shape
+        self.contact([part], [plate], StaticFriction=0.5, DynamicFriction=0.5)
+        solid = part.Shape.Solids[0]
         k2 = solid.MatrixOfInertia.A[5] / solid.Volume
-        local = roller.Placement.inverse().multVec(centre)
-        alpha = math.radians(10)
-        _, result = self.simulate(
-            0.1, 1e-3, Gravity=App.Vector(G * math.sin(alpha), 0, -G * math.cos(alpha))
-        )
-        self.assertEqual(result, 0)
+        local = part.Placement.inverse().multVec(centre)
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        if speed:
+            # Its origin's velocity, the spin about y through the centre
+            spin = App.Vector(0, speed / 5, 0)
+            CommandCreateSimulation.newInitialCondition(
+                sim,
+                component=part,
+                linear=App.Vector(speed, 0, 0) + spin.cross(part.Placement.Base - centre),
+                angular=App.Vector(0, math.degrees(speed / 5), 0),
+            )
+        alpha = math.radians(slope)
+        sim.AnalysisType = "Dynamic"
+        sim.Elements = self.sets
+        sim.TimeEnd = end
+        sim.TimeStepOutput = step
+        sim.Gravity = App.Vector(G * math.sin(alpha), 0, -G * math.cos(alpha))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
         n = self.assembly.numberOfFrames()
         xs = []
-        highest = 0.0
+        above = below = 0.0
         for k in range(n):
             self.assembly.updateForFrame(k)
-            point = roller.Placement.multVec(local)
+            point = part.Placement.multVec(local)
             xs.append(point.x)
-            highest = max(highest, point.z - 15)
-        ts = [(k - (n - 1) / 2) * 1e-3 for k in range(n)]
+            above = max(above, point.z - 15)
+            below = max(below, 15 - point.z)
+        ts = [(k - (n - 1) / 2) * step for k in range(n)]
         s0, s2, s4 = n, sum(t * t for t in ts), sum(t**4 for t in ts)
         y0, y2 = sum(xs), sum(x * t * t for x, t in zip(xs, ts))
         accel = 2 * (s0 * y2 - s2 * y0) / (s0 * s4 - s2 * s2)
-        closed = G * math.sin(alpha) / (1 + k2 / 25)
+        return accel, G * math.sin(alpha) / (1 + k2 / 25), above, below
+
+    @staticmethod
+    def roller(at=App.Vector(-80, 0, 15)):
+        """A cylinder of radius 5 and 20 long about y through 'at'"""
+        import Part
+
+        return Part.makeCylinder(5, 20, at + App.Vector(0, -10, 0), App.Vector(0, 1, 0))
+
+    def test_hull_roller_rolls_down(self):
+        """A roller of radius 5 and 20 long, its rims chamfered 0.5: no
+        cylinder, the hull of its mesh, 50 facets round. Down the slope of
+        10 deg it rolls as a cylinder does, g sin / (1 + k^2/r^2), k its
+        own: to 1e-4 (3e-9 measured), never off the plate. Its round face
+        is its cylinder (ContactShape::rounds), its point found on it at
+        each state as a primitive's: on the facets it rolled 2.1% slow,
+        knocking at each edge. And before its curvature was the solid's own
+        (ContactShape::surfaces) it was read off the mesh's fit at the
+        hull's point farthest out, which a facet face down ties at its
+        corners: 1/7.7 mm one way, 1/3.9 and 1/12 another, its law a line's
+        and then a ball's, 150 times the force at one depth -- it leapt
+        0.89 mm, 12% slow."""
+        shape = self.roller()
+        rims = [e for e in shape.Edges if e.Curve.TypeId == "Part::GeomCircle"]
+        accel, closed, above, _ = self.rollRound(shape.makeChamfer(0.5, rims), 0.1)
         App.Console.PrintMessage(
-            "Hull roller rolling down: %.4g off, %.3g mm above\n" % (accel / closed - 1, highest)
+            "Hull roller rolling down: %.3g off, %.3g mm above\n" % (accel / closed - 1, above)
         )
-        self.assertAlmostEqual(accel / closed, 1.0, delta=0.04)
-        self.assertLess(highest, 1e-3)
+        self.assertAlmostEqual(accel / closed, 1.0, delta=1e-4)
+        self.assertLess(above, 1e-4)
+
+    def test_mesh_ring_rolls_on_level(self):
+        """A ring of radius 5, a bore of 2 through it: not convex, a mesh,
+        its outside its round face. Sent rolling at 1 m/s on the level it
+        keeps its speed, to 5e-3 mm/s^2 (2e-7 measured), never off the
+        plate: on its facets a hull roller lost 64 mm/s^2, hopping 0.38 mm."""
+        import Part
+
+        ring = self.roller().cut(
+            Part.makeCylinder(2, 30, App.Vector(-80, -15, 15), App.Vector(0, 1, 0))
+        )
+        accel, _, above, _ = self.rollRound(ring, 0.15, slope=0.0, speed=1000.0)
+        App.Console.PrintMessage(
+            "Mesh ring on level: %.3g mm/s^2, %.3g mm above\n" % (accel, above)
+        )
+        self.assertLess(abs(accel), 5e-3)
+        self.assertLess(above, 1e-4)
+
+    def test_d_shaft_rests_on_its_flat(self):
+        """A roller with a flat 0.5 deep along it, resting on the flat: its
+        round face is a part of the cylinder only, and a point on the flat
+        is no round's -- it stays on the flat, its axis 4.5 above the plate,
+        within 2 um; taken as the whole cylinder it would be thrown 0.5 mm
+        up. It rests 0.97 um low: 39 nm the law's sink, the rest its hull
+        lying inside the flat -- the same with the rounds taken out, not
+        explained yet (docs/AssemblyDynamics.md)."""
+        import Part
+
+        # Its axis 4.5 above the plate's top, at z = 14.5: the point followed,
+        # (-80, 0, 15) at the start, is 0.5 above the axis
+        shaft = self.roller(App.Vector(-80, 0, 14.5)).cut(
+            Part.makeBox(20, 30, 20, App.Vector(-90, -15, 14.5 - 4.5 - 20))
+        )
+        _, _, above, below = self.rollRound(shaft, 0.05, slope=0.0)
+        App.Console.PrintMessage("D shaft on its flat: %.3g up, %.3g down\n" % (above, below))
+        self.assertLess(above, 2e-3)
+        self.assertLess(below, 2e-3)
 
     def tipping(self, part, end, **law):
         """'part' on a plate 400 x 50 turned at 1 rad/s about the y axis, in

@@ -35,6 +35,7 @@
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLProp_SLProps.hxx>
+#include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
@@ -48,7 +49,9 @@
 #include <TopoDS_Wire.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Circ2d.hxx>
+#include <gp_Cylinder.hxx>
 #include <gp_Pln.hxx>
+#include <gp_Sphere.hxx>
 #include <gp_Trsf.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Plane.hxx>
@@ -439,6 +442,7 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
     std::vector<std::vector<Solver::ContactShape::Surface>> surfaces(points.size());
     // And the faces convex at each, by their number (convexMesh())
     std::vector<std::vector<int>> convexOn(points.size());
+    std::vector<Solver::ContactShape::Round> rounds;
     int faceNumber = -1;
     for (TopExp_Explorer it(mesh->mesh(), TopAbs_FACE); it.More(); it.Next()) {
         ++faceNumber;
@@ -451,6 +455,43 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
         const gp_Trsf trsf = location.Transformation();
         const BRepAdaptor_Surface surface(face);
         const double outward = face.Orientation() == TopAbs_REVERSED ? -1.0 : 1.0;
+        // A cylinder's or a sphere's face bulging out (its normal away from
+        // the axis or the centre at its middle): its own, to roll on
+        int round = -1;
+        const bool cylinder = surface.GetType() == GeomAbs_Cylinder;
+        if (cylinder || surface.GetType() == GeomAbs_Sphere) {
+            const gp_Ax3 position =
+                cylinder ? surface.Cylinder().Position() : surface.Sphere().Position();
+            double u0 = 0.0;
+            double u1 = 0.0;
+            double v0 = 0.0;
+            double v1 = 0.0;
+            BRepTools::UVBounds(face, u0, u1, v0, v1);
+            gp_Pnt middle;
+            gp_Vec du;
+            gp_Vec dv;
+            surface.D1(0.5 * (u0 + u1), 0.5 * (v0 + v1), middle, du, dv);
+            const gp_Vec axis(position.Direction());
+            gp_Vec away(position.Location(), middle);
+            if (cylinder) {
+                away -= axis * away.Dot(axis);
+            }
+            if (du.Crossed(dv).Dot(away) * outward > 0.0) {
+                Solver::ContactShape::Round made;
+                made.sphere = !cylinder;
+                made.centre = vec(position.Location().XYZ());
+                made.axis = vec(position.Direction().XYZ());
+                made.way = vec(position.XDirection().XYZ());
+                made.radius = cylinder ? surface.Cylinder().Radius() : surface.Sphere().Radius();
+                made.from = v0;
+                made.to = v1;
+                // Its angle u about the axis, right handed or not
+                made.angleFrom = position.Direct() ? u0 : -u1;
+                made.angleTo = position.Direct() ? u1 : -u0;
+                round = static_cast<int>(rounds.size());
+                rounds.push_back(made);
+            }
+        }
         for (int i = 1; i <= triangulation->NbNodes(); ++i) {
             const gp_Pnt p = triangulation->Node(i).Transformed(trsf);
             const auto found = index.find(std::make_tuple(p.X(), p.Y(), p.Z()));
@@ -490,6 +531,7 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
                 props.CurvatureDirections(way1, way2);
             }
             Solver::ContactShape::Surface at;
+            at.round = round;
             at.normal = vec(normal.XYZ()) * outward;
             at.way1 = vec(way1.XYZ());
             at.way2 = vec(way2.XYZ());
@@ -534,6 +576,14 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
         }
     }
     out.surfaces = std::move(surfaces);
+    for (auto& made : rounds) {
+        gp_XYZ centre(made.centre.x, made.centre.y, made.centre.z);
+        where.Transforms(centre);
+        made.centre = vec(centre);
+        made.axis = turned(made.axis);
+        made.way = turned(made.way);
+    }
+    out.rounds = std::move(rounds);
     return out;
 }
 

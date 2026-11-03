@@ -2611,8 +2611,59 @@ Phase D1 is under way (2026-10-28):
     on its side to 1e-4 mm, level to 0.01 deg).
   - Not yet: the see-saw's time -- a light part chattering on stiff
     contacts takes substeps of a fiftieth of the contact's period (0.3 us
-    here) for as long as it lasts; a cylinder across a bore with a cap out
-    of it keeps Bullet's points, now clipped to the facets.
+    here) for as long as it lasts (the entry below); a cylinder across a
+    bore with a cap out of it keeps Bullet's points, now clipped to the
+    facets.
+- Built: a light part at rest in steps as long as the run's -- the see-saw's
+  time. The see-saw was neither stick-slip nor friction's: the pin lying on
+  the L-block's face, frictionless, kept it up the same, at 2000 substeps a
+  millisecond. Held at the strict substeps throughout, its rattle died
+  within a millisecond, its depth flat at its sink, 0.055 nm. It was the
+  steps over its rest.
+  - Found: HHT takes the accelerations it is given into a step, (1 - gamma)
+    h of them into the velocities. The pin rattling passes through touching
+    every 15 us, falling freely there; a step of 0.99 ms from such an
+    instant carried -g into it and ended 23 nm up, and the landing, found
+    late, cut the steps short again. Taken to rest while it rattled, the
+    pin rattled on: the steps over it pumped the rattle up to whatever rest
+    allowed. A range of two tolerances, steps that moved a load at rest
+    taken again an eighth as long, a landing late only from a tolerance off,
+    steps at rest held to a period, steps growing by twice the last: each
+    moved the rattle to its new bound, or changed nothing. Its
+    accelerations set to none before each step at rest cured it, which for
+    a body that does accelerate is a step of the first order.
+  - Built: a load at rest that a step does not resolve -- one longer than a
+    fiftieth of its period -- starts it with its points' normal
+    accelerations those of its bodies' mean accelerations, over the last
+    five of its periods or over the last substep when that was longer: the
+    rattle's average, none. The least change to the bodies' own
+    accelerations that does it, in the mass's measure, solved over the
+    load's points (a line of them along a pin's side is short of rank: the
+    pseudo-inverse), and only to bodies on no joint (meanAccelerations()).
+    Each body's velocities are kept at the end of each substep (Moment),
+    going on only from the state they last left: a stop's bounce, a
+    sensor's step taken back or a part put to rest starts them again.
+  - Found on the way: the bodies' mean accelerations whole, not only the
+    normal's, lag what moves them -- over a long step its secant, half a
+    step behind -- and the ball on the tipping plate ended 0.10 mm off, and
+    eight of TestProfileContact's failed; the change given to a body on a
+    joint too, which holds its accelerations as well, put a cam follower's
+    contact force 0.014 N off of 270. A mean carried on by its own change
+    to the window's end amplified the noise; the change left out where it
+    moves a point less than the tolerance over the step let the rattle
+    back; given only on the step after the strict ones, the pins rattled
+    on.
+  - Measured, over 0.1 s: the pin on the L-block's face 9.6 s -> 0.4 s
+    (108513 substeps before), across the bore 10.5 s -> 0.7 s (124807);
+    each, from its first rest, at its sink, 0.0553 and 0.0578 nm deep,
+    where it rattled up to 5e-5 mm. TestAssemblyWorkbench: 606 OK in
+    143 s (167).
+  - Tests: TestContact's test_pin_lies_across_bore and
+    test_pin_lies_down_on_mesh now to 0.1 s, each still within 1e-8 mm
+    from 0.06 s (stillFrom()).
+  - Not yet: a light part at rest on a joint -- a lever lying on a stop --
+    keeps the rattle's substeps; a cylinder across a bore with a cap out of
+    it.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

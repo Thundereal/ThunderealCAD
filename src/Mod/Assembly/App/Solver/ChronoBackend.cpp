@@ -103,6 +103,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <deque>
 #include <exception>
 #include <fstream>
 #include <functional>
@@ -3823,6 +3824,12 @@ namespace eq = Assembly::Solver::Equations;
 class NeutralLink: public ch::ChLinkBase
 {
 public:
+    // The distinct moving bodies it joins
+    const std::vector<ch::ChBody*>& joins() const
+    {
+        return bodies;
+    }
+
     // A frame of the joint: on 'body' (null: a constant frame -- the ground,
     // or a body Chrono holds fixed) at 'local' in it.
     struct FrameRef
@@ -9150,6 +9157,182 @@ Status ChronoSession::simulateDynamics(
         return h;
     };
     const bool anyFriction = !frictions.empty();
+    // What a step over a load at rest starts from. HHT takes the
+    // accelerations it is given into the step, (1 - gamma) h of them into the
+    // velocities, and a light part resting on a stiff contact keeps up a
+    // rattle no wider than its sink that its substeps resolve: a pin of 0.6 g
+    // on its side, sunk 0.055 nm, passes through touching, falling freely
+    // there, every 15 us. A step of a millisecond from such an instant took
+    // the fall into its velocity, 1.6 mm/s, and threw the pin up 23 nm; its
+    // landing, found late, cut the steps short again, and the pin rattled
+    // in and out of rest at substeps of 0.3 us. So a load at rest that the
+    // step does not resolve starts it with its points' normal accelerations
+    // those of its bodies' mean accelerations, over the last five of its
+    // periods or over the last substep when that was longer -- the rattle's
+    // average, none -- by the least change to the bodies' own, in the
+    // mass's measure (meanAccelerations()). Only the normal's: the means
+    // whole lag what moves the bodies, and a ball on the tipping plate
+    // ended 0.10 mm off. Only bodies on no joint: one on a joint has its
+    // accelerations held by it too, which the change does not keep, and a
+    // cam's follower's contact force came out 0.014 N off. Each body's
+    // velocities at the end of each substep kept, while they go on from
+    // the state the last left: a stop's bounce, a sensor's step taken back
+    // or a part put to rest starts them again.
+    struct Moment
+    {
+        double t = 0.0;
+        std::vector<ch::ChVector3d> v;  // its centre's, each body's
+        std::vector<ch::ChVector3d> w;  // its angular velocity, in its frame
+    };
+    std::deque<Moment> past;
+    auto moment = [&]() {
+        Moment m;
+        m.t = sys.GetChTime();
+        for (const auto& body : run.d->bodies) {
+            m.v.push_back(body->GetPosDt());
+            m.w.push_back(body->GetAngVelLocal());
+        }
+        return m;
+    };
+    auto goOn = [&]() {
+        const Moment now = moment();
+        while (!past.empty() && past.back().t > now.t) {
+            past.pop_back();
+        }
+        if (past.empty() || past.back().t != now.t || past.back().v != now.v
+            || past.back().w != now.w) {
+            past.assign(1, now);
+        }
+    };
+    auto keepMoment = [&]() {
+        past.push_back(moment());
+        double window = 0.0;
+        for (const auto& load : contactLoads) {
+            if (std::isfinite(load->period)) {
+                window = std::max(window, 5.0 * load->period);
+            }
+        }
+        while (past.size() > 2 && past[1].t <= past.back().t - window) {
+            past.pop_front();
+        }
+    };
+    auto meanAccelerations = [&](double h) {
+        if (past.size() < 2) {
+            return;
+        }
+        // The loads the step does not resolve, and their bodies: each one's
+        // six columns, its linear and angular accelerations in the absolute
+        // axes, and its window
+        std::set<const ch::ChBodyFrame*> joined;
+        for (const auto& base : sys.GetLinks()) {
+            if (const auto* link = dynamic_cast<const ch::ChLink*>(base.get())) {
+                joined.insert(link->GetBody1());
+                joined.insert(link->GetBody2());
+            }
+            else if (const auto* neutral = dynamic_cast<const NeutralLink*>(base.get())) {
+                joined.insert(neutral->joins().begin(), neutral->joins().end());
+            }
+        }
+        std::vector<const ContactLoad*> held;
+        std::map<ch::ChBody*, std::pair<Eigen::Index, double>> on;
+        Eigen::Index rows = 0;
+        for (const auto& load : contactLoads) {
+            if (!load->settled || load->points.empty() || !(h > load->period / 50.0)) {
+                continue;
+            }
+            held.push_back(load.get());
+            rows += static_cast<Eigen::Index>(load->points.size());
+            for (const auto& body : {load->GetBodyA(), load->GetBodyB()}) {
+                if (body->IsFixed() || joined.contains(body.get())) {
+                    continue;
+                }
+                const auto column = static_cast<Eigen::Index>(6 * on.size());
+                auto& [at, window] = on.try_emplace(body.get(), column, 0.0).first->second;
+                window = std::max(window, 5.0 * load->period);
+            }
+        }
+        if (on.empty()) {
+            return;
+        }
+        // Each point's normal acceleration, B's against A's: n . (a + alpha x
+        // r) on each side, the terms of the velocities alike in both
+        const auto n = static_cast<Eigen::Index>(6 * on.size());
+        MatX J = MatX::Zero(rows, n);
+        Eigen::Index row = 0;
+        for (const ContactLoad* load : held) {
+            for (const auto& point : load->points) {
+                const std::array<std::pair<ch::ChBody*, ch::ChVector3d>, 2> sides {
+                    std::pair {load->GetBodyA().get(), point.onA},
+                    std::pair {load->GetBodyB().get(), point.onB}};
+                for (std::size_t s = 0; s < 2; ++s) {
+                    const auto it = on.find(sides[s].first);
+                    if (it == on.end()) {
+                        continue;
+                    }
+                    const ch::ChBody& body = *sides[s].first;
+                    const ch::ChVector3d r =
+                        body.TransformPointLocalToParent(sides[s].second) - body.GetPos();
+                    const ch::ChVector3d turn = ch::Vcross(r, point.normal);
+                    const double sign = s == 0 ? -1.0 : 1.0;
+                    for (int k = 0; k < 3; ++k) {
+                        J(row, it->second.first + k) += sign * point.normal[k];
+                        J(row, it->second.first + 3 + k) += sign * turn[k];
+                    }
+                }
+                ++row;
+            }
+        }
+        // The accelerations now, their means over each body's window, and
+        // the inverse of the mass
+        Eigen::VectorXd now(n);
+        Eigen::VectorXd mean(n);
+        MatX inverseMass = MatX::Zero(n, n);
+        const Moment& end = past.back();
+        for (std::size_t b = 0; b < run.d->bodies.size(); ++b) {
+            const auto& body = run.d->bodies[b];
+            const auto it = on.find(body.get());
+            if (it == on.end()) {
+                continue;
+            }
+            const auto [c, window] = it->second;
+            std::size_t then = 0;
+            while (then + 2 < past.size() && past[then + 1].t <= end.t - window) {
+                ++then;
+            }
+            const double span = end.t - past[then].t;
+            const ch::ChMatrix33<> turn = body->GetRotMat();
+            const ch::ChVector3d linear = (end.v[b] - past[then].v[b]) / span;
+            const ch::ChVector3d angular = turn * ((end.w[b] - past[then].w[b]) / span);
+            const ch::ChVector3d alpha = turn * body->GetAngAccLocal();
+            for (int k = 0; k < 3; ++k) {
+                now(c + k) = body->GetPosDt2()[k];
+                now(c + 3 + k) = alpha[k];
+                mean(c + k) = linear[k];
+                mean(c + 3 + k) = angular[k];
+            }
+            inverseMass.block(c, c, 3, 3) = Eigen::Matrix3d::Identity() / body->GetMass();
+            const ch::ChMatrix33<> inertia = turn * body->GetInertia() * turn.transpose();
+            inverseMass.block(c + 3, c + 3, 3, 3) = inertia.inverse();
+        }
+        // The least change, in the mass's measure, that gives the points the
+        // normal accelerations of the means
+        const MatX JW = J * inverseMass;
+        const MatX S = JW * J.transpose();
+        const Eigen::VectorXd lambda = S.completeOrthogonalDecomposition().solve(J * (mean - now));
+        const Eigen::VectorXd change = JW.transpose() * lambda;
+        for (const auto& body : run.d->bodies) {
+            const auto it = on.find(body.get());
+            if (it == on.end()) {
+                continue;
+            }
+            const Eigen::Index c = it->second.first;
+            const ch::ChMatrix33<> turn = body->GetRotMat();
+            const ch::ChVector3d linear(change(c), change(c + 1), change(c + 2));
+            const ch::ChVector3d angular(change(c + 3), change(c + 4), change(c + 5));
+            body->SetPosDt2(body->GetPosDt2() + linear);
+            body->SetAngAccLocal(body->GetAngAccLocal() + turn.transpose() * angular);
+        }
+    };
     // A step of dt, in substeps; a substep that found a contact late is taken
     // again, an eighth as long, from the state before it, and the steps
     // grow back after. One longer than the strict rule's that moved a load
@@ -9189,6 +9372,7 @@ Status ChronoSession::simulateDynamics(
         std::vector<Touch> from(contactLoads.size());
         std::vector<Touch> to(contactLoads.size());
         bool fresh = false;  // collision detection last ran at the state now
+        goOn();
         while (dt - done > 1e-12 * dt) {
             const double strict = contactStep(true);
             double h =
@@ -9208,6 +9392,9 @@ Status ChronoSession::simulateDynamics(
                 std::dynamic_pointer_cast<ch::ChTimestepperImplicit>(sys.GetTimestepper());
             const unsigned int terminated = implicit ? implicit->GetNumTerminated() : 0;
             tolerate(h);
+            if (h > strict) {
+                meanAccelerations(h);
+            }
             sys.DoStepDynamics(h);
             fresh = false;
             // A step whose Newton iterations ran off -- a state not finite
@@ -9262,6 +9449,7 @@ Status ChronoSession::simulateDynamics(
             }
             done += h;
             cap = std::min(dt, cap * 2.0);
+            keepMoment();
             // A load pressing as the substep ended that collision detection
             // then found nothing of: the next substeps short, growing back.
             // HHT takes the last substep's accelerations into the next, and

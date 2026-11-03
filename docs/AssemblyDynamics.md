@@ -2687,6 +2687,12 @@ Phase D1 is under way (2026-10-28):
   - Measured: dropped 1 mm off the axis it rolls onto the rim and rests
     centred to 1e-6 mm, 63 nm under sqrt(20) -- its sink, 47 nm along the
     16 normals -- where it stood 4.4 um over; set centred, the same.
+    Touching one side of the rim its centre is on a cone about the axis,
+    rising 4 / sqrt(20) for each mm off it (41.8 deg), so rolling down it
+    the ball meets the far side at the centre nearly head-on, at 84 deg: it
+    hops 0.27 mm and is centred to 1 um by 66 ms. On the facets it rolled
+    across the centre and up the far side, 0.47 mm off, and was still
+    0.01 mm off at 0.3 s.
   - Tests: TestContact's test_ball_sits_on_hole to 1e-4 mm (was 0.01).
   - Not yet: a ball on a chamfered or rounded mouth -- the chamfer's cone,
     the round's torus, are Bullet's facets; a cylinder's rim on a bore's

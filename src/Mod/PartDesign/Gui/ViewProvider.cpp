@@ -801,6 +801,13 @@ void ViewProvider::refreshFlat()
 void ViewProvider::setDisplayMode(const char *ModeName)
 {
     inherited::setDisplayMode(ModeName);
+    // What a selection drawn on top shows of the whole object, its mode
+    // switch's default child: the flat's mode while that is drawn
+    auto modeSwitch = dynamic_cast<SoFCSwitch*>(pcModeSwitch);
+    if (modeSwitch && !flatShown && flatDefaultChild != NoChildKept) {
+        modeSwitch->defaultChild = flatDefaultChild;
+        flatDefaultChild = NoChildKept;
+    }
     if (flatShown && pFlatView) {
         // The flat drawn as the shape would be: shaded, wireframe, ...
         // (its switch set even where the value is already this one)
@@ -808,8 +815,18 @@ void ViewProvider::setDisplayMode(const char *ModeName)
             pFlatView->DisplayMode.setValue(ModeName);
             pFlatView->setDisplayMode(ModeName);
         }
+        auto shown = [&](const char *mask) {
+            setDisplayMaskMode(mask);
+            if (!modeSwitch)
+                return;
+            if (flatDefaultChild == NoChildKept)
+                flatDefaultChild = modeSwitch->defaultChild.getValue();
+            int index = modeSwitch->findChild(getDisplayMaskMode(mask));
+            if (modeSwitch->defaultChild.getValue() != index)
+                modeSwitch->defaultChild = index;
+        };
         if (!foldedShown) {
-            setDisplayMaskMode("SheetFlat");
+            shown("SheetFlat");
             return;
         }
         // Both: the shape as this mode draws it, and the flat
@@ -822,7 +839,7 @@ void ViewProvider::setDisplayMode(const char *ModeName)
                 pcFlatBoth->addChild(shape);
             pcFlatBoth->addChild(pcFlatGroup);
         }
-        setDisplayMaskMode("SheetBoth");
+        shown("SheetBoth");
     }
 }
 

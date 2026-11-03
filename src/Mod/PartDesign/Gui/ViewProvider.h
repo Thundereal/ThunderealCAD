@@ -196,6 +196,10 @@ protected:
     bool flatShown = false;
     /// Whether the shape is drawn too, the solid's Sheet View Both
     bool foldedShown = false;
+    /// The mode switch's default child before the flat was drawn, to give
+    /// back; NoChildKept for none
+    static constexpr int NoChildKept = -2;
+    int flatDefaultChild = NoChildKept;
 
     bool autoCorrectingLink = false;
     /// Whether the render material last stated a thread, so a shape

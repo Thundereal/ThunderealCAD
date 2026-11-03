@@ -524,14 +524,16 @@ PyMethodDef Application::Methods[] = {
   {"open",                    (PyCFunction) Application::sOpen, METH_VARARGS,
    "open(fileName) -> None\n"
    "\n"
-   "Open a macro, Inventor or VRML file.\n"
+   "Open a macro, Inventor, VRML or image file, or any other file type\n"
+   "with an import module (a FreeCAD document opens as one).\n"
    "\n"
    "fileName : str, bytes, bytearray\n    File name."},
   {"insert",                  (PyCFunction) Application::sInsert, METH_VARARGS,
    "insert(fileName, docName) -> None\n"
    "\n"
-   "Insert a macro, Inventor or VRML file. If no document name\n"
-   "is given the active document is used.\n"
+   "Insert a macro, Inventor, VRML or image file, or any other file\n"
+   "type with an import module. If no document name is given the\n"
+   "active document is used.\n"
    "\n"
    "fileName : str, bytes, bytearray\n    File name.\n"
    "docName : str\n    Document name."},
@@ -963,9 +965,30 @@ PyObject* Application::sShowObject(PyObject * /*self*/, PyObject *args)
     Py_Return;
 }
 
+namespace {
+
+/// The module registered to import a file's type, picked the way a drop or
+/// File > Open picks it (MainWindow::loadUrls): the whole suffix first
+/// ("wrl.gz"), then the last one. FreeCADGui's own types are FileHandler's,
+/// so FreeCADGui is never the answer -- it would call back into itself.
+std::string importModuleFor(const QString& fileName)
+{
+    QFileInfo fi(fileName);
+    for (const QString& suffix : {fi.completeSuffix(), fi.suffix()}) {
+        for (const auto& module :
+             App::GetApplication().getImportModules(suffix.toUtf8().constData())) {
+            if (module != "FreeCADGui") {
+                return module;
+            }
+        }
+    }
+    return {};
+}
+
+}  // namespace
+
 PyObject* Application::sOpen(PyObject * /*self*/, PyObject *args)
 {
-    // only used to open Python files
     char* Name;
     if (!PyArg_ParseTuple(args, "et","utf-8",&Name))
         return nullptr;
@@ -976,8 +999,17 @@ PyObject* Application::sOpen(PyObject * /*self*/, PyObject *args)
         QString fileName = QString::fromUtf8(Utf8Name.c_str());
         FileHandler handler(fileName);
         if (!handler.openFile()) {
-            QString ext = handler.extension();
-            Base::Console().Error("File type '%s' not supported\n", ext.toUtf8().constData());
+            // Not one of the GUI's own types: the module that imports it opens
+            // it, as File > Open does -- an FCStd as a document
+            std::string module = importModuleFor(fileName);
+            if (!module.empty()) {
+                Instance->open(Utf8Name.c_str(), module.c_str());
+            }
+            else {
+                QString ext = handler.extension();
+                Base::Console().Error("File type '%s' not supported\n",
+                                      ext.toUtf8().constData());
+            }
         }
     }
     PY_CATCH;
@@ -999,8 +1031,16 @@ PyObject* Application::sInsert(PyObject * /*self*/, PyObject *args)
         QString fileName = QString::fromUtf8(Utf8Name.c_str());
         FileHandler handler(fileName);
         if (!handler.importFile(std::string(DocName ? DocName : ""))) {
-            QString ext = handler.extension();
-            Base::Console().Error("File type '%s' not supported\n", ext.toUtf8().constData());
+            // as in open(): the type's import module, as File > Import uses it
+            std::string module = importModuleFor(fileName);
+            if (!module.empty()) {
+                Instance->importFrom(Utf8Name.c_str(), DocName, module.c_str());
+            }
+            else {
+                QString ext = handler.extension();
+                Base::Console().Error("File type '%s' not supported\n",
+                                      ext.toUtf8().constData());
+            }
         }
     } PY_CATCH;
 

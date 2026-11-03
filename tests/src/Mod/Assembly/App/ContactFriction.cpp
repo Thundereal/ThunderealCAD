@@ -22,7 +22,9 @@ protected:
     }
 };
 
-// The cards of Mod/Material's Standard library, as they say themselves
+// The cards of Mod/Material's Standard library, by the names the Material
+// manager gives them -- their files', not the Name inside: PA6-Generic, not
+// Polyamide 6
 TEST_F(ContactFriction, standardCardsFallInTheirFamilies)
 {
     const FrictionTable& table = FrictionTable::instance();
@@ -35,11 +37,11 @@ TEST_F(ContactFriction, standardCardsFallInTheirFamilies)
         const char* family;
     };
     const std::vector<Card> cards {
-        {"Steel Generic", "", {}, "Steel"},
-        {"1C45", "Heat-treatable steel", {}, "Steel"},
-        {"Iron Generic", "Iron", {}, "Steel"},
-        {"X5CrNi18-10", "Stainless steel", {}, "Stainless steel"},
-        {"EN-GJL-250", "Cast iron", {}, "Cast iron"},
+        {"Steel-Generic", "", {}, "Steel"},
+        {"Steel-1C45", "Heat-treatable steel", {}, "Steel"},
+        {"Iron-Generic", "Iron", {}, "Steel"},
+        {"Steel-X5CrNi18-10", "Stainless steel", {}, "Stainless steel"},
+        {"Steel-EN-GJL-250", "Cast iron", {}, "Cast iron"},
         {"Aluminum-6061-T6", "Aluminium", {}, "Aluminium"},
         {"AlMg3F24", "Aluminium", {}, "Aluminium"},
         // The copper alloys by their tags: a red brass, a phosphor bronze,
@@ -48,18 +50,18 @@ TEST_F(ContactFriction, standardCardsFallInTheirFamilies)
         {"Copper-510", "Cold drawn", {"C51000", "Phosphor Bronze"}, "Bronze"},
         {"Copper-614", "", {"C61400", "Aluminum Bronze"}, "Bronze"},
         {"Copper-102", "", {"C10200", "Coppers"}, "Copper"},
-        {"Ti-6Al-4V (Grade 5)", "Titanium", {}, "Titanium"},
-        {"PTFE", "", {}, "PTFE"},
-        {"Polyamide 6", "", {}, "Nylon"},
+        {"Ti-6Al-4V", "Titanium", {}, "Titanium"},
+        {"PTFE-Generic", "", {}, "PTFE"},
+        {"PA6-Generic", "", {}, "Nylon"},
         // An acrylic glass is acrylic, not glass
-        {"Acrylic Glass", "", {}, "Acrylic"},
+        {"Acrylic-Glass-Generic", "", {}, "Acrylic"},
         {"PMMA-Generic", "", {}, "Acrylic"},
-        {"Glass", "", {}, "Glass"},
+        {"Glass-Generic", "", {}, "Glass"},
         {"Graphite", "Solid", {}, "Graphite"},
-        {"Wood", "", {}, "Wood"},
+        {"Wood-Generic", "", {}, "Wood"},
         // In no family: their pairs run on a set's own coefficients
         {"PC-Molded", "", {}, ""},
-        {"ABS", "", {}, ""},
+        {"ABS-Generic", "", {}, ""},
     };
     for (const Card& card : cards) {
         EXPECT_EQ(table.familyOf(card.name, card.kind, card.tags), card.family) << card.name;

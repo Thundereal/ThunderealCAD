@@ -2734,10 +2734,13 @@ Phase D1 is under way (2026-10-28):
     taken. The panel's "Friction from" picks it.
   - Found on the way: two copies of the dynamics block field by field --
     the builder's (addDynamics()) and the rigid groups' (RigidGroups.cpp) --
-    dropped the new fields, and the run took the set's 0.25 for PTFE.
+    dropped the new fields, and the run took the set's 0.25 for PTFE. And a
+    card's name is the Material manager's, its file's -- PA6-Generic, not
+    the "Polyamide 6" inside it: the manual's video found nylon sliding on
+    steel's 0.25 until "PA6" was one of its words.
   - Tests: TestContact's test_friction_from_materials, a block sliding on a
     steel plate at 200 mm/s, its friction over its normal force: PTFE 0.04,
-    Copper-230 0.29 (a brass by its tags), wood the set's 0.25, PTFE by
+    Copper-230 0.29 (a brass by its tags), PA6 0.33, wood the set's 0.25, PTFE by
     Value 0.25, each to 1e-3; ContactFriction.* (C++): FreeCAD's own cards
     in their families, pairs either way round, every pair of the table's
     families with dynamic <= static, a missing file nothing.

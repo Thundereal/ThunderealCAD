@@ -1112,8 +1112,9 @@ and not frozen.
   element name, `TangentLines`, `Grain`, `GrainAngle`) and the tip's values, read only and
   hidden on a solid of no sheet metal (`FlatLength` ... `BendDirections`, and `FlatStatus`, why
   the tip does not lie flat). `SolidBody::flatOf()` keeps a feature's flat until its shape or
-  the settings change. The sub-object `Flat` of every feature of the solid, and of the solid
-  (its tip's), is that flat, an element of it after the dot (`Flange.Flat.Face3`).
+  the settings change. The element `Flat` of every feature of the solid, and of the solid (its
+  tip's), is that flat, and `FlatFace3` an element of it, named as a sketch's InternalShape is
+  (`InternalFace3`): no dot, which would name an object, and Flat is none.
   - Part keeps a sub-object's shape until the object itself changes; a feature's Flat depends on
     its solid's settings, so the solid clears its features' (`PropertyShapeCache::clearShapes()`,
     new) when one changes.

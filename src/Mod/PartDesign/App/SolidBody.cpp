@@ -346,10 +346,10 @@ const SheetFlat &SolidBody::flatOf(const App::DocumentObject *feature) const
     auto pf = dynamic_cast<const Part::Feature*>(part);
     if (!pf)
         THROWM(Base::ValueError, "Not a feature with a shape");
-    const void *shape = pf->Shape.getShape().getShape().TShape().get();
+    const TopoDS_Shape shape = pf->Shape.getShape().getShape();
     const FlatSettings settings = flatSettings();
     FlatCache &cache = flats[part->getNameInDocument()];
-    if (cache.valid && cache.shape == shape && cache.settings == settings)
+    if (cache.valid && cache.shape.TShape() == shape.TShape() && cache.settings == settings)
         return cache.flat;
     cache.valid = false;
     cache.flat = layFlat(part, settings);
@@ -412,13 +412,20 @@ void SolidBody::updateFlat()
 
 const char *SolidBody::flatSubName(const char *subname)
 {
-    if (!subname)
+    // An element name, as the sketch's InternalShape is named
+    // (SketchObject::convertInternalName()): "Flat" the whole of it,
+    // "FlatFace3" an element; never a path to an object
+    if (!subname || std::strncmp(subname, "Flat", 4) != 0
+        || Data::findElementName(subname) != subname)
         return nullptr;
-    if (std::strcmp(subname, "Flat") == 0)
-        return subname + 4;
-    if (std::strncmp(subname, "Flat.", 5) == 0)
-        return subname + 5;
-    return nullptr;
+    const char *element = subname + 4;
+    if (*element == '\0')
+        return element;
+    Data::IndexedName name(element);
+    if (name.getIndex() <= 0 || name.toString() != element
+        || Part::TopoShape::shapeType(name.getType(), /*silent*/ true) == TopAbs_SHAPE)
+        return nullptr;
+    return element;
 }
 
 App::DocumentObject *SolidBody::flatSubObject(const App::DocumentObject *owner,

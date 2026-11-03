@@ -2,7 +2,7 @@
 
 # Sheet metal's flat as a view, not a feature (docs/SheetMetal.md sec 12,
 # ruled 2026-11-03): every feature of a sheet's solid lays itself flat when
-# asked, as its sub-object Flat (Part.getShape(feature, "Flat.")), and the
+# asked, as its element Flat (feature.getSubObject("Flat")), and the
 # solid gives its tip's. The flat's settings are the sheet's, on its solid:
 # the root by the wall's name, the grain and the tangent lines; what a bill
 # of materials takes are read-only values of the solid, from its tip. An L
@@ -22,7 +22,9 @@ VALUES = ("FlatLength", "FlatWidth", "FlatArea", "Thickness", "MaterialName", "B
 
 
 def flatOf(obj):
-    return Part.getShape(obj, "Flat.")
+    # Part.getShape(obj, "Flat", needSubElement=True) would hand out its solid
+    # alone, as it does for any compound element
+    return obj.getSubObject("Flat")
 
 
 class TestSheetMetalFlat(unittest.TestCase):
@@ -141,7 +143,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.Doc.recompute()
         self.assertIn("Wall9", sheet.FlatStatus)
         self.assertAlmostEqual(sheet.FlatArea.Value, 0)
-        self.assertTrue(flatOf(wall).isNull())
+        self.assertIsNone(flatOf(wall))
 
     def testSecondSkin(self):
         """The root wall's second skin on XY instead: the same flat turned
@@ -174,14 +176,33 @@ class TestSheetMetalFlat(unittest.TestCase):
         """Asked again with nothing changed, the same flat; after an edit, a
         new one"""
         wall = self.L()
-        # Part.getShape() hands out a copy each time; the sub-object itself
-        a = wall.getSubObject("Flat.")
-        self.assertTrue(a.isSame(wall.getSubObject("Flat.")))
+        a = wall.getSubObject("Flat")
+        self.assertTrue(a.isSame(wall.getSubObject("Flat")))
         wall.Length = 12
         self.Doc.recompute()
-        b = wall.getSubObject("Flat.")
+        b = wall.getSubObject("Flat")
         self.assertFalse(a.isSame(b))
         self.checkFlat(b, 19 + BA + 9, 12)
+
+    def testElementNames(self):
+        """Named as a sketch's InternalShape is: Flat the whole, FlatFace1 an
+        element of it, by Part.getShape() too; Flat. names an object, and
+        there is none"""
+        wall = self.L()
+        flat = flatOf(wall)
+        face = wall.getSubObject("FlatFace1")
+        self.assertTrue(face.isSame(flat.Faces[0]))
+        face = Part.getShape(wall, "FlatFace1", needSubElement=True)
+        self.assertEqual(face.ShapeType, "Face")
+        self.assertTrue(face.isPartner(flat.Faces[0]))
+        edge = wall.getSubObject("FlatEdge%d" % len(flat.Edges))
+        self.assertTrue(edge.isSame(flat.Edges[-1]))
+        self.assertIsNone(wall.getSubObject("FlatFace%d" % (len(flat.Faces) + 1)))
+        self.assertIsNone(wall.getSubObject("Flat."))
+        # the folded shape's own elements as they were
+        self.assertTrue(wall.getSubObject("Face1").isSame(wall.Shape.Faces[0]))
+        sheet = self.Body.getSolidBody(wall)
+        self.assertTrue(sheet.getSubObject("FlatFace1").isPartner(flat.Faces[0]))
 
     def testSettings(self):
         """The solid's grain and tangent lines are every feature's flat's"""
@@ -197,14 +218,13 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(len(flat.SubShapes[3].Edges), 3)
 
     def testNotSheet(self):
-        """A body of no sheet metal: no flat (an empty shape, as for any
-        sub-object that is not there), its solid's values hidden"""
+        """A body of no sheet metal: no flat, its solid's values hidden"""
         sketch = self.sketch([(0, 0), (10, 0), (10, 10), (0, 10)], closed=True)
         pad = self.Body.newObject("PartDesign::Pad", "Pad")
         pad.Profile = sketch
         pad.Length = 2
         self.Doc.recompute()
-        self.assertTrue(flatOf(pad).isNull())
+        self.assertIsNone(flatOf(pad))
         sheet = self.Body.getSolidBody(pad)
         if sheet is not None:
             for name in VALUES + ("FlatRoot", "Grain", "TangentLines"):

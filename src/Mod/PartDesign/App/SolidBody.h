@@ -148,7 +148,8 @@ public:
      *
      * A solid holding sheet metal lays any of its features flat when asked
      * (flatOf()), by its settings, and has its tip's values; every feature's
-     * flat is its sub-object Flat. On another solid these are hidden.
+     * flat is its element Flat (FlatFace3 an element of it), as a sketch's
+     * InternalShape is. On another solid these are hidden.
      */
     //@{
     /// The wall laid on XY, by its name; the first wall if empty
@@ -183,7 +184,9 @@ public:
     /// why it does not lie flat.
     const SheetFlat &flatOf(const App::DocumentObject *feature = nullptr) const;
 
-    /// What follows "Flat." in a subname naming a flat, null if it names none
+    /** What follows "Flat" in a subname naming a flat ("Flat", or an element
+     * of it, "FlatFace3"): "" for the whole, "Face3"; null if it names none
+     */
     static const char *flatSubName(const char *subname);
     /** The flat of \a part, or the element of it \a element names, as the
      * sub-object of \a owner (getSubObject()), moved as \a owner's shape is:
@@ -226,7 +229,8 @@ private:
     /// A feature's flat, by the feature's name, with what it was laid from
     struct FlatCache
     {
-        const void *shape = nullptr;
+        // held, so a new shape cannot come at a freed one's address
+        TopoDS_Shape shape;
         FlatSettings settings;
         SheetFlat flat;
         bool valid = false;

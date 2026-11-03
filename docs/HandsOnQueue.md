@@ -32693,6 +32693,33 @@ and shows it over the Pocket; the note-taker raises it with the
 reporter, with the proposals.
 The revert ASSIGNED to x16 (the note-taker coordinating; 249 is x16's).
 
+**2026-11-03 13:16, 249 (a), the better way -- the reporter asked how other CAD
+shows an assembly's visibility against its components ("what other cad
+handles this, I mean the assembly's visible versus its components";
+then "look up the icon first").** The note-taker's proposals put to the
+reporter: (1) Space on a view pick acts on the feature that DRAWS the
+picked face (the end of that solid's chain), not the body; (2) the tree
+marks a body that is on but shows nothing (dimmed); (3) optional
+Shift+Space for the whole body. Looked up (web, read only):
+- Fusion 360: one light bulb per node; a parent's bulb off hides all
+  children while their own bulbs stay on -- the API separates
+  isLightBulbOn from isVisible, and the forum answer is to walk the
+  parent bulbs; no browser cue for "on, hidden by a parent" found. Its
+  blog: hiding from the graphics area hides the BODY, not the component.
+- NX Assembly Navigator: a red check = shown, a grey check = hidden; a
+  top node can be grey (hidden) while children turned back on still
+  show (Siemens KB PL8515810).
+- SOLIDWORKS: a hidden component has a white (wireframe-like) icon;
+  faded icons mark display settings applied inside the subassembly;
+  "Show with Dependents" shows hidden children; no icon for a partly
+  hidden subassembly found.
+- Onshape: an eye per instance and per folder; users report a
+  subassembly's eye unable to bring back children hidden one by one;
+  ":hidden" search finds hidden parts.
+None found marks a container that is on but shows nothing -- the
+note-taker's (2) would be new; NX's grey/red check is the nearest.
+Waiting for the reporter's choice.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;

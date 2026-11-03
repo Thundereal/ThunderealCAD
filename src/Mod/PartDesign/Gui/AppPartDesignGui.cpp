@@ -226,6 +226,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
              << "PartDesign_SheetMetalJog"
              << "PartDesign_SheetMetalTab"
              << "Separator"
+             << "PartDesign_SheetMetalFlatten"
              << "PartDesign_SheetMetalFlatPattern"
              << "PartDesign_SheetMetalExportDXF";
     }}};

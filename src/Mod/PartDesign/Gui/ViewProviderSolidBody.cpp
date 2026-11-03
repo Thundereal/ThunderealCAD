@@ -416,6 +416,17 @@ void ViewProviderSolidBody::updateData(const App::Property *prop)
             body->_GroupTouched.touch();
         }
     }
+    if (owner && (prop == &owner->Flatten || prop == &owner->FlatRoot
+                  || prop == &owner->FlatSecondSkin || prop == &owner->FlatAlignEdge
+                  || prop == &owner->TangentLines || prop == &owner->Grain
+                  || prop == &owner->GrainAngle)) {
+        // Each feature shown draws its flat, or its shape again
+        for (auto obj : owner->Group.getValues()) {
+            if (auto vp = Base::freecad_dynamic_cast<PartDesignGui::ViewProvider>(
+                        Gui::Application::Instance->getViewProvider(obj)))
+                vp->refreshFlat();
+        }
+    }
     inherited::updateData(prop);
 }
 

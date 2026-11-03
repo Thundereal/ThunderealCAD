@@ -105,11 +105,28 @@ public:
     bool reorderObjects(const std::vector<App::DocumentObject *> &, App::DocumentObject *) override;
     void reattach(App::DocumentObject *) override;
     void beforeDelete() override;
+    void finishRestoring() override;
 
     std::vector<App::DocumentObject*> claimChildren(void) const override;
     virtual std::vector<App::DocumentObject*> _claimChildren(void) const {return {};}
 
     bool getDetailPath(const char *subname, SoFullPath *path, bool append, SoDetail *&det) const override;
+    bool getElementPicked(const SoPickedPoint *pp, std::string &subname) const override;
+    void setDisplayMode(const char *ModeName) override;
+    Base::BoundBox3d _getBoundingBox(const char *subname = nullptr,
+                                     const Base::Matrix4D *mat = nullptr, bool transform = true,
+                                     const Gui::View3DInventorViewer *view = nullptr,
+                                     int depth = 0) const override;
+
+    /** Draw the feature laid flat in place of its shape, while the user has
+     * its sheet's solid's Flatten on and it is shown (docs/SheetMetal.md sec
+     * 12); its shape again otherwise, or where it does not lie flat. Picked,
+     * an element of the flat is named FlatFace3, as SolidBody::flatSubName()
+     * reads it.
+     */
+    void refreshFlat();
+    /// Whether the flat is drawn in place of the shape
+    bool showsFlat() const { return flatShown; }
 
     /// The cosmetic threads of the holes before this feature, on the
     /// faces of its shape that are still their bores
@@ -161,6 +178,9 @@ protected:
     mutable QPixmap pxTipIcon;
 
     std::unique_ptr<PartGui::ViewProviderPart> pSuppressedView;
+    /// The flat, a display mode of this view while it is drawn (refreshFlat())
+    std::unique_ptr<PartGui::ViewProviderPart> pFlatView;
+    bool flatShown = false;
 
     bool autoCorrectingLink = false;
     /// Whether the render material last stated a thread, so a shape

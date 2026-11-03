@@ -23,6 +23,9 @@
 
 #include "PreCompiled.h"
 
+#include <Inventor/SoPickedPoint.h>
+#include <Inventor/SoFullPath.h>
+
 #ifndef _PreComp_
 # include <QMessageBox>
 # include <QAction>
@@ -62,6 +65,9 @@
 #include <Mod/PartDesign/App/FeatureHole.h>
 #include <Mod/PartDesign/App/FeatureTransformed.h>
 #include <Mod/PartDesign/App/SolidBody.h>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
+#include <Standard_Failure.hxx>
 #include <Mod/Sketcher/App/SketchObject.h>
 
 #include "TaskFeatureParameters.h"
@@ -479,6 +485,10 @@ void ViewProvider::updateData(const App::Property* prop)
 
     inherited::updateData(prop);
 
+    // The flat follows the shape it is laid from
+    if (prop == &feature->Shape)
+        refreshFlat();
+
     // A new shape has new faces, and the holes behind it may have changed
     // what they thread: re-derive the cosmetic threads, but only where
     // there are some to state or some to take away -- the render material
@@ -708,7 +718,110 @@ void ViewProvider::updateVisual()
 void ViewProvider::show()
 {
     SolidBodyHighlight highlight(getObject());
+    // Laid flat only once shown (refreshFlat())
+    refreshFlat();
     inherited::show();
+}
+
+void ViewProvider::refreshFlat()
+{
+    auto feature = Base::freecad_dynamic_cast<PartDesign::Feature>(getObject());
+    auto doc = feature ? feature->getDocument() : nullptr;
+    if (!doc || doc->testStatus(App::Document::Restoring) || testStatus(Gui::Detach))
+        return;
+    auto body = PartDesign::Body::findBodyOf(feature);
+    auto solid = body ? body->getSolidBody(feature) : nullptr;
+    Part::TopoShape flat;
+    // Only while the user has Flatten on, and only where the feature is
+    // shown: a hidden feature is not laid flat
+    if (solid && solid->Flatten.getValue() && Visibility.getValue() && solid->isSheetMetal()) {
+        try {
+            flat = solid->flatOf(feature).shape;
+        }
+        catch (const Base::Exception &) {
+        }
+        catch (const Standard_Failure &) {
+        }
+    }
+    if (flat.isNull()) {
+        // Where it does not lie flat, its shape as it is
+        if (flatShown) {
+            flatShown = false;
+            clearBoundingBoxCache();
+            setDisplayMode(DisplayMode.getValueAsString());
+        }
+        return;
+    }
+    if (!pFlatView) {
+        pFlatView.reset(new PartGui::ViewProviderPart);
+        pFlatView->forceUpdate();
+        pFlatView->setStatus(Gui::SecondaryView, true);
+        pFlatView->attach(feature);
+        pFlatView->show();
+        addDisplayMaskMode(pFlatView->getRoot(), "SheetFlat");
+    }
+    pFlatView->ShapeColor.setValue(ShapeColor.getValue());
+    pFlatView->LineColor.setValue(LineColor.getValue());
+    if (!flatShown || !pFlatView->getShape().getShape().IsSame(flat.getShape())) {
+        pFlatView->setGivenShape(flat);
+        clearBoundingBoxCache();
+    }
+    flatShown = true;
+    setDisplayMode(DisplayMode.getValueAsString());
+}
+
+void ViewProvider::setDisplayMode(const char *ModeName)
+{
+    inherited::setDisplayMode(ModeName);
+    if (flatShown && pFlatView) {
+        // The flat drawn as the shape would be: shaded, wireframe, ...
+        // (its switch set even where the value is already this one)
+        if (ModeName && pFlatView->DisplayMode.isValue(ModeName)) {
+            pFlatView->DisplayMode.setValue(ModeName);
+            pFlatView->setDisplayMode(ModeName);
+        }
+        setDisplayMaskMode("SheetFlat");
+    }
+}
+
+Base::BoundBox3d ViewProvider::_getBoundingBox(const char *subname, const Base::Matrix4D *mat,
+                                               bool transform,
+                                               const Gui::View3DInventorViewer *view,
+                                               int depth) const
+{
+    // While the flat is drawn, its bounds: a view fitted to the feature
+    // fits what it shows
+    auto feature = Base::freecad_dynamic_cast<Part::Feature>(getObject());
+    if (flatShown && pFlatView && feature && !(subname && subname[0])) {
+        TopoDS_Shape shape = pFlatView->getShape().getShape();
+        Bnd_Box bounds;
+        if (!shape.IsNull())
+            BRepBndLib::Add(shape, bounds);
+        if (!bounds.IsVoid()) {
+            bounds.SetGap(0.0);
+            Standard_Real x0, y0, z0, x1, y1, z1;
+            bounds.Get(x0, y0, z0, x1, y1, z1);
+            Base::BoundBox3d bbox(x0, y0, z0, x1, y1, z1);
+            // drawn under the feature's placement, as its shape is
+            if (transform)
+                bbox = bbox.Transformed(feature->Placement.getValue().toMatrix());
+            if (mat)
+                bbox = bbox.Transformed(*mat);
+            return bbox;
+        }
+    }
+    return inherited::_getBoundingBox(subname, mat, transform, view, depth);
+}
+
+bool ViewProvider::getElementPicked(const SoPickedPoint *pp, std::string &subname) const
+{
+    if (flatShown && pFlatView && pp->getPath()->containsNode(pFlatView->getRoot())) {
+        if (!pFlatView->getElementPicked(pp, subname))
+            return false;
+        subname = "Flat" + subname;
+        return true;
+    }
+    return inherited::getElementPicked(pp, subname);
 }
 
 void ViewProvider::hide()
@@ -1226,6 +1339,8 @@ void ViewProvider::beforeDelete()
 {
     if (pSuppressedView)
         pSuppressedView->beforeDelete();
+    if (pFlatView)
+        pFlatView->beforeDelete();
     inherited::beforeDelete();
 }
 
@@ -1234,6 +1349,15 @@ void ViewProvider::reattach(App::DocumentObject *obj)
     inherited::reattach(obj);
     if (pSuppressedView)
         pSuppressedView->reattach(obj);
+    if (pFlatView)
+        pFlatView->reattach(obj);
+}
+
+void ViewProvider::finishRestoring()
+{
+    inherited::finishRestoring();
+    // Not laid flat while the document was read: its solid may not be yet
+    refreshFlat();
 }
 
 bool ViewProvider::getDetailPath(
@@ -1248,6 +1372,20 @@ bool ViewProvider::getDetailPath(
             if (svp)
                 return svp->getDetailPath(dot+1, path, append, det);
         }
+    }
+    // An element of the flat, where it is drawn
+    const char *element = PartDesign::SolidBody::flatSubName(subname);
+    if (element && flatShown && pFlatView) {
+        auto len = path->getLength();
+        if (append) {
+            path->append(pcRoot);
+            path->append(pcModeSwitch);
+        }
+        if (!pFlatView->getDetailPath(element, path, true, det)) {
+            path->truncate(len);
+            return false;
+        }
+        return true;
     }
     return inherited::getDetailPath(subname, path, append, det);
 }

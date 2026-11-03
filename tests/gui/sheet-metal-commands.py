@@ -452,6 +452,73 @@ def run():
         )
         check("and does not become the tip", body.Tip == flange)
 
+        # Flatten: the active body's sheet drawn laid flat while it is on
+        # (docs/SheetMetal.md sec 12)
+        solid = body.getSolidBody(flange)
+        flat.ViewObject.Visibility = False
+        cmd = FreeCADGui.Command.get("PartDesign_SheetMetalFlatten")
+        view.setActiveObject("pdbody", body)
+        pump()
+        check("Flatten is offered on the active body's sheet", cmd.isActive())
+        folded = flange.ViewObject.getBoundingBox()
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 1)
+        pump()
+        thick = solid.Thickness.Value
+        box = flange.ViewObject.getBoundingBox()
+        check(
+            "Flatten turns the solid's Flatten on, its values filled",
+            solid.Flatten and solid.FlatArea.Value > 0 and solid.FlatStatus == "",
+            (solid.Flatten, solid.FlatArea, solid.FlatStatus),
+        )
+        check(
+            "the tip drawn laid flat, one thickness high",
+            thick > 0 and abs(box.ZLength - thick) < 1e-3 and folded.ZLength > 2 * thick,
+            (box, folded, thick),
+        )
+        cmd.isActive()
+        check("its button checked", cmd.getAction()[0].isChecked())
+        laid = flange.getSubObject("Flat")
+        top = max(laid.Faces, key=lambda f: f.Area)
+        view.fitAll()
+        pump()
+        hit = None
+        u0, u1, v0, v1 = top.ParameterRange
+        for fu in (0.5, 0.3, 0.7, 0.2, 0.8):
+            for fv in (0.5, 0.3, 0.7, 0.2, 0.8):
+                p = top.valueAt(u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv)
+                if hit is None and top.isInside(p, 1e-6, True):
+                    x, y = view.getPointOnScreen(p)
+                    hit = view.getObjectInfo((int(x), int(y)))
+        check(
+            "picked, the flat names its element FlatFace",
+            hit is not None and "FlatFace" in str(hit.get("Component", "")),
+            hit,
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, "FlatFace1")
+        sel = FreeCADGui.Selection.getSelectionEx("", 0)
+        check(
+            "FlatFace1 selected is the flat's face",
+            len(sel) == 1
+            and len(sel[0].SubObjects) == 1
+            and sel[0].SubObjects[0].isPartner(laid.Faces[0]),
+            sel and [(s.ObjectName, s.SubElementNames) for s in sel],
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 0)
+        pump()
+        # the button follows the solid where the command is asked, as the
+        # tool bar's update does
+        cmd.isActive()
+        box = flange.ViewObject.getBoundingBox()
+        check(
+            "again, folded back: Flatten off, the tip drawn as it is, unchecked",
+            not solid.Flatten
+            and abs(box.ZLength - folded.ZLength) < 1e-3
+            and not cmd.getAction()[0].isChecked(),
+            (solid.Flatten, box, folded),
+        )
+
         solid = body.getSolidBody(flange)
         check("the sheet's solid", solid is not None)
         icon = image(solid.ViewObject.Icon)

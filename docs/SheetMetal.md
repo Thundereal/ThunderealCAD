@@ -1121,6 +1121,13 @@ and not frozen.
   - The solid laid its tip flat on each recompute, for the values: the sheet metal suites took
     about 40% longer (the flange's 10 s to 14 s). Now only while `Flatten` is on (ruled
     2026-11-03): `testFlattenOff`.
+  - Its second step, the flat drawn: while `Flatten` is on, each shown feature of the solid draws
+    its flat in place of its shape (`PartDesignGui::ViewProvider::refreshFlat()`), a display mode
+    of its view holding a child view of the flat, drawn as the feature's display mode says
+    (shaded, wireframe, ...). A hidden feature is not laid flat; one that does not lie flat draws
+    its shape. Picked, the flat's elements are `FlatFace3`, and those names select and highlight
+    them. The command Flatten (Sheet Metal tool bar, checked while on) turns the active body's
+    sheet's `Flatten` on and off, one undo step each. Checked by `sheet-metal-commands.py`.
   - Open: a flange whose end runs into a bend of the wall it is on (on the top edge of an L's
     leg, up to the L's bend) is valid folded, but does not lie flat ("faces overlap or are
     missing"); the flat pattern the same. Found writing `testSolidFlat`.

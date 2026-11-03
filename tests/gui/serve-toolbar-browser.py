@@ -131,6 +131,7 @@ SHEET_METAL_COMMANDS = {"PartDesign_SheetMetalBaseWall", "PartDesign_SheetMetalF
                         "PartDesign_SheetMetalFold",
                         "PartDesign_SheetMetalJog",
                         "PartDesign_SheetMetalTab",
+                        "PartDesign_SheetMetalFlatten",
                         "PartDesign_SheetMetalFlatPattern"}
 
 

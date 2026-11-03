@@ -35,6 +35,7 @@
 #include <Gui/Command.h>
 #include <Gui/CommandT.h>
 #include <Gui/FileDialog.h>
+#include <Gui/Action.h>
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
@@ -42,6 +43,7 @@
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
+#include <Mod/PartDesign/App/SolidBody.h>
 
 #include "Utils.h"
 
@@ -828,6 +830,70 @@ bool CmdPartDesignSheetMetalCornerClosure::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalFlatten
+//===========================================================================
+
+namespace
+{
+/// The sheet of the active body's tip, null if it is no sheet's; says nothing
+PartDesign::SolidBody* activeSheet()
+{
+    auto body = PartDesignGui::getBody(/*messageIfNot*/ false, /*autoActivate*/ false);
+    auto solid = body ? body->getTipSolidBody() : nullptr;
+    return solid && solid->isSheetMetal() ? solid : nullptr;
+}
+}  // namespace
+
+DEF_STD_CMD_AC(CmdPartDesignSheetMetalFlatten)
+
+CmdPartDesignSheetMetalFlatten::CmdPartDesignSheetMetalFlatten()
+    : Command("PartDesign_SheetMetalFlatten")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Flatten");
+    sToolTipText = QT_TR_NOOP("Shows the active body's sheet laid flat, and keeps its flat's\n"
+                              "values (size, area, bends) up to date; again to fold it back");
+    sWhatsThis = "PartDesign_SheetMetalFlatten";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalFlatPattern";
+}
+
+void CmdPartDesignSheetMetalFlatten::activated(int iMsg)
+{
+    auto solid = activeSheet();
+    if (!solid) {
+        warn(QT_TR_NOOP("No sheet"),
+             QT_TR_NOOP("Make a body of sheet metal active to lay it flat."));
+        return;
+    }
+    openCommand(iMsg ? QT_TRANSLATE_NOOP("Command", "Flatten")
+                     : QT_TRANSLATE_NOOP("Command", "Fold back"));
+    Gui::cmdAppObject(solid, std::ostringstream()
+                                 << "Flatten = " << (iMsg ? "True" : "False"));
+    updateActive();
+    commitCommand();
+}
+
+bool CmdPartDesignSheetMetalFlatten::isActive()
+{
+    auto solid = activeSheet();
+    if (_pcAction) {
+        bool on = solid && solid->Flatten.getValue();
+        if (_pcAction->isChecked() != on)
+            _pcAction->setChecked(on, true);
+    }
+    return solid != nullptr;
+}
+
+Gui::Action* CmdPartDesignSheetMetalFlatten::createAction()
+{
+    Gui::Action* action = Command::createAction();
+    action->setCheckable(true);
+    return action;
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatPattern
 //===========================================================================
 
@@ -977,6 +1043,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());
     mgr.addCommand(new CmdPartDesignSheetMetalTab());
+    mgr.addCommand(new CmdPartDesignSheetMetalFlatten());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatPattern());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
 }

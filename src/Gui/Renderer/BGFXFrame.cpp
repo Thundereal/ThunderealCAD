@@ -6336,6 +6336,23 @@ bool BGFXRenderer::Private::render(const QColor &col,
         }
         if (!any)
             return;
+        // Only while the hidden part of a selected line is drawn solid: a
+        // dash pattern (View/SelectionLinePattern, which the bridge gives a
+        // highlight line as its hidden pattern) is the style of what is
+        // hidden, by a line or by a face, and the hidden pass already draws
+        // it over everything (entry 243 b, the reporter: "if the hidden
+        // selection edge style does not override, i.e. shows solid edge, it
+        // should be shown on top")
+        auto styled = [&](const Render::DrawCall &d) {
+            return highlighted(d) && d.material.hiddenlinepattern != d.material.linepattern;
+        };
+        bool dashed = std::any_of(highlight.begin(), highlight.end(), styled);
+        for (const auto &sel : selections) {
+            if (sel.first > 0)
+                dashed = dashed || std::any_of(sel.second.begin(), sel.second.end(), styled);
+        }
+        if (dashed)
+            return;
         for (const auto &draw : scene) {
             if (isTriangle(draw) || draw.material.ontop || isHidden(draw)
                     || hidePoints(draw) || culled(draw))

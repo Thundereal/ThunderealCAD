@@ -2687,6 +2687,14 @@ SoFCRendererP::markLines(SoGLRenderAction * action, bool selection)
   if (stencilbits < 8)
     return false;
 
+  // Only while the hidden part of a selected line is drawn solid: a dash
+  // pattern is the style of what is hidden, by a line or by a face, and its
+  // pass already draws it over everything (entry 243 b, the reporter: "if
+  // the hidden selection edge style does not override, i.e. shows solid
+  // edge, it should be shown on top")
+  if (ViewParams::getSelectionLinePattern() & 0xffff)
+    return false;
+
   // With a highlighted line or point to draw, every plain line and point
   // of the scene: an entry's bounds cannot rule one out (the origin's axes
   // share one cached line).

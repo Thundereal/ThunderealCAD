@@ -1196,6 +1196,13 @@ and not frozen.
 - Refused: a pick that is not a bend, a pattern fitting no whole slot within the margins. A bend
   stays a bend however much of it is cut.
 
+**Ruled 2026-11-03, a bend radius of a feature's own** (asked for with the bend cuts, before
+the bend table's per-bend override of M4):
+- Every feature that makes bends -- flange and contour flange, join by bend, fold and jog, the
+  base wall's profile -- takes `UseRuleRadius` (on by default) and `BendRadius`, read only while
+  the rule's is used. Turned off, `BendRadius` starts at the rule's. A radius of 0 is refused.
+  The hem keeps its own `Radius`.
+
 **Ruled 2026-11-02, M2's contour flange:**
 - Its own feature, as sec 5.1 lists it, sharing the flange's code: the gaps, the wall cut back under
   it with its relief, and the miters.

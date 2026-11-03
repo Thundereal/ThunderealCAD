@@ -87,6 +87,38 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.assertNotIn(None, self.owners(flange))
         self.assertEqual(self.Body.Tip, flange)
 
+    def testOwnRadius(self):
+        """The flange's own radius over the rule's (ruled 2026-11-03): off
+        the rule, BendRadius starts at the rule's and can be set; at 3, the
+        wall cut back R + T = 4, a quarter ring of 3 to 4, the leg 10 - 4;
+        flat, the bend (R + T / 2) pi / 2 long. None of it a radius of 0"""
+        flange = self.far()
+        self.assertTrue(flange.UseRuleRadius)
+        self.assertIn("ReadOnly", flange.getPropertyStatus("BendRadius"))
+        flange.UseRuleRadius = False
+        self.assertNotIn("ReadOnly", flange.getPropertyStatus("BendRadius"))
+        self.assertAlmostEqual(flange.BendRadius.Value, flange.Rule.BendRadius.Value)
+        flange.BendRadius = 3
+        self.Doc.recompute()
+        self.checkValid(flange)
+        ring = math.pi / 4 * (4**2 - 3**2)
+        self.assertAlmostEqual(flange.Shape.Volume, 40 * 16 + 40 * ring + 40 * 6, places=6)
+        box = flange.Shape.BoundBox
+        self.assertAlmostEqual(box.YMax, 20)
+        self.assertAlmostEqual(box.ZMax, 10)
+        self.assertAlmostEqual(flange.SheetModel["Elements"][2]["Radius"], 3, places=9)
+        flat = self.flat(flange)
+        self.assertAlmostEqual(flat.FlatWidth.Value, 16 + math.pi / 2 * 3.5 + 6, places=6)
+        # the rule's again
+        flange.UseRuleRadius = True
+        self.Doc.recompute()
+        self.assertAlmostEqual(flange.Shape.Volume, 40 * 18 + 40 * RING + 40 * 8, places=6)
+        flange.UseRuleRadius = False
+        flange.BendRadius = 0
+        self.Doc.recompute()
+        self.assertIn("Invalid", flange.State)
+        self.assertIn("radius", flange.getStatusString())
+
     def testMaterialOutside(self):
         """The leg's inner skin where the wall's end was: cut back R"""
         flange = self.far(BendPosition="MaterialOutside")

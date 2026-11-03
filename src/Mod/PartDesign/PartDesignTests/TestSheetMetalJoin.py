@@ -131,6 +131,21 @@ class TestSheetMetalJoin(unittest.TestCase):
         self.assertAlmostEqual(bend["Angle"], 90, places=9)
         self.assertAlmostEqual(bend["Radius"], 1, places=9)
 
+    def testOwnRadius(self):
+        """The join's own radius, 3: the bend's centre at x 46, z 4; the
+        plate extended 6 to x 46, the wall 6 down to z 4, a quarter ring of
+        3 to 4, 7 pi / 4 in section and as long flat"""
+        self.upright(49, 10)
+        tip = self.Body.Tip
+        j = self.Body.newObject("PartDesign::SheetMetalJoin", "Join")
+        j.Edges = (tip, [edgeOf(tip, *RIGHT), edgeOf(tip, (49, 0, 10), (49, 20, 10))])
+        j.UseRuleRadius = False
+        j.BendRadius = 3
+        self.Doc.recompute()
+        self.checkJoined(j, 800 + 400 + 6 * 20 + 6 * 20 + math.pi / 4 * 7 * 20)
+        self.checkBox(j.Shape, XMin=0, XMax=50, ZMin=0, ZMax=30)
+        self.assertAlmostEqual(j.SheetModel["Elements"][2]["Radius"], 3, places=9)
+
     def testEitherSkin(self):
         """Either skin's edge at a wall's end picks the same end"""
         self.upright(49, 10)

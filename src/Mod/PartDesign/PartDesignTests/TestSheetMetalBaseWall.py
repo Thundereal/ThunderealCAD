@@ -132,6 +132,17 @@ class TestSheetMetalBaseWall(unittest.TestCase):
     def testProfileMiddle(self):
         self.checkL("Middle", 1.5)
 
+    def testProfileOwnRadius(self):
+        """A profile's bends at the wall's own radius, 3: the sketch on the
+        inner skin, each leg's straight part 3 short of the corner"""
+        wall = self.wall(self.sketch([(0, 0), (20, 0), (20, 10)]), MaterialSide="Outside",
+                         Length=15, UseRuleRadius=False, BendRadius=3)
+        self.assertNotIn("Invalid", wall.State)
+        bend = math.pi / 4 * (4**2 - 3**2)
+        self.assertAlmostEqual(wall.Shape.Volume, 15 * ((20 - 3) + (10 - 3) + bend), places=6)
+        bend = [e for e in wall.SheetModel["Elements"] if e["Kind"] == "Bend"][0]
+        self.assertAlmostEqual(bend["Radius"], 3)
+
     def testProfileZ(self):
         """Bends turning both ways: the sketch's side holds along the
         profile, so the second bend has it on its outer skin"""

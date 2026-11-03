@@ -113,6 +113,19 @@ class TestSheetMetalFold(unittest.TestCase):
         self.assertAlmostEqual(flat.FlatWidth.Value, 20, places=6)
         self.assertAlmostEqual(flat.FlatArea.Value, 800, places=5)
 
+    def testOwnRadius(self):
+        """The fold's own radius, 3: its allowance pi / 2 * 3.5 about the
+        line; the plate to 30 less half of it, the bend 4 past, the leg up to
+        4 + 10 less the other half; the flat the plate as it was"""
+        fold = self.fold(UseRuleRadius=False, BendRadius=3)
+        self.checkValid(fold)
+        half = math.pi / 2 * 3.5 / 2
+        self.assertAlmostEqual(fold.Shape.Volume, 800, places=6)
+        self.checkBox(fold.Shape, XMin=0, XMax=30 - half + 4, ZMin=0, ZMax=4 + 10 - half)
+        flat = self.flat(fold)
+        self.assertAlmostEqual(flat.FlatLength.Value, 40, places=6)
+        self.assertAlmostEqual(flat.FlatArea.Value, 800, places=5)
+
     def testStart(self):
         """The bend starts at the line: the plate to x 30"""
         fold = self.fold(LinePosition="Start")

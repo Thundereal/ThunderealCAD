@@ -29,6 +29,7 @@
 #include <QCursor>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QHelpEvent>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
@@ -69,6 +70,7 @@
 #include "Utilities.h"
 #include "ViewerContext.h"
 #include "ViewProvider.h"
+#include "Widgets.h"
 #include "Inventor/Draggers/Gizmo.h"
 
 using namespace Gui;
@@ -185,11 +187,23 @@ public:
     }
 
 protected:
+    bool event(QEvent* event) override
+    {
+        // The handles' tip (entry 246): Gui::ToolTip's label, whose shape is
+        // its rounded border, beside the pointer -- not Qt's square one
+        if (event->type() == QEvent::ToolTip) {
+            const auto help = static_cast<QHelpEvent*>(event);
+            ToolTip::showText(help->globalPos(), toolTip(), this, true, ToolTip::NoCorner);
+            return true;
+        }
+        return QWidget::event(event);
+    }
     void mousePressEvent(QMouseEvent* event) override
     {
         if (event->button() != Qt::LeftButton) {
             return QWidget::mousePressEvent(event);
         }
+        ToolTip::hideText();
         event->accept();
         if (set) {
             QPointer<OnViewValueSet> keep = set;
@@ -211,6 +225,7 @@ protected:
     {
         QWidget::leaveEvent(event);
         hover = false;
+        ToolTip::hideText();
         update();
     }
     void paintEvent(QPaintEvent*) override

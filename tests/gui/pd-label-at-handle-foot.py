@@ -224,11 +224,22 @@ def type_value(digits):
     pump(60)
 
 
+def tip_widget():
+    """The handle's tip: Gui::ToolTip's label (entry 246), shown"""
+    for w in QtWidgets.QApplication.allWidgets():
+        if w.objectName() == "fc_overlay_tiplabel" and w.isVisible():
+            return w
+    return None
+
+
 def tip_lines():
     """The tool tip's lines, [""] when none shows"""
-    if not QtWidgets.QToolTip.isVisible():
+    w = tip_widget()
+    if w is None:
         return [""]
-    return QtWidgets.QToolTip.text().split("\n")
+    labels = w.findChildren(QtWidgets.QLabel)
+    text = labels[0].text() if labels else w.text()
+    return text.split("\n")
 
 
 def length_of(text):
@@ -360,6 +371,18 @@ def run():
                       lines[0] == want, (lines, want))
                 check("and what the handle does after it",
                       len(lines) > 1 and lines[1].startswith("Drag to change the value"), lines)
+                # entry 246: the rounded label, not Qt's square one, beside
+                # the pointer
+                tip = tip_widget()
+                check("the tip is the rounded tip label, not Qt's",
+                      tip is not None and not QtWidgets.QToolTip.isVisible(),
+                      (tip, QtWidgets.QToolTip.isVisible()))
+                if tip is not None:
+                    at = tip.mapToGlobal(QtCore.QPoint(0, 0))
+                    pointer = mw().windowHandle().mapToGlobal(QtCore.QPoint(p.x() + 1, p.y()))
+                    off = (at.x() - pointer.x(), at.y() - pointer.y())
+                    check("and stands beside the pointer",
+                          -40 <= off[0] <= 40 and -60 <= off[1] <= 40, off)
                 QtTest.QTest.mouseMove(win, p)
                 # hideText() lets the tip go after a short fade (Qt: 300 ms)
                 pump(45)
@@ -385,7 +408,8 @@ def run():
                 check("in a drag, resting: the tip reads the value as dragged, as the label does",
                       seen.get("resting") and seen.get("resting") == seen.get("label")
                       and seen["resting"] != want, seen)
-                QtWidgets.QToolTip.hideText()
+                if tip_widget() is not None:
+                    tip_widget().hide()
         gdoc.resetEdit()
         pump(60)
 

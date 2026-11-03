@@ -249,6 +249,27 @@ def run():
               16 <= geo.height() <= 60 and geo.width() == geo.height(), geo)
         check("... at the view's middle, near the top (no label at the top middle)",
               abs(geo.center().x() - vw.width() // 2) <= geo.width() and geo.top() < 60, geo)
+        # its tip: Gui::ToolTip's rounded label beside the pointer, as the
+        # handles' (entry 246), not Qt's square one
+        win = mw().windowHandle()
+        centre = btn.mapTo(mw(), btn.rect().center())
+        QtTest.QTest.mouseMove(win, centre - QtCore.QPoint(40, 0))
+        pump(10)
+        QtTest.QTest.mouseMove(win, centre)
+        pump(150)
+        tip = None
+        for w in QtWidgets.QApplication.allWidgets():
+            if w.objectName() == "fc_overlay_tiplabel" and w.isVisible():
+                tip = w
+        labels = tip.findChildren(QtWidgets.QLabel) if tip is not None else []
+        text = labels[0].text() if labels else ""
+        check("resting on the button: its tip in the rounded label, not Qt's",
+              tip is not None and text == "Edit menu" and not QtWidgets.QToolTip.isVisible(),
+              (text, QtWidgets.QToolTip.isVisible()))
+        QtTest.QTest.mouseMove(win, centre + QtCore.QPoint(0, 200))
+        pump(20)
+        if tip is not None:
+            tip.hide()
         # a picture of it beside its label, from the screen (a GL view's own
         # grab is empty)
         def picture(name):

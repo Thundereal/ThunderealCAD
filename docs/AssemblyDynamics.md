@@ -2458,11 +2458,57 @@ Phase D1 is under way (2026-10-28):
     deep) -- its hull lies about 0.93 um inside the solid's flat. The same
     with the rounds taken out; a hexagonal prism's hull rests at its law's
     sink (test_hull_rests). Not chased.
-  - Not yet: a pin in a bore -- a concave round; two rounds of hulls
-    meeting, a cylinder's against a cylinder's (as two primitive
-    cylinders: their normal stays the one found); a round whose face is
-    trimmed across its parameters, its angles the face's box (the flatted
-    ball's sphere: the point there is on the flat's face anyway).
+  - Not yet: a pin in a bore -- a concave round (built in the entry below);
+    two rounds of hulls meeting, a cylinder's against a cylinder's (as two
+    primitive cylinders: their normal stays the one found); a round whose
+    face is trimmed across its parameters, its angles the face's box (the
+    flatted ball's sphere: the point there is on the flat's face anyway).
+- Built: a pin in a bore, a ball in a bore or a socket -- hollow rounds.
+  - Measured first: a pin of radius 4 let go 10 deg off the bottom of a
+    bore of radius 10 through a block (not convex: a mesh). Set touching
+    the bore, as a designer mates it, it started inside the bore's facets,
+    which lie up to the mesh's deflection (0.01 mm) inside its true
+    surface: 10 um into a stiff line contact, it was thrown out at about a
+    kilometre a second. Set 0.02 mm clear, it landed, bounced 0.8 mm, and
+    was pushed out of the hole along its axis at 300 mm/s: Bullet's normals
+    against the bore's long thin facets leaned along it.
+  - A cylinder's or a sphere's face whose normal points to its axis or
+    centre is a hollow round (ContactShape::Round::concave; a mesh's only,
+    a hull has none); roundSupport() takes its surface facing 'outward'
+    across the axis or the centre. A round inside a hollow one -- a
+    primitive cylinder or sphere, or a convex round face -- on two bodies a
+    load joins is a round pair (ContactHandover::RoundPair), and its points
+    are the two surfaces' own (hollowPoints()): a cylinder's at both ends
+    of its stretch within the bore's reach, a ball's at its centre, each
+    along the bore's radius through it; none outside the bore, nor across
+    it (a pin over 25 deg off its axis), nor past a part round's angles.
+    Bullet's points between the inner shape and the bore's triangles are
+    dropped, however their normals lean -- one 18 deg off took no round
+    and stood 75 um deep on its facet, a 3000 N knock. The normal is along
+    the hollow one's radius through the inner one's axis or centre
+    (rollAlong()); the law reads the two rounds' own curvature
+    (roundCurvature(), the hollow one's negative: a pin of 4 in a bore of
+    10 conforms as a line of radius 1/(1/4 - 1/10)).
+  - Then the rounds' curvature broke a cylinder standing on its cap: read
+    off the side wherever the normal was not its axis exactly, the cap
+    took a ball's law and test_cylinder_on_its_cap ran 118 s for 1. A
+    cylinder's cap is flat within 60 deg of its axis, as curvatureAt()
+    has it.
+  - Measured: the pin rolling, its period 0.190715 s against 0.190708
+    (3.8e-5), its centre within 2.2e-7 mm of 6 from the axis; sliding
+    (frictionless) 0.155720 against 0.155712 (5e-5); a chamfered hull
+    roller as the pin 3.5e-5; a ball rolling across the bore 1.4e-4. The
+    swing loses about 0.1% of its amplitude a period, the law's damping as
+    the load rises and falls through it. The hull roller's run takes 8.4 s
+    for 1 (the primitive's 1.3): Bullet still clips the hull against the
+    mesh's triangles, whose points are then dropped.
+  - Tests: TestContact's test_pin_rolls_in_bore and test_pin_slides_in_bore
+    to 2e-4, test_ball_rolls_in_bore to 5e-4 (swingInBore()), each within
+    1 um of its radius; ContactShapes.boreIsAHollowRound (C++).
+  - Not yet: Bullet left out of a round pair's narrowphase, not only its
+    points dropped (the hull roller's time); a pin's other faces -- its
+    ends, its chamfers -- against the bore's wall when it tilts, which
+    are dropped with the rest; a cylinder in a socket.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

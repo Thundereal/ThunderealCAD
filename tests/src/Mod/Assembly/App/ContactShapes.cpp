@@ -16,6 +16,7 @@
 #include <GeomAbs_CurveType.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
+#include <gp_Ax2.hxx>
 
 #include <Mod/Assembly/App/ContactShapes.h>
 
@@ -78,6 +79,51 @@ TEST(ContactShapes, chamferedRollerCurvature)
         EXPECT_NEAR(std::abs(face->way2.z), 1.0, 1e-9) << i;
     }
     EXPECT_GT(side, 40);
+}
+
+// A block with a bore of radius 10 along y: not convex, a mesh; its bore
+// a hollow round (ContactShape::rounds), its axis along y and its reach
+// the block's 20, and the bore's points curved -1/10 round it
+TEST(ContactShapes, boreIsAHollowRound)
+{
+    const TopoDS_Shape block =
+        BRepAlgoAPI_Cut(
+            BRepPrimAPI_MakeBox(gp_Pnt(-20, -10, 0), 40, 20, 40).Shape(),
+            BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, -15, 20), gp_Dir(0, 1, 0)), 10.0, 30.0)
+                .Shape())
+            .Shape();
+    const auto shape = contactShapeOf(block);
+    ASSERT_TRUE(shape);
+    ASSERT_EQ(shape->kind, Kind::Mesh);
+    int bores = 0;
+    int bore = -1;
+    for (std::size_t k = 0; k < shape->rounds.size(); ++k) {
+        const auto& round = shape->rounds[k];
+        if (!round.concave) {
+            continue;
+        }
+        ++bores;
+        bore = static_cast<int>(k);
+        EXPECT_FALSE(round.sphere);
+        EXPECT_NEAR(round.radius, 10.0, 1e-9);
+        EXPECT_NEAR(std::abs(round.axis.y), 1.0, 1e-12);
+        EXPECT_NEAR(round.to - round.from, 20.0, 1e-9);
+        // Its axis through (0, y, 20)
+        EXPECT_NEAR(round.centre.x, 0.0, 1e-9);
+        EXPECT_NEAR(round.centre.z, 20.0, 1e-9);
+    }
+    ASSERT_EQ(bores, 1);
+    int on = 0;
+    for (const auto& faces : shape->surfaces) {
+        for (const auto& face : faces) {
+            if (face.round == bore) {
+                ++on;
+                EXPECT_NEAR(face.k2, -0.1, 1e-9);
+                EXPECT_NEAR(face.k1, 0.0, 1e-9);
+            }
+        }
+    }
+    EXPECT_GT(on, 40);
 }
 
 // A ball of radius 5 with flats cut 0.5 deep at both y sides: a hull, its

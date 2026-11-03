@@ -446,14 +446,16 @@ struct ContactShape
         int round = -1;  // its face's in rounds, or none
     };
     std::vector<std::vector<Surface>> surfaces;
-    // A hull's or a mesh's faces that are a convex cylinder's or sphere's,
-    // to roll on as the primitives do: a point of the axis or the centre,
+    // A hull's or a mesh's faces that are a cylinder's or a sphere's,
+    // bulging out or hollow (a bore, a socket: concave), to roll on as the
+    // primitives do and to hold a pin or a ball: a point of the axis or the centre,
     // the axis, the way of a cylinder's angle 0, the radius; a cylinder's
     // reach along its axis from that point, from..to, and its angles about
     // it, right handed about the axis, angleTo - angleFrom 2 pi all round
     struct Round
     {
         bool sphere = false;
+        bool concave = false;
         Base::Vector3d centre;
         Base::Vector3d axis;
         Base::Vector3d way;

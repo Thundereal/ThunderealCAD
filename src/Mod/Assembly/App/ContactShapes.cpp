@@ -455,8 +455,9 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
         const gp_Trsf trsf = location.Transformation();
         const BRepAdaptor_Surface surface(face);
         const double outward = face.Orientation() == TopAbs_REVERSED ? -1.0 : 1.0;
-        // A cylinder's or a sphere's face bulging out (its normal away from
-        // the axis or the centre at its middle): its own, to roll on
+        // A cylinder's or a sphere's face: its own, to roll on; concave
+        // where its normal at its middle points to the axis or the centre
+        // (a bore, a socket)
         int round = -1;
         const bool cylinder = surface.GetType() == GeomAbs_Cylinder;
         if (cylinder || surface.GetType() == GeomAbs_Sphere) {
@@ -476,9 +477,10 @@ std::optional<SolidContactShape> asHullOrMesh(const TopoDS_Shape& solid, double 
             if (cylinder) {
                 away -= axis * away.Dot(axis);
             }
-            if (du.Crossed(dv).Dot(away) * outward > 0.0) {
+            {
                 Solver::ContactShape::Round made;
                 made.sphere = !cylinder;
+                made.concave = du.Crossed(dv).Dot(away) * outward < 0.0;
                 made.centre = vec(position.Location().XYZ());
                 made.axis = vec(position.Direction().XYZ());
                 made.way = vec(position.XDirection().XYZ());

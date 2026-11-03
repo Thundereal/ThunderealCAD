@@ -814,6 +814,97 @@ class TestContact(unittest.TestCase):
         self.assertLess(above, 2e-3)
         self.assertLess(below, 2e-3)
 
+    def swingInBore(self, inner, friction, end=0.6):
+        """'inner' -- "pin", a cylinder of radius 4 and 10 long, or "ball", of
+        radius 4 -- in a bore of radius 10 along y through a grounded block
+        (not convex: a mesh), let go 10 deg off the bottom, touching the
+        bore, on 'friction'. Its centre swings about the bore's axis as a
+        pendulum of length (10 - 4)(1 + k^2/r^2) rolling, 6 sliding: the
+        periods between its downward crossings of the bottom, the closed
+        form's, 4 sqrt(l / g) K(sin 5 deg), and how far its centre strayed
+        from 6 off the axis."""
+        import Part
+
+        axis = App.Vector(0, 0, 20)
+        block = self.assembly.newObject("Part::Feature", "Block")
+        box = Part.makeBox(40, 20, 40, App.Vector(-20, -10, 0))
+        block.Shape = box.cut(
+            Part.makeCylinder(10, 30, axis + App.Vector(0, -15, 0), App.Vector(0, 1, 0))
+        )
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBlock")
+        JointObject.GroundedJoint(ground, block)
+        angle = math.radians(10)
+        centre = axis + App.Vector(math.sin(angle), 0, -math.cos(angle)) * 6
+        part = self.assembly.newObject("Part::Feature", "Inner")
+        if inner == "ball":
+            part.Shape = Part.makeSphere(4, centre)
+        else:
+            part.Shape = Part.makeCylinder(
+                4, 10, centre + App.Vector(0, -5, 0), App.Vector(0, 1, 0)
+            )
+        self.contact([part], [block], StaticFriction=friction, DynamicFriction=friction)
+        solid = part.Shape.Solids[0]
+        k2 = solid.MatrixOfInertia.A[5] / solid.Volume / 16
+        local = part.Placement.inverse().multVec(centre)
+        _, result = self.simulate(end, 1e-3, Gravity=App.Vector(0, 0, -G))
+        self.assertEqual(result, 0)
+        angles = []
+        stray = 0.0
+        for k in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(k)
+            c = part.Placement.multVec(local) - axis
+            angles.append(math.atan2(c.x, -c.z))
+            stray = max(stray, abs(math.hypot(c.x, c.z) - 6))
+        crossings = [
+            (k - 1 + angles[k - 1] / (angles[k - 1] - angles[k])) * 1e-3
+            for k in range(1, len(angles))
+            if angles[k - 1] > 0 >= angles[k]
+        ]
+        a, b = 1.0, math.cos(angle / 2)  # K(m) by the arithmetic-geometric mean
+        while abs(a - b) > 1e-15:
+            a, b = (a + b) / 2, math.sqrt(a * b)
+        length = 6 * (1 + k2 if friction else 1)
+        closed = 4 * math.sqrt(length / G) * math.pi / (2 * a)
+        return [y - x for x, y in zip(crossings, crossings[1:])], closed, stray
+
+    def test_pin_rolls_in_bore(self):
+        """A pin rolling in a bore -- its cylinder in the bore's, a hollow
+        round face of a mesh (ContactShape::rounds) -- swings with the
+        rolling pendulum's period to 2e-4 (3.8e-5 measured), its centre on
+        the bore's radius less its own. The contact is the two rounds' own
+        (hollowPoints()): on the bore's facets, which lie up to the mesh's
+        deflection inside its true surface, a pin set touching the bore
+        started 10 um deep and was thrown out at a kilometre a second, and
+        one set clear was pushed out of the hole along its axis by the
+        facets' normals."""
+        periods, closed, stray = self.swingInBore("pin", 0.5)
+        App.Console.PrintMessage(
+            "Pin rolling in a bore: %s against %.6f, strayed %.3g mm\n"
+            % (" ".join("%.6f" % p for p in periods), closed, stray)
+        )
+        self.assertGreaterEqual(len(periods), 2)
+        for period in periods:
+            self.assertAlmostEqual(period / closed, 1.0, delta=2e-4)
+        self.assertLess(stray, 1e-3)
+
+    def test_pin_slides_in_bore(self):
+        """Frictionless, the pin slides round the bore without turning: the
+        simple pendulum's period, length 6, to 2e-4 (5e-5 measured)."""
+        periods, closed, stray = self.swingInBore("pin", 0.0)
+        self.assertGreaterEqual(len(periods), 2)
+        for period in periods:
+            self.assertAlmostEqual(period / closed, 1.0, delta=2e-4)
+        self.assertLess(stray, 1e-3)
+
+    def test_ball_rolls_in_bore(self):
+        """A ball rolling across a bore: its sphere in the bore's cylinder,
+        k^2/r^2 = 2/5, to 5e-4 (1.4e-4 measured)."""
+        periods, closed, stray = self.swingInBore("ball", 0.5)
+        self.assertGreaterEqual(len(periods), 2)
+        for period in periods:
+            self.assertAlmostEqual(period / closed, 1.0, delta=5e-4)
+        self.assertLess(stray, 1e-3)
+
     def tipping(self, part, end, **law):
         """'part' on a plate 400 x 50 turned at 1 rad/s about the y axis, in
         its top face at z = 0, the plate's x end going down; 'part' starting

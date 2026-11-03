@@ -2380,6 +2380,9 @@ struct ShapeOn
     std::vector<ShapeOn> rounds;
     double angleFrom = 0.0;
     double angleTo = 2.0 * pi;
+    // A round that is hollow: a bore, a socket, its surface facing its
+    // axis or its centre
+    bool concave = false;
     // A mesh's vertices, in its body's frame: its triangles point into them
     const ch::ChVector3d* vertices = nullptr;
     std::size_t count = 0;
@@ -2397,8 +2400,11 @@ bool roundSupport(const ShapeOn& on,
                   ch::ChVector3d& out)
 {
     const ch::ChFramed frame = on.frame >> body;
+    // A hollow one's surface facing 'outward' is across its axis or its
+    // centre from it
+    const double facing = on.concave ? -1.0 : 1.0;
     if (on.ball > 0.0) {
-        out = frame.GetPos() + outward * on.ball;
+        out = frame.GetPos() + outward * (facing * on.ball);
         return true;
     }
     if (!(on.radius > 0.0)) {
@@ -2406,7 +2412,7 @@ bool roundSupport(const ShapeOn& on,
     }
     const ch::ChVector3d axis = frame.GetRotMat().GetAxisZ();
     const double along = ch::Vdot(axis, outward);
-    const ch::ChVector3d side = outward - axis * along;
+    const ch::ChVector3d side = (outward - axis * along) * facing;
     const double length = side.Length();
     if (std::abs(along) >= 0.5 || !(length > 1e-9)) {
         return false;
@@ -2541,6 +2547,27 @@ void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Poin
     else if (point.face == 1) {
         normal = a.TransformDirectionLocalToParent(point.normalOn);
     }
+    else if (point.roundA && point.roundB && point.roundA->concave != point.roundB->concave) {
+        // A pin in a bore, a ball in a socket: along the hollow one's
+        // radius through the other's axis or centre -- Bullet's against a
+        // bore's long facets leaned along it, and pushed a pin out of its
+        // hole at 300 mm/s
+        const bool hollowB = point.roundB->concave;
+        const ShapeOn& hollow = hollowB ? *point.roundB : *point.roundA;
+        const ShapeOn& inside = hollowB ? *point.roundA : *point.roundB;
+        const ch::ChFramed outer = hollow.frame >> (hollowB ? b : a);
+        const ch::ChFramed inner = inside.frame >> (hollowB ? a : b);
+        ch::ChVector3d out = inner.GetPos() - outer.GetPos();
+        if (!(hollow.ball > 0.0)) {
+            const ch::ChVector3d axis = outer.GetRotMat().GetAxisZ();
+            out -= axis * ch::Vdot(axis, out);
+        }
+        const double length = out.Length();
+        // From A to B: out of the hollow one's axis, or into it
+        if (length > 1e-12) {
+            normal = out * ((hollowB ? 1.0 : -1.0) / length);
+        }
+    }
     else if (point.roundA && point.roundB && point.roundA->ball > 0.0 && point.roundB->ball > 0.0) {
         const ch::ChVector3d centres =
             (point.roundB->frame >> b).GetPos() - (point.roundA->frame >> a).GetPos();
@@ -2574,6 +2601,116 @@ void rollAll(const ch::ChFrame<>& a,
 {
     for (auto& point : points) {
         rollAlong(a, b, point);
+    }
+}
+
+// A round's curvature tensor where it touches, facing 'outward', absolute:
+// convex positive, a hollow one's negative
+ch::ChMatrix33d
+roundCurvature(const ShapeOn& on, const ch::ChBody& body, const ch::ChVector3d& outward)
+{
+    const double sign = on.concave ? -1.0 : 1.0;
+    if (on.ball > 0.0) {
+        return ch::ChMatrix33d((ch::ChMatrix33d::Identity() - ch::TensorProduct(outward, outward))
+                               * (sign / on.ball));
+    }
+    // A cylinder's cap is flat, as ShapesOn::curvatureAt() takes it: the
+    // normal within 60 deg of its axis -- curved there, a cylinder on its
+    // cap took a ball's law and ran 118 s for 2
+    const ch::ChVector3d axis = (on.frame >> body).GetRotMat().GetAxisZ();
+    ch::ChVector3d round = ch::Vcross(axis, outward);
+    const double length = round.Length();
+    if (!(on.radius > 0.0) || std::abs(ch::Vdot(axis, outward)) > 0.5 || !(length > 1e-9)) {
+        return ch::ChMatrix33d::Zero();
+    }
+    round /= length;
+    return ch::ChMatrix33d(ch::TensorProduct(round, round) * (sign / on.radius));
+}
+
+// A point of a round inside a hollow one: on the inner surface, on the
+// hollow one's, and the way from the hollow one's axis or centre through it
+struct HollowPoint
+{
+    ch::ChVector3d onInner;
+    ch::ChVector3d onHollow;
+    ch::ChVector3d out;
+};
+
+/** The points of a round inside a hollow one, a pin in a bore or a ball in a
+ * bore or a socket, from the two surfaces themselves: a cylinder's at both
+ * ends of its stretch within the bore's reach along its axis, a ball's at
+ * its centre, each along the bore's radius through it (the socket's,
+ * through its centre). None but within 'reach' of touching, nor outside
+ * the hollow one, nor across a bore (a pin more than 25 deg off its axis),
+ * nor past a part round's angles (roundSupport()); a cylinder in a socket
+ * none. Bullet's own against a bore's facets lost a pin riding the bore's
+ * true surface, which lies up to the mesh's deflection outside them: 10 um
+ * into the facets, GJK gave no point, and the pin fell through the wall.
+ */
+void hollowPoints(const ShapeOn& inner,
+                  const ShapeOn& hollow,
+                  double reach,
+                  std::vector<HollowPoint>& points)
+{
+    points.clear();
+    const ch::ChFramed fi = inner.frame >> *inner.body;
+    const ch::ChFramed fh = hollow.frame >> *hollow.body;
+    const ch::ChVector3d ah = fh.GetRotMat().GetAxisZ();
+    const bool tube = !(hollow.ball > 0.0);
+    const double big = tube ? hollow.radius : hollow.ball;
+    const double small = inner.ball > 0.0 ? inner.ball : inner.radius;
+    if (!(small > 0.0) || !(small < big)) {
+        return;
+    }
+    std::vector<ch::ChVector3d> at;
+    if (inner.ball > 0.0) {
+        at.push_back(fi.GetPos());
+    }
+    else {
+        if (!tube) {
+            return;
+        }
+        const ch::ChVector3d ai = fi.GetRotMat().GetAxisZ();
+        const double along = ch::Vdot(ai, ah);
+        if (std::abs(along) < std::cos(25.0 * pi / 180.0)) {
+            return;
+        }
+        // Where each end is along the bore's axis, kept within its reach
+        const double s0 = ch::Vdot(ah, fi.GetPos() - fh.GetPos());
+        double t1 = (-hollow.half - s0) / along;
+        double t2 = (hollow.half - s0) / along;
+        if (t1 > t2) {
+            std::swap(t1, t2);
+        }
+        const double low = std::max(-inner.half, t1);
+        const double high = std::min(inner.half, t2);
+        if (low > high) {
+            return;
+        }
+        at.push_back(fi.GetPos() + ai * low);
+        at.push_back(fi.GetPos() + ai * high);
+    }
+    for (const ch::ChVector3d& centre : at) {
+        ch::ChVector3d out = centre - fh.GetPos();
+        if (tube) {
+            const double along = ch::Vdot(ah, out);
+            if (std::abs(along) > hollow.half + 1e-12) {
+                continue;
+            }
+            out -= ah * along;
+        }
+        const double apart = out.Length();
+        if (!(apart > 1e-12) || apart >= big || big - apart - small > reach) {
+            continue;
+        }
+        out /= apart;
+        HollowPoint point;
+        point.out = out;
+        if (!roundSupport(hollow, *hollow.body, -out, centre, point.onHollow)
+            || !roundSupport(inner, *inner.body, out, centre, point.onInner)) {
+            continue;
+        }
+        points.push_back(point);
     }
 }
 
@@ -3067,8 +3204,12 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         const ch::ChVector3d& n = point.normal;
         const ch::ChVector3d pA = bodyA->TransformPointLocalToParent(point.onA);
         const ch::ChVector3d pB = bodyB->TransformPointLocalToParent(point.onB);
-        const ch::ChMatrix33d both = shapes.curvatureAt(point.shapeA, *bodyA, point.onA, n)
-            + shapes.curvatureAt(point.shapeB, *bodyB, point.onB, -n);
+        // A round's its own (a hollow one's has no shape of Bullet's)
+        const ch::ChMatrix33d both =
+            (point.roundA ? roundCurvature(*point.roundA, *bodyA, n)
+                          : shapes.curvatureAt(point.shapeA, *bodyA, point.onA, n))
+            + (point.roundB ? roundCurvature(*point.roundB, *bodyB, -n)
+                            : shapes.curvatureAt(point.shapeB, *bodyB, point.onB, -n));
         // In the contact plane, its principal curvatures and the first's way
         ch::ChVector3d u = ch::Vcross(n, std::abs(n.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
         u.Normalize();
@@ -3089,8 +3230,8 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         patch.gaps.push_back(ch::Vdot(n, pB - pA));
         patch.across.push_back(u * std::cos(angle) + v * std::sin(angle));
         if (!patch.onA) {
-            patch.onA = shapes.of(point.shapeA);
-            patch.onB = shapes.of(point.shapeB);
+            patch.onA = point.roundA ? point.roundA : shapes.of(point.shapeA);
+            patch.onB = point.roundB ? point.roundB : shapes.of(point.shapeB);
         }
     }
     for (auto& patch : patches) {
@@ -6223,6 +6364,23 @@ Status ChronoSession::simulateDynamics(
             }
         };
         std::vector<ProfileFollow> profiles;
+        // A round inside a hollow one, a pin in a bore, a ball in a socket,
+        // on a load's two bodies, the inner one A's or B's: their points
+        // are the rounds' own (hollowPoints()), Bullet's dropped
+        struct RoundPair
+        {
+            ContactLoad* load = nullptr;
+            const ShapeOn* inner = nullptr;
+            const ShapeOn* hollow = nullptr;
+            bool innerA = true;
+            // The shapes they are of: the inner one's (itself, a
+            // primitive), the hollow one's mesh, and its face there
+            const ShapeOn* innerOf = nullptr;
+            const ShapeOn* hollowOf = nullptr;
+            int face = -1;
+        };
+        std::vector<RoundPair> roundPairs;
+        std::vector<HollowPoint> hollowAt;
         double envelope = 0.0;
         std::vector<ProfileTouch> touches;
         void OnCustomCollision(ch::ChSystem*) override
@@ -6377,6 +6535,59 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             finder->found.clear();
+            for (const RoundPair& pair : roundPairs) {
+                ContactLoad& load = *pair.load;
+                const ShapeOn* onA = pair.innerA ? pair.inner : pair.hollow;
+                const ShapeOn* onB = pair.innerA ? pair.hollow : pair.inner;
+                // Bullet's between the two: the inner shape's against the
+                // hollow face's triangles, however their normal leans -- one
+                // 18 deg off the bore's took no round, 75 um deep on its facet
+                auto ofHollow = [&](const ch::ChCollisionShape* shape) {
+                    if (!shape || shapesOn.of(shape) != pair.hollowOf
+                        || shape->GetType() != ch::ChCollisionShape::Type::MESHTRIANGLE) {
+                        return false;
+                    }
+                    const auto* triangle =
+                        static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+                    for (const ch::ChVector3d* corner :
+                         {triangle->V1, triangle->V2, triangle->V3}) {
+                        const auto v = static_cast<std::size_t>(corner - pair.hollowOf->vertices);
+                        if (v < pair.hollowOf->surfaces.size()) {
+                            for (const auto& face : pair.hollowOf->surfaces[v]) {
+                                if (face.round == pair.face) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                };
+                load.points.erase(
+                    std::remove_if(
+                        load.points.begin(),
+                        load.points.end(),
+                        [&](const ContactLoad::Point& point) {
+                            const auto* inner = pair.innerA ? point.shapeA : point.shapeB;
+                            const auto* hollow = pair.innerA ? point.shapeB : point.shapeA;
+                            return (point.roundA == onA && point.roundB == onB)
+                                || (shapesOn.of(inner) == pair.innerOf && ofHollow(hollow));
+                        }),
+                    load.points.end());
+                hollowPoints(*pair.inner, *pair.hollow, reach, hollowAt);
+                for (const HollowPoint& at : hollowAt) {
+                    ContactLoad::Point point;
+                    point.onA = load.GetBodyA()->TransformPointParentToLocal(
+                        pair.innerA ? at.onInner : at.onHollow);
+                    point.onB = load.GetBodyB()->TransformPointParentToLocal(
+                        pair.innerA ? at.onHollow : at.onInner);
+                    point.normal = pair.innerA ? at.out : -at.out;
+                    point.roundA = onA;
+                    point.roundB = onB;
+                    point.frames = {onA->source, onB->source};
+                    load.points.push_back(point);
+                    load.follow = rollAll;
+                }
+            }
             // Their points on round shapes put where they are now, and the
             // normals of the faces' (rollAlong()): the laws read them
             // (patchStiffness()), a hull's round face's exact where the
@@ -6597,6 +6808,7 @@ Status ChronoSession::simulateDynamics(
                 turn.SetFromDirectionAxes(x, ch::Vcross(z, x), z);
                 const double middle = round.sphere ? 0.0 : 0.5 * (round.from + round.to);
                 made.frame = ch::ChFramed(toCh(round.centre) + z * middle, turn) >> where.frame;
+                made.concave = round.concave;
                 if (round.sphere) {
                     made.ball = round.radius;
                 }
@@ -6675,6 +6887,56 @@ Status ChronoSession::simulateDynamics(
         }
         handover->reach = margin;
         handover->keep = shapesOn;
+        // The rounds inside hollow ones (RoundPair): on each load's bodies,
+        // a convex round, a primitive's or a round face's, on one, a hollow
+        // round face on the other
+        {
+            std::set<ContactLoad*> seen;
+            // Each round with the shape it is of and its face's number
+            struct Round
+            {
+                const ShapeOn* round;
+                const ShapeOn* of;
+                int face;
+            };
+            auto roundsOn = [&](const ch::ChBody* body, bool hollow) {
+                std::vector<Round> out;
+                for (const auto& [shape, on] : *shapesOn) {
+                    if (on.body != body) {
+                        continue;
+                    }
+                    if (!hollow && (on.ball > 0.0 || on.radius > 0.0)) {
+                        out.push_back({&on, &on, -1});
+                    }
+                    for (std::size_t k = 0; k < on.rounds.size(); ++k) {
+                        if (on.rounds[k].concave == hollow && (!hollow || on.vertices)) {
+                            out.push_back({&on.rounds[k], &on, static_cast<int>(k)});
+                        }
+                    }
+                }
+                return out;
+            };
+            for (const auto& [bodies, load] : finder->loads) {
+                if (!seen.insert(load).second) {
+                    continue;
+                }
+                const ch::ChBody* a = load->GetBodyA().get();
+                const ch::ChBody* b = load->GetBodyB().get();
+                for (const bool innerA : {true, false}) {
+                    for (const Round& inner : roundsOn(innerA ? a : b, false)) {
+                        for (const Round& hollow : roundsOn(innerA ? b : a, true)) {
+                            handover->roundPairs.push_back({load,
+                                                            inner.round,
+                                                            hollow.round,
+                                                            innerA,
+                                                            inner.of,
+                                                            hollow.of,
+                                                            hollow.face});
+                        }
+                    }
+                }
+            }
+        }
         // The cams that lift off: a load each between the cam's body and
         // the follower's, its one point from the curve at each collision
         // detection (ContactHandover), not Bullet's

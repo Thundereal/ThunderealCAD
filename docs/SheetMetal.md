@@ -1147,6 +1147,21 @@ and not frozen.
   nothing, as a pocket over a plate's edge takes only what is there; a sketch is not refused
   for straying off the outline, which moves whenever an earlier feature is edited.
 
+**Ruled 2026-11-03, M2's hinge and perforation cuts:**
+- One feature, `PartDesign::SheetMetalBendCuts`, the tool **Bend Cuts**, on one or more bends
+  picked, with a `Pattern`: `Slots`, one row of slots across the bend with bridges between, for
+  bending by hand; `Staggered`, rows of slots across it, every other one shifted, the laser
+  living hinge; `Sketch`, a sketch's closed shapes tiled along the bend. A wave is a sketch tile,
+  not a pattern of its own.
+- Drawn in the bend's strip in the flat and folded back, as the wrap cutout is, so the flat shows
+  them as cut: the slot's length along the bend, the bridge between, an end margin left whole at
+  each end, and for `Staggered` the rows and their spacing. A slot spans the whole strip unless
+  a width is given, about the bend's middle line.
+- The bend stays as it was: folded, its radius and K the rule's or its feature's. A large radius
+  for a living hinge is set on the feature that made the bend.
+- Refused: a pick that is not a bend, a pattern fitting no whole slot within the margins. A bend
+  stays a bend however much of it is cut.
+
 **Ruled 2026-11-02, M2's contour flange:**
 - Its own feature, as sec 5.1 lists it, sharing the flange's code: the gaps, the wall cut back under
   it with its relief, and the miters.

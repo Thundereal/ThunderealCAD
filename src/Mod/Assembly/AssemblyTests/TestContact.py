@@ -58,12 +58,14 @@ class TestContact(unittest.TestCase):
 
         self.doc.recompute()
         contact = CommandCreateContact.newContactSet(self.assembly, a, b)
-        # A stiffness or a damping given is the one to run with: not the
-        # materials' or the restitution's
+        # A stiffness, a damping or a friction given is the one to run with:
+        # not the materials' or the restitution's
         if "Stiffness" in law:
             contact.StiffnessFrom = "Value"
         if "MaxDamping" in law:
             contact.DampingFrom = "Value"
+        if "StaticFriction" in law or "DynamicFriction" in law:
+            contact.FrictionFrom = "Value"
         for name, value in law.items():
             setattr(contact, name, value)
         self.doc.recompute()
@@ -601,6 +603,64 @@ class TestContact(unittest.TestCase):
                     friction[k].x, -0.25 * normal[k].z, delta=weight * 1e-3, msg=t
                 )
                 self.assertLess(abs(friction[k].y) + abs(friction[k].z), weight * 1e-6, msg=t)
+
+    def slideOn(self, block, plate, **law):
+        """The block of material card 'block' sent sliding at 200 mm/s along
+        a plate of 'plate': its friction over its normal force while it
+        slides faster than the friction velocity, each frame's from 5 ms"""
+        import CommandCreateSimulation
+        import Materials
+
+        manager = Materials.MaterialManager()
+        bed = self.plate()
+        bed.ShapeMaterial = manager.getMaterial(plate)
+        part = self.assembly.newObject("Part::Box", "Block")
+        part.Length = part.Width = part.Height = 10
+        part.Placement.Base = App.Vector(-15, -5, 10)
+        part.ShapeMaterial = manager.getMaterial(block)
+        self.contact([part], [bed], **law)
+        sim = self.assembly.getGroup("Simulations", True).newObject(
+            "Assembly::Simulation", "Simulation"
+        )
+        CommandCreateSimulation.newInitialCondition(
+            sim, component=part, linear=App.Vector(200, 0, 0)
+        )
+        sim.AnalysisType = "Dynamic"
+        sim.Elements = self.sets
+        sim.TimeEnd = 0.02
+        sim.TimeStepOutput = 1e-3
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        normal = self.force("ContactNormalForce")
+        friction = self.force("ContactFrictionForce")
+        return [-friction[k].x / normal[k].z for k in range(5, len(normal))]
+
+    def test_friction_from_materials(self):
+        """A set's friction by the pair of its components' materials
+        (FrictionFrom Materials, a new set's; ContactFriction.json): a PTFE
+        block sliding on a steel plate at the table's 0.04, a red brass's
+        (Copper-230, a brass by its tags) at 0.29; wood on steel, which the
+        table has not, at the set's own 0.25, as is PTFE with FrictionFrom
+        Value"""
+        steel = "90bbd8ef-8623-4d78-b3bf-e0bdb9b74dd3"
+        cases = [
+            ("8ce226db-43ef-4471-93f1-07e7276aa276", {}, 0.04),
+            ("0bcac89d-ba24-4fca-a1bd-a3c52ff09e26", {}, 0.29),
+            ("b588224e-e8d6-47ad-ba1f-a058333fd1c6", {}, 0.25),
+            ("8ce226db-43ef-4471-93f1-07e7276aa276", {"FrictionFrom": "Value"}, 0.25),
+        ]
+        for block, law, mu in cases:
+            with self.subTest(block=block, law=law):
+                # Each in a document of its own, as setUp() makes one
+                App.closeDocument(self.doc.Name)
+                self.doc = App.newDocument("TestContact")
+                self.assembly = self.doc.addObject("Assembly::AssemblyObject", "Assembly")
+                self.joints = self.assembly.getGroup("Joints", True)
+                self.sets = []
+                ratios = self.slideOn(block, steel, **law)
+                self.assertTrue(ratios)
+                for ratio in ratios:
+                    self.assertAlmostEqual(ratio, mu, delta=1e-3)
 
     def roll(self, kind, end, slope=10.0, speed=0.0):
         """A ball of radius 5, or a roller of radius 5 and 20 long on its

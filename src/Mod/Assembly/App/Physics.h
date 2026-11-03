@@ -504,7 +504,10 @@ using BushingPython = App::FeaturePythonT<Bushing>;
  * damping as given (DampingFrom Value), or by the coefficient of
  * restitution Restitution (a new set's): Hunt and Crossley's,
  * Fn = k d^e (1 + a / v0 dd/dt), a exactly r's, v0 the speed the contact
- * started at.
+ * started at. The friction coefficients as given (FrictionFrom Value), or
+ * by the pair of the components' materials in the friction table
+ * (Materials, a new set's; ContactFriction.h), as given where the table has
+ * not the pair or a component has no material.
  * Each solid of a component touches as the sphere, box or cylinder it is,
  * else as its convex hull when it is convex, else as its closed mesh.
  */
@@ -529,6 +532,7 @@ public:
     /// The damping reached at Penetration, N s/mm
     App::PropertyFloatConstraint MaxDamping;
     App::PropertyLength Penetration;
+    App::PropertyEnumeration FrictionFrom;
     App::PropertyFloatConstraint StaticFriction;
     App::PropertyFloatConstraint DynamicFriction;
     App::PropertySpeed StictionVelocity;
@@ -537,13 +541,14 @@ public:
     static const char* StiffnessFromEnums[];
     static const char* RadiusFromEnums[];
     static const char* DampingFromEnums[];
+    static const char* FrictionFromEnums[];
 
     const char* getViewProviderName() const override
     {
         return "AssemblyGui::ViewProviderContactSet";
     }
-    /// A set saved before StiffnessFrom and DampingFrom keeps the stiffness
-    /// and the damping it was given
+    /// A set saved before StiffnessFrom, DampingFrom and FrictionFrom keeps
+    /// the stiffness, the damping and the friction it was given
     void Restore(Base::XMLReader& reader) override;
 };
 

@@ -74,11 +74,18 @@ Choices = {
         ("Restitution", QT_TRANSLATE_NOOP("Assembly", "A coefficient of restitution")),
         ("Value", QT_TRANSLATE_NOOP("Assembly", "A value")),
     ],
+    # The materials' pair in the friction table; the values below where it
+    # has not the pair
+    "FrictionFrom": [
+        ("Materials", QT_TRANSLATE_NOOP("Assembly", "The parts' materials (table)")),
+        ("Value", QT_TRANSLATE_NOOP("Assembly", "The values below")),
+    ],
 }
 ChoiceLabels = {
     "StiffnessFrom": QT_TRANSLATE_NOOP("Assembly", "Stiffness from"),
     "RadiusFrom": QT_TRANSLATE_NOOP("Assembly", "Contact radius"),
     "DampingFrom": QT_TRANSLATE_NOOP("Assembly", "Damping from"),
+    "FrictionFrom": QT_TRANSLATE_NOOP("Assembly", "Friction from"),
 }
 # The stiffness slider's span, a power of ten each hundredth: 1 to 1e7
 SliderTop = 700
@@ -97,6 +104,7 @@ Order = [
     "Restitution",
     "MaxDamping",
     "Penetration",
+    "FrictionFrom",
     "StaticFriction",
     "DynamicFriction",
     "StictionVelocity",

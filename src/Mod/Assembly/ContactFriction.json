@@ -1,0 +1,53 @@
+{
+    "about": [
+        "Coefficients of friction by pair of materials, for a contact set whose",
+        "FrictionFrom is Materials (docs/AssemblyDynamics.md, P6). A component's",
+        "material card is in the first family one of whose words its name, its",
+        "KindOfMaterial or one of its tags holds, ignoring case; a component with",
+        "no card, or one in no family, and a pair not listed here, run on the set's",
+        "own StaticFriction and DynamicFriction. Engineering values, for parts in",
+        "air -- not clean and dry, which for metals run two to three times higher.",
+        "Where a source gives one coefficient it is the static one, and the dynamic",
+        "is five sixths of it, the ratio of the sets' defaults (0.30 / 0.25); where",
+        "it gives a range, its low end. Restitution stays the set's: it depends on",
+        "the speed more than on the pair.",
+        "A file of the same form at <user data>/Assembly/ContactFriction.json is",
+        "read over this one: its families are tried first, its pairs replace these."
+    ],
+    "sources": {
+        "deulin": "E. A. Deulin, V. P. Mikhailov, Yu. V. Panfilov, R. A. Nevshupa, Mechanics and Physics of Precise Vacuum Mechanisms: friction in air, as tabulated in tribonet.org, 'Friction coefficients in air vs vacuum' (read 2026-11-03)",
+        "toolbox": "The Engineering ToolBox, 'Friction - Coefficients for Common Materials and Surfaces' (2004): clean and dry (read 2026-11-03)"
+    },
+    "families": [
+        {"name": "PTFE", "words": ["PTFE", "Teflon", "Polytetrafluoroethylene"]},
+        {"name": "Nylon", "words": ["Nylon", "Polyamide"]},
+        {"name": "Acrylic", "words": ["PMMA", "Acrylic", "Plexiglas"]},
+        {"name": "Graphite", "words": ["Graphite"]},
+        {"name": "Brass", "words": ["Brass"]},
+        {"name": "Bronze", "words": ["Bronze"]},
+        {"name": "Copper", "words": ["Copper", "Cupro"]},
+        {"name": "Stainless steel", "words": ["Stainless"]},
+        {"name": "Cast iron", "words": ["Cast iron", "GJL", "GJS", "GJM"]},
+        {"name": "Steel", "words": ["Steel", "Iron"]},
+        {"name": "Aluminium", "words": ["Aluminium", "Aluminum", "AlMg", "AlZn"]},
+        {"name": "Titanium", "words": ["Titanium"]},
+        {"name": "Glass", "words": ["Glass"]},
+        {"name": "Wood", "words": ["Wood", "Balsa"]}
+    ],
+    "pairs": [
+        {"a": "Steel", "b": "Steel", "static": 0.30, "dynamic": 0.25, "source": "deulin", "given": "Fe-Fe 0.3"},
+        {"a": "Stainless steel", "b": "Stainless steel", "static": 0.50, "dynamic": 0.42, "source": "deulin", "given": "0.5"},
+        {"a": "Stainless steel", "b": "Aluminium", "static": 0.40, "dynamic": 0.33, "source": "deulin", "given": "0.4"},
+        {"a": "Aluminium", "b": "Aluminium", "static": 0.80, "dynamic": 0.67, "source": "deulin", "given": "0.8"},
+        {"a": "Brass", "b": "Brass", "static": 0.40, "dynamic": 0.33, "source": "deulin", "given": "0.4"},
+        {"a": "Brass", "b": "Steel", "static": 0.35, "dynamic": 0.29, "source": "deulin", "given": "0.35"},
+        {"a": "Copper", "b": "Copper", "static": 0.50, "dynamic": 0.42, "source": "deulin", "given": "0.5-1.0"},
+        {"a": "Glass", "b": "Glass", "static": 0.90, "dynamic": 0.75, "source": "deulin", "given": "0.9-1.0"},
+        {"a": "Graphite", "b": "Steel", "static": 0.10, "dynamic": 0.08, "source": "deulin", "given": "0.1"},
+        {"a": "Graphite", "b": "Graphite", "static": 0.10, "dynamic": 0.08, "source": "deulin", "given": "0.1"},
+        {"a": "PTFE", "b": "PTFE", "static": 0.04, "dynamic": 0.04, "source": "deulin", "given": "0.04; toolbox kinetic 0.04"},
+        {"a": "PTFE", "b": "Steel", "static": 0.05, "dynamic": 0.04, "source": "toolbox", "given": "0.05-0.2"},
+        {"a": "Nylon", "b": "Steel", "static": 0.40, "dynamic": 0.33, "source": "toolbox", "given": "0.4"},
+        {"a": "Acrylic", "b": "Steel", "static": 0.40, "dynamic": 0.33, "source": "toolbox", "given": "Plexiglas 0.4-0.5"}
+    ]
+}

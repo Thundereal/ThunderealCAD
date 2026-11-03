@@ -733,6 +733,8 @@ private:
                     ? NoId
                     : static_cast<Id>(std::distance(jointOrigin.begin(), at));
             }
+            dynamics.families = original.dynamics->families;
+            dynamics.frictionPairs = original.dynamics->frictionPairs;
             dynamics.sensors = original.dynamics->sensors;
             dynamics.stops = original.dynamics->stops;
             dynamics.frictions = original.dynamics->frictions;

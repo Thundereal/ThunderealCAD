@@ -354,6 +354,9 @@ struct InitialVelocity
 //   friction mu(v) Fn against the sliding velocity v, mu rising from 0 at
 //            rest to muStatic at vStiction and going to muDynamic at
 //            vFriction, Adams' STEP between them.
+// muStatic and muDynamic as given, or from the two shapes' materials'
+// families (ContactShape::family) in Dynamics::frictionPairs, as given where
+// the pair is not there (P6).
 // The damping as given, the STEP's, or by a coefficient of restitution r,
 // Hunt and Crossley's: Fn = k d^e (1 + a / v0 dd/dt), a exactly r's for any
 // e (huntCrossley()), v0 the approach speed the contact started at.
@@ -384,6 +387,12 @@ struct ContactLaw
     Stiffness from = Stiffness::Value;
     Radius radius = Radius::Patch;
     Damping damping = Damping::Value;
+    enum class FrictionFrom : std::uint8_t
+    {
+        Value,     // muStatic and muDynamic
+        Materials  // the pair of the shapes' families', else as given
+    };
+    FrictionFrom friction = FrictionFrom::Value;
     double restitution = 0.6;  // r
     double stiffness = 1e8;     // k, mN / mm^e (1e5 N/mm at e = 1)
     double exponent = 1.5;      // e
@@ -475,6 +484,18 @@ struct ContactShape
     // Materials; and its solid's volume, mm^3
     double modulus = 0.0;
     double volume = 0.0;
+    // Its material's family for friction (Dynamics::families), NoId none
+    Id family = NoId;
+};
+
+// The coefficients of friction of two families of materials, either way
+// round (ContactLaw::FrictionFrom::Materials)
+struct FrictionPair
+{
+    Id a = NoId;
+    Id b = NoId;
+    double muStatic = 0.0;
+    double muDynamic = 0.0;
 };
 
 // A contact set: the shapes of group A touching those of group B, or, B
@@ -587,6 +608,10 @@ struct Dynamics
     std::vector<Sensor> sensors;
     std::vector<Stop> stops;  // at most one per limit
     std::vector<Friction> frictions;
+    // The materials' families for friction, by name, and their pairs'
+    // coefficients
+    std::vector<std::string> families;
+    std::vector<FrictionPair> frictionPairs;
 };
 
 struct Model

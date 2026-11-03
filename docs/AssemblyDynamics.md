@@ -2697,6 +2697,53 @@ Phase D1 is under way (2026-10-28):
   - Not yet: a ball on a chamfered or rounded mouth -- the chamfer's cone,
     the round's torus, are Bullet's facets; a cylinder's rim on a bore's
     rim (a pin standing in a hole too narrow for it).
+- Built: friction by the pair of materials (P6, the material-pair table), the
+  last of D2's deliverables (sec 4). Engineering values, chosen 2026-11-03
+  over the clean-and-dry handbook ones, which for metals run two to three
+  times higher (mild steel on mild steel 0.74 / 0.57 against the sets'
+  0.30 / 0.25).
+  - The table is data: `Mod/Assembly/ContactFriction.json`, and a user's of
+    that name in `<user data>/Assembly` read over it -- its families tried
+    first, its pairs in place of the module's (FrictionTable). A family is
+    words: a component's card (its first shape's that has one; the Default
+    card is none) is in the first family one of whose words its name, its
+    KindOfMaterial or one of its tags holds. The cards' Appearance parents
+    are no guide -- PC and PET inherit Acrylic's, Copper-230, a red brass,
+    Bronze's -- their tags are: "Brasses", "Phosphor Bronze", "Aluminum
+    Bronze" (a bronze, so brass and bronze are tried before aluminium).
+  - Its fourteen pairs, each with its source and what the source gave:
+    eleven from Deulin, Mikhailov, Panfilov and Nevshupa, "Mechanics and
+    Physics of Precise Vacuum Mechanisms", friction in air (as tribonet.org
+    tabulates it) -- steel 0.30 (Fe-Fe, the sets' default), stainless 0.5,
+    stainless on aluminium 0.4, aluminium 0.8, brass 0.4, brass on steel
+    0.35, copper 0.5, glass 0.9, graphite on steel and on graphite 0.1, PTFE
+    0.04; three from the Engineering ToolBox, clean and dry -- PTFE on steel
+    0.05, nylon on steel 0.4, acrylic on steel 0.4. One coefficient given is
+    the static one, the dynamic five sixths of it (the defaults' ratio); a
+    range, its low end. Left out: cast iron on steel (the ToolBox's 0.4
+    clean and dry, above steel's 0.3 in air -- the two bases do not mix),
+    and restitution, which the speed sets more than the pair.
+  - The set: `FrictionFrom` {Materials, Value}, a new set's Materials, a cam's
+    and a profile's Value (frictionless as given), a set saved before it
+    Value. The builder gives each contact shape its component's family
+    (ContactShape::family, Dynamics::families) and the model the table's
+    pairs of those (Dynamics::frictionPairs); a load takes its first two
+    shapes' pair's coefficients (ContactLaw::FrictionFrom), the set's own
+    where the table has not the pair or a part has no card in a family --
+    which the build says, once per set and pair, with the coefficients
+    taken. The panel's "Friction from" picks it.
+  - Found on the way: two copies of the dynamics block field by field --
+    the builder's (addDynamics()) and the rigid groups' (RigidGroups.cpp) --
+    dropped the new fields, and the run took the set's 0.25 for PTFE.
+  - Tests: TestContact's test_friction_from_materials, a block sliding on a
+    steel plate at 200 mm/s, its friction over its normal force: PTFE 0.04,
+    Copper-230 0.29 (a brass by its tags), wood the set's 0.25, PTFE by
+    Value 0.25, each to 1e-3; ContactFriction.* (C++): FreeCAD's own cards
+    in their families, pairs either way round, every pair of the table's
+    families with dynamic <= static, a missing file nothing.
+  - Not yet: per-pair restitution; a component of several materials takes
+    its first shape's family; the panel does not show the pairs the
+    materials give before the run.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -345,6 +345,17 @@ Elasticity Assembly::elasticityOf(App::DocumentObject* component)
     return any ? softest : defaultElasticity();
 }
 
+std::vector<App::DocumentObject*> Assembly::shapeFeaturesOf(App::DocumentObject* component)
+{
+    std::vector<std::pair<Part::Feature*, std::string>> leaves;
+    collect(component, std::string(), leaves, 0);
+    std::vector<App::DocumentObject*> features;
+    for (const auto& leaf : leaves) {
+        features.push_back(leaf.first);
+    }
+    return features;
+}
+
 std::vector<MassProperties> Assembly::massPropertiesOf(const AssemblyObject* assembly)
 {
     std::vector<MassProperties> results;

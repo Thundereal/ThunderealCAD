@@ -7384,8 +7384,31 @@ Status ChronoSession::simulateDynamics(
             }
         }
         auto finder = std::make_shared<ContactFinder>();
-        // A load per pair of bodies a set lets touch, the first set's law
-        auto pairUp = [&](ch::ChBody* x, ch::ChBody* y, std::size_t set) {
+        // A load per pair of bodies a set lets touch, the first set's law --
+        // its friction, from the materials, its first two shapes' families'
+        // pair's where the model has it (ContactLaw::FrictionFrom)
+        auto lawOf = [&](std::size_t set, Id x, Id y) {
+            ContactLaw law = si.dynamics->contacts[set].law;
+            if (law.friction != ContactLaw::FrictionFrom::Materials
+                || x >= si.dynamics->contactShapes.size()
+                || y >= si.dynamics->contactShapes.size()) {
+                return law;
+            }
+            const Id fx = si.dynamics->contactShapes[x].family;
+            const Id fy = si.dynamics->contactShapes[y].family;
+            if (fx == NoId || fy == NoId) {
+                return law;
+            }
+            for (const FrictionPair& pair : si.dynamics->frictionPairs) {
+                if ((pair.a == fx && pair.b == fy) || (pair.a == fy && pair.b == fx)) {
+                    law.muStatic = pair.muStatic;
+                    law.muDynamic = pair.muDynamic;
+                    break;
+                }
+            }
+            return law;
+        };
+        auto pairUp = [&](ch::ChBody* x, ch::ChBody* y, std::size_t set, Id sx, Id sy) {
             if (!x || !y || x == y || (x->IsFixed() && y->IsFixed())
                 || finder->loads.count({x, y})) {
                 return;
@@ -7408,8 +7431,7 @@ Status ChronoSession::simulateDynamics(
             if (!first || !second) {
                 return;
             }
-            auto load =
-                std::make_shared<ContactLoad>(first, second, si.dynamics->contacts[set].law, set);
+            auto load = std::make_shared<ContactLoad>(first, second, lawOf(set, sx, sy), set);
             loads->Add(load);
             contactLoads.push_back(load);
             finder->loads[{x, y}] = load.get();
@@ -7423,14 +7445,18 @@ Status ChronoSession::simulateDynamics(
             if (pair.groupB.empty()) {
                 for (std::size_t i = 0; i < pair.groupA.size(); ++i) {
                     for (std::size_t j = i + 1; j < pair.groupA.size(); ++j) {
-                        pairUp(bodyOf(pair.groupA[i]), bodyOf(pair.groupA[j]), set);
+                        pairUp(bodyOf(pair.groupA[i]),
+                               bodyOf(pair.groupA[j]),
+                               set,
+                               pair.groupA[i],
+                               pair.groupA[j]);
                     }
                 }
             }
             else {
                 for (Id x : pair.groupA) {
                     for (Id y : pair.groupB) {
-                        pairUp(bodyOf(x), bodyOf(y), set);
+                        pairUp(bodyOf(x), bodyOf(y), set, x, y);
                     }
                 }
             }

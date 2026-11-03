@@ -174,20 +174,24 @@ bool same(const Inertia& a, const Inertia& b)
 bool same(const ContactLaw& a, const ContactLaw& b)
 {
     return a.from == b.from && a.radius == b.radius && a.damping == b.damping
-        && a.restitution == b.restitution && a.stiffness == b.stiffness
-        && a.exponent == b.exponent && a.maxDamping == b.maxDamping
-        && a.penetration == b.penetration && a.allowance == b.allowance
-        && a.muStatic == b.muStatic && a.muDynamic == b.muDynamic
-        && a.vStiction == b.vStiction && a.vFriction == b.vFriction;
+        && a.restitution == b.restitution && a.stiffness == b.stiffness && a.exponent == b.exponent
+        && a.maxDamping == b.maxDamping && a.penetration == b.penetration
+        && a.allowance == b.allowance && a.muStatic == b.muStatic && a.muDynamic == b.muDynamic
+        && a.vStiction == b.vStiction && a.vFriction == b.vFriction && a.friction == b.friction;
+}
+
+bool same(const FrictionPair& a, const FrictionPair& b)
+{
+    return a.a == b.a && a.b == b.b && a.muStatic == b.muStatic && a.muDynamic == b.muDynamic;
 }
 
 bool same(const ContactShape& a, const ContactShape& b)
 {
     if (a.frame != b.frame || a.kind != b.kind || !same(a.size, b.size)
         || a.points.size() != b.points.size() || a.triangles != b.triangles
-        || a.modulus != b.modulus || a.volume != b.volume || a.loops != b.loops
-        || a.pieces.size() != b.pieces.size() || a.surfaces.size() != b.surfaces.size()
-        || a.rounds.size() != b.rounds.size()) {
+        || a.modulus != b.modulus || a.volume != b.volume || a.family != b.family
+        || a.loops != b.loops || a.pieces.size() != b.pieces.size()
+        || a.surfaces.size() != b.surfaces.size() || a.rounds.size() != b.rounds.size()) {
         return false;
     }
     for (std::size_t i = 0; i < a.points.size(); ++i) {
@@ -243,7 +247,9 @@ bool sameBeyondBodies(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)
                 || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)
                 || !sameRecords(a.dynamics->stops, b.dynamics->stops)
-                || !sameRecords(a.dynamics->frictions, b.dynamics->frictions)))) {
+                || !sameRecords(a.dynamics->frictions, b.dynamics->frictions)
+                || a.dynamics->families != b.dynamics->families
+                || !sameRecords(a.dynamics->frictionPairs, b.dynamics->frictionPairs)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.frames, b.frames)
@@ -291,7 +297,9 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->contacts, b.dynamics->contacts)
                 || !sameRecords(a.dynamics->sensors, b.dynamics->sensors)
                 || !sameRecords(a.dynamics->stops, b.dynamics->stops)
-                || !sameRecords(a.dynamics->frictions, b.dynamics->frictions)))) {
+                || !sameRecords(a.dynamics->frictions, b.dynamics->frictions)
+                || a.dynamics->families != b.dynamics->families
+                || !sameRecords(a.dynamics->frictionPairs, b.dynamics->frictionPairs)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)

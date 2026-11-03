@@ -77,6 +77,7 @@
 #include "AssemblyGroup.h"
 #include "Grounding.h"
 #include "Joint.h"
+#include "ContactFriction.h"
 #include "MassProperties.h"
 #include "Physics.h"
 #include "ContactShapes.h"
@@ -2007,13 +2008,16 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         // From the assembly's frame into the body's
         dynamics.inertias.push_back(Solver::moved(inertia, model.bodies[body].placement.inverse()));
     }
-    // Kept: the force elements, the initial velocities, the contact sets, the
-    // sensors, the stops and the frictions addForces() put in first
+    // Kept: the force elements, the initial velocities, the contact sets and
+    // the materials' friction, the sensors, the stops and the frictions
+    // addForces() put in first
     if (model.dynamics) {
         dynamics.forces = std::move(model.dynamics->forces);
         dynamics.initial = std::move(model.dynamics->initial);
         dynamics.contactShapes = std::move(model.dynamics->contactShapes);
         dynamics.contacts = std::move(model.dynamics->contacts);
+        dynamics.families = std::move(model.dynamics->families);
+        dynamics.frictionPairs = std::move(model.dynamics->frictionPairs);
         dynamics.sensors = std::move(model.dynamics->sensors);
         dynamics.stops = std::move(model.dynamics->stops);
         dynamics.frictions = std::move(model.dynamics->frictions);
@@ -2159,6 +2163,29 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
     // component's solids as the shapes it touches with, on frames of it,
     // made once for every set it is in
     std::map<App::DocumentObject*, std::vector<Solver::Id>> shapesOf;
+    // Each component's material's family for friction (FrictionTable), by
+    // its number in the model's families; empty, none
+    std::map<App::DocumentObject*, std::string> familyOf;
+    auto familyOfComponent = [&](App::DocumentObject* component) -> const std::string& {
+        auto found = familyOf.find(component);
+        if (found == familyOf.end()) {
+            found =
+                familyOf.emplace(component, FrictionTable::instance().familyOf(component)).first;
+        }
+        return found->second;
+    };
+    auto familyId = [&](const std::string& family) {
+        if (family.empty()) {
+            return Solver::NoId;
+        }
+        auto& names = model.dynamics->families;
+        const auto at = std::find(names.begin(), names.end(), family);
+        if (at != names.end()) {
+            return static_cast<Solver::Id>(at - names.begin());
+        }
+        names.push_back(family);
+        return static_cast<Solver::Id>(names.size() - 1);
+    };
     auto componentShapes = [&](App::DocumentObject* component) {
         auto found = shapesOf.find(component);
         if (found != shapesOf.end()) {
@@ -2207,6 +2234,7 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             record.surfaces = std::move(contact->surfaces);
             record.rounds = std::move(contact->rounds);
             record.modulus = modulus;
+            record.family = familyId(familyOfComponent(component));
             GProp_GProps props;
             BRepGProp::VolumeProperties(solid.getShape(), props);
             record.volume = std::abs(props.Mass());
@@ -2242,6 +2270,9 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         law.exponent = set->Exponent.getValue();
         law.maxDamping = set->MaxDamping.getValue() * 1000.0;
         law.penetration = set->Penetration.getValue();
+        law.friction = set->FrictionFrom.getValue() == 0
+            ? Solver::ContactLaw::FrictionFrom::Materials
+            : Solver::ContactLaw::FrictionFrom::Value;
         law.muStatic = set->StaticFriction.getValue();
         law.muDynamic = set->DynamicFriction.getValue();
         law.vStiction = set->StictionVelocity.getValue();
@@ -2268,6 +2299,52 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         pair.source = model.addSource(set->getFullName());
         pair.law = lawOf(set);
         pair.id = static_cast<Solver::Id>(model.dynamics->contacts.size());
+        // Friction from the materials: each pair of components the table
+        // has not, on the set's own coefficients, said once
+        if (pair.law.friction == Solver::ContactLaw::FrictionFrom::Materials) {
+            const auto& groupA = set->GroupA.getValues();
+            const auto& groupB = set->GroupB.getValues();
+            std::set<std::pair<std::string, std::string>> said;
+            auto check = [&](App::DocumentObject* a, App::DocumentObject* b) {
+                std::string fa = familyOfComponent(a);
+                std::string fb = familyOfComponent(b);
+                if (!fa.empty() && !fb.empty() && FrictionTable::instance().pairOf(fa, fb)) {
+                    return;
+                }
+                if (fb < fa) {
+                    std::swap(fa, fb);
+                }
+                if (!said.insert({fa, fb}).second) {
+                    return;
+                }
+                auto named = [](const std::string& family) {
+                    return family.empty() ? std::string("no material of the table's families")
+                                          : family;
+                };
+                Base::Console().warning(
+                    "Assembly: the contact set %s has no friction for %s on %s in the "
+                    "friction table, and takes its own, %g and %g\n",
+                    set->getFullLabel().c_str(),
+                    named(fa).c_str(),
+                    named(fb).c_str(),
+                    pair.law.muStatic,
+                    pair.law.muDynamic);
+            };
+            if (groupB.empty()) {
+                for (std::size_t i = 0; i < groupA.size(); ++i) {
+                    for (std::size_t j = i + 1; j < groupA.size(); ++j) {
+                        check(groupA[i], groupA[j]);
+                    }
+                }
+            }
+            else {
+                for (auto* a : groupA) {
+                    for (auto* b : groupB) {
+                        check(a, b);
+                    }
+                }
+            }
+        }
         model.dynamics->contacts.push_back(std::move(pair));
     };
     // A cam that lifts off: its Cam joint's PointOnCurve record, which the
@@ -2586,6 +2663,21 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         force.c = spring->Damping.getValue();
         force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
         model.dynamics->forces.push_back(force);
+    }
+    // The friction table's pairs of the families the shapes are of
+    {
+        const auto& families = model.dynamics->families;
+        for (const auto& pair : FrictionTable::instance().pairs()) {
+            const auto a = std::find(families.begin(), families.end(), pair.a);
+            const auto b = std::find(families.begin(), families.end(), pair.b);
+            if (a == families.end() || b == families.end()) {
+                continue;
+            }
+            model.dynamics->frictionPairs.push_back({static_cast<Solver::Id>(a - families.begin()),
+                                                     static_cast<Solver::Id>(b - families.begin()),
+                                                     pair.muStatic,
+                                                     pair.muDynamic});
+        }
     }
 
     // The sensors, a Dynamic or Static study's children, in the run's units:

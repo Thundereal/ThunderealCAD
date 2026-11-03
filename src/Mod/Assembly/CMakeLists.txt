@@ -33,6 +33,7 @@ set(Assembly_Scripts
     CommandCreateLoad.py
     CommandCreateBushing.py
     CommandCreateContact.py
+    ContactFriction.json
     SimulationTrace.py
     SimulationGltf.py
     CommandCreateSnapshot.py

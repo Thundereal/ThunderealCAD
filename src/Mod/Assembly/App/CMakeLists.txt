@@ -130,6 +130,8 @@ SET(Assembly_SRCS
     AssemblyGroup.h
     Grounding.cpp
     Grounding.h
+    ContactFriction.cpp
+    ContactFriction.h
     ContactGeometry.cpp
     ContactGeometry.h
     ContactShapes.cpp

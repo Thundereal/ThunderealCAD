@@ -122,4 +122,8 @@ AssemblyExport Elasticity defaultElasticity();
 /// material gives none
 AssemblyExport Elasticity elasticityOf(App::DocumentObject* component);
 
+/// The shape features a component is made of, as its mass is: itself, what
+/// a link links to, or a container's children
+AssemblyExport std::vector<App::DocumentObject*> shapeFeaturesOf(App::DocumentObject* component);
+
 }  // namespace Assembly

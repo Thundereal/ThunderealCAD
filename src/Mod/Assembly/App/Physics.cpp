@@ -647,6 +647,7 @@ PROPERTY_SOURCE(Assembly::ContactSet, Assembly::PhysicsItem)
 const char* ContactSet::StiffnessFromEnums[] = {"Materials", "Value", "Penetration", nullptr};
 const char* ContactSet::RadiusFromEnums[] = {"Patch", "Part", nullptr};
 const char* ContactSet::DampingFromEnums[] = {"Restitution", "Value", nullptr};
+const char* ContactSet::FrictionFromEnums[] = {"Materials", "Value", nullptr};
 
 ContactSet::ContactSet()
 {
@@ -723,6 +724,16 @@ ContactSet::ContactSet()
                       "Contact",
                       App::Prop_None,
                       "The penetration at which the damping is whole");
+    ADD_PROPERTY_TYPE(FrictionFrom,
+                      (0L),
+                      "Contact",
+                      App::Prop_None,
+                      "Materials: StaticFriction and DynamicFriction by the pair of the "
+                      "components' materials, from the friction table (Mod/Assembly/"
+                      "ContactFriction.json, and the user's of that name in their Assembly "
+                      "folder); as given where the table has not the pair or a component has "
+                      "no material.\nValue: StaticFriction and DynamicFriction as given.");
+    FrictionFrom.setEnums(FrictionFromEnums);
     ADD_PROPERTY_TYPE(StaticFriction,
                       (0.3),
                       "Contact",
@@ -757,10 +768,12 @@ ContactSet::ContactSet()
 
 void ContactSet::Restore(Base::XMLReader& reader)
 {
-    // Saved before StiffnessFrom and DampingFrom: the set's file has
-    // neither, and its stiffness and damping were the ones it ran with
+    // Saved before StiffnessFrom, DampingFrom or FrictionFrom: the set's
+    // file has not them, and its stiffness, damping and friction were the
+    // ones it ran with
     StiffnessFrom.setValue("Value");
     DampingFrom.setValue("Value");
+    FrictionFrom.setValue("Value");
     PhysicsItem::Restore(reader);
 }
 
@@ -781,6 +794,7 @@ CamContact::CamContact()
                       "taken to start on");
     // A curve has no width for Hertz's law: by an allowance; a roller rolls
     StiffnessFrom.setValue("Penetration");
+    FrictionFrom.setValue("Value");
     StaticFriction.setValue(0.0);
     DynamicFriction.setValue(0.0);
     for (App::Property* unused : {static_cast<App::Property*>(&GroupA),
@@ -808,6 +822,7 @@ ProfileContact::ProfileContact()
     // A profile has no width for Hertz's law: by an allowance; a mechanism's
     // pieces slide or roll as they are lubricated
     StiffnessFrom.setValue("Penetration");
+    FrictionFrom.setValue("Value");
     StaticFriction.setValue(0.0);
     DynamicFriction.setValue(0.0);
     for (App::Property* unused : {static_cast<App::Property*>(&GroupA),

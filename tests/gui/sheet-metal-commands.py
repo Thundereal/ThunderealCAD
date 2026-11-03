@@ -9,7 +9,8 @@
   - Extend Wall on a selected end of a wall carries it out;
   - Flatten draws the active body's sheet laid flat while it is on, picked
     and selected by the flat's element names, and Export Flat is offered for
-    it with nothing selected;
+    it with nothing selected; the solid's Sheet View draws it flat, folded or
+    both, the flat moved by its Flat Offset;
   - the solid body holding the sheet has the sheet metal overlay on its icon;
   - a double-click on it makes it active, which offers the tool bar, and a
     second lets it go and takes the tool bar away;
@@ -504,6 +505,127 @@ def run():
             sel and [(s.ObjectName, s.SubElementNames) for s in sel],
         )
         FreeCADGui.Selection.clearSelection()
+
+        # What is drawn while Flatten is on: the solid's Sheet View, the flat
+        # moved by its Flat Offset (docs/SheetMetal.md sec 12)
+        svo = solid.ViewObject
+        check(
+            "the solid's Sheet View offers Flat, Folded and Both, Flat at first, shown",
+            getattr(svo, "SheetView", None) == "Flat"
+            and svo.getEnumerationsOfProperty("SheetView") == ["Flat", "Folded", "Both"]
+            and "Hidden" not in svo.getPropertyStatus("SheetView")
+            and "Hidden" not in svo.getPropertyStatus("FlatOffset"),
+            hasattr(svo, "SheetView") and (svo.SheetView, svo.getPropertyStatus("SheetView")),
+        )
+        flatBox = box
+        svo.SheetView = "Folded"
+        pump()
+        box = flange.ViewObject.getBoundingBox()
+        check(
+            "Folded: the tip drawn as it is, Flatten still on, its values kept",
+            solid.Flatten
+            and solid.FlatArea.Value > 0
+            and abs(box.ZLength - folded.ZLength) < 1e-3
+            and abs(box.XLength - folded.XLength) < 1e-3,
+            (solid.Flatten, box, folded),
+        )
+        # the flat moved clear of the folded part along X
+        shift = folded.XMax - flatBox.XMin + 10
+        svo.FlatOffset = FreeCAD.Vector(shift, 0, 0)
+        svo.SheetView = "Both"
+        pump()
+        box = flange.ViewObject.getBoundingBox()
+        moved = FreeCAD.BoundBox(flatBox)
+        moved.move(FreeCAD.Vector(shift, 0, 0))
+        both = FreeCAD.BoundBox(folded)
+        both.add(moved)
+        check(
+            "Both: the bounds the folded part's and the moved flat's",
+            all(
+                abs(getattr(box, k) - getattr(both, k)) < 1e-3
+                for k in ("XMin", "XMax", "YMin", "YMax", "ZMin", "ZMax")
+            ),
+            (box, both),
+        )
+        # the tip alone shown while picked: an earlier feature of the sheet
+        # draws its flat where the tip's lies
+        others = [
+            o for o in body.Group if o != flange and o.ViewObject and o.ViewObject.Visibility
+        ]
+        for o in others:
+            o.ViewObject.Visibility = False
+        view.fitAll()
+        pump()
+
+        def pickOn(faces, move, prefix):
+            # the first pick on one of the faces naming an element of the tip
+            # so named: another feature shown may lie in front of a point
+            last = None
+            for face in faces:
+                u0, u1, v0, v1 = face.ParameterRange
+                for fu in (0.5, 0.3, 0.7, 0.2, 0.8):
+                    for fv in (0.5, 0.3, 0.7, 0.2, 0.8):
+                        p = face.valueAt(u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv)
+                        if not face.isInside(p, 1e-6, True):
+                            continue
+                        x, y = view.getPointOnScreen(p + move)
+                        info = view.getObjectInfo((int(x), int(y)))
+                        if info:
+                            last = info
+                            if info.get("Object") == flange.Name and str(
+                                info.get("Component", "")
+                            ).startswith(prefix):
+                                return info
+            return last
+
+        hit = pickOn([top], FreeCAD.Vector(shift, 0, 0), "FlatFace")
+        check(
+            "Both: the moved flat picked names FlatFace",
+            hit is not None
+            and hit.get("Object") == flange.Name
+            and str(hit.get("Component", "")).startswith("FlatFace"),
+            hit,
+        )
+        hit = pickOn(
+            sorted(flange.Shape.Faces, key=lambda f: -f.Area), FreeCAD.Vector(), "Face"
+        )
+        check(
+            "and the folded part picked names its Face",
+            hit is not None
+            and hit.get("Object") == flange.Name
+            and str(hit.get("Component", "")).startswith("Face"),
+            hit,
+        )
+        # (the tip last: a feature shown may hide the others of its solid)
+        for o in others:
+            o.ViewObject.Visibility = True
+        flange.ViewObject.Visibility = True
+        pump()
+        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, "FlatFace1")
+        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, "Face1")
+        sel = FreeCADGui.Selection.getSelectionEx("", 0)
+        check(
+            "Both: FlatFace1 and Face1 selected together",
+            len(sel) == 1
+            and len(sel[0].SubObjects) == 2
+            and sel[0].SubObjects[0].isPartner(laid.Faces[0])
+            and sel[0].SubObjects[1].isPartner(flange.Shape.Faces[0]),
+            sel and [(s.ObjectName, s.SubElementNames) for s in sel],
+        )
+        FreeCADGui.Selection.clearSelection()
+        svo.SheetView = "Flat"
+        pump()
+        box = flange.ViewObject.getBoundingBox()
+        check(
+            "Flat: the flat alone, moved by Flat Offset",
+            all(
+                abs(getattr(box, k) - getattr(moved, k)) < 1e-3
+                for k in ("XMin", "XMax", "YMin", "YMax", "ZMin", "ZMax")
+            ),
+            (box, moved),
+        )
+        svo.FlatOffset = FreeCAD.Vector()
+        pump()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 0)
         pump()
         # the button follows the solid where the command is asked, as the

@@ -1211,6 +1211,19 @@ the bend table's per-bend override of M4):
   the rule's is used. Turned off, `BendRadius` starts at the rule's. A radius of 0 is refused.
   The hem keeps its own `Radius`.
 
+**Ruled 2026-11-03, the flat as a view, not a feature** (replaces 4.7's separate feature and
+8.2's first two items):
+- Every sheet metal feature lays itself flat when asked, not on each recompute: from its own
+  shape and sheet model, cached until it recomputes, not saved. Shown by a toggle on the feature
+  or on the sheet's solid, which shows its tip's flat.
+- The flat's settings are the sheet's, on its solid, not one flat's: the root, chosen by the
+  wall's name (`Wall1`) so every feature's flat finds it; the alignment, the grain and the
+  tangent lines.
+- `PartDesign::SheetMetalFlatPattern` is retired. What a bill of materials takes (the flat's
+  size, area, bend count, ...) are read-only values of the solid, from its tip; the flat is a
+  sub-object (`Solid.Flat`, `Flange001.Flat`) for a drawing and for links; DXF and SVG export
+  from a feature or the solid. The flange handles stay as 8.2 has them.
+
 **Ruled 2026-11-02, M2's contour flange:**
 - Its own feature, as sec 5.1 lists it, sharing the flange's code: the gaps, the wall cut back under
   it with its relief, and the miters.

@@ -13,7 +13,9 @@
 // a value returned with it, which Python turns into SystemError ("returned
 // a result with an exception set"), the real exception only its cause --
 // and that took the module's own IOError for an unknown file type with it.
-// Each case runs in Python and fails the run on the wrong type.
+// Each case runs in Python and fails the run on the wrong type -- or on a
+// document the failed call left open (entry 251: insert made one before it
+// looked at the file, and each test's process left its transient directory).
 
 class ImportErrorsTest: public ::testing::Test
 {
@@ -31,14 +33,19 @@ protected:
             "import os, tempfile, FreeCAD, Part, Import\n"
             "_ie_tmp = tempfile.mkdtemp(prefix='fc_import_errors_')\n"
             "def _ie_raises(fn, kind):\n"
+            "    before = set(FreeCAD.listDocuments())\n"
             "    try:\n"
             "        fn()\n"
             "    except kind:\n"
-            "        return\n"
+            "        pass\n"
             "    except Exception as e:\n"
             "        raise AssertionError('raised %s, not %s: %s'\n"
             "                             % (type(e).__name__, kind.__name__, e))\n"
-            "    raise AssertionError('raised nothing, not ' + kind.__name__)\n");
+            "    else:\n"
+            "        raise AssertionError('raised nothing, not ' + kind.__name__)\n"
+            "    made = set(FreeCAD.listDocuments()) - before\n"
+            "    if made:\n"
+            "        raise AssertionError('left a document open: %s' % sorted(made))\n");
     }
 
     static void expectRaises(const char* call, const char* kind)

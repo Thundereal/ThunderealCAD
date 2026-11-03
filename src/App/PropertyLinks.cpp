@@ -3835,7 +3835,7 @@ bool isOwnFile(const DocumentObject* owner, const std::string& file)
 {
     const std::string own = ownFileOf(owner);
     return !own.empty() && !file.empty()
-        && FileHistory::canonicalPath(own) == FileHistory::canonicalPath(file);
+        && FileHistory::samePath(own, file);
 }
 
 } // namespace
@@ -5145,11 +5145,10 @@ void PropertyXLink::setPlainFile(const std::string& path)
 std::vector<PropertyXLink*> PropertyXLink::getPinsTo(const std::string& path)
 {
     std::vector<PropertyXLink*> pins;
-    const std::string file = FileHistory::canonicalPath(path);
     for (auto& v : _DocInfoMap) {
         if (!v.second || !v.second->version)
             continue;
-        if (FileHistory::canonicalPath(v.second->myPath) != file)
+        if (!FileHistory::samePath(v.second->myPath, path))
             continue;
         pins.insert(pins.end(), v.second->links.begin(), v.second->links.end());
     }

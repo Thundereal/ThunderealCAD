@@ -1470,8 +1470,8 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
     _folderTrack.pending = out.saveId;
     _folderTrack.pendingCopy = Base::Uuid::createUuid();
     std::unique_ptr<TransactionStore> copy;
-    if (recorded && !was.saveId.empty() && was.folder == folder && !previous.empty()
-            && Base::FileInfo(previous).exists()) {
+    if (recorded && !was.saveId.empty() && FileHistory::samePath(was.folder, folder)
+            && !previous.empty() && Base::FileInfo(previous).exists()) {
         try {
             if (!Base::FileInfo(previous).copyTo(target.c_str()))
                 THROWM(Base::FileException, "cannot copy", previous.c_str())
@@ -1571,7 +1571,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
 
 void TransactionLogCore::folderSaved(const std::string& folder, const std::string& saveId)
 {
-    if (_folderTrack.folder == folder && _folderTrack.pending == saveId) {
+    if (FileHistory::samePath(_folderTrack.folder, folder) && _folderTrack.pending == saveId) {
         _folderTrack.saveId = saveId;
         _folderTrack.copyId = _folderTrack.pendingCopy;
         _folderTrack.pending.clear();

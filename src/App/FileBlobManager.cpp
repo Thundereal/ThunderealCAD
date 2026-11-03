@@ -1867,7 +1867,7 @@ void FileBlobManager::beginRestore(Base::XMLReader& reader)
                 inPlace = _inPlaceDir;
             }
             restoreFromDirectory(dir + "/" + archivePrefix(),
-                                 !inPlace.empty() && FileHistory::canonicalPath(dir) == inPlace);
+                                 !inPlace.empty() && FileHistory::samePath(dir, inPlace));
             return;
         }
     }

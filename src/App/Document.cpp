@@ -6156,11 +6156,10 @@ namespace {
 /// a folder's blob files -- and its history is the file's one (27.5).
 void refuseOtherDocumentOfFile(const Document* self, const std::string& file)
 {
-    const std::string canonical = FileHistory::canonicalPath(file);
     for (auto doc : GetApplication().getDocuments()) {
         if (doc != self && !doc->testStatus(Document::VersionDoc)
                 && !doc->testStatus(Document::TempDoc) && doc->FileName.getStrValue().size()
-                && FileHistory::canonicalPath(doc->FileName.getStrValue()) == canonical)
+                && FileHistory::samePath(doc->FileName.getStrValue(), file))
             THROWM(Base::FileException, (std::string("document ") + doc->Label.getValue()
                                             + " has '" + file + "' open: close it first").c_str());
     }
@@ -6905,6 +6904,18 @@ bool Document::saveToFile(const char* filename) const
 
     //realpath is canonical filename i.e. without symlink
     std::string nativePath = canonical_path(realfile);
+#ifdef FC_OS_WIN32
+    // std::filesystem's canonical form makes an 8.3 short name long, where
+    // FileName and everything read from the file (blob paths, the folder
+    // the history follows) keep the short one: the same file, written by the
+    // spelling it was given, or the folder save keeps nothing and copies in
+    // nothing it takes away (TransactionLogJournal.md sec 38.12).
+    if (FileHistory::samePath(realfile, nativePath)) {
+        const QString given =
+            QDir::cleanPath(QFileInfo(QString::fromUtf8(realfile)).absoluteFilePath());
+        nativePath = QDir::toNativeSeparators(given).toUtf8().constData();
+    }
+#endif
 
     // make a tmp. file where to save the project data first and then rename to
     // the actual file name. This may be useful if overwriting an existing file
@@ -7056,7 +7067,9 @@ bool Document::saveToFile(const char* filename) const
     // Blobs read in place belong to the document's folder (sec 38.9): a save
     // that makes the document another file points them at its folder, or
     // copies them in for an archive. A copy saved elsewhere changes nothing.
-    if (FileHistory::canonicalPath(FileName.getStrValue()) == FileHistory::canonicalPath(nativePath)) {
+    // The document's own file however it is spelled: FileName may keep an
+    // 8.3 short name where the writer's path is long.
+    if (FileHistory::samePath(FileName.getStrValue(), nativePath)) {
         getFileBlobManager().settleInPlace(archive ? std::string() : nativePath);
         // What the next save of the folder keeps from (sec 38.12).
         d->folderLast = archive ? DocumentP::FolderState() : d->folderNext;
@@ -7251,7 +7264,8 @@ void Document::save(Base::Writer &writer, bool archive) const {
         const auto& last = d->folderLast;
         std::set<long> changed;
         std::set<long> changedViews;
-        if (last.folder == d->folderNext.folder && last.options == d->folderNext.options
+        if (FileHistory::samePath(last.folder, d->folderNext.folder)
+                && last.options == d->folderNext.options
                 && last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp)
                 && log->hasVersion(last.version)
                 && log->objectsChangedSince(last.seq, changed, &changedViews)) {
@@ -7269,7 +7283,7 @@ void Document::save(Base::Writer &writer, bool archive) const {
         }
         else if (!last.folder.empty()) {
             FC_LOG("save " << getName() << ": nothing kept, folder "
-                   << (last.folder == d->folderNext.folder) << ", options "
+                   << FileHistory::samePath(last.folder, d->folderNext.folder) << ", options "
                    << (last.options == d->folderNext.options) << ", stamp "
                    << (last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp))
                    << ", version " << log->hasVersion(last.version));
@@ -7408,8 +7422,7 @@ void Document::restore (const char *filename,
                 blobs->readInPlace(std::string());
         }
     } inPlaceGuard;
-    if (folder && FileHistory::canonicalPath(filename)
-                      == FileHistory::canonicalPath(FileName.getStrValue())) {
+    if (folder && FileHistory::samePath(filename, FileName.getStrValue())) {
         // FC_FOLDER_BLOBS_COPY copies them as before, for measuring.
         inPlaceGuard.blobs = &getFileBlobManager();
         if (!std::getenv("FC_FOLDER_BLOBS_COPY"))
@@ -9578,7 +9591,8 @@ void Document::_saveFolderHistory(const std::string& file, std::string xml,
     // Only a folder this document last wrote stays one it keeps from: one
     // another process saved since is not, whatever this commit does to it
     // (sec 38.21 F5).
-    const bool ours = d->folderLast.folder == native && d->folderLast.stamp.valid()
+    const bool ours = FileHistory::samePath(d->folderLast.folder, native)
+        && d->folderLast.stamp.valid()
         && DiskStamp::of(native).sameAs(d->folderLast.stamp);
     FolderSave::commit(native, removals);
     stageGuard.done = true;
@@ -15234,7 +15248,7 @@ ForkSource openFork(const std::shared_ptr<FileHistory>& mine, const std::string&
     if (!FileHistory::savedAs(path, fork.saved, &reason))
         THROWM(Base::RuntimeError, "cannot read '" + path + "': " + reason);
     if (!mine->path().empty()
-            && FileHistory::canonicalPath(path) == FileHistory::canonicalPath(mine->path()))
+            && FileHistory::samePath(path, mine->path()))
         THROWM(Base::ValueError, "'" + path + "' is this document's own file");
     // No history: a state, and the save it names (sec 30.19).
     if (!fork.saved.history)

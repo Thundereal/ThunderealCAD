@@ -1599,28 +1599,30 @@ void ToolTip::onShowTimer()
         } else if (!parent)
             return;
         else {
-            pos = parent->mapFromGlobal(this->w->mapToGlobal(QPoint()));
-            auto size = this->w->size();
+            // In the view's own coordinates, this->pos the corner's offsets.
+            // (It was worked in the label's parent's, into this->pos itself,
+            // so that a top left corner stood at twice the view's origin.)
+            const QSize size = this->w->size();
+            const QSize tipSize = tipLabel->size();
+            QPoint at;
             switch(this->corner) {
             case TopLeft:
-                pos += this->pos;
+                at = this->pos;
                 break;
             case TopRight:
-                pos.setX(pos.x() + size.width() - tipLabel->width() - this->pos.x());
-                pos.setY(pos.y() + this->pos.y());
+                at = QPoint(size.width() - tipSize.width() - this->pos.x(), this->pos.y());
                 break;
             case BottomLeft:
-                pos.setX(pos.x() + this->pos.x());
-                pos.setY(pos.y() + size.height() - tipLabel->height() - this->pos.y());
+                at = QPoint(this->pos.x(), size.height() - tipSize.height() - this->pos.y());
                 break;
             case BottomRight:
-                pos.setX(pos.x() + size.width() - tipLabel->width() - this->pos.x());
-                pos.setY(pos.y() + size.height() - tipLabel->height() - this->pos.y());
+                at = QPoint(size.width() - tipSize.width() - this->pos.x(),
+                            size.height() - tipSize.height() - this->pos.y());
                 break;
             default:
                 break;
             }
-            tipLabel->move(pos);
+            tipLabel->move(parent->mapFromGlobal(this->w->mapToGlobal(at)));
         }
         hideQtToolTips();
         if (_TipLabel && _TipLabel != tipLabel)

@@ -12,15 +12,55 @@
 # 19 + BA + 9 long flat, where BA is pi / 2 * 1.5.
 
 import math
+import os
+import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 import FreeCAD
 import Part
+import PartDesign
 
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
 VALUES = ("FlatLength", "FlatWidth", "FlatArea", "Thickness", "MaterialName", "BendCount",
           "MaxBendAngle", "BendDirections", "FlatStatus")
+
+
+def readDXF(path):
+    """The entities of a DXF file: (type, layer, {code: [value]})"""
+    with open(path) as f:
+        lines = [line.strip() for line in f]
+    entities, current, inside = [], None, False
+    for code, value in zip(lines[0::2], lines[1::2]):
+        if code == "2" and value == "ENTITIES":
+            inside = True
+            continue
+        if not inside:
+            continue
+        if code == "0":
+            if current:
+                entities.append(current)
+            current = None if value in ("ENDSEC", "EOF", "SEQEND") else [value, "", {}]
+            if value == "ENDSEC":
+                inside = False
+        elif current is not None:
+            if code == "8":
+                current[1] = value
+            else:
+                current[2].setdefault(code, []).append(value)
+    return entities
+
+
+def readSVG(path):
+    """The layers of an SVG: {id: [(tag, attributes, text)]}, and the root's
+    attributes"""
+    root = ET.parse(path).getroot()
+    layers = {}
+    for g in root.iter("{http://www.w3.org/2000/svg}g"):
+        if g.get("id"):
+            layers[g.get("id")] = [(c.tag.split("}")[1], c.attrib, c.text) for c in g]
+    return layers, root.attrib
 
 
 def flatOf(obj):
@@ -232,6 +272,73 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertTrue(wall.getSubObject("Face1").isSame(wall.Shape.Faces[0]))
         sheet = self.Body.getSolidBody(wall)
         self.assertTrue(sheet.getSubObject("FlatFace1").isPartner(flat.Faces[0]))
+
+    def exported(self, obj, suffix):
+        path = os.path.join(tempfile.mkdtemp(), "flat" + suffix)
+        PartDesign.exportFlat(obj, path)
+        return path
+
+    def testExportDXF(self):
+        """A feature's flat, or the solid's (its tip's), written as DXF, by
+        the file's suffix: the outline as large as the flat, the bend line on
+        its direction's layer, labelled; the sheet's tangent lines with it"""
+        wall = self.L()
+        sheet = self.Body.getSolidBody(wall)
+        for obj in (wall, sheet):
+            ents = readDXF(self.exported(obj, ".dxf"))
+            outline = [e for e in ents if e[1] == "OUTLINE"]
+            self.assertEqual({e[0] for e in outline}, {"LINE"})
+            self.assertEqual(len(outline), 4)
+            xs = [float(x) for e in outline for x in e[2]["10"] + e[2]["11"]]
+            ys = [float(y) for e in outline for y in e[2]["20"] + e[2]["21"]]
+            size = sorted([max(xs) - min(xs), max(ys) - min(ys)])
+            self.assertAlmostEqual(size[0], 15, places=6)
+            self.assertAlmostEqual(size[1], 19 + BA + 9, places=6)
+            bends = [e for e in ents if e[1] in ("BEND_UP", "BEND_DOWN") and e[0] == "LINE"]
+            self.assertEqual(len(bends), 1)
+            labels = [e[2]["1"][0] for e in ents if e[1] == "LABELS" and e[0] == "TEXT"]
+            self.assertEqual(labels, ["Bend1"])
+            self.assertEqual([e for e in ents if e[1] == "BEND_TANGENT"], [])
+        sheet.TangentLines = True
+        self.Doc.recompute()
+        ents = readDXF(self.exported(wall, ".DXF"))
+        self.assertEqual(len([e for e in ents if e[1] == "BEND_TANGENT"]), 2)
+
+    def testExportSVG(self):
+        """The same as SVG: the layers as groups, the drawing as large as the
+        flat, in mm"""
+        wall = self.L()
+        sheet = self.Body.getSolidBody(wall)
+        layers, root = readSVG(self.exported(sheet, ".svg"))
+        self.assertEqual([e[0] for e in layers["OUTLINE"]], ["line"] * 4)
+        self.assertEqual(len(layers.get("BEND_UP", []) + layers.get("BEND_DOWN", [])), 1)
+        size = sorted(float(v) for v in root["viewBox"].split()[2:])
+        self.assertAlmostEqual(size[0], 15, places=6)
+        self.assertAlmostEqual(size[1], 19 + BA + 9, places=6)
+        self.assertTrue(root["width"].endswith("mm"), root)
+
+    def testExportRefused(self):
+        """Refused, saying why: a file neither .dxf nor .svg; a feature that
+        does not lie flat; one of no sheet. Nothing written"""
+        wall = self.L()
+        sheet = self.Body.getSolidBody(wall)
+        folder = tempfile.mkdtemp()
+        with self.assertRaisesRegex(ValueError, "dxf or .svg"):
+            PartDesign.exportFlat(wall, os.path.join(folder, "flat.txt"))
+        sheet.FlatRoot = "Wall9"
+        self.Doc.recompute()
+        with self.assertRaisesRegex(ValueError, "Wall9"):
+            PartDesign.exportFlat(wall, os.path.join(folder, "flat.dxf"))
+        other = self.Doc.addObject("PartDesign::Body", "Other")
+        sketch = other.newObject("Sketcher::SketchObject", "Square")
+        for a, b in (((0, 0), (5, 0)), ((5, 0), (5, 5)), ((5, 5), (0, 5)), ((0, 5), (0, 0))):
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        pad = other.newObject("PartDesign::Pad", "Pad")
+        pad.Profile = sketch
+        self.Doc.recompute()
+        with self.assertRaisesRegex(ValueError, "sheet"):
+            PartDesign.exportFlat(pad, os.path.join(folder, "flat.dxf"))
+        self.assertEqual(os.listdir(folder), [])
 
     def testSettings(self):
         """The solid's grain and tangent lines are every feature's flat's"""

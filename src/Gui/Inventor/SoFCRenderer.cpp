@@ -421,6 +421,19 @@ public:
   bool notexture;
   bool depthwriteonly;
   bool hlwholeontop = false;
+  // Entry 243 ("highlighted line always render on top with the highest
+  // priority, preselection higher then selection"): the plain lines in
+  // front of a highlighted one mark the stencil (linemark), and the
+  // highlighted line is drawn again over that mark without the depth
+  // test (overlines) -- over every line, still under a face in front.
+  bool linemark = false;
+  bool overlines = false;
+  SbFCVector<std::size_t> marklines;
+  bool markLines(SoGLRenderAction * action, bool selection);
+  void renderOverLines(SoGLRenderAction * action,
+                       SbFCVector<DrawEntry> & draw_entries,
+                       SbFCVector<std::size_t> & indices,
+                       int pass);
 
   bool shadowrenderpaused = false;
   bool shadowrendering = false;
@@ -840,6 +853,18 @@ SoFCRendererP::applyMaterial(SoGLRenderAction * action,
     if (ViewParams::getSelectionPointMaxSize() > 1.0)
       w = std::min<float>(w, std::max<float>(pointsize, ViewParams::getSelectionPointMaxSize()));
     pointsize = w;
+  }
+
+  if (this->linemark) {
+    // where this plain line is the front-most thing drawn (entry 243)
+    depthtest = true;
+    depthfunc = SoDepthBuffer::EQUAL;
+    depthwrite = false;
+  }
+  else if (this->overlines) {
+    // over the plain lines the mark found in front of it (entry 243)
+    depthtest = false;
+    depthwrite = false;
   }
 
   bool update_depth = false;
@@ -2648,6 +2673,89 @@ SoFCRendererP::renderOpaque(SoGLRenderAction * action,
   }
 }
 
+// The stencil bit the plain lines in front of a highlighted one mark: the
+// top one, clear of the low bits the outline and section cap passes use.
+static const GLuint LineMarkBit = 0x80;
+
+bool
+SoFCRendererP::markLines(SoGLRenderAction * action, bool selection)
+{
+  // Without a stencil the test passes everywhere: the copy would be drawn
+  // through solids too. Then the highlight stays as the depth test has it.
+  GLint stencilbits = 0;
+  glGetIntegerv(GL_STENCIL_BITS, &stencilbits);
+  if (stencilbits < 8)
+    return false;
+
+  // Only while the hidden part of a selected line is drawn solid: a dash
+  // pattern is the style of what is hidden, by a line or by a face, and its
+  // pass already draws it over everything (entry 243 b, the reporter: "if
+  // the hidden selection edge style does not override, i.e. shows solid
+  // edge, it should be shown on top")
+  if (ViewParams::getSelectionLinePattern() & 0xffff)
+    return false;
+
+  // With a highlighted line or point to draw, every plain line and point
+  // of the scene: an entry's bounds cannot rule one out (the origin's axes
+  // share one cached line).
+  const bool any = !this->opaquelineshighlight.empty()
+                   || !this->highlightlinesontop.empty()
+                   || (selection
+                       && (!this->selsfullontop.empty() || !this->selslineontop.empty()
+                           || !this->selspointontop.empty()));
+  if (!any)
+    return false;
+  this->marklines.clear();
+  for (std::size_t idx : this->opaquevcache) {
+    if (this->drawentries[idx].material->type != Material::Triangle)
+      this->marklines.push_back(idx);
+  }
+  if (this->marklines.empty())
+    return false;
+
+  // Where each is the front-most thing drawn: depth equal, no colour and
+  // no depth written, the bit set.
+  glEnable(GL_STENCIL_TEST);
+  glStencilMask(LineMarkBit);
+  glClearStencil(0);
+  glClear(GL_STENCIL_BUFFER_BIT);
+  glStencilFunc(GL_ALWAYS, LineMarkBit, LineMarkBit);
+  glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+  glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+  this->linemark = true;
+  this->recheckmaterial = true;
+  renderOpaque(action, this->drawentries, this->marklines, RenderPassNormal);
+  this->linemark = false;
+  this->recheckmaterial = true;
+  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+  glStencilMask(0xff);
+  glDisable(GL_STENCIL_TEST);
+  FC_GLERROR_CHECK;
+  return true;
+}
+
+void
+SoFCRendererP::renderOverLines(SoGLRenderAction * action,
+                               SbFCVector<DrawEntry> & draw_entries,
+                               SbFCVector<std::size_t> & indices,
+                               int pass)
+{
+  if (indices.empty())
+    return;
+  glEnable(GL_STENCIL_TEST);
+  glStencilMask(0);
+  glStencilFunc(GL_EQUAL, LineMarkBit, LineMarkBit);
+  glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+  this->overlines = true;
+  this->recheckmaterial = true;
+  renderOpaque(action, draw_entries, indices, pass);
+  this->overlines = false;
+  this->recheckmaterial = true;
+  glStencilMask(0xff);
+  glDisable(GL_STENCIL_TEST);
+  FC_GLERROR_CHECK;
+}
+
 void
 SoFCRendererP::renderTransparency(SoGLRenderAction * action,
                                   SbFCVector<DrawEntry> & draw_entries,
@@ -3196,6 +3304,10 @@ SoFCRenderer::render(SoGLRenderAction * action)
                                 pass);
   }
 
+  // Where a plain line is in front of a highlighted one (entry 243): each
+  // solid pass of a highlighted line is followed by its copy over the mark.
+  const bool overlines = PRIVATE(this)->markLines(action, hassel);
+
   if (hassel || hasontop || PRIVATE(this)->hlwholeontop) {
     // Second pass for rendering non-hidden lines/points. The depth test will
     // be enabled by applyMaterial() up on seeing this RenderPassLineSolid
@@ -3222,6 +3334,16 @@ SoFCRenderer::render(SoGLRenderAction * action)
                                   PRIVATE(this)->slentries,
                                   PRIVATE(this)->selslineontop,
                                   pass | RenderPassHighlight);
+      if (overlines) {
+        PRIVATE(this)->renderOverLines(action,
+                                       PRIVATE(this)->slentries,
+                                       PRIVATE(this)->selsfullontop,
+                                       pass | RenderPassHighlight);
+        PRIVATE(this)->renderOverLines(action,
+                                       PRIVATE(this)->slentries,
+                                       PRIVATE(this)->selslineontop,
+                                       pass | RenderPassHighlight);
+      }
     }
 
     if (PRIVATE(this)->hlwholeontop) {
@@ -3229,6 +3351,11 @@ SoFCRenderer::render(SoGLRenderAction * action)
                                   PRIVATE(this)->hlentries,
                                   PRIVATE(this)->opaquelineshighlight,
                                   pass | RenderPassHighlight);
+      if (overlines)
+        PRIVATE(this)->renderOverLines(action,
+                                       PRIVATE(this)->hlentries,
+                                       PRIVATE(this)->opaquelineshighlight,
+                                       pass | RenderPassHighlight);
     }
   }
 
@@ -3253,17 +3380,32 @@ SoFCRenderer::render(SoGLRenderAction * action)
                                 PRIVATE(this)->hlentries,
                                 PRIVATE(this)->opaquelineshighlight,
                                 RenderPassHighlight);
+    if (overlines)
+      PRIVATE(this)->renderOverLines(action,
+                                     PRIVATE(this)->hlentries,
+                                     PRIVATE(this)->opaquelineshighlight,
+                                     RenderPassHighlight);
   }
 
   PRIVATE(this)->renderOpaque(action,
                               PRIVATE(this)->slentries,
                               PRIVATE(this)->selspointontop,
                               RenderPassHighlight);
+  if (overlines)
+    PRIVATE(this)->renderOverLines(action,
+                                   PRIVATE(this)->slentries,
+                                   PRIVATE(this)->selspointontop,
+                                   RenderPassHighlight);
 
   PRIVATE(this)->renderOpaque(action,
                               PRIVATE(this)->hlentries,
                               PRIVATE(this)->highlightlinesontop,
                               RenderPassHighlight);
+  if (overlines)
+    PRIVATE(this)->renderOverLines(action,
+                                   PRIVATE(this)->hlentries,
+                                   PRIVATE(this)->highlightlinesontop,
+                                   RenderPassHighlight);
 
   PRIVATE(this)->renderSceneOutline(action);
 

@@ -31,6 +31,7 @@
 #include <QObject>
 #include <QPoint>
 #include <QPointer>
+#include <QSize>
 #include <QString>
 #include <fastsignals/signal.h>
 
@@ -323,9 +324,10 @@ private:
     /// its place says
     bool atHandle(int index) const;
     /// Where the label of the active value goes beside \a handle, in
-    /// viewport pixels; \a anchor when the handle cannot say where it stands
+    /// viewport pixels, for a label text of size \a text; \a anchor when the
+    /// handle cannot say where it stands
     SbVec2s handleLabelPixel(Gizmo* handle, const Base::Vector3d& anchor,
-                             EditableDatumLabel* label) const;
+                             const QSize& text) const;
     /// activeHandleChanged() for the handle now named, if not told yet
     void announceHandle();
     void setupHandle(int index, Gizmo* handle);

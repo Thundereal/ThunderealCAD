@@ -78,6 +78,7 @@
 #include <Gui/Utilities.h>
 #include <Gui/ViewerContext.h>
 #include <Gui/ViewParams.h>
+#include <Gui/Widgets.h>
 
 #include "SoLinearDragger.h"
 #include "SoLinearDraggerGeometry.h"
@@ -290,8 +291,63 @@ static SbColor litColor(const SbColor& own, bool selected, bool preselected)
 
 namespace
 {
-/// The handle the pointer is over, whose hint Qt's tool tip shows
+/// The handle the pointer is over, whose hint the tip shows
 Gizmo* tipHandle = nullptr;
+
+/** The handle's tip is Gui::ToolTip's (entry 246, the reporter: "the
+ * tooltip of each handle has a round rectangle border but show as rectangle
+ * widget shape, so the pointy corner looks bad"): the label the measure
+ * macro's preselection tip shows in, a child of the window whose shape is
+ * its border, here beside the pointer ("unlike preselection macro tooltip,
+ * those handle tooltip shall appeare near the mouser pointer").
+ */
+struct HandleTip
+{
+    QString text;
+    QPointer<QWidget> widget;
+
+    /// The label up now shows \a what
+    bool shows(const QString& what) const
+    {
+        if (what.isEmpty() || what != text || !widget) {
+            return false;
+        }
+        auto label = TipLabel::instance(widget, QPoint(), true);
+        return label && label->isVisible();
+    }
+    void show(const QPoint& global, const QString& what, QWidget* where)
+    {
+        text = what;
+        widget = where;
+        ToolTip::showText(global, what, where, true, ToolTip::NoCorner);
+    }
+    void hide(const QString& what)
+    {
+        if (shows(what)) {
+            ToolTip::hideText();
+        }
+        if (what == text) {
+            text.clear();
+        }
+    }
+    /// The label up now reads \a what instead, where it stands
+    void change(const QString& old, const QString& what)
+    {
+        if (!shows(old)) {
+            return;
+        }
+        text = what;
+        if (auto label = TipLabel::instance(widget, QPoint(), true)) {
+            label->set(what);
+        }
+    }
+};
+
+HandleTip& handleTip()
+{
+    static HandleTip tip;
+    return tip;
+}
 
 /** Answers Qt's own tool tip request -- the QEvent::ToolTip it sends to the
  * widget under a pointer that rests, after the style's delay, and again at
@@ -357,9 +413,7 @@ void Gizmo::restTip(const SbVec2s& pos)
         return;
     }
     tipHandle = this;
-    if (QToolTip::isVisible() && QToolTip::text() == menuToolTip) {
-        QToolTip::hideText();
-    }
+    handleTip().hide(menuToolTip);
     const int serial = ++tipSerial;
     std::weak_ptr<bool> life = alive;
     QPointer<QWidget> where(widget);
@@ -371,7 +425,7 @@ void Gizmo::restTip(const SbVec2s& pos)
             || !(hovered || isDragging())) {
             return;
         }
-        QToolTip::showText(where->mapToGlobal(local), menuToolTip, where);
+        handleTip().show(where->mapToGlobal(local), menuToolTip, where);
     });
 }
 
@@ -383,8 +437,8 @@ void Gizmo::setMenuToolTip(const QString& toolTip)
     const QString old = menuToolTip;
     menuToolTip = toolTip;
     // the tip or the hint up now, of this handle, reads anew
-    if (tipHandle == this && QToolTip::isVisible() && QToolTip::text() == old) {
-        QToolTip::showText(QCursor::pos(), toolTip);
+    if (tipHandle == this) {
+        handleTip().change(old, toolTip);
     }
     ViewerContext* view = hintView;
     if (view && !hintViewLife.expired() && view->hint() == old) {
@@ -410,9 +464,7 @@ void Gizmo::dropTip()
         return;
     }
     tipHandle = nullptr;
-    if (QToolTip::isVisible() && QToolTip::text() == menuToolTip) {
-        QToolTip::hideText();
-    }
+    handleTip().hide(menuToolTip);
 }
 
 void Gizmo::buildEventNode(SoNode* own)
@@ -531,9 +583,7 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
         self->menuPressed = over;
         if (over) {
             // no hint over the menu
-            if (QToolTip::isVisible() && QToolTip::text() == self->menuToolTip) {
-                QToolTip::hideText();
-            }
+            handleTip().hide(self->menuToolTip);
             self->dropViewHint();
             cb->setHandled();
             // No grabEvents() here. A navigation style can take the release

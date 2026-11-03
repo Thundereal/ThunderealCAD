@@ -2504,7 +2504,14 @@ bool Application::isBuildingVisuals() const
 
 bool Application::isLoadHeld()
 {
-    return QApplication::activeModalWidget() != nullptr;
+    // A question asked -- the migration prompt, the recompute error box
+    // (entry 242) -- and nothing being recomputed. Not any modal widget:
+    // the progress dialog of the recompute the migration prompt starts held
+    // the restore under that recompute, which then ran on objects not yet
+    // read in (one with no shape, not marked failed), the view black until
+    // its end and no error box after it (entry 247).
+    return qobject_cast<QMessageBox*>(QApplication::activeModalWidget()) != nullptr
+        && !App::Document::isAnyRecomputing();
 }
 
 MacroManager *Application::macroManager()

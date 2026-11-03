@@ -350,11 +350,21 @@ def axis():
     red = run
     note("INFO the X axis drawn in red at rest from x %s to %s" % (
         red and min(red), red and max(red)))
+    # where the XZ plane's edge lies on it: from the origin to the red run
+    # (entry 243, the reporter: "I thought highlighted line always render on
+    # top with the highest priority, preselection higher then selection")
+    # the axis's own line starts a little out from the origin
+    xaxis = [o for o in FreeCAD.ActiveDocument.Objects if o.Name.startswith("X_Axis")][0]
+    start = xaxis.ViewObject.getBoundingBox().XMin
+    ox = int(round(view().getPointOnScreen(FreeCAD.Vector(start, 0, 0))[0]))
+    under = list(range(ox + 3, min(red) - 2)) if red else []
+    note("INFO the axis's line starts at x %d; the plane's edge over it from x %s to %s" % (
+        ox, under and min(under), under and max(under)))
     move(*spot)
 
-    def along(img, rgb):
+    def along(img, rgb, cols=None):
         h = img.height()
-        cols = red
+        cols = red if cols is None else cols
         lit = 0
         for x in cols:
             if any(near_colour(img.pixel(x, h - 1 - row + dy), rgb) for dy in range(-3, 4)
@@ -362,8 +372,13 @@ def axis():
                 lit += 1
         return lit, len(cols)
 
-    lit, n = along(dump("5-axis-preselected"), colour("HighlightColor", 0xE1E114FF))
+    hl = colour("HighlightColor", 0xE1E114FF)
+    img = dump("5-axis-preselected")
+    lit, n = along(img, hl)
     check("the X axis preselected is in the preselection colour along its length",
+          n > 0 and lit >= 0.9 * n, "%d of %d columns" % (lit, n))
+    lit, n = along(img, hl, under)
+    check("... and where the XZ plane's edge lies on it: the highlight on top",
           n > 0 and lit >= 0.9 * n, "%d of %d columns" % (lit, n))
     win = mw().windowHandle()
     QtTest.QTest.mouseClick(win, Qt.LeftButton, Qt.NoModifier, to_window(*spot))
@@ -372,9 +387,22 @@ def axis():
     pump(0.5)
     sel = [o.Name for o in FreeCADGui.Selection.getSelection()]
     check("clicked, the X axis is selected", any(n.startswith("X_Axis") for n in sel), sel)
-    lit, n = along(dump("6-axis-selected"), colour("SelectionColor", 0x1CAD1CFF))
+    sc = colour("SelectionColor", 0x1CAD1CFF)
+    img = dump("6-axis-selected")
+    lit, n = along(img, sc)
     check("the X axis selected is in the selection colour along its length",
           n > 0 and lit >= 0.9 * n, "%d of %d columns" % (lit, n))
+    lit, n = along(img, sc, under)
+    check("... and where the XZ plane's edge lies on it: the selection on top",
+          n > 0 and lit >= 0.9 * n, "%d of %d columns" % (lit, n))
+    # selected and preselected again: the preselection over the selection
+    move(*spot)
+    pump(0.3)
+    img = dump("7-axis-selected-preselected")
+    lit, n = along(img, hl, red + under)
+    check("selected and preselected: the preselection colour over the selection's",
+          n > 0 and lit >= 0.9 * n, "%d of %d columns" % (lit, n))
+    move(5, 5)
     FreeCADGui.Selection.clearSelection()
 
 

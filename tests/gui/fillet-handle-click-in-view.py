@@ -47,6 +47,34 @@ state = {"done": False, "doc": DOC}
 seen_paths = []
 
 
+def tip_label():
+    """The handle's tip: Gui::ToolTip's rounded label (entry 246), shown"""
+    for w in QtWidgets.QApplication.allWidgets():
+        if w.objectName() == "fc_overlay_tiplabel" and w.isVisible():
+            return w
+    return None
+
+
+def tip_shown():
+    """A tip up: the handle's rounded label, or Qt's"""
+    return tip_label() is not None or QtWidgets.QToolTip.isVisible()
+
+
+def tip_text():
+    w = tip_label()
+    if w is not None:
+        labels = w.findChildren(QtWidgets.QLabel)
+        return labels[0].text() if labels else w.text()
+    return QtWidgets.QToolTip.text() if QtWidgets.QToolTip.isVisible() else ""
+
+
+def tip_hide():
+    w = tip_label()
+    if w is not None:
+        w.hide()
+    QtWidgets.QToolTip.hideText()
+
+
 def note(msg):
     with open(RESULT, "a", encoding="utf-8") as f:
         f.write(str(msg) + "\n")
@@ -271,7 +299,7 @@ def run():
         check("there is no button at the arrows' roots", "button" not in found, found)
 
         if "arrow" in found:
-            QtWidgets.QToolTip.hideText()
+            tip_hide()
             idle = arrow_colours()
             move_to(*found["arrow"])
             pump(5)
@@ -280,33 +308,40 @@ def run():
             check("the pointer over an arrow lights its value's arrows alike (entry 144)",
                   len(set(hovered)) == 1 and hovered != idle, (idle, hovered))
             check("the tool tip waits for its delay (entry 141)",
-                  not QtWidgets.QToolTip.isVisible())
+                  not tip_shown())
             # sampled while the pointer rests: once shown the tip stays. Qt's
             # own tool tip request, which nobody answered, took it down a
             # moment after it showed (r64)
             samples = []
             for _ in range(12):
                 pump(10)
-                samples.append(QtWidgets.QToolTip.isVisible())
+                samples.append(tip_shown())
             note("INFO the tip shown, every 100 ms of the rest: %s" % samples)
             shown = samples.index(True) if True in samples else len(samples)
             check("the tool tip stays while the pointer rests on the arrow (entry 141)",
                   shown < len(samples) and all(samples[shown:]), samples)
-            tip = QtWidgets.QToolTip.text()
+            tip = tip_text()
             note("INFO the tool tip over the arrow: %r" % tip)
             check("the pointer over an arrow shows a tool tip naming the right click",
-                  QtWidgets.QToolTip.isVisible() and "right" in tip.lower(), tip)
-            # moving over the arrow, a pixel at a time: the tool tip stays
+                  tip_shown() and "right" in tip.lower(), tip)
+            # moving over the arrow, a pixel at a time: as an ordinary tool
+            # tip, hidden while the pointer moves and back once it rests
+            # (entry 241, the reporter: "hide with some timer when mouse move
+            # and reappear with some tuner when mouse stop"); Qt's own tip
+            # answered shown through its fade, Gui::ToolTip's (entry 246)
+            # goes at once
             x, y = found["arrow"]
             trail = []
             for dx in (1, 2, 1, 0, -1):
                 move_to(x + dx, y)
-                trail.append((dx, QtWidgets.QToolTip.isVisible(), arrow_colours()[0]))
-            pump(40)
+                trail.append((dx, tip_shown(), arrow_colours()[0]))
+            pump(120)
             note("INFO moving over the arrow (dx, tip shown, an arrow's colour): %s; the cursor at %s"
                  % (trail, QtGui.QCursor.pos()))
-            check("moving over the arrow keeps the tool tip (entry 141)",
-                  QtWidgets.QToolTip.isVisible(), trail)
+            check("moving over the arrow, the arrow stays lit (entry 141)",
+                  all(t[2] == trail[0][2] for t in trail), trail)
+            check("resting on it again, the tool tip is back (entries 141, 241)",
+                  tip_shown(), trail)
 
             FreeCADGui.Selection.clearSelection()
             before = arrow_colours()

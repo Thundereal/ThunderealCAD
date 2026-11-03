@@ -7916,3 +7916,57 @@ TEST_F(TransactionLogTest, aCopyBroughtUpToDateHoldsWhatACopyMadeWholeDoes)
         Base::FileInfo(p + "-shm").deleteFile();
     }
 }
+
+#ifdef _WIN32
+# include <windows.h>
+
+// One folder by its 8.3 short name and by its long one is one file to
+// FileHistory::samePath, though canonicalPath keeps each spelling: a folder
+// save under a TEMP spelled with a short name (a user folder of more than
+// eight letters) never kept a file before (the writer hands the long form,
+// FileName keeps the short).
+TEST(FileHistorySamePath, aShortNameAndItsLongOneAreOneFile)
+{
+    namespace fs = std::filesystem;
+    // The test's temp may be on a volume that makes no 8.3 names: the
+    // user's own temp (on the system drive) is the other try.
+    std::vector<fs::path> bases {fs::temp_directory_path()};
+    if (const char* local = std::getenv("LOCALAPPDATA"))
+        bases.push_back(fs::path(local) / "Temp");
+    fs::path dir;
+    std::wstring longW;
+    std::wstring shortW;
+    for (const auto& base : bases) {
+        std::error_code ec;
+        const fs::path candidate = base / "fcad samepath long folder name";
+        fs::create_directories(candidate, ec);
+        if (ec)
+            continue;
+        std::wstring s(MAX_PATH, L'\0');
+        const DWORD n = GetShortPathNameW(candidate.wstring().c_str(), s.data(), MAX_PATH);
+        if (n > 0 && n < MAX_PATH) {
+            s.resize(n);
+            if (_wcsicmp(s.c_str(), candidate.wstring().c_str()) != 0) {
+                dir = candidate;
+                longW = candidate.wstring();
+                shortW = s;
+                break;
+            }
+        }
+        fs::remove_all(candidate, ec);
+    }
+    if (dir.empty())
+        GTEST_SKIP() << "no 8.3 name on these volumes";
+    const std::string longPath = fs::path(longW).string();
+    const std::string shortPath = fs::path(shortW).string();
+    EXPECT_NE(App::FileHistory::canonicalPath(longPath),
+              App::FileHistory::canonicalPath(shortPath));
+    EXPECT_TRUE(App::FileHistory::samePath(longPath, shortPath));
+    EXPECT_TRUE(App::FileHistory::samePath(shortPath, longPath));
+    // a file not there yet, under either spelling of its folder
+    EXPECT_TRUE(App::FileHistory::samePath(longPath + "\\New.FCStd", shortPath + "/New.FCStd"));
+    EXPECT_FALSE(App::FileHistory::samePath(longPath + "\\New.FCStd", shortPath + "\\Other.FCStd"));
+    EXPECT_FALSE(App::FileHistory::samePath(longPath, fs::temp_directory_path().string()));
+    fs::remove_all(dir);
+}
+#endif

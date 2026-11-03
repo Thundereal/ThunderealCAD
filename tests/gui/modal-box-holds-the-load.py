@@ -20,6 +20,11 @@ shown for two seconds. Claims:
   - no visual is built while the box is up, and the scene is still building
     when it goes;
   - once it has gone the load ends, every object with its visual.
+Then (entry 247: the recompute the migration prompt starts shows a modal
+progress dialog, which held the load -- the view black until its end, the
+restore under the recompute not done) the document is opened again under a
+modal progress dialog: only a question box holds the load, so visuals are
+built under it, and the load ends.
 """
 import os
 import time
@@ -135,8 +140,52 @@ def load():
         check("once the box has gone the load ends", not building)
         check("every object has its visual", made == len(doc.Objects),
               "%d of %d" % (made, len(doc.Objects)))
+        FreeCAD.closeDocument(doc.Name)
+        pump(1.0)
+        QtCore.QTimer.singleShot(500, load_under_progress)
+        return
     except Exception:
         note("ABORT load | " + traceback.format_exc().replace("\n", " | "))
+    finish()
+
+
+def load_under_progress():
+    """Entry 247: the recompute the migration prompt starts shows a modal
+    progress dialog, which held the load (the view black until the end, the
+    restore under the recompute not done). Only a question box holds it."""
+    try:
+        doc = FreeCAD.openDocument(PATH)
+        building = FreeCADGui.isBuildingVisuals()
+        note("INFO opened again: building %s, %d built" % (building, builds()))
+        if not building:
+            note("INFO the load ended before a dialog could come up")
+            return
+        progress = QtWidgets.QProgressDialog("Recomputing", "", 0, 0, FreeCADGui.getMainWindow())
+        progress.setWindowModality(QtCore.Qt.ApplicationModal)
+        seen = {}
+
+        def up():
+            seen["start"] = builds()
+            seen["modal"] = QtWidgets.QApplication.activeModalWidget() is progress
+            QtCore.QTimer.singleShot(int(BOX_SECONDS * 1000), down)
+
+        def down():
+            seen["end"] = builds()
+            progress.reset()
+            progress.close()
+
+        QtCore.QTimer.singleShot(100, up)
+        progress.exec()
+        note("INFO the progress dialog: %s" % seen)
+        check("the progress dialog was the modal widget", seen.get("modal"), seen)
+        check("a modal progress dialog does not hold the load: visuals built under it",
+              "start" in seen and seen["end"] > seen["start"], seen)
+        end = time.time() + 120
+        while FreeCADGui.isBuildingVisuals() and time.time() < end:
+            pump(0.2)
+        check("and the load ends", not FreeCADGui.isBuildingVisuals())
+    except Exception:
+        note("ABORT progress | " + traceback.format_exc().replace("\n", " | "))
     finally:
         finish()
 

@@ -13180,6 +13180,51 @@ class FolderSaveCases(unittest.TestCase):
         if was is not None:
             self.addCleanup(os.environ.__setitem__, "FC_FOLDER_SAVE_CHECK", was)
 
+    def testAFolderNamedByItsShortNameKeepsToo(self):
+        # Windows: a folder given by its 8.3 short name (a TEMP may be one)
+        # kept nothing, the save writing by the long name; and an open of it
+        # saved again kept nothing either.
+        import shutil
+        import sys
+
+        if sys.platform != "win32":
+            self.skipTest("8.3 names are Windows'")
+        import ctypes
+
+        self.noCheck()
+        base = os.path.join(os.environ.get("LOCALAPPDATA", self.dir), "Temp")
+        top = tempfile.mkdtemp(prefix="fc-folder-long-name-", dir=base)
+        self.addCleanup(shutil.rmtree, top, True)
+        buf = ctypes.create_unicode_buffer(1024)
+        n = ctypes.windll.kernel32.GetShortPathNameW(top, buf, 1024)
+        if not n or buf.value.lower() == top.lower():
+            self.skipTest("no 8.3 name on this volume")
+        path = os.path.join(buf.value, "Short")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("Short"))
+        doc.UndoMode = 1
+
+        def make(d):
+            for i in range(4):
+                d.addObject("Part::Box", "Box%d" % i)
+
+        self.edit(doc, "create", make)
+        doc.saveAs(path)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 4)
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+        self.assertTrue(doc.getLastSaveHistory()["updated"])
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 30))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+
     def testAnUnchangedObjectIsKeptAsTheFolderHasIt(self):
         # Sec 38.12 (S2b): the second save of a folder writes the objects the
         # log says changed and keeps the others' files; the log's version of

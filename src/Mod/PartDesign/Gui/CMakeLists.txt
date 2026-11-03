@@ -185,8 +185,6 @@ SET(PartDesignGuiTaskDlgs_SRCS
     TaskThickenParameters.h
     TaskSheetMetalParameters.cpp
     TaskSheetMetalParameters.h
-    TaskSheetMetalFlatPattern.cpp
-    TaskSheetMetalFlatPattern.h
     TaskSheetMetalRule.cpp
     TaskSheetMetalRule.h
     TaskThicknessParameters.h

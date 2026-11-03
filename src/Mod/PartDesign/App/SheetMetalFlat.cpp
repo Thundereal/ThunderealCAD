@@ -98,14 +98,12 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
         }
     }
 
+    // A feature lacking the edge (one before it, say) is laid flat unturned
     TopoDS_Edge alongX;
     if (!settings.alignEdge.empty()) {
         const TopoShape edge = folded.getSubTopoShape(settings.alignEdge.c_str(), /*silent*/ true);
         if (!edge.isNull() && edge.getShape().ShapeType() == TopAbs_EDGE) {
             alongX = TopoDS::Edge(edge.getShape());
-        }
-        else if (settings.alignRequired) {
-            THROWM(Base::ValueError, "The edge to lay the flat by is not an edge of the part");
         }
     }
 

@@ -50,7 +50,6 @@
 #include "AuxGroup.h"
 #include "ShapeBinder.h"
 #include "SolidBody.h"
-#include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetalExtension.h"
 
@@ -258,7 +257,6 @@ bool Body::isAllowed(const Base::Type &type)
             type.isDerivedFrom(PartDesign::Solid::getClassTypeId())   ||
             type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId()) ||
             type.isDerivedFrom(PartDesign::SheetMetalRule::getClassTypeId()) ||
-            type.isDerivedFrom(PartDesign::SheetMetalFlatPattern::getClassTypeId()) ||
             type.isDerivedFrom(Part::Part2DObject::getClassTypeId()) ||
             // the 3D sketch (docs/Sketch3D.md), by name: PartDesign does not link Sketcher
             type.isDerivedFrom(Base::Type::fromName("Sketcher::Sketch3DObject")) ||

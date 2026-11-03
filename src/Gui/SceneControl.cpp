@@ -947,7 +947,6 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("PartDesign_SheetMetalJog"),
         QStringLiteral("PartDesign_SheetMetalTab"),
         QStringLiteral("PartDesign_SheetMetalFlatten"),
-        QStringLiteral("PartDesign_SheetMetalFlatPattern"),
     };
     // Sketcher_External's three siblings start the same handler in another
     // flavour; pressed while a constraint tool runs, each switches that

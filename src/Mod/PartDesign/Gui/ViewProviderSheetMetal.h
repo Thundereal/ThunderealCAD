@@ -176,21 +176,6 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
-/// A flat pattern, its panel what it lays flat, its root face and the values
-/// a bill of materials takes; a double-click opens it
-class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart
-{
-    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalFlatPattern);
-
-public:
-    ViewProviderSheetMetalFlatPattern();
-    bool doubleClicked() override;
-
-protected:
-    bool setEdit(int ModNum) override;
-    void unsetEdit(int ModNum) override;
-};
-
 /// A sheet metal rule, its panel its card and values; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalRule: public PartGui::ViewProviderPart
 {

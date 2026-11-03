@@ -200,7 +200,6 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderSheetMetalFold::init();
     PartDesignGui::ViewProviderSheetMetalJog::init();
     PartDesignGui::ViewProviderSheetMetalTab::init();
-    PartDesignGui::ViewProviderSheetMetalFlatPattern::init();
     PartDesignGui::ViewProviderSheetMetalRule::init();
 
      // add resources and reloads the translators
@@ -227,7 +226,6 @@ PyMOD_INIT_FUNC(PartDesignGui)
              << "PartDesign_SheetMetalTab"
              << "Separator"
              << "PartDesign_SheetMetalFlatten"
-             << "PartDesign_SheetMetalFlatPattern"
              << "PartDesign_SheetMetalExportDXF";
     }}};
     sheetMetal.activeKey = "pdsheetmetal";

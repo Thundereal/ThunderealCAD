@@ -7,7 +7,9 @@
     the sketch hidden, and with it the rule; its panel opens, and OK closes it;
   - Flange on a selected edge of the wall's skin makes a flange there;
   - Extend Wall on a selected end of a wall carries it out;
-  - Flat Pattern makes the flat of the body's tip, not the body's tip itself;
+  - Flatten draws the active body's sheet laid flat while it is on, picked
+    and selected by the flat's element names, and Export Flat is offered for
+    it with nothing selected;
   - the solid body holding the sheet has the sheet metal overlay on its icon;
   - a double-click on it makes it active, which offers the tool bar, and a
     second lets it go and takes the tool bar away;
@@ -439,23 +441,9 @@ def run():
         )
         flange = cuts
 
-        before = [o.Name for o in doc.Objects]
-        FreeCADGui.Selection.clearSelection()
-        FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")
-        pump()
-        doc.recompute()
-        flat = newest(doc, before, "PartDesign::SheetMetalFlatPattern")
-        check(
-            "Flat Pattern makes the flat of the body's tip",
-            flat is not None and flat.Source == flange and "Invalid" not in flat.State,
-            flat and (flat.Source, flat.State),
-        )
-        check("and does not become the tip", body.Tip == flange)
-
         # Flatten: the active body's sheet drawn laid flat while it is on
         # (docs/SheetMetal.md sec 12)
         solid = body.getSolidBody(flange)
-        flat.ViewObject.Visibility = False
         cmd = FreeCADGui.Command.get("PartDesign_SheetMetalFlatten")
         view.setActiveObject("pdbody", body)
         pump()

@@ -31,18 +31,17 @@
 #include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
+#include <Gui/Action.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
 #include <Gui/CommandT.h>
 #include <Gui/FileDialog.h>
-#include <Gui/Action.h>
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
-#include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "Utils.h"
@@ -856,7 +855,7 @@ CmdPartDesignSheetMetalFlatten::CmdPartDesignSheetMetalFlatten()
                               "values (size, area, bends) up to date; again to fold it back");
     sWhatsThis = "PartDesign_SheetMetalFlatten";
     sStatusTip = sToolTipText;
-    sPixmap = "PartDesign_SheetMetalFlatPattern";
+    sPixmap = "PartDesign_SheetMetalFlatten";
 }
 
 void CmdPartDesignSheetMetalFlatten::activated(int iMsg)
@@ -894,73 +893,6 @@ Gui::Action* CmdPartDesignSheetMetalFlatten::createAction()
 }
 
 //===========================================================================
-// PartDesign_SheetMetalFlatPattern
-//===========================================================================
-
-DEF_STD_CMD_A(CmdPartDesignSheetMetalFlatPattern)
-
-CmdPartDesignSheetMetalFlatPattern::CmdPartDesignSheetMetalFlatPattern()
-    : Command("PartDesign_SheetMetalFlatPattern")
-{
-    sAppModule = "PartDesign";
-    sGroup = QT_TR_NOOP("PartDesign");
-    sMenuText = QT_TR_NOOP("Flat Pattern");
-    sToolTipText = QT_TR_NOOP("The sheet laid flat, live with the part: of the selected\n"
-                              "feature or the body's tip, from the selected wall face if any");
-    sWhatsThis = "PartDesign_SheetMetalFlatPattern";
-    sStatusTip = sToolTipText;
-    sPixmap = "PartDesign_SheetMetalFlatPattern";
-}
-
-void CmdPartDesignSheetMetalFlatPattern::activated(int iMsg)
-{
-    Q_UNUSED(iMsg);
-    PartDesign::Body* body = activeBody();
-    if (!body) {
-        return;
-    }
-    App::DocumentObject* source = body->Tip.getValue();
-    std::string root;
-    for (auto& sel : Gui::Selection().getSelectionEx()) {
-        auto obj = sel.getObject();
-        if (!obj || !body->hasObject(obj)) {
-            continue;
-        }
-        source = obj;
-        for (const auto& sub : sel.getSubNames()) {
-            if (boost::starts_with(sub, "Face")) {
-                root = sub;
-                break;
-            }
-        }
-        break;
-    }
-    if (!source) {
-        warn(QT_TR_NOOP("Nothing to lay flat"), QT_TR_NOOP("The body has no feature."));
-        return;
-    }
-    openCommand(QT_TRANSLATE_NOOP("Command", "Create Flat Pattern"));
-    auto feat = makeFeature(body, "PartDesign::SheetMetalFlatPattern", "FlatPattern");
-    if (!feat) {
-        abortCommand();
-        return;
-    }
-    Gui::cmdAppObject(feat, std::ostringstream() << "Source = " << getObjectCmd(source));
-    if (!root.empty()) {
-        Gui::cmdAppObject(feat,
-                          std::ostringstream()
-                              << "RootFace = (" << getObjectCmd(source) << ", ['" << root << "'])");
-    }
-    updateActive();
-    commitCommand();
-}
-
-bool CmdPartDesignSheetMetalFlatPattern::isActive()
-{
-    return hasActiveDocument();
-}
-
-//===========================================================================
 // PartDesign_SheetMetalExportDXF
 //===========================================================================
 
@@ -982,15 +914,12 @@ CmdPartDesignSheetMetalExportDXF::CmdPartDesignSheetMetalExportDXF()
 
 namespace
 {
-/// What Export Flat writes: a selected flat pattern, or feature or solid of
-/// a sheet, else the active body's sheet; null if none
+/// What Export Flat writes: a selected feature or solid of a sheet, else the
+/// active body's sheet; null if none
 App::DocumentObject* flatToExport()
 {
     for (auto& sel : Gui::Selection().getSelectionEx()) {
         auto obj = sel.getObject();
-        if (dynamic_cast<PartDesign::SheetMetalFlatPattern*>(obj)) {
-            return obj;
-        }
         auto solid = dynamic_cast<PartDesign::SolidBody*>(obj);
         if (!solid) {
             auto body = PartDesign::Body::findBodyOf(obj);
@@ -1029,12 +958,6 @@ void CmdPartDesignSheetMetalExportDXF::activated(int iMsg)
         path += QStringLiteral(".svg");
     }
     const std::string file = Base::Tools::escapeEncodeFilename(path.toStdString());
-    if (dynamic_cast<PartDesign::SheetMetalFlatPattern*>(flat)) {
-        Gui::cmdAppObject(flat,
-                          std::ostringstream() << (asSVG ? "exportSVG" : "exportDXF") << "(\""
-                                               << file << "\")");
-        return;
-    }
     doCommand(Doc, "import PartDesign");
     doCommand(Doc, "PartDesign.exportFlat(%s, \"%s\")", getObjectCmd(flat).c_str(), file.c_str());
 }
@@ -1060,6 +983,5 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalJog());
     mgr.addCommand(new CmdPartDesignSheetMetalTab());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatten());
-    mgr.addCommand(new CmdPartDesignSheetMetalFlatPattern());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
 }

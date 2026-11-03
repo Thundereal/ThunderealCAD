@@ -28,7 +28,6 @@
 #include <Gui/Control.h>
 #include <Gui/Document.h>
 
-#include "TaskSheetMetalFlatPattern.h"
 #include "TaskSheetMetalParameters.h"
 #include "TaskSheetMetalRule.h"
 #include "ViewProviderSheetMetal.h"
@@ -316,40 +315,6 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalTab::getEditDialog()
                                      "PartDesign_SheetMetalTab",
                                      QObject::tr("Tab parameters"),
                                      {"Profile"}));
-}
-
-PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)
-
-ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
-{
-    sPixmap = "PartDesign_SheetMetalFlatPattern";
-}
-
-bool ViewProviderSheetMetalFlatPattern::doubleClicked()
-{
-    auto doc = Gui::Application::Instance->getDocument(getObject()->getDocument());
-    return doc && doc->setEdit(this, ViewProvider::Default);
-}
-
-bool ViewProviderSheetMetalFlatPattern::setEdit(int ModNum)
-{
-    if (ModNum != ViewProvider::Default) {
-        return PartGui::ViewProviderPart::setEdit(ModNum);
-    }
-    if (Gui::Control().activeDialog()) {
-        return false;
-    }
-    Gui::Control().showDialog(new TaskDlgSheetMetalFlatPattern(this));
-    return true;
-}
-
-void ViewProviderSheetMetalFlatPattern::unsetEdit(int ModNum)
-{
-    if (ModNum != ViewProvider::Default) {
-        PartGui::ViewProviderPart::unsetEdit(ModNum);
-        return;
-    }
-    Gui::Control().closeDialog();
 }
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalRule, PartGui::ViewProviderPart)

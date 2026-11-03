@@ -1101,7 +1101,7 @@ const SHEET_METAL_COMMANDS = new Set([
   'PartDesign_SheetMetalBaseWall',
   'PartDesign_SheetMetalFlange',
   'PartDesign_SheetMetalExtendWall',
-  'PartDesign_SheetMetalFlatPattern',
+  'PartDesign_SheetMetalFlatten',
 ]);
 
 /// The `command` op's allowlist as the server has it (SceneControl.cpp

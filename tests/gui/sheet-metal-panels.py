@@ -13,9 +13,6 @@
     away;
   - Extend Wall's panel lists its face, has its gaps, its Add says it picks
     faces, its length set there;
-  - the flat pattern's panel, on a double-click: what it lays flat, its
-    manufacturing values, the root face picked in the view (the flat
-    recomputed on it), Cancel putting it back, OK keeping it;
   - Cancel on a new base wall takes it away;
   - the panel says its values in words (Material side, Outer sharp), a
     plate's Length, Reversed and Midplane greyed out, as the plate does not
@@ -617,69 +614,6 @@ def run():
             "OK keeps good bend cuts, one solid",
             "Invalid" not in cuts.State and len(cuts.Shape.Solids) == 1,
             (cuts.State, cuts.getStatusString()),
-        )
-
-        # -- the flat pattern's panel ------------------------------------------
-        FreeCADGui.Selection.clearSelection()
-        FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")
-        pump()
-        doc.recompute()
-        flat = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalFlatPattern"][0]
-        flat.ViewObject.doubleClicked()
-        pump(30)
-        w = panel() or {}
-        source = w.get("labelSource")
-        check(
-            "a double-click on the flat opens its panel, saying what it lays flat",
-            source is not None and flat.Source.Label in source.text()
-            and "Invalid" not in flat.State,
-            (source and source.text(), flat.State, flat.getStatusString()),
-        )
-        length = w.get("FlatLength")
-        check(
-            "with its manufacturing values",
-            length is not None and "mm" in length.text() and w.get("BendCount") is not None
-            and w["BendCount"].text() == str(flat.BendCount),
-            (length and length.text(), w.get("BendCount") and w["BendCount"].text()),
-        )
-        roots = w.get("listRootFace")
-        check("no root face picked: the first wall's", roots is not None and roots.count() == 0)
-        skin = [
-            "Face%d" % (i + 1)
-            for i, f in enumerate(flat.Source.Shape.Faces)
-            if abs(f.BoundBox.ZMin - 0.5) < 1e-7 and abs(f.BoundBox.ZMax - 0.5) < 1e-7
-        ]
-        w["buttonPick"].setChecked(True)
-        pump(10)
-        FreeCADGui.Selection.addSelection(doc.Name, flat.Source.Name, skin[0])
-        pump(30)
-        check(
-            "a face picked is the root, the flat recomputed on it",
-            roots.count() == 1 and flat.RootFace[1] == [skin[0]] and "Invalid" not in flat.State
-            and not w["buttonPick"].isChecked(),
-            (roots.count(), flat.RootFace, flat.State),
-        )
-        press(QtWidgets.QDialogButtonBox.Cancel)
-        pump(30)
-        check(
-            "Cancel puts it back",
-            not FreeCADGui.Control.activeDialog() and flat.RootFace is None,
-            flat.RootFace,
-        )
-        flat.ViewObject.doubleClicked()
-        pump(30)
-        w = panel() or {}
-        w["buttonPick"].setChecked(True)
-        pump(10)
-        FreeCADGui.Selection.addSelection(doc.Name, flat.Source.Name, skin[0])
-        pump(30)
-        accept()
-        pump(20)
-        check(
-            "OK keeps it, the flat built on it",
-            not FreeCADGui.Control.activeDialog() and flat.RootFace[1] == [skin[0]]
-            and flat.State == ["Up-to-date"],
-            (flat.RootFace, flat.State),
         )
 
         FreeCADGui.Selection.clearSelection()

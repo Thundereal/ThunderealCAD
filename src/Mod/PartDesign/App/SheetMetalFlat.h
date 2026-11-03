@@ -40,7 +40,7 @@ namespace PartDesign
 {
 
 /// How a sheet lies flat: its solid's settings (docs/SheetMetal.md sec 12,
-/// ruled 2026-11-03), or a flat pattern's
+/// ruled 2026-11-03)
 struct PartDesignExport FlatSettings
 {
     /// The wall laid on XY, by its name; the first wall if empty
@@ -48,11 +48,8 @@ struct PartDesignExport FlatSettings
     /// Its second skin on XY, not its first
     bool secondSkin = false;
     /// An edge of the folded part, by its name, the flat is turned to run
-    /// along X by; none if empty
+    /// along X by; none if empty, and a part lacking it is laid unturned
     std::string alignEdge;
-    /// Whether a part lacking that edge is refused (a flat pattern's, laying
-    /// one part) or laid flat unturned (a solid's, laying any of its features)
-    bool alignRequired = false;
     bool tangentLines = false;
     bool grain = false;
     /// The grain's direction from the flat's X, deg

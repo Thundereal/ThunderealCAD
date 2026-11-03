@@ -394,6 +394,11 @@ as Surface's were after their first round (docs/Surface.md sec 12, fb9aa6ee53).
 
 ### 4.7 The flat pattern
 
+- **Revised 2026-11-03 (sec 12): the flat is a view, not a feature.** Every feature of a sheet's
+  solid lays itself flat when asked, as its element `Flat` (`FlatFace3` an element of it), by the
+  settings on the sheet's solid; the solid's `Flatten`, on only when the user turns it on, draws
+  the shown features flat and keeps the solid's values current. The FlatPattern feature below
+  was built first and is retired; what it did otherwise stands as written.
 - **A FlatPattern feature** per sheet, in the body but not in its solid chain (like a sketch).
 - Its shape is the flat solid, laid on the XY plane from a fixed face the user picks (the root),
   the bend lines as edges in a compound beside it, each named after its bend.
@@ -469,7 +474,7 @@ Holes, pockets, fillets and chamfers of flat corners, patterns and mirrors are P
 
 | Tool | What it does | Ref |
 |---|---|---|
-| **Flat pattern** | 4.7. | B1 10 |
+| **Flat pattern** | 4.7: each feature's `Flat`, and Flatten. | B1 10 |
 | **Unfold / refold** | A pair: features between them are made on the flat and folded back with the part. The bends to unfold are picked; all of them by default. | -- (#296) |
 | **Flat orientation** | The flat laid by a picked edge or direction, with the grain or rolling direction drawn as an arrow, kept in the DXF and the drawing. | -- (Inventor) |
 | **Manufacturing properties** | Each sheet's flat size (its bounding box in the flat), area, thickness, material, bend count and largest bend angle, as read-only properties a bill of materials or a drawing table can take. | -- (SOLIDWORKS cut list, gk) |
@@ -490,7 +495,7 @@ axes and bend limits (CATIA [A src 48]); a flat pattern view with form annotatio
 the bend order (Inventor [A src 12]); bend notes and an order table (Creo [A src 27]); PMI on the
 flat (NX [A src 36]); and in SOLIDWORKS a flat pattern view with bend notes ("UP 90 R2") and the
 cut list as a table (gk). In TechDraw:
-- **The flat view.** A TechDraw view of the FlatPattern feature, as of any shape. Its bend lines are
+- **The flat view.** A TechDraw view of a feature's `Flat` (sec 12), as of any shape. Its bend lines are
   edges of their own, named after their bend, drawn as centre lines: up and down in two styles, and
   the bend's tangent lines optional, as in the DXF. The grain arrow and form outlines or centre
   marks come with it.
@@ -1128,6 +1133,13 @@ and not frozen.
     its shape. Picked, the flat's elements are `FlatFace3`, and those names select and highlight
     them. The command Flatten (Sheet Metal tool bar, checked while on) turns the active body's
     sheet's `Flatten` on and off, one undo step each. Checked by `sheet-metal-commands.py`.
+  - Its fourth step, the flat pattern retired: `PartDesign::SheetMetalFlatPattern`, its Python
+    binding, view, panel and command are gone, and Flatten has its icon. Not kept for older
+    files, as nothing has been released: one made by a build before this loads without the
+    object, with the usual warning for a type no module provides. The suites read each
+    feature's `Flat` through `PartDesignTests/SheetMetalFlatView.py`, and its own 23 tests are
+    `TestSheetMetalFlatLayout`'s, laid by the solid's settings. The flat's settings have no panel
+    of their own: they are the solid's properties.
   - Its third step, the export: `PartDesign.exportFlat(obj, path)` writes the flat of a feature
     of a sheet's solid, or of the solid (its tip's), with the sheet's settings, as DXF or SVG by
     the file's suffix (`SheetMetal::writeDXF()`, `writeSVG()`); refused, before anything is

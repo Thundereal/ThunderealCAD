@@ -8459,3 +8459,48 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   read the label; fillet-handle-click's 141 claim now 241's rule.
 - 245 moved to x16 by the note-taker; not started here.
 - Git Bash trap: TMPDIR=/tmp reaches cmd as the 8.3 temp (memory note).
+
+### 2026-11-03 evening: 247 (a) again, FreeCADGui.open, 250, the leaked transient dirs
+
+- 247 (a) `1806054df3`: still black through the migration recompute.
+  actualRedraw skipped renderScene whenever the document was recomputing
+  (3b0ae7bdde, 2021); the recompute's progress pumps paints, and an empty
+  paint presents QOpenGLWidget's cleared buffer. 242's hold made it plain
+  (the load now builds DURING the recompute). The skip is gone.
+  view-drawn-during-recompute.py: staged "Frame capture timed out", now
+  drawn with the boxes. My first paint counts were an invalid probe (the
+  filter's obj.event() skipped the scroll area's filter) -- withdrawn.
+- `4463176920`: FreeCADGui.open/insert took FileHandler's types only; any
+  other goes to its import module (as File > Open). gui-open-a-document.py.
+- 250 `4910a46cb5`: not reproduced by three rounds (x16's script, mine at
+  four render setups, a test matching camera, colours, MSAA, the user's
+  user.cfg, GPU, viewport, click sequence). The user: create a Body with a
+  box and click Edge10, "you don't even need to move the camera". Driven so
+  in the build app (MCP), it showed at once. Bisected on the hidden desktop:
+  the box's task panel (setEdit + OK) is the trigger; colours, the active
+  body, the camera, the node tree are not. A TEMPORARY trace (BGFXFrame,
+  FC_TRACE250, removed) of every line draw: after the edit the feed keeps
+  the Origin's datums, hidden, with on-top order 999 -- which runs step 5b,
+  whose last loop redrew the selection's lines in LIST order, the box's
+  plain companion after the green highlight at equal depth. Fixed: that loop
+  in step 5's order (companions, then highlight); a hidden draw opens no
+  order. The Origin SHOWN (no edit) gave the same fault before the fix.
+  selected-edges-on-top-alike.py: staged 6 FAIL (gui, origin), now 8/8
+  (gui, origin, script; Legacy too); origin-plane-highlight 17,
+  hidden-selected-edge-over-line 2, datum-picked-through-a-face 3, x16's
+  matrix 19 -- bgfx and Legacy. ctest 1100/1100 (rtx85).
+- Why every probe missed it: scripts make the box with no edit, so no order
+  in the feed; and scripts/gui-test-profile.py sets AntiAliasing 0 unless
+  stored (the user has none stored: 4x).
+- Leaked transient dirs `42376ec39b`: 25 FreeCAD_Doc_* per ctest run in
+  %LOCALAPPDATA%\cache\FreeCAD\Cache (352 since 10-26, none of Thundereal's
+  own). 22 are FeaturePart Common/Cut/Fuse: empty TearDown, the document
+  never closed. Closed now; those 22 leave none. 3 more per run (one process
+  with two documents, empty dirs) NOT placed yet: not the *_tests_run
+  executables, not the testUser fixtures that close. The 352 moved out and
+  deleted on the user's "you can clean them".
+- Merged thundereal/LinkVibe (x16's 249 (a) revert, 50ab8ff316) as
+  `e23a1f68c8`. rtx87: the three new tests, pd-gui-defects 34,
+  origin-plane-highlight 17 pass; ctest 1100/1100 (3 dirs left, the unplaced
+  ones). PUSHED on the user's "push and restage once done"
+  (50ab8ff316..e23a1f68c8); restaged from rtx87 next.

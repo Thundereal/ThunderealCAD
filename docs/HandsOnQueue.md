@@ -4615,7 +4615,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 246 | 2026-11-03 | a defect: an on-view handle's tool tip draws a ROUND-cornered border on a RECTANGULAR widget -- the square corners show; the reporter: use the tooltip helper the measure pre-selection macro uses | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the handle's tip is Qt's own QToolTip::showText (Gizmo.cpp 374, 387; 241's tip); the helper is Gui::ToolTip::showText / TipLabel (Widgets.cpp 1471-1640), which the pre-selection text uses (Selection.cpp 1228); ASSIGNED to dwin (fcad-88), with 245 (same helper); 2026-11-03 10:45 the reporter: the helper NOT required -- its code or styling may be taken as reference; the handle tips stand NEAR THE MOUSE POINTER (not in a corner, as the pre-selection macro's tip) |
 | 247 | 2026-11-03 | a REGRESSION, the reporter relates it to 242's fix: opening scanner, the migration box now holds the load, but after OK the recompute runs with the 3D view BLACK, the model appearing at once at its end (no progressive load); NO recompute error box although objects fail; the first try also failed Dimension014, through Section007 left with no shape and NOT marked as an error (a manual recompute of Section007 fixed it) | OPEN; said to the note-taker 2026-11-03 10:44; READ by the note-taker: the handler (Application.cpp 607-640) recomputes right after the box, inside signalFinishOpenDocument, and shows the error box when hasError; 242's hold (isLoadHeld = activeModalWidget(), Application.cpp 2505-2508) also holds Document::scheduleDeferredRestore (Document.cpp 4703-4710) -- the deferred RESTORE, not only the visuals -- so the recompute may run on a document not fully restored (a lead for Section007, NOT verified); a modal SequencerDialog in the recompute (ProgressDialog.cpp 105) would keep the hold on through it (a lead, NOT verified); causes NOT found; ASSIGNED to dwin (fcad-88), FIRST |
 | 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full); 2026-11-03 10:55 the reporter's steps: a Box, a Pocket of the top face with -2 "tolerance" (a square blind hole in the top), then Defeaturing picking the hole's bottom and one side face; the session the note-taker calls x16 (bridge 01Gifk77, it signs fcad-86) asked whether x16win was meant -- told no, it takes 248 |
-| 249 | 2026-11-03 | a defect, two parts: (a) a Body with a Box: a face of the box picked in the 3D view, Space hides the BODY -- it should hide the selected object; (b) with the body hidden (by Space or by the body's eye icon in the tree), the still-selected box is drawn on top but CLIPPED -- the scene's clipping ignores what is shown on top | OPEN; said to the note-taker 2026-11-03 11:17; READ by the note-taker: (a) is ON PURPOSE since `cccbe6cc5c` (2026-09-26, upstream bd03414893/20c01000a1 adapted): SelectionSingleton::setVisible cuts a view pick's path to ViewProvider::getPickedVisibilityTarget() (Selection.cpp 1874-1899), a PD feature naming its body -- its reason, a face of a non-Tip feature (Body.Box.Face6 under a pocket) toggled a hidden feature; the reporter now wants the selected object; (b) SoFCRenderer::getBoundingBox takes the selection's and highlight's bounds (SoFCRenderer.cpp 1843-1853) -- what the near/far planes are computed from NOT read; causes for (b) NOT found; ASSIGNED to x16 after 248 |
+| 249 | 2026-11-03 | a defect, two parts: (a) a Body with a Box: a face of the box picked in the 3D view, Space hides the BODY -- it should hide the selected object; (b) with the body hidden (by Space or by the body's eye icon in the tree), the still-selected box is drawn on top but CLIPPED -- the scene's clipping ignores what is shown on top | OPEN; said to the note-taker 2026-11-03 11:17; READ by the note-taker: (a) is ON PURPOSE since `cccbe6cc5c` (2026-09-26, upstream bd03414893/20c01000a1 adapted): SelectionSingleton::setVisible cuts a view pick's path to ViewProvider::getPickedVisibilityTarget() (Selection.cpp 1874-1899), a PD feature naming its body -- its reason, a face of a non-Tip feature (Body.Box.Face6 under a pocket) toggled a hidden feature; the reporter now wants the selected object; (b) SoFCRenderer::getBoundingBox takes the selection's and highlight's bounds (SoFCRenderer.cpp 1843-1853) -- what the near/far planes are computed from NOT read; causes for (b) NOT found; ASSIGNED to x16 after 248; 2026-11-03 11:21 (a) ON HOLD, the reporter: "wait, let's see upstream's rational about this override first. I am not convinced yet" -- upstream's rationale read (FreeCAD #29110 fixing issue #11132, then #30231), x16 told to hold (a); (b) goes on |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -32409,6 +32409,40 @@ NOT said, with the note-taker's readings:
 - (b) both renderers; read as yes.
 ASSIGNED to x16 (bridge session_01Gifk77), after 248 (the note-taker
 coordinating; dwin has 247, 244, 243 b, 246, 245).
+
+**2026-11-03 11:21, the reporter (to the note-taker), on 249 (a):** "wait, let's see
+upstream's rational about this override first. I am not convinced yet"
+The note-taker's reading: 249 (a) -- Space on a view-picked face toggles
+the selected object, not its body -- is ON HOLD until the reporter has
+seen why upstream made Space toggle the body. (b), the clipping, is not
+held. x16 told to hold (a).
+Upstream, read by the note-taker (git show and github.com, read only):
+- bd03414893 (FreeCAD PR #29110, 2026-05-09, Max Wilfinger, with Kacper
+  Donat), "PD: Spacebar to toggle visibility of the parent body instead
+  of the last visible feature", fixing issue #11132 (2023, "3D
+  selection select PD feature instead of body" / "Spacebar to toggle
+  visibility of selected body in 3D view toggles only the last feature
+  not the body itself"). The issue: a body picked in the 3D view and
+  Space hid only its last feature; "The whole body is not visible in
+  the 3D view but seems visible when looking at the tree view" -- with
+  collapsed bodies (assemblies) the hidden one is hard to find. Duplicates
+  #19474, #27852, #29706. Its first form: inside the ACTIVE body Space
+  toggles the feature, outside it the body; only solid features --
+  sketches, datums, binders unchanged.
+- Objections in #29110: leoheck ("I am against this PR since it breaks
+  the usability"), FEA-eng ("Visibility switch via Spacebar is currently
+  the easiest way to check the previous steps in a model"), jffmichi (no
+  sign that Space acts differently in an active and an inactive body),
+  entuland (a tree selection should keep the old behaviour).
+- 20c01000a1 (PR #30231, 2026-05-17), "Gui/PD: Toggle body only from 3D
+  view selection": from the 3D view always the body (the active-body rule
+  dropped); Space in the tree toggles the feature itself (Tree.cpp takes
+  the key).
+- The fork's adaptation `cccbe6cc5c` (2026-09-26) keeps the same split:
+  a view pick names an element -> the body; a tree selection -> the
+  feature. Its own reason: a fork pick names the feature the face came
+  from (not upstream's Tip), so a face of a box under a pocket named the
+  hidden box -- Space showed it in place of the Tip.
 
 ## Inbox
 

@@ -912,6 +912,94 @@ class TestContact(unittest.TestCase):
             self.assertAlmostEqual(period / closed, 1.0, delta=2e-4)
         self.assertLess(stray, 1e-3)
 
+    def test_pin_hangs_out_of_bore(self):
+        """A pin of radius 9.9 and 40 long, 10 of it in a bore of radius 10
+        through a block 20 thick, the rest out: it droops until it rests on
+        the mouth's bottom edge and its inner end's top rim on the bore's
+        top -- each its own way (hollowWay()): the rim's along the bore's
+        radius, the edge's square to the pin. Its tilt against the exact
+        one, for where its inner end ended, to 1e-3 (4e-4 measured); each
+        within 1 um of touching (0.05 measured). Before, the inner end's
+        point was turned onto the pin's underside and the pin fell through
+        the bore's wall; then, on the bore's radius at the mouth, it rested
+        4.4 um into the edge, 2.2% too steep."""
+        import Part
+
+        axis = App.Vector(0, 0, 20)
+        block = self.assembly.newObject("Part::Feature", "Block")
+        box = Part.makeBox(40, 20, 40, App.Vector(-20, -10, 0))
+        block.Shape = box.cut(
+            Part.makeCylinder(10, 30, axis + App.Vector(0, -15, 0), App.Vector(0, 1, 0))
+        )
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBlock")
+        JointObject.GroundedJoint(ground, block)
+        start = axis  # its inner end's centre, 10 behind the mouth at y = 10
+        pin = self.assembly.newObject("Part::Feature", "Pin")
+        pin.Shape = Part.makeCylinder(9.9, 40, start, App.Vector(0, 1, 0))
+        self.contact([pin], [block], StaticFriction=0.5, DynamicFriction=0.5)
+        inner = pin.Placement.inverse().multVec(start)
+        far = pin.Placement.inverse().multVec(start + App.Vector(0, 40, 0))
+        _, result = self.simulate(0.2, 1e-3, Gravity=App.Vector(0, 0, -G))
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        c = pin.Placement.multVec(inner)
+        u = pin.Placement.multVec(far) - c
+        u.normalize()
+        tilt = math.asin(-u.z)
+        # The mouth's bottom edge from the pin's axis, the inner top rim from
+        # the bore's, less the radii
+        e = axis + App.Vector(0, 10, -10) - c
+        edge = (e - u * (e * u)).Length - 9.9
+        up = App.Vector(0, 0, 1) - u * u.z
+        up.normalize()
+        top = c + up * 9.9 - axis
+        rim = math.hypot(top.x, top.z) - 10
+        # Exact: (10 + h) cos t = 9.9 on the edge, h the axis's height at the
+        # mouth; the rim, s behind it, h + s tan t + 9.9 cos t = 10
+        s = 10 - c.y
+        lo, hi = 0.0, 0.2
+        for _ in range(60):
+            t = (lo + hi) / 2
+            if 9.9 / math.cos(t) - 10 + s * math.tan(t) + 9.9 * math.cos(t) < 10:
+                lo = t
+            else:
+                hi = t
+        App.Console.PrintMessage(
+            "Pin hanging out of a bore: tilt %.5f deg against %.5f, edge %.3g mm, rim %.3g mm\n"
+            % (math.degrees(tilt), math.degrees(lo), edge, rim)
+        )
+        self.assertAlmostEqual(tilt / lo, 1.0, delta=1e-3)
+        self.assertLess(abs(edge), 1e-3)
+        self.assertLess(abs(rim), 1e-3)
+
+    def test_ball_sits_on_hole(self):
+        """A ball of radius 6 dropped 1 mm off the axis of a hole of radius 4
+        through a block, a check valve's seat: it rolls onto the rim all
+        round and rests centred, its centre sqrt(6^2 - 4^2) over the top,
+        within 0.01 mm (4.4 um measured, the rim's facets). Too big for the
+        hole, it is no round inside a hollow one (fitsIn()): as one, its
+        points against the bore were dropped, it had none of its own, and it
+        fell through the block."""
+        import Part
+
+        block = self.assembly.newObject("Part::Feature", "Block")
+        box = Part.makeBox(40, 40, 20, App.Vector(-20, -20, 0))
+        block.Shape = box.cut(Part.makeCylinder(4, 30, App.Vector(0, 0, -5)))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBlock")
+        JointObject.GroundedJoint(ground, block)
+        rest = 20 + math.sqrt(20)
+        centre = App.Vector(1, 0, rest + 1)
+        ball = self.assembly.newObject("Part::Feature", "Ball")
+        ball.Shape = Part.makeSphere(6, centre)
+        self.contact([ball], [block], StaticFriction=0.5, DynamicFriction=0.5)
+        local = ball.Placement.inverse().multVec(centre)
+        _, result = self.simulate(0.2, 1e-3, Gravity=App.Vector(0, 0, -G))
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        c = ball.Placement.multVec(local)
+        self.assertAlmostEqual(c.z, rest, delta=0.01)
+        self.assertLess(math.hypot(c.x, c.y), 0.01)
+
     def test_ball_rolls_in_bore(self):
         """A ball rolling across a bore: its sphere in the bore's cylinder,
         k^2/r^2 = 2/5, to 5e-4 (1.4e-4 measured)."""

@@ -2529,8 +2529,48 @@ Phase D1 is under way (2026-10-28):
     ball 1.393e-4).
   - Tests: TestContact's test_roller_rolls_in_bore, the chamfered roller
     (a hull) to 2e-4, now fast enough to run (swingInBore("roller")).
-  - Not yet: a pin's other faces against the bore's wall when it tilts; a
-    cylinder in a socket.
+  - Not yet: a pin's other faces against the bore's wall when it tilts
+    (the entry below); a cylinder in a socket.
+- Built: a pin tilted in a bore, and the pairs that are no round inside a
+  hollow one.
+  - Found: a pin of 9.9 hanging 30 out of a bore of 10, 10 in, went
+    through the bore's wall. rollAlong() turned every point of a round pair
+    to the bore's radius through the pin's middle, outside the bore and
+    below its axis, so the point where the inner end's top rim pressed on
+    the bore's top was turned onto the pin's underside. Now each point takes
+    the radius through the pin's axis where the point is along it.
+  - Then it rested 4.4 um into the mouth's bottom edge, 2.2% too steep: on
+    the bore's radius, the mouth's point is the pin's side square to the
+    bore, r t^2 off its side square to the pin at a tilt t. hollowWay(),
+    which both hollowPoints() and rollAlong() use, takes a point beyond the
+    bore's end from the end's rim, the edge pressing on the pin's side: the
+    way from the pin's axis, square to it, to the rim's point. A ball beyond
+    the end takes the same, from its centre.
+  - Found on the way, a regression of the round pairs: every convex round
+    was paired with every hollow one on the other part, and Bullet's points
+    between them dropped. A ball of 6 on a hole of 4, a check valve's seat,
+    had no points of its own (too big to go in) and fell through the block.
+    A pair now needs the inner one to fit (fitsIn(): a ball or a cylinder
+    narrower than the bore, a ball smaller than a socket). A pin more than
+    25 deg off a bore's axis has no points of the rounds', and Bullet's are
+    its again, both left in and not dropped (inLine();
+    ContactCollisionSystem::live, refreshed as each of its runs starts).
+  - Measured: the hanging pin's tilt 1.17105 deg against the exact
+    1.17053 (4e-4), the mouth's edge 54 nm into it and its rim 34 nm into
+    the bore, each the contact's sink; a chamfered roller rests on its
+    chamfer's edge, 1.20927 deg against 1.2079 for its side 0.3 shorter.
+    The ball on the hole rests centred from 1 mm off, 4.4 um over sqrt(20)
+    (the rim's facets, as before the round pairs); one of 3.9 clipping the
+    rim of the hole of 4 is pushed into it and falls through. The pins and
+    the ball swinging in the bore are unchanged.
+  - Tests: TestContact's test_pin_hangs_out_of_bore (its tilt to 1e-3,
+    both contacts within 1 um) and test_ball_sits_on_hole (centred, within
+    0.01 mm).
+  - Not yet: a short pin lying across a bore, on its end rims, is thrown
+    off at kilometres a second -- before the round pairs too, a primitive
+    cylinder's rims on a mesh's curved facets; a cylinder in a socket; a
+    ball on a hole too small for it rests on the rim's facets, Bullet's
+    (4.4 um high), not on the rim itself.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

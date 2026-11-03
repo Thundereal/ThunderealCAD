@@ -501,6 +501,39 @@ bool ViewProviderBody::checkSiblings()
     return touched;
 }
 
+Base::BoundBox3d ViewProviderBody::_getBoundingBox(const char *subname, const Base::Matrix4D *mat,
+                                                   bool transform,
+                                                   const Gui::View3DInventorViewer *view,
+                                                   int depth) const
+{
+    auto body = Base::freecad_dynamic_cast<PartDesign::Body>(getObject());
+    if (body && !(subname && subname[0])) {
+        std::vector<PartDesignGui::ViewProvider*> shown;
+        bool flat = false;
+        for (auto obj : body->Group.getValues()) {
+            auto vp = Base::freecad_dynamic_cast<PartDesignGui::ViewProvider>(
+                    Gui::Application::Instance->getViewProvider(obj));
+            if (vp && vp->isShow()) {
+                shown.push_back(vp);
+                flat = flat || vp->showsFlat();
+            }
+        }
+        if (flat) {
+            // drawn under the body's placement
+            Base::Matrix4D m;
+            if (transform)
+                m = body->Placement.getValue().toMatrix();
+            if (mat)
+                m = *mat * m;
+            Base::BoundBox3d box;
+            for (auto vp : shown)
+                box.Add(vp->getBoundingBox(nullptr, &m, true, view, depth + 1));
+            return box;
+        }
+    }
+    return inherited::_getBoundingBox(subname, mat, transform, view, depth);
+}
+
 void ViewProviderBody::updateData(const App::Property* prop)
 {
     PartDesign::Body* body = static_cast<PartDesign::Body*>(getObject());

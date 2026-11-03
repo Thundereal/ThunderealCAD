@@ -469,6 +469,12 @@ def run():
             (box, folded, thick),
         )
         cmd.isActive()
+        bodyBox = body.ViewObject.getBoundingBox()
+        check(
+            "the body's bounds the flat's, not the folded part's (a view fitted to it)",
+            abs(bodyBox.ZLength - thick) < 1e-3 and abs(bodyBox.XLength - box.XLength) < 1e-3,
+            (bodyBox, box),
+        )
         check("its button checked", cmd.getAction()[0].isChecked())
         laid = flange.getSubObject("Flat")
         top = max(laid.Faces, key=lambda f: f.Area)

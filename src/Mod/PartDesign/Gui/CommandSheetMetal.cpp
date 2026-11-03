@@ -972,9 +972,9 @@ CmdPartDesignSheetMetalExportDXF::CmdPartDesignSheetMetalExportDXF()
     sAppModule = "PartDesign";
     sGroup = QT_TR_NOOP("PartDesign");
     sMenuText = QT_TR_NOOP("Export Flat...");
-    sToolTipText = QT_TR_NOOP("Writes the selected flat pattern as DXF or SVG: the outline,\n"
-                              "the inner contours, and the bend lines up and down on layers\n"
-                              "of their own");
+    sToolTipText = QT_TR_NOOP("Writes the flat of the selected feature or sheet, else of the\n"
+                              "active body's sheet, as DXF or SVG: the outline, the inner\n"
+                              "contours, and the bend lines up and down on layers of their own");
     sWhatsThis = "PartDesign_SheetMetalExportDXF";
     sStatusTip = sToolTipText;
     sPixmap = "PartDesign_SheetMetalExportDXF";
@@ -982,21 +982,32 @@ CmdPartDesignSheetMetalExportDXF::CmdPartDesignSheetMetalExportDXF()
 
 namespace
 {
-PartDesign::SheetMetalFlatPattern* selectedFlat()
+/// What Export Flat writes: a selected flat pattern, or feature or solid of
+/// a sheet, else the active body's sheet; null if none
+App::DocumentObject* flatToExport()
 {
     for (auto& sel : Gui::Selection().getSelectionEx()) {
-        if (auto flat = dynamic_cast<PartDesign::SheetMetalFlatPattern*>(sel.getObject())) {
-            return flat;
+        auto obj = sel.getObject();
+        if (dynamic_cast<PartDesign::SheetMetalFlatPattern*>(obj)) {
+            return obj;
+        }
+        auto solid = dynamic_cast<PartDesign::SolidBody*>(obj);
+        if (!solid) {
+            auto body = PartDesign::Body::findBodyOf(obj);
+            solid = body ? body->getSolidBody(obj) : nullptr;
+        }
+        if (solid && solid->isSheetMetal()) {
+            return obj;
         }
     }
-    return nullptr;
+    return activeSheet();
 }
 }  // namespace
 
 void CmdPartDesignSheetMetalExportDXF::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    auto flat = selectedFlat();
+    auto flat = flatToExport();
     if (!flat) {
         return;
     }
@@ -1018,14 +1029,19 @@ void CmdPartDesignSheetMetalExportDXF::activated(int iMsg)
         path += QStringLiteral(".svg");
     }
     const std::string file = Base::Tools::escapeEncodeFilename(path.toStdString());
-    Gui::cmdAppObject(flat,
-                      std::ostringstream() << (asSVG ? "exportSVG" : "exportDXF") << "(\"" << file
-                                           << "\")");
+    if (dynamic_cast<PartDesign::SheetMetalFlatPattern*>(flat)) {
+        Gui::cmdAppObject(flat,
+                          std::ostringstream() << (asSVG ? "exportSVG" : "exportDXF") << "(\""
+                                               << file << "\")");
+        return;
+    }
+    doCommand(Doc, "import PartDesign");
+    doCommand(Doc, "PartDesign.exportFlat(%s, \"%s\")", getObjectCmd(flat).c_str(), file.c_str());
 }
 
 bool CmdPartDesignSheetMetalExportDXF::isActive()
 {
-    return selectedFlat() != nullptr;
+    return flatToExport() != nullptr;
 }
 
 void CreatePartDesignSheetMetalCommands()

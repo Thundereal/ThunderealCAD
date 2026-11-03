@@ -27,6 +27,8 @@
 #include <numbers>
 #include <vector>
 
+#include <boost/algorithm/string/case_conv.hpp>
+
 #include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
 #include <Bnd_Box.hxx>
@@ -35,13 +37,19 @@
 
 #include <App/Document.h>
 #include <Base/Exception.h>
+#include <Base/FileInfo.h>
+#include <Base/Stream.h>
 #include <Base/Tools.h>
 #include <Mod/Part/App/PartFeature.h>
 
+#include "Body.h"
 #include "FeatureSheetMetalRule.h"
+#include "SheetMetal/Dxf.h"
 #include "SheetMetal/Flat.h"
+#include "SheetMetal/Svg.h"
 #include "SheetMetalExtension.h"
 #include "SheetMetalFlat.h"
+#include "SolidBody.h"
 
 using Part::TopoShape;
 
@@ -169,6 +177,41 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     res.shape = TopoShape(0, hasher);
     res.shape.makECompound(parts, nullptr, /*force*/ true);
     return res;
+}
+
+void exportFlat(const App::DocumentObject* obj, const char* path)
+{
+    if (!obj || !obj->isAttachedToDocument()) {
+        THROWM(Base::ValueError, "No object to lay flat");
+    }
+    Base::FileInfo fi(path ? path : "");
+    const std::string suffix = boost::algorithm::to_lower_copy(fi.extension());
+    if (suffix != "dxf" && suffix != "svg") {
+        FC_THROWM(Base::ValueError,
+                  "Export Flat writes .dxf or .svg, not '" << fi.fileName() << "'");
+    }
+    auto solid = Base::freecad_dynamic_cast<const SolidBody>(obj);
+    const App::DocumentObject* part = nullptr;
+    if (!solid) {
+        auto body = Body::findBodyOf(obj);
+        solid = body ? body->getSolidBody(obj) : nullptr;
+        part = obj;
+    }
+    if (!solid || !solid->isSheetMetal()) {
+        FC_THROWM(Base::ValueError, obj->getFullLabel() << " is of no sheet metal solid");
+    }
+    // laid flat before the file is opened, so a refusal writes nothing
+    const SheetFlat& flat = solid->flatOf(part);
+    Base::ofstream out(fi, std::ios::out | std::ios::trunc);
+    if (!out) {
+        FC_THROWM(Base::FileException, "Cannot write " << path);
+    }
+    if (suffix == "dxf") {
+        SheetMetal::writeDXF(out, flat.result, solid->TangentLines.getValue());
+    }
+    else {
+        SheetMetal::writeSVG(out, flat.result, solid->TangentLines.getValue());
+    }
 }
 
 }  // namespace PartDesign

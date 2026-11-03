@@ -26,6 +26,10 @@
 #include <Base/Interpreter.h>
 #include <Base/VectorPy.h>
 #include <Base/Tools.h>
+#include <App/DocumentObjectPy.h>
+#include <Standard_Failure.hxx>
+
+#include "SheetMetalFlat.h"
 
 
 namespace PartDesign {
@@ -37,10 +41,37 @@ public:
         add_varargs_method("makeFilletArc",&Module::makeFilletArc,
             "makeFilletArc(...) -- Fillet arc."
         );
+        add_varargs_method("exportFlat",&Module::exportFlat,
+            "exportFlat(obj, path) -- the flat of obj, a feature of a sheet's solid or the\n"
+            "solid (its tip's), written with the sheet's settings as DXF or SVG by the\n"
+            "suffix of path."
+        );
         initialize("This module is the PartDesign module."); // register with Python
     }
 
 private:
+    Py::Object exportFlat(const Py::Tuple& args)
+    {
+        PyObject *pyObj;
+        char *path;
+        if (!PyArg_ParseTuple(args.ptr(), "O!et", &(App::DocumentObjectPy::Type), &pyObj,
+                              "utf-8", &path))
+            throw Py::Exception();
+        const std::string file(path);
+        PyMem_Free(path);
+        PY_TRY {
+            try {
+                PartDesign::exportFlat(
+                        static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr(),
+                        file.c_str());
+            }
+            catch (const Standard_Failure &e) {
+                THROWM(Base::CADKernelError, e.GetMessageString());
+            }
+        } _PY_CATCH(throw Py::Exception())
+        return Py::None();
+    }
+
     Py::Object makeFilletArc(const Py::Tuple& args)
     {
         PyObject *pM1;

@@ -92,4 +92,14 @@ struct PartDesignExport SheetFlat
  */
 PartDesignExport SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings);
 
+/** Write the flat of \a obj, a feature of a sheet's solid or the solid (its
+ * tip's), with the sheet's settings (docs/SheetMetal.md sec 12): DXF or SVG
+ * by the suffix of \a path
+ *
+ * Throws Base::ValueError saying why not, before anything is written: a
+ * suffix neither .dxf nor .svg, an object of no sheet, a flat that does not
+ * lie flat; Base::FileException where the file cannot be written.
+ */
+PartDesignExport void exportFlat(const App::DocumentObject* obj, const char* path);
+
 }  // namespace PartDesign

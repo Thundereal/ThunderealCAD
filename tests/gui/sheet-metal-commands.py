@@ -460,6 +460,11 @@ def run():
         view.setActiveObject("pdbody", body)
         pump()
         check("Flatten is offered on the active body's sheet", cmd.isActive())
+        FreeCADGui.Selection.clearSelection()
+        check(
+            "and Export Flat, nothing selected",
+            FreeCADGui.Command.get("PartDesign_SheetMetalExportDXF").isActive(),
+        )
         folded = flange.ViewObject.getBoundingBox()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 1)
         pump()

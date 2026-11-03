@@ -1128,6 +1128,12 @@ and not frozen.
     its shape. Picked, the flat's elements are `FlatFace3`, and those names select and highlight
     them. The command Flatten (Sheet Metal tool bar, checked while on) turns the active body's
     sheet's `Flatten` on and off, one undo step each. Checked by `sheet-metal-commands.py`.
+  - Its third step, the export: `PartDesign.exportFlat(obj, path)` writes the flat of a feature
+    of a sheet's solid, or of the solid (its tip's), with the sheet's settings, as DXF or SVG by
+    the file's suffix (`SheetMetal::writeDXF()`, `writeSVG()`); refused, before anything is
+    written, for another suffix, an object of no sheet, and a flat that does not lie flat.
+    Export Flat... takes a selected feature or solid of a sheet, else the active body's sheet,
+    and a selected flat pattern still. `testExportDXF`, `testExportSVG`, `testExportRefused`.
   - Open: a flange whose end runs into a bend of the wall it is on (on the top edge of an L's
     leg, up to the L's bend) is valid folded, but does not lie flat ("faces overlap or are
     missing"); the flat pattern the same. Found writing `testSolidFlat`.

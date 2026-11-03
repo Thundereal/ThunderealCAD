@@ -2753,6 +2753,84 @@ Phase D1 is under way (2026-10-28):
   - Not yet: per-pair restitution; a component of several materials takes
     its first shape's family; the panel does not show the pairs the
     materials give before the run.
+- D2 is built (2026-11-03).
+- **D4a, loads to FEM: the plan (2026-11-04).** A component at a frame of a
+  run, as a static stress analysis in the Fem workbench, solved by CalculiX.
+  - How the others do it. SOLIDWORKS (Import Motion Loads) puts each mate's
+    reaction on the mate's load-bearing faces, chosen before the run, adds
+    gravity and the angular velocity and acceleration as body loads, and
+    switches on inertial relief; several frames make a design study.
+    Inventor (Export to FEA) does the same per joint, its faces picked
+    automatically, one part and one frame per analysis, held by "detect
+    and eliminate rigid body modes". Creo puts each joint's, spring's,
+    motor's and cam's load at its point (a total load at a point), gravity
+    with the translational acceleration, and the turn as centrifugal
+    loads; inertia relief is the analysis' option. Adams exports joint and
+    applied forces with the accelerations and velocities, a step per
+    frame, for Nastran or Ansys (inertia relief, weak springs).
+  - What CalculiX 2.23 has (its manual, all of it searched): no inertia
+    relief; `*DLOAD` GRAV, any acceleration on an element set or one
+    element; CENTRIF, omega^2 about an axis, one per element set in a
+    static step; no angular acceleration and no Coriolis body load. A
+    remote load is `*COUPLING` with `*DISTRIBUTING` (Nastran's RBE3: the
+    load spread, the faces not stiffened) or `*KINEMATIC`, or `*RIGID BODY`.
+    FreeCAD's FEM writes GRAV (ConstraintSelfWeight, all elements),
+    CENTRIF (ConstraintCentrif, a frequency about an edge) and `*RIGID BODY`
+    (ConstraintRigidBody: a force and moment at a reference point, the
+    faces made rigid); no distributing coupling, no angular acceleration,
+    no inertia relief.
+  - The loads on a component at a frame, its free body: each joint's
+    reaction at its frame I's origin (on the body of frame I as the run
+    reports it; on the other, minus that, the torque about the same
+    point), each spring's and bushing's force at its end, gravity, and the
+    inertia: the mass at the centre of mass with its acceleration a, the
+    turn omega and its rate alpha. A body load per unit mass at r from the
+    centre: g - a - alpha x r - omega x (omega x r). The run does not
+    report a, omega or alpha yet; contacts report a set's force, not
+    where it acts.
+  - How it is held. With no inertia relief, the part is held at one joint
+    -- the one with the largest reaction, or the user's -- by its coupling's
+    reference node fixed in all six directions, that joint's own load left
+    out. One node's six is statically determinate: if the loads balance,
+    the support carries just the left-out reaction, and what it carries
+    beyond that is the imbalance, reported as the check (the run's
+    reaction against the analysis'). A distributing coupling, so neither
+    the support nor the loads stiffen the faces they act on.
+  - Steps, each shipping:
+    1. The run reports each body's motion: "Acceleration" (its centre of
+       mass's, mm/s^2), "AngularVelocity" (rad/s) and "AngularAcceleration"
+       (rad/s^2), model axes, width 3, from Chrono's bodies (their frames
+       are at the centres). Tests: a pendulum's centripetal acceleration,
+       a body falling at g, a wheel spun up at a known torque.
+    2. `AssemblyObject.getLoadsOn(component, frame)`: the free body above,
+       in the component's own coordinates at rest (the frame's pose undone),
+       each load with its source, point and the faces it acts on, and the
+       Newton-Euler residual (sum of the loads less m a, and of the moments
+       less the rate of the angular momentum) as the check. A joint's faces
+       are those of its reference on that component: a face as is; an edge,
+       the faces along it that share its axis (a hole's bore for a circle);
+       a vertex, none (a point load at the node nearest). Tests: the
+       slider-crank's rod, the residual below 1e-6 of the largest load.
+    3. FEM, our fork: ConstraintRigidBody's `Coupling` {Rigid, Distributing},
+       Distributing writing `*COUPLING` with `*DISTRIBUTING`; and an inertia
+       load (`ConstraintBodyMotion`: a point, a, omega, alpha), written as one
+       GRAV for g - a, a CENTRIF about the axis of omega through the point,
+       and alpha x r as each element's own GRAV at its centroid. Tests, with
+       ccx: a bar spun about one end, its stress rho omega^2 (L^2 - x^2) / 2;
+       a bar spun up from rest, its bending against the closed form.
+    4. The command (Assembly_LoadsToFem, from the Simulation panel's
+       Results box at its cursor): a Fem Analysis of the component at that
+       frame -- the component's shape, its material, a Netgen mesh, a
+       coupling per load on its faces, the body motion load, the held
+       joint -- solved on request. Test: the slider-crank's rod at its
+       largest load, the held joint's reaction in the analysis against the
+       run's within 1%.
+    5. Several frames, one analysis each, by the Results box's range;
+       contact loads once a contact reports where it acts.
+  - CalculiX on this box: conda-forge's calculix 2.23 in `.conda/fem`
+    (with gmsh 4.15), apart from `.conda/freecad`, whose pinned stack it
+    would move; its MinGW DLLs (`Library/mingw-w64/bin`) must be on PATH.
+    The release packages need it as a dependency.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

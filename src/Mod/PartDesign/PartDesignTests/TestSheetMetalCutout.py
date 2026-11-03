@@ -10,6 +10,14 @@
 # and K 0.5: a flange on the far edge bends up about the axis y 18, z 2,
 # its inner skin a quarter of radius 1, its outer of 2, 3 pi / 4 in section
 # and pi / 2 * 1.5 long in the flat; its leg y 19 to 20, z 2 to 10.
+#
+# Wrap (ruled 2026-11-03): the sketch as if drawn on the flat. The wall
+# parallel to the sketch and nearest it stays where it is, the sketch is
+# taken onto it straight, and what lies on the flat goes back through every
+# bend at its developed length; what lies off the flat cuts nothing. With
+# the plate fixed, the far flange lies flat on from y 18: its bend to
+# 18 + STRIP, its leg 8 on from there; the near one the same toward -y
+# from y 2.
 
 import math
 import unittest
@@ -21,6 +29,7 @@ V = FreeCAD.Vector
 RING = 3 * math.pi / 4
 STRIP = math.pi / 2 * 1.5
 FAR = ((0, 20, 1), (40, 20, 1))
+RIGHT = ((40, 0, 1), (40, 20, 1))
 NEAR = ((0, 0, 1), (40, 0, 1))
 
 
@@ -276,3 +285,146 @@ class TestSheetMetalCutout(unittest.TestCase):
         cutout.Reversed = False
         self.Doc.recompute()
         self.assertIn("Invalid", cutout.State)
+
+    def top(self, z=1, flipped=False):
+        """A sketch plane parallel to the plate at z, its normal up or down"""
+        rot = FreeCAD.Rotation(V(1, 0, 0), 180) if flipped else FreeCAD.Rotation()
+        return FreeCAD.Placement(V(0, 0, z), rot)
+
+    def rect(self, x0, y0, x1, y1, z=1):
+        return [(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)]
+
+    def testWrapAcrossBend(self):
+        """Drawn on the flat across the far bend: 3 of the plate, the whole
+        strip, the leg up to 25 - 18 - STRIP on from where it starts, 10
+        wide; the flat's hole that rectangle"""
+        self.flange("Far", FAR)
+        volume = self.Tip.Shape.Volume
+        _, before = self.flatArea(self.Tip)
+        sketch = self.sketch(self.top(), rects=[self.rect(10, 15, 20, 25)])
+        cutout = self.cut(sketch, Wrap=True)
+        self.checkValid(cutout)
+        self.assertAlmostEqual(cutout.Shape.Volume, volume - 100, places=5)
+        shape = cutout.Shape
+        leg = 2 + 25 - 18 - STRIP
+        self.assertFalse(shape.isInside(V(15, 19.5, leg - 0.1), 1e-9, True))
+        self.assertTrue(shape.isInside(V(15, 19.5, leg + 0.1), 1e-9, True))
+        self.assertFalse(shape.isInside(V(15, 16, 0.5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(15, 14, 0.5), 1e-9, True))
+        mid = math.pi / 4
+        self.assertFalse(
+            shape.isInside(V(15, 18 + 1.5 * math.sin(mid), 2 - 1.5 * math.cos(mid)), 1e-9, True))
+        self.assertTrue(shape.isInside(V(21, 19.5, leg - 0.1), 1e-9, True))
+        _, area = self.flatArea(cutout)
+        self.assertAlmostEqual(area, before - 100, places=4)
+
+    def testWrapTwoBends(self):
+        """Across a U channel's two bends from leg to leg, 30 long: the same
+        hole in the flat as cut there directly, 10 by 30"""
+        self.flange("Near", NEAR)
+        self.flange("Far", FAR)
+        volume = self.Tip.Shape.Volume
+        _, before = self.flatArea(self.Tip)
+        sketch = self.sketch(self.top(), rects=[self.rect(10, -5, 20, 25)])
+        cutout = self.cut(sketch, Wrap=True)
+        self.checkValid(cutout)
+        self.assertAlmostEqual(cutout.Shape.Volume, volume - 300, places=5)
+        shape = cutout.Shape
+        # y -5 is 5 - 2 + 2 - STRIP on along the near leg, as 25 on the far
+        leg = 2 + 25 - 18 - STRIP
+        for y in (0.5, 19.5):
+            self.assertFalse(shape.isInside(V(15, y, leg - 0.1), 1e-9, True))
+            self.assertTrue(shape.isInside(V(15, y, leg + 0.1), 1e-9, True))
+        flat, area = self.flatArea(cutout)
+        self.assertAlmostEqual(area, before - 300, places=4)
+        # its skin on XY, the faces of its elements merged: one hole
+        solid = flat.Shape.Solids[0]
+        z = solid.BoundBox.ZMin
+        faces = [
+            f for f in solid.Faces
+            if f.BoundBox.ZLength < 1e-7 and abs(f.BoundBox.ZMin - z) < 1e-7
+        ]
+        skin = faces[0].fuse(faces[1:]).removeSplitter()
+        self.assertEqual(len(skin.Faces), 1)
+        holes = [w.BoundBox for w in skin.Faces[0].Wires if not w.isSame(skin.Faces[0].OuterWire)]
+        self.assertEqual(len(holes), 1)
+        self.assertAlmostEqual(min(holes[0].XLength, holes[0].YLength), 10, places=5)
+        self.assertAlmostEqual(max(holes[0].XLength, holes[0].YLength), 30, places=5)
+
+    def testWrapPlanes(self):
+        """The same cut from the plate's top, its bottom, planes above and
+        below it, and the top with the sketch turned over: taken onto the
+        plate straight, the side it faces no matter"""
+        self.flange("Far", FAR)
+        volume = self.Tip.Shape.Volume
+        cutout = None
+        for z, flipped in ((1, False), (0, False), (5, False), (-3, False), (1, True)):
+            sketch = self.sketch(self.top(z, flipped), rects=[self.rect(10, 15, 20, 25, z)])
+            if cutout is None:
+                cutout = self.cut(sketch, Wrap=True)
+            else:
+                cutout.Profile = sketch
+                self.Doc.recompute()
+            self.checkValid(cutout)
+            self.assertAlmostEqual(cutout.Shape.Volume, volume - 100, places=5, msg=(z, flipped))
+
+    def testWrapOffOutline(self):
+        """Over the plate's left end, the far bend and the leg: what lies
+        off the flat, x below 0, cuts nothing; a notch 5 wide, 16 long"""
+        self.flange("Far", FAR)
+        volume = self.Tip.Shape.Volume
+        _, before = self.flatArea(self.Tip)
+        sketch = self.sketch(self.top(), rects=[self.rect(-5, 10, 5, 26)])
+        cutout = self.cut(sketch, Wrap=True)
+        self.checkValid(cutout)
+        self.assertAlmostEqual(cutout.Shape.Volume, volume - 80, places=5)
+        shape = cutout.Shape
+        leg = 2 + 26 - 18 - STRIP
+        self.assertFalse(shape.isInside(V(2, 19.5, leg - 0.1), 1e-9, True))
+        self.assertTrue(shape.isInside(V(2, 19.5, leg + 0.1), 1e-9, True))
+        self.assertTrue(shape.isInside(V(6, 19.5, 5), 1e-9, True))
+        _, area = self.flatArea(cutout)
+        self.assertAlmostEqual(area, before - 80, places=4)
+
+    def testWrapNearestWall(self):
+        """Parallel to both legs of a U channel, 5 beyond the far one: the
+        far leg is the wall that stays, the circle a hole in it there"""
+        self.flange("Near", NEAR)
+        self.flange("Far", FAR)
+        volume = self.Tip.Shape.Volume
+        sketch = self.sketch(self.outside(25), circles=[((15, 25, 6), 1)])
+        cutout = self.cut(sketch, Wrap=True)
+        self.checkValid(cutout)
+        self.assertAlmostEqual(cutout.Shape.Volume, volume - math.pi, places=5)
+        self.assertFalse(cutout.Shape.isInside(V(15, 19.5, 6), 1e-9, True))
+        self.assertTrue(cutout.Shape.isInside(V(15, 0.5, 6), 1e-9, True))
+        self.assertTrue(cutout.Shape.isInside(V(15, 19.5, 7.2), 1e-9, True))
+
+    def testWrapRefused(self):
+        """A sketch parallel to no wall; one wholly off the flat, past the
+        far end, and one in the gap at the corner of two flanges, which
+        their walls run on into folded"""
+        self.flange("Far", FAR)
+        rot = FreeCAD.Rotation(V(1, 0, 0), 30)
+        cutout = self.cut(self.body_sketch_circle(FreeCAD.Placement(V(20, 10, 5), rot), 3),
+                          Wrap=True)
+        self.assertIn("Invalid", cutout.State)
+        self.assertIn("parallel to no wall", cutout.getStatusString())
+        cutout.Profile = self.sketch(self.top(), rects=[self.rect(10, 30, 20, 35)])
+        self.Doc.recompute()
+        self.assertIn("Invalid", cutout.State)
+        self.assertIn("none of the flat", cutout.getStatusString())
+        cutout.Wrap = False
+        cutout.Profile = self.sketch(self.top(), circles=[((10, 10, 1), 3)])
+        self.Doc.recompute()
+        self.checkValid(cutout)
+
+    def testWrapCornerGap(self):
+        """Two flanges meeting at a corner: their legs lie flat beside the
+        gap between them, and a sketch there cuts nothing, though either
+        leg's wall runs on through it folded"""
+        self.flange("Far", FAR)
+        self.flange("Right", RIGHT)
+        cutout = self.cut(self.sketch(self.top(), rects=[self.rect(42, 22, 47, 26)]), Wrap=True)
+        self.assertIn("Invalid", cutout.State)
+        self.assertIn("none of the flat", cutout.getStatusString())

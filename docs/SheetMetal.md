@@ -1122,6 +1122,16 @@ and not frozen.
   walls (two bends between them, as Inventor offers, maybe later: a jog steps a wall); walls
   already joined, as a loop does not lie flat without a rip; two edges sharing no length.
 
+**Ruled 2026-11-03, M2's wrap cutout:**
+- An option on the cutout, `Wrap`, not a tool of its own.
+- The sketch lies on a wall's skin or on a plane parallel to it; the nearest such wall stays
+  where it is, as in the flat, and the sketch is drawn on the flat in that frame: its lines
+  carry across bends at their developed length.
+- It cuts only; it marks nothing on the sheet.
+- What of the sketch lies off the flat -- past its outline or in a gap within it -- cuts
+  nothing, as a pocket over a plate's edge takes only what is there; a sketch is not refused
+  for straying off the outline, which moves whenever an earlier feature is edited.
+
 **Ruled 2026-11-02, M2's contour flange:**
 - Its own feature, as sec 5.1 lists it, sharing the flange's code: the gaps, the wall cut back under
   it with its relief, and the miters.

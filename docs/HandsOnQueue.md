@@ -166,6 +166,10 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-03 15:10: entry 250 -- bgfx regression: a selected edge fights its own
+highlight for depth and covers the pre-selection (Legacy right);
+ASSIGNED to x16.** Under the entries.
+
 **2026-11-03 15:08: 247 (a) REOPENED -- scanner's migration recompute still shows a
 black view on the stage that holds the fix; ASSIGNED to dwin.** Under
 the entries.
@@ -4650,6 +4654,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 247 | 2026-11-03 | a REGRESSION, the reporter relates it to 242's fix: opening scanner, the migration box now holds the load, but after OK the recompute runs with the 3D view BLACK, the model appearing at once at its end (no progressive load); NO recompute error box although objects fail; the first try also failed Dimension014, through Section007 left with no shape and NOT marked as an error (a manual recompute of Section007 fixed it) | OPEN; said to the note-taker 2026-11-03 10:44; READ by the note-taker: the handler (Application.cpp 607-640) recomputes right after the box, inside signalFinishOpenDocument, and shows the error box when hasError; 242's hold (isLoadHeld = activeModalWidget(), Application.cpp 2505-2508) also holds Document::scheduleDeferredRestore (Document.cpp 4703-4710) -- the deferred RESTORE, not only the visuals -- so the recompute may run on a document not fully restored (a lead for Section007, NOT verified); a modal SequencerDialog in the recompute (ProgressDialog.cpp 105) would keep the hold on through it (a lead, NOT verified); causes NOT found; ASSIGNED to dwin (fcad-88), FIRST; 2026-11-03 11:49 DONE by dwin, `dfc36122fe`, local, NOT pushed, NOT staged: (a)+(c) 242's hold held for ANY modal widget, so the recompute's modal progress dialog held the deferred restore and the visuals through the whole recompute; now only a QMessageBox holds, never while a document recomputes (modal-box-holds-the-load.py: staged 0 visuals under a progress dialog, fixed 616); (b) an OLDER fault, not 242's: Document::recompute printed "Recompute failed!" but set hasError only on a failed execute -- SectionView003 logs its empty cut and returns OK; now the caller is told, the error box shows on a scanner copy (staged: none); the black view and Section007/Dimension014 NOT reproduced on the hidden desktop (no progress dialog there; no object NAMED Section007 -- a label?), both follow from the hold removed; ctest 1100/1100, Python 4077 OK; 2026-11-03 12:56 PUSHED: in thundereal/LinkVibe (..`7ed5c8c868` before x16's push, `2523224972` after; checked by git ls-remote and fetch); who pushed up to 7ed5c8c868 not reported to the note-taker; staged NOT known; 2026-11-03 15:08 REOPENED (a), the reporter: "regression, opening scanner.FCStd and proceed with migration recompute still gives black background during recomputation" -- on the STAGED copy installed 2026-11-03 13:20 from `eca80edde0` (.conda/user-app/INSTALLED.txt), which HOLDS 247's fix `dfc36122fe`; dwin had NOT reproduced the black view on the hidden desktop (no progress dialog there); cause NOT found; ASSIGNED to dwin |
 | 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full); 2026-11-03 10:55 the reporter's steps: a Box, a Pocket of the top face with -2 "tolerance" (a square blind hole in the top), then Defeaturing picking the hole's bottom and one side face; the session the note-taker calls x16 (bridge 01Gifk77, it signs fcad-86) asked whether x16win was meant -- told no, it takes 248; 2026-11-03 12:14 DONE by x16 (relayed), `3291bf8336` + `a7bf62e050` on its LinkVibe tree (on 0a4d49eda5), local, NOT pushed, NOT staged (not in this tree): the hover lights the faces getGeneratedIndices reports, by default only those mapped as GENERATED (;:G); Defeaturing generates nothing, and BRepAlgoAPI_Defeaturing rebuilds EVERY face, so all six are ;:M;DEF, the untouched ones too -- own elements [] -> the whole shape; fix: Defeaturing::isElementGenerated also counts a modified face that DIFFERS from its source (traced by getElementHistory, compared by edge count and area); the reporter's case lights the top face made whole (area 64 -> 100) and its edges/vertices, sides and bottom out; element names UNCHANGED; new read-only Feature.getGeneratedElements(); TestDefeaturing 6/6 (testHoverLightsWhatChanged fails before), TestPartDesignApp 500 OK; follow-up for the reporter: untouched faces keeping their source names (a naming change for saved files), NOT done; 2026-11-03 12:56 PUSHED by x16 on the reporter's word to it (relayed: "push"), thundereal/LinkVibe 7ed5c8c868..`2523224972` (a clean merge of the remote into x16's tree; checked by git ls-remote); NOT staged; on the merged build TestDefeaturing 6, on-top-inside-the-clip-planes 3/3, GuiPreselTipClearOfPanels 1/1, hidden-selected-edge-over-line 2/2 |
 | 249 | 2026-11-03 | a defect, two parts: (a) a Body with a Box: a face of the box picked in the 3D view, Space hides the BODY -- it should hide the selected object; (b) with the body hidden (by Space or by the body's eye icon in the tree), the still-selected box is drawn on top but CLIPPED -- the scene's clipping ignores what is shown on top | OPEN; said to the note-taker 2026-11-03 11:17; READ by the note-taker: (a) is ON PURPOSE since `cccbe6cc5c` (2026-09-26, upstream bd03414893/20c01000a1 adapted): SelectionSingleton::setVisible cuts a view pick's path to ViewProvider::getPickedVisibilityTarget() (Selection.cpp 1874-1899), a PD feature naming its body -- its reason, a face of a non-Tip feature (Body.Box.Face6 under a pocket) toggled a hidden feature; the reporter now wants the selected object; (b) SoFCRenderer::getBoundingBox takes the selection's and highlight's bounds (SoFCRenderer.cpp 1843-1853) -- what the near/far planes are computed from NOT read; causes for (b) NOT found; ASSIGNED to x16 after 248; 2026-11-03 11:21 (a) ON HOLD, the reporter: "wait, let's see upstream's rational about this override first. I am not convinced yet" -- upstream's rationale read (FreeCAD #29110 fixing issue #11132, then #30231), x16 told to hold (a); (b) goes on; 2026-11-03 12:14 x16 on (b), (a) held; 2026-11-03 12:26 (b) DONE by x16 (relayed), `a3a986c749` on its LinkVibe tree on top of 248, local, NOT pushed, NOT staged: the near/far planes already take in the on-top entries (entry 124, e6bea25bcd, View3DInventorSelection::extendByOnTop) but took the box of the entry AS NAMED, element included -- Body + "Box.Face6" gave the top face's box only; with the body hidden the whole Box is drawn on top and the far plane cut it; fix: the box of the named object without the element (getSubNameNoElement), which can only widen; far plane 11.76 -> 17.62 (the box 17.3 deep); both renderers (shared code), eye icon and Space alike; on-top-inside-the-clip-planes.py 3/3 (fails before); (a) untouched, held; 2026-11-03 12:56 PUSHED by x16 on the reporter's word to it (relayed: "push"), thundereal/LinkVibe 7ed5c8c868..`2523224972` (a clean merge of the remote into x16's tree; checked by git ls-remote); NOT staged; on the merged build TestDefeaturing 6, on-top-inside-the-clip-planes 3/3, GuiPreselTipClearOfPanels 1/1, hidden-selected-edge-over-line 2/2; 2026-11-03 13:04 (a) DECIDED by the reporter: "the space bar override is clearly wrong" -- REVERT `cccbe6cc5c` (a body holds features other than solids, and several solids now; hiding the body hides them all); a better way for upstream's complaint (#11132) to be thought out -- the note-taker's proposals put to the reporter; the revert ASSIGNED to x16; 2026-11-03 13:41 (a) REVERTED by x16 (relayed), `24c98f04d2` on its tree (on 2523224972), local, NOT pushed, NOT staged; GuiPartDesignDefects 34/34 (the Space claim turned round); measured: a view pick of a box's face under a pocket names the TIP (Body + "Pocket.;Front;:H990,F.Face2"), not Body.Box.Face6 as `cccbe6cc5c` said; Space 1 hides the Pocket and the body shows the BOX (no hole) in its place, Space 2 swaps back -- the first Space swaps the solid for the feature before it rather than hiding it; 2026-11-03 14:24 x16 CORRECTION (relayed): the swap measurement was WRONG (a body built from Python left the Box visible; the GUI hides the previous solid); the revert is now `50ab8ff316` (message corrected; `24c98f04d2` gone, never pushed); measured again: Space on the Tip's picked face hides it and shows NOTHING, Space again shows it; Space on a hidden feature in the tree shows it and hides the visible one; the reporter to x16 (relayed): the old behaviour, "hiding a step does not show others", "just revert upstream's relevant code" -- the revert alone gives it; (a) DONE by the revert, local, NOT pushed; 2026-11-03 14:27 the revert PUSHED by x16 on the reporter's word to it (relayed: "push"), thundereal/LinkVibe 2523224972..`50ab8ff316` (fast-forward; checked by git ls-remote); NOT staged |
+| 250 | 2026-11-03 | a REGRESSION on bgfx (Legacy right): an edge's pre-selection highlight still partly covered by the SELECTED line; a selected edge in plain sight and its selection highlight FIGHT for depth (z-fighting), while its part hidden by the object shows the selection full solid | OPEN; said to the note-taker 2026-11-03 15:10; READ by the note-taker: the only recent changes to the bgfx frame are 243 `5e3a5917c4` (the plain lines mark the stencil, the highlight and selection lines drawn again over the mark without the depth test; the last redraw selection first, pre-selection after) and 243 b `e6a285fa4d`; cause NOT found; ASSIGNED to x16 (dwin on 247) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -32810,6 +32815,39 @@ copy, a COPY of scanner.FCStd, Yes to the migration box); if the hidden
 desktop again does not show it, say so -- running on the real screen is
 the reporter's call (GT_ON_SCREEN=1).
 
+## 250. bgfx: a selected edge fights its own highlight for depth, and covers the pre-selection (a regression) -- OPEN
+
+**2026-11-03 15:10, the reporter (to the note-taker):** "regression, edge highlight
+still partially obscured by the selected line with bgfx backend. note
+that when the edge is blocked by the object, it's selection highlight is
+shown full solid. but when the selected edge is shown, then the edge and
+its selection highlight fights for Z depth. just compare with render
+type legacy you'll see"
+The note-taker's reading, on the bgfx renderer only (Render/Type Legacy
+is right, the reference):
+(a) An edge's pre-selection highlight is still partly covered by the
+    selected line -- 243's rule (pre-selection over selection) not
+    holding there ("still": after 243).
+(b) A selected edge: where the object hides it, its selection
+    highlight is drawn full and solid (right); where the edge is in
+    plain sight, the edge's own line and its selection highlight fight
+    for depth -- the highlight broken up by the plain line (z-fighting).
+READ by the note-taker:
+- The only changes to the bgfx frame since 11-01: 243 `5e3a5917c4`
+  (BGFXFrame.cpp, BGFXViewSubmit.cpp, BGFXRendererP.h: the scene's
+  plain lines mark the stencil where front-most; the depth-tested
+  highlight and selection lines drawn again over the mark without the
+  depth test; the last redraw after the annotation orders draws the
+  selection first, the pre-selection after) and 243 b `e6a285fa4d`
+  (that copy only while the hidden style is solid). A lead, NOT
+  verified: the selected edge's own plain line marks the stencil and
+  its selection copy and the plain line meet at the same depth.
+- Cause NOT found.
+NOT said: which model (read as any edge, a PD body's); the dashed
+hidden style (read as the same).
+ASSIGNED to x16 (the note-taker coordinating; dwin is on 247; the
+change is dwin's 243 -- x16 may ask dwin).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -32821,5 +32859,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 249
+the build session, 131 and 132 found by it; entries 134 to 250
 are of 2026-10-15, 134 said to the build session)

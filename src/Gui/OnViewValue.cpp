@@ -87,6 +87,9 @@ struct OnViewValueSet::Entry
     bool hidden = false;
     QMetaObject::Connection boxConnection;
     std::unique_ptr<EditableDatumLabel> label;
+    /// The label's text size as last shown: in edit its text is blank, and
+    /// placed by that the label moved, the edit box with it (entry 244)
+    QSize shownSize;
 };
 
 namespace
@@ -1104,7 +1107,14 @@ void OnViewValueSet::placeLabels()
             if (it != entry->handles.end()) {
                 h = std::distance(entry->handles.begin(), it);
             }
-            pixel = handleLabelPixel(entry->handles[h], entry->anchors[h], entry->label.get());
+            // In edit, the size the label had shown: the edit box opens where
+            // the label stood (entry 244, the reporter: "click or enter to
+            // edit will move the edit box instead of show in place of the
+            // label")
+            if (!entry->label->isInEdit() || entry->shownSize.isEmpty()) {
+                entry->shownSize = labelTextSize(entry->label.get());
+            }
+            pixel = handleLabelPixel(entry->handles[h], entry->anchors[h], entry->shownSize);
         }
         const SbVec3f p = view->getPointOnFocalPlane(pixel);
         entry->label->setPlacement(Base::Placement(Base::Vector3d(p[0], p[1], p[2]), rotation));
@@ -1129,7 +1139,7 @@ bool OnViewValueSet::atHandle(int index) const
 }
 
 SbVec2s OnViewValueSet::handleLabelPixel(Gizmo* handle, const Base::Vector3d& anchor,
-                                         EditableDatumLabel* label) const
+                                         const QSize& text) const
 {
     const double ratio = std::max(1.0, view->devicePixelRatio());
     const auto toSb = [](const Base::Vector3d& v) {
@@ -1183,7 +1193,6 @@ SbVec2s OnViewValueSet::handleLabelPixel(Gizmo* handle, const Base::Vector3d& an
     }
     // Seen end on (no way on the screen): up and to the right. The label's
     // middle as far out as its half size along that way, and the clearance
-    const QSize text = labelTextSize(label);
     const double half = (std::abs(nx) * text.width() + std::abs(ny) * text.height()) * ratio / 2.0;
     const double reach = half + HandleClearance * ratio * (base->radial ? 2.0 : 1.0);
     return SbVec2s(short(at[0] + nx * reach), short(at[1] + ny * reach));

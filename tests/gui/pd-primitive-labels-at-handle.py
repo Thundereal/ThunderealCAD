@@ -14,7 +14,11 @@ Claims, a box and then a cylinder in their edits:
   - it has the outline a sketch's on-view parameters have (the reporter:
     "show the outline"), ConstraintOutlineWidth, 1 px by default;
   - its text is in the sketch's dimension colour, and on a light background
-    a fifth darker (the reporter: "darken in light theme, only a bit").
+    a fifth darker (the reporter: "darken in light theme, only a bit");
+  - Return opens its edit box where the label stood, and it stays there
+    (entry 244, the reporter: "click or enter to edit will move the edit
+    box instead of show in place of the label": the text, blank in edit,
+    placed the label by its size).
 Runs offscreen as well.
 """
 import os
@@ -93,6 +97,52 @@ def labels():
     return out
 
 
+def label_spot():
+    """Where the one shown label stands, in global pixels: its transform's
+    point on the screen"""
+    found = coin.SoSearchAction()
+    found.setType(coin.SoType.fromName("SoDatumLabel"))
+    found.setInterest(coin.SoSearchAction.ALL)
+    found.setSearchingAll(True)
+    found.apply(view().getAuxSceneGraph())
+    for p in found.getPaths():
+        if not shown(p):
+            continue
+        parent = p.getNode(p.getLength() - 2)
+        for i in range(p.getIndex(p.getLength() - 1) - 1, -1, -1):
+            child = parent.getChild(i)
+            if child.isOfType(coin.SoTransform.getClassTypeId()):
+                t = child.translation.getValue().getValue()
+                sx, sy = view().getPointOnScreen(FreeCAD.Vector(*t))[:2]
+                vp = viewer_widget()
+                vp = vp.viewport() if hasattr(vp, "viewport") else vp
+                ratio = vp.devicePixelRatioF()
+                g = vp.mapToGlobal(QtCore.QPoint(int(sx / ratio), int(vp.height() - sy / ratio)))
+                return (g.x(), g.y())
+    return None
+
+
+def edit_box_centre():
+    """The on-view edit box's middle, in global pixels: the one with the
+    keys, else the first one shown outside the task panel"""
+    w = QtWidgets.QApplication.focusWidget()
+    while w is not None and w.metaObject().className() != "Gui::QuantitySpinBox":
+        w = w.parentWidget()
+    if w is not None and w.isVisible():
+        c = w.mapToGlobal(w.rect().center())
+        return (c.x(), c.y())
+    for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QAbstractSpinBox):
+        if not w.isVisible() or w.metaObject().className() != "Gui::QuantitySpinBox":
+            continue
+        parent = w
+        while parent is not None and parent.metaObject().className() != "Gui::TaskView::TaskView":
+            parent = parent.parentWidget()
+        if parent is None:
+            c = w.mapToGlobal(w.rect().center())
+            return (c.x(), c.y())
+    return None
+
+
 VIEW = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
 
 
@@ -149,6 +199,23 @@ def try_feature(obj, name, first, opacity=0, light=False):
                   name, ", a little darker" if light else ""),
               got is not None and max(abs(a - b) for a, b in zip(got, wanted)) < 0.01,
               (got, wanted))
+        # Entry 244: Return opens the edit box where the label stood
+        stood = label_spot()
+        key(Qt.Key_Return)
+        pump(10)
+        box = edit_box_centre()
+        pump(50)
+        later = edit_box_centre()
+        far = None if not (stood and box) else max(abs(stood[0] - box[0]), abs(stood[1] - box[1]))
+        check("%s: Return, the edit box opens where the label stood" % name,
+              far is not None and far <= 8, "label %s, box %s" % (stood, box))
+        check("%s: ... and stays there" % name, box is not None and later == box,
+              (box, later))
+        # the edit given up at the box, which has the keys now
+        editor = QtWidgets.QApplication.focusWidget()
+        if editor is not None:
+            QtTest.QTest.keyClick(editor, Qt.Key_Escape)
+            pump(20)
     key(Qt.Key_Escape)
     gdoc.resetEdit()
     pump(30)

@@ -2506,9 +2506,31 @@ Phase D1 is under way (2026-10-28):
     to 2e-4, test_ball_rolls_in_bore to 5e-4 (swingInBore()), each within
     1 um of its radius; ContactShapes.boreIsAHollowRound (C++).
   - Not yet: Bullet left out of a round pair's narrowphase, not only its
-    points dropped (the hull roller's time); a pin's other faces -- its
-    ends, its chamfers -- against the bore's wall when it tilts, which
-    are dropped with the rest; a cylinder in a socket.
+    points dropped (the hull roller's time; built in the entry below); a
+    pin's other faces -- its ends, its chamfers -- against the bore's wall
+    when it tilts, which are dropped with the rest; a cylinder in a
+    socket.
+- Built: Bullet leaves a round pair's shapes out. A round pair's inner
+  shape and its hollow face's triangles are skipped before their narrowphase,
+  not only their points dropped. The hull roller in the bore spent 6.3 s of
+  its 7.8 s run in Bullet, clipping its 280-point hull against each
+  triangle; the dropping stays, in case Bullet still reports any.
+  - How: Bullet asks gCompoundChildShapePairCallback (and the
+    compound-compound one) about each child pair of a compound before
+    running it. ContactCollisionSystem points them at collides(), which
+    refuses a shape in `inner` against a triangle in `hollow` under the same
+    round pair's number. The answer is this system's only while its own Run()
+    is on the stack (a thread_local), so another Chrono system in the process
+    is untouched. addPolyhedralFeatures() records the Bullet shapes each
+    Chrono shape made (`made`): a mesh's triangles in order, any other's one.
+  - Measured, over a second: the hull roller's run 7.8 s -> 1.1 s (Bullet
+    6.27 s -> 0.04 s), the primitive pin's 1.3 s -> 1.1 s. Each period is
+    the same to the last digit printed (roller 3.536e-5 off, pin 3.790e-5,
+    ball 1.393e-4).
+  - Tests: TestContact's test_roller_rolls_in_bore, the chamfered roller
+    (a hull) to 2e-4, now fast enough to run (swingInBore("roller")).
+  - Not yet: a pin's other faces against the bore's wall when it tilts; a
+    cylinder in a socket.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

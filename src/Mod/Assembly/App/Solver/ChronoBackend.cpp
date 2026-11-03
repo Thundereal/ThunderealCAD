@@ -127,6 +127,8 @@
 #include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtActivatingCollisionAlgorithm.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCollisionDispatcher.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCollisionObjectWrapper.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCompoundCollisionAlgorithm.h>
+#include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCompoundCompoundCollisionAlgorithm.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtBoxShape.h>
 #include <chrono/collision/bullet/BulletCollision/CollisionShapes/cbtCEtriangleShape.h>
@@ -2183,10 +2185,22 @@ public:
         bt_dispatcher->registerCollisionCreateFunc(CH_TRIANGLE_SHAPE_PROXYTYPE,
                                                    CH_TRIANGLE_SHAPE_PROXYTYPE,
                                                    &polyhedral);
+        gCompoundChildShapePairCallback = &collides;
+        gCompoundCompoundChildShapePairCallback = &collides;
     }
     void addPolyhedralFeatures(
         ch::ChCollisionModel& model,
         std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*>& features);
+    // The Bullet shapes each shape of a model made (addPolyhedralFeatures()):
+    // a mesh's its triangles, any other's one
+    std::map<const ch::ChCollisionShape*, std::vector<const cbtCollisionShape*>> made;
+    // Pairs of Bullet shapes it leaves out: one in 'inner' against a
+    // triangle in 'hollow' under the same number, a round inside a hollow
+    // one (ContactHandover::RoundPair), whose points are the rounds' own. A
+    // chamfered roller's hull clipped against a bore's triangles was four
+    // fifths of its run's time, for points then dropped.
+    std::map<const cbtCollisionShape*, std::vector<std::size_t>> inner;
+    std::map<const cbtCollisionShape*, std::vector<std::size_t>> hollow;
 
     // Chrono runs collision detection as a step starts, and advance() runs
     // it after each substep to see what the substep found: at the same
@@ -2200,14 +2214,45 @@ public:
         reused = reuse;
         reuse = false;
         if (!reused) {
+            const ContactCollisionSystem* outer = running;
+            running = this;
             ch::ChCollisionSystemBullet::Run();
+            running = outer;
         }
     }
 
 private:
+    // Bullet's test of a compound's child against another shape, before it
+    // runs their algorithm: false leaves them out ('inner', 'hollow'), when
+    // its run is this system's on this thread
+    static thread_local const ContactCollisionSystem* running;
+    static bool collides(const cbtCollisionShape* a, const cbtCollisionShape* b)
+    {
+        return !running || !(running->apart(a, b) || running->apart(b, a));
+    }
+    bool apart(const cbtCollisionShape* a, const cbtCollisionShape* b) const
+    {
+        if (inner.empty()) {
+            return false;
+        }
+        auto i = inner.find(a);
+        auto h = hollow.find(b);
+        if (i == inner.end() || h == hollow.end()) {
+            return false;
+        }
+        for (std::size_t k : i->second) {
+            if (std::find(h->second.begin(), h->second.end(), k) != h->second.end()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     PolyhedralAlgorithm::Polyhedra polyhedra;
     PolyhedralAlgorithm::CreateFunc polyhedral;
 };
+
+thread_local const ContactCollisionSystem* ContactCollisionSystem::running = nullptr;
 
 // A model's boxes and hulls with their polyhedral features, for Bullet to
 // clip a pair of them face against face: all the points of a face resting
@@ -2260,6 +2305,7 @@ void ContactCollisionSystem::addPolyhedralFeatures(
             while (next < children.size()
                    && children[next]->getShapeType() == CH_TRIANGLE_SHAPE_PROXYTYPE) {
                 auto* triangle = static_cast<cbtCEtriangleShape*>(children[next++]);
+                made[instances[i].shape.get()].push_back(triangle);
                 polyhedra[triangle] =
                     satOfTriangle(*triangle, static_cast<cbtScalar>(model.GetEnvelope()));
             }
@@ -2269,6 +2315,7 @@ void ContactCollisionSystem::addPolyhedralFeatures(
             return;
         }
         cbtCollisionShape* shape = children[next++];
+        made[instances[i].shape.get()].push_back(shape);
         switch (instances[i].shape->GetType()) {
             case ch::ChCollisionShape::Type::BOX: {
                 auto* box = static_cast<cbtBoxShape*>(shape);
@@ -2869,6 +2916,23 @@ std::vector<ch::ChMatrix33d> meshCurvatures(const std::vector<ch::ChVector3d>& v
         faces.push_back({t.x(), t.y(), t.z()});
     }
     return vertexCurvatures(vertices, faces);
+}
+
+// Whether a mesh's triangle, its corners among the mesh's vertices, has
+// one on the mesh's round face 'round' (ContactShape::Surface::round)
+bool onRound(const ShapeOn& mesh, std::initializer_list<const ch::ChVector3d*> corners, int round)
+{
+    for (const ch::ChVector3d* corner : corners) {
+        const auto v = static_cast<std::size_t>(corner - mesh.vertices);
+        if (v < mesh.surfaces.size()) {
+            for (const auto& face : mesh.surfaces[v]) {
+                if (face.round == round) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
 }
 
 // The contact shapes by Chrono's shapes, and a mesh's triangle by the mesh
@@ -6539,9 +6603,11 @@ Status ChronoSession::simulateDynamics(
                 ContactLoad& load = *pair.load;
                 const ShapeOn* onA = pair.innerA ? pair.inner : pair.hollow;
                 const ShapeOn* onB = pair.innerA ? pair.hollow : pair.inner;
-                // Bullet's between the two: the inner shape's against the
-                // hollow face's triangles, however their normal leans -- one
-                // 18 deg off the bore's took no round, 75 um deep on its facet
+                // Bullet's between the two, should it find any (it leaves
+                // them out, ContactCollisionSystem::inner): the inner shape's
+                // against the hollow face's triangles, however their normal
+                // leans -- one 18 deg off the bore's took no round, 75 um
+                // deep on its facet
                 auto ofHollow = [&](const ch::ChCollisionShape* shape) {
                     if (!shape || shapesOn.of(shape) != pair.hollowOf
                         || shape->GetType() != ch::ChCollisionShape::Type::MESHTRIANGLE) {
@@ -6549,18 +6615,9 @@ Status ChronoSession::simulateDynamics(
                     }
                     const auto* triangle =
                         static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
-                    for (const ch::ChVector3d* corner :
-                         {triangle->V1, triangle->V2, triangle->V3}) {
-                        const auto v = static_cast<std::size_t>(corner - pair.hollowOf->vertices);
-                        if (v < pair.hollowOf->surfaces.size()) {
-                            for (const auto& face : pair.hollowOf->surfaces[v]) {
-                                if (face.round == pair.face) {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                    return false;
+                    return onRound(*pair.hollowOf,
+                                   {triangle->V1, triangle->V2, triangle->V3},
+                                   pair.face);
                 };
                 load.points.erase(
                     std::remove_if(
@@ -7056,6 +7113,39 @@ Status ChronoSession::simulateDynamics(
             auto it = shapesOn->find(shape);
             if (it != shapesOn->end()) {
                 it->second.features = polyhedron;
+            }
+        }
+        // Bullet leaves out each round pair's inner shape against its
+        // hollow face's triangles
+        auto madeOf = [&](const ShapeOn* on) -> const std::vector<const cbtCollisionShape*>* {
+            for (const auto& [shape, of] : *shapesOn) {
+                if (&of == on) {
+                    auto it = collision->made.find(shape);
+                    return it == collision->made.end() ? nullptr : &it->second;
+                }
+            }
+            return nullptr;
+        };
+        for (std::size_t k = 0; k < handover->roundPairs.size(); ++k) {
+            const ContactHandover::RoundPair& pair = handover->roundPairs[k];
+            const auto* inner = madeOf(pair.innerOf);
+            const auto* hollow = madeOf(pair.hollowOf);
+            if (!inner || !hollow) {
+                continue;
+            }
+            for (const cbtCollisionShape* shape : *inner) {
+                collision->inner[shape].push_back(k);
+            }
+            for (const cbtCollisionShape* shape : *hollow) {
+                if (shape->getShapeType() != CH_TRIANGLE_SHAPE_PROXYTYPE) {
+                    continue;
+                }
+                const auto* triangle = static_cast<const cbtCEtriangleShape*>(shape);
+                if (onRound(*pair.hollowOf,
+                            {triangle->get_p1(), triangle->get_p2(), triangle->get_p3()},
+                            pair.face)) {
+                    collision->hollow[shape].push_back(k);
+                }
             }
         }
     }

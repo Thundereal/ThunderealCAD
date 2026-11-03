@@ -815,10 +815,11 @@ class TestContact(unittest.TestCase):
         self.assertLess(below, 2e-3)
 
     def swingInBore(self, inner, friction, end=0.6):
-        """'inner' -- "pin", a cylinder of radius 4 and 10 long, or "ball", of
-        radius 4 -- in a bore of radius 10 along y through a grounded block
-        (not convex: a mesh), let go 10 deg off the bottom, touching the
-        bore, on 'friction'. Its centre swings about the bore's axis as a
+        """'inner' -- "pin", a cylinder of radius 4 and 10 long, "roller", that
+        with its rims chamfered 0.3 (a hull), or "ball", of radius 4 -- in a
+        bore of radius 10 along y through a grounded block (not convex: a
+        mesh), let go 10 deg off the bottom, touching the bore, on
+        'friction'. Its centre swings about the bore's axis as a
         pendulum of length (10 - 4)(1 + k^2/r^2) rolling, 6 sliding: the
         periods between its downward crossings of the bottom, the closed
         form's, 4 sqrt(l / g) K(sin 5 deg), and how far its centre strayed
@@ -842,6 +843,9 @@ class TestContact(unittest.TestCase):
             part.Shape = Part.makeCylinder(
                 4, 10, centre + App.Vector(0, -5, 0), App.Vector(0, 1, 0)
             )
+        if inner == "roller":
+            rims = [e for e in part.Shape.Edges if e.Curve.TypeId == "Part::GeomCircle"]
+            part.Shape = part.Shape.makeChamfer(0.3, rims)
         self.contact([part], [block], StaticFriction=friction, DynamicFriction=friction)
         solid = part.Shape.Solids[0]
         k2 = solid.MatrixOfInertia.A[5] / solid.Volume / 16
@@ -891,6 +895,18 @@ class TestContact(unittest.TestCase):
         """Frictionless, the pin slides round the bore without turning: the
         simple pendulum's period, length 6, to 2e-4 (5e-5 measured)."""
         periods, closed, stray = self.swingInBore("pin", 0.0)
+        self.assertGreaterEqual(len(periods), 2)
+        for period in periods:
+            self.assertAlmostEqual(period / closed, 1.0, delta=2e-4)
+        self.assertLess(stray, 1e-3)
+
+    def test_roller_rolls_in_bore(self):
+        """A chamfered roller rolling in a bore: its hull's round face in the
+        bore's, to 2e-4 (3.5e-5 measured). Bullet leaves the hull against
+        the bore's triangles out (ContactCollisionSystem::inner), the
+        rounds' own points taking their place: clipping them was four fifths
+        of the run's time, 7.8 s for a second where now 1.1."""
+        periods, closed, stray = self.swingInBore("roller", 0.5)
         self.assertGreaterEqual(len(periods), 2)
         for period in periods:
             self.assertAlmostEqual(period / closed, 1.0, delta=2e-4)

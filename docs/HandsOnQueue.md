@@ -166,6 +166,12 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-03 10:41: entries 244 (a regression: a PD Box label's edit box opens away
+from the label), 245 (the measure pre-selection tip ignores the overlay
+panels), 246 (a handle's tip: round border, square corners -- use the
+pre-selection helper); all ASSIGNED to dwin, 244 first.** Under the
+entries.
+
 **2026-11-03 08:59: 238 closed (the pan delay gone); entry 243 -- a highlighted line
 always on top, pre-selection over selection, also over another object's
 coinciding line; ASSIGNED to dwin. 237's push word: to dwin from the
@@ -4586,6 +4592,9 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 241 | 2026-11-02 | a change request: EVERY PD on-view value with a handle -- the dress-ups' common radius included -- shows its label anchored to the ACTIVE handle's BASE point, offset so as not to cover the handle; a drag on a handle not yet active makes it active, so the label follows once the drag starts | OPEN; said to the note-taker 2026-11-02 18:12; READ by the note-taker: values with handles still at the top middle -- pad/pocket Length (TaskExtrudeParameters.cpp 245), revolution Angle (184), helix Height (93), hole Depth (245), draft Angle (111), thickness (116), the fillet's common Radius (280), chamfer Size/Size 2/Angle (531-542); the anchor is the handle's dragger placement (OnViewValue.cpp 663), the label up-right by HandleOffset 24 px (OnViewValue.h 268, OnViewValue.cpp 1044-1046); a drag's Started event does not make the handle active (OnViewValue.cpp 545-554); ASSIGNED to dwin (fcad-88) on the reporter's word; 2026-11-02 18:28 the reporter added (d): a highlighted handle shows a tool tip with its label's text and value, as the FIRST line where the handle has a tool tip already (it has: "Drag to change the value; click to type it." / "Right click for the menu.", OnViewValue.cpp 513-514); also read: a handle becomes active at RELEASE (setReleaseCallback, 500-502); relayed to dwin; 2026-11-02 18:33 the reporter on (d): the tool tip's text follows the value while dragging, and it behaves as an ordinary tool tip -- hidden on a timer when the mouse moves, back after a delay once it stops; relayed to dwin; 2026-11-02 19:09 DONE by dwin, `6465589eb0`, local, NOT pushed, NOT restaged: one rule in OnViewValueSet -- a value whose handle is shown puts its label beside the ACTIVE handle (top middle kept for no handle, handles off, and expression-driven values, dwin's choice); anchor Gizmo::getHandleBase() (an arrow's foot, which moves with the value; a rotation handle's knob), 10 px off the arrow line / 20 px off a knob, following the drag; a drag activates its handle at START (Escape gives the earlier one back, dwin's choice); the tool tip's first line the label text, the active handle too (dwin's choice), following a drag, Qt's hide/wake timing; pd-label-at-handle-foot.py 25/25, ctest 1088/1088; 2026-11-03 00:44 PUSHED (thundereal/LinkVibe ..`19cb94f183`) and STAGED (stage34) by dwin with the MultiViewEdit merge, on the reporter's word to dwin (relayed) |
 | 242 | 2026-11-02 | a defect: the migration recompute box (asked after opening an old file) is not modal, nor is the recompute error box after it | OPEN; said to the note-taker 2026-11-02 18:15; READ by the note-taker: both are static QMessageBox calls parented to the main window (QMessageBox::warning, Application.cpp 616-621; QMessageBox::critical, 634-636), from a signalFinishOpenDocument handler (604-637) -- Qt makes such a box application modal, so the code asks for modal; no setWindowModality anywhere in Gui that would undo it (only DocumentRecovery.cpp 1401); cause NOT found, NOT reproduced; ASSIGNED to dwin (fcad-88) after 241; 2026-11-02 20:04 DONE by dwin, `0f41b13b35`, local, NOT pushed, NOT restaged: reproduced on a scanner2 copy (dev and staged) -- the boxes ARE input modal (menu bar and 3D view wheel blocked), but the progressive LOAD went on under them (the box's event loop ran the visual-building slices: 616 of 616 built under the box in a test file); dwin read "load modal" as the load waiting for the answer; fix Gui::Application::isLoadHeld() (a modal widget up): the view provider and Part visual drains' timed slices wait and ask again 100 ms later, an explicit flush still runs to the end; modal-box-holds-the-load.py 6/6 (the old build fails 2); 2026-11-03 00:44 PUSHED (thundereal/LinkVibe ..`19cb94f183`) and STAGED (stage34) by dwin with the MultiViewEdit merge, on the reporter's word to dwin (relayed) |
 | 243 | 2026-11-03 | a defect (the reporter's expectation): a highlighted line always drawn on top, PRE-SELECTION above selection above everything else -- also where another object's line coincides with it (dwin, 235 on 2026-10-28: in a top view the side-on XZ plane's edge covers the highlighted X axis, the later draw wins, both renderers) | OPEN; said to the note-taker 2026-11-03 08:59; READ by the note-taker: the OpenGL path draws the highlight after the scene and the selection (SoFCRenderer.cpp 3243-3266, highlightlinesontop last), thickened (RenderPassHighlight, 827-830); why a coinciding plain line still covers it NOT read (depth function of the highlight pass, a lead); ASSIGNED to dwin (fcad-88): check on the current build first, then fix; 2026-11-03 09:21 dwin: TAKEN, after the 8.3 path fix it is finishing (the reporter's word to dwin, relayed: "Push and fix the path problem. Then restage") |
+| 244 | 2026-11-03 | a REGRESSION: creating a PD Box, a click on an on-view label or Enter to type opens the edit box somewhere else, not in place of the label | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the box is placed by EditableDatumLabel::positionSpinbox (EditableDatumLabel.cpp 413-451) at getTextCenterPoint() (453-485); OnViewValueSet::placeLabels puts the label with setPlacement + setPoints(0,0) (OnViewValue.cpp 1109-1111), the primitives' labels at the active handle's foot since 241 (`6465589eb0`, the only change to OnViewValue.cpp since 11-01); avoidMouseCursor ruled out (false for these labels); cause NOT found; ASSIGNED to dwin (fcad-88) |
+| 245 | 2026-11-03 | a defect: the Measure (pre)selected geometry macro's tool tip ignores the OVERLAY PANELS -- shown under a panel; the reporter wants it aware of them whatever it did before | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: Selection.cpp 1223-1233 shows PreselectionText by Gui::ToolTip::showText with the active view, overlay=true and the corner PreselectionToolTipCorner + offsets; ToolTip::onShowTimer (Widgets.cpp 1601-1623) places it in the corner of the WHOLE view widget -- nothing there asks what the overlay panels cover; whether it once did NOT checked; ASSIGNED to dwin (fcad-88) |
+| 246 | 2026-11-03 | a defect: an on-view handle's tool tip draws a ROUND-cornered border on a RECTANGULAR widget -- the square corners show; the reporter: use the tooltip helper the measure pre-selection macro uses | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the handle's tip is Qt's own QToolTip::showText (Gizmo.cpp 374, 387; 241's tip); the helper is Gui::ToolTip::showText / TipLabel (Widgets.cpp 1471-1640), which the pre-selection text uses (Selection.cpp 1228); ASSIGNED to dwin (fcad-88), with 245 (same helper) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -32116,6 +32125,76 @@ reporter to dwin, relayed: "Push and fix the path problem. Then
 restage"). The note-taker's line that 237 still waited for a push word
 was wrong. 243 TAKEN by dwin after the 8.3 fix.
 
+## 244. Creating a PD Box: the label's edit box opens somewhere else, not in place of the label (a regression) -- OPEN
+
+**2026-11-03 10:41, the reporter (to the note-taker):** "new regression, create a
+partdesign box, with on view edit label, click or enter to edit will
+move the edit box instead of show in place of the label."
+The note-taker's reading: in a new PD Box with on-view labels, clicking
+a label, or pressing Enter, to type a value opens the edit box at
+another place on the screen; it should open over the label. A
+regression: it worked before.
+READ by the note-taker:
+- The edit box is moved by EditableDatumLabel::positionSpinbox
+  (src/Gui/EditableDatumLabel.cpp 413-451) to the label's text centre,
+  getTextCenterPoint() (453-485), which undoes the label's transform.
+- OnViewValueSet::placeLabels places each label by setPlacement +
+  setPoints(0, 0) (src/Gui/OnViewValue.cpp 1109-1111); since 241
+  (`6465589eb0`, the only commit on OnViewValue.cpp since 11-01) the
+  primitives' labels stand at the active handle's foot (1097-1107), not
+  at the top middle -- the likely start of the regression, NOT verified.
+- avoidMouseCursor (439-446, moves the box off the pointer) is false for
+  these labels -- ruled out.
+- Cause NOT found.
+NOT said: the other primitives and panels (pad, fillet ...); edit (not
+create) of a Box -- read as the same.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
+## 245. The measure pre-selection macro's tool tip ignores the overlay panels (a defect) -- OPEN
+
+**2026-11-03 10:41, the reporter (to the note-taker):** "new defect, measure
+preselection macro tooltip show position ignores the overlay panels. I
+remembered it take those into consideration before. regardless what it
+behave previously, I want to to be aware of overlay panels"
+The note-taker's reading: with "Measure (pre)selected geometry" on, its
+tool tip stands in its corner of the 3D view under an overlay panel (a
+docked panel drawn over the view); it must stand clear of the overlay
+panels -- in the corner of what they leave uncovered. Whether it did so
+before does not matter to the reporter.
+READ by the note-taker:
+- src/Gui/Selection/Selection.cpp 1223-1233: the pre-selection macros'
+  text is shown by Gui::ToolTip::showText(offset, text, activeView,
+  overlay=true, corner) -- ViewParams PreselectionToolTipCorner and
+  PreselectionToolTipOffsetX/Y.
+- ToolTip::onShowTimer (src/Gui/Widgets.cpp 1601-1623) puts the tip in
+  that corner of the WHOLE view widget; nothing there asks what the
+  overlay panels cover. ("overlay" in that code is the overlay tip
+  label, not the panels.)
+- Whether it once did: NOT checked.
+NOT said: the other pre-selection macros (read as the same -- they share
+the path); a panel that covers the whole side; the browser.
+ASSIGNED to dwin (fcad-88), with 246 (the same helper).
+
+## 246. An on-view handle's tool tip: a round border on a square widget (a defect) -- OPEN
+
+**2026-11-03 10:41, the reporter (to the note-taker):** "new defect, the tooltip of
+each handle has a round rectangle border but show as rectangle widget
+shape, so the pointy corner looks bad. Why not use the show tooltip
+helper utility that is used by measurement preselection macro"
+The note-taker's reading: the tip shown over an on-view handle (241's)
+draws a rounded border, but the widget behind it is square, so its
+corners stick out past the rounding. The reporter asks for the tip to be
+shown by the same helper the measure pre-selection macro uses.
+READ by the note-taker:
+- The handle's tip is Qt's own QToolTip::showText (src/Gui/Inventor/
+  Draggers/Gizmo.cpp 374, and 387 when the text changes in a drag).
+- The helper: Gui::ToolTip::showText and its TipLabel (src/Gui/
+  Widgets.cpp 1471-1640), used for the pre-selection text
+  (Selection.cpp 1228).
+NOT said: 241's tip timing (Qt's hide and wake-up delays) -- read as
+kept; the other on-view tips (the menu button) -- read as the same.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -32127,5 +32206,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 243
+the build session, 131 and 132 found by it; entries 134 to 246
 are of 2026-10-15, 134 said to the build session)

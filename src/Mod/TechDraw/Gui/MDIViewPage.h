@@ -162,6 +162,9 @@ private:
     QPointer<QGSPage> m_scene;
     QPointer<QGIView> m_preselection;
     App::DocumentObjectT m_preselectOther;
+    /// The sub-element of m_preselection a preselection named ("Edge2"), lit
+    /// as the mouse over it lights it; looked up again to put it out
+    std::string m_preselectSub;
 
     QString m_currentPath;
     ViewProviderPage* m_vpPage;

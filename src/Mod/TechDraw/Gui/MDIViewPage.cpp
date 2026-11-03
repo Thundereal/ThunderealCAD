@@ -832,8 +832,17 @@ void MDIViewPage::onSelectionChanged(const Gui::SelectionChanges& msg)
     else if (msg.Type == Gui::SelectionChanges::SetPreselect
             || msg.Type == Gui::SelectionChanges::RmvPreselect) {
         auto selObj = msg.Object.getObject();
-        auto resetHighlight = [this]{
+        auto subItem = [](QGIView* view, const std::string& sub) -> QGIPrimPath* {
+            auto part = dynamic_cast<QGIViewPart*>(view);
+            if (!part || sub.empty())
+                return nullptr;
+            return dynamic_cast<QGIPrimPath*>(part->getQGISubItemByName(sub));
+        };
+        auto resetHighlight = [this, subItem]{
             if (m_preselection) {
+                if (auto item = subItem(m_preselection, m_preselectSub))
+                    item->setPreselect(false);
+                m_preselectSub.clear();
                 m_preselection->setPreselect(false);
                 m_preselection = nullptr;
                 if (auto obj = m_preselectOther.getObject()) {
@@ -865,11 +874,21 @@ void MDIViewPage::onSelectionChanged(const Gui::SelectionChanges& msg)
         }
         else if (auto drawView = Base::freecad_dynamic_cast<TechDraw::DrawView>(selObj)) {
             if (QGIView* view = m_scene->findQViewForDocObj(drawView)) {
-                if (msg.Type == Gui::SelectionChanges::RmvPreselect || m_preselection != view) {
+                // A preselection of an edge, a vertex or a face is that item's,
+                // as the mouse over it makes it: from Python, from the tree or
+                // from another view it used to light the view's frame alone,
+                // and with frames off (the default) nothing at all.
+                const std::string sub = msg.pSubName ? msg.pSubName : "";
+                if (msg.Type == Gui::SelectionChanges::RmvPreselect || m_preselection != view
+                    || m_preselectSub != sub) {
                     resetHighlight();
                     if (highlighted) {
                         m_preselection = view;
                         view->setPreselect(true);
+                        if (auto item = subItem(view, sub)) {
+                            m_preselectSub = sub;
+                            item->setPreselect(true);
+                        }
                         if (auto highlight = findHighlight(drawView)) {
                             m_preselectOther = drawView;
                             highlight->setPreselect(true);

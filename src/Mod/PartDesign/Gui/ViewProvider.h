@@ -133,6 +133,8 @@ public:
     void refreshFlat();
     /// Whether the flat is drawn, in place of the shape or beside it
     bool showsFlat() const { return flatShown; }
+    /// Whether the shape is drawn: unless the flat is, in its place
+    bool showsShape() const { return !flatShown || foldedShown; }
 
     /// The cosmetic threads of the holes before this feature, on the
     /// faces of its shape that are still their bores

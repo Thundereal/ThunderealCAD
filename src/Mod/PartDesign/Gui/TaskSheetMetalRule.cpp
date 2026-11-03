@@ -65,8 +65,13 @@ const QString BodyEntry = QStringLiteral("body");
 /// The values the card gives, in the order the panel says them
 const char* const cardValues[] = {"BendRadius", "KFactor", "MinFlange", "AllowanceMethod"};
 /// The rule's own, after them
-const char* const ownValues[] =
-    {"Gap", "ReliefShape", "ReliefWidth", "ReliefDepth", "CornerReliefShape", "CornerReliefSize"};
+const char* const ownValues[] = {"MinHoleToBend",
+                                 "Gap",
+                                 "ReliefShape",
+                                 "ReliefWidth",
+                                 "ReliefDepth",
+                                 "CornerReliefShape",
+                                 "CornerReliefSize"};
 
 QString number(double v)
 {

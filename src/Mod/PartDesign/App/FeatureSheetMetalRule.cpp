@@ -140,6 +140,9 @@ SheetMetalRule::SheetMetalRule()
                       "The inner radius of a bend; from the card's gauge row for the thickness");
     ADD_PROPERTY_TYPE(MinFlange, (0.0), group, App::Prop_None,
                       "The shortest flange the tooling makes; from the card's gauge row");
+    ADD_PROPERTY_TYPE(MinHoleToBend, (0.0), group, App::Prop_None,
+                      "The least distance from a hole to a bend line, checked on demand;\n"
+                      "0 for 2.5 x the thickness plus the bend's radius");
     ADD_PROPERTY_TYPE(AllowanceMethod, (0L), group, App::Prop_None,
                       "How a bend's flat length is found; from the card");
     AllowanceMethod.setEnums(MethodEnums);
@@ -274,6 +277,21 @@ void SheetMetalRule::takeCard()
 bool SheetMetalRule::hasGauge() const
 {
     return bool(gaugeOf(ShapeMaterial.getValue(), Thickness.getValue(), nullptr));
+}
+
+const char* SheetMetalRule::valueSource(const App::Property& prop) const
+{
+    if (!isCardValue(&prop)) {
+        return "rule";
+    }
+    const auto& names = Overridden.getValues();
+    if (std::find(names.begin(), names.end(), prop.getName()) != names.end()) {
+        return "rule";
+    }
+    if (&prop == &AllowanceMethod) {
+        return ShapeMaterial.getValue().hasPhysicalModel(sheetMetalModel()) ? "card" : "rule";
+    }
+    return hasGauge() ? "card" : "rule";
 }
 
 void SheetMetalRule::resetValue(const char* name)

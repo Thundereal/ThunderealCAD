@@ -226,7 +226,8 @@ PyMOD_INIT_FUNC(PartDesignGui)
              << "PartDesign_SheetMetalTab"
              << "Separator"
              << "PartDesign_SheetMetalFlatten"
-             << "PartDesign_SheetMetalExportDXF";
+             << "PartDesign_SheetMetalExportDXF"
+             << "PartDesign_SheetMetalCheck";
     }}};
     sheetMetal.activeKey = "pdsheetmetal";
     sheetMetal.kind = "SheetMetal";

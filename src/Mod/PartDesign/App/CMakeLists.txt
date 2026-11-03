@@ -193,6 +193,8 @@ SET(SheetMetal_SRCS
     FeatureSheetMetalJoin.h
     FeatureSheetMetalBendCuts.cpp
     FeatureSheetMetalBendCuts.h
+    SheetMetalCheck.cpp
+    SheetMetalCheck.h
     SheetMetalFlat.cpp
     SheetMetalFlat.h
     FeatureSheetMetalFlange.cpp

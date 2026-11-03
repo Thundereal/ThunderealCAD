@@ -44,6 +44,7 @@
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
+#include "TaskSheetMetalCheck.h"
 #include "Utils.h"
 
 // Command.cpp's: recompute, look as the base, edit if it has a panel
@@ -967,6 +968,42 @@ bool CmdPartDesignSheetMetalExportDXF::isActive()
     return flatToExport() != nullptr;
 }
 
+//===========================================================================
+// PartDesign_SheetMetalCheck
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalCheck)
+
+CmdPartDesignSheetMetalCheck::CmdPartDesignSheetMetalCheck()
+    : Command("PartDesign_SheetMetalCheck")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Check Sheet");
+    sToolTipText = QT_TR_NOOP("Checks the selected feature or sheet, else the active body's\n"
+                              "sheet: its bend table, and flanges too short, holes too near a\n"
+                              "bend, reliefs too small and material overlapping in the flat");
+    sWhatsThis = "PartDesign_SheetMetalCheck";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalCheck";
+}
+
+void CmdPartDesignSheetMetalCheck::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    // what Export Flat would write
+    auto obj = flatToExport();
+    if (!obj || Gui::Control().activeDialog()) {
+        return;
+    }
+    Gui::Control().showDialog(new PartDesignGui::TaskDlgSheetMetalCheck(obj));
+}
+
+bool CmdPartDesignSheetMetalCheck::isActive()
+{
+    return !Gui::Control().activeDialog() && flatToExport() != nullptr;
+}
+
 void CreatePartDesignSheetMetalCommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
@@ -984,4 +1021,5 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalTab());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatten());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
+    mgr.addCommand(new CmdPartDesignSheetMetalCheck());
 }

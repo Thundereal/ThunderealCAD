@@ -541,6 +541,34 @@ the converter does not know stay as they are.
   a bend line. Each is listed on the flat pattern and marked in the view; none stops the recompute.
 - **Thickness check** on a recognised part: where the thickness departs from the rule's.
 
+**Built 2026-11-03, on demand** (ruled the same day: run when asked, as Flatten is, never in a
+recompute; nothing kept):
+- `PartDesign::checkSheet()` (`SheetMetalCheck.cpp`), `PartDesign.checkSheet(obj)` from Python:
+  of a feature of a sheet's solid, or of the solid (its tip). A dict of `Bends` and `Problems`.
+- The bend table: each bend's name, the feature that made it (the first down the chain whose
+  model has it), its angle, inner radius, K, allowance (angle x (R + K T)), direction flat, and
+  its faces folded and flat. Each value's source: `rule`, `card` (`SheetMetalRule::valueSource()`:
+  a value the card gives, not set by hand) or `feature` (`UseRuleRadius` off, or a hem's own
+  radius); a K from an allowance method other than KFactor names the method.
+- The problems, each with a message, the feature it is of, what was measured and its limit, and
+  the faces folded and flat:
+  - `ShortFlange`: a wall shorter past a bend's tangent line, on the flat, than the rule's
+    `MinFlange` (0 checks nothing); a hem's return is not checked.
+  - `HoleNearBend`: an inner contour of the flat's bottom skin, its faces as one, nearer a bend
+    line than the rule's `MinHoleToBend` (new; 0 for 2.5 x the thickness plus the bend's radius).
+  - `Overlap`: the bottom skins of two elements on each other in the flat by more than 1e-6
+    mm^2. Found building it: the rule's default corner relief, a circle 2 across, leaves 0.0175
+    mm^2 of two mitered bends' flats on each other at a corner (their strips are 2.356 wide where
+    they cross); a square 2 on a side clears it, none leaves 0.35 mm^2.
+  - `Relief`: a feature's own relief (not "Rule") narrower or shallower than the rule's.
+  - `NoFlat`: why the flat cannot be laid.
+- Check Sheet (Sheet Metal tool bar): a panel of the bend table and the problems for the selected
+  feature or solid, else the active body's sheet; a row picked selects its faces where they are
+  drawn (the flat, the folded part, or both), a feature's problem the feature; Check Again checks
+  once more. Not on the browser's allowlist: it opens a panel.
+- Marking in the view is the selection; the thickness check waits for part recognition.
+- `TestSheetMetalCheck` (11), `sheet-metal-commands.py`.
+
 ## 8. Editing in the view
 
 ### 8.1 Working in PartDesign: tool bars that come when asked for

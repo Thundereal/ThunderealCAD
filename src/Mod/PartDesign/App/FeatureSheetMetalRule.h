@@ -61,6 +61,9 @@ public:
     App::PropertyLength Thickness;
     App::PropertyLength BendRadius;
     App::PropertyLength MinFlange;
+    /// The least distance from a hole to a bend line, checked on demand
+    /// (checkSheet()); 0 for 2.5 x the thickness plus the bend's radius
+    App::PropertyLength MinHoleToBend;
     App::PropertyEnumeration AllowanceMethod;
     App::PropertyFloat KFactor;
     App::PropertyLength Gap;
@@ -83,6 +86,11 @@ public:
 
     /// Whether the card has the SheetMetal model and a gauge row for Thickness
     bool hasGauge() const;
+    /// Where a value of the rule comes from: "card" where the card gives it
+    /// (BendRadius, KFactor and MinFlange from a gauge row, AllowanceMethod
+    /// from a card with the SheetMetal model) and it is not set by hand,
+    /// "rule" otherwise
+    const char* valueSource(const App::Property& prop) const;
     /// Give the value named back to the card. Throws Base::ValueError for a
     /// name the card does not give.
     void resetValue(const char* name);

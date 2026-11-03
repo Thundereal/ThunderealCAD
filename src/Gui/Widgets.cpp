@@ -68,6 +68,7 @@
 #include "QuantitySpinBox_p.h"
 #include "Tools.h"
 #include "MainWindow.h"
+#include "OverlayManager.h"
 #include "ViewParams.h"
 #include "ui_DlgTreeWidget.h"
 
@@ -1567,6 +1568,41 @@ void ToolTip::hideText(int delay, bool hideOverlay)
     hideQtToolTips();
 }
 
+namespace {
+/// A tip in a corner of a view, moved clear of what is laid over the view
+/// (OverlayManager::coverRects: the overlaid docks, a task panel over it)
+/// by the navigation cube's rule (NaviCube placeClear, entry 76): along its
+/// edge towards the middle, to just past the cover, whichever way is the
+/// shorter, as far from it as \a mx, \a my from the view's edge. Where it
+/// can go nowhere it stays (docs/HandsOnQueue.md entry 245).
+QRect clearOfCovers(QRect tip, const QVector<QRect> &covers, const QSize &area,
+                    bool right, bool bottom, int mx, int my)
+{
+    for (int turn = 0; turn < 4; ++turn) {
+        QRect hit;
+        for (const QRect &r : covers) {
+            if (r.intersects(tip)) {
+                hit = r;
+                break;
+            }
+        }
+        if (hit.isNull())
+            break;
+        const int toX = right ? hit.left() - mx - tip.width() : hit.right() + 1 + mx;
+        const int toY = bottom ? hit.top() - my - tip.height() : hit.bottom() + 1 + my;
+        const bool okX = toX >= mx && toX <= area.width() - tip.width() - mx;
+        const bool okY = toY >= my && toY <= area.height() - tip.height() - my;
+        if (okX && (!okY || std::abs(toX - tip.x()) <= std::abs(toY - tip.y())))
+            tip.moveLeft(toX);
+        else if (okY)
+            tip.moveTop(toY);
+        else
+            break;
+    }
+    return tip;
+}
+}  // namespace
+
 void ToolTip::onShowTimer()
 {
     if (ViewParams::getToolTipIconSize() > 0
@@ -1621,6 +1657,17 @@ void ToolTip::onShowTimer()
                 break;
             default:
                 break;
+            }
+            // in the corner of what the overlay panels leave of the view
+            if (auto manager = OverlayManager::instance()) {
+                const QVector<QRect> covers = manager->coverRects(this->w);
+                if (!covers.isEmpty()) {
+                    const bool right = corner == TopRight || corner == BottomRight;
+                    const bool bottom = corner == BottomLeft || corner == BottomRight;
+                    at = clearOfCovers(QRect(at, tipSize), covers, size, right, bottom,
+                                       std::max(0, this->pos.x()), std::max(0, this->pos.y()))
+                             .topLeft();
+                }
             }
             tipLabel->move(parent->mapFromGlobal(this->w->mapToGlobal(at)));
         }

@@ -1,4 +1,5 @@
-"""A pre-selection macro's tip stands in its corner of the view.
+"""A pre-selection macro's tip stands in its corner of what the overlay panels
+leave of the view.
 
 docs/HandsOnQueue.md entry 245: "measure preselection macro tooltip show
 position ignores the overlay panels ... I want it to be aware of overlay
@@ -12,7 +13,9 @@ tip in the bottom right corner (the default) and in the top left, claims:
   - docked: the tip shows in that corner of the view -- it stood at twice
     the view's origin (top left) or in the main window's corner (the
     others), the offsets lost;
-  - docked again (after the docks overlaid and back): in the corner.
+  - every dock overlaid: the tip shows clear of every overlaid dock, inside
+    the view, in its corner's quarter of it;
+  - docked again: back in the corner.
 """
 import os
 import traceback
@@ -51,6 +54,18 @@ def on_screen(w):
     return QtCore.QRect(w.mapToGlobal(QtCore.QPoint(0, 0)), w.size())
 
 
+def docks():
+    out = {}
+    for w in QtWidgets.QApplication.allWidgets():
+        try:
+            if w.metaObject().className() == "Gui::OverlayTabWidget" \
+                    and w.isVisible() and w.count():
+                out[w.objectName().replace("Overlay", "")] = on_screen(w)
+        except RuntimeError:
+            pass
+    return out
+
+
 def hover(at):
     """The pointer moved to \a at in the view's viewport, away first so that
     the preselection is new"""
@@ -86,6 +101,14 @@ def in_corner(rect, area, corner):
     return abs(rect.left() - x) <= 2 and abs(rect.top() - y) <= 2
 
 
+def in_quadrant(rect, area, corner):
+    """In the quarter of the view its corner is in"""
+    cx, cy = area.center().x(), area.center().y()
+    x_ok = rect.left() >= cx if corner in (1, 3) else rect.right() <= cx
+    y_ok = rect.top() >= cy if corner in (2, 3) else rect.bottom() <= cy
+    return x_ok and y_ok
+
+
 def view_now():
     """The view's rectangle on the screen and its centre in the viewport, as
     they are now: overlaying the docks gives the view the whole window"""
@@ -113,6 +136,23 @@ def docked(when):
               in_corner(rect, area, corner), rect and rect.getRect())
 
 
+def overlaid():
+    for corner, name in CORNERS.items():
+        rect, area = shown(corner)
+        all_docks = docks()
+        under = {side: r.getRect() for side, r in all_docks.items()
+                 if rect is not None and r.intersects(rect)}
+        note("INFO %s, overlaid: tip %s, view %s, docks %s"
+             % (name, rect and rect.getRect(), area.getRect(),
+                {s: r.getRect() for s, r in all_docks.items()}))
+        check("%s, overlaid: the tip shows clear of every overlaid dock" % name,
+              rect is not None and all_docks and not under,
+              under or (rect and rect.getRect()))
+        check("%s, overlaid: inside the view, in its corner's quarter" % name,
+              rect is not None and area.contains(rect) and in_quadrant(rect, area, corner),
+              rect and rect.getRect())
+
+
 def run():
     S["overlaid"] = False
     try:
@@ -131,6 +171,9 @@ def run():
         FreeCADGui.runCommand("Std_DockOverlayAll")
         S["overlaid"] = True
         settle(1500)
+        view.fitAll()
+        settle(600)
+        overlaid()
         FreeCADGui.runCommand("Std_DockOverlayAll")
         S["overlaid"] = False
         settle(1500)

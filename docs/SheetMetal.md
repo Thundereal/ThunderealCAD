@@ -1118,8 +1118,9 @@ and not frozen.
   - Part keeps a sub-object's shape until the object itself changes; a feature's Flat depends on
     its solid's settings, so the solid clears its features' (`PropertyShapeCache::clearShapes()`,
     new) when one changes.
-  - The solid lays its tip flat on each recompute, for the values: the sheet metal suites take
-    about 40% longer (the flange's 10 s to 14 s).
+  - The solid laid its tip flat on each recompute, for the values: the sheet metal suites took
+    about 40% longer (the flange's 10 s to 14 s). Now only while `Flatten` is on (ruled
+    2026-11-03): `testFlattenOff`.
   - Open: a flange whose end runs into a bend of the wall it is on (on the top edge of an L's
     leg, up to the L's bend) is valid folded, but does not lie flat ("faces overlap or are
     missing"); the flat pattern the same. Found writing `testSolidFlat`.
@@ -1229,6 +1230,13 @@ the bend table's per-bend override of M4):
   base wall's profile -- takes `UseRuleRadius` (on by default) and `BendRadius`, read only while
   the rule's is used. Turned off, `BendRadius` starts at the rule's. A radius of 0 is refused.
   The hem keeps its own `Radius`.
+
+**Ruled 2026-11-03, the values only while flattening is on.** Nothing is laid flat in a
+recompute unless the user has turned it on: the solid's `Flatten` (off by default) is the
+switch, and only while it is on does a recompute lay the tip flat and fill the values; off, they
+are left as they were, and asking for `Flat` still lays it. No revision tracking to tell a
+changed result from an unchanged one: too easy to miss an input. (Step 1 filled the values in
+every recompute, which made the sheet metal suites about 40% slower.)
 
 **Ruled 2026-11-03, the flat as a view, not a feature** (replaces 4.7's separate feature and
 8.2's first two items):

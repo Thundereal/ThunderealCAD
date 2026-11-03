@@ -5,7 +5,9 @@
 # asked, as its element Flat (feature.getSubObject("Flat")), and the
 # solid gives its tip's. The flat's settings are the sheet's, on its solid:
 # the root by the wall's name, the grain and the tangent lines; what a bill
-# of materials takes are read-only values of the solid, from its tip. An L
+# of materials takes are read-only values of the solid, from its tip, kept up
+# only while the user has the solid's Flatten on (ruled 2026-11-03: nothing
+# is laid flat in a recompute otherwise). An L
 # of inner legs 19 and 9, 15 wide, 1 thick, the rule's radius 1 and K 0.5:
 # 19 + BA + 9 long flat, where BA is pi / 2 * 1.5.
 
@@ -86,6 +88,8 @@ class TestSheetMetalFlat(unittest.TestCase):
         plate = self.wall([(0, 0), (40, 0), (40, 20), (0, 20)], closed=True)
         sheet = self.Body.getSolidBody(plate)
         self.assertIsNotNone(sheet)
+        sheet.Flatten = True
+        self.Doc.recompute()
         self.checkFlat(flatOf(sheet), 40, 20)
         self.assertEqual(sheet.BendCount, 0)
         flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
@@ -113,8 +117,9 @@ class TestSheetMetalFlat(unittest.TestCase):
         card = Materials.Material()
         card.Name = "Sheet test"
         wall.Rule.ShapeMaterial = card
-        self.Doc.recompute()
         sheet = self.Body.getSolidBody(wall)
+        sheet.Flatten = True
+        self.Doc.recompute()
         self.assertAlmostEqual(sheet.FlatLength.Value, 19 + BA + 9, places=6)
         self.assertAlmostEqual(sheet.FlatWidth.Value, 15, places=6)
         self.assertAlmostEqual(sheet.FlatArea.Value, (19 + BA + 9) * 15, places=6)
@@ -129,11 +134,33 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.Doc.recompute()
         self.assertAlmostEqual(sheet.FlatWidth.Value, 12, places=6)
 
+    def testFlattenOff(self):
+        """Flatten off, as it starts: no flat laid in a recompute, the values
+        left as they were; the flat itself still there when asked. On, the
+        values the tip's; off again, an edit leaves them as they were"""
+        wall = self.L()
+        sheet = self.Body.getSolidBody(wall)
+        self.assertFalse(sheet.Flatten)
+        self.assertAlmostEqual(sheet.FlatArea.Value, 0)
+        self.assertEqual(sheet.BendCount, 0)
+        self.checkFlat(flatOf(sheet), 19 + BA + 9, 15)
+        sheet.Flatten = True
+        self.Doc.recompute()
+        self.assertAlmostEqual(sheet.FlatWidth.Value, 15, places=6)
+        self.assertEqual(sheet.BendCount, 1)
+        sheet.Flatten = False
+        wall.Length = 12
+        self.Doc.recompute()
+        self.assertAlmostEqual(sheet.FlatWidth.Value, 15, places=6)
+        self.checkFlat(flatOf(sheet), 19 + BA + 9, 12)
+        self.assertNotIn("Flat", wall.State)
+
     def testRootByWall(self):
         """Laid from the second wall by its name: the same flat moved; a name
         no wall has said, the values cleared, the flat empty"""
         wall = self.L()
         sheet = self.Body.getSolidBody(wall)
+        sheet.Flatten = True
         first = self.solidOf(flatOf(wall)).CenterOfMass
         sheet.FlatRoot = "Wall2"
         self.Doc.recompute()
@@ -170,6 +197,8 @@ class TestSheetMetalFlat(unittest.TestCase):
         solid = self.checkFlat(flatOf(pocket), 19 + BA + 9, 15)
         self.assertAlmostEqual(solid.Volume, pocket.Shape.Volume, places=6)
         sheet = self.Body.getSolidBody(pocket)
+        sheet.Flatten = True
+        self.Doc.recompute()
         self.assertAlmostEqual(sheet.FlatArea.Value, pocket.Shape.Volume, places=6)
 
     def testCached(self):
@@ -227,5 +256,5 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertIsNone(flatOf(pad))
         sheet = self.Body.getSolidBody(pad)
         if sheet is not None:
-            for name in VALUES + ("FlatRoot", "Grain", "TangentLines"):
+            for name in VALUES + ("Flatten", "FlatRoot", "Grain", "TangentLines"):
                 self.assertIn("Hidden", sheet.getEditorMode(name), name)

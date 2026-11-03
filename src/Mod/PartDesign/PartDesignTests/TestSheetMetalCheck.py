@@ -218,11 +218,14 @@ class TestSheetMetalCheck(unittest.TestCase):
 
     def testOverlap(self):
         """Flanges on two edges of a corner, mitered, with no corner relief:
-        their bends' flats overlap a little at the corner, listed with the
-        faces of each; the rule's circle relief cuts it away"""
+        their bends' flats overlap a little at the corner (0.35 mm^2), listed
+        with the faces of each; a square relief 2 on a side cuts it away. (The
+        rule's circle 2 across leaves 0.0175 mm^2 of it: the bends' strips are
+        2.356 wide where they cross)"""
         flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
         rule = flange.Rule
-        self.assertEqual(rule.CornerReliefShape, "Circle")
+        rule.CornerReliefShape = "Square"
+        self.Doc.recompute()
         self.assertEqual(self.problems(flange), [])
         rule.CornerReliefShape = "None"
         self.Doc.recompute()

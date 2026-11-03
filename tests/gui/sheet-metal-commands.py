@@ -10,7 +10,8 @@
   - Flatten draws the active body's sheet laid flat while it is on, picked
     and selected by the flat's element names, and Export Flat is offered for
     it with nothing selected; the solid's Sheet View draws it flat, folded or
-    both, the flat moved by its Flat Offset;
+    both, the flat moved by its Flat Offset; Check Sheet opens a panel of its
+    bends and problems, a row picked selecting its faces as they are drawn;
   - the solid body holding the sheet has the sheet metal overlay on its icon;
   - a double-click on it makes it active, which offers the tool bar, and a
     second lets it go and takes the tool bar away;
@@ -625,6 +626,88 @@ def run():
             (box, moved),
         )
         svo.FlatOffset = FreeCAD.Vector()
+        pump()
+
+        # Check Sheet: the bend table and the problems found, on demand
+        # (docs/SheetMetal.md sec 7); a least flange no wall reaches lists
+        # each wall past each bend
+        import PartDesign
+
+        checkCmd = FreeCADGui.Command.get("PartDesign_SheetMetalCheck")
+        check(
+            "Check Sheet is on the tool bar, offered with nothing selected",
+            checkCmd is not None
+            and toolbar() is not None
+            and checkCmd.getAction()[0] in toolbar().actions()
+            and checkCmd.isActive(),
+        )
+        rule = flange.Rule
+        rule.MinFlange = 1000
+        doc.recompute()
+        found = PartDesign.checkSheet(flange)
+        FreeCADGui.runCommand("PartDesign_SheetMetalCheck")
+        pump()
+        mw = FreeCADGui.getMainWindow()
+        table = mw.findChild(QtWidgets.QTableWidget, "tableBends")
+        listed = mw.findChild(QtWidgets.QListWidget, "listProblems")
+        check(
+            "its panel lists each bend and each problem checkSheet() finds",
+            table is not None
+            and listed is not None
+            and table.rowCount() == len(found["Bends"]) > 0
+            and listed.count() == len(found["Problems"]) > 0
+            and listed.item(0).text() == found["Problems"][0]["Message"],
+            table and (table.rowCount(), listed.count(), len(found["Bends"]), len(found["Problems"])),
+        )
+        check(
+            "and Check Sheet is not offered while it is open",
+            not checkCmd.isActive(),
+        )
+        first = found["Problems"][0]
+        FreeCADGui.Selection.clearSelection()
+        listed.setCurrentRow(0)
+        pump()
+        sel = FreeCADGui.Selection.getSelectionEx("", 0)
+        names = sorted(n.split(".")[-1] for s in sel for n in s.SubElementNames)
+        check(
+            "a problem picked selects its faces on the flat drawn",
+            names == sorted(first["FlatElements"]) and names,
+            (names, first["FlatElements"]),
+        )
+        svo.SheetView = "Folded"
+        pump()
+        listed.setCurrentRow(-1)
+        listed.setCurrentRow(0)
+        pump()
+        sel = FreeCADGui.Selection.getSelectionEx("", 0)
+        names = sorted(n.split(".")[-1] for s in sel for n in s.SubElementNames)
+        check(
+            "folded, its faces as they are",
+            names == sorted(first["Elements"]) and names,
+            (names, first["Elements"]),
+        )
+        table.selectRow(0)
+        pump()
+        sel = FreeCADGui.Selection.getSelectionEx("", 0)
+        names = sorted(n.split(".")[-1] for s in sel for n in s.SubElementNames)
+        check(
+            "a bend picked selects its faces",
+            names == sorted(found["Bends"][0]["Elements"]) and names,
+            (names, found["Bends"][0]["Elements"]),
+        )
+        rule.MinFlange = 0
+        doc.recompute()
+        mw.findChild(QtWidgets.QPushButton, "buttonCheckAgain").click()
+        pump()
+        check(
+            "Check Again: the least flange put back, those problems gone",
+            listed.count() == len(PartDesign.checkSheet(flange)["Problems"]),
+            listed.count(),
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Control.closeDialog()
+        pump()
+        svo.SheetView = "Flat"
         pump()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 0)
         pump()

@@ -78,6 +78,7 @@
 #include "FeatureSheetMetalCutout.h"
 #include "FeatureSheetMetalFold.h"
 #include "FeatureSheetMetalJoin.h"
+#include "FeatureSheetMetalBendCuts.h"
 #include "FeatureSheetMetalTab.h"
 #include "FeatureSheetMetalFlatPattern.h"
 #include "PropertySheetModel.h"
@@ -199,6 +200,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalFlange            ::init();
     PartDesign::SheetMetalContourFlange     ::init();
     PartDesign::SheetMetalJoin              ::init();
+    PartDesign::SheetMetalBendCuts          ::init();
     PartDesign::SheetMetalExtendWall        ::init();
     PartDesign::SheetMetalHem               ::init();
     PartDesign::SheetMetalCornerClosure     ::init();
@@ -214,6 +216,7 @@ PyMOD_INIT_FUNC(_PartDesign)
                             PartDesign::SheetMetalFlange::getClassTypeId(),
                             PartDesign::SheetMetalContourFlange::getClassTypeId(),
                             PartDesign::SheetMetalJoin::getClassTypeId(),
+                            PartDesign::SheetMetalBendCuts::getClassTypeId(),
                             PartDesign::SheetMetalExtendWall::getClassTypeId(),
                             PartDesign::SheetMetalHem::getClassTypeId(),
                             PartDesign::SheetMetalCornerClosure::getClassTypeId(),

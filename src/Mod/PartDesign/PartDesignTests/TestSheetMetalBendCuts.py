@@ -206,6 +206,23 @@ class TestSheetMetalBendCuts(unittest.TestCase):
         self.assertFalse(cuts.Shape.isInside(bendAt(math.pi / 4 + 0.1 / 1.5, 2), 1e-9, True))
         self.assertTrue(cuts.Shape.isInside(bendAt(math.pi / 4, 3.9), 1e-9, True))
 
+    def testSketchFits(self):
+        """A rectangle 6 along and 1 across tiled, 2 between, 1 at each end:
+        five of them fill the 38 exactly, none dropped for a box padded by
+        the shape's tolerance"""
+        faces = self.far()
+        tile = self.Body.newObject("Sketcher::SketchObject", "Tile")
+        tile.MapMode = "Deactivated"
+        pts = [(0, -0.5), (6, -0.5), (6, 0.5), (0, 0.5)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            tile.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        self.Doc.recompute()
+        cuts = self.cuts(faces, Pattern="Sketch", Tile=tile, BridgeLength=2, EndMargin=1)
+        self.checkCut(cuts, 5 * 6)
+        for x in (1.5, 38.5):
+            self.assertFalse(cuts.Shape.isInside(bendAt(math.pi / 4, x), 1e-9, True), x)
+
     def testTwoBends(self):
         """Both bends of a U channel, each the same"""
         self.flange("Near", NEAR)

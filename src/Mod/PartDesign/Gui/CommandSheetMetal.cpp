@@ -353,6 +353,66 @@ bool CmdPartDesignSheetMetalJoin::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalBendCuts
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalBendCuts)
+
+CmdPartDesignSheetMetalBendCuts::CmdPartDesignSheetMetalBendCuts()
+    : Command("PartDesign_SheetMetalBendCuts")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Bend Cuts");
+    sToolTipText = QT_TR_NOOP("Cuts slots across the bends of the selected faces, to bend them\n"
+                              "by hand, or a living hinge; drawn in the flat");
+    sWhatsThis = "PartDesign_SheetMetalBendCuts";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalBendCuts";
+}
+
+void CmdPartDesignSheetMetalBendCuts::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream faces;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            faces << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue()) {
+        warn(QT_TR_NOOP("No bend"),
+             QT_TR_NOOP("Select a face of each bend to cut, on the body's tip."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Bend Cuts"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalBendCuts", "BendCuts");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Bends = (" << getObjectCmd(base) << ", [" << faces.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalBendCuts::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalExtendWall
 //===========================================================================
 
@@ -909,6 +969,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalContourFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalJoin());
+    mgr.addCommand(new CmdPartDesignSheetMetalBendCuts());
     mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());

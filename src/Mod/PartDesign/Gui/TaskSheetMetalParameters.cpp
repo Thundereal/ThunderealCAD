@@ -35,6 +35,7 @@
 #include <QGridLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QSpinBox>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -256,6 +257,21 @@ void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* 
                 });
         box = spin;
     }
+    else if (auto count = dynamic_cast<App::PropertyInteger*>(prop)) {
+        auto spin = new QSpinBox(proxy);
+        auto constrained = dynamic_cast<App::PropertyIntegerConstraint*>(count);
+        auto range = constrained ? constrained->getConstraints() : nullptr;
+        spin->setRange(range ? static_cast<int>(range->LowerBound) : 0,
+                       range ? static_cast<int>(range->UpperBound) : 1000000);
+        connect(spin, qOverload<int>(&QSpinBox::valueChanged), this, [this, name](int v) {
+            if (auto i = dynamic_cast<App::PropertyInteger*>(property(name))) {
+                setupTransaction(tr(name));
+                i->setValue(v);
+                recomputeFeature();
+            }
+        });
+        box = spin;
+    }
     else if (auto choice = dynamic_cast<App::PropertyEnumeration*>(prop)) {
         auto combo = new QComboBox(proxy);
         for (const auto& item : choice->getEnumVector()) {
@@ -332,6 +348,12 @@ void TaskSheetMetalParameters::showValue(const std::string& name)
         auto spin = static_cast<Gui::QuantitySpinBox*>(box);
         if (spin->rawValue() != q->getValue()) {
             spin->setValue(q->getValue());
+        }
+    }
+    else if (auto i = dynamic_cast<App::PropertyInteger*>(prop)) {
+        auto spin = static_cast<QSpinBox*>(box);
+        if (spin->value() != i->getValue()) {
+            spin->setValue(static_cast<int>(i->getValue()));
         }
     }
     else if (auto e = dynamic_cast<App::PropertyEnumeration*>(prop)) {

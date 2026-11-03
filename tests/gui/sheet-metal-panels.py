@@ -549,6 +549,53 @@ def run():
             (join.State, join.getStatusString()),
         )
 
+        # -- the bend cuts' panel: the bend listed, what the pattern takes -----
+        bendFace = [
+            "Face%d" % (i + 1) for i in range(len(join.Shape.Faces))
+            if (join.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Bend")
+        ][:1]
+        FreeCADGui.Selection.clearSelection()
+        for sub in bendFace:
+            FreeCADGui.Selection.addSelection(doc.Name, join.Name, sub)
+        FreeCADGui.runCommand("PartDesign_SheetMetalBendCuts")
+        pump()
+        cuts = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalBendCuts"][0]
+        w = panel() or {}
+        bends = w.get("listBends")
+        names = ("Pattern", "SlotLength", "BridgeLength", "EndMargin", "SlotWidth", "Rows", "Tile")
+        check(
+            "Bend Cuts opens its panel with its pattern and sizes, its bend listed",
+            all(n in w for n in names) and bends is not None and bends.count() == 1,
+            (sorted(n for n in w if n[0].isupper()), bends and bends.count()),
+        )
+        check(
+            "Slots: the rows and the tile greyed",
+            "Rows" in w and not w["Rows"].isEnabled() and "Tile" in w
+            and not w["Tile"].isEnabled() and w["SlotLength"].isEnabled(),
+        )
+        pattern = w.get("Pattern")
+        if pattern is not None:
+            pattern.setCurrentIndex(1)
+            pump(20)
+            doc.recompute()
+            pump(20)
+            check(
+                "Staggered set there is the feature's, its rows then not greyed",
+                cuts.Pattern == "Staggered" and w["Rows"].isEnabled(),
+                (cuts.Pattern, w["Rows"].isEnabled()),
+            )
+            w["Rows"].setValue(2)
+            pump(20)
+            doc.recompute()
+            check("the rows set there are the feature's", cuts.Rows == 2, cuts.Rows)
+        accept()
+        pump(20)
+        check(
+            "OK keeps good bend cuts, one solid",
+            "Invalid" not in cuts.State and len(cuts.Shape.Solids) == 1,
+            (cuts.State, cuts.getStatusString()),
+        )
+
         # -- the flat pattern's panel ------------------------------------------
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

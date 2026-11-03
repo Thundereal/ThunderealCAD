@@ -192,6 +192,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderSheetMetalFlange::init();
     PartDesignGui::ViewProviderSheetMetalContourFlange::init();
     PartDesignGui::ViewProviderSheetMetalJoin::init();
+    PartDesignGui::ViewProviderSheetMetalBendCuts::init();
     PartDesignGui::ViewProviderSheetMetalExtendWall::init();
     PartDesignGui::ViewProviderSheetMetalHem::init();
     PartDesignGui::ViewProviderSheetMetalCornerClosure::init();
@@ -220,6 +221,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
              << "PartDesign_SheetMetalHem"
              << "PartDesign_SheetMetalCornerClosure"
              << "PartDesign_SheetMetalCutout"
+             << "PartDesign_SheetMetalBendCuts"
              << "PartDesign_SheetMetalFold"
              << "PartDesign_SheetMetalJog"
              << "PartDesign_SheetMetalTab"

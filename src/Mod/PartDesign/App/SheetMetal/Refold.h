@@ -116,4 +116,46 @@ PartDesignExport std::vector<Part::TopoShape> wrapCutoutTools(const Model& model
                                                               const TopoDS_Shape& profile,
                                                               const gp_Dir& normal);
 
+/// How the cuts across a bend are laid out (bendCutTools())
+struct PartDesignExport BendCutPattern
+{
+    enum class Kind
+    {
+        Slots,
+        Staggered,
+        Sketch,
+    };
+    Kind kind = Kind::Slots;
+    /// A slot's length along the bend, the bridge between two, and what is
+    /// left whole at each end of the bend
+    double length = 10;
+    double bridge = 2;
+    double margin = 2;
+    /// A slot's width across the strip, about its middle (a row's, for
+    /// Staggered); 0 the whole strip, for Staggered half a row's share
+    double width = 0;
+    /// Staggered's rows across the strip
+    int rows = 3;
+    /// Sketch's tile: planar faces on XY, X along the bend, Y across it from
+    /// the strip's middle
+    TopoDS_Shape tile;
+};
+
+/** The cuts across a bend (docs/SheetMetal.md sec 5.2, ruled 2026-11-03):
+ * hinge and perforation cuts, laid out in the bend's strip in the flat and
+ * folded back through it (refold())
+ *
+ * Along the bend, from where its faces in part begin to where they end, the
+ * margin left whole at each end: as many slots (or tiles, as long as their
+ * extent along X) as fit with a bridge between, centred. Staggered's rows
+ * lie evenly across the strip, every other one shifted half a slot and a
+ * bridge, its end slots cut short by the margins.
+ *
+ * Throws Base::ValueError for a bend with no face in part, or a pattern
+ * fitting no whole slot within the margins.
+ */
+PartDesignExport std::vector<Part::TopoShape> bendCutTools(const Model& model,
+                                                           const TopoDS_Shape& part, int bend,
+                                                           const BendCutPattern& pattern);
+
 }  // namespace PartDesign::SheetMetal

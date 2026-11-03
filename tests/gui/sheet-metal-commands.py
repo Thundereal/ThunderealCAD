@@ -413,6 +413,32 @@ def run():
         )
         flange = join
 
+        # slots across the join's bend
+        bendFace = [
+            "Face%d" % (i + 1) for i in range(len(join.Shape.Faces))
+            if (join.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Bend")
+        ][:1]
+        volume = join.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        for sub in bendFace:
+            FreeCADGui.Selection.addSelection(doc.Name, join.Name, sub)
+        FreeCADGui.runCommand("PartDesign_SheetMetalBendCuts")
+        pump()
+        check("Bend Cuts opens its panel, OK closes it", ok())
+        doc.recompute()
+        cuts = newest(doc, before, "PartDesign::SheetMetalBendCuts")
+        check(
+            "Bend Cuts on a selected bend face cuts slots across that bend, one solid",
+            cuts is not None
+            and "Invalid" not in cuts.State
+            and cuts.Bends[1] == bendFace
+            and len(cuts.Shape.Solids) == 1
+            and cuts.Shape.Volume < volume - 1e-6,
+            cuts and (cuts.State, cuts.getStatusString(), bendFace, cuts.Shape.Volume, volume),
+        )
+        flange = cuts
+
         before = [o.Name for o in doc.Objects]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatPattern")

@@ -451,7 +451,7 @@ its tracker, not ported.
 | **Cutout** | A closed sketch cut normal to the sheet on every wall and bend it crosses. | B1 18 |
 | **Wrap cutout** | A sketch cut as if drawn on the flat: through the flat, and folded back (refold, 4.1). Built in M2 as the cutout's `Wrap` (sec 12). | B1 17 |
 | **Notch at a bend** | A small V or slot at each end of a bend line on the outline, for the press brake operator. | -- (#622) |
-| **Hinge and perforation cuts** | Slots along a bend line so it can be bent by hand, or a laser living hinge: straight, tiled from a sketch, or wave; drawn in the flat. | B1 5 (perforation), B1 10 (hinge cuts) |
+| **Hinge and perforation cuts** | Slots along a bend line so it can be bent by hand, or a laser living hinge: straight, tiled from a sketch, or wave; drawn in the flat. Built in M2 as **Bend Cuts** (sec 12). | B1 5 (perforation), B1 10 (hinge cuts) |
 | **Tab and slot** | Tabs on the edge of one wall and matching slots cut through another it meets, with a clearance, so laser-cut parts locate themselves for welding. | -- (SOLIDWORKS, gk) |
 | **Cross break** | Two diagonals drawn on a panel as bend lines of a small angle, shown in the flat. | -- |
 
@@ -1075,7 +1075,28 @@ and not frozen.
     folded (`testWrapCornerGap` holds that).
   - `Reversed` and `UpToFirst` are read-only while `Wrap` is on. Refused by name: a sketch
     parallel to no wall, one lying on none of the flat.
-- The flat, found by the bend cuts (M2's hinge and perforation cuts, next): a hole cut across a bend lay flat 2.7e-5 mm^2 short of the
+- M2's hinge and perforation cuts, `PartDesign::SheetMetalBendCuts` (5.2, ruled 2026-11-03),
+  with `TestSheetMetalBendCuts` (8), its command (**Bend Cuts**), icon and panel. As built
+  (`SheetMetal::bendCutTools()`):
+  - `Bends` is a face of each bend to cut, of the base; the faces' owners are the bends, a bend
+    picked twice cut once. The bend's extent along its axis is that of its faces in the part.
+  - Laid out in the bend's own flat (across the strip from 0 to its developed length, along the
+    axis), each piece moved into the flat with the wall before the bend fixed and folded back by
+    `refold()` through that bend only. `Slots` (the default): as many as fit between the
+    `EndMargin`s with a `BridgeLength` between, centred, each `SlotLength` long; `SlotWidth` 0
+    the whole strip, else that much about its middle. `Staggered`: `Rows` rows evenly across,
+    `SlotWidth` each (0: half of a row's share), every other row shifted half a slot and a
+    bridge, its end slots cut short by the margins. `Sketch`: the `Tile` sketch's faces in its
+    own frame, X along the bend and Y across from the strip's middle, placed as slots as long as
+    their extent along X.
+  - The model is the one before. Refused by name: a face not a bend's, a pattern fitting no
+    whole slot within the margins, a sketch pattern with no tile or no closed shape.
+  - The panel gained a box for an integer (`Rows`); `Tile` is a sketch link, chosen as a
+    cutout's profile is.
+  - Found while testing: a tile measured with a box padded by the shape's tolerance (1e-7 a side)
+    did not fit where it just fits, and one was dropped; the tile's extent is taken exactly now
+    (`testSketchFits`). A tiled circle's flat was 0.015 mm^2 off: the flat's fault, below.
+- The flat, found by the bend cuts: a hole cut across a bend lay flat 2.7e-5 mm^2 short of the
   shape drawn (its outline a B-spline through 24 samples of its image), and its wall, ruled
   between the outlines on the two skins, each sampled on its own parameters, leaned up to
   0.25 mm across the hole, so the flat's volume, and `FlatArea` with it, was off (0.015 mm^2 for
@@ -1169,7 +1190,9 @@ and not frozen.
   each end, and for `Staggered` the rows and their spacing. A slot spans the whole strip unless
   a width is given, about the bend's middle line.
 - The bend stays as it was: folded, its radius and K the rule's or its feature's. A large radius
-  for a living hinge is set on the feature that made the bend.
+  for a living hinge is set on the feature that made the bend. Corrected the same day: no
+  feature but the hem has a radius of its own, so a bend's radius is the rule's until the bend
+  table's per-bend override (M4); the ruling rested on an override that is not there.
 - Refused: a pick that is not a bend, a pattern fitting no whole slot within the margins. A bend
   stays a bend however much of it is cut.
 

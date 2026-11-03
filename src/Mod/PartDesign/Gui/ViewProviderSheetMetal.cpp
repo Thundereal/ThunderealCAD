@@ -189,6 +189,31 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalCornerClosure::getEditDialog()
                                      "Face"));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalBendCuts, PartDesignGui::ViewProviderAddSub)
+
+ViewProviderSheetMetalBendCuts::ViewProviderSheetMetalBendCuts()
+{
+    sPixmap = "PartDesign_SheetMetalBendCuts";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalBendCuts::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalBendCuts",
+                                     QObject::tr("Bend cuts parameters"),
+                                     {"Pattern",
+                                      "SlotLength",
+                                      "BridgeLength",
+                                      "EndMargin",
+                                      "SlotWidth",
+                                      "Rows",
+                                      "Tile"},
+                                     "Bends",
+                                     "Face"));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalCutout,
                 PartDesignGui::ViewProviderSketchBased)
 

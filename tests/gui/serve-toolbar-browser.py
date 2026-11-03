@@ -124,6 +124,7 @@ SURFACE_COMMANDS = {"Surface_Network", "Surface_Trim", "Surface_Split", "Surface
 
 SHEET_METAL_COMMANDS = {"PartDesign_SheetMetalBaseWall", "PartDesign_SheetMetalFlange",
                         "PartDesign_SheetMetalContourFlange", "PartDesign_SheetMetalJoin",
+                        "PartDesign_SheetMetalBendCuts",
                         "PartDesign_SheetMetalExtendWall", "PartDesign_SheetMetalHem",
                         "PartDesign_SheetMetalCornerClosure",
                         "PartDesign_SheetMetalCutout",

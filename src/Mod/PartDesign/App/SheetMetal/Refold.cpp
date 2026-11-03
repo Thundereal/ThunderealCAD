@@ -875,4 +875,139 @@ std::vector<TopoShape> wrapCutoutTools(const Model& model, const TopoDS_Shape& p
     return res;
 }
 
+std::vector<TopoShape> bendCutTools(const Model& model, const TopoDS_Shape& part, int bend,
+                                    const BendCutPattern& pattern)
+{
+    const Element& el = model.elements[bend];
+    const CylBend& b = el.bend;
+    const gp_Pnt o = b.frame.Location();
+    const gp_Vec y(b.frame.YDirection()), z(b.frame.Direction());
+
+    // how far along its axis the bend goes in the part
+    double t0 = std::numeric_limits<double>::max();
+    double t1 = -t0;
+    for (TopExp_Explorer f(part, TopAbs_FACE); f.More(); f.Next()) {
+        if (model.owner(TopoDS::Face(f.Current())) != bend) {
+            continue;
+        }
+        for (TopExp_Explorer v(f.Current(), TopAbs_VERTEX); v.More(); v.Next()) {
+            const double t = gp_Vec(o, BRep_Tool::Pnt(TopoDS::Vertex(v.Current()))).Dot(z);
+            t0 = std::min(t0, t);
+            t1 = std::max(t1, t);
+        }
+    }
+    if (t1 <= t0) {
+        FC_THROWM(Base::ValueError, el.name << " has no face in the part");
+    }
+    const double strip = b.angle * b.neutral();
+    const double from = t0 + pattern.margin;
+    const double to = t1 - pattern.margin;
+
+    // where each of as many as fit starts along the axis, centred
+    auto layout = [&](double length) {
+        std::vector<double> starts;
+        const double pitch = length + pattern.bridge;
+        const int n = static_cast<int>(
+            std::floor((to - from + pattern.bridge) / pitch + Precision::Confusion()));
+        if (length <= Precision::Confusion() || n < 1) {
+            FC_THROWM(Base::ValueError,
+                      el.name << ": no whole slot fits within the margins, "
+                              << std::max(0.0, to - from) << " mm along");
+        }
+        const double start = from + (to - from - (n * length + (n - 1) * pattern.bridge)) / 2;
+        for (int i = 0; i < n; ++i) {
+            starts.push_back(start + i * pitch);
+        }
+        return starts;
+    };
+    // a rectangle of the bend's own flat: s across the strip, t along it
+    auto rect = [&](double s0, double s1, double ta, double tb) {
+        auto at = [&](double s, double t) {
+            return o.Translated(y * s + z * t);
+        };
+        BRepBuilderAPI_MakePolygon poly(at(s0, ta), at(s1, ta), at(s1, tb), at(s0, tb), true);
+        return TopoDS_Shape(BRepBuilderAPI_MakeFace(poly.Wire(), true).Face());
+    };
+
+    std::vector<TopoDS_Shape> faces;
+    switch (pattern.kind) {
+        case BendCutPattern::Kind::Slots: {
+            // the whole strip, past its ends: refold() keeps the strip's
+            const double s0 = pattern.width > 0 ? (strip - pattern.width) / 2 : -strip;
+            const double s1 = pattern.width > 0 ? (strip + pattern.width) / 2 : 2 * strip;
+            for (double t : layout(pattern.length)) {
+                faces.push_back(rect(s0, s1, t, t + pattern.length));
+            }
+            break;
+        }
+        case BendCutPattern::Kind::Staggered: {
+            const int rows = std::max(1, pattern.rows);
+            const double share = strip / rows;
+            const double w = pattern.width > 0 ? pattern.width : share / 2;
+            const std::vector<double> starts = layout(pattern.length);
+            const double half = (pattern.length + pattern.bridge) / 2;
+            for (int i = 0; i < rows; ++i) {
+                const double c = (i + 0.5) * share;
+                std::vector<double> row = starts;
+                if (i % 2) {
+                    row.insert(row.begin(), starts.front() - 2 * half);
+                    for (double& t : row) {
+                        t += half;
+                    }
+                }
+                for (double t : row) {
+                    const double ta = std::max(t, from);
+                    const double tb = std::min(t + pattern.length, to);
+                    if (tb - ta > Precision::Confusion()) {
+                        faces.push_back(rect(c - w / 2, c + w / 2, ta, tb));
+                    }
+                }
+            }
+            break;
+        }
+        case BendCutPattern::Kind::Sketch: {
+            // its extent exactly: a box padded by the shape's tolerance would
+            // make a tile that just fits not fit
+            Bnd_Box box;
+            BRepBndLib::AddOptimal(pattern.tile, box, false, false);
+            if (box.IsVoid()) {
+                THROWM(Base::ValueError, "A sketch pattern's tile has no closed shape");
+            }
+            double x0, y0, z0, x1, y1, z1;
+            box.Get(x0, y0, z0, x1, y1, z1);
+            // the tile's XY onto the strip: X along the axis, Y across from
+            // its middle
+            const gp_Ax3 onStrip(o.Translated(y * (strip / 2)),
+                                 gp_Dir(z.Crossed(y)),
+                                 gp_Dir(z));
+            gp_Trsf place;
+            place.SetTransformation(onStrip);
+            place.Invert();
+            for (double t : layout(x1 - x0)) {
+                gp_Trsf shift;
+                shift.SetTranslation(gp_Vec(t - x0, 0, 0));
+                const TopoDS_Shape tile =
+                    BRepBuilderAPI_Transform(pattern.tile, place * shift, true).Shape();
+                for (TopExp_Explorer f(tile, TopAbs_FACE); f.More(); f.Next()) {
+                    faces.push_back(f.Current());
+                }
+            }
+            break;
+        }
+    }
+
+    // into the flat's frame with the wall before the bend fixed, and back
+    const int root = el.before;
+    const gp_Trsf toRoot = model.placement(bend, root);
+    std::vector<TopoShape> res;
+    for (const TopoDS_Shape& face : faces) {
+        const TopoDS_Face moved =
+            TopoDS::Face(BRepBuilderAPI_Transform(face, toRoot, true).Shape());
+        for (TopoShape& tool : refold(model, root, moved, {bend})) {
+            res.push_back(std::move(tool));
+        }
+    }
+    return res;
+}
+
 }  // namespace PartDesign::SheetMetal

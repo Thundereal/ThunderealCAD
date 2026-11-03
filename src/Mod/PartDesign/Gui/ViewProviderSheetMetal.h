@@ -80,6 +80,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// Bend cuts, their panel their bends and pattern
+class PartDesignGuiExport ViewProviderSheetMetalBendCuts: public ViewProviderAddSub
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalBendCuts);
+
+public:
+    ViewProviderSheetMetalBendCuts();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// An extend wall, its panel its faces and length
 class PartDesignGuiExport ViewProviderSheetMetalExtendWall: public ViewProviderAddSub
 {

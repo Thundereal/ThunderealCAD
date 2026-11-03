@@ -151,6 +151,25 @@ private:
         try {
             Base::FileInfo file(Utf8Name.c_str());
 
+            // The type and the file before a document is made for them: a
+            // failed import left the new document open, empty -- and its
+            // transient directory behind when the process ended (entry 251).
+            if (file.hasExtension({"mtlx"})) {
+                // Import::ReaderLook does the FreeCAD half of a look, but
+                // reading the document is MaterialX's, and MaterialX is
+                // carried by the renderer, which the App tier does not link
+                // (docs/MaterialStorage.md sec 17.13 item 2)
+                throw Py::Exception(PyExc_IOError,
+                                    "reading a MaterialX look needs the GUI module: "
+                                    "ImportGui.insert()");
+            }
+            if (!file.hasExtension({"stp", "step", "igs", "iges", "glb", "gltf"})) {
+                throw Py::Exception(PyExc_IOError, "no supported file format");
+            }
+            if (!file.exists()) {
+                throw Py::Exception(PyExc_IOError, "file not found: " + Utf8Name);
+            }
+
             App::Document* pcDoc = nullptr;
             if (DocName) {
                 pcDoc = App::GetApplication().getDocument(DocName);
@@ -191,21 +210,9 @@ private:
                 }
                 _PY_CATCH_OCC(throw Py::Exception());
             }
-            else if (file.hasExtension({"glb", "gltf"})) {
+            else {
                 Import::ReaderGltf reader(file);
                 reader.read(hDoc);
-            }
-            else if (file.hasExtension({"mtlx"})) {
-                // Import::ReaderLook does the FreeCAD half of a look, but
-                // reading the document is MaterialX's, and MaterialX is
-                // carried by the renderer, which the App tier does not link
-                // (docs/MaterialStorage.md sec 17.13 item 2)
-                throw Py::Exception(PyExc_IOError,
-                                    "reading a MaterialX look needs the GUI module: "
-                                    "ImportGui.insert()");
-            }
-            else {
-                throw Py::Exception(PyExc_IOError, "no supported file format");
             }
 
             ImportOCAFExt ocaf(hDoc, pcDoc, file.fileNamePure());

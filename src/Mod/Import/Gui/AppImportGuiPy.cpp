@@ -504,6 +504,14 @@ private:
                 }
                 return Py::None();
             }
+            // The type and the file before a document is made for them: a
+            // failed import left the new document open, empty (entry 251).
+            if (!file.hasExtension({"stp", "step", "igs", "iges", "glb", "gltf"})) {
+                throw Py::Exception(PyExc_IOError, "no supported file format");
+            }
+            if (!file.exists()) {
+                throw Py::Exception(PyExc_IOError, "file not found: " + Utf8Name);
+            }
             if (!pcDoc) {
                 pcDoc = App::GetApplication().newDocument();
             }

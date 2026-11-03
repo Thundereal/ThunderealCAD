@@ -8504,3 +8504,18 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   origin-plane-highlight 17 pass; ctest 1100/1100 (3 dirs left, the unplaced
   ones). PUSHED on the user's "push and restage once done"
   (50ab8ff316..e23a1f68c8); restaged from rtx87 next.
+- Staged 20:49:53 at `41ab0dba24` (rtx87); on the stage the preferences
+  open and close (9/9) and selected-edges-on-top-alike passes 8/8.
+- 250 pictures for the user (fcad-58's ask): s1\entry250-before-after.png,
+  bgfx and Legacy, selected and hover, before = the dev tree with
+  BGFXFrame.cpp of 4910a46cb5~1 (rtx88-before2; cmd ate the `^` of `x^:path`
+  the first time and rebuilt the fixed file), after = the stage. Dev tree
+  rebuilt with the fix (rtx89).
+- 247 (a), the scanner COPY on the stage, after only (the before stage was
+  gone): 41 frames drawn through the 38.7 s recompute, all full pipeline.
+- 251 `907c54629d` (local): the last 3 dirs, bisected by ctest -I halves
+  (bisect251.ps1): ImportErrorsTest unknown type (1), missing file (2).
+  Import.insert/ImportGui.insert made a new document before looking at the
+  file; now refused first, same OSError. ctest Import 13 passed, no dir
+  left; live-import-nested-loop 8, export-hidden-component 15; Python suite
+  4078 OK.

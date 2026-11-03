@@ -1167,6 +1167,10 @@ and not frozen.
     shape's display mode and the flat under one group, so picking and highlighting either still
     go through the feature's mode switch. Folded lays nothing flat. A feature's bounds are what
     it draws. Checked by `sheet-metal-commands.py` (picks on both, both selected, the bounds).
+  - A selection drawn on top shows the whole object through its mode switch's default child,
+    child 0, the folded shape's: an element of the flat selected drew the folded part translucent
+    over it. While the flat is drawn the default child is its mode, given back after (found taking
+    Check Sheet's pictures).
   - Its fourth step, the flat pattern retired: `PartDesign::SheetMetalFlatPattern`, its Python
     binding, view, panel and command are gone, and Flatten has its icon. Not kept for older
     files, as nothing has been released: one made by a build before this loads without the

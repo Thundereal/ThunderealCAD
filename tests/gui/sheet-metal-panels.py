@@ -321,7 +321,7 @@ def run():
         w = panel() or {}
         check(
             "Cutout opens its panel with its sketch, its way and how far",
-            all(n in w for n in ("Profile", "Reversed", "UpToFirst")),
+            all(n in w for n in ("Profile", "Wrap", "Reversed", "UpToFirst")),
             sorted(n for n in w if n[0].isupper()),
         )
         profile = w.get("Profile")
@@ -337,6 +337,19 @@ def run():
             doc.recompute()
             check("the first only, set there, is the feature's", cutout.UpToFirst,
                   cutout.UpToFirst)
+        wrap = w.get("Wrap")
+        check("and Wrap, the sketch as if drawn on the flat", wrap is not None)
+        if wrap is not None:
+            wrap.click()
+            pump(20)
+            doc.recompute()
+            pump(20)
+            check(
+                "Wrap set there is the feature's, the way and the first only then not",
+                cutout.Wrap and first is not None and not first.isEnabled()
+                and not w["Reversed"].isEnabled(),
+                (cutout.Wrap, first and first.isEnabled()),
+            )
         accept()
         pump(20)
         check("OK keeps a good cutout", "Invalid" not in cutout.State, cutout.State)

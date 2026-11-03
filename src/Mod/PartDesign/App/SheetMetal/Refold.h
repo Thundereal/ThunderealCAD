@@ -99,4 +99,21 @@ PartDesignExport std::vector<Part::TopoShape> cutoutTools(const Model& model,
                                                           const TopoDS_Shape& profile,
                                                           const gp_Dir& way, bool firstOnly);
 
+/** A wrap cutout's tools (docs/SheetMetal.md sec 5.2, ruled 2026-11-03):
+ * the sketch as if drawn on the flat
+ *
+ * profile is planar faces, normal their plane's. The wall parallel to them
+ * whose skins lie nearest stays where it is, and the faces are taken
+ * straight onto its skin. What of them lies on an element's skin in the
+ * flat goes back through that element (refold()), around each bend at its
+ * developed length; what lies off the flat cuts nothing.
+ *
+ * Throws Base::ValueError for faces parallel to no wall, or lying on none
+ * of the flat.
+ */
+PartDesignExport std::vector<Part::TopoShape> wrapCutoutTools(const Model& model,
+                                                              const TopoDS_Shape& part,
+                                                              const TopoDS_Shape& profile,
+                                                              const gp_Dir& normal);
+
 }  // namespace PartDesign::SheetMetal

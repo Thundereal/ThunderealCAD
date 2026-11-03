@@ -39,6 +39,10 @@ namespace PartDesign
  * through the sheet from there: a wall's straight through, a bend's along
  * its radius, so the hole is what is cut in the blank. Through every wall
  * and bend in the sketch's way, UpToFirst the first it meets only.
+ *
+ * Wrap (ruled 2026-11-03): the sketch as if drawn on the flat instead, the
+ * wall parallel to it and nearest it fixed, what lies on the flat cut
+ * through it and folded back; the way and UpToFirst do not apply.
  */
 class PartDesignExport SheetMetalCutout : public ProfileBased, public SheetMetalExtension
 {
@@ -49,9 +53,12 @@ public:
 
     /// Only the first wall or bend the sketch meets, not every one
     App::PropertyBool UpToFirst;
+    /// The sketch as if drawn on the flat
+    App::PropertyBool Wrap;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {
         return "PartDesignGui::ViewProviderSheetMetalCutout";

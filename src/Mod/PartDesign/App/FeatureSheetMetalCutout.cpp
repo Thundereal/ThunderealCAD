@@ -48,6 +48,12 @@ SheetMetalCutout::SheetMetalCutout()
                       "Sheet Metal",
                       App::Prop_None,
                       "Only the first wall or bend the sketch meets, not every one in its way");
+    ADD_PROPERTY_TYPE(Wrap,
+                      (false),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The sketch as if drawn on the flat: the wall parallel to it and nearest "
+                      "it stays, and what lies on the flat is cut and folded back");
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -66,10 +72,20 @@ SheetMetalCutout::SheetMetalCutout()
 
 short SheetMetalCutout::mustExecute() const
 {
-    if (UpToFirst.isTouched()) {
+    if (UpToFirst.isTouched() || Wrap.isTouched()) {
         return 1;
     }
     return ProfileBased::mustExecute();
+}
+
+void SheetMetalCutout::onChanged(const App::Property* prop)
+{
+    if (prop == &Wrap) {
+        // a wrap is cut through the flat: no way, no first only
+        Reversed.setStatus(App::Property::ReadOnly, Wrap.getValue());
+        UpToFirst.setStatus(App::Property::ReadOnly, Wrap.getValue());
+    }
+    ProfileBased::onChanged(prop);
 }
 
 App::DocumentObjectExecReturn* SheetMetalCutout::execute()
@@ -96,11 +112,13 @@ App::DocumentObjectExecReturn* SheetMetalCutout::execute()
         // against the sketch's normal, as a pocket's
         const gp_Dir way = Reversed.getValue() ? gp_Dir(n) : gp_Dir(n.Reversed());
 
-        const std::vector<TopoShape> tools = SheetMetal::cutoutTools(model,
-                                                                     base.getShape(),
-                                                                     face.getShape(),
-                                                                     way,
-                                                                     UpToFirst.getValue());
+        const std::vector<TopoShape> tools = Wrap.getValue()
+            ? SheetMetal::wrapCutoutTools(model, base.getShape(), face.getShape(), gp_Dir(n))
+            : SheetMetal::cutoutTools(model,
+                                      base.getShape(),
+                                      face.getShape(),
+                                      way,
+                                      UpToFirst.getValue());
         TopoShape tool = TopoShape().makECompound(tools);
         SheetMetal::storePCurves(tool);
         AddSubShape.setValue(tool);

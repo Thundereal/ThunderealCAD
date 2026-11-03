@@ -25,6 +25,8 @@
 #include "PreCompiled.h"
 
 #include <cmath>
+#include <limits>
+#include <map>
 #include <numbers>
 
 #include <BRepAdaptor_Surface.hxx>
@@ -38,6 +40,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
@@ -64,7 +67,10 @@
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColgp_Array1OfPnt2d.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Shell.hxx>
@@ -79,6 +85,7 @@
 
 #include <Mod/Part/App/TopoShapeOpCode.h>
 
+#include "Flat.h"
 #include "Refold.h"
 
 using Part::TopoShape;
@@ -754,6 +761,116 @@ std::vector<TopoShape> cutoutTools(const Model& model, const TopoDS_Shape& part,
     }
     if (res.empty()) {
         THROWM(Base::ValueError, "A cutout's sketch meets no skin of the sheet facing it");
+    }
+    return res;
+}
+
+std::vector<TopoShape> wrapCutoutTools(const Model& model, const TopoDS_Shape& part,
+                                       const TopoDS_Shape& profile, const gp_Dir& normal)
+{
+    gp_Pnt sketchAt;
+    {
+        TopExp_Explorer v(profile, TopAbs_VERTEX);
+        if (!v.More()) {
+            THROWM(Base::ValueError, "A cutout's sketch is empty");
+        }
+        sketchAt = BRep_Tool::Pnt(TopoDS::Vertex(v.Current()));
+    }
+
+    // the wall that stays: parallel to the sketch, its skins nearest it
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(part, TopAbs_FACE, faces);
+    std::vector<int> owners(faces.Extent() + 1, -1);
+    for (int i = 1; i <= faces.Extent(); ++i) {
+        owners[i] = model.owner(TopoDS::Face(faces(i)));
+    }
+    int root = -1;
+    double nearest = std::numeric_limits<double>::max();
+    for (std::size_t w = 0; w < model.elements.size(); ++w) {
+        const Element& el = model.elements[w];
+        if (el.kind != Element::Kind::Wall
+            || !el.frame.Direction().IsParallel(normal, Precision::Angular())) {
+            continue;
+        }
+        TopoDS_Compound skins;
+        BRep_Builder builder;
+        builder.MakeCompound(skins);
+        bool any = false;
+        for (int i = 1; i <= faces.Extent(); ++i) {
+            if (owners[i] != static_cast<int>(w)) {
+                continue;
+            }
+            BRepAdaptor_Surface surface(TopoDS::Face(faces(i)));
+            if (surface.GetType() == GeomAbs_Plane
+                && surface.Plane().Axis().Direction().IsParallel(normal, Precision::Angular())) {
+                builder.Add(skins, faces(i));
+                any = true;
+            }
+        }
+        if (!any) {
+            continue;
+        }
+        BRepExtrema_DistShapeShape dist(profile, skins);
+        if (dist.IsDone() && dist.Value() < nearest - Precision::Confusion()) {
+            nearest = dist.Value();
+            root = static_cast<int>(w);
+        }
+    }
+    if (root < 0) {
+        THROWM(Base::ValueError, "A wrap cutout's sketch lies parallel to no wall of the sheet");
+    }
+
+    // the sketch taken straight onto the wall's first skin, and laid on XY
+    // with it as the flat is
+    const gp_Ax3& frame = model.elements[root].frame;
+    gp_Trsf down;
+    down.SetTranslation(gp_Vec(frame.Direction())
+                        * -gp_Vec(frame.Location(), sketchAt).Dot(gp_Vec(frame.Direction())));
+    gp_Trsf toXY;
+    toXY.SetTransformation(frame);
+    const TopoDS_Shape onXY = BRepBuilderAPI_Transform(profile, toXY * down, true).Shape();
+
+    // each element's skin on XY in the flat: what of the sketch lies there
+    // goes back through that element only, the rest cuts nothing
+    const FlatResult flat = flatten(part, model, root, false);
+    std::map<int, TopTools_ListOfShape> skins;
+    for (const auto& [folded, laid] : flat.faces) {
+        if (laid.ShapeType() != TopAbs_FACE
+            || BRepAdaptor_Surface(TopoDS::Face(laid)).GetType() != GeomAbs_Plane) {
+            continue;
+        }
+        bool onPlane = true;
+        for (TopExp_Explorer v(laid, TopAbs_VERTEX); v.More() && onPlane; v.Next()) {
+            onPlane = std::abs(BRep_Tool::Pnt(TopoDS::Vertex(v.Current())).Z()) < 1e-6;
+        }
+        const int owner = onPlane ? model.owner(TopoDS::Face(folded)) : -1;
+        if (owner >= 0) {
+            skins[owner].Append(laid);
+        }
+    }
+    const gp_Trsf back = toXY.Inverted();
+    std::vector<TopoShape> res;
+    for (const auto& [owner, skin] : skins) {
+        BRepAlgoAPI_Common common;
+        TopTools_ListOfShape args;
+        args.Append(onXY);
+        common.SetArguments(args);
+        common.SetTools(skin);
+        common.SetFuzzyValue(1e-6);
+        common.Build();
+        if (!common.IsDone()) {
+            continue;
+        }
+        for (TopExp_Explorer it(common.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+            const TopoDS_Face piece =
+                TopoDS::Face(BRepBuilderAPI_Transform(it.Current(), back, true).Shape());
+            for (TopoShape& tool : refold(model, root, piece, {owner})) {
+                res.push_back(std::move(tool));
+            }
+        }
+    }
+    if (res.empty()) {
+        THROWM(Base::ValueError, "A wrap cutout's sketch lies on none of the flat");
     }
     return res;
 }

@@ -449,7 +449,7 @@ its tracker, not ported.
 | **Corner closure** | Two flanges brought to meet at a corner: overlap, underlap or butt, with a gap. Built in M2 (sec 12). | -- |
 | **Rip** | A gap cut along an edge of a closed solid, so it can unfold. | B1 15 |
 | **Cutout** | A closed sketch cut normal to the sheet on every wall and bend it crosses. | B1 18 |
-| **Wrap cutout** | A sketch cut as if drawn on the flat: through the flat, and folded back (refold, 4.1). | B1 17 |
+| **Wrap cutout** | A sketch cut as if drawn on the flat: through the flat, and folded back (refold, 4.1). Built in M2 as the cutout's `Wrap` (sec 12). | B1 17 |
 | **Notch at a bend** | A small V or slot at each end of a bend line on the outline, for the press brake operator. | -- (#622) |
 | **Hinge and perforation cuts** | Slots along a bend line so it can be bent by hand, or a laser living hinge: straight, tiled from a sketch, or wave; drawn in the flat. | B1 5 (perforation), B1 10 (hinge cuts) |
 | **Tab and slot** | Tabs on the edge of one wall and matching slots cut through another it meets, with a clearance, so laser-cut parts locate themselves for welding. | -- (SOLIDWORKS, gk) |
@@ -1060,6 +1060,21 @@ and not frozen.
   face of one lying in the plane of the other's skin can be taken for that wall's (an end face
   at x 50 beside a wall whose skin is x 50 was, and `wallEdge()` refused the edge). Seen while
   building the join; the tests keep clear of it.
+- M2's wrap cutout, the cutout's `Wrap` (5.2, ruled 2026-11-03), with seven more cases in
+  `TestSheetMetalCutout` (16) and its box in the cutout's panel. As built
+  (`SheetMetal::wrapCutoutTools()`):
+  - The wall that stays is the one whose frame lies parallel to the sketch and whose skins
+    (its planar faces parallel to it) lie nearest the sketch's faces; a tie goes to the wall
+    added first. The sketch is moved straight onto that wall's first skin; the side it faces
+    does not matter.
+  - The flat is laid with that wall fixed (`flatten()`, its first skin on XY), and the sketch
+    with it. Each element's faces lying on XY there are its part of the blank: what of the
+    sketch lies on them (a common in the plane, fuzzy to 1e-6) is folded back by `refold()`
+    through that element only. What lies off the blank -- past its outline, in the gap at a
+    corner, in a hole already cut -- cuts nothing, though the element's slab runs on through it
+    folded (`testWrapCornerGap` holds that).
+  - `Reversed` and `UpToFirst` are read-only while `Wrap` is on. Refused by name: a sketch
+    parallel to no wall, one lying on none of the flat.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

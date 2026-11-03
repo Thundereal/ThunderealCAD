@@ -976,10 +976,12 @@ class TestContact(unittest.TestCase):
         """A ball of radius 6 dropped 1 mm off the axis of a hole of radius 4
         through a block, a check valve's seat: it rolls onto the rim all
         round and rests centred, its centre sqrt(6^2 - 4^2) over the top,
-        within 0.01 mm (4.4 um measured, the rim's facets). Too big for the
-        hole, it is no round inside a hollow one (fitsIn()): as one, its
-        points against the bore were dropped, it had none of its own, and it
-        fell through the block."""
+        within 1e-4 mm (63 nm under it measured, its sink). Its points are
+        the rim's own circle's (seatAt()): Bullet's on the facets, the rim's
+        polygon, held it 4.4 um high. Too big for the hole, it is no round
+        inside a hollow one (fitsIn()): as one, its points against the bore
+        were dropped, it had none of its own, and it fell through the
+        block."""
         import Part
 
         block = self.assembly.newObject("Part::Feature", "Block")
@@ -997,8 +999,8 @@ class TestContact(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
         c = ball.Placement.multVec(local)
-        self.assertAlmostEqual(c.z, rest, delta=0.01)
-        self.assertLess(math.hypot(c.x, c.y), 0.01)
+        self.assertAlmostEqual(c.z, rest, delta=1e-4)
+        self.assertLess(math.hypot(c.x, c.y), 1e-4)
 
     def stillFrom(self, frame, height):
         """How far height() strays over the frames from 'frame' on, mm"""

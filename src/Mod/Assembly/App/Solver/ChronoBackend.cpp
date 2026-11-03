@@ -842,6 +842,11 @@ public:
         const ShapeOn* roundB = nullptr;
         int face = 0;
         ch::ChVector3d normalOn;
+        // A ball's on the rim of a bore too narrow for it (seatAt()): the
+        // bore's round, and the point's angle round the rim from the rim's
+        // point nearest the ball's centre
+        const ShapeOn* seat = nullptr;
+        double seatTurn = 0.0;
     };
 
     ContactLoad(std::shared_ptr<ch::ChBody> a,
@@ -2625,6 +2630,54 @@ ch::ChVector3d hollowWay(const ShapeOn& hollow,
     return length > 1e-12 ? way / length : ch::VNULL;
 }
 
+// A point of a ball on a bore's rim: on the ball, on the rim, and the way
+// from the ball's centre to the rim's point
+struct SeatPoint
+{
+    ch::ChVector3d onBall;
+    ch::ChVector3d onRim;
+    ch::ChVector3d out;
+};
+
+/** A ball on the rim of a bore too narrow for it, a check valve's on its
+ * seat, at the frames of the ball's sphere and the bore's (fb, fh): the
+ * point of the circle of the bore's end on the ball's side 'turn' round the
+ * rim from its point nearest the ball's centre, the ball's surface toward
+ * it, and the way there. The rim's own circle: Bullet's points on the
+ * facets lie on its polygon, inside it by the polygon's sagitta, and a ball
+ * of 6 on a hole of 4 rested 4.4 um high on them. False where the ball's
+ * centre is not past the bore's end.
+ */
+bool seatAt(const ShapeOn& ball,
+            const ShapeOn& hollow,
+            const ch::ChFramed& fb,
+            const ch::ChFramed& fh,
+            double turn,
+            SeatPoint& point)
+{
+    const ch::ChVector3d centre = fb.GetPos();
+    const ch::ChVector3d axis = fh.GetRotMat().GetAxisZ();
+    const double along = ch::Vdot(axis, centre - fh.GetPos());
+    if (!(std::abs(along) > hollow.half)) {
+        return false;
+    }
+    const ch::ChVector3d end = fh.GetPos() + axis * std::copysign(hollow.half, along);
+    ch::ChVector3d x = centre - end;
+    x -= axis * ch::Vdot(axis, x);
+    const double off = x.Length();
+    x = off > 1e-12 ? x / off : ch::ChVector3d(fh.GetRotMat().GetAxisX());
+    const ch::ChVector3d y = ch::Vcross(axis, x);
+    point.onRim = end + (x * std::cos(turn) + y * std::sin(turn)) * hollow.radius;
+    point.out = point.onRim - centre;
+    const double length = point.out.Length();
+    if (!(length > 1e-12)) {
+        return false;
+    }
+    point.out /= length;
+    point.onBall = centre + point.out * ball.ball;
+    return true;
+}
+
 /** A point on a sphere or a cylinder's side put where that surface meets
  * the other at the bodies' frames a and b, as ContactLoad::follow: collision
  * detection's point is fixed on each body, and a ball rolling turns it
@@ -2646,6 +2699,24 @@ ch::ChVector3d hollowWay(const ShapeOn& hollow,
 void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Point& point)
 {
     if (!point.roundA && !point.roundB && !point.face) {
+        return;
+    }
+    // A ball on a bore's rim: its point the same turn round the rim from
+    // the one nearest the ball's centre now
+    if (point.seat) {
+        const bool ballA = point.roundA != nullptr;
+        const ShapeOn& ball = ballA ? *point.roundA : *point.roundB;
+        SeatPoint at;
+        if (seatAt(ball,
+                   *point.seat,
+                   ball.frame >> (ballA ? a : b),
+                   point.seat->frame >> (ballA ? b : a),
+                   point.seatTurn,
+                   at)) {
+            point.onA = a.TransformPointParentToLocal(ballA ? at.onBall : at.onRim);
+            point.onB = b.TransformPointParentToLocal(ballA ? at.onRim : at.onBall);
+            point.normal = ballA ? at.out : -at.out;
+        }
         return;
     }
     const ch::ChVector3d atA = a.TransformPointLocalToParent(point.onA);
@@ -2759,11 +2830,42 @@ roundCurvature(const ShapeOn& on, const ch::ChBody& body, const ch::ChVector3d& 
     return ch::ChMatrix33d(ch::TensorProduct(round, round) * (sign / on.radius));
 }
 
+// The largest sagitta of a bore's rims as its mesh has them: the widest
+// turn between the mesh's vertices on either end's circle, which the
+// polygon's sides cut across inside it. A third of a turn where an end has
+// fewer than three
+double rimSagitta(const ShapeOn& hollow, const ShapeOn& mesh)
+{
+    std::array<std::vector<double>, 2> angles;
+    const double close = 1e-6 * hollow.radius;
+    for (std::size_t v = 0; v < mesh.count; ++v) {
+        const ch::ChVector3d p = hollow.frame.TransformPointParentToLocal(mesh.vertices[v]);
+        if (std::abs(std::hypot(p.x(), p.y()) - hollow.radius) > close
+            || std::abs(std::abs(p.z()) - hollow.half) > close) {
+            continue;
+        }
+        angles[p.z() > 0.0 ? 1 : 0].push_back(std::atan2(p.y(), p.x()));
+    }
+    double widest = 0.0;
+    for (auto& end : angles) {
+        if (end.size() < 3) {
+            widest = std::max(widest, 2.0 * pi / 3.0);
+            continue;
+        }
+        std::sort(end.begin(), end.end());
+        widest = std::max(widest, end.front() + 2.0 * pi - end.back());
+        for (std::size_t k = 1; k < end.size(); ++k) {
+            widest = std::max(widest, end[k] - end[k - 1]);
+        }
+    }
+    return hollow.radius * (1.0 - std::cos(0.5 * widest));
+}
+
 // Whether a round goes inside a hollow one: a ball or a cylinder narrower
 // than a bore, a ball smaller than a socket. Their pair's points are the
-// rounds' own (hollowPoints()); a ball too big for a hole sits on its rim,
-// Bullet's to find -- one of 6 on a hole of 4 fell through the block when
-// it was a pair, its points against the bore dropped and none of its own
+// rounds' own (hollowPoints()); a ball too big for a bore sits on its rim
+// (seatAt()) -- one of 6 on a hole of 4 fell through the block when it was
+// a pair, its points against the bore dropped and none of its own
 bool fitsIn(const ShapeOn& inner, const ShapeOn& hollow)
 {
     if (hollow.ball > 0.0) {
@@ -6749,6 +6851,22 @@ Status ChronoSession::simulateDynamics(
             int face = -1;
         };
         std::vector<RoundPair> roundPairs;
+        // A ball on a load's body, a primitive's or a round face's, and a
+        // bore too narrow for it on the other's, all round: its points on
+        // the bore's rim are the rim's own (seatAt()), and Bullet's within
+        // twice the rim's polygon's sagitta of it dropped -- on the bore's
+        // facets and the face around the hole, they are on the polygon
+        struct SeatPair
+        {
+            ContactLoad* load = nullptr;
+            const ShapeOn* ball = nullptr;
+            const ShapeOn* hollow = nullptr;
+            bool ballA = true;
+            const ShapeOn* ballOf = nullptr;
+            const ShapeOn* hollowOf = nullptr;
+            double sagitta = 0.0;
+        };
+        std::vector<SeatPair> seats;
         std::vector<HollowPoint> hollowAt;
         double envelope = 0.0;
         std::vector<ProfileTouch> touches;
@@ -6971,6 +7089,64 @@ Status ChronoSession::simulateDynamics(
                     point.roundA = onA;
                     point.roundB = onB;
                     point.frames = {onA->source, onB->source};
+                    load.points.push_back(point);
+                    load.follow = rollAll;
+                }
+            }
+            for (const SeatPair& seat : seats) {
+                ContactLoad& load = *seat.load;
+                const ch::ChFramed fb = seat.ball->frame >> *seat.ball->body;
+                const ch::ChFramed fh = seat.hollow->frame >> *seat.hollow->body;
+                const ch::ChVector3d axis = fh.GetRotMat().GetAxisZ();
+                const double along = ch::Vdot(axis, fb.GetPos() - fh.GetPos());
+                if (!(std::abs(along) > seat.hollow->half)) {
+                    continue;
+                }
+                const ch::ChVector3d end =
+                    fh.GetPos() + axis * std::copysign(seat.hollow->half, along);
+                const auto& rimBody = seat.ballA ? load.GetBodyB() : load.GetBodyA();
+                load.points.erase(
+                    std::remove_if(load.points.begin(),
+                                   load.points.end(),
+                                   [&](const ContactLoad::Point& point) {
+                                       const auto* ball = seat.ballA ? point.shapeA : point.shapeB;
+                                       const auto* rim = seat.ballA ? point.shapeB : point.shapeA;
+                                       if (point.seat || !ball || !rim
+                                           || shapesOn.of(ball) != seat.ballOf
+                                           || shapesOn.of(rim) != seat.hollowOf) {
+                                           return false;
+                                       }
+                                       ch::ChVector3d off = rimBody->TransformPointLocalToParent(
+                                                                seat.ballA ? point.onB : point.onA)
+                                           - end;
+                                       const double height = ch::Vdot(axis, off);
+                                       off -= axis * height;
+                                       return std::hypot(off.Length() - seat.hollow->radius, height)
+                                           <= 2.0 * seat.sagitta + 1e-12;
+                                   }),
+                    load.points.end());
+                // A ring of 16 round the rim from its point nearest the
+                // ball's centre: the ball centred on it touches it all round
+                constexpr int ring = 16;
+                for (int k = 0; k < ring; ++k) {
+                    const double turn = 2.0 * pi * k / ring;
+                    SeatPoint at;
+                    if (!seatAt(*seat.ball, *seat.hollow, fb, fh, turn, at)
+                        || ch::Vdot(at.onRim - at.onBall, at.out) > reach) {
+                        continue;
+                    }
+                    ContactLoad::Point point;
+                    point.onA = load.GetBodyA()->TransformPointParentToLocal(seat.ballA ? at.onBall
+                                                                                        : at.onRim);
+                    point.onB = load.GetBodyB()->TransformPointParentToLocal(
+                        seat.ballA ? at.onRim : at.onBall);
+                    point.normal = seat.ballA ? at.out : -at.out;
+                    (seat.ballA ? point.roundA : point.roundB) = seat.ball;
+                    point.seat = seat.hollow;
+                    point.seatTurn = turn;
+                    point.frames = seat.ballA
+                        ? std::array<Id, 2> {seat.ball->source, seat.hollow->source}
+                        : std::array<Id, 2> {seat.hollow->source, seat.ball->source};
                     load.points.push_back(point);
                     load.follow = rollAll;
                 }
@@ -7313,6 +7489,18 @@ Status ChronoSession::simulateDynamics(
                     for (const Round& inner : roundsOn(innerA ? a : b, false)) {
                         for (const Round& hollow : roundsOn(innerA ? b : a, true)) {
                             if (!fitsIn(*inner.round, *hollow.round)) {
+                                if (inner.round->ball > 0.0 && hollow.round->radius > 0.0
+                                    && hollow.round->angleTo - hollow.round->angleFrom
+                                        >= 2.0 * pi - 1e-9) {
+                                    handover->seats.push_back(
+                                        {load,
+                                         inner.round,
+                                         hollow.round,
+                                         innerA,
+                                         inner.of,
+                                         hollow.of,
+                                         rimSagitta(*hollow.round, *hollow.of)});
+                                }
                                 continue;
                             }
                             handover->roundPairs.push_back({load,

@@ -2664,6 +2664,33 @@ Phase D1 is under way (2026-10-28):
   - Not yet: a light part at rest on a joint -- a lever lying on a stop --
     keeps the rattle's substeps; a cylinder across a bore with a cap out of
     it.
+- Built: a ball on the rim of a bore too narrow for it, a check valve's on
+  its seat (the pin's tilt's "not yet" above). It rested on Bullet's points
+  on the facets: the rim's polygon, inside the circle by the polygon's
+  sagitta, and the ball of 6 on the hole of 4 stood 4.4 um high.
+  - A ball, a primitive's or a round face's, on one body of a load and a
+    bore all round that it does not fit (fitsIn()) on the other are a seat
+    (ContactHandover::SeatPair). When the ball's centre is past one of the
+    bore's ends, its points are on that end's circle: the rim's point
+    nearest the ball's centre and fifteen more round it at equal turns
+    (seatAt()), each within reach, the normal along the line from the
+    rim's point to the centre -- centred, the ball touches it all round.
+    Each is found again at each state at its turn from the nearest
+    (Point::seat, rollAlong()). Bullet's points between the ball and the
+    bore's mesh within twice the rim's sagitta of the circle are dropped:
+    on the bore's facets and on the face around the hole, they lie on the
+    polygon. The sagitta is the mesh's own, from its widest turn between
+    vertices on either end's circle (rimSagitta(): 4.97 um here, the
+    deflection's 0.01 mm bounding it).
+  - The law reads the ball's curvature against the rim's none, a ball on
+    a flat; a sharp edge's Hertz contact has no radius of its own.
+  - Measured: dropped 1 mm off the axis it rolls onto the rim and rests
+    centred to 1e-6 mm, 63 nm under sqrt(20) -- its sink, 47 nm along the
+    16 normals -- where it stood 4.4 um over; set centred, the same.
+  - Tests: TestContact's test_ball_sits_on_hole to 1e-4 mm (was 0.01).
+  - Not yet: a ball on a chamfered or rounded mouth -- the chamfer's cone,
+    the round's torus, are Bullet's facets; a cylinder's rim on a bore's
+    rim (a pin standing in a hole too narrow for it).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

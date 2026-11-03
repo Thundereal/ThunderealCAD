@@ -166,6 +166,11 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-03 11:17: entry 249 -- Space on a picked face hides the body (on purpose
+since 09-26; the reporter wants the selected object), and a hidden
+body's selected feature drawn on top is clipped; ASSIGNED to x16 after
+248.** Under the entries.
+
 **2026-11-03 10:54: entry 248 -- PD Defeaturing's tree hover highlights the whole
 shape, not its changed elements; ASSIGNED to x16.** Under the entries.
 
@@ -4610,6 +4615,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 246 | 2026-11-03 | a defect: an on-view handle's tool tip draws a ROUND-cornered border on a RECTANGULAR widget -- the square corners show; the reporter: use the tooltip helper the measure pre-selection macro uses | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the handle's tip is Qt's own QToolTip::showText (Gizmo.cpp 374, 387; 241's tip); the helper is Gui::ToolTip::showText / TipLabel (Widgets.cpp 1471-1640), which the pre-selection text uses (Selection.cpp 1228); ASSIGNED to dwin (fcad-88), with 245 (same helper); 2026-11-03 10:45 the reporter: the helper NOT required -- its code or styling may be taken as reference; the handle tips stand NEAR THE MOUSE POINTER (not in a corner, as the pre-selection macro's tip) |
 | 247 | 2026-11-03 | a REGRESSION, the reporter relates it to 242's fix: opening scanner, the migration box now holds the load, but after OK the recompute runs with the 3D view BLACK, the model appearing at once at its end (no progressive load); NO recompute error box although objects fail; the first try also failed Dimension014, through Section007 left with no shape and NOT marked as an error (a manual recompute of Section007 fixed it) | OPEN; said to the note-taker 2026-11-03 10:44; READ by the note-taker: the handler (Application.cpp 607-640) recomputes right after the box, inside signalFinishOpenDocument, and shows the error box when hasError; 242's hold (isLoadHeld = activeModalWidget(), Application.cpp 2505-2508) also holds Document::scheduleDeferredRestore (Document.cpp 4703-4710) -- the deferred RESTORE, not only the visuals -- so the recompute may run on a document not fully restored (a lead for Section007, NOT verified); a modal SequencerDialog in the recompute (ProgressDialog.cpp 105) would keep the hold on through it (a lead, NOT verified); causes NOT found; ASSIGNED to dwin (fcad-88), FIRST |
 | 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full); 2026-11-03 10:55 the reporter's steps: a Box, a Pocket of the top face with -2 "tolerance" (a square blind hole in the top), then Defeaturing picking the hole's bottom and one side face; the session the note-taker calls x16 (bridge 01Gifk77, it signs fcad-86) asked whether x16win was meant -- told no, it takes 248 |
+| 249 | 2026-11-03 | a defect, two parts: (a) a Body with a Box: a face of the box picked in the 3D view, Space hides the BODY -- it should hide the selected object; (b) with the body hidden (by Space or by the body's eye icon in the tree), the still-selected box is drawn on top but CLIPPED -- the scene's clipping ignores what is shown on top | OPEN; said to the note-taker 2026-11-03 11:17; READ by the note-taker: (a) is ON PURPOSE since `cccbe6cc5c` (2026-09-26, upstream bd03414893/20c01000a1 adapted): SelectionSingleton::setVisible cuts a view pick's path to ViewProvider::getPickedVisibilityTarget() (Selection.cpp 1874-1899), a PD feature naming its body -- its reason, a face of a non-Tip feature (Body.Box.Face6 under a pocket) toggled a hidden feature; the reporter now wants the selected object; (b) SoFCRenderer::getBoundingBox takes the selection's and highlight's bounds (SoFCRenderer.cpp 1843-1853) -- what the near/far planes are computed from NOT read; causes for (b) NOT found; ASSIGNED to x16 after 248 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -32359,6 +32365,51 @@ ASSIGNED to dwin (fcad-88): measure (a) on both renderers, with the
 pattern on and with 0, say what is seen; make (b) hold. After 247 and
 244.
 
+## 249. Space on a picked face hides the body, not the selected object; a hidden body's selected feature drawn on top is clipped (a defect) -- OPEN
+
+**2026-11-03 11:17, the reporter (to the note-taker):** "new defect. with a body of
+simple box. select a face of the box in the 3d view and press space
+bar, it hides the body instead of the box. It should hide the selected
+object. in adition, when the body is hidden, the selected box is on top
+so it is still shown but it is now clipped, so there is some bug in
+scene clipping that ignores the on top shown object. This clipping
+problem happens independent of the space bar bug, meaning that the same
+clipping happen if I select the box face, and click the eye icon of the
+body tree item."
+The note-taker's reading, two parts:
+(a) A Body holding one Box. A face of the box picked in the 3D view,
+    then Space: the BODY is hidden. Wanted: the selected object (the
+    box) hidden.
+(b) Once the body is hidden -- by (a) or by the body's eye icon in the
+    tree, the box face still selected -- the selection is drawn on top
+    (so the box stays seen) but CLIPPED: the scene's clipping does not
+    count what is drawn on top.
+READ by the note-taker:
+- (a) is ON PURPOSE in the fork since `cccbe6cc5c` (2026-09-26, "Space
+  on a face picked in the view toggles its PartDesign body", upstream
+  bd03414893 and 20c01000a1 adapted): SelectionSingleton::setVisible
+  (src/Gui/Selection/Selection.cpp 1874-1899) cuts a view pick's path
+  down to ViewProvider::getPickedVisibilityTarget() (src/Gui/
+  ViewProvider.h 514-518), which a PartDesign feature answers with its
+  body (src/Mod/PartDesign/Gui/ViewProvider.cpp 96). Its reason: a view
+  pick selects Body.<feature>.<face> by the feature the face came from
+  -- Body.Box.Face6 for a face of a box under a pocket -- and toggling
+  that hidden, non-Tip feature did nothing at first, then showed the
+  box in place of the Tip. Tree selections are not redirected.
+- (b): SoFCRenderer::getBoundingBox already takes the selection's and
+  the highlight's bounds (src/Gui/Inventor/SoFCRenderer.cpp
+  1843-1853); what the view computes its near/far clipping planes from
+  NOT read. Cause NOT found.
+NOT said, with the note-taker's readings:
+- (a) the case 09-26 was for -- a face that came from a non-Tip,
+  hidden feature (a box under a pocket): read as "the selected object"
+  is still the feature the pick names; what Space should then do (show
+  that feature? hide the Tip?) is the reporter's to say -- the
+  note-taker asks.
+- (b) both renderers; read as yes.
+ASSIGNED to x16 (bridge session_01Gifk77), after 248 (the note-taker
+coordinating; dwin has 247, 244, 243 b, 246, 245).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -32370,5 +32421,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 248
+the build session, 131 and 132 found by it; entries 134 to 249
 are of 2026-10-15, 134 said to the build session)

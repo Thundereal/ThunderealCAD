@@ -2568,9 +2568,51 @@ Phase D1 is under way (2026-10-28):
     0.01 mm).
   - Not yet: a short pin lying across a bore, on its end rims, is thrown
     off at kilometres a second -- before the round pairs too, a primitive
-    cylinder's rims on a mesh's curved facets; a cylinder in a socket; a
-    ball on a hole too small for it rests on the rim's facets, Bullet's
-    (4.4 um high), not on the rim itself.
+    cylinder's rims on a mesh's curved facets (the entry below); a cylinder
+    in a socket; a ball on a hole too small for it rests on the rim's
+    facets, Bullet's (4.4 um high), not on the rim itself.
+- Built: a primitive cylinder on a mesh, and a pin lying across a bore.
+  - Found: worse than a bore -- a pin of 2 by 6 dropped on its side onto
+    the flat top of an L-shaped block (a mesh) rocked and was thrown off
+    hundreds of millimetres. Bullet's GJK and EPA on a triangle, which has
+    no inside, give a cylinder one point a triangle: lying on its side, one
+    point at one end. A box's or a hull's face had cylinderPoints()'s
+    clipping; a triangle had none. cylinderTrianglePoints() clips the
+    cylinder's cap rim (a polygon of 16) or its side's segment to the
+    triangle, each point within reach of its plane, the triangle's normal
+    turned toward the cylinder.
+  - Across a bore, Bullet's points on the facets came and went: it read the
+    rims 24 um off the facets where the true wall had them 0.1 um in, lost
+    them all while they pressed, and the next substep, with no point to
+    limit it, was 0.9 ms after one of 0.8 us -- HHT took the last
+    substep's contact accelerations into it and threw the pin at 1.6 m/s.
+    Two fixes. A cylinder across a bore, both caps within its length, has
+    the rounds' own points too (held()): along any line on the cylinder
+    the distance from the bore's axis is convex, so its deepest points are
+    on its rims, each rim's farthest from the axis (rimFarthest(): the
+    rim's point along the radius, the radius through that point, again,
+    till they agree), along the radius through it -- through the cap's
+    centre instead it sank 27 um. And a load pressing as a substep ends
+    that collision detection then finds nothing of keeps the next substeps
+    short, growing back by two.
+  - Then it rested exactly but ran 74 s for 0.3 s: at 0.6 g its rims sink
+    0.17 nm, it chattered from 0.4 nm off to 0.1 nm in, and a load had to
+    press to rest. Resting is now its deepest point within the run's
+    tolerance of touching (1 nm by default): 50 s. The rest is a see-saw
+    the pin keeps up on its two rims, 0.01 rad/s about the vertical with
+    30 um/s along the bore -- a light part's stick-slip on stiff contacts
+    and the regularised friction, at most 1 nm deep, that never settles.
+  - Measured: across the bore, its centre 0.07 nm from 2 - sqrt(91) at
+    0.1 s, 1.6e-5 mm by 0.3 s; on the L-block, dropped flat or tipped
+    10 deg, it lies on its side at 22.000000 mm, level. The hanging pin,
+    the seat and the bore swings unchanged.
+  - Tests: TestContact's test_pin_lies_across_bore (to 0.04 s, its centre
+    to 1e-4 mm) and test_pin_lies_down_on_mesh (tipped 10 deg, to 0.05 s:
+    on its side to 1e-4 mm, level to 0.01 deg).
+  - Not yet: the see-saw's time -- a light part chattering on stiff
+    contacts takes substeps of a fiftieth of the contact's period (0.3 us
+    here) for as long as it lasts; a cylinder across a bore with a cap out
+    of it keeps Bullet's points, now clipped to the facets.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

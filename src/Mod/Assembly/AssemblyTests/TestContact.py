@@ -1000,6 +1000,66 @@ class TestContact(unittest.TestCase):
         self.assertAlmostEqual(c.z, rest, delta=0.01)
         self.assertLess(math.hypot(c.x, c.y), 0.01)
 
+    def test_pin_lies_across_bore(self):
+        """A pin of radius 2 and 6 long dropped 0.5 mm across a bore of radius
+        10 rests on its rims, its centre 2 - sqrt(10^2 - 3^2) from the axis,
+        to 1e-4 mm (4e-6 measured at 0.04 s). Across the bore its points are
+        its rims' farthest out (rimFarthest()), not Bullet's: Bullet's, on
+        the facets, all went while the rims pressed, and the pin was thrown
+        off at kilometres a second."""
+        import Part
+
+        axis = App.Vector(0, 0, 20)
+        block = self.assembly.newObject("Part::Feature", "Block")
+        box = Part.makeBox(40, 20, 40, App.Vector(-20, -10, 0))
+        block.Shape = box.cut(
+            Part.makeCylinder(10, 30, axis + App.Vector(0, -15, 0), App.Vector(0, 1, 0))
+        )
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBlock")
+        JointObject.GroundedJoint(ground, block)
+        rest = 2 - math.sqrt(91)
+        centre = axis + App.Vector(0, 0, rest + 0.5)
+        pin = self.assembly.newObject("Part::Feature", "Pin")
+        pin.Shape = Part.makeCylinder(2, 6, centre + App.Vector(-3, 0, 0), App.Vector(1, 0, 0))
+        self.contact([pin], [block], StaticFriction=0.5, DynamicFriction=0.5)
+        local = pin.Placement.inverse().multVec(centre)
+        _, result = self.simulate(0.04, 1e-3, Gravity=App.Vector(0, 0, -G))
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        c = pin.Placement.multVec(local) - axis
+        self.assertAlmostEqual(c.z, rest, delta=1e-4)
+        self.assertLess(abs(c.x), 0.01)
+
+    def test_pin_lies_down_on_mesh(self):
+        """A pin of radius 2 and 6 long let go tipped 10 deg on the flat top
+        of an L-shaped block (not convex: a mesh) lands on its rim and lies
+        down on its side, its centre 2 over the face to 1e-4 mm and its axis
+        level to 0.01 deg. Its points on each triangle are its cap's rim or
+        its side's segment clipped to the triangle (cylinderTrianglePoints()):
+        Bullet's GJK gave it one point on a triangle, at one end, and a pin
+        dropped flat rocked on it and was thrown off."""
+        import Part
+
+        block = self.assembly.newObject("Part::Feature", "Block")
+        block.Shape = Part.makeBox(40, 40, 20, App.Vector(-20, -20, 0)).cut(
+            Part.makeBox(20, 40, 10, App.Vector(0, -20, 10))
+        )
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBlock")
+        JointObject.GroundedJoint(ground, block)
+        pin = self.assembly.newObject("Part::Feature", "Pin")
+        pin.Shape = Part.makeCylinder(2, 6, App.Vector(-3, 0, 0), App.Vector(1, 0, 0))
+        pin.Placement = App.Placement(
+            App.Vector(-10, 0, 22.5 + 3 * math.sin(math.radians(10))),
+            App.Rotation(App.Vector(0, 1, 0), 10),
+        )
+        self.contact([pin], [block], StaticFriction=0.5, DynamicFriction=0.5)
+        _, result = self.simulate(0.05, 1e-3, Gravity=App.Vector(0, 0, -G))
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        self.assertAlmostEqual(pin.Placement.Base.z, 22, delta=1e-4)
+        along = pin.Placement.Rotation.multVec(App.Vector(1, 0, 0))
+        self.assertLess(abs(math.degrees(math.asin(along.z))), 0.01)
+
     def test_ball_rolls_in_bore(self):
         """A ball rolling across a bore: its sphere in the bore's cylinder,
         k^2/r^2 = 2/5, to 5e-4 (1.4e-4 measured)."""

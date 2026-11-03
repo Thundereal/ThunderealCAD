@@ -2571,6 +2571,14 @@ bool hasFace(const ShapeOn& on, const ch::ChCollisionShape* shape, const ch::ChV
     return false;
 }
 
+bool inLine(const ch::ChVector3d& inner, const ch::ChVector3d& bore);
+bool rimFarthest(const ch::ChVector3d& cap,
+                 const ch::ChVector3d& axis,
+                 double radius,
+                 const ch::ChFramed& outer,
+                 ch::ChVector3d& p,
+                 ch::ChVector3d& out);
+
 /** The way a round inside a hollow one touches it at 'centre' -- a point
  * of a cylinder's axis, a ball's centre -- from the inner surface to the
  * hollow one's, both at their bodies' frames (outer, inner): along the
@@ -2666,6 +2674,25 @@ void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Poin
             const ch::ChVector3d& on = hollowB ? atA : atB;
             centre += axis * std::clamp(ch::Vdot(axis, on - centre), -inside.half, inside.half);
         }
+        // Across a bore, a cylinder's rim farthest out (rimFarthest()), the
+        // cap's the point is nearer
+        if (!(inside.ball > 0.0) && !(hollow.ball > 0.0)
+            && !inLine(inner.GetRotMat().GetAxisZ(), outer.GetRotMat().GetAxisZ())) {
+            const ch::ChVector3d axis = inner.GetRotMat().GetAxisZ();
+            const double t = ch::Vdot(axis, (hollowB ? atA : atB) - inner.GetPos());
+            const ch::ChVector3d cap = inner.GetPos() + axis * std::copysign(inside.half, t);
+            ch::ChVector3d p;
+            ch::ChVector3d out;
+            if (rimFarthest(cap, axis, inside.radius, outer, p, out)) {
+                const ch::ChVector3d h = outer.GetRotMat().GetAxisZ();
+                const ch::ChVector3d wall =
+                    outer.GetPos() + h * ch::Vdot(h, p - outer.GetPos()) + out * hollow.radius;
+                point.onA = a.TransformPointParentToLocal(hollowB ? p : wall);
+                point.onB = b.TransformPointParentToLocal(hollowB ? wall : p);
+                point.normal = out * (hollowB ? 1.0 : -1.0);
+                return;
+            }
+        }
         const ch::ChVector3d out = hollowWay(hollow, outer, inside, inner, centre);
         // From A to B: out of the hollow one's axis, or into it
         if (out.Length2() > 0.0) {
@@ -2745,10 +2772,19 @@ bool fitsIn(const ShapeOn& inner, const ShapeOn& hollow)
     return small > 0.0 && small < hollow.radius;
 }
 
-// Whether a round inside a hollow one is in line with it now, at their
-// bodies' frames: a ball always, a cylinder within 25 deg of a bore's axis
-// -- across it, it touches the bore with its ends, Bullet's points
-bool inLine(const ShapeOn& inner, const ShapeOn& hollow)
+// Whether a cylinder's axis is in line with a bore's: within 25 deg. In
+// line it touches the bore along its side and at a stretch's ends
+// (hollowPoints()); across it, with its rims (rimFarthest())
+bool inLine(const ch::ChVector3d& inner, const ch::ChVector3d& bore)
+{
+    return std::abs(ch::Vdot(inner, bore)) >= std::cos(25.0 * pi / 180.0);
+}
+
+// Whether a round inside a hollow one has the rounds' own points now, at
+// their bodies' frames, and not Bullet's: a ball; a cylinder in line with a
+// bore, or across it with both its caps within the bore's length. Across a
+// bore, or with a cap out of it, a cylinder's are Bullet's
+bool held(const ShapeOn& inner, const ShapeOn& hollow)
 {
     if (inner.ball > 0.0) {
         return true;
@@ -2756,9 +2792,74 @@ bool inLine(const ShapeOn& inner, const ShapeOn& hollow)
     if (hollow.ball > 0.0) {
         return false;
     }
-    const ch::ChVector3d ai = (inner.frame >> *inner.body).GetRotMat().GetAxisZ();
-    const ch::ChVector3d ah = (hollow.frame >> *hollow.body).GetRotMat().GetAxisZ();
-    return std::abs(ch::Vdot(ai, ah)) >= std::cos(25.0 * pi / 180.0);
+    const ch::ChFramed fi = inner.frame >> *inner.body;
+    const ch::ChFramed fh = hollow.frame >> *hollow.body;
+    const ch::ChVector3d ai = fi.GetRotMat().GetAxisZ();
+    const ch::ChVector3d ah = fh.GetRotMat().GetAxisZ();
+    if (inLine(ai, ah)) {
+        return true;
+    }
+    for (const double end : {-1.0, 1.0}) {
+        if (std::abs(ch::Vdot(ah, fi.GetPos() + ai * (end * inner.half) - fh.GetPos()))
+            > hollow.half) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** The point of a cylinder's rim -- its cap's centre at 'cap', its axis
+ * 'axis' -- farthest from a bore's axis (the bore's frame 'outer'), and the
+ * bore's radius through it, 'out': across a bore, where the cylinder
+ * presses on the wall; along any line on the cylinder the distance from the
+ * bore's axis is convex, so its deepest points are on its rims. Each step
+ * takes the rim's point that way and the radius through it; where they
+ * agree the point is farthest. A pin lying across a bore on its rims, its
+ * points Bullet's on the facets, lost them all while it pressed -- Bullet
+ * read the rims 24 um off the facets where the true wall had them 0.1 um
+ * in -- and was thrown off; along the radius through the cap's centre it
+ * sank 27 um. False where there is no one way: the cap's centre on the
+ * bore's axis, or the axis along the radius.
+ */
+bool rimFarthest(const ch::ChVector3d& cap,
+                 const ch::ChVector3d& axis,
+                 double radius,
+                 const ch::ChFramed& outer,
+                 ch::ChVector3d& p,
+                 ch::ChVector3d& out)
+{
+    const ch::ChVector3d h = outer.GetRotMat().GetAxisZ();
+    auto radial = [&](const ch::ChVector3d& at, ch::ChVector3d& way) {
+        way = at - outer.GetPos();
+        way -= h * ch::Vdot(h, way);
+        const double length = way.Length();
+        if (!(length > 1e-12)) {
+            return false;
+        }
+        way /= length;
+        return true;
+    };
+    if (!radial(cap, out)) {
+        return false;
+    }
+    for (int k = 0; k < 16; ++k) {
+        const ch::ChVector3d side = out - axis * ch::Vdot(axis, out);
+        const double length = side.Length();
+        if (!(length > 1e-9)) {
+            return false;
+        }
+        p = cap + side * (radius / length);
+        ch::ChVector3d next;
+        if (!radial(p, next)) {
+            return false;
+        }
+        const bool same = (next - out).Length2() < 1e-24;
+        out = next;
+        if (same) {
+            break;
+        }
+    }
+    return true;
 }
 
 // A point of a round inside a hollow one: on the inner surface, on the
@@ -2808,7 +2909,29 @@ void hollowPoints(const ShapeOn& inner,
         }
         const ch::ChVector3d ai = fi.GetRotMat().GetAxisZ();
         const double along = ch::Vdot(ai, ah);
-        if (!inLine(inner, hollow)) {
+        if (!inLine(ai, ah)) {
+            // Across it, its rims farthest out, both caps within the bore
+            if (!held(inner, hollow)) {
+                return;
+            }
+            for (const double end : {-1.0, 1.0}) {
+                HollowPoint point;
+                if (!rimFarthest(fi.GetPos() + ai * (end * inner.half),
+                                 ai,
+                                 inner.radius,
+                                 fh,
+                                 point.onInner,
+                                 point.out)
+                    || !roundSupport(hollow,
+                                     *hollow.body,
+                                     -point.out,
+                                     point.onInner,
+                                     point.onHollow)
+                    || ch::Vdot(point.onHollow - point.onInner, point.out) > reach) {
+                    continue;
+                }
+                points.push_back(point);
+            }
             return;
         }
         // Where each end is along the bore's axis, kept within its reach
@@ -3576,6 +3699,100 @@ bool cylinderPoints(const ShapeOn& cylinder,
         // Its gap from the true face, the envelope inside the grown one
         const double gap = static_cast<double>(depth) + other.envelope;
         points.push_back({p, p - normal * gap});
+    }
+    return !points.empty();
+}
+
+// The points of a cylinder's contact with a mesh's triangle, as
+// cylinderPoints() has a face's: its cap's rim as a polygon, or its side's
+// segment, clipped to the triangle, each within reach of its plane; the
+// triangle's normal, turned toward the cylinder, in normal. False when none
+// is over the triangle. Bullet's GJK and EPA on a triangle, which has no
+// inside, gave a cylinder lying on a mesh's flat face one point, at one
+// end -- a pin dropped on its side rocked on it and was thrown off -- and a
+// pin's rim on a bore's facet the pin's own side's normal, 20 deg off.
+bool cylinderTrianglePoints(const ShapeOn& cylinder,
+                            const ShapeOn& mesh,
+                            const ch::ChCollisionShapeMeshTriangle& triangle,
+                            double reach,
+                            std::vector<CylinderPoint>& points,
+                            ch::ChVector3d& normal)
+{
+    points.clear();
+    const ch::ChVector3d v[3] = {mesh.body->TransformPointLocalToParent(*triangle.V1),
+                                 mesh.body->TransformPointLocalToParent(*triangle.V2),
+                                 mesh.body->TransformPointLocalToParent(*triangle.V3)};
+    ch::ChVector3d n = ch::Vcross(v[1] - v[0], v[2] - v[0]);
+    const double area = n.Length();
+    if (!(area > 0.0)) {
+        return false;
+    }
+    n /= area;
+    const ch::ChFramed c = cylinder.frame >> *cylinder.body;
+    if (ch::Vdot(n, c.GetPos() - v[0]) < 0.0) {
+        n = -n;
+    }
+    normal = n;
+    // Its feature toward the triangle, as cylinderPoints() takes it
+    const ch::ChVector3d axis = c.GetRotMat().GetAxisZ();
+    const double along = -ch::Vdot(axis, n);
+    const ch::ChVector3d side = -n - axis * along;
+    const double sideLength = side.Length();
+    std::vector<ch::ChVector3d> polygon;
+    if (std::abs(along) >= 0.5) {
+        const ch::ChVector3d center =
+            c.GetPos() + axis * (along > 0.0 ? cylinder.half : -cylinder.half);
+        const ch::ChVector3d u = sideLength > 1e-9 ? side / sideLength : c.GetRotMat().GetAxisX();
+        const ch::ChVector3d w = ch::Vcross(axis, u);
+        constexpr int rim = 16;
+        for (int k = 0; k < rim; ++k) {
+            const double angle = 2.0 * pi * k / rim;
+            polygon.push_back(center
+                              + (u * std::cos(angle) + w * std::sin(angle)) * cylinder.radius);
+        }
+    }
+    else {
+        if (!(sideLength > 1e-9)) {
+            return false;
+        }
+        const ch::ChVector3d out = side / sideLength * cylinder.radius;
+        polygon.push_back(c.GetPos() + axis * cylinder.half + out);
+        polygon.push_back(c.GetPos() - axis * cylinder.half + out);
+    }
+    // Clipped to the triangle: inside each edge's plane square to it
+    // (Sutherland and Hodgman's; a segment is a polygon of two, its points
+    // come twice)
+    std::vector<ch::ChVector3d> clipped;
+    for (int e = 0; e < 3 && !polygon.empty(); ++e) {
+        const ch::ChVector3d& from = v[e];
+        ch::ChVector3d inward = ch::Vcross(n, v[(e + 1) % 3] - from);
+        if (ch::Vdot(inward, v[(e + 2) % 3] - from) < 0.0) {
+            inward = -inward;
+        }
+        clipped.clear();
+        for (std::size_t k = 0; k < polygon.size(); ++k) {
+            const ch::ChVector3d& p = polygon[k];
+            const ch::ChVector3d& q = polygon[(k + 1) % polygon.size()];
+            const double dp = ch::Vdot(inward, p - from);
+            const double dq = ch::Vdot(inward, q - from);
+            if (dp >= 0.0) {
+                clipped.push_back(p);
+            }
+            if ((dp >= 0.0) != (dq >= 0.0)) {
+                clipped.push_back(p + (q - p) * (dp / (dp - dq)));
+            }
+        }
+        polygon.swap(clipped);
+    }
+    for (const ch::ChVector3d& p : polygon) {
+        const double gap = ch::Vdot(n, p - v[0]);
+        bool again = gap > reach;
+        for (const auto& known : points) {
+            again = again || (known.onCylinder - p).Length2() < 1e-18;
+        }
+        if (!again) {
+            points.push_back({p, p - n * gap});
+        }
     }
     return !points.empty();
 }
@@ -6652,8 +6869,16 @@ Status ChronoSession::simulateDynamics(
                 const Found& f = finder->found[i];
                 const ShapeOn* a = on(f.shapeA);
                 const ShapeOn* b = on(f.shapeB);
-                const bool cylinderA = a && a->radius > 0.0 && b && b->features;
-                const bool cylinderB = b && b->radius > 0.0 && a && a->features;
+                // A mesh's triangle: the mesh it is of
+                auto meshOf = [this](const ch::ChCollisionShape* shape) -> const ShapeOn* {
+                    return shape && shape->GetType() == ch::ChCollisionShape::Type::MESHTRIANGLE
+                        ? shapesOn.of(shape)
+                        : nullptr;
+                };
+                const ShapeOn* meshA = meshOf(f.shapeA);
+                const ShapeOn* meshB = meshOf(f.shapeB);
+                const bool cylinderA = a && a->radius > 0.0 && ((b && b->features) || meshB);
+                const bool cylinderB = b && b->radius > 0.0 && ((a && a->features) || meshA);
                 if (!cylinderA && !cylinderB) {
                     handOver(f, f.pA, f.pB, f.normal);
                     continue;
@@ -6661,9 +6886,23 @@ Status ChronoSession::simulateDynamics(
                 if (done.count({f.shapeA, f.shapeB})) {
                     continue;
                 }
-                const bool clipped = cylinderA
-                    ? cylinderPoints(*a, *b, f.normal, reach, points, normal)
-                    : cylinderPoints(*b, *a, -f.normal, reach, points, normal);
+                // Against a face of a box or a hull, or a mesh's triangle
+                auto clip = [&](const ShapeOn& cylinder,
+                                const ShapeOn* face,
+                                const ShapeOn* mesh,
+                                const ch::ChCollisionShape* shape,
+                                const ch::ChVector3d& toOther) {
+                    return mesh ? cylinderTrianglePoints(
+                                      cylinder,
+                                      *mesh,
+                                      *static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape),
+                                      reach,
+                                      points,
+                                      normal)
+                                : cylinderPoints(cylinder, *face, toOther, reach, points, normal);
+                };
+                const bool clipped = cylinderA ? clip(*a, b, meshB, f.shapeB, f.normal)
+                                               : clip(*b, a, meshA, f.shapeA, -f.normal);
                 if (!clipped) {
                     handOver(f, f.pA, f.pB, f.normal);
                     continue;
@@ -6681,7 +6920,7 @@ Status ChronoSession::simulateDynamics(
             }
             finder->found.clear();
             for (const RoundPair& pair : roundPairs) {
-                if (!inLine(*pair.inner, *pair.hollow)) {
+                if (!held(*pair.inner, *pair.hollow)) {
                     continue;
                 }
                 ContactLoad& load = *pair.load;
@@ -7238,7 +7477,7 @@ Status ChronoSession::simulateDynamics(
         collision->live.assign(handover->roundPairs.size(), 1);
         collision->refresh = [system = collision.get(), pairs = &handover->roundPairs]() {
             for (std::size_t k = 0; k < pairs->size(); ++k) {
-                system->live[k] = inLine(*(*pairs)[k].inner, *(*pairs)[k].hollow) ? 1 : 0;
+                system->live[k] = held(*(*pairs)[k].inner, *(*pairs)[k].hollow) ? 1 : 0;
             }
         };
     }
@@ -8747,12 +8986,15 @@ Status ChronoSession::simulateDynamics(
     // of its periods -- an impact's sink and rebound move it all the way, and
     // a resting part's rocking dies down under the damping within some. The
     // tolerance for a metal's: a torus of aluminium on its ring, sunk 6e-8
-    // mm, rocks on its facets by 5e-8.
+    // mm, rocks on its facets by 5e-8. Its deepest point within the
+    // tolerance of touching, not only pressing: a pin of 0.6 g lying on its
+    // rims across a bore sinks 0.17 nm, and chattered from 0.4 nm off to
+    // 0.1 nm in -- never resting, it took substeps of 0.3 us, 74 s for 0.3.
     auto resting = [&](const ContactLoad& load) {
         const double depth = pressing(load);
         const double high = std::max(load.high, depth);
         const double range = high - std::min(load.low, depth);
-        return depth > 0.0 && (range <= 0.02 * high || range <= tolerance);
+        return depth > -tolerance && (range <= 0.02 * high || range <= tolerance);
     };
     auto keepCalm = [&](ContactLoad& load, double h) {
         if (load.calm > 0.0 && resting(load)) {
@@ -8765,7 +9007,7 @@ Status ChronoSession::simulateDynamics(
         }
         const double depth = pressing(load);
         load.low = load.high = depth;
-        load.calm = depth > 0.0 ? h : 0.0;
+        load.calm = depth > -tolerance ? h : 0.0;
         load.settled = false;
     };
     // Newton's test, HHT's, is on its iterations' increments, in
@@ -9020,6 +9262,16 @@ Status ChronoSession::simulateDynamics(
             }
             done += h;
             cap = std::min(dt, cap * 2.0);
+            // A load pressing as the substep ended that collision detection
+            // then found nothing of: the next substeps short, growing back.
+            // HHT takes the last substep's accelerations into the next, and
+            // a pin whose points Bullet lost 0.1 um in was thrown at 1.6 m/s
+            // by a substep of 0.9 ms after one of 0.8 us
+            for (std::size_t i = 0; i < contactLoads.size(); ++i) {
+                if (to[i].depth > 0.0 && !(pressing(*contactLoads[i]) > 0.0)) {
+                    cap = std::min(cap, 2.0 * h);
+                }
+            }
             if (!statics) {
                 readLeaving(t + h);
             }

@@ -201,6 +201,9 @@ SolidBody::SolidBody()
 
     // The sheet's flat (docs/SheetMetal.md sec 12): its settings, and what a
     // bill of materials takes of the tip's
+    ADD_PROPERTY_TYPE(Flatten, (false), "Flat", App::Prop_None,
+            "Lay the tip flat in each recompute, for the values below; off, they\n"
+            "are left as they were");
     ADD_PROPERTY_TYPE(FlatRoot, (""), "Flat", App::Prop_None,
             "The wall laid on XY, by its name (Wall1); the first wall if empty");
     ADD_PROPERTY_TYPE(FlatSecondSkin, (false), "Flat", App::Prop_None,
@@ -295,7 +298,7 @@ void SolidBody::rememberShown(const App::DocumentObject *obj)
 
 short SolidBody::mustExecute() const
 {
-    if (Tip.isTouched() || FlatRoot.isTouched() || FlatSecondSkin.isTouched()
+    if (Tip.isTouched() || Flatten.isTouched() || FlatRoot.isTouched() || FlatSecondSkin.isTouched()
             || FlatAlignEdge.isTouched() || TangentLines.isTouched() || Grain.isTouched()
             || GrainAngle.isTouched())
         return 1;
@@ -312,7 +315,7 @@ App::DocumentObjectExecReturn *SolidBody::execute()
 
 std::vector<App::Property*> SolidBody::flatProperties()
 {
-    return {&FlatRoot, &FlatSecondSkin, &FlatAlignEdge, &TangentLines, &Grain, &GrainAngle,
+    return {&Flatten, &FlatRoot, &FlatSecondSkin, &FlatAlignEdge, &TangentLines, &Grain, &GrainAngle,
             &FlatLength, &FlatWidth, &FlatArea, &Thickness, &MaterialName, &BendCount,
             &MaxBendAngle, &BendDirections, &FlatStatus};
 }
@@ -381,6 +384,10 @@ void SolidBody::updateFlat()
         else
             ++it;
     }
+    // Nothing is laid flat in a recompute unless the user asked (ruled
+    // 2026-11-03): the values are left as they were
+    if (!Flatten.getValue())
+        return;
     std::string status;
     try {
         const SheetFlat &flat = flatOf();

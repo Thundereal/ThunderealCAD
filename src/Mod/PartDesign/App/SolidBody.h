@@ -147,11 +147,14 @@ public:
     /** @name The sheet's flat (docs/SheetMetal.md sec 12, ruled 2026-11-03)
      *
      * A solid holding sheet metal lays any of its features flat when asked
-     * (flatOf()), by its settings, and has its tip's values; every feature's
+     * (flatOf()), by its settings, and has its tip's values while Flatten is
+     * on, which only the user turns on; every feature's
      * flat is its element Flat (FlatFace3 an element of it), as a sketch's
      * InternalShape is. On another solid these are hidden.
      */
     //@{
+    /// The tip laid flat in each recompute, for the values; off, nothing is
+    App::PropertyBool Flatten;
     /// The wall laid on XY, by its name; the first wall if empty
     App::PropertyString FlatRoot;
     /// The root wall's second skin on XY, not its first

@@ -540,6 +540,78 @@ def run():
         )
         FreeCADGui.Selection.clearSelection()
 
+        # The markings, each kind drawn in its own style (sec 12): the bend
+        # lines dashed, up and down in two colours, as the SVG has them
+        fvo = flat.ViewObject
+        check(
+            "the flat's view styles each kind of marking, the bend lines dashed",
+            fvo.BendUpStyle == "Dashed"
+            and fvo.BendDownStyle == "Dashed"
+            and fvo.TangentLineStyle == "Dotted"
+            and fvo.GrainStyle == "Solid"
+            and fvo.getEnumerationsOfProperty("BendUpStyle")
+            == ["Solid", "Dashed", "Dotted", "Dashdot"]
+            and all(fvo.getGroupOfProperty(n) == "Markings" for n in ("ShowBendUp", "GrainWidth"))
+            and fvo.BendUpColor[:3] != fvo.BendDownColor[:3],
+            [(n, getattr(fvo, n)) for n in ("BendUpStyle", "BendUpColor", "BendDownColor")],
+        )
+        lineEdges = [
+            (i + 1, e)
+            for i, e in enumerate(flat.Shape.Edges)
+            if flat.Shape.getElementMappedName("Edge%d" % (i + 1)).startswith("Bend")
+            and "Tangent" not in flat.Shape.getElementMappedName("Edge%d" % (i + 1))
+        ]
+        line = max(lineEdges, key=lambda t: t[1].Length) if lineEdges else None
+
+        def pickLine(index, edge):
+            # a point along the line, off its ends, picked as a click picks:
+            # an edge in a face's plane takes the pick from the face (a bare
+            # ray pick, getObjectInfo(), has the nearer of the two)
+            last = None
+            for f in (0.5, 0.4, 0.6, 0.3, 0.7):
+                p = edge.valueAt(edge.FirstParameter + (edge.LastParameter - edge.FirstParameter) * f)
+                x, y = view.getPointOnScreen(p)
+                res = view.getViewer().getPickedList(
+                    pos=(float(x), float(y)), singlePick=True, mapCoords=False, resolve=0
+                )
+                for obj, sub in res:
+                    last = sub
+                    if sub.startswith(flat.Name + ".") and sub.split(".")[-1] == "Edge%d" % index:
+                        return sub
+            return last
+
+        hit = pickLine(*line) if line else None
+        check(
+            "a bend line picked is the flat's own edge, named after its bend",
+            line is not None and hit is not None and hit.split(".")[-1] == "Edge%d" % line[0],
+            (line and (line[0], flat.Shape.getElementMappedName("Edge%d" % line[0])), hit),
+        )
+        FreeCADGui.Selection.clearSelection()
+        if line:
+            FreeCADGui.Selection.addSelection(doc.Name, flat.Name, "Edge%d" % line[0])
+        sel = FreeCADGui.Selection.getSelectionEx("", 0)
+        check(
+            "and selected by that name, the line",
+            line is not None
+            and len(sel) == 1
+            and len(sel[0].SubObjects) == 1
+            and sel[0].SubObjects[0].isPartner(line[1]),
+            sel and [(x.ObjectName, x.SubElementNames) for x in sel],
+        )
+        FreeCADGui.Selection.clearSelection()
+        fvo.ShowBendUp = False
+        fvo.ShowBendDown = False
+        pump()
+        hit = pickLine(*line) if line else None
+        check(
+            "the bend lines hidden, no longer picked",
+            line is not None and hit is not None and hit.split(".")[-1] != "Edge%d" % line[0],
+            hit,
+        )
+        fvo.ShowBendUp = True
+        fvo.ShowBendDown = True
+        pump()
+
         # Both: the folded part shown too, the flat moved off it by its own
         # placement
         flatBox = box

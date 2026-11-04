@@ -123,6 +123,31 @@ class TestSheetMetalJog(unittest.TestCase):
         self.assertIn("Bend1", flange.Notice)
         self.flat(flange)
 
+    def testFlangeDownOnTheMovingSide(self):
+        """A flange down from the far edge of the moving side, on its bottom:
+        its leg runs down past the plate's plane, its faces its own, not the
+        plate's, whose slab runs on in its plane; it lies flat (found
+        2026-11-04: the leg's faces were taken as the plate's, laid as it
+        is, upright, whatever gap the flange had)"""
+        jog = self.jog()
+        self.checkValid(jog)
+        # the moving side lies 5 up, its bottom skin at z 5
+        edge = edgeOf(jog, (40, 20, 5), (30, 20, 5))
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (jog, [edge])
+        flange.Length = 8
+        self.Doc.recompute()
+        self.checkValid(flange)
+        legs = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(flange.Shape.Faces)
+            if f.BoundBox.ZMin < -1
+        ]
+        self.assertTrue(legs)
+        for name in legs:
+            self.assertNotEqual(flange.sheetElementOf(name), "Wall1", name)
+        self.flat(flange)
+
     def checkBox(self, shape, **box):
         bb = shape.BoundBox
         for k, v in box.items():

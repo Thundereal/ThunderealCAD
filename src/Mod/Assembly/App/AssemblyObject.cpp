@@ -1371,6 +1371,48 @@ int Assembly::AssemblyObject::updateForFrame(size_t index)
     return 0;
 }
 
+int Assembly::AssemblyObject::updateForTime(double time)
+{
+    if (!trajectory || trajectory->times.empty()) {
+        return -1;
+    }
+    const std::vector<double>& times = trajectory->times;
+    const auto after = std::ranges::upper_bound(times, time);
+    if (after == times.begin()) {
+        return updateForFrame(0);
+    }
+    if (after == times.end()) {
+        return updateForFrame(times.size() - 1);
+    }
+    const std::size_t next = static_cast<std::size_t>(after - times.begin());
+    const std::size_t index = next - 1;
+    const double span = times[next] - times[index];
+    const double u = span > 0.0 ? (time - times[index]) / span : 0.0;
+    if (!(u > 1e-12)) {
+        return updateForFrame(index);
+    }
+    const std::size_t nBodies = trajectory->bodies.size();
+    std::vector<Solver::BodyPose> poses;
+    for (std::size_t i = 0; i < nBodies; ++i) {
+        const Solver::Id body = trajectory->bodies[i];
+        if (body >= poses.size()) {
+            poses.resize(body + 1);
+        }
+        const Base::Placement& from = trajectory->poses[index * nBodies + i];
+        const Base::Placement& to = trajectory->poses[next * nBodies + i];
+        const Base::Vector3d at = from.getPosition() + (to.getPosition() - from.getPosition()) * u;
+        poses[body] = {body,
+                       Base::Placement(at,
+                                       Base::Rotation::slerp(from.getRotation(),
+                                                             to.getRotation(),
+                                                             u))};
+    }
+    setNewPlacements(trajectoryParts, poses);
+    auto jointDocs = getJoints();
+    redrawJointPlacements(jointDocs);
+    return 0;
+}
+
 size_t Assembly::AssemblyObject::numberOfFrames() const
 {
     return trajectory ? trajectory->times.size() : 0;

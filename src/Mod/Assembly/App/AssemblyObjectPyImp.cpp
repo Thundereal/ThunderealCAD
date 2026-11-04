@@ -170,6 +170,21 @@ PyObject* AssemblyObjectPy::updateForFrame(PyObject* args) const
     Py_Return;
 }
 
+PyObject* AssemblyObjectPy::updateForTime(PyObject* args) const
+{
+    double time {};
+    if (!PyArg_ParseTuple(args, "d", &time)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        this->getAssemblyObjectPtr()->updateForTime(time);
+    }
+    PY_CATCH;
+
+    Py_Return;
+}
+
 PyObject* AssemblyObjectPy::startSimulation(PyObject* args)
 {
     PyObject* pyObj {};

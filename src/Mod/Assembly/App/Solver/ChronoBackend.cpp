@@ -9909,77 +9909,159 @@ Status ChronoSession::simulateDynamics(
             body->SetAngAccLocal(body->GetAngAccLocal() + turn.transpose() * angular);
         }
     };
-    // Frames at impacts (SimulationSpec::impactFrames): an impact of steel on
-    // steel lasts some tens of microseconds and falls between the output
-    // frames, which saw a block dropped on a lever land at none of its
-    // bounces but one. After each substep kept, each contact load's force:
-    // the state where it was the most in an impact -- its values and poses --
-    // is kept, and when the load lets go or eases to half of that, it is a
-    // frame, sent before the next output frame. A load resting at a steady
-    // force eases to half of nothing it rose to, and gives none.
-    struct ImpactFrame
+    // Frames through the impacts (SimulationSpec::impactFrames): an impact of
+    // steel on steel lasts some tens of microseconds and falls between the
+    // output frames, which saw a block dropped on a lever land at none of
+    // its bounces but one; and a frame at each one's peak alone drew it as a
+    // spike from the output frames each side. After each substep kept, the
+    // contact loads' forces: a substep where one moved from the last kept is
+    // kept, its values and poses, and so is the one before it where they set
+    // off from a steady force -- the line from the last kept would run
+    // through it. At each output frame those since the last are thinned to
+    // the ones the forces' curves need (Douglas-Peucker): each load within
+    // 5% of the most it is at between the two ends of a line through the
+    // ones kept, or 0.1% of the largest force so far -- a peak is the
+    // farthest from its line, and kept. A load resting at a steady force
+    // keeps none.
+    struct Sample
     {
         double time = 0.0;
-        std::vector<double> values;
+        std::vector<double> forces;  // the contact loads', N
+        std::vector<double> values;  // the channels'; none: between its neighbours'
         std::vector<BodyPose> poses;
     };
-    struct Impact
-    {
-        double most = 0.0;  // the force at its most so far, N
-        bool rising = false;
-        ImpactFrame frame;
+    bool sampling = false;
+    Sample anchor;                 // the last output frame's
+    std::vector<Sample> samples;   // since it, in time order
+    Sample previous;               // the substep before, its values not read
+    bool previousKept = true;
+    std::vector<double> scales;    // each load's largest force so far, N
+    auto forcesNow = [&]() {
+        std::vector<double> forces(contactLoads.size());
+        for (std::size_t i = 0; i < contactLoads.size(); ++i) {
+            contactLoads[i]->ComputeQ(nullptr, nullptr);
+            forces[i] = contactLoads[i]->onB.Length();
+        }
+        return forces;
     };
-    std::vector<Impact> impacts;           // a contact load's each
-    std::vector<ImpactFrame> impactFrames;  // to be sent
+    auto largestScale = [&]() {
+        return scales.empty() ? 0.0 : *std::ranges::max_element(scales);
+    };
     auto watchImpacts = [&]() {
-        if (!spec.impactFrames || statics) {
+        if (!sampling) {
             return;
         }
-        impacts.resize(contactLoads.size());
-        for (std::size_t i = 0; i < contactLoads.size(); ++i) {
-            ContactLoad& load = *contactLoads[i];
-            load.ComputeQ(nullptr, nullptr);
-            const double force = load.onB.Length();
-            Impact& impact = impacts[i];
-            if (force > impact.most) {
-                impact.most = force;
-                impact.rising = true;
-                impact.frame = {sys.GetChTime(),
-                                channels.empty() ? std::vector<double>() : valuesNow(),
-                                posesNow()};
-            }
-            else if (impact.rising && (!(force > 0.0) || force < 0.5 * impact.most)) {
-                impactFrames.push_back(std::move(impact.frame));
-                impact = {force, false, {}};
-            }
-            else if (!impact.rising) {
-                impact.most = force;
-            }
+        std::vector<double> forces = forcesNow();
+        for (std::size_t i = 0; i < forces.size(); ++i) {
+            scales[i] = std::max(scales[i], forces[i]);
         }
+        const double largest = largestScale();
+        const std::vector<double>& last = samples.empty() ? anchor.forces : samples.back().forces;
+        bool moved = false;
+        for (std::size_t i = 0; i < forces.size() && !moved; ++i) {
+            moved = std::abs(forces[i] - last[i]) > 1e-3 * largest;
+        }
+        const double time = sys.GetChTime();
+        if (!moved) {
+            previous = {time, std::move(forces), {}, posesNow()};
+            previousKept = false;
+            return;
+        }
+        if (!previousKept) {
+            samples.push_back(std::move(previous));
+        }
+        samples.push_back({time,
+                           std::move(forces),
+                           channels.empty() ? std::vector<double>() : valuesNow(),
+                           posesNow()});
+        previousKept = true;
     };
-    // The impact frames before 'time', in time order, each once; false
-    // when the sink cancels the run
-    auto sendImpacts = [&](double time) {
-        std::ranges::sort(impactFrames, {}, &ImpactFrame::time);
-        std::size_t sent = 0;
-        double last = -std::numeric_limits<double>::infinity();
-        for (; sent < impactFrames.size(); ++sent) {
-            const ImpactFrame& frame = impactFrames[sent];
-            if (!(frame.time < time - 1e-12 * std::max(1.0, std::abs(time)))) {
-                break;
-            }
-            if (frame.time <= last) {
+    // The samples before 'time', thinned, then 'time' the next to thin
+    // from, its values 'values'; false when the sink cancels the run
+    auto sendImpacts = [&](double time, const std::vector<double>& values) {
+        if (!sampling) {
+            return true;
+        }
+        std::erase_if(samples, [&](const Sample& s) {
+            return !(s.time < time - 1e-12 * std::max(1.0, std::abs(time)));
+        });
+        Sample end {time, forcesNow(), values, {}};
+        const std::size_t n = samples.size();
+        // The points: the anchor, the samples, the end
+        auto at = [&](std::size_t k) -> const Sample& {
+            return k == 0 ? anchor : k == n + 1 ? end : samples[k - 1];
+        };
+        // A set-off's values, on the line between its neighbours'
+        for (std::size_t k = 1; k <= n; ++k) {
+            Sample& s = samples[k - 1];
+            if (!s.values.empty() || channels.empty()) {
                 continue;
             }
-            last = frame.time;
-            if (!channels.empty()) {
-                sink.values(frame.values);
+            const Sample& a = at(k - 1);
+            const Sample& b = at(k + 1);
+            const double u = b.time > a.time ? (s.time - a.time) / (b.time - a.time) : 0.0;
+            s.values.resize(a.values.size());
+            for (std::size_t v = 0; v < s.values.size() && v < b.values.size(); ++v) {
+                s.values[v] = a.values[v] + u * (b.values[v] - a.values[v]);
             }
-            if (!sink.frame(frame.time, frame.poses)) {
+        }
+        const double largest = largestScale();
+        std::vector<double> tolerance(scales.size());
+        std::vector<char> keep(n + 2, 0);
+        if (largest > 0.0) {
+            std::vector<std::pair<std::size_t, std::size_t>> spans {{0, n + 1}};
+            while (!spans.empty()) {
+                const auto [a, b] = spans.back();
+                spans.pop_back();
+                const Sample& from = at(a);
+                const Sample& to = at(b);
+                // Within 5% of the most each load is at in the span: a
+                // bounce of a few newtons after a landing of hundreds keeps
+                // its peak -- 5% of the load's largest so far thinned the
+                // block's bounces on the lever away
+                for (std::size_t i = 0; i < tolerance.size(); ++i) {
+                    double most = 0.0;
+                    for (std::size_t k = a; k <= b; ++k) {
+                        most = std::max(most, at(k).forces[i]);
+                    }
+                    tolerance[i] = std::max(0.05 * most, 1e-3 * largest);
+                }
+                double worst = 1.0;
+                std::size_t far = 0;
+                for (std::size_t k = a + 1; k < b; ++k) {
+                    const Sample& s = at(k);
+                    const double u = (s.time - from.time) / (to.time - from.time);
+                    for (std::size_t i = 0; i < tolerance.size(); ++i) {
+                        const double line = from.forces[i] + u * (to.forces[i] - from.forces[i]);
+                        const double off = std::abs(s.forces[i] - line) / tolerance[i];
+                        if (off > worst) {
+                            worst = off;
+                            far = k;
+                        }
+                    }
+                }
+                if (far != 0) {
+                    keep[far] = 1;
+                    spans.emplace_back(a, far);
+                    spans.emplace_back(far, b);
+                }
+            }
+        }
+        for (std::size_t k = 1; k <= n; ++k) {
+            if (!keep[k]) {
+                continue;
+            }
+            const Sample& s = samples[k - 1];
+            if (!channels.empty()) {
+                sink.values(s.values);
+            }
+            if (!sink.frame(s.time, s.poses)) {
                 return false;
             }
         }
-        impactFrames.erase(impactFrames.begin(), impactFrames.begin() + sent);
+        samples.clear();
+        anchor = std::move(end);
+        previousKept = true;
         return true;
     };
     // A step of dt, in substeps; a substep that found a contact late is taken
@@ -10314,9 +10396,9 @@ Status ChronoSession::simulateDynamics(
             return s;
         };
         auto restore = [&](Snapshot& s) {
-            // The impacts after it never were; the ones open are read again
-            std::erase_if(impactFrames, [&](const ImpactFrame& f) { return f.time > s.t; });
-            impacts.clear();
+            // The samples after it never were, nor the substep before
+            std::erase_if(samples, [&](const Sample& kept) { return kept.time > s.t; });
+            previousKept = true;
             for (std::size_t k = 0; k < stops.size(); ++k) {
                 if (stops[k].link != s.stops[k].link) {
                     if (stops[k].link) {
@@ -10612,6 +10694,16 @@ Status ChronoSession::simulateDynamics(
                     status = Status::Cancelled;
                     break;
                 }
+                // The frames through the impacts from the end of the smallest
+                // steps, whose transient the start's values take back
+                if (spec.impactFrames && contact && !contactLoads.empty()) {
+                    sampling = true;
+                    anchor = {sys.GetChTime(),
+                              forcesNow(),
+                              channels.empty() ? std::vector<double>() : valuesNow(),
+                              {}};
+                    scales = anchor.forces;
+                }
                 // The sensors from the end of the smallest steps
                 if (!watches.empty()) {
                     watchFrom(valuesNow());
@@ -10662,12 +10754,14 @@ Status ChronoSession::simulateDynamics(
                 eventTrips();
             }
             sendEvents(tripped || k == steps);
-            if (!sendImpacts(at)) {
+            const std::vector<double> values =
+                channels.empty() ? std::vector<double>() : valuesNow();
+            if (!sendImpacts(at, values)) {
                 status = Status::Cancelled;
                 break;
             }
             if (!channels.empty()) {
-                sink.values(valuesNow());
+                sink.values(values);
             }
             if (!sink.frame(at, posesNow())) {
                 status = Status::Cancelled;

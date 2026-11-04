@@ -1374,6 +1374,89 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
+    def test_playback_speed(self):
+        """The player at the study's speed (docs/AssemblyDynamics.md sec
+        8.6): Auto by default; through an impact's frames, microseconds
+        apart, the parts at the run's time between them, the speed said
+        against real time, the time to the microsecond and the plot about
+        it, a fraction of a millisecond wide; Normal, the whole run shown,
+        an output step a video frame"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.TimeStepOutput = 2.5e-3
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        self.assertEqual(sim.PlaybackSpeed, "Auto")
+        self.assertEqual(panel.speedCombo.currentData(), "Auto")
+        doc = self.doc
+        times = sorted([k * 2.5e-3 for k in range(101)] + [0.1 + 3e-6 * (k + 1) for k in range(20)])
+        shown = []
+
+        class Results:
+            Document = doc
+
+            def getSimulationResults(self):
+                force = [1000.0 if 0.1 < t < 0.10006 else 0.0 for t in times]
+                return {
+                    "Times": times,
+                    "Channels": [
+                        {
+                            "Object": None,
+                            "Name": "Spring",
+                            "Quantity": "SpringForce",
+                            "Values": force,
+                            "Unique": True,
+                        }
+                    ],
+                }
+
+            def updateForFrame(self, frame):
+                shown.append(times[frame])
+
+            def updateForTime(self, time):
+                shown.append(time)
+
+            def numberOfFrames(self):
+                return len(times)
+
+        assembly = panel.assembly
+        panel.assembly = Results()
+        try:
+            panel.fillResults()
+            panel.form.frameSlider.setMaximum(len(times) - 1)
+            playback = panel.makePlayback()
+            t = 0.10003
+            panel.showPlayed(t, playback.rate(t))
+            self.assertEqual(shown[-1], t)
+            self.assertAlmostEqual(times[panel.form.frameSlider.value()], t, delta=1e-12)
+            self.assertTrue(panel.speedLabel.text().startswith("1/"), panel.speedLabel.text())
+            self.assertIn("0.100030", panel.form.FrameTimeLabel.text())
+            low, high = panel.resultPlot.window
+            self.assertTrue(low <= t <= high)
+            self.assertLess(high - low, 1e-3)
+            self.assertFalse(panel.resultPlot.grab().isNull())
+            # Played: the video frames' times
+            panel.animationTimerStartForward()
+            self.assertTrue(panel.animationTimer.isActive())
+            self.assertGreater(len(panel.playFrames), 121)
+            panel.stopAnimation()
+            # Normal: the whole run, an output step a video frame
+            panel.speedCombo.setCurrentIndex(panel.speedCombo.findData("Normal"))
+            self.assertEqual(sim.PlaybackSpeed, "Normal")
+            self.assertEqual(len(panel.playback.frames()), 101)
+            panel.showPlayed(t, panel.playback.rate(t))
+            self.assertEqual(panel.resultPlot.window, (0.0, 0.25))
+        finally:
+            panel.stopAnimation()
+            panel.assembly = assembly
+        self.accept_task()
+        self.assertClean()
+
     # ------------------------------------------------------------ springs
 
     def springs(self):

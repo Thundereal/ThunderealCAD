@@ -449,6 +449,7 @@ class TestCamJoint(CamMechanism, JointTestBase):
                 cam, rev, f = self.disk_mechanism(roller)
                 sims = self.assembly.getGroup("Simulations", True)
                 sim = sims.newObject("Assembly::Simulation", "Simulation")
+                sim.ImpactFrames = False  # the output frames alone
                 sim.AnalysisType = "Dynamic"
                 sim.GravityEnabled = False
                 sim.TimeEnd = 1.0
@@ -513,6 +514,7 @@ class TestCamJoint(CamMechanism, JointTestBase):
                     self.assertEqual(lifted.StiffnessFrom, "Penetration")
                     sims = self.assembly.getGroup("Simulations", True)
                     sim = sims.newObject("Assembly::Simulation", "Simulation")
+                    sim.ImpactFrames = False  # the output frames alone
                     sim.AnalysisType = "Dynamic"
                     sim.Gravity = App.Vector(0, -9806.65, 0)
                     turn = 2 * math.pi / rate
@@ -559,6 +561,7 @@ class TestCamJoint(CamMechanism, JointTestBase):
         lifted = CommandCreateContact.newCamContact(self.assembly, joint)
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         sim.AnalysisType = "Dynamic"
         sim.Gravity = App.Vector(0, -9806.65, 0)
         turn = 2 * math.pi / rate
@@ -644,6 +647,7 @@ class TestCamJoint(CamMechanism, JointTestBase):
         lifted = CommandCreateContact.newCamContact(self.assembly, joint)
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         sim.AnalysisType = "Dynamic"
         sim.Gravity = App.Vector(0, -9806.65, 0)
         turn = 2 * math.pi / rate
@@ -723,6 +727,7 @@ class TestCamJoint(CamMechanism, JointTestBase):
         lifted = CommandCreateContact.newCamContact(self.assembly, joint)
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         sim.AnalysisType = "Dynamic"
         sim.Gravity = App.Vector(0, -9806.65, 0)
         turn = 2 * math.pi / rate

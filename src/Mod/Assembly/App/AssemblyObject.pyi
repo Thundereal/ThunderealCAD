@@ -73,6 +73,22 @@ class AssemblyObject(Part):
         """
         ...
 
+    @constmethod
+    def updateForTime(self, time: float, /) -> None:
+        """
+        Not upstream: the parts as they were at a time of the last run, s,
+        between its frames: each part's position on the line between the two
+        frames' and its turn the way between them. A time before the first
+        frame or after the last is that frame's. Playback at a speed whose
+        times fall between the frames (the study's PlaybackSpeed).
+
+        Args:
+            time: the run's time, s.
+
+        Returns: None
+        """
+        ...
+
     def startSimulation(self, sim, /) -> int:
         """
         Starts sim's run on a worker thread (docs/AssemblyDynamics.md sec 4):

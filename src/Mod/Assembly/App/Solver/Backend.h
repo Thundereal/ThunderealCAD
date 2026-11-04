@@ -151,8 +151,9 @@ struct SimulationSpec
     // (inverse dynamics, docs/AssemblyDynamics.md sec 6.3), from the model's
     // dynamics block; a backend that runs no dynamics ignores it
     bool reactions = false;
-    // Dynamic: also a frame at the peak force of each contact's impact,
-    // between the output frames, in time order with them
+    // Dynamic: also frames through each contact's impact, between the
+    // output frames, in time order with them: as many as the contact
+    // forces' curves need
     bool impactFrames = false;
 };
 

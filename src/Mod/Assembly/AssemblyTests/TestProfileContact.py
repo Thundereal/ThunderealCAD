@@ -83,6 +83,7 @@ class TestProfileContact(unittest.TestCase):
     def simulate(self, contact, end, step, analysis="Dynamic", gravity=(0, -G, 0), motion=None):
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         sim.AnalysisType = analysis
         sim.TimeEnd = end
         sim.TimeStepOutput = step

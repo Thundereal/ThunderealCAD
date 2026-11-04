@@ -149,6 +149,11 @@ public:
     // does: its code, and -7 when it was cancelled (no frames are kept then)
     int finishSimulation();
     int updateForFrame(size_t index);
+    // Not upstream: the parts as they were at a time between frames, each
+    // part's position on the line between the two frames' and its turn the
+    // way between (slerp); a time outside the run, at its end. Playback at
+    // a speed whose times fall between the frames (PlaybackSpeed)
+    int updateForTime(double time);
     size_t numberOfFrames() const;
     // The last simulation's frame: its time (s), and the Placement it gives obj,
     // as playback would write it (false when the simulation does not move obj,

@@ -61,6 +61,11 @@ public:
     App::PropertyTime TimeStepOutput;
     App::PropertyFloat GlobalErrorTolerance;
     App::PropertyInteger FramesPerSecond;
+    /// How fast the frames play, and the video goes: Normal, an output step
+    /// a frame; a power of 2 slower; Auto, Normal slowed where the frames
+    /// come closer, through an impact, each one shown, and eased into and
+    /// out of (CommandCreateSimulation.playbackTimes())
+    App::PropertyEnumeration PlaybackSpeed;
     /// Kinematic: the motions drive the joints; Dynamic: the bodies move
     /// under gravity by their masses (docs/AssemblyDynamics.md, phase D1),
     /// on a backend that runs dynamics
@@ -79,9 +84,9 @@ public:
     /// take, from the masses, gravity and the Elements (inverse dynamics,
     /// docs/AssemblyDynamics.md sec 6.3), on a backend that runs dynamics
     App::PropertyBool Reactions;
-    /// Dynamic: also a frame at the peak force of each contact's impact,
-    /// between the output frames -- an impact of steel on steel lasts some
-    /// tens of microseconds, and falls between them
+    /// Dynamic: also frames through each contact's impact, between the
+    /// output frames, as many as its force's curve needs -- an impact of
+    /// steel on steel lasts some tens of microseconds, and falls between them
     App::PropertyBool ImpactFrames;
     /// Whether the run kept for this study is of an older mechanism: the
     /// assembly, its motions or the study changed since (docs/
@@ -99,6 +104,7 @@ public:
 
     static const char* AnalysisTypeEnums[];
     static const char* KeepResultsEnums[];
+    static const char* PlaybackSpeedEnums[];
 
     /// Upstream's name of each property above, and the property's name
     static const std::map<std::string, std::string>& upstreamNames();

@@ -76,6 +76,7 @@ class TestContact(unittest.TestCase):
         """sensors: each a dict of newSensor()'s arguments but the study"""
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         sim.AnalysisType = analysis
         sim.TimeEnd = end
         sim.TimeStepOutput = step
@@ -821,11 +822,12 @@ class TestContact(unittest.TestCase):
     def test_impact_frames(self):
         """A ball dropped 5 mm onto the plate by the materials' law, the run
         reporting every 5 ms: its impacts, some tens of microseconds each,
-        fall between the frames. With impact frames, a frame at the peak of
-        each: the first at the landing, sqrt(2 h / g) = 31.9 ms, off the
-        output times, the ball pressed at many times its weight; the output
-        times all still there, every time after the one before. Without,
-        the output times only."""
+        fall between the frames. With impact frames, frames through each:
+        the first impact at the landing, sqrt(2 h / g) = 31.9 ms, off the
+        output times, drawn by several frames -- from just before the ball
+        presses, up to its peak at many times its weight, and down again;
+        the output times all still there, every time after the one before.
+        Without, the output times only."""
         plate = self.plate()
         ball = self.ball(20)
         self.contact([ball], [plate])
@@ -839,17 +841,39 @@ class TestContact(unittest.TestCase):
         self.assertTrue(all(b > a for a, b in zip(times, times[1:])))
         extra = [k for k, t in enumerate(times) if all(abs(t - g) > 1e-9 for g in grid)]
         self.assertGreater(len(extra), 0)
-        first = extra[0]
         landing = (2 * 5.0 / G) ** 0.5
-        self.assertAlmostEqual(times[first], landing, delta=2e-4)
+        impact = [k for k in extra if abs(times[k] - landing) < 1e-3]
+        self.assertGreaterEqual(len(impact), 5)
+        peak = max(impact, key=lambda k: forces[k].Length)
+        first = peak
+        self.assertAlmostEqual(times[peak], landing, delta=2e-4)
         weight = BALL * G
-        self.assertGreater(forces[first].Length, 50 * weight)
-        # The same run without: the output times alone, the landing unseen
+        self.assertGreater(forces[peak].Length, 50 * weight)
+        # From before it presses, up and down again
+        self.assertLess(forces[impact[0]].Length, 0.05 * forces[peak].Length)
+        self.assertLess(forces[impact[-1]].Length, 0.5 * forces[peak].Length)
+        self.assertGreater(len([k for k in impact if k < peak]), 1)
+        self.assertGreater(len([k for k in impact if k > peak]), 1)
+        # The same run without: the output times alone, the landing unseen.
+        # The frames through the impacts only watch: at the output times the
+        # same run, the same poses
+        onGrid = [
+            next(k for k, u in enumerate(times) if abs(t - u) < 1e-9) for t in grid
+        ]
+        withFrames = []
+        for k in onGrid:
+            self.assembly.updateForFrame(k)
+            withFrames.append(ball.Placement)
+        # From where it started
+        self.assembly.updateForFrame(0)
         sim.ImpactFrames = False
         self.doc.recompute()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         times = self.assembly.getSimulationResults()["Times"]
         self.assertEqual(len(times), 11)
+        for k, before in enumerate(withFrames):
+            self.assembly.updateForFrame(k)
+            self.assertTrue(ball.Placement.isSame(before, 1e-12), (k, ball.Placement, before))
         self.assertLess(max(f.Length for f in self.force()), forces[first].Length)
 
     def test_start_with_contact(self):
@@ -957,6 +981,7 @@ class TestContact(unittest.TestCase):
         spring.Stiffness = 1e6  # mN mm / rad
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         sim.AnalysisType = "Dynamic"
         sim.TimeEnd = 0.5
         sim.TimeStepOutput = 5e-3
@@ -1021,6 +1046,7 @@ class TestContact(unittest.TestCase):
         self.contact([block], [plate])
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         import CommandCreateSimulation
 
         CommandCreateSimulation.newInitialCondition(
@@ -1076,6 +1102,7 @@ class TestContact(unittest.TestCase):
         sim = self.assembly.getGroup("Simulations", True).newObject(
             "Assembly::Simulation", "Simulation"
         )
+        sim.ImpactFrames = False  # the output frames alone
         CommandCreateSimulation.newInitialCondition(
             sim, component=part, linear=App.Vector(200, 0, 0)
         )
@@ -1143,6 +1170,7 @@ class TestContact(unittest.TestCase):
         self.contact([body], [plate], StaticFriction=0.5, DynamicFriction=0.5)
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         if speed:
             CommandCreateSimulation.newInitialCondition(
                 sim,
@@ -1233,6 +1261,7 @@ class TestContact(unittest.TestCase):
         local = part.Placement.inverse().multVec(centre)
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         if speed:
             # Its origin's velocity, the spin about y through the centre
             spin = App.Vector(0, speed / 5, 0)
@@ -1631,6 +1660,7 @@ class TestContact(unittest.TestCase):
         self.contact([part], [plate], **law)
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
         # Turning with the plate, 1 rad/s about y: its origin's velocity
         spin = App.Vector(0, 1, 0)
         CommandCreateSimulation.newInitialCondition(

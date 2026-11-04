@@ -21,6 +21,7 @@
 #                                                                           *
 # **************************************************************************/
 
+import bisect
 import math
 import re
 import os
@@ -59,6 +60,7 @@ if App.GuiUp:
 
 import UtilsAssembly
 import Preferences
+import SimulationPlayback
 
 translate = App.Qt.translate
 
@@ -253,7 +255,13 @@ if App.GuiUp:
 
     class ResultPlot(QtWidgets.QWidget):
         """Not upstream: curves over the run's time, drawn by hand -- their
-        range, the times at the ends, and the frame shown as a cursor."""
+        range, the times at the ends, and the time shown as a cursor. It
+        shows a window of the run's time, all of it or as little as the
+        playback's speed takes in (SimulationPlayback.Playback.window()), a
+        strip under it saying where in the run; and each pixel's column of
+        values by its least and largest too, so that an impact's peak a few
+        microseconds wide is drawn to its height with the whole run shown
+        (SimulationPlayback.peakSafe())."""
 
         COLOURS = ["#d62728", "#2ca02c", "#1f77b4", "#888888"]
 
@@ -263,16 +271,23 @@ if App.GuiUp:
             self.times = []
             self.curves = []  # (name, values)
             self.unit = ""
-            self.frame = None
+            self.bridge = set()
+            self.time = None
+            self.window = None  # (t0, t1); None: the whole run
 
-        def setCurves(self, times, curves, unit):
+        def setCurves(self, times, curves, unit, bridge=()):
+            """bridge: the frames whose missing values a line passes over
+            (SimulationPlayback.peakSafe()), those through the impacts"""
             self.times = list(times)
             self.curves = curves
+            self.bridge = set(bridge)
             self.unit = unit
             self.update()
 
-        def setFrame(self, frame):
-            self.frame = frame
+        def setTime(self, time, window=None):
+            """The cursor at time, and the run's time shown"""
+            self.time = time
+            self.window = window
             self.update()
 
         def paintEvent(self, event):
@@ -299,14 +314,19 @@ if App.GuiUp:
                 return f"{v:.4g}"
 
             left = 6 + max(metrics.horizontalAdvance(label(v)) for v in (low, high))
+            strip = 4  # where the window is in the run
             area = QtCore.QRectF(
                 left + 4,
                 metrics.height() + 4,
                 self.width() - left - 10,
-                self.height() - 2 * metrics.height() - 10,
+                self.height() - 2 * metrics.height() - 14 - strip,
             )
-            t0, t1 = self.times[0], self.times[-1]
+            start, end = self.times[0], self.times[-1]
+            t0, t1 = self.window if self.window else (start, end)
+            if not t1 > t0:
+                t0, t1 = start, end
             span = (t1 - t0) or 1.0
+            zoomed = t1 - t0 < (end - start) * (1.0 - 1e-9)
 
             def at(t, v):
                 return QtCore.QPointF(
@@ -331,44 +351,65 @@ if App.GuiUp:
                 Qt.AlignRight | Qt.AlignVCenter,
                 label(low),
             )
+            # The ends' times to as many places as the window's width needs
+            places = max(0, int(math.ceil(-math.log10(span))) + 2) if zoomed else 0
+            ends = (f"{t0:.{places}f} s", f"{t1:.{places}f} s") if zoomed else (
+                f"{t0:g} s",
+                f"{t1:g} s",
+            )
             painter.drawText(
                 QtCore.QRectF(area.left(), area.bottom() + 2, area.width(), metrics.height()),
                 Qt.AlignLeft | Qt.AlignTop,
-                f"{t0:g} s",
+                ends[0],
             )
             painter.drawText(
                 QtCore.QRectF(area.left(), area.bottom() + 2, area.width(), metrics.height()),
                 Qt.AlignRight | Qt.AlignTop,
-                f"{t1:g} s",
+                ends[1],
             )
+            # The run, and the window in it
+            track = QtCore.QRectF(
+                area.left(), area.bottom() + metrics.height() + 6, area.width(), strip
+            )
+            painter.fillRect(track, grid)
+            whole = (end - start) or 1.0
+            shown = QtCore.QRectF(
+                track.left() + track.width() * (t0 - start) / whole,
+                track.top(),
+                max(2.0, track.width() * (t1 - t0) / whole),
+                strip,
+            )
+            painter.fillRect(shown, palette.color(QtGui.QPalette.Highlight))
             painter.drawText(
                 QtCore.QRectF(0, 0, left, metrics.height()), Qt.AlignRight | Qt.AlignTop, self.unit
             )
             # The legend, along the top
             x = area.left()
+            painter.save()
+            painter.setClipRect(area.adjusted(-3, -3, 3, 3))
             for k, (name, curve) in enumerate(self.curves):
                 colour = QtGui.QColor(self.COLOURS[k % len(self.COLOURS)])
                 painter.setPen(QtGui.QPen(colour, 1.5))
-                n = min(len(self.times), len(curve))
                 # A line through each run of values, a dot for one alone
-                run = []
-                for i in range(n + 1):
-                    if i < n and curve[i] is not None:
-                        run.append(at(self.times[i], curve[i]))
-                        continue
-                    if len(run) > 1:
-                        painter.drawPolyline(QtGui.QPolygonF(run))
-                    elif run:
-                        painter.drawEllipse(run[0], 2.0, 2.0)
-                    run = []
+                for run in SimulationPlayback.peakSafe(
+                    self.times, curve, t0, t1, max(1, int(area.width())), self.bridge
+                ):
+                    points = [at(t, v) for t, v in run]
+                    if len(points) > 1:
+                        painter.drawPolyline(QtGui.QPolygonF(points))
+                    else:
+                        painter.drawEllipse(points[0], 2.0, 2.0)
+            painter.restore()
+            for k, (name, curve) in enumerate(self.curves):
                 if len(self.curves) > 1:
+                    painter.setPen(QtGui.QColor(self.COLOURS[k % len(self.COLOURS)]))
                     painter.drawText(QtCore.QPointF(x, metrics.ascent()), name)
                     x += metrics.horizontalAdvance(name) + 10
-            if self.frame is not None and 0 <= self.frame < len(self.times):
+            if self.time is not None and t0 <= self.time <= t1:
                 cursor = QtGui.QColor(text)
                 cursor.setAlpha(160)
                 painter.setPen(QtGui.QPen(cursor, 1, Qt.DashLine))
-                p = at(self.times[self.frame], low)
+                p = at(self.time, low)
                 painter.drawLine(QtCore.QPointF(p.x(), area.top()), QtCore.QPointF(p.x(), area.bottom()))
 
 
@@ -2064,6 +2105,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
         self.setUiInitialValues()
         self.setAnalysisInitialValues()
+        # Not upstream: the speed, and the run's time shown -- between its
+        # frames when played slower than them
+        self.playback = None
+        self.shownTime = None
+        self.addSpeedWidgets()
 
         self.simFeaturePy.Proxy.setMotionsChangedCallback(self.onMotionsChanged)
         self.simFeaturePy.Proxy.resultsStaleCallback = self.showStale
@@ -2131,10 +2177,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.impactCheck.setToolTip(
             translate(
                 "Assembly",
-                "Dynamic: also a frame at the peak force of each contact's impact,\n"
-                "between the output frames. An impact of metal on metal lasts some\n"
-                "tens of microseconds and falls between them: its loads, and To FEM's\n"
-                "stresses, are seen only at these.",
+                "Dynamic: also frames through each contact's impact, between the\n"
+                "output frames, as many as its force's curve needs. An impact of metal\n"
+                "on metal lasts some tens of microseconds and falls between them: its\n"
+                "loads, and To FEM's stresses, are seen only at these. Played at the\n"
+                "Auto speed, the playback slows down through them.",
             )
         )
         row.addWidget(self.impactCheck)
@@ -2550,6 +2597,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         shown again when it is opened: the traces as they are, the player at
         the first frame"""
         nFrms = self.assembly.numberOfFrames()
+        self.playback = None
+        self.shownTime = None
         if fresh:
             # Not upstream: the study's traces follow its run
             import SimulationTrace
@@ -2691,16 +2740,60 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             spin.setValue(value)
             grid.addWidget(spin, 3, 2 * k + 1)
             spins.append(spin)
+        # Not upstream: the frames through the impacts, between the output
+        # frames, all of them -- as many as each one's force's curve needs,
+        # a handful -- so that the stress plotted follows the impact; or
+        # each one's peak alone, of the part's contact forces
+        step = float(self.simValues.TimeStepOutput)
+        between = {k for k in range(len(times)) if not SimulationPlayback.onOutput(times, step, k)}
+        peaksOnly = QtWidgets.QCheckBox(
+            translate("Assembly", "Between the output frames, each impact's peak alone")
+        )
+        peaksOnly.setToolTip(
+            translate(
+                "Assembly",
+                "The frames through an impact, between the output frames, are as many as\n"
+                "its force's curve needs, and with them all the stress plotted follows the\n"
+                "impact; its peak alone is the one of the largest of the part's contact\n"
+                "forces, fewer to solve",
+            )
+        )
+        peaksOnly.setChecked(False)
+        peaksOnly.setVisible(bool(between))
+        grid.addWidget(peaksOnly, 4, 0, 1, 6)
         count = QLabel()
-        grid.addWidget(count, 4, 0, 1, 6)
+        grid.addWidget(count, 5, 0, 1, 6)
+
+        def peaksOf(part):
+            channels = [
+                c for c in self.results["Channels"] if c["Quantity"] == "PartContactForce"
+            ]
+            mine = [c for c in channels if c.get("On") is not None and c["On"].Name == part.Name]
+            forces = [0.0] * len(times)
+            for channel in mine or channels:
+                for k, value in enumerate(channel["Values"][: len(times)]):
+                    forces[k] += value.Length
+            return set(SimulationPlayback.impactPeaks(times, step, forces))
 
         def chosen():
             first, last, every = (s.value() for s in spins)
-            return list(range(min(first, last), max(first, last) + 1, every))
+            peaks = peaksOf(parts[partCombo.currentIndex()]) if peaksOnly.isChecked() else None
+            frames = []
+            n = 0
+            for k in range(min(first, last), max(first, last) + 1):
+                if k in between:
+                    if peaks is None or k in peaks:
+                        frames.append(k)
+                    continue
+                if n % every == 0:
+                    frames.append(k)
+                n += 1
+            return frames or [min(first, last)]
 
         def update():
             for spin in spins:
                 spin.setEnabled(many.isChecked())
+            peaksOnly.setEnabled(many.isChecked())
             frames = chosen()
             count.setEnabled(many.isChecked())
             count.setText(
@@ -2712,11 +2805,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         for spin in spins:
             spin.valueChanged.connect(update)
         many.toggled.connect(update)
+        peaksOnly.toggled.connect(update)
+        partCombo.currentIndexChanged.connect(update)
         update()
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        grid.addWidget(buttons, 5, 0, 1, 6)
+        grid.addWidget(buttons, 6, 0, 1, 6)
         if dialog.exec() != QDialog.Accepted:
             return None
         part = parts[partCombo.currentIndex()]
@@ -2915,14 +3010,19 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def showResult(self, index=None):
         curves, unit = self.resultCurves()
         times = self.results["Times"] if self.results else []
-        self.resultPlot.setCurves(times, curves, unit)
+        between = [k for k in range(len(times)) if not self.onOutputTime(k)]
+        self.resultPlot.setCurves(times, curves, unit, between)
         self.showResultValue()
 
     def showResultValue(self):
-        frame = self.form.frameSlider.value()
-        self.resultPlot.setFrame(frame)
-        curves, unit = self.resultCurves()
         times = self.results["Times"] if self.results else []
+        frame = self.form.frameSlider.value()
+        shown = self.shownTime
+        if shown is None and frame < len(times):
+            shown = times[frame]
+        if shown is not None:
+            self.resultPlot.setTime(shown, self.currentPlayback().window(shown))
+        curves, unit = self.resultCurves()
         if not curves or frame >= len(times):
             self.resultValue.clear()
             return
@@ -2936,16 +3036,120 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 parts.append(f"{name} {value}" if name else value)
         self.resultValue.setText(f"{times[frame]:g} s: " + ", ".join(parts))
 
-    def onFrameChanged(self, val):
-        self.assembly.updateForFrame(val)
-        self.form.FrameLabel.setText(translate("Assembly", "Frame" + " " + str(val)))
-        time = float(val * self.simValues.TimeStepOutput)
-        self.form.FrameTimeLabel.setText(f"{time:.2f} s")
+    def frameTimes(self):
+        """Not upstream: the run's frames' times, its own -- a frame through
+        an impact is between the output times -- or, from a run that reports
+        none, the output times"""
+        times = self.results.get("Times", []) if self.results else []
+        if times:
+            return times
+        step = float(self.simValues.TimeStepOutput)
+        return [k * step for k in range(self.assembly.numberOfFrames())]
+
+    def playbackSpeed(self):
+        """The study's PlaybackSpeed; Normal for upstream's Python one"""
+        return getattr(self.simFeaturePy, "PlaybackSpeed", "Normal")
+
+    def makePlayback(self):
+        """Not upstream: the run's video frames at the study's speed and
+        frames a second (SimulationPlayback.Playback)"""
+        self.playback = SimulationPlayback.Playback(
+            self.frameTimes(),
+            float(self.simValues.TimeStepOutput),
+            self.form.FramesPerSecondSpinBox.value(),
+            self.playbackSpeed(),
+        )
+        return self.playback
+
+    def currentPlayback(self):
+        return self.playback if self.playback is not None else self.makePlayback()
+
+    def nearestFrame(self, time):
+        times = self.frameTimes()
+        if not times:
+            return 0
+        k = bisect.bisect_left(times, time)
+        if k >= len(times):
+            return len(times) - 1
+        if k > 0 and time - times[k - 1] <= times[k] - time:
+            return k - 1
+        return k
+
+    def showTime(self, time, frame, rate):
+        """The labels and the plot at the run's time, its frame nearest"""
+        self.shownTime = time
+        self.form.FrameLabel.setText(translate("Assembly", "Frame" + " " + str(frame)))
+        self.form.FrameTimeLabel.setText(
+            SimulationPlayback.timeText(time, rate, self.currentPlayback().fps)
+        )
+        self.speedLabel.setText(
+            SimulationPlayback.speedText(rate) if self.hasPlaybackSpeed() else ""
+        )
         if self.results:
             self.showResultValue()
 
+    def onFrameChanged(self, val):
+        self.assembly.updateForFrame(val)
+        # The frame's own time, the run's: one through an impact is between
+        # the output times
+        times = self.frameTimes()
+        if 0 <= val < len(times):
+            time = times[val]
+        else:
+            time = float(val * self.simValues.TimeStepOutput)
+        self.showTime(time, val, self.currentPlayback().rate(time))
+
     def onFramesPerSecondChanged(self):
         self.simValues.FramesPerSecond = self.form.FramesPerSecondSpinBox.value()
+        self.makePlayback()
+
+    def hasPlaybackSpeed(self):
+        return hasattr(self.simFeaturePy, "PlaybackSpeed")
+
+    def addSpeedWidgets(self):
+        """Not upstream: how fast the frames play and the video goes (the
+        study's PlaybackSpeed), and how fast against real time they go at the
+        frame shown"""
+        self.speedCombo = QComboBox()
+        for speed in SimulationPlayback.Speeds:
+            self.speedCombo.addItem(translate("Assembly", speed), speed)
+        self.speedCombo.setToolTip(
+            translate(
+                "Assembly",
+                "How fast the frames play, and the video goes.\n"
+                "Normal: an output step a frame.\n"
+                "1/2 to 1/256: that much slower.\n"
+                "Auto: Normal, slowed where the frames come closer -- through an impact,\n"
+                "a few microseconds apart, each one shown -- and eased into and out of.\n"
+                "The plot shows as much less of the run as it plays slower.",
+            )
+        )
+        self.speedLabel = QtWidgets.QLabel()
+        self.speedLabel.setToolTip(
+            translate("Assembly", "How fast the run plays at the frame shown, against real time")
+        )
+        row = self.form.findChild(QtWidgets.QHBoxLayout, "fps_layout")
+        if row is not None:
+            row.addWidget(QtWidgets.QLabel(translate("Assembly", "Speed")))
+            row.addWidget(self.speedCombo)
+            row.addWidget(self.speedLabel, 1)
+        if not self.hasPlaybackSpeed():
+            self.speedCombo.setEnabled(False)
+            self.speedCombo.setCurrentIndex(self.speedCombo.findData("Normal"))
+        else:
+            self.speedCombo.setCurrentIndex(
+                max(0, self.speedCombo.findData(self.simFeaturePy.PlaybackSpeed))
+            )
+        self.speedCombo.currentIndexChanged.connect(self.onSpeedChanged)
+
+    def onSpeedChanged(self, index):
+        if self.hasPlaybackSpeed():
+            self.simFeaturePy.PlaybackSpeed = self.speedCombo.currentData()
+        self.makePlayback()
+        if self.animationTimer.isActive():
+            self.animationTimerStart()
+        elif self.form.groupBox_player.isVisible():
+            self.onFrameChanged(self.form.frameSlider.value())
 
     def playBackward(self):
         pass
@@ -2959,26 +3163,46 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.animationTimerStart()
 
     def animationTimerStart(self):
+        # Not upstream: played by the run's time, at the study's speed
+        # (SimulationPlayback): a video frame's time between the run's frames
+        # is the parts' between them (updateForTime())
         self.animationTimer.stop()
-        self.currentFrm = self.form.frameSlider.value()
-        self.startFrm = 1
-        self.endFrm = self.form.frameSlider.maximum()
-        if self.startFrm >= self.endFrm:
+        self.makePlayback()
+        self.playFrames = self.playback.frames()
+        if len(self.playFrames) < 2:
             return
-
-        self.fps = self.simValues.FramesPerSecond
-        self.deltaTime = 1.0 / self.fps
+        now = self.shownTime
+        if now is None:
+            times = self.frameTimes()
+            now = times[self.form.frameSlider.value()] if times else 0.0
+        self.playFrom = min(
+            bisect.bisect_left([t for t, _ in self.playFrames], now), len(self.playFrames) - 1
+        )
         self.startTime = time.time()
-        self.index = self.currentFrm
-        self.animationTimer.setInterval(self.deltaTime * 1000)  # ms
+        self.animationTimer.setInterval(int(1000.0 / self.playback.fps))  # ms
         self.animationTimer.start()
 
+    def onOutputTime(self, frame):
+        """Whether a frame is at one of the run's output times, not one
+        through an impact between them"""
+        return SimulationPlayback.onOutput(
+            self.frameTimes(), float(self.simValues.TimeStepOutput), frame
+        )
+
     def playAnimation(self):
-        range_ = self.endFrm - self.startFrm
-        offset = self.currentFrm - self.startFrm
-        count = int((time.time() - self.startTime) / self.deltaTime)
-        self.index = ((self.direction * count + offset) % range_) + self.startFrm
-        self.setFrameValue(self.index)
+        count = int((time.time() - self.startTime) * self.playback.fps)
+        k = (self.playFrom + self.direction * count) % len(self.playFrames)
+        self.showPlayed(*self.playFrames[k])
+
+    def showPlayed(self, time, rate):
+        """A video frame: the parts at the run's time, between its frames
+        maybe, the slider at the frame nearest, the plot about the time"""
+        self.assembly.updateForTime(time)
+        frame = self.nearestFrame(time)
+        self.form.frameSlider.blockSignals(True)
+        self.form.frameSlider.setValue(frame)
+        self.form.frameSlider.blockSignals(False)
+        self.showTime(time, frame, rate)
 
     def displayLastFrame(self):
         nFrms = self.assembly.numberOfFrames()
@@ -3191,6 +3415,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             QMessageBox.critical(self.form, "Error", errMsg)
             return
 
+        # Not upstream: the video goes as playback does, at the study's speed
+        # (SimulationPlayback): its frames' times are the run's at that speed,
+        # between the run's frames where it plays slower than them
+        video_times = [t for t, _ in self.makePlayback().frames()]
+
         # Setup temporary directory and progress bar
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -3198,7 +3427,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 translate("Assembly", "Generating Frames…"),
                 translate("Assembly", "Cancel"),
                 0,
-                num_frames,
+                len(video_times),
                 self.form,
             )
             progress.setWindowModality(Qt.WindowModal)
@@ -3209,13 +3438,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             try:
                 # Generate and save all frames as temporary images
                 frame_files = []
-                for i in range(num_frames):
+                for i, video_time in enumerate(video_times):
                     progress.setValue(i)
                     if progress.wasCanceled():
                         App.Console.PrintMessage("Animation save cancelled.\n")
                         return
 
-                    self.assembly.updateForFrame(i)
+                    self.assembly.updateForTime(video_time)
                     Gui.updateGui()  # Ensure the 3D view is redrawn
 
                     frame_filename = temp_path / f"frame_{i:05d}.png"

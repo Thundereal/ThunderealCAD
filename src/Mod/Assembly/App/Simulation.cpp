@@ -46,6 +46,15 @@ Simulation::Simulation()
     ADD_PROPERTY_TYPE(GlobalErrorTolerance, (1.0e-6), "Simulation", App::Prop_None,
                       "Integration global error tolerance.");
     ADD_PROPERTY_TYPE(FramesPerSecond, (30), "Simulation", App::Prop_None, "Frames Per Second.");
+    ADD_PROPERTY_TYPE(PlaybackSpeed,
+                      (0L),
+                      "Simulation",
+                      App::Prop_None,
+                      "How fast the frames play and the video goes. Normal: an output step a "
+                      "frame; 1/2 to 1/256: that much slower; Auto: Normal, slowed where the "
+                      "frames come closer -- through an impact, each frame shown -- and eased "
+                      "into and out of");
+    PlaybackSpeed.setEnums(PlaybackSpeedEnums);
     // Not upstream: dynamics (docs/AssemblyDynamics.md); a file without
     // them is a kinematic study, as before
     ADD_PROPERTY_TYPE(AnalysisType,
@@ -87,12 +96,12 @@ Simulation::Simulation()
                       "Kinematic: also the reactions and the motors' efforts the motions "
                       "take, from the masses, gravity and the Elements (inverse dynamics)");
     ADD_PROPERTY_TYPE(ImpactFrames,
-                      (false),
+                      (true),
                       "Simulation",
                       App::Prop_None,
-                      "Dynamic: also a frame at the peak force of each contact's impact, "
-                      "between the output frames, where an impact a few tens of "
-                      "microseconds long falls");
+                      "Dynamic: also frames through each contact's impact, between the "
+                      "output frames, as many as its force's curve needs: an impact a few "
+                      "tens of microseconds long falls between them");
     ADD_PROPERTY_TYPE(
         ResultsStale,
         (false),
@@ -118,6 +127,8 @@ Simulation::Simulation()
 
 const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", "Static", nullptr};
 const char* Simulation::KeepResultsEnums[] = {"None", "Motion", "All", nullptr};
+const char* Simulation::PlaybackSpeedEnums[] =
+    {"Auto", "Normal", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256", nullptr};
 
 const std::map<std::string, std::string>& Simulation::upstreamNames()
 {

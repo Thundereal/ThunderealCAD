@@ -382,3 +382,118 @@ class TestSimulationResults(unittest.TestCase):
         self.assertTrue(gltf["asset"]["extras"]["stale"])
         self.assertNotIn("Base", self.gltfNodes(gltf))
         self.assertIn("Rod", self.gltfNodes(gltf))
+
+    def test_update_for_time(self):
+        """The parts at a time between two frames (docs/AssemblyDynamics.md
+        sec 8.6): each one's position on the line between the frames', its
+        turn the way between them; at a frame's time, the frame's; before the
+        run, its first; after, its last"""
+        rod = self.pendulum()
+        self.simulate()
+        times = self.assembly.getSimulationResults()["Times"]
+        frames = self.placements(rod)
+        a, b = frames[20], frames[21]
+        for u in (0.25, 0.5):
+            self.assembly.updateForTime(times[20] + u * (times[21] - times[20]))
+            between = rod.Placement
+            self.assertTrue(
+                (between.Base - (a.Base + (b.Base - a.Base) * u)).Length < 1e-9, between
+            )
+            turn = App.Rotation.slerp(a.Rotation, b.Rotation, u)
+            self.assertTrue(between.Rotation.isSame(turn, 1e-12), between)
+            # Truly between: the rod swings
+            self.assertGreater((between.Base - a.Base).Length, 1e-6)
+        for k in (0, 7, len(times) - 1):
+            self.assembly.updateForTime(times[k])
+            self.assertTrue(rod.Placement.isSame(frames[k], 1e-12))
+        self.assembly.updateForTime(times[0] - 1.0)
+        self.assertTrue(rod.Placement.isSame(frames[0], 1e-12))
+        self.assembly.updateForTime(times[-1] + 1.0)
+        self.assertTrue(rod.Placement.isSame(frames[-1], 1e-12))
+
+    def clustered(self):
+        """Times an output step of 2.5 ms apart from 0 to 0.25 s, and 20
+        between at 0.1 s, 3 us apart -- an impact's"""
+        step = 2.5e-3
+        times = [k * step for k in range(101)]
+        times += [0.1 + 3e-6 * (k + 1) for k in range(20)]
+        return sorted(times), step
+
+    def test_playback_speeds(self):
+        """How the frames play (SimulationPlayback): Normal, an output step
+        a video frame, the output times; 1/4, four video frames each; Auto,
+        Normal away from the impact, and slowed through it so that each of
+        its frames is shown, the speed eased into and out of, no more than
+        EASE from one video frame to the next. The plots' window: the whole
+        run at Normal, a fraction of a millisecond about the impact"""
+        import SimulationPlayback as P
+
+        times, step = self.clustered()
+        normal = P.Playback(times, step, 30, "Normal").frames()
+        self.assertEqual(len(normal), 101)
+        for k, (t, rate) in enumerate(normal):
+            self.assertAlmostEqual(t, k * step, delta=1e-12)
+            self.assertAlmostEqual(rate, step * 30)
+        self.assertEqual(len(P.Playback(times, step, 30, "1/4").frames()), 401)
+
+        auto = P.Playback(times, step, 30, "Auto")
+        frames = auto.frames()
+        self.assertAlmostEqual(frames[0][0], 0.0)
+        self.assertAlmostEqual(frames[-1][0], 0.25)
+        self.assertTrue(all(b[0] > a[0] for a, b in zip(frames, frames[1:])))
+        for a, b in zip(frames, frames[1:]):
+            self.assertLessEqual(b[1] / a[1], P.EASE * (1 + 1e-9))
+            self.assertGreaterEqual(b[1] / a[1], 1 / P.EASE * (1 - 1e-9))
+        self.assertAlmostEqual(auto.rate(0.02), step * 30)
+        self.assertAlmostEqual(auto.rate(0.2), step * 30)
+        # Through the impact, each of its frames
+        inside = [t for t, _ in frames if 0.1 <= t <= 0.1 + 60e-6]
+        self.assertGreaterEqual(len(inside), 15)
+        self.assertLess(auto.rate(0.10003), 3e-6 * 30 * 1.01)
+        # And not much more than the run at Normal and the impact's frames
+        # with the easing either side
+        self.assertLess(len(frames), 101 + 20 + 60)
+        self.assertEqual(auto.window(0.02), (0.0, 0.25))
+        low, high = auto.window(0.10003)
+        self.assertLess(high - low, 1e-3)
+        self.assertTrue(low <= 0.10003 <= high)
+
+    def test_peak_safe(self):
+        """A curve drawn by its pixels' columns (SimulationPlayback.
+        peakSafe()): a spike one value wide among ten thousand is drawn to
+        its height across 50 columns, by no more than four points each and
+        the ones either side; a None ends a line"""
+        import SimulationPlayback as P
+
+        times = [k * 1e-4 for k in range(10001)]
+        values = [0.0] * 10001
+        values[5000] = 100.0
+        (run,) = P.peakSafe(times, values, 0.0, 1.0, 50)
+        self.assertEqual(max(v for _, v in run), 100.0)
+        self.assertLessEqual(len(run), 4 * 51 + 2)
+        self.assertTrue(all(b[0] >= a[0] for a, b in zip(run, run[1:])))
+        # Zoomed about it, the lines to the window's edges
+        (run,) = P.peakSafe(times, values, 0.49995, 0.50005, 50)
+        self.assertEqual([v for _, v in run], [0.0, 100.0, 0.0])
+        values[3000] = None
+        runs = P.peakSafe(times, values, 0.0, 1.0, 50)
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(max(v for _, v in runs[1]), 100.0)
+        # Passed over where it is not a gap: a frame through an impact not
+        # solved, and the line to the values either side of a window of them
+        (run,) = P.peakSafe(times, values, 0.0, 1.0, 50, bridge={3000})
+        values = [None] * 10001
+        values[4000] = 1.0
+        values[5000] = 3.0
+        values[6000] = 2.0
+        bridge = set(range(4001, 6000)) - {5000}
+        (run,) = P.peakSafe(times, values, 0.45, 0.46, 50, bridge)
+        self.assertEqual([v for _, v in run], [1.0, 3.0])
+        # The impacts' peaks, between the output frames only
+        times, step = self.clustered()
+        forces = [0.0] * len(times)
+        forces[42] = 5.0
+        forces[45] = 9.0
+        forces[46] = 9.0
+        forces[61] = 1.0  # an output frame's, 0.1025 s
+        self.assertEqual(P.impactPeaks(times, step, forces), [42, 45])

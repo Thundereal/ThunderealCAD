@@ -1225,7 +1225,10 @@ bool ShapeRefSet::readGeometry(int table, std::istream& in)
 void ShapeRefSet::write(const TopoDS_Shape& root, std::ostream& out)
 {
     std::locale oldLocale = out.imbue(std::locale::classic());
-    std::streamsize prec = out.precision(15);
+    // 17 digits, as the OCCT fork's TopTools_ShapeSet::Write has them since
+    // 3dc75258b5 (every double read back as it was): a file that borrows
+    // nothing is what exportBrep() writes
+    std::streamsize prec = out.precision(17);
 
     out << "\n" << asciiVersions[FormatNb()] << "\n";
 

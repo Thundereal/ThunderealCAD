@@ -368,6 +368,88 @@ class TestSheetMetalConvert(unittest.TestCase):
         self.assertIn("Invalid", convert.State)
         self.assertIn("Open Faces", convert.getStatusString())
 
+    # A thin part ripped: a closed corner seam, as a part made elsewhere has
+    # it, cut open along its edge
+
+    def closedTray(self):
+        """A thin tray made elsewhere: 40 x 20 x 10, 1 thick, its bottom's
+        edges bends of radius 1, a relief at each bottom corner 2.05 square
+        (the solid tray's), its upright corners closed"""
+
+        tray = Part.makeBox(40, 20, 10).cut(Part.makeBox(38, 18, 10, V(1, 1, 1)))
+        s = 2.05
+        for x in (0, 40 - s):
+            for y in (0, 20 - s):
+                tray = tray.cut(Part.makeBox(s, s, s, V(x, y, 0)))
+
+        def bottom(shape, inset, z):
+            # the bottom's straight edges inset from the box's sides, at z
+            return [
+                e
+                for e in shape.Edges
+                if isinstance(e.Curve, Part.Line)
+                and abs(e.BoundBox.ZMin - z) < 1e-7
+                and e.BoundBox.ZLength < 1e-7
+                and (
+                    abs(e.BoundBox.YMax - inset) < 1e-7
+                    and e.BoundBox.YLength < 1e-7
+                    or abs(e.BoundBox.YMin - (20 - inset)) < 1e-7
+                    and e.BoundBox.YLength < 1e-7
+                    or abs(e.BoundBox.XMax - inset) < 1e-7
+                    and e.BoundBox.XLength < 1e-7
+                    or abs(e.BoundBox.XMin - (40 - inset)) < 1e-7
+                    and e.BoundBox.XLength < 1e-7
+                )
+            ]
+
+        tray = tray.makeFillet(2, bottom(tray, 0, 0))
+        tray = tray.makeFillet(1, bottom(tray, 1, 1))
+        return tray
+
+    def testThinRipped(self):
+        """The closed tray, its four upright corner seams ripped: the tray
+        the solid makes, lying flat as it does"""
+        tray = self.closedTray()
+        self.assertTrue(tray.isValid())
+        body = self.body(self.stepped(tray))
+        base = body.BaseFeature.Shape
+        convert = body.newObject("PartDesign::SheetMetalConvert", "Convert")
+        convert.FixedFace = (body.BaseFeature, [self.face(base, lambda f: f.BoundBox.ZMax < 1e-7)])
+        convert.RipEdges = (
+            body.BaseFeature,
+            self.edges(
+                base,
+                lambda e: e.BoundBox.XLength < 1e-7
+                and e.BoundBox.YLength < 1e-7
+                and abs(e.BoundBox.ZMax - 10) < 1e-7
+                and min(abs(e.BoundBox.XMin), abs(e.BoundBox.XMin - 40)) < 1e-7
+                and min(abs(e.BoundBox.YMin), abs(e.BoundBox.YMin - 20)) < 1e-7,
+            ),
+        )
+        self.assertEqual(len(convert.RipEdges[1]), 4)
+        self.Doc.recompute()
+        self.checkValid(convert)
+        self.assertEqual(convert.Kind, "Thin part")
+        leg = BA + 8
+        self.checkFlat(convert, 40 - 2 * 2 + 2 * leg, 20 - 2 * 2 + 2 * leg, bends=4)
+
+    def testThinRipRefused(self):
+        """A rip on an edge that is no corner between two plane faces -- a
+        bend's arc -- is refused, naming it"""
+        tray = self.closedTray()
+        body = self.body(tray)
+        base = body.BaseFeature.Shape
+        convert = body.newObject("PartDesign::SheetMetalConvert", "Convert")
+        convert.FixedFace = (body.BaseFeature, [self.face(base, lambda f: f.BoundBox.ZMax < 1e-7)])
+        convert.RipEdges = (
+            body.BaseFeature,
+            self.edges(base, lambda e: isinstance(e.Curve, Part.Circle))[:1],
+        )
+        self.Doc.recompute()
+        self.assertIn("Invalid", convert.State)
+        self.assertIn("no straight corner", convert.getStatusString())
+        self.assertIn("Edge", convert.getStatusString())
+
     def testSaveAndRestore(self):
         """Saved and opened again, the converted part lies flat as before"""
         shape, length, width, area, bends = self.featureFlat()

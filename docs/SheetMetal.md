@@ -1340,6 +1340,39 @@ and not frozen.
   - `TestSheetMetalConvert` (6): M1's part through STEP gives its features' flat, at 1e-6; a
     Part-made L flat by hand; a bend's own radius; a tube and a stepped plate refused by name;
     saved and opened again.
+- M3's convert, its second and third steps, a solid or a shell, and rips (2026-11-04).
+  `OpenFaces` (a solid's), `RipEdges` and `Side` (Inside, Outside); `Kind` says Thin part,
+  Solid or Shell. A part that is no thin part the rule's thickness apart, or has faces to open,
+  is thickened by `thickened()`:
+  - A solid by OCCT's thick solid, its open faces taken away. A shell -- or the open solid a
+    body's base makes of one, told by its shell not closing -- is its offset sewn to it with a
+    side across each free edge (`thickShell()`): OCCT's thickening of a shell
+    (`BRepOffset_MakeOffset`, Thickening) failed on every shell tried, `BRepAlgo_Image::Bind`,
+    either join. A shell's faces must be planes.
+  - Inside keeps the part's size; Outside makes its faces the inner skins. Thickened outward,
+    OCCT will not round the outer edges the thick solid makes ("command not done", rounding
+    either edge first), so a solid is grown by T but at its open faces (the thick solid fused
+    to it) and thickened inward as Inside is.
+  - Each straight edge between two plane faces kept is a bend: the outer edge rounded by R + T,
+    then the inner by R. Bends closing a loop round the part (a union-find over the faces) are
+    refused, naming an edge to rip.
+  - A rip is a gap of the rule's on the plane halving the corner. Where two bends meet at its
+    end, a corner relief is cut first, square, as large as their zones (`(R + T) tan(a / 2)`)
+    and half a gap past them; the gap runs from inside the relief, clear of the skins. Rounded
+    without the relief, OCCT blends the corner where the two bends meet, a face that does not
+    unroll; a relief exactly the zones' size has its sides in the planes where the other bend
+    meets its walls, and the recogniser's cutters split them.
+  - On a thin part, a rip is the same gap along the edge and no further (a closed corner seam:
+    past its ends lie a relief or the walls' other sides), cut before recognising.
+  - The model and the recogniser, for these parts: a wall owns a face lying in its slab whole,
+    not only one no taller than the sheet (a mitre lies half in the other wall's slab and went
+    to it); a non-skin plane says the thickness varies only when it faces a skin across the
+    material, by a ray from inside it (a relief's side faced a skin across the empty tray).
+  - `TestSheetMetalConvert` (15): a box opened at its top and ripped at its corners, inside and
+    outside, flat as the flange suite's mitred tray; refused unripped; an L shell flat by hand,
+    inside 28 + 18 + BA and outside 29 + 19 + BA; the box's faces as a shell; a shell's open
+    face refused; a tray made elsewhere, corners closed, through STEP, ripped, flat as the
+    solid's; a rip on an arc refused.
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

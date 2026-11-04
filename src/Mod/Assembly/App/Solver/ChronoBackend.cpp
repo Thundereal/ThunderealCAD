@@ -9742,6 +9742,22 @@ Status ChronoSession::simulateDynamics(
         ch::ChState x(nx, &sys);
         ch::ChStateDelta v(nv, &sys);
         ch::ChStateDelta a(nv, &sys);
+        // And the reactions: HHT takes a step's start's into its residual
+        // (alpha's share of the old Cq' l), gathered from the system, and a
+        // substep whose Newton iterations ran off leaves them there not
+        // finite -- every substep after, taken again from the state before
+        // it, started with a residual not finite and ran off too, down to a
+        // nanosecond (a lever on a cam at 2 rev/s, "the contact's
+        // integration diverged"); one that stopped unconverged, finite,
+        // left them wrong.
+        ch::ChVectorDynamic<> l;
+        auto takeBack = [&](double time) {
+            sys.StateScatter(x, v, time, ch::UpdateFlags::UPDATE_ALL);
+            sys.StateScatterAcceleration(a);
+            if (l.size() == static_cast<Eigen::Index>(sys.GetNumConstraints())) {
+                sys.StateScatterReactions(l);
+            }
+        };
         double done = 0.0;
         double cap = dt;
         std::vector<double> before(contactLoads.size());
@@ -9765,6 +9781,8 @@ Status ChronoSession::simulateDynamics(
             double t = 0.0;
             sys.StateGather(x, v, t);
             sys.StateGatherAcceleration(a);
+            l.setZero(sys.GetNumConstraints());
+            sys.StateGatherReactions(l);
             contactCollision->reuse = fresh;
             auto implicit =
                 std::dynamic_pointer_cast<ch::ChTimestepperImplicit>(sys.GetTimestepper());
@@ -9785,7 +9803,7 @@ Status ChronoSession::simulateDynamics(
                     && std::isfinite(body->GetAngVelLocal().Length2());
             }
             if (!finite && !(h > 1e-9)) {
-                sys.StateScatter(x, v, t, ch::UpdateFlags::UPDATE_ALL);
+                takeBack(t);
                 throw std::runtime_error("the contact's integration diverged");
             }
             // And one whose iterations stopped unconverged at their most:
@@ -9816,8 +9834,7 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             if ((tooDeep || moved) && h > 1e-9) {
-                sys.StateScatter(x, v, t, ch::UpdateFlags::UPDATE_ALL);
-                sys.StateScatterAcceleration(a);
+                takeBack(t);
                 sys.ComputeCollisions();
                 fresh = true;
                 if (tooDeep) {
@@ -9973,6 +9990,9 @@ Status ChronoSession::simulateDynamics(
             ch::ChState x;
             ch::ChStateDelta v;
             ch::ChStateDelta a;
+            // The reactions, which HHT's next step takes from the system
+            // (advance()'s takeBack())
+            ch::ChVectorDynamic<> l;
             double t = 0.0;
             std::vector<Stop> stops;
             std::vector<double> limitAngles;
@@ -9993,6 +10013,8 @@ Status ChronoSession::simulateDynamics(
             s.a = ch::ChStateDelta(sys.GetNumCoordsVelLevel(), &sys);
             sys.StateGather(s.x, s.v, s.t);
             sys.StateGatherAcceleration(s.a);
+            s.l.setZero(sys.GetNumConstraints());
+            sys.StateGatherReactions(s.l);
             s.stops = stops;
             s.limitAngles = limitAngles;
             for (const auto& load : contactLoads) {
@@ -10030,6 +10052,10 @@ Status ChronoSession::simulateDynamics(
             limitAngles = s.limitAngles;
             sys.StateScatter(s.x, s.v, s.t, ch::UpdateFlags::UPDATE_ALL);
             sys.StateScatterAcceleration(s.a);
+            // Its stops' links as they were, so as many reactions
+            if (s.l.size() == static_cast<Eigen::Index>(sys.GetNumConstraints())) {
+                sys.StateScatterReactions(s.l);
+            }
             for (std::size_t i = 0; i < contactLoads.size(); ++i) {
                 ContactLoad& load = *contactLoads[i];
                 const auto& kept = s.loads[i];

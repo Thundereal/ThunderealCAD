@@ -702,6 +702,99 @@ class TestContact(unittest.TestCase):
                 (series.FemHeldTorque[k] - series.HeldTorque[k]).Length, 5e-3 * scale, frame
             )
 
+    def test_lever_on_fast_cam(self):
+        """A steel lever on a steel eccentric disc turned at 2 rev/s, by the
+        steel's own law (a line contact, about 2e8 N/m at its load), held on
+        by its weight and 3 N at its tip: the run goes through, where it
+        stopped at 0.14 s, "the contact's integration diverged" -- a substep
+        whose Newton iterations ran off left HHT's reactions not finite in
+        the system, and each substep taken again from the state before it
+        started from them. The lever stays on the disc, sunk by under a
+        micrometre, and its free body balances."""
+        import CommandCreateLoad
+        import Materials
+        import MotionLoads
+
+        steel = Materials.MaterialManager().getMaterial("90bbd8ef-8623-4d78-b3bf-e0bdb9b74dd3")
+
+        def box(name, size, at):
+            b = self.assembly.newObject("Part::Box", name)
+            b.Length, b.Width, b.Height = size
+            b.Placement.Base = App.Vector(*at)
+            b.ShapeMaterial = steel
+            return b
+
+        def hinge(ref1, p1, ref2, p2):
+            j = self.joints.newObject("App::FeaturePython", "Revolute")
+            JointObject.Joint(j, JointObject.JointTypes.index("Revolute"))
+            j.Detach1 = True
+            j.Detach2 = True
+            j.Reference1 = ref1
+            j.Reference2 = ref2
+            j.Placement1 = p1
+            j.Placement2 = p2
+            return j
+
+        along = App.Rotation(App.Vector(1, 0, 0), -90)
+        pivot = box("Pivot", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPivot")
+        JointObject.GroundedJoint(ground, pivot)
+        lever = box("Lever", (120, 10, 8), (10, 0, 1))
+        axle = box("Axle", (10, 10, 10), (85, 10, -14))
+        grounded = self.joints.newObject("Assembly::GroundedJointPython", "GroundedAxle")
+        JointObject.GroundedJoint(grounded, axle)
+        disc = self.assembly.newObject("Part::Cylinder", "Disc")
+        disc.Radius, disc.Height = 20, 10
+        disc.Placement = App.Placement(App.Vector(90, 0, -19), along)
+        disc.ShapeMaterial = steel
+        self.doc.recompute()
+        hinge(
+            (pivot, ["Face2"]),
+            App.Placement(App.Vector(10, 5, 5), along),
+            (lever, ["Face1"]),
+            App.Placement(App.Vector(0, 5, 4), along),
+        )
+        shaft = hinge(
+            (axle, ["Face3"]),
+            App.Placement(App.Vector(5, 0, 5), along),
+            (disc, ["Face2"]),
+            App.Placement(App.Vector(0, -10, 10), App.Rotation()),
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = self.contact([lever], [disc])
+        self.assertEqual(contact.StiffnessFrom, "Materials")
+        load = CommandCreateLoad.makeLoad(
+            self.assembly,
+            (lever, App.Placement(App.Vector(120, 5, 8), App.Rotation())),
+            magnitude="3 N",
+            direction=App.Vector(0, 0, -1),
+        )
+        load.DirectionAxes = "Assembly"
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.TimeEnd = 0.5
+        sim.TimeStepOutput = 5e-3
+        sim.Elements = [contact, load]
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = shaft
+        motion.MotionType = "Angular"
+        motion.Formula = "4*pi*time"
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertEqual(self.assembly.numberOfFrames(), 101)
+        forces = self.force()
+        depths = self.force("ContactPenetration")
+        least = min(f.Length for f in forces[1:])
+        self.assertGreater(least, 1000.0)
+        self.assertLess(max(depths), 1e-3)
+        for frame in (20, 28, 60, 100):
+            body = MotionLoads.loadsOn(self.assembly, lever, frame)
+            residual, moment = body["Residual"]
+            self.assertLess(residual.Length, 1e-6 * 1e4, frame)
+            self.assertLess(moment.Length, 1e-6 * 1e4 * 120.0, frame)
+
     def test_ball_rests_static(self):
         """A Static study finds the same rest"""
         plate = self.plate()

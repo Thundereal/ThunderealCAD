@@ -3,10 +3,12 @@
 # Sheet metal's convert (docs/SheetMetal.md sec 5.3, ruled 2026-11-04):
 # PartDesign::SheetMetalConvert on a base no sheet metal feature made -- an
 # imported or a Part solid -- a fixed face picked, the wall the flat lies on.
-# This first step takes a thin part: its walls and bends found from its
-# geometry (sec 4.2 way 3), each bend its own radius, the shape kept but for
-# faces split where a bend meets a wall, so each lies in one element. M1's
-# parts written to STEP and read back give the flat their features give.
+# A thin part: its walls and bends found from its geometry (sec 4.2 way 3),
+# each bend its own radius, the shape kept but for faces split where a bend
+# meets a wall, so each lies in one element. M1's parts written to STEP and
+# read back give the flat their features give. A solid or a shell: thickened
+# by the rule's thickness, inside or outside, its sharp edges bends of the
+# rule's radius but where ripped, a ripped corner relieved.
 
 import math
 import os
@@ -41,9 +43,7 @@ class TestSheetMetalConvert(unittest.TestCase):
 
     def face(self, shape, test):
         """The name of shape's largest face passing test"""
-        found = [
-            (f.Area, "Face%d" % (i + 1)) for i, f in enumerate(shape.Faces) if test(f)
-        ]
+        found = [(f.Area, "Face%d" % (i + 1)) for i, f in enumerate(shape.Faces) if test(f)]
         self.assertTrue(found)
         return max(found)[1]
 
@@ -57,7 +57,9 @@ class TestSheetMetalConvert(unittest.TestCase):
         self.assertNotIn("Invalid", feature.State, feature.getStatusString())
         self.assertTrue(feature.Shape.isValid())
         self.assertEqual(len(feature.Shape.Solids), 1)
-        owners = [feature.sheetElementOf("Face%d" % (i + 1)) for i in range(len(feature.Shape.Faces))]
+        owners = [
+            feature.sheetElementOf("Face%d" % (i + 1)) for i in range(len(feature.Shape.Faces))
+        ]
         self.assertNotIn(None, owners)
 
     def checkFlat(self, feature, length, width, area=None, bends=None):
@@ -107,7 +109,9 @@ class TestSheetMetalConvert(unittest.TestCase):
                 "Edge%d" % (i + 1)
                 for i, e in enumerate(pocket.Shape.Edges)
                 if len(e.Vertexes) == 2
-                and all(abs(v.Point.y - 20) < 1e-7 and abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes)
+                and all(
+                    abs(v.Point.y - 20) < 1e-7 and abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes
+                )
             ]
             flange = body.newObject("PartDesign::SheetMetalFlange", "Flange")
             flange.Edges = (pocket, edge)
@@ -150,7 +154,9 @@ class TestSheetMetalConvert(unittest.TestCase):
         wire = Part.Wire(
             [
                 Part.LineSegment(V(0, 0, 0), V(18, 0, 0)).toShape(),
-                Part.ArcOfCircle(Part.Circle(V(18, 2, 0), V(0, 0, 1), 2), -math.pi / 2, 0).toShape(),
+                Part.ArcOfCircle(
+                    Part.Circle(V(18, 2, 0), V(0, 0, 1), 2), -math.pi / 2, 0
+                ).toShape(),
                 Part.LineSegment(V(20, 2, 0), V(20, 10, 0)).toShape(),
                 Part.LineSegment(V(20, 10, 0), V(19, 10, 0)).toShape(),
                 Part.LineSegment(V(19, 10, 0), V(19, 2, 0)).toShape(),
@@ -174,9 +180,7 @@ class TestSheetMetalConvert(unittest.TestCase):
         self.checkValid(convert)
         self.assertAlmostEqual(convert.Shape.Volume, solid.Volume, places=6)
         # the caps split at the bend's two tangent planes: three faces each
-        self.assertEqual(
-            len([f for f in convert.Shape.Faces if abs(f.BoundBox.ZLength) < 1e-9]), 6
-        )
+        self.assertEqual(len([f for f in convert.Shape.Faces if abs(f.BoundBox.ZLength) < 1e-9]), 6)
         self.checkFlat(convert, 18 + BA + 8, 15, bends=1)
 
     def testOwnRadius(self):
@@ -185,7 +189,9 @@ class TestSheetMetalConvert(unittest.TestCase):
         wire = Part.Wire(
             [
                 Part.LineSegment(V(0, 0, 0), V(17, 0, 0)).toShape(),
-                Part.ArcOfCircle(Part.Circle(V(17, 3, 0), V(0, 0, 1), 3), -math.pi / 2, 0).toShape(),
+                Part.ArcOfCircle(
+                    Part.Circle(V(17, 3, 0), V(0, 0, 1), 3), -math.pi / 2, 0
+                ).toShape(),
                 Part.LineSegment(V(20, 3, 0), V(20, 10, 0)).toShape(),
                 Part.LineSegment(V(20, 10, 0), V(19, 10, 0)).toShape(),
                 Part.LineSegment(V(19, 10, 0), V(19, 3, 0)).toShape(),
@@ -229,6 +235,138 @@ class TestSheetMetalConvert(unittest.TestCase):
         self.assertIn("Invalid", convert.State)
         self.assertIn("thick", convert.getStatusString())
         self.assertIn("Face", convert.getStatusString())
+
+    # A solid: thickened by the rule's thickness with its open faces taken
+    # away, every sharp edge a bend of the rule's radius but where ripped
+
+    def edges(self, shape, test):
+        return ["Edge%d" % (i + 1) for i, e in enumerate(shape.Edges) if test(e)]
+
+    def tray(self, **props):
+        """A box 40 x 20 x 10, its top open, its four upright edges ripped"""
+        body = self.body(Part.makeBox(40, 20, 10))
+        box = body.BaseFeature.Shape
+        convert = body.newObject("PartDesign::SheetMetalConvert", "Convert")
+        convert.FixedFace = (
+            body.BaseFeature,
+            [self.face(box, lambda f: abs(f.BoundBox.ZMax) < 1e-7)],
+        )
+        convert.OpenFaces = (
+            body.BaseFeature,
+            [self.face(box, lambda f: abs(f.BoundBox.ZMin - 10) < 1e-7)],
+        )
+        convert.RipEdges = (
+            body.BaseFeature,
+            self.edges(box, lambda e: abs(e.BoundBox.ZLength - 10) < 1e-7),
+        )
+        for k, v in props.items():
+            setattr(convert, k, v)
+        self.Doc.recompute()
+        return convert
+
+    def testSolidTray(self):
+        """The box opened at the top and ripped at its corners, thickened
+        inside: a tray of the box's size, the flange suite's mitered tray --
+        the bottom cut back R + T at each bend, legs of BA and 8"""
+        convert = self.tray()
+        self.checkValid(convert)
+        self.assertEqual(convert.Kind, "Solid")
+        box = convert.Shape.BoundBox
+        for k, v in (("XLength", 40), ("YLength", 20), ("ZLength", 10)):
+            self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
+        leg = BA + 8
+        self.checkFlat(convert, 40 - 2 * 2 + 2 * leg, 20 - 2 * 2 + 2 * leg, bends=4)
+
+    def testSolidOutside(self):
+        """Thickened outside: the box's faces the inner skins, the tray a
+        thickness larger every way it was thickened"""
+        convert = self.tray(Side="Outside")
+        self.checkValid(convert)
+        box = convert.Shape.BoundBox
+        for k, v in (("XLength", 42), ("YLength", 22), ("ZLength", 11)):
+            self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
+        self.checkFlat(convert, 40 - 2 * 1 + 2 * (BA + 9), 20 - 2 * 1 + 2 * (BA + 9), bends=4)
+
+    def testSolidLoopRefused(self):
+        """Not ripped, the box's sides close a loop of bends round it, which
+        does not lie flat: refused, saying to rip an edge of it"""
+        convert = self.tray()
+        convert.RipEdges = None
+        self.Doc.recompute()
+        self.assertIn("Invalid", convert.State)
+        self.assertIn("rip", convert.getStatusString())
+
+    # A shell: thickened along its faces' normals, or against them, open
+    # where it has no face
+
+    def shellConvert(self, shell, rips=(), **props):
+        body = self.body(shell)
+        base = body.BaseFeature.Shape
+        convert = body.newObject("PartDesign::SheetMetalConvert", "Convert")
+        convert.FixedFace = (
+            body.BaseFeature,
+            [self.face(base, lambda f: abs(f.BoundBox.ZMax) < 1e-7)],
+        )
+        if rips:
+            convert.RipEdges = (body.BaseFeature, self.edges(base, rips))
+        for k, v in props.items():
+            setattr(convert, k, v)
+        self.Doc.recompute()
+        return convert
+
+    def ell(self):
+        """An L of two faces, a 30 x 40 bottom and a 20 high side on its
+        X = 0 edge, their normals out of the box they are taken from"""
+        box = Part.makeBox(30, 40, 20)
+        return Part.Shell(
+            [f for f in box.Faces if f.BoundBox.ZMax < 1e-7 or f.BoundBox.XMax < 1e-7]
+        )
+
+    def testShellL(self):
+        """The L thickened inside: the bottom cut back R + T at the bend, the
+        side too, by hand 28 + 18 + BA long and 40 wide"""
+        convert = self.shellConvert(self.ell())
+        self.checkValid(convert)
+        self.assertEqual(convert.Kind, "Shell")
+        box = convert.Shape.BoundBox
+        for k, v in (("XLength", 30), ("YLength", 40), ("ZLength", 20)):
+            self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
+        self.checkFlat(convert, 28 + 18 + BA, 40, area=(28 + 18 + BA) * 40, bends=1)
+
+    def testShellLOutside(self):
+        """The L thickened outside, its faces the inner skins: cut back R
+        only, 29 + 19 + BA long"""
+        convert = self.shellConvert(self.ell(), Side="Outside")
+        self.checkValid(convert)
+        box = convert.Shape.BoundBox
+        for k, v in (("XLength", 31), ("YLength", 40), ("ZLength", 21)):
+            self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
+        self.checkFlat(convert, 29 + 19 + BA, 40, area=(29 + 19 + BA) * 40, bends=1)
+
+    def testShellTray(self):
+        """The box's faces but its top, a shell, its upright edges ripped:
+        the tray the solid makes"""
+        box = Part.makeBox(40, 20, 10)
+        shell = Part.Shell([f for f in box.Faces if f.BoundBox.ZMin < 10 - 1e-7])
+        convert = self.shellConvert(shell, rips=lambda e: abs(e.BoundBox.ZLength - 10) < 1e-7)
+        self.checkValid(convert)
+        self.assertEqual(convert.Kind, "Shell")
+        leg = BA + 8
+        self.checkFlat(convert, 40 - 2 * 2 + 2 * leg, 20 - 2 * 2 + 2 * leg, bends=4)
+
+    def testShellOpenFacesRefused(self):
+        """A shell is open where it has no face: an open face picked on it is
+        refused"""
+        shell = self.ell()
+        convert = self.shellConvert(shell)
+        base = convert.BaseFeature.Shape
+        convert.OpenFaces = (
+            convert.BaseFeature,
+            [self.face(base, lambda f: f.BoundBox.XMax < 1e-7)],
+        )
+        self.Doc.recompute()
+        self.assertIn("Invalid", convert.State)
+        self.assertIn("Open Faces", convert.getStatusString())
 
     def testSaveAndRestore(self):
         """Saved and opened again, the converted part lies flat as before"""

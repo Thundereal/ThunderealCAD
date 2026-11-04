@@ -25,7 +25,7 @@ import unittest
 import FreeCAD
 import Part
 
-from .SheetMetalFlatView import Flat
+from .SheetMetalFlatView import Flat, flatObject
 
 V = FreeCAD.Vector
 RING = 3 * math.pi / 4
@@ -441,6 +441,67 @@ class TestSheetMetalCutout(unittest.TestCase):
         cutout.Profile = self.sketch(self.top(), circles=[((10, 10, 1), 3)])
         self.Doc.recompute()
         self.checkValid(cutout)
+
+    # The sketch in the flat's own frame (WrapFrame Flat): laid as the
+    # sheet lays it, its root, second skin and align edge, so geometry taken
+    # from a feature's flat is where Wrap reads it
+
+    def testWrapFlatFrame(self):
+        """The flat laid by its leg (Root Wall2), its frame not the plate's
+        where it lies folded: a circle 1 across drawn at the middle of the
+        plate as it lies in the flat is the hole in the cutout's flat there,
+        and pi less material folded"""
+        self.flange("Far", FAR)
+        flatObject(self.Tip).Root = "Wall2"
+        self.Doc.recompute()
+        volume = self.Tip.Shape.Volume
+        flat, before = self.flatArea(self.Tip)
+        solid = flat.Shape.Solids[0]
+        top = solid.BoundBox.ZMax
+        plate = max(
+            (
+                f
+                for f in solid.Faces
+                if isinstance(f.Surface, Part.Plane)
+                and f.BoundBox.ZLength < 1e-7
+                and abs(f.BoundBox.ZMin - top) < 1e-7
+            ),
+            key=lambda f: f.Area,
+        )
+        c = plate.CenterOfMass
+        sketch = self.sketch(
+            FreeCAD.Placement(V(0, 0, top), FreeCAD.Rotation()), circles=[((c.x, c.y, top), 1)]
+        )
+        cutout = self.cut(sketch, Wrap=True, WrapFrame="Flat")
+        self.checkValid(cutout)
+        self.assertAlmostEqual(cutout.Shape.Volume, volume - math.pi, places=6)
+        flat, area = self.flatArea(cutout)
+        self.assertAlmostEqual(area, before - math.pi, places=6)
+        holes = [
+            e
+            for e in flat.Shape.Solids[0].Edges
+            if isinstance(e.Curve, Part.Circle) and abs(e.Curve.Radius - 1) < 1e-6
+        ]
+        self.assertTrue(
+            any(math.hypot(e.Curve.Center.x - c.x, e.Curve.Center.y - c.y) < 1e-6 for e in holes),
+            [e.Curve.Center for e in holes],
+        )
+
+    def testWrapFlatFrameRefused(self):
+        """In the flat's frame a sketch must lie parallel to its XY"""
+        self.flange("Far", FAR)
+        sketch = self.sketch(self.outside(30), circles=[((20, 30, 5), 1)])
+        cutout = self.cut(sketch, Wrap=True, WrapFrame="Flat")
+        self.assertIn("Invalid", cutout.State)
+        self.assertIn("XY", cutout.getStatusString())
+
+    def testWrapFrameReadOnly(self):
+        """WrapFrame is for a wrap: read only while Wrap is off"""
+        sketch = self.sketch(self.top(), circles=[((20, 10, 1), 1)])
+        cutout = self.cut(sketch)
+        self.assertIn("ReadOnly", cutout.getPropertyStatus("WrapFrame"))
+        cutout.Wrap = True
+        self.assertNotIn("ReadOnly", cutout.getPropertyStatus("WrapFrame"))
 
     def testWrapCornerGap(self):
         """Two flanges meeting at a corner: their legs lie flat beside the

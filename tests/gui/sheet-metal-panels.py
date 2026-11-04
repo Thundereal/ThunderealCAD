@@ -428,6 +428,13 @@ def run():
                   cutout.UpToFirst)
         wrap = w.get("Wrap")
         check("and Wrap, the sketch as if drawn on the flat", wrap is not None)
+        frame = w.get("WrapFrame")
+        items = [frame.itemText(i) for i in range(frame.count())] if frame else []
+        check(
+            "and Wrap frame, Folded or Flat, greyed while Wrap is off",
+            items == ["Folded", "Flat"] and not frame.isEnabled(),
+            (items, frame and frame.isEnabled()),
+        )
         if wrap is not None:
             wrap.click()
             pump(20)
@@ -439,6 +446,7 @@ def run():
                 and not w["Reversed"].isEnabled(),
                 (cutout.Wrap, first and first.isEnabled()),
             )
+            check("and Wrap frame then is", frame is not None and frame.isEnabled())
         accept()
         pump(20)
         check("OK keeps a good cutout", "Invalid" not in cutout.State, cutout.State)

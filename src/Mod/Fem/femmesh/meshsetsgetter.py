@@ -318,6 +318,24 @@ class MeshSetsGetter:
             if getattr(femobj["Object"], "Coupling", "Rigid") == "Distributing":
                 femobj["CouplingFaces"] = self._get_elements(femobj["Object"])
                 self._coupling_within_radius(femobj)
+            else:
+                self._rigid_within_radius(femobj)
+
+    def _rigid_within_radius(self, femobj):
+        """Not upstream: a rigid coupling's nodes within its CouplingRadius
+        of its reference node -- the part of a face another part shares --
+        the nearest one where none is"""
+        obj = femobj["Object"]
+        radius = getattr(obj, "CouplingRadius", None)
+        radius = radius.getValueAs("mm").Value if radius is not None else 0.0
+        if not radius > 0.0 or not femobj["Nodes"]:
+            return
+        nodes = self.femmesh.Nodes
+        ref = obj.ReferenceNode
+        kept = [n for n in femobj["Nodes"] if (nodes[n] - ref).Length <= radius]
+        if not kept:
+            kept = [min(femobj["Nodes"], key=lambda n: (nodes[n] - ref).Length)]
+        femobj["Nodes"] = kept
 
     def _coupling_within_radius(self, femobj):
         """Not upstream: a distributing coupling's element faces within its

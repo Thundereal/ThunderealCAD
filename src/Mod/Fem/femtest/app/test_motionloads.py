@@ -224,6 +224,36 @@ class TestMotionLoads(unittest.TestCase):
         self.assertAlmostEqual(-near, point, delta=0.02 * point)
         self.assertAlmostEqual(-whole, spread, delta=0.03 * spread)
 
+    def test_rigid_coupling_radius(self):
+        """A rigid coupling with a radius holds only its faces' nodes within
+        it of its reference node -- the part of a face another part shares --
+        and the load through it is all there: 100 N across the bar's far
+        face through a rigid coupling of 3 mm round its centre, the clamp
+        taking the 100 N"""
+        self.bar()
+        rb = ObjectsFem.makeConstraintRigidBody(self.doc, "Patch")
+        rb.References = [(self.box, "Face2")]
+        rb.ReferenceNode = FreeCAD.Vector(L, A / 2, A / 2)
+        rb.Coupling = "Rigid"
+        rb.CouplingRadius = "3 mm"
+        rb.ForceY = "100 N"
+        rb.TranslationalModeY = "Load"
+        self.analysis.addObject(rb)
+        self.doc.recompute()
+        problems, inp = self.write()
+        self.assertEqual(problems, "")
+        nodes = re.search(r"\*NSET,NSET=Patch\n((?:\d+,\n)+)", inp)
+        self.assertIsNotNone(nodes, inp[-3000:])
+        # Second order: the corners' and the edges' middles within 3 mm, of
+        # the face's hundred and more
+        count = len(nodes.group(1).splitlines())
+        self.assertLess(count, 40)
+        self.assertGreater(count, 3)
+        text = self.solve()
+        total = self.block(text, "total force (fx,fy,fz) for set FIXED")
+        self.assertEqual(len(total), 1, text[-2000:])
+        self.assertAlmostEqual(total[0][1], -100.0, delta=1e-6)
+
     def test_reference_node_fields(self):
         """A coupling's reference node off by round-off, as a point from a
         motion's run is: its coordinates written in fields of at most 20

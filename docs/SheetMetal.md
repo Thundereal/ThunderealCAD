@@ -1422,14 +1422,30 @@ are one.
 read only while `Wrap` is off. Folded is the old reading. Flat reads the sketch on the XY plane of
 the flat as the sheet lays it -- the flat settings' root, second skin and align edge -- where
 geometry taken from a feature's flat is; a sketch not parallel to XY is refused. Both go through
-`wrapOnFlat()` in Refold.cpp: each element's skin on XY, what of the sketch lies there taken back
-by the inverse of the flat's `toXY` (now on `FlatResult`) onto the root's first skin, and refolded
-through that element. `TestSheetMetalCutout` (20, +3; before, the three errored), and the cutout panel's row in
-`sheet-metal-panels.py` (67, +2). M4's order:
-the bend table panel with per-bend overrides, the Rip of its own, export of every sheet, the
-drawings, flat-only markings (a sketch attached to the flat being mostly this option), then notches
-and cross break. Unfold / refold is dropped from M4: the flat object, a feature's flat in its
-panel, the stored flat and this option do what it was for.
+`wrapOnFlat()` in Refold.cpp: each element's skin on XY, what of the sketch lies there taken back by
+the inverse of the flat's `toXY` (now on `FlatResult`) onto the root's first skin, and refolded
+through that element. `TestSheetMetalCutout` (20, +3; before, the three errored), and the cutout
+panel's row in `sheet-metal-panels.py` (67, +2). The flat object cannot be linked by the cutout (it
+follows the sheet's tip, a cycle), so the cutout keeps the settings it was cut by (`WrapSettings`,
+hidden, saved) and is cut again when the sheet's are others (`mustExecute()`, `skipRecompute()`); it
+touches nothing, so an undo, which puts the settings and the cut back together, and a load leave it
+be (`testWrapFlatFrameFollowsSettings`, 21). Found writing that test, not sheet metal's: a shape not
+read since its document was opened comes back null from an undo of a recompute that changed it (a
+`Part::Cut` under a `Part::Box` too; `~/.cache/sm-check/undo-null-shape/repro.py`). M4's order: the
+bend table panel with per-bend overrides, the Rip of its own, export of every sheet, the drawings,
+flat-only markings (a sketch attached to the flat being mostly this option), then notches and cross
+break. Unfold / refold is dropped from M4: the flat object, a feature's flat in its panel, the
+stored flat and this option do what it was for.
+- **Built 2026-11-05, M4's third item, every sheet's flat at once:** `PartDesign::exportFlats(doc,
+  folder, suffix)` (`PartDesign.exportFlats()`) writes each sheet of a document by `exportFlat()`,
+  one DXF or SVG file each, named after its body, and the sheet's solid where a body holds more
+  than one; a label is made a file name (no separator or character a file system refuses, no
+  trailing dot or space) and a name taken twice, case aside, is numbered. A sheet that fails is
+  told with why and the others written; a bad suffix or a missing folder is refused first. Export
+  Every Flat, beside Export Flat, asks a folder (the document's own at first) and DXF or SVG,
+  remembers both, and reports in the report view; it opens a dialog, so it is not on the
+  browser's allowlist. `TestSheetMetalFlat` (28, +3), `sheet-metal-commands.py` (65, +2). The
+  first two items wait on a ruling: where a bend's override lives, and what it may override.
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

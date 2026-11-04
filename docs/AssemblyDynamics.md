@@ -2831,6 +2831,27 @@ Phase D1 is under way (2026-10-28):
     (with gmsh 4.15), apart from `.conda/freecad`, whose pinned stack it
     would move; its MinGW DLLs (`Library/mingw-w64/bin`) must be on PATH.
     The release packages need it as a dependency.
+- Built, D4a step 1: the bodies' motion in the run's results. Each moving
+  body reports "Acceleration" (its centre of mass's, mm/s^2), "AngularVelocity"
+  (rad/s) and "AngularAcceleration" (rad/s^2), model axes, width 3, after
+  the other channels; the panel shows them in m/s^2, deg/s and deg/s^2, and
+  the CSV and spreadsheet exports carry them. A dynamic run's start takes
+  the accelerations as it takes the reactions (the line through the 32nd
+  and 64th smallest steps); a kinematic run's reactions bring them from
+  the motions' differences.
+  - **The accelerations are M^-1 (f + Cq' L), not the integrator's.** HHT's
+    own acceleration is of forces blended across the step (alpha -0.2): on
+    the pendulum released from horizontal its centre's was off the closed
+    form by 0.07% of g at 10 ms, growing to 0.8% at the bottom, while the
+    hinge's reaction was within 1e-4. From the forces the step ended with,
+    gravity, loads and the reactions reported: within 1e-4 of g too, and
+    the angular rate within 3e-4 -- what makes a free body's loads balance
+    (step 2's check).
+  - Tests: TestDynamics' test_body_motion (the pendulum's acceleration,
+    turn and rate against the closed form at each frame) and
+    test_body_motion_kinematic (driven time^2 about the hinge: 2 t rad/s at
+    2 rad/s^2, its centre 50 mm out); the CSV's columns; the C++ redundancy
+    test counts the body channels after the reactions.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -447,6 +447,52 @@ class TestDynamics(unittest.TestCase):
             self.assertLess((force + onRod).Length, weight * 1e-3, time)
             self.assertLess(torque.Length, weight * d * 1e-6, time)
 
+    def test_body_motion(self):
+        """The rod's motion, which its inertia loads are made of
+        (docs/AssemblyDynamics.md, D4a): its centre of mass's acceleration,
+        its turn about the hinge's axis, y, and the turn's rate, from the
+        energy it has lost and gravity's torque about the hinge."""
+        rod = self.pendulum()
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        accels = self.channel("Rod", "Acceleration")
+        spins = self.channel("Rod", "AngularVelocity")
+        rates = self.channel("Rod", "AngularAcceleration")
+        mass = 100 * 10 * 10 * 2.7e-6
+        d = 50.0
+        inertia = mass * ((100**2 + 10**2) / 12 + d**2)
+        frames = self.frames(rod, 1e-2)
+        for (time, centre, _), accel, spin, rate in zip(frames, accels, spins, rates):
+            theta = math.atan2(5 - centre.z, centre.x - 10)
+            omega = math.sqrt(2 * mass * G * d * math.sin(max(theta, 0.0)) / inertia)
+            alpha = mass * G * d * math.cos(theta) / inertia
+            e = App.Vector(math.cos(theta), 0, -math.sin(theta))
+            t = App.Vector(-math.sin(theta), 0, -math.cos(theta))
+            expected = t * (alpha * d) - e * (omega * omega * d)
+            self.assertLess((accel - expected).Length, G * 1e-3, time)
+            # Down from +x towards -z: a turn about +y
+            self.assertLess((spin - App.Vector(0, omega, 0)).Length, 1e-3 * math.sqrt(G / d), time)
+            self.assertLess((rate - App.Vector(0, alpha, 0)).Length, 1e-3 * G / d, time)
+
+    def test_body_motion_kinematic(self):
+        """A kinematic run with its reactions reports the rod's motion too:
+        turned by time^2 about the hinge, 2 t rad/s at 2 rad/s^2, its centre
+        of mass 50 mm out."""
+        self.assertIsNotNone(
+            self.driven("Position", "time*time", analysis="Kinematic", reactions=True)
+        )
+        results = self.assembly.getSimulationResults()
+        accels = self.channel("Rod", "Acceleration")
+        spins = self.channel("Rod", "AngularVelocity")
+        rates = self.channel("Rod", "AngularAcceleration")
+        for time, accel, spin, rate in zip(results["Times"], accels, spins, rates):
+            omega = 2 * time
+            self.assertAlmostEqual(spin.Length, omega, delta=1e-5, msg=time)
+            self.assertAlmostEqual(abs(spin.y), spin.Length, delta=1e-9, msg=time)
+            self.assertAlmostEqual(rate.Length, 2.0, delta=1e-4, msg=time)
+            expected = 50 * math.hypot(2.0, omega * omega)
+            self.assertAlmostEqual(accel.Length, expected, delta=1e-3 * expected, msg=time)
+
     def test_results_export(self):
         """The run's values to a CSV file and to a spreadsheet
         (docs/AssemblyDynamics.md sec 8.4): the time, then each channel's
@@ -471,10 +517,13 @@ class TestDynamics(unittest.TestCase):
         os.remove(path)
         os.rmdir(os.path.dirname(path))
         header = rows[0]
-        self.assertEqual(len(header), 7)
+        # The hinge's reaction, then the rod's motion
+        self.assertEqual(len(header), 16)
         self.assertEqual(header[0], "Time (s)")
         self.assertEqual(header[1], "Revolute: Reaction force X (N)")
         self.assertEqual(header[6], "Revolute: Reaction torque Z (N m)")
+        self.assertEqual(header[7], "Rod: Acceleration X (m/s^2)")
+        self.assertEqual(header[15], "Rod: Angular acceleration Z (deg/s^2)")
         self.assertEqual(len(rows), 1 + len(results["Times"]))
         for k, row in enumerate(rows[1:]):
             self.assertEqual(float(row[0]), results["Times"][k])

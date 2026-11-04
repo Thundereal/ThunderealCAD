@@ -1453,12 +1453,15 @@ TEST(ChronoBackend, dynamicRunTakesOutRedundantRows)  // NOLINT
     ASSERT_EQ(runDynamics(door(true), two), Status::Ok);
     ASSERT_EQ(one.frames.size(), 11u);
     ASSERT_EQ(two.frames.size(), one.frames.size());
-    ASSERT_EQ(one.seen.size(), 2u);
-    ASSERT_EQ(two.seen.size(), 4u);
+    // The hinges' reactions, then the door's motion
+    ASSERT_EQ(one.seen.size(), 5u);
+    ASSERT_EQ(two.seen.size(), 7u);
     EXPECT_TRUE(one.seen[0].unique);
-    for (const Channel& channel : two.seen) {
+    for (std::size_t c = 0; c < 4; ++c) {
+        const Channel& channel = two.seen[c];
         EXPECT_FALSE(channel.unique) << channel.source << " " << channel.quantity;
     }
+    EXPECT_EQ(two.seen[4].quantity, "Acceleration");
     double turned = 0.0;
     for (std::size_t f = 0; f < one.frames.size(); ++f) {
         SCOPED_TRACE(f);
@@ -1501,8 +1504,10 @@ TEST(ChronoBackend, dynamicRunTakesOutRedundantRows)  // NOLINT
         RunRecorder run;
         ASSERT_EQ(runDynamics(b.m, run), Status::Ok);
         ASSERT_EQ(run.frames.size(), 11u);
-        ASSERT_EQ(run.seen.size(), 4u);
-        for (const Channel& channel : run.seen) {
+        // The joints' reactions, then the puck's motion
+        ASSERT_EQ(run.seen.size(), 7u);
+        for (std::size_t c = 0; c < 4; ++c) {
+            const Channel& channel = run.seen[c];
             EXPECT_FALSE(channel.unique) << channel.source << " " << channel.quantity;
         }
         for (std::size_t f = 0; f < run.frames.size(); ++f) {

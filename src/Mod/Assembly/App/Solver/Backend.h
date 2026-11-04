@@ -182,6 +182,9 @@ struct SimulationSpec
 //                      motion and across it; width 3
 //   "FrictionForce", "FrictionTorque"  a joint's friction on the body of its
 //                      frame I, along and about the joint's axis
+//   "Acceleration", "AngularVelocity", "AngularAcceleration"  a moving body's:
+//                      its centre of mass's acceleration (mm/s^2), its turn
+//                      and the turn's rate (rad/s, rad/s^2); width 3
 // 'unique' is false for a reaction a redundant joint shares with others (sec
 // 6.1): the run took out the rows that repeat others, and what it reports is
 // one split of the load among the joints, not the only one.

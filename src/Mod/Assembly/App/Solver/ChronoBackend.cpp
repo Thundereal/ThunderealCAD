@@ -7919,6 +7919,18 @@ Status ChronoSession::simulateDynamics(
             channels.push_back({name, "FrictionTorque", 1});
         }
     }
+    // Each moving body's motion, its frame at its centre of mass: what its
+    // inertia loads are made of (D4a, loads to FEM)
+    std::vector<std::size_t> moving;
+    for (std::size_t b = 0; b < n; ++b) {
+        if (!run.d->bodies[b]->IsFixed()) {
+            const std::string& name = si.sourceName(si.bodies[b].source);
+            channels.push_back({name, "Acceleration", 3});
+            channels.push_back({name, "AngularVelocity", 3});
+            channels.push_back({name, "AngularAcceleration", 3});
+            moving.push_back(b);
+        }
+    }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
     // either body in their own frame on it, a NeutralLink from its rows
@@ -8344,6 +8356,34 @@ Status ChronoSession::simulateDynamics(
             }
             if (load->friction.turns) {
                 out.push_back(ch::Vdot(w.torque, z) / SI::torque);
+            }
+        }
+        // A body's accelerations from the forces on it, M^-1 (f + Cq' L):
+        // those the reactions reported balance. The integrator's own are
+        // HHT's, the forces blended across the step, its centre's off by up
+        // to 0.8% of g on a falling pendulum whose reactions were within
+        // 1e-4 (sec 4's D4a)
+        if (!moving.empty()) {
+            const unsigned int nv = sys.GetNumCoordsVelLevel();
+            ch::ChVectorDynamic<> L(sys.GetNumConstraints());
+            sys.StateGatherReactions(L);
+            ch::ChVectorDynamic<> R(nv);
+            R.setZero();
+            sys.LoadResidual_F(R, 1.0);
+            sys.LoadResidual_CqL(R, L, 1.0);
+            for (std::size_t b : moving) {
+                const auto& body = run.d->bodies[b];
+                const unsigned int at = body->GetOffset_w();
+                const ch::ChVector3d force(R(at), R(at + 1), R(at + 2));
+                const ch::ChVector3d torque(R(at + 3), R(at + 4), R(at + 5));
+                const double mass = body->GetMass();
+                const ch::ChVector3d a = mass > 0.0 ? force / mass / SI::acceleration : ch::VNULL;
+                const ch::ChVector3d alpha = body->GetRotMat() * (body->GetInvInertia() * torque);
+                for (const ch::ChVector3d& v : {a, body->GetAngVelParent(), alpha}) {
+                    for (int k = 0; k < 3; ++k) {
+                        out.push_back(v[k]);
+                    }
+                }
             }
         }
         return out;
@@ -10081,9 +10121,12 @@ Status ChronoSession::simulateDynamics(
                     std::vector<double> values = valuesNow();
                     std::size_t v = 0;
                     for (const auto& channel : channels) {
+                        // A body's accelerations are its loads' as well
                         const bool reaction = channel.quantity == "Force"
                             || channel.quantity == "Torque" || channel.quantity == "MotorTorque"
-                            || channel.quantity == "MotorForce";
+                            || channel.quantity == "MotorForce"
+                            || channel.quantity == "Acceleration"
+                            || channel.quantity == "AngularAcceleration";
                         for (int c = 0; c < channel.width && v < values.size(); ++c, ++v) {
                             values[v] = reaction ? 2.0 * half[v] - values[v] : start[v];
                         }

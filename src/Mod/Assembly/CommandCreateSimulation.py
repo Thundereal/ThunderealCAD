@@ -96,6 +96,19 @@ ResultQuantities = {
     "CamSlip": (QT_TRANSLATE_NOOP("Assembly", "Cam slip"), 1.0, "mm/s"),
     "CamDriveForce": (QT_TRANSLATE_NOOP("Assembly", "Cam drive force"), 1e-3, "N"),
     "CamSideForce": (QT_TRANSLATE_NOOP("Assembly", "Cam side load"), 1e-3, "N"),
+    # A moving part's: its centre of mass's acceleration, its turn and the
+    # turn's rate, the inertia loads a stress analysis takes
+    "Acceleration": (QT_TRANSLATE_NOOP("Assembly", "Acceleration"), 1e-3, "m/s^2"),
+    "AngularVelocity": (
+        QT_TRANSLATE_NOOP("Assembly", "Angular velocity"),
+        57.29577951308232,
+        "deg/s",
+    ),
+    "AngularAcceleration": (
+        QT_TRANSLATE_NOOP("Assembly", "Angular acceleration"),
+        57.29577951308232,
+        "deg/s^2",
+    ),
 }
 
 

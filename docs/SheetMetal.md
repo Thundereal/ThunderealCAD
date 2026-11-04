@@ -1281,6 +1281,16 @@ and not frozen.
   `Bend1Part2`, ... (`Bend1Tangent1Part2`). Its whole is kept for what measures from it (Check
   Sheet's hole near a bend) and for its label. `testBendLineOnTheBlank` (slots cut a line in
   four), `testLinesStopAtTheRelief` (each had run 0.49 into a mitered corner's relief).
+- The markings styled: the flat's view draws the blank (its shape's solid, given to it, whose
+  faces, edges and vertices come first in the shape and so keep their indices) and each kind of
+  marking in a Part view of its own under its root, whatever its display mode: the bend lines
+  up, those down (by `BendDirections`), the tangent lines, the grain arrow. Each kind has
+  `Show...`, a colour, a line style (a Part view's `DrawStyle`: Solid, Dashed, Dotted, Dashdot)
+  and a width, in the view's `Markings` group; by default as the SVG draws them, up and down
+  dashed blue and red, the tangent lines dotted grey, the grain solid green. Picked, a marking
+  is the edge of the object's shape it is (`Flat.Edge207`, `;Bend4`), and that name selects and
+  highlights it. A bare ray pick (`getObjectInfo()`) has the nearer of a line and the face it
+  lies on; a click, as the selection picks, has the line. `sheet-metal-commands.py` (60).
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

@@ -24,6 +24,10 @@
 
 #pragma once
 
+#include <array>
+#include <memory>
+#include <vector>
+
 #include <Mod/Part/Gui/ViewProvider.h>
 
 #include "ViewProviderAddSub.h"
@@ -193,6 +197,11 @@ protected:
 /** A sheet's flat object (docs/SheetMetal.md sec 12, ruled 2026-11-04): its
  * solid's tip laid flat. Shown out of date, it has the flat laid by a
  * recompute of it alone.
+ *
+ * It draws the blank, and each kind of marking -- the bend lines up, those
+ * down, the tangent lines, the grain arrow -- in a view of its own, with its
+ * own colour, line style and width, shown or not; picked and selected, a
+ * marking is the element of the object's shape it is (Edge40).
  */
 class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart
 {
@@ -200,7 +209,59 @@ class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::Vie
 
 public:
     ViewProviderSheetMetalFlatPattern();
+    ~ViewProviderSheetMetalFlatPattern() override;
+
+    /** @name How each kind of marking is drawn */
+    //@{
+    App::PropertyBool ShowBendUp;
+    App::PropertyColor BendUpColor;
+    App::PropertyEnumeration BendUpStyle;
+    App::PropertyFloatConstraint BendUpWidth;
+    App::PropertyBool ShowBendDown;
+    App::PropertyColor BendDownColor;
+    App::PropertyEnumeration BendDownStyle;
+    App::PropertyFloatConstraint BendDownWidth;
+    App::PropertyBool ShowTangentLines;
+    App::PropertyColor TangentLineColor;
+    App::PropertyEnumeration TangentLineStyle;
+    App::PropertyFloatConstraint TangentLineWidth;
+    App::PropertyBool ShowGrain;
+    App::PropertyColor GrainColor;
+    App::PropertyEnumeration GrainStyle;
+    App::PropertyFloatConstraint GrainWidth;
+    //@}
+
+    void attach(App::DocumentObject* obj) override;
     void show() override;
+    void updateData(const App::Property* prop) override;
+    void beforeDelete() override;
+    void reattach(App::DocumentObject* obj) override;
+    bool getElementPicked(const SoPickedPoint* pp, std::string& subname) const override;
+    bool getDetailPath(const char* subname, SoFullPath* path, bool append,
+                       SoDetail*& det) const override;
+
+protected:
+    void onChanged(const App::Property* prop) override;
+
+private:
+    /// The shape split: the blank for this view, each kind's edges for its own
+    void refreshMarkings();
+    /// A kind's look on its view
+    void applyLook(int kind);
+
+    struct Kind
+    {
+        App::PropertyBool* show;
+        App::PropertyColor* color;
+        App::PropertyEnumeration* style;
+        App::PropertyFloatConstraint* width;
+        std::unique_ptr<PartGui::ViewProviderPart> view;
+        /// Each of its edges' index in the object's shape, by its own
+        std::vector<int> edges;
+    };
+    std::array<Kind, 4> kinds;
+    /// How many edges the blank has: the shape's first ones
+    int blankEdges = 0;
 };
 
 }  // namespace PartDesignGui

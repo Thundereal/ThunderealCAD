@@ -24,10 +24,17 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
+
 #include <QTimer>
+
+#include <Inventor/SoFullPath.h>
+#include <Inventor/SoPickedPoint.h>
+#include <Inventor/nodes/SoSeparator.h>
 
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
+#include <App/ElementNamingUtils.h>
 #include <Gui/Application.h>
 #include <Gui/Control.h>
 #include <Gui/Document.h>
@@ -355,9 +362,197 @@ void ViewProviderSheetMetalRule::unsetEdit(int ModNum)
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)
 
+namespace
+{
+enum
+{
+    BendUp,
+    BendDown,
+    Tangent,
+    GrainKind
+};
+const App::PropertyFloatConstraint::Constraints widthRange = {0.5, 64.0, 0.5};
+/// As a Part view's DrawStyle has them
+const char* styleEnums[] = {"Solid", "Dashed", "Dotted", "Dashdot", nullptr};
+}  // namespace
+
 ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
 {
     sPixmap = "PartDesign_SheetMetalFlatten";
+    // As the SVG draws them (docs/SheetMetal.md sec 12): up and down dashed
+    // in two colours, the tangent lines dotted, the grain solid
+    const char* group = "Markings";
+    ADD_PROPERTY_TYPE(ShowBendUp, (true), group, App::Prop_None, "Draw the bend lines bent up");
+    ADD_PROPERTY_TYPE(BendUpColor, (0.0f, 0x50 / 255.0f, 0xd0 / 255.0f), group, App::Prop_None,
+                      "The colour of the bend lines bent up");
+    ADD_PROPERTY_TYPE(BendUpStyle, (1L), group, App::Prop_None,
+                      "The line style of the bend lines bent up");
+    ADD_PROPERTY_TYPE(BendUpWidth, (2.0), group, App::Prop_None,
+                      "The line width of the bend lines bent up");
+    ADD_PROPERTY_TYPE(ShowBendDown, (true), group, App::Prop_None,
+                      "Draw the bend lines bent down");
+    ADD_PROPERTY_TYPE(BendDownColor, (0xd0 / 255.0f, 0x30 / 255.0f, 0x30 / 255.0f), group,
+                      App::Prop_None, "The colour of the bend lines bent down");
+    ADD_PROPERTY_TYPE(BendDownStyle, (1L), group, App::Prop_None,
+                      "The line style of the bend lines bent down");
+    ADD_PROPERTY_TYPE(BendDownWidth, (2.0), group, App::Prop_None,
+                      "The line width of the bend lines bent down");
+    ADD_PROPERTY_TYPE(ShowTangentLines, (true), group, App::Prop_None,
+                      "Draw the tangent lines, where the flat has them");
+    ADD_PROPERTY_TYPE(TangentLineColor, (0x80 / 255.0f, 0x80 / 255.0f, 0x80 / 255.0f), group,
+                      App::Prop_None, "The colour of the tangent lines");
+    ADD_PROPERTY_TYPE(TangentLineStyle, (2L), group, App::Prop_None,
+                      "The line style of the tangent lines");
+    ADD_PROPERTY_TYPE(TangentLineWidth, (1.0), group, App::Prop_None,
+                      "The line width of the tangent lines");
+    ADD_PROPERTY_TYPE(ShowGrain, (true), group, App::Prop_None,
+                      "Draw the grain arrow, where the flat has it");
+    ADD_PROPERTY_TYPE(GrainColor, (0x20 / 255.0f, 0x80 / 255.0f, 0x20 / 255.0f), group,
+                      App::Prop_None, "The colour of the grain arrow");
+    ADD_PROPERTY_TYPE(GrainStyle, (0L), group, App::Prop_None,
+                      "The line style of the grain arrow");
+    ADD_PROPERTY_TYPE(GrainWidth, (2.0), group, App::Prop_None,
+                      "The line width of the grain arrow");
+    kinds = {Kind {&ShowBendUp, &BendUpColor, &BendUpStyle, &BendUpWidth, {}, {}},
+             Kind {&ShowBendDown, &BendDownColor, &BendDownStyle, &BendDownWidth, {}, {}},
+             Kind {&ShowTangentLines, &TangentLineColor, &TangentLineStyle, &TangentLineWidth,
+                   {}, {}},
+             Kind {&ShowGrain, &GrainColor, &GrainStyle, &GrainWidth, {}, {}}};
+    for (auto& kind : kinds) {
+        kind.style->setEnums(styleEnums);
+        kind.width->setConstraints(&widthRange);
+    }
+}
+
+ViewProviderSheetMetalFlatPattern::~ViewProviderSheetMetalFlatPattern() = default;
+
+void ViewProviderSheetMetalFlatPattern::attach(App::DocumentObject* obj)
+{
+    PartGui::ViewProviderPart::attach(obj);
+    for (int k = 0; k < static_cast<int>(kinds.size()); ++k) {
+        auto& kind = kinds[k];
+        kind.view = std::make_unique<PartGui::ViewProviderPart>();
+        kind.view->forceUpdate();
+        kind.view->setStatus(Gui::SecondaryView, true);
+        kind.view->attach(obj);
+        kind.view->DisplayMode.setValue("Wireframe");
+        kind.view->setDisplayMode("Wireframe");
+        kind.view->setGivenShape(Part::TopoShape());
+        // drawn whatever this view's display mode
+        pcRoot->addChild(kind.view->getRoot());
+        applyLook(k);
+    }
+    refreshMarkings();
+}
+
+void ViewProviderSheetMetalFlatPattern::reattach(App::DocumentObject* obj)
+{
+    PartGui::ViewProviderPart::reattach(obj);
+    for (auto& kind : kinds) {
+        if (kind.view) {
+            kind.view->reattach(obj);
+        }
+    }
+}
+
+void ViewProviderSheetMetalFlatPattern::beforeDelete()
+{
+    for (auto& kind : kinds) {
+        if (kind.view) {
+            kind.view->beforeDelete();
+        }
+    }
+    PartGui::ViewProviderPart::beforeDelete();
+}
+
+void ViewProviderSheetMetalFlatPattern::applyLook(int index)
+{
+    auto& kind = kinds[index];
+    if (!kind.view) {
+        return;
+    }
+    kind.view->LineColor.setValue(kind.color->getValue());
+    kind.view->PointColor.setValue(kind.color->getValue());
+    kind.view->DrawStyle.setValue(kind.style->getValue());
+    kind.view->LineWidth.setValue(kind.width->getValue());
+    kind.view->PointSize.setValue(kind.width->getValue());
+    if (kind.show->getValue() && !kind.edges.empty()) {
+        kind.view->show();
+    }
+    else {
+        kind.view->hide();
+    }
+}
+
+void ViewProviderSheetMetalFlatPattern::onChanged(const App::Property* prop)
+{
+    for (int k = 0; k < static_cast<int>(kinds.size()); ++k) {
+        const auto& kind = kinds[k];
+        if (prop == kind.show || prop == kind.color || prop == kind.style || prop == kind.width) {
+            applyLook(k);
+        }
+    }
+    PartGui::ViewProviderPart::onChanged(prop);
+}
+
+void ViewProviderSheetMetalFlatPattern::updateData(const App::Property* prop)
+{
+    auto flat = Base::freecad_dynamic_cast<PartDesign::SheetMetalFlatPattern>(getObject());
+    if (flat && (prop == &flat->Shape || prop == &flat->BendDirections)) {
+        refreshMarkings();
+    }
+    PartGui::ViewProviderPart::updateData(prop);
+}
+
+void ViewProviderSheetMetalFlatPattern::refreshMarkings()
+{
+    auto flat = Base::freecad_dynamic_cast<PartDesign::SheetMetalFlatPattern>(getObject());
+    if (!flat || !kinds[0].view) {
+        return;
+    }
+    // The shape is the blank, then a compound of each kind (layFlat()): the
+    // blank's edges are the shape's first, the markings' after them
+    const Part::TopoShape shape = flat->Shape.getShape();
+    Part::TopoShape blank;
+    if (shape.countSubShapes(TopAbs_SOLID) > 0) {
+        blank = shape.getSubTopoShape(TopAbs_SOLID, 1);
+    }
+    blankEdges = blank.isNull() ? 0 : static_cast<int>(blank.countSubShapes(TopAbs_EDGE));
+    const auto& directions = flat->BendDirections.getValues();
+    std::array<std::vector<Part::TopoShape>, 4> edges;
+    for (auto& kind : kinds) {
+        kind.edges.clear();
+    }
+    const int count = static_cast<int>(shape.countSubShapes(TopAbs_EDGE));
+    for (int i = blankEdges + 1; i <= count; ++i) {
+        const Data::IndexedName indexed("Edge", i);
+        std::string name = shape.getMappedName(indexed).toString();
+        name = name.substr(0, name.find(';'));
+        int k = BendUp;
+        if (name.rfind("Grain", 0) == 0) {
+            k = GrainKind;
+        }
+        else if (name.find("Tangent") != std::string::npos) {
+            k = Tangent;
+        }
+        else {
+            // Bend1, or Bend1Part2: the bend's direction
+            auto bend = name.substr(0, name.find("Part"));
+            auto it = directions.find(bend);
+            k = it != directions.end() && it->second == "Down" ? BendDown : BendUp;
+        }
+        edges[k].push_back(shape.getSubTopoShape(TopAbs_EDGE, i));
+        kinds[k].edges.push_back(i);
+    }
+    setGivenShape(blank);
+    for (int k = 0; k < static_cast<int>(kinds.size()); ++k) {
+        Part::TopoShape compound;
+        if (!edges[k].empty()) {
+            compound.makECompound(edges[k], nullptr, /*force*/ true);
+        }
+        kinds[k].view->setGivenShape(compound);
+        applyLook(k);
+    }
 }
 
 void ViewProviderSheetMetalFlatPattern::show()
@@ -378,4 +573,60 @@ void ViewProviderSheetMetalFlatPattern::show()
             doc->recompute({obj});
         }
     });
+}
+
+bool ViewProviderSheetMetalFlatPattern::getElementPicked(const SoPickedPoint* pp,
+                                                         std::string& subname) const
+{
+    for (const auto& kind : kinds) {
+        if (!kind.view || !pp->getPath()->containsNode(kind.view->getRoot())) {
+            continue;
+        }
+        // a marking's edge, by its index in the object's shape
+        std::string local;
+        if (!kind.view->getElementPicked(pp, local)) {
+            return false;
+        }
+        Data::IndexedName name(local.c_str());
+        if (std::string(name.getType()) != "Edge" || name.getIndex() < 1
+            || name.getIndex() > static_cast<int>(kind.edges.size())) {
+            return false;
+        }
+        subname = "Edge" + std::to_string(kind.edges[name.getIndex() - 1]);
+        return true;
+    }
+    return PartGui::ViewProviderPart::getElementPicked(pp, subname);
+}
+
+bool ViewProviderSheetMetalFlatPattern::getDetailPath(const char* subname, SoFullPath* path,
+                                                      bool append, SoDetail*& det) const
+{
+    const char* element = Data::findElementName(subname);
+    auto flat = Base::freecad_dynamic_cast<PartDesign::SheetMetalFlatPattern>(getObject());
+    // by index or by a mapped name (Bend1Part2), in the object's shape: this
+    // view draws the blank only
+    Data::IndexedName name;
+    if (flat && element && *element && element == subname) {
+        name = flat->Shape.getShape().getElementName(element).index;
+    }
+    if (name && std::string(name.getType()) == "Edge" && name.getIndex() > blankEdges) {
+        for (const auto& kind : kinds) {
+            auto it = std::find(kind.edges.begin(), kind.edges.end(), name.getIndex());
+            if (it == kind.edges.end() || !kind.view) {
+                continue;
+            }
+            const auto len = path->getLength();
+            if (append) {
+                path->append(pcRoot);
+            }
+            const std::string local = "Edge" + std::to_string(it - kind.edges.begin() + 1);
+            if (!kind.view->getDetailPath(local.c_str(), path, true, det)) {
+                path->truncate(len);
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+    return PartGui::ViewProviderPart::getDetailPath(subname, path, append, det);
 }

@@ -1401,6 +1401,22 @@ and not frozen.
     none to open, the command takes the facing thickness into the sheet's rule where it is the
     convert's own (made for the sheet's first feature); a shared rule is left, the convert
     saying the two differ. Each bend keeps its own radius already.
+
+**Ruled 2026-11-04, a feature's flat stored while referred to.** A sketch's external geometry (or
+a link, a drawing) may take an earlier feature's flat, `Flange` + `FlatEdge6`, through
+`getSubObject()` -- not the sheet's own flat object nor a later feature's, as no reference may
+look forward. Measured the same day, storing every feature's flat costs +62% (the bracket), +91%
+(a converted tray), +103% (a chain of 16 flanges) and +175% (the mitred tray with its reliefs'
+folded B-splines) on the file; a flat is 1.0 to 1.4 times its feature's shape, laid in 0.003 to
+0.2 s. So it is stored only while referred to. As built: before a save each `PartDesign::Feature`
+that an object links to with a `Flat` subname stores its flat in `StoredFlat`, a hidden output
+property added for it, and one nothing refers to any more has it taken away; the flat's elements
+are read from it while it is there, so a document opened again resolves the reference on the
+flat it was made on; a new shape or the sheet's flat settings changed empty it. No undo step.
+`TestSheetMetalFlat` (25, +5). Still open: the cutout's `Wrap` reads its sketch where the wall
+nearest it lies folded, the flat lies on XY in its own frame (root, align edge, second skin), so
+a sketch drawn on the flat's geometry is in the right place for `Wrap` only where the two frames
+are one.
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

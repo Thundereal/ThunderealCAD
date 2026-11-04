@@ -153,14 +153,19 @@ void writeDXF(std::ostream& out, const FlatResult& flat, bool tangents)
         TopoDS_Vertex v0, v1;
         TopExp::Vertices(bend.edge, v0, v1);
         const gp_Pnt a = BRep_Tool::Pnt(v0), b = BRep_Tool::Pnt(v1);
-        w.line(bend.up ? "BEND_UP" : "BEND_DOWN", a, b);
+        // as far as it lies on the blank, labelled at its middle
+        for (const TopoDS_Edge& segment : bend.segments) {
+            w.edge(bend.up ? "BEND_UP" : "BEND_DOWN", segment);
+        }
         const gp_Pnt mid((a.X() + b.X()) / 2, (a.Y() + b.Y()) / 2, 0);
         w.text("LABELS", mid, 2.5, bend.name);
         if (!tangents) {
             continue;
         }
-        for (const TopoDS_Edge& tangent : bend.tangents) {
-            w.edge("BEND_TANGENT", tangent);
+        for (const auto& segments : bend.tangentSegments) {
+            for (const TopoDS_Edge& tangent : segments) {
+                w.edge("BEND_TANGENT", tangent);
+            }
         }
     }
     for (const TopoDS_Edge& e : flat.grain) {

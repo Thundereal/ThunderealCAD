@@ -31,6 +31,7 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepBndLib.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -45,6 +46,7 @@
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
+#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom2dConvert.hxx>
 #include <Geom2d_BSplineCurve.hxx>
@@ -64,6 +66,7 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Vertex.hxx>
@@ -429,6 +432,77 @@ std::vector<TopoDS_Edge> grainArrow(const TopoDS_Shape& solid, double angle)
     return res;
 }
 
+std::vector<TopoDS_Edge> onBlank(const TopoDS_Shape& solid, const TopoDS_Edge& line)
+{
+    constexpr double tol = 1e-6;
+    gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(line));
+    gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(line));
+    if (a.Distance(b) <= Precision::Confusion()) {
+        return {};
+    }
+    // the blank's faces in the line's plane, across Z
+    BRep_Builder builder;
+    TopoDS_Compound faces;
+    builder.MakeCompound(faces);
+    bool any = false;
+    for (TopExp_Explorer it(solid, TopAbs_FACE); it.More(); it.Next()) {
+        const TopoDS_Face& face = TopoDS::Face(it.Current());
+        if (BRepAdaptor_Surface(face).GetType() != GeomAbs_Plane) {
+            continue;
+        }
+        bool inPlane = true;
+        for (TopExp_Explorer v(face, TopAbs_VERTEX); v.More() && inPlane; v.Next()) {
+            inPlane = std::abs(BRep_Tool::Pnt(TopoDS::Vertex(v.Current())).Z() - a.Z()) < tol;
+        }
+        if (inPlane) {
+            builder.Add(faces, face);
+            any = true;
+        }
+    }
+    if (!any) {
+        return {line};
+    }
+    BRepAlgoAPI_Common common(line, faces);
+    common.SetFuzzyValue(1e-7);
+    common.Build();
+    if (!common.IsDone()) {
+        return {line};
+    }
+    // the pieces as spans along the line, those the faces' seams part joined
+    const gp_Vec along(a, b);
+    const double length = along.Magnitude();
+    const gp_Vec dir = along / length;
+    std::vector<std::pair<double, double>> spans;
+    for (TopExp_Explorer it(common.Shape(), TopAbs_EDGE); it.More(); it.Next()) {
+        const TopoDS_Edge& e = TopoDS::Edge(it.Current());
+        double s0 = gp_Vec(a, BRep_Tool::Pnt(TopExp::FirstVertex(e))).Dot(dir);
+        double s1 = gp_Vec(a, BRep_Tool::Pnt(TopExp::LastVertex(e))).Dot(dir);
+        if (s0 > s1) {
+            std::swap(s0, s1);
+        }
+        if (s1 - s0 > tol) {
+            spans.emplace_back(s0, s1);
+        }
+    }
+    std::sort(spans.begin(), spans.end());
+    std::vector<std::pair<double, double>> joined;
+    for (const auto& span : spans) {
+        if (!joined.empty() && span.first <= joined.back().second + tol) {
+            joined.back().second = std::max(joined.back().second, span.second);
+        }
+        else {
+            joined.push_back(span);
+        }
+    }
+    std::vector<TopoDS_Edge> res;
+    for (const auto& [s0, s1] : joined) {
+        res.push_back(BRepBuilderAPI_MakeEdge(a.Translated(dir * std::max(s0, 0.0)),
+                                              a.Translated(dir * std::min(s1, length)))
+                          .Edge());
+    }
+    return res;
+}
+
 std::vector<TopoDS_Face> facesOnXY(const TopoDS_Shape& solid)
 {
     // the faces of one element each, merged where they lie in one plane
@@ -572,6 +646,10 @@ FlatResult flatten(const TopoDS_Shape& folded,
                       .Z()
             > model.thickness / 2;
         line.angle = b.angle;
+        line.segments = onBlank(res.solid, line.edge);
+        for (std::size_t k = 0; k < line.tangents.size(); ++k) {
+            line.tangentSegments[k] = onBlank(res.solid, line.tangents[k]);
+        }
         res.bendLines.push_back(line);
     }
     return res;

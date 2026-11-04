@@ -1274,6 +1274,13 @@ and not frozen.
   - Checked by `sheet-metal-commands.py` (56: the object claimed, Flatten showing it laid by its
     own recompute, the body's bounds, picks and selection on it, moved by its placement beside
     the folded part, Check Sheet's selection on it and folded, folding back).
+- The flat object, its third step, the markings on the blank: each bend's line and tangent
+  lines are cut where they run over a hole, a slot or a relief (`SheetMetal::onBlank()`, the
+  common of the line with the blank's faces in its plane, the pieces the faces' seams part joined
+  again), in the flat's shape, the DXF and the SVG; a line in pieces is named `Bend1`,
+  `Bend1Part2`, ... (`Bend1Tangent1Part2`). Its whole is kept for what measures from it (Check
+  Sheet's hole near a bend) and for its label. `testBendLineOnTheBlank` (slots cut a line in
+  four), `testLinesStopAtTheRelief` (each had run 0.49 into a mitered corner's relief).
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

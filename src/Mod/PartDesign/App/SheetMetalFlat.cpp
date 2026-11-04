@@ -119,15 +119,22 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
                                       : App::StringHasherRef();
     std::vector<TopoShape> lines;
     std::vector<TopoShape> tangents;
+    // each line as far as it lies on the blank, a piece after the first
+    // named Bend1Part2, Bend1Part3, ...
+    auto pieces = [](const std::vector<TopoDS_Edge>& segments, const std::string& name,
+                     std::vector<TopoShape>& out) {
+        for (std::size_t k = 0; k < segments.size(); ++k) {
+            TopoShape edge(segments[k]);
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
+                                Data::MappedName(k ? name + "Part" + std::to_string(k + 1) : name));
+            out.push_back(edge);
+        }
+    };
     for (const auto& line : flat.bendLines) {
-        TopoShape edge(line.edge);
-        edge.setElementName(Data::IndexedName::fromConst("Edge", 1), Data::MappedName(line.name));
-        lines.push_back(edge);
+        pieces(line.segments, line.name, lines);
         for (std::size_t k = 0; k < line.tangents.size() && settings.tangentLines; ++k) {
-            TopoShape tangent(line.tangents[k]);
-            tangent.setElementName(Data::IndexedName::fromConst("Edge", 1),
-                                   Data::MappedName(line.name + "Tangent" + std::to_string(k + 1)));
-            tangents.push_back(tangent);
+            pieces(line.tangentSegments[k], line.name + "Tangent" + std::to_string(k + 1),
+                   tangents);
         }
         res.directions[line.name] = line.up ? "Up" : "Down";
         res.maxBendAngle = std::max(res.maxBendAngle, line.angle * 180 / std::numbers::pi);

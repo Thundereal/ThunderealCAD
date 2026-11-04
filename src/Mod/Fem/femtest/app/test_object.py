@@ -227,6 +227,9 @@ class TestObjectType(unittest.TestCase):
             "Fem::ConstraintCentrif", type_of_obj(ObjectsFem.makeConstraintCentrif(doc))
         )
         self.assertEqual(
+            "Fem::ConstraintBodyMotion", type_of_obj(ObjectsFem.makeConstraintBodyMotion(doc))
+        )
+        self.assertEqual(
             "Fem::ConstraintTemperature", type_of_obj(ObjectsFem.makeConstraintTemperature(doc))
         )
         self.assertEqual("Fem::ConstraintTie", type_of_obj(ObjectsFem.makeConstraintTie(doc)))
@@ -427,6 +430,9 @@ class TestObjectType(unittest.TestCase):
             is_of_type(ObjectsFem.makeConstraintSelfWeight(doc), "Fem::ConstraintSelfWeight")
         )
         self.assertTrue(is_of_type(ObjectsFem.makeConstraintCentrif(doc), "Fem::ConstraintCentrif"))
+        self.assertTrue(
+            is_of_type(ObjectsFem.makeConstraintBodyMotion(doc), "Fem::ConstraintBodyMotion")
+        )
         self.assertTrue(
             is_of_type(ObjectsFem.makeConstraintTemperature(doc), "Fem::ConstraintTemperature")
         )
@@ -735,6 +741,12 @@ class TestObjectType(unittest.TestCase):
         self.assertTrue(is_derived_from(constraint_centrif, "App::DocumentObject"))
         self.assertTrue(is_derived_from(constraint_centrif, "Fem::ConstraintPython"))
         self.assertTrue(is_derived_from(constraint_centrif, "Fem::ConstraintCentrif"))
+
+        # ConstraintBodyMotion
+        constraint_bodymotion = ObjectsFem.makeConstraintBodyMotion(doc)
+        self.assertTrue(is_derived_from(constraint_bodymotion, "App::DocumentObject"))
+        self.assertTrue(is_derived_from(constraint_bodymotion, "Fem::ConstraintPython"))
+        self.assertTrue(is_derived_from(constraint_bodymotion, "Fem::ConstraintBodyMotion"))
 
         # ConstraintTemperature
         constraint_temperature = ObjectsFem.makeConstraintTemperature(doc)
@@ -1079,6 +1091,9 @@ class TestObjectType(unittest.TestCase):
             ObjectsFem.makeConstraintCentrif(doc).isDerivedFrom("Fem::ConstraintPython")
         )
         self.assertTrue(
+            ObjectsFem.makeConstraintBodyMotion(doc).isDerivedFrom("Fem::ConstraintPython")
+        )
+        self.assertTrue(
             ObjectsFem.makeConstraintTemperature(doc).isDerivedFrom("Fem::ConstraintTemperature")
         )
         self.assertTrue(ObjectsFem.makeConstraintTie(doc).isDerivedFrom("Fem::ConstraintPython"))
@@ -1240,6 +1255,7 @@ def create_all_fem_objects_doc(doc):
     analysis.addObject(ObjectsFem.makeConstraintSectionPrint(doc, name="ConstraintSectionPrint"))
     analysis.addObject(ObjectsFem.makeConstraintSelfWeight(doc, name="ConstraintSelfWeight"))
     analysis.addObject(ObjectsFem.makeConstraintCentrif(doc, name="ConstraintCentrif"))
+    analysis.addObject(ObjectsFem.makeConstraintBodyMotion(doc, name="ConstraintBodyMotion"))
     analysis.addObject(ObjectsFem.makeConstraintTemperature(doc, name="ConstraintTemperature"))
     analysis.addObject(ObjectsFem.makeConstraintTie(doc, name="ConstraintTie"))
     analysis.addObject(ObjectsFem.makeConstraintTransform(doc, name="ConstraintTransform"))

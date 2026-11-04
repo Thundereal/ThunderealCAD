@@ -50,6 +50,7 @@
 #include <Gui/CommandT.h>
 #include <Gui/Control.h>
 #include <Gui/Document.h>
+#include <Gui/MDIView.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>

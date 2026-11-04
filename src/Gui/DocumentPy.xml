@@ -256,6 +256,30 @@ on its canAddToSceneGraph().
 obj : Gui.ViewProvider</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="openCommand">
+      <Documentation>
+        <UserDocu>openCommand(name) -> None
+
+Open an undo transaction named name on this document.
+Upstream's returns a transaction id; this fork has one transaction at a time.
+
+name : str</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="commitCommand">
+      <Documentation>
+        <UserDocu>commitCommand() -> None
+
+Commit the undo transaction open on this document.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="abortCommand">
+      <Documentation>
+        <UserDocu>abortCommand() -> None
+
+Abort the undo transaction open on this document.</UserDocu>
+      </Documentation>
+    </Methode>
     <Attribute Name="ActiveObject" ReadOnly="false">
       <Documentation>
         <UserDocu>The active object of the document.</UserDocu>
@@ -309,6 +333,12 @@ obj : Gui.ViewProvider</UserDocu>
         <UserDocu>Returns True if the document is marked as modified, and False otherwise.</UserDocu>
       </Documentation>
       <Parameter Name="Modified" Type="Boolean" />
+    </Attribute>
+    <Attribute Name="TreeRootObjects" ReadOnly="true">
+      <Documentation>
+        <UserDocu>The objects at the root of the tree: those no view provider claims as a child, in document order.</UserDocu>
+      </Documentation>
+      <Parameter Name="TreeRootObjects" Type="List" />
     </Attribute>
   </PythonExport>
 </GenerateModel>

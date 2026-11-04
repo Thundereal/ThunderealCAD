@@ -80,6 +80,7 @@
 #include "FeatureGeometrySet.h"
 #include "FeatureMirroring.h"
 #include "FeatureOffset.h"
+#include "FeatureElement.h"
 #include "FeaturePartBoolean.h"
 #include "FeaturePartBox.h"
 #include "FeaturePartCircle.h"
@@ -525,10 +526,15 @@ PyMOD_INIT_FUNC(Part)
     Part::Loft                  ::init();
     Part::Sweep                 ::init();
     Part::Offset                ::init();
+    Part::Element               ::init();
+    Part::ElementBinding        ::init();
     Part::Offset2D              ::init();
     Part::Thickness             ::init();
     Part::Refine                ::init();
     Part::Reverse               ::init();
+
+    // Renamed 2026-10-28: a document and a macro of before still name it so
+    Base::Type::addLegacyName(Part::ElementBinding::getClassTypeId(), "Part::ElementLink");
     Part::SubShapeBinder        ::init();
     Part::SubShapeBinderPython  ::init();
 

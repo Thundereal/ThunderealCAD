@@ -28,6 +28,7 @@
 #include <Base/Stream.h>
 
 #include "Actor.h"
+#include "Application.h"
 #include <optional>
 #include <sstream>
 

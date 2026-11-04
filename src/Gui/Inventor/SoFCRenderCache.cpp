@@ -24,6 +24,7 @@
 
 #include <iostream>
 #include <unordered_map>
+#include <Inventor/SbRotation.h>
 #include <Inventor/actions/SoGLRenderAction.h>
 #include <Inventor/elements/SoTextureEnabledElement.h>
 #include <Inventor/elements/SoOverrideElement.h>

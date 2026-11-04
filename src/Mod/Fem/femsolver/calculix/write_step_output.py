@@ -97,6 +97,13 @@ def write_step_output(f, ccxwriter):
             f.write("** displacements and reaction forces/moments for Constraint rigid body\n")
             for femobj in ccxwriter.member.cons_rigidbody:
                 # femobj --> dict, FreeCAD document object is femobj["Object"]
+                # Not upstream: a distributing coupling's reference node
+                # holds nothing and CalculiX reports it unmoved: its faces'
+                # nodes are what moves
+                if getattr(femobj["Object"], "Coupling", "Rigid") == "Distributing":
+                    f.write("*NODE PRINT, NSET={}\n".format(femobj["Object"].Name))
+                    f.write("U\n")
+                    continue
                 f.write("*NODE PRINT, NSET={}_RefNode\n".format(femobj["Object"].Name))
                 f.write("U\n")
                 f.write("*NODE PRINT, NSET={}_RotNode\n".format(femobj["Object"].Name))

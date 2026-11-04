@@ -26,6 +26,7 @@
 
 #include "Exception.h"
 #include "Console.h"
+#include "FileInfo.h"
 #include "PyObjectBase.h"
 
 
@@ -268,14 +269,12 @@ PyObject* XMLAttributeError::getPyExceptionType() const
 
 FileException::FileException(const char* sMessage, const char* sFileName)
     : Exception(sMessage)
-    , file(sFileName)
 {
     setFileName(sFileName);
 }
 
 FileException::FileException(const char* sMessage, const FileInfo& File)
     : Exception(sMessage)
-    , file(File)
 {
     setFileName(File.filePath().c_str());
 }
@@ -287,7 +286,7 @@ FileException::FileException()
 
 void FileException::setFileName(const char* sFileName)
 {
-    file.setFile(sFileName);
+    file = FileInfo(sFileName).filePath();
     _sErrMsgAndFileName = _sErrMsg;
     if (sFileName) {
         _sErrMsgAndFileName += ": ";
@@ -297,7 +296,7 @@ void FileException::setFileName(const char* sFileName)
 
 std::string FileException::getFileName() const
 {
-    return file.fileName();
+    return FileInfo(file).fileName();
 }
 
 const char* FileException::what() const noexcept
@@ -331,7 +330,7 @@ void FileException::ReportException() const
 PyObject* FileException::getPyObject()
 {
     Py::Dict edict(Exception::getPyObject(), true);
-    edict.setItem("filename", Py::String(this->file.fileName()));
+    edict.setItem("filename", Py::String(getFileName()));
     return Py::new_reference_to(edict);
 }
 

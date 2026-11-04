@@ -30,7 +30,7 @@
 
 #include <Base/COWData.h>
 
-#include "FileBlobManager.h"
+#include "FileBlob.h"
 #include "MaterialAppearance.h"
 
 namespace App

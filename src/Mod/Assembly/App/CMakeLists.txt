@@ -12,11 +12,14 @@ include_directories(
     ${PYTHON_INCLUDE_DIRS}
     ${XercesC_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
+    # SimulationArchive's index.json
+    ${CMAKE_SOURCE_DIR}/src/3rdParty/json/single_include/nlohmann/
 )
 link_directories(${OCC_LIBRARY_DIR})
 
 set(Assembly_LIBS
     Part
+    Materials
     PartDesign
     Spreadsheet
     FreeCADApp
@@ -31,6 +34,11 @@ generate_from_py(JointGroup)
 generate_from_py(ViewGroup)
 generate_from_py(SimulationGroup)
 generate_from_py(SnapshotGroup)
+generate_from_py(Joint)
+generate_from_py(SpringDamper)
+generate_from_py(FramedItem)
+generate_from_py(AppliedLoad)
+generate_from_py(AssemblyGroup)
 
 
 SET(Python_SRCS
@@ -50,6 +58,16 @@ SET(Python_SRCS
     SimulationGroupPyImp.cpp
     SnapshotGroup.pyi
     SnapshotGroupPyImp.cpp
+    Joint.pyi
+    JointPyImp.cpp
+    SpringDamper.pyi
+    SpringDamperPyImp.cpp
+    FramedItem.pyi
+    FramedItemPyImp.cpp
+    AppliedLoad.pyi
+    AppliedLoadPyImp.cpp
+    AssemblyGroup.pyi
+    AssemblyGroupPyImp.cpp
 )
 SOURCE_GROUP("Python" FILES ${Python_SRCS})
 
@@ -59,6 +77,38 @@ SET(Module_SRCS
     PreCompiled.h
 )
 SOURCE_GROUP("Module" FILES ${Module_SRCS})
+
+# The solver-neutral interface (docs/AssemblySolverInterface.md).
+SET(Solver_SRCS
+    Solver/Backend.cpp
+    Solver/Backend.h
+    Solver/Curve.cpp
+    Solver/Curve.h
+    Solver/Formula.cpp
+    Solver/Formula.h
+    Solver/JointEquations.cpp
+    Solver/JointEquations.h
+    Solver/Model.h
+    Solver/Model.cpp
+    Solver/OndselBackend.cpp
+    Solver/OndselBackend.h
+    Solver/ProfileGeometry.cpp
+    Solver/ProfileGeometry.h
+    Solver/ReferenceBackend.cpp
+    Solver/ReferenceBackend.h
+    Solver/Registry.cpp
+    Solver/Registry.h
+    Solver/RigidGroups.cpp
+    Solver/RigidGroups.h
+    Solver/Units.h
+)
+# The Chrono backend (sec 6.15), only with BUILD_ASSEMBLY_CHRONO: Chrono's
+# headers and defines go to its source alone (src/3rdParty/ChronoCore.cmake).
+if (BUILD_ASSEMBLY_CHRONO)
+    list(APPEND Solver_SRCS Solver/ChronoBackend.cpp Solver/ChronoBackend.h)
+endif()
+
+SOURCE_GROUP("Solver" FILES ${Solver_SRCS})
 
 SET(Assembly_SRCS
     AssemblyParams.cpp
@@ -71,9 +121,37 @@ SET(Assembly_SRCS
     AssemblyUtils.h
     BomObject.cpp
     BomObject.h
+    CamJoint.cpp
+    CamJoint.h
+    ElementGeometry.h
     Groups.cpp
     Groups.h
+    AssemblyGroup.cpp
+    AssemblyGroup.h
+    Grounding.cpp
+    Grounding.h
+    ContactFriction.cpp
+    ContactFriction.h
+    ContactGeometry.cpp
+    ContactGeometry.h
+    ContactShapes.cpp
+    ContactShapes.h
+    Interference.cpp
+    Interference.h
+    Joint.cpp
+    Joint.h
+    MassProperties.cpp
+    MassProperties.h
+    Physics.cpp
+    Physics.h
+    Simulation.cpp
+    Simulation.h
+    SimulationArchive.cpp
+    SimulationArchive.h
+    Views.cpp
+    Views.h
     ${Module_SRCS}
+    ${Solver_SRCS}
     ${Python_SRCS}
 )
 
@@ -86,7 +164,20 @@ target_include_directories(
     ${CMAKE_BINARY_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}
 )
+if (NOT FREECAD_USE_EXTERNAL_ONDSELSOLVER)
+    target_include_directories(Assembly PRIVATE ${CMAKE_SOURCE_DIR}/src/3rdParty/OndselSolver)
+endif ()
 target_link_libraries(Assembly ${Assembly_LIBS})
+if (BUILD_ASSEMBLY_CHRONO)
+    target_link_libraries(Assembly ChronoCore)
+    target_compile_definitions(Assembly PRIVATE ASSEMBLY_WITH_CHRONO)
+    get_target_property(CHRONO_INCLUDE_DIRS ChronoCore CHRONO_INCLUDE_DIRS)
+    get_target_property(CHRONO_DEFINITIONS ChronoCore CHRONO_DEFINITIONS)
+    set_source_files_properties(Solver/ChronoBackend.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${CHRONO_INCLUDE_DIRS}"
+        COMPILE_DEFINITIONS "${CHRONO_DEFINITIONS}"
+    )
+endif()
 if (FREECAD_WARN_ERROR)
     target_compile_warn_error(Assembly)
 endif()

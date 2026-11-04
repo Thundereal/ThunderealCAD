@@ -41,6 +41,7 @@
 # include <QApplication>
 #endif
 
+#include <Base/Console.h>
 #include <Base/Parameter.h>
 #include <App/Application.h>
 #include <Mod/Part/App/PropertyTopoShape.h>

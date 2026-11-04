@@ -35,6 +35,7 @@
 namespace App
 {
 class DocumentObject;
+class Link;
 }  // namespace App
 
 namespace Base
@@ -44,6 +45,18 @@ class Placement;
 
 namespace Assembly
 {
+
+/// Whether a generated link element is excluded from assembly operations.
+bool isSuppressedLinkElement(const App::DocumentObject* obj);
+
+/// The index of a link element in its link group, or -1; and the group.
+int linkElementIndex(const App::DocumentObject* obj, App::Link** group = nullptr);
+
+/// Whether obj is a link group whose elements are each a component. This
+/// fork's generated arrays (App::LinkArray) are link groups too, but one
+/// component each, as upstream's PartApp::LinkArray -- which is not a link
+/// group -- is there.
+bool isElementLinkGroup(const App::DocumentObject* obj);
 
 // This enum has to be the same as the one in JointObject.py
 enum class JointType
@@ -61,6 +74,7 @@ enum class JointType
     Screw,
     Gears,
     Belt,
+    Cam,  // not upstream (CamJoint.h); appended, so older files keep their values
 };
 
 enum class GeometryType
@@ -146,10 +160,41 @@ AssemblyExport bool isFaceType(
 AssemblyExport double getFaceRadius(const App::DocumentObject* obj, const std::string& elName);
 AssemblyExport double getEdgeRadius(const App::DocumentObject* obj, const std::string& elName);
 
-AssemblyExport DistanceType getDistanceType(App::DocumentObject* joint);
+// The sub-type wants its sides in a set order (a line before a circle, a face
+// before a vertex, ...). Upstream swaps the joint's sides in the document to
+// get it; here the document is never written: *swapped, when given, says
+// whether the solver's frame I is the Reference2 side.
+AssemblyExport DistanceType getDistanceType(App::DocumentObject* joint, bool* swapped = nullptr);
+// The enumerator's name ("PlaneCone"), for messages and Python.
+AssemblyExport const char* distanceTypeName(DistanceType type);
+// Audit sec 8.1 decision 7: the Distance sub-types with no proper solver
+// mapping whatever the elements are. Since sec 6.11 (role mappings) only
+// Other. The joint task refuses a new joint of one of these; a joint
+// already in a document is still solved as Planar(d), with a warning. The
+// one list; Python reads it through AssemblyApp.getRefusedDistanceTypes().
+AssemblyExport const std::vector<DistanceType>& refusedDistanceTypes();
+AssemblyExport bool isDistanceTypeRefused(DistanceType type);
+// Why a Distance joint of this sub-type between the joint's elements is
+// refused, naming the element and what it is ("the face Face3 of Loft is
+// not planar, cylindrical, conical, spherical or toroidal: it is a B-spline
+// surface"); empty when it is not. Refused: Other between two elements (not
+// when a side is a whole object -- a datum plane, an LCS, a body -- which
+// is a planar distance between the objects' frames); Curve{Cylinder,
+// Sphere,Cone,Torus} on a curve that is not a circle; CurvePlane and
+// PointCurve on a curve that is not planar (sec 6.11).
+AssemblyExport std::string distanceJointRefusal(App::DocumentObject* joint, DistanceType type);
+AssemblyExport bool isDistanceJointRefused(App::DocumentObject* joint, DistanceType type);
+// What d means for the sub-types the role mappings of sec 6.11 added
+// ("the point d from the cone's axis"); null for the others.
+AssemblyExport const char* distanceMeaning(DistanceType type);
 AssemblyExport JointGroup* getJointGroup(const App::Part* part);
 
 AssemblyExport std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* assembly);
+
+// An object a simulation holds -- its motions, initial velocities, traces: the
+// study's, never a component, though it is in the assembly's Group as an
+// object in a plain group of an App::Part is, and a trace is a shape
+AssemblyExport bool isStudyChild(const App::DocumentObject* obj);
 
 // getters to get from properties
 AssemblyExport void setJointActivated(const App::DocumentObject* joint, bool val);
@@ -188,6 +233,21 @@ AssemblyExport std::vector<std::string> getSubAsList(
     const char* propName
 );
 AssemblyExport void syncPlacements(App::DocumentObject* src, App::DocumentObject* to);
+// Which side of a C++ joint (Assembly::Joint) the Python joint's property
+// name stands for: 1 for "Reference1", 2 for "Reference2"; 0 for anything
+// else, or when the joint is not a C++ one. The reference helpers above take
+// the property names for both kinds of joint, and answer for a C++ joint
+// from its element bindings (docs/AssemblyObjectModel.md sec 7.1).
+AssemblyExport int typedJointSide(const App::DocumentObject* joint, const char* refName);
+// The element of a joint's side and the label of the object it is of, as the
+// user picked them, for messages: for a C++ joint its element's target
+// ("Face1", "Free"), not the element binding's copy ("Face1", "ElementBinding001").
+AssemblyExport void describeJointSide(
+    const App::DocumentObject* joint,
+    const char* refName,
+    std::string& element,
+    std::string& label
+);
 AssemblyExport double getJointCurrentValue(App::DocumentObject* joint, bool isAngle);
 
 }  // namespace Assembly

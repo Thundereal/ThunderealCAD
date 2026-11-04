@@ -40,7 +40,6 @@
 #include <Base/Tools.h>
 #include <Base/Console.h>
 #include <App/Application.h>
-#include <App/Document.h>
 #include <App/DocumentObject.h>
 #include "MainWindow.h"
 #include "BitmapFactory.h"

@@ -49,6 +49,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <App/Application.h>
+#include <App/Document.h>
 #include "ViewProviderAddSub.h"
 #include <Mod/Part/Gui/PartParams.h>
 #include <Mod/Part/Gui/SoBrepFaceSet.h>

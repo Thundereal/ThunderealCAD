@@ -46,6 +46,7 @@
 #include <Gui/ViewerContext.h>
 #include <Gui/ViewParams.h>
 
+#include <Base/Console.h>
 #include "EditableDatumLabel.h"
 
 

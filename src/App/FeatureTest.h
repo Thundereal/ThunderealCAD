@@ -29,6 +29,7 @@
 #include "PropertyLinks.h"
 #include "PropertyPythonObject.h"
 #include "PropertyUnits.h"
+#include "PropertyAppearance.h"
 
 
 namespace App

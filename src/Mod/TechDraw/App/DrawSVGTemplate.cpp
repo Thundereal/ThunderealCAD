@@ -29,7 +29,6 @@
 #endif
 
 #include <App/Application.h>
-#include <App/Document.h>
 #include <App/DocumentObject.h>     //TODO: should be in DrawTemplate.h??
 #include <Base/Console.h>
 #include <Base/FileInfo.h>

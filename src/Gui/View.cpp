@@ -26,6 +26,7 @@
 #include "View.h"
 #include "Application.h"
 #include "Document.h"
+#include <App/Document.h>
 
 using namespace Gui;
 

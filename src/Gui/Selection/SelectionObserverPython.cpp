@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #include "SelectionObserverPython.h"
+#include <Base/Console.h>
 #include <Base/Interpreter.h>
 
 

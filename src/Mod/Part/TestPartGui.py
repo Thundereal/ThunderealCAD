@@ -44,6 +44,7 @@ def findDockWidget(name):
 #---------------------------------------------------------------------------
 """
 from parttests.ColorPerFaceTest import ColorPerFaceTest
+from parttests.ElementsPanelTest import ElementsPanelTest
 
 
 #class PartGuiTestCases(unittest.TestCase):

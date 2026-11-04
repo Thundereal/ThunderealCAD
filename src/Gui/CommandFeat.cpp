@@ -35,6 +35,7 @@
 #include "PythonConsole.h"
 #include "Selection.h"
 #include "SelectionObject.h"
+#include "Tree.h"
 #include "ViewProvider.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderLink.h"

@@ -7,6 +7,7 @@
 // the suite stays green without the wasm toolchain.
 
 #include <functional>
+#include <App/PropertyGeo.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>

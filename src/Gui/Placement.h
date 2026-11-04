@@ -53,6 +53,11 @@ public:
     void openTransactionIfNeeded();
     void setPropertyName(const std::string&);
     const std::string& getPropertyName() const;
+    /// Leave the document's undo transactions alone (upstream's API): for a
+    /// caller that edits inside a transaction of its own, such as a task panel
+    void setIgnoreTransactions(bool value);
+    /// The objects to apply to; the global selection is used when empty
+    void setSelection(const std::vector<SelectionObject>&);
     void appendDocument(const std::string&);
     void activatedDocument(const std::string&);
     void revertTransformation();
@@ -64,6 +69,9 @@ private:
     std::vector<App::DocumentObject*> getSelectedObjects(Gui::Document*) const;
     void revertTransformationOfViewProviders(Gui::Document*);
     void tryRecompute(Gui::Document*);
+    void openCommandIfActive(Gui::Document*);
+    void commitCommandIfActive(Gui::Document*);
+    void abortCommandIfActive(Gui::Document*);
     void applyPlacement(Gui::Document*, App::DocumentObject*, const Base::Placement& p, bool incremental);
     void applyPlacement(App::DocumentObject*, const QString& p, bool incremental);
     QString getIncrementalPlacement(App::DocumentObject*, const QString&) const;
@@ -75,10 +83,12 @@ private Q_SLOTS:
 private:
     std::string propertyName; // the name of the placement property
     std::set<std::string> documents;
+    std::vector<SelectionObject> selectionObjects;
     /** If false apply the placement directly to the transform nodes,
      * otherwise change the placement property.
      */
     bool changeProperty;
+    bool ignoreTransaction = false;
 };
 
 class GuiExport Placement : public QDialog
@@ -99,6 +109,7 @@ public:
     void setPlacement(const Base::Placement&);
     Base::Placement getPlacement() const;
     void showDefaultButtons(bool);
+    void setIgnoreTransactions(bool);
 
 protected:
     void changeEvent(QEvent *e) override;

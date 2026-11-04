@@ -33,6 +33,7 @@
 #include <Base/Writer.h>
 
 #include "FileSet.h"
+#include "FileBlobManager.h"
 
 using namespace App;
 

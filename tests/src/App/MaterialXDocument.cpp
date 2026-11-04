@@ -5,6 +5,7 @@
 
 #include <App/Application.h>
 #include <App/Document.h>
+#include <App/FileBlobManager.h>
 #include <App/FileSet.h>
 #include <App/MaterialXDocument.h>
 #include <Base/FileInfo.h>

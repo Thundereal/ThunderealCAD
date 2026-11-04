@@ -1312,7 +1312,12 @@ std::vector<std::string> ObjectIdentifier::getStringList() const
                 if(t[0] == '$') {
                     if(t.size() == 1)
                         continue;
-                    sub += _quote(boost::begin(t)+1, boost::end(t));
+                    // A "$$Name" step keeps both '$', so that it reads back
+                    // as itself and not as the label "$Name"
+                    if(t.size() > 2 && t[1] == '$')
+                        sub += _quote(boost::begin(t), boost::end(t));
+                    else
+                        sub += _quote(boost::begin(t)+1, boost::end(t));
                 } else {
                     sub.insert(sub.end(),boost::begin(t),boost::end(t));
                     // This ending dot is for ExpressionCompleter to

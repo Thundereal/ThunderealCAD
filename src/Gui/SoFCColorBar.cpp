@@ -34,6 +34,7 @@
 # include <QMenu>
 #endif
 
+#include <Base/Exception.h>
 #include "SoFCColorBar.h"
 #include "SoFCColorGradient.h"
 #include "SoFCColorLegend.h"

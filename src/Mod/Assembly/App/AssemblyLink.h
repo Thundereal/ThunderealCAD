@@ -33,9 +33,16 @@
 #include <App/PropertyLinks.h>
 
 
+namespace Part
+{
+class Element;
+class ElementBinding;
+}  // namespace Part
+
 namespace Assembly
 {
 class AssemblyObject;
+class Joint;
 class JointGroup;
 
 class AssemblyExport AssemblyLink: public App::Part
@@ -98,6 +105,24 @@ protected:
     /// get called by the container whenever a property has been changed
     void onChanged(const App::Property* prop) override;
     void onDocumentRestored() override;
+
+private:
+    /** The element binding of this instance for side \a side of a C++ joint of
+     * the linked assembly: the same element, through this instance's link to
+     * the component, or a convenience element of this instance's own. \a
+     * current, the mirror's element binding, is kept and set when there is one.
+     */
+    ::Part::ElementBinding* mirrorSide(Joint* joint, int side, ::Part::ElementBinding* current);
+    /// This instance's convenience element for one of the linked assembly's
+    ::Part::Element* mirrorElement(::Part::Element* element);
+    /// The (object, subname) of this instance a path of the linked assembly
+    /// becomes: through the link to its component; false when not mapped
+    bool mapPath(App::DocumentObject* obj,
+                 const std::string& sub,
+                 App::DocumentObject*& local,
+                 std::string& localSub) const;
+
+    std::unordered_map<App::DocumentObject*, std::string> objSubPrefixMap;
 };
 
 

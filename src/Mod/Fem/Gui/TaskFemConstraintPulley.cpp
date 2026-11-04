@@ -26,7 +26,6 @@
 #include <QMessageBox>
 
 #include <Gui/Command.h>
-#include <Gui/Document.h>
 #include <Mod/Fem/App/FemConstraintPulley.h>
 
 #include "TaskFemConstraintPulley.h"

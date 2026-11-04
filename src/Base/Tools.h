@@ -41,6 +41,7 @@
 
 #include "Exception.h"
 #include "Console.h"
+#include "HashCombine.h"
 
 // ----------------------------------------------------------------------------
 
@@ -203,14 +204,6 @@ inline double clampAngle(T value, T min, T max, T precision)
         value = value - 360;
     }
     return value;
-}
-
-// copied from boost::hash_combine. 
-template <class S, class T>
-inline void hash_combine(S& seed, const T& v)
-{
-    std::hash<T> hasher;
-    seed ^= hasher(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
 }
 
 // ----------------------------------------------------------------------------

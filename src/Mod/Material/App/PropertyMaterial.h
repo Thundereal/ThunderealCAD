@@ -23,19 +23,27 @@
 
 #pragma once
 
-#include <App/FileBlobManager.h>
-#include <App/Property.h>
-#include <Base/Reader.h>
+#include <memory>
+#include <string>
+#include <vector>
 
-#include "Materials.h"
+#include <QString>
+
+#include <App/FileBlob.h>
+#include <App/Property.h>
+
+#include <Mod/Material/MaterialGlobal.h>
 
 namespace App
 {
 class Material;
+class MaterialAppearance;
 }
 
 namespace Materials
 {
+
+class Material;
 
 /** The material card assigned to an object.
  *
@@ -217,21 +225,7 @@ public:
         return sizeof(*this);
     }
 
-    bool isSame(const Property& other) const override
-    {
-        if (&other == this) {
-            return true;
-        }
-        if (getTypeId() != other.getTypeId()) {
-            return false;
-        }
-        auto& theirs = *static_cast<decltype(this)>(&other);
-        // The shared instance answers most of these outright.
-        if (_card && _card == theirs._card) {
-            return true;
-        }
-        return getValue() == theirs.getValue();
-    }
+    bool isSame(const Property& other) const override;
 
 private:
     App::FileBlobManager& blobManager() const;

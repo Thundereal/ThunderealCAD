@@ -199,6 +199,10 @@ std::string PropertyLinkBase::updateLabelReference(const App::DocumentObject *pa
     // referenced sub-object at the found hierarchy is actually the given
     // object.
     for (const char *pos = subname; ((pos = strstr(pos, ref.c_str())) != nullptr); pos += ref.size()) {
+        // Only a whole step counts. "$Elements." inside "$$Elements." is a
+        // step through the property Elements, which no relabel changes.
+        if (pos != subname && pos[-1] != '.')
+            continue;
         auto sub = std::string(subname,pos+ref.size()-subname);
         auto sobj = parent->getSubObject(sub.c_str());
         if(sobj == obj) {
@@ -952,6 +956,11 @@ PropertyLinkBase::tryReplaceLink(const PropertyContainer *owner, DocumentObject 
             break;
         if(sobj == oldObj) {
             if(prev == parent) {
+                // A step through a property follows whatever the property
+                // holds, so there is nothing to rewrite
+                App::DocumentObject *propObj = nullptr;
+                if(prev->resolvePropertyStep(sub.c_str()+prevPos, propObj))
+                    break;
                 if(sub[prevPos] == '$')
                     sub.replace(prevPos+1,pos-1-prevPos,newObj->Label.getValue());
                 else
@@ -2064,15 +2073,20 @@ const char *PropertyLinkBase::exportSubName(std::string &output,
     for(const char *dot=strchr(sub,'.');dot;sub=dot+1,dot=strchr(sub,'.')) {
         // name with trailing '.'
         auto name = std::string(sub,dot-sub+1);
+        bool byProperty = false;
         if(first_obj)
             first_obj = false;
-        else
+        else {
+            App::DocumentObject *propObj = nullptr;
+            byProperty = obj->resolvePropertyStep(name.c_str(), propObj);
             obj = obj->getSubObject(name.c_str());
+        }
         if(!obj || !obj->isAttachedToDocument()) {
             FC_WARN("missing sub object '" << name << "' in '" << sub <<"'");
             break;
         }
-        if(obj->isExporting()) {
+        // A step through a property names no object, and stays as it is
+        if(obj->isExporting() && !byProperty) {
             if(name[0] == '$') {
                 if(name.compare(1,name.size()-2,obj->Label.getValue())!=0) {
                     str << obj->getExportName(true) << "@.";
@@ -6691,6 +6705,7 @@ void PropertyXLink::setAllowPartial(bool enable) {
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 TYPESYSTEM_SOURCE(App::PropertyXLinkSub , App::PropertyXLink)
+TYPESYSTEM_SOURCE(App::PropertyXLinkSubHidden , App::PropertyXLinkSub)
 
 PropertyXLinkSub::PropertyXLinkSub(bool allowPartial, PropertyLinkBase *parent)
     :PropertyXLink(allowPartial,parent)

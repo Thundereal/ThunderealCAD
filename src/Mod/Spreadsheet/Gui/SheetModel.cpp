@@ -28,7 +28,6 @@
 #endif
 
 #include <App/AutoTransaction.h>
-#include <App/Document.h>
 #include <Base/Interpreter.h>
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>

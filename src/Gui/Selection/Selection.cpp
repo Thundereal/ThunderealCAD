@@ -1311,6 +1311,17 @@ void SelectionSingleton::rmvSelectionGate()
     }
 }
 
+void SelectionSingleton::moveSelectionGateTo(SelectionSingleton &other)
+{
+    if (!ActiveGate || &other == this)
+        return;
+    if (other.ActiveGate)
+        other.rmvSelectionGate();
+    other.ActiveGate = ActiveGate;
+    other.gateResolve = gateResolve;
+    ActiveGate = nullptr;
+}
+
 void SelectionGate::setOverrideCursor()
 {
     if (Gui::Document* doc = Gui::Application::Instance->activeDocument()) {

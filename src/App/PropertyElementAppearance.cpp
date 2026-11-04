@@ -34,7 +34,6 @@
 #include <Base/Writer.h>
 
 #include "ComplexGeoData.h"
-#include "Document.h"
 #include "DocumentObject.h"
 #include "ElementAppearancePy.h"
 #include "ElementNamingUtils.h"
@@ -43,6 +42,7 @@
 #include "PropertyElementAppearance.h"
 #include "PropertyGeo.h"
 #include "PropertyStandard.h"
+#include "PropertyAppearance.h"
 
 FC_LOG_LEVEL_INIT("App", true, true)
 

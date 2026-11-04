@@ -26,7 +26,7 @@
 
 #include "SpinBox.h"
 #include <Base/UnitsSchema.h>
-#include <Gui/MetaTypes.h>
+#include <Base/Quantity.h>
 #include <Gui/SpinBox.h>
 
 #ifdef Q_MOC_RUN

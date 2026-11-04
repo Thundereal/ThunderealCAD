@@ -116,7 +116,11 @@ def check_member_for_solver_calculix(analysis, solver, mesh, member):
             if "PoissonRatio" not in mat_map:
                 # PoissonRatio is allowed to be 0.0 (in ccx), but it should be set anyway.
                 message += "No PoissonRatio defined for at least one material.\n"
-        if solver.AnalysisType == "frequency" or member.cons_selfweight:
+        if (
+            solver.AnalysisType == "frequency"
+            or member.cons_selfweight
+            or member.cons_bodymotion
+        ):
             if "Density" not in mat_map:
                 message += "No Density defined for at least one material.\n"
         if solver.AnalysisType == "thermomech":
@@ -193,6 +197,18 @@ def check_member_for_solver_calculix(analysis, solver, mesh, member):
     if solver.AnalysisType == "static":
         if not (member.cons_fixed or member.cons_displacement or member.cons_rigidbody):
             message += "Static analysis: No mechanical boundary conditions defined.\n"
+    # Not upstream: CalculiX takes no constraint on a distributing
+    # coupling's reference node
+    for femobj in member.cons_rigidbody:
+        rb = femobj["Object"]
+        if getattr(rb, "Coupling", "Rigid") != "Distributing":
+            continue
+        modes = [getattr(rb, m + a) for m in ("TranslationalMode", "RotationalMode") for a in "XYZ"]
+        if "Constraint" in modes:
+            message += (
+                "{}: a distributing coupling takes loads only; "
+                "hold the part with a rigid one.\n".format(rb.Label)
+            )
     if solver.AnalysisType == "thermomech":
         if not member.cons_initialtemperature:
             if not member.geos_fluidsection:

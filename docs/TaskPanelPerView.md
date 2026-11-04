@@ -805,6 +805,17 @@ out. 2: an edit and a dialog start on a copy of the shared selection.)
   next command. *The hand-back is not in the order; it is what keeps
   today's behaviour whole, and wants confirming.* What another view
   selected in the room meanwhile is replaced by it.
+- **A dialog's gate goes with it** (2026-10-30). A dialog that sets its
+  gate as it is made, before `showDialog`, sets it on the room; the view's
+  fresh instance is a copy without it, and the dialog's `deactivate()`
+  removes the current instance's gate -- the view's, none. The gate went
+  on gating every view after the dialog was gone, and was deleted after
+  Python's end at the exit, a crash (the Assembly contact, load and spring
+  panels, edited by a double click). `showDialog` now moves the room's gate
+  into the instance it makes for the dialog's view
+  (`SelectionSingleton::moveSelectionGateTo()`), only from the room and
+  only to a fresh instance: an edit's view has its own already, and the
+  dialog's gate went there. `tests/gui/selection-per-view.py` checks it.
 - **An edit session's instance is its initiator's** -- unchanged from
   `docs/ThinClient.md` 8.11: a view that joins a shared session selects
   into the initiating view's instance. What is new is that a desktop

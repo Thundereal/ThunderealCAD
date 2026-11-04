@@ -24,6 +24,7 @@
 #include "PreCompiled.h"
 
 #include <App/Document.h>
+#include <Gui/Application.h>
 #include <Gui/Command.h>
 #include <Mod/PartDesign/App/FeatureBase.h>
 

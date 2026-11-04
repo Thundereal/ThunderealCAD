@@ -26,10 +26,8 @@
 #endif
 
 #include <App/Application.h>
-#include <App/Document.h>
 #include <Base/Console.h>
 #include <Gui/Application.h>
-#include <Gui/Document.h>
 #include <Gui/PrefWidgets.h>
 
 #include "DlgSettings3DViewPartImp.h"

@@ -23,10 +23,12 @@
 #include "PreCompiled.h"
 #ifndef _PreComp_
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <sstream>
 #endif
 
+#include <cassert>
 #include <unordered_map>
 
 #include "Unit.h"

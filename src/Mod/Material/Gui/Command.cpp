@@ -33,6 +33,7 @@
 
 #include <App/DocumentObject.h>
 #include <App/PropertyStandard.h>
+#include <App/PropertyAppearance.h>
 #include <Mod/Material/App/PropertyMaterial.h>
 #include <Mod/Material/App/MaterialClipboard.h>
 #include <Mod/Material/App/ShaderGraph.h>

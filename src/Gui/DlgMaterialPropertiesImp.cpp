@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #include <App/PropertyStandard.h>
+#include <App/PropertyAppearance.h>
 
 #include "DlgMaterialPropertiesImp.h"
 #include "ui_DlgMaterialProperties.h"

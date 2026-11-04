@@ -107,6 +107,7 @@
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
 
+#include "View3DInventorViewer.h"
 #include "Inventor/SoFCRenderCacheManager.h"
 #include "Inventor/SoFCDiffuseElement.h"
 #include "Inventor/SoFCVisibilityElement.h"

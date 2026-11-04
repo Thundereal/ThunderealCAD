@@ -38,6 +38,7 @@
 #include <TopoDS.hxx>
 #include <gp_Pln.hxx>
 
+#include <App/Application.h>
 #include <App/Datums.h>
 #include <App/Document.h>
 #include <App/ObjectIdentifier.h>

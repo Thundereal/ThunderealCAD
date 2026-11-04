@@ -28,6 +28,7 @@
 #include <App/MaterialPy.h>
 #include <FCGlobal.h>
 
+#include <Inventor/SoFullPath.h>
 #include "LinkViewPy.h"
 #include "LinkViewPy.cpp"
 #include "ViewProviderDocumentObjectPy.h"

@@ -38,6 +38,7 @@
 # include <Bnd_Box.hxx>
 # include <TopLoc_Location.hxx>
 # include <QTimer>
+# include <QTreeWidget>
 #endif
 
 #include <boost/algorithm/string/predicate.hpp>

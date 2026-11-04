@@ -65,6 +65,7 @@
 #include <App/DocumentObjectPy.h>
 #include <App/DocumentObserver.h>
 #include <App/PropertyFile.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>

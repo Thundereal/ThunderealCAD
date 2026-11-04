@@ -34,6 +34,7 @@
 #include <App/Document.h>
 #include <App/FileBlobManager.h>
 #include <App/PropertyStandard.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
 #include <Base/Reader.h>

@@ -33,6 +33,7 @@
 
 #include <Base/Console.h>
 #include <Base/ExceptionSafeCall.h>
+#include <Gui/Application.h>
 #include <Gui/Selection.h>
 #include <Gui/Command.h>
 #include <Mod/PartDesign/App/Body.h>

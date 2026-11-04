@@ -26,170 +26,61 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
-#include <Base/Console.h>
-#include <Base/Exception.h>
-#include <Base/Tools.h>
-#include <App/Datums.h>
-#include <App/Document.h>
-#include <Mod/Part/App/BodyBase.h>
-#include <Mod/Part/App/Part2DObject.h>
-#include <Mod/Part/App/DatumFeature.h>
 #include <Mod/Part/App/PartParams.h>
 
 #include "Body.h"
-#include "Feature.h"
-#include "FeatureSolid.h"
-#include "FeatureSheetMetalRule.h"
-#include "SolidBody.h"
 #include "AuxGroup.h"
 
 using namespace PartDesign;
-namespace bp = boost::placeholders;
 
-PROPERTY_SOURCE(PartDesign::AuxGroup, App::DocumentObject)
+PROPERTY_SOURCE(PartDesign::AuxGroup, App::AuxGroup)
+
+const char *AuxGroup::SketchRole = "Sketches";
+const char *AuxGroup::DatumRole = "Datums";
+const char *AuxGroup::MiscRole = "Misc";
+const char *AuxGroup::SurfaceRole = "Surfaces";
 
 AuxGroup::AuxGroup()
 {
     ADD_PROPERTY_TYPE(_Body, (0), "Base",
             (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly|App::Prop_Output), 0);
-    ADD_PROPERTY_TYPE(Group, (0), "Base",
-            (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly|App::Prop_Output), 0);
+    setOwnerProperty(&_Body);
 }
 
-void AuxGroup::onChanged(const App::Property* prop)
+std::string AuxGroup::getDefaultRole() const
 {
-    auto doc = getDocument();
-    if (doc && !doc->isPerformingTransaction()
-            && !doc->testStatus(App::Document::Restoring)) {
-        if(prop == &_Body) {
-            attachBody();
-            refresh();
-        }
+    for (auto role : {SketchRole, DatumRole, MiscRole, SurfaceRole}) {
+        if (boost::starts_with(getNameInDocument(), role))
+            return role;
     }
-    inherited::onChanged(prop);
-}
-
-void AuxGroup::onDocumentRestored()
-{
-    attachBody();
-    inherited::onDocumentRestored();
-}
-
-void AuxGroup::attachBody()
-{
-    auto body = Base::freecad_dynamic_cast<Body>(_Body.getValue());
-    if (!body)
-        connBody.disconnect();
-    else
-        connBody = body->Group.signalChanged.connect(
-                std::bind(&AuxGroup::refresh, this));
+    return {};
 }
 
 AuxGroup::GroupType AuxGroup::getGroupType() const
 {
-    if (groupType != UnknownGroup)
-        return groupType;
     if (!getNameInDocument())
         return UnknownGroup;
-    if (boost::starts_with(getNameInDocument(), "Sketches"))
-        groupType = SketchGroup;
-    else if (boost::starts_with(getNameInDocument(), "Datums"))
-        groupType = DatumGroup;
-    else if (boost::starts_with(getNameInDocument(), "Misc"))
-        groupType = MiscGroup;
-    else if (boost::starts_with(getNameInDocument(), "Surfaces"))
-        groupType = SurfaceGroup;
-    else
-        groupType = OtherGroup;
-    return groupType;
+    const auto &role = getRole();
+    if (role.empty())
+        return OtherGroup;
+    if (role == SketchRole)
+        return SketchGroup;
+    if (role == DatumRole)
+        return DatumGroup;
+    if (role == MiscRole)
+        return MiscGroup;
+    if (role == SurfaceRole)
+        return SurfaceGroup;
+    return UnknownGroup;
 }
 
 bool AuxGroup::allowDuplicateLabel() const
 {
-    return getGroupType()!=OtherGroup
+    return inherited::allowDuplicateLabel()
         && !Part::PartParams::getAuxGroupUniqueLabel();
-}
-
-bool AuxGroup::isObjectAllowed(const App::DocumentObject *obj) const
-{
-    if (!obj || boost::starts_with(obj->getNameInDocument(), "BaseFeature"))
-        return false;
-    auto type = obj->getTypeId();
-    // App datums and coordinate systems go with the PartDesign datums
-    bool isDatum = type.isDerivedFrom(Part::Datum::getClassTypeId())
-        || type.isDerivedFrom(App::DatumElement::getClassTypeId())
-        || type.isDerivedFrom(App::LocalCoordinateSystem::getClassTypeId());
-    switch (getGroupType()) {
-    case SketchGroup:
-        return type.isDerivedFrom(Part::Part2DObject::getClassTypeId());
-    case DatumGroup:
-        return isDatum;
-    case SurfaceGroup:
-        return Part::BodyBase::typeKind(type) == "Surface";
-    case MiscGroup:
-        return !type.isDerivedFrom(Part::Part2DObject::getClassTypeId())
-            && !isDatum
-            && !type.isDerivedFrom(Feature::getClassTypeId())
-            && !type.isDerivedFrom(Solid::getClassTypeId())
-            && !type.isDerivedFrom(SolidBody::getClassTypeId())
-            && !type.isDerivedFrom(AuxGroup::getClassTypeId())
-            // left to the solid bodies of the sheets using it
-            && !type.isDerivedFrom(SheetMetalRule::getClassTypeId());
-    case OtherGroup:
-        return !type.isDerivedFrom(AuxGroup::getClassTypeId())
-            && !type.isDerivedFrom(SolidBody::getClassTypeId())
-            && !type.isDerivedFrom(PartDesign::Feature::getClassTypeId())
-            && PartDesign::Body::isAllowed(type);
-    default:
-        return false;
-    }
 }
 
 PartDesign::Body *AuxGroup::getBody() const
 {
     return Base::freecad_dynamic_cast<Body>(_Body.getValue());
-}
-
-void AuxGroup::refresh()
-{
-    auto body = getBody();
-    if (!body) {
-        Group.setValues();
-        return;
-    }
-    if (body->Group.find(getNameInDocument()) != this) {
-        _Body.setValue(nullptr);
-        Group.setValues();
-        return;
-    }
-    std::vector<App::DocumentObject *> children;
-    if (getGroupType() == OtherGroup) {
-        auto group = Group.getValues();
-        std::sort(group.begin(), group.end());
-        for (auto obj : body->Group.getValues()) {
-            auto it = std::lower_bound(group.begin(), group.end(), obj);
-            if (it != group.end() && *it == obj) {
-                children.push_back(obj);
-                group.erase(it);
-            }
-        }
-    }
-    else {
-        // the surfaces are not Misc's where a surface group holds them
-        bool surfaceGroup = false;
-        if (getGroupType() == MiscGroup) {
-            for (auto obj : body->Group.getValues()) {
-                auto group = freecad_cast<AuxGroup*>(obj);
-                if (group && group->getGroupType() == SurfaceGroup)
-                    surfaceGroup = true;
-            }
-        }
-        for (auto obj : body->Group.getValues()) {
-            if (isObjectAllowed(obj)
-                    && !(surfaceGroup
-                         && Part::BodyBase::typeKind(obj->getTypeId()) == "Surface"))
-                children.push_back(obj);
-        }
-    }
-    Group.setValues(children);
 }

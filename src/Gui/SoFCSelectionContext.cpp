@@ -30,6 +30,7 @@
 
 #include "SoFCSelectionContext.h"
 #include "SoFCUnifiedSelection.h"
+#include "Selection.h"
 
 
 using namespace Gui;

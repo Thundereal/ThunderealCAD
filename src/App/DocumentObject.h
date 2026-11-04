@@ -27,11 +27,9 @@
 
 #include <App/TransactionalObject.h>
 #include <App/PropertyExpressionEngine.h>
-#include <App/PropertyGeo.h>
 #include <App/PropertyPythonObject.h>
 #include <App/PropertyStandard.h>
 #include <Base/Bitmask.h>
-#include <Base/Placement.h>
 #include <Base/SmartPtrPy.h>
 
 #include <bitset>
@@ -43,6 +41,7 @@
 namespace Base
 {
 class Matrix4D;
+class Placement;
 }
 
 namespace App
@@ -487,6 +486,41 @@ public:
     virtual DocumentObject *getSubObject(const char *subname, PyObject **pyObj=nullptr,
             Base::Matrix4D *mat=nullptr, bool transform=true, int depth=0) const;
 
+    /** Resolve a subname step written as "$$Name."
+     *
+     * The step names the object held by this object's link property \c Name,
+     * where "Name." names a child by its internal name and "$Name." by its
+     * label. Only a property holding a single object counts (PropertyLink and
+     * its variants, PropertyXLink, PropertyLinkSub). Without such a property
+     * the step keeps the meaning it always had: the child labelled "$Name".
+     *
+     * @param subname: the subname starting at the step
+     * @param ret: output the object held by the property, which may be null
+     * @param next: optional output of the rest of the subname after the step
+     *
+     * @return true if the step names such a property of this object.
+     */
+    bool resolvePropertyStep(const char *subname, DocumentObject *&ret,
+                             const char **next = nullptr) const;
+
+    /// Check whether a subname starts with a "$$Name." step
+    static bool isPropertyStep(const char *subname) {
+        return subname && subname[0] == '$' && subname[1] == '$';
+    }
+
+    /** Resolve a subname that starts with a "$$Name." step
+     *
+     * The object held by the property is taken as a child in this object's
+     * coordinate system, as the origin of an OriginGroupExtension is. The
+     * arguments are those of getSubObject().
+     *
+     * @return true if the step names a link property of this object, with
+     * the result in \c ret. A link resolves the step itself and is never
+     * handled here.
+     */
+    bool getSubObjectByProperty(DocumentObject *&ret, const char *subname,
+            PyObject **pyObj, Base::Matrix4D *mat, bool transform, int depth) const;
+
     /** Return a list of objects referenced by a given subname including this object
      * @param subname: the sub name path
      * @param subsizes: optional sub name sizes for each returned object, that is,
@@ -744,9 +778,7 @@ public:
      * never claim one of those -- and the matching Restore is written for a
      * property whose owner is in a document, which a stand-in is not.
      */
-    bool mustSave(const Property &prop) const override {
-        return prop.isDerivedFrom(PropertyComplexGeoData::getClassTypeId());
-    }
+    bool mustSave(const Property &prop) const override;
 
     /* Expression support */
 

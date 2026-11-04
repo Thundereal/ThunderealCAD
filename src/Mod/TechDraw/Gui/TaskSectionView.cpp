@@ -30,6 +30,7 @@
 
 #include "Widgets/CompassWidget.h"
 #include "Widgets/VectorEditWidget.h"
+#include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <Base/Console.h>

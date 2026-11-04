@@ -53,6 +53,12 @@ public:
     bool doubleClicked() override;
     void setupContextMenu(QMenu* menu, QObject* receiver, const char* member) override;
 
+    /// Origin, then the part's aux groups in their order, Parts the last of
+    /// them, then the rest (docs/AssemblyObjectModel.md sec 3)
+    std::vector<App::DocumentObject*> claimChildren() const override;
+    /// Add or remove the Parts group
+    void togglePartsGroup();
+
     std::map<std::string, App::Color> getElementColors(const char *subname=nullptr) const override;
     void setElementColors(const std::map<std::string, App::Color> &colors) override;
 

@@ -30,6 +30,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <App/SavedView.h>
+#include <App/Document.h>
 #include <App/AutoTransaction.h>
 #include <App/GroupExtension.h>
 #include "View3DInventor.h"

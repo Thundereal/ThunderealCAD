@@ -266,6 +266,8 @@ class AnalysisMember:
 
         # constraints
         self.cons_centrif = self.get_several_member("Fem::ConstraintCentrif")
+        # Not upstream
+        self.cons_bodymotion = self.get_several_member("Fem::ConstraintBodyMotion")
         self.cons_bodyheatsource = self.get_several_member("Fem::ConstraintBodyHeatSource")
         self.cons_contact = self.get_several_member("Fem::ConstraintContact")
         self.cons_displacement = self.get_several_member("Fem::ConstraintDisplacement")

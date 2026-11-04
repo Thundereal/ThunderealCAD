@@ -67,11 +67,18 @@ class AssemblyWorkbench(Workbench):
         import CommandInsertNewPart
         import CommandCreateJoint
         import CommandSolveAssembly
+        import CommandCheckInterference
         import CommandExportASMT
         import CommandCreateView
         import CommandCreateSimulation
+        import CommandMassProperties
+        import CommandCreateSpring
+        import CommandCreateLoad
+        import CommandCreateBushing
+        import CommandCreateContact
         import CommandCreateSnapshot
         import CommandCreateBom
+        import CommandConvertAsm3
         import Preferences
 
         FreeCADGui.addLanguagePath(":/translations")
@@ -85,21 +92,37 @@ class AssemblyWorkbench(Workbench):
         cmdList = [
             "Assembly_CreateAssembly",
             "Assembly_Insert",
+            "Std_LinkArrayActions",
             "Assembly_SolveAssembly",
+            "Assembly_CheckInterference",
+            "Assembly_DragCollision",
+            "Assembly_ClearCollisionMarkers",
             "Assembly_CreateView",
             "Assembly_CreateSnapshot",
             "Assembly_CreateSimulation",
+            "Assembly_MassProperties",
+            "Assembly_CreateSpring",
+            "Assembly_CreateTorsionSpring",
+            "Assembly_CreateJointStop",
+            "Assembly_CreateJointFriction",
+            "Assembly_CreateLoad",
+            "Assembly_CreateBushing",
+            "Assembly_CreateContact",
+            "Assembly_CreateCamContact",
+            "Assembly_CreateProfileContact",
             "Assembly_CreateBom",
         ]
 
         cmdListMenuOnly = [
             "Assembly_LinkSelectLinked",
             "Assembly_ExportASMT",
+            "Assembly_ConvertAssembly3",
             "Assembly_SelectJointsOfComponent",
         ]
 
         cmdListJoints = [
             "Assembly_ToggleGrounded",
+            "Assembly_CreateJointRigidGroup",
             "Separator",
             "Assembly_CreateJointFixed",
             "Assembly_CreateJointRevolute",

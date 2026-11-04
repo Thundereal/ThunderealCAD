@@ -28,8 +28,7 @@
 #include <cassert>
 #include <cstring>
 #include <set>
-#include "Console.h"
-#include "Exception.h"
+#include <FCGlobal.h>
 
 
 namespace Base
@@ -37,6 +36,12 @@ namespace Base
 
 template<class MessageType>
 class Subject;
+
+/// Subject's logging, out of line so that this header needs neither Console.h
+/// nor Exception.h: a developer warning, \a observer filling a "%p" in \a message
+BaseExport void subjectWarning(const char* where, const char* message, void* observer);
+/// Logs the exception being handled when an observer threw from OnChange()
+BaseExport void subjectNotifyFailed();
 
 
 /** Observer class
@@ -123,8 +128,7 @@ public:
     virtual ~Subject()
     {
         if (_ObserverSet.size() > 0) {
-            Base::Console().DeveloperWarning(std::string("~Subject()"),
-                                             "Not detached all observers yet\n");
+            subjectWarning("~Subject()", "Not detached all observers yet\n", nullptr);
         }
     }
 
@@ -140,9 +144,9 @@ public:
         size_t count = _ObserverSet.size();
         _ObserverSet.insert(ToObserv);
         if (_ObserverSet.size() == count) {
-            Base::Console().DeveloperWarning(std::string("Subject::Attach"),
-                                             "Observer %p already attached\n",
-                                             static_cast<void*>(ToObserv));
+            subjectWarning("Subject::Attach",
+                           "Observer %p already attached\n",
+                           static_cast<void*>(ToObserv));
         }
 #else
         _ObserverSet.insert(ToObserv);
@@ -161,9 +165,9 @@ public:
         size_t count = _ObserverSet.size();
         _ObserverSet.erase(ToObserv);
         if (_ObserverSet.size() == count) {
-            Base::Console().DeveloperWarning(std::string("Subject::Detach"),
-                                             "Observer %p already detached\n",
-                                             static_cast<void*>(ToObserv));
+            subjectWarning("Subject::Detach",
+                           "Observer %p already detached\n",
+                           static_cast<void*>(ToObserv));
         }
 #else
         _ObserverSet.erase(ToObserv);
@@ -184,19 +188,8 @@ public:
             try {
                 (*Iter)->OnChange(*this, rcReason);  // send OnChange-signal
             }
-            catch (Base::Exception& e) {
-                Base::Console().Error("Unhandled Base::Exception caught when notifying observer.\n"
-                                      "The error message is: %s\n",
-                                      e.what());
-            }
-            catch (std::exception& e) {
-                Base::Console().Error("Unhandled std::exception caught when notifying observer\n"
-                                      "The error message is: %s\n",
-                                      e.what());
-            }
             catch (...) {
-                Base::Console().Error(
-                    "Unhandled unknown exception caught in when notifying observer.\n");
+                subjectNotifyFailed();
             }
         }
     }

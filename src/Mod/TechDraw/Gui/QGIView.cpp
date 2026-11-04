@@ -34,6 +34,7 @@
 
 #include <App/Application.h>
 #include <App/AutoTransaction.h>
+#include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <Base/Console.h>
 #include <Gui/Application.h>

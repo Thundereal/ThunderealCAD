@@ -30,17 +30,15 @@
 #include <Inventor/SbImage.h>
 #include <Inventor/SbColor.h>
 
-#include <App/Part.h>
 #include <App/DocumentObserver.h>
+#include <Base/Parameter.h>
 #include <Base/Tools2D.h>
 #include <Base/Placement.h>
-#include <Gui/Document.h>
 #include <Gui/GLPainter.h>
 #include <Gui/Selection.h>
 #include <Mod/Part/Gui/ViewProvider2DObject.h>
 #include <Mod/Part/Gui/ViewProviderGridExtension.h>
 #include <Mod/Part/Gui/ViewProviderAttachExtension.h>
-#include <Mod/Part/App/BodyBase.h>
 #include <Mod/Sketcher/App/GeoEnum.h>
 #include <Mod/Sketcher/App/GeoList.h>
 
@@ -77,6 +75,7 @@ class SbTime;
 struct EditData;
 
 namespace Gui {
+class Document;
 class MenuItem;
 class SoDatumLabel;
 class View3DInventorViewer;

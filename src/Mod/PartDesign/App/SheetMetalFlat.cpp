@@ -51,6 +51,7 @@
 #include "SheetMetalExtension.h"
 #include "SheetMetalFlat.h"
 #include "SolidBody.h"
+#include <Mod/Material/App/Materials.h>
 
 using Part::TopoShape;
 

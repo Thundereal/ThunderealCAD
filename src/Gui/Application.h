@@ -33,6 +33,7 @@
 #define  putpix()
 
 #include <App/Application.h>
+#include <Base/Type.h>
 
 class QCloseEvent;
 class SoNode;
@@ -511,6 +512,7 @@ public:
     // python exports goes here +++++++++++++++++++++++++++++++++++++++++++
     //---------------------------------------------------------------------
     // static python wrapper of the exported functions
+    // New fork-only wrappers go file-local in ApplicationPy.cpp, not here.
     static PyObject* sActivateWorkbenchHandler (PyObject *self,PyObject *args); // activates a workbench object
     static PyObject* sAddWorkbenchHandler      (PyObject *self,PyObject *args); // adds a new workbench handler to a list
     static PyObject* sRemoveWorkbenchHandler   (PyObject *self,PyObject *args); // removes a workbench handler from the list
@@ -522,36 +524,13 @@ public:
     static PyObject* sAddIconPath              (PyObject *self,PyObject *args); // adds a path to an icon file
     static PyObject* sAddIcon                  (PyObject *self,PyObject *args); // adds an icon to the cache
     static PyObject* sGetIcon                  (PyObject *self,PyObject *args); // get an icon from the cache
-    static PyObject* sGetIconContext           (PyObject *self,PyObject *args);
-    static PyObject* sAddIconContext           (PyObject *self,PyObject *args);
     static PyObject* sIsIconCached             (PyObject *self,PyObject *args); // check if an icon is cached
-    static PyObject* sGetIconNames             (PyObject *self,PyObject *args); // get all cached icon names
 
     static PyObject* sSendActiveView           (PyObject *self,PyObject *args);
     static PyObject* sSendFocusView            (PyObject *self,PyObject *args);
 
     static PyObject* sGetMainWindow            (PyObject *self,PyObject *args);
     static PyObject* sUpdateGui                (PyObject *self,PyObject *args);
-    static PyObject* sServeDocument            (PyObject *self,PyObject *args);
-    static PyObject* sServeBranch              (PyObject *self,PyObject *args);
-    static PyObject* sSetLiveImport            (PyObject *self,PyObject *args);
-    static PyObject* sPumpLiveImport           (PyObject *self,PyObject *args);
-    static PyObject* sIsLiveImport             (PyObject *self,PyObject *args);
-    static PyObject* sIsBuildingVisuals        (PyObject *self,PyObject *args);
-    static PyObject* sServeClients             (PyObject *self,PyObject *args);
-    static PyObject* sServeRequests            (PyObject *self,PyObject *args);
-    static PyObject* sServeDropRequest         (PyObject *self,PyObject *args);
-    static PyObject* sServeUploads             (PyObject *self,PyObject *args);
-    static PyObject* sServeSetClientMode       (PyObject *self,PyObject *args);
-    static PyObject* sServeSetClientSelection  (PyObject *self,PyObject *args);
-    static PyObject* sServeKickClient          (PyObject *self,PyObject *args);
-    static PyObject* sCyclesDevices            (PyObject *self,PyObject *args);
-    static PyObject* sCyclesRenderTest         (PyObject *self,PyObject *args,PyObject *kwd);
-    static PyObject* sServeGrants              (PyObject *self,PyObject *args);
-    static PyObject* sServeSetGrants           (PyObject *self,PyObject *args);
-    static PyObject* sServeDevices             (PyObject *self,PyObject *args);
-    static PyObject* sServeSetDevices          (PyObject *self,PyObject *args);
-    static PyObject* sServeStop                (PyObject *self,PyObject *args);
     static PyObject* sUpdateLocale             (PyObject *self,PyObject *args);
     static PyObject* sGetLocale                (PyObject *self,PyObject *args);
     static PyObject* sSetLocale                (PyObject *self,PyObject *args);
@@ -581,8 +560,6 @@ public:
     static PyObject* sActivateView             (PyObject *self,PyObject *args);
     static PyObject* sGetDocument              (PyObject *self,PyObject *args);
     static PyObject* sEditDocument             (PyObject *self,PyObject *args);
-    static PyObject* sEditDocuments            (PyObject *self,PyObject *args);
-    static PyObject* sResetEdit                (PyObject *self,PyObject *args);
 
     static PyObject* sDoCommand                (PyObject *self,PyObject *args);
     static PyObject* sDoCommandGui             (PyObject *self,PyObject *args);
@@ -590,13 +567,6 @@ public:
 
     static PyObject* sShowDownloads            (PyObject *self,PyObject *args);
     static PyObject* sShowPreferences          (PyObject *self,PyObject *args);
-
-    static PyObject* sListThemes               (PyObject *self,PyObject *args);
-    static PyObject* sApplyTheme               (PyObject *self,PyObject *args);
-    static PyObject* sListConfigBackups        (PyObject *self,PyObject *args);
-    static PyObject* sRevertConfig             (PyObject *self,PyObject *args);
-    static PyObject* sListConfigUndos          (PyObject *self,PyObject *args);
-    static PyObject* sUndoConfig               (PyObject *self,PyObject *args);
 
     static PyObject* sCreateViewer             (PyObject *self,PyObject *args);
     static PyObject* sGetMarkerIndex           (PyObject *self,PyObject *args);

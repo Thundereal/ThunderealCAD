@@ -36,6 +36,7 @@
 #include <Base/Tools.h>
 #include <Gui/Application.h>
 #include <Gui/CommandT.h>
+#include <Gui/Document.h>
 #include <Gui/Inventor/Draggers/Gizmo.h>
 #include <Gui/MainWindow.h>
 #include <Gui/OnViewValue.h>

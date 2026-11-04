@@ -35,6 +35,7 @@
 #include <App/DocumentParams.h>
 #include <Base/Console.h>
 #include <Base/Reader.h>
+#include <Base/Tools.h>
 #include <Base/Writer.h>
 
 #include "Thumbnail.h"

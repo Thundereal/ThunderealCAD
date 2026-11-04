@@ -26,6 +26,7 @@
 #include <cstring>
 #endif
 
+#include <Base/Console.h>
 #include "RecentFilesModel.h"
 #include <App/Application.h>
 #include <App/ProjectFile.h>

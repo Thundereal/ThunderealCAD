@@ -25,6 +25,7 @@
 #include "VectorListEditor.h"
 #include "ui_VectorListEditor.h"
 #include "QuantitySpinBox.h"
+#include "MetaTypes.h"
 
 
 using namespace Gui;

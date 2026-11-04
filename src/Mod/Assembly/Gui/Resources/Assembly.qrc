@@ -22,13 +22,30 @@
         <file>icons/Assembly_CreateJointPulleys.svg</file>
         <file>icons/Assembly_CreateJointRackPinion.svg</file>
         <file>icons/Assembly_CreateJointScrew.svg</file>
+        <file>icons/Assembly_CreateJointRigidGroup.svg</file>
         <file>icons/Assembly_ExportASMT.svg</file>
         <file>icons/Assembly_SelectJointsOfComponent.svg</file>
         <file>icons/Assembly_SolveAssembly.svg</file>
+        <file>icons/Assembly_CheckInterference.svg</file>
+        <file>icons/Assembly_MassProperties.svg</file>
+        <file>icons/Assembly_SpringDamper.svg</file>
+        <file>icons/Assembly_TorsionSpring.svg</file>
+        <file>icons/Assembly_JointStop.svg</file>
+        <file>icons/Assembly_JointFriction.svg</file>
+        <file>icons/Assembly_AppliedLoad.svg</file>
+        <file>icons/Assembly_Bushing.svg</file>
+        <file>icons/Assembly_Contact.svg</file>
+        <file>icons/Assembly_CamContact.svg</file>
+        <file>icons/Assembly_ProfileContact.svg</file>
+        <file>icons/Assembly_Sensor.svg</file>
+        <file>icons/Assembly_DragCollision.svg</file>
+        <file>icons/Assembly_ClearCollisionMarkers.svg</file>
         <file>icons/Assembly_JointGroup.svg</file>
+        <file>icons/Assembly_Frozen.svg</file>
         <file>icons/Assembly_ExplodedView.svg</file>
         <file>icons/Assembly_ExplodedViewGroup.svg</file>
         <file>icons/Assembly_CreateSimulation.svg</file>
+        <file>icons/Assembly_PhysicsGroup.svg</file>
         <file>icons/Assembly_SimulationGroup.svg</file>
         <file>icons/Assembly_SnapshotGroup.svg</file>
         <file>panels/TaskAssemblyCreateBom.ui</file>

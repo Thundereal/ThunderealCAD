@@ -45,6 +45,7 @@
 #include <Gui/Command.h>
 #include <Gui/CommandT.h>
 #include <Gui/EditSteps.h>
+#include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Tools.h>
 #include <Gui/WaitCursor.h>

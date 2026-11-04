@@ -21,23 +21,30 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <algorithm>
+#include <cstring>
+#include <iterator>
+#include <unordered_set>
+
 #include <BRepAdaptor_Curve.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_SphericalSurface.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Cylinder.hxx>
 #include <gp_Sphere.hxx>
+#include <gp_Pln.hxx>
+#include <Standard_Failure.hxx>
 
 
 #include <App/Application.h>
-// Upstream replaced App::Origin/App::OriginFeature (App/Origin.h, App/OriginFeature.h)
-// with App::LocalCoordinateSystem/App::DatumElement (App/Datums.h). This fork still
-// has the older pair, and they play the same roles here, so ported code refers to
-// them instead.
-#include <App/Origin.h>
-#include <App/OriginFeature.h>
+#include <App/Datums.h>
 #include <App/Document.h>
+#include <App/GroupExtension.h>
+#include <App/ElementNamingUtils.h>
 #include <App/DocumentObject.h>
 #include <App/PropertyStandard.h>
 #include <App/Link.h>
@@ -47,12 +54,17 @@
 #include <Base/Interpreter.h>
 
 #include <Mod/Part/App/DatumFeature.h>
+#include <App/LinkArray.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/PartDesign/App/Body.h>
 
 #include "AssemblyUtils.h"
+#include "ElementGeometry.h"
 #include "AssemblyObject.h"
 #include "AssemblyLink.h"
+#include "Joint.h"
+#include "Simulation.h"
+#include <Mod/Part/App/FeatureElement.h>
 
 #include "Groups.h"
 
@@ -63,9 +75,46 @@ namespace PartApp = Part;
 namespace Assembly
 {
 
+bool isElementLinkGroup(const App::DocumentObject* obj)
+{
+    return obj && obj->isLinkGroup() && !obj->isDerivedFrom<App::LinkArray>();
+}
+
+int linkElementIndex(const App::DocumentObject* obj, App::Link** group)
+{
+    auto* elt = freecad_cast<const App::LinkElement*>(obj);
+    auto* link = elt ? elt->getLinkGroup() : nullptr;
+    if (group) {
+        *group = link;
+    }
+    if (!link) {
+        return -1;
+    }
+    const auto& elements = link->ElementList.getValues();
+    auto it = std::find(elements.begin(), elements.end(), obj);
+    return it == elements.end() ? -1 : static_cast<int>(it - elements.begin());
+}
+
+// Upstream reads a Suppressed property on the element. Here an element is
+// suppressed by hiding it in its link group's VisibilityList
+// (App::LinkArray::isElementSuppressed), which also leaves it out of the shape.
+bool isSuppressedLinkElement(const App::DocumentObject* obj)
+{
+    App::Link* group = nullptr;
+    int index = linkElementIndex(obj, &group);
+    return index >= 0 && group->isElementVisible(std::to_string(index).c_str()) == 0;
+}
+
 void swapJCS(const App::DocumentObject* joint)
 {
     if (!joint) {
+        return;
+    }
+    if (auto typed = dynamic_cast<const Joint*>(joint)) {
+        auto* j = const_cast<Joint*>(typed);
+        auto* link1 = j->Binding1.getValue();
+        j->Binding1.setValue(j->Binding2.getValue());
+        j->Binding2.setValue(link1);
         return;
     }
 
@@ -89,78 +138,56 @@ void swapJCS(const App::DocumentObject* joint)
     }
 }
 
+// Not upstream (docs/AssemblySolverInterface.md sec 6.11): the element's
+// type as ElementGeometry recognises it, so a B-spline that is a circle or a
+// cylinder within the tolerance counts as one. An analytic element reads as
+// before.
 bool isEdgeType(const App::DocumentObject* obj, const std::string& elName, const GeomAbs_CurveType type)
 {
-    auto* base = dynamic_cast<const PartApp::Feature*>(obj);
-    if (!base) {
-        return false;
-    }
-
-    const auto& TopShape = base->Shape.getShape();
-
-    // Check for valid face types
-    const auto edge = TopoDS::Edge(TopShape.getSubShape(elName.c_str()));
-    BRepAdaptor_Curve sf(edge);
-
-    return sf.GetType() == type;
+    return analyzeEdge(obj, elName).type == type;
 }
 
 bool isFaceType(const App::DocumentObject* obj, const std::string& elName, const GeomAbs_SurfaceType type)
 {
-    auto* base = dynamic_cast<const PartApp::Feature*>(obj);
-    if (!base) {
-        return false;
-    }
-
-    const auto TopShape = base->Shape.getShape();
-
-    // Check for valid face types
-    const auto face = TopoDS::Face(TopShape.getSubShape(elName.c_str()));
-    BRepAdaptor_Surface sf(face);
-
-    return sf.GetType() == type;
+    return analyzeFace(obj, elName).type == type;
 }
 
 double getFaceRadius(const App::DocumentObject* obj, const std::string& elt)
 {
-    auto* base = dynamic_cast<const PartApp::Feature*>(obj);
-    if (!base) {
-        return 0.0;
+    const auto face = analyzeFace(obj, elt);
+    if (auto cyl = Handle(Geom_CylindricalSurface)::DownCast(face.surface)) {
+        return cyl->Radius();
     }
-
-    const PartApp::TopoShape& TopShape = base->Shape.getShape();
-
-    // Check for valid face types
-    TopoDS_Face face = TopoDS::Face(TopShape.getSubShape(elt.c_str()));
-    BRepAdaptor_Surface sf(face);
-
-    const auto type = sf.GetType();
-    return type == GeomAbs_Cylinder ? sf.Cylinder().Radius()
-        : type == GeomAbs_Sphere    ? sf.Sphere().Radius()
-                                    : 0.0;
+    if (auto sphere = Handle(Geom_SphericalSurface)::DownCast(face.surface)) {
+        return sphere->Radius();
+    }
+    return 0.0;
 }
 
 double getEdgeRadius(const App::DocumentObject* obj, const std::string& elt)
 {
-    auto* base = dynamic_cast<const PartApp::Feature*>(obj);
-    if (!base) {
-        return 0.0;
+    const auto edge = analyzeEdge(obj, elt);
+    if (auto circle = Handle(Geom_Circle)::DownCast(edge.curve)) {
+        return circle->Radius();
     }
-
-    const auto& TopShape = base->Shape.getShape();
-
-    // Check for valid face types
-    const auto edge = TopoDS::Edge(TopShape.getSubShape(elt.c_str()));
-    BRepAdaptor_Curve sf(edge);
-
-    return sf.GetType() == GeomAbs_Circle ? sf.Circle().Radius() : 0.0;
+    return 0.0;
 }
 
-DistanceType getDistanceType(App::DocumentObject* joint)
+DistanceType getDistanceType(App::DocumentObject* joint, bool* swapped)
 {
+    if (swapped) {
+        *swapped = false;
+    }
     if (!joint) {
         return DistanceType::Other;
     }
+    // Shadows ::swapJCS: the sides trade places for the classification below
+    // and in the caller's solver model, not in the document.
+    auto swapJCS = [swapped](const App::DocumentObject*) {
+        if (swapped) {
+            *swapped = !*swapped;
+        }
+    };
 
     const auto type1 = getElementTypeFromProp(joint, "Reference1");
     const auto type2 = getElementTypeFromProp(joint, "Reference2");
@@ -376,6 +403,221 @@ DistanceType getDistanceType(App::DocumentObject* joint)
     return DistanceType::Other;
 }
 
+const char* distanceTypeName(DistanceType type)
+{
+    // In the enum's order.
+    static const char* const names[] = {
+        "PointPoint",    "LineLine",      "LineCircle",       "CircleCircle",  "PlanePlane",
+        "PlaneCylinder", "PlaneSphere",   "PlaneCone",        "PlaneTorus",    "CylinderCylinder",
+        "CylinderSphere", "CylinderCone", "CylinderTorus",    "ConeCone",      "ConeTorus",
+        "ConeSphere",    "TorusTorus",    "TorusSphere",      "SphereSphere",  "PointPlane",
+        "PointCylinder", "PointSphere",   "PointCone",        "PointTorus",    "LinePlane",
+        "LineCylinder",  "LineSphere",    "LineCone",         "LineTorus",     "CurvePlane",
+        "CurveCylinder", "CurveSphere",   "CurveCone",        "CurveTorus",    "PointLine",
+        "PointCurve",    "Other",
+    };
+    static_assert(std::size(names) == static_cast<std::size_t>(DistanceType::Other) + 1);
+    auto index = static_cast<std::size_t>(type);
+    return index < std::size(names) ? names[index] : "Other";
+}
+
+const std::vector<DistanceType>& refusedDistanceTypes()
+{
+    // Since sec 6.11 only Other is refused whatever the elements are (and
+    // only between two elements, see distanceJointRefusal). The cone, torus
+    // and curve sub-types have a role mapping; distanceJointRefusal still
+    // refuses some of them on the elements' geometry.
+    static const std::vector<DistanceType> refused = {
+        DistanceType::Other,
+    };
+    return refused;
+}
+
+bool isDistanceTypeRefused(DistanceType type)
+{
+    const auto& refused = refusedDistanceTypes();
+    return std::find(refused.begin(), refused.end(), type) != refused.end();
+}
+
+namespace
+{
+
+bool isElementType(const std::string& t)
+{
+    return t == "Vertex" || t == "Edge" || t == "Face";
+}
+
+// "the face Face3 of Cone" (the label of the picked component).
+std::string elementPhrase(App::DocumentObject* joint, const char* prop, const char* kind)
+{
+    std::string name, label;
+    describeJointSide(joint, prop, name, label);
+    std::string res = std::string("the ") + kind + " " + name;
+    if (!label.empty()) {
+        res += " of ";
+        res += label;
+    }
+    return res;
+}
+
+std::string faceRefusal(App::DocumentObject* joint, const char* prop)
+{
+    auto* obj = getLinkedObjFromRef(joint, prop);
+    const auto face = analyzeFace(obj, getElementFromProp(joint, prop));
+    if (isAnalyticSurface(face.type)) {
+        return {};
+    }
+    return elementPhrase(joint, prop, "face")
+        + " is not planar, cylindrical, conical, spherical or toroidal: it is "
+        + describeSurfaceType(face.type);
+}
+
+std::string edgeNotLineOrCircle(App::DocumentObject* joint, const char* prop)
+{
+    auto* obj = getLinkedObjFromRef(joint, prop);
+    const auto edge = analyzeEdge(obj, getElementFromProp(joint, prop));
+    if (edge.type == GeomAbs_Line || edge.type == GeomAbs_Circle) {
+        return {};
+    }
+    return elementPhrase(joint, prop, "edge") + " is not a line or a circle: it is "
+        + describeCurveType(edge.type);
+}
+
+std::string edgeNotPlanar(App::DocumentObject* joint, const char* prop)
+{
+    auto* obj = getLinkedObjFromRef(joint, prop);
+    const std::string name = getElementFromProp(joint, prop);
+    const auto edge = analyzeEdge(obj, name);
+    if (edge.type == GeomAbs_Line || edge.type == GeomAbs_Circle || edge.type == GeomAbs_Ellipse) {
+        return {};
+    }
+    // The plane findPlacement frames such a curve with (edge.findPlane()).
+    auto* feature = dynamic_cast<PartApp::Feature*>(obj);
+    if (feature) {
+        try {
+            PartApp::TopoShape sub(feature->Shape.getShape().getSubShape(name.c_str(), true));
+            gp_Pln pln;
+            if (!sub.isNull() && sub.findPlane(pln)) {
+                return {};
+            }
+        }
+        catch (const Standard_Failure&) {
+        }
+        catch (const Base::Exception&) {
+        }
+    }
+    return elementPhrase(joint, prop, "edge") + " is not a line and not planar: it is "
+        + describeCurveType(edge.type);
+}
+
+// The side (Reference1 or Reference2) whose element is of this type, the
+// first when both are.
+const char* sideOf(App::DocumentObject* joint, const char* elementType)
+{
+    if (getElementTypeFromProp(joint, "Reference1") == elementType) {
+        return "Reference1";
+    }
+    if (getElementTypeFromProp(joint, "Reference2") == elementType) {
+        return "Reference2";
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+std::string distanceJointRefusal(App::DocumentObject* joint, DistanceType type)
+{
+    if (!joint) {
+        return {};
+    }
+    switch (type) {
+        case DistanceType::Other: {
+            const auto t1 = getElementTypeFromProp(joint, "Reference1");
+            const auto t2 = getElementTypeFromProp(joint, "Reference2");
+            if (!isElementType(t1) || !isElementType(t2)) {
+                // A whole object on a side (a datum plane, an LCS, a body):
+                // the planar distance between the objects' frames.
+                return {};
+            }
+            // Between two elements, Other means an element that is not one
+            // getDistanceType knows: a freeform face, or (between two edges)
+            // an edge that is neither a line nor a circle.
+            for (const char* prop : {"Reference1", "Reference2"}) {
+                if (getElementTypeFromProp(joint, prop) == "Face") {
+                    auto why = faceRefusal(joint, prop);
+                    if (!why.empty()) {
+                        return why;
+                    }
+                }
+            }
+            for (const char* prop : {"Reference1", "Reference2"}) {
+                if (getElementTypeFromProp(joint, prop) == "Edge") {
+                    auto why = edgeNotLineOrCircle(joint, prop);
+                    if (!why.empty()) {
+                        return why;
+                    }
+                }
+            }
+            return "no distance is defined between these elements";
+        }
+        case DistanceType::CurveCylinder:
+        case DistanceType::CurveSphere:
+        case DistanceType::CurveCone:
+        case DistanceType::CurveTorus: {
+            // The curve stands for its axis and radius: only a circle has them.
+            const char* prop = sideOf(joint, "Edge");
+            return prop ? edgeNotLineOrCircle(joint, prop) : std::string();
+        }
+        case DistanceType::CurvePlane:
+        case DistanceType::PointCurve: {
+            // The curve stands for its plane.
+            const char* prop = sideOf(joint, "Edge");
+            return prop ? edgeNotPlanar(joint, prop) : std::string();
+        }
+        default:
+            return {};
+    }
+}
+
+bool isDistanceJointRefused(App::DocumentObject* joint, DistanceType type)
+{
+    return !distanceJointRefusal(joint, type).empty();
+}
+
+const char* distanceMeaning(DistanceType type)
+{
+    switch (type) {
+        case DistanceType::PlaneCone:
+            return "the cone's axis parallel to the plane, d from it";
+        case DistanceType::CylinderCone:
+            return "the cone's axis parallel to the cylinder's, d from the cylinder";
+        case DistanceType::ConeCone:
+            return "the cones' axes parallel, d apart";
+        case DistanceType::ConeTorus:
+            return "the cone's and the torus's axes parallel, d apart";
+        case DistanceType::ConeSphere:
+            return "the sphere d from the cone's axis";
+        case DistanceType::PointCone:
+            return "the point d from the cone's axis";
+        case DistanceType::PointTorus:
+            return "the point d from the torus's axis";
+        case DistanceType::LineCone:
+            return "the line parallel to the cone's axis, d from it";
+        case DistanceType::LineTorus:
+            return "the line parallel to the torus's axis, d from it";
+        case DistanceType::CurveCylinder:
+            return "the circle's axis parallel to the cylinder's, the circle d from the cylinder";
+        case DistanceType::CurveSphere:
+            return "the sphere d from the circle's cylinder";
+        case DistanceType::CurveCone:
+            return "the circle's axis parallel to the cone's, the circle d from it";
+        case DistanceType::CurveTorus:
+            return "the circle's axis parallel to the torus's, the circle d from it";
+        default:
+            return nullptr;
+    }
+}
+
 JointGroup* getJointGroup(const App::Part* part)
 {
     if (!part) {
@@ -489,6 +731,18 @@ std::string getElementFromProp(const App::DocumentObject* obj, const char* pName
     if (!obj) {
         return "";
     }
+    if (int side = typedJointSide(obj, pName)) {
+        // The element binding's copy is the element alone: its one vertex, edge
+        // or face, named as the copy names it
+        auto* link = static_cast<const Joint*>(obj)->getBinding(side);
+        if (!link) {
+            return "";
+        }
+        JointSide jointSide;
+        jointSide.shape = link->Shape.getShape();
+        const auto type = jointSide.elementType();
+        return type.empty() ? std::string() : type + "1";
+    }
 
     const auto names = getSubAsList(obj, pName);
     if (names.empty()) {
@@ -545,8 +799,8 @@ App::DocumentObject* getObjFromRef(App::DocumentObject* comp, const std::string&
         const auto isDerivedFromVpSketch
             = strcmp(obj->getViewProviderName(), "SketcherGui::ViewProviderSketch") == 0;
         return isDerivedFromVpSketch || obj->isDerivedFrom<PartApp::Datum>()
-            || obj->isDerivedFrom<App::OriginFeature>()
-            || obj->isDerivedFrom<App::Origin>();
+            || obj->isDerivedFrom<App::DatumElement>()
+            || obj->isDerivedFrom<App::LocalCoordinateSystem>();
     };
 
     // Helper function to handle PartDesign::Body objects
@@ -558,12 +812,12 @@ App::DocumentObject* getObjFromRef(App::DocumentObject* comp, const std::string&
             for (auto* obji : obj->getOutList()) {
                 if (*nextIt == obji->getNameInDocument() && isBodySubObject(obji)) {
                     // if obji is a LCS then perhaps we need to resolve one more level
-                    if (auto* lcs = freecad_cast<App::Origin*>(obji)) {
+                    if (auto* lcs = freecad_cast<App::LocalCoordinateSystem*>(obji)) {
                         nextIt = std::next(nextIt);
                         if (nextIt != names.end()) {
                             for (auto* objj : lcs->baseObjects()) {
                                 if (*nextIt == objj->getNameInDocument()
-                                    && objj->isDerivedFrom<App::OriginFeature>()) {
+                                    && objj->isDerivedFrom<App::DatumElement>()) {
                                     return objj;
                                 }
                             }
@@ -592,13 +846,13 @@ App::DocumentObject* getObjFromRef(App::DocumentObject* comp, const std::string&
             return obj;
         }
 
-        if (obj->isDerivedFrom<App::Part>() || obj->isLinkGroup()) {
+        if (obj->isDerivedFrom<App::Part>() || isElementLinkGroup(obj)) {
             continue;
         }
         else if (obj->isDerivedFrom<PartDesign::Body>()) {
             return handlePartDesignBody(obj, it);
         }
-        else if (obj->isDerivedFrom<PartApp::Feature>()) {
+        else if (obj->isDerivedFrom<App::LinkArray>() || obj->isDerivedFrom<PartApp::Feature>()) {
             // Primitive, fastener, gear, etc.
             return obj;
         }
@@ -607,6 +861,9 @@ App::DocumentObject* getObjFromRef(App::DocumentObject* comp, const std::string&
             if (linked_obj->isDerivedFrom<PartDesign::Body>()) {
                 auto* retObj = handlePartDesignBody(linked_obj, it);
                 return retObj == linked_obj ? obj : retObj;
+            }
+            else if (linked_obj->isDerivedFrom<App::LinkArray>()) {
+                return obj;
             }
             else if (linked_obj->isDerivedFrom<PartApp::Feature>()) {
                 return obj;
@@ -644,6 +901,10 @@ App::DocumentObject* getObjFromJointRef(const App::DocumentObject* joint, const 
 {
     if (!joint) {
         return nullptr;
+    }
+    if (int side = typedJointSide(joint, pName)) {
+        // The object holding the element's geometry
+        return static_cast<const Joint*>(joint)->getBinding(side);
     }
 
     const auto* prop = joint->getPropertyByName<App::PropertyXLinkSub>(pName);
@@ -702,7 +963,7 @@ App::DocumentObject* getMovingPartFromSel(
             continue;  // we ignore groups.
         }
 
-        if (obj->isLinkGroup()) {
+        if (isElementLinkGroup(obj)) {
             continue;
         }
 
@@ -733,9 +994,72 @@ App::DocumentObject* getMovingPartFromRef(App::DocumentObject* joint, const char
     if (!joint) {
         return nullptr;
     }
+    if (int side = typedJointSide(joint, pName)) {
+        return static_cast<const Joint*>(joint)->getComponent(side);
+    }
 
     auto* prop = joint->getPropertyByName<App::PropertyXLinkSub>(pName);
     return getMovingPartFromRef(prop);
+}
+
+void describeJointSide(
+    const App::DocumentObject* joint,
+    const char* refName,
+    std::string& element,
+    std::string& label
+)
+{
+    element = getElementFromProp(joint, refName);
+    label.clear();
+    int side = typedJointSide(joint, refName);
+    if (!side) {
+        if (auto* obj = getObjFromJointRef(joint, refName)) {
+            label = obj->Label.getValue();
+        }
+        return;
+    }
+    auto* link = static_cast<const Joint*>(joint)->getBinding(side);
+    if (!link) {
+        return;
+    }
+    // Down the elements to the geometry they name
+    App::DocumentObject* obj = link->Element.getValue();
+    const auto& subs = link->Element.getSubValues();
+    std::string sub = subs.empty() ? std::string() : subs.front();
+    for (int depth = 0; obj && depth < 16; ++depth) {
+        auto* target = Base::freecad_dynamic_cast<Part::Element>(obj->getSubObject(sub.c_str()));
+        if (!target || !target->Target.getValue()) {
+            break;
+        }
+        obj = target->Target.getValue();
+        const auto& tsubs = target->Target.getSubValues();
+        sub = tsubs.empty() ? std::string() : tsubs.front();
+    }
+    if (!obj) {
+        return;
+    }
+    // The object the element is of, at the end of the path
+    std::string path = sub.substr(0, Data::findElementName(sub.c_str()) - sub.c_str());
+    auto* owner = path.empty() ? obj : obj->getSubObject(path.c_str());
+    label = (owner ? owner : obj)->Label.getValue();
+    const std::string name = Data::oldElementName(Data::findElementName(sub.c_str()));
+    if (!name.empty()) {
+        element = name;
+    }
+}
+
+int typedJointSide(const App::DocumentObject* joint, const char* refName)
+{
+    if (!refName || !dynamic_cast<const Joint*>(joint)) {
+        return 0;
+    }
+    if (std::strcmp(refName, "Reference1") == 0) {
+        return 1;
+    }
+    if (std::strcmp(refName, "Reference2") == 0) {
+        return 2;
+    }
+    return 0;
 }
 
 void syncPlacements(App::DocumentObject* src, App::DocumentObject* to)
@@ -759,7 +1083,14 @@ void collectComponentsRecursively(
 )
 {
     for (auto* obj : objects) {
-        if (!obj) {
+        if (!obj || isSuppressedLinkElement(obj)) {
+            continue;
+        }
+        // A joint's element bindings are children of the assembly, and shapes,
+        // but no components: counted, each added six freedoms to the DoF. Nor
+        // is what a simulation holds (a trace).
+        if (obj->isDerivedFrom<Part::ElementBinding>() || obj->isDerivedFrom<Part::Element>()
+            || isStudyChild(obj)) {
             continue;
         }
 
@@ -774,9 +1105,19 @@ void collectComponentsRecursively(
             }
             continue;
         }
+        // A generated array is one component. It must come before the
+        // link-group branch: here App::LinkArray is a link group, where
+        // upstream's PartApp::LinkArray is not.
+        else if (obj->isDerivedFrom<App::LinkArray>()) {
+            results.push_back(obj);
+            continue;
+        }
         else if (obj->isLinkGroup()) {
             auto* linkGroup = static_cast<App::Link*>(obj);
             for (auto* elt : linkGroup->ElementList.getValues()) {
+                if (!elt || isSuppressedLinkElement(elt)) {
+                    continue;
+                }
                 results.push_back(elt);
             }
             continue;
@@ -786,21 +1127,37 @@ void collectComponentsRecursively(
             continue;
         }
         else if (auto* link = freecad_cast<App::Link*>(obj)) {
+            // A link to what is not loaded now (a closed or missing document)
+            // keeps its place, and is solved on its element bindings' copies
+            if (Part::Element::isUnloaded(link)) {
+                results.push_back(link);
+                continue;
+            }
             obj = link->getLinkedObject();
-            if (obj->isDerivedFrom<App::GeoFeature>()
-                && !obj->isDerivedFrom<App::Origin>()) {
+            if (!obj) {
+                continue;
+            }
+            if (obj->isDerivedFrom<App::LinkArray>()
+                || (obj->isDerivedFrom<App::GeoFeature>()
+                    && !obj->isDerivedFrom<App::LocalCoordinateSystem>())) {
                 results.push_back(link);
             }
         }
 
         else if (
-            obj->isDerivedFrom<App::GeoFeature>() && !obj->isDerivedFrom<App::Origin>()
+            obj->isDerivedFrom<App::GeoFeature>() && !obj->isDerivedFrom<App::LocalCoordinateSystem>()
         ) {
             results.push_back(obj);
         }
     }
 }
 }  // namespace
+
+bool isStudyChild(const App::DocumentObject* obj)
+{
+    auto* group = obj ? App::GroupExtension::getGroupOfObject(obj) : nullptr;
+    return group && group->isDerivedFrom<Simulation>();
+}
 
 std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* assembly)
 {
@@ -810,6 +1167,16 @@ std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* as
 
     std::vector<App::DocumentObject*> components;
     collectComponentsRecursively(assembly->Group.getValues(), components);
+    // Once each: an object in a plain group in the assembly (a fasteners
+    // group) is in the assembly's Group too, and was collected twice -- and
+    // found interfering with itself
+    std::unordered_set<App::DocumentObject*> seen;
+    components.erase(std::remove_if(components.begin(),
+                                    components.end(),
+                                    [&](App::DocumentObject* obj) {
+                                        return !seen.insert(obj).second;
+                                    }),
+                     components.end());
     return components;
 }
 
@@ -818,16 +1185,23 @@ double getJointCurrentValue(App::DocumentObject* joint, bool isAngle)
     Base::Placement plc1 = App::GeoFeature::getPlacementFromProp(joint, "Placement1");
     Base::Placement plc2 = App::GeoFeature::getPlacementFromProp(joint, "Placement2");
 
-    auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference1"));
-    auto* ref2 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference2"));
-    if (!ref1 || !ref2) {
-        return 0.0;
+    if (auto typed = dynamic_cast<const Joint*>(joint)) {
+        // Both frames in the assembly's coordinate system
+        plc1 = typed->getFrame(1);
+        plc2 = typed->getFrame(2);
     }
-    Base::Placement obj_global_plc1 = App::GeoFeature::getGlobalPlacement(nullptr, ref1);
-    Base::Placement obj_global_plc2 = App::GeoFeature::getGlobalPlacement(nullptr, ref2);
+    else {
+        auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference1"));
+        auto* ref2 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference2"));
+        if (!ref1 || !ref2) {
+            return 0.0;
+        }
+        Base::Placement obj_global_plc1 = App::GeoFeature::getGlobalPlacement(nullptr, ref1);
+        Base::Placement obj_global_plc2 = App::GeoFeature::getGlobalPlacement(nullptr, ref2);
 
-    plc1 = obj_global_plc1 * plc1;
-    plc2 = obj_global_plc2 * plc2;
+        plc1 = obj_global_plc1 * plc1;
+        plc2 = obj_global_plc2 * plc2;
+    }
 
     Base::Placement plc3 = plc1.inverse() * plc2;
 

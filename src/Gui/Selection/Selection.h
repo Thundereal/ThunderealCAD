@@ -550,6 +550,12 @@ public:
     void addSelectionGate(Gui::SelectionGate *gate, ResolveMode resolve = ResolveMode::OldStyleElement);
     /// remove the active SelectionGate
     void rmvSelectionGate();
+    /** Hand the active gate to another instance as it is, its resolve mode
+     * with it, in place of the other's: what was set here gates there
+     * from now on. A dialog's view taking a selection of its own takes the
+     * gate the dialog set as it was made (ControlSingleton::showDialog()).
+     */
+    void moveSelectionGateTo(SelectionSingleton &other);
     SelectionGate *currentSelectionGate() const {
         return ActiveGate;
     }

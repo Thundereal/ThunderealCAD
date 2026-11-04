@@ -57,6 +57,7 @@
 #include <App/Document.h>
 #include <App/DocumentParams.h>
 #include <App/DocumentObject.h>
+#include <App/FileBlobManager.h>
 #include <App/ObjectIdentifier.h>
 #include <App/TransactionValue.h>
 #include <Base/Console.h>

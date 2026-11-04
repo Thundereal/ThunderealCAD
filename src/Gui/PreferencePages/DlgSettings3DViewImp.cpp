@@ -43,7 +43,7 @@
 #include "View3DInventorViewer.h"
 #include "ViewArea.h"
 #include "ViewParams.h"
-#include "Renderer/Renderer.h"
+#include "Renderer/RenderConfig.h"
 #include "ui_DlgSettings3DView.h"
 
 

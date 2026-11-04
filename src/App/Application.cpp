@@ -100,6 +100,7 @@
 #include "FileHistory.h"
 #include "DocumentObjectFileIncluded.h"
 #include "DocumentObjectGroup.h"
+#include "AuxGroup.h"
 #include "DocumentObjectGroupPy.h"
 #include "DocumentObserver.h"
 #include "DocumentObserver.h"
@@ -165,6 +166,7 @@
 #include <App/InitScript.h>
 #include <App/TestScript.h>
 #include <App/CMakeScript.h>
+#include <App/PropertyAppearance.h>
 
 #ifdef _MSC_VER // New handler for Microsoft Visual C++ compiler
 # pragma warning( disable : 4535 )
@@ -2662,6 +2664,7 @@ void Application::initTypes()
     App::PropertyLinkSubListHidden  ::init();
     App::PropertyXLink              ::init();
     App::PropertyXLinkSub           ::init();
+    App::PropertyXLinkSubHidden     ::init();
     App::PropertyXLinkSubList       ::init();
     App::PropertyXLinkList          ::init();
     App::PropertyXLinkContainer     ::init();
@@ -2792,6 +2795,8 @@ void Application::initTypes()
     App::Document                  ::init();
     App::DocumentObjectGroup       ::init();
     App::DocumentObjectGroupPython ::init();
+    App::AuxGroup                  ::init();
+    App::PartAuxGroup              ::init();
     App::DocumentObjectFileIncluded::init();
     Image::ImagePlane              ::init();
     App::InventorObject            ::init();

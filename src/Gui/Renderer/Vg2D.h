@@ -34,7 +34,7 @@
 
 #include <vg/vg.h>
 
-#include "Renderer.h"
+#include "RenderConfig.h"
 
 namespace Render {
 

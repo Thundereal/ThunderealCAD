@@ -169,6 +169,8 @@ SET(PartGui_SRCS
     BoundBoxRayPick.h
     ViewProvider.cpp
     ViewProvider.h
+    ViewProviderElement.cpp
+    ViewProviderElement.h
     ViewProviderAttachExtension.h
     ViewProviderAttachExtension.cpp
     ViewProviderDatum.h

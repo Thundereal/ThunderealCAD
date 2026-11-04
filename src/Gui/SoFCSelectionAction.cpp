@@ -75,7 +75,6 @@
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include "Application.h"
-#include "Document.h"
 #include "InventorBase.h"
 #include "Selection.h"
 #include "SoFCUnifiedSelection.h"

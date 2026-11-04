@@ -99,6 +99,35 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter DragCollision
+    ///
+    /// What a drag does when it brings two components into collision
+    /// (docs/AssemblyInterference.md): 0 nothing, 1 highlights them,
+    /// 2 stops the drag before they collide. Components interfering
+    /// when the drag starts are left out. Takes effect at the next drag.
+    static const long & getDragCollision();
+    static const long & defaultDragCollision();
+    static void removeDragCollision();
+    static void setDragCollision(const long &v);
+    static const char *docDragCollision();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter DragCollisionTolerance
+    ///
+    /// mm. Components closer than this touch while dragging, and only
+    /// collide when they overlap; taken at least twice the deflection of
+    /// the meshes the check uses. Takes effect at the next drag.
+    static const double & getDragCollisionTolerance();
+    static const double & defaultDragCollisionTolerance();
+    static void removeDragCollisionTolerance();
+    static void setDragCollisionTolerance(const double &v);
+    static const char *docDragCollisionTolerance();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter LeaveEditWithEscape
     ///
     /// Lets the Esc key leave the edit mode of an assembly when no task
@@ -136,6 +165,20 @@ public:
     static void removeJointHighlightColor();
     static void setJointHighlightColor(const unsigned long &v);
     static const char *docJointHighlightColor();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter SolverBackend
+    ///
+    /// The solver backend assemblies are solved with, by name
+    /// (AssemblyApp.getAvailableSolvers()). An assembly's own SolverBackend
+    /// property, when set, takes precedence. Takes effect at the next solve.
+    static const std::string & getSolverBackend();
+    static const std::string & defaultSolverBackend();
+    static void removeSolverBackend();
+    static void setSolverBackend(const std::string &v);
+    static const char *docSolverBackend();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)

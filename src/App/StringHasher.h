@@ -39,7 +39,7 @@
 #include <Base/Bitmask.h>
 #include <Base/Handle.h>
 #include <Base/Persistence.h>
-#include <CXX/Objects.hxx>
+#include <CXX/WrapPython.h>
 #include <utility>
 
 namespace Data

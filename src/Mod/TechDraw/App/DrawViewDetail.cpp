@@ -61,6 +61,7 @@
 #include <Base/Exception.h>
 #include <Base/Parameter.h>
 #include <Base/Sequencer.h>
+#include <Base/Tools.h>
 #include <Mod/Part/App/ProgressIndicator.h>
 
 #include "DrawComplexSection.h"

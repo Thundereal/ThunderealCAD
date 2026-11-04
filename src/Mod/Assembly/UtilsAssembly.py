@@ -97,8 +97,14 @@ def number_of_components_in(assembly):
         return 0
     i = 0
     for obj in assembly.Group:
+        if isLinkArray(obj):
+            i = i + 1
+            continue
+
         if isLinkGroup(obj):
-            i = i + obj.ElementCount
+            i += obj.ElementCount - sum(
+                1 for elt in obj.ElementList if isSuppressedLinkElement(elt)
+            )
             continue
 
         if obj.isDerivedFrom("Assembly::AssemblyObject") or obj.isDerivedFrom(
@@ -109,11 +115,14 @@ def number_of_components_in(assembly):
 
         if obj.isDerivedFrom("App::Link"):
             obj = obj.getLinkedObject()
+            if isLinkArray(obj):
+                i = i + 1
+                continue
 
         if not obj.isDerivedFrom("App::GeoFeature"):
             continue
 
-        if obj.isDerivedFrom("App::Origin"):
+        if obj.isDerivedFrom("App::LocalCoordinateSystem"):
             continue
 
         i = i + 1
@@ -127,8 +136,25 @@ def isLink(obj):
     return (obj.TypeId == "App::Link" and obj.ElementCount == 0) or obj.TypeId == "App::LinkElement"
 
 
+def isLinkArray(obj):
+    # This fork's generated arrays (Part::LinkArrayLinear, ...) are App::LinkArray.
+    return obj is not None and obj.isDerivedFrom("App::LinkArray")
+
+
 def isLinkGroup(obj):
     return obj.TypeId == "App::Link" and obj.ElementCount > 0
+
+
+def isSuppressedLinkElement(obj):
+    # A suppressed element is one its link group hides (VisibilityList); upstream
+    # gives the element a Suppressed property instead.
+    if obj is None or obj.TypeId != "App::LinkElement":
+        return False
+    for group in obj.InList:
+        elements = getattr(group, "ElementList", None)
+        if elements and obj in elements:
+            return group.isElementVisible(str(elements.index(obj))) == 0
+    return False
 
 
 def getObject(ref):
@@ -168,7 +194,7 @@ def getObject(ref):
         if obj.TypeId in {"App::Part", "Assembly::AssemblyObject"} or isLinkGroup(obj):
             continue
 
-        elif obj.isDerivedFrom("App::Origin"):
+        elif obj.isDerivedFrom("App::LocalCoordinateSystem"):
             # 2 cases possible, either we have the LCS itself: "part.LCS."
             # or we have a datum: "part.LCS.X_Axis"
             if i + 1 < len(names):
@@ -177,16 +203,17 @@ def getObject(ref):
                     if obji.Name == names[i + 1]:
                         obj2 = obji
                         break
-                if obj2 and obj2.isDerivedFrom("App::OriginFeature"):
+                if obj2 and obj2.isDerivedFrom("App::DatumElement"):
                     return obj2
-
-        elif obj.isDerivedFrom("App::OriginFeature"):
-            return obj
 
         elif obj.TypeId == "PartDesign::Body":
             return process_body(obj, obj, names, i)
 
-        elif obj.isDerivedFrom("Part::Feature"):
+        elif (
+            isLinkArray(obj)
+            or obj.isDerivedFrom("App::DatumElement")
+            or obj.isDerivedFrom("Part::Feature")
+        ):
             # primitive, fastener, gear ...
             return obj
 
@@ -194,6 +221,8 @@ def getObject(ref):
             linked_obj = obj.getLinkedObject()
             if linked_obj.TypeId == "PartDesign::Body":
                 return process_body(linked_obj, obj, names, i)
+            elif isLinkArray(linked_obj):
+                return obj
             elif linked_obj.isDerivedFrom("Part::Feature"):
                 return obj
             else:
@@ -230,8 +259,8 @@ def isBodySubObject(obj):
     return (
         obj.isDerivedFrom("Sketcher::SketchObject")
         or obj.isDerivedFrom("Part::Datum")
-        or obj.isDerivedFrom("App::OriginFeature")
-        or obj.isDerivedFrom("App::Origin")
+        or obj.isDerivedFrom("App::DatumElement")
+        or obj.isDerivedFrom("App::LocalCoordinateSystem")
     )
 
 
@@ -498,6 +527,27 @@ def extract_type_and_number(element_name):
         return None, None
 
 
+def elementGeometry(element):
+    """The analytic geometry of an edge or a face, else its own Curve / Surface.
+
+    Not upstream (docs/AssemblySolverInterface.md sec 6.11). The C++ side
+    (AssemblyApp.getElementGeometry, App/ElementGeometry.h) decides: an
+    analytic element is taken as it is, a B-spline or another form that is a
+    line, a circle, an ellipse, a plane, a cylinder, a cone, a sphere or a
+    torus within the tolerance is recognised as one. It is the classification
+    the solver builder uses, so the frames here agree with it.
+    """
+    import AssemblyApp
+
+    try:
+        geom = AssemblyApp.getElementGeometry(element)
+    except Exception:
+        geom = None
+    if geom is not None:
+        return geom
+    return element.Curve if element.ShapeType == "Edge" else element.Surface
+
+
 def findElementClosestVertex(ref, mousePos):
     element_name = getElementName(ref[1][0])
     if element_name == "":
@@ -520,7 +570,7 @@ def findElementClosestVertex(ref, mousePos):
 
     elif elt_type == "Edge":
         edge = obj.Shape.getElement(element_name)
-        curve = edge.Curve
+        curve = elementGeometry(edge)
         if curve.TypeId == "Part::GeomCircle":
             # For centers, as they are not shape vertexes, we return the element name.
             # For now we only allow selecting the center of arcs / circles.
@@ -547,9 +597,11 @@ def findElementClosestVertex(ref, mousePos):
 
     elif elt_type == "Face":
         face = obj.Shape.getElement(element_name)
-        surface = face.Surface
+        surface = elementGeometry(face)
         _type = surface.TypeId
-        if _type == "Part::GeomSphere" or _type == "Part::GeomTorus":
+        # Not upstream: a torus is Part::GeomToroid; upstream named "Part::GeomTorus",
+        # which no surface is, so a torus face fell through to its circle edges.
+        if _type == "Part::GeomSphere" or _type == "Part::GeomToroid":
             return element_name
 
         # Handle the circle/arc edges for their centers
@@ -561,6 +613,14 @@ def findElementClosestVertex(ref, mousePos):
             curve = edge.Curve
             if curve.TypeId == "Part::GeomCircle" or curve.TypeId == "Part::GeomEllipse":
                 center_points.append(curve.Location)
+                center_points_edge_indexes.append(i)
+
+            elif (
+                curve.TypeId == "Part::GeomBSplineCurve"
+                and elementGeometry(edge).TypeId == "Part::GeomCircle"
+            ):
+                # Not upstream: a B-spline that is a circle offers its centre.
+                center_points.append(elementGeometry(edge).Location)
                 center_points_edge_indexes.append(i)
 
             elif _type == "Part::GeomCylinder" and curve.TypeId == "Part::GeomBSplineCurve":
@@ -641,6 +701,41 @@ def findClosestPointToMousePos(candidates_points, mousePos):
     return closest_point_index, point_min_length
 
 
+def faceEdgeToObjectEdge(obj, face_name, edge_name):
+    """Not upstream. The object's name of the edge a face of obj numbers
+    edge_name among its own edges ("Edge2": the face's second), as
+    findElementClosestVertex names a face's circle; "" when there is none"""
+    try:
+        face = obj.Shape.getElement(face_name)
+        edge = face.Edges[int(edge_name[len("Edge") :]) - 1]
+    except Exception:
+        return ""
+    for i, other in enumerate(obj.Shape.Edges):
+        if other.isSame(edge):
+            return "Edge" + str(i + 1)
+    return ""
+
+
+def objectEdgeToFaceEdge(obj, face_name, edge_name):
+    """Not upstream. The face's own numbering of the object's edge edge_name,
+    the reverse of faceEdgeToObjectEdge; "" when the face has no such edge"""
+    try:
+        face = obj.Shape.getElement(face_name)
+        edge = obj.Shape.getElement(edge_name)
+    except Exception:
+        return ""
+    for i, other in enumerate(face.Edges):
+        if other.isSame(edge):
+            return "Edge" + str(i + 1)
+    return ""
+
+
+def isFaceEdgePick(sub, vertex):
+    """Not upstream. Whether a reference names a face and, as its vertex, one
+    of the face's edges (a circle, for its centre)"""
+    return getElementName(sub).startswith("Face") and getElementName(vertex).startswith("Edge")
+
+
 def findVertexNameInObject(vertex, obj):
     for i, _ in enumerate(obj.Shape.Vertexes):
         vertexName = "Vertex" + str(i + 1)
@@ -689,6 +784,11 @@ def getBomGroup(assembly):
 
 
 def getJointGroup(assembly):
+    # Not upstream: the assembly's aux group (docs/AssemblyObjectModel.md
+    # sec 3), or upstream's group in a file not converted
+    if hasattr(assembly, "getGroup"):
+        return assembly.getGroup("Joints", True)
+
     joint_group = None
 
     for obj in assembly.OutList:
@@ -703,6 +803,10 @@ def getJointGroup(assembly):
 
 
 def getViewGroup(assembly):
+    # Not upstream: as getJointGroup()
+    if hasattr(assembly, "getGroup"):
+        return assembly.getGroup("Views", True)
+
     view_group = None
 
     for obj in assembly.OutList:
@@ -717,6 +821,10 @@ def getViewGroup(assembly):
 
 
 def getSimulationGroup(assembly):
+    # Not upstream: as getJointGroup()
+    if hasattr(assembly, "getGroup"):
+        return assembly.getGroup("Simulations", True)
+
     sim_group = None
 
     for obj in assembly.OutList:
@@ -801,7 +909,14 @@ def getMovablePartsWithin(group, partsAsSolid=False):
 
 
 def getSubMovingParts(obj, partsAsSolid):
-    if obj.isDerivedFrom("Part::Feature"):
+    if obj is None or isSuppressedLinkElement(obj):
+        return []
+    # Not upstream: what a simulation holds (a trace) is the study's
+    parent = obj.getParentGroup()
+    if parent is not None and parent.isDerivedFrom("Assembly::Simulation"):
+        return []
+
+    if isLinkArray(obj) or obj.isDerivedFrom("Part::Feature"):
         return [obj]
 
     elif obj.isDerivedFrom("App::Part"):
@@ -816,7 +931,11 @@ def getSubMovingParts(obj, partsAsSolid):
 
     if isLink(obj):
         linked_obj = obj.getLinkedObject()
-        if linked_obj.isDerivedFrom("App::Part") or linked_obj.isDerivedFrom("Part::Feature"):
+        if (
+            linked_obj.isDerivedFrom("App::Part")
+            or linked_obj.isDerivedFrom("Part::Feature")
+            or isLinkArray(linked_obj)
+        ):
             return [obj]
 
     return []
@@ -889,6 +1008,8 @@ def getObjMassAndCom(obj, containingPart=None):
             children = obj.Group
 
         for subObj in children:
+            if isSuppressedLinkElement(subObj):
+                continue
             mass, com = getObjMassAndCom(subObj, containingPart)
             total_mass += mass
             total_com += com
@@ -948,7 +1069,7 @@ def findCylindersIntersection(obj, surface, edge, elt_index):
     return surface.Center
 
 
-def openEditingPlacementDialog(obj, propName):
+def openEditingPlacementDialog(obj, propName, onChanged=None):
     task_placement = Gui.TaskPlacement()
     dialog = task_placement.form
 
@@ -958,6 +1079,9 @@ def openEditingPlacementDialog(obj, propName):
     task_placement.setPropertyName(propName)
     task_placement.bindObject()
     task_placement.setIgnoreTransactions(True)
+
+    if onChanged is not None:
+        dialog.accepted.connect(onChanged)
 
     dialog.findChild(QtWidgets.QPushButton, "selectedVertex").hide()
     dialog.exec_()
@@ -1076,7 +1200,7 @@ def findPlacement(ref, ignoreVertex=False):
         if edge is None:
             return App.Placement()
 
-        curve = edge.Curve
+        curve = elementGeometry(edge)
 
         # First we find the translation
         if vtx_type == "Edge" or ignoreVertex:
@@ -1088,6 +1212,12 @@ def findPlacement(ref, ignoreVertex=False):
                 edge_points = getPointsFromVertexes(edge.Vertexes)
                 line_middle = (edge_points[0] + edge_points[1]) * 0.5
                 plc.Base = line_middle
+            elif edge.findPlane() is not None:
+                # Not upstream (audit sec 8.1 decision 7): another planar curve
+                # (an ellipse, a spline) at its centre of mass, which is in its
+                # plane. A Distance joint to a plane (CurvePlane) or from a
+                # point (PointCurve) acts on that plane.
+                plc.Base = edge.CenterOfMass
         else:
             vertex = get_element(obj.Shape, vtx)
             if vertex is None:
@@ -1105,12 +1235,17 @@ def findPlacement(ref, ignoreVertex=False):
             plane_origin = App.Vector(0, 0, 0)
             plane = Part.Plane(plane_origin, plane_normal)
             plc.Rotation = App.Rotation(plane.Rotation)
+        elif curve.TypeId != "Part::GeomCircle":
+            # Not upstream: another planar curve takes its plane's orientation.
+            curve_plane = edge.findPlane()
+            if curve_plane is not None:
+                plc.Rotation = App.Rotation(curve_plane.Rotation)
     elif elt_type == "Face":
         face = get_element(obj.Shape, elt)
         if face is None:
             return App.Placement()
 
-        surface = face.Surface
+        surface = elementGeometry(face)
 
         # First we find the translation
         if vtx_type == "Face" or ignoreVertex:
@@ -1119,7 +1254,11 @@ def findPlacement(ref, ignoreVertex=False):
                 centerPoint = surface.Center + centerOfG
                 centerPoint = centerPoint + App.Vector().projectToLine(centerOfG, surface.Axis)
                 plc.Base = centerPoint
-            elif surface.TypeId == "Part::GeomTorus" or surface.TypeId == "Part::GeomSphere":
+            elif surface.TypeId == "Part::GeomToroid" or surface.TypeId == "Part::GeomSphere":
+                # Not upstream: upstream named "Part::GeomTorus", which no surface
+                # is, so a torus fell to its centre of gravity below -- near the
+                # centre for a whole torus, off the axis for a part of one (a
+                # fillet's quarter). The axis roles of sec 6.11 need the centre.
                 plc.Base = surface.Center
             elif surface.TypeId == "Part::GeomCone":
                 plc.Base = surface.Apex
@@ -1131,13 +1270,14 @@ def findPlacement(ref, ignoreVertex=False):
             if edge is None:
                 return App.Placement()
 
-            curve = edge.Curve
+            curve = elementGeometry(edge)
             if curve.TypeId == "Part::GeomCircle":
                 center_point = curve.Location
                 plc.Base = (center_point.x, center_point.y, center_point.z)
 
             elif (
-                surface.TypeId == "Part::GeomCylinder" and curve.TypeId == "Part::GeomBSplineCurve"
+                surface.TypeId == "Part::GeomCylinder"
+                and edge.Curve.TypeId == "Part::GeomBSplineCurve"
             ):
                 # handle special case of 2 cylinder intersecting.
                 plc.Base = findCylindersIntersection(obj, surface, edge, elt_index)
@@ -1239,8 +1379,10 @@ def getAssemblyShapes(assembly):
 
 
 def getJointDistance(joint):
-    plc1 = getJcsGlobalPlc(joint.Placement1, joint.Reference1)
-    plc2 = getJcsGlobalPlc(joint.Placement2, joint.Reference2)
+    import JointObject
+
+    plc1 = JointObject.sideJcsGlobal(joint, 1)
+    plc2 = JointObject.sideJcsGlobal(joint, 2)
 
     # Find the sign
     sign = 1
@@ -1252,8 +1394,10 @@ def getJointDistance(joint):
 
 
 def getJointXYAngle(joint):
-    plc1 = getJcsGlobalPlc(joint.Placement1, joint.Reference1)
-    plc2 = getJcsGlobalPlc(joint.Placement2, joint.Reference2)
+    import JointObject
+
+    plc1 = JointObject.sideJcsGlobal(joint, 1)
+    plc2 = JointObject.sideJcsGlobal(joint, 2)
 
     plc3 = plc1.inverse() * plc2  # plc3 is plc2 relative to plc1
     x_axis = plc3.Rotation.multVec(App.Vector(1, 0, 0))
@@ -1326,9 +1470,10 @@ def getComponentReference(assembly, root_obj, sub_string):
                 linkedObj
                 and not isLink(linkedObj)
                 and not linkedObj.isDerivedFrom("App::GeoFeature")
+                and not isLinkArray(linkedObj)
             ):
                 continue
-        elif not obj.isDerivedFrom("App::GeoFeature"):
+        elif not obj.isDerivedFrom("App::GeoFeature") and not isLinkArray(obj):
             continue
 
         component = obj
@@ -1411,7 +1556,9 @@ def createPart(partName, doc):
 
     # add a circle as a base shape for visualisation
     sketch.addGeometry(Part.Circle(App.Vector(0, 0), App.Vector(0, 0, 1), 5), False)
-    doc.recompute()
+    # The new part only: a whole-document recompute would also run the
+    # caller's half-made objects, such as Insert New Part's still empty Link
+    part.recompute(True)
 
     return part, body
 
@@ -1441,6 +1588,10 @@ def generatePropertySettings(documentObject):
     if hasattr(documentObject, "Name"):
         commands.append(f'obj = App.ActiveDocument.getObject("{documentObject.Name}")')
     for propertyName in documentObject.PropertiesList:
+        # Not what is computed (a C++ joint's Placement1/2)
+        status = documentObject.getPropertyStatus(propertyName)
+        if "ReadOnly" in status or "Output" in status:
+            continue
         propertyValue = documentObject.getPropertyByName(propertyName)
         propertyType = documentObject.getTypeIdOfProperty(propertyName)
         # Note: OpenCascade precision is 1e-07, angular precision is 1e-05.  For purposes of creating a Macro,

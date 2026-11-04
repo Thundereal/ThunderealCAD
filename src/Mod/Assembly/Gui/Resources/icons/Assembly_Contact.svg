@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- A contact set: a ball resting on a block, the force where they touch -->
+  <rect x="5" y="40" width="54" height="19" fill="#babdb6" stroke="#2e3436" stroke-width="2"/>
+  <circle cx="32" cy="23" r="17" fill="#729fcf" stroke="#2e3436" stroke-width="2"/>
+  <circle cx="26" cy="17" r="5" fill="#ffffff" fill-opacity="0.6"/>
+  <path d="M 18,40 L 46,40" fill="none" stroke="#cc0000" stroke-width="4" stroke-linecap="round"/>
+  <path d="M 32,40 L 32,29 M 27,33 L 32,28 L 37,33" fill="none" stroke="#cc0000"
+        stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

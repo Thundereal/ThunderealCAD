@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 
+#include <App/Application.h>
 #include <Mod/Sketcher/App/SketcherParams.h>
 
 #include <Gui/Command.h>

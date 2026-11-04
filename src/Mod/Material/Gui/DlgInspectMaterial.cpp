@@ -35,6 +35,7 @@
 #include <Gui/ViewProvider.h>
 #include <Gui/ViewProviderDocumentObject.h>
 
+#include <Base/Console.h>
 #include <Mod/Material/App/MaterialLibrary.h>
 #include <Mod/Material/App/PropertyMaterial.h>
 

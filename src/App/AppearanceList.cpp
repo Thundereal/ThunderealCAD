@@ -30,6 +30,7 @@
 #include <Base/FileInfo.h>
 
 #include "AppearanceList.h"
+#include "FileBlobManager.h"
 #include "MaterialXDocument.h"
 
 using namespace App;

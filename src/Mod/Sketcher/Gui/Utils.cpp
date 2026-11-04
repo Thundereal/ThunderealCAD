@@ -44,6 +44,7 @@
 #include <Base/Quantity.h>
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
+#include <Gui/Application.h>
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
 #include <Gui/Selection.h>

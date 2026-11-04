@@ -90,6 +90,7 @@
 #include <Base/UnitsApi.h>
 
 #include <Language/Translator.h>
+#include "View3DInventorViewer.h"
 #include "Renderer/CyclesRenderer.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/DeviceAdopt.h"
@@ -120,6 +121,7 @@
 #include "GuiInitScript.h"
 #include "LinkViewPy.h"
 #include "InputHintPy.h"
+#include "TaskPlacementPy.h"
 #include "LiveViewInteraction.h"
 #include "DlgDocumentPermissions.h"
 #include "MainWindow.h"
@@ -159,6 +161,7 @@
 #include "ViewProviderAnnotation.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
+#include "ViewProviderAuxGroup.h"
 #include "ViewProviderDragger.h"
 #include "ViewProviderExtension.h"
 #include "ViewProviderExtern.h"
@@ -743,6 +746,14 @@ Application::Application(bool GUIenabled)
         Gui::TaskView::TaskDialogPy::init_type();
 
         registerUserInputEnumInPython(module);
+        Gui::Dialog::registerTaskPlacementInPython(module);
+        // Upstream's: the keys of a Python view provider's getOverlayIcons()
+        Base::PyRegisterEnum<Gui::BitmapFactoryInst::Position>(module, "IconPosition", {
+            {"TopLeft",     Gui::BitmapFactoryInst::TopLeft},
+            {"TopRight",    Gui::BitmapFactoryInst::TopRight},
+            {"BottomLeft",  Gui::BitmapFactoryInst::BottomLeft},
+            {"BottomRight", Gui::BitmapFactoryInst::BottomRight}
+        });
 
         CommandActionPy::init_type();
         Base::Interpreter().addType(CommandActionPy::type_object(),
@@ -2456,6 +2467,7 @@ void Application::refreshLiveLoad(const App::Document* starting)
         }
         if (auto doc = App::GetApplication().getDocument(name.c_str())) {
             doc->setStatus(App::Document::LiveImport, false);
+            doc->setStatus(App::Document::LiveLoad, false);
         }
     }
     for (auto it = loading.begin(); it != loading.end();) {
@@ -2472,6 +2484,9 @@ void Application::refreshLiveLoad(const App::Document* starting)
             continue;
         }
         doc->setStatus(App::Document::LiveImport, true);
+        // Said to be the load's: its LiveImport gates commands, and is no
+        // importer writing (the label setter)
+        doc->setStatus(App::Document::LiveLoad, true);
         ++it;
     }
     live.claimed = std::move(loading);
@@ -2737,6 +2752,7 @@ void Application::initTypes()
     Gui::ViewProviderFeature                    ::init();
     Gui::ViewProviderDocumentObjectGroup        ::init();
     Gui::ViewProviderDocumentObjectGroupPython  ::init();
+    Gui::ViewProviderAuxGroup                   ::init();
     Gui::ViewProviderDragger                    ::init();
     Gui::ViewProviderGeometryObject             ::init();
     Gui::ViewProviderImagePlane                 ::init();

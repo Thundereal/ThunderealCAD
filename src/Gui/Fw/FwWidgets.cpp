@@ -29,7 +29,6 @@
 #include <Base/Exception.h>
 #include <Base/UnitsApi.h>
 
-#include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/Expression.h>
 #include <App/ExpressionParser.h>

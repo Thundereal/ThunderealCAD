@@ -23,7 +23,7 @@
 #ifndef RENDER_ENVIRONMENT_H
 #define RENDER_ENVIRONMENT_H
 
-#include "Renderer.h"
+#include "RenderConfig.h"
 
 /// The environment every backend lights with, as a function of
 /// direction -- backend-neutral, so the bgfx cube map and the Cycles

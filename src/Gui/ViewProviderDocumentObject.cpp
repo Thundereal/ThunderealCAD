@@ -40,6 +40,7 @@
 
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
+#include <App/GroupExtension.h>
 #include <App/DocumentObserver.h>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/MaterialAppearance.h>
@@ -784,6 +785,27 @@ bool ViewProviderDocumentObject::showsValueDiffOf(const char *) const
     return false;
 }
 
+namespace {
+/// The property whose change update() handles, for updateChildren(): what a
+/// group holding the object exports follows only its link properties
+const App::Property *s_updatingProp = nullptr;
+
+struct UpdatingProp {
+    explicit UpdatingProp(const App::Property *prop)
+        : saved(s_updatingProp)
+    {
+        s_updatingProp = prop;
+    }
+    ~UpdatingProp()
+    {
+        s_updatingProp = saved;
+    }
+    UpdatingProp(const UpdatingProp&) = delete;
+    UpdatingProp &operator=(const UpdatingProp&) = delete;
+    const App::Property *saved;
+};
+}
+
 void ViewProviderDocumentObject::update(const App::Property* prop)
 {
     // DocumentObject.ViewObject has been changed to a real property instead of
@@ -817,9 +839,16 @@ void ViewProviderDocumentObject::update(const App::Property* prop)
         if (vis && (Visibility.getValue() || visValue==Visibility.getValue()))
             ViewProvider::show();
 
+        // A group's _GroupTouched says a child's geometry changed, which
+        // changes nothing the group claims: an element's new copy touched
+        // its container's, and the tree claimed the container's children
+        // again, and its links', each time
+        auto group = getObject()->getExtensionByType<App::GroupExtension>(true);
         if(!getObject()->getDocument()->testStatus(App::Document::Restoring)
-                && !getObject()->testStatus(App::PendingRecompute))
+                && !getObject()->testStatus(App::PendingRecompute)
+                && (!group || prop != &group->_GroupTouched))
         {
+            UpdatingProp guard(prop);
             updateChildren(prop->testStatus(App::Property::Output)
                             || prop->testStatus(App::Property::PropOutput));
         }
@@ -1392,7 +1421,12 @@ void ViewProviderDocumentObject::updateChildren(bool propagate) {
 
     //if the item is in a GeoFeatureGroup we may need to update that too, as the claim children
     //of the geofeaturegroup depends on what the childs claim
-    if (ViewProviderGeoFeatureGroupExtension::needUpdateChildren(obj)) {
+    // A group's export list follows its children's links: not rebuilt for a
+    // change of anything else, which every property of every child of an
+    // assembly did, an O(N) rebuild each
+    const bool exports = !s_updatingProp
+        || s_updatingProp->isDerivedFrom<App::PropertyLinkBase>();
+    if (ViewProviderGeoFeatureGroupExtension::needUpdateChildren(obj, exports)) {
         auto vpd = Base::freecad_dynamic_cast<ViewProviderDocumentObject>(
                 Application::Instance->getViewProvider(obj));
         if(vpd)

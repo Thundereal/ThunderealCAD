@@ -46,7 +46,7 @@ class TestSettings(unittest.TestCase):
     def test_listed(self):
         """Every setting of the definition file is in the registry, as described."""
         names, rows = described()
-        self.assertEqual(len(names), 13)
+        self.assertEqual(len(names), 14)
         for name in names:
             self.assertIn(name, rows)
             self.assertEqual(rows[name]["namespace"], "Assembly")

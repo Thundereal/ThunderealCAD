@@ -29,6 +29,7 @@
 
 #include "AppearanceList.h"
 #include "MaterialPy.h"
+#include "PropertyAppearance.h"
 #include "PropertyStandard.h"
 
 // inclusion of the generated files (generated out of MaterialListPy.xml)

@@ -614,6 +614,72 @@ Py::Boolean DocumentPy::getModified() const
     return {getDocumentPtr()->isModified()};
 }
 
+// openCommand / commitCommand / abortCommand: upstream's Python names
+// (f4665aa7b5) for the undo transaction, which the Assembly workbench calls
+// from every one of its commands. Here they wrap the one-transaction
+// Gui::Document methods, so openCommand returns None, not an id.
+PyObject* DocumentPy::openCommand(PyObject* args)
+{
+    const char* name = nullptr;
+    if (!PyArg_ParseTuple(args, "s", &name)) {
+        return nullptr;
+    }
+    PY_TRY {
+        getDocumentPtr()->openCommand(name);
+        Py_Return;
+    }
+    PY_CATCH;
+}
+
+PyObject* DocumentPy::commitCommand(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY {
+        getDocumentPtr()->commitCommand();
+        Py_Return;
+    }
+    PY_CATCH;
+}
+
+PyObject* DocumentPy::abortCommand(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY {
+        getDocumentPtr()->abortCommand();
+        Py_Return;
+    }
+    PY_CATCH;
+}
+
+// Upstream's Gui::Document::getTreeRootObjects() (974f57cf94), which the
+// Assembly workbench reads from Python. Here only as the attribute, so that
+// Gui/Document.h stays as it is; and in document order, where upstream's
+// comes out in the order of an unordered_map.
+Py::List DocumentPy::getTreeRootObjects() const
+{
+    auto objs = getDocumentPtr()->getDocument()->getObjects();
+    std::unordered_set<App::DocumentObject*> claimed;
+    for (auto obj : objs) {
+        if (auto vp = getDocumentPtr()->getViewProvider(obj)) {
+            for (auto child : vp->claimChildren()) {
+                claimed.insert(child);
+            }
+        }
+    }
+
+    Py::List res;
+    for (auto obj : objs) {
+        if (!claimed.count(obj)) {
+            res.append(Py::asObject(obj->getPyObject()));
+        }
+    }
+    return res;
+}
+
 PyObject *DocumentPy::getCustomAttributes(const char* attr) const
 {
     // Note: Here we want to return only a document object if its

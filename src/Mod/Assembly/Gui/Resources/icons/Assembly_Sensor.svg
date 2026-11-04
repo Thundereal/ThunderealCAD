@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- A sensor: a gauge, its needle past the red mark of its threshold -->
+  <path d="M 6,44 A 26,26 0 0 1 58,44 Z" fill="#babdb6" stroke="#2e3436" stroke-width="2"
+        stroke-linejoin="round"/>
+  <path d="M 45.4,25.6 L 51.2,20.4" fill="none" stroke="#cc0000" stroke-width="4"
+        stroke-linecap="round"/>
+  <path d="M 32,44 L 50,30" fill="none" stroke="#2e3436" stroke-width="3"
+        stroke-linecap="round"/>
+  <circle cx="32" cy="44" r="4" fill="#2e3436"/>
+  <rect x="6" y="48" width="52" height="10" rx="2" fill="#729fcf" stroke="#2e3436"
+        stroke-width="2"/>
+</svg>

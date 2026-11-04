@@ -21,6 +21,7 @@
  *                                                                         *
  **************************************************************************/
 
+#include <Base/Console.h>
 #include "MaterialParams.h"
 #include <random>
 

@@ -74,6 +74,7 @@
 #include "Application.h"
 #include "Control.h"
 #include "Document.h"
+#include <App/Document.h>
 #include "MDIView.h"
 #include "View3DInventorViewer.h"
 #include "MainWindow.h"

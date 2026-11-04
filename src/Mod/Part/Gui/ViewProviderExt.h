@@ -29,6 +29,7 @@
 #include <set>
 
 #include <App/PropertyUnits.h>
+#include <App/PropertyAppearance.h>
 #include <Gui/ViewProviderGeometryObject.h>
 
 #include <Mod/Part/App/PartFeature.h>

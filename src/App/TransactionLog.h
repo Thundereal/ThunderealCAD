@@ -40,7 +40,7 @@
 
 #include <Base/Writer.h>
 
-#include "FileBlobManager.h"
+#include "FileBlob.h"
 #include "TransactionStore.h"
 #include "TransactionValue.h"
 

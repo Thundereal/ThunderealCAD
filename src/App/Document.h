@@ -159,6 +159,10 @@ public:
                             // change to its data is refused
         OpenedForPin = 19, // Opened because a link pinned it, not by hand:
                            // offered for closing when its pins go (sec 27.30)
+        LiveLoad = 20, // The LiveImport a document carries is the GUI's claim on a
+                       // load it is finishing (Gui::Application::refreshLiveLoad):
+                       // commands are gated as for an import, but no importer is
+                       // writing, so a label set meanwhile is made unique as usual
     };
 
     /** @name Properties */

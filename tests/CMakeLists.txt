@@ -85,6 +85,9 @@ set(TestExecutables
     Sketcher_tests_run
     Surface_tests_run
 )
+if(BUILD_ASSEMBLY)
+    list(APPEND TestExecutables Assembly_tests_run)
+endif()
 
 # -------------------------
 

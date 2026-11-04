@@ -41,6 +41,7 @@
 #endif
 
 #include <atomic>
+#include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <App/Color.h>
 

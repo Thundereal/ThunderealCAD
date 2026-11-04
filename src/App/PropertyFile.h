@@ -26,7 +26,7 @@
 
 #include <string>
 
-#include "FileBlobManager.h"
+#include "FileBlob.h"
 #include "FileSet.h"
 #include "PropertyStandard.h"
 

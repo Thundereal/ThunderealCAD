@@ -487,34 +487,37 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
 
         self.ccx_stdout = ""
         self.ccx_stderr = ""
-        ont_backup = os.environ.get("OMP_NUM_THREADS")
         self.ccx_prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/Fem/Ccx")
         # If number of CPU's specified
         num_cpu_pref = self.ccx_prefs.GetInt("AnalysisNumCPUs", 1)
-        if not ont_backup:
-            ont_backup = str(num_cpu_pref)
+        # Not upstream: the threads go in ccx's own environment. This set
+        # them with os.putenv, whose None it passed as env -- so ccx took
+        # the process' environment, by luck holding what putenv wrote -- and
+        # left OMP_NUM_THREADS set in FreeCAD after the run when it was not
+        # set before.
+        env = dict(os.environ)
         if num_cpu_pref > 1:
             # If user picked a number use that instead
-            _env = os.putenv("OMP_NUM_THREADS", str(num_cpu_pref))
+            env["OMP_NUM_THREADS"] = str(num_cpu_pref)
         else:
-            _env = os.putenv("OMP_NUM_THREADS", str(multiprocessing.cpu_count()))
-        # change cwd because ccx may crash if directory has no write permission
-        # there is also a limit of the length of file names so jump to the document directory
-        cwd = QtCore.QDir.currentPath()
+            env["OMP_NUM_THREADS"] = str(multiprocessing.cpu_count())
+        # run in the input's directory because ccx may crash if the directory has
+        # no write permission; there is also a limit of the length of file names.
+        # Not upstream: as the child's cwd, not FreeCAD's, which this changed for
+        # the run and did not restore when it raised.
         f = QtCore.QFileInfo(self.inp_file_name)
-        QtCore.QDir.setCurrent(f.path())
         p = subprocess.Popen(
             [self.ccx_binary, "-i ", f.baseName()],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=False,
-            env=_env,
+            env=env,
+            cwd=f.path(),
+            startupinfo=femutils.startProgramInfo(""),
         )
         self.ccx_stdout, self.ccx_stderr = p.communicate()
-        self.ccx_stdout = self.ccx_stdout.decode()
-        self.ccx_stderr = self.ccx_stderr.decode()
-        os.putenv("OMP_NUM_THREADS", ont_backup)
-        QtCore.QDir.setCurrent(cwd)
+        self.ccx_stdout = self.ccx_stdout.decode(errors="replace")
+        self.ccx_stderr = self.ccx_stderr.decode(errors="replace")
         return p.returncode
 
     def get_ccx_version(self):

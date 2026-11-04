@@ -55,6 +55,16 @@ public:
     App::PropertyEnumeration RotationalModeX;
     App::PropertyEnumeration RotationalModeY;
     App::PropertyEnumeration RotationalModeZ;
+    // Not upstream: how the reference node holds the faces -- Rigid, the
+    // faces moving as one with it (CalculiX's *RIGID BODY), or Distributing,
+    // its loads spread over the faces without stiffening them (*COUPLING
+    // with *DISTRIBUTING; loads only, CalculiX takes no constraint on it)
+    App::PropertyEnumeration Coupling;
+    // Not upstream: the coupling on the faces' parts within this distance
+    // of the reference node only, a load put on a patch of a face (a
+    // contact's) or a hold on the part of it another part shares (a rigid
+    // group's); 0, on all of them
+    App::PropertyLength CouplingRadius;
 
     /// recalculate the object
     App::DocumentObjectExecReturn* execute() override;
@@ -70,6 +80,7 @@ protected:
 
 private:
     static const char* boundaryModeEnum[];
+    static const char* couplingEnum[];
 };
 
 }  // namespace Fem

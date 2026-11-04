@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-#include "Renderer.h"
+#include "RenderConfig.h"
 
 /// MaterialX material documents (docs/CyclesIntegration.md sec 8 item
 /// 15 phase B). MaterialX is the material DESCRIPTION language: a

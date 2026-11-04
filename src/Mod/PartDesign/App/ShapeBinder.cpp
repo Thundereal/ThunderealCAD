@@ -41,6 +41,7 @@
 #include <App/Link.h>
 #include <App/OriginFeature.h>
 #include <App/ElementNamingUtils.h>
+#include <Base/Console.h>
 #include <Mod/Part/App/TopoShape.h>
 
 #include "ShapeBinder.h"

@@ -26,6 +26,7 @@
 
 #include <App/Application.h>
 
+#include <Base/Console.h>
 #include "Exceptions.h"
 #include "Model.h"
 #include "ModelLibrary.h"

@@ -33,6 +33,7 @@
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/MaterialAppearance.h>
+#include <App/PropertyAppearance.h>
 #include <App/PropertyStandard.h>
 #include <Base/AutoColor.h>
 

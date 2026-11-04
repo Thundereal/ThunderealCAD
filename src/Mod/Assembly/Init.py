@@ -34,6 +34,12 @@ import AssemblyPyParams
 
 FreeCAD.__unit_test__ += ["TestAssemblyWorkbench"]
 
+# Assembly3's code, bundled to migrate its documents: imported only when a
+# document names one of its proxies, and never over an installed Assembly3
+import AssemblyAsm3Bundle
+
+AssemblyAsm3Bundle.install()
+
 # This adds a custom import type to the FreeCAD import dialog.
 # The correct format for assembly interoperability is a research topic. ASMT is a placeholder.
 FreeCAD.addImportType("Assembly Format (*.asmt *.ASMT)", "AssemblyImport")

@@ -32,11 +32,10 @@
 #include <fastsignals/signal.h>
 #include <QString>
 
-#include <App/Document.h>
 #include <Base/Persistence.h>
 #include <Gui/TreeItemMode.h>
 
-#include "MDIView.h"
+#include "View.h"
 
 class SoNode;
 class SoPath;
@@ -49,6 +48,7 @@ namespace App {
 class Document;
 class DocumentObject;
 class DocumentObjectGroup;
+class FileBlobManager;
 class SubObjectT;
 class Property;
 class Transaction;

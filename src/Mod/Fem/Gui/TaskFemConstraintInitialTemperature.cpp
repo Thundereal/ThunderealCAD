@@ -29,6 +29,7 @@
 
 
 #include <Gui/Command.h>
+#include <Gui/Document.h>
 #include <Mod/Fem/App/FemConstraintInitialTemperature.h>
 
 #include "TaskFemConstraintInitialTemperature.h"

@@ -83,7 +83,8 @@ class CommandCreateAssembly:
             )
 
         commands = commands + 'assembly.Type = "Assembly"\n'
-        commands = commands + 'assembly.newObject("Assembly::JointGroup", "Joints")'
+        # Not upstream: the Joints aux group (docs/AssemblyObjectModel.md sec 3)
+        commands = commands + 'assembly.getGroup("Joints", True)'
 
         Gui.doCommand(commands)
         if not activeAssembly:

@@ -30,6 +30,7 @@
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 #include <Mod/Part/App/PartFeature.h>
+#include <App/AuxGroup.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
 #include "SheetMetalFlat.h"
@@ -54,7 +55,7 @@ class SheetMetalFlatPattern;
  *
  * Not to be confused with PartDesign::Solid, the piece a Split makes.
  */
-class PartDesignExport SolidBody : public Part::Feature
+class PartDesignExport SolidBody : public Part::Feature, public App::AuxGroupOwner
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesign::SolidBody);
     using inherited = Part::Feature;
@@ -72,6 +73,12 @@ public:
     App::PropertyLinkHidden _Shown;
     /// Whether the solid was last seen through this object's own shape
     App::PropertyBool _ShownShape;
+    /** Its view of the body's elements (getElementsView())
+     *
+     * Hidden, so no dependency: the link is what lets the tree show the view
+     * under this object rather than under the body as well.
+     */
+    App::PropertyLinkHidden _ElementsView;
 
     App::DocumentObjectExecReturn *execute() override;
     short mustExecute() const override;
@@ -87,6 +94,26 @@ public:
 
     /// The body this solid belongs to, or null
     Body *getBody() const;
+
+    /** @name Its view of the body's elements (docs/AssemblyObjectModel.md sec 5.3)
+     *
+     * The body's Elements group owns every element. A solid body shows the
+     * ones whose target is one of its features, in an Elements aux group of
+     * its own, which is in the body's Group as the body's other aux groups
+     * are, and which the body keeps (Body::syncElementViews()).
+     */
+    //@{
+    /// The view, or null
+    App::AuxGroup *getElementsView() const;
+    bool isAuxGroupAllowed(const App::AuxGroup *group,
+                           const App::DocumentObject *obj) const override;
+    /// The body's Elements group
+    App::PropertyLinkList *getAuxGroupSource(const App::AuxGroup *group) const override;
+    /// In the body's Group
+    bool hasAuxGroup(const App::AuxGroup *group) const override;
+    //@}
+
+    void unsetupObject() override;
 
     /// Whether \a obj is one of the solid's features
     bool hasFeature(const App::DocumentObject *obj) const;

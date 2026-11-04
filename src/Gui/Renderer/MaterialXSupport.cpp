@@ -25,6 +25,7 @@
 #else
 #include "MaterialXSupport.h"
 #endif
+#include "Renderer.h"
 
 #ifdef HAVE_MATERIALX
 

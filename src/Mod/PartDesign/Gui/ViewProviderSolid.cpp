@@ -26,9 +26,11 @@
 #include <QMenu>
 #endif
 
+#include <App/Document.h>
 #include <Gui/Command.h>
 #include <Mod/PartDesign/App/FeatureSolid.h>
 #include <Gui/BitmapFactory.h>
+#include <Gui/Selection.h>
 #include "ViewProviderSolid.h"
 
 using namespace PartDesignGui;

@@ -43,7 +43,7 @@
 #include <string>
 #include <vector>
 
-#include "../Renderer.h"
+#include "../RenderConfig.h"
 
 namespace Render::GraphEditor {
 

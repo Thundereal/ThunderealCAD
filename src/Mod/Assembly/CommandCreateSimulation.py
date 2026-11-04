@@ -255,25 +255,51 @@ if App.GuiUp:
 
     class ResultPlot(QtWidgets.QWidget):
         """Not upstream: curves over the run's time, drawn by hand -- their
-        range, the times at the ends, and the time shown as a cursor. It
-        shows a window of the run's time, all of it or as little as the
-        playback's speed takes in (SimulationPlayback.Playback.window()), a
-        strip under it saying where in the run; and each pixel's column of
-        values by its least and largest too, so that an impact's peak a few
-        microseconds wide is drawn to its height with the whole run shown
+        range, the times shown, and the time shown as a cursor.
+
+        It goes by the video's time (SimulationPlayback.Playback.window()):
+        as much of it as the whole run takes at Normal, so that the run is
+        drawn at Normal's scale and a part Auto plays slower is stretched as
+        much as it is slower. Under it a timeline: filled up to the cursor,
+        its ticks an even step of the run's time apart -- spreading as the
+        speed eases in, closing up as it eases out -- its slowed spans
+        shaded, the times each begins to slow and is back at Normal under
+        it. A click or a drag on either goes to the time there (seek). Each
+        pixel's column of values is drawn by its least and largest too, so
+        that an impact's peak a few microseconds wide keeps its height
         (SimulationPlayback.peakSafe())."""
 
         COLOURS = ["#d62728", "#2ca02c", "#1f77b4", "#888888"]
+        BAR = 6  # the timeline's height
+
+        seek = QtCore.Signal(float)
 
         def __init__(self, parent=None):
             super().__init__(parent)
-            self.setMinimumHeight(150)
+            self.setMinimumHeight(170)
+            self.setToolTip(translate("Assembly", "Click or drag to go to a time"))
             self.times = []
             self.curves = []  # (name, values)
             self.unit = ""
             self.bridge = set()
             self.time = None
-            self.window = None  # (t0, t1); None: the whole run
+            self.playback = None
+            self.axisTimes = None  # the frames' times on the axis, the video's
+            self.window = None  # the video's time shown, (start, end)
+            self.area = None  # where the curves were drawn last
+            # In or out about the cursor: the window narrower by it
+            self.zoom = 1.0
+            self.zoomIn = QtWidgets.QToolButton(self)
+            self.zoomIn.setText("+")
+            self.zoomIn.setToolTip(translate("Assembly", "Zoom in about the time shown"))
+            self.zoomIn.clicked.connect(lambda: self.zoomBy(2.0))
+            self.zoomOut = QtWidgets.QToolButton(self)
+            self.zoomOut.setText("-")
+            self.zoomOut.setToolTip(translate("Assembly", "Zoom out about the time shown"))
+            self.zoomOut.clicked.connect(lambda: self.zoomBy(0.5))
+            for button in (self.zoomIn, self.zoomOut):
+                button.setAutoRaise(True)
+                button.setFixedSize(20, 18)
 
         def setCurves(self, times, curves, unit, bridge=()):
             """bridge: the frames whose missing values a line passes over
@@ -282,13 +308,82 @@ if App.GuiUp:
             self.curves = curves
             self.bridge = set(bridge)
             self.unit = unit
+            self.axisTimes = None
             self.update()
 
-        def setTime(self, time, window=None):
-            """The cursor at time, and the run's time shown"""
-            self.time = time
-            self.window = window
+        def setPlayback(self, playback):
+            """The speed the run plays at, whose video's time the axis is"""
+            self.playback = playback
+            self.axisTimes = None
             self.update()
+
+        def setTime(self, time):
+            """The cursor at the run's time"""
+            self.time = time
+            self.update()
+
+        def toAxis(self, time):
+            return self.playback.videoTime(time) if self.playback else time
+
+        def fromAxis(self, x):
+            return self.playback.runTime(x) if self.playback else x
+
+        def shownWindow(self):
+            """The axis' window: the video's time shown, zoomed in or out
+            about the cursor"""
+            if not self.times:
+                return 0.0, 0.0
+            time = self.time if self.time is not None else self.times[0]
+            if self.playback is not None:
+                return self.playback.window(time, self.zoom)
+            start, end = self.times[0], self.times[-1]
+            width = (end - start) / self.zoom
+            if width >= (end - start) * (1.0 - 1e-9):
+                return start, end
+            low = min(max(time - 0.5 * width, start), end - width)
+            return low, low + width
+
+        def zoomBy(self, factor):
+            """The window narrower by factor about the cursor; no wider than
+            the whole video, no narrower than a millionth of the run at
+            Normal"""
+            whole = 1.0
+            if self.playback is not None and self.playback.normalDuration() > 0.0:
+                whole = self.playback.normalDuration() / max(self.playback.duration(), 1e-12)
+            self.zoom = min(max(self.zoom * factor, whole), 1e6)
+            self.update()
+
+        def wheelEvent(self, event):
+            steps = event.angleDelta().y() / 120.0
+            if steps:
+                self.zoomBy(2.0**steps)
+                event.accept()
+
+        def resizeEvent(self, event):
+            # The zoom's buttons at the top right, the legend's corner the left
+            size = self.zoomIn.sizeHint()
+            self.zoomIn.move(self.width() - size.width() - 2, 1)
+            self.zoomOut.move(self.width() - 2 * size.width() - 4, 1)
+            super().resizeEvent(event)
+
+        def runWindow(self):
+            """The run's time shown, (start, end)"""
+            v0, v1 = self.shownWindow()
+            return self.fromAxis(v0), self.fromAxis(v1)
+
+        def mousePressEvent(self, event):
+            self.seekAt(event.position().x())
+
+        def mouseMoveEvent(self, event):
+            if event.buttons() & Qt.LeftButton:
+                self.seekAt(event.position().x())
+
+        def seekAt(self, x):
+            if self.area is None or self.window is None or not self.area.width() > 0:
+                return
+            v0, v1 = self.window
+            u = min(max((x - self.area.left()) / self.area.width(), 0.0), 1.0)
+            self.seek.emit(self.fromAxis(v0 + u * (v1 - v0)))
 
         def paintEvent(self, event):
             painter = QtGui.QPainter(self)
@@ -300,6 +395,7 @@ if App.GuiUp:
             # None: a frame without a value (a stress series' frame not solved)
             values = [v for _, curve in self.curves for v in curve if v is not None]
             if len(self.times) < 2 or not values:
+                self.area = None
                 painter.setPen(text)
                 painter.drawText(
                     self.rect(), Qt.AlignCenter, translate("Assembly", "No values to show")
@@ -314,24 +410,27 @@ if App.GuiUp:
                 return f"{v:.4g}"
 
             left = 6 + max(metrics.horizontalAdvance(label(v)) for v in (low, high))
-            strip = 4  # where the window is in the run
             area = QtCore.QRectF(
                 left + 4,
                 metrics.height() + 4,
                 self.width() - left - 10,
-                self.height() - 2 * metrics.height() - 14 - strip,
+                self.height() - 2 * metrics.height() - 12 - 1.5 * self.BAR,
             )
-            start, end = self.times[0], self.times[-1]
-            t0, t1 = self.window if self.window else (start, end)
-            if not t1 > t0:
-                t0, t1 = start, end
-            span = (t1 - t0) or 1.0
-            zoomed = t1 - t0 < (end - start) * (1.0 - 1e-9)
+            self.area = area
+            if self.axisTimes is None:
+                self.axisTimes = [self.toAxis(t) for t in self.times]
+            v0, v1 = self.shownWindow()
+            if not v1 > v0:
+                v0, v1 = self.axisTimes[0], self.axisTimes[-1] or 1.0
+            self.window = (v0, v1)
+            span = (v1 - v0) or 1.0
 
-            def at(t, v):
+            def x(v):
+                return area.left() + area.width() * (v - v0) / span
+
+            def at(v, value):
                 return QtCore.QPointF(
-                    area.left() + area.width() * (t - t0) / span,
-                    area.bottom() - area.height() * (v - low) / (high - low),
+                    x(v), area.bottom() - area.height() * (value - low) / (high - low)
                 )
 
             grid = QtGui.QColor(text)
@@ -339,7 +438,7 @@ if App.GuiUp:
             painter.setPen(QtGui.QPen(grid, 1))
             painter.drawRect(area)
             if low < 0.0 < high:
-                painter.drawLine(at(t0, 0.0), at(t1, 0.0))
+                painter.drawLine(at(v0, 0.0), at(v1, 0.0))
             painter.setPen(text)
             painter.drawText(
                 QtCore.QRectF(0, area.top() - metrics.height() / 2, left, metrics.height()),
@@ -351,40 +450,11 @@ if App.GuiUp:
                 Qt.AlignRight | Qt.AlignVCenter,
                 label(low),
             )
-            # The ends' times to as many places as the window's width needs
-            places = max(0, int(math.ceil(-math.log10(span))) + 2) if zoomed else 0
-            ends = (f"{t0:.{places}f} s", f"{t1:.{places}f} s") if zoomed else (
-                f"{t0:g} s",
-                f"{t1:g} s",
-            )
-            painter.drawText(
-                QtCore.QRectF(area.left(), area.bottom() + 2, area.width(), metrics.height()),
-                Qt.AlignLeft | Qt.AlignTop,
-                ends[0],
-            )
-            painter.drawText(
-                QtCore.QRectF(area.left(), area.bottom() + 2, area.width(), metrics.height()),
-                Qt.AlignRight | Qt.AlignTop,
-                ends[1],
-            )
-            # The run, and the window in it
-            track = QtCore.QRectF(
-                area.left(), area.bottom() + metrics.height() + 6, area.width(), strip
-            )
-            painter.fillRect(track, grid)
-            whole = (end - start) or 1.0
-            shown = QtCore.QRectF(
-                track.left() + track.width() * (t0 - start) / whole,
-                track.top(),
-                max(2.0, track.width() * (t1 - t0) / whole),
-                strip,
-            )
-            painter.fillRect(shown, palette.color(QtGui.QPalette.Highlight))
             painter.drawText(
                 QtCore.QRectF(0, 0, left, metrics.height()), Qt.AlignRight | Qt.AlignTop, self.unit
             )
             # The legend, along the top
-            x = area.left()
+            xl = area.left()
             painter.save()
             painter.setClipRect(area.adjusted(-3, -3, 3, 3))
             for k, (name, curve) in enumerate(self.curves):
@@ -392,9 +462,9 @@ if App.GuiUp:
                 painter.setPen(QtGui.QPen(colour, 1.5))
                 # A line through each run of values, a dot for one alone
                 for run in SimulationPlayback.peakSafe(
-                    self.times, curve, t0, t1, max(1, int(area.width())), self.bridge
+                    self.axisTimes, curve, v0, v1, max(1, int(area.width())), self.bridge
                 ):
-                    points = [at(t, v) for t, v in run]
+                    points = [at(v, value) for v, value in run]
                     if len(points) > 1:
                         painter.drawPolyline(QtGui.QPolygonF(points))
                     else:
@@ -403,14 +473,107 @@ if App.GuiUp:
             for k, (name, curve) in enumerate(self.curves):
                 if len(self.curves) > 1:
                     painter.setPen(QtGui.QColor(self.COLOURS[k % len(self.COLOURS)]))
-                    painter.drawText(QtCore.QPointF(x, metrics.ascent()), name)
-                    x += metrics.horizontalAdvance(name) + 10
-            if self.time is not None and t0 <= self.time <= t1:
-                cursor = QtGui.QColor(text)
-                cursor.setAlpha(160)
-                painter.setPen(QtGui.QPen(cursor, 1, Qt.DashLine))
-                p = at(self.time, low)
-                painter.drawLine(QtCore.QPointF(p.x(), area.top()), QtCore.QPointF(p.x(), area.bottom()))
+                    painter.drawText(QtCore.QPointF(xl, metrics.ascent()), name)
+                    xl += metrics.horizontalAdvance(name) + 10
+            cursor = None
+            if self.time is not None:
+                c = x(self.toAxis(self.time))
+                if area.left() - 0.5 <= c <= area.right() + 0.5:
+                    cursor = c
+            if cursor is not None:
+                colour = QtGui.QColor(text)
+                colour.setAlpha(160)
+                painter.setPen(QtGui.QPen(colour, 1, Qt.DashLine))
+                painter.drawLine(QtCore.QPointF(cursor, area.top()), QtCore.QPointF(cursor, area.bottom()))
+            self.paintTimeline(painter, area, x, cursor, grid, text, metrics)
+
+        def paintTimeline(self, painter, area, x, cursor, grid, text, metrics):
+            """The timeline under the curves: filled up to the cursor, its
+            ticks an even step of the run's time apart, its slowed spans
+            shaded, and the times shown under it"""
+            palette = self.palette()
+            v0, v1 = self.window
+            r0, r1 = self.fromAxis(v0), self.fromAxis(v1)
+            bar = QtCore.QRectF(area.left(), area.bottom() + 4, area.width(), self.BAR)
+            painter.fillRect(bar, grid)
+            highlight = palette.color(QtGui.QPalette.Highlight)
+            if cursor is not None:
+                done = QtCore.QRectF(bar.left(), bar.top(), cursor - bar.left(), bar.height())
+                painter.fillRect(done, highlight)
+            spans = []
+            if self.playback is not None:
+                spans = [s for s in self.playback.slowSpans() if s[1] >= r0 and s[0] <= r1]
+            shade = QtGui.QColor(highlight)
+            shade.setAlpha(70)
+            for t0, t1, _ in spans:
+                a, b = x(self.toAxis(t0)), x(self.toAxis(t1))
+                painter.fillRect(
+                    QtCore.QRectF(a, bar.top() - 3, b - a, bar.height() + 6), shade
+                )
+            # The ticks: the run's time at Normal's scale 8 pixels or more
+            # apart; spreading where it plays slower
+            normal = self.playback.normal if self.playback is not None else 1.0
+            perRun = area.width() / (v1 - v0) / normal if v1 > v0 else 0.0
+            if perRun > 0.0:
+                step = SimulationPlayback.niceStep(8.0 / perRun)
+                tick = QtGui.QColor(text)
+                tick.setAlpha(140)
+                painter.setPen(QtGui.QPen(tick, 1))
+                first = int(math.ceil(r0 / step - 1e-9))
+                last = int(math.floor(r1 / step + 1e-9))
+                for m in range(first, min(last, first + 2000) + 1):
+                    p = x(self.toAxis(m * step))
+                    tall = 3 if m % 5 == 0 else 0
+                    painter.drawLine(
+                        QtCore.QPointF(p, bar.top() - tall), QtCore.QPointF(p, bar.bottom())
+                    )
+            # The handle, a movie player's: dragged, the run goes with it
+            if cursor is not None:
+                painter.setPen(QtGui.QPen(palette.color(QtGui.QPalette.Base), 1.5))
+                painter.setBrush(highlight)
+                painter.drawEllipse(
+                    QtCore.QPointF(cursor, bar.center().y()), self.BAR, self.BAR
+                )
+                painter.setBrush(Qt.NoBrush)
+            # The times under it: where each slowed span begins to slow and
+            # is back at Normal, then the window's ends where they fit
+            painter.setPen(text)
+            row = bar.bottom() + self.BAR / 2 + 2
+            placed = []
+
+            def put(px, string, align):
+                width = metrics.horizontalAdvance(string) + 6
+                if align == "left":
+                    lx = px
+                elif align == "right":
+                    lx = px - width
+                else:
+                    lx = px - width / 2
+                lx = min(max(lx, 0.0), self.width() - width)
+                rect = QtCore.QRectF(lx, row, width, metrics.height())
+                if any(rect.intersects(r) for r in placed):
+                    return False
+                placed.append(rect)
+                painter.drawText(rect, Qt.AlignCenter, string)
+                return True
+
+            for t0, t1, _ in spans:
+                places = min(9, max(3, int(math.ceil(-math.log10(max(t1 - t0, 1e-12)))) + 1))
+                for t in (t0, t1):
+                    if r0 <= t <= r1:
+                        p = x(self.toAxis(t))
+                        painter.drawLine(
+                            QtCore.QPointF(p, bar.top() - 3), QtCore.QPointF(p, bar.bottom() + 2)
+                        )
+                        put(p, f"{t:.{places}f} s", "centre")
+            whole = self.times[-1] - self.times[0]
+            if r1 - r0 < whole * (1.0 - 1e-9) and r1 > r0:
+                places = max(0, int(math.ceil(-math.log10(r1 - r0))) + 2)
+                ends = (f"{r0:.{places}f} s", f"{r1:.{places}f} s")
+            else:
+                ends = (f"{r0:g} s", f"{r1:g} s")
+            put(area.left(), ends[0], "left")
+            put(area.right(), ends[1], "right")
 
 
 
@@ -2297,6 +2460,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         )
         results.addWidget(self.resultCombo)
         self.resultPlot = ResultPlot()
+        self.resultPlot.seek.connect(self.onPlotSeek)
         results.addWidget(self.resultPlot)
         self.resultValue = QtWidgets.QLabel()
         self.resultValue.setWordWrap(True)
@@ -3021,7 +3185,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         if shown is None and frame < len(times):
             shown = times[frame]
         if shown is not None:
-            self.resultPlot.setTime(shown, self.currentPlayback().window(shown))
+            self.currentPlayback()
+            self.resultPlot.setTime(shown)
         curves, unit = self.resultCurves()
         if not curves or frame >= len(times):
             self.resultValue.clear()
@@ -3059,10 +3224,20 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.form.FramesPerSecondSpinBox.value(),
             self.playbackSpeed(),
         )
+        # The plot goes by its video's time
+        self.resultPlot.setPlayback(self.playback)
         return self.playback
 
     def currentPlayback(self):
         return self.playback if self.playback is not None else self.makePlayback()
+
+    def onPlotSeek(self, time):
+        """Not upstream: the plot's timeline clicked or dragged, a movie
+        player's: the run at that time, played on from there if playing"""
+        playing = self.animationTimer.isActive()
+        self.showPlayed(time, self.currentPlayback().rate(time))
+        if playing:
+            self.animationTimerStart()
 
     def nearestFrame(self, time):
         times = self.frameTimes()

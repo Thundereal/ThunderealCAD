@@ -453,10 +453,34 @@ class TestSimulationResults(unittest.TestCase):
         # And not much more than the run at Normal and the impact's frames
         # with the easing either side
         self.assertLess(len(frames), 101 + 20 + 60)
-        self.assertEqual(auto.window(0.02), (0.0, 0.25))
+        # The plots by the video's time: the run at Normal's scale, the
+        # impact stretched as much as it plays slower; as much of the video
+        # as the run takes at Normal, all of it there
+        width = auto.normalDuration()
+        self.assertAlmostEqual(width, 0.25 / (step * 30))
+        self.assertAlmostEqual(auto.videoTime(0.02) - auto.videoTime(0.01), 0.01 / (step * 30))
+        self.assertGreater(auto.videoTime(0.10006) - auto.videoTime(0.1), 0.4)
+        for t in (0.0, 0.05, 0.1, 0.10003, 0.2, 0.25):
+            self.assertAlmostEqual(auto.runTime(auto.videoTime(t)), t, delta=1e-12)
+        self.assertEqual(auto.window(0.02), (0.0, width))
         low, high = auto.window(0.10003)
-        self.assertLess(high - low, 1e-3)
-        self.assertTrue(low <= 0.10003 <= high)
+        self.assertAlmostEqual(high - low, width)
+        self.assertTrue(low <= auto.videoTime(0.10003) <= high)
+        self.assertLess(auto.runTime(high) - auto.runTime(low), 0.25)
+        # Zoomed in about it, half as wide; out, no wider than the video
+        low, high = auto.window(0.10003, 2.0)
+        self.assertAlmostEqual(high - low, width / 2)
+        self.assertEqual(auto.window(0.10003, 1e-3), (0.0, auto.duration()))
+        # Where it slows: eased into before the impact, back after it
+        ((t0, t1, slowest),) = auto.slowSpans()
+        self.assertTrue(t0 < 0.1 and 0.10006 < t1 < 0.12, (t0, t1))
+        self.assertAlmostEqual(slowest, auto.rate(0.10003))
+        normal = P.Playback(times, step, 30, "Normal")
+        self.assertEqual(normal.slowSpans(), [])
+        self.assertEqual(normal.window(0.1), (0.0, normal.duration()))
+        self.assertEqual(P.niceStep(3e-3), 5e-3)
+        self.assertEqual(P.niceStep(1e-3), 1e-3)
+        self.assertEqual(P.niceStep(0.011), 0.02)
 
     def test_peak_safe(self):
         """A curve drawn by its pixels' columns (SimulationPlayback.

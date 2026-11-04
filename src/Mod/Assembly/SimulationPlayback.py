@@ -32,7 +32,11 @@ on a lever. Played an output step a video frame (Normal), an impact is over
 between two video frames, unseen. Auto plays at Normal where the frames are
 an output step apart and slows where they come closer, each frame then shown
 for a video frame, the speed eased into and out of: no more than EASE times
-from one video frame to the next. The plots zoom with the speed (window())."""
+from one video frame to the next. The plots go by the video's time
+(window()): the run at Normal's scale, a part played slower stretched as
+much as it is slower, with a timeline under them whose ticks, an even step
+of the run's time apart, spread as the speed eases in and close up as it
+eases out (slowSpans())."""
 
 import bisect
 import math
@@ -84,6 +88,7 @@ class Playback:
         self.normal = self.step * self.fps
         self.auto = speed == "Auto"
         self.base = self.normal * speedFactor(speed)
+        self._played = None
         self._slopes()
 
     def _guessStep(self):
@@ -158,20 +163,96 @@ class Playback:
             out.append((end, self.rate(end)))
         return out
 
-    def window(self, time):
-        """The run's time a plot shows about time: all of it at Normal, and
-        as much less as it plays slower, time in its middle where it can be"""
-        if not self.times:
-            return 0.0, 0.0
-        start, end = self.times[0], self.times[-1]
-        span = end - start
-        width = span * min(1.0, self.rate(time) / self.normal)
-        # The whole run within round-off: its own ends, not ones a few
-        # ulps off them
-        if width >= span * (1.0 - 1e-9) or not width > 0.0:
-            return start, end
-        low = min(max(time - 0.5 * width, start), end - width)
+    def played(self):
+        """frames(), kept: the run's time of each video frame"""
+        if self._played is None:
+            self._played = [t for t, _ in self.frames()]
+        return self._played
+
+    def videoTime(self, time):
+        """When the video shows the run's time, s from its start: between
+        two video frames, on the line between them"""
+        played = self.played()
+        if len(played) < 2:
+            return 0.0
+        k = bisect.bisect_right(played, time) - 1
+        if k < 0:
+            return 0.0
+        if k >= len(played) - 1:
+            return (len(played) - 1) / self.fps
+        return (k + (time - played[k]) / (played[k + 1] - played[k])) / self.fps
+
+    def runTime(self, video):
+        """The run's time the video shows at video, s from its start"""
+        played = self.played()
+        if len(played) < 2:
+            return played[0] if played else 0.0
+        x = min(max(video * self.fps, 0.0), len(played) - 1.0)
+        k = min(int(math.floor(x)), len(played) - 2)
+        return played[k] + (x - k) * (played[k + 1] - played[k])
+
+    def duration(self):
+        """How long the video goes, s"""
+        return max(0, len(self.played()) - 1) / self.fps
+
+    def normalDuration(self):
+        """How long the whole run goes at Normal, s"""
+        if len(self.times) < 2:
+            return 0.0
+        return (self.times[-1] - self.times[0]) / self.normal
+
+    def window(self, time, zoom=1.0):
+        """The video's time a plot shows about time, (start, end) in s of
+        it: as long as the whole run goes at Normal, over zoom. A plot by the
+        video's time draws the run at Normal's scale, and a part it plays
+        slower at as much more: Auto's slowed parts alone are stretched, not
+        the whole of the run. All of it at Normal unzoomed; time in the
+        middle where it can be"""
+        total = self.duration()
+        width = self.normalDuration() / zoom
+        # The whole video within round-off: its own ends
+        if width >= total * (1.0 - 1e-9) or not width > 0.0:
+            return 0.0, total
+        low = min(max(self.videoTime(time) - 0.5 * width, 0.0), total - width)
         return low, low + width
+
+    def slowSpans(self):
+        """Auto: where the run plays slower than Normal, eased into and out
+        of: (the time it begins to slow, the time it is back at Normal, the
+        slowest rate) each"""
+        if not self.auto:
+            return []
+        played = self.played()
+        rates = [self.rate(t) for t in played]
+        spans = []
+        k = 0
+        while k < len(played):
+            if not rates[k] < self.base * (1.0 - 1e-9):
+                k += 1
+                continue
+            first = k
+            while k < len(played) and rates[k] < self.base * (1.0 - 1e-9):
+                k += 1
+            spans.append(
+                (
+                    played[max(first - 1, 0)],
+                    played[min(k, len(played) - 1)],
+                    min(rates[first:k]),
+                )
+            )
+        return spans
+
+
+def niceStep(least):
+    """The least of 1, 2 and 5 times a power of ten that is least or more:
+    the run's time between a timeline's ticks"""
+    if not least > 0.0:
+        return 1.0
+    power = 10.0 ** math.floor(math.log10(least))
+    for factor in (1.0, 2.0, 5.0, 10.0):
+        if factor * power >= least * (1.0 - 1e-12):
+            return factor * power
+    return 10.0 * power
 
 
 def speedText(rate):

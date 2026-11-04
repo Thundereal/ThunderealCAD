@@ -1379,8 +1379,9 @@ class TestGuiCommands(unittest.TestCase):
         8.6): Auto by default; through an impact's frames, microseconds
         apart, the parts at the run's time between them, the speed said
         against real time, the time to the microsecond and the plot about
-        it, a fraction of a millisecond wide; Normal, the whole run shown,
-        an output step a video frame"""
+        it, less of the run, the impact stretched; its + and - zooming about
+        the time shown, a click on its timeline going to the time there;
+        Normal, the whole run shown, an output step a video frame"""
         import CommandCreateSimulation
 
         self.make_joint("Assembly_CreateJointRevolute", "Revolute")
@@ -1436,10 +1437,35 @@ class TestGuiCommands(unittest.TestCase):
             self.assertAlmostEqual(times[panel.form.frameSlider.value()], t, delta=1e-12)
             self.assertTrue(panel.speedLabel.text().startswith("1/"), panel.speedLabel.text())
             self.assertIn("0.100030", panel.form.FrameTimeLabel.text())
-            low, high = panel.resultPlot.window
+            plot = panel.resultPlot
+            low, high = plot.runWindow()
             self.assertTrue(low <= t <= high)
-            self.assertLess(high - low, 1e-3)
-            self.assertFalse(panel.resultPlot.grab().isNull())
+            self.assertLess(high - low, 0.25)
+            self.assertFalse(plot.grab().isNull())
+            # Zoomed in about the time shown, half as much of the run
+            plot.zoomIn.click()
+            zoomed = plot.runWindow()
+            self.assertTrue(zoomed[0] <= t <= zoomed[1])
+            self.assertLess(zoomed[1] - zoomed[0], high - low)
+            plot.zoomOut.click()
+            self.assertEqual(plot.runWindow(), (low, high))
+            # The timeline a movie player's: a click goes to the time there
+            plot.grab()
+            area = plot.area
+            point = QtCore.QPointF(area.left() + 0.25 * area.width(), area.bottom() + 6)
+            v0, v1 = plot.window
+            wanted = plot.fromAxis(v0 + 0.25 * (v1 - v0))
+            press = QtGui.QMouseEvent(
+                QtCore.QEvent.MouseButtonPress,
+                point,
+                plot.mapToGlobal(point),
+                QtCore.Qt.LeftButton,
+                QtCore.Qt.LeftButton,
+                QtCore.Qt.NoModifier,
+            )
+            QtWidgets.QApplication.sendEvent(plot, press)
+            self.assertAlmostEqual(panel.shownTime, wanted, delta=1e-12)
+            self.assertAlmostEqual(shown[-1], wanted, delta=1e-12)
             # Played: the video frames' times
             panel.animationTimerStartForward()
             self.assertTrue(panel.animationTimer.isActive())
@@ -1450,7 +1476,9 @@ class TestGuiCommands(unittest.TestCase):
             self.assertEqual(sim.PlaybackSpeed, "Normal")
             self.assertEqual(len(panel.playback.frames()), 101)
             panel.showPlayed(t, panel.playback.rate(t))
-            self.assertEqual(panel.resultPlot.window, (0.0, 0.25))
+            low, high = panel.resultPlot.runWindow()
+            self.assertAlmostEqual(low, 0.0, delta=1e-12)
+            self.assertAlmostEqual(high, 0.25, delta=1e-12)
         finally:
             panel.stopAnimation()
             panel.assembly = assembly

@@ -247,22 +247,23 @@ class TestSheetMetalConvert(unittest.TestCase):
     def edges(self, shape, test):
         return ["Edge%d" % (i + 1) for i, e in enumerate(shape.Edges) if test(e)]
 
-    def tray(self, **props):
+    def tray(self, size=(40, 20, 10), at=FreeCAD.Vector(), **props):
         """A box 40 x 20 x 10, its top open, its four upright edges ripped"""
-        body = self.body(Part.makeBox(40, 20, 10))
+        body = self.body(Part.makeBox(*size, at))
         box = body.BaseFeature.Shape
+        top = at.z + size[2]
         convert = body.newObject("PartDesign::SheetMetalConvert", "Convert")
         convert.FixedFace = (
             body.BaseFeature,
-            [self.face(box, lambda f: abs(f.BoundBox.ZMax) < 1e-7)],
+            [self.face(box, lambda f: abs(f.BoundBox.ZMax - at.z) < 1e-7)],
         )
         convert.OpenFaces = (
             body.BaseFeature,
-            [self.face(box, lambda f: abs(f.BoundBox.ZMin - 10) < 1e-7)],
+            [self.face(box, lambda f: abs(f.BoundBox.ZMin - top) < 1e-7)],
         )
         convert.RipEdges = (
             body.BaseFeature,
-            self.edges(box, lambda e: abs(e.BoundBox.ZLength - 10) < 1e-7),
+            self.edges(box, lambda e: abs(e.BoundBox.ZLength - size[2]) < 1e-7),
         )
         for k, v in props.items():
             setattr(convert, k, v)
@@ -378,6 +379,22 @@ class TestSheetMetalConvert(unittest.TestCase):
         for k, v in (("XLength", 42), ("YLength", 22), ("ZLength", 11)):
             self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
         self.checkFlat(convert, 40 - 2 * 1 + 2 * (BA + 9), 20 - 2 * 1 + 2 * (BA + 9), bends=4)
+
+    def testSolidOutsideAsInside(self):
+        """Thickened outside, the tray is the one a box a thickness larger
+        every way it was thickened makes inside -- its corner reliefs the
+        rule's, cut from the outer corner, not the box's own -- the same
+        solid and the same flat"""
+        outside = self.tray(Side="Outside")
+        inside = self.tray(size=(42, 22, 11), at=V(-1, -1, -1))
+        self.checkValid(outside)
+        self.checkValid(inside)
+        self.assertAlmostEqual(outside.Shape.Volume, inside.Shape.Volume, places=6)
+        self.assertLess(outside.Shape.cut(inside.Shape).Volume, 1e-6)
+        a, b = Flat(outside), Flat(inside)
+        self.assertAlmostEqual(a.FlatLength.Value, b.FlatLength.Value, places=6)
+        self.assertAlmostEqual(a.FlatWidth.Value, b.FlatWidth.Value, places=6)
+        self.assertAlmostEqual(a.FlatArea.Value, b.FlatArea.Value, places=4)
 
     def testSolidLoopRefused(self):
         """Not ripped, the box's sides close a loop of bends round it, which

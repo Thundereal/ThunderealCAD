@@ -2866,7 +2866,8 @@ Phase D1 is under way (2026-10-28):
   omega x I omega. Missing: what acts on it that it does not take yet --
   a contact set it is in (a set reports no point of action), a torsion
   spring on its joint, an applied load (no channel). A joint's reaction
-  already holds its motor's effort, its friction and its stops'. The
+  already holds its friction and its stops'; it was taken to hold its
+  motor's effort too, which it does not (step 5's second half). The
   parts are put back as they were.
   - **The mass properties read shapes through the assembly's shape cache**,
     which kept a component where it stood when a script wrote its
@@ -3048,6 +3049,87 @@ Phase D1 is under way (2026-10-28):
     springs and applied loads, which the run cannot place yet (step 5's
     other half); a part in a rigid group (its body's motion is the
     group's, its loads from the others in it unknown).
+- Built, D4a step 5 (second half): contacts, torsion springs and applied
+  loads in a part's free body, and so in its stress analysis.
+  - The run reports where a contact set presses each of its parts: per
+    part, "PartContactForce", "PartContactPoint" and "PartContactTorque"
+    -- the force its points press the part with, their centre weighted by
+    their forces (the origin while none presses), and the torque about
+    that centre: the set's resultant on the part, exact. A channel gains
+    `on`, the part a value is on where its source has several (Backend.h;
+    the archive's "on", which a reader before it reads past; Python's
+    "On"). The parts are those the set's shapes are on, by the names the
+    contact events give them -- a rigid group's own part, not the group.
+  - The run reports each applied load: "AppliedForce" or "AppliedTorque" on
+    its component, at its frame's origin. Its reaction takes the opposite
+    where the frame's origin was at the start, which stays on the reaction
+    (Chrono's body-body load); `loadsOn` takes that point from the run's
+    first frame.
+  - A torsion spring needs no channel: Chrono's, minus its torque about
+    frame I's z on frame I's body, plus on frame J's.
+  - `loadsOn` takes them (Kinds "Contact", "Load", "TorsionSpring"), and an
+    end bound to an element through its binding -- a spring's, a bushing's
+    and a load's ends were read off their Component properties, which an
+    end on an element leaves empty. Missing is only what a run kept from
+    before reports no channel of.
+  - **Found on the way, a joint's reaction does not hold its motor's
+    effort**, which step 2 took it to: a motion drives a joint through a
+    motor link of its own, whose torque is the joint's "MotorTorque"
+    channel (Chrono's, -T about zI on frame I's body, as a torsion spring
+    is; a linear motor's force along zI). The tipping plate of the contact
+    tests, turned by a motion, was 529.21 mN mm out of balance about its
+    hinge, the motor's torque at that frame to the digit. A joint's load
+    in a free body is now its reaction and its motor's effort.
+  - To FEM: a contact's coupling moves with its point, frame by frame --
+    its reference node there, on the part's face nearest it; where it
+    does not press, as it was, unloaded. A torsion spring goes through its
+    joint's coupling, one for the two, and is held with it where its joint
+    is the hold: the hold stands in for both, and the check is against
+    both (`_heldLoad`, the series' HeldTorque).
+  - **Found on the way, in FEM: a coupling's reference node off by
+    round-off was refused by CalculiX** -- "ERROR reading *NODE", and every
+    set on it after. `write_constraint_rigidbody` wrote its coordinates
+    with str(), up to 23 characters (-1.1050188541972261E-14), and
+    CalculiX reads 20 a field. Written with 13 significant digits, as the
+    step's loads already were. A joint's point never had the round-off; a
+    contact's, from the run, does.
+  - The Results box keys a channel by its part too, and names it so:
+    "Contact (Ball): Contact force on the part".
+  - Tests: TestDynamics' test_loads_on_torsion, test_loads_on_applied_load
+    (a force between the double pendulum's rods, its profile 1 + 10 t, and
+    a torque on the first), test_loads_on_driven (a kinematic run's motor)
+    and test_loads_to_fem_torsion (a spring on each hinge, solved:
+    HeldTorque the hinge's and its spring's, and the hold against it);
+    TestContact's test_part_contact_channels (a ball at rest: its force at
+    its lowest point, sunk; the plate's opposite there),
+    test_loads_on_ball, test_loads_on_sliding_cube (the cube's free body,
+    its four corners' resultant, and the driven plate's) and
+    test_loads_to_fem_contact (a lever on a post, solved); TestGuiCommands'
+    test_results_on_parts; FEM's test_reference_node_fields. Every free
+    body balances within 1e-6 of its loads.
+  - The manual's video (`assembly/simulation/loads-to-fem-contact`): a
+    steel lever 120 x 10 x 8 on an eccentric disc turned at 2 rev/s, a
+    torsion spring at its hinge and 3 N down at its tip, 101 frames solved
+    in 91 s. The disc's point moves along the lever from x = 67 to 88 mm,
+    5.3 to 9.5 N. The largest stress, 2.458 MPa at 0.23 s, is at the hinge,
+    where the spring's 259 N mm enters: beam theory 2.43 MPa. The hold
+    within 0.34% of the largest reaction, its torque within 0.024%; the
+    force's difference the held face's own body load (step 4), 0.020 N at
+    a 3 mm mesh, 0.011 N at 1.5 mm.
+  - **Found, not fixed: a stiff contact on a fast eccentric diverges.** The
+    video's disc on its lever, by the steel's own law -- a cylinder's side
+    on a face, Johnson's line contact, k = 6.4e8 N/m^1.065 there, about
+    2e8 N/m at its 9 N -- stops at about 0.14 s, "the contact's integration
+    diverged", at 1.5 rev/s and up (1 rev/s runs), with a speed motor as
+    with a position one, with friction or without, the disc a cylinder or
+    a hull. A set law runs at 1e6 N/mm^1.5 and diverges at 1e7: the
+    stiffness, not the line law. The Newton iterations run off at a
+    substep under a nanosecond, where the contact's own period is 1e-4 s:
+    the jacobian, not the step. The video sets 1e6.
+  - Not yet: the largest away from the loaded faces; several frames as
+    steps of one CalculiX run; a part in a rigid group; a contact set that
+    presses a part at places apart is one resultant at their centre, on
+    the face nearest it.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

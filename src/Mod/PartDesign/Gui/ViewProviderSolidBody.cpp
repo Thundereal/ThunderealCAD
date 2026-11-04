@@ -429,10 +429,8 @@ void ViewProviderSolidBody::updateData(const App::Property *prop)
             body->_GroupTouched.touch();
         }
     }
-    if (owner && (prop == &owner->Flatten || prop == &owner->FlatRoot
-                  || prop == &owner->FlatSecondSkin || prop == &owner->FlatAlignEdge
-                  || prop == &owner->TangentLines || prop == &owner->Grain
-                  || prop == &owner->GrainAngle)) {
+    // Flatten, or the flat object's settings (SolidBody::flatSettingsChanged())
+    if (owner && prop == &owner->Flatten) {
         refreshFlats();
     }
     if (owner) {

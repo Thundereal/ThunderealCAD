@@ -68,6 +68,7 @@
 #include "FeatureWrap.h"
 #include "ShapeBinder.h"
 #include "SolidBody.h"
+#include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalRule.h"
 #include <Mod/Part/App/BodyBase.h>
 #include "FeatureSheetMetalBaseWall.h"
@@ -193,6 +194,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::AuxGroup                    ::init();
     PartDesign::SolidBody                   ::init();
     PartDesign::SheetMetalRule              ::init();
+    PartDesign::SheetMetalFlatPattern       ::init();
     PartDesign::PropertySheetModel          ::init();
     PartDesign::SheetMetalExtension         ::init();
     PartDesign::SheetMetalBaseWall          ::init();

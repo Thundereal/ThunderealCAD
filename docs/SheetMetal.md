@@ -1231,6 +1231,28 @@ and not frozen.
     thickness, its exact ones do not; and Flatten on costs a recompute the tip's own and one lay,
     no more. A flat that does not lie is laid again each time it is asked for; the flat object
     (sec 12, 2026-11-04) keeps the reason as its status, so that is left to it.
+- The flat object, its first step (ruled 2026-11-04 below): `PartDesign::SheetMetalFlatPattern`
+  (`FeatureSheetMetalFlatPattern.h`), a Part feature, made by the body's solid sync
+  (`Body::syncSolidBodies()`) for each solid holding sheet metal that has none, named `Flat`,
+  hidden, in the body's group behind everything, and removed with its solid. It links its solid
+  (`Sheet`); the solid finds it by its InList (`SolidBody::flatPattern()`), as a link back would
+  be a cycle. As built:
+  - The settings moved off the solid onto it: `Root`, `SecondSkin`, `AlignEdge`, `TangentLines`,
+    `Grain`, `GrainAngle`; `SolidBody::flatSettings()` reads them (the defaults with none), and a
+    change clears the features' shape caches (`flatSettingsChanged()`, which also touches the
+    solid's `Flatten` so the views draw again, until step 2). The values moved too, `Status` in
+    place of `FlatStatus`; the solid keeps `Flatten`, for its features' views, and lays nothing.
+  - Its `execute()` lays its solid's tip flat while it is shown or something but its body uses
+    it (`isWanted()`); otherwise its shape and values stay and `Status` says it is out of date.
+    Shown out of date (or failed), it touches itself; taken up by a user while out of date,
+    `mustExecute()` asks for a recompute, and `skipRecompute()` refuses to be skipped, as the
+    recompute's optimisation skips an object none of whose inputs changed. A tip that does not
+    lie flat says why in `Status`, the last flat kept.
+  - Its shape follows its `Placement` (`shouldApplyPlacement()`), and is saved, its faces named
+    after the folded ones. Check Sheet and Export Flat take it as its solid.
+  - Tests: `TestSheetMetalFlat` (20: the object, laid when shown, when used, placed, saved,
+    not laying, undone with its sheet) and the suites moved to it (`SheetMetalFlatView.py`'s
+    `flatObject()`, `showFlat()`).
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

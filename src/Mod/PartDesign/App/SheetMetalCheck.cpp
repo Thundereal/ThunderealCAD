@@ -55,6 +55,7 @@
 #include <Mod/Part/App/PartFeature.h>
 
 #include "Body.h"
+#include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalHem.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Flat.h"
@@ -136,6 +137,10 @@ SheetCheck checkSheet(const App::DocumentObject* obj)
         THROWM(Base::ValueError, "No object to check");
     }
     auto solid = Base::freecad_dynamic_cast<const SolidBody>(obj);
+    // the flat object checks its solid
+    if (auto flatObj = Base::freecad_dynamic_cast<const SheetMetalFlatPattern>(obj)) {
+        solid = flatObj->getSheet();
+    }
     const App::DocumentObject* part = obj;
     if (solid) {
         part = solid->Tip.getValue();

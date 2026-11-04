@@ -43,6 +43,7 @@
 #include <Mod/Part/App/PartFeature.h>
 
 #include "Body.h"
+#include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Dxf.h"
 #include "SheetMetal/Flat.h"
@@ -190,7 +191,11 @@ void exportFlat(const App::DocumentObject* obj, const char* path)
     }
     auto solid = Base::freecad_dynamic_cast<const SolidBody>(obj);
     const App::DocumentObject* part = nullptr;
-    if (!solid) {
+    // the flat object writes its solid's tip's
+    if (auto flatObj = Base::freecad_dynamic_cast<const SheetMetalFlatPattern>(obj)) {
+        solid = flatObj->getSheet();
+    }
+    else if (!solid) {
         auto body = Body::findBodyOf(obj);
         solid = body ? body->getSolidBody(obj) : nullptr;
         part = obj;
@@ -205,10 +210,10 @@ void exportFlat(const App::DocumentObject* obj, const char* path)
         FC_THROWM(Base::FileException, "Cannot write " << path);
     }
     if (suffix == "dxf") {
-        SheetMetal::writeDXF(out, flat.result, solid->TangentLines.getValue());
+        SheetMetal::writeDXF(out, flat.result, solid->flatSettings().tangentLines);
     }
     else {
-        SheetMetal::writeSVG(out, flat.result, solid->TangentLines.getValue());
+        SheetMetal::writeSVG(out, flat.result, solid->flatSettings().tangentLines);
     }
 }
 

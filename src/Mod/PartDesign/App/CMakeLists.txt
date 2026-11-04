@@ -173,6 +173,8 @@ SET(SheetMetal_SRCS
     SheetMetal/Refold.h
     SheetMetal/Svg.cpp
     SheetMetal/Svg.h
+    FeatureSheetMetalFlatPattern.cpp
+    FeatureSheetMetalFlatPattern.h
     FeatureSheetMetalRule.cpp
     FeatureSheetMetalRule.h
     FeatureSheetMetalBaseWall.cpp

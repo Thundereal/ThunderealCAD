@@ -37,6 +37,7 @@
 namespace PartDesign
 {
 class Body;
+class SheetMetalFlatPattern;
 
 /** One solid of a body
  *
@@ -144,41 +145,16 @@ public:
      */
     App::DocumentObject *referenceFrom(const App::DocumentObject *user, std::string &sub) const;
 
-    /** @name The sheet's flat (docs/SheetMetal.md sec 12, ruled 2026-11-03)
+    /** @name The sheet's flat (docs/SheetMetal.md sec 12, ruled 2026-11-04)
      *
      * A solid holding sheet metal lays any of its features flat when asked
-     * (flatOf()), by its settings, and has its tip's values while Flatten is
-     * on, which only the user turns on; every feature's
-     * flat is its element Flat (FlatFace3 an element of it), as a sketch's
-     * InternalShape is. On another solid these are hidden.
+     * (flatOf()), by the settings of its flat object (flatPattern()), which
+     * saves its tip's flat; every feature's flat is its element Flat
+     * (FlatFace3 an element of it), as a sketch's InternalShape is.
      */
     //@{
-    /// The tip laid flat in each recompute, for the values; off, nothing is
+    /// Each feature shown drawn flat, which only the user turns on
     App::PropertyBool Flatten;
-    /// The wall laid on XY, by its name; the first wall if empty
-    App::PropertyString FlatRoot;
-    /// The root wall's second skin on XY, not its first
-    App::PropertyBool FlatSecondSkin;
-    /// An edge of the solid, by its element name, the flat is turned to run
-    /// along X by, where the feature laid flat has it
-    App::PropertyString FlatAlignEdge;
-    /// Each bend's tangent lines in the flat
-    App::PropertyBool TangentLines;
-    /// The grain arrow in the flat
-    App::PropertyBool Grain;
-    /// The grain's direction, from the flat's X
-    App::PropertyAngle GrainAngle;
-    /// What a bill of materials takes, of the tip's flat (sec 5.4)
-    App::PropertyLength FlatLength;
-    App::PropertyLength FlatWidth;
-    App::PropertyArea FlatArea;
-    App::PropertyLength Thickness;
-    App::PropertyString MaterialName;
-    App::PropertyInteger BendCount;
-    App::PropertyAngle MaxBendAngle;
-    App::PropertyMap BendDirections;
-    /// Why the tip does not lie flat, empty if it does
-    App::PropertyString FlatStatus;
 
     /// Whether the solid holds sheet metal
     bool isSheetMetal() const;
@@ -186,6 +162,15 @@ public:
     /// feature's shape or the settings change. Throws Base::ValueError saying
     /// why it does not lie flat.
     const SheetFlat &flatOf(const App::DocumentObject *feature = nullptr) const;
+    /// The sheet's flat object, null if it has none (yet)
+    SheetMetalFlatPattern *flatPattern() const;
+    /// The flat settings as they are: its flat object's, else the defaults
+    FlatSettings flatSettings() const;
+    /** The flat object's settings changed: every feature's Flat follows them,
+     * and Part keeps what it last handed out of a feature until the feature
+     * changes; \a notify says so to the views
+     */
+    void flatSettingsChanged(bool notify);
 
     /** What follows "Flat" in a subname naming a flat ("Flat", or an element
      * of it, "FlatFace3"): "" for the whole, "Face3"; null if it names none
@@ -202,14 +187,10 @@ public:
     //@}
 
 private:
-    /// The flat's properties: its settings and values
-    std::vector<App::Property*> flatProperties();
-    /// The flat settings as they are
-    FlatSettings flatSettings() const;
     /// The flat's properties shown on a solid of sheet metal only
     void showFlatProperties();
-    /// The tip's flat values, or why it does not lie flat
-    void updateFlat();
+    /// The features' flats kept, of the features still the solid's only
+    void pruneFlats();
     /// Whether somebody gave the faces, the lines or the points a look (it is
     /// not the material card's, nor the preference's)
     bool isLookGiven() const;

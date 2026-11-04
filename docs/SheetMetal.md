@@ -1076,9 +1076,11 @@ and not frozen.
     its own leg only): give it a gap there.
   - A chain turning back into the sheet is refused: the join must hold the part and the
     flange's pieces whole (their volumes add up).
-- Open: a flange whose edge stops where a jog's bend starts treats that bend as an earlier
+- Was open: a flange whose edge stops where a jog's bend starts treats that bend as an earlier
   flange's at a corner and is mitered against the jog's run; its flat does not close. Seen
-  while building the contour flange; not chased.
+  while building the contour flange. Settled 2026-11-04: an earlier bend is a flange's corner
+  only where its sheet ends past it (no other bend out of its leg); a jog's runs on, so it is a
+  bend of the edge's own wall, kept off by the relief's width (`testFlangeEndingAtTheJog`).
 - M2's bend between walls, `PartDesign::SheetMetalJoin` (5.1, ruled 2026-11-03), with
   `TestSheetMetalJoin` (10), its command (**Join by Bend**), icon and panel. As built:
   - Two sheets come from two base walls in one body: each base wall adds its walls to the one
@@ -1103,7 +1105,7 @@ and not frozen.
     from its start (the second wall's, cut back under the bend), was nobody's. A bend now
     bounds its walls only between its limits along its axis (`besideBend()` in
     `SheetMetal/Model.cpp`); `testWiderTrimmed` failed without it.
-- Open: a wall's slab has no extent across it in the model, so with two sheets in one body a
+- Open, in part: a wall's slab has no extent across it in the model, so with two sheets in one body a
   face of one lying in the plane of the other's skin can be taken for that wall's (an end face
   at x 50 beside a wall whose skin is x 50 was, and `wallEdge()` refused the edge). Seen while
   building the join; the tests keep clear of it.
@@ -1306,7 +1308,15 @@ and not frozen.
   flange the relief's width off, the flange's own or the rule's; its `Notice`, read only, says
   so, and every sheet metal panel shows a feature's `Notice`. `testIntoItsWallsBend`, and the
   panels' check. Still open the other way round: a jog's bend at an edge's end is taken by
-  `earlierBendAt()` for an earlier flange's corner (the open note under the contour flange).
+  `earlierBendAt()` for an earlier flange's corner (the open note under the contour flange),
+  settled the same day.
+- A face's owner, the same day: a wall's slab runs on in its plane, so a point inside another
+  element's face could lie in it -- a flange down from a jog's moving side, its leg running
+  past the plate's plane, its faces taken for the plate's and laid upright, whatever gap the
+  flange had. A face of a wall spans no more than the sheet along the wall's normal; of the
+  elements holding a face's point, a wall the face is taller than is passed over
+  (`Model::owner(face)`), the first holding it kept where none fits.
+  `testFlangeDownOnTheMovingSide`. The point-level owner, and so the slab, are as they were.
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

@@ -23,6 +23,8 @@
  ***************************************************************************/
 #include "PreCompiled.h"
 
+#include <algorithm>
+#include <limits>
 #include <map>
 
 #include <BRepClass_FaceClassifier.hxx>
@@ -30,7 +32,10 @@
 #include <BRep_Tool.hxx>
 #include <Geom_Surface.hxx>
 #include <Precision.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Pnt2d.hxx>
 #include <gp_Vec.hxx>
@@ -206,7 +211,40 @@ int Model::owner(const TopoDS_Face& face, double tol) const
     if (face.IsNull() || !interiorPoint(face, point)) {
         return -1;
     }
-    return owner(point, tol);
+    // A wall's slab runs on in its plane past where the wall is, so a point
+    // of another element's face can lie in it -- a flange's leg running down
+    // past a plate's plane, its point at the plate's height. A face of the
+    // wall spans no more than the sheet along the wall's normal: a wall the
+    // face is taller than is passed over (2026-11-04).
+    auto across = [&](const gp_Dir& normal) {
+        double lo = std::numeric_limits<double>::max();
+        double hi = -std::numeric_limits<double>::max();
+        for (TopExp_Explorer it(face, TopAbs_VERTEX); it.More(); it.Next()) {
+            const double d = gp_Vec(BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).XYZ())
+                                 .Dot(gp_Vec(normal));
+            lo = std::min(lo, d);
+            hi = std::max(hi, d);
+        }
+        return hi - lo;
+    };
+    int first = -1;
+    for (auto kind : {Element::Kind::Bend, Element::Kind::Wall}) {
+        for (std::size_t i = 0; i < elements.size(); ++i) {
+            const Element& element = elements[i];
+            if (element.kind != kind || !contains(static_cast<int>(i), point, tol)) {
+                continue;
+            }
+            if (first < 0) {
+                first = static_cast<int>(i);
+            }
+            if (kind == Element::Kind::Bend
+                || across(element.frame.Direction()) <= thickness + 1e-6) {
+                return static_cast<int>(i);
+            }
+        }
+    }
+    // none it fits: as before, the first that holds it
+    return first;
 }
 
 void Model::transform(const gp_Trsf& trsf)

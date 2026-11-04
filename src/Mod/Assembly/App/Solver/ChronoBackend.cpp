@@ -9927,13 +9927,13 @@ Status ChronoSession::simulateDynamics(
     {
         double time = 0.0;
         std::vector<double> forces;  // the contact loads', N
-        std::vector<double> values;  // the channels'; none: between its neighbours'
+        std::vector<double> values;  // the channels'
         std::vector<BodyPose> poses;
     };
     bool sampling = false;
     Sample anchor;                 // the last output frame's
     std::vector<Sample> samples;   // since it, in time order
-    Sample previous;               // the substep before, its values not read
+    Sample previous;               // the substep before
     bool previousKept = true;
     std::vector<double> scales;    // each load's largest force so far, N
     auto forcesNow = [&]() {
@@ -9963,7 +9963,14 @@ Status ChronoSession::simulateDynamics(
         }
         const double time = sys.GetChTime();
         if (!moved) {
-            previous = {time, std::move(forces), {}, posesNow()};
+            // Its values read too: on the line between its neighbours', a
+            // set-off's contact point and force were, but not their moment
+            // -- r x F is not linear in them -- and a lever's free body was
+            // out by 0.95% of its largest hinge torque at such a frame
+            previous = {time,
+                        std::move(forces),
+                        channels.empty() ? std::vector<double>() : valuesNow(),
+                        posesNow()};
             previousKept = false;
             return;
         }
@@ -9991,20 +9998,6 @@ Status ChronoSession::simulateDynamics(
         auto at = [&](std::size_t k) -> const Sample& {
             return k == 0 ? anchor : k == n + 1 ? end : samples[k - 1];
         };
-        // A set-off's values, on the line between its neighbours'
-        for (std::size_t k = 1; k <= n; ++k) {
-            Sample& s = samples[k - 1];
-            if (!s.values.empty() || channels.empty()) {
-                continue;
-            }
-            const Sample& a = at(k - 1);
-            const Sample& b = at(k + 1);
-            const double u = b.time > a.time ? (s.time - a.time) / (b.time - a.time) : 0.0;
-            s.values.resize(a.values.size());
-            for (std::size_t v = 0; v < s.values.size() && v < b.values.size(); ++v) {
-                s.values[v] = a.values[v] + u * (b.values[v] - a.values[v]);
-            }
-        }
         const double largest = largestScale();
         std::vector<double> tolerance(scales.size());
         std::vector<char> keep(n + 2, 0);

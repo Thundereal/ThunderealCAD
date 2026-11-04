@@ -752,6 +752,41 @@ class TestContact(unittest.TestCase):
         JointObject.GroundedJoint(ground, post)
         return post
 
+    def test_impact_frames_balance(self):
+        """A block dropped onto the lever across its posts, the run with
+        frames through the impacts: the lever's free body balances at each,
+        its moment too. A frame where the forces set off was kept with its
+        values on the line between its neighbours': its contact point and
+        force each so, but not their moment, and a lever's free body was out
+        by 0.95% of its largest hinge torque there."""
+        import MotionLoads
+
+        lever, hinge = self.lever()
+        near = self.post("Near", 50)
+        far = self.post("Far", 90)
+        block = self.assembly.newObject("Part::Box", "Block")
+        block.Length, block.Width, block.Height = 20, 10, 10
+        block.Placement.Base = App.Vector(60, 0, 15)
+        self.contact([lever], [near, far])
+        self.contact([block], [lever])
+        _, result = self.simulate(0.05, 2.5e-3, ImpactFrames=True)
+        self.assertEqual(result, 0)
+        times = self.assembly.getSimulationResults()["Times"]
+        through = [
+            k for k, t in enumerate(times) if abs(t / 2.5e-3 - round(t / 2.5e-3)) > 1e-6
+        ]
+        self.assertGreater(len(through), 5)
+        bodies = [MotionLoads.loadsOn(self.assembly, lever, k) for k in through]
+        largest = max(
+            sum((l["Force"] for l in b["Loads"] if l["Kind"] == "Contact"), App.Vector()).Length
+            for b in bodies
+        )
+        self.assertGreater(largest, 0.0)
+        for body in bodies:
+            residual, moment = body["Residual"]
+            self.assertLess(residual.Length, 1e-6 * largest, body["Time"])
+            self.assertLess(moment.Length, 1e-6 * largest * 100.0, body["Time"])
+
     def test_part_contact_places(self):
         """A lever resting on two posts of one contact set: the set presses
         it at two places, each reported apart -- its force at its post, the

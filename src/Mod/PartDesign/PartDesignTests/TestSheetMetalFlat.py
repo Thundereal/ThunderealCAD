@@ -472,6 +472,102 @@ class TestSheetMetalFlat(unittest.TestCase):
             PartDesign.exportFlat(pad, os.path.join(folder, "flat.dxf"))
         self.assertEqual(os.listdir(folder), [])
 
+    # Every sheet's flat at once, one file each (sec 5.5's catalogue)
+
+    def plate(self, body, label, size, **props):
+        """A plate in body, labelled; its sketch a size[0] x size[1] rectangle"""
+        body.Label = label
+        sketch = body.newObject("Sketcher::SketchObject", "Plate" + body.Name)
+        x, y = size
+        pts = [(0, 0), (x, 0), (x, y), (0, y)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        wall = body.newObject("PartDesign::SheetMetalBaseWall", "Wall" + body.Name)
+        wall.Profile = sketch
+        for k, v in props.items():
+            setattr(wall, k, v)
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", wall.State)
+        return wall
+
+    def outlineSize(self, path):
+        ents = readDXF(path)
+        xs = [float(x) for e in ents if e[1] == "OUTLINE" for x in e[2]["10"] + e[2]["11"]]
+        ys = [float(y) for e in ents if e[1] == "OUTLINE" for y in e[2]["20"] + e[2]["21"]]
+        return sorted([round(max(xs) - min(xs), 6), round(max(ys) - min(ys), 6)])
+
+    def testExportEvery(self):
+        """Every sheet of the document, one file each in the folder, named
+        after its body, as DXF or SVG; a body of no sheet is passed over"""
+        self.L()
+        self.plate(self.Doc.addObject("PartDesign::Body", "Other"), "Bracket", (30, 20))
+        padded = self.Doc.addObject("PartDesign::Body", "Padded")
+        sketch = padded.newObject("Sketcher::SketchObject", "Square")
+        for a, b in (((0, 0), (5, 0)), ((5, 0), (5, 5)), ((5, 5), (0, 5)), ((0, 5), (0, 0))):
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        padded.newObject("PartDesign::Pad", "Pad").Profile = sketch
+        self.Doc.recompute()
+        for suffix in ("dxf", "svg"):
+            folder = tempfile.mkdtemp()
+            res = PartDesign.exportFlats(self.Doc, folder, suffix)
+            self.assertEqual([r["Error"] for r in res], ["", ""])
+            self.assertEqual(
+                [os.path.basename(r["File"]) for r in res],
+                ["Body." + suffix, "Bracket." + suffix],
+            )
+            self.assertEqual(sorted(os.listdir(folder)), ["Body." + suffix, "Bracket." + suffix])
+            self.assertEqual(
+                [r["Sheet"] for r in res],
+                [self.Body.SolidBodies[0], self.Doc.Other.SolidBodies[0]],
+            )
+        folder = tempfile.mkdtemp()
+        PartDesign.exportFlats(self.Doc, folder, ".DXF")
+        self.assertEqual(
+            self.outlineSize(os.path.join(folder, "Body.dxf")), [15, round(19 + BA + 9, 6)]
+        )
+        self.assertEqual(self.outlineSize(os.path.join(folder, "Bracket.dxf")), [20, 30])
+
+    def testExportEveryNames(self):
+        """A body of two sheets names each file after the body and the
+        sheet's solid; a label is made a file name, and a name taken twice
+        is numbered"""
+        first = self.plate(self.Body, "Box/Lid", (10, 10))
+        self.plate(self.Body, "Box/Lid", (20, 10), NewSolid=True)
+        self.assertEqual(len(self.Body.SolidBodies), 2)
+        other = self.Doc.addObject("PartDesign::Body", "Other")
+        self.plate(other, "Box?Lid-" + self.Body.SolidBodies[0].Label, (5, 5))
+        folder = tempfile.mkdtemp()
+        res = PartDesign.exportFlats(self.Doc, folder, "dxf")
+        a, b = (s.Label for s in self.Body.SolidBodies)
+        self.assertEqual(
+            [os.path.basename(r["File"]) for r in res],
+            ["Box_Lid-%s.dxf" % a, "Box_Lid-%s.dxf" % b, "Box_Lid-%s-2.dxf" % a],
+        )
+        self.assertIn(first, self.Body.SolidBodies[0].Group)
+        self.assertEqual(len(os.listdir(folder)), 3)
+
+    def testExportEveryFailing(self):
+        """A sheet that does not lie flat is told, with why, and written not;
+        the others are. Refused before anything is written: a suffix neither
+        dxf nor svg, a folder that is not there"""
+        wall = self.L()
+        self.plate(self.Doc.addObject("PartDesign::Body", "Other"), "Bracket", (30, 20))
+        self.flatObject(wall).Root = "Wall9"
+        self.Doc.recompute()
+        folder = tempfile.mkdtemp()
+        res = PartDesign.exportFlats(self.Doc, folder, "dxf")
+        self.assertEqual(res[0]["File"], "")
+        self.assertIn("Wall9", res[0]["Error"])
+        self.assertEqual(res[1]["Error"], "")
+        self.assertEqual(os.listdir(folder), ["Bracket.dxf"])
+        empty = tempfile.mkdtemp()
+        with self.assertRaisesRegex(ValueError, "dxf or svg"):
+            PartDesign.exportFlats(self.Doc, empty, "txt")
+        with self.assertRaisesRegex(ValueError, "folder"):
+            PartDesign.exportFlats(self.Doc, os.path.join(empty, "none"), "dxf")
+        self.assertEqual(os.listdir(empty), [])
+
     def testSettings(self):
         """The flat object's grain and tangent lines are every feature's flat's"""
         wall = self.L()

@@ -469,6 +469,39 @@ def run():
             "and Export Flat, nothing selected",
             FreeCADGui.Command.get("PartDesign_SheetMetalExportDXF").isActive(),
         )
+        # Export Every Flat: a file per sheet of the document into a folder
+        every = FreeCADGui.Command.get("PartDesign_SheetMetalExportFlats")
+        check(
+            "and Export Every Flat, the document holding a sheet",
+            every is not None and every.isActive(),
+        )
+        folder = os.path.join(OUT, "every")
+        os.makedirs(folder, exist_ok=True)
+        asked = []
+
+        def fill():
+            # the command's dialog: the folder, SVG, OK
+            for w in QtWidgets.QApplication.topLevelWidgets():
+                if w.objectName() == "SheetMetalExportFlats" and w.isVisible():
+                    chooser = w.findChild(QtWidgets.QWidget, "folder")
+                    combo = w.findChild(QtWidgets.QComboBox, "format")
+                    asked.append([combo.itemText(i) for i in range(combo.count())])
+                    chooser.setProperty("fileName", folder)
+                    combo.setCurrentIndex(1)
+                    w.accept()
+                    return
+            QtCore.QTimer.singleShot(50, fill)
+
+        if every is not None:
+            QtCore.QTimer.singleShot(0, fill)
+            FreeCADGui.runCommand("PartDesign_SheetMetalExportFlats")
+            pump()
+        written = sorted(os.listdir(folder))
+        check(
+            "which asks a folder and DXF or SVG, and writes each sheet's flat there",
+            asked == [["DXF", "SVG"]] and written == [body.Label + ".svg"],
+            (asked, written),
+        )
         folded = flange.ViewObject.getBoundingBox()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 1)
         pump(20)

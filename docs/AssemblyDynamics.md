@@ -3189,9 +3189,46 @@ Phase D1 is under way (2026-10-28):
   - Tests: test_loads_to_fem_frames (the largest away a mesh size off both
     end faces, the same as the largest where that is; the two channels),
     test_loads_to_fem_contact (the contact's patch).
-  - Not yet: several frames as steps of one CalculiX run; a part in a
-    rigid group; a contact set that presses a part at places apart is one
-    resultant at their centre, on the face nearest it.
+  - Not yet: see the next entry's.
+- Built, D4a: a part of a rigid group.
+  - A rigid group is one body to the run: its motion is reported at the
+    group's centre of mass under its representative's name (the least,
+    AssemblyObject's rigidRepByPart), and its loads are not split among
+    its parts. **loadsOn took the representative as if the group's motion
+    were its own and left the rest out, unsaid**: a pendulum of a rod and
+    a tip in a group, the rod's free body out by 154 mN and 2436 mN mm,
+    Missing empty; the tip it refused, no motion reported.
+  - Now (`_rigidGroup`, as AssemblyObject unites the groups not
+    suppressed): a member's centre's acceleration is the group's carried to
+    it, a + alpha x r + omega x (omega x r); its own loads as any part's;
+    and what the rest of the group holds it with is what balances it, Kind
+    "Group", on the faces where it meets the others (`_groupFaces`: those
+    sharing area with another's solid, else touching, else the nearest),
+    at their centre -- where they share only part of them, on the round
+    about it that takes that part in (Radius, then the coupling's
+    CouplingRadius; FEM's rigid coupling takes it too now). A grounded
+    group stands still. `movingParts` lists every member for To FEM...;
+    a member is held at its group as at a joint (the largest load, or the
+    one asked for), and a series held so knows its run by the group's
+    acceleration (`_runMark`).
+  - Checked apart: the two halves' group loads, the rod's from the
+    hinge's reaction, equal and opposite within 1e-6 of the weight (the
+    test) -- within 2e-15 N in the manual's video; and the members' m a
+    summing to the group's.
+  - The manual's video (`assembly/simulation/loads-to-fem-group`): an
+    L-shaped pendulum, a rod and an arm 10 x 10 x 60 under its far end,
+    the arm solved at 81 frames, held where it meets the rod: its hold
+    within 0.42% of the largest (1.2% of its weight, the held face's own
+    body load at a 1.5 mm mesh); its largest 0.275 MPa at a corner of the
+    held face, 0.218 MPa away from it.
+  - Tests: TestDynamics' test_loads_on_rigid_group,
+    test_loads_on_rigid_group_patch (the rod's load from the arm on a
+    round of 5 sqrt(2) about the 10 x 10 patch of its underside, solved);
+    FEM's test_rigid_coupling_radius.
+  - Not yet: several frames as steps of one CalculiX run; a contact set
+    that presses a part at places apart is one resultant at their centre,
+    on the face nearest it; a part of a group meeting the others nowhere
+    (held at the face nearest them).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

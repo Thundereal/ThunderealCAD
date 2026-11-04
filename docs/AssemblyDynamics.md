@@ -3298,6 +3298,38 @@ Phase D1 is under way (2026-10-28):
     reactions taken back with a contact begun in them (the accelerations
     now balance them, not the free motion's); a static analysis of a
     60 us impact, where the lever's own vibration is a dynamic one's.
+- Built, D4a: frames through each impact, playback speed, peak-safe plots
+  (sec 8.6).
+  - **The impact frames' video was choppy** (the user's eye): each frame
+    at a peak held the motion at an instant. And the plot drew each impact
+    as a spike from the output frames either side, its rise and fall not
+    in it.
+  - The run keeps frames through each impact, thinned by Douglas-Peucker
+    on the contact forces (sec 8.6); `ImpactFrames` is now on by default.
+    The sampling only watches: at the output times the same poses as
+    without, to 1e-12.
+  - Playback by the run's time (`PlaybackSpeed`, Auto by default;
+    `updateForTime()`), the plot zoomed with the speed and drawn by its
+    columns' extremes (M4).
+  - To FEM solves every frame by default. The first cut of the thinning,
+    5% of each load's largest so far, thinned the block's bounces away
+    after its landing; and solved at each impact's peak alone, the stress
+    zoomed in was a line 5 ms wide.
+  - The places video again: 327 frames, 101 output frames and 226
+    through the impacts, the run 2.2 s; the block lands at 63.87 ms, its
+    largest 528 N at 63.88 ms, 15 frames through it. Of its 13 impacts on
+    the lever, the smallest 1.5 N. Solved at every frame in 337 s: the
+    lever's largest 64.6 MPa, 54.3 MPa away from the loaded faces, at the
+    peak. The hold within 0.013% of the largest reaction, its torque
+    within 0.96% of the largest (0.40% at the peaks alone; not looked
+    into). The video, at Auto, 582 frames, 19.4 s at 30 fps, as slow as
+    1/17,500 of real time through the landing.
+  - Tests: TestSimulationResults' test_update_for_time,
+    test_playback_speeds, test_peak_safe; TestContact's
+    test_impact_frames; TestGuiCommands' test_playback_speed.
+  - Not yet: the plot's value axis is the whole run's, a bounce of 1.5 N
+    flat under a landing of 528 N; a part's own stress at a frame through
+    an impact is a static analysis of it (as above).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono
@@ -4469,6 +4501,65 @@ Spreadsheet workbench, through the same table).
 **Traces.** A `TraceCurve` is a `Part::Feature` whose shape is a B-spline
 through the stored positions of a point. It is usable as sketch or cam
 geometry (Creo's cam synthesis, P13).
+
+### 8.6 Playback speed, and plots that keep their peaks
+
+An impact of steel on steel lasts some tens of microseconds. Output frames
+milliseconds apart miss it, and a video at an output step a frame shows it
+between two frames. Nothing surveyed (2026-11-04) slows down by itself:
+
+- Abaqus writes history output (the X-Y plots) as often as every
+  increment, and field output (contours, animations) seldom.
+- LS-DYNA's binout and d3plot have intervals of their own. The d3plot
+  interval can follow a load curve over time (LCDT), set before the run.
+- RecurDyn animates at a uniform report step, and its plot data sit at
+  the solver's own variable steps.
+- Simscape Multibody plays at a speed set by hand, powers of 2 from 1/256
+  to 256 of real time.
+- Game engines' slow motion on a collision is scripted.
+- Video research (ElasticPlay) sets the speed from the motion, and found
+  users distrust a speed they cannot see.
+
+What this fork does:
+
+- **Frames through each impact** (`ImpactFrames`, on by default). After
+  each substep, the contact loads' forces. A substep where one moved from
+  the last kept is kept, with its values and poses, and so is the one
+  before where they set off from a steady force. At each output frame
+  those since the last are thinned by Douglas-Peucker: each load within 5%
+  of the most it is at between a line's two ends, or 0.1% of the largest
+  force so far. A peak is the farthest from its line, and kept; a bounce
+  of a few newtons after a landing of hundreds keeps its own (5% of the
+  load's largest so far thinned the block's bounces away). A load at a
+  steady force keeps none.
+- **Playback by the run's time** (`PlaybackSpeed`, `SimulationPlayback.
+  Playback`):
+  - Normal: an output step a video frame, the output times.
+  - 1/2 to 1/256: that much slower.
+  - Auto (the default): Normal, slowed where the frames come closer, so
+    that each of them is shown for a video frame. Closeness is averaged
+    over two frames either side, as an impact's frames crowd its peak.
+  - Auto's rate changes by at most EASE = 1.5 from one video frame to
+    the next: the lower envelope of cones of slope fps (EASE - 1) / EASE
+    about each gap's own rate.
+  - A video frame's time between the run's frames is the parts' between
+    them: each one's position on the line, its turn by slerp
+    (`updateForTime()`).
+  - The panel says how fast the run goes against real time at the frame
+    shown. The video export goes the same way.
+- **The plot zooms with the speed.** At Normal it shows the whole run; as
+  much less as it plays slower, about the time shown. A strip under it says
+  where in the run.
+- **Peak-safe drawing** (M4, Jugel et al. 2014). Of the values in each
+  pixel's column, the first, the least, the largest and the last. A spike
+  narrower than a pixel is drawn to its height with the whole run shown.
+  A frame through an impact that a stress series did not solve is passed
+  over, not a gap.
+- **To FEM** solves every frame by default: an impact's are a handful,
+  and with them the stress plotted follows it. Solved at its peak alone
+  (the part's contact forces' local largest, a choice), the stress zoomed
+  in was a line from the output frame before to the peak and on to the
+  one after, an impact of 60 us drawn 5 ms wide.
 
 
 ## 9. UI / UX sketch

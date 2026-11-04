@@ -765,15 +765,32 @@ TopoShape SheetMetalConvert::thickened(const TopoShape& base,
             if (met.size() != 2) {
                 continue;
             }
-            // the sheet's outer corner there: the vertex itself inside, the
-            // nearest one outside
+            // the sheet's outer corner there: the vertex itself inside;
+            // outside, the thickened part's vertex nearest a thickness out
+            // along the corner's faces -- the vertex itself is the inner one
             gp_Pnt corner = v;
-            double best = -1;
-            for (int i = 1; i <= corners.Extent(); ++i) {
-                const gp_Pnt q = BRep_Tool::Pnt(TopoDS::Vertex(corners(i)));
-                if (best < 0 || q.Distance(v) < best) {
-                    best = q.Distance(v);
-                    corner = q;
+            if (!inside) {
+                std::vector<gp_Dir> normals;
+                for (const gp_Dir& n : {e.na, e.nb, met[0].first->na, met[0].first->nb,
+                                        met[1].first->na, met[1].first->nb}) {
+                    if (std::none_of(normals.begin(), normals.end(), [&](const gp_Dir& m) {
+                            return m.IsEqual(n, Precision::Angular());
+                        })) {
+                        normals.push_back(n);
+                    }
+                }
+                gp_Vec out;
+                for (const gp_Dir& n : normals) {
+                    out += gp_Vec(n) * T;
+                }
+                const gp_Pnt aim = v.Translated(out);
+                double best = -1;
+                for (int i = 1; i <= corners.Extent(); ++i) {
+                    const gp_Pnt q = BRep_Tool::Pnt(TopoDS::Vertex(corners(i)));
+                    if (best < 0 || q.Distance(aim) < best) {
+                        best = q.Distance(aim);
+                        corner = q;
+                    }
                 }
             }
             // past the zones by half a gap: square on them, a relief's sides

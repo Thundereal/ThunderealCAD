@@ -50,6 +50,10 @@ struct PartDesignExport Recognised
     std::vector<TopoDS_Face> cutters;
 };
 
+/// How far into the material the nearest plane face facing \a fixed lies,
+/// the two overlapping: a thin part's thickness; -1 for none
+PartDesignExport double facingThickness(const TopoDS_Shape& solid, const TopoDS_Face& fixed);
+
 /** Recognise a thin part (docs/SheetMetal.md sec 4.2 way 3, ruled 2026-11-04)
  *
  * Its thickness is from the fixed face, a plane, to the skin opposite it in

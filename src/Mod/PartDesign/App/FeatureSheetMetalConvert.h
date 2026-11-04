@@ -26,11 +26,18 @@
 #include <App/PropertyLinks.h>
 #include <App/PropertyStandard.h>
 
+#include <vector>
+
+#include <TopoDS_Face.hxx>
+#include <TopoDS_Shape.hxx>
+
 #include "Feature.h"
 #include "SheetMetalExtension.h"
 
 namespace PartDesign
 {
+
+class SheetMetalRule;
 
 /** A part no sheet metal feature made, taken as sheet metal
  * (docs/SheetMetal.md sec 5.3, ruled 2026-11-04)
@@ -38,7 +45,11 @@ namespace PartDesign
  * Built on the feature before it -- an imported or a Part solid, as the
  * body's base. A thin part: its walls and bends found from its geometry
  * (SheetMetal::recognise()), each bend its own radius; its shape kept but for
- * faces split where a bend meets a wall. The fixed face is the wall the flat
+ * faces split where a bend meets a wall. A solid or a shell: thickened by
+ * the rule's thickness from its faces, inside or outside, a solid's open
+ * faces taken away, each sharp edge between two of its faces rounded into a
+ * bend of the rule's radius but where ripped, a corner relief where bends meet
+ * at a rip, then taken as a thin part. The fixed face is the wall the flat
  * lies on, Wall1.
  */
 class PartDesignExport SheetMetalConvert : public PartDesign::Feature, public SheetMetalExtension
@@ -50,7 +61,14 @@ public:
 
     /// A face of the part to convert, a wall's skin: the wall the flat lies on
     App::PropertyLinkSub FixedFace;
-    /// What the part was taken for: "Thin part"
+    /// A solid's faces to leave open
+    App::PropertyLinkSub OpenFaces;
+    /// Edges of a solid or a shell to rip, a gap across them, not bent
+    App::PropertyLinkSub RipEdges;
+    /// Which way a solid or a shell is thickened from its faces: Inside,
+    /// Outside
+    App::PropertyEnumeration Side;
+    /// What the part was taken for: "Thin part", "Solid", "Shell"
     App::PropertyString Kind;
 
     App::DocumentObjectExecReturn* execute() override;
@@ -60,6 +78,14 @@ public:
         // the base's shape as it is, in place
         return false;
     }
+
+private:
+    /// A solid or a shell made a thin part: thickened, its rips and corner
+    /// reliefs cut, its bends rounded
+    Part::TopoShape thickened(const Part::TopoShape& base, const TopoDS_Face& fixed,
+                              const std::vector<TopoDS_Shape>& open,
+                              const std::vector<TopoDS_Shape>& rips,
+                              const SheetMetalRule& rule);
 };
 
 }  // namespace PartDesign

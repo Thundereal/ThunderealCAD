@@ -213,19 +213,20 @@ int Model::owner(const TopoDS_Face& face, double tol) const
     }
     // A wall's slab runs on in its plane past where the wall is, so a point
     // of another element's face can lie in it -- a flange's leg running down
-    // past a plate's plane, its point at the plate's height. A face of the
-    // wall spans no more than the sheet along the wall's normal: a wall the
-    // face is taller than is passed over (2026-11-04).
-    auto across = [&](const gp_Dir& normal) {
-        double lo = std::numeric_limits<double>::max();
-        double hi = -std::numeric_limits<double>::max();
+    // past a plate's plane, its point at the plate's height; a mitre at a
+    // rip, half in the other wall's slab. A face of the wall lies in its
+    // slab whole: a wall the face sticks out of is passed over (2026-11-04).
+    auto within = [&](const gp_Ax3& frame) {
         for (TopExp_Explorer it(face, TopAbs_VERTEX); it.More(); it.Next()) {
-            const double d = gp_Vec(BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).XYZ())
-                                 .Dot(gp_Vec(normal));
-            lo = std::min(lo, d);
-            hi = std::max(hi, d);
+            const TopoDS_Vertex& v = TopoDS::Vertex(it.Current());
+            const double d =
+                gp_Vec(frame.Location(), BRep_Tool::Pnt(v)).Dot(gp_Vec(frame.Direction()));
+            const double t = 1e-6 + BRep_Tool::Tolerance(v);
+            if (d < -t || d > thickness + t) {
+                return false;
+            }
         }
-        return hi - lo;
+        return true;
     };
     int first = -1;
     for (auto kind : {Element::Kind::Bend, Element::Kind::Wall}) {
@@ -237,8 +238,7 @@ int Model::owner(const TopoDS_Face& face, double tol) const
             if (first < 0) {
                 first = static_cast<int>(i);
             }
-            if (kind == Element::Kind::Bend
-                || across(element.frame.Direction()) <= thickness + 1e-6) {
+            if (kind == Element::Kind::Bend || within(element.frame)) {
                 return static_cast<int>(i);
             }
         }

@@ -36,9 +36,11 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepTools.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
 #include <BRep_Tool.hxx>
 #include <ElCLib.hxx>
 #include <Geom2d_Curve.hxx>
+#include <IntCurvesFace_ShapeIntersector.hxx>
 #include <Precision.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -127,6 +129,50 @@ struct Groups
     }
 };
 
+/// A point of a face, the one nearest the middle of its parameters on a grid
+/// over them; false for none found
+bool pointIn(const TopoDS_Face& face, gp_Pnt& point)
+{
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);
+    BRepTopAdaptor_FClass2d inside(face, Precision::PConfusion());
+    BRepAdaptor_Surface s(face);
+    const int n = 16;
+    double best = -1;
+    for (int i = 1; i < n; ++i) {
+        for (int j = 1; j < n; ++j) {
+            const gp_Pnt2d uv(u0 + (u1 - u0) * i / n, v0 + (v1 - v0) * j / n);
+            const double off = std::abs(i - n / 2.0) + std::abs(j - n / 2.0);
+            if ((best < 0 || off < best) && inside.Perform(uv) == TopAbs_IN) {
+                best = off;
+                point = s.Value(uv.X(), uv.Y());
+            }
+        }
+    }
+    return best >= 0;
+}
+
+/// From a point of a plane face into the material, the face it leaves
+/// through and how far; a null face for none
+std::pair<TopoDS_Face, double> across(const TopoDS_Shape& solid, const Plane& from)
+{
+    gp_Pnt p;
+    if (!pointIn(from.face, p)) {
+        return {};
+    }
+    IntCurvesFace_ShapeIntersector hits;
+    hits.Load(solid, Precision::Confusion());
+    hits.Perform(gp_Lin(p, from.out.Reversed()), lengthTol, Precision::Infinite());
+    std::pair<TopoDS_Face, double> res {TopoDS_Face(), -1};
+    for (int i = 1; hits.IsDone() && i <= hits.NbPnt(); ++i) {
+        const double w = hits.WParameter(i);
+        if (!hits.Face(i).IsSame(from.face) && (res.second < 0 || w < res.second)) {
+            res = {hits.Face(i), w};
+        }
+    }
+    return res;
+}
+
 /// The distance into the material from a face to a plane face facing it,
 /// the two overlapping; negative for none
 double facing(const Plane& from, const Plane& to)
@@ -147,6 +193,28 @@ double facing(const Plane& from, const Plane& to)
 }
 
 }  // namespace
+
+double facingThickness(const TopoDS_Shape& solid, const TopoDS_Face& fixed)
+{
+    BRepAdaptor_Surface s(fixed);
+    if (s.GetType() != GeomAbs_Plane) {
+        return -1;
+    }
+    const Plane from {0, fixed, s.Plane(), outward(fixed, s.Plane())};
+    double res = -1;
+    for (TopExp_Explorer it(solid, TopAbs_FACE); it.More(); it.Next()) {
+        const TopoDS_Face& face = TopoDS::Face(it.Current());
+        BRepAdaptor_Surface t(face);
+        if (face.IsSame(fixed) || t.GetType() != GeomAbs_Plane) {
+            continue;
+        }
+        const double d = facing(from, {0, face, t.Plane(), outward(face, t.Plane())});
+        if (d > 0 && (res < 0 || d < res)) {
+            res = d;
+        }
+    }
+    return res;
+}
 
 Recognised recognise(const TopoDS_Shape& solid,
                      const TopoDS_Face& fixed,
@@ -244,18 +312,21 @@ Recognised recognise(const TopoDS_Shape& solid,
         }
     }
 
-    // A plane face not a skin, parallel to a wall: the thickness varies
+    // A plane face not a skin facing a skin across the material: the
+    // thickness varies. Facing a side of a wall -- a leg's end from its edge
+    // over a corner relief -- or a skin across empty space is no matter.
     for (int a = 0; a < n; ++a) {
         if (partner[a] >= 0 || nearest[a] < 0) {
             continue;
         }
-        for (int b = 0; b < n; ++b) {
-            if (partner[b] >= 0 && planes[a].out.IsParallel(planes[b].out, Precision::Angular())) {
-                FC_THROWM(Base::ValueError,
-                          "Face" << planes[a].index << " is " << nearest[a]
-                                 << " mm thick, not the part's " << thickness
-                                 << " mm: the thickness varies");
-            }
+        const auto [face, d] = across(solid, planes[a]);
+        const auto it = face.IsNull() ? planeOf.end() : planeOf.find(faces.FindIndex(face));
+        if (it != planeOf.end() && partner[it->second] >= 0
+            && planes[it->second].out.IsOpposite(planes[a].out, Precision::Angular())
+            && std::abs(d - thickness) > lengthTol) {
+            FC_THROWM(Base::ValueError,
+                      "Face" << planes[a].index << " is " << d << " mm thick, not the part's "
+                             << thickness << " mm: the thickness varies");
         }
     }
 

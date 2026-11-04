@@ -182,6 +182,31 @@ class TestMotionLoads(unittest.TestCase):
         want = 1e4 * L**2 / (2 * E * INERTIA)
         self.assertAlmostEqual(self.tip(text).y, want, delta=0.01 * want)
 
+    def test_reference_node_fields(self):
+        """A coupling's reference node off by round-off, as a point from a
+        motion's run is: its coordinates written in fields of at most 20
+        characters, CalculiX's, where a float's repr took 23 and the card
+        was refused; the bar bends as test_distributing_force's."""
+        import re
+
+        self.bar()
+        rb = self.coupling(ForceY="100 N")
+        rb.ReferenceNode = FreeCAD.Vector(
+            L + 1.1102230246251565e-14, A / 2, -1.1050188541972261e-14
+        )
+        self.doc.recompute()
+        problems, inp = self.write()
+        self.assertEqual(problems, "")
+        node = re.search(r"\*NODE\n(\d+,[^\n]+)\n\*NSET,NSET=Tip_RefNode", inp)
+        self.assertIsNotNone(node, inp[-2000:])
+        fields = node.group(1).split(",")
+        self.assertEqual(len(fields), 4)
+        self.assertLessEqual(max(len(f) for f in fields), 20, fields)
+        text = self.solve()
+        shear = 100 * L / (5.0 / 6.0 * E / (2 * (1 + NU)) * A * A)
+        want = 100 * L**3 / (3 * E * INERTIA) + shear
+        self.assertAlmostEqual(self.tip(text).y, want, delta=0.01 * want)
+
     def test_distributing_takes_no_constraint(self):
         """A distributing coupling held in place: the checks refuse it."""
         self.bar()

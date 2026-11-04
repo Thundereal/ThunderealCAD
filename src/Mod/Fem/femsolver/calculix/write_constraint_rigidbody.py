@@ -76,6 +76,13 @@ def is_distributing(rb_obj):
     return getattr(rb_obj, "Coupling", "Rigid") == "Distributing"
 
 
+def node_line(idx, point):
+    # Not upstream: CalculiX reads a field of at most 20 characters, and a
+    # float's repr is up to 24 (-1.1050188541972261E-14): the card was
+    # refused, "ERROR reading *NODE", and so was every set on the node
+    return "{},{:.13G},{:.13G},{:.13G}\n".format(idx, *point)
+
+
 def write_constraint(f, femobj, rb_obj, ccxwriter):
 
     rb_obj_idx = ccxwriter.analysis.Group.index(rb_obj)
@@ -88,7 +95,7 @@ def write_constraint(f, femobj, rb_obj, ccxwriter):
     # node's six degrees of freedom spread over its faces
     if is_distributing(rb_obj):
         f.write("*NODE\n")
-        f.write("{},{},{},{}\n".format(ref_node_idx, *rb_obj.ReferenceNode))
+        f.write(node_line(ref_node_idx, rb_obj.ReferenceNode))
         f.write(f"*NSET,NSET={rb_obj.Name}_RefNode\n")
         f.write(f"{ref_node_idx},\n")
         f.write(
@@ -99,8 +106,8 @@ def write_constraint(f, femobj, rb_obj, ccxwriter):
         return
 
     f.write("*NODE\n")
-    f.write("{},{},{},{}\n".format(ref_node_idx, *rb_obj.ReferenceNode))
-    f.write("{},{},{},{}\n".format(rot_node_idx, *rb_obj.ReferenceNode))
+    f.write(node_line(ref_node_idx, rb_obj.ReferenceNode))
+    f.write(node_line(rot_node_idx, rb_obj.ReferenceNode))
 
     f.write(f"*NSET,NSET={rb_obj.Name}_RefNode\n")
     f.write(f"{ref_node_idx},\n")

@@ -7109,7 +7109,11 @@ bool faceProjectionFrame(const TopoDS_Face &face, SbVec4f out[3])
         BRepAdaptor_Surface adapt(face);
         switch (adapt.GetType()) {
         case GeomAbs_Plane: {
-            const gp_Ax3 &pos = adapt.Plane().Position();
+            // Held, as the cylinder and the cone are: Plane() returns by
+            // value, and a reference into that temporary dangled from the
+            // next statement on (ASan: stack-use-after-scope, here).
+            const gp_Pln plane = adapt.Plane();
+            const gp_Ax3 &pos = plane.Position();
             origin = pos.Location();
             axis = pos.Direction();
             xdir = pos.XDirection();

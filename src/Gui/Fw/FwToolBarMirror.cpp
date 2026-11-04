@@ -66,9 +66,13 @@ void writeDiff(Widget* model, const QVariantMap& values)
     if (diff.isEmpty())
         return;
     Backend* backend = model->backend();
+    // setProperties() announces the change, and what hears it may stop the
+    // mirror, which deletes this model before the call returns.
+    QPointer<Widget> alive(model);
     model->setBackend(nullptr);
     model->setProperties(diff, Source::Native);
-    model->setBackend(backend);
+    if (alive)
+        alive->setBackend(backend);
 }
 
 /// Fill the bag silently (the initial state, before the object is
@@ -168,7 +172,12 @@ void ToolBarMirror::stop()
     // deleted the bar rebuild() was writing into and the models its items
     // point at, and cleared the tables it walks -- a served desktop whose
     // browser left mid-rebuild crashed, on a freed bar or later in malloc.
-    if (_rebuilding) {
+    // And flush(), for the same reason: a model's change announced from
+    // its loop reaches SceneWidgetStream::checkMirror(), which stopped the
+    // mirror there and deleted the model writeDiff() was still writing --
+    // "corrupted double-linked list" when a served test closed its
+    // documents (ASan: heap-use-after-free in Widget::setBackend).
+    if (_rebuilding || _flushing) {
         _stopPending = true;
         return;
     }
@@ -248,10 +257,18 @@ void ToolBarMirror::flush()
 {
     QSet<::QAction*> dirty;
     dirty.swap(_dirty);
+    _flushing = true;
     for (::QAction* a : dirty) {
+        if (_stopPending)
+            break;
         auto it = _models.find(a);
         if (it != _models.end() && it.value())
             refresh(a, it.value(), false);
+    }
+    _flushing = false;
+    if (_stopPending) {
+        _stopPending = false;
+        stop();
     }
 }
 

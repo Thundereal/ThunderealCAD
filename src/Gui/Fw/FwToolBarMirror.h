@@ -141,8 +141,10 @@ private:
 
     bool _running = false;
     bool _rebuilding = false;
-    /// stop() asked for while rebuild() was on the stack; rebuild() does it
-    /// on its way out (see stop())
+    /// flush() is on the stack: a stop waits for it, as for a rebuild
+    bool _flushing = false;
+    /// stop() asked for while rebuild() or flush() was on the stack; that
+    /// one does it on its way out (see stop())
     bool _stopPending = false;
     int _rebuilds = 0;
     QTimer _rebuildTimer;

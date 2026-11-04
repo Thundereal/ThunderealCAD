@@ -139,6 +139,39 @@ class TestSheetMetalBendCuts(unittest.TestCase):
         self.assertTrue(shape.isInside(V(20, 17.5, 0.5), 1e-9, True))
         self.assertTrue(shape.isInside(V(20, 19.5, 2.5), 1e-9, True))
 
+    def testBendLineOnTheBlank(self):
+        """The bend line drawn on the blank only: the three slots across the
+        strip cut it into four, from x 0 to 3, 13 to 15, 25 to 27 and 37 to
+        40, named Bend1, Bend1Part2, ...; in the DXF the same"""
+        import os
+        import tempfile
+
+        import PartDesign
+
+        cuts = self.cuts(self.far())
+        self.checkValid(cuts)
+        self.Doc.recompute()
+        flat = Flat(cuts)
+        self.assertNotIn("Invalid", flat.State)
+        lines = flat.Shape.SubShapes[1].Edges
+        self.assertEqual(sorted(round(e.Length, 6) for e in lines), [2, 2, 3, 3])
+        for e in lines:
+            for k in range(5):
+                p = e.valueAt(e.FirstParameter + (e.LastParameter - e.FirstParameter) * k / 4)
+                self.assertLess(Part.Vertex(p).distToShape(flat.Shape.SubShapes[0])[0], 1e-6, p)
+        names = sorted(
+            n.split(";")[0]
+            for k, n in flat.Shape.ElementReverseMap.items()
+            if k.startswith("Edge") and n.startswith("Bend")
+        )
+        self.assertEqual(names, ["Bend1", "Bend1Part2", "Bend1Part3", "Bend1Part4"])
+        path = os.path.join(tempfile.mkdtemp(), "flat.dxf")
+        PartDesign.exportFlat(cuts, path)
+        with open(path) as f:
+            text = [line.strip() for line in f]
+        layers = [b for a, b in zip(text[0::2], text[1::2]) if a == "8"]
+        self.assertEqual(len([n for n in layers if n in ("BEND_UP", "BEND_DOWN")]), 4)
+
     def testSlotsFit(self):
         """8 long, 2 between, 1 at each end: four fill the 38 exactly; 7
         long, four again, the 4 left over shared between the ends"""

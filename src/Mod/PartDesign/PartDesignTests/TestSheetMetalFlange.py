@@ -364,6 +364,25 @@ class TestSheetMetalFlange(unittest.TestCase):
         relieved, plain, c = self.reliefFlats(flange, "Circle", 2, cover=0.5)
         self.checkCut(relieved, plain, Part.Face(Part.Wire(Part.makeCircle(1, c))))
 
+    def testLinesStopAtTheRelief(self):
+        """Two edges mitered at a corner, the rule's relief there: the bend
+        lines and the tangent lines lie on the blank, stopping at the
+        relief's hole (found 2026-11-04: each ran on 0.49 into it)"""
+        flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        self.checkValid(flange)
+        from .SheetMetalFlatView import flatObject
+
+        flatObject(flange).TangentLines = True
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        blank = flat.Shape.SubShapes[0]
+        lines = flat.Shape.SubShapes[1].Edges + flat.Shape.SubShapes[2].Edges
+        self.assertEqual(len(lines), 6)
+        for e in lines:
+            for k in range(9):
+                p = e.valueAt(e.FirstParameter + (e.LastParameter - e.FirstParameter) * k / 8)
+                self.assertLess(Part.Vertex(p).distToShape(blank)[0], 1e-6, p)
+
     def testCornerReliefNone(self):
         """None and Tear: the miter's gap, nothing more"""
         flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])

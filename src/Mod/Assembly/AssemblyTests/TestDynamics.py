@@ -701,8 +701,19 @@ class TestDynamics(unittest.TestCase):
         peak = max(series.VonMises)
         self.assertAlmostEqual(max(results[0].vonMises), peak, delta=1e-6 * peak)
 
+        # Away from the loaded faces: a mesh size (4 mm) off both end faces,
+        # where the hold and the other hinge's coupling are, and no more
+        size = 4.0
+        for k, frame in enumerate(frames):
+            away, at = series.VonMisesAway[k], series.VonMisesAwayAt[k]
+            self.assertLessEqual(away, series.VonMises[k] + 1e-12, frame)
+            self.assertGreater(away, 0.0, frame)
+            self.assertTrue(size - 1e-6 <= at.x <= box.XLength - size + 1e-6, at)
+            if size <= series.VonMisesAt[k].x <= box.XLength - size:
+                self.assertEqual(away, series.VonMises[k], frame)
+
         channels = MotionLoads.stressChannels(self.assembly)
-        self.assertEqual(len(channels), 1)
+        self.assertEqual([c["Quantity"] for c in channels], ["VonMises", "VonMisesAway"])
         values = channels[0]["Values"]
         self.assertEqual(len(values), self.assembly.numberOfFrames())
         for frame, value in enumerate(values):

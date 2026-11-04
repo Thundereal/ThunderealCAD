@@ -685,8 +685,12 @@ class TestContact(unittest.TestCase):
         couplings = [o for o in analysis.Group if o.TypeId == "Fem::ConstraintRigidBody"]
         self.assertEqual(sorted(c.Coupling for c in couplings), ["Distributing", "Rigid"])
         (push,) = [c for c in couplings if c.Coupling == "Distributing"]
-        # On the underside, Face5, over the post: x 90 to 100
+        # On the underside, Face5, over the post: x 90 to 100; on a patch of
+        # it a mesh size round the contact's point, not along all of it
         self.assertEqual(push.References[0][1], ("Face5",))
+        self.assertAlmostEqual(push.CouplingRadius.Value, 4.0)
+        for whole, away in zip(series.VonMises, series.VonMisesAway):
+            self.assertLessEqual(away, whole + 1e-12)
         self.assertTrue(90 - 1e-3 <= push.ReferenceNode.x <= 100 + 1e-3, push.ReferenceNode)
         self.assertAlmostEqual(push.ReferenceNode.z, 0.0, delta=0.1)
         body = MotionLoads.loadsOn(self.assembly, lever, frames[-1])

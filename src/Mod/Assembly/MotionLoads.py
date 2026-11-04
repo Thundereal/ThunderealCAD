@@ -7,6 +7,8 @@ Everything is in the component's own coordinates -- those of its Placement,
 the frame's pose undone -- and the model's units: mm, kg, s, so forces in
 mN and torques in mN mm."""
 
+import math
+
 import FreeCAD as App
 
 import UtilsAssembly
@@ -506,7 +508,8 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
             element = Part.getShape(ref[0], sub, needSubElement=True, transform=False)
             if not element.isNull():
                 faces = _facesOf(local, element)
-        if not faces:
+        atPoint = not faces
+        if atPoint:
             faces = _nearestFace(local, load["Point"])
         held = joint is not None and joint == heldJoint
         rb = ObjectsFem.makeConstraintRigidBody(doc, "Hold" if held else "Load")
@@ -523,6 +526,12 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
             for axis in "XYZ":
                 setattr(rb, "TranslationalMode" + axis, "Load")
                 setattr(rb, "RotationalMode" + axis, "Load")
+            # A load at a point of a face (a contact's, a spring's end, an
+            # applied load's) on a patch of it a mesh size round: on the
+            # whole face it was spread along it, and a push at a lever's
+            # middle bent it as a load along all its underside would
+            if atPoint:
+                rb.CouplingRadius = mesh.MaxSize
         analysis.addObject(rb)
         couplings.append(rb)
         if joint is not None:
@@ -617,9 +626,10 @@ def ccxBinary():
     return shutil.which(binary) if binary else shutil.which("ccx")
 
 
-def _vonMises(frd):
+def _vonMises(frd, near=None):
     """The largest von Mises stress of a CalculiX result file (MPa) and the
-    node it is at"""
+    node it is at; with near, the node ids by the loaded faces, also the
+    largest of the others and its node (None where there are none)"""
     import numpy as np
     from feminout import importCcxFrdResults
 
@@ -634,7 +644,53 @@ def _vonMises(frd):
     mean = normal.mean(axis=1, keepdims=True)
     vm = np.sqrt(1.5 * ((normal - mean) ** 2).sum(axis=1) + 3.0 * (shear**2).sum(axis=1))
     k = int(np.nanargmax(vm))
-    return float(vm[k]), ids[k]
+    if near is None:
+        return float(vm[k]), ids[k]
+    away = np.array([i not in near for i in ids])
+    if not away.any():
+        return float(vm[k]), ids[k], None, None
+    j = int(np.nanargmax(np.where(away, vm, -np.inf)))
+    return float(vm[k]), ids[k], float(vm[j]), ids[j]
+
+
+def _nearLoads(objects, size, cache):
+    """The mesh's node ids by the loaded faces, where a coupling's own
+    stiffness or the load's concentration is what the stress shows (Saint
+    Venant's): within size of the hold's faces and of a whole-face
+    coupling's, and within its radius and size of a coupling on a patch
+    round its point. cache keeps each face's by its name."""
+    import numpy as np
+
+    if "Ids" not in cache:
+        nodes = objects["Mesh"].FemMesh.Nodes
+        cache["Ids"] = list(nodes.keys())
+        cache["Coords"] = np.array([[v.x, v.y, v.z] for v in nodes.values()])
+    ids = cache["Ids"]
+    coords = cache["Coords"]
+    shape = objects["Copy"].Shape
+    near = set()
+    for rb in objects["Couplings"]:
+        radius = rb.CouplingRadius.Value if hasattr(rb, "CouplingRadius") else 0.0
+        if rb.Coupling == "Distributing" and radius > 0.0:
+            ref = rb.ReferenceNode
+            d = np.linalg.norm(coords - np.array([ref.x, ref.y, ref.z]), axis=1)
+            near.update(ids[k] for k in np.nonzero(d <= radius + size)[0])
+            continue
+        for name in rb.References[0][1]:
+            if name not in cache:
+                import Part
+
+                face = shape.getElement(name)
+                box = face.BoundBox
+                box.enlarge(size)
+                found = set()
+                for k, (x, y, z) in enumerate(coords):
+                    if box.isInside(App.Vector(x, y, z)):
+                        if face.distToShape(Part.Vertex(App.Vector(x, y, z)))[0] <= size:
+                            found.add(ids[k])
+                cache[name] = found
+            near |= cache[name]
+    return near
 
 
 def _datTotal(text, name):
@@ -693,6 +749,9 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
     doc.recompute()
     back = objects["Placement"].inverse()
     nodes = objects["Mesh"].FemMesh.Nodes
+    # Away from the loaded faces: a mesh size off them
+    size = getattr(objects["Mesh"].MaxSize, "Value", objects["Mesh"].MaxSize)
+    cache = {}
     runForce = _channels(results, heldJoint)["Force"]["Values"]
 
     work = tempfile.mkdtemp(prefix="loadsfem_")
@@ -720,7 +779,8 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
             if progress is not None and progress(k, len(frames)) is False:
                 break
             base = solve(body)
-            stress, node = _vonMises(base + ".frd")
+            near = _nearLoads(objects, size, cache)
+            stress, node, away, awayNode = _vonMises(base + ".frd", near)
             with open(base + ".dat") as f:
                 text = f.read()
             heldForce, heldTorque = _heldLoad(body, heldJoint)
@@ -730,6 +790,8 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
                     "Time": body["Time"],
                     "Stress": stress,
                     "At": back.multVec(nodes[node]),
+                    "Away": away if away is not None else math.nan,
+                    "AwayAt": back.multVec(nodes[awayNode]) if away is not None else App.Vector(),
                     "HeldForce": heldForce * 1e-3,
                     "HeldTorque": heldTorque * 1e-3,
                     "FemForce": back.Rotation.multVec(_datTotal(text, hold_.Name + "_RefNode")),
@@ -759,6 +821,8 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
     series.Times = [r["Time"] for r in rows]
     series.VonMises = [r["Stress"] for r in rows]
     series.VonMisesAt = [r["At"] for r in rows]
+    series.VonMisesAway = [r["Away"] for r in rows]
+    series.VonMisesAwayAt = [r["AwayAt"] for r in rows]
     series.HeldForce = [r["HeldForce"] for r in rows]
     series.HeldTorque = [r["HeldTorque"] for r in rows]
     series.FemHeldForce = [r["FemForce"] for r in rows]
@@ -785,6 +849,14 @@ class StressSeries:
         ("App::PropertyFloatList", "Times", "Their times, s"),
         ("App::PropertyFloatList", "VonMises", "The largest von Mises stress at each, MPa"),
         ("App::PropertyVectorList", "VonMisesAt", "Where it is, in the part's coordinates, mm"),
+        (
+            "App::PropertyFloatList",
+            "VonMisesAway",
+            "The largest away from the loaded faces, a mesh size off them and off a load's "
+            "patch: what the couplings' own stiffness and the loads' concentration leave "
+            "out, MPa; NaN where nothing is that far",
+        ),
+        ("App::PropertyVectorList", "VonMisesAwayAt", "Where it is, mm"),
         ("App::PropertyVectorList", "HeldForce", "The run's load at the held joint, N"),
         (
             "App::PropertyVectorList",
@@ -853,17 +925,22 @@ def stressChannels(assembly, results=None):
             for f, t, v in zip(obj.Frames, obj.Times, obj.RunHeldForce)
         ):
             continue
-        values = [None] * len(times)
-        for f, v in zip(obj.Frames, obj.VonMises):
-            values[f] = v
-        channels.append(
-            {
-                "Name": obj.Name,
-                "Quantity": "VonMises",
-                "Object": obj.Component,
-                "Values": values,
-                "Unique": True,
-                "Series": obj,
-            }
-        )
+        # The largest, and the largest away from the loaded faces (a series
+        # before it has none)
+        for quantity, stresses in (("VonMises", obj.VonMises), ("VonMisesAway", obj.VonMisesAway)):
+            if len(stresses) != len(obj.Frames):
+                continue
+            values = [None] * len(times)
+            for f, v in zip(obj.Frames, stresses):
+                values[f] = None if math.isnan(v) else v
+            channels.append(
+                {
+                    "Name": obj.Name,
+                    "Quantity": quantity,
+                    "Object": obj.Component,
+                    "Values": values,
+                    "Unique": True,
+                    "Series": obj,
+                }
+            )
     return channels

@@ -291,8 +291,81 @@ def run():
             pump(20)
             doc.recompute()
             pump(10)
+
+        # View: the feature folded, laid flat, or both (docs/SheetMetal.md
+        # sec 12, 2026-11-04), drawn under its view while the panel is open
+        vo = flange.ViewObject
+
+        def field(name):
+            value = vo.SwitchNode.getField(name).get()
+            return int(value.getString() if hasattr(value, "getString") else str(value))
+
+        folded = (vo.RootNode.getNumChildren(), field("whichChild"))
+        combo = w.get("comboSheetView")
+        check(
+            "the panel offers View: Folded, Flat, Both, Folded at first",
+            combo is not None
+            and [combo.itemText(i) for i in range(combo.count())] == ["Folded", "Flat", "Both"]
+            and combo.currentIndex() == 0,
+            combo and [combo.itemText(i) for i in range(combo.count())],
+        )
+        if combo is not None:
+            combo.setCurrentIndex(1)
+            pump(20)
+            check(
+                "Flat: the flange's flat drawn under its view, the folded part not",
+                vo.RootNode.getNumChildren() == folded[0] + 1 and field("whichChild") == -1,
+                (vo.RootNode.getNumChildren(), field("whichChild"), folded),
+            )
+            combo.setCurrentIndex(2)
+            pump(20)
+            check(
+                "Both: the flat and the folded part",
+                vo.RootNode.getNumChildren() == folded[0] + 1
+                and field("whichChild") == folded[1],
+                (vo.RootNode.getNumChildren(), field("whichChild"), folded),
+            )
+            combo.setCurrentIndex(0)
+            pump(20)
+            check(
+                "Folded: as it was",
+                (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
+                (vo.RootNode.getNumChildren(), field("whichChild"), folded),
+            )
+            solid = body.getSolidBody(flange)
+            flatObj = [
+                o for o in solid.InList
+                if o.isDerivedFrom("PartDesign::SheetMetalFlatPattern") and o.Sheet == solid
+            ][0]
+            flatObj.Root = "Wall9"
+            doc.recompute()
+            combo.setCurrentIndex(1)
+            pump(20)
+            said = w.get("labelFlatStatus")
+            check(
+                "a flange that does not lie flat says why, and is drawn folded",
+                said is not None
+                and "Wall9" in said.text()
+                and (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
+                said and said.text(),
+            )
+            flatObj.Root = ""
+            doc.recompute()
+            pump(20)
+            check(
+                "laid again after a recompute",
+                said is not None
+                and said.text() == ""
+                and vo.RootNode.getNumChildren() == folded[0] + 1,
+                said and (said.text(), vo.RootNode.getNumChildren()),
+            )
         accept()
         pump(20)
+        check(
+            "the panel closed on Flat: the flange drawn folded again",
+            (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
+            (vo.RootNode.getNumChildren(), field("whichChild"), folded),
+        )
 
         # the flange went to the near edge in the end: the far end is plain
         far = [

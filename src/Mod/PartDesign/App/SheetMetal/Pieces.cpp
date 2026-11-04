@@ -29,12 +29,16 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <BRepGProp.hxx>
 #include <BRepLib.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRep_Tool.hxx>
+#include <GProp_GProps.hxx>
 #include <Geom_Plane.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -49,6 +53,7 @@
 #include <gp_Vec.hxx>
 
 #include <Base/Exception.h>
+#include <Mod/Part/App/TopoShapeOpCode.h>
 
 #include "Pieces.h"
 
@@ -273,6 +278,70 @@ std::vector<TopoDS_Face> skinFaces(const TopoDS_Shape& shape, const Model& model
         res.push_back(face);
     }
     return res;
+}
+
+TopoShape cutDroppingScrap(const TopoShape& base, const std::vector<TopoShape>& cuts,
+                           const std::vector<TopoShape>& pieces,
+                           const App::StringHasherRef& hasher)
+{
+    const TopoShape res = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
+                                                           {base, TopoShape().makECompound(cuts)});
+    const auto before = base.getSubTopoShapes(TopAbs_SOLID);
+    const auto after = res.getSubTopoShapes(TopAbs_SOLID);
+    if (after.size() <= before.size()) {
+        return res;
+    }
+    auto volume = [](const TopoDS_Shape& shape) {
+        GProp_GProps props;
+        BRepGProp::VolumeProperties(shape, props);
+        return props.Mass();
+    };
+    // what each solid of the base parted into
+    std::vector<std::vector<std::size_t>> parted(before.size());
+    std::vector<bool> keep(after.size(), true);
+    for (std::size_t j = 0; j < after.size(); ++j) {
+        for (std::size_t i = 0; i < before.size(); ++i) {
+            BRepAlgoAPI_Common common(after[j].getShape(), before[i].getShape());
+            if (common.IsDone() && volume(common.Shape()) > Precision::Confusion()) {
+                parted[i].push_back(j);
+                break;
+            }
+        }
+    }
+    const TopoDS_Shape added = TopoShape().makECompound(pieces).getShape();
+    for (const auto& part : parted) {
+        if (part.size() < 2) {
+            continue;
+        }
+        // the pieces stand on what stays; none touched, the largest stays
+        std::vector<std::size_t> touching;
+        for (std::size_t j : part) {
+            BRepExtrema_DistShapeShape dist(after[j].getShape(), added);
+            if (dist.IsDone() && dist.Value() <= Precision::Confusion()) {
+                touching.push_back(j);
+            }
+        }
+        if (touching.empty()) {
+            touching.push_back(*std::max_element(part.begin(), part.end(),
+                                                 [&](std::size_t a, std::size_t b) {
+                                                     return volume(after[a].getShape())
+                                                         < volume(after[b].getShape());
+                                                 }));
+        }
+        for (std::size_t j : part) {
+            keep[j] = std::find(touching.begin(), touching.end(), j) != touching.end();
+        }
+    }
+    std::vector<TopoShape> kept;
+    for (std::size_t j = 0; j < after.size(); ++j) {
+        if (keep[j]) {
+            kept.push_back(after[j]);
+        }
+    }
+    if (kept.size() == after.size()) {
+        return res;
+    }
+    return kept.size() == 1 ? kept.front() : TopoShape(0, hasher).makECompound(kept);
 }
 
 }  // namespace PartDesign::SheetMetal

@@ -535,7 +535,8 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         };
         std::vector<Side> sides;
         for (const auto& shadow : shadows) {
-            const std::size_t first = pieces.size();
+            std::size_t first = pieces.size();
+            const std::size_t firstCut = cuts.size();
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
             const SheetMetal::WallEdge edge = SheetMetal::wallEdge(base, model, ref, shadow.second);
             const gp_Pnt p0 = edge.p0, p1 = edge.p1;
@@ -788,6 +789,61 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                     cuts.push_back(std::move(cut));
                 }
             }
+            // The wall stopped at a plane where the edge ends (a miter's,
+            // its material the rule's gap / 2 short of it): what the flange
+            // adds and cuts stops there too, through the edge's end, so a
+            // flange on a mitered leg's top runs into nothing past the
+            // corner (2026-11-04)
+            for (const gp_Pln& limit : model.elements[wall].limits) {
+                const gp_Dir n = limit.Axis().Direction();
+                if (std::abs(n.Dot(d)) < Precision::Angular()) {
+                    continue;
+                }
+                const double past = std::max(gp_Vec(limit.Location(), p0).Dot(gp_Vec(n)),
+                                             gp_Vec(limit.Location(), p1).Dot(gp_Vec(n)));
+                if (past > Precision::Confusion()
+                    || past < -(rule->Gap.getValue() / 2 + Precision::Confusion())) {
+                    continue;
+                }
+                Bnd_Box bound;
+                for (std::size_t k = first; k < pieces.size(); ++k) {
+                    BRepBndLib::Add(pieces[k].getShape(), bound);
+                }
+                for (std::size_t k = firstCut; k < cuts.size(); ++k) {
+                    BRepBndLib::Add(cuts[k].getShape(), bound);
+                }
+                if (bound.IsVoid()) {
+                    continue;
+                }
+                const double size = 4 * std::sqrt(bound.SquareExtent()) + 1;
+                const gp_Pnt at = limit.Location().Translated(gp_Vec(n) * past);
+                const gp_Ax2 frame(at, n);
+                const TopoShape beyond(
+                    BRepPrimAPI_MakeBox(
+                        gp_Ax2(at.Translated(gp_Vec(frame.XDirection()) * (-size / 2)
+                                             + gp_Vec(frame.YDirection()) * (-size / 2)),
+                               n, frame.XDirection()),
+                        size, size, size)
+                        .Solid());
+                auto stop = [&](std::vector<TopoShape>& shapes, std::size_t from) {
+                    for (std::size_t k = from; k < shapes.size(); ++k) {
+                        TopoShape cut(0, hasher);
+                        cut.makEBoolean(Part::OpCodes::Cut, {shapes[k], beyond});
+                        shapes[k] = cut.hasSubShape(TopAbs_SOLID) ? getSolid(cut) : TopoShape();
+                    }
+                    shapes.erase(std::remove_if(shapes.begin() + static_cast<long>(from),
+                                                shapes.end(),
+                                                [](const TopoShape& shape) {
+                                                    return shape.isNull();
+                                                }),
+                                 shapes.end());
+                };
+                stop(pieces, first);
+                stop(cuts, firstCut);
+                for (int k : elements) {
+                    model.elements[k].limits.push_back(limit);
+                }
+            }
             sides.push_back({p0,
                              p1,
                              endOut,
@@ -940,9 +996,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             for (const TopoShape& cut : cuts) {
                 SheetMetal::storePCurves(cut);
             }
-            base = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
-                                                    {base, TopoShape().makECompound(cuts)});
-            base = getSolid(base);
+            base = getSolid(SheetMetal::cutDroppingScrap(base, cuts, pieces, hasher));
         }
         TopoShape tool = pieces.size() == 1 ? pieces.front()
                                              : TopoShape(0, hasher).makEFuse(pieces);

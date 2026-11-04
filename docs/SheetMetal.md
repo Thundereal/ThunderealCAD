@@ -1212,6 +1212,25 @@ and not frozen.
   boolean leaving them 4e-6 apart) is upright, on the extrusion of the one, its edges' tolerance
   taking the rest. A miter's slanted face is ruled as before. `testWrapCircleOnBend` holds a
   circle on a bend to pi of the blank at 1e-6, its wall square to 1e-6; it was 4.8e-5 off.
+- Found timing the flat (2026-11-04), two parts valid folded that did not lie flat:
+  - Two edges of one flange meeting at a corner, with gaps there from 1.5 to about 4 (R = T = 1,
+    the rule's 1 x 1 relief): the two reliefs and the cut-backs between them part the corner's
+    square from the plate, and it stayed, a solid of its own. What the cuts free is now dropped
+    (`SheetMetal::cutDroppingScrap()`, the flange's and the hem's): of what a solid of the part
+    parts into, what the new pieces stand on stays, else the largest -- the cutter drops it from
+    the blank. `testCornerFreedByReliefs`. The join still refuses a trim parting its walls
+    (ruled 2026-11-03), which cuts off what they carry, not scrap.
+  - A flange on the top edge of a mitered leg: the edge is the leg's outer skin's, a thickness
+    longer than its inner skin's, so the flange's square end overhung the miter and ran into the
+    other leg, fused to it, those faces taken as that leg's. A flange now takes each limit of its
+    wall that the edge ends at (a miter's, within the rule's gap / 2): what it adds and cuts is
+    cut by the plane through the edge's end, and its bend and leg get the limit, so two flanges
+    on two mitered legs meet mitered, the gap between. `testFlangeOnMiteredLeg`,
+    `testFlangesOnMiteredLegs`.
+  - Not faults: a mitered flat's loose bounds (OCCT's, of the ruled faces) run 0.07 past its
+    thickness, its exact ones do not; and Flatten on costs a recompute the tip's own and one lay,
+    no more. A flat that does not lie is laid again each time it is asked for; the flat object
+    (sec 12, 2026-11-04) keeps the reason as its status, so that is left to it.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

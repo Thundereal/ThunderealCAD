@@ -125,6 +125,18 @@ PartDesignExport WallEdge wallEdge(const Part::TopoShape& base, const Model& mod
                                    const std::string& ref, const std::string& label);
 
 
+/** base less the cuts (a wall cut back under a bend, its relief), less any
+ * piece they free (docs/SheetMetal.md sec 12, 2026-11-04): of what a solid
+ * of base parts into, what pieces (the bends and walls added) stand on
+ * stays, else its largest; the rest is scrap, as the cutter drops it from
+ * the blank -- two reliefs at a corner, between them a flange's cut-back,
+ * free the corner.
+ */
+PartDesignExport Part::TopoShape cutDroppingScrap(const Part::TopoShape& base,
+                                                  const std::vector<Part::TopoShape>& cuts,
+                                                  const std::vector<Part::TopoShape>& pieces,
+                                                  const App::StringHasherRef& hasher);
+
 /// The faces of shape the wall owns lying on the plane
 PartDesignExport std::vector<TopoDS_Face>
 skinFaces(const TopoDS_Shape& shape, const Model& model, int wall, const gp_Pln& plane);

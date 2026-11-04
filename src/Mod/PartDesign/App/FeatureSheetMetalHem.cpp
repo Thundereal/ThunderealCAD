@@ -342,9 +342,7 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             for (const TopoShape& cut : cuts) {
                 SheetMetal::storePCurves(cut);
             }
-            base = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
-                                                    {base, TopoShape().makECompound(cuts)});
-            base = getSolid(base);
+            base = getSolid(SheetMetal::cutDroppingScrap(base, cuts, pieces, hasher));
         }
         TopoShape tool = pieces.size() == 1 ? pieces.front()
                                              : TopoShape(0, hasher).makEFuse(pieces);

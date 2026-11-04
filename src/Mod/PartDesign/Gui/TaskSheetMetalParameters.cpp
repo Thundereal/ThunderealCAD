@@ -205,6 +205,11 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
     status->setWordWrap(true);
     status->setStyleSheet(QStringLiteral("color: #d03030"));
     layout->addWidget(status);
+    // what the feature did of its own accord (a flange's Notice)
+    notice = new QLabel(proxy);
+    notice->setObjectName(QStringLiteral("labelNotice"));
+    notice->setWordWrap(true);
+    layout->addWidget(notice);
 
     // the feature folded, laid flat, or both (docs/SheetMetal.md sec 12)
     auto viewRow = new QHBoxLayout;
@@ -715,6 +720,8 @@ void TaskSheetMetalParameters::showStatus()
 {
     auto obj = vp ? vp->getObject() : nullptr;
     status->setText(!obj || obj->isValid() ? QString() : QString::fromUtf8(obj->getStatusString()));
+    auto said = obj ? dynamic_cast<App::PropertyString*>(obj->getPropertyByName("Notice")) : nullptr;
+    notice->setText(said ? QString::fromUtf8(said->getValue()) : QString());
     auto sheet = obj ? obj->getExtensionByType<PartDesign::SheetMetalExtension>(true) : nullptr;
     auto r = sheet ? sheet->getRule() : nullptr;
     if (!r) {

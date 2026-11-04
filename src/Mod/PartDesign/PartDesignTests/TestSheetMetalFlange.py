@@ -619,6 +619,9 @@ class TestSheetMetalFlange(unittest.TestCase):
         gap there would (ruled 2026-11-04); valid, it lies flat, and says so
         in its Notice. Its bend touched the L's face to face, fused to it,
         and did not lie flat"""
+        # in a body of its own: the plate's would be a second sheet, not
+        # joined to it, and their flat would not lie
+        self.Body = self.Doc.addObject("PartDesign::Body", "LBody")
         sketch = self.Body.newObject("Sketcher::SketchObject", "LSketch")
         for a, b in (((0, 0), (20, 0)), ((20, 0), (20, 10))):
             sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))

@@ -698,6 +698,40 @@ def run():
             made and doc.getObject(made[0]) is None and not FreeCADGui.Control.activeDialog(),
             made,
         )
+
+        # A flange's panel says what it did of its own accord: on an L's leg,
+        # up to the L's bend, kept off that bend by the relief's width
+        # (ruled 2026-11-04)
+        lbody = doc.addObject("PartDesign::Body", "LBody")
+        lsketch = lbody.newObject("Sketcher::SketchObject", "LSketch")
+        for a, b in (((0, 0), (20, 0)), ((20, 0), (20, 10))):
+            lsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        lwall = lbody.newObject("PartDesign::SheetMetalBaseWall", "L")
+        lwall.Profile = lsketch
+        lwall.Length = 15
+        doc.recompute()
+        top = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(lwall.Shape.Edges)
+            if len(e.Vertexes) == 2
+            and all(abs(v.Point.z - 15) < 1e-7 and abs(v.Point.x - 20) < 1e-7 for v in e.Vertexes)
+            and abs(e.Vertexes[0].Point.y - e.Vertexes[1].Point.y) > 1
+        ]
+        lflange = lbody.newObject("PartDesign::SheetMetalFlange", "LFlange")
+        lflange.Edges = (lwall, top[:1])
+        lflange.Length = 8
+        doc.recompute()
+        FreeCADGui.ActiveDocument.setEdit(lflange.Name)
+        pump(30)
+        w = panel() or {}
+        said = w.get("labelNotice")
+        check(
+            "a flange kept off its wall's own bend says so in its panel",
+            said is not None and "Bend1" in said.text() and "kept 1 mm" in said.text(),
+            said and said.text(),
+        )
+        press(QtWidgets.QDialogButtonBox.Cancel)
+        pump(20)
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

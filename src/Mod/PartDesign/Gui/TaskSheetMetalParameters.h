@@ -116,6 +116,7 @@ private:
     QToolButton* addButton = nullptr;
     QLabel* rule;
     QLabel* status;
+    QLabel* notice;
     QComboBox* sheetView = nullptr;
     QLabel* flatStatus = nullptr;
     /// The feature's flat, drawn under its view while View is not Folded

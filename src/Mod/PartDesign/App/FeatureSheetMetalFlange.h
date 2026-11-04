@@ -74,6 +74,9 @@ public:
     /// negative one carries the flange past the edge's end
     App::PropertyDistance Gap1;
     App::PropertyDistance Gap2;
+    /// What the flange did of its own accord, said in its panel: an end kept
+    /// off a bend of its wall (ruled 2026-11-04); empty for nothing
+    App::PropertyString Notice;
     /// A plane face the leg runs parallel to, in place of Angle
     App::PropertyLinkSub ParallelTo;
     /// A plane face the leg runs up to, in place of Length

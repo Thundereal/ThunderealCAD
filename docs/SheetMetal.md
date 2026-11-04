@@ -1198,9 +1198,10 @@ and not frozen.
     written, for another suffix, an object of no sheet, and a flat that does not lie flat.
     Export Flat... takes a selected feature or solid of a sheet, else the active body's sheet,
     and a selected flat pattern still. `testExportDXF`, `testExportSVG`, `testExportRefused`.
-  - Open: a flange whose end runs into a bend of the wall it is on (on the top edge of an L's
-    leg, up to the L's bend) is valid folded, but does not lie flat ("faces overlap or are
-    missing"); the flat pattern the same. Found writing `testSolidFlat`.
+  - Was open: a flange whose end runs into a bend of the wall it is on (on the top edge of an
+    L's leg, up to the L's bend) is valid folded, but does not lie flat ("faces overlap or are
+    missing"); the flat pattern the same. Found writing `testSolidFlat`. Settled 2026-11-04,
+    below.
 - The flat, found by the bend cuts: a hole cut across a bend lay flat 2.7e-5 mm^2 short of the
   shape drawn (its outline a B-spline through 24 samples of its image), and its wall, ruled
   between the outlines on the two skins, each sampled on its own parameters, leaned up to
@@ -1294,6 +1295,18 @@ and not frozen.
   in the object's own frame: given its edges as placed, the view's transform placed them again
   and a moved flat's lines went twice as far (found taking the manual's pictures).
   `sheet-metal-commands.py` (61).
+- A flange whose end stops where a bend of its own wall begins (ruled 2026-11-04: kept off it by
+  the relief's width, the panel saying so; refusing it was the other way). Its bend ended on the
+  plane where that bend ends and touched it face to face; the boolean fused the two over that
+  patch, and no flat shows two bends joined across a face. A gap of the rule's 0.1 is not
+  enough -- the flange's own relief at that end, 1 wide, reaches into the other bend -- and one
+  as wide as the relief is. So at an end with no gap given, which the corner of an earlier
+  flange does not take (`earlierBendAt()`), a bend of the edge's wall -- the one that made it, or
+  one out of it -- holding the sheet's middle just past the end (`ownBendAt()`) keeps the
+  flange the relief's width off, the flange's own or the rule's; its `Notice`, read only, says
+  so, and every sheet metal panel shows a feature's `Notice`. `testIntoItsWallsBend`, and the
+  panels' check. Still open the other way round: a jog's bend at an edge's end is taken by
+  `earlierBendAt()` for an earlier flange's corner (the open note under the contour flange).
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

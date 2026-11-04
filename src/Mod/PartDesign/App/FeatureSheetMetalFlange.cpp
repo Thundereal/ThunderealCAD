@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <sstream>
 #include <cmath>
 #include <numbers>
 
@@ -134,6 +135,12 @@ SheetMetalFlange::SheetMetalFlange()
                       "Sheet Metal",
                       App::Prop_None,
                       "A plane face the leg runs parallel to, in place of Angle");
+    ADD_PROPERTY_TYPE(Notice,
+                      (""),
+                      "Sheet Metal",
+                      static_cast<App::PropertyType>(App::Prop_Output | App::Prop_ReadOnly),
+                      "What the flange did of its own accord: an end kept off a bend of its "
+                      "wall by the relief's width");
     ADD_PROPERTY_TYPE(UpToFace,
                       (nullptr),
                       "Sheet Metal",
@@ -312,6 +319,28 @@ int earlierBendAt(const Model& model, int earlier, const TopoDS_Shape& base, int
             - gp_Vec(endOut) * (b.thickness / 10));
         BRepClass3d_SolidClassifier classifier(base, probe, Precision::Confusion());
         if (classifier.State() == TopAbs_IN) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/** A bend of the edge's own wall that begins right past \a q, the edge's end,
+ * along \a out: the bend that made the wall (an L's leg's, up to the L's bend)
+ * or one out of it, earlier than this flange; -1 for none. Its material just
+ * past the end, in the middle of the sheet under the edge, tells it.
+ */
+int ownBendAt(const Model& model, int earlier, int wall, const gp_Pnt& q, const gp_Dir& out,
+              const gp_Dir& skinOut, const gp_Dir& endOut, double thickness)
+{
+    const gp_Pnt probe = q.Translated(gp_Vec(out) * (thickness * 1e-3)
+                                      - gp_Vec(skinOut) * (thickness / 2)
+                                      - gp_Vec(endOut) * (thickness / 2));
+    for (int i = 0; i < earlier; ++i) {
+        const Element& element = model.elements[i];
+        if (element.kind == Element::Kind::Bend
+            && (element.before == wall || element.after == wall)
+            && model.contains(i, probe)) {
             return i;
         }
     }
@@ -520,6 +549,8 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             }
         }
         std::vector<TopoShape> pieces, cuts;
+        // what the flange did of its own accord, for its Notice
+        std::string notice;
         // each edge's ends, its way out and up, and its pieces, for the miters
         struct Side
         {
@@ -603,6 +634,43 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 shape = legShape(profile, sharp, d, axis.Crossed(legOut), rise, hasher);
                 gap1 = shape.s0;
                 width = shape.s1 - shape.s0;
+            }
+            // An end stopping where a bend of the edge's own wall begins, no
+            // gap asked for there, and no earlier flange's corner: kept off
+            // that bend by the relief's width, as a gap there would (ruled
+            // 2026-11-04). Its bend would touch that one face to face, fused
+            // to it, and not lie flat -- an L's leg's top edge up to the L's
+            // bend.
+            if (profile.isNull()) {
+                const double keep =
+                    ReliefShape.getValue() != 0 ? ReliefWidth.getValue() : rule->ReliefWidth.getValue();
+                for (int k = 0; k < 2 && keep > Precision::Confusion(); ++k) {
+                    const double given = k ? Gap2.getValue() : Gap1.getValue();
+                    if (given > Precision::Confusion()) {
+                        continue;
+                    }
+                    const gp_Pnt q = k ? p1 : p0;
+                    const gp_Dir out = k ? d : d.Reversed();
+                    if (earlierBendAt(model, earlier, base.getShape(), wall, q, out, endOut) >= 0) {
+                        continue;
+                    }
+                    const int bend =
+                        ownBendAt(model, earlier, wall, q, out, edge.skinOut, endOut, T);
+                    if (bend < 0) {
+                        continue;
+                    }
+                    if (k == 0) {
+                        gap1 += keep;
+                    }
+                    width -= keep;
+                    if (!notice.empty()) {
+                        notice += "\n";
+                    }
+                    std::ostringstream said;
+                    said << "Edge " << shadow.second << " kept " << keep << " mm off "
+                         << model.elements[bend].name << ", where it ends at that bend";
+                    notice += said.str();
+                }
             }
             if (width < Precision::Confusion()) {
                 FC_THROWM(Base::ValueError,
@@ -1031,6 +1099,9 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
         }
         Shape.setValue(result);
         SheetModel.setValue(model);
+        if (Notice.getStrValue() != notice) {
+            Notice.setValue(notice);
+        }
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

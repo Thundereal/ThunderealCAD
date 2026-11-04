@@ -2960,6 +2960,20 @@ Phase D1 is under way (2026-10-28):
     solved where ccx is found, the hold's force within 0.5% of the run's
     plus 1% of the weight, its moment within 0.5% of force and weight
     times 100 mm. Skipped without ccx.
+  - The manual's video (`assembly/simulation/loads-to-fem`): the double
+    pendulum's first rod at each of its 81 frames, 5 ms apart, solved, its
+    largest von Mises stress in the middle third against beam theory from
+    the same free body (N and M from the hinge forces and rho A (g - a(x))
+    along it; |N| / A + |M| c / I): within 1% wherever it is over a fifth
+    of its peak, 96 kPa at 175 ms.
+  - Found by the video: the FEM mesh view's `NodeColor`, set as a dict,
+    reads back but is not drawn; `setNodeColorByScalars` is (its scale 0
+    to the largest value given).
+  - Not yet: several frames in one analysis (a step each) or a range from
+    the Results box; contacts, torsion springs and applied loads, which
+    the run cannot place yet; a part in a rigid group (its body's motion
+    is the group's, its loads from the others in it unknown); stresses
+    back into the Results box's plots.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

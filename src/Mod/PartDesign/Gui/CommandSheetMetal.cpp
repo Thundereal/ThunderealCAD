@@ -26,7 +26,11 @@
 
 #include "PreCompiled.h"
 
+#include <iomanip>
+
 #include <boost/algorithm/string/predicate.hpp>
+
+#include <TopoDS.hxx>
 
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
@@ -44,6 +48,9 @@
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
+#include <Mod/PartDesign/App/SheetMetal/Recognise.h>
+#include <Mod/PartDesign/App/SheetMetalExtension.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalCheck.h"
@@ -659,10 +666,10 @@ CmdPartDesignSheetMetalConvert::CmdPartDesignSheetMetalConvert()
     sAppModule = "PartDesign";
     sGroup = QT_TR_NOOP("PartDesign");
     sMenuText = QT_TR_NOOP("Convert");
-    sToolTipText = QT_TR_NOOP("Takes a part made elsewhere as sheet metal: a thin part as it is, a\n"
-                              "solid or a shell thickened, its sharp edges bends. Select the face\n"
-                              "the flat lies on first, then any faces to leave open and edges to\n"
-                              "rip");
+    sToolTipText = QT_TR_NOOP("Takes a part made elsewhere as sheet metal: a thin part as it\n"
+                              "is, a solid or a shell thickened, its sharp edges bends. Select\n"
+                              "the face the flat lies on first, then any faces to leave open and\n"
+                              "edges to rip");
     sWhatsThis = "PartDesign_SheetMetalConvert";
     sStatusTip = sToolTipText;
     sPixmap = "PartDesign_SheetMetalConvert";
@@ -710,8 +717,8 @@ void CmdPartDesignSheetMetalConvert::activated(int iMsg)
     if (!body) {
         App::Document* doc = part->getDocument();
         const std::string name = getUniqueObjectName("Body");
-        Gui::cmdAppDocument(doc,
-                            std::ostringstream() << "addObject('PartDesign::Body','" << name << "')");
+        Gui::cmdAppDocument(
+            doc, std::ostringstream() << "addObject('PartDesign::Body','" << name << "')");
         body = Base::freecad_dynamic_cast<PartDesign::Body>(doc->getObject(name.c_str()));
         if (!body) {
             abortCommand();
@@ -744,6 +751,28 @@ void CmdPartDesignSheetMetalConvert::activated(int iMsg)
         Gui::cmdAppObject(feat,
                           std::ostringstream() << "RipEdges = (" << link << ", ["
                                                << list(edges.begin(), edges.end()) << "])");
+    }
+    // A part picked with no face to open may be a thin part made elsewhere:
+    // the sheet's rule, where it is the convert's own, takes the part's
+    // thickness from it (docs/SheetMetal.md sec 5.3, Recognise). A rule
+    // other features share is left as it is; the convert says if it differs.
+    auto sheet = feat->getExtensionByType<PartDesign::SheetMetalExtension>(true);
+    auto rule = sheet ? sheet->getRule() : nullptr;
+    const auto users = rule ? rule->getInList() : std::vector<App::DocumentObject*>();
+    const bool own = std::none_of(users.begin(), users.end(), [&](App::DocumentObject* o) {
+        return o != feat
+            && o->hasExtension(PartDesign::SheetMetalExtension::getExtensionClassTypeId());
+    });
+    if (rule && own && faces.size() == 1) {
+        const Part::TopoShape shape = Part::Feature::getTopoShape(part);
+        const TopoDS_Shape face = shape.getSubShape(faces.front().c_str(), true);
+        const double thickness = face.IsNull() || face.ShapeType() != TopAbs_FACE
+            ? -1
+            : PartDesign::SheetMetal::facingThickness(shape.getShape(), TopoDS::Face(face));
+        if (thickness > 0 && std::abs(thickness - rule->Thickness.getValue()) > 1e-9) {
+            Gui::cmdAppObject(rule, std::ostringstream() << std::setprecision(17)
+                                                         << "Thickness = " << thickness);
+        }
     }
     finishFeature(this, feat, before ? before : part);
     // the part taken in, where it is not the body's own feature

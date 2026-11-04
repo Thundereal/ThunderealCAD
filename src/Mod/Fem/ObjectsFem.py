@@ -285,6 +285,21 @@ def makeConstraintPulley(doc, name="Pulley"):
     return obj
 
 
+def makeConstraintBodyMotion(doc, name="BodyMotion"):
+    """makeConstraintBodyMotion(document, [name]):
+    creates a body motion object: gravity less the acceleration, turn and
+    turn's rate of a part in motion, as body loads (not upstream)"""
+    obj = doc.addObject("Fem::ConstraintPython", name)
+    from femobjects import constraint_bodymotion
+
+    constraint_bodymotion.ConstraintBodyMotion(obj)
+    if FreeCAD.GuiUp:
+        from femviewprovider import view_constraint_bodymotion
+
+        view_constraint_bodymotion.VPConstraintBodyMotion(obj.ViewObject)
+    return obj
+
+
 def makeConstraintSelfWeight(doc, name="Gravity"):
     """makeConstraintSelfWeight(document, [name]):
     creates a self weight object to define a gravity load"""

@@ -314,6 +314,9 @@ class MeshSetsGetter:
             # add nodes to constraint_conflict_nodes, needed by constraint plane rotation
             for node in femobj["Nodes"]:
                 self.constraint_conflict_nodes.append(node)
+            # Not upstream: a distributing coupling's element faces
+            if getattr(femobj["Object"], "Coupling", "Rigid") == "Distributing":
+                femobj["CouplingFaces"] = self._get_elements(femobj["Object"])
 
     def get_constraints_displacement_nodes(self):
         if not self.member.cons_displacement:

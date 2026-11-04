@@ -29,6 +29,7 @@ using namespace Fem;
 PROPERTY_SOURCE(Fem::ConstraintRigidBody, Fem::Constraint)
 
 const char* ConstraintRigidBody::boundaryModeEnum[] = {"Free", "Constraint", "Load", nullptr};
+const char* ConstraintRigidBody::couplingEnum[] = {"Rigid", "Distributing", nullptr};
 
 ConstraintRigidBody::ConstraintRigidBody()
 {
@@ -134,6 +135,17 @@ ConstraintRigidBody::ConstraintRigidBody()
         (App::PropertyType)(App::Prop_None),
         "Amplitude values"
     );
+
+    ADD_PROPERTY_TYPE(
+        Coupling,
+        ("Rigid"),
+        "ConstraintRigidBody",
+        App::Prop_None,
+        "Rigid: the faces move as one with the reference node.\n"
+        "Distributing: its loads are spread over the faces, which stay as stiff\n"
+        "as they are; it takes loads only"
+    );
+    Coupling.setEnums(couplingEnum);
 
     TranslationalModeX.setEnums(boundaryModeEnum);
     TranslationalModeY.setEnums(boundaryModeEnum);

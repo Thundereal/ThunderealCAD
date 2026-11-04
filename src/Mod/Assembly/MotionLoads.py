@@ -34,7 +34,9 @@ def _rotated(tensor, rotation):
     m = rotation.toMatrix()
     r = ((m.A11, m.A12, m.A13), (m.A21, m.A22, m.A23), (m.A31, m.A32, m.A33))
     ri = [[sum(r[i][k] * tensor[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
-    return tuple(tuple(sum(ri[i][k] * r[j][k] for k in range(3)) for j in range(3)) for i in range(3))
+    return tuple(
+        tuple(sum(ri[i][k] * r[j][k] for k in range(3)) for j in range(3)) for i in range(3)
+    )
 
 
 def _same(a, b):
@@ -45,7 +47,8 @@ def _same(a, b):
 def _grounded(assembly, component):
     joints = assembly.getGroup("Joints", False)
     return any(
-        _same(getattr(j, "ObjectToGround", None), component) for j in (joints.Group if joints else [])
+        _same(getattr(j, "ObjectToGround", None), component)
+        for j in (joints.Group if joints else [])
     )
 
 

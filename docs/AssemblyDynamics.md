@@ -2881,6 +2881,46 @@ Phase D1 is under way (2026-10-28):
     each free body balancing within 1e-6 of its loads at frames across the
     run, the hinge at (0, 5, 5) on the rod, the spring's force k (4 -
     length); TestMassProperties' test_moved_by_script.
+- Built, D4a step 3: the FEM side (our fork of the Fem workbench).
+  - Measured first, on ccx 2.23 by hand (a bar of bricks, 100 x 10 x 10):
+    a force or moment through `*COUPLING` with `*DISTRIBUTING` loads the
+    face as a plain clamp's load does (the bricks' bending 4% stiff, as
+    full integration is); a distributing coupling as the support -- its
+    reference node fixed -- gives 1e11 mm, nonsense: CalculiX takes no
+    constraint there. `*KINEMATIC` does not parse in 2.23. `*RIGID BODY`
+    as the support matches the plain clamp exactly. GRAV lines add, on
+    all elements and on one, in any directions; CENTRIF adds to GRAV. And
+    a distributing coupling's reference node is reported unmoved: its
+    faces' nodes are what moves.
+  - ConstraintRigidBody's `Coupling` {Rigid, Distributing}. Distributing
+    writes its faces as an element face surface, `*COUPLING, REF NODE,
+    SURFACE` with `*DISTRIBUTING` over 1 to 6, its forces on the reference
+    node's degrees of freedom 1 to 3 and its moments on 4 to 6 (no
+    rotation node); the output prints its faces' nodes' displacements. The
+    checks refuse a distributing coupling with a mode Constraint: hold
+    the part with a rigid one.
+  - ConstraintBodyMotion (Python, `ObjectsFem.makeConstraintBodyMotion`):
+    ReferencePoint, Gravity, LinearAcceleration (the point's), and
+    AngularVelocity and AngularAcceleration, the document's axes, mm and
+    s. Written as one GRAV on all elements for g - a, one CENTRIF of
+    omega^2 about omega's axis through the point, and a GRAV on each
+    element of - alpha x r at its centroid: the resultant exact, each
+    element's own moment about its centroid left out. It needs the
+    density, which the checks ask for.
+  - CalculiX on this box: `.conda/ccx`, ccx.exe with the MinGW and MKL
+    DLLs it loads copied beside it, so it runs alone -- `.conda/fem`'s
+    `Library/bin`, where they came from, also holds gmsh's Qt, which must
+    not reach FreeCAD's PATH. The FEM finds it by its preference or on
+    PATH.
+  - Tests (`femtest/app/test_motionloads.py`, TestFemApp; skipped without
+    ccx): a steel bar of second order tetrahedra (Netgen, 2.5 mm) held at
+    x = 0: 100 N across its far face through a distributing coupling bends
+    it F L^3 / (3 E I) + F L / (k G A) within 1%, the clamp taking 100 N;
+    1e4 N mm about z turns its tip up M L^2 / (2 E I) within 1%; a
+    distributing coupling held is refused; turning about its clamped end
+    at 100 rad/s and 1e4 rad/s^2, gravity cancelled by the acceleration,
+    the clamp takes rho A L^2 / 2 omega^2 along -x and alpha along +y
+    within 1%, nothing along z.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

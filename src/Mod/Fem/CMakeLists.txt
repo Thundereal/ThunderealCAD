@@ -205,6 +205,7 @@ SET(FemObjects_SRCS
     femobjects/base_fempythonobject.py
     femobjects/constant_vacuumpermittivity.py
     femobjects/constraint_bodyheatsource.py
+    femobjects/constraint_bodymotion.py
     femobjects/constraint_centrif.py
     femobjects/constraint_currentdensity.py
     femobjects/constraint_electricchargedensity.py
@@ -280,6 +281,7 @@ SET(FemSolverCalculix_SRCS
     femsolver/calculix/calculixtools.py
     femsolver/calculix/calculixutils.py
     femsolver/calculix/write_constraint_bodyheatsource.py
+    femsolver/calculix/write_constraint_bodymotion.py
     femsolver/calculix/write_constraint_centrif.py
     femsolver/calculix/write_constraint_contact.py
     femsolver/calculix/write_constraint_displacement.py
@@ -399,6 +401,7 @@ SET(FemTestsApp_SRCS
     femtest/app/test_femimport.py
     femtest/app/test_material.py
     femtest/app/test_mesh.py
+    femtest/app/test_motionloads.py
     femtest/app/test_object.py
     femtest/app/test_open.py
     femtest/app/test_result.py
@@ -782,6 +785,7 @@ SET(FemGuiViewProvider_SRCS
     femviewprovider/view_base_femobject.py
     femviewprovider/view_constant_vacuumpermittivity.py
     femviewprovider/view_constraint_bodyheatsource.py
+    femviewprovider/view_constraint_bodymotion.py
     femviewprovider/view_constraint_centrif.py
     femviewprovider/view_constraint_currentdensity.py
     femviewprovider/view_constraint_electricchargedensity.py

@@ -47,6 +47,8 @@ def write_femelement_material(f, ccxwriter):
             return True
         if ccxwriter.member.cons_selfweight:
             return True
+        if ccxwriter.member.cons_bodymotion:
+            return True
         return False
 
     f.write("\n** Physical constants for SI(mm) unit system with Kelvins\n")

@@ -24,8 +24,17 @@ import PartDesign
 
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
-VALUES = ("FlatLength", "FlatWidth", "FlatArea", "Thickness", "MaterialName", "BendCount",
-          "MaxBendAngle", "BendDirections", "Status")
+VALUES = (
+    "FlatLength",
+    "FlatWidth",
+    "FlatArea",
+    "Thickness",
+    "MaterialName",
+    "BendCount",
+    "MaxBendAngle",
+    "BendDirections",
+    "Status",
+)
 SETTINGS = ("Root", "SecondSkin", "AlignEdge", "TangentLines", "Grain", "GrainAngle")
 OUT_OF_DATE = "Out of date: it is laid flat when shown"
 
@@ -475,6 +484,111 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(len(flat.SubShapes), 4)
         self.assertEqual(len(flat.SubShapes[2].Edges), 2)
         self.assertEqual(len(flat.SubShapes[3].Edges), 3)
+
+    # A feature's flat stored with it while something refers to it -- a
+    # sketch's external geometry -- so the file holds the flat the reference
+    # was made on; laid on demand otherwise (docs/SheetMetal.md sec 12)
+
+    def referenced(self):
+        """The L, and a sketch after it taking a straight edge of its flat's
+        top as external geometry: the wall, the sketch, the element's name"""
+        wall = self.L()
+        flat = flatOf(wall)
+        names = [
+            "FlatEdge%d" % (i + 1)
+            for i, e in enumerate(flat.Edges)
+            if isinstance(e.Curve, Part.Line) and e.BoundBox.ZMin > 1 - 1e-7 and e.Length > 10
+        ]
+        self.assertTrue(names)
+        sketch = self.Body.newObject("Sketcher::SketchObject", "Ref")
+        sketch.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        sketch.addExternal(wall.Name, names[0])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", sketch.State, sketch.getStatusString())
+        return wall, sketch, names[0]
+
+    def saved(self):
+        path = os.path.join(tempfile.mkdtemp(), "stored.FCStd")
+        self.Doc.saveAs(path)
+        return path
+
+    def reopened(self, path):
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        self.Body = self.Doc.getObject("Body")
+        return self.Doc
+
+    def testStoredFlatWhileReferenced(self):
+        """Saved, the referred flat is stored with the feature; opened again,
+        the reference finds the element it was made on, before any
+        recompute"""
+        wall, sketch, name = self.referenced()
+        edge = wall.getSubObject(name)
+        path = self.saved()
+        self.assertIn("StoredFlat", wall.PropertiesList)
+        self.assertEqual(len(wall.StoredFlat.Edges), len(flatOf(wall).Edges))
+        names = wall.Name, sketch.Name
+        doc = self.reopened(path)
+        wall = doc.getObject(names[0])
+        self.assertIn("StoredFlat", wall.PropertiesList)
+        again = wall.getSubObject(name)
+        self.assertIsNotNone(again)
+        for a, b in (
+            (again.Vertexes[0].Point, edge.Vertexes[0].Point),
+            (again.Vertexes[-1].Point, edge.Vertexes[-1].Point),
+        ):
+            self.assertTrue(a.isEqual(b, 1e-9), (a, b))
+        self.assertNotIn("Invalid", doc.getObject(names[1]).State)
+
+    def testNoStoredFlatUnreferenced(self):
+        """Nothing referring to its flat, a feature stores none"""
+        wall = self.L()
+        flatOf(wall)
+        self.saved()
+        self.assertNotIn("StoredFlat", wall.PropertiesList)
+
+    def testStoredFlatDropped(self):
+        """The reference gone, the next save drops the stored flat"""
+        wall, sketch, name = self.referenced()
+        self.saved()
+        self.assertIn("StoredFlat", wall.PropertiesList)
+        self.Doc.removeObject(sketch.Name)
+        self.Doc.recompute()
+        self.saved()
+        self.assertNotIn("StoredFlat", wall.PropertiesList)
+
+    def testStoredFlatChanged(self):
+        """The feature changed, its flat is laid anew, not the stored one,
+        and the next save stores the new one"""
+        wall, sketch, name = self.referenced()
+        path = self.saved()
+        named = wall.Name
+        doc = self.reopened(path)
+        wall = doc.getObject(named)
+        before = flatOf(wall).BoundBox
+        wall.Length = 20
+        doc.recompute()
+        after = flatOf(wall).BoundBox
+        self.assertAlmostEqual(
+            max(after.XLength, after.YLength) - max(before.XLength, before.YLength), 0, places=6
+        )
+        self.assertAlmostEqual(
+            min(after.XLength, after.YLength) - min(before.XLength, before.YLength), 5, places=6
+        )
+        self.saved()
+        stored = wall.StoredFlat.BoundBox
+        self.assertAlmostEqual(
+            min(stored.XLength, stored.YLength), min(after.XLength, after.YLength), places=6
+        )
+
+    def testStoredFlatNoUndoStep(self):
+        """Storing the flat at a save is no undo step"""
+        self.Doc.UndoMode = 1
+        wall, sketch, name = self.referenced()
+        count = self.Doc.UndoCount
+        self.saved()
+        self.assertIn("StoredFlat", wall.PropertiesList)
+        self.assertEqual(self.Doc.UndoCount, count)
 
     def testNotSheet(self):
         """A body of no sheet metal: no flat, no flat object"""

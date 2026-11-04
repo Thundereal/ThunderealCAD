@@ -55,6 +55,9 @@ public:
     App::PropertyBool UpToFirst;
     /// The sketch as if drawn on the flat
     App::PropertyBool Wrap;
+    /// Where a wrap's sketch is read: Folded, where the wall nearest it lies
+    /// folded; Flat, in the frame of the feature's flat as the sheet lays it
+    App::PropertyEnumeration WrapFrame;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;

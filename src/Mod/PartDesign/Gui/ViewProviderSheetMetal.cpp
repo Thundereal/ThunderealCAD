@@ -259,7 +259,7 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalCutout::getEditDialog()
         new TaskSheetMetalParameters(this,
                                      "PartDesign_SheetMetalCutout",
                                      QObject::tr("Cutout parameters"),
-                                     {"Profile", "Wrap", "Reversed", "UpToFirst"}));
+                                     {"Profile", "Wrap", "WrapFrame", "Reversed", "UpToFirst"}));
 }
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFold, PartDesignGui::ViewProviderSketchBased)

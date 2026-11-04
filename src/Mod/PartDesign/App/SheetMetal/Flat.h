@@ -32,6 +32,7 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
+#include <gp_Trsf.hxx>
 
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
@@ -66,6 +67,9 @@ struct PartDesignExport FlatResult
     std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> faces;
     /// The grain arrow, where asked for (grainArrow())
     std::vector<TopoDS_Edge> grain;
+    /// What lays the root wall, where it stands, on XY: its skin there, the
+    /// flat turned as asked
+    gp_Trsf toXY;
 };
 
 /** Lay a folded sheet flat (docs/SheetMetal.md sec 4.7)

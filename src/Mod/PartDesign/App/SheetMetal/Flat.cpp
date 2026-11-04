@@ -632,6 +632,7 @@ FlatResult flatten(const TopoDS_Shape& folded,
     fix.Perform();
 
     FlatResult res;
+    res.toXY = mapper.toXY;
     res.solid = fix.Solid();
     // the faces as the solid has them: sewn, then as the fix left them
     Handle(ShapeBuild_ReShape) context = fix.Context();

@@ -2975,11 +2975,79 @@ Phase D1 is under way (2026-10-28):
     given, and refuses lists of different lengths
     (`femtest/gui/test_meshcolor.py`, run by
     `tests/gui/fem-workbench-suite.py`).
-  - Not yet: several frames in one analysis (a step each) or a range from
-    the Results box; contacts, torsion springs and applied loads, which
-    the run cannot place yet; a part in a rigid group (its body's motion
-    is the group's, its loads from the others in it unknown); stresses
-    back into the Results box's plots.
+  - Not yet: see step 5's.
+- Built, D4a step 5 (first half): a range of frames, solved, its stresses
+  in the Results box. `MotionLoads.solveFrames(assembly, component,
+  frames, hold=None, maxSize=None, progress=None)`; "To FEM..." asks for
+  the part and either the frame shown (step 4's analysis, to run) or
+  frames from, to and every, solved now behind a progress dialog with a
+  Cancel.
+  - One analysis for every frame: the loads are in the part's own
+    coordinates, so the copy, its mesh, the couplings on their faces and
+    the body motion load are made once (`_build`) and each frame's values
+    set into them (`_setFrame`), written and solved in turn. Held at one
+    joint throughout: the given one, or the one with the largest force at
+    any of the frames. Then solved once more at the frame of the largest
+    stress, so the analysis is left there with its FEM result (the others'
+    are read from CalculiX's files, not kept: 81 result meshes would be
+    81 copies of the mesh).
+  - Each frame's largest von Mises stress (MPa, from the .frd's nodal
+    stresses), the node it is at (in the part's coordinates), and the
+    check -- what holds the part in the analysis (the rigid coupling's
+    reaction in the .dat) against the run's reaction at that joint -- go
+    into a `StressSeries` (App::FeaturePython, MotionLoads) in the
+    analysis, kept in the document. It also keeps the held joint's force
+    channel at each frame as the run reported it: the series is a channel
+    of the run's results (`stressChannels`, Quantity "VonMises",
+    "Largest von Mises stress") only while the run is the one it was
+    taken from -- the same study, the same times, those forces within
+    1e-9 -- so a run again with other loads drops it rather than plotting
+    stresses of another run.
+  - The Results box plots a channel with gaps (None at a frame not
+    solved): a line through each run of values, a dot for one alone; its
+    value line says "not solved at this frame"; the CSV leaves the cell
+    empty, the spreadsheet the cell blank.
+  - **Found on the way, the Results box lost the channel chosen on every
+    new run**: it looked the key up with `QComboBox.findData`, which
+    matches a Python object stored as item data by identity -- and the key,
+    a (name, quantity) tuple, is made anew on each fill. Probed: findData
+    of the stored tuple 0, of an equal tuple made anew -1, of a list -1.
+    `resultIndex` compares the keys. The same bug kept "To FEM..." from
+    showing the stress it had just solved.
+  - **Found on the way, in FEM: `ccxtools.start_ccx`** set the solver's
+    threads with `os.putenv`, passed its None as the child's environment
+    (so ccx took FreeCAD's, holding what putenv wrote only by luck), left
+    OMP_NUM_THREADS set in FreeCAD after the run when it was not before,
+    and changed FreeCAD's working directory for the run, not restored when
+    it raised. Now the child gets its own environment and working
+    directory, and starts hidden on Windows, as the file's other
+    subprocesses do.
+  - The double pendulum's first rod at its 81 frames (the manual's video,
+    `assembly/simulation/loads-to-fem-frames`): 92 s, about 1.1 s a frame
+    at the default mesh (a fortieth of the diagonal, 2.5 mm). Its largest,
+    96.41 kPa at 175 ms at x = 54 mm, is the per-frame video's middle-third
+    peak; at the 66 frames where the largest is in the middle third, the
+    two agree within 0.14% (2.5 mm against 3 mm meshes). The hold within
+    0.071% of the largest reaction at every frame (0.43% of the rod's
+    weight: the held face's own share of the body load, step 4).
+  - **The largest over the whole part takes in what the couplings do at
+    their faces.** At 7 of the 81 frames (0.19 to 0.195 s and 0.29 to
+    0.31 s, 0.03 to 0.06 MPa, where the rod's bending is small) it is on
+    the held face, at x = 0, where the rigid coupling stiffens the face;
+    the stress there is the coupling's, not the part's. Where it is says
+    so (VonMisesAt, and the CSV); a largest away from the loaded faces is
+    not yet.
+  - Tests: TestDynamics' test_loads_to_fem_frames (five frames, one mesh,
+    one result, the hold against the run at each within test_loads_to_fem's
+    tolerance, the result's largest the series', the channel's gaps, the
+    CSV column; run again with twice the gravity, the series is not a
+    channel any more); TestGuiCommands' test_results_keep_the_channel_chosen
+    and test_results_with_gaps.
+  - Not yet: the largest away from the loaded faces; several frames as
+    steps of one CalculiX run (one input written, one start); contacts, torsion
+    springs and applied loads, which the run cannot place yet (step 5's
+    other half); a part in a rigid group (its body's motion is the
+    group's, its loads from the others in it unknown).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

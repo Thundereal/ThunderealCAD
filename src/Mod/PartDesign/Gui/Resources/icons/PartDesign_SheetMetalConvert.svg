@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's convert: a solid block made a sheet, a tray of walls and bends -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the solid block -->
+  <path
+     d="M 3,14 11,8 29,8 21,14 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 3,14 21,14 V 32 H 3 Z"
+     style="fill:#9aa6b2;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 21,14 29,8 V 26 L 21,32 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- made into -->
+  <path
+     d="M 30,36 H 38 V 32 L 45,38 38,44 V 40 H 30 Z"
+     style="fill:#3b7dd8;stroke:#1c2128;stroke-width:1.5;stroke-linejoin:round;" />
+  <!-- the tray: two walls on a bottom, each by a bend -->
+  <path
+     d="M 23,58 V 40 H 27 V 56 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 61,58 V 40 H 57 V 56 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 29,62 H 55 V 58 H 29 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 23,58 Q 23,62 29,62 V 58 Q 27,58 27,56 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:1.5;stroke-linejoin:round;" />
+  <path
+     d="M 61,58 Q 61,62 55,62 V 58 Q 57,58 57,56 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:1.5;stroke-linejoin:round;" />
+</svg>

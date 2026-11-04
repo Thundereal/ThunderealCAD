@@ -330,6 +330,26 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalTab::getEditDialog()
                                      {"Profile"}));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalConvert, PartDesignGui::ViewProvider)
+
+ViewProviderSheetMetalConvert::ViewProviderSheetMetalConvert()
+{
+    sPixmap = "PartDesign_SheetMetalConvert";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalConvert::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalConvert",
+                                     QObject::tr("Convert parameters"),
+                                     {"Side"},
+                                     {{"FixedFace", "Face", true},
+                                      {"OpenFaces", "Face"},
+                                      {"RipEdges", "Edge"}}));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalRule, PartGui::ViewProviderPart)
 
 ViewProviderSheetMetalRule::ViewProviderSheetMetalRule() = default;

@@ -185,6 +185,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A part converted, its panel its fixed face, open faces, rip edges and side
+class PartDesignGuiExport ViewProviderSheetMetalConvert: public ViewProvider
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalConvert);
+
+public:
+    ViewProviderSheetMetalConvert();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A sheet metal rule, its panel its card and values; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalRule: public PartGui::ViewProviderPart
 {

@@ -576,7 +576,8 @@ Gui::MenuItem* Workbench::setupMenuBar() const
     // (docs/SheetMetal.md sec 8.1, ruled 2026-10-31)
     Gui::MenuItem* sheetMetal = new Gui::MenuItem;
     sheetMetal->setCommand("Sheet Metal");
-    *sheetMetal << "PartDesign_SheetMetalBaseWall";
+    *sheetMetal << "PartDesign_SheetMetalBaseWall"
+                << "PartDesign_SheetMetalConvert";
 
     Gui::MenuItem* dressups = new Gui::MenuItem;
     dressups->setCommand("Apply a dress-up feature");

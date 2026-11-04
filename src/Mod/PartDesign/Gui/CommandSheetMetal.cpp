@@ -648,6 +648,111 @@ bool CmdPartDesignSheetMetalTab::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalConvert
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalConvert)
+
+CmdPartDesignSheetMetalConvert::CmdPartDesignSheetMetalConvert()
+    : Command("PartDesign_SheetMetalConvert")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Convert");
+    sToolTipText = QT_TR_NOOP("Takes a part made elsewhere as sheet metal: a thin part as it is, a\n"
+                              "solid or a shell thickened, its sharp edges bends. Select the face\n"
+                              "the flat lies on first, then any faces to leave open and edges to\n"
+                              "rip");
+    sWhatsThis = "PartDesign_SheetMetalConvert";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalConvert";
+}
+
+void CmdPartDesignSheetMetalConvert::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    // the faces and edges picked on one part, in the order picked: the
+    // first face the fixed one
+    App::DocumentObject* part = nullptr;
+    std::vector<std::string> faces, edges;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        if (!sel.getObject() || (part && part != sel.getObject())) {
+            continue;
+        }
+        for (const auto& sub : sel.getSubNames()) {
+            if (boost::starts_with(sub, "Face")) {
+                faces.push_back(sub);
+                part = sel.getObject();
+            }
+            else if (boost::starts_with(sub, "Edge")) {
+                edges.push_back(sub);
+                part = sel.getObject();
+            }
+        }
+    }
+    if (!part || faces.empty()) {
+        warn(QT_TR_NOOP("No face"),
+             QT_TR_NOOP("Select a face of the part, a wall's skin, for the flat to lie on; then "
+                        "any faces to leave open and edges to rip."));
+        return;
+    }
+    auto list = [](auto begin, auto end) {
+        std::ostringstream res;
+        for (auto it = begin; it != end; ++it) {
+            res << "'" << *it << "', ";
+        }
+        return res.str();
+    };
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Convert"));
+    // a part in no body: a body made on it, as Body does with a solid
+    // selected
+    auto body = PartDesign::Body::findBodyOf(part);
+    if (!body) {
+        App::Document* doc = part->getDocument();
+        const std::string name = getUniqueObjectName("Body");
+        Gui::cmdAppDocument(doc,
+                            std::ostringstream() << "addObject('PartDesign::Body','" << name << "')");
+        body = Base::freecad_dynamic_cast<PartDesign::Body>(doc->getObject(name.c_str()));
+        if (!body) {
+            abortCommand();
+            return;
+        }
+        Gui::cmdAppObject(body, std::ostringstream() << "BaseFeature = " << getObjectCmd(part));
+        addModule(Gui, "PartDesignGui");
+        doCommand(Gui::Command::Gui,
+                  "Gui.activeView().setActiveObject('%s', %s)",
+                  PDBODYKEY,
+                  getObjectCmd(body).c_str());
+    }
+    auto feat = makeFeature(body, "PartDesign::SheetMetalConvert", "Convert");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    const std::string link = getObjectCmd(part);
+    Gui::cmdAppObject(feat,
+                      std::ostringstream() << "FixedFace = (" << link << ", ['" << faces.front()
+                                           << "'])");
+    if (faces.size() > 1) {
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "OpenFaces = (" << link << ", ["
+                                               << list(faces.begin() + 1, faces.end()) << "])");
+    }
+    if (!edges.empty()) {
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "RipEdges = (" << link << ", ["
+                                               << list(edges.begin(), edges.end()) << "])");
+    }
+    finishFeature(this, feat, part);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalConvert::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFold, PartDesign_SheetMetalJog
 //===========================================================================
 
@@ -1065,6 +1170,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());
     mgr.addCommand(new CmdPartDesignSheetMetalTab());
+    mgr.addCommand(new CmdPartDesignSheetMetalConvert());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatten());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
     mgr.addCommand(new CmdPartDesignSheetMetalCheck());

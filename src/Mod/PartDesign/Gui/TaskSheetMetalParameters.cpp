@@ -148,11 +148,23 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
                                                    const std::vector<const char*>& values,
                                                    const char* refs,
                                                    const char* element)
+    : TaskSheetMetalParameters(vp,
+                               pixmap,
+                               title,
+                               values,
+                               refs ? std::vector<SheetMetalReferences> {{refs, element}}
+                                    : std::vector<SheetMetalReferences> {})
+{}
+
+TaskSheetMetalParameters::TaskSheetMetalParameters(
+    ViewProvider* vp,
+    const std::string& pixmap,
+    const QString& title,
+    const std::vector<const char*>& values,
+    const std::vector<SheetMetalReferences>& lists)
     : TaskFeatureParameters(vp, nullptr, pixmap, title)
     , Gui::SelectionObserver(true, Gui::ResolveMode::OldStyleElement)
     , names(values)
-    , refs(refs)
-    , element(element)
 {
     proxy = new QWidget(this);
     proxy->setObjectName(QStringLiteral("TaskSheetMetalParameters"));
@@ -160,36 +172,52 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
 
     auto grid = new QGridLayout;
     int row = 0;
-    if (refs) {
-        // the member: the argument is a pointer, never equal to a literal but by chance
-        const QString kind = this->element == "Face" ? tr("faces") : tr("edges");
-        refList = new QListWidget(proxy);
-        refList->setObjectName(QStringLiteral("list") + QString::fromLatin1(refs));
-        refList->setMaximumHeight(110);
-        if (App::Property* prop = property(refs)) {
-            refList->setToolTip(QString::fromUtf8(prop->getDocumentation()));
+    for (const SheetMetalReferences& refs : lists) {
+        const int index = static_cast<int>(refLists.size());
+        RefList entry {refs};
+        const bool face = std::strcmp(refs.element, "Face") == 0;
+        const QString kind = refs.single ? (face ? tr("a face") : tr("an edge"))
+                                         : (face ? tr("faces") : tr("edges"));
+        // several lists each said by name, its buttons named after it; one
+        // alone as it always was
+        const QString suffix = lists.size() > 1 ? QString::fromLatin1(refs.property) : QString();
+        if (lists.size() > 1) {
+            grid->addWidget(new QLabel(sheetMetalWords(refs.property), proxy), row++, 0, 1, 2);
         }
-        auto remove = new QAction(tr("Remove"), refList);
+        entry.list = new QListWidget(proxy);
+        entry.list->setObjectName(QStringLiteral("list") + QString::fromLatin1(refs.property));
+        entry.list->setMaximumHeight(refs.single ? 28 : 110);
+        if (App::Property* prop = property(refs.property)) {
+            entry.list->setToolTip(QString::fromUtf8(prop->getDocumentation()));
+        }
+        auto remove = new QAction(tr("Remove"), entry.list);
         remove->setShortcut(QKeySequence::Delete);
-        refList->addAction(remove);
-        refList->setContextMenuPolicy(Qt::ActionsContextMenu);
-        connect(remove, &QAction::triggered, this, &TaskSheetMetalParameters::removeCurrent);
-        grid->addWidget(refList, row++, 0, 1, 2);
-        addButton = new QToolButton(proxy);
-        addButton->setObjectName(QStringLiteral("buttonAdd"));
-        addButton->setText(tr("Add"));
-        addButton->setCheckable(true);
-        addButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        addButton->setToolTip(tr("Pick %1 in the view").arg(kind));
-        connect(addButton, &QToolButton::toggled, this, &TaskSheetMetalParameters::startPick);
-        grid->addWidget(addButton, row, 0);
+        entry.list->addAction(remove);
+        entry.list->setContextMenuPolicy(Qt::ActionsContextMenu);
+        connect(remove, &QAction::triggered, this, [this, index] {
+            removeCurrent(index);
+        });
+        grid->addWidget(entry.list, row++, 0, 1, 2);
+        entry.add = new QToolButton(proxy);
+        entry.add->setObjectName(QStringLiteral("buttonAdd") + suffix);
+        entry.add->setText(refs.single ? tr("Pick") : tr("Add"));
+        entry.add->setCheckable(true);
+        entry.add->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        entry.add->setToolTip(tr("Pick %1 in the view").arg(kind));
+        connect(entry.add, &QToolButton::toggled, this, [this, index](bool on) {
+            startPick(index, on);
+        });
+        grid->addWidget(entry.add, row, 0);
         auto removeButton = new QToolButton(proxy);
-        removeButton->setObjectName(QStringLiteral("buttonRemove"));
+        removeButton->setObjectName(QStringLiteral("buttonRemove") + suffix);
         removeButton->setText(tr("Remove"));
         removeButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         removeButton->setToolTip(tr("Take the one selected in the list out"));
-        connect(removeButton, &QToolButton::clicked, this, &TaskSheetMetalParameters::removeCurrent);
+        connect(removeButton, &QToolButton::clicked, this, [this, index] {
+            removeCurrent(index);
+        });
         grid->addWidget(removeButton, row++, 1);
+        refLists.push_back(entry);
     }
     for (const char* name : names) {
         addValue(grid, row++, name);
@@ -259,7 +287,9 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
                 if (boxes.count(prop.getName())) {
                     showValue(prop.getName());
                 }
-                else if (this->refs && std::strcmp(prop.getName(), this->refs) == 0) {
+                else if (std::any_of(refLists.begin(), refLists.end(), [&](const RefList& r) {
+                             return std::strcmp(prop.getName(), r.refs.property) == 0;
+                         })) {
                     fillList();
                 }
             });
@@ -269,7 +299,7 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
 
 TaskSheetMetalParameters::~TaskSheetMetalParameters()
 {
-    if (picking) {
+    if (picking >= 0) {
         Gui::Selection().rmvSelectionGate();
     }
     hideFlat();
@@ -692,9 +722,11 @@ void TaskSheetMetalParameters::refresh()
     showStatus();
 }
 
-App::PropertyLinkSub* TaskSheetMetalParameters::references() const
+App::PropertyLinkSub* TaskSheetMetalParameters::references(int index) const
 {
-    return refs ? dynamic_cast<App::PropertyLinkSub*>(property(refs)) : nullptr;
+    return index >= 0 && index < static_cast<int>(refLists.size())
+        ? dynamic_cast<App::PropertyLinkSub*>(property(refLists[index].refs.property))
+        : nullptr;
 }
 
 App::DocumentObject* TaskSheetMetalParameters::builtOn() const
@@ -705,14 +737,17 @@ App::DocumentObject* TaskSheetMetalParameters::builtOn() const
 
 void TaskSheetMetalParameters::fillList()
 {
-    auto list = references();
-    if (!refList || !list) {
-        return;
-    }
-    QSignalBlocker block(refList);
-    refList->clear();
-    for (const auto& sub : list->getSubValues()) {
-        refList->addItem(QString::fromStdString(sub));
+    for (int i = 0; i < static_cast<int>(refLists.size()); ++i) {
+        auto list = references(i);
+        QListWidget* widget = refLists[i].list;
+        if (!list) {
+            continue;
+        }
+        QSignalBlocker block(widget);
+        widget->clear();
+        for (const auto& sub : list->getSubValues()) {
+            widget->addItem(QString::fromStdString(sub));
+        }
     }
 }
 
@@ -740,27 +775,37 @@ void TaskSheetMetalParameters::finishedRecomputeFeature()
     showStatus();
 }
 
-void TaskSheetMetalParameters::startPick(bool on)
+void TaskSheetMetalParameters::startPick(int index, bool on)
 {
-    if (on == picking || !references()) {
+    if (!references(index) || (on ? picking == index : picking != index)) {
         return;
+    }
+    if (picking >= 0) {
+        // one list picks at a time: the other's Add let up
+        Gui::Selection().rmvSelectionGate();
+        const int was = picking;
+        picking = -1;
+        if (was != index) {
+            QSignalBlocker block(refLists[was].add);
+            refLists[was].add->setChecked(false);
+        }
     }
     if (on) {
         Gui::Selection().clearSelection();
-        Gui::Selection().addSelectionGate(new ElementGate(builtOn(), element));
+        Gui::Selection().addSelectionGate(
+            new ElementGate(builtOn(), refLists[index].refs.element));
+        picking = index;
     }
-    else {
-        Gui::Selection().rmvSelectionGate();
-    }
-    picking = on;
 }
 
 void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
 {
-    auto list = references();
-    if (!picking || !list || msg.Type != Gui::SelectionChanges::AddSelection) {
+    auto list = references(picking);
+    if (!list || msg.Type != Gui::SelectionChanges::AddSelection) {
         return;
     }
+    const SheetMetalReferences& refs = refLists[picking].refs;
+    const std::string element = refs.element;
     App::DocumentObject* base = builtOn();
     App::DocumentObject* obj = msg.Object.getObject();
     const std::string sub = msg.pSubName ? msg.pSubName : "";
@@ -768,8 +813,11 @@ void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& m
         return;
     }
     auto subs = list->getSubValues();
-    if (std::find(subs.begin(), subs.end(), sub) == subs.end()) {
+    if (refs.single || std::find(subs.begin(), subs.end(), sub) == subs.end()) {
         setupTransaction(element == "Face" ? tr("add a face") : tr("add an edge"));
+        if (refs.single) {
+            subs.clear();
+        }
         subs.push_back(sub);
         list->setValue(base, subs);
         fillList();
@@ -780,10 +828,10 @@ void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& m
     });
 }
 
-void TaskSheetMetalParameters::removeCurrent()
+void TaskSheetMetalParameters::removeCurrent(int index)
 {
-    auto list = references();
-    const int row = refList ? refList->currentRow() : -1;
+    auto list = references(index);
+    const int row = list ? refLists[index].list->currentRow() : -1;
     if (!list || row < 0) {
         return;
     }
@@ -791,7 +839,9 @@ void TaskSheetMetalParameters::removeCurrent()
     if (row >= static_cast<int>(subs.size())) {
         return;
     }
-    setupTransaction(element == "Face" ? tr("remove a face") : tr("remove an edge"));
+    setupTransaction(std::strcmp(refLists[index].refs.element, "Face") == 0
+                         ? tr("remove a face")
+                         : tr("remove an edge"));
     subs.erase(subs.begin() + row);
     list->setValue(list->getValue(), subs);
     fillList();

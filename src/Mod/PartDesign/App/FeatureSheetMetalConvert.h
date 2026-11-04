@@ -78,6 +78,10 @@ public:
         // the base's shape as it is, in place
         return false;
     }
+    const char* getViewProviderName() const override
+    {
+        return "PartDesignGui::ViewProviderSheetMetalConvert";
+    }
 
 private:
     /// A solid or a shell made a thin part: thickened, its rips and corner

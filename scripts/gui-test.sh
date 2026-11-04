@@ -87,9 +87,12 @@ ISO="$OUT/.iso"
 # them in a modal box that takes the active window (a lock file alone is
 # not the trigger: a directory with no lock is offered too). Under the
 # application's name, which is no longer FreeCAD.
-rm -rf "$ISO/user.cfg" "$ISO/config"
+rm -rf "$ISO/user.cfg" "$ISO/config" "$ISO/data"
 rm -rf "$ISO/cache/FreeCAD/Cache" "$ISO/cache/Thundereal/Cache"
-mkdir -p "$ISO/cache" "$ISO/config"
+# The data directory too: without it every run read the desktop's
+# ~/.local/share/FreeCAD ("Copied the user settings and files from ...")
+# and wrote there -- a crash log of a test landed in the user's profile.
+mkdir -p "$ISO/cache" "$ISO/config" "$ISO/data"
 # What a browser test's driver wrote in an earlier run: appended to, so a
 # second run read the first's phases and sampled the host at the wrong times.
 rm -f "$OUT/phases.txt"
@@ -140,7 +143,7 @@ LOG="$OUT/run.log"
 echo "GUI test $(basename "$SCRIPT") (log: $LOG)"
 if [ "$WINDOW" = 1 ]; then
     env -u WAYLAND_DISPLAY DISPLAY="${GT_DISPLAY:-:0}" "${GL[@]}" "${MESA_ENV[@]}" "${FONT_ENV[@]}" \
-        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" \
+        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" XDG_DATA_HOME="$ISO/data" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \
         timeout -k 15 "$TIMEOUT" \
@@ -149,7 +152,7 @@ if [ "$WINDOW" = 1 ]; then
         > "$LOG" 2>&1 </dev/null
 else
     env -u WAYLAND_DISPLAY "${GL[@]}" "${MESA_ENV[@]}" "${FONT_ENV[@]}" \
-        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" \
+        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" XDG_DATA_HOME="$ISO/data" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \
         timeout -k 15 "$TIMEOUT" \

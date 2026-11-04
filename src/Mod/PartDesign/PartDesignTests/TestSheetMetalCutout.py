@@ -20,6 +20,8 @@
 # from y 2.
 
 import math
+import os
+import tempfile
 import unittest
 
 import FreeCAD
@@ -486,6 +488,61 @@ class TestSheetMetalCutout(unittest.TestCase):
             any(math.hypot(e.Curve.Center.x - c.x, e.Curve.Center.y - c.y) < 1e-6 for e in holes),
             [e.Curve.Center for e in holes],
         )
+
+    def testWrapFlatFrameFollowsSettings(self):
+        """Read in the flat's frame, the cutout follows the flat's settings:
+        its Root changed, the cutout is cut again on the flat laid the new
+        way, as cutting it again by hand does; a load or an undo, which sets
+        the settings and the cut back together, does not touch it"""
+
+        def hole(feature):
+            # where the circle 1 across is cut, its edges' middle
+            edges = [
+                e
+                for e in feature.Shape.Edges
+                if isinstance(e.Curve, Part.Circle) and abs(e.Curve.Radius - 1) < 1e-6
+            ]
+            self.assertTrue(edges)
+            return sum((e.Curve.Center for e in edges), V()) * (1.0 / len(edges))
+
+        self.flange("Far", FAR)
+        # on the plate in the flat laid by it, on the leg in one laid by that
+        sketch = self.sketch(
+            FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation()), circles=[((4, -10, 1), 1)]
+        )
+        cutout = self.cut(sketch, Wrap=True, WrapFrame="Flat")
+        self.checkValid(cutout)
+        before = hole(cutout)
+        flatObject(cutout).Root = "Wall2"
+        self.Doc.recompute()
+        self.checkValid(cutout)
+        after = hole(cutout)
+        self.assertGreater((after - before).Length, 1)
+        cutout.touch()
+        self.Doc.recompute()
+        self.assertLess((hole(cutout) - after).Length, 1e-9)
+        name = cutout.Name
+        path = os.path.join(tempfile.mkdtemp(), "wrap.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        cutout = self.Doc.getObject(name)
+        self.assertEqual(flatObject(cutout).Root, "Wall2")
+        self.assertNotIn("Touched", cutout.State)
+        # read once: a shape not read since the open comes back null from an
+        # undo of a recompute that changed it, any feature's (a fault of the
+        # undo's, not the cutout's; found here 2026-11-05)
+        self.assertLess((hole(cutout) - after).Length, 1e-9)
+        self.Doc.UndoMode = 1
+        self.Doc.openTransaction("Root")
+        flatObject(cutout).Root = ""
+        self.Doc.commitTransaction()
+        self.Doc.recompute()
+        self.assertLess((hole(cutout) - before).Length, 1e-9)
+        self.Doc.undo()
+        self.assertEqual(flatObject(cutout).Root, "Wall2")
+        self.assertNotIn("Touched", cutout.State)
+        self.assertLess((hole(cutout) - after).Length, 1e-9)
 
     def testWrapFlatFrameRefused(self):
         """In the flat's frame a sketch must lie parallel to its XY"""

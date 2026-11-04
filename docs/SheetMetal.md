@@ -1317,6 +1317,29 @@ and not frozen.
   elements holding a face's point, a wall the face is taller than is passed over
   (`Model::owner(face)`), the first holding it kept where none fits.
   `testFlangeDownOnTheMovingSide`. The point-level owner, and so the slab, are as they were.
+- M3's convert, its first step, a thin part (ruled 2026-11-04): `PartDesign::SheetMetalConvert`
+  (`FeatureSheetMetalConvert.h`) on the feature before it -- the body's base, an imported or a
+  Part solid -- with `FixedFace`, a wall's skin of that base (a global link, the base lying
+  outside the body), and `Kind`, read only ("Thin part"). `SheetMetal::recognise()`
+  (`SheetMetal/Recognise.h`):
+  - The thickness from the fixed face to the nearest plane face facing it into the material,
+    the two overlapping (`BRepExtrema` no nearer than the planes' gap). A skin is a plane face
+    with one facing it that far; skins join into walls with their partners and with the skins
+    of their plane they share an edge with, so two coplanar walls apart stay two. A plane face
+    that is no skin but lies parallel to a wall is where the thickness varies, refused naming it.
+  - A bend is two coaxial cylinders a thickness apart, between the walls whose skins share the
+    inner one's two straight edges, its own radius; its frame's X toward where the inner skin
+    starts and its Z such that Z x X runs on from the wall it starts from; named out from the
+    fixed face's wall, Wall1, whose first skin is the fixed face.
+  - Any other curved face lies within a wall's thickness (a hole's side) or is refused as
+    curved: only planar walls (rolled walls later).
+  - The feature splits the part at each bend's two tangent planes (`BRepAlgoAPI_Splitter`,
+    two half planes a bend across its band) and fuses the pieces again: a cap across a whole
+    profile, as a part made elsewhere has it, lies in one element after, the solid as it was.
+    Every face must have an owner; the rule's thickness must be the part's.
+  - `TestSheetMetalConvert` (6): M1's part through STEP gives its features' flat, at 1e-6; a
+    Part-made L flat by hand; a bend's own radius; a tube and a stepped plate refused by name;
+    saved and opened again.
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every
@@ -1454,6 +1477,24 @@ every recompute, which made the sheet metal suites about 40% slower.)
 display mode (which would have to pair each with shaded, wireframe, ...): the solid's
 `SheetView`, Flat, Folded or Both, and `FlatOffset`, a vector moving the flat drawn (off the
 folded part in Both, where the two would lie on each other at the root wall).
+
+**Ruled 2026-11-04, M3's convert and recognise** (after how other programs do it, general
+knowledge: SOLIDWORKS splits Insert Bends for a thin part from Convert to Sheet Metal for a solid;
+Onshape, Creo and NX take either in one feature; every one is a feature in the tree with a fixed
+face picked; bends found keep their own radius; rip is inside the convert command and, in
+SOLIDWORKS, Inventor and Creo, a feature of its own as well):
+- One feature, `PartDesign::SheetMetalConvert`, on a base no sheet metal feature made (an
+  imported or a Part solid): a fixed face picked, the wall the flat lies on; rip edges picked.
+  From the geometry it tells which it has. A thin part keeps its thickness and its bends, each
+  bend its own radius (Check Sheet's source `feature`); a solid or a shell is thickened by the
+  rule's thickness, inside or outside, and every sharp edge not ripped becomes a bend of the
+  rule's radius. It says which it took the base for, and refuses by name a face no wall or bend
+  owns or a thickness that varies.
+- In this order: the thin part first (the recogniser of 4.2 way 3), then the solid or shell, then
+  the rip edges. Walls planar only in M3; a curved one is refused by name (rolled walls, M5).
+- A Rip of its own, on a closed sheet already made (a welded duct), is M4's.
+- Tests: the M1 parts written to STEP and read back give, converted, the flat their features
+  give; a hand-made shell converted flattens to its hand value.
 
 **Ruled 2026-11-03, sec 7's checks on demand:** run when the user asks, as Flatten is, not on a
 recompute; where they are listed and marked is designed with them.

@@ -169,6 +169,8 @@ SET(SheetMetal_SRCS
     SheetMetal/Pieces.h
     SheetMetal/Profile.cpp
     SheetMetal/Profile.h
+    SheetMetal/Recognise.cpp
+    SheetMetal/Recognise.h
     SheetMetal/Refold.cpp
     SheetMetal/Refold.h
     SheetMetal/Svg.cpp
@@ -179,6 +181,8 @@ SET(SheetMetal_SRCS
     FeatureSheetMetalRule.h
     FeatureSheetMetalBaseWall.cpp
     FeatureSheetMetalBaseWall.h
+    FeatureSheetMetalConvert.cpp
+    FeatureSheetMetalConvert.h
     FeatureSheetMetalExtendWall.cpp
     FeatureSheetMetalExtendWall.h
     FeatureSheetMetalHem.cpp

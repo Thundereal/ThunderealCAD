@@ -196,6 +196,10 @@ fc_add_gui_test(GuiSheetMetalPanels_tests_run sheet-metal-panels.py
 # set by hand, reset, OK and Cancel (docs/SheetMetal.md sec 4.6, 8.1).
 fc_add_gui_test(GuiSheetMetalRulePanel_tests_run sheet-metal-rule-panel.py
                 --timeout 120)
+# Sheet metal's Convert: its command on a part in no body, its panel's three
+# lists, Side, and the flat (docs/SheetMetal.md sec 5.3).
+fc_add_gui_test(GuiSheetMetalConvert_tests_run sheet-metal-convert.py
+                --timeout 180)
 # Geometry picked for a Surface feature is taken as a sketch takes external
 # geometry: through SubShapeBinder::import, outside the feature's body by a
 # binder in it -- by its commands and every panel.

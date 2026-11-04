@@ -30,9 +30,10 @@ study's ImpactFrames the frames through each impact between them, as close
 as the impact's force needs -- microseconds apart, where a steel block lands
 on a lever. Played an output step a video frame (Normal), an impact is over
 between two video frames, unseen. Auto plays at Normal where the frames are
-an output step apart and slows where they come closer, each frame then shown
-for a video frame, the speed eased into and out of: no more than EASE times
-from one video frame to the next. The plots go by the video's time
+an output step apart and slows where they come closer -- as far as each
+frame shown for a video frame where the contact forces swing the most in
+the run, as much less as they swing less -- the speed eased into and out
+of: no more than EASE times from one video frame to the next. The plots go by the video's time
 (window()): the run at Normal's scale, a part played slower stretched as
 much as it is slower, with a timeline under them whose ticks, an even step
 of the run's time apart, spread as the speed eases in and close up as it
@@ -80,8 +81,16 @@ class Playback:
     times: the frames' times, s; step: the output step, s; fps: the video's
     frames a second; speed: a PlaybackSpeed."""
 
-    def __init__(self, times, step, fps, speed="Auto"):
+    def __init__(self, times, step, fps, speed="Auto", forces=None, slow=1.0):
+        """forces: Auto, a value a frame whose swing says how much to slow
+        (the contact forces' total, contactForces()); None, each place the
+        frames come closer slowed as much as they do.
+
+        slow: Auto, how slow where the forces swing the most: video frames a
+        frame there takes (the study's SlowMotion)"""
         self.times = list(times)
+        self.forces = list(forces) if forces is not None else None
+        self.slow = slow if slow > 0.0 else 1.0
         self.fps = max(float(fps), 1.0)
         self.step = step if step > 0.0 else self._guessStep()
         # Normal: an output step a video frame
@@ -109,11 +118,18 @@ class Playback:
         self.slope = self.fps * (EASE - 1.0) / EASE
         gaps = [b - a for a, b in zip(self.times, self.times[1:])]
         floor = self.base * SLOWEST
+        share = self._shares(len(gaps))
         for j in range(len(gaps)):
             lo = max(0, j - SPREAD)
             hi = min(len(gaps), j + SPREAD + 1)
             close = sum(gaps[lo:hi]) / (hi - lo)
-            self.wanted.append(min(self.base, max(floor, close * self.fps)))
+            # As slow as the frames come close, by the share of the run's
+            # largest swing of the forces this one is: a lever rattling on
+            # its posts at 59 N, between a block's bounces, slowed as much
+            # as the block's landing at 528 N, and the speed never got back
+            # to Normal between the rattles 3 to 5 ms apart
+            dense = min(self.base, max(floor, close * self.fps / self.slow))
+            self.wanted.append(self.base * (dense / self.base) ** share[j])
         caps = [self.wanted[0]]
         for j in range(1, n - 1):
             caps.append(min(self.wanted[j - 1], self.wanted[j]))
@@ -123,6 +139,23 @@ class Playback:
         for j in range(n - 2, -1, -1):
             caps[j] = min(caps[j], caps[j + 1] + self.slope * (self.times[j + 1] - self.times[j]))
         self.caps = caps
+
+    def _shares(self, count):
+        """Each gap's share of the run's largest swing of the forces: how
+        far they go, least to most, within an output step either side of
+        it, over the most they go anywhere. All 1 without forces."""
+        if self.forces is None or len(self.forces) < len(self.times):
+            return [1.0] * count
+        swings = []
+        for j in range(count):
+            a = bisect.bisect_left(self.times, self.times[j] - self.step)
+            b = bisect.bisect_right(self.times, self.times[j + 1] + self.step)
+            near = self.forces[a:b]
+            swings.append(max(near) - min(near) if near else 0.0)
+        largest = max(swings) if swings else 0.0
+        if not largest > 0.0:
+            return [1.0] * count
+        return [s / largest for s in swings]
 
     def rate(self, time):
         """How fast the run plays at time: its seconds a second of video"""
@@ -224,22 +257,24 @@ class Playback:
             return []
         played = self.played()
         rates = [self.rate(t) for t in played]
+        # From where it is a tenth slower, and only those it slows to half
+        # or less in: a lever's rattle at a fiftieth of the run's largest
+        # swing slows it a few percent, not worth a mark
+        eased = self.base * 0.9
         spans = []
         k = 0
         while k < len(played):
-            if not rates[k] < self.base * (1.0 - 1e-9):
+            if not rates[k] < eased:
                 k += 1
                 continue
             first = k
-            while k < len(played) and rates[k] < self.base * (1.0 - 1e-9):
+            while k < len(played) and rates[k] < eased:
                 k += 1
-            spans.append(
-                (
-                    played[max(first - 1, 0)],
-                    played[min(k, len(played) - 1)],
-                    min(rates[first:k]),
+            slowest = min(rates[first:k])
+            if slowest < 0.5 * self.base:
+                spans.append(
+                    (played[max(first - 1, 0)], played[min(k, len(played) - 1)], slowest)
                 )
-            )
         return spans
 
 
@@ -253,6 +288,23 @@ def niceStep(least):
         if factor * power >= least * (1.0 - 1e-12):
             return factor * power
     return 10.0 * power
+
+
+def contactForces(results):
+    """A run's contact sets' forces, each frame's total, N: what Auto slows
+    by (Playback's forces); None when the run reports none"""
+    times = results.get("Times", []) if results else []
+    channels = [
+        c for c in (results or {}).get("Channels", []) if c.get("Quantity") == "ContactForce"
+    ]
+    if not times or not channels:
+        return None
+    total = [0.0] * len(times)
+    for channel in channels:
+        for k, value in enumerate(channel["Values"][: len(times)]):
+            if value is not None:
+                total[k] += value.Length * 1e-3
+    return total
 
 
 def speedText(rate):

@@ -1471,9 +1471,17 @@ class TestGuiCommands(unittest.TestCase):
             self.assertTrue(panel.animationTimer.isActive())
             self.assertGreater(len(panel.playFrames), 121)
             panel.stopAnimation()
+            # Auto's slow motion, the study's
+            self.assertFalse(panel.slowSpin.isHidden())
+            self.assertEqual(sim.SlowMotion, 1.0)
+            frames = len(panel.playback.frames())
+            panel.slowSpin.setValue(3.0)
+            self.assertEqual(sim.SlowMotion, 3.0)
+            self.assertGreater(len(panel.playback.frames()), frames)
             # Normal: the whole run, an output step a video frame
             panel.speedCombo.setCurrentIndex(panel.speedCombo.findData("Normal"))
             self.assertEqual(sim.PlaybackSpeed, "Normal")
+            self.assertTrue(panel.slowSpin.isHidden())
             self.assertEqual(len(panel.playback.frames()), 101)
             panel.showPlayed(t, panel.playback.rate(t))
             low, high = panel.resultPlot.runWindow()

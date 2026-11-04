@@ -482,6 +482,64 @@ class TestSimulationResults(unittest.TestCase):
         self.assertEqual(P.niceStep(1e-3), 1e-3)
         self.assertEqual(P.niceStep(0.011), 0.02)
 
+    def test_playback_by_the_forces(self):
+        """Auto slows by how far the contact forces swing: a landing at 500
+        N as far as each of its frames shown, a rattle at 25 N between, its
+        frames as close, hardly -- a lever's rattle on its posts slowed as
+        much as a block's landing, the speed never back at Normal between
+        the rattles, and the block was seen flying in slow motion"""
+        import SimulationPlayback as P
+
+        step = 2.5e-3
+        times = [k * step for k in range(101)]
+        landing = [0.1 + 3e-6 * (k + 1) for k in range(20)]
+        rattle = [0.2 + 3e-6 * (k + 1) for k in range(20)]
+        times = sorted(times + landing + rattle)
+        forces = []
+        for t in times:
+            if t in landing:
+                forces.append(500.0 * (1.0 - abs(t - 0.10003) / 3.3e-5))
+            elif t in rattle:
+                forces.append(25.0 * (1.0 - abs(t - 0.20003) / 3.3e-5))
+            else:
+                forces.append(0.0)
+        auto = P.Playback(times, step, 30, "Auto", forces)
+        normal = step * 30
+        self.assertLess(auto.rate(0.10003), normal / 500)
+        # A twentieth of the swing: a twentieth of the way down, in the log
+        dense = 3e-6 * 30
+        self.assertAlmostEqual(
+            auto.rate(0.20003), normal * (dense / normal) ** 0.05, delta=1e-3 * normal
+        )
+        self.assertGreater(auto.rate(0.20003), normal * 0.7)
+        # Its slowed span the landing's alone
+        ((t0, t1, _),) = auto.slowSpans()
+        self.assertTrue(t0 < 0.1 < 0.10006 < t1 < 0.2, (t0, t1))
+        # Slow motion 4 (the study's SlowMotion): each of the landing's
+        # frames four video frames, the rattle a twentieth of that in the log
+        slower = P.Playback(times, step, 30, "Auto", forces, slow=4.0)
+        self.assertAlmostEqual(
+            slower.rate(0.10003), auto.rate(0.10003) / 4.0, delta=1e-6 * auto.rate(0.10003)
+        )
+        self.assertAlmostEqual(
+            slower.rate(0.20003), auto.rate(0.20003) / 4.0**0.05, delta=1e-6 * normal
+        )
+        self.assertGreater(len(slower.frames()), len(auto.frames()) + 50)
+        # Without forces, each as slow as its frames come close
+        self.assertEqual(len(P.Playback(times, step, 30, "Auto").slowSpans()), 2)
+        self.assertIsNone(P.contactForces({"Times": [0.0], "Channels": []}))
+        total = P.contactForces(
+            {
+                "Times": [0.0, 1.0],
+                "Channels": [
+                    {"Quantity": "ContactForce", "Values": [App.Vector(3000, 4000, 0)] * 2},
+                    {"Quantity": "ContactForce", "Values": [App.Vector(), App.Vector(0, 0, 1000)]},
+                    {"Quantity": "Force", "Values": [App.Vector(9e9, 0, 0)] * 2},
+                ],
+            }
+        )
+        self.assertEqual(total, [5.0, 6.0])
+
     def test_peak_safe(self):
         """A curve drawn by its pixels' columns (SimulationPlayback.
         peakSafe()): a spike one value wide among ten thousand is drawn to

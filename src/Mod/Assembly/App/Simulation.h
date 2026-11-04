@@ -66,6 +66,9 @@ public:
     /// come closer, through an impact, each one shown, and eased into and
     /// out of (CommandCreateSimulation.playbackTimes())
     App::PropertyEnumeration PlaybackSpeed;
+    /// Auto: how slow where the contact forces swing the most in the run --
+    /// video frames each frame there takes; less where they swing less
+    App::PropertyFloatConstraint SlowMotion;
     /// Kinematic: the motions drive the joints; Dynamic: the bodies move
     /// under gravity by their masses (docs/AssemblyDynamics.md, phase D1),
     /// on a backend that runs dynamics

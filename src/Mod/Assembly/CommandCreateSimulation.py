@@ -3223,6 +3223,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             float(self.simValues.TimeStepOutput),
             self.form.FramesPerSecondSpinBox.value(),
             self.playbackSpeed(),
+            SimulationPlayback.contactForces(self.results),
+            getattr(self.simFeaturePy, "SlowMotion", 1.0),
         )
         # The plot goes by its video's time
         self.resultPlot.setPlayback(self.playback)
@@ -3303,10 +3305,26 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.speedLabel.setToolTip(
             translate("Assembly", "How fast the run plays at the frame shown, against real time")
         )
+        # Auto: how slow through the impact whose forces swing the most (the
+        # study's SlowMotion), the others as much less as they swing less
+        self.slowSpin = QtWidgets.QDoubleSpinBox()
+        self.slowSpin.setRange(0.1, 100.0)
+        self.slowSpin.setSingleStep(0.5)
+        self.slowSpin.setDecimals(1)
+        self.slowSpin.setPrefix(translate("Assembly", "Slow-mo") + " ")
+        self.slowSpin.setToolTip(
+            translate(
+                "Assembly",
+                "Auto: how slow where the contact forces swing the most in the run --\n"
+                "video frames each of its frames takes. Where they swing less, as much\n"
+                "less slow: a rattle at a twentieth of the largest swing is hardly slowed.",
+            )
+        )
         row = self.form.findChild(QtWidgets.QHBoxLayout, "fps_layout")
         if row is not None:
             row.addWidget(QtWidgets.QLabel(translate("Assembly", "Speed")))
             row.addWidget(self.speedCombo)
+            row.addWidget(self.slowSpin)
             row.addWidget(self.speedLabel, 1)
         if not self.hasPlaybackSpeed():
             self.speedCombo.setEnabled(False)
@@ -3315,11 +3333,28 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.speedCombo.setCurrentIndex(
                 max(0, self.speedCombo.findData(self.simFeaturePy.PlaybackSpeed))
             )
+        self.slowSpin.setValue(getattr(self.simFeaturePy, "SlowMotion", 1.0))
+        self.slowSpin.setVisible(
+            hasattr(self.simFeaturePy, "SlowMotion") and self.playbackSpeed() == "Auto"
+        )
         self.speedCombo.currentIndexChanged.connect(self.onSpeedChanged)
+        self.slowSpin.valueChanged.connect(self.onSlowMotionChanged)
 
     def onSpeedChanged(self, index):
         if self.hasPlaybackSpeed():
             self.simFeaturePy.PlaybackSpeed = self.speedCombo.currentData()
+        self.slowSpin.setVisible(
+            hasattr(self.simFeaturePy, "SlowMotion") and self.playbackSpeed() == "Auto"
+        )
+        self.replay()
+
+    def onSlowMotionChanged(self, value):
+        if hasattr(self.simFeaturePy, "SlowMotion"):
+            self.simFeaturePy.SlowMotion = value
+        self.replay()
+
+    def replay(self):
+        """The playback anew at the speed now: played on, or shown again"""
         self.makePlayback()
         if self.animationTimer.isActive():
             self.animationTimerStart()

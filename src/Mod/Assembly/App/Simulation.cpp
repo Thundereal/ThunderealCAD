@@ -55,6 +55,15 @@ Simulation::Simulation()
                       "frames come closer -- through an impact, each frame shown -- and eased "
                       "into and out of");
     PlaybackSpeed.setEnums(PlaybackSpeedEnums);
+    ADD_PROPERTY_TYPE(SlowMotion,
+                      (1.0),
+                      "Simulation",
+                      App::Prop_None,
+                      "Auto: how slow where the contact forces swing the most in the run -- "
+                      "video frames each frame there takes; as much less where they swing "
+                      "less");
+    static const App::PropertyFloatConstraint::Constraints slowRange = {0.1, 100.0, 0.5};
+    SlowMotion.setConstraints(&slowRange);
     // Not upstream: dynamics (docs/AssemblyDynamics.md); a file without
     // them is a kinematic study, as before
     ADD_PROPERTY_TYPE(AnalysisType,

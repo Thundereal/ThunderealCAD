@@ -33,6 +33,7 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QSpinBox>
@@ -41,7 +42,15 @@
 #include <QVBoxLayout>
 #endif
 
+#include <Inventor/nodes/SoPickStyle.h>
+#include <Inventor/nodes/SoSeparator.h>
+#include <Inventor/nodes/SoSwitch.h>
+#include <Inventor/nodes/SoTransform.h>
+#include <Standard_Failure.hxx>
+
 #include <App/Document.h>
+#include <Base/Exception.h>
+#include <Gui/Application.h>
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 #include <Gui/QuantitySpinBox.h>
@@ -49,10 +58,13 @@
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/Feature.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/SheetMetalExtension.h>
+#include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalParameters.h"
+#include "ViewProviderAddSub.h"
 
 using namespace PartDesignGui;
 
@@ -187,6 +199,27 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
     status->setStyleSheet(QStringLiteral("color: #d03030"));
     layout->addWidget(status);
 
+    // the feature folded, laid flat, or both (docs/SheetMetal.md sec 12)
+    auto viewRow = new QHBoxLayout;
+    auto viewLabel = new QLabel(tr("View"), proxy);
+    sheetView = new QComboBox(proxy);
+    sheetView->setObjectName(QStringLiteral("comboSheetView"));
+    sheetView->addItems({tr("Folded"), tr("Flat"), tr("Both")});
+    sheetView->setToolTip(tr("Draw the feature folded, laid flat, or both: the flat moved off "
+                             "the part by the sheet's flat object's placement, else beside it"));
+    viewLabel->setBuddy(sheetView);
+    viewRow->addWidget(viewLabel);
+    viewRow->addWidget(sheetView, 1);
+    layout->addLayout(viewRow);
+    connect(sheetView, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
+        showSheetView();
+    });
+    flatStatus = new QLabel(proxy);
+    flatStatus->setObjectName(QStringLiteral("labelFlatStatus"));
+    flatStatus->setWordWrap(true);
+    flatStatus->setStyleSheet(QStringLiteral("color: #d03030"));
+    layout->addWidget(flatStatus);
+
     groupLayout()->addWidget(proxy);
     // what is wrong said after any recompute, not only the panel's own: one
     // that fails tells nothing of the object itself
@@ -199,6 +232,10 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
                         showValue(entry.first);
                     }
                     showStatus();
+                    // the flat laid again, as the feature is now
+                    if (sheetView && sheetView->currentIndex() > 0) {
+                        showSheetView();
+                    }
                 });
             });
         // a value set elsewhere -- the property editor, Python -- shown here
@@ -222,6 +259,165 @@ TaskSheetMetalParameters::~TaskSheetMetalParameters()
 {
     if (picking) {
         Gui::Selection().rmvSelectionGate();
+    }
+    hideFlat();
+}
+
+void TaskSheetMetalParameters::hideFlat()
+{
+    auto root = vp ? vp->getRoot() : nullptr;
+    if (root && flatRoot && root->findChild(flatRoot) >= 0) {
+        root->removeChild(flatRoot);
+    }
+    restoreChildren();
+}
+
+void TaskSheetMetalParameters::restoreChildren()
+{
+    for (auto& [objT, child] : keptChildren) {
+        auto view = Gui::Application::Instance->getViewProvider(objT.getObject());
+        if (view && view->getModeSwitch()) {
+            view->getModeSwitch()->whichChild = child;
+        }
+    }
+    keptChildren.clear();
+    // the edit's preview back, as it was
+    if (keptPreview) {
+        keptPreview = false;
+        if (auto addSub = Base::freecad_dynamic_cast<ViewProviderAddSub>(vp)) {
+            addSub->setPreviewDisplayMode(true, keptOccurrence);
+        }
+    }
+}
+
+void TaskSheetMetalParameters::closeFlat()
+{
+    closing = true;
+    hideFlat();
+}
+
+void TaskSheetMetalParameters::showSheetView()
+{
+    const int mode = sheetView && !closing ? sheetView->currentIndex() : 0;
+    auto feature = vp ? Base::freecad_dynamic_cast<Part::Feature>(vp->getObject()) : nullptr;
+    flatStatus->clear();
+    if (mode == 0 || !feature) {
+        hideFlat();
+        return;
+    }
+    auto body = PartDesign::Body::findBodyOf(feature);
+    auto solid = body ? body->getSolidBody(feature) : nullptr;
+    Part::TopoShape shape;
+    std::map<std::string, std::string> directions;
+    try {
+        if (!solid) {
+            THROWM(Base::ValueError, "The feature is of no sheet");
+        }
+        const PartDesign::SheetFlat& flat = solid->flatOf(feature);
+        shape = flat.shape;
+        directions = flat.directions;
+    }
+    catch (const Base::Exception& e) {
+        flatStatus->setText(tr("It does not lie flat: %1").arg(QString::fromUtf8(e.what())));
+    }
+    catch (const Standard_Failure& e) {
+        flatStatus->setText(
+            tr("It does not lie flat: %1").arg(QString::fromUtf8(e.GetMessageString())));
+    }
+    if (shape.isNull()) {
+        hideFlat();
+        return;
+    }
+    if (!flatView) {
+        // drawn as the sheet's flat object is, under the feature's view
+        flatView = std::make_unique<ViewProviderSheetMetalFlatPattern>();
+        // drawn whatever the feature's Visibility, which it does not own
+        flatView->forceUpdate();
+        flatView->setStatus(Gui::SecondaryView, true);
+        flatView->attach(feature);
+        // a display mode, as the document gives the views it holds
+        flatView->DisplayMode.setValue("Flat Lines");
+        flatView->setDisplayMode("Flat Lines");
+        flatView->show();
+        flatOffset = new SoTransform;
+        flatRoot = new SoSeparator;
+        auto pick = new SoPickStyle;
+        pick->style = SoPickStyle::UNPICKABLE;
+        flatRoot->addChild(pick);
+        flatRoot->addChild(flatOffset);
+        flatRoot->addChild(flatView->getRoot());
+    }
+    if (auto flatObj = solid->flatPattern()) {
+        if (auto look = Base::freecad_dynamic_cast<ViewProviderSheetMetalFlatPattern>(
+                Gui::Application::Instance->getViewProvider(flatObj))) {
+            flatView->copyLook(*look);
+        }
+    }
+    flatView->showFlat(shape, directions);
+    // shown once it has a shape to show; placed by the feature's view it is
+    // drawn under, not again by its own
+    flatView->show();
+    if (auto transform = flatView->getRoot()->getNumChildren() > 0
+            ? dynamic_cast<SoTransform*>(flatView->getRoot()->getChild(0))
+            : nullptr) {
+        transform->setToDefaults();
+    }
+
+    // Both: off the folded part by the flat object's placement, else beside it
+    Base::Vector3d move;
+    if (mode == 2) {
+        auto flatObj = solid->flatPattern();
+        const Base::Placement placement =
+            flatObj ? flatObj->Placement.getValue() : Base::Placement();
+        if (!placement.isIdentity()) {
+            move = placement.getPosition();
+        }
+        else {
+            const Base::BoundBox3d folded = feature->Shape.getShape().getBoundBox();
+            const Base::BoundBox3d laid = shape.getBoundBox();
+            if (folded.IsValid() && laid.IsValid()) {
+                const double gap = std::max(10.0, 0.2 * laid.LengthX());
+                move.x = folded.MaxX - feature->Placement.getValue().getPosition().x
+                    - laid.MinX + gap;
+            }
+        }
+    }
+    flatOffset->translation.setValue(static_cast<float>(move.x),
+                                     static_cast<float>(move.y),
+                                     static_cast<float>(move.z));
+    auto root = vp->getRoot();
+    if (root->findChild(flatRoot) < 0) {
+        root->addChild(flatRoot);
+    }
+    // Flat: nothing of the body drawn but the flat -- not the feature, nor
+    // what its edit shows with it (the feature it is built on) -- by their
+    // views' switches, their visibility untouched
+    if (mode == 1) {
+        // the edit's preview (the base drawn, the tool tinted over it) taken
+        // away first: the session's views draw it, not the views' switches
+        auto addSub = Base::freecad_dynamic_cast<ViewProviderAddSub>(vp);
+        if (addSub && addSub->isPreviewMode() && !keptPreview) {
+            keptOccurrence = addSub->previewOccurrenceOf();
+            keptPreview = true;
+            addSub->setPreviewDisplayMode(false);
+        }
+        if (keptChildren.empty()) {
+            std::vector<App::DocumentObject*> members = body->Group.getValues();
+            if (std::find(members.begin(), members.end(), feature) == members.end()) {
+                members.push_back(feature);
+            }
+            for (auto obj : members) {
+                auto view = Gui::Application::Instance->getViewProvider(obj);
+                if (!view || !view->getModeSwitch() || !view->isShow()) {
+                    continue;
+                }
+                keptChildren.emplace_back(obj, view->getModeSwitch()->whichChild.getValue());
+                view->getModeSwitch()->whichChild = SO_SWITCH_NONE;
+            }
+        }
+    }
+    else {
+        restoreChildren();
     }
 }
 
@@ -508,8 +704,27 @@ void TaskSheetMetalParameters::removeCurrent()
 TaskDlgSheetMetalParameters::TaskDlgSheetMetalParameters(ViewProvider* vp,
                                                          TaskSheetMetalParameters* panel)
     : TaskDlgFeatureParameters(vp)
+    , panel(panel)
 {
     Content.push_back(panel);
+}
+
+bool TaskDlgSheetMetalParameters::accept()
+{
+    // the feature drawn folded again once the panel closes, which outlives
+    // the dialog's end
+    if (panel) {
+        panel->closeFlat();
+    }
+    return TaskDlgFeatureParameters::accept();
+}
+
+bool TaskDlgSheetMetalParameters::reject()
+{
+    if (panel) {
+        panel->closeFlat();
+    }
+    return TaskDlgFeatureParameters::reject();
 }
 
 #include "moc_TaskSheetMetalParameters.cpp"

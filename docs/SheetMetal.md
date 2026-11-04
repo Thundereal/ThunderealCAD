@@ -1296,6 +1296,14 @@ and not frozen.
   `sheet-metal-commands.py` (61).
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
+- A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every
+  sheet metal feature's panel has View, Folded, Flat or Both. Flat or Both lays the feature flat
+  (`SolidBody::flatOf()`) and draws it under the feature's view with the flat object's view
+  class, its look the sheet's flat object's, not pickable; Flat draws nothing else of the body
+  (each view's switch off, the edit's preview taken away), Both moves the flat off the part by
+  the flat object's placement, else beside it. It follows each recompute while on; a feature
+  that does not lie flat says why under it. Closing the panel puts everything back. Checked by
+  `sheet-metal-panels.py` (64).
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.

@@ -507,19 +507,39 @@ void ViewProviderSheetMetalFlatPattern::updateData(const App::Property* prop)
 void ViewProviderSheetMetalFlatPattern::refreshMarkings()
 {
     auto flat = Base::freecad_dynamic_cast<PartDesign::SheetMetalFlatPattern>(getObject());
-    if (!flat || !kinds[0].view) {
+    if (flat) {
+        showFlat(flat->Shape.getShape(), flat->BendDirections.getValues());
+    }
+}
+
+void ViewProviderSheetMetalFlatPattern::copyLook(const ViewProviderSheetMetalFlatPattern& other)
+{
+    for (std::size_t k = 0; k < kinds.size(); ++k) {
+        kinds[k].show->setValue(other.kinds[k].show->getValue());
+        kinds[k].color->setValue(other.kinds[k].color->getValue());
+        kinds[k].style->setValue(other.kinds[k].style->getValue());
+        kinds[k].width->setValue(other.kinds[k].width->getValue());
+    }
+    LineColor.setValue(other.LineColor.getValue());
+    LineWidth.setValue(other.LineWidth.getValue());
+}
+
+void ViewProviderSheetMetalFlatPattern::showFlat(
+    const Part::TopoShape& flatShape,
+    const std::map<std::string, std::string>& directions)
+{
+    if (!kinds[0].view) {
         return;
     }
     // The shape is the blank, then a compound of each kind (layFlat()): the
     // blank's edges are the shape's first, the markings' after them
     // in the object's own frame: this view's transform places it
-    const Part::TopoShape shape = flat->Shape.getShape().located();
+    const Part::TopoShape shape = flatShape.located();
     Part::TopoShape blank;
     if (shape.countSubShapes(TopAbs_SOLID) > 0) {
         blank = shape.getSubTopoShape(TopAbs_SOLID, 1);
     }
     blankEdges = blank.isNull() ? 0 : static_cast<int>(blank.countSubShapes(TopAbs_EDGE));
-    const auto& directions = flat->BendDirections.getValues();
     std::array<std::vector<Part::TopoShape>, 4> edges;
     for (auto& kind : kinds) {
         kind.edges.clear();

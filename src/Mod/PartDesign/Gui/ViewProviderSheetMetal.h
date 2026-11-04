@@ -25,7 +25,9 @@
 #pragma once
 
 #include <array>
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <Mod/Part/Gui/ViewProvider.h>
@@ -240,11 +242,22 @@ public:
     bool getDetailPath(const char* subname, SoFullPath* path, bool append,
                        SoDetail*& det) const override;
 
+    /** Draw \a shape, a flat as layFlat() makes it, each bend Up or Down by
+     * \a directions: the object's own, or another's (a feature's, drawn by
+     * its panel)
+     */
+    void showFlat(const Part::TopoShape& shape,
+                  const std::map<std::string, std::string>& directions);
+    /// The look of \a other: its lines' colour and width, and each kind of
+    /// marking's style
+    void copyLook(const ViewProviderSheetMetalFlatPattern& other);
+
 protected:
     void onChanged(const App::Property* prop) override;
 
 private:
-    /// The shape split: the blank for this view, each kind's edges for its own
+    /// The object's shape drawn: the blank for this view, each kind's edges
+    /// for its own
     void refreshMarkings();
     /// A kind's look on its view
     void applyLook(int kind);

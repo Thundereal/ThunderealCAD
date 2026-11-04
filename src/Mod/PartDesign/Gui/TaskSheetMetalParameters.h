@@ -25,17 +25,27 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include <QPointer>
+
 #include <fastsignals/signal.h>
 
+#include <App/DocumentObserver.h>
+
+#include <Gui/InventorBase.h>
 #include <Gui/Selection/Selection.h>
 
 #include "TaskFeatureParameters.h"
+#include "ViewProviderSheetMetal.h"
 
+class QComboBox;
 class QLabel;
 class QListWidget;
+class SoSeparator;
+class SoTransform;
 class QToolButton;
 
 namespace App
@@ -73,6 +83,10 @@ public:
     ~TaskSheetMetalParameters() override;
 
     void refresh() override;
+    /// The flat drawing gone, the folded part drawn as it was
+    void hideFlat();
+    /// The panel closing: the flat gone, and not drawn again
+    void closeFlat();
 
 protected:
     void onSelectionChanged(const Gui::SelectionChanges& msg) override;
@@ -88,12 +102,33 @@ private:
     void startPick(bool on);
     void removeCurrent();
     void showStatus();
+    /** The feature as View says (docs/SheetMetal.md sec 12, 2026-11-04):
+     * folded, laid flat in its place, or both, the flat moved off it by the
+     * sheet's flat object's placement, else beside it; drawn under the
+     * feature's view, not picked
+     */
+    void showSheetView();
+    /// What the body drew, drawn again
+    void restoreChildren();
 
     QWidget* proxy;
     QListWidget* refList = nullptr;
     QToolButton* addButton = nullptr;
     QLabel* rule;
     QLabel* status;
+    QComboBox* sheetView = nullptr;
+    QLabel* flatStatus = nullptr;
+    /// The feature's flat, drawn under its view while View is not Folded
+    std::unique_ptr<ViewProviderSheetMetalFlatPattern> flatView;
+    Gui::CoinPtr<SoSeparator> flatRoot;
+    Gui::CoinPtr<SoTransform> flatOffset;
+    /// What the body drew, each view's mode switch's child, kept while the
+    /// flat is drawn alone: the feature and what its edit shows with it
+    std::vector<std::pair<App::DocumentObjectT, int>> keptChildren;
+    /// The edit's preview, taken away while the flat is drawn alone
+    bool keptPreview = false;
+    App::SubObjectT keptOccurrence;
+    bool closing = false;
     std::vector<const char*> names;
     const char* refs;
     std::string element;
@@ -109,6 +144,11 @@ class TaskDlgSheetMetalParameters: public TaskDlgFeatureParameters
 
 public:
     TaskDlgSheetMetalParameters(ViewProvider* vp, TaskSheetMetalParameters* panel);
+    bool accept() override;
+    bool reject() override;
+
+private:
+    QPointer<TaskSheetMetalParameters> panel;
 };
 
 }  // namespace PartDesignGui

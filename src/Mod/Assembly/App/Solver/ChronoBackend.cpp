@@ -148,7 +148,6 @@
 #include <chrono/physics/ChLinkDistance.h>
 #include <chrono/physics/ChLinkLockGear.h>
 #include <chrono/physics/ChLinkMate.h>
-#include <chrono/physics/ChLinkRSDA.h>
 #include <chrono/physics/ChLinkTSDA.h>
 #include <chrono/physics/ChLoadContainer.h>
 #include <chrono/physics/ChLoadsBody.h>
@@ -641,6 +640,112 @@ public:
     const double c;
 
 private:
+    double angle = 0.0;  // the turn last committed
+};
+
+// A torsion spring (ForceKind::TorsionSpring): about its joint's axis zI,
+// preload - k (turn - rest) - c rate, the turn of xJ about zI and its rate
+// as a stop's (StopLoad), on frame J's body (A) about +zI and on frame I's
+// (B) about -zI -- Chrono's ChLinkRSDA's. That counted the turn at each of
+// its updates from the last angle it saw: the states of a substep whose
+// Newton iterations ran off moved it on, and the substep taken again from
+// before them started a whole turn out (a return spring of 1000 N mm/rad
+// at 6000 N mm, the lever it held thrown off its cam). Here the turn is
+// counted from the angle committed after each step, as a penalty stop's;
+// implicit through Chrono's numerical jacobian.
+class TorsionLoad: public ch::ChLoadBodyBody
+{
+public:
+    TorsionLoad(std::shared_ptr<ch::ChBody> a,
+                std::shared_ptr<ch::ChBody> b,
+                const ch::ChFramed& frameJ,
+                const ch::ChFramed& frameI,
+                double k,
+                double c,
+                double preload,
+                double rest)
+        : ch::ChLoadBodyBody(a, b, frameI)
+        , k(k)
+        , c(c)
+        , preload(preload)
+    {
+        SetApplicationFrameA(a->ch::ChFramed::TransformParentToLocal(frameJ));
+        SetApplicationFrameB(b->ch::ChFramed::TransformParentToLocal(frameI));
+        ComputeQ(nullptr, nullptr);
+        angle = rawAngle();
+        this->rest = angle + rest;
+    }
+
+    TorsionLoad* Clone() const override
+    {
+        return new TorsionLoad(*this);
+    }
+    bool IsStiff() override
+    {
+        return true;
+    }
+    void ComputeJacobian(ch::ChState* state_x, ch::ChStateDelta* state_w) override
+    {
+        ch::ChLoadBodyBody::ComputeJacobian(state_x, state_w);
+        ComputeQ(state_x, state_w);
+    }
+    void ComputeBodyBodyForceTorque(const ch::ChFrameMoving<>& /*rel_AB*/,
+                                    ch::ChVector3d& force,
+                                    ch::ChVector3d& moment) override
+    {
+        force = ch::VNULL;
+        // In frame I's axes, on frame I's body
+        moment = ch::ChVector3d(0.0, 0.0, -torque());
+    }
+    // The turn now counted from here on
+    void commit()
+    {
+        ComputeQ(nullptr, nullptr);
+        angle = turnAndRate().first;
+    }
+    // The torque, positive turning J up about zI, and the turn, now
+    double torqueNow()
+    {
+        ComputeQ(nullptr, nullptr);
+        return torque();
+    }
+    double angleNow()
+    {
+        ComputeQ(nullptr, nullptr);
+        return turnAndRate().first;
+    }
+    double committed() const
+    {
+        return angle;
+    }
+    void setCommitted(double value)
+    {
+        angle = value;
+    }
+
+private:
+    double rawAngle() const
+    {
+        const ch::ChVector3d xJ = frame_Aw.GetRotMat().GetAxisX();
+        return std::atan2(ch::Vdot(frame_Bw.GetRotMat().GetAxisY(), xJ),
+                          ch::Vdot(frame_Bw.GetRotMat().GetAxisX(), xJ));
+    }
+    std::pair<double, double> turnAndRate() const
+    {
+        const ch::ChVector3d z = frame_Bw.GetRotMat().GetAxisZ();
+        return {angle + wrapAngle(rawAngle() - angle),
+                ch::Vdot(frame_Aw.GetAngVelParent() - frame_Bw.GetAngVelParent(), z)};
+    }
+    double torque() const
+    {
+        const auto [turn, rate] = turnAndRate();
+        return preload - k * (turn - rest) - c * rate;
+    }
+
+    double k = 0.0;
+    double c = 0.0;
+    double preload = 0.0;
+    double rest = 0.0;
     double angle = 0.0;  // the turn last committed
 };
 
@@ -6382,7 +6487,7 @@ Status ChronoSession::simulateDynamics(
     }
     // What each frame reports besides the poses (sec 8.4)
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkTSDA>>> springs;
-    std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkRSDA>>> torsions;
+    std::vector<std::pair<Id, std::shared_ptr<TorsionLoad>>> torsions;
     std::vector<std::pair<Id, std::shared_ptr<AppliedLoad>>> appliedLoads;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorRotation>>> rotationMotors;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorLinear>>> linearMotors;
@@ -6455,20 +6560,19 @@ Status ChronoSession::simulateDynamics(
             if (run.d->isRigid(force.frameI, force.frameJ)) {
                 continue;
             }
-            // Frame I's body first: Chrono's angle is then the joint's,
-            // of xJ about zI, J as the joint's motors and limits see it.
-            // In SI with the model: k, c and the preload scaled already.
-            auto torsion = std::make_shared<ch::ChLinkRSDA>();
-            torsion->Initialize(run.d->bodyOf(force.frameI),
-                                run.d->bodyOf(force.frameJ),
-                                true,
-                                run.d->localOf(force.frameI),
-                                run.d->driverLocalOf(force.frameJ));
-            torsion->SetRestAngle(torsion->GetAngle() + force.rest);
-            torsion->SetSpringCoefficient(force.k);
-            torsion->SetDampingCoefficient(force.c);
-            torsion->SetActuatorTorque(force.preload);
-            sys.AddLink(torsion);
+            // The joint's angle, of xJ about zI, J as the joint's motors
+            // and limits see it. In SI with the model: k, c and the
+            // preload scaled already.
+            auto torsion = std::make_shared<TorsionLoad>(
+                run.d->bodyOf(force.frameJ),
+                run.d->bodyOf(force.frameI),
+                run.d->driverLocalOf(force.frameJ) >> *run.d->bodyOf(force.frameJ),
+                run.d->globalOf(force.frameI),
+                force.k,
+                force.c,
+                force.preload,
+                force.rest);
+            loads->Add(torsion);
             torsions.emplace_back(force.source, torsion);
             continue;
         }
@@ -8108,11 +8212,15 @@ Status ChronoSession::simulateDynamics(
     auto handleStops = [&](double step, bool bounce) {
         // The frictions take the reactions the step ended with
         pressFrictions();
-        // The penalty stops count their turns from here
+        // The penalty stops and the torsion springs count their turns from
+        // here
         for (const auto& penalty : penalties) {
             if (penalty) {
                 penalty->commit();
             }
+        }
+        for (const auto& torsion : torsions) {
+            torsion.second->commit();
         }
         // Let go of the stops that pull
         for (std::size_t k = 0; k < stops.size(); ++k) {
@@ -8384,8 +8492,8 @@ Status ChronoSession::simulateDynamics(
             out.push_back(spring.second->GetLength() / SI::length);
         }
         for (const auto& torsion : torsions) {
-            out.push_back(torsion.second->GetTorque() / SI::torque);
-            out.push_back(torsion.second->GetAngle());
+            out.push_back(torsion.second->torqueNow() / SI::torque);
+            out.push_back(torsion.second->angleNow());
         }
         for (const auto& bushing : bushings) {
             const ch::ChWrenchd w = bushing.second->wrenchNow();
@@ -8694,6 +8802,9 @@ Status ChronoSession::simulateDynamics(
                 }
                 sys.StateScatterReactions(L);
                 sink.values(valuesNow());
+                for (const auto& torsion : torsions) {
+                    torsion.second->commit();
+                }
                 if (!sink.frame(t, poses)) {
                     return Status::Cancelled;
                 }
@@ -10004,6 +10115,7 @@ Status ChronoSession::simulateDynamics(
             std::vector<LoadState> loads;
             std::vector<std::pair<double, bool>> cams;
             std::vector<double> frictions;
+            std::vector<double> torsions;  // their turns committed
             std::vector<Queued> queued;
         };
         auto snapshot = [&]() {
@@ -10034,6 +10146,9 @@ Status ChronoSession::simulateDynamics(
             }
             for (const auto& load : frictions) {
                 s.frictions.push_back(load->normal);
+            }
+            for (const auto& torsion : torsions) {
+                s.torsions.push_back(torsion.second->committed());
             }
             return s;
         };
@@ -10076,6 +10191,9 @@ Status ChronoSession::simulateDynamics(
             }
             for (std::size_t i = 0; i < frictions.size(); ++i) {
                 frictions[i]->normal = s.frictions[i];
+            }
+            for (std::size_t i = 0; i < torsions.size(); ++i) {
+                torsions[i].second->setCommitted(s.torsions[i]);
             }
             if (contact) {
                 sys.ComputeCollisions();

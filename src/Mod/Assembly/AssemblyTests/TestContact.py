@@ -705,12 +705,15 @@ class TestContact(unittest.TestCase):
     def test_lever_on_fast_cam(self):
         """A steel lever on a steel eccentric disc turned at 2 rev/s, by the
         steel's own law (a line contact, about 2e8 N/m at its load), held on
-        by its weight and 3 N at its tip: the run goes through, where it
-        stopped at 0.14 s, "the contact's integration diverged" -- a substep
-        whose Newton iterations ran off left HHT's reactions not finite in
-        the system, and each substep taken again from the state before it
-        started from them. The lever stays on the disc, sunk by under a
-        micrometre, and its free body balances."""
+        by a torsion spring at its hinge and 3 N at its tip: the run goes
+        through, where it stopped at 0.14 s, "the contact's integration
+        diverged" -- a substep whose Newton iterations ran off left HHT's
+        reactions not finite in the system, and each substep taken again
+        from the state before it started from them. Then the spring, Chrono's
+        own, counted a turn more from the states of that substep, and threw
+        the lever off. The lever stays on the disc, sunk by under a
+        micrometre, the spring's torque its turn's, and its free body
+        balances."""
         import CommandCreateLoad
         import Materials
         import MotionLoads
@@ -748,7 +751,7 @@ class TestContact(unittest.TestCase):
         disc.Placement = App.Placement(App.Vector(90, 0, -19), along)
         disc.ShapeMaterial = steel
         self.doc.recompute()
-        hinge(
+        pin = hinge(
             (pivot, ["Face2"]),
             App.Placement(App.Vector(10, 5, 5), along),
             (lever, ["Face1"]),
@@ -771,12 +774,16 @@ class TestContact(unittest.TestCase):
             direction=App.Vector(0, 0, -1),
         )
         load.DirectionAxes = "Assembly"
+        physics = self.assembly.getGroup("Physics", True)
+        spring = physics.newObject("Assembly::TorsionSpring", "TorsionSpring")
+        spring.Joint = pin
+        spring.Stiffness = 1e6  # mN mm / rad
         sims = self.assembly.getGroup("Simulations", True)
         sim = sims.newObject("Assembly::Simulation", "Simulation")
         sim.AnalysisType = "Dynamic"
         sim.TimeEnd = 0.5
         sim.TimeStepOutput = 5e-3
-        sim.Elements = [contact, load]
+        sim.Elements = [contact, load, spring]
         motion = sim.newObject("Assembly::Motion", "Motion")
         motion.Joint = shaft
         motion.MotionType = "Angular"
@@ -789,6 +796,15 @@ class TestContact(unittest.TestCase):
         least = min(f.Length for f in forces[1:])
         self.assertGreater(least, 1000.0)
         self.assertLess(max(depths), 1e-3)
+        # The spring's torque what the lever's turn makes it, the turn at most
+        # the disc's 20 mm lift over 80 mm -- not a whole turn more, as
+        # Chrono's own spring counted after the substep that ran off
+        channels = self.assembly.getSimulationResults()["Channels"]
+        torques = [c["Values"] for c in channels if c["Quantity"] == "SpringTorque"][0]
+        angles = [c["Values"] for c in channels if c["Quantity"] == "SpringAngle"][0]
+        for torque, angle in zip(torques, angles):
+            self.assertAlmostEqual(torque, -1e6 * (angle - angles[0]), delta=1.0)
+        self.assertLess(max(abs(a - angles[0]) for a in angles), 0.3)
         for frame in (20, 28, 60, 100):
             body = MotionLoads.loadsOn(self.assembly, lever, frame)
             residual, moment = body["Residual"]

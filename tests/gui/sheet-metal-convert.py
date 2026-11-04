@@ -12,7 +12,9 @@
   - one list's Add at a time: another's pressed lets the first up;
   - the fixed face picked again takes the place of the one it held;
   - OK closes the panel, the convert drawn and not the part under it;
-    Flatten lays the converted tray flat.
+    Flatten lays the converted tray flat;
+  - a thin part 2 thick made elsewhere, converted in a body of its own: its
+    rule takes the part's thickness, and it is taken as a thin part.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
@@ -266,6 +268,56 @@ def run():
             and abs(flat.FlatWidth.Value - (16 + 2 * leg)) < 1e-6
             and flat.BendCount == 4,
             flat and (flat.Status, flat.FlatLength, flat.FlatWidth, flat.BendCount),
+        )
+
+        # a thin part made elsewhere, 2 thick: its rule, the sheet's own,
+        # takes the part's thickness, and it is taken as it is
+        thin = Part.makeBox(30, 20, 2).fuse(Part.makeBox(2, 20, 15)).removeSplitter()
+        bent = thin.makeFillet(
+            3,
+            [
+                e
+                for e in thin.Edges
+                if e.BoundBox.YLength > 19
+                and abs(e.BoundBox.XMin) < 1e-7
+                and abs(e.BoundBox.ZMin) < 1e-7
+            ],
+        )
+        bent = bent.makeFillet(
+            1,
+            [
+                e
+                for e in bent.Edges
+                if e.BoundBox.YLength > 19
+                and abs(e.BoundBox.XMin - 2) < 1e-7
+                and abs(e.BoundBox.ZMin - 2) < 1e-7
+            ],
+        )
+        part = doc.addObject("Part::Feature", "Bracket")
+        part.Shape = bent
+        doc.recompute()
+        pump()
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(
+            doc.Name, part.Name, faceAt(bent, lambda b: b.ZMax < 1e-7 and b.XLength > 20)
+        )
+        FreeCADGui.runCommand("PartDesign_SheetMetalConvert")
+        pump(60)
+        ok()
+        doc.recompute()
+        pump(20)
+        made = [
+            o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalConvert" and o != convert
+        ]
+        made = made[0] if made else None
+        check(
+            "a thin part 2 thick: its rule takes the part's thickness, and it is good",
+            made is not None
+            and abs(made.Rule.Thickness.Value - 2) < 1e-9
+            and made.Rule != convert.Rule
+            and "Invalid" not in made.State
+            and made.Kind == "Thin part",
+            made and (made.Rule.Thickness, made.State, made.getStatusString(), made.Kind),
         )
     except Exception:
         note("ABORT:\n" + traceback.format_exc())

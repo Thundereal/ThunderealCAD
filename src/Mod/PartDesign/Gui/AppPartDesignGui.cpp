@@ -29,6 +29,10 @@
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
 #include <Gui/Application.h>
+#include <Gui/MenuManager.h>
+#include <Gui/ToolBarManager.h>
+#include <Gui/ToolContext.h>
+#include <Mod/Part/App/BodyBase.h>
 #include <Gui/Language/Translator.h>
 #include <Mod/Part/Gui/TaskAttacher.h>
 
@@ -62,6 +66,7 @@
 #include "ViewProviderRevolution.h"
 #include "ViewProviderScaled.h"
 #include "ViewProviderShapeBinder.h"
+#include "ViewProviderSheetMetal.h"
 #include "ViewProviderSolid.h"
 #include "ViewProviderSolidBody.h"
 #include "ViewProviderSplit.h"
@@ -74,6 +79,7 @@
 void CreatePartDesignCommands();
 void CreatePartDesignBodyCommands();
 void CreatePartDesignPrimitiveCommands();
+void CreatePartDesignSheetMetalCommands();
 
 void loadPartDesignResource()
 {
@@ -131,6 +137,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     CreatePartDesignCommands();
     CreatePartDesignBodyCommands();
     CreatePartDesignPrimitiveCommands();
+    CreatePartDesignSheetMetalCommands();
 
     PartDesignGui::Workbench                 ::init();
     PartDesignGui::ViewProvider              ::init();
@@ -181,9 +188,55 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderWrap          ::init();
     PartDesignGui::ViewProviderAuxGroup      ::init();
     PartDesignGui::ViewProviderSolidBody     ::init();
+    PartDesignGui::ViewProviderSheetMetalBaseWall::init();
+    PartDesignGui::ViewProviderSheetMetalFlange::init();
+    PartDesignGui::ViewProviderSheetMetalContourFlange::init();
+    PartDesignGui::ViewProviderSheetMetalJoin::init();
+    PartDesignGui::ViewProviderSheetMetalBendCuts::init();
+    PartDesignGui::ViewProviderSheetMetalExtendWall::init();
+    PartDesignGui::ViewProviderSheetMetalHem::init();
+    PartDesignGui::ViewProviderSheetMetalCornerClosure::init();
+    PartDesignGui::ViewProviderSheetMetalCutout::init();
+    PartDesignGui::ViewProviderSheetMetalFold::init();
+    PartDesignGui::ViewProviderSheetMetalJog::init();
+    PartDesignGui::ViewProviderSheetMetalTab::init();
+    PartDesignGui::ViewProviderSheetMetalRule::init();
 
      // add resources and reloads the translators
     loadPartDesignResource();
+
+    // The Sheet Metal tool bar in PartDesign, offered while a solid body
+    // holding sheet metal is active or a sheet metal feature is in edit
+    // (docs/SheetMetal.md sec 8.1)
+    Gui::ToolContext::Spec sheetMetal;
+    sheetMetal.name = "SheetMetal";
+    sheetMetal.workbenches = {"PartDesignWorkbench"};
+    sheetMetal.toolbars = {{"Sheet Metal", [](Gui::ToolBarItem& item) {
+        item << "PartDesign_SheetMetalBaseWall"
+             << "PartDesign_SheetMetalFlange"
+             << "PartDesign_SheetMetalContourFlange"
+             << "PartDesign_SheetMetalJoin"
+             << "PartDesign_SheetMetalExtendWall"
+             << "PartDesign_SheetMetalHem"
+             << "PartDesign_SheetMetalCornerClosure"
+             << "PartDesign_SheetMetalCutout"
+             << "PartDesign_SheetMetalBendCuts"
+             << "PartDesign_SheetMetalFold"
+             << "PartDesign_SheetMetalJog"
+             << "PartDesign_SheetMetalTab"
+             << "Separator"
+             << "PartDesign_SheetMetalFlatten"
+             << "PartDesign_SheetMetalExportDXF"
+             << "PartDesign_SheetMetalCheck";
+    }}};
+    sheetMetal.activeKey = "pdsheetmetal";
+    sheetMetal.kind = "SheetMetal";
+    sheetMetal.inSolid = true;
+    sheetMetal.overlay = "PartDesign_SheetMetalOverlay.svg";
+    sheetMetal.applies = [](const App::DocumentObject* obj) {
+        return Part::BodyBase::typeKind(obj->getTypeId()) == "SheetMetal";
+    };
+    Gui::ToolContext::add(std::move(sheetMetal));
 
     PyMOD_Return(mod);
 }

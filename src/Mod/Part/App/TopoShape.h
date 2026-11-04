@@ -178,6 +178,9 @@ public:
     /** @name Placement control */
     //@{
     /// set the transformation of the CasCade Shape
+    /// Whether a transformation moves nothing, to within 1e-15: setTransform()
+    /// makes no location of it
+    static bool isIdentity(const gp_Trsf& trsf);
     void setTransform(const Base::Matrix4D& rclTrf) override;
     /// set the transformation of the CasCade Shape
     void setShapePlacement(const Base::Placement& rclTrf);

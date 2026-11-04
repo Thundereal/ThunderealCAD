@@ -80,30 +80,35 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
 
     Gui::ToolBarItem* surface = new Gui::ToolBarItem(root);
     surface->setCommand("Surface");
-    *surface << "Surface_Filling"
-             << "Surface_GeomFillSurface"
-             << "Surface_Sections"
-             << "Surface_Network"
-             << "Surface_BlendSurface"
-             << "Surface_TwoRailSweep"
-             << "Surface_PipeShell"
-             << "Surface_ExtendFace"
-             << "Surface_ExtendEdges"
-             << "Surface_Split"
-             << "Surface_Trim"
-             << "Surface_Untrim"
-             << "Surface_Sewing"
-             << "Surface_EdgeContinuity"
-             << "Surface_CurveOnMesh"
-             << "Surface_Isocurve"
-             << "Surface_CurveOnSurface"
-             << "Surface_IntersectionCurve"
-             << "Surface_JoinCurves"
-             << "Surface_ExtendCurve"
-             << "Surface_BlendCurve";
-    /*
-     *surface << "Surface_Cut";
-     */
+    addTools(*surface);
 
     return root;
+}
+
+void Workbench::addTools(Gui::ToolBarItem& toolbar)
+{
+    toolbar << "Surface_Filling"
+            << "Surface_GeomFillSurface"
+            << "Surface_Sections"
+            << "Surface_Network"
+            << "Surface_BlendSurface"
+            << "Surface_TwoRailSweep"
+            << "Surface_PipeShell"
+            << "Surface_ExtendFace"
+            << "Surface_ExtendEdges"
+            << "Surface_Split"
+            << "Surface_Trim"
+            << "Surface_Untrim"
+            << "Surface_Sewing"
+            << "Surface_EdgeContinuity"
+            << "Surface_CurveOnMesh"
+            << "Surface_Isocurve"
+            << "Surface_CurveOnSurface"
+            << "Surface_IntersectionCurve"
+            << "Surface_JoinCurves"
+            << "Surface_ExtendCurve"
+            << "Surface_BlendCurve";
+    /*
+     toolbar << "Surface_Cut";
+     */
 }

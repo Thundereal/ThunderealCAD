@@ -1,0 +1,115 @@
+---
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# ***************************************************************************
+# *                                                                         *
+# *   Copyright (c) 2026 Zheng Lei (realthunder) <realthunder.dev@gmail.com> *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+Model:
+  Name: 'SheetMetal'
+  UUID: '27cde1dc-d6bb-4b74-9002-4eb7f0228c9a'
+  URL: ''
+  Description: >
+    How a sheet of the material bends, for PartDesign's sheet metal: the stock
+    thicknesses with their default inner radius, K-factor and minimum flange;
+    the bend allowance method; and the measured bend table the table methods
+    read.
+  DOI: ''
+  Gauges:
+    DisplayName: "Gauges"
+    Type: '2DArray'
+    Columns:
+      Thickness:
+        Type: 'Quantity'
+        Units: 'mm'
+        URL: ''
+        Description: "Thickness of the stock"
+      InnerRadius:
+        DisplayName: "Inner Radius"
+        Type: 'Quantity'
+        Units: 'mm'
+        URL: ''
+        Description: "Default inner bend radius at this thickness"
+      KFactor:
+        DisplayName: "K-Factor"
+        Type: 'Float'
+        Units: ''
+        URL: ''
+        Description: "K-factor (ANSI): the neutral fibre at R + K T"
+      MinFlange:
+        DisplayName: "Minimum Flange"
+        Type: 'Quantity'
+        Units: 'mm'
+        URL: ''
+        Description: "Shortest flange the press brake can bend at this thickness"
+    URL: ''
+    Description: >
+      One row per stock thickness, ascending: what a sheet of that
+      thickness bends with unless a part says otherwise
+  AllowanceMethod:
+    DisplayName: "Allowance Method"
+    Type: 'String'
+    Units: ''
+    URL: ''
+    Description: >
+      How a bend's flat length is found: KFactor, KFactorDIN, DIN6935,
+      KTable, AllowanceTable or DeductionTable; KFactor when empty
+  BendTable:
+    DisplayName: "Bend Table"
+    Type: '2DArray'
+    Columns:
+      Thickness:
+        Type: 'Quantity'
+        Units: 'mm'
+        URL: ''
+        Description: "Thickness of the stock"
+      InnerRadius:
+        DisplayName: "Inner Radius"
+        Type: 'Quantity'
+        Units: 'mm'
+        URL: ''
+        Description: "Inner bend radius"
+      Angle:
+        Type: 'Quantity'
+        Units: 'deg'
+        URL: ''
+        Description: "Angle the sheet turns through: 90 for a right angle"
+      KFactor:
+        DisplayName: "K-Factor"
+        Type: 'Float'
+        Units: ''
+        URL: ''
+        Description: "K-factor (ANSI), read by the KTable method"
+      Allowance:
+        Type: 'Quantity'
+        Units: 'mm'
+        URL: ''
+        Description: "Bend allowance, read by the AllowanceTable method"
+      Deduction:
+        Type: 'Quantity'
+        Units: 'mm'
+        URL: ''
+        Description: "Bend deduction, read by the DeductionTable method"
+    URL: ''
+    Description: >
+      Measured bends, one per row, a value at every combination of the
+      thicknesses, radii and angles it lists; interpolated linearly between
+      them, its end values used outside them

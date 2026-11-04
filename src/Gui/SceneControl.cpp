@@ -940,6 +940,25 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("Surface_Filling"),
         QStringLiteral("Surface_GeomFillSurface"),
     };
+    // Sheet metal's that make an object from the selection and open nothing,
+    // saying a selection or a body they cannot use in the report view
+    // (docs/SheetMetal.md sec 8.2). Export Flat to DXF asks for a file, and
+    // is not here.
+    static const QSet<QString> sheetMetal = {
+        QStringLiteral("PartDesign_SheetMetalBaseWall"),
+        QStringLiteral("PartDesign_SheetMetalFlange"),
+        QStringLiteral("PartDesign_SheetMetalContourFlange"),
+        QStringLiteral("PartDesign_SheetMetalJoin"),
+        QStringLiteral("PartDesign_SheetMetalBendCuts"),
+        QStringLiteral("PartDesign_SheetMetalExtendWall"),
+        QStringLiteral("PartDesign_SheetMetalHem"),
+        QStringLiteral("PartDesign_SheetMetalCornerClosure"),
+        QStringLiteral("PartDesign_SheetMetalCutout"),
+        QStringLiteral("PartDesign_SheetMetalFold"),
+        QStringLiteral("PartDesign_SheetMetalJog"),
+        QStringLiteral("PartDesign_SheetMetalTab"),
+        QStringLiteral("PartDesign_SheetMetalFlatten"),
+    };
     // Sketcher_External's three siblings start the same handler in another
     // flavour; pressed while a constraint tool runs, each switches that
     // tool's outside picking to its flavour.
@@ -951,7 +970,8 @@ bool isBrowserSafeCommand(const QString &name)
         || name == QLatin1String("Sketcher_CarbonCopy")
         || constraints.contains(name)
         || sketch3d.contains(name)
-        || surface.contains(name);
+        || surface.contains(name)
+        || sheetMetal.contains(name);
 }
 
 /// The command a group's member `index` (1-based) runs, by the route the

@@ -84,11 +84,14 @@ public:
 
     /// A boundary of the B-spline surface of the face of `obj`
     static Where onBoundary(App::DocumentObject* obj, Surface::Geom::Boundary boundary);
-    /// The boundary of the surface of `obj` that the edge `link` lies on
-    static Where onEdge(App::DocumentObject* obj, App::PropertyLinkSub* link);
+    /// The boundary of the surface of `obj` that the edge `link` lies on,
+    /// `at` of the way along the edge as its curve runs
+    static Where onEdge(App::DocumentObject* obj, App::PropertyLinkSub* link, double at = 0.5);
     /// The same for the edge at `index` of `list`, counted from its end when
     /// negative (-1 the last)
     static Where onListEdge(App::DocumentObject* obj, App::PropertyLinkSubList* list, int index);
+    /// `where`, while `shown` says so
+    static Where when(std::function<bool()> shown, Where where);
 
 private:
     struct Marker

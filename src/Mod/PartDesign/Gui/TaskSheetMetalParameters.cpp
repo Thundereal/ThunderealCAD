@@ -1,0 +1,515 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+/***************************************************************************
+ *   Copyright (c) 2026 Zheng Lei (realthunder) <realthunder.dev@gmail.com> *
+ *                                                                         *
+ *   This file is part of the FreeCAD CAx development system.              *
+ *                                                                         *
+ *   This library is free software; you can redistribute it and/or         *
+ *   modify it under the terms of the GNU Library General Public           *
+ *   License as published by the Free Software Foundation; either          *
+ *   version 2 of the License, or (at your option) any later version.      *
+ *                                                                         *
+ *   This library  is distributed in the hope that it will be useful,      *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU Library General Public License for more details.                  *
+ *                                                                         *
+ *   You should have received a copy of the GNU Library General Public     *
+ *   License along with this library; see the file COPYING.LIB. If not,    *
+ *   write to the Free Software Foundation, Inc., 59 Temple Place,         *
+ *   Suite 330, Boston, MA  02111-1307, USA                                *
+ *                                                                         *
+ ***************************************************************************/
+
+#include "PreCompiled.h"
+
+#ifndef _PreComp_
+#include <algorithm>
+#include <cstring>
+
+#include <QAction>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QCoreApplication>
+#include <QGridLayout>
+#include <QLabel>
+#include <QListWidget>
+#include <QSpinBox>
+#include <QTimer>
+#include <QToolButton>
+#include <QVBoxLayout>
+#endif
+
+#include <App/Document.h>
+#include <App/PropertyStandard.h>
+#include <App/PropertyUnits.h>
+#include <Gui/QuantitySpinBox.h>
+#include <App/PropertyLinks.h>
+#include <Mod/Part/App/Part2DObject.h>
+#include <Mod/PartDesign/App/Body.h>
+#include <Mod/PartDesign/App/Feature.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
+#include <Mod/PartDesign/App/SheetMetalExtension.h>
+
+#include "TaskSheetMetalParameters.h"
+
+using namespace PartDesignGui;
+
+namespace
+{
+
+/// Elements of one kind of the feature built on
+class ElementGate: public Gui::SelectionGate
+{
+public:
+    ElementGate(App::DocumentObject* base, std::string element)
+        : base(base)
+        , element(std::move(element))
+    {}
+    bool allow(App::Document*, App::DocumentObject* obj, const char* sub) override
+    {
+        return obj && obj == base && sub && std::string(sub).rfind(element, 0) == 0;
+    }
+
+private:
+    App::DocumentObject* base;
+    std::string element;
+};
+
+QString number(double v)
+{
+    return QString::number(v, 'g', 6);
+}
+
+/// The sketches of obj's body it could take as a profile: none built on it
+std::vector<App::DocumentObject*> sketchesFor(App::DocumentObject* obj)
+{
+    std::vector<App::DocumentObject*> res;
+    auto body = obj ? PartDesign::Body::findBodyOf(obj) : nullptr;
+    if (!body) {
+        return res;
+    }
+    const auto after = obj->getInListRecursive();
+    for (auto child : body->Group.getValues()) {
+        if (child->isDerivedFrom<Part::Part2DObject>()
+            && std::find(after.begin(), after.end(), child) == after.end()) {
+            res.push_back(child);
+        }
+    }
+    return res;
+}
+
+}  // namespace
+
+/// A name as words, as the panel says it: MaterialSide is "Material side",
+/// Gap1 "Gap 1"
+QString PartDesignGui::sheetMetalWords(const char* name)
+{
+    const QString s = QString::fromLatin1(name);
+    QString out;
+    for (int i = 0; i < s.size(); ++i) {
+        const QChar c = s[i];
+        const bool upper = c.isUpper() && (i + 1 >= s.size() || !s[i + 1].isUpper());
+        if (i > 0 && (upper || (c.isDigit() && !s[i - 1].isDigit()))) {
+            out += QLatin1Char(' ');
+            out += c.toLower();
+        }
+        else {
+            out += c;
+        }
+    }
+    return QCoreApplication::translate("PartDesignGui::TaskSheetMetalParameters",
+                                       out.toUtf8().constData());
+}
+
+TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
+                                                   const std::string& pixmap,
+                                                   const QString& title,
+                                                   const std::vector<const char*>& values,
+                                                   const char* refs,
+                                                   const char* element)
+    : TaskFeatureParameters(vp, nullptr, pixmap, title)
+    , Gui::SelectionObserver(true, Gui::ResolveMode::OldStyleElement)
+    , names(values)
+    , refs(refs)
+    , element(element)
+{
+    proxy = new QWidget(this);
+    proxy->setObjectName(QStringLiteral("TaskSheetMetalParameters"));
+    auto layout = new QVBoxLayout(proxy);
+
+    auto grid = new QGridLayout;
+    int row = 0;
+    if (refs) {
+        // the member: the argument is a pointer, never equal to a literal but by chance
+        const QString kind = this->element == "Face" ? tr("faces") : tr("edges");
+        refList = new QListWidget(proxy);
+        refList->setObjectName(QStringLiteral("list") + QString::fromLatin1(refs));
+        refList->setMaximumHeight(110);
+        if (App::Property* prop = property(refs)) {
+            refList->setToolTip(QString::fromUtf8(prop->getDocumentation()));
+        }
+        auto remove = new QAction(tr("Remove"), refList);
+        remove->setShortcut(QKeySequence::Delete);
+        refList->addAction(remove);
+        refList->setContextMenuPolicy(Qt::ActionsContextMenu);
+        connect(remove, &QAction::triggered, this, &TaskSheetMetalParameters::removeCurrent);
+        grid->addWidget(refList, row++, 0, 1, 2);
+        addButton = new QToolButton(proxy);
+        addButton->setObjectName(QStringLiteral("buttonAdd"));
+        addButton->setText(tr("Add"));
+        addButton->setCheckable(true);
+        addButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        addButton->setToolTip(tr("Pick %1 in the view").arg(kind));
+        connect(addButton, &QToolButton::toggled, this, &TaskSheetMetalParameters::startPick);
+        grid->addWidget(addButton, row, 0);
+        auto removeButton = new QToolButton(proxy);
+        removeButton->setObjectName(QStringLiteral("buttonRemove"));
+        removeButton->setText(tr("Remove"));
+        removeButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        removeButton->setToolTip(tr("Take the one selected in the list out"));
+        connect(removeButton, &QToolButton::clicked, this, &TaskSheetMetalParameters::removeCurrent);
+        grid->addWidget(removeButton, row++, 1);
+    }
+    for (const char* name : names) {
+        addValue(grid, row++, name);
+    }
+    layout->addLayout(grid);
+
+    rule = new QLabel(proxy);
+    rule->setObjectName(QStringLiteral("labelRule"));
+    rule->setWordWrap(true);
+    layout->addWidget(rule);
+    status = new QLabel(proxy);
+    status->setObjectName(QStringLiteral("labelStatus"));
+    status->setWordWrap(true);
+    status->setStyleSheet(QStringLiteral("color: #d03030"));
+    layout->addWidget(status);
+
+    groupLayout()->addWidget(proxy);
+    // what is wrong said after any recompute, not only the panel's own: one
+    // that fails tells nothing of the object itself
+    if (auto obj = vp ? vp->getObject() : nullptr) {
+        recomputed = obj->getDocument()->signalRecomputed.connect(
+            [this](const App::Document&, const std::vector<App::DocumentObject*>&) {
+                QTimer::singleShot(0, this, [this] {
+                    // what a recompute made read only, too
+                    for (const auto& entry : boxes) {
+                        showValue(entry.first);
+                    }
+                    showStatus();
+                });
+            });
+        // a value set elsewhere -- the property editor, Python -- shown here
+        changed = obj->getDocument()->signalChangedObject.connect(
+            [this, obj](const App::DocumentObject& o, const App::Property& prop) {
+                if (&o != obj || !prop.getName()) {
+                    return;
+                }
+                if (boxes.count(prop.getName())) {
+                    showValue(prop.getName());
+                }
+                else if (this->refs && std::strcmp(prop.getName(), this->refs) == 0) {
+                    fillList();
+                }
+            });
+    }
+    refresh();
+}
+
+TaskSheetMetalParameters::~TaskSheetMetalParameters()
+{
+    if (picking) {
+        Gui::Selection().rmvSelectionGate();
+    }
+}
+
+App::Property* TaskSheetMetalParameters::property(const char* name) const
+{
+    auto obj = vp ? vp->getObject() : nullptr;
+    return obj ? obj->getPropertyByName(name) : nullptr;
+}
+
+void TaskSheetMetalParameters::addValue(QGridLayout* grid, int row, const char* name)
+{
+    App::Property* prop = property(name);
+    if (!prop) {
+        return;
+    }
+    const QString label = sheetMetalWords(name);
+    const QString tip = QString::fromUtf8(prop->getDocumentation());
+    QWidget* box = nullptr;
+    if (auto quantity = dynamic_cast<App::PropertyQuantity*>(prop)) {
+        auto spin = new Gui::QuantitySpinBox(proxy);
+        spin->setUnit(quantity->getUnit());
+        spin->setMinimum(dynamic_cast<App::PropertyDistance*>(prop) ? -1e9 : 0.0);
+        spin->setMaximum(1e9);
+        connect(spin,
+                qOverload<double>(&Gui::QuantitySpinBox::valueChanged),
+                this,
+                [this, name](double v) {
+                    if (auto q = dynamic_cast<App::PropertyQuantity*>(property(name))) {
+                        setupTransaction(tr(name));
+                        q->setValue(v);
+                        recomputeFeature();
+                    }
+                });
+        box = spin;
+    }
+    else if (auto count = dynamic_cast<App::PropertyInteger*>(prop)) {
+        auto spin = new QSpinBox(proxy);
+        auto constrained = dynamic_cast<App::PropertyIntegerConstraint*>(count);
+        auto range = constrained ? constrained->getConstraints() : nullptr;
+        spin->setRange(range ? static_cast<int>(range->LowerBound) : 0,
+                       range ? static_cast<int>(range->UpperBound) : 1000000);
+        connect(spin, qOverload<int>(&QSpinBox::valueChanged), this, [this, name](int v) {
+            if (auto i = dynamic_cast<App::PropertyInteger*>(property(name))) {
+                setupTransaction(tr(name));
+                i->setValue(v);
+                recomputeFeature();
+            }
+        });
+        box = spin;
+    }
+    else if (auto choice = dynamic_cast<App::PropertyEnumeration*>(prop)) {
+        auto combo = new QComboBox(proxy);
+        for (const auto& item : choice->getEnumVector()) {
+            combo->addItem(sheetMetalWords(item.c_str()));
+        }
+        connect(combo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, name](int i) {
+            if (auto e = dynamic_cast<App::PropertyEnumeration*>(property(name))) {
+                setupTransaction(tr(name));
+                e->setValue(static_cast<long>(i));
+                recomputeFeature();
+            }
+        });
+        box = combo;
+    }
+    else if (dynamic_cast<App::PropertyBool*>(prop)) {
+        auto check = new QCheckBox(label, proxy);
+        connect(check, &QCheckBox::toggled, this, [this, name](bool on) {
+            if (auto b = dynamic_cast<App::PropertyBool*>(property(name))) {
+                setupTransaction(tr(name));
+                b->setValue(on);
+                recomputeFeature();
+            }
+        });
+        box = check;
+    }
+    else if (dynamic_cast<App::PropertyLinkSub*>(prop)) {
+        // a sketch of the body, or none: the items are filled by showValue()
+        auto combo = new QComboBox(proxy);
+        connect(combo,
+                qOverload<int>(&QComboBox::currentIndexChanged),
+                this,
+                [this, name, combo](int i) {
+                    auto link = dynamic_cast<App::PropertyLinkSub*>(property(name));
+                    auto obj = vp ? vp->getObject() : nullptr;
+                    if (!link || !obj) {
+                        return;
+                    }
+                    const QByteArray chosen = combo->itemData(i).toByteArray();
+                    setupTransaction(tr(name));
+                    link->setValue(chosen.isEmpty()
+                                       ? nullptr
+                                       : obj->getDocument()->getObject(chosen.constData()));
+                    recomputeFeature();
+                });
+        box = combo;
+    }
+    if (!box) {
+        return;
+    }
+    box->setObjectName(QString::fromLatin1(name));
+    box->setToolTip(tip);
+    if (dynamic_cast<QCheckBox*>(box)) {
+        grid->addWidget(box, row, 0, 1, 2);
+    }
+    else {
+        grid->addWidget(new QLabel(label, proxy), row, 0);
+        grid->addWidget(box, row, 1);
+    }
+    boxes[name] = box;
+}
+
+void TaskSheetMetalParameters::showValue(const std::string& name)
+{
+    auto it = boxes.find(name);
+    App::Property* prop = property(name.c_str());
+    if (it == boxes.end() || !prop) {
+        return;
+    }
+    QWidget* box = it->second;
+    box->setEnabled(!prop->testStatus(App::Property::ReadOnly));
+    // only what differs: a box being typed in is left as it is
+    QSignalBlocker block(box);
+    if (auto q = dynamic_cast<App::PropertyQuantity*>(prop)) {
+        auto spin = static_cast<Gui::QuantitySpinBox*>(box);
+        if (spin->rawValue() != q->getValue()) {
+            spin->setValue(q->getValue());
+        }
+    }
+    else if (auto i = dynamic_cast<App::PropertyInteger*>(prop)) {
+        auto spin = static_cast<QSpinBox*>(box);
+        if (spin->value() != i->getValue()) {
+            spin->setValue(static_cast<int>(i->getValue()));
+        }
+    }
+    else if (auto e = dynamic_cast<App::PropertyEnumeration*>(prop)) {
+        auto combo = static_cast<QComboBox*>(box);
+        if (combo->currentIndex() != static_cast<int>(e->getValue())) {
+            combo->setCurrentIndex(static_cast<int>(e->getValue()));
+        }
+    }
+    else if (auto b = dynamic_cast<App::PropertyBool*>(prop)) {
+        auto check = static_cast<QCheckBox*>(box);
+        if (check->isChecked() != b->getValue()) {
+            check->setChecked(b->getValue());
+        }
+    }
+    else if (auto link = dynamic_cast<App::PropertyLinkSub*>(prop)) {
+        // the body's sketches as they are now, the linked one current
+        auto combo = static_cast<QComboBox*>(box);
+        combo->clear();
+        combo->addItem(tr("None"), QByteArray());
+        for (auto sketch : sketchesFor(vp ? vp->getObject() : nullptr)) {
+            combo->addItem(QString::fromUtf8(sketch->Label.getValue()),
+                           QByteArray(sketch->getNameInDocument()));
+        }
+        App::DocumentObject* linked = link->getValue();
+        const int at =
+            linked ? combo->findData(QByteArray(linked->getNameInDocument())) : 0;
+        if (at < 0) {
+            // linked, but not one of the body's sketches: shown all the same
+            combo->addItem(QString::fromUtf8(linked->Label.getValue()),
+                           QByteArray(linked->getNameInDocument()));
+            combo->setCurrentIndex(combo->count() - 1);
+        }
+        else {
+            combo->setCurrentIndex(at);
+        }
+    }
+}
+
+void TaskSheetMetalParameters::refresh()
+{
+    for (const auto& entry : boxes) {
+        showValue(entry.first);
+    }
+    fillList();
+    showStatus();
+}
+
+App::PropertyLinkSub* TaskSheetMetalParameters::references() const
+{
+    return refs ? dynamic_cast<App::PropertyLinkSub*>(property(refs)) : nullptr;
+}
+
+App::DocumentObject* TaskSheetMetalParameters::builtOn() const
+{
+    auto feature = vp ? dynamic_cast<PartDesign::Feature*>(vp->getObject()) : nullptr;
+    return feature ? feature->BaseFeature.getValue() : nullptr;
+}
+
+void TaskSheetMetalParameters::fillList()
+{
+    auto list = references();
+    if (!refList || !list) {
+        return;
+    }
+    QSignalBlocker block(refList);
+    refList->clear();
+    for (const auto& sub : list->getSubValues()) {
+        refList->addItem(QString::fromStdString(sub));
+    }
+}
+
+void TaskSheetMetalParameters::showStatus()
+{
+    auto obj = vp ? vp->getObject() : nullptr;
+    status->setText(!obj || obj->isValid() ? QString() : QString::fromUtf8(obj->getStatusString()));
+    auto sheet = obj ? obj->getExtensionByType<PartDesign::SheetMetalExtension>(true) : nullptr;
+    auto r = sheet ? sheet->getRule() : nullptr;
+    if (!r) {
+        rule->setText(tr("No rule"));
+        return;
+    }
+    rule->setText(tr("Rule %1: %2 mm thick, %3 mm inner radius, K %4")
+                      .arg(QString::fromUtf8(r->Label.getValue()),
+                           number(r->Thickness.getValue()),
+                           number(r->BendRadius.getValue()),
+                           number(r->KFactor.getValue())));
+}
+
+void TaskSheetMetalParameters::finishedRecomputeFeature()
+{
+    showStatus();
+}
+
+void TaskSheetMetalParameters::startPick(bool on)
+{
+    if (on == picking || !references()) {
+        return;
+    }
+    if (on) {
+        Gui::Selection().clearSelection();
+        Gui::Selection().addSelectionGate(new ElementGate(builtOn(), element));
+    }
+    else {
+        Gui::Selection().rmvSelectionGate();
+    }
+    picking = on;
+}
+
+void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
+{
+    auto list = references();
+    if (!picking || !list || msg.Type != Gui::SelectionChanges::AddSelection) {
+        return;
+    }
+    App::DocumentObject* base = builtOn();
+    App::DocumentObject* obj = msg.Object.getObject();
+    const std::string sub = msg.pSubName ? msg.pSubName : "";
+    if (!base || obj != base || sub.rfind(element, 0) != 0) {
+        return;
+    }
+    auto subs = list->getSubValues();
+    if (std::find(subs.begin(), subs.end(), sub) == subs.end()) {
+        setupTransaction(element == "Face" ? tr("add a face") : tr("add an edge"));
+        subs.push_back(sub);
+        list->setValue(base, subs);
+        fillList();
+        recomputeFeature();
+    }
+    QTimer::singleShot(50, this, [] {
+        Gui::Selection().clearSelection();
+    });
+}
+
+void TaskSheetMetalParameters::removeCurrent()
+{
+    auto list = references();
+    const int row = refList ? refList->currentRow() : -1;
+    if (!list || row < 0) {
+        return;
+    }
+    auto subs = list->getSubValues();
+    if (row >= static_cast<int>(subs.size())) {
+        return;
+    }
+    setupTransaction(element == "Face" ? tr("remove a face") : tr("remove an edge"));
+    subs.erase(subs.begin() + row);
+    list->setValue(list->getValue(), subs);
+    fillList();
+    recomputeFeature();
+}
+
+TaskDlgSheetMetalParameters::TaskDlgSheetMetalParameters(ViewProvider* vp,
+                                                         TaskSheetMetalParameters* panel)
+    : TaskDlgFeatureParameters(vp)
+{
+    Content.push_back(panel);
+}
+
+#include "moc_TaskSheetMetalParameters.cpp"

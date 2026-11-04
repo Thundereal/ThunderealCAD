@@ -138,6 +138,7 @@ public:
         auto widget = new QWidget();
         auto layout = new QVBoxLayout(widget);
         status = new QLabel(widget);
+        status->setObjectName(QStringLiteral("Sketch3DStatus"));
         status->setWordWrap(true);
         status->setTextFormat(Qt::RichText);
         // a constraint number in the solver's message selects that constraint
@@ -479,6 +480,9 @@ struct ViewProviderSketch3D::EditData
     // The kept plane points are put on (section 6), or -1.
     int keptPlane {-1};
     std::unique_ptr<QObject> deleteFilter;
+    /// The status (DoF, conflicts) changes with a solve, with or without a
+    /// property changing: drawn again after each
+    fastsignals::scoped_connection solverUpdate;
     std::unique_ptr<ParameterGrp::ObserverType> colorObserver;
     // Typed values: the entries open, what a placement typed adds to the segment it
     // makes, and the ring turn the angle's entry sets
@@ -525,6 +529,8 @@ struct ViewProviderSketch3D::EditData
 
         auto curves = new SoSeparator();
         curveMaterial = new SoMaterial();
+        // PER_PART on a line set is a colour per segment (draw() repeats each
+        // curve's for its segments); the picks read the part index this way
         auto binding = new SoMaterialBinding();
         binding->value = SoMaterialBinding::PER_PART;
         curveStyle = new SoDrawStyle();
@@ -1251,7 +1257,7 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos, bool ctrl)
     // A curve: selected.
     if (pp && pp->getPath()->getTail() == edit->curveLines) {
         auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
-        int part = detail ? detail->getPartIndex() : -1;
+        int part = detail ? detail->getLineIndex() : -1;  // the polyline: a curve
         if (part >= 0 && part < int(edit->curveRefs.size())) {
             Element e {edit->curveRefs[part], Sketcher::PointPos::none};
             select(e);
@@ -1346,6 +1352,40 @@ bool ViewProviderSketch3D::release(const SbVec2s& /*pos*/)
     return dragged;
 }
 
+namespace
+{
+
+/// A quantity's value, its unit dropped
+bool quantityOf(const QString& s, double& v)
+{
+    try {
+        v = Base::Quantity::parse(s.trimmed().toStdString()).getValue();
+        return true;
+    }
+    catch (const Base::Exception&) {
+        return false;
+    }
+}
+
+/// Three offsets typed for a placement, "dx, dy, dz": commas, semicolons or
+/// spaces between
+bool threeOffsets(const QString& text, double v[3])
+{
+    static const QRegularExpression separators(QStringLiteral("[,;]|\\s+(?=[-+.0-9])"));
+    QStringList parts = text.split(separators, Qt::SkipEmptyParts);
+    return parts.size() == 3 && quantityOf(parts[0], v[0]) && quantityOf(parts[1], v[1])
+        && quantityOf(parts[2], v[2]);
+}
+
+/// A distance's kind typed with its value: "x 20", "y 20", "z 20", "d 20"
+const QRegularExpression& kindText()
+{
+    static const QRegularExpression re(QStringLiteral("^\\s*([xyzdXYZD])\\s*([-+.0-9].*)$"));
+    return re;
+}
+
+}  // namespace
+
 namespace SketcherGui
 {
 
@@ -1377,6 +1417,11 @@ public:
     void setText(const QString& text)
     {
         editor->setText(text);
+    }
+
+    void setTextReader(Gui::DatumValueEditor::TextReader reader)
+    {
+        editor->setTextReader(std::move(reader));
     }
 
     void finish()
@@ -1452,6 +1497,18 @@ bool ViewProviderSketch3D::startTypedPlacement(const QString& text)
                     edit->placing = nullptr;
                 }
             });
+        // three offsets are no value, but Enter takes them: said as what they do
+        edit->placing->setTextReader([](const QString& typed, QString& says) {
+            double v[3];
+            if (!threeOffsets(typed, v)) {
+                return false;
+            }
+            says = QObject::tr("A point at %1, %2, %3 from the last")
+                       .arg(QString::number(v[0], 'g', 6),
+                            QString::number(v[1], 'g', 6),
+                            QString::number(v[2], 'g', 6));
+            return true;
+        });
     }
     edit->placing->setText(text);
     return true;
@@ -1473,25 +1530,13 @@ bool ViewProviderSketch3D::placeTyped(const QString& text, QString* why)
     if (!edit || edit->tool == Tool::None || edit->tool == Tool::Fillet) {
         return fail(QObject::tr("No tool placing points"));
     }
-    auto quantity = [](const QString& s, double& v) {
-        try {
-            v = Base::Quantity::parse(s.trimmed().toStdString()).getValue();
-            return true;
-        }
-        catch (const Base::Exception&) {
-            return false;
-        }
-    };
     // one value, a length; else three, the offsets
     double length = 0.;
     Base::Vector3d offset;
-    bool isLength = quantity(text, length);
+    bool isLength = quantityOf(text, length);
     if (!isLength) {
-        static const QRegularExpression separators(QStringLiteral("[,;]|\\s+(?=[-+.0-9])"));
-        QStringList parts = text.split(separators, Qt::SkipEmptyParts);
         double v[3];
-        if (parts.size() != 3 || !quantity(parts[0], v[0]) || !quantity(parts[1], v[1])
-            || !quantity(parts[2], v[2])) {
+        if (!threeOffsets(text, v)) {
             return fail(QObject::tr("A length, or three offsets: dx, dy, dz"));
         }
         offset = Base::Vector3d(v[0], v[1], v[2]);
@@ -1691,7 +1736,7 @@ bool ViewProviderSketch3D::takePlaneAt(const SbVec2s& pos, SoPickedPoint* pp)
     // A kept plane: active again.
     if (pp && pp->getPath()->getTail() == edit->curveLines) {
         auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
-        int part = detail ? detail->getPartIndex() : -1;
+        int part = detail ? detail->getLineIndex() : -1;  // the polyline: a curve
         if (part >= 0 && part < int(edit->curveRefs.size())) {
             auto geo = getSketch3DObject()->getGeometry(edit->curveRefs[part]);
             if (geo && geo->isDerivedFrom<Part::GeomPlane>()) {
@@ -2017,7 +2062,7 @@ bool ViewProviderSketch3D::place(const SbVec2s& pos, Placed& placed) const
         }
         else if (tail == edit->curveLines) {
             auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
-            int part = detail ? detail->getPartIndex() : -1;
+            int part = detail ? detail->getLineIndex() : -1;  // the polyline: a curve
             if (part >= 0 && part < int(edit->curveRefs.size())) {
                 int geoId = edit->curveRefs[part];
                 auto curve =
@@ -2840,6 +2885,19 @@ public:
         Base::Placement plane =
             Base::Placement(vp->editingTransform()) * vp->edit->labelPlanes[index];
         editor = std::make_unique<Gui::DatumValueEditor>(viewer, plane);
+        // a distance's kind with its value is no value, but Enter takes it
+        editor->setTextReader([](const QString& typed, QString& says) {
+            auto match = kindText().match(typed);
+            double v = 0;
+            if (!match.hasMatch() || !quantityOf(match.captured(2), v)) {
+                return false;
+            }
+            const QChar kind = match.captured(1).at(0).toUpper();
+            says = kind == QLatin1Char('D')
+                ? QObject::tr("Distance %1").arg(match.captured(2).trimmed())
+                : QObject::tr("Distance %1 %2").arg(kind).arg(match.captured(2).trimmed());
+            return true;
+        });
         editor->setDrivingIcons(
             Gui::BitmapFactory().iconFromTheme("Sketcher_Toggle_Constraint_Driving"),
             Gui::BitmapFactory().iconFromTheme("Sketcher_Toggle_Constraint_Driven"));
@@ -2958,9 +3016,7 @@ public:
      */
     int retyped(int index)
     {
-        static const QRegularExpression kindText(
-            QStringLiteral("^\\s*([xyzdXYZD])\\s*([-+.0-9].*)$"));
-        auto match = kindText.match(editor->text());
+        auto match = kindText().match(editor->text());
         if (!match.hasMatch()) {
             return 0;
         }
@@ -4420,6 +4476,11 @@ void ViewProviderSketch3D::drawLabels()
                 }
                 if (ok) {
                     Base::Vector3d x = (s0 - c0).Normalize();
+                    // in the arc's plane, from its front: seen from behind the
+                    // text reads mirrored
+                    if (n * toEye < 0) {
+                        n = -n;
+                    }
                     plane = Base::Placement(c0, Base::Rotation::makeRotationByAxes(x, n % x, n));
                     double r = (s0 - c0).Length();
                     p = c0;
@@ -4450,6 +4511,12 @@ void ViewProviderSketch3D::drawLabels()
                         Base::Vector3d vertex = ((a1 + d1 * s1) + (a2 + d2 * s2)) / 2;
                         Base::Vector3d x = Base::Vector3d(d1).Normalize();
                         n.Normalize();
+                        // from the front, the arc from the second line round to
+                        // the first: the same arc, its text not mirrored
+                        if (n * toEye < 0) {
+                            n = -n;
+                            x = Base::Vector3d(d2).Normalize();
+                        }
                         plane = Base::Placement(vertex,
                                                 Base::Rotation::makeRotationByAxes(x, n % x, n));
                         datumType = Gui::SoDatumLabel::ANGLE;
@@ -4616,6 +4683,9 @@ bool ViewProviderSketch3D::setEdit(int ModNum)
     Gui::getMainWindow()->installEventFilter(edit->deleteFilter.get());
     edit->dialog->list->installEventFilter(edit->deleteFilter.get());  // Delete in the list
     edit->colorObserver = std::make_unique<Sketch3DColorObserver>(this);
+    edit->solverUpdate = getSketch3DObject()->signalSolverUpdate.connect([this] {
+        draw();
+    });
 
     Workbench::enterEditMode();
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),
@@ -4876,8 +4946,14 @@ void ViewProviderSketch3D::draw()
     edit->curveCoords->point.setNum(int(coords.size()));
     edit->curveLines->numVertices.setValues(0, int(counts.size()), counts.data());
     edit->curveLines->numVertices.setNum(int(counts.size()));
-    edit->curveMaterial->diffuseColor.setValues(0, int(colors.size()), colors.data());
-    edit->curveMaterial->diffuseColor.setNum(int(colors.size()));
+    // a colour per segment, as the binding is: a curve's own for each of its
+    // segments, or an arc's would take the colours of the curves after it
+    std::vector<SbColor> segmentColors;
+    for (std::size_t i = 0; i < counts.size() && i < colors.size(); ++i) {
+        segmentColors.insert(segmentColors.end(), std::max(1, counts[i] - 1), colors[i]);
+    }
+    edit->curveMaterial->diffuseColor.setValues(0, int(segmentColors.size()), segmentColors.data());
+    edit->curveMaterial->diffuseColor.setNum(int(segmentColors.size()));
     edit->curveStyle->lineWidth = 2.f * scale;
 
     edit->pointCoords->point.setValues(0, int(pts.size()), pts.data());

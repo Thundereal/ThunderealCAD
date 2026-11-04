@@ -31,6 +31,7 @@
 #include <Base/Tools.h>
 #include <App/Datums.h>
 #include <App/Document.h>
+#include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/Part/App/DatumFeature.h>
 #include <Mod/Part/App/PartParams.h>
@@ -38,6 +39,7 @@
 #include "Body.h"
 #include "Feature.h"
 #include "FeatureSolid.h"
+#include "FeatureSheetMetalRule.h"
 #include "SolidBody.h"
 #include "AuxGroup.h"
 
@@ -95,6 +97,8 @@ AuxGroup::GroupType AuxGroup::getGroupType() const
         groupType = DatumGroup;
     else if (boost::starts_with(getNameInDocument(), "Misc"))
         groupType = MiscGroup;
+    else if (boost::starts_with(getNameInDocument(), "Surfaces"))
+        groupType = SurfaceGroup;
     else
         groupType = OtherGroup;
     return groupType;
@@ -120,13 +124,17 @@ bool AuxGroup::isObjectAllowed(const App::DocumentObject *obj) const
         return type.isDerivedFrom(Part::Part2DObject::getClassTypeId());
     case DatumGroup:
         return isDatum;
+    case SurfaceGroup:
+        return Part::BodyBase::typeKind(type) == "Surface";
     case MiscGroup:
         return !type.isDerivedFrom(Part::Part2DObject::getClassTypeId())
             && !isDatum
             && !type.isDerivedFrom(Feature::getClassTypeId())
             && !type.isDerivedFrom(Solid::getClassTypeId())
             && !type.isDerivedFrom(SolidBody::getClassTypeId())
-            && !type.isDerivedFrom(AuxGroup::getClassTypeId());
+            && !type.isDerivedFrom(AuxGroup::getClassTypeId())
+            // left to the solid bodies of the sheets using it
+            && !type.isDerivedFrom(SheetMetalRule::getClassTypeId());
     case OtherGroup:
         return !type.isDerivedFrom(AuxGroup::getClassTypeId())
             && !type.isDerivedFrom(SolidBody::getClassTypeId())
@@ -167,8 +175,19 @@ void AuxGroup::refresh()
         }
     }
     else {
+        // the surfaces are not Misc's where a surface group holds them
+        bool surfaceGroup = false;
+        if (getGroupType() == MiscGroup) {
+            for (auto obj : body->Group.getValues()) {
+                auto group = freecad_cast<AuxGroup*>(obj);
+                if (group && group->getGroupType() == SurfaceGroup)
+                    surfaceGroup = true;
+            }
+        }
         for (auto obj : body->Group.getValues()) {
-            if (isObjectAllowed(obj))
+            if (isObjectAllowed(obj)
+                    && !(surfaceGroup
+                         && Part::BodyBase::typeKind(obj->getTypeId()) == "Surface"))
                 children.push_back(obj);
         }
     }

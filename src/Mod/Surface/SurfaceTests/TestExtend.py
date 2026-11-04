@@ -228,3 +228,31 @@ class TestExtend(unittest.TestCase):
         self.recompute(e)
         self.assertEqual(e.Mode, "Face")
         self.assertGreater(e.Shape.Area, src.Shape.Area * 1.15)
+
+    def testUpToAFaceOnACurlingFace(self):
+        """A face that curls: carried far, its natural extension folds back
+        on itself and would miss a wall a short one meets"""
+
+        def curl(u, v):
+            x, y = 24 * u, 16 * v
+            return V(x, y, 4 * math.sin(x / 6) + 0.5 * math.cos(y / 4))
+
+        s = Part.BSplineSurface()
+        s.interpolate([[curl(i / 8, j / 6) for j in range(7)] for i in range(9)])
+        src = self.doc.addObject("Part::Feature", "Src")
+        src.Shape = s.toShape()
+        wall = self.doc.addObject("Part::Plane", "Wall")
+        wall.Length, wall.Width = 60, 40
+        wall.Placement = App.Placement(V(30, -10, -30), App.Rotation(V(0, 1, 0), -90))
+        self.doc.recompute()
+        name = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(src.Shape.Edges)
+            if abs(e.BoundBox.XMin - 24) < 1e-6 and abs(e.BoundBox.XMax - 24) < 1e-6
+        ][0]
+        e = self.extend(src, [name], 1)
+        e.UpTo = (wall, "Face1")
+        self.recompute(e)
+        bb = e.Shape.optimalBoundingBox(False, False)
+        self.assertAlmostEqual(bb.XMax, 30, places=4)
+        self.assertAlmostEqual(bb.XMin, 0, places=5)

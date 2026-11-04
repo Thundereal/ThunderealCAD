@@ -29,6 +29,8 @@
 #include <QCoreApplication>
 
 #include <App/DocumentObserver.h>
+#include <App/PropertyGeo.h>
+#include <App/PropertyStandard.h>
 #include <Mod/Part/Gui/ViewProvider.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
@@ -103,12 +105,27 @@ class PartDesignGuiExport ViewProviderSolidBody : public PartGui::ViewProviderPa
     using inherited = PartGui::ViewProviderPart;
 
 public:
+    /** While the sheet's Flatten is on, what each feature shown draws: Flat,
+     * Folded, or Both (docs/SheetMetal.md sec 12)
+     */
+    App::PropertyEnumeration SheetView;
+    /// The flat drawn moved by this, in the frame it is laid in: off the
+    /// folded part, in Both
+    App::PropertyVectorDistance FlatOffset;
+
     ViewProviderSolidBody();
     ~ViewProviderSolidBody() override;
 
     void updateData(const App::Property *prop) override;
+    void onChanged(const App::Property *prop) override;
     std::vector<App::DocumentObject*> claimChildren() const override;
 
+    /// With the overlay of the tool context its features are of, if any
+    /// (Gui::ToolContext::Spec::inSolid), e.g. sheet metal's
+    QIcon getIcon() const override;
+    /// A solid of such a context: made active in the view under the context's
+    /// key, or let go, which offers or takes away its tool bars
+    bool doubleClicked() override;
     void getExtraIcons(std::vector<std::pair<QByteArray, QPixmap> > &icons) const override;
     QString getToolTip(const QByteArray &iconTag) const override;
     bool canDragIcon(const QByteArray &iconTag) const override;
@@ -143,6 +160,8 @@ protected:
     bool setEdit(int ModNum) override;
 
 private:
+    /// Each feature of the solid draws its flat again (ViewProvider::refreshFlat())
+    void refreshFlats() const;
     /// The feature the solid is seen through in the 3D view, or null
     Gui::ViewProviderDocumentObject *shownFeature() const;
 };

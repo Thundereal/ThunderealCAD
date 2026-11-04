@@ -48,29 +48,46 @@ BodyBase::BodyBase()
 
 namespace
 {
-std::vector<Base::Type>& allowedTypes()
+/// The types registered, each with its kind
+std::vector<std::pair<Base::Type, std::string>>& allowedTypes()
 {
-    static std::vector<Base::Type> types;
+    static std::vector<std::pair<Base::Type, std::string>> types;
     return types;
 }
 }  // namespace
 
-void BodyBase::allowType(Base::Type type)
+void BodyBase::allowType(Base::Type type, const char* kind)
 {
     auto& types = allowedTypes();
-    if (std::find(types.begin(), types.end(), type) == types.end()) {
-        types.push_back(type);
+    auto it = std::find_if(types.begin(), types.end(), [type](const auto& entry) {
+        return entry.first == type;
+    });
+    if (it == types.end()) {
+        types.emplace_back(type, kind ? kind : "");
+    }
+    else if (kind) {
+        it->second = kind;
     }
 }
 
 bool BodyBase::isTypeAllowed(Base::Type type)
 {
-    for (const auto& t : allowedTypes()) {
-        if (type.isDerivedFrom(t)) {
+    for (const auto& entry : allowedTypes()) {
+        if (type.isDerivedFrom(entry.first)) {
             return true;
         }
     }
     return false;
+}
+
+std::string BodyBase::typeKind(Base::Type type)
+{
+    for (const auto& entry : allowedTypes()) {
+        if (!entry.second.empty() && type.isDerivedFrom(entry.first)) {
+            return entry.second;
+        }
+    }
+    return {};
 }
 
 BodyBase* BodyBase::findBodyOf(const App::DocumentObject* f)

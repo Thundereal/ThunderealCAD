@@ -37,6 +37,10 @@ public:
     Workbench();
     ~Workbench() override;
 
+    /// The Surface tool bar's commands: its own, and PartDesign's when a
+    /// surface group is active (Gui::ToolContext)
+    static void addTools(Gui::ToolBarItem& toolbar);
+
 protected:
     Gui::MenuItem* setupMenuBar() const override;
     Gui::ToolBarItem* setupToolBars() const override;

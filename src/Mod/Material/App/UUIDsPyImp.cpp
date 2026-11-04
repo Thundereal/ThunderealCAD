@@ -168,6 +168,11 @@ Py::String UUIDsPy::getThermal() const
     return Py::String(ModelUUIDs::ModelUUID_Thermal_Default.toStdString());
 }
 
+Py::String UUIDsPy::getSheetMetal() const
+{
+    return Py::String(ModelUUIDs::ModelUUID_SheetMetal_SheetMetal.toStdString());
+}
+
 Py::String UUIDsPy::getElectromagnetic() const
 {
     return Py::String(ModelUUIDs::ModelUUID_Electromagnetic_Default.toStdString());

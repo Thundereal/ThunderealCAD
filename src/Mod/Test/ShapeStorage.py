@@ -1161,6 +1161,11 @@ class ShapeCongruenceCases(ShapeTestCase):
         The near-miss this guards against is real: an exact cylinder and the
         spline transformGeometry() writes for it share every vertex, every edge
         midpoint, their area and their volume, and are not the same shape.
+
+        So the proof is the hole's surface: a cylinder in the first, a B-spline
+        in the second. The volume once told them apart, by the integral's error
+        on the spline (1e-6 and more); the fork's span-by-span integral reads
+        both to 1.2e-10 (occt 89c3ee61f3).
         """
         project, volumes, _ = self.savedWith(True, "CongDistinct")
         doc = self.openDocument(project)
@@ -1169,11 +1174,15 @@ class ShapeCongruenceCases(ShapeTestCase):
         # differ by 1e-6 only because the integral was inexact on a B-spline,
         # and once OCCT integrated one span by span they agreed to 1e-10.
         def kinds(name):
-            return {face.Surface.TypeId for face in doc.getObject(name).Shape.Faces}
+            return {f.Surface.TypeId for f in doc.getObject(name).Shape.Faces}
 
-        message = "an approximation was stored in place of the shape it approximates"
-        self.assertIn("Part::GeomCylinder", kinds("First"), message)
-        self.assertNotIn("Part::GeomCylinder", kinds("Second"), message)
+        self.assertIn("Part::GeomCylinder", kinds("First"))
+        self.assertNotIn(
+            "Part::GeomCylinder",
+            kinds("Second"),
+            "an approximation was stored in place of the shape it approximates",
+        )
+        self.assertIn("Part::GeomBSplineSurface", kinds("Second"))
 
     def testSwitchedOffNothingIsShared(self):
         plain, volumes, centres = self.savedWith(False, "CongDisabled")

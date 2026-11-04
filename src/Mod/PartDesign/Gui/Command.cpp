@@ -54,6 +54,7 @@
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>
 #include <Mod/Sketcher/App/SketchObject.h>
+#include <Mod/Part/App/PartParams.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/FeatureBoolean.h>
 #include <Mod/PartDesign/App/FeatureGroove.h>
@@ -544,6 +545,8 @@ void CmdPartDesignClone::activated(int iMsg)
                           << "Group = [" << getObjectCmd(cloneObj) << "]");
         Gui::cmdAppObject(bodyObj, std::stringstream()
                           << "Tip = " << getObjectCmd(cloneObj));
+        if (Part::PartParams::getAutoAuxGroup())
+            Gui::cmdAppObject(bodyObj, std::stringstream() << "setAutoAuxGroup(True)");
 
         // In the second step set the link of the base feature
         Gui::cmdAppObject(cloneObj, std::stringstream()

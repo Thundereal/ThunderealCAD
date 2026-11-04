@@ -76,9 +76,12 @@ Handle(Geom_BSplineSurface) surfaceOf(App::DocumentObject* obj)
 }
 
 /// The marker of the boundary of the surface of `obj` that the edge `sub` of
-/// `source` lies on; none if it is not one edge, or on none
-std::optional<Geom::BoundaryMarker>
-markerOnEdge(App::DocumentObject* obj, App::DocumentObject* source, const std::string& sub)
+/// `source` lies on, `at` of the way along the edge as its curve runs; none
+/// if it is not one edge, or on none
+std::optional<Geom::BoundaryMarker> markerOnEdge(App::DocumentObject* obj,
+                                                 App::DocumentObject* source,
+                                                 const std::string& sub,
+                                                 double at = 0.5)
 {
     auto s = surfaceOf(obj);
     if (s.IsNull() || !source) {
@@ -116,7 +119,12 @@ markerOnEdge(App::DocumentObject* obj, App::DocumentObject* source, const std::s
     if (b < 0) {
         return std::nullopt;
     }
-    return Geom::boundaryMarker(s, Geom::Boundary(b));
+    // the boundary's parameter may run against the edge
+    gp_Pnt start = Geom::boundaryMarker(s, Geom::Boundary(b), 0).middle;
+    if (start.Distance(c->Value(last)) < start.Distance(c->Value(first))) {
+        at = 1 - at;
+    }
+    return Geom::boundaryMarker(s, Geom::Boundary(b), at);
 }
 
 }  // namespace
@@ -133,16 +141,27 @@ EdgeMarkers::Where EdgeMarkers::onBoundary(App::DocumentObject* obj, Geom::Bound
     };
 }
 
-EdgeMarkers::Where EdgeMarkers::onEdge(App::DocumentObject* obj, App::PropertyLinkSub* link)
+EdgeMarkers::Where
+EdgeMarkers::onEdge(App::DocumentObject* obj, App::PropertyLinkSub* link, double at)
 {
     App::DocumentObjectT objT(obj);
-    return [objT, link]() -> std::optional<Geom::BoundaryMarker> {
+    return [objT, link, at]() -> std::optional<Geom::BoundaryMarker> {
         auto obj = objT.getObject();
         if (!obj) {
             return std::nullopt;
         }
         const auto& subs = link->getSubValues();
-        return markerOnEdge(obj, link->getValue(), subs.empty() ? std::string() : subs.front());
+        return markerOnEdge(obj,
+                            link->getValue(),
+                            subs.empty() ? std::string() : subs.front(),
+                            at);
+    };
+}
+
+EdgeMarkers::Where EdgeMarkers::when(std::function<bool()> shown, Where where)
+{
+    return [shown = std::move(shown), where = std::move(where)]() {
+        return shown() ? where() : std::nullopt;
     };
 }
 
@@ -196,7 +215,15 @@ void EdgeMarkers::add(const QString& title,
     }
     // the handle's own box, hidden, kept with the panel's
     auto box = new Gui::QuantitySpinBox(panel);
-    box->setObjectName(weight->objectName() + QLatin1String("InView"));
+    // a name of its own where two markers work one weight
+    QString boxName = weight->objectName() + QLatin1String("InView");
+    int same = 0;
+    for (const auto& m : markers) {
+        if (m.box->objectName().startsWith(boxName)) {
+            ++same;
+        }
+    }
+    box->setObjectName(same ? boxName + QString::number(same + 1) : boxName);
     box->hide();
     box->setDecimals(weight->decimals());
     box->setRange(weight->minimum(), weight->maximum());

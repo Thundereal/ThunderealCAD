@@ -151,6 +151,51 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
                                        const TopoDS_Face &face,
                                        double depth);
 
+// --- TKOffset: the fork's offset fix level ------------------------------
+
+/// The OCCT fork's offset fix level a new object of a feature that offsets
+/// is made at (its _OffsetFixLevel): the highest this FreeCAD knows. A
+/// correction of the fork's that moves the shapes it changes no further than
+/// their tolerances is made at every level and needs none.
+///  1 -- makes nothing differently now: it brought the filleted B-spline
+///       dome outward with the Intersection join (the fork's
+///       tests/fork/thickness/models/Thickness.md sec 31), made at every
+///       level since (sec 32). Objects made at 1 keep it, so the next level
+///       is 2.
+constexpr int OCCTOffsetFixLevelLatest = 1;
+
+/// Sets, for the calling thread, the OCCT fork's offset fix level
+/// (BRepOffset_SetFixLevel): which of the fork's corrections to the offset
+/// and thickness are made that give a different shape than before for some
+/// input. Returns the level set before; -1 without the fork's function, where
+/// nothing is set. OCCTOffsetFixLevel holds it for a scope.
+PartExport int setOCCTOffsetFixLevel(int level);
+
+/** The OCCT fork's offset fix level on the calling thread for as long as
+ * this lives, and as it was after. A feature that offsets holds its
+ * _OffsetFixLevel with it while it recomputes: 0 for an object a file from
+ * before the level brings, which so recomputes as it did; the latest for one
+ * made from now on (OCCTOffsetFixLevelLatest). Nothing where the OCCT
+ * libraries lack the level.
+ */
+class OCCTOffsetFixLevel
+{
+public:
+    explicit OCCTOffsetFixLevel(int level)
+        : previous(setOCCTOffsetFixLevel(level))
+    {}
+    ~OCCTOffsetFixLevel()
+    {
+        if (previous >= 0)
+            setOCCTOffsetFixLevel(previous);
+    }
+    OCCTOffsetFixLevel(const OCCTOffsetFixLevel &) = delete;
+    OCCTOffsetFixLevel &operator=(const OCCTOffsetFixLevel &) = delete;
+
+private:
+    int previous;
+};
+
 } // namespace Part
 
 #endif // PART_OCCTFORK_H

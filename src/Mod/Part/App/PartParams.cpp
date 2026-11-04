@@ -54,6 +54,7 @@ public:
     bool UseBrepToolsOuterWire;
     bool UseBaseObjectName;
     bool AutoGroupSolids;
+    bool AutoAuxGroup;
     bool SingleSolid;
     bool UsePipeForExtrusionDraft;
     bool LinearizeExtrusionDraft;
@@ -151,6 +152,8 @@ public:
         funcs["UseBaseObjectName"] = &PartParamsP::updateUseBaseObjectName;
         AutoGroupSolids = this->handle->GetBool("AutoGroupSolids", false);
         funcs["AutoGroupSolids"] = &PartParamsP::updateAutoGroupSolids;
+        AutoAuxGroup = this->handle->GetBool("AutoAuxGroup", true);
+        funcs["AutoAuxGroup"] = &PartParamsP::updateAutoAuxGroup;
         SingleSolid = this->handle->GetBool("SingleSolid", false);
         funcs["SingleSolid"] = &PartParamsP::updateSingleSolid;
         UsePipeForExtrusionDraft = this->handle->GetBool("UsePipeForExtrusionDraft", false);
@@ -318,6 +321,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateAutoGroupSolids(PartParamsP *self) {
         self->AutoGroupSolids = self->handle->GetBool("AutoGroupSolids", false);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateAutoAuxGroup(PartParamsP *self) {
+        self->AutoAuxGroup = self->handle->GetBool("AutoAuxGroup", true);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateSingleSolid(PartParamsP *self) {
@@ -617,6 +624,11 @@ static const App::ParamRegistry::Registrar _PartParamsRegistrar({
         .setTitle("Auto Group Solids")
         .setDoc("Turn on Auto Group Solids in new bodies, which groups the features\n"
 "of each solid under its latest feature."),
+    App::ParamInfo("Part", "PartParams", "User parameter:BaseApp/Preferences/Mod/Part", "AutoAuxGroup", "AutoAuxGroup", App::ParamInfo::Bool, true)
+        .setTitle("Auto Aux Group")
+        .setDoc("Give new bodies made in the GUI (PartDesign_Body, PartDesign_Clone)\n"
+"the Sketches, Datums and Misc groups, and a Surfaces group once\n"
+"they hold a surface. A body made by script has none."),
     App::ParamInfo("Part", "PartParams", "User parameter:BaseApp/Preferences/Mod/Part", "SingleSolid", "SingleSolid", App::ParamInfo::Bool, false)
         .setTitle("Single Solid")
         .setDoc("Turn on Single Solid in new bodies, so that every feature must\n"
@@ -1134,6 +1146,36 @@ void PartParams::setAutoGroupSolids(const bool &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void PartParams::removeAutoGroupSolids() {
     instance()->handle->RemoveBool("AutoGroupSolids");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *PartParams::docAutoAuxGroup() {
+    return QT_TRANSLATE_NOOP("PartParams",
+"Give new bodies made in the GUI (PartDesign_Body, PartDesign_Clone)\n"
+"the Sketches, Datums and Misc groups, and a Surfaces group once\n"
+"they hold a surface. A body made by script has none.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & PartParams::getAutoAuxGroup() {
+    return instance()->AutoAuxGroup;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & PartParams::defaultAutoAuxGroup() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void PartParams::setAutoAuxGroup(const bool &v) {
+    instance()->handle->SetBool("AutoAuxGroup",v);
+    instance()->AutoAuxGroup = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void PartParams::removeAutoAuxGroup() {
+    instance()->handle->RemoveBool("AutoAuxGroup");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

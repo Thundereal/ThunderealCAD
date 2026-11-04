@@ -29,6 +29,7 @@
 
 #include <App/Document.h>
 #include "FeatureOffset.h"
+#include "OCCTFork.h"
 
 
 using namespace Part;
@@ -49,6 +50,8 @@ Offset::Offset()
     ADD_PROPERTY_TYPE(Intersection,(false),"Offset",App::Prop_None,"Intersection");
     ADD_PROPERTY_TYPE(SelfIntersection,(false),"Offset",App::Prop_None,"Self Intersection");
     ADD_PROPERTY_TYPE(Fill,(false),"Offset",App::Prop_None,"Fill offset");
+    ADD_PROPERTY_TYPE(_OffsetFixLevel, (0), "Offset", App::Prop_Hidden,
+                      "The OCCT fork's offset fix level the object recomputes at");
 
     Source.setScope(App::LinkScope::Global);
 }
@@ -74,8 +77,15 @@ short Offset::mustExecute() const
     return 0;
 }
 
+void Offset::setupObject()
+{
+    Part::Feature::setupObject();
+    _OffsetFixLevel.setValue(OCCTOffsetFixLevelLatest);
+}
+
 App::DocumentObjectExecReturn *Offset::execute()
 {
+    OCCTOffsetFixLevel fixLevel(_OffsetFixLevel.getValue());
     App::DocumentObject* source = Source.getValue();
     if (!source)
         return new App::DocumentObjectExecReturn("No source shape linked.");

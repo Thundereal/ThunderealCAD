@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 
+#include <cstring>
 #include <memory>
 #include <set>
 #include <sstream>
@@ -34,10 +35,13 @@
 #include <App/MappedElement.h>
 #include <App/PropertyLinks.h>
 #include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Base/Tools.h>
+#include <Mod/Part/App/PropertyTopoShape.h>
 
 #include "Body.h"
 #include "Feature.h"
+#include "SheetMetalExtension.h"
 #include "SolidBody.h"
 
 FC_LOG_LEVEL_INIT("PartDesign", true, true)
@@ -194,6 +198,43 @@ SolidBody::SolidBody()
     // The shape is in the body's coordinates, as the body's own is
     Placement.setStatus(App::Property::Hidden, true);
     Placement.setStatus(App::Property::Immutable, true);
+
+    // The sheet's flat (docs/SheetMetal.md sec 12): its settings, and what a
+    // bill of materials takes of the tip's
+    ADD_PROPERTY_TYPE(Flatten, (false), "Flat", App::Prop_None,
+            "Lay the tip flat in each recompute, for the values below; off, they\n"
+            "are left as they were");
+    ADD_PROPERTY_TYPE(FlatRoot, (""), "Flat", App::Prop_None,
+            "The wall laid on XY, by its name (Wall1); the first wall if empty");
+    ADD_PROPERTY_TYPE(FlatSecondSkin, (false), "Flat", App::Prop_None,
+            "The root wall's second skin on XY, not its first");
+    ADD_PROPERTY_TYPE(FlatAlignEdge, (""), "Flat", App::Prop_None,
+            "An edge of the solid, by its element name, the flat is turned to run\n"
+            "along X by, where the feature laid flat has it");
+    ADD_PROPERTY_TYPE(TangentLines, (false), "Flat", App::Prop_None,
+            "Each bend's two tangent lines in the flat, where it meets its walls");
+    ADD_PROPERTY_TYPE(Grain, (false), "Flat", App::Prop_None,
+            "The grain arrow on the flat's top");
+    ADD_PROPERTY_TYPE(GrainAngle, (0.0), "Flat", App::Prop_None,
+            "The grain's direction, from the flat's X");
+    const auto out = static_cast<App::PropertyType>(App::Prop_ReadOnly | App::Prop_Output);
+    ADD_PROPERTY_TYPE(FlatLength, (0.0), "Manufacturing", out,
+            "The tip's flat's size on XY, its longer side");
+    ADD_PROPERTY_TYPE(FlatWidth, (0.0), "Manufacturing", out,
+            "The tip's flat's size on XY, its shorter side");
+    ADD_PROPERTY_TYPE(FlatArea, (0.0), "Manufacturing", out, "The blank's area");
+    ADD_PROPERTY_TYPE(Thickness, (0.0), "Manufacturing", out, "The sheet's thickness");
+    ADD_PROPERTY_TYPE(MaterialName, (""), "Manufacturing", out,
+            "The name of the rule's material card");
+    ADD_PROPERTY_TYPE(BendCount, (0L), "Manufacturing", out, "How many bends the flat has");
+    ADD_PROPERTY_TYPE(MaxBendAngle, (0.0), "Manufacturing", out, "The largest bend angle");
+    ADD_PROPERTY_TYPE(BendDirections, (), "Manufacturing", out,
+            "Each bend, Up or Down: Up where the material comes up toward one\n"
+            "looking down on the flat");
+    ADD_PROPERTY_TYPE(FlatStatus, (""), "Manufacturing", out,
+            "Why the tip does not lie flat, empty if it does");
+    for (App::Property *prop : flatProperties())
+        prop->setStatus(App::Property::Hidden, true);
 }
 
 Body *SolidBody::getBody() const
@@ -257,14 +298,180 @@ void SolidBody::rememberShown(const App::DocumentObject *obj)
 
 short SolidBody::mustExecute() const
 {
-    if (Tip.isTouched())
+    if (Tip.isTouched() || Flatten.isTouched() || FlatRoot.isTouched() || FlatSecondSkin.isTouched()
+            || FlatAlignEdge.isTouched() || TangentLines.isTouched() || Grain.isTouched()
+            || GrainAngle.isTouched())
         return 1;
     return inherited::mustExecute();
 }
 
 App::DocumentObjectExecReturn *SolidBody::execute()
 {
-    return updateShape();
+    auto res = updateShape();
+    if (res == App::DocumentObject::StdReturn)
+        updateFlat();
+    return res;
+}
+
+std::vector<App::Property*> SolidBody::flatProperties()
+{
+    return {&Flatten, &FlatRoot, &FlatSecondSkin, &FlatAlignEdge, &TangentLines, &Grain, &GrainAngle,
+            &FlatLength, &FlatWidth, &FlatArea, &Thickness, &MaterialName, &BendCount,
+            &MaxBendAngle, &BendDirections, &FlatStatus};
+}
+
+bool SolidBody::isSheetMetal() const
+{
+    for (auto obj : Group.getValues()) {
+        if (obj && obj->hasExtension(SheetMetalExtension::getExtensionClassTypeId()))
+            return true;
+    }
+    return false;
+}
+
+FlatSettings SolidBody::flatSettings() const
+{
+    FlatSettings res;
+    res.root = FlatRoot.getValue();
+    res.secondSkin = FlatSecondSkin.getValue();
+    res.alignEdge = FlatAlignEdge.getValue();
+    res.tangentLines = TangentLines.getValue();
+    res.grain = Grain.getValue();
+    res.grainAngle = GrainAngle.getValue();
+    return res;
+}
+
+const SheetFlat &SolidBody::flatOf(const App::DocumentObject *feature) const
+{
+    const App::DocumentObject *part = feature ? feature : Tip.getValue();
+    if (!part || !hasFeature(part))
+        THROWM(Base::ValueError, "Not a feature of the solid");
+    auto pf = dynamic_cast<const Part::Feature*>(part);
+    if (!pf)
+        THROWM(Base::ValueError, "Not a feature with a shape");
+    const TopoDS_Shape shape = pf->Shape.getShape().getShape();
+    const FlatSettings settings = flatSettings();
+    FlatCache &cache = flats[part->getNameInDocument()];
+    if (cache.valid && cache.shape.TShape() == shape.TShape() && cache.settings == settings)
+        return cache.flat;
+    cache.valid = false;
+    cache.flat = layFlat(part, settings);
+    cache.shape = shape;
+    cache.settings = settings;
+    cache.valid = true;
+    return cache.flat;
+}
+
+void SolidBody::showFlatProperties()
+{
+    const bool sheet = isSheetMetal();
+    for (App::Property *prop : flatProperties()) {
+        if (prop->testStatus(App::Property::Hidden) == sheet)
+            prop->setStatus(App::Property::Hidden, !sheet);
+    }
+}
+
+void SolidBody::updateFlat()
+{
+    showFlatProperties();
+    if (!isSheetMetal())
+        return;
+    // Only the features still the solid's are kept
+    for (auto it = flats.begin(); it != flats.end();) {
+        auto obj = getDocument() ? getDocument()->getObject(it->first.c_str()) : nullptr;
+        if (!obj || !hasFeature(obj))
+            it = flats.erase(it);
+        else
+            ++it;
+    }
+    // Nothing is laid flat in a recompute unless the user asked (ruled
+    // 2026-11-03): the values are left as they were
+    if (!Flatten.getValue())
+        return;
+    std::string status;
+    try {
+        const SheetFlat &flat = flatOf();
+        FlatLength.setValue(flat.length);
+        FlatWidth.setValue(flat.width);
+        FlatArea.setValue(flat.area);
+        Thickness.setValue(flat.thickness);
+        MaterialName.setValue(flat.material);
+        BendCount.setValue(flat.bendCount);
+        MaxBendAngle.setValue(flat.maxBendAngle);
+        BendDirections.setValues(flat.directions);
+    }
+    catch (const Base::Exception &e) {
+        status = e.what();
+    }
+    catch (const Standard_Failure &e) {
+        status = e.GetMessageString();
+    }
+    if (!status.empty()) {
+        FlatLength.setValue(0.0);
+        FlatWidth.setValue(0.0);
+        FlatArea.setValue(0.0);
+        BendCount.setValue(0L);
+        MaxBendAngle.setValue(0.0);
+        BendDirections.setValues({});
+    }
+    FlatStatus.setValue(status);
+}
+
+const char *SolidBody::flatSubName(const char *subname)
+{
+    // An element name, as the sketch's InternalShape is named
+    // (SketchObject::convertInternalName()): "Flat" the whole of it,
+    // "FlatFace3" an element; never a path to an object
+    if (!subname || std::strncmp(subname, "Flat", 4) != 0
+        || Data::findElementName(subname) != subname)
+        return nullptr;
+    const char *element = subname + 4;
+    if (*element == '\0')
+        return element;
+    Data::IndexedName name(element);
+    if (name.getIndex() <= 0 || name.toString() != element
+        || Part::TopoShape::shapeType(name.getType(), /*silent*/ true) == TopAbs_SHAPE)
+        return nullptr;
+    return element;
+}
+
+App::DocumentObject *SolidBody::flatSubObject(const App::DocumentObject *owner,
+                                              const App::DocumentObject *part,
+                                              const char *element, PyObject **pyObj,
+                                              Base::Matrix4D *pmat, bool transform) const
+{
+    if (!isSheetMetal())
+        return nullptr;
+    Part::TopoShape shape;
+    try {
+        shape = flatOf(part).shape;
+        if (element && *element) {
+            shape = shape.getSubTopoShape(element, /*silent*/ true);
+            if (shape.isNull())
+                return nullptr;
+        }
+    }
+    catch (const Base::Exception &) {
+        return nullptr;
+    }
+    catch (const Standard_Failure &) {
+        return nullptr;
+    }
+    Base::Matrix4D mat;
+    if (pmat)
+        mat = *pmat;
+    auto feat = dynamic_cast<const Part::Feature*>(owner);
+    if (transform && feat)
+        mat *= feat->Placement.getValue().toMatrix();
+    if (pmat)
+        *pmat = mat;
+    if (pyObj) {
+        // asked again with nothing changed, the same shape
+        if (!mat.isUnity())
+            shape.transformShape(mat, /*copy*/ true, /*checkScale*/ true);
+        *pyObj = Py::new_reference_to(shape.getPyObject());
+    }
+    return const_cast<App::DocumentObject*>(owner);
 }
 
 App::DocumentObjectExecReturn *SolidBody::updateShape()
@@ -289,8 +496,9 @@ App::DocumentObjectExecReturn *SolidBody::updateShape()
                 QT_TRANSLATE_NOOP("Exception", "Tip shape is empty"));
 
     // The tip's own placement becomes part of the geometry, as in
-    // Body::execute()
-    shape.transformShape(shape.getTransform(), true);
+    // Body::execute(); with none, there is nothing to copy
+    if (!shape.getShape().Location().IsIdentity())
+        shape.transformShape(shape.getTransform(), true);
     Shape.setValue(shape);
     shapeOf = tip->getNameInDocument();
     return App::DocumentObject::StdReturn;
@@ -474,6 +682,17 @@ void SolidBody::onChanged(const App::Property* prop)
     }
     inherited::onChanged(prop);
 
+    // Every feature's Flat follows the settings, and Part keeps what it
+    // last handed out of a feature until the feature changes
+    if (prop == &FlatRoot || prop == &FlatSecondSkin || prop == &FlatAlignEdge
+            || prop == &TangentLines || prop == &Grain || prop == &GrainAngle) {
+        Part::PropertyShapeCache::clearShapes(this);
+        for (auto obj : Group.getValues()) {
+            if (obj)
+                Part::PropertyShapeCache::clearShapes(obj);
+        }
+    }
+
     if (prop == &Group)
         handOn(true, true);
     else if (prop == &ShapeMaterial)
@@ -506,6 +725,7 @@ void SolidBody::onDocumentRestored()
         if (hasFeature(tip))
             shapeOf = tip->getNameInDocument();
     }
+    showFlatProperties();
     inherited::onDocumentRestored();
 }
 
@@ -550,6 +770,9 @@ void SolidBody::handOn(bool card, bool look)
 App::DocumentObject *SolidBody::getSubObject(const char *subname,
         PyObject **pyObj, Base::Matrix4D *pmat, bool transform, int depth) const
 {
+    // The tip's flat, as every feature's (Feature::getSubObject())
+    if (const char *element = flatSubName(subname))
+        return flatSubObject(this, nullptr, element, pyObj, pmat, transform);
     // A path entering here names a member of the body, as one entering a
     // feature does (Feature::getSubObject()). Placement is identity, so there
     // is nothing of this object's to cancel.

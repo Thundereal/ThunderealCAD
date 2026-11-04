@@ -182,6 +182,20 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter AutoAuxGroup
+    ///
+    /// Give new bodies made in the GUI (PartDesign_Body, PartDesign_Clone)
+    /// the Sketches, Datums and Misc groups, and a Surfaces group once
+    /// they hold a surface. A body made by script has none.
+    static const bool & getAutoAuxGroup();
+    static const bool & defaultAutoAuxGroup();
+    static void removeAutoAuxGroup();
+    static void setAutoAuxGroup(const bool &v);
+    static const char *docAutoAuxGroup();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter SingleSolid
     ///
     /// Turn on Single Solid in new bodies, so that every feature must

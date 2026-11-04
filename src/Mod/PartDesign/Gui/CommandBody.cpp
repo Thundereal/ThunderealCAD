@@ -276,6 +276,9 @@ void CmdPartDesignBody::activated(int iMsg)
         }
     }
 
+    if (Part::PartParams::getAutoAuxGroup())
+        Gui::cmdAppObjectArgs(body, "setAutoAuxGroup(True)");
+
     addModule(Gui,"PartDesignGui"); // import the Gui module only once a session
 
     // Make the "Create sketch" prompt appear in the task panel

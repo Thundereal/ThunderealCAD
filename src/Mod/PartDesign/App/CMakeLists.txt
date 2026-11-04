@@ -3,6 +3,8 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}
+    # SheetMetal/ finds the module's PreCompiled.h, as Surface's Geom/ does
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${Boost_INCLUDE_DIRS}
     ${OCC_INCLUDE_DIR}
     ${QT_INCLUDE_DIR}
@@ -16,6 +18,8 @@ link_directories(${OCC_LIBRARY_DIR})
 
 generate_from_xml(BodyPy)
 generate_from_xml(FeaturePy)
+generate_from_xml(SheetMetalRulePy)
+generate_from_xml(SheetMetalExtensionPy)
 
 
 set(PartDesign_LIBS
@@ -149,11 +153,68 @@ SET(Module_SRCS
 SOURCE_GROUP("Module" FILES ${Module_SRCS})
 
 
+# Sheet metal's geometry, no document (docs/SheetMetal.md sec 4.5)
+SET(SheetMetal_SRCS
+    SheetMetal/BendAllowance.cpp
+    SheetMetal/BendAllowance.h
+    SheetMetal/Fold.cpp
+    SheetMetal/Fold.h
+    SheetMetal/Dxf.cpp
+    SheetMetal/Dxf.h
+    SheetMetal/Flat.cpp
+    SheetMetal/Flat.h
+    SheetMetal/Model.cpp
+    SheetMetal/Model.h
+    SheetMetal/Pieces.cpp
+    SheetMetal/Pieces.h
+    SheetMetal/Profile.cpp
+    SheetMetal/Profile.h
+    SheetMetal/Refold.cpp
+    SheetMetal/Refold.h
+    SheetMetal/Svg.cpp
+    SheetMetal/Svg.h
+    FeatureSheetMetalRule.cpp
+    FeatureSheetMetalRule.h
+    FeatureSheetMetalBaseWall.cpp
+    FeatureSheetMetalBaseWall.h
+    FeatureSheetMetalExtendWall.cpp
+    FeatureSheetMetalExtendWall.h
+    FeatureSheetMetalHem.cpp
+    FeatureSheetMetalHem.h
+    FeatureSheetMetalCornerClosure.cpp
+    FeatureSheetMetalCornerClosure.h
+    FeatureSheetMetalCutout.cpp
+    FeatureSheetMetalCutout.h
+    FeatureSheetMetalFold.cpp
+    FeatureSheetMetalFold.h
+    FeatureSheetMetalTab.cpp
+    FeatureSheetMetalTab.h
+    FeatureSheetMetalJoin.cpp
+    FeatureSheetMetalJoin.h
+    FeatureSheetMetalBendCuts.cpp
+    FeatureSheetMetalBendCuts.h
+    SheetMetalCheck.cpp
+    SheetMetalCheck.h
+    SheetMetalFlat.cpp
+    SheetMetalFlat.h
+    FeatureSheetMetalFlange.cpp
+    FeatureSheetMetalFlange.h
+    PropertySheetModel.cpp
+    PropertySheetModel.h
+    SheetMetalExtension.cpp
+    SheetMetalExtension.h
+)
+SOURCE_GROUP("SheetMetal" FILES ${SheetMetal_SRCS})
+
 SET(Python_SRCS
     BodyPy.xml
     BodyPyImp.cpp
     FeaturePy.xml
     FeaturePyImp.cpp
+    SheetMetalRulePy.xml
+    SheetMetalRulePyImp.cpp
+    SheetMetalExtensionPy.xml
+    SheetMetalExtensionPyImp.cpp
 )
 SOURCE_GROUP("Python" FILES ${Python_SRCS})
 
@@ -163,6 +224,7 @@ SET(PartDesign_SRCS
     ${FeaturesTransformed_SRCS}
     ${FeaturesSketchBased_SRCS}
     ${FeaturesDressUp_SRCS}
+    ${SheetMetal_SRCS}
     ${Module_SRCS}
     ${Python_SRCS}
 )

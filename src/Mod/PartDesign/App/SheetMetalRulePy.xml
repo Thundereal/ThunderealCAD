@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenerateModel xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="generateMetaModel_Module.xsd">
+  <PythonExport
+    Father="PartFeaturePy"
+    Name="SheetMetalRulePy"
+    Twin="SheetMetalRule"
+    TwinPointer="SheetMetalRule"
+    Include="Mod/PartDesign/App/FeatureSheetMetalRule.h"
+    Namespace="PartDesign"
+    FatherInclude="Mod/Part/App/PartFeaturePy.h"
+    FatherNamespace="Part">
+    <Documentation>
+      <Author Licence="LGPL" Name="Zheng Lei" EMail="realthunder.dev@gmail.com" />
+      <UserDocu>The values a sheet's features share (docs/SheetMetal.md sec 4.6)</UserDocu>
+    </Documentation>
+    <Methode Name="hasGauge" Const="true">
+      <Documentation>
+        <UserDocu>hasGauge() -> bool
+
+Whether the rule's material card has the SheetMetal model and a gauge row for
+the rule's thickness.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="resetRuleValue">
+      <Documentation>
+        <UserDocu>resetRuleValue(name)
+
+Give the value named back to the card: BendRadius, KFactor, MinFlange or
+AllowanceMethod.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="bendAllowance" Const="true">
+      <Documentation>
+        <UserDocu>bendAllowance(angle, radius=None) -> float
+
+The flat length in mm of a bend of the rule's thickness through angle (deg), of
+the rule's radius unless given another (mm), by the rule's allowance method.</UserDocu>
+      </Documentation>
+    </Methode>
+  </PythonExport>
+</GenerateModel>

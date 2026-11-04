@@ -30,6 +30,7 @@
 #include <Mod/Material/App/MaterialManager.h>
 #include <Mod/Material/App/Model.h>
 #include <Mod/Material/App/ModelManager.h>
+#include <Mod/Material/App/ModelUuids.h>
 
 // clang-format off
 
@@ -131,6 +132,50 @@ TEST_F(TestModel, TestModelByPath)
     EXPECT_NE(&linearElastic4, nullptr);
     EXPECT_EQ(linearElastic4->getName(), QStringLiteral("Linear Elastic"));
     EXPECT_EQ(linearElastic4->getUUID(), QStringLiteral("7b561d1d-fb9b-44f6-9da9-56a4f74d7536"));
+}
+
+// How a sheet of the material bends, for PartDesign's sheet metal
+// (docs/SheetMetal.md sec 4.6): the stock thicknesses with their radius, K and
+// minimum flange; the allowance method; the bend table the table methods read
+TEST_F(TestModel, TestSheetMetalModel)
+{
+    ASSERT_NE(_modelManager, nullptr);
+
+    std::shared_ptr<Materials::Model> model;
+    ASSERT_NO_THROW(model = _modelManager->getModel(Materials::ModelUUIDs::ModelUUID_SheetMetal_SheetMetal));
+    ASSERT_NE(model, nullptr);
+    EXPECT_EQ(model->getName(), QStringLiteral("SheetMetal"));
+    EXPECT_EQ(model->getUUID(), QStringLiteral("27cde1dc-d6bb-4b74-9002-4eb7f0228c9a"));
+
+    auto columns = [](const Materials::ModelProperty& prop) {
+        QStringList res;
+        for (auto& column : prop.getColumns()) {
+            res << column.getName() + QStringLiteral(":") + column.getPropertyType()
+                    + QStringLiteral(":") + column.getUnits();
+        }
+        return res;
+    };
+
+    auto& gauges = (*model)[QStringLiteral("Gauges")];
+    EXPECT_EQ(gauges.getPropertyType(), QStringLiteral("2DArray"));
+    EXPECT_EQ(columns(gauges),
+              QStringList({QStringLiteral("Thickness:Quantity:mm"),
+                           QStringLiteral("InnerRadius:Quantity:mm"),
+                           QStringLiteral("KFactor:Float:"),
+                           QStringLiteral("MinFlange:Quantity:mm")}));
+
+    auto& method = (*model)[QStringLiteral("AllowanceMethod")];
+    EXPECT_EQ(method.getPropertyType(), QStringLiteral("String"));
+
+    auto& table = (*model)[QStringLiteral("BendTable")];
+    EXPECT_EQ(table.getPropertyType(), QStringLiteral("2DArray"));
+    EXPECT_EQ(columns(table),
+              QStringList({QStringLiteral("Thickness:Quantity:mm"),
+                           QStringLiteral("InnerRadius:Quantity:mm"),
+                           QStringLiteral("Angle:Quantity:deg"),
+                           QStringLiteral("KFactor:Float:"),
+                           QStringLiteral("Allowance:Quantity:mm"),
+                           QStringLiteral("Deduction:Quantity:mm")}));
 }
 
 // clang-format on

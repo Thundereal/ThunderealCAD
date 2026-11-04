@@ -66,8 +66,28 @@ set(PartDesign_TestScripts
     PartDesignTests/TestDraft.py
     PartDesignTests/TestThickness.py
     PartDesignTests/TestThicken.py
+    PartDesignTests/TestSheetMetalRule.py
+    PartDesignTests/TestSheetMetalBaseWall.py
+    PartDesignTests/TestSheetMetalFlange.py
+    PartDesignTests/TestSheetMetalExtendWall.py
+    PartDesignTests/TestSheetMetalHem.py
+    PartDesignTests/TestSheetMetalCornerClosure.py
+    PartDesignTests/TestSheetMetalCutout.py
+    PartDesignTests/TestSheetMetalFold.py
+    PartDesignTests/TestSheetMetalJog.py
+    PartDesignTests/TestSheetMetalTab.py
+    PartDesignTests/TestSheetMetalContourFlange.py
+    PartDesignTests/TestSheetMetalJoin.py
+    PartDesignTests/TestSheetMetalBendCuts.py
+    PartDesignTests/TestSheetMetalFlat.py
+    PartDesignTests/TestSheetMetalFlatLayout.py
+    PartDesignTests/TestSheetMetalCheck.py
+    PartDesignTests/SheetMetalFlatView.py
+    PartDesignTests/TestSheetMetalPart.py
+    PartDesignTests/TestChainLocations.py
     PartDesignTests/TestDefeaturing.py
     PartDesignTests/TestSuppressed.py
+    PartDesignTests/TestRetryOnCopy.py
     PartDesignTests/TestInvoluteGear.py
     PartDesignTests/TestTopologicalNamingProblem.py
     PartDesignTests/TestNameEncoding.py

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's Flatten: the flat's outline seen from above, a bend line across -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <path
+     d="M 8,6 H 56 V 58 H 8 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:3;stroke-linejoin:round;" />
+  <path
+     d="M 8,36 H 56"
+     style="fill:none;stroke:#cc0000;stroke-width:3;stroke-dasharray:6,4;" />
+  <circle
+     cx="22"
+     cy="20"
+     r="5"
+     style="fill:#ffffff;stroke:#1c2128;stroke-width:2;" />
+</svg>

@@ -55,6 +55,7 @@
 
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/FeatureSketchBased.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/FeatureSolid.h>
 #include <Mod/PartDesign/App/FeatureExtrusion.h>
 #include <Mod/PartDesign/App/FeatureMultiTransform.h>
@@ -215,44 +216,7 @@ void ViewProviderBody::setupContextMenu(QMenu* menu, QObject* receiver, const ch
                 return;
             App::AutoTransaction committer("Toggle aux group");
             try {
-                std::vector<App::DocumentObjectT> groups;
-                for (auto obj : body->Group.getValues()) {
-                    if (obj->isDerivedFrom(PartDesign::AuxGroup::getClassTypeId())) {
-                        auto group = static_cast<PartDesign::AuxGroup*>(obj);
-                        if (group->getGroupType() != PartDesign::AuxGroup::OtherGroup)
-                            groups.emplace_back(obj);
-                    }
-                }
-                if (groups.empty()) {
-                    int pos = 0;
-                    auto children = body->Group.getValues();
-                    if (children.size() && children[0] == body->BaseFeature.getValue())
-                        ++pos;
-                    auto sketchGroup = static_cast<PartDesign::AuxGroup*>(
-                            body->getDocument()->addObject("PartDesign::AuxGroup", "Sketches"));
-                    sketchGroup->Label.setValue("Sketches");
-                    auto datumGroup = static_cast<PartDesign::AuxGroup*>(
-                            body->getDocument()->addObject("PartDesign::AuxGroup", "Datums"));
-                    datumGroup->Label.setValue("Datums");
-                    auto miscGroup = static_cast<PartDesign::AuxGroup*>(
-                            body->getDocument()->addObject("PartDesign::AuxGroup", "Misc"));
-                    miscGroup->Label.setValue("Misc");
-                    children.insert(children.begin()+pos, miscGroup);
-                    children.insert(children.begin()+pos, datumGroup);
-                    children.insert(children.begin()+pos, sketchGroup);
-                    body->Group.setValues(children);
-                    sketchGroup->_Body.setValue(body);
-                    datumGroup->_Body.setValue(body);
-                    miscGroup->_Body.setValue(body);
-                } else {
-                    for (auto & objT : groups) {
-                        auto group = static_cast<PartDesign::AuxGroup*>(objT.getObject());
-                        if (group) {
-                            group->_Body.setValue(nullptr);
-                            body->getDocument()->removeObject(group->getNameInDocument());
-                        }
-                    }
-                }
+                body->setAutoAuxGroup(!body->hasAutoAuxGroup());
             } catch (Base::Exception &e) {
                 e.ReportException();
                 QMessageBox::critical(Gui::getMainWindow(), tr("Auto group"),
@@ -535,6 +499,39 @@ bool ViewProviderBody::checkSiblings()
     if (touched)
         buildExport();
     return touched;
+}
+
+Base::BoundBox3d ViewProviderBody::_getBoundingBox(const char *subname, const Base::Matrix4D *mat,
+                                                   bool transform,
+                                                   const Gui::View3DInventorViewer *view,
+                                                   int depth) const
+{
+    auto body = Base::freecad_dynamic_cast<PartDesign::Body>(getObject());
+    if (body && !(subname && subname[0])) {
+        std::vector<PartDesignGui::ViewProvider*> shown;
+        bool flat = false;
+        for (auto obj : body->Group.getValues()) {
+            auto vp = Base::freecad_dynamic_cast<PartDesignGui::ViewProvider>(
+                    Gui::Application::Instance->getViewProvider(obj));
+            if (vp && vp->isShow()) {
+                shown.push_back(vp);
+                flat = flat || vp->showsFlat();
+            }
+        }
+        if (flat) {
+            // drawn under the body's placement
+            Base::Matrix4D m;
+            if (transform)
+                m = body->Placement.getValue().toMatrix();
+            if (mat)
+                m = *mat * m;
+            Base::BoundBox3d box;
+            for (auto vp : shown)
+                box.Add(vp->getBoundingBox(nullptr, &m, true, view, depth + 1));
+            return box;
+        }
+    }
+    return inherited::_getBoundingBox(subname, mat, transform, view, depth);
 }
 
 void ViewProviderBody::updateData(const App::Property* prop)
@@ -1346,6 +1343,24 @@ void ViewProviderBody::groupSiblings(PartDesign::Feature *feat, bool collapse, b
 bool ViewProviderBody::shouldCheckExport(App::DocumentObject *) const
 {
     return true;
+}
+
+void ViewProviderBody::excludeFromExport(std::set<App::DocumentObject *> &out) const
+{
+    // A sheet's rule, reached by a global link, is shown under the solid
+    // bodies of the sheets using it (docs/SheetMetal.md sec 4.6)
+    auto body = Base::freecad_dynamic_cast<PartDesign::Body>(getObject());
+    if (!body)
+        return;
+    for (auto solid : body->getSolidBodies()) {
+        auto vp = Gui::Application::Instance->getViewProvider(solid);
+        if (!vp)
+            continue;
+        for (auto child : vp->claimChildren()) {
+            if (child && child->isDerivedFrom(PartDesign::SheetMetalRule::getClassTypeId()))
+                out.insert(child);
+        }
+    }
 }
 
 std::map<std::string,App::Color> ViewProviderBody::getElementColors(const char *element) const

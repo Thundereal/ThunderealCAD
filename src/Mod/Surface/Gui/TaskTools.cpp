@@ -508,7 +508,8 @@ QWidget* conditionRow(ToolPanel* panel,
                       const QString& title,
                       const char* name,
                       const Surface::ConditionProperties& props,
-                      EdgeMarkers::Where where)
+                      EdgeMarkers::Where where,
+                      std::function<EdgeMarkers::Where(double at)> whereAt)
 {
     auto w = new QWidget(panel);
     auto grid = new QGridLayout(w);
@@ -534,9 +535,39 @@ QWidget* conditionRow(ToolPanel* panel,
     auto support = new QLabel(w);
     support->setObjectName(n + QLatin1String("SupportLabel"));
     grid->addWidget(support, 1, 1, 1, 4);
+    QDoubleSpinBox* weightEnd = nullptr;
+    if (props.weightEnd) {
+        grid->addWidget(new QLabel(QObject::tr("Weight at the end"), w), 2, 1);
+        weightEnd = new QDoubleSpinBox(w);
+        weightEnd->setObjectName(n + QLatin1String("WeightEnd"));
+        weightEnd->setRange(Surface::WeightEndRange.LowerBound,
+                            Surface::WeightEndRange.UpperBound);
+        weightEnd->setSingleStep(Surface::WeightEndRange.StepSize);
+        weightEnd->setDecimals(2);
+        // 0: the weight all along
+        weightEnd->setSpecialValueText(QObject::tr("as at the start"));
+        weightEnd->setToolTip(QObject::tr("The weight at the end of the edge, the weight at "
+                                          "its start, linearly between"));
+        grid->addWidget(weightEnd, 2, 2);
+        auto prop = props.weightEnd;
+        QObject::connect(weightEnd,
+                         qOverload<double>(&QDoubleSpinBox::valueChanged),
+                         panel,
+                         [=](double value) {
+                             if (panel->filling) {
+                                 return;
+                             }
+                             panel->checkOpenCommand();
+                             prop->setValue(value);
+                             panel->changed();
+                         });
+    }
     panel->addFill([=] {
         continuity->setCurrentIndex(int(props.continuity->getValue()));
         weight->setValue(props.weight->getValue());
+        if (weightEnd) {
+            weightEnd->setValue(props.weightEnd->getValue());
+        }
         auto obj = props.support->getValue();
         const auto& subs = props.support->getSubValues();
         support->setText(obj ? linkText(obj, subs.empty() ? std::string() : subs.front())
@@ -590,7 +621,29 @@ QWidget* conditionRow(ToolPanel* panel,
     });
     if (where) {
         if (auto markers = panel->edgeMarkers()) {
-            markers->add(title, continuity, weight, std::move(where));
+            if (weightEnd && whereAt) {
+                // the weight along the edge: one in the middle while it is
+                // the same all along, one at each end while it is not
+                auto prop = props.weightEnd;
+                auto varies = [prop] {
+                    return prop->getValue() > 0;
+                };
+                markers->add(title,
+                             continuity,
+                             weight,
+                             EdgeMarkers::when([varies] { return !varies(); }, std::move(where)));
+                markers->add(title + QObject::tr(" (start)"),
+                             continuity,
+                             weight,
+                             EdgeMarkers::when(varies, whereAt(0)));
+                markers->add(title + QObject::tr(" (end)"),
+                             continuity,
+                             weightEnd,
+                             EdgeMarkers::when(varies, whereAt(1)));
+            }
+            else {
+                markers->add(title, continuity, weight, std::move(where));
+            }
         }
     }
     panel->body()->insertWidget(panel->body()->count() - 1, w);
@@ -739,14 +792,28 @@ ToolPanel* blendPanel(Surface::BlendSurface* obj)
     conditionRow(p,
                  QObject::tr("First side"),
                  "side1",
-                 {"first edge", &obj->Side1Continuity, &obj->Side1Weight, &obj->Side1Support},
-                 EdgeMarkers::onEdge(obj, &obj->Edge1));
+                 {"first edge",
+                  &obj->Side1Continuity,
+                  &obj->Side1Weight,
+                  &obj->Side1Support,
+                  &obj->Side1WeightEnd},
+                 EdgeMarkers::onEdge(obj, &obj->Edge1),
+                 [obj](double at) {
+                     return EdgeMarkers::onEdge(obj, &obj->Edge1, at);
+                 });
     pickOne(p, QObject::tr("Second edge"), "pickEdge2", &obj->Edge2, PickKind::Edges);
     conditionRow(p,
                  QObject::tr("Second side"),
                  "side2",
-                 {"second edge", &obj->Side2Continuity, &obj->Side2Weight, &obj->Side2Support},
-                 EdgeMarkers::onEdge(obj, &obj->Edge2));
+                 {"second edge",
+                  &obj->Side2Continuity,
+                  &obj->Side2Weight,
+                  &obj->Side2Support,
+                  &obj->Side2WeightEnd},
+                 EdgeMarkers::onEdge(obj, &obj->Edge2),
+                 [obj](double at) {
+                     return EdgeMarkers::onEdge(obj, &obj->Edge2, at);
+                 });
     intField(p, QObject::tr("Curves across"), "samples", &obj->Samples);
     return p;
 }

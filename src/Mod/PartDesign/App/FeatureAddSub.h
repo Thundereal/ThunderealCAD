@@ -62,8 +62,13 @@ public:
 
     static const std::string &addsubElementPrefix();
 
+    /** The tool joined to the base by the feature's type. oriented: both are
+     * oriented solids, so the result is, and its orientation is not checked
+     * again (a classification over every face of the result)
+     */
     Part::TopoShape makeBoolean(const Part::TopoShape &base,
-                                const Part::TopoShape &tool);
+                                const Part::TopoShape &tool,
+                                bool oriented = false);
 
 protected:
     void initAddSubType(Type t);

@@ -514,7 +514,9 @@ Reports matchBoundaries(Handle(Geom_BSplineSurface)& surface,
                         }
                         gp_Vec c1 = alongU(b) ? dv : du;
                         gp_Vec c2 = alongU(b) ? dvv : duu;
-                        gp_Vec t1 = (c1 - gp_Vec(n) * c1.Dot(gp_Vec(n))) * cond[b].weight;
+                        double lo = alongU(b) ? fr.u0 : fr.v0, hi = alongU(b) ? fr.u1 : fr.v1;
+                        gp_Vec t1 = (c1 - gp_Vec(n) * c1.Dot(gp_Vec(n)))
+                            * cond[b].weightAt((t - lo) / (hi - lo));
                         gp_Vec t2 = c2;
                         if (cond[b].order >= 2 && t1.Magnitude() > 1e-12) {
                             double ks = normalCurvature(pp, gp_Dir(t1));
@@ -668,13 +670,14 @@ MatchReport matchBoundary(Handle(Geom_BSplineSurface)& surface,
     return matchBoundaries(surface, c, options)[int(boundary)];
 }
 
-BoundaryMarker boundaryMarker(const Handle(Geom_BSplineSurface) & surface, Boundary boundary)
+BoundaryMarker
+boundaryMarker(const Handle(Geom_BSplineSurface) & surface, Boundary boundary, double at)
 {
     double u0, u1, v0, v1;
     surface->Bounds(u0, u1, v0, v1);
     const bool alongU = boundary == Boundary::VMin || boundary == Boundary::VMax;
-    const double u = alongU ? (u0 + u1) / 2 : boundary == Boundary::UMin ? u0 : u1;
-    const double v = !alongU ? (v0 + v1) / 2 : boundary == Boundary::VMin ? v0 : v1;
+    const double u = alongU ? u0 + (u1 - u0) * at : boundary == Boundary::UMin ? u0 : u1;
+    const double v = !alongU ? v0 + (v1 - v0) * at : boundary == Boundary::VMin ? v0 : v1;
     BoundaryMarker m;
     gp_Vec du, dv;
     surface->D1(u, v, m.middle, du, dv);

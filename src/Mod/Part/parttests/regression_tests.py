@@ -5,7 +5,7 @@ import Part
 
 import unittest
 
-from parttests.occt_fork import needsOCCTFork
+from parttests.occt_fork import frozen, needsOCCTFork, needsOCCTFunction, refusals
 
 class RegressionTests(unittest.TestCase):
 
@@ -509,12 +509,12 @@ class RegressionTests(unittest.TestCase):
         """The fork's loop builder broke thickness on faces with a seam: a
         closed edge found twice, one seam wire allowed per face, a closed edge
         losing its orientation; and the offset of an ellipse, a closed B-spline,
-        was stretched past its ends. Upstream OCCT gave these volumes
-        (docs/TransactionLogJournal.md sec 27.89), but for the ellipse's: its
-        plain integral took the offset wall with one fixed rule and came 1.2
-        short (608.6631, 473.2070). The fork's integrates that wall in pieces
-        and gives the solids' own, 609.8911 and 474.1842, which the closed form
-        and a fine mesh both agree with."""
+        was stretched past its ends. Upstream OCCT gives these volumes
+        (docs/TransactionLogJournal.md sec 27.89), but for the ellipse's: upstream
+        reads them 1.2 short (608.6631 and 473.2070), the integral's fixed
+        order on an offset surface's wall, which the fork's takes in pieces
+        where the normal turns unevenly. They are the solids' own, 609.8911
+        and 474.1842 by Steiner (occt tests/fork/thickness/sweep/hand.py)."""
         hole = lambda: Part.makeCylinder(5, 10).cut(Part.makeCylinder(2, 10))
         ellipse = lambda: Part.Face(
             Part.Wire(Part.Ellipse(Vector(0, 0, 0), 10, 5).toShape())
@@ -1747,3 +1747,44 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(base.isValid())
         self.assertAlmostEqual(base.Volume, volume)
         self.assertEqual(ring_spans(base), spans)
+
+    @needsOCCTFunction("TKBRep", "TopoDS_LockedShape_Raised")
+    def test_shape_tolerance_changes_a_copy_of_a_frozen_part(self):
+        """ShapeFix_ShapeTolerance on a shape holding a frozen value (a
+        feature's Shape, shape values frozen) changes a copy of each frozen
+        part it would change, put in the shape in its place -- as BRepLib's
+        UpdateTolerances does -- and refuses nothing. The value is left as
+        it was; the shape comes out as it does with nothing frozen. FreeCAD's
+        face maker limits the tolerances of the face it made of a sketch's
+        edges, and a helix's profile was refused (TestHelix)."""
+        import FreeCAD
+
+        def run(on):
+            with frozen(on):
+                doc = FreeCAD.newDocument("FrozenTolerance")
+                try:
+                    feature = doc.addObject("Part::Feature", "Box")
+                    feature.Shape = Part.makeBox(1, 1, 1)
+                    value = feature.Shape
+                    shape = Part.Compound([value])
+                    fix = Part.ShapeFix.ShapeTolerance()
+                    before = refusals()
+                    fix.setTolerance(shape, 1e-3)
+                    raised = [round(x.Tolerance, 12) for x in shape.Vertexes + shape.Edges + shape.Faces]
+                    fix.limitTolerance(shape, 0.0, 1e-5)
+                    limited = [round(x.Tolerance, 12) for x in shape.Vertexes + shape.Edges + shape.Faces]
+                    kept = [x.Tolerance for x in value.Vertexes + value.Edges + value.Faces]
+                    return refusals() - before, raised, limited, kept, shape.isValid()
+                finally:
+                    FreeCAD.closeDocument(doc.Name)
+
+        plain = run(False)
+        refused, raised, limited, kept, valid = run(True)
+        self.assertEqual(refused, 0)
+        self.assertEqual(raised, plain[1])
+        self.assertEqual(limited, plain[2])
+        self.assertEqual(set(raised), {1e-3})
+        self.assertEqual(set(limited), {1e-5})
+        self.assertTrue(valid)
+        # the frozen value as it was
+        self.assertEqual(set(kept), {1e-7})

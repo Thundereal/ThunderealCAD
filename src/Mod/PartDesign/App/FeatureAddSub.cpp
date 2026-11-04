@@ -133,7 +133,8 @@ void FeatureAddSub::onChanged(const App::Property *prop)
 }
 
 Part::TopoShape FeatureAddSub::makeBoolean(const Part::TopoShape &base,
-                                           const Part::TopoShape &_tool)
+                                           const Part::TopoShape &_tool,
+                                           bool oriented)
 {
     Part::TopoShape tool = _tool;
     if (!base.isNull() &&
@@ -164,7 +165,7 @@ Part::TopoShape FeatureAddSub::makeBoolean(const Part::TopoShape &base,
                       e.GetMessageString());
         }
         // we have to get the solids (fuse sometimes creates compounds)
-        auto solRes = getSolid(result, /*force*/base.hasSubShape(TopAbs_SOLID));
+        auto solRes = getSolid(result, /*force*/base.hasSubShape(TopAbs_SOLID), !oriented);
         // lets check if the result is a solid
         if (solRes.isNull()) {
             FC_THROWM(Base::RuntimeError,

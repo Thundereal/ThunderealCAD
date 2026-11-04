@@ -29,6 +29,8 @@
 #include <Gui/Command.h>
 #include <Gui/Application.h>
 #include <Gui/Document.h>
+#include <Gui/ActiveObjectList.h>
+#include <Gui/MDIView.h>
 #include <Mod/PartDesign/App/AuxGroup.h>
 #include <Mod/PartDesign/App/Body.h>
 
@@ -62,6 +64,9 @@ void ViewProviderAuxGroup::attach(App::DocumentObject* obj)
             break;
         case PartDesign::AuxGroup::MiscGroup:
             sPixmap = "PartDesign_GroupMisc.svg";
+            break;
+        case PartDesign::AuxGroup::SurfaceGroup:
+            sPixmap = "PartDesign_GroupSurface.svg";
             break;
         default:
             sPixmap = "PartDesign_Group.svg";
@@ -194,6 +199,35 @@ void ViewProviderAuxGroup::updateData(const App::Property *prop)
         }
     }
     inherited::updateData(prop);
+}
+
+bool ViewProviderAuxGroup::doubleClicked()
+{
+    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
+    if (!owner || owner->getGroupType() != PartDesign::AuxGroup::SurfaceGroup)
+        return inherited::doubleClicked();
+
+    auto activeDoc = Gui::Application::Instance->activeDocument();
+    if (!activeDoc)
+        activeDoc = getDocument();
+    auto view = activeDoc->setActiveView(this);
+    if (!view)
+        return false;
+    if (view->getActiveObject<App::DocumentObject*>(PDSURFACEKEY) == owner) {
+        Gui::Command::doCommand(Gui::Command::Gui,
+                "Gui.ActiveDocument.ActiveView.setActiveObject('%s', None)", PDSURFACEKEY);
+        return true;
+    }
+    // its body active too, where what the Surface commands make goes
+    auto body = owner->getBody();
+    if (body && view->getActiveObject<App::DocumentObject*>(PDBODYKEY) != body) {
+        if (auto bodyVp = Gui::Application::Instance->getViewProvider(body))
+            bodyVp->doubleClicked();
+    }
+    Gui::Command::doCommand(Gui::Command::Gui,
+            "Gui.ActiveDocument.ActiveView.setActiveObject('%s', %s)",
+            PDSURFACEKEY, owner->getFullName(true).c_str());
+    return true;
 }
 
 bool ViewProviderAuxGroup::canDelete(App::DocumentObject* obj) const

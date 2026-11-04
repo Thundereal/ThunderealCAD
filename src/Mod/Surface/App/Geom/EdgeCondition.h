@@ -57,12 +57,21 @@ struct EdgeCondition
     TopoDS_Face support;
     /// Scales the derivative across the boundary; 1 keeps its own length
     double weight = 1.0;
+    /// The weight at the boundary's end, as its parameter runs, the weight
+    /// at its start, linearly between; 0 is the weight all along
+    double weightEnd = 0.0;
     /// With order 0: no curve of the user's is there (the side of a loft),
     /// so its poles may move for the boundaries that meet it
     bool free = false;
     /// The share of the surface across the boundary (0 to 1, from it) that
     /// may change; the rest stays exactly where it is
     double reach = 1.0;
+
+    /// The weight `s` of the way along the boundary (0 to 1)
+    double weightAt(double s) const
+    {
+        return weightEnd > 0 ? weight + (weightEnd - weight) * s : weight;
+    }
 };
 
 struct MatchOptions
@@ -127,15 +136,18 @@ SurfaceExport MatchReport matchBoundary(Handle(Geom_BSplineSurface)& surface,
                                         const MatchOptions& options = {});
 
 /// Where a boundary's edge condition is shown in the view (docs/Surface.md
-/// sec 8): the boundary's middle, the way across it into the surface --
-/// square to it, in the surface's tangent plane -- and its length
+/// sec 8): a point of the boundary -- its middle, unless asked for another --
+/// the way across it into the surface -- square to it, in the surface's
+/// tangent plane -- and its length
 struct BoundaryMarker
 {
     gp_Pnt middle;
     gp_Dir inward;
     double length = 0;
 };
+/// `at` of the way along the boundary as its parameter runs (0 to 1)
 SurfaceExport BoundaryMarker boundaryMarker(const Handle(Geom_BSplineSurface) & surface,
-                                            Boundary boundary);
+                                            Boundary boundary,
+                                            double at = 0.5);
 
 }  // namespace Surface::Geom

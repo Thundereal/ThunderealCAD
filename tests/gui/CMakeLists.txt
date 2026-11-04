@@ -171,6 +171,31 @@ fc_add_gui_test(GuiSurfaceFillMarkers_tests_run surface-fill-markers.py
 # they make into the active body, and nowhere else.
 fc_add_gui_test(GuiSurfaceInBody_tests_run surface-in-body.py
                 --timeout 180)
+# A surface group in a body: an aux group holding Surface features that,
+# while active, brings the Surface tool bar into PartDesign; editing a
+# Surface feature brings it too, until the edit ends.
+fc_add_gui_test(GuiSurfaceGroup_tests_run surface-group.py
+                --timeout 180)
+# Sheet metal's rule as the first child of the solid body holding the sheet
+# (docs/SheetMetal.md sec 4.6), and the lone sheet solid given one.
+fc_add_gui_test(GuiSheetMetalTree_tests_run sheet-metal-tree.py
+                --timeout 120)
+# Sheet metal's commands, its Part Design submenu and its tool bar
+# (docs/SheetMetal.md sec 8.1).
+fc_add_gui_test(GuiSheetMetalCommands_tests_run sheet-metal-commands.py
+                --timeout 120)
+# Sheet metal's commands from a browser's connection: on the allowlist, and
+# no dialog for what they cannot use (docs/SheetMetal.md sec 8.2).
+fc_add_gui_test(GuiServeSheetMetal_tests_run serve-sheet-metal.py
+                --timeout 180)
+# Sheet metal's task panels: their values, the edge picks, OK and Cancel
+# (docs/SheetMetal.md sec 5.1, 8.1).
+fc_add_gui_test(GuiSheetMetalPanels_tests_run sheet-metal-panels.py
+                --timeout 120)
+# Sheet metal's rule panel: its card, the values the card gives and the ones
+# set by hand, reset, OK and Cancel (docs/SheetMetal.md sec 4.6, 8.1).
+fc_add_gui_test(GuiSheetMetalRulePanel_tests_run sheet-metal-rule-panel.py
+                --timeout 120)
 # Geometry picked for a Surface feature is taken as a sketch takes external
 # geometry: through SubShapeBinder::import, outside the feature's body by a
 # binder in it -- by its commands and every panel.
@@ -201,6 +226,13 @@ fc_add_gui_test(GuiSketch3DArcs_tests_run sketch3d-arcs.py
 # on a plane, Block freeing a plane, a free plane carrying its geometry,
 # symmetric about a plane, the angle of two planes.
 fc_add_gui_test(GuiSketch3DWorkplanes_tests_run sketch3d-workplanes.py
+                --timeout 180)
+# Its curves each in its own colour in the edit, a curve after an arc too.
+fc_add_gui_test(GuiSketch3DCurveColours_tests_run sketch3d-curve-colours.py
+                --timeout 180)
+# Its dimension labels facing the eye from either side, a radius's and an
+# angle's too.
+fc_add_gui_test(GuiSketch3DLabelFacing_tests_run sketch3d-label-facing.py
                 --timeout 180)
 # Its corner fillet (S3c): the Sketcher's Fillet on two lines, on their corner
 # point and as a tool, its radius typed next, one undo step.

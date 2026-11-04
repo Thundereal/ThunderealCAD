@@ -3514,6 +3514,35 @@ TopoShape::sortEdgesAll(std::list<TopoShape>& edges, bool keepOrder, double tol,
     return runs;
 }
 
+// The edge of <unfixed> that <edge> of <fixed>, made by fix() from it, was.
+// fix() on a shape with a frozen part keeps a fixed copy, so none of its edges
+// is one of <unfixed>'s, though nothing needed fixing in most; the name of
+// each leads back to the edge it was. <edge> itself when nothing does.
+static TopoDS_Shape fixedEdgeWas(const TopoShape &fixed,
+                                 const TopoShape &unfixed,
+                                 const TopoDS_Shape &edge)
+{
+    if (unfixed.findShape(edge))
+        return edge;
+    int idx = fixed.findShape(edge);
+    if (!idx)
+        return edge;
+    auto name = fixed.getMappedName(Data::IndexedName::fromConst("Edge", idx));
+    if (!name)
+        return edge;
+    auto was = unfixed.getIndexedName(name);
+    if (!was) {
+        // an edge the fix changed has the name it had, modified
+        Data::MappedName original;
+        fixed.getElementHistory(name, &original);
+        if (original)
+            was = unfixed.getIndexedName(original);
+    }
+    if (!was)
+        return edge;
+    return unfixed.getSubShape(TopAbs_EDGE, was.getIndex());
+}
+
 // Assemble one wire per sorted run. MakeWire may still refuse an edge the
 // sorting joined -- the caller's tolerance can span a gap wider than the
 // vertex tolerances MakeWire connects by -- and ignoring the refusal would
@@ -3566,8 +3595,19 @@ wiresFromSortedRuns(std::list<TopoShape> &edge_list,
             }
             wires.push_back(wire);
             wires.back().mapSubElement(edges, op);
-            if (fixWires)
+            if (fixWires) {
+                const TopoShape unfixed = wires.back();
                 wires.back().fix();
+                if (output && !wires.back().getShape().IsSame(unfixed.getShape())) {
+                    for (const auto &e : wires.back().getSubShapes(TopAbs_EDGE)) {
+                        auto was = output->find(fixedEdgeWas(wires.back(), unfixed, e));
+                        if (was != output->end() && !was->first.getShape().IsSame(e)) {
+                            TopoShape input = was->second;
+                            (*output)[TopoShape(e)] = input;
+                        }
+                    }
+                }
+            }
         }
     }
     return wires;

@@ -261,6 +261,7 @@ void ViewProviderGroupExtension::buildExport() const {
         filterLinksByScope(obj,children);
         outSet.insert(children.begin(),children.end());
     }
+    excludeFromExport(outSet);
 
     // remove the otherwise handled objects, preserving their order so the order in the TreeWidget is correct
     for(auto it=model.begin();it!=model.end();) {

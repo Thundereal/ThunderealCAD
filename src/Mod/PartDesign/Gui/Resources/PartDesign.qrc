@@ -93,6 +93,22 @@
         <file>icons/PartDesign_IntersectingHole.svg</file>
         <file>icons/PartDesign_Thickness.svg</file>
         <file>icons/PartDesign_Thicken.svg</file>
+        <file>icons/PartDesign_SheetMetalBaseWall.svg</file>
+        <file>icons/PartDesign_SheetMetalExportDXF.svg</file>
+        <file>icons/PartDesign_SheetMetalCheck.svg</file>
+        <file>icons/PartDesign_SheetMetalExtendWall.svg</file>
+        <file>icons/PartDesign_SheetMetalHem.svg</file>
+        <file>icons/PartDesign_SheetMetalCornerClosure.svg</file>
+        <file>icons/PartDesign_SheetMetalCutout.svg</file>
+        <file>icons/PartDesign_SheetMetalFold.svg</file>
+        <file>icons/PartDesign_SheetMetalJog.svg</file>
+        <file>icons/PartDesign_SheetMetalTab.svg</file>
+        <file>icons/PartDesign_SheetMetalFlatten.svg</file>
+        <file>icons/PartDesign_SheetMetalFlange.svg</file>
+        <file>icons/PartDesign_SheetMetalContourFlange.svg</file>
+        <file>icons/PartDesign_SheetMetalJoin.svg</file>
+        <file>icons/PartDesign_SheetMetalBendCuts.svg</file>
+        <file>icons/PartDesign_SheetMetalOverlay.svg</file>
         <file>icons/PartDesign_Defeaturing.svg</file>
         <file>icons/PartDesign_Overlay.svg</file>
         <file>icons/PartDesign_Suppressed.svg</file>
@@ -103,6 +119,7 @@
         <file>icons/PartDesign_Wrap_Overlay.svg</file>
         <file>icons/PartDesign_Group.svg</file>
         <file>icons/PartDesign_GroupSketch.svg</file>
+        <file>icons/PartDesign_GroupSurface.svg</file>
         <file>icons/PartDesign_GroupDatum.svg</file>
         <file>icons/PartDesign_GroupMisc.svg</file>
     </qresource>

@@ -26,6 +26,11 @@
 #include <Base/Interpreter.h>
 #include <Base/VectorPy.h>
 #include <Base/Tools.h>
+#include <App/DocumentObjectPy.h>
+#include <Standard_Failure.hxx>
+
+#include "SheetMetalCheck.h"
+#include "SheetMetalFlat.h"
 
 
 namespace PartDesign {
@@ -37,10 +42,100 @@ public:
         add_varargs_method("makeFilletArc",&Module::makeFilletArc,
             "makeFilletArc(...) -- Fillet arc."
         );
+        add_varargs_method("exportFlat",&Module::exportFlat,
+            "exportFlat(obj, path) -- the flat of obj, a feature of a sheet's solid or the\n"
+            "solid (its tip's), written with the sheet's settings as DXF or SVG by the\n"
+            "suffix of path."
+        );
+        add_varargs_method("checkSheet",&Module::checkSheet,
+            "checkSheet(obj) -> dict -- the bend table of obj, a feature of a sheet's solid\n"
+            "or the solid (its tip), and what is wrong with its flat: {'Bends': [...],\n"
+            "'Problems': [...]}, each a dict. Asked for, never kept."
+        );
         initialize("This module is the PartDesign module."); // register with Python
     }
 
 private:
+    Py::Object exportFlat(const Py::Tuple& args)
+    {
+        PyObject *pyObj;
+        char *path;
+        if (!PyArg_ParseTuple(args.ptr(), "O!et", &(App::DocumentObjectPy::Type), &pyObj,
+                              "utf-8", &path))
+            throw Py::Exception();
+        const std::string file(path);
+        PyMem_Free(path);
+        PY_TRY {
+            try {
+                PartDesign::exportFlat(
+                        static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr(),
+                        file.c_str());
+            }
+            catch (const Standard_Failure &e) {
+                THROWM(Base::CADKernelError, e.GetMessageString());
+            }
+        } _PY_CATCH(throw Py::Exception())
+        return Py::None();
+    }
+
+    Py::Object checkSheet(const Py::Tuple& args)
+    {
+        PyObject *pyObj;
+        if (!PyArg_ParseTuple(args.ptr(), "O!", &(App::DocumentObjectPy::Type), &pyObj))
+            throw Py::Exception();
+        PartDesign::SheetCheck found;
+        PY_TRY {
+            try {
+                found = PartDesign::checkSheet(
+                        static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr());
+            }
+            catch (const Standard_Failure &e) {
+                THROWM(Base::CADKernelError, e.GetMessageString());
+            }
+        } _PY_CATCH(throw Py::Exception())
+
+        auto names = [](const std::vector<std::string> &values) {
+            Py::Tuple res(values.size());
+            for (std::size_t i = 0; i < values.size(); ++i)
+                res.setItem(i, Py::String(values[i]));
+            return res;
+        };
+        Py::List bends;
+        for (const auto &bend : found.bends) {
+            Py::Dict item;
+            item.setItem("Name", Py::String(bend.name));
+            item.setItem("Feature", Py::String(bend.feature));
+            item.setItem("Angle", Py::Float(bend.angle));
+            item.setItem("Radius", Py::Float(bend.radius));
+            item.setItem("RadiusSource", Py::String(bend.radiusSource));
+            item.setItem("KFactor", Py::Float(bend.kFactor));
+            item.setItem("KFactorSource", Py::String(bend.kFactorSource));
+            item.setItem("Method", Py::String(bend.method));
+            item.setItem("MethodSource", Py::String(bend.methodSource));
+            item.setItem("Allowance", Py::Float(bend.allowance));
+            item.setItem("Direction", Py::String(bend.direction));
+            item.setItem("Elements", names(bend.elements));
+            item.setItem("FlatElements", names(bend.flatElements));
+            bends.append(item);
+        }
+        Py::List problems;
+        for (const auto &problem : found.problems) {
+            Py::Dict item;
+            item.setItem("Kind", Py::String(problem.kind));
+            item.setItem("Message", Py::String(problem.message));
+            item.setItem("Feature", Py::String(problem.feature));
+            item.setItem("Value", Py::Float(problem.value));
+            item.setItem("Limit", Py::Float(problem.limit));
+            item.setItem("Elements", names(problem.elements));
+            item.setItem("FlatElements", names(problem.flatElements));
+            problems.append(item);
+        }
+        Py::Dict res;
+        res.setItem("Bends", bends);
+        res.setItem("Problems", problems);
+        return res;
+    }
+
     Py::Object makeFilletArc(const Py::Tuple& args)
     {
         PyObject *pM1;

@@ -123,7 +123,8 @@ namespace
 /** A new feature placed: into the active PartDesign Body of the view the
  * command came through, as a sketch goes -- a body takes Surface features
  * (Part::BodyBase::allowType), not solid, never its Tip; through the body's
- * own Python, as Surface does not link PartDesign. Then `_edit`, the edit
+ * own Python, as Surface does not link PartDesign; the body puts it in its
+ * surface group. Then `_edit`, the edit
  * context the picks are imported for (linkOf), set where it now is; the
  * command drops it with dropEditContext().
  */

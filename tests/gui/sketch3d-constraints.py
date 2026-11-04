@@ -7,6 +7,9 @@
     three coordinates); Horizontal says it needs a plane and makes nothing;
   - a new dimension opens the in-view value editor; Enter takes what is typed,
     a value or an expression, and the label shows it; it is one undo step;
+  - the panel's status follows what changes it: a conflict added from Python,
+    and Undo taking it away; a value that would conflict is refused, and the
+    editor says why;
   - a selected constraint goes with the Delete key and with deleteSelection().
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
@@ -54,6 +57,19 @@ def settle(seconds=0.3):
 
 def types(sk):
     return [c.Type for c in sk.Constraints]
+
+
+def status_text():
+    for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QLabel, "Sketch3DStatus"):
+        return w.text()
+    return ""
+
+
+def editor_says():
+    for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QLabel, "DatumValueEditorResult"):
+        if w.isVisible():
+            return w.text()
+    return ""
 
 
 def type_in_editor(text):
@@ -196,6 +212,47 @@ def run():
         )
         # what is left free: the second line's length (its start slides along Z)
         check("leaving one degree of freedom", sk.DoF == 1, sk.DoF)
+
+        # -- the status follows ------------------------------------------------
+        import Sketcher
+
+        check("the panel says what is left", "1 degrees of freedom" in status_text(), status_text())
+        doc.openTransaction("conflict")
+        sk.addConstraint(Sketcher.Constraint("DistanceX", 0, 40.0))
+        doc.commitTransaction()
+        settle(0.3)
+        check(
+            "a conflict added from Python is said in the panel",
+            "Conflicting" in status_text() and sk.Conflicting,
+            (status_text(), sk.Conflicting),
+        )
+        doc.undo()
+        settle(0.3)
+        check(
+            "and Undo takes it out of the panel and the sketch",
+            "Conflicting" not in status_text() and sk.Conflicting == [] and sk.DoF == 1,
+            (status_text(), sk.Conflicting, sk.DoF),
+        )
+        doc.openTransaction("redundant")
+        sk.addConstraint(Sketcher.Constraint("DistanceX", 0, 30.0))
+        doc.commitTransaction()
+        settle(0.3)
+        j = len(sk.Constraints) - 1
+        check("a redundant one is said", "Redundant" in status_text(), status_text())
+        vp.editDatum(j)
+        settle(0.3)
+        type_in_editor("40")
+        check(
+            "a value that would conflict is refused, and the editor says why",
+            abs(sk.Constraints[j].Value - 30) < 1e-9 and vp.isEditingDatum() and editor_says(),
+            (sk.Constraints[j].Value, vp.isEditingDatum(), editor_says()),
+        )
+        vp.finishDatumEdit(False)
+        settle(0.3)
+        check("given up, the entry closes", not vp.isEditingDatum())
+        doc.undo()
+        settle(0.3)
+        check("Undo takes it away again", "Redundant" not in status_text(), status_text())
 
         # -- Delete -----------------------------------------------------------
         n = len(sk.Constraints)

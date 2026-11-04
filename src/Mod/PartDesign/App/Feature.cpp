@@ -72,6 +72,16 @@ Feature::Feature()
 
     ADD_PROPERTY_TYPE(NewSolid,(false),"Base",App::Prop_None,
                      "Create a new separated solid from this feature");
+
+    ADD_PROPERTY_TYPE(RetryOnCopy,(false),"Base",App::Prop_None,
+                     "With shape values frozen (Part's ImmutableShapeValues), recompute once more\n"
+                     "on copies of the inputs when the recompute fails: for a failure the freeze\n"
+                     "causes. Warns where that rescues the recompute.");
+}
+
+bool Feature::retryOnCopy() const
+{
+    return RetryOnCopy.getValue();
 }
 
 short Feature::mustExecute() const
@@ -87,7 +97,7 @@ bool Feature::allowMultiSolid() const
     return body && !body->SingleSolid.getValue();
 }
 
-TopoShape Feature::getSolid(const TopoShape& shape, bool force)
+TopoShape Feature::getSolid(const TopoShape& shape, bool force, bool orient)
 {
     if (shape.isNull())
         THROWM(Part::NullShapeException, "Null shape");
@@ -95,7 +105,8 @@ TopoShape Feature::getSolid(const TopoShape& shape, bool force)
     if(count>1) {
         if(allowMultiSolid()) {
             auto res = shape;
-            res.fixSolidOrientation();
+            if (orient)
+                res.fixSolidOrientation();
             return res;
         }
         THROWM(Base::RuntimeError, "Result has multiple solids.\n"
@@ -103,7 +114,8 @@ TopoShape Feature::getSolid(const TopoShape& shape, bool force)
     }
     if(count) {
         auto res = shape.getSubTopoShape(TopAbs_SOLID,1);
-        res.fixSolidOrientation();
+        if (orient)
+            res.fixSolidOrientation();
         return res;
     }
     if (force)
@@ -578,6 +590,14 @@ void Feature::updateSuppressedShape()
 App::DocumentObject *Feature::getSubObject(const char *subname, 
         PyObject **pyObj, Base::Matrix4D *pmat, bool transform, int depth) const
 {
+    // The feature laid flat, where it is of a sheet's solid (docs/SheetMetal.md
+    // sec 12): the solid lays it out and keeps it
+    if (const char *element = SolidBody::flatSubName(subname)) {
+        auto body = PartDesign::Body::findBodyOf(this);
+        auto solid = body ? body->getSolidBody(this) : nullptr;
+        return solid ? solid->flatSubObject(this, this, element, pyObj, pmat, transform)
+                     : nullptr;
+    }
     if (subname && subname != Data::findElementName(subname)) {
         const char * dot = strchr(subname,'.');
         if (dot) {

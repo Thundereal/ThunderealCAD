@@ -38,6 +38,8 @@ public:
 
     virtual void attach(App::DocumentObject*) override;
     virtual void updateData(const App::Property *) override;
+    /// A surface group's: made active in the view, or let go (PDSURFACEKEY)
+    virtual bool doubleClicked() override;
 
     virtual bool canDelete(App::DocumentObject* obj) const override;
     virtual bool canDragAndDropObject(App::DocumentObject*) const override;

@@ -1460,6 +1460,7 @@ SET(Workbench_CPP_SRCS
     PythonWorkbenchPyImp.cpp
     ToolBarManager.cpp
     ToolBoxManager.cpp
+    ToolContext.cpp
     Workbench.cpp
     WorkbenchFactory.cpp
     WorkbenchManager.cpp
@@ -1476,6 +1477,7 @@ SET(Workbench_SRCS
     MenuManager.h
     ToolBarManager.h
     ToolBoxManager.h
+    ToolContext.h
     Workbench.h
     WorkbenchFactory.h
     WorkbenchManager.h

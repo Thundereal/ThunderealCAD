@@ -94,7 +94,8 @@ def browser_safe(name):
                         "Sketcher_IntersectionDefining", "Sketcher_CarbonCopy")
             or name in DIALOG_FREE_CONSTRAINTS
             or name in SKETCH3D_COMMANDS
-            or name in SURFACE_COMMANDS)
+            or name in SURFACE_COMMANDS
+            or name in SHEET_METAL_COMMANDS)
 
 
 DIALOG_FREE_CONSTRAINTS = {"Sketcher_" + n for n in (
@@ -119,6 +120,18 @@ SURFACE_COMMANDS = {"Surface_Network", "Surface_Trim", "Surface_Split", "Surface
                     "Surface_CurveOnSurface", "Surface_IntersectionCurve",
                     "Surface_JoinCurves", "Surface_ExtendCurve", "Surface_Sections",
                     "Surface_Filling", "Surface_GeomFillSurface"}
+
+
+SHEET_METAL_COMMANDS = {"PartDesign_SheetMetalBaseWall", "PartDesign_SheetMetalFlange",
+                        "PartDesign_SheetMetalContourFlange", "PartDesign_SheetMetalJoin",
+                        "PartDesign_SheetMetalBendCuts",
+                        "PartDesign_SheetMetalExtendWall", "PartDesign_SheetMetalHem",
+                        "PartDesign_SheetMetalCornerClosure",
+                        "PartDesign_SheetMetalCutout",
+                        "PartDesign_SheetMetalFold",
+                        "PartDesign_SheetMetalJog",
+                        "PartDesign_SheetMetalTab",
+                        "PartDesign_SheetMetalFlatten"}
 
 
 class Run(threading.Thread):

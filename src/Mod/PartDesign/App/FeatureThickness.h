@@ -44,12 +44,17 @@ public:
     App::PropertyEnumeration    Mode;
     App::PropertyEnumeration    Join;      
     App::PropertyBool           MakeOffset;
+    /// The OCCT fork's offset fix level the object recomputes at
+    /// (Part::OCCTOffsetFixLevel): the latest for an object made now, 0 for
+    /// one a file from before the level brings, which so recomputes as it did
+    App::PropertyInteger _OffsetFixLevel;
 
     /** @name methods override feature */
     //@{
     /// recalculate the feature
     App::DocumentObjectExecReturn *execute() override;
     short mustExecute() const override;
+    void setupObject() override;
     /// returns the type name of the view provider
     const char* getViewProviderName() const override {
         return "PartDesignGui::ViewProviderThickness";

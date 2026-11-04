@@ -80,6 +80,7 @@ set(TestExecutables
     Material_tests_run
     Mesh_tests_run
     Part_tests_run
+    PartDesign_tests_run
     Points_tests_run
     Sketcher_tests_run
     Surface_tests_run

@@ -23,6 +23,8 @@
 
 #include "PreCompiled.h"
 
+#include <set>
+
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Tools.h>
@@ -48,6 +50,8 @@
 #include "AuxGroup.h"
 #include "ShapeBinder.h"
 #include "SolidBody.h"
+#include "FeatureSheetMetalRule.h"
+#include "SheetMetalExtension.h"
 
 #include <Mod/Part/App/PartParams.h>
 
@@ -124,6 +128,14 @@ void Body::onChanged(const App::Property *prop)
     return Part::Feature::onChanged(prop);
 }
 */
+
+void Body::onBeforeChange(const App::Property *prop)
+{
+    // The card the rules follow, which onChanged() hands the new one to
+    if (prop == &ShapeMaterial)
+        oldMaterial = ShapeMaterial.getValue().getUUID();
+    Part::BodyBase::onBeforeChange(prop);
+}
 
 short Body::mustExecute() const
 {
@@ -244,6 +256,7 @@ bool Body::isAllowed(const Base::Type &type)
             type.isDerivedFrom(Part::Datum::getClassTypeId())   ||
             type.isDerivedFrom(PartDesign::Solid::getClassTypeId())   ||
             type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId()) ||
+            type.isDerivedFrom(PartDesign::SheetMetalRule::getClassTypeId()) ||
             type.isDerivedFrom(Part::Part2DObject::getClassTypeId()) ||
             // the 3D sketch (docs/Sketch3D.md), by name: PartDesign does not link Sketcher
             type.isDerivedFrom(Base::Type::fromName("Sketcher::Sketch3DObject")) ||
@@ -375,6 +388,28 @@ Body::newObjectAt(const char *type,
     return obj;
 }
 
+/** A sheet metal feature put in the body takes the rule of the sheet it
+ * builds on; the sheet's first makes one. A body holding sheet metal
+ * groups its solids by SolidBody (docs/SheetMetal.md sec 4.6).
+ */
+static void takeSheetRule(Body *body, SheetMetalExtension *sheet)
+{
+    if (!sheet->Rule.getValue()) {
+        auto before = SheetMetalExtension::findBefore(sheet->getExtendedObject());
+        if (before && before->getRule()) {
+            sheet->Rule.setValue(before->getRule());
+        }
+        else {
+            auto rule = body->getDocument()->addObject("PartDesign::SheetMetalRule",
+                                                       "SheetMetalRule");
+            body->addObject(rule);
+            sheet->Rule.setValue(rule);
+        }
+    }
+    if (!body->AddSolidBody.getValue())
+        body->AddSolidBody.setValue(true);
+}
+
 void Body::insertObject(App::DocumentObject* feature, App::DocumentObject* target, bool after)
 {
     if (target && !Group.find(target->getNameInDocument())) {
@@ -427,6 +462,16 @@ void Body::insertObject(App::DocumentObject* feature, App::DocumentObject* targe
 
     // Set the BaseFeature property
     setBaseProperty(feature);
+
+    // The first surface in a body keeping the auto aux groups brings its own
+    if (Part::BodyBase::typeKind(feature->getTypeId()) == "Surface" && hasAutoAuxGroup())
+        addAutoAuxGroups(true);
+
+    if (auto rule = dynamic_cast<SheetMetalRule*>(feature))
+        rule->takeBodyMaterial();
+
+    if (auto sheet = feature->getExtensionByType<SheetMetalExtension>(true))
+        takeSheetRule(this, sheet);
 }
 
 void Body::setTip(App::DocumentObject *feature)
@@ -629,8 +674,11 @@ App::DocumentObjectExecReturn *Body::execute()
             return new App::DocumentObjectExecReturn (QT_TRANSLATE_NOOP("Exception", "Tip shape is empty" ));
         }
 
-        // We should hide here the transformation of the baseFeature
-        tipShape.transformShape (tipShape.getTransform(), true );
+        // We should hide here the transformation of the baseFeature. With
+        // none, there is nothing to hide: the copy would rebuild every face of
+        // the part on each recompute
+        if (!tipShape.getShape().Location().IsIdentity())
+            tipShape.transformShape (tipShape.getTransform(), true );
 
     } else {
         tipShape = Part::TopoShape();
@@ -719,6 +767,14 @@ void Body::onChanged (const App::Property* prop) {
                 if (feature && feature->ShapeMaterial.getValue().getUUID()
                         != ShapeMaterial.getValue().getUUID())
                     feature->ShapeMaterial.setValue(ShapeMaterial.getValue());
+            }
+            // A sheet metal rule follows it while it has the body's card,
+            // and keeps one it was given (docs/SheetMetal.md sec 4.6)
+            for (auto obj : Group.getValues()) {
+                auto rule = dynamic_cast<SheetMetalRule*>(obj);
+                if (rule && rule->ShapeMaterial.getValue().getUUID() == oldMaterial
+                        && oldMaterial != ShapeMaterial.getValue().getUUID())
+                    rule->ShapeMaterial.setValue(ShapeMaterial.getValue());
             }
         }
         else if( prop == &SingleSolid ) {
@@ -1070,12 +1126,20 @@ void Body::syncSolidBodies(bool force)
     }
 
     // Every solid gets one once there are two solids. A lone solid keeps the
-    // one it has, and is given none.
+    // one it has, and is given none -- unless it holds sheet metal, whose
+    // rule is shown under its solid body (docs/SheetMetal.md sec 4.6).
+    auto holdsSheetMetal = [](const std::vector<App::DocumentObject*> &features) {
+        for (auto obj : features) {
+            if (obj->hasExtension(SheetMetalExtension::getExtensionClassTypeId()))
+                return true;
+        }
+        return false;
+    };
     std::vector<SolidBody*> created;
-    if (solids.size() > 1) {
+    {
         auto group = Group.getValues();
         for (int i=0; i<(int)solids.size(); ++i) {
-            if (assigned[i])
+            if (assigned[i] || (solids.size() < 2 && !holdsSheetMetal(solids[i])))
                 continue;
             // Not made the document's active object: that stays the feature
             // whose arrival made the second solid
@@ -1272,6 +1336,82 @@ Body::getSiblings(App::DocumentObject *obj, bool all, bool reversed) const
         }
     }
     return res;
+}
+
+bool Body::hasAutoAuxGroup() const
+{
+    for (auto obj : Group.getValues()) {
+        auto group = freecad_cast<AuxGroup*>(obj);
+        if (group && group->getGroupType() != AuxGroup::OtherGroup)
+            return true;
+    }
+    return false;
+}
+
+void Body::setAutoAuxGroup(bool enable)
+{
+    if (enable) {
+        addAutoAuxGroups(false);
+        return;
+    }
+    std::vector<std::string> names;
+    for (auto obj : Group.getValues()) {
+        auto group = freecad_cast<AuxGroup*>(obj);
+        if (group && group->getGroupType() != AuxGroup::OtherGroup)
+            names.emplace_back(group->getNameInDocument());
+    }
+    for (const auto &name : names) {
+        if (auto group = freecad_cast<AuxGroup*>(getDocument()->getObject(name.c_str()))) {
+            group->_Body.setValue(nullptr);
+            getDocument()->removeObject(name.c_str());
+        }
+    }
+}
+
+void Body::addAutoAuxGroups(bool surfacesOnly)
+{
+    auto model = Group.getValues();
+    std::set<AuxGroup::GroupType> there;
+    int last = -1;
+    bool surfaces = false;
+    for (int i = 0; i < (int)model.size(); ++i) {
+        auto group = freecad_cast<AuxGroup*>(model[i]);
+        if (group && group->getGroupType() != AuxGroup::OtherGroup) {
+            there.insert(group->getGroupType());
+            last = i;
+        }
+        else if (Part::BodyBase::typeKind(model[i]->getTypeId()) == "Surface")
+            surfaces = true;
+    }
+
+    // after the groups there are, else first after a base feature: the body
+    // lets its base go if anything comes before it (onChanged)
+    int pos = last + 1;
+    if (last < 0 && !model.empty()
+            && (model[0] == BaseFeature.getValue() || model[0]->isDerivedFrom<FeatureBase>()))
+        pos = 1;
+    static const std::pair<AuxGroup::GroupType, const char *> kinds[] = {
+        {AuxGroup::SketchGroup, "Sketches"},
+        {AuxGroup::DatumGroup, "Datums"},
+        {AuxGroup::MiscGroup, "Misc"},
+        {AuxGroup::SurfaceGroup, "Surfaces"},
+    };
+    std::vector<AuxGroup*> made;
+    for (const auto &[type, name] : kinds) {
+        if (there.count(type)
+                || (type == AuxGroup::SurfaceGroup ? !surfaces : surfacesOnly))
+            continue;
+        auto group = static_cast<AuxGroup*>(
+                getDocument()->addObject("PartDesign::AuxGroup", name));
+        group->Label.setValue(name);
+        model.insert(model.begin() + pos++, group);
+        made.push_back(group);
+    }
+    if (made.empty())
+        return;
+    Group.setValues(model);
+    for (auto group : made)
+        group->_Body.setValue(this);
 }
 
 int Body::isElementVisible(const char *element) const

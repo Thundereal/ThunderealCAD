@@ -24,6 +24,8 @@
 
 #include "PreCompiled.h"
 
+#include <limits>
+
 #ifndef _PreComp_
 #include <algorithm>
 #include <cmath>
@@ -49,6 +51,33 @@ namespace
 {
 
 using Curve = Handle(Geom_Curve);
+
+/// The point of a curve nearest a point, its ends included: a projection
+/// finds only the feet square to the curve, and a point at an end of a curve
+/// leaving it at a slant has none. False when there is no point at all.
+bool nearest(const gp_Pnt& point, const Curve& curve, double& param, double& distance)
+{
+    bool found = false;
+    distance = std::numeric_limits<double>::max();
+    GeomAPI_ProjectPointOnCurve foot(point, curve);
+    if (foot.NbPoints() > 0) {
+        distance = foot.LowerDistance();
+        param = foot.LowerDistanceParameter();
+        found = true;
+    }
+    for (double t : {curve->FirstParameter(), curve->LastParameter()}) {
+        if (Precision::IsInfinite(t)) {
+            continue;
+        }
+        const double d = point.Distance(curve->Value(t));
+        if (d < distance) {
+            distance = d;
+            param = t;
+            found = true;
+        }
+    }
+    return found;
+}
 
 /// A curve measured by its length: the parameter at a share of it and back
 struct Measured
@@ -184,28 +213,30 @@ SweepResult twoRailSweep(const Handle(Geom_Curve) & rail1,
         for (std::size_t i = 0; i < sections.size(); ++i) {
             Curve c = sections[i];
             gp_Pnt s0 = c->Value(c->FirstParameter()), s1 = c->Value(c->LastParameter());
-            GeomAPI_ProjectPointOnCurve p0(s0, r1), p1(s1, r1);
-            if (p0.NbPoints() == 0 || p1.NbPoints() == 0) {
+            double t0 = 0, t1 = 0, d0 = 0, d1 = 0;
+            if (!nearest(s0, r1, t0, d0) || !nearest(s1, r1, t1, d1)) {
                 r.error = "section " + std::to_string(i + 1) + " is not on the first rail";
                 return r;
             }
-            if (p1.LowerDistance() < p0.LowerDistance()) {
+            if (d1 < d0) {
                 c = reversed(c);
                 std::swap(s0, s1);
+                std::swap(t0, t1);
+                std::swap(d0, d1);
             }
-            GeomAPI_ProjectPointOnCurve on1(s0, r1), on2(s1, r2);
-            if (on1.NbPoints() == 0 || on1.LowerDistance() > options.tolerance) {
+            double t2 = 0, d2 = 0;
+            if (d0 > options.tolerance) {
                 r.error = "section " + std::to_string(i + 1) + " does not start on a rail";
                 return r;
             }
-            if (on2.NbPoints() == 0 || on2.LowerDistance() > options.tolerance) {
+            if (!nearest(s1, r2, t2, d2) || d2 > options.tolerance) {
                 r.error = "section " + std::to_string(i + 1) + " does not end on the other rail";
                 return r;
             }
             Section s;
             s.curve = c;
-            s.share = m1.share(on1.LowerDistanceParameter());
-            s.share2 = m2.share(on2.LowerDistanceParameter());
+            s.share = m1.share(t0);
+            s.share2 = m2.share(t2);
             gp_Vec run = m1.tangent(s.share) + m2.tangent(s.share2);
             if (!frame(s0, s1, run, s.ax, s.scale)) {
                 r.error = "section " + std::to_string(i + 1)

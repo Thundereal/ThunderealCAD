@@ -287,18 +287,24 @@ public:
     Private(ViewProviderDocumentObject* obj) : object(obj) {
         set(obj);
     }
-    void deletedDocument(const Gui::Document&) {
-        // When deleting document then there is no way to undo it. Heard
-        // from its own document only, so not asked which: the view provider
-        // of an object removed and kept for an undo may be gone by now, with
-        // the step that kept it, and nothing told this pointer.
+    void deletedDocument(const Gui::Document& /*doc*/) {
+        // When deleting document then there is no way to undo it. Connected
+        // to the view provider's own document only, so the view provider is
+        // not asked which: deleted with undo off it is freed already, and one
+        // removed and kept for an undo may be gone with the step that kept it.
         reset();
     }
     void createdObject(const Gui::ViewProvider& obj) noexcept {
-        // When undoing the removal
-        if (object == &obj) {
+        // When undoing the removal: the same view provider of the same
+        // object, not a new one made where a freed one was
+        if (object == &obj && objectID(&obj) == id) {
             indocument = true;
         }
+    }
+    static long objectID(const Gui::ViewProvider* vp) noexcept {
+        auto vpd = Base::freecad_dynamic_cast<const ViewProviderDocumentObject>(vp);
+        auto obj = vpd ? vpd->getObject() : nullptr;
+        return obj ? obj->getID() : 0;
     }
     void deletedObject(const Gui::ViewProvider& obj) noexcept {
         if (object == &obj) {
@@ -311,9 +317,11 @@ public:
         connectDocumentDeletedObject.disconnect();
         object = nullptr;
         indocument = false;
+        id = 0;
     }
     void set(ViewProviderDocumentObject* obj) {
         object = obj;
+        id = objectID(obj);
         try {
             if (obj) {
                 //NOLINTBEGIN
@@ -339,6 +347,7 @@ public:
     }
 
     Gui::ViewProviderDocumentObject* object;
+    long id{0};
     bool indocument{false};
     using Connection = fastsignals::scoped_connection;
     Connection connectApplicationDeletedDocument;

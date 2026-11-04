@@ -210,7 +210,7 @@
          stop-color="#ffd75e"
          stop-opacity=".3"
          id="stop11"
-         style="stop-color:#396fb4;stop-opacity:1" />
+         style="stop-color:#e5bd77;stop-opacity:1" />
     </linearGradient>
     <linearGradient
        inkscape:collect="always"
@@ -260,7 +260,7 @@
          stop-color="#ffd75e"
          stop-opacity=".3"
          id="stop11-1"
-         style="stop-color:#396fb4;stop-opacity:1" />
+         style="stop-color:#e5bd77;stop-opacity:1" />
     </linearGradient>
   </defs>
   <g
@@ -269,12 +269,12 @@
      transform="matrix(0.67404944,0,0,0.81346885,1.2146556,-4.5491323)">
     <path
        inkscape:connector-curvature="0"
-       style="fill:#3b72b9;fill-opacity:1;stroke:#0b1521;stroke-width:2.70093203;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       style="fill:#c17d11;fill-opacity:1;stroke:#0b1521;stroke-width:2.70093203;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
        id="path4"
        d="M 43,18.782611 38.7574,14.131028 C 37.6321,12.897251 36.106,12.204217 34.5147,12.204217 l -27.5147,0 c -1.6569,0 -3,1.472574 -3,3.289197 l 0,61.398341 c 0,0.605541 0.4477,1.096398 1,1.096398 l 82,0 c 0.5523,0 1,-0.490857 1,-1.096398 l 0,-54.819947 c 0,-1.816624 -1.3431,-3.289197 -3,-3.289197 l -42,0 z" />
     <path
        inkscape:connector-curvature="0"
-       style="fill:#5c8dcb;fill-opacity:1;stroke:#0b1521;stroke-width:2.70093203;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       style="fill:#f6e2b8;fill-opacity:1;stroke:#0b1521;stroke-width:2.70093203;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
        id="path6"
        d="m 42.996273,24 -4.240566,4.2426 C 37.630951,29.3679 36.105151,30 34.513851,30 l -30.5147004,0 0.022581,47 c 3.144e-4,0.5523 0.4481847,1 1.0004847,1 l 82.0000007,0 c 0.5523,0 0.999779,-0.4477 0.999515,-1 l -0.02402,-50 c -8.03e-4,-1.6569 -1.344544,-3 -3.001444,-3 l -42,0 z" />
     <path

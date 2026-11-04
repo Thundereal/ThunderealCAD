@@ -116,6 +116,15 @@ public:
     /// Remove the feature from the body
     std::vector<DocumentObject*> removeObject(DocumentObject* obj) override;
 
+    /** Whether the body keeps the auto aux groups (AuxGroup): Sketches,
+     * Datums and Misc, and Surfaces once it holds a surface
+     */
+    bool hasAutoAuxGroup() const;
+    /** Add the auto aux groups the body lacks, or remove them all; a user's
+     * group (AuxGroup::OtherGroup) stays either way
+     */
+    void setAutoAuxGroup(bool enable);
+
     /**
      * Checks if the given document object lays after the current insert point
      * (place before next solid after the Tip)
@@ -264,6 +273,7 @@ public:
 protected:
     void onSettingDocument() override;
 
+    void onBeforeChange(const App::Property* prop) override;
     /// Adjusts the first solid's feature's base on BaseFeature getting set
     void onChanged (const App::Property* prop) override;
 
@@ -279,9 +289,13 @@ protected:
 
 private:
     void removeSolidBody(SolidBody *solid);
+    /// The auto aux groups the body lacks, all of them or only Surfaces
+    void addAutoAuxGroups(bool surfacesOnly);
 
 private:
     bool showTip = false;
+    /// The card before a change of ShapeMaterial
+    QString oldMaterial;
     bool solidBodyTouched = false;
     bool solidBodySyncing = false;
     int solidBodySyncBlocked = 0;

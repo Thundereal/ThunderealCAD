@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's tab: a plate with a tab added on its edge, the sketch's outline marked on it -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the plate -->
+  <path
+     d="M 4,36 26,25 44,34 22,45 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 4,36 22,45 V 49 L 4,40 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 22,45 44,34 V 38 L 22,49 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the tab added on its edge -->
+  <path
+     d="M 30,41 40,36 52,42 42,47 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 42,47 52,42 V 46 L 42,51 Z"
+     style="fill:#c98420;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the sketch it was drawn from, its outline -->
+  <path
+     d="M 30,41 40,36 52,42 42,47 Z"
+     style="fill:none;stroke:#c0392b;stroke-width:3;stroke-linejoin:round;stroke-dasharray:5,3;" />
+</svg>

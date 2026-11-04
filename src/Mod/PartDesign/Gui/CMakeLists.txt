@@ -21,6 +21,7 @@ set(PartDesignGui_LIBS
     SketcherGui
     PartGui
     SketcherGui
+    MatGui
     FreeCADGui
 )
 
@@ -91,6 +92,8 @@ SET(PartDesignGuiViewProvider_SRCS
     ViewProviderThickness.h
     ViewProviderThicken.cpp
     ViewProviderThicken.h
+    ViewProviderSheetMetal.cpp
+    ViewProviderSheetMetal.h
     ViewProviderDefeaturing.cpp
     ViewProviderDefeaturing.h
     ViewProviderDressUp.cpp
@@ -180,6 +183,12 @@ SET(PartDesignGuiTaskDlgs_SRCS
     TaskThicknessParameters.cpp
     TaskThickenParameters.cpp
     TaskThickenParameters.h
+    TaskSheetMetalParameters.cpp
+    TaskSheetMetalParameters.h
+    TaskSheetMetalRule.cpp
+    TaskSheetMetalRule.h
+    TaskSheetMetalCheck.cpp
+    TaskSheetMetalCheck.h
     TaskThicknessParameters.h
     TaskDefeaturingParameters.ui
     TaskDefeaturingParameters.cpp
@@ -244,6 +253,7 @@ SOURCE_GROUP("TaskDialogs" FILES ${PartDesignGuiTaskDlgs_SRCS})
 SET(PartDesignGuiModule_SRCS
     AppPartDesignGui.cpp
     Command.cpp
+    CommandSheetMetal.cpp
     CommandPrimitive.cpp
     CommandBody.cpp
     EnumFlags.h

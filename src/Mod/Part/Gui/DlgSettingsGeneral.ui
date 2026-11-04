@@ -122,6 +122,27 @@ it only applies to auto created group with their original labels.</string>
         </item>
        </layout>
       </item>
+      <item row="8" column="0" colspan="2">
+       <widget class="Gui::PrefCheckBox" name="checkAutoAuxGroup">
+        <property name="toolTip">
+         <string>Give each new body the Sketches, Datums and Misc groups, and a
+Surfaces group once it holds a surface. A body's context menu
+turns them on or off for that body.</string>
+        </property>
+        <property name="text">
+         <string>Auto auxiliary groups in new Body</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>AutoAuxGroup</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Mod/Part</cstring>
+        </property>
+       </widget>
+      </item>
       <item row="3" column="0">
        <widget class="Gui::PrefCheckBox" name="checkLinearize">
         <property name="toolTip">

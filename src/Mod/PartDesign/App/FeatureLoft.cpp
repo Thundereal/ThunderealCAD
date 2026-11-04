@@ -148,6 +148,10 @@ std::vector<Part::TopoShape> enclosedSolids(const Part::TopoShape& shell,
         maker.AddArgument(it.Current());
     maker.SetIntersect(true);
     maker.SetAvoidInternalShapes(true);
+    // The faces share the profiles' edges and vertices: a tolerance BOP
+    // raises is raised on a copy, not in the profile -- a pad's vertex went
+    // from 1e-7 to 0.643, and a frozen one was refused
+    maker.SetNonDestructive(true);
     maker.SetRunParallel(true);
     maker.Perform();
     if (maker.HasErrors() || maker.Shape().IsNull())

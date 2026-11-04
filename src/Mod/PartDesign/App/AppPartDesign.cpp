@@ -68,6 +68,20 @@
 #include "FeatureWrap.h"
 #include "ShapeBinder.h"
 #include "SolidBody.h"
+#include "FeatureSheetMetalRule.h"
+#include <Mod/Part/App/BodyBase.h>
+#include "FeatureSheetMetalBaseWall.h"
+#include "FeatureSheetMetalFlange.h"
+#include "FeatureSheetMetalExtendWall.h"
+#include "FeatureSheetMetalHem.h"
+#include "FeatureSheetMetalCornerClosure.h"
+#include "FeatureSheetMetalCutout.h"
+#include "FeatureSheetMetalFold.h"
+#include "FeatureSheetMetalJoin.h"
+#include "FeatureSheetMetalBendCuts.h"
+#include "FeatureSheetMetalTab.h"
+#include "PropertySheetModel.h"
+#include "SheetMetalExtension.h"
 
 
 namespace PartDesign {
@@ -178,6 +192,38 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::FeatureWrap                 ::init();
     PartDesign::AuxGroup                    ::init();
     PartDesign::SolidBody                   ::init();
+    PartDesign::SheetMetalRule              ::init();
+    PartDesign::PropertySheetModel          ::init();
+    PartDesign::SheetMetalExtension         ::init();
+    PartDesign::SheetMetalBaseWall          ::init();
+    PartDesign::SheetMetalFlange            ::init();
+    PartDesign::SheetMetalContourFlange     ::init();
+    PartDesign::SheetMetalJoin              ::init();
+    PartDesign::SheetMetalBendCuts          ::init();
+    PartDesign::SheetMetalExtendWall        ::init();
+    PartDesign::SheetMetalHem               ::init();
+    PartDesign::SheetMetalCornerClosure     ::init();
+    PartDesign::SheetMetalCutout            ::init();
+    PartDesign::SheetMetalFold              ::init();
+    PartDesign::SheetMetalJog               ::init();
+    PartDesign::SheetMetalTab               ::init();
+
+    // Sheet metal's own kind on a body, for its tool bar (docs/SheetMetal.md
+    // sec 8.1): what a solid body holding one offers, what an edit of one does
+    for (Base::Type type : {PartDesign::SheetMetalBaseWall::getClassTypeId(),
+                            PartDesign::SheetMetalFlange::getClassTypeId(),
+                            PartDesign::SheetMetalContourFlange::getClassTypeId(),
+                            PartDesign::SheetMetalJoin::getClassTypeId(),
+                            PartDesign::SheetMetalBendCuts::getClassTypeId(),
+                            PartDesign::SheetMetalExtendWall::getClassTypeId(),
+                            PartDesign::SheetMetalHem::getClassTypeId(),
+                            PartDesign::SheetMetalCornerClosure::getClassTypeId(),
+                            PartDesign::SheetMetalCutout::getClassTypeId(),
+                            PartDesign::SheetMetalFold::getClassTypeId(),
+                            PartDesign::SheetMetalJog::getClassTypeId(),
+                            PartDesign::SheetMetalTab::getClassTypeId()}) {
+        Part::BodyBase::allowType(type, "SheetMetal");
+    }
 
     PyMOD_Return(mod);
 }

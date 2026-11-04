@@ -135,6 +135,7 @@ void DlgSettingsGeneral::saveSettings()
     ui->comboDefaultProfileTypeForHole->onSave();
     ui->checkAutoGroupSolids->onSave();
     ui->checkBoxAuxGroup->onSave();
+    ui->checkAutoAuxGroup->onSave();
     ui->checkSplitEllipsoid->onSave();
     ui->checkBoxValidateShape->onSave();
     ui->checkBoxFixShape->onSave();
@@ -160,6 +161,7 @@ void DlgSettingsGeneral::loadSettings()
     ui->comboDefaultProfileTypeForHole->onRestore();
     ui->checkAutoGroupSolids->onRestore();
     ui->checkBoxAuxGroup->onRestore();
+    ui->checkAutoAuxGroup->onRestore();
     ui->checkSplitEllipsoid->onRestore();
     ui->checkBoxValidateShape->onRestore();
     ui->checkBoxFixShape->onRestore();

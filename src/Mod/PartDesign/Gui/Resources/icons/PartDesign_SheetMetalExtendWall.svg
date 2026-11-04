@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's extend wall: a plate and its end carried out, an arrow along -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the plate as it was -->
+  <path
+     d="M 24,22 46,33 24,44 2,33 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- what is added at its end -->
+  <path
+     d="M 46,33 62,41 40,52 24,44 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;stroke-dasharray:4,2;" />
+  <path
+     d="M 26,12 L 48,23 M 40,23 48,23 44,16"
+     style="fill:none;stroke:#4e9a06;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;" />
+</svg>

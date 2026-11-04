@@ -6,6 +6,7 @@
     by the other and opens its panel, which shows every piece of the cut and
     has the sides to keep picked in the view: a click keeps a piece, a
     second click lets it go, and the panel counts them;
+  - the piece kept is shown green while picking;
   - OK keeps the side picked, as one undo step; Cancel puts it back;
   - Split keeps every piece; Untrim gives the trimmed face its natural
     boundary back; Extend edges carries a face on across an edge picked;
@@ -21,7 +22,7 @@ import traceback
 import FreeCAD
 import FreeCADGui
 import Part
-from PySide import QtCore, QtWidgets
+from PySide import QtCore, QtGui, QtWidgets
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
@@ -172,6 +173,29 @@ def run():
             len(t.KeepPoints) == 1 and label.text() == "1 of 2 pieces kept",
             (t.KeepPoints, label.text()),
         )
+        # the trim alone: the source and the split lie where it does
+        shown = {o.Name: o.Visibility for o in doc.Objects}
+        for o in doc.Objects:
+            if o != t:
+                o.Visibility = False
+        view = gdoc.ActiveView
+        view.viewIsometric()
+        view.fitAll()
+        settle(0.4)
+        shot = os.path.join(OUT, "kept.png")
+        view.saveImage(shot, 400, 300, "White")
+        img = QtGui.QImage(shot)
+        greens = sum(
+            1
+            for y in range(0, img.height(), 2)
+            for x in range(0, img.width(), 2)
+            if (lambda c: c.green() > 150 and c.red() < 120 and c.blue() < 140)(
+                QtGui.QColor(img.pixel(x, y))
+            )
+        )
+        check("and shows it green", greens > 200, greens)
+        for o in doc.Objects:
+            o.Visibility = shown.get(o.Name, o.Visibility)
         FreeCADGui.Selection.addSelection(t, pieceAt(t.Shape, p), p.x, p.y + 1, p.z)
         settle(0.4)
         check(

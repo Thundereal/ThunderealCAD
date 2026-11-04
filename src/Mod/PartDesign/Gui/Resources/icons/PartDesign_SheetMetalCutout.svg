@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's cutout: a plate and a flange at its back, a slot cut across the bend -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the plate -->
+  <path
+     d="M 4,40 32,26 60,40 32,54 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 4,40 32,54 V 58 L 4,44 Z"
+     style="fill:#7f8b97;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 32,54 60,40 V 44 L 32,58 Z"
+     style="fill:#9aa5b0;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the flange, on the plate's back left edge -->
+  <path
+     d="M 4,40 32,26 V 4 L 4,18 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the slot, across the plate and up the flange -->
+  <path
+     d="M 15,26 23,22 V 31 L 30,34.5 22,38.5 15,35 Z"
+     style="fill:#ffffff;stroke:#c0392b;stroke-width:2.5;stroke-linejoin:round;" />
+</svg>

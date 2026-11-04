@@ -566,6 +566,47 @@ class TestLoft(unittest.TestCase):
         self.assertGreater(body.Shape.Volume, 9220.0)  # 9221.776241582389 post-Loft
         self.Doc.recompute()
 
+    def testLoftThroughItsEndWritesIntoNoInput(self):
+        """A loft whose side runs through its curved end is made of the
+        solids its faces enclose (enclosedSolids, BOP's volume maker). The
+        faces share the profiles' edges and vertices, and BOP raised their
+        tolerances in place: unfrozen it changed the pad the profile is on,
+        frozen it was refused and the loft recomputed on copies of its
+        inputs. Neither now, at the same volume: the fork's integral, taken
+        span by span on its B-spline faces (upstream's reads 12238.1843)."""
+        import os
+        from parttests.occt_fork import frozen, refusals
+
+        if not Part.hasOCCTFunction("TKBRep", "TopoDS_LockedShape_Raised"):
+            self.skipTest("needs the OCCT fork's TopoDS_LockedShape_Raised (TKBRep)")
+        path = os.path.join(os.path.dirname(__file__), "Fixtures", "FaceRefs_fork_whole_names.FCStd")
+        for on in (False, True):
+            with frozen(on):
+                doc = FreeCAD.openDocument(path)
+                try:
+                    loft = doc.getObject("Loft_loft")
+                    inputs = [link[0] for link in [loft.Profile] + list(loft.Sections)]
+                    # the pads lengthened as TestNameEncoding has them, where
+                    # the loft is valid; made first, without the loft
+                    pads = [o for o in doc.Objects if o.Name.startswith(("PadA_", "PadB_"))]
+                    for pad in pads:
+                        pad.Length = 14 if pad.Name.startswith("PadA_") else 12
+                    doc.recompute(pads)
+
+                    def tolerances():
+                        return [[v.Tolerance for v in o.Shape.Vertexes] for o in inputs]
+
+                    before = tolerances()
+                    count = refusals()
+                    doc.recompute()
+                    name = "frozen" if on else "unfrozen"
+                    self.assertEqual(refusals() - count, 0, name)
+                    self.assertEqual(tolerances(), before, name)
+                    self.assertTrue(loft.Shape.isValid(), name)
+                    self.assertAlmostEqual(loft.Shape.Volume, 12238.1739, places=3, msg=name)
+                finally:
+                    FreeCAD.closeDocument(doc.Name)
+
     def tearDown(self):
         #closing doc
         FreeCAD.closeDocument("PartDesignTestLoft")

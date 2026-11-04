@@ -83,10 +83,16 @@ public:
     /** Types a body takes besides its own: what a module registers -- the
      * Surface workbench its features -- for them to go into a body as a
      * sketch does, not solid, without the body's module knowing the type
-     * (PartDesign::Body::isAllowed consults it)
+     * (PartDesign::Body::isAllowed consults it). \a kind, if given, says
+     * what they are, e.g. "Surface": a surface group in a body holds that
+     * kind (PartDesign::AuxGroup), and its tool bars are offered for it
+     * (Gui::ToolContext). A type registered again takes the kind given.
      */
-    static void allowType(Base::Type type);
+    static void allowType(Base::Type type, const char* kind = nullptr);
     static bool isTypeAllowed(Base::Type type);
+    /// The kind \a type, or a type it derives from, was registered with;
+    /// empty if none
+    static std::string typeKind(Base::Type type);
 
 protected:
     /// If BaseFeature is getting changed and Tip points to it reset the Tip

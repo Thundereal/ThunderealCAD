@@ -55,7 +55,9 @@ BlendSurface::BlendSurface()
     ADD_PROPERTY_TYPE(Edge2, (nullptr), "Blend", App::Prop_None, "The second edge to bridge");
     Edge2.setScope(App::LinkScope::Global);
     SURFACE_ADD_CONDITION(Side1, "the first edge");
+    SURFACE_ADD_WEIGHT_END(Side1, "the first edge");
     SURFACE_ADD_CONDITION(Side2, "the second edge");
+    SURFACE_ADD_WEIGHT_END(Side2, "the second edge");
     // a blend meets its faces tangent unless told otherwise
     Side1Continuity.setValue(1L);
     Side2Continuity.setValue(1L);
@@ -75,8 +77,8 @@ BlendSurface::BlendSurface()
 App::DocumentObjectExecReturn* BlendSurface::execute()
 {
     ConditionProperties sides[2] = {
-        {"first edge", &Side1Continuity, &Side1Weight, &Side1Support},
-        {"second edge", &Side2Continuity, &Side2Weight, &Side2Support}};
+        {"first edge", &Side1Continuity, &Side1Weight, &Side1Support, &Side1WeightEnd},
+        {"second edge", &Side2Continuity, &Side2Weight, &Side2Support, &Side2WeightEnd}};
     App::PropertyLinkSub* links[2] = {&Edge1, &Edge2};
     Geom::BlendSide blend[2];
     std::vector<Part::TopoShape> inputs;

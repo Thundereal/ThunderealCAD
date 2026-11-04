@@ -2424,6 +2424,12 @@ void PropertyShapeCache::setShape(
     prop->cache[subname] = shape;
 }
 
+void PropertyShapeCache::clearShapes(const App::DocumentObject *obj)
+{
+    if (auto prop = get(obj, false))
+        prop->cache.clear();
+}
+
 void PropertyShapeCache::slotChanged(const App::DocumentObject &, const App::Property &prop) {
     auto propName = prop.getName();
     if(!propName) return;

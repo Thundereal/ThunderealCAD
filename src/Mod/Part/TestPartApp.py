@@ -50,6 +50,7 @@ from parttests.ShapeDiffTest import ShapeMaterialTest
 from parttests.ShapeDiffTest import MergedResultTest
 from parttests.TopoShapeListTest import TopoShapeListTest
 from parttests.FilletCornerTest import FilletCornerTest
+from parttests.OffsetFixLevelTest import OffsetFixLevelTest
 
 #---------------------------------------------------------------------------
 # define the test cases to test the FreeCAD Part module

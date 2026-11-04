@@ -74,6 +74,9 @@ protected:
     void flushBuildExport() const;
 
     virtual bool shouldCheckExport(App::DocumentObject *) const;
+    /// Add to the objects buildExport() leaves to the group's children what
+    /// they claim through links it does not count, global ones
+    virtual void excludeFromExport(std::set<App::DocumentObject *> &) const {}
 };
 
 using ViewProviderGroupExtensionPython = ViewProviderExtensionPythonT<Gui::ViewProviderGroupExtension>;

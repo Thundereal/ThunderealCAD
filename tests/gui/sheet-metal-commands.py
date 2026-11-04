@@ -618,6 +618,22 @@ def run():
         shift = folded.XMax - flatBox.XMin + 10
         flat.Placement.Base = FreeCAD.Vector(shift, 0, 0)
         doc.recompute()
+        view.fitAll()
+        pump(20)
+        # (at the scale the line was picked at before, the flat alone shown)
+        moving = max(lineEdges, key=lambda t: t[1].Length) if lineEdges else None
+        hitLine = (
+            pickLine(moving[0], moving[1].translated(FreeCAD.Vector(shift, 0, 0)))
+            if moving
+            else None
+        )
+        check(
+            "its markings moved with it: a bend line picked where it now lies",
+            moving is not None
+            and hitLine is not None
+            and hitLine.split(".")[-1] == "Edge%d" % moving[0],
+            hitLine,
+        )
         flange.Visibility = True
         pump(20)
         moved = FreeCAD.BoundBox(flatBox)

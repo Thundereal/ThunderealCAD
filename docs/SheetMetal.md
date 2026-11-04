@@ -666,7 +666,7 @@ feature following the rule; OK is one undo step, Cancel puts it all back.
 | M1 | **A first part end to end.** Base wall (plate and profile), Flange with the full option set, extend wall, names by role, the model carried by name through a Pocket and a Hole (4.2 way 2), the flat pattern with both skins and its orientation, the manufacturing properties, the DXF. | Python: flat length of an L, U and box equals the hand sum of legs and allowances at 1e-6; a countersunk hole survives into the flat; a flange end referenced downstream survives an edit upstream; save and reopen; frozen and unfrozen. A 64-flange chain against M0's target. | L |
 | M2 | **Edges, corners, cuts.** In this order (ruled 2026-11-02): hem; corner relief and corner closure; cutout; fold and jog; tab; contour flange; bend between walls; wrap cutout; hinge and perforation cuts; checks (7). The bend relief's override per feature first (built). | per tool, as M1; a wrap cutout across two bends is the same hole in the flat as cut there directly. | L |
 | M3 | **Convert and recognise.** Convert a solid or shell, rip; the geometry recogniser for imported parts. | the M1 parts exported to STEP and read back give the same flat as their features do; a hand-made shell converts and flattens to the hand value. | M |
-| M4 | **Flat state, the table and drawings.** Unfold / refold of picked bends, notches, the bend table panel with overrides, cross break, multi-sheet export, the drawings of 5.6. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
+| M4 | **Flat state, the table and drawings.** In this order (ruled 2026-11-04): the bend table panel with overrides, the Rip of its own, multi-sheet export, the drawings of 5.6, flat-only markings, notches and cross break. Unfold / refold of picked bends dropped: the Wrap frame does its work. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
 | M5 | **Forms, lofted flanges and the rolled wall** (moved from M2, ruled 2026-11-02: it needs walls that are not plane in the sheet model, and the lofted flange's development). User tools and the built-in set (gusset among them); starter shapes; tab and slot; the flat's three ways of showing a form; lofted flange developed exactly for cones and by facets otherwise. | a cone's development against the closed form; a form kept in the flat is the same solid moved. | M |
 | M6 | **Not built** (question e). **The addon's documents** (6). | a set of addon files saved by addon 0.8.26, converted, and their flats against hand values. The files are made by the user or from the addon's own examples; this session does not run the addon (3.5). | S |
 
@@ -1417,6 +1417,19 @@ flat it was made on; a new shape or the sheet's flat settings changed empty it. 
 nearest it lies folded, the flat lies on XY in its own frame (root, align edge, second skin), so
 a sketch drawn on the flat's geometry is in the right place for `Wrap` only where the two frames
 are one.
+
+**Ruled 2026-11-04, the Wrap frame and M4's order.** The cutout has `WrapFrame`, Folded or Flat,
+read only while `Wrap` is off. Folded is the old reading. Flat reads the sketch on the XY plane of
+the flat as the sheet lays it -- the flat settings' root, second skin and align edge -- where
+geometry taken from a feature's flat is; a sketch not parallel to XY is refused. Both go through
+`wrapOnFlat()` in Refold.cpp: each element's skin on XY, what of the sketch lies there taken back
+by the inverse of the flat's `toXY` (now on `FlatResult`) onto the root's first skin, and refolded
+through that element. `TestSheetMetalCutout` (20, +3; before, the three errored), and the cutout panel's row in
+`sheet-metal-panels.py` (67, +2). M4's order:
+the bend table panel with per-bend overrides, the Rip of its own, export of every sheet, the
+drawings, flat-only markings (a sketch attached to the flat being mostly this option), then notches
+and cross break. Unfold / refold is dropped from M4: the flat object, a feature's flat in its
+panel, the stored flat and this option do what it was for.
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every
@@ -1624,7 +1637,10 @@ not, a colour with up and down apart, a line type; most of it again in the DXF's
 - **Its view styles the markings**, per kind: bend lines up, bend lines down, tangent lines, grain
   -- each shown or not, a colour, a line type (solid, dashed, dash-dot, dotted) and a width.
   Defaults as the SVG draws them: up dashed `#0050d0`, down dashed `#d03030`, tangent lines dotted
-  `#808080`, grain solid `#208020`. The DXF and SVG keep their layers as they are.
+  `#808080`, grain solid `#208020`. The DXF and SVG keep their layers as they are. A marking on
+  the blank's underside -- a down bend's line and tangent lines, on the bend's inner skin -- is
+  drawn a thickness up, on its top, where one looking down sees it; the shape keeps it where it
+  is (fixed 2026-11-05: the blank hid it, found with a flat laid by a leg).
 - **Retired:** the solid's `Flatten` and flat settings, the solid view's `SheetView` and
   `FlatOffset`, and each feature view's flat drawing (`refreshFlat()`, the `SheetFlat` and
   `SheetBoth` modes); files made with them lose them on loading, as nothing was released.

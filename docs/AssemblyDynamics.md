@@ -3321,9 +3321,21 @@ Phase D1 is under way (2026-10-28):
     the lever, the smallest 1.5 N. Solved at every frame in 337 s: the
     lever's largest 64.6 MPa, 54.3 MPa away from the loaded faces, at the
     peak. The hold within 0.013% of the largest reaction, its torque
-    within 0.96% of the largest (0.40% at the peaks alone; not looked
-    into). The video, at Auto, 582 frames, 19.4 s at 30 fps, as slow as
-    1/17,500 of real time through the landing.
+    within 0.96% of the largest (0.40% at the peaks alone). The video, at
+    Auto, 582 frames, 19.4 s at 30 fps, as slow as 1/17,500 of real time
+    through the landing.
+  - The torque's 0.96%, looked into: the lever's free body balanced in
+    force to 1e-15 at every frame, in moment not, out by up to 8.65 N mm
+    at frames through the impacts -- at the set-off frames, each the
+    substep before the forces moved, kept with its values on the line
+    between its neighbours'. Its contact point and force each so, but not
+    their moment: r x F is not linear in them. Its values are now read
+    too, at no cost a run (2.05 s for the 2.2); every frame balances to
+    3e-8 N mm. Test: TestContact's test_impact_frames_balance (65 N mm
+    out at the landing's set-off before, its bound 6). Solved again at
+    every frame, the hold's torque is within 0.49% of the largest: the
+    analysis' own share now, as at the peaks alone (0.40%) -- the contact
+    couplings sharing edge nodes with the held face.
   - Tests: TestSimulationResults' test_update_for_time,
     test_playback_speeds, test_peak_safe; TestContact's
     test_impact_frames; TestGuiCommands' test_playback_speed.
@@ -4539,7 +4551,9 @@ What this fork does:
 - **Frames through each impact** (`ImpactFrames`, on by default). After
   each substep, the contact loads' forces. A substep where one moved from
   the last kept is kept, with its values and poses, and so is the one
-  before where they set off from a steady force. At each output frame
+  before where they set off from a steady force, its values read too (on
+  the line between its neighbours', its free body did not balance in
+  moment). At each output frame
   those since the last are thinned by Douglas-Peucker: each load within 5%
   of the most it is at between a line's two ends, or 0.1% of the largest
   force so far. A peak is the farthest from its line, and kept; a bounce

@@ -2921,6 +2921,45 @@ Phase D1 is under way (2026-10-28):
     at 100 rad/s and 1e4 rad/s^2, gravity cancelled by the acceleration,
     the clamp takes rho A L^2 / 2 omega^2 along -x and alpha along +y
     within 1%, nothing along z.
+- Built, D4a step 4: loads to FEM. `MotionLoads.makeAnalysis(assembly,
+  component, frame, hold=None, maxSize=None)` and the Simulation panel's
+  Results box "To FEM...", which asks for the part (those whose motion the
+  run reports) and takes the frame shown. It makes, in the document:
+  - a copy of the part's shape (`Part::Feature`, "<part> at <t> s") where
+    the part stands now -- at rest, or at the frame the player shows: the
+    loads are in its own coordinates and go wherever it is put;
+  - an analysis with a CalculiX solver (static), the part's material --
+    its card's elasticity (the default material's where it has none) and
+    the density that makes the run's mass, an override's too -- and a
+    Netgen mesh, second order, a fortieth of the shape's diagonal unless
+    given;
+  - each load through a distributing coupling at its point, on its faces:
+    a joint's, those of its reference on the part (a face itself; a
+    circular or straight edge, the cylinders and cones along it on its
+    axis -- a hole's bore for its rim -- or every face along it); a
+    spring's or bushing's, the face nearest its point;
+  - the part held at one joint, the given one or the one with the largest
+    force, through a rigid coupling fixed in its six directions, that
+    joint's load left out;
+  - the body motion load: gravity, the centre of mass's acceleration, the
+    turn and its rate.
+  The panel says what is held, what the free body is missing (contacts,
+  torsion springs, applied loads) and that a redundant joint's load is one
+  split of it; the user runs it from the FEM workbench.
+  - **What CalculiX reports holding the part leaves out the body load on
+    the held face's own nodes**, which goes into the coupling without
+    passing through the part: on the double pendulum's first rod 0.6% of
+    its weight at a 4 mm mesh, 0.3% at 2 mm (first order, the face's share
+    of the mass); the hold's moment off by 1e-3 of force times length at
+    4 mm, a quarter of that at 2 mm. The stresses are not touched by it.
+    Otherwise the analysis balances as the run does: the hold carries the
+    run's reaction there, within 0.2% at the swing's middle and end.
+  - Tests: TestDynamics' test_loads_to_fem: the double pendulum's first
+    rod at 80 ms -- the couplings, Rigid at the more loaded hinge's end
+    face and Distributing at the other's, the body motion load, the mesh;
+    solved where ccx is found, the hold's force within 0.5% of the run's
+    plus 1% of the weight, its moment within 0.5% of force and weight
+    times 100 mm. Skipped without ccx.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

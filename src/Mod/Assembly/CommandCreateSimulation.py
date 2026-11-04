@@ -2192,6 +2192,16 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         )
         self.sheetButton.clicked.connect(self.exportSheet)
         exports.addWidget(self.sheetButton)
+        self.femButton = QPushButton(translate("Assembly", "To FEM..."))
+        self.femButton.setToolTip(
+            translate(
+                "Assembly",
+                "A static stress analysis of a part at the frame shown: its loads, its\n"
+                "gravity and motion, held at its most loaded joint, for CalculiX",
+            )
+        )
+        self.femButton.clicked.connect(self.loadsToFem)
+        exports.addWidget(self.femButton)
         exports.addStretch(1)
         results.addLayout(exports)
         self.resultsBox.hide()
@@ -2536,6 +2546,71 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def exportSheet(self):
         exportResultsSheet(self.assembly)
+
+    def loadsToFem(self):
+        """Not upstream: a part of the run at the frame shown as a static
+        stress analysis (MotionLoads.makeAnalysis, docs/AssemblyDynamics.md
+        D4a)"""
+        import MotionLoads
+
+        if not self.results:
+            return
+        parts = []
+        for channel in self.results["Channels"]:
+            if channel["Quantity"] == "Acceleration" and channel["Object"] is not None:
+                parts.append(channel["Object"])
+        if not parts:
+            return
+        labels = [p.Label for p in parts]
+        label, ok = QtWidgets.QInputDialog.getItem(
+            self.form,
+            translate("Assembly", "Loads to FEM"),
+            translate("Assembly", "The part to analyse:"),
+            labels,
+            0,
+            False,
+        )
+        if not ok:
+            return
+        part = parts[labels.index(label)]
+        frame = self.form.frameSlider.value()
+        doc = self.assembly.Document
+        doc.openTransaction("Loads to FEM")
+        try:
+            analysis, body, held = MotionLoads.makeAnalysis(self.assembly, part, frame)
+        except (ValueError, ImportError) as e:
+            doc.abortTransaction()
+            QMessageBox.warning(self.form, translate("Assembly", "Loads to FEM"), str(e))
+            return
+        doc.commitTransaction()
+        # Where it stands, the frame it is at
+        self.onFrameChanged(frame)
+        notes = [
+            translate("Assembly", "{} at {:g} s: {} loads, held at {}.").format(
+                part.Label, body["Time"], len(body["Loads"]), held["Source"].Label
+            )
+        ]
+        if body["Missing"]:
+            notes.append(
+                translate("Assembly", "Not in it, which the run cannot place yet: {}.").format(
+                    ", ".join(o.Label for o in body["Missing"])
+                )
+            )
+        if not all(l["Unique"] for l in body["Loads"]):
+            notes.append(
+                translate(
+                    "Assembly",
+                    "A redundant joint's load is one split of it among the joints sharing it.",
+                )
+            )
+        notes.append(
+            translate("Assembly", "Run it with CalculiX from the FEM workbench: {}.").format(
+                analysis.Label
+            )
+        )
+        QMessageBox.information(
+            self.form, translate("Assembly", "Loads to FEM"), "\n\n".join(notes)
+        )
 
     def resultCurves(self):
         """The chosen channel's curves, in the shown unit: a vector's X, Y, Z

@@ -240,3 +240,154 @@ def _freeBody(assembly, component, frame, results, sim):
         "Residual": (turn.multVec(force), turn.multVec(moment)),
         "Missing": missing,
     }
+
+
+# ---------------------------------------------------------------- to FEM
+
+
+def _sameFace(a, b, tol=1e-6):
+    return (
+        abs(a.Area - b.Area) <= tol * max(a.Area, 1.0)
+        and (a.CenterOfMass - b.CenterOfMass).Length <= tol * max(a.BoundBox.DiagonalLength, 1.0)
+    )
+
+
+def _facesOf(shape, element):
+    """The names of shape's faces an element stands for: a face, itself; an
+    edge, the faces along it sharing its axis -- a hole's bore for its rim
+    -- or, none sharing it, every face along it; a vertex, the faces at
+    it"""
+    import Part
+
+    faces = list(enumerate(shape.Faces, 1))
+    if element.ShapeType == "Face":
+        return ["Face%d" % i for i, f in faces if _sameFace(f, element)]
+    touching = [(i, f) for i, f in faces if f.distToShape(element)[0] < 1e-6]
+    if element.ShapeType == "Edge" and isinstance(element.Curve, (Part.Circle, Part.Line)):
+        if isinstance(element.Curve, Part.Circle):
+            axis, centre = element.Curve.Axis, element.Curve.Center
+        else:
+            axis, centre = element.Curve.Direction, element.Curve.Location
+        coaxial = []
+        for i, f in touching:
+            surface = f.Surface
+            if isinstance(surface, (Part.Cylinder, Part.Cone)):
+                off = surface.Center - centre
+                along = off - axis * off.dot(axis)
+                if abs(abs(surface.Axis.dot(axis)) - 1.0) < 1e-9 and along.Length < 1e-6:
+                    coaxial.append((i, f))
+        if coaxial:
+            touching = coaxial
+    return ["Face%d" % i for i, _ in touching]
+
+
+def _nearestFace(shape, point):
+    import Part
+
+    vertex = Part.Vertex(point)
+    best = min(enumerate(shape.Faces, 1), key=lambda f: f[1].distToShape(vertex)[0])
+    return ["Face%d" % best[0]]
+
+
+def makeAnalysis(assembly, component, frame, hold=None, maxSize=None):
+    """A static stress analysis of component at the run's frame, from its
+    free body (loadsOn): a copy of its shape where it stands now, its
+    material (its density the one its run's mass is of), a Netgen mesh,
+    each load through a distributing coupling on its faces, the body motion
+    load, and the part held at one joint -- hold, or the one with the
+    largest force -- through a rigid coupling, that joint's own load left
+    out: what holds it there is the check, against the run's (sec D4a).
+
+    Returns (analysis, free body, held load). Loads the free body says are
+    missing are not in it."""
+    import Part
+    import ObjectsFem
+
+    body = loadsOn(assembly, component, frame)
+    doc = assembly.Document
+    joints = [l for l in body["Loads"] if l["Kind"] == "Joint"]
+    if not joints:
+        raise ValueError("%s is on no joint to hold it by" % component.Label)
+    if hold is None:
+        held = max(joints, key=lambda l: l["Force"].Length)
+    else:
+        found = [l for l in joints if l["Source"] == hold]
+        if not found:
+            raise ValueError("%s does not hold %s" % (hold.Label, component.Label))
+        held = found[0]
+
+    # Where it stands now, in the document -- at rest, or at the frame a
+    # player shows: the loads are in its own coordinates
+    place = component.getGlobalPlacement()
+    turn = place.Rotation
+    local = Part.getShape(component, "", transform=False)
+    copy = doc.addObject("Part::Feature", "LoadsAt")
+    copy.Shape = local
+    copy.Placement = place
+    copy.Label = "%s at %.6g s" % (component.Label, body["Time"])
+
+    analysis = ObjectsFem.makeAnalysis(doc, "LoadsAnalysis")
+    analysis.Label = "Loads on %s at %.6g s" % (component.Label, body["Time"])
+    solver = ObjectsFem.makeSolverCalculiXCcxTools(doc, "LoadsSolver")
+    solver.AnalysisType = "static"
+    analysis.addObject(solver)
+
+    props = [
+        e for e in assembly.getMassProperties()["Components"] if _same(e["Object"], component)
+    ][0]
+    material = ObjectsFem.makeMaterialSolid(doc, "LoadsMaterial")
+    card = material.Material
+    card["Name"] = props["Material"] or "Material"
+    card["YoungsModulus"] = "%.12g kPa" % props["YoungsModulus"]
+    card["PoissonRatio"] = "%.12g" % props["PoissonRatio"]
+    # The run's mass over the shape's volume: an override's mass too
+    card["Density"] = "%.12g kg/m^3" % (props["Mass"] / props["Volume"] * 1e9)
+    material.Material = card
+    analysis.addObject(material)
+
+    mesh = ObjectsFem.makeMeshNetgenLegacy(doc, "LoadsMesh")
+    mesh.Shape = copy
+    mesh.MaxSize = maxSize or local.BoundBox.DiagonalLength / 40.0
+    mesh.SecondOrder = True
+    mesh.Fineness = 2
+    analysis.addObject(mesh)
+
+    for k, load in enumerate(body["Loads"]):
+        faces = []
+        ref = load["Reference"]
+        if ref:
+            sub = ref[1][0] if ref[1] else ""
+            element = Part.getShape(ref[0], sub, needSubElement=True, transform=False)
+            if not element.isNull():
+                faces = _facesOf(local, element)
+        if not faces:
+            faces = _nearestFace(local, load["Point"])
+        rb = ObjectsFem.makeConstraintRigidBody(doc, "Hold" if load is held else "Load")
+        rb.Label = ("Held at %s" if load is held else "%s") % load["Source"].Label
+        rb.References = [(copy, tuple(faces))]
+        rb.ReferenceNode = place.multVec(load["Point"])
+        if load is held:
+            rb.Coupling = "Rigid"
+            for axis in "XYZ":
+                setattr(rb, "TranslationalMode" + axis, "Constraint")
+                setattr(rb, "RotationalMode" + axis, "Constraint")
+        else:
+            rb.Coupling = "Distributing"
+            force = turn.multVec(load["Force"]) * 1e-3  # mN to N
+            torque = turn.multVec(load["Torque"]) * 1e-3  # mN mm to N mm
+            for axis, f, t in zip("XYZ", force, torque):
+                setattr(rb, "Force" + axis, "%.12g N" % f)
+                setattr(rb, "Moment" + axis, "%.12g N*mm" % t)
+                setattr(rb, "TranslationalMode" + axis, "Load")
+                setattr(rb, "RotationalMode" + axis, "Load")
+        analysis.addObject(rb)
+
+    motion = ObjectsFem.makeConstraintBodyMotion(doc, "LoadsMotion")
+    motion.ReferencePoint = place.multVec(body["CenterOfMass"])
+    motion.Gravity = turn.multVec(body["Gravity"])
+    motion.LinearAcceleration = turn.multVec(body["Acceleration"])
+    motion.AngularVelocity = turn.multVec(body["AngularVelocity"])
+    motion.AngularAcceleration = turn.multVec(body["AngularAcceleration"])
+    analysis.addObject(motion)
+    doc.recompute()
+    return analysis, body, held

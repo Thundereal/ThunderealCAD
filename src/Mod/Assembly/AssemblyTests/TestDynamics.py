@@ -541,6 +541,92 @@ class TestDynamics(unittest.TestCase):
         # And the second rod's, on one hinge
         self.balanced(second, range(0, 21, 4), weight, 100.0)
 
+    def test_loads_to_fem(self):
+        """The double pendulum's first rod at 80 ms as a static stress
+        analysis (MotionLoads.makeAnalysis, D4a step 4): held at the hinge
+        with the larger force through a rigid coupling on its end face, the
+        other hinge's load through a distributing one, the body motion
+        load. Solved, where CalculiX is found, what holds it there is the
+        run's reaction at that hinge within 0.5%, less the body load on the
+        held face's own nodes: the loads balance in the analysis as in the
+        run."""
+        import os
+        import shutil
+        import tempfile
+
+        import MotionLoads
+
+        rod = self.pendulum()
+        second = self.box("Second", (100, 10, 10), (110, 0, 0))
+        self.doc.recompute()
+        self.joint(
+            "Revolute",
+            (rod, ["Face2"]),
+            plc(100, 5, 5, App.Vector(1, 0, 0), -90),
+            (second, ["Face1"]),
+            plc(0, 5, 5, App.Vector(1, 0, 0), -90),
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        analysis, body, held = MotionLoads.makeAnalysis(self.assembly, rod, 8, maxSize=4.0)
+        kinds = sorted(o.Proxy.Type if hasattr(o, "Proxy") else o.TypeId for o in analysis.Group)
+        self.assertIn("Fem::ConstraintBodyMotion", kinds)
+        couplings = [o for o in analysis.Group if o.TypeId == "Fem::ConstraintRigidBody"]
+        self.assertEqual(sorted(c.Coupling for c in couplings), ["Distributing", "Rigid"])
+        hold = [c for c in couplings if c.Coupling == "Rigid"][0]
+        load = [c for c in couplings if c.Coupling == "Distributing"][0]
+        # Each on its end face of the copy, which stands where the rod does
+        self.assertEqual(hold.References[0][1], ("Face1",) if held["Point"].x < 50 else ("Face2",))
+        self.assertEqual(len(load.References[0][1]), 1)
+        mesh = [o for o in analysis.Group if o.TypeId == "Fem::FemMeshShapeNetgenObject"][0]
+        self.assertGreater(mesh.FemMesh.VolumeCount, 0)
+
+        from femtools import ccxtools
+
+        solver = [o for o in analysis.Group if o.TypeId == "Fem::FemSolverObjectPython"][0]
+        work = tempfile.mkdtemp(prefix="asm_loadsfem_")
+        try:
+            fea = ccxtools.FemToolsCcx(analysis, solver, test_mode=True)
+            fea.update_objects()
+            fea.setup_working_dir(work)
+            self.assertEqual(fea.check_prerequisites(), "")
+            fea.write_inp_file()
+            binary = (
+                App.ParamGet("User parameter:BaseApp/Preferences/Mod/Fem/Ccx")
+                .GetString("ccxBinaryPath", "")
+                .strip()
+            )
+            binary = shutil.which(binary) if binary else shutil.which("ccx")
+            if not binary:
+                self.skipTest("no CalculiX binary")
+            fea.setup_ccx(binary)
+            fea.start_ccx()
+            with open(os.path.splitext(fea.inp_file_name)[0] + ".dat") as f:
+                text = f.read()
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+        def total(node):
+            lines = text.splitlines()
+            title = "total force (fx,fy,fz) for set %s_%s" % (hold.Name.upper(), node)
+            for k, line in enumerate(lines):
+                if line.strip().startswith(title):
+                    return App.Vector(*[float(v) for v in lines[k + 2].split()])
+            self.fail("no %s in the results" % title)
+
+        place = rod.getGlobalPlacement()
+        force = place.Rotation.multVec(held["Force"]) * 1e-3
+        torque = place.Rotation.multVec(held["Torque"]) * 1e-3
+        # What CalculiX reports holding it leaves out the body load on the
+        # held face's own nodes, which goes into the coupling without
+        # passing through the part: 0.6% of its weight at 4 mm, 0.3% at 2
+        weight = body["Mass"] * G * 1e-3
+        self.assertLess((total("REFNODE") - force).Length, 5e-3 * force.Length + 1e-2 * weight)
+        scale = (force.Length + weight) * 100.0
+        self.assertLess((total("ROTNODE") - torque).Length, 5e-3 * scale)
+
     def test_loads_on_spring(self):
         """The oscillator's block: the slider's reaction and the spring's
         force, along the slider, k (4 - length); no gravity."""

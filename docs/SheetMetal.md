@@ -1299,9 +1299,15 @@ and not frozen.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every
   sheet metal feature's panel has View, Folded, Flat or Both. Flat or Both lays the feature flat
   (`SolidBody::flatOf()`) and draws it under the feature's view with the flat object's view
-  class, its look the sheet's flat object's, not pickable; Flat draws nothing else of the body
-  (each view's switch off, the edit's preview taken away), Both moves the flat off the part by
-  the flat object's placement, else beside it. It follows each recompute while on; a feature
+  class, its look the sheet's flat object's, not pickable; Flat draws nothing else of the body,
+  Both moves the flat off the part by the flat object's placement, else beside it. In an edit
+  session (render-cache mode 3) the flat is a node of the session's, placed as the edited
+  occurrence, and Flat hides the body's members by the session's visibility table, owner
+  `PartDesign.Flat`, whose entries come before the edit's own `PartDesign.Shown`, the edit's
+  preview taken away; the edit draws the feature on top by its switch's default child, which the
+  views' switches alone did not reach. Without a session, under the feature's view, the views'
+  switches and default children off. A hidden flat object drew its markings until they went
+  under a switch of their own following Visibility (found taking these pictures). It follows each recompute while on; a feature
   that does not lie flat says why under it. Closing the panel puts everything back. Checked by
   `sheet-metal-panels.py` (64).
 

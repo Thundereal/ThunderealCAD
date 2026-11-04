@@ -40,8 +40,11 @@ set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 RUN="$REPO/.conda/run.sh"
 # The standard build, the one every test run uses (CLAUDE.md,
-# docs/DevEnvironment.md); FC_BUILD repoints at another tree.
-BUILD=${FC_BUILD:-"$REPO/build/conda-relwithdebinfo-801"}
+# docs/DevEnvironment.md); FC_BUILD repoints at another tree. Under ctest
+# FC_BUILD is the test's own tree, set per test (tests/gui/CMakeLists.txt), so
+# an exported one never reaches here: GT_FC_BUILD wins over it, to run the
+# suite against another build -- an AddressSanitizer one, say.
+BUILD=${GT_FC_BUILD:-${FC_BUILD:-"$REPO/build/conda-relwithdebinfo-801"}}
 FCBIN="$BUILD/bin/FreeCAD"
 [ -x "$FCBIN" ] || {
     echo "no FreeCAD binary at $FCBIN (set FC_BUILD to another build tree)"

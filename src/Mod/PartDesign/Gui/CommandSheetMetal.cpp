@@ -724,6 +724,8 @@ void CmdPartDesignSheetMetalConvert::activated(int iMsg)
                   PDBODYKEY,
                   getObjectCmd(body).c_str());
     }
+    // what the body showed: the convert takes its place
+    App::DocumentObject* before = body->Tip.getValue();
     auto feat = makeFeature(body, "PartDesign::SheetMetalConvert", "Convert");
     if (!feat) {
         abortCommand();
@@ -743,7 +745,11 @@ void CmdPartDesignSheetMetalConvert::activated(int iMsg)
                           std::ostringstream() << "RipEdges = (" << link << ", ["
                                                << list(edges.begin(), edges.end()) << "])");
     }
-    finishFeature(this, feat, part);
+    finishFeature(this, feat, before ? before : part);
+    // the part taken in, where it is not the body's own feature
+    if (part != before) {
+        FCMD_OBJ_HIDE(part);
+    }
     commitUnlessEditing(this);
 }
 

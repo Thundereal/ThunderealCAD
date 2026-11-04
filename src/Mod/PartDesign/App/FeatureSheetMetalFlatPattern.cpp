@@ -203,7 +203,7 @@ void SheetMetalFlatPattern::onChanged(const App::Property* prop)
     else if (prop == &Root || prop == &SecondSkin || prop == &AlignEdge || prop == &TangentLines
              || prop == &Grain || prop == &GrainAngle) {
         if (auto solid = getSheet()) {
-            solid->flatSettingsChanged(editing);
+            solid->flatSettingsChanged();
         }
     }
     Part::Feature::onChanged(prop);

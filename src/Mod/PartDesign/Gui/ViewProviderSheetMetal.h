@@ -190,4 +190,17 @@ protected:
     void unsetEdit(int ModNum) override;
 };
 
+/** A sheet's flat object (docs/SheetMetal.md sec 12, ruled 2026-11-04): its
+ * solid's tip laid flat. Shown out of date, it has the flat laid by a
+ * recompute of it alone.
+ */
+class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalFlatPattern);
+
+public:
+    ViewProviderSheetMetalFlatPattern();
+    void show() override;
+};
+
 }  // namespace PartDesignGui

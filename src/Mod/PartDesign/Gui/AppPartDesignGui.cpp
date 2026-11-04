@@ -201,6 +201,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderSheetMetalJog::init();
     PartDesignGui::ViewProviderSheetMetalTab::init();
     PartDesignGui::ViewProviderSheetMetalRule::init();
+    PartDesignGui::ViewProviderSheetMetalFlatPattern::init();
 
      // add resources and reloads the translators
     loadPartDesignResource();

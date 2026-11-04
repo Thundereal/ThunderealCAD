@@ -99,6 +99,10 @@ public:
     /// that is not its body
     bool isWanted() const;
 
+    const char* getViewProviderName() const override
+    {
+        return "PartDesignGui::ViewProviderSheetMetalFlatPattern";
+    }
     short mustExecute() const override;
     App::DocumentObjectExecReturn* execute() override;
     bool shouldApplyPlacement() override

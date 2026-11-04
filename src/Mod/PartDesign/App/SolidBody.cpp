@@ -200,11 +200,6 @@ SolidBody::SolidBody()
     Placement.setStatus(App::Property::Hidden, true);
     Placement.setStatus(App::Property::Immutable, true);
 
-    // The sheet's flat (docs/SheetMetal.md sec 12): its settings, values and
-    // shape are its flat object's
-    ADD_PROPERTY_TYPE(Flatten, (false), "Flat", App::Prop_None,
-            "Each feature shown drawn flat");
-    Flatten.setStatus(App::Property::Hidden, true);
 }
 
 Body *SolidBody::getBody() const
@@ -268,7 +263,7 @@ void SolidBody::rememberShown(const App::DocumentObject *obj)
 
 short SolidBody::mustExecute() const
 {
-    if (Tip.isTouched() || Flatten.isTouched())
+    if (Tip.isTouched())
         return 1;
     return inherited::mustExecute();
 }
@@ -276,10 +271,8 @@ short SolidBody::mustExecute() const
 App::DocumentObjectExecReturn *SolidBody::execute()
 {
     auto res = updateShape();
-    if (res == App::DocumentObject::StdReturn) {
-        showFlatProperties();
+    if (res == App::DocumentObject::StdReturn)
         pruneFlats();
-    }
     return res;
 }
 
@@ -310,17 +303,13 @@ FlatSettings SolidBody::flatSettings() const
     return {};
 }
 
-void SolidBody::flatSettingsChanged(bool notify)
+void SolidBody::flatSettingsChanged()
 {
     Part::PropertyShapeCache::clearShapes(this);
     for (auto obj : Group.getValues()) {
         if (obj)
             Part::PropertyShapeCache::clearShapes(obj);
     }
-    // The features' views draw their flats again (until the flat object
-    // draws them, sec 12 step 2)
-    if (notify)
-        Flatten.touch();
 }
 
 const SheetFlat &SolidBody::flatOf(const App::DocumentObject *feature) const
@@ -342,13 +331,6 @@ const SheetFlat &SolidBody::flatOf(const App::DocumentObject *feature) const
     cache.settings = settings;
     cache.valid = true;
     return cache.flat;
-}
-
-void SolidBody::showFlatProperties()
-{
-    const bool sheet = isSheetMetal();
-    if (Flatten.testStatus(App::Property::Hidden) == sheet)
-        Flatten.setStatus(App::Property::Hidden, !sheet);
 }
 
 void SolidBody::pruneFlats()
@@ -659,7 +641,6 @@ void SolidBody::onDocumentRestored()
         if (hasFeature(tip))
             shapeOf = tip->getNameInDocument();
     }
-    showFlatProperties();
     inherited::onDocumentRestored();
 }
 

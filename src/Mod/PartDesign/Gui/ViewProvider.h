@@ -31,14 +31,9 @@
 #include <Base/Placement.h>
 #include <Mod/Part/Gui/ViewProvider.h>
 #include "ViewProviderBody.h"
-#include <Gui/InventorBase.h>
 #include <Gui/ViewProviderPythonFeature.h>
 
 #include <Mod/Part/Gui/ViewProviderAttachExtension.h>
-
-class SoGroup;
-class SoSeparator;
-class SoTransform;
 
 namespace PartDesignGui {
 
@@ -110,31 +105,11 @@ public:
     bool reorderObjects(const std::vector<App::DocumentObject *> &, App::DocumentObject *) override;
     void reattach(App::DocumentObject *) override;
     void beforeDelete() override;
-    void finishRestoring() override;
 
     std::vector<App::DocumentObject*> claimChildren(void) const override;
     virtual std::vector<App::DocumentObject*> _claimChildren(void) const {return {};}
 
     bool getDetailPath(const char *subname, SoFullPath *path, bool append, SoDetail *&det) const override;
-    bool getElementPicked(const SoPickedPoint *pp, std::string &subname) const override;
-    void setDisplayMode(const char *ModeName) override;
-    Base::BoundBox3d _getBoundingBox(const char *subname = nullptr,
-                                     const Base::Matrix4D *mat = nullptr, bool transform = true,
-                                     const Gui::View3DInventorViewer *view = nullptr,
-                                     int depth = 0) const override;
-
-    /** Draw the feature laid flat, while the user has its sheet's solid's
-     * Flatten on and it is shown (docs/SheetMetal.md sec 12): in place of its
-     * shape, or beside it, as the solid's Sheet View says, moved by its Flat
-     * Offset; its shape alone otherwise, or where it does not lie flat.
-     * Picked, an element of the flat is named FlatFace3, as
-     * SolidBody::flatSubName() reads it.
-     */
-    void refreshFlat();
-    /// Whether the flat is drawn, in place of the shape or beside it
-    bool showsFlat() const { return flatShown; }
-    /// Whether the shape is drawn: unless the flat is, in its place
-    bool showsShape() const { return !flatShown || foldedShown; }
 
     /// The cosmetic threads of the holes before this feature, on the
     /// faces of its shape that are still their bores
@@ -186,20 +161,6 @@ protected:
     mutable QPixmap pxTipIcon;
 
     std::unique_ptr<PartGui::ViewProviderPart> pSuppressedView;
-    /// The flat, a display mode of this view while it is drawn (refreshFlat())
-    std::unique_ptr<PartGui::ViewProviderPart> pFlatView;
-    /// The flat moved by the solid's Flat Offset, the display mode SheetFlat
-    Gui::CoinPtr<SoSeparator> pcFlatGroup;
-    Gui::CoinPtr<SoTransform> pcFlatOffset;
-    /// The shape's display mode and the flat, the solid's Sheet View Both
-    Gui::CoinPtr<SoGroup> pcFlatBoth;
-    bool flatShown = false;
-    /// Whether the shape is drawn too, the solid's Sheet View Both
-    bool foldedShown = false;
-    /// The mode switch's default child before the flat was drawn, to give
-    /// back; NoChildKept for none
-    static constexpr int NoChildKept = -2;
-    int flatDefaultChild = NoChildKept;
 
     bool autoCorrectingLink = false;
     /// Whether the render material last stated a thread, so a shape

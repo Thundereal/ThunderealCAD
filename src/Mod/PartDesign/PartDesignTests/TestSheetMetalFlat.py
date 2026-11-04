@@ -208,7 +208,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertIn(flat, self.Body.Group)
         self.assertNotIn(flat, sheet.Group)
         self.assertEqual(self.Body.Tip, wall)
-        for name in ("FlatRoot", "TangentLines", "FlatLength", "FlatStatus"):
+        for name in ("Flatten", "FlatRoot", "TangentLines", "FlatLength", "FlatStatus"):
             self.assertNotIn(name, sheet.PropertiesList)
         for name in SETTINGS + VALUES:
             self.assertIn(name, flat.PropertiesList)
@@ -477,7 +477,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(len(flat.SubShapes[3].Edges), 3)
 
     def testNotSheet(self):
-        """A body of no sheet metal: no flat, no flat object, Flatten hidden"""
+        """A body of no sheet metal: no flat, no flat object"""
         sketch = self.sketch([(0, 0), (10, 0), (10, 10), (0, 10)], closed=True)
         pad = self.Body.newObject("PartDesign::Pad", "Pad")
         pad.Profile = sketch
@@ -485,6 +485,3 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.Doc.recompute()
         self.assertIsNone(flatOf(pad))
         self.assertEqual(flatObjectsOf(self.Doc), [])
-        sheet = self.Body.getSolidBody(pad)
-        if sheet is not None:
-            self.assertIn("Hidden", sheet.getEditorMode("Flatten"))

@@ -80,8 +80,8 @@ public:
 
     /// Update the children's highlighting when triggered
     void updateData(const App::Property* prop) override;
-    /// While a feature draws its flat (Flatten), the bounds of what the
-    /// features draw, not of the body's folded shape
+    /// While a sheet's flat object is shown, the bounds of what the body's
+    /// members draw, not of the body's folded shape
     Base::BoundBox3d _getBoundingBox(const char *subname = nullptr,
                                      const Base::Matrix4D *mat = nullptr, bool transform = true,
                                      const Gui::View3DInventorViewer *view = nullptr,

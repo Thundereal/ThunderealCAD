@@ -24,9 +24,14 @@
 
 #include "PreCompiled.h"
 
+#include <QTimer>
+
+#include <App/Document.h>
+#include <App/DocumentObserver.h>
 #include <Gui/Application.h>
 #include <Gui/Control.h>
 #include <Gui/Document.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
 
 #include "TaskSheetMetalParameters.h"
 #include "TaskSheetMetalRule.h"
@@ -346,4 +351,31 @@ void ViewProviderSheetMetalRule::unsetEdit(int ModNum)
         return;
     }
     Gui::Control().closeDialog();
+}
+
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlatPattern, PartGui::ViewProviderPart)
+
+ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
+{
+    sPixmap = "PartDesign_SheetMetalFlatten";
+}
+
+void ViewProviderSheetMetalFlatPattern::show()
+{
+    PartGui::ViewProviderPart::show();
+    // Shown out of date, the object asks to be recomputed
+    // (SheetMetalFlatPattern::onChanged()); that is done for it, once the
+    // change that showed it is through
+    auto flat = Base::freecad_dynamic_cast<PartDesign::SheetMetalFlatPattern>(getObject());
+    if (!flat || !flat->isTouched()) {
+        return;
+    }
+    App::DocumentObjectT objT(flat);
+    QTimer::singleShot(0, [objT]() {
+        auto obj = objT.getObject();
+        auto doc = obj ? obj->getDocument() : nullptr;
+        if (doc && obj->isTouched() && !doc->testStatus(App::Document::Recomputing)) {
+            doc->recompute({obj});
+        }
+    });
 }

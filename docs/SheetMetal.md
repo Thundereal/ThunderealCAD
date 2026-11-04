@@ -1253,6 +1253,27 @@ and not frozen.
   - Tests: `TestSheetMetalFlat` (20: the object, laid when shown, when used, placed, saved,
     not laying, undone with its sheet) and the suites moved to it (`SheetMetalFlatView.py`'s
     `flatObject()`, `showFlat()`).
+- The flat object, its second step: drawn by its own view
+  (`PartDesignGui::ViewProviderSheetMetalFlatPattern`, a Part view with Flatten's icon), claimed
+  by its solid after its features and left out of the body's top level
+  (`ViewProviderBody::excludeFromExport()`, as the rule is). Shown out of date, the view has it
+  recomputed alone once the change that showed it is through. As built:
+  - Flatten is its visibility: the command shows it and hides the solid's shown features, and
+    folding back hides it and shows them again (else the tip); checked while it is shown; no
+    undo step, as no visibility has one. Both shown is the tree's visibility; its `Placement`
+    moves it off the folded part.
+  - Retired with it: the solid's `Flatten`, each feature view's flat drawing (`refreshFlat()`,
+    the `SheetFlat` and `SheetBoth` modes, the default child kept for the selection drawn on
+    top), and the solid view's `SheetView` and `FlatOffset`; the Gui files are as they were
+    before the flat was drawn (7a5430add6^). Files made with them lose them on loading.
+  - A body whose sheet's flat object is shown is bounded by what its features and flats draw,
+    so a view fitted to it fits the flat.
+  - Check Sheet selects a row's faces on the flat object while it is shown with the checked
+    part's flat (the tip's, up to date), `FlatFace3` there `Face3`; on the folded part where that
+    is shown or the flat is not. Export Flat and Check Sheet take the flat object selected.
+  - Checked by `sheet-metal-commands.py` (56: the object claimed, Flatten showing it laid by its
+    own recompute, the body's bounds, picks and selection on it, moved by its placement beside
+    the folded part, Check Sheet's selection on it and folded, folding back).
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.
@@ -1414,7 +1435,10 @@ not, a colour with up and down apart, a line type; most of it again in the DXF's
   goes; a show is not an undo step, as no visibility is.
 - **What it draws:** the tip's flat. While an earlier feature of the sheet is the one shown, the
   view draws that feature's flat (laid in memory, not saved), so showing an earlier feature still
-  shows its flat, as now.
+  shows its flat, as now. **Changed while building step 2 (2026-11-04, for the user to
+  confirm):** it draws its solid's tip's flat only; an earlier feature's is seen by rolling the
+  solid's tip back to it, as in any PartDesign body. Drawn from memory, an earlier feature's
+  flat would be picked and selected by names its object's saved shape does not have.
 - **Its elements** are named as a shape's: `Flat.Face3`, `Flat.Bend1`, `Flat.Bend1Tangent1`,
   `Flat.Grain`. The markings (bend lines, tangent lines, grain) are trimmed to the blank, split
   where they cross a hole or a relief: a bend line now runs on from the bend's faces' axial extent

@@ -55,6 +55,7 @@
 
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/FeatureSketchBased.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/FeatureSolid.h>
 #include <Mod/PartDesign/App/FeatureExtrusion.h>
@@ -506,17 +507,14 @@ Base::BoundBox3d ViewProviderBody::_getBoundingBox(const char *subname, const Ba
                                                    const Gui::View3DInventorViewer *view,
                                                    int depth) const
 {
+    // A sheet's flat object (docs/SheetMetal.md sec 12) lies away from the
+    // folded shape the body has: a view fitted to the body fits what it shows
     auto body = Base::freecad_dynamic_cast<PartDesign::Body>(getObject());
     if (body && !(subname && subname[0])) {
-        std::vector<PartDesignGui::ViewProvider*> shown;
         bool flat = false;
-        for (auto obj : body->Group.getValues()) {
-            auto vp = Base::freecad_dynamic_cast<PartDesignGui::ViewProvider>(
-                    Gui::Application::Instance->getViewProvider(obj));
-            if (vp && vp->isShow()) {
-                shown.push_back(vp);
-                flat = flat || vp->showsFlat();
-            }
+        for (auto solid : body->getSolidBodies()) {
+            auto obj = solid->flatPattern();
+            flat = flat || (obj && obj->Visibility.getValue());
         }
         if (flat) {
             // drawn under the body's placement
@@ -525,9 +523,17 @@ Base::BoundBox3d ViewProviderBody::_getBoundingBox(const char *subname, const Ba
                 m = body->Placement.getValue().toMatrix();
             if (mat)
                 m = *mat * m;
+            // its features and its flats, as the body's own shape is its
+            // features'
             Base::BoundBox3d box;
-            for (auto vp : shown)
-                box.Add(vp->getBoundingBox(nullptr, &m, true, view, depth + 1));
+            for (auto obj : body->Group.getValues()) {
+                if (!obj || !(obj->isDerivedFrom<PartDesign::Feature>()
+                              || obj->isDerivedFrom<PartDesign::SheetMetalFlatPattern>()))
+                    continue;
+                auto vp = Gui::Application::Instance->getViewProvider(obj);
+                if (vp && vp->isShow())
+                    box.Add(vp->getBoundingBox(nullptr, &m, true, view, depth + 1));
+            }
             return box;
         }
     }
@@ -1348,7 +1354,9 @@ bool ViewProviderBody::shouldCheckExport(App::DocumentObject *) const
 void ViewProviderBody::excludeFromExport(std::set<App::DocumentObject *> &out) const
 {
     // A sheet's rule, reached by a global link, is shown under the solid
-    // bodies of the sheets using it (docs/SheetMetal.md sec 4.6)
+    // bodies of the sheets using it (docs/SheetMetal.md sec 4.6), and a
+    // sheet's flat object, which links its solid and nothing links, under
+    // that solid (sec 12)
     auto body = Base::freecad_dynamic_cast<PartDesign::Body>(getObject());
     if (!body)
         return;
@@ -1357,7 +1365,9 @@ void ViewProviderBody::excludeFromExport(std::set<App::DocumentObject *> &out) c
         if (!vp)
             continue;
         for (auto child : vp->claimChildren()) {
-            if (child && child->isDerivedFrom(PartDesign::SheetMetalRule::getClassTypeId()))
+            if (child && (child->isDerivedFrom(PartDesign::SheetMetalRule::getClassTypeId())
+                          || child->isDerivedFrom(
+                              PartDesign::SheetMetalFlatPattern::getClassTypeId())))
                 out.insert(child);
         }
     }

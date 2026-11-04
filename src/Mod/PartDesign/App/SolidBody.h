@@ -149,13 +149,10 @@ public:
      *
      * A solid holding sheet metal lays any of its features flat when asked
      * (flatOf()), by the settings of its flat object (flatPattern()), which
-     * saves its tip's flat; every feature's flat is its element Flat
-     * (FlatFace3 an element of it), as a sketch's InternalShape is.
+     * saves and draws its tip's flat; every feature's flat is its element
+     * Flat (FlatFace3 an element of it), as a sketch's InternalShape is.
      */
     //@{
-    /// Each feature shown drawn flat, which only the user turns on
-    App::PropertyBool Flatten;
-
     /// Whether the solid holds sheet metal
     bool isSheetMetal() const;
     /// The flat of a feature of the solid, its tip's if null, kept until the
@@ -168,9 +165,9 @@ public:
     FlatSettings flatSettings() const;
     /** The flat object's settings changed: every feature's Flat follows them,
      * and Part keeps what it last handed out of a feature until the feature
-     * changes; \a notify says so to the views
+     * changes
      */
-    void flatSettingsChanged(bool notify);
+    void flatSettingsChanged();
 
     /** What follows "Flat" in a subname naming a flat ("Flat", or an element
      * of it, "FlatFace3"): "" for the whole, "Face3"; null if it names none
@@ -187,8 +184,6 @@ public:
     //@}
 
 private:
-    /// The flat's properties shown on a solid of sheet metal only
-    void showFlatProperties();
     /// The features' flats kept, of the features still the solid's only
     void pruneFlats();
     /// Whether somebody gave the faces, the lines or the points a look (it is

@@ -33,6 +33,10 @@
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoSwitch.h>
 
+#include <Precision.hxx>
+#include <gp_Trsf.hxx>
+#include <gp_Vec.hxx>
+
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
 #include <App/ElementNamingUtils.h>
@@ -569,6 +573,17 @@ void ViewProviderSheetMetalFlatPattern::showFlat(
         blank = shape.getSubTopoShape(TopAbs_SOLID, 1);
     }
     blankEdges = blank.isNull() ? 0 : static_cast<int>(blank.countSubShapes(TopAbs_EDGE));
+    // a marking on the blank's underside (a down bend's line, on its inner
+    // skin) is drawn on its top, where one looking down sees it
+    Base::BoundBox3d bound;
+    if (!blank.isNull()) {
+        bound = blank.getBoundBox();
+    }
+    const double tol = Precision::Confusion();
+    gp_Trsf up;
+    if (bound.IsValid() && bound.LengthZ() > tol) {
+        up.SetTranslation(gp_Vec(0, 0, bound.LengthZ()));
+    }
     std::array<std::vector<Part::TopoShape>, 4> edges;
     for (auto& kind : kinds) {
         kind.edges.clear();
@@ -591,7 +606,11 @@ void ViewProviderSheetMetalFlatPattern::showFlat(
             auto it = directions.find(bend);
             k = it != directions.end() && it->second == "Down" ? BendDown : BendUp;
         }
-        edges[k].push_back(shape.getSubTopoShape(TopAbs_EDGE, i));
+        Part::TopoShape edge = shape.getSubTopoShape(TopAbs_EDGE, i);
+        if (up.Form() != gp_Identity && edge.getBoundBox().MaxZ < bound.MinZ + tol) {
+            edge = edge.makETransform(up);
+        }
+        edges[k].push_back(edge);
         kinds[k].edges.push_back(i);
     }
     setGivenShape(blank);

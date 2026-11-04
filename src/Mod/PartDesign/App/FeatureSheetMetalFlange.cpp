@@ -300,6 +300,19 @@ int earlierBendAt(const Model& model, int earlier, const TopoDS_Shape& base, int
             || element.bend.angle > std::numbers::pi - Precision::Angular()) {
             continue;
         }
+        // whose leg is where its sheet ends: past a jog's first bend the
+        // sheet runs on into another, and that is a bend of the wall the
+        // edge is on, kept off (ownBendAt()), no corner (ruled 2026-11-04)
+        const bool runsOn = std::any_of(model.elements.begin(), model.elements.end(),
+                                        [&](const Element& other) {
+                                            return &other != &element
+                                                && other.kind == Element::Kind::Bend
+                                                && (other.before == element.after
+                                                    || other.after == element.after);
+                                        });
+        if (runsOn) {
+            continue;
+        }
         const CylBend& b = element.bend;
         // the way its sheet ran out of the wall, and where the bend starts
         const gp_Dir up = b.frame.XDirection().Reversed();

@@ -106,6 +106,13 @@ PyMOD_INIT_FUNC(_PartDesign)
     PyObject* mod = PartDesign::initModule();
     Base::Console().Log("Loading PartDesign module... done\n");
 
+    // A feature's flat stored before a save while something refers to it
+    // (docs/SheetMetal.md sec 12)
+    App::GetApplication().signalStartSaveDocument.connect(
+        [](const App::Document &doc, const std::string &) {
+            PartDesign::Feature::storeFlats(doc);
+        });
+
 
     // NOTE: To finish the initialization of our own type objects we must
     // call PyType_Ready, otherwise we run into a segmentation fault, later on.

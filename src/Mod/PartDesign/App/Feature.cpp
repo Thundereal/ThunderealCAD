@@ -34,6 +34,7 @@
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/PropertyLinks.h>
 #include <App/FeaturePythonPyImp.h>
 #include <Mod/Part/App/PartParams.h>
 #include <App/ElementNamingUtils.h>
@@ -187,6 +188,10 @@ void Feature::onChanged(const App::Property *prop)
         }
     }
     Part::Feature::onChanged(prop);
+
+    // A new shape: the flat stored is the old one's, laid anew when asked
+    if (prop == &Shape && !isRestoring())
+        clearStoredFlat();
 
     // A look of its own taken away again, or a card's taken meanwhile: the
     // solid body's look is the one this feature has while it has none
@@ -585,6 +590,87 @@ void Feature::updateSuppressedShape()
     }
     Shape.setValue(baseShape);
     SuppressedShape.setValue(res);
+}
+
+namespace {
+constexpr const char *StoredFlatName = "StoredFlat";
+}
+
+const Part::PropertyPartShape *Feature::storedFlat() const
+{
+    return dynamic_cast<const Part::PropertyPartShape*>(getPropertyByName(StoredFlatName));
+}
+
+void Feature::clearStoredFlat()
+{
+    auto prop = const_cast<Part::PropertyPartShape*>(storedFlat());
+    if (prop && !prop->getShape().isNull())
+        prop->setValue(Part::TopoShape());
+}
+
+bool Feature::flatReferenced() const
+{
+    for (auto obj : getInList()) {
+        if (!obj)
+            continue;
+        std::vector<App::Property*> props;
+        obj->getPropertyList(props);
+        for (auto prop : props) {
+            auto link = dynamic_cast<App::PropertyLinkBase*>(prop);
+            if (!link)
+                continue;
+            std::vector<App::DocumentObject*> objs;
+            std::vector<std::string> subs;
+            link->getLinks(objs, true, &subs, false);
+            for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+                if (!objs[i] || subs[i].empty())
+                    continue;
+                const char *element = nullptr;
+                auto target = objs[i]->resolve(subs[i].c_str(), nullptr, nullptr, &element);
+                if (target == this && SolidBody::flatSubName(element))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+void Feature::storeFlats(const App::Document &doc)
+{
+    for (auto obj : doc.getObjects()) {
+        auto feat = dynamic_cast<Feature*>(obj);
+        if (!feat || !feat->isAttachedToDocument())
+            continue;
+        auto prop = const_cast<Part::PropertyPartShape*>(feat->storedFlat());
+        if (!feat->flatReferenced()) {
+            if (prop)
+                feat->removeDynamicProperty(StoredFlatName);
+            continue;
+        }
+        // stored already for the shape it has
+        if (prop && !prop->getShape().isNull())
+            continue;
+        auto body = Body::findBodyOf(feat);
+        auto solid = body ? body->getSolidBody(feat) : nullptr;
+        if (!solid || !solid->isSheetMetal())
+            continue;
+        try {
+            const Part::TopoShape flat = solid->flatOf(feat).shape;
+            if (!prop) {
+                prop = static_cast<Part::PropertyPartShape*>(feat->addDynamicProperty(
+                    "Part::PropertyPartShape", StoredFlatName, "Sheet Metal",
+                    "The flat, kept while something refers to it", App::Prop_Output,
+                    /*ro*/ true, /*hidden*/ true));
+            }
+            if (prop)
+                prop->setValue(flat);
+        }
+        catch (const Base::Exception &) {
+            // not laid flat: the reference finds nothing, saved or not
+        }
+        catch (const Standard_Failure &) {
+        }
+    }
 }
 
 App::DocumentObject *Feature::getSubObject(const char *subname, 

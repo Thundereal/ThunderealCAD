@@ -112,6 +112,21 @@ public:
     App::DocumentObject *getSubObject(const char *subname, 
         PyObject **pyObj, Base::Matrix4D *pmat, bool transform, int depth) const override;
 
+    /** The feature's flat, stored with it while something refers to one of
+     *  its elements (docs/SheetMetal.md sec 12): StoredFlat, a property
+     *  added before a save and taken away by the save after nothing refers to
+     *  it any more; emptied when the shape changes, and the flat laid anew
+     *  when asked. Null where none is stored.
+     */
+    const Part::PropertyPartShape *storedFlat() const;
+    /// Whether an object links to the feature's flat or an element of it
+    bool flatReferenced() const;
+    /// The stored flat emptied: it is no longer this feature's flat
+    void clearStoredFlat();
+    /// Before a save: each feature whose flat is referred to stores it, the
+    /// others store none
+    static void storeFlats(const App::Document &doc);
+
     /// The shape's solid, its orientation fixed unless orient is false (a
     /// boolean's result of oriented solids is oriented)
     TopoShape getSolid(const TopoShape &, bool force = true, bool orient = true);

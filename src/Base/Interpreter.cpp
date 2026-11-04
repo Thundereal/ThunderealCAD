@@ -28,6 +28,7 @@
 #include <sstream>
 #include <boost/regex.hpp>
 #endif
+#include <csignal>  // SIGPIPE, in a build with precompiled headers too
 
 #include "Interpreter.h"
 #include "Console.h"
@@ -666,6 +667,15 @@ void initInterpreter(int argc, char* argv[])
     if (PyStatus_Exception(status)) {
         THROWM(Base::RuntimeError, "Failed to init from config")
     }
+#ifdef SIGPIPE
+    // What Python does with its signal handlers installed, and this config
+    // leaves undone: with SIGPIPE at its default, a write to a socket whose
+    // other end has gone kills the whole program -- a macro, the add-on
+    // manager, a served viewer's HTTP or a relay of a test's -- where it
+    // should raise BrokenPipeError (or give EPIPE) to the writer. Seen as
+    // exit status 141 of tests/gui/serve-request-browser.py, twice under load.
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
 
     PyConfig_Clear(&config);
 

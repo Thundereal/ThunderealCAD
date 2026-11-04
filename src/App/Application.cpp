@@ -2254,6 +2254,7 @@ static void freecadNewHandler ()
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <string>
 #include <sstream>
@@ -2392,6 +2393,36 @@ void printBacktrace(size_t skip=0, const char* reason=nullptr, bool fault=false)
 #endif
 }
 
+#if defined(FC_OS_LINUX) && defined(HAVE_BACKTRACE_SYMBOLS)
+// The frames, first and with nothing that allocates: write(), backtrace()
+// (primed at install, its one allocation done) and backtrace_symbols_fd().
+// printBacktrace() builds a log entry, fopen()s the file, demangles and
+// formats -- all of it malloc -- and a SIGABRT from glibc's heap checks
+// ("corrupted double-linked list") is raised with the malloc lock held: the
+// handler hung on its first allocation, left an empty crash-*.log and was
+// killed by whatever waited (GuiServeLogActsBrowser, 2026-11-04, twice).
+void writeRawBacktrace(const char* what)
+{
+    auto put = [](const char* text) {
+        size_t left = std::strlen(text);
+        while (left > 0) {
+            const ssize_t done = ::write(STDERR_FILENO, text, left);
+            if (done <= 0)
+                return;
+            text += done;
+            left -= static_cast<size_t>(done);
+        }
+    };
+    put("\n--- raw backtrace, before anything that allocates ---\n");
+    put(what);
+    put("\n");
+    void* frames[128];
+    const int count = backtrace(frames, 128);
+    backtrace_symbols_fd(frames, count, STDERR_FILENO);
+    put("--- end of raw backtrace ---\n");
+}
+#endif
+
 void segmentation_fault_handler(int sig)
 {
 #if defined(FC_OS_LINUX)
@@ -2414,6 +2445,9 @@ void segmentation_fault_handler(int sig)
         default:
             break;
     }
+#if defined(HAVE_BACKTRACE_SYMBOLS)
+    writeRawBacktrace(what);
+#endif
     printBacktrace(2, what);
 #if defined(FC_DEBUG)
     abort();
@@ -2540,6 +2574,14 @@ void Application::init(int argc, char ** argv)
         // breakpoint trap (core dumped)" and that was the whole record.
         std::signal(SIGABRT,segmentation_fault_handler);
         std::signal(SIGTRAP,segmentation_fault_handler);
+#if defined(HAVE_BACKTRACE_SYMBOLS)
+        {
+            // backtrace() loads libgcc on its first call, which allocates:
+            // done here, the handler's raw frames need no malloc at all.
+            void* prime[1];
+            backtrace(prime, 1);
+        }
+#endif
 #endif
 #if defined(FC_SE_TRANSLATOR)
         _set_se_translator(my_se_translator_filter);

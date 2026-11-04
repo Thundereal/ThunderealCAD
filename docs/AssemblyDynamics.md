@@ -3335,6 +3335,12 @@ Phase D1 is under way (2026-10-28):
     time, + and - zooming about it (sec 8.6). In the playback video at
     the landing's peak, the plot shows 2.9 to 72.8 ms of the run, the
     landing's 0.1 ms a third of it.
+  - Then, the user's eye again: from 64 to 95 ms the block flew in slow
+    motion. The lever rattling on its posts, 59 N at most, was slowed as
+    much as the landing; Auto is now weighted by the swing of the contact
+    forces, with `SlowMotion` its scale (sec 8.6). The playback video at
+    Auto went from 19.4 s to 5.4 s, the landing still slowed to 1/17,500
+    of real time.
   - Not yet: the plot's value axis is the whole run's, a bounce of 1.5 N
     flat under a landing of 528 N; a part's own stress at a frame through
     an impact is a static analysis of it (as above).
@@ -4547,6 +4553,26 @@ What this fork does:
   - Auto (the default): Normal, slowed where the frames come closer, so
     that each of them is shown for a video frame. Closeness is averaged
     over two frames either side, as an impact's frames crowd its peak.
+  - How far Auto slows is weighted by how far the contact forces' total
+    swings within an output step either side, over the most it swings in
+    the run: the rate is Normal times (the frames' own rate over Normal)
+    to that share. The largest swing gets the full slow-down, one a
+    twentieth of it a few percent. Unweighted, a lever rattling on its
+    posts at 59 N, between a block's bounces, slowed as much as the
+    block's landing at 528 N. The speed never got back to Normal between
+    rattles 3 to 5 ms apart, and the block was seen flying in slow motion
+    from 64 to 95 ms (the user's eye).
+  - Tried against it, the user's own rule: the forces' change a video
+    frame limited, each gap between frames as long in the video as its
+    change takes at the limit. In this run, with the largest swing over
+    15, 30 or 60 video frames, the video was 6.0, 8.6 and 14.0 s; the
+    weighted rule's, 5.4 s. The user chose the weighted one ("weighted
+    looks the best").
+  - `SlowMotion` (the study's; the panel's "Slow-mo" by Speed at Auto):
+    video frames each frame takes where the forces swing the most, 1 by
+    default. The rate there is the frames' own over it, and elsewhere as
+    much less slow as they swing less: at 4, a rattle at a twentieth of
+    the largest swing is 4^0.05, 7%, slower.
   - Auto's rate changes by at most EASE = 1.5 from one video frame to
     the next: the lower envelope of cones of slope fps (EASE - 1) / EASE
     about each gap's own rate.
@@ -4567,7 +4593,8 @@ What this fork does:
   - ticks an even step of the run's time apart: spreading as the speed
     eases in, closing up as it eases out;
   - each slowed span shaded, with the run's time under it where the speed
-    begins to ease in and where it is back at Normal (`slowSpans()`);
+    begins to ease in and where it is back at Normal (`slowSpans()`:
+    from where it is a tenth slower, those that slow to half or less);
   - a click or a drag on it, or on the curves, goes to the time there,
     played on from there if playing;
   - + and - at the plot's top right, and the mouse wheel, zoom in and out

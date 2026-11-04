@@ -1383,7 +1383,20 @@ and not frozen.
     reference lists now (`SheetMetalReferences`), each under its name, its buttons named after
     it; one list's Add down at a time; a single one (the fixed face) takes a pick in place of
     what it held. `tests/gui/sheet-metal-convert.py` (15), frozen and not.
-  - The manual's page, `partdesign/sheet-metal/convert` (thundereal-manual 488c915).
+  - The manual's page, `partdesign/sheet-metal/convert` (thundereal-manual a8a52ad).
+  - The rule's corner relief (2026-11-04): where a thickened part's bends meet at a rip, the
+    two bends nearest the corner relieved get the rule's relief as a flange's miter does
+    (`SheetMetal::cornerReliefs()`), cut last, after the split; the convert's own square stays
+    where the rule's is smaller, None or Tear. For the tray to be the flange's mitred tray to the
+    volume, each wall at a rip ends at its side of the gap (the gap's face its limit,
+    `ConvertCuts`), as a mitred leg does -- a relief folded into one wall had carried on into the
+    other -- and `cornerReliefs()` takes two bends sharing a wall whichever way each runs (a
+    recognised part has each the way its cylinder runs). Flat joins a bend face's flat edges
+    within the folded wire's vertex tolerance where they do not meet exactly (a relief cut by a
+    boolean leaves 5e-6). Outside, the square ran from the box's corner, the inner one, and
+    swallowed the circle; it runs from the corner a thickness out. `TestSheetMetalConvert` (19):
+    with a circle or a square 6 across, the tray is the flange suite's mitred tray; None and
+    Tear leave the square; outside, the tray is the inside tray of a box a thickness larger.
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

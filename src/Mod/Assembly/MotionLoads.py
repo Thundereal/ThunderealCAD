@@ -755,6 +755,12 @@ def _setFrame(objects, body, heldJoint):
         # A contact's point moves over the part: its coupling with it, on
         # the face nearest it; where it does not press, as it was
         pressing = load["Force"].Length > 0.0 or load["Torque"].Length > 0.0
+        # A place a contact does not press at this frame is left out: its
+        # coupling stood where it last was, or on the face nearest the
+        # origin -- the held face's nodes too, and eight of them there at a
+        # lever's first frame put its hold 0.04 N off
+        if load["Kind"] == "Contact":
+            rb.Suppressed = not pressing
         if load["Kind"] == "Contact" and pressing:
             rb.ReferenceNode = objects["Placement"].multVec(load["Point"])
             faces = tuple(_nearestFace(objects["Shape"], load["Point"]))
@@ -861,6 +867,8 @@ def _nearLoads(objects, size, cache):
     shape = objects["Copy"].Shape
     near = set()
     for rb in objects["Couplings"]:
+        if getattr(rb, "Suppressed", False):
+            continue
         radius = rb.CouplingRadius.Value if hasattr(rb, "CouplingRadius") else 0.0
         if radius > 0.0:
             ref = rb.ReferenceNode

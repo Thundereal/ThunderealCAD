@@ -8120,6 +8120,8 @@ Status ChronoSession::simulateDynamics(
     // Each moving body's motion, its frame at its centre of mass: what its
     // inertia loads are made of (D4a, loads to FEM)
     std::vector<std::size_t> moving;
+    // By another name where a run's own 'moving' hides it
+    const std::vector<std::size_t>& movingBodies = moving;
     for (std::size_t b = 0; b < n; ++b) {
         if (!run.d->bodies[b]->IsFixed()) {
             const std::string& name = si.sourceName(si.bodies[b].source);
@@ -8449,6 +8451,21 @@ Status ChronoSession::simulateDynamics(
         return out;
     };
 
+    // A moving body's accelerations from the forces on it, R's rows of its
+    // (the loads' and the constraints' Cq' L), its turn 'turn': its centre's
+    // (model units) and its angular one
+    auto motionFrom = [&](const ch::ChVectorDynamic<>& R,
+                          std::size_t b,
+                          const ch::ChMatrix33<>& turn) {
+        const auto& body = run.d->bodies[b];
+        const unsigned int at = body->GetOffset_w();
+        const ch::ChVector3d force(R(at), R(at + 1), R(at + 2));
+        const ch::ChVector3d torque(R(at + 3), R(at + 4), R(at + 5));
+        const double mass = body->GetMass();
+        const ch::ChVector3d a = mass > 0.0 ? force / mass / SI::acceleration : ch::VNULL;
+        const ch::ChVector3d alpha = turn * (body->GetInvInertia() * torque);
+        return std::pair<ch::ChVector3d, ch::ChVector3d>(a, alpha);
+    };
     auto valuesNow = [&]() {
         std::vector<double> out;
         out.reserve(6 * reactions.size() + rotationMotors.size() + linearMotors.size()
@@ -8707,14 +8724,8 @@ Status ChronoSession::simulateDynamics(
             sys.LoadResidual_F(R, 1.0);
             sys.LoadResidual_CqL(R, L, 1.0);
             for (std::size_t b : moving) {
-                const auto& body = run.d->bodies[b];
-                const unsigned int at = body->GetOffset_w();
-                const ch::ChVector3d force(R(at), R(at + 1), R(at + 2));
-                const ch::ChVector3d torque(R(at + 3), R(at + 4), R(at + 5));
-                const double mass = body->GetMass();
-                const ch::ChVector3d a = mass > 0.0 ? force / mass / SI::acceleration : ch::VNULL;
-                const ch::ChVector3d alpha = body->GetRotMat() * (body->GetInvInertia() * torque);
-                for (const ch::ChVector3d& v : {a, body->GetAngVelParent(), alpha}) {
+                const auto [a, alpha] = motionFrom(R, b, run.d->bodies[b]->GetRotMat());
+                for (const ch::ChVector3d& v : {a, run.d->bodies[b]->GetAngVelParent(), alpha}) {
                     for (int k = 0; k < 3; ++k) {
                         out.push_back(v[k]);
                     }
@@ -10454,18 +10465,34 @@ Status ChronoSession::simulateDynamics(
                 }
                 const std::vector<double> start =
                     channels.empty() ? std::vector<double>() : valuesNow();
+                // The start's own forces, its loads' (a contact's as it
+                // stands, none where it only touches) and its bodies' turns:
+                // its accelerations are those with the reactions taken back
+                // to it. Taken back with the reactions, they took in what a
+                // contact begun in the smallest steps did -- a lever let go
+                // onto two steel posts read 131 rad/s^2 for 122 free, its
+                // free body 5% of its weight out of balance at the start
+                ch::ChVectorDynamic<> startForces(sys.GetNumCoordsVelLevel());
+                startForces.setZero();
+                sys.LoadResidual_F(startForces, 1.0);
+                std::vector<ch::ChMatrix33<>> startTurns;
+                for (std::size_t b : movingBodies) {
+                    startTurns.push_back(run.d->bodies[b]->GetRotMat());
+                }
                 std::vector<double> half;
+                ch::ChVectorDynamic<> halfL;
                 for (int i = 0; i < tinySteps; ++i) {
                     stepOnce(tiny);
                     if (i + 1 == tinySteps / 2 && !channels.empty()) {
                         half = valuesNow();
+                        halfL.setZero(sys.GetNumConstraints());
+                        sys.StateGatherReactions(halfL);
                     }
                 }
                 if (!channels.empty()) {
                     std::vector<double> values = valuesNow();
                     std::size_t v = 0;
                     for (const auto& channel : channels) {
-                        // A body's accelerations are its loads' as well
                         const bool reaction = channel.quantity == "Force"
                             || channel.quantity == "Torque" || channel.quantity == "MotorTorque"
                             || channel.quantity == "MotorForce"
@@ -10473,6 +10500,33 @@ Status ChronoSession::simulateDynamics(
                             || channel.quantity == "AngularAcceleration";
                         for (int c = 0; c < channel.width && v < values.size(); ++c, ++v) {
                             values[v] = reaction ? 2.0 * half[v] - values[v] : start[v];
+                        }
+                    }
+                    // The bodies' accelerations from the start's forces and
+                    // the reactions taken back (Cq' L is L's linear map)
+                    ch::ChVectorDynamic<> endL(sys.GetNumConstraints());
+                    sys.StateGatherReactions(endL);
+                    if (!movingBodies.empty() && halfL.size() == endL.size()
+                        && startForces.size() == sys.GetNumCoordsVelLevel()) {
+                        ch::ChVectorDynamic<> R = startForces;
+                        sys.LoadResidual_CqL(R, halfL, 2.0);
+                        sys.LoadResidual_CqL(R, endL, -1.0);
+                        std::size_t m = 0;
+                        v = 0;
+                        for (const auto& channel : channels) {
+                            const bool linear = channel.quantity == "Acceleration";
+                            const bool angular = channel.quantity == "AngularAcceleration";
+                            if ((linear || angular) && m < movingBodies.size()) {
+                                const auto [a, alpha] = motionFrom(R, movingBodies[m], startTurns[m]);
+                                const ch::ChVector3d& value = linear ? a : alpha;
+                                for (int c = 0; c < 3; ++c) {
+                                    values[v + c] = value[c];
+                                }
+                                if (angular) {
+                                    ++m;
+                                }
+                            }
+                            v += static_cast<std::size_t>(channel.width);
                         }
                     }
                     sink.values(values);

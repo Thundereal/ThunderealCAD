@@ -804,14 +804,46 @@ class TestContact(unittest.TestCase):
         self.assertTrue(series.Held == hinge)
         analysis = [o for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")][0]
         couplings = [o for o in analysis.Group if o.TypeId == "Fem::ConstraintRigidBody"]
-        pressed = [
-            c for c in couplings if c.Coupling == "Distributing" and c.ForceZ.Value != 0.0
-        ]
+        # The two places pressed, the other two left out
+        pressed = [c for c in couplings if c.Coupling == "Distributing" and not c.Suppressed]
         self.assertEqual(len(pressed), 2)
         xs = sorted(c.ReferenceNode.x for c in pressed)
         self.assertTrue(50 <= xs[0] <= 60 and 90 <= xs[1] <= 100, xs)
         run, fem = series.HeldForce[0], series.FemHeldForce[0]
         self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
+        # And where nothing presses yet, the start: none of the places in
+        # it -- on the face nearest the origin, the held one, they put the
+        # hold off by a twentieth of the weight
+        start = MotionLoads.solveFrames(self.assembly, lever, [0], maxSize=4.0)
+        run, fem = start.HeldForce[0], start.FemHeldForce[0]
+        self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
+
+    def test_start_with_contact(self):
+        """The lever let go across two posts, by the materials' own law:
+        its free body balances at the start too. The start's reactions and
+        accelerations were taken back from the smallest steps, in which the
+        posts began to push; the contact's force, none at the start, was
+        not -- a steel lever's free body 5% of its weight out there, its
+        turn's rate 131 rad/s^2 for the 122 of one with nothing under it."""
+        import MotionLoads
+
+        lever, hinge = self.lever()
+        near = self.post("Near", 50)
+        far = self.post("Far", 90)
+        self.contact([lever], [near, far])
+        _, result = self.simulate(0.01, 2.5e-3)
+        self.assertEqual(result, 0)
+        weight = MotionLoads.loadsOn(self.assembly, lever, 0)["Mass"] * G
+        (body,) = self.balanced(lever, [0], weight, 100.0)
+        for load in body["Loads"]:
+            if load["Kind"] == "Contact":
+                self.assertEqual(load["Force"].Length, 0.0)
+        # As let go with nothing under it: m g (L/2) / I about the hinge,
+        # I = m ((L^2 + h^2) / 12 + (L/2)^2), 147 rad/s^2 -- within 5%: the
+        # hinge's reaction is still taken back from the smallest steps, the
+        # posts' first push in it (141 measured, 3.6% under)
+        free = G * 50.0 / ((100.0**2 + 10.0**2) / 12.0 + 50.0**2)
+        self.assertAlmostEqual(body["AngularAcceleration"].Length, free, delta=0.05 * free)
 
     def test_lever_on_fast_cam(self):
         """A steel lever on a steel eccentric disc turned at 2 rev/s, by the

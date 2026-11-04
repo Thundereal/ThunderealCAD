@@ -714,6 +714,13 @@ class TestGuiCommands(unittest.TestCase):
         self.assertTrue(panel.form.RunKinematicsButton.isEnabled())
         self.assertFalse(panel.runRow.isVisibleTo(panel.form))
 
+        # the cancel half runs a dynamic study, which only Chrono solves
+        import AssemblyApp
+
+        if "Chrono" not in AssemblyApp.getAvailableSolvers():
+            self.accept_task()
+            self.assertClean()
+            return
         sim.AnalysisType = "Dynamic"
         sim.TimeEnd = 10000
         self.doc.recompute()

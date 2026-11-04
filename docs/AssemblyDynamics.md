@@ -3109,23 +3109,46 @@ Phase D1 is under way (2026-10-28):
     body balances within 1e-6 of its loads.
   - The manual's video (`assembly/simulation/loads-to-fem-contact`): a
     steel lever 120 x 10 x 8 on an eccentric disc turned at 2 rev/s, a
-    torsion spring at its hinge and 3 N down at its tip, 101 frames solved
-    in 91 s. The disc's point moves along the lever from x = 67 to 88 mm,
-    5.3 to 9.5 N. The largest stress, 2.458 MPa at 0.23 s, is at the hinge,
-    where the spring's 259 N mm enters: beam theory 2.43 MPa. The hold
-    within 0.34% of the largest reaction, its torque within 0.024%; the
+    torsion spring at its hinge and 3 N down at its tip, the contact by the
+    steel's own law, 101 frames solved in 85 s. The disc's point moves
+    along the lever from x = 67 to 88 mm, 5.3 to 9.5 N. The largest stress,
+    2.456 MPa at 0.23 s, is at the hinge, where the spring's 259 N mm
+    enters: beam theory 2.43 MPa. The hold within 0.35% of the largest
+    reaction, its torque within 0.024%; the
     force's difference the held face's own body load (step 4), 0.020 N at
     a 3 mm mesh, 0.011 N at 1.5 mm.
-  - **Found, not fixed: a stiff contact on a fast eccentric diverges.** The
-    video's disc on its lever, by the steel's own law -- a cylinder's side
-    on a face, Johnson's line contact, k = 6.4e8 N/m^1.065 there, about
-    2e8 N/m at its 9 N -- stops at about 0.14 s, "the contact's integration
-    diverged", at 1.5 rev/s and up (1 rev/s runs), with a speed motor as
-    with a position one, with friction or without, the disc a cylinder or
-    a hull. A set law runs at 1e6 N/mm^1.5 and diverges at 1e7: the
-    stiffness, not the line law. The Newton iterations run off at a
-    substep under a nanosecond, where the contact's own period is 1e-4 s:
-    the jacobian, not the step. The video sets 1e6.
+  - **Found and fixed: a substep taken again started from reactions not
+    finite.** The video's disc on its lever, by the steel's own law -- a
+    cylinder's side on a face, Johnson's line contact, about 2e8 N/m at its
+    9 N -- stopped at 0.14 s, "the contact's integration diverged", at 1.5
+    rev/s and up, by any motor, with friction or without, the disc a
+    cylinder or a hull, and with a set law from 1e7 N/mm^1.5. Not the law,
+    not the jacobian (measured at the state: the normal's 2.3e8 N/m, the
+    tilts' k r^2): HHT's Newton trace had the substep of 1 ms run off, and
+    every one taken again from the state before it, down to 4 ns, start
+    with a residual not finite at its first iteration. HHT takes the
+    reactions it starts from out of the system, alpha's share of the old
+    Cq' l in the residual; the substep that ran off left them there not
+    finite, and advance() put back the state and the accelerations but
+    not the reactions. It does now (takeBack()), and the sensors'
+    snapshot keeps them too, which put back a step to locate a trip with
+    the reactions of a later state. TestContact's test_lever_on_fast_cam:
+    the lever on the disc by the steel's law, 101 frames, sunk under a
+    micrometre; it stops at 0.14 s without the fix.
+  - **And then: a torsion spring a whole turn out after such a substep.**
+    With the run going through, the video's lever lost its disc at 0.145 s,
+    the hinge's reaction 454 N and its torque 6032 N mm -- the return
+    spring's 1000 N mm/rad times a turn. Chrono's ChLinkRSDA counts its
+    turn at each update from the last angle it saw, and the states of the
+    substep that ran off moved the count on; it is private, not to be put
+    back. A TorsionLoad of our own replaces it: the same torque, preload -
+    k (turn - rest) - c rate, the turn of xJ about zI measured as Chrono's
+    and as a penalty stop's, its count taken from the angle committed after
+    each step (handleStops(), each frame of a kinematic run, the sensors'
+    snapshot) -- implicit through Chrono's numerical jacobian, where the
+    link was explicit. A motor's own count (ChLinkMotorRotation's mrot) is
+    reported only: its position constraint is the formula's rotation.
+    test_lever_on_fast_cam has the spring, its torque the turn's.
   - Not yet: the largest away from the loaded faces; several frames as
     steps of one CalculiX run; a part in a rigid group; a contact set that
     presses a part at places apart is one resultant at their centre, on

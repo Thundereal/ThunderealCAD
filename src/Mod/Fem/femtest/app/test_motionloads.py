@@ -182,6 +182,48 @@ class TestMotionLoads(unittest.TestCase):
         want = 1e4 * L**2 / (2 * E * INERTIA)
         self.assertAlmostEqual(self.tip(text).y, want, delta=0.01 * want)
 
+    def test_coupling_radius(self):
+        """100 N down on the bar's top face at mid-span through a
+        distributing coupling of radius 3 mm: a point load's tip
+        deflection, 5 F L^3 / (48 E I) + F (L/2) / (k G A), within 2%; on
+        the whole top face, the same force and moment about mid-span spread
+        along it, uniform, F L^3 / (8 E I) and the same shear, a fifth
+        more. Its element faces those near the point only."""
+        self.bar()
+        # The far face's mean displacement, from an unloaded coupling there
+        self.coupling()
+        rb = ObjectsFem.makeConstraintRigidBody(self.doc, "Push")
+        rb.References = [(self.box, "Face6")]
+        rb.ReferenceNode = FreeCAD.Vector(L / 2, A / 2, A)
+        rb.Coupling = "Distributing"
+        rb.ForceZ = "-100 N"
+        rb.TranslationalModeZ = "Load"
+        self.analysis.addObject(rb)
+        self.doc.recompute()
+        shear = 100 * (L / 2) / (5.0 / 6.0 * E / (2 * (1 + NU)) * A * A)
+        point = 100 * 5 * L**3 / (48 * E * INERTIA) + shear
+        # Uniform: its shear the same, w L^2 / 2 over k G A
+        spread = 100 * L**3 / (8 * E * INERTIA) + shear
+
+        def solved(radius):
+            rb.CouplingRadius = radius
+            self.doc.recompute()
+            problems, inp = self.write()
+            self.assertEqual(problems, "")
+            faces = re.search(r"\*SURFACE, NAME=Push_Surface\n((?:\d+,S\d\n)+)", inp)
+            return len(faces.group(1).splitlines()), self.tip(self.solve()).z
+
+        few, near = solved("3 mm")
+        many, whole = solved("0 mm")
+        FreeCAD.Console.PrintMessage(
+            "Coupling radius: %d faces, tip %.5g mm (point %.5g); all %d faces, %.5g "
+            "(uniform %.5g)\n" % (few, -near, point, many, -whole, spread)
+        )
+        self.assertLess(few, 20)
+        self.assertGreater(many, 5 * few)
+        self.assertAlmostEqual(-near, point, delta=0.02 * point)
+        self.assertAlmostEqual(-whole, spread, delta=0.03 * spread)
+
     def test_reference_node_fields(self):
         """A coupling's reference node off by round-off, as a point from a
         motion's run is: its coordinates written in fields of at most 20

@@ -60,6 +60,10 @@ public:
     // its loads spread over the faces without stiffening them (*COUPLING
     // with *DISTRIBUTING; loads only, CalculiX takes no constraint on it)
     App::PropertyEnumeration Coupling;
+    // Not upstream: a distributing coupling on the faces' parts within this
+    // distance of the reference node only, a load put on a patch of a face
+    // (a contact's); 0, on all of them
+    App::PropertyLength CouplingRadius;
 
     /// recalculate the object
     App::DocumentObjectExecReturn* execute() override;

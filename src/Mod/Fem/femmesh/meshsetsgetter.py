@@ -317,6 +317,48 @@ class MeshSetsGetter:
             # Not upstream: a distributing coupling's element faces
             if getattr(femobj["Object"], "Coupling", "Rigid") == "Distributing":
                 femobj["CouplingFaces"] = self._get_elements(femobj["Object"])
+                self._coupling_within_radius(femobj)
+
+    def _coupling_within_radius(self, femobj):
+        """Not upstream: a distributing coupling's element faces within its
+        CouplingRadius of its reference node, each by the centre of its
+        element's nodes on the referenced faces -- the nearest one where
+        none is -- and its nodes those faces' nodes"""
+        obj = femobj["Object"]
+        radius = getattr(obj, "CouplingRadius", None)
+        radius = radius.getValueAs("mm").Value if radius is not None else 0.0
+        if not radius > 0.0:
+            return
+        on = set(femobj["Nodes"])
+        nodes = self.femmesh.Nodes
+        ref = obj.ReferenceNode
+        nearest = None
+        kept_nodes = set()
+        result = []
+        for name, surf, is_sub_el in femobj["CouplingFaces"]:
+            if not is_sub_el:
+                result.append((name, surf, is_sub_el))
+                continue
+            kept = []
+            for elem, fno in surf:
+                face = [n for n in self.femmesh.getElementNodes(elem) if n in on]
+                if not face:
+                    continue
+                centre = FreeCAD.Vector()
+                for n in face:
+                    centre += nodes[n]
+                distance = (centre * (1.0 / len(face)) - ref).Length
+                if nearest is None or distance < nearest[0]:
+                    nearest = (distance, name, elem, fno, face)
+                if distance <= radius:
+                    kept.append((elem, fno))
+                    kept_nodes.update(face)
+            result.append((name, kept, is_sub_el))
+        if not kept_nodes and nearest is not None:
+            result = [(nearest[1], [(nearest[2], nearest[3])], True)]
+            kept_nodes.update(nearest[4])
+        femobj["CouplingFaces"] = result
+        femobj["Nodes"] = sorted(kept_nodes)
 
     def get_constraints_displacement_nodes(self):
         if not self.member.cons_displacement:

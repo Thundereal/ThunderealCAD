@@ -147,6 +147,15 @@ ConstraintRigidBody::ConstraintRigidBody()
     );
     Coupling.setEnums(couplingEnum);
 
+    ADD_PROPERTY_TYPE(
+        CouplingRadius,
+        (0.0),
+        "ConstraintRigidBody",
+        App::Prop_None,
+        "Distributing: only the faces' parts within this distance of the\n"
+        "reference node, a load on a patch of a face; 0: all of them"
+    );
+
     TranslationalModeX.setEnums(boundaryModeEnum);
     TranslationalModeY.setEnums(boundaryModeEnum);
     TranslationalModeZ.setEnums(boundaryModeEnum);

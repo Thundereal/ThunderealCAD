@@ -112,7 +112,33 @@ ResultQuantities = {
     # A part's stress analysis over frames of the run (MotionLoads.solveFrames):
     # its largest von Mises stress, at the frames solved
     "VonMises": (QT_TRANSLATE_NOOP("Assembly", "Largest von Mises stress"), 1.0, "MPa"),
+    # A contact set's on each of its parts, the loads a stress analysis takes:
+    # the force at the centre of its points there, that centre, and the
+    # torque about it
+    "PartContactForce": (QT_TRANSLATE_NOOP("Assembly", "Contact force on the part"), 1e-3, "N"),
+    "PartContactPoint": (QT_TRANSLATE_NOOP("Assembly", "Contact point on the part"), 1.0, "mm"),
+    "PartContactTorque": (QT_TRANSLATE_NOOP("Assembly", "Contact torque on the part"), 1e-6, "N m"),
+    # An applied load's, on its component
+    "AppliedForce": (QT_TRANSLATE_NOOP("Assembly", "Applied force"), 1e-3, "N"),
+    "AppliedTorque": (QT_TRANSLATE_NOOP("Assembly", "Applied torque"), 1e-6, "N m"),
 }
+
+
+def resultKey(channel):
+    """A channel's key in the Results box: (name, quantity), and the name of
+    the part a value is on where its source has several (a contact set's)"""
+    on = channel.get("On")
+    key = (channel["Name"], channel["Quantity"])
+    return key + (on.Name,) if on is not None else key
+
+
+def resultName(channel):
+    """What a channel is shown as of: its object's label, and the part's a
+    value is on where its source has several"""
+    obj = channel["Object"]
+    name = obj.Label if obj is not None else channel["Name"]
+    on = channel.get("On")
+    return "%s (%s)" % (name, on.Label) if on is not None else name
 
 
 def resultChannels(assembly):
@@ -143,8 +169,7 @@ def resultsTable(assembly):
     header = [translate("Assembly", "Time") + " (s)"]
     columns = []
     for channel in results["Channels"]:
-        obj = channel["Object"]
-        name = obj.Label if obj is not None else channel["Name"]
+        name = resultName(channel)
         label, factor, unit = ResultQuantities.get(
             channel["Quantity"], (channel["Quantity"], 1.0, "")
         )
@@ -2533,10 +2558,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.resultCombo.blockSignals(True)
         self.resultCombo.clear()
         for k, channel in enumerate(self.results["Channels"]):
-            obj = channel["Object"]
-            name = obj.Label if obj is not None else channel["Name"]
+            name = resultName(channel)
             quantity = ResultQuantities.get(channel["Quantity"], (channel["Quantity"], 1.0, ""))
-            key = (channel["Name"], channel["Quantity"])
+            key = resultKey(channel)
             text = "%s: %s" % (name, translate("Assembly", quantity[0]))
             if not channel.get("Unique", True):
                 # A redundant joint's: one split of the load among the
@@ -2560,7 +2584,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.showResult()
 
     def resultIndex(self, key):
-        """The Results box's row of a channel's key, (name, quantity); -1
+        """The Results box's row of a channel's key (resultKey()); -1
         when none. Not findData: it matches a key stored as a Python object
         by identity, never an equal tuple made anew -- so a channel chosen
         was lost each time the box was filled again, on a new run."""
@@ -2708,7 +2732,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         ]
         if body["Missing"]:
             notes.append(
-                translate("Assembly", "Not in it, which the run cannot place yet: {}.").format(
+                translate(
+                    "Assembly",
+                    "Not in it, whose loads this run does not report (run it again): {}.",
+                ).format(
                     ", ".join(o.Label for o in body["Missing"])
                 )
             )
@@ -2818,7 +2845,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             return [], ""
         key = self.resultCombo.currentData()
         for channel in self.results["Channels"]:
-            if (channel["Name"], channel["Quantity"]) != key:
+            if key is None or resultKey(channel) != tuple(key):
                 continue
             _, factor, unit = ResultQuantities.get(channel["Quantity"], ("", 1.0, ""))
             values = channel["Values"]

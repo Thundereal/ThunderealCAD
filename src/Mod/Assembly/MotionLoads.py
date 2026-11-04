@@ -63,19 +63,28 @@ def loadsOn(assembly, component, frame):
 
     Returns a dict:
       Component, Time, Frame;
-      Loads: a list of dicts, each with Source (the joint, spring or
-        bushing), Kind ("Joint", "Spring", "Bushing"), Point, Force,
-        Torque (about Point), Reference (a joint's reference on this
-        component, (object, [element]), else None) and Unique (False for a
-        redundant joint's share);
+      Loads: a list of dicts, each with Source (the joint, spring,
+        bushing, contact set, torsion spring or applied load), Kind
+        ("Joint", "Spring", "Bushing", "Contact", "TorsionSpring", "Load"),
+        Point, Force, Torque (about Point; a joint's its reaction with
+        its motor's effort, a motion driving it), Reference (a joint's or a
+        torsion spring's joint's reference on this component, (object,
+        [element]), else None) and Unique (False for a redundant joint's
+        share). A contact set's is its force on this part at the centre of
+        its points on it, weighted by their forces, and the torque about
+        that centre (all none while it does not press); a torsion spring's
+        a torque about its joint's axis; an applied load's at its frame's
+        origin, or on its reaction the opposite, where that origin was at
+        the run's start;
       Mass (kg), CenterOfMass, Inertia (rows, about the centre of mass,
         kg mm^2), Gravity (mm/s^2), Acceleration (the centre's, mm/s^2),
         AngularVelocity (rad/s), AngularAcceleration (rad/s^2);
       Residual: (force, torque about the centre of mass), the loads with
         gravity less m a, and their moment less I alpha + omega x I omega:
         zero when nothing is missing;
-      Missing: what acts on the component that the loads do not take yet
-        (contact sets, torsion springs, applied loads).
+      Missing: what acts on the component that the run does not report
+        loads of (a contact set, torsion spring or applied load of a run
+        kept from before they were reported).
     Raises ValueError where there is no run, no such frame, or no motion
     reported for the component."""
     results = assembly.getSimulationResults()
@@ -88,13 +97,33 @@ def loadsOn(assembly, component, frame):
 
     saved = UtilsAssembly.saveAssemblyPartsPlacements(assembly)
     try:
+        start = _reactionPoints(assembly, component)
         assembly.updateForFrame(frame)
-        return _freeBody(assembly, component, frame, results, sim)
+        return _freeBody(assembly, component, frame, results, sim, start)
     finally:
         UtilsAssembly.restoreAssemblyPartsPlacements(assembly, saved)
 
 
-def _freeBody(assembly, component, frame, results, sim):
+def _reactionPoints(assembly, component):
+    """Where each applied load component is the reaction of acts on it, in
+    its own coordinates: where the load's frame was at the run's start (its
+    first frame), by load name"""
+    physics = assembly.getGroup("Physics", False)
+    reacting = [
+        item
+        for item in (physics.Group if physics else [])
+        if item.isDerivedFrom("Assembly::AppliedLoad")
+        and _same(item.Reaction, component)
+        and item.getEnd()[0]
+    ]
+    if not reacting:
+        return {}
+    assembly.updateForFrame(0)
+    toLocal = component.Placement.inverse()
+    return {item.Name: toLocal.multVec(item.getEndPlacement().Base) for item in reacting}
+
+
+def _freeBody(assembly, component, frame, results, sim, start):
     here = component.Placement  # at the frame, in the assembly
     toLocal = here.inverse()
     turn = toLocal.Rotation
@@ -116,10 +145,18 @@ def _freeBody(assembly, component, frame, results, sim):
             continue
         force = found["Force"]["Values"][frame]
         torque = found["Torque"]["Values"][frame]
+        frameI = toAssembly * UtilsAssembly.getJcsGlobalPlc(joint.Placement1, joint.Reference1)
+        # A motion's motor on it, which its reaction does not hold: Chrono's,
+        # minus its torque about zI and its force along zI on frame I's body
+        # (the force at frame J's origin, on zI)
+        zI = frameI.Rotation.multVec(App.Vector(0, 0, 1))
+        if "MotorTorque" in found:
+            torque = torque - zI * found["MotorTorque"]["Values"][frame]
+        if "MotorForce" in found:
+            force = force - zI * found["MotorForce"]["Values"][frame]
         # On frame I's body, its first reference's part; the other takes
         # the opposite, about the same point
         sign = 1.0 if side == 0 else -1.0
-        frameI = toAssembly * UtilsAssembly.getJcsGlobalPlc(joint.Placement1, joint.Reference1)
         loads.append(
             {
                 "Source": joint,
@@ -136,11 +173,13 @@ def _freeBody(assembly, component, frame, results, sim):
     for item in physics.Group if physics else []:
         found = _channels(results, item)
         if "SpringForce" in found:
-            ends = [(item.Component1, item.Point1), (item.Component2, item.Point2)]
-            mine = [k for k, (obj, _) in enumerate(ends) if _same(obj, component)]
+            # Its ends as the run took them: an end on an element is on the
+            # component its binding resolves to
+            ends = [item.getEnd(1)[0], item.getEnd(2)[0]]
+            mine = [k for k, obj in enumerate(ends) if _same(obj, component)]
             if not mine:
                 continue
-            points = [obj.Placement.multVec(p) if obj else p for obj, p in ends]
+            points = [item.getEndPoint(1), item.getEndPoint(2)]
             k = mine[0]
             apart = points[k] - points[1 - k]
             if apart.Length > 0.0:
@@ -157,11 +196,11 @@ def _freeBody(assembly, component, frame, results, sim):
                 }
             )
         elif "BushingForce" in found:
-            own = _same(item.Component, component)
+            own = _same(item.getEnd()[0], component)
             if not own and not _same(getattr(item, "Other", None), component):
                 continue
             sign = 1.0 if own else -1.0
-            at = item.Component.Placement * item.Frame
+            at = item.getEndPlacement()
             loads.append(
                 {
                     "Source": item,
@@ -174,16 +213,87 @@ def _freeBody(assembly, component, frame, results, sim):
                 }
             )
         elif item.isDerivedFrom("Assembly::ContactSet"):
-            if any(_same(o, component) for o in list(item.GroupA) + list(item.GroupB)):
+            if not any(_same(o, component) for o in list(item.GroupA) + list(item.GroupB)):
+                continue
+            # Its force on this part at the centre of its points there, and
+            # the torque about that centre: none while it does not press
+            mine = {
+                c["Quantity"]: c
+                for c in results["Channels"]
+                if c["Object"] == item
+                and c["Quantity"].startswith("PartContact")
+                and _same(c.get("On"), component)
+            }
+            if "PartContactForce" not in mine:
                 missing.append(item)
+                continue
+            loads.append(
+                {
+                    "Source": item,
+                    "Kind": "Contact",
+                    "Point": toLocal.multVec(mine["PartContactPoint"]["Values"][frame]),
+                    "Force": turn.multVec(mine["PartContactForce"]["Values"][frame]),
+                    "Torque": turn.multVec(mine["PartContactTorque"]["Values"][frame]),
+                    "Reference": None,
+                    "Unique": True,
+                }
+            )
         elif item.isDerivedFrom("Assembly::TorsionSpring"):
             joint = item.Joint
             refs = [getattr(joint, "Reference1", None), getattr(joint, "Reference2", None)]
-            if joint and any(r and _same(UtilsAssembly.getMovingPart(r), component) for r in refs):
+            side = None
+            for k, ref in enumerate(refs):
+                if ref and _same(UtilsAssembly.getMovingPart(ref), component):
+                    side = k
+            if not joint or side is None:
+                continue
+            if "SpringTorque" not in found:
                 missing.append(item)
+                continue
+            # Chrono's: minus the torque about zI on frame I's body, plus on
+            # frame J's
+            frameI = toAssembly * UtilsAssembly.getJcsGlobalPlc(joint.Placement1, joint.Reference1)
+            zI = frameI.Rotation.multVec(App.Vector(0, 0, 1))
+            sign = -1.0 if side == 0 else 1.0
+            loads.append(
+                {
+                    "Source": item,
+                    "Kind": "TorsionSpring",
+                    "Point": toLocal.multVec(frameI.Base),
+                    "Force": App.Vector(),
+                    "Torque": turn.multVec(zI * (sign * found["SpringTorque"]["Values"][frame])),
+                    "Reference": refs[side],
+                    "Unique": True,
+                }
+            )
         elif item.isDerivedFrom("Assembly::AppliedLoad"):
-            if _same(item.Component, component):
+            own = _same(item.getEnd()[0], component)
+            if not own and not _same(item.Reaction, component):
+                continue
+            quantity = "AppliedTorque" if item.Kind == "Torque" else "AppliedForce"
+            if quantity not in found:
                 missing.append(item)
+                continue
+            value = found[quantity]["Values"][frame]
+            if own:
+                at = toLocal.multVec(item.getEndPlacement().Base)
+            else:
+                # On its reaction, the opposite where the frame's origin
+                # was at the start, which stays on the reaction there
+                at = start[item.Name]
+                value = value * -1.0
+            torque = quantity == "AppliedTorque"
+            loads.append(
+                {
+                    "Source": item,
+                    "Kind": "Load",
+                    "Point": at,
+                    "Force": App.Vector() if torque else turn.multVec(value),
+                    "Torque": turn.multVec(value) if torque else App.Vector(),
+                    "Reference": None,
+                    "Unique": True,
+                }
+            )
 
     # The inertia, at the frame's pose
     props = None
@@ -290,6 +400,28 @@ def _nearestFace(shape, point):
     return ["Face%d" % best[0]]
 
 
+def _jointOf(load):
+    """The joint a load is at: a joint's own, a torsion spring's on it;
+    else None"""
+    if load["Kind"] == "Joint":
+        return load["Source"]
+    if load["Kind"] == "TorsionSpring":
+        return load["Source"].Joint
+    return None
+
+
+def _heldLoad(body, heldJoint):
+    """What the hold stands in for in a free body: the held joint's load and
+    a torsion spring's on it, at the joint's point. (force, torque)"""
+    force = App.Vector()
+    torque = App.Vector()
+    for load in body["Loads"]:
+        if _jointOf(load) == heldJoint:
+            force += load["Force"]
+            torque += load["Torque"]
+    return force, torque
+
+
 def _heldJoint(bodies, hold):
     """The joint the part is held at over its free bodies: hold, or the one
     with the largest force at any of them"""
@@ -358,8 +490,15 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
     mesh.Fineness = 2
     analysis.addObject(mesh)
 
+    # A coupling per load, but a torsion spring's is its joint's: on the
+    # same faces, about the same point -- and held with it
     couplings = []
+    byJoint = {}
     for load in body["Loads"]:
+        joint = _jointOf(load)
+        if joint is not None and joint.Name in byJoint:
+            couplings.append(byJoint[joint.Name])
+            continue
         faces = []
         ref = load["Reference"]
         if ref:
@@ -369,9 +508,9 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
                 faces = _facesOf(local, element)
         if not faces:
             faces = _nearestFace(local, load["Point"])
-        held = load["Source"] == heldJoint
+        held = joint is not None and joint == heldJoint
         rb = ObjectsFem.makeConstraintRigidBody(doc, "Hold" if held else "Load")
-        rb.Label = ("Held at %s" if held else "%s") % load["Source"].Label
+        rb.Label = ("Held at %s" if held else "%s") % (joint or load["Source"]).Label
         rb.References = [(copy, tuple(faces))]
         rb.ReferenceNode = place.multVec(load["Point"])
         if held:
@@ -386,6 +525,8 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
                 setattr(rb, "RotationalMode" + axis, "Load")
         analysis.addObject(rb)
         couplings.append(rb)
+        if joint is not None:
+            byJoint[joint.Name] = rb
 
     motion = ObjectsFem.makeConstraintBodyMotion(doc, "LoadsMotion")
     analysis.addObject(motion)
@@ -397,6 +538,7 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
         "Couplings": couplings,
         "Motion": motion,
         "Placement": place,
+        "Shape": local,
         "Sources": [load["Source"] for load in body["Loads"]],
     }
 
@@ -410,11 +552,23 @@ def _setFrame(objects, body, heldJoint):
     ):
         raise ValueError("the loads on %s differ between frames" % body["Component"].Label)
     turn = objects["Placement"].Rotation
+    totals = {}  # coupling name: (coupling, force, torque), in the part's axes
     for load, rb in zip(body["Loads"], objects["Couplings"]):
-        if load["Source"] == heldJoint:
+        if _jointOf(load) == heldJoint:
             continue
-        force = turn.multVec(load["Force"]) * 1e-3  # mN to N
-        torque = turn.multVec(load["Torque"]) * 1e-3  # mN mm to N mm
+        # A contact's point moves over the part: its coupling with it, on
+        # the face nearest it; where it does not press, as it was
+        pressing = load["Force"].Length > 0.0 or load["Torque"].Length > 0.0
+        if load["Kind"] == "Contact" and pressing:
+            rb.ReferenceNode = objects["Placement"].multVec(load["Point"])
+            faces = tuple(_nearestFace(objects["Shape"], load["Point"]))
+            if tuple(rb.References[0][1]) != faces:
+                rb.References = [(objects["Copy"], faces)]
+        _, force, torque = totals.get(rb.Name, (rb, App.Vector(), App.Vector()))
+        totals[rb.Name] = (rb, force + load["Force"], torque + load["Torque"])
+    for rb, force, torque in totals.values():
+        force = turn.multVec(force) * 1e-3  # mN to N
+        torque = turn.multVec(torque) * 1e-3  # mN mm to N mm
         for axis, f, t in zip("XYZ", force, torque):
             setattr(rb, "Force" + axis, "%.12g N" % f)
             setattr(rb, "Moment" + axis, "%.12g N*mm" % t)
@@ -569,15 +723,15 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
             stress, node = _vonMises(base + ".frd")
             with open(base + ".dat") as f:
                 text = f.read()
-            held = [l for l in body["Loads"] if l["Source"] == heldJoint][0]
+            heldForce, heldTorque = _heldLoad(body, heldJoint)
             rows.append(
                 {
                     "Frame": frame,
                     "Time": body["Time"],
                     "Stress": stress,
                     "At": back.multVec(nodes[node]),
-                    "HeldForce": held["Force"] * 1e-3,
-                    "HeldTorque": held["Torque"] * 1e-3,
+                    "HeldForce": heldForce * 1e-3,
+                    "HeldTorque": heldTorque * 1e-3,
                     "FemForce": back.Rotation.multVec(_datTotal(text, hold_.Name + "_RefNode")),
                     "FemTorque": back.Rotation.multVec(_datTotal(text, hold_.Name + "_RotNode")),
                     "RunForce": runForce[frame],
@@ -632,7 +786,11 @@ class StressSeries:
         ("App::PropertyFloatList", "VonMises", "The largest von Mises stress at each, MPa"),
         ("App::PropertyVectorList", "VonMisesAt", "Where it is, in the part's coordinates, mm"),
         ("App::PropertyVectorList", "HeldForce", "The run's load at the held joint, N"),
-        ("App::PropertyVectorList", "HeldTorque", "The run's torque at the held joint, N mm"),
+        (
+            "App::PropertyVectorList",
+            "HeldTorque",
+            "The run's torque at the held joint, a torsion spring's on it with it, N mm",
+        ),
         ("App::PropertyVectorList", "FemHeldForce", "What holds the part in the analysis, N"),
         ("App::PropertyVectorList", "FemHeldTorque", "Its torque, N mm"),
         (

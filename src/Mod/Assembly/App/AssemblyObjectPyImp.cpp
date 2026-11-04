@@ -270,6 +270,19 @@ PyObject* AssemblyObjectPy::getSimulationResults(PyObject* args) const
                 entry.setItem("Name", Py::String(name));
                 entry.setItem("Quantity", Py::String(channel.quantity));
                 entry.setItem("Unique", Py::Boolean(channel.unique));
+                // The part a value is on, where its source has several (a
+                // contact set's); None, the source's own
+                Py::Object on = Py::None();
+                if (!channel.on.empty()) {
+                    const std::size_t at = channel.on.rfind('#');
+                    const std::string part =
+                        at == std::string::npos ? channel.on : channel.on.substr(at + 1);
+                    App::DocumentObject* partObj = doc ? doc->getObject(part.c_str()) : nullptr;
+                    if (partObj) {
+                        on = Py::asObject(partObj->getPyObject());
+                    }
+                }
+                entry.setItem("On", on);
                 entry.setItem("Values", values);
                 channels.append(entry);
                 offset += channel.width;

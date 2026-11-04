@@ -182,10 +182,16 @@ void Assembly::writeSimulationArchive(const std::string& path,
     json channels = json::array();
     if (values) {
         for (const auto& channel : frames.channels) {
-            channels.push_back({{"source", channel.source},
-                                {"quantity", channel.quantity},
-                                {"width", channel.width},
-                                {"unique", channel.unique}});
+            json entry = {{"source", channel.source},
+                          {"quantity", channel.quantity},
+                          {"width", channel.width},
+                          {"unique", channel.unique}};
+            // The part a value is on, a contact set's: a reader before it
+            // has none of those quantities, and reads past it
+            if (!channel.on.empty()) {
+                entry["on"] = channel.on;
+            }
+            channels.push_back(entry);
             width += static_cast<std::size_t>(channel.width);
         }
     }
@@ -282,7 +288,8 @@ SimulationArchive Assembly::readSimulationArchive(const std::string& path)
             frames.channels.push_back({channel.at("source").get<std::string>(),
                                        channel.at("quantity").get<std::string>(),
                                        channel.at("width").get<int>(),
-                                       channel.value("unique", true)});
+                                       channel.value("unique", true),
+                                       channel.value("on", std::string())});
             width += static_cast<std::size_t>(frames.channels.back().width);
         }
         for (const auto& entry : index.at("events")) {

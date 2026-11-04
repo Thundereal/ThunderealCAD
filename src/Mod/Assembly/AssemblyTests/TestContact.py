@@ -534,6 +534,174 @@ class TestContact(unittest.TestCase):
         self.assertEqual(depth[5], 0.0)
         self.assertEqual(total[5].Length, 0.0)
 
+    def partChannels(self, quantity):
+        """The set's channels of the quantity on each of its parts, by the
+        part's name"""
+        channels = self.assembly.getSimulationResults()["Channels"]
+        return {c["On"].Name: c["Values"] for c in channels if c["Quantity"] == quantity}
+
+    def test_part_contact_channels(self):
+        """A set reports its force on each of its parts, at the centre of
+        its points there, and the torque about it (D4a, loads to FEM): the
+        ball at rest pressed up by its weight at its lowest point, sunk into
+        the plate, the plate the opposite at the same place; before it
+        lands, nothing, at the origin."""
+        plate = self.plate()
+        ball = self.ball(16)
+        self.contact([ball], [plate], **self.SOFT)
+        _, result = self.simulate(1.0, 1e-3)
+        self.assertEqual(result, 0)
+        total = self.force()
+        forces = self.partChannels("PartContactForce")
+        points = self.partChannels("PartContactPoint")
+        torques = self.partChannels("PartContactTorque")
+        self.assertEqual(sorted(forces), ["Ball", "Plate"])
+        for k in range(len(total)):
+            # The ball is group A, whose force the set's is
+            scale = 1e-9 * max(1.0, total[k].Length)
+            self.assertLess((forces["Ball"][k] - total[k]).Length, scale)
+            self.assertLess((forces["Plate"][k] + total[k]).Length, scale)
+        weight = BALL * G
+        sink = self.sink(BALL)
+        for name, z in (("Ball", 10 - sink), ("Plate", 10.0)):
+            self.assertLess((points[name][-1] - App.Vector(0, 0, z)).Length, 1e-4, name)
+            self.assertLess(torques[name][-1].Length, 1e-9 * weight, name)
+        self.assertEqual(forces["Ball"][5].Length, 0.0)
+        self.assertEqual(points["Ball"][5].Length, 0.0)
+
+    def balanced(self, part, frames, force, length):
+        """The free body of part at each of frames balances within 1e-6 of
+        force, and of force times length about its centre, a contact set's
+        load in it; the free bodies"""
+        import MotionLoads
+
+        bodies = []
+        for frame in frames:
+            body = MotionLoads.loadsOn(self.assembly, part, frame)
+            residual, moment = body["Residual"]
+            self.assertLess(residual.Length, 1e-6 * force, frame)
+            self.assertLess(moment.Length, 1e-6 * force * length, frame)
+            self.assertEqual(body["Missing"], [])
+            self.assertEqual([l["Kind"] for l in body["Loads"]].count("Contact"), 1)
+            bodies.append(body)
+        return bodies
+
+    def test_loads_on_ball(self):
+        """The ball's free body, falling and landing and at rest: the set's
+        force on it at its lowest point, which balances its weight and its
+        inertia; the plate's, grounded, the opposite"""
+        plate = self.plate()
+        ball = self.ball(16)
+        contact = self.contact([ball], [plate], **self.SOFT)
+        _, result = self.simulate(0.2, 1e-3)
+        self.assertEqual(result, 0)
+        weight = BALL * G
+        depths = self.force("ContactPenetration")
+        pressed = [k for k, d in enumerate(depths) if d > 0.0]
+        self.assertGreater(len(pressed), 10)
+        import MotionLoads
+
+        frames = [0, 5, pressed[0], pressed[len(pressed) // 2], len(depths) - 1]
+        for body in self.balanced(ball, frames, 10 * weight, 5.0):
+            load = [l for l in body["Loads"] if l["Kind"] == "Contact"][0]
+            self.assertTrue(load["Source"] == contact)
+            if load["Force"].Length > 0.0:
+                # Its lowest point, in its own coordinates
+                self.assertLess((load["Point"] - App.Vector(0, 0, -5)).Length, 0.05)
+            # The grounded plate's, the opposite: what holds the plate is
+            # the ground, not in its loads
+            other = MotionLoads.loadsOn(self.assembly, plate, body["Frame"])
+            (on,) = [l for l in other["Loads"] if l["Kind"] == "Contact"]
+            self.assertLess((on["Force"] + load["Force"]).Length, 1e-9 * weight)
+            self.assertEqual(other["Acceleration"].Length, 0.0)
+
+    def test_loads_on_sliding_cube(self):
+        """A cube sliding down the tipping plate, pressed on its face's
+        corners: its free body, the set's force at the centre of its points
+        and the torque about it, balances; and the plate's, its hinge's
+        reaction with it, the motion turning it"""
+        import MotionLoads
+
+        cube = self.assembly.newObject("Part::Box", "Cube")
+        cube.Length = cube.Width = cube.Height = 10
+        cube.Placement.Base = App.Vector(-5, -5, 0)
+        self.tipping(cube, 0.3, StaticFriction=0.0, DynamicFriction=0.0)
+        plate = self.doc.getObject("Plate")
+        weight = MotionLoads.loadsOn(self.assembly, cube, 0)["Mass"] * G
+        frames = range(20, 301, 40)
+        for body in self.balanced(cube, frames, weight, 10.0):
+            load = [l for l in body["Loads"] if l["Kind"] == "Contact"][0]
+            # On its bottom face, z = 0 in its own coordinates
+            self.assertAlmostEqual(load["Point"].z, 0.0, delta=0.05)
+            self.assertGreater(load["Force"].Length, 0.5 * weight)
+        bodies = [MotionLoads.loadsOn(self.assembly, plate, f) for f in frames]
+        mass = bodies[0]["Mass"]
+        for body in bodies:
+            residual, moment = body["Residual"]
+            self.assertLess(residual.Length, 1e-6 * mass * G, body["Frame"])
+            self.assertLess(moment.Length, 1e-6 * mass * G * 200.0, body["Frame"])
+            self.assertEqual(body["Missing"], [])
+
+    def test_loads_to_fem_contact(self):
+        """A lever 100 x 10 x 10 hinged at one end to a grounded block, its
+        far end on a grounded post, solved by CalculiX at frames of its run
+        (MotionLoads.solveFrames): the post's push through a distributing
+        coupling at the contact's point, on the lever's underside; what
+        holds it at the hinge in the analysis is the run's reaction there,
+        as TestDynamics' test_loads_to_fem_frames checks."""
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        base = self.assembly.newObject("Part::Box", "Base")
+        base.Length = base.Width = base.Height = 10
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        post = self.assembly.newObject("Part::Box", "Post")
+        post.Length = post.Width = post.Height = 10
+        post.Placement.Base = App.Vector(90, 0, -10)
+        grounded = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPost")
+        JointObject.GroundedJoint(grounded, post)
+        lever = self.assembly.newObject("Part::Box", "Lever")
+        lever.Length, lever.Width, lever.Height = 100, 10, 10
+        lever.Placement.Base = App.Vector(10, 0, 0)
+        self.doc.recompute()
+        along = App.Rotation(App.Vector(1, 0, 0), -90)
+        hinge = self.joints.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (base, ["Face2"])
+        hinge.Reference2 = (lever, ["Face1"])
+        hinge.Placement1 = App.Placement(App.Vector(10, 5, 5), along)
+        hinge.Placement2 = App.Placement(App.Vector(0, 5, 5), along)
+        contact = self.contact([lever], [post], **self.SOFT)
+        _, result = self.simulate(0.3, 1e-3)
+        self.assertEqual(result, 0)
+        frames = [100, 200, 300]
+        series = MotionLoads.solveFrames(self.assembly, lever, frames, maxSize=4.0)
+        self.assertTrue(series.Held == hinge)
+        analysis = [o for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")][0]
+        couplings = [o for o in analysis.Group if o.TypeId == "Fem::ConstraintRigidBody"]
+        self.assertEqual(sorted(c.Coupling for c in couplings), ["Distributing", "Rigid"])
+        (push,) = [c for c in couplings if c.Coupling == "Distributing"]
+        # On the underside, Face5, over the post: x 90 to 100
+        self.assertEqual(push.References[0][1], ("Face5",))
+        self.assertTrue(90 - 1e-3 <= push.ReferenceNode.x <= 100 + 1e-3, push.ReferenceNode)
+        self.assertAlmostEqual(push.ReferenceNode.z, 0.0, delta=0.1)
+        body = MotionLoads.loadsOn(self.assembly, lever, frames[-1])
+        (load,) = [l for l in body["Loads"] if l["Kind"] == "Contact"]
+        self.assertTrue(load["Source"] == contact)
+        weight = body["Mass"] * G * 1e-3
+        self.assertGreater(load["Force"].Length * 1e-3, 0.3 * weight)
+        for k, frame in enumerate(frames):
+            run, fem = series.HeldForce[k], series.FemHeldForce[k]
+            self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight, frame)
+            scale = (run.Length + weight) * 100.0
+            self.assertLess(
+                (series.FemHeldTorque[k] - series.HeldTorque[k]).Length, 5e-3 * scale, frame
+            )
+
     def test_ball_rests_static(self):
         """A Static study finds the same rest"""
         plate = self.plate()

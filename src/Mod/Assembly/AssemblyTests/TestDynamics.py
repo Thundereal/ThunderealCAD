@@ -419,6 +419,13 @@ class TestDynamics(unittest.TestCase):
         self.assertEqual(len(found[0]["Values"]), len(results["Times"]))
         return found[0]["Values"]
 
+    def channelOf(self, obj, quantity):
+        """The values of the last run's channel of obj and the quantity"""
+        results = self.assembly.getSimulationResults()
+        found = [c for c in results["Channels"] if c["Object"] == obj and c["Quantity"] == quantity]
+        self.assertEqual(len(found), 1, [(c["Name"], c["Quantity"]) for c in results["Channels"]])
+        return found[0]["Values"]
+
     def test_hinge_reaction(self):
         """The hinge's reaction on the grounded block, its first reference:
         the opposite of what holds the swinging rod, m (a - g), with a its
@@ -727,6 +734,163 @@ class TestDynamics(unittest.TestCase):
             want = self.K * (4.0 - lengths[body["Frame"]])
             self.assertAlmostEqual(spring[0]["Force"].z, want, delta=1e-9 * self.K)
             self.assertLess((spring[0]["Point"] - App.Vector(5, 5, 0)).Length, 1e-9)
+
+    def doublePendulum(self):
+        """The pendulum with a second rod hinged at its far end"""
+        rod = self.pendulum()
+        second = self.box("Second", (100, 10, 10), (110, 0, 0))
+        self.doc.recompute()
+        self.joint(
+            "Revolute",
+            (rod, ["Face2"]),
+            plc(100, 5, 5, App.Vector(1, 0, 0), -90),
+            (second, ["Face1"]),
+            plc(0, 5, 5, App.Vector(1, 0, 0), -90),
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        return rod, second
+
+    def test_loads_on_torsion(self):
+        """The rod on a torsion spring at its hinge: in its free body the
+        spring's torque about the hinge's axis, y, at the hinge, which the
+        run reports; and the free body balances."""
+        rod, spring = self.torsion(2000.0)
+        _, result = self.simulate(0.2, 1e-2, Elements=[spring])
+        self.assertEqual(result, 0)
+        torques = self.channel("TorsionSpring", "SpringTorque")
+        weight = 100 * 10 * 10 * 2.7e-6 * G
+        largest = max(abs(t) for t in torques)
+        self.assertGreater(largest, 0.1 * weight * 100.0)
+        for body in self.balanced(rod, range(0, 21, 4), weight, 100.0):
+            mine = [l for l in body["Loads"] if l["Kind"] == "TorsionSpring"]
+            self.assertEqual(len(mine), 1)
+            load = mine[0]
+            self.assertTrue(load["Source"] == spring)
+            self.assertEqual(load["Reference"][0], rod)
+            self.assertLess((load["Point"] - App.Vector(0, 5, 5)).Length, 1e-6)
+            self.assertEqual(load["Force"].Length, 0.0)
+            torque = torques[body["Frame"]]
+            self.assertAlmostEqual(load["Torque"].Length, abs(torque), delta=1e-9 * largest)
+            # About the rod's own y, the hinge's axis
+            self.assertAlmostEqual(abs(load["Torque"].y), abs(torque), delta=1e-9 * largest)
+
+    def test_loads_on_applied_load(self):
+        """A force on the double pendulum's second rod at its far end, the
+        first rod its reaction: the run reports it; in the second rod's
+        free body at its end, in the first's the opposite where the end was
+        at the start, which stays on the first; both balance. And a torque
+        on the first rod, the ground its reaction."""
+        import CommandCreateLoad
+
+        rod, second = self.doublePendulum()
+        force = CommandCreateLoad.makeLoad(
+            self.assembly,
+            (second, App.Placement(App.Vector(100, 5, 5), App.Rotation())),
+            magnitude="0.02 N",
+            direction=App.Vector(0, 0, 1),
+            reaction=rod,
+        )
+        force.Profile = "1 + time*10"
+        torque = CommandCreateLoad.makeLoad(
+            self.assembly,
+            (rod, App.Placement(App.Vector(50, 5, 5), App.Rotation())),
+            kind="Torque",
+            magnitude="1 N*mm",
+            direction=App.Vector(0, 1, 0),
+        )
+        _, result = self.simulate(0.2, 1e-2, Elements=[force, torque])
+        self.assertEqual(result, 0)
+        forces = self.channelOf(force, "AppliedForce")
+        torques = self.channelOf(torque, "AppliedTorque")
+        times = self.assembly.getSimulationResults()["Times"]
+        for time, f, t in zip(times, forces, torques):
+            # 20 mN (1 + 10 t), along the frame's z as the second rod turns
+            self.assertAlmostEqual(f.Length, 20.0 * (1 + 10 * time), delta=1e-9, msg=time)
+            self.assertAlmostEqual(t.Length, 1000.0, delta=1e-9, msg=time)
+        weight = 100 * 10 * 10 * 2.7e-6 * G
+        self.assembly.updateForFrame(0)
+        start = rod.Placement.inverse().multVec(second.Placement.multVec(App.Vector(100, 5, 5)))
+        for body in self.balanced(rod, range(0, 21, 4), 3 * weight, 100.0):
+            frame = body["Frame"]
+            mine = {l["Source"].Name: l for l in body["Loads"] if l["Kind"] == "Load"}
+            self.assertEqual(sorted(mine), sorted([force.Name, torque.Name]))
+            self.assertLess((mine[force.Name]["Point"] - start).Length, 1e-9)
+            self.assertAlmostEqual(
+                mine[force.Name]["Force"].Length, forces[frame].Length, delta=1e-9
+            )
+            self.assertEqual(mine[force.Name]["Torque"].Length, 0.0)
+            self.assertAlmostEqual(mine[torque.Name]["Torque"].y, 1000.0, delta=1e-9)
+            self.assertEqual(mine[torque.Name]["Force"].Length, 0.0)
+        for body in self.balanced(second, range(0, 21, 4), 3 * weight, 100.0):
+            mine = [l for l in body["Loads"] if l["Kind"] == "Load"]
+            self.assertEqual(len(mine), 1)
+            self.assertLess((mine[0]["Point"] - App.Vector(100, 5, 5)).Length, 1e-9)
+            # Along the second rod's own z
+            self.assertAlmostEqual(mine[0]["Force"].z, forces[body["Frame"]].Length, delta=1e-9)
+
+    def test_loads_to_fem_torsion(self):
+        """The double pendulum with a torsion spring on each hinge, its
+        first rod solved at three frames: held at the hinge to the base,
+        whose spring's torque the hold takes with the hinge's reaction; the
+        other spring's through its hinge's coupling, one for the two. What
+        holds the rod in the analysis is the run's there, as
+        test_loads_to_fem_frames checks without the springs."""
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod, second = self.doublePendulum()
+        hinges = sorted(
+            (o for o in self.joints.Group if o.Name.startswith("Revolute")), key=lambda o: o.Name
+        )
+        physics = self.assembly.getGroup("Physics", True)
+        springs = []
+        for hinge in hinges:
+            spring = physics.newObject("Assembly::TorsionSpring", "TorsionSpring")
+            spring.Joint = hinge
+            spring.Stiffness = 2000.0
+            springs.append(spring)
+        _, result = self.simulate(0.2, 1e-2, Elements=springs)
+        self.assertEqual(result, 0)
+        frames = [4, 12, 20]
+        series = MotionLoads.solveFrames(self.assembly, rod, frames, hold=hinges[0], maxSize=4.0)
+        analysis = [o for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")][0]
+        couplings = [o for o in analysis.Group if o.TypeId == "Fem::ConstraintRigidBody"]
+        self.assertEqual(sorted(c.Coupling for c in couplings), ["Distributing", "Rigid"])
+        body = MotionLoads.loadsOn(self.assembly, rod, 0)
+        weight = body["Mass"] * G * 1e-3
+        torques = self.channelOf(springs[0], "SpringTorque")
+        self.assertGreater(max(abs(torques[f]) for f in frames) * 1e-3, 0.05 * weight * 100.0)
+        for k, frame in enumerate(frames):
+            free = MotionLoads.loadsOn(self.assembly, rod, frame)
+            joint = [l for l in free["Loads"] if l["Source"] == hinges[0]][0]
+            spring = [l for l in free["Loads"] if l["Source"] == springs[0]][0]
+            held = (joint["Torque"] + spring["Torque"]) * 1e-3
+            self.assertLess((series.HeldTorque[k] - held).Length, 1e-9 * weight * 100.0, frame)
+            run, fem = series.HeldForce[k], series.FemHeldForce[k]
+            self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight, frame)
+            scale = (run.Length + weight) * 100.0
+            self.assertLess(
+                (series.FemHeldTorque[k] - series.HeldTorque[k]).Length, 5e-3 * scale, frame
+            )
+
+    def test_loads_on_driven(self):
+        """The rod turned by a motion about its hinge, time^2, a kinematic
+        run with its reactions: its free body's hinge load holds the motor's
+        torque with the reaction -- the motor is a link of its own, whose
+        torque the reaction does not hold -- and balances."""
+        self.assertIsNotNone(
+            self.driven("Position", "time*time", analysis="Kinematic", reactions=True)
+        )
+        rod = self.doc.getObject("Rod")
+        motor = self.channel("Revolute", "MotorTorque")
+        weight = 100 * 10 * 10 * 2.7e-6 * G
+        self.assertGreater(max(abs(t) for t in motor), 0.1 * weight * 100.0)
+        frames = range(0, self.assembly.numberOfFrames(), 10)
+        for body in self.balanced(rod, frames, weight, 100.0):
+            (hinge,) = body["Loads"]
+            self.assertEqual(hinge["Kind"], "Joint")
 
     def test_body_motion_kinematic(self):
         """A kinematic run with its reactions reports the rod's motion too:

@@ -172,6 +172,15 @@ struct SimulationSpec
 //   "ContactNormalForce", "ContactFrictionForce"  its parts along the
 //                      contact points' normals and across them; width 3
 //   "ContactPenetration"  the deepest of its points, 0 apart
+//   "PartContactForce", "PartContactPoint", "PartContactTorque"  a contact
+//                      set's on one of its parts, 'on': the force its points
+//                      press the part with, the centre of those points
+//                      weighted by their forces (mm, the model's
+//                      coordinates; the origin while none presses), and the
+//                      torque about that centre; width 3
+//   "AppliedForce", "AppliedTorque"  an applied load's on its component (the
+//                      body of its frame I), the force at frame I's origin
+//                      or the torque; width 3
 //   "CamPressureAngle", "CamSlip"  a cam contact's: the angle, rad, between
 //                      its normal and the follower's motion, 0 to pi/2; the
 //                      follower's point's speed along the cam from the cam's.
@@ -194,6 +203,9 @@ struct Channel
     std::string quantity;
     int width = 1;
     bool unique = true;
+    // The part a value is on, where its source has several: a contact set's
+    // (the "PartContact" quantities); empty, the source's own
+    std::string on;
 };
 
 // Something a run found between its frames (docs/AssemblyDynamics.md sec

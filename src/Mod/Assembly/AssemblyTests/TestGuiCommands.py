@@ -1265,6 +1265,51 @@ class TestGuiCommands(unittest.TestCase):
         panel.resultCombo.deleteLater()
         panel.resultsBox.deleteLater()
 
+    def test_results_on_parts(self):
+        """A contact set's values on each of its parts (D4a): one row each
+        in the Results box, named by the part, keyed by it, and a column
+        each in the table the exports write"""
+        import CommandCreateSimulation
+
+        ball = self.doc.addObject("Part::Box", "Ball")
+        plate = self.doc.addObject("Part::Box", "Plate")
+        plate.Label = "Floor plate"
+        panel = self.fake_results_panel()
+        doc = self.doc
+
+        class Results:
+            Document = doc
+
+            def getSimulationResults(self):
+                on = {"Object": None, "Name": "ContactSet", "Quantity": "PartContactForce"}
+                return {
+                    "Times": [0.0],
+                    "Channels": [
+                        dict(on, On=ball, Values=[App.Vector(0, 0, 2000)]),
+                        dict(on, On=plate, Values=[App.Vector(0, 0, -2000)]),
+                    ],
+                }
+
+        panel.assembly = Results()
+        CommandCreateSimulation.TaskAssemblyCreateSimulation.fillResults(panel)
+        combo = panel.resultCombo
+        self.assertEqual(
+            [combo.itemText(k) for k in range(combo.count())],
+            [
+                "ContactSet (Ball): Contact force on the part",
+                "ContactSet (Floor plate): Contact force on the part",
+            ],
+        )
+        combo.setCurrentIndex(1)
+        CommandCreateSimulation.TaskAssemblyCreateSimulation.fillResults(panel)
+        self.assertEqual(tuple(combo.currentData()), ("ContactSet", "PartContactForce", "Plate"))
+        header, rows = CommandCreateSimulation.resultsTable(panel.assembly)
+        self.assertIn("ContactSet (Floor plate): Contact force on the part Z (N)", header)
+        column = header.index("ContactSet (Ball): Contact force on the part Z (N)")
+        self.assertEqual(rows[0][column], 2.0)
+        combo.deleteLater()
+        panel.resultsBox.deleteLater()
+
     def test_results_with_gaps(self):
         """A stress series' channel has a value only at the frames solved:
         the Results box plots the runs of values, and at a frame without

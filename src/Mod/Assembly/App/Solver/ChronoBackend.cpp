@@ -480,6 +480,16 @@ public:
     {
         return false;
     }
+    // On B now, absolute: the force at frame I's origin, or the torque
+    ch::ChVector3d valueNow()
+    {
+        ComputeQ(nullptr, nullptr);
+        return frame_Bw.TransformDirectionLocalToParent(torque ? locB_torque : locB_force);
+    }
+    bool isTorque() const
+    {
+        return torque;
+    }
 
 private:
     FormulaFunction magnitude;
@@ -903,6 +913,7 @@ public:
         normalOnB = ch::VNULL;
         deepest = 0.0;
         count = 0;
+        pressed.clear();
         // A cam's point, or a profile contact's, found again at this state
         // (follow): the points are collision detection's, at the substep's
         // start, fixed on each body -- on a cam the follower slides along the
@@ -980,6 +991,9 @@ public:
             load_Q.segment(3, 3) -= a.GetRot().RotateBack(ch::Vcross(pA - a.GetPos(), f)).eigen();
             onB += f;
             ++count;
+            if (keep) {
+                pressed.push_back({f, pA, pB, point.frames});
+            }
         }
     }
     // Chrono's numerical jacobian, by differences of 1e-8 m: a metal's line
@@ -1101,6 +1115,18 @@ public:
     ch::ChVector3d normalOnB;
     double deepest = 0.0;
     int count = 0;
+    // And, where 'keep' (the run's values, not each of the jacobian's
+    // differences), each point pressing: its force on B, absolute, where it
+    // is on A and on B, and the model's frames of the shapes it is on
+    struct Pressed
+    {
+        ch::ChVector3d force;
+        ch::ChVector3d onA;
+        ch::ChVector3d onB;
+        std::array<Id, 2> frames;
+    };
+    bool keep = false;
+    std::vector<Pressed> pressed;
 
 private:
     std::vector<double> depths, squares, sum;
@@ -6357,6 +6383,7 @@ Status ChronoSession::simulateDynamics(
     // What each frame reports besides the poses (sec 8.4)
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkTSDA>>> springs;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkRSDA>>> torsions;
+    std::vector<std::pair<Id, std::shared_ptr<AppliedLoad>>> appliedLoads;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorRotation>>> rotationMotors;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorLinear>>> linearMotors;
     std::vector<std::pair<Id, std::shared_ptr<Bushing>>> bushings;
@@ -6387,13 +6414,15 @@ Status ChronoSession::simulateDynamics(
             if (!magnitude || run.d->isRigid(force.frameI, force.frameJ)) {
                 continue;
             }
-            loads->Add(std::make_shared<AppliedLoad>(run.d->bodyOf(force.frameJ),
-                                                     run.d->bodyOf(force.frameI),
-                                                     run.d->globalOf(force.frameI),
-                                                     std::move(magnitude),
-                                                     toCh(force.direction),
-                                                     force.followsFrame,
-                                                     force.kind == ForceKind::AppliedTorque));
+            auto load = std::make_shared<AppliedLoad>(run.d->bodyOf(force.frameJ),
+                                                      run.d->bodyOf(force.frameI),
+                                                      run.d->globalOf(force.frameI),
+                                                      std::move(magnitude),
+                                                      toCh(force.direction),
+                                                      force.followsFrame,
+                                                      force.kind == ForceKind::AppliedTorque);
+            loads->Add(load);
+            appliedLoads.emplace_back(force.source, load);
             continue;
         }
         if (force.kind == ForceKind::Bushing) {
@@ -7859,6 +7888,33 @@ Status ChronoSession::simulateDynamics(
             }
         }
     }
+    auto bodyName = [&](const ch::ChBody* body) {
+        for (std::size_t b = 0; b < run.d->bodies.size() && b < si.bodies.size(); ++b) {
+            if (run.d->bodies[b].get() == body) {
+                return std::string(si.sourceName(si.bodies[b].source));
+            }
+        }
+        return std::string();
+    };
+    // The component a frame is on (Frame::part): where a body stands for a
+    // rigid group, the part of it that touched, not the group's first -- and
+    // a part placed on the ground itself, not the ground; a frame not known,
+    // the body's name
+    auto partName = [&](Id frame, const ch::ChBody* body) {
+        if (frame < si.frames.size()) {
+            const Frame& f = si.frames[frame];
+            if (f.part != NoId) {
+                return std::string(si.sourceName(f.part));
+            }
+            if (f.body == NoId) {
+                return std::string();
+            }
+            if (f.body < si.bodies.size()) {
+                return std::string(si.sourceName(si.bodies[f.body].source));
+            }
+        }
+        return bodyName(body);
+    };
     std::vector<Channel> channels;
     std::string notUnique;
     for (const auto& reaction : reactions) {
@@ -7894,7 +7950,31 @@ Status ChronoSession::simulateDynamics(
         channels.push_back({si.sourceName(bushing.first), "BushingForce", 3});
         channels.push_back({si.sourceName(bushing.first), "BushingTorque", 3});
     }
-    for (const auto& pair : si.dynamics->contacts) {
+    for (const auto& load : appliedLoads) {
+        const char* quantity = load.second->isTorque() ? "AppliedTorque" : "AppliedForce";
+        channels.push_back({si.sourceName(load.first), quantity, 3});
+    }
+    // A set's parts, by the names the events give them: those its shapes
+    // are on, the ground's none
+    std::vector<std::vector<std::string>> setParts(si.dynamics->contacts.size());
+    for (std::size_t s = 0; s < setParts.size(); ++s) {
+        const ContactPair& pair = si.dynamics->contacts[s];
+        for (const auto* group : {&pair.groupA, &pair.groupB}) {
+            for (Id shape : *group) {
+                if (shape >= si.dynamics->contactShapes.size()) {
+                    continue;
+                }
+                const std::string part =
+                    partName(si.dynamics->contactShapes[shape].frame, nullptr);
+                auto& parts = setParts[s];
+                if (!part.empty() && std::find(parts.begin(), parts.end(), part) == parts.end()) {
+                    parts.push_back(part);
+                }
+            }
+        }
+    }
+    for (std::size_t s = 0; s < setParts.size(); ++s) {
+        const ContactPair& pair = si.dynamics->contacts[s];
         const std::string& name = si.sourceName(pair.source);
         channels.push_back({name, "ContactForce", 3});
         channels.push_back({name, "ContactNormalForce", 3});
@@ -7908,6 +7988,12 @@ Status ChronoSession::simulateDynamics(
             channels.push_back({name, "CamSlip", 1});
             channels.push_back({name, "CamDriveForce", 3});
             channels.push_back({name, "CamSideForce", 3});
+        }
+        // On each of its parts: where it presses, for its loads (D4a)
+        for (const std::string& part : setParts[s]) {
+            channels.push_back({name, "PartContactForce", 3, true, part});
+            channels.push_back({name, "PartContactPoint", 3, true, part});
+            channels.push_back({name, "PartContactTorque", 3, true, part});
         }
     }
     for (const auto& load : frictions) {
@@ -8310,6 +8396,13 @@ Status ChronoSession::simulateDynamics(
                 out.push_back(w.torque[k] / SI::torque);
             }
         }
+        for (const auto& load : appliedLoads) {
+            const ch::ChVector3d v = load.second->valueNow();
+            const double unit = load.second->isTorque() ? SI::torque : SI::force;
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(v[k] / unit);
+            }
+        }
         // A set's: the force its group A's bodies take, each load's A
         // being the A side (a set within A: its first body), that force's
         // normal and friction parts, and the deepest point's depth
@@ -8317,11 +8410,53 @@ Status ChronoSession::simulateDynamics(
         std::vector<ch::ChVector3d> onSet(sets);
         std::vector<ch::ChVector3d> normalOnSet(sets);
         std::vector<double> deepest(sets, 0.0);
+        // And on each of its parts: the force, its points weighted by the
+        // sizes of their forces and the sum of those, and the moment about
+        // the origin
+        struct OnPart
+        {
+            ch::ChVector3d force;
+            ch::ChVector3d weighted;
+            double weight = 0.0;
+            ch::ChVector3d moment;
+        };
+        std::vector<std::vector<OnPart>> onParts(sets);
+        for (std::size_t s = 0; s < sets; ++s) {
+            onParts[s].resize(setParts[s].size());
+        }
+        auto addOn = [&](std::size_t s,
+                         const std::string& part,
+                         const ch::ChVector3d& f,
+                         const ch::ChVector3d& at) {
+            const auto& parts = setParts[s];
+            const auto found = std::find(parts.begin(), parts.end(), part);
+            if (found == parts.end()) {
+                return;
+            }
+            OnPart& on = onParts[s][found - parts.begin()];
+            on.force += f;
+            on.weighted += at * f.Length();
+            on.weight += f.Length();
+            on.moment += ch::Vcross(at, f);
+        };
         for (const auto& load : contactLoads) {
+            load->keep = true;
             load->ComputeQ(nullptr, nullptr);
+            load->keep = false;
             onSet[load->set] -= load->onB;
             normalOnSet[load->set] -= load->normalOnB;
             deepest[load->set] = std::max(deepest[load->set], load->deepest);
+            // f on B at its point there, -f on A at A's
+            for (const auto& point : load->pressed) {
+                addOn(load->set,
+                      partName(point.frames[1], load->GetBodyB().get()),
+                      point.force,
+                      point.onB);
+                addOn(load->set,
+                      partName(point.frames[0], load->GetBodyA().get()),
+                      -point.force,
+                      point.onA);
+            }
         }
         for (std::size_t s = 0; s < sets; ++s) {
             const ch::ChVector3d friction = onSet[s] - normalOnSet[s];
@@ -8344,6 +8479,22 @@ Status ChronoSession::simulateDynamics(
                     for (int k = 0; k < 3; ++k) {
                         out.push_back(force[k] / SI::force);
                     }
+                }
+            }
+            // The resultant on each part at the centre of its points
+            // weighted by their forces, and the torque about it
+            for (const OnPart& on : onParts[s]) {
+                const ch::ChVector3d centre =
+                    on.weight > 0.0 ? on.weighted / on.weight : ch::VNULL;
+                const ch::ChVector3d torque = on.moment - ch::Vcross(centre, on.force);
+                for (int k = 0; k < 3; ++k) {
+                    out.push_back(on.force[k] / SI::force);
+                }
+                for (int k = 0; k < 3; ++k) {
+                    out.push_back(centre[k] / SI::length);
+                }
+                for (int k = 0; k < 3; ++k) {
+                    out.push_back(torque[k] / SI::torque);
                 }
             }
         }
@@ -9125,33 +9276,6 @@ Status ChronoSession::simulateDynamics(
     // leaving at -32.6 (the manual's cam-pair video), and a sensor on every
     // contact made missed those. Never below none still: the depth crossed
     // none the way it went, and a speed the other way is the carry's.
-    auto bodyName = [&](const ch::ChBody* body) {
-        for (std::size_t b = 0; b < run.d->bodies.size() && b < si.bodies.size(); ++b) {
-            if (run.d->bodies[b].get() == body) {
-                return std::string(si.sourceName(si.bodies[b].source));
-            }
-        }
-        return std::string();
-    };
-    // The component a frame is on (Frame::part): where a body stands for a
-    // rigid group, the part of it that touched, not the group's first -- and
-    // a part placed on the ground itself, not the ground; a frame not known,
-    // the body's name
-    auto partName = [&](Id frame, const ch::ChBody* body) {
-        if (frame < si.frames.size()) {
-            const Frame& f = si.frames[frame];
-            if (f.part != NoId) {
-                return std::string(si.sourceName(f.part));
-            }
-            if (f.body == NoId) {
-                return std::string();
-            }
-            if (f.body < si.bodies.size()) {
-                return std::string(si.sourceName(si.bodies[f.body].source));
-            }
-        }
-        return bodyName(body);
-    };
     auto readLeaving = [&](double time) {
         for (auto& q : queued) {
             if (!q.reading) {

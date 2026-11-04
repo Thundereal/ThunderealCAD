@@ -17,6 +17,7 @@ import unittest
 
 import FreeCAD
 import Part
+import PartDesign
 
 from .SheetMetalFlatView import Flat
 
@@ -211,6 +212,10 @@ class TestSheetMetalConvert(unittest.TestCase):
         self.checkValid(convert)
         self.assertAlmostEqual(convert.Rule.BendRadius.Value, 1, places=9)
         self.checkFlat(convert, 17 + 2.5 * math.pi / 2 + 7, 15, bends=1)
+        # Check Sheet: the radius the part's own, not the rule's
+        bend = PartDesign.checkSheet(convert)["Bends"][0]
+        self.assertAlmostEqual(bend["Radius"], 2, places=6)
+        self.assertEqual(bend["RadiusSource"], "feature")
 
     def testCurvedRefused(self):
         """A tube: its walls are curved, refused by name (rolled walls come
@@ -276,6 +281,9 @@ class TestSheetMetalConvert(unittest.TestCase):
             self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
         leg = BA + 8
         self.checkFlat(convert, 40 - 2 * 2 + 2 * leg, 20 - 2 * 2 + 2 * leg, bends=4)
+        # Check Sheet: thickened, its bends are the rule's radius
+        bends = PartDesign.checkSheet(convert)["Bends"]
+        self.assertEqual([b["RadiusSource"] for b in bends], ["rule"] * 4)
 
     def testSolidOutside(self):
         """Thickened outside: the box's faces the inner skins, the tray a

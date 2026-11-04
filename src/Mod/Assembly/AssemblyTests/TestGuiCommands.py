@@ -1202,7 +1202,30 @@ class TestGuiCommands(unittest.TestCase):
         import CommandCreateSimulation
         from PySide import QtCore, QtWidgets
 
+        panel = self.fake_results_panel()
+        CommandCreateSimulation.TaskAssemblyCreateSimulation.fillResults(panel)
+        combo = panel.resultCombo
+        self.assertEqual(combo.count(), 2)
+        self.assertTrue(combo.itemText(0).startswith("Revolute: "))
+        self.assertTrue(combo.itemText(0).endswith(" (not unique)"))
+        self.assertIn("redundant", combo.itemData(0, QtCore.Qt.ToolTipRole))
+        self.assertNotIn("not unique", combo.itemText(1))
+        self.assertIsNone(combo.itemData(1, QtCore.Qt.ToolTipRole))
+        panel.resultCombo.deleteLater()
+        panel.resultsBox.deleteLater()
+
+    def fake_results_panel(self):
+        """The Results box's filling on its own: a run of a redundant
+        Revolute and a Slider, its keys made anew on every call, as the run's
+        results are"""
+        import CommandCreateSimulation
+        from PySide import QtWidgets
+
+        doc = self.doc
+
         class Results:
+            Document = doc
+
             def getSimulationResults(self):
                 force = {"Object": None, "Quantity": "Force", "Values": []}
                 return {
@@ -1214,23 +1237,97 @@ class TestGuiCommands(unittest.TestCase):
                 }
 
         class Panel:
-            pass
+            def resultIndex(self, key):
+                return CommandCreateSimulation.TaskAssemblyCreateSimulation.resultIndex(self, key)
 
         panel = Panel()
         panel.assembly = Results()
         panel.resultCombo = QtWidgets.QComboBox()
         panel.resultsBox = QtWidgets.QWidget()
         panel.showResult = lambda: None
-        CommandCreateSimulation.TaskAssemblyCreateSimulation.fillResults(panel)
-        combo = panel.resultCombo
-        self.assertEqual(combo.count(), 2)
-        self.assertTrue(combo.itemText(0).startswith("Revolute: "))
-        self.assertTrue(combo.itemText(0).endswith(" (not unique)"))
-        self.assertIn("redundant", combo.itemData(0, QtCore.Qt.ToolTipRole))
-        self.assertNotIn("not unique", combo.itemText(1))
-        self.assertIsNone(combo.itemData(1, QtCore.Qt.ToolTipRole))
+        return panel
+
+    def test_results_keep_the_channel_chosen(self):
+        """The Results box filled again, as a new run does, keeps the channel
+        chosen: its key is a tuple made anew, which QComboBox.findData never
+        matched (it compares a Python object by identity)"""
+        import CommandCreateSimulation
+
+        fill = CommandCreateSimulation.TaskAssemblyCreateSimulation.fillResults
+        panel = self.fake_results_panel()
+        fill(panel)
+        panel.resultCombo.setCurrentIndex(1)
+        fill(panel)
+        self.assertEqual(panel.resultCombo.currentIndex(), 1)
+        self.assertEqual(tuple(panel.resultCombo.currentData()), ("Slider", "Force"))
+        self.assertEqual(panel.resultIndex(None), -1)
+        self.assertEqual(panel.resultIndex(("Nothing", "Force")), -1)
         panel.resultCombo.deleteLater()
         panel.resultsBox.deleteLater()
+
+    def test_results_with_gaps(self):
+        """A stress series' channel has a value only at the frames solved:
+        the Results box plots the runs of values, and at a frame without
+        one says so; the CSV leaves its cell empty"""
+        import csv
+        import os
+        import tempfile
+
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        doc = self.doc
+
+        class Results:
+            Document = doc
+
+            def getSimulationResults(self):
+                return {
+                    "Times": [0.0, 0.1, 0.2, 0.3],
+                    "Channels": [
+                        {
+                            "Object": None,
+                            "Name": "Series",
+                            "Quantity": "VonMises",
+                            "Values": [None, 2.5, 3.5, None],
+                            "Unique": True,
+                        }
+                    ],
+                }
+
+            def updateForFrame(self, frame):
+                pass
+
+        assembly = panel.assembly
+        panel.assembly = Results()
+        path = os.path.join(tempfile.mkdtemp(prefix="asm_gaps_"), "gaps.csv")
+        try:
+            panel.fillResults()
+            self.assertEqual(panel.resultCurves(), ([("", [None, 2.5, 3.5, None])], "MPa"))
+            panel.form.frameSlider.setMaximum(3)
+            panel.form.frameSlider.setValue(0)
+            panel.showResultValue()
+            self.assertIn("not solved", panel.resultValue.text())
+            panel.form.frameSlider.setValue(2)
+            panel.showResultValue()
+            self.assertIn("3.5 MPa", panel.resultValue.text())
+            # Drawn, gaps and all
+            self.assertFalse(panel.resultPlot.grab().isNull())
+            self.assertTrue(CommandCreateSimulation.exportResultsCsv(panel.assembly, path))
+            with open(path, newline="", encoding="utf-8") as f:
+                rows = list(csv.reader(f))
+        finally:
+            panel.assembly = assembly
+        self.assertEqual(rows[0][1], "Series: Largest von Mises stress (MPa)")
+        self.assertEqual([r[1] for r in rows[1:]], ["", "2.5", "3.5", ""])
+        self.accept_task()
+        self.assertClean()
 
     # ------------------------------------------------------------ springs
 

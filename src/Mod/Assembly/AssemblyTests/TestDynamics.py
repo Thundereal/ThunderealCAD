@@ -627,6 +627,93 @@ class TestDynamics(unittest.TestCase):
         scale = (force.Length + weight) * 100.0
         self.assertLess((total("ROTNODE") - torque).Length, 5e-3 * scale)
 
+    def test_loads_to_fem_frames(self):
+        """The double pendulum's first rod solved at five frames of its run
+        (MotionLoads.solveFrames, D4a step 5): one analysis, one mesh, held
+        at one hinge throughout; at each frame what holds it there is the
+        run's reaction, as test_loads_to_fem checks at one; the analysis
+        left at the frame of the largest stress, with that result; the
+        series a channel of the run's results, at the frames solved, and
+        not of another run of the study."""
+        import CommandCreateSimulation
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        second = self.box("Second", (100, 10, 10), (110, 0, 0))
+        self.doc.recompute()
+        self.joint(
+            "Revolute",
+            (rod, ["Face2"]),
+            plc(100, 5, 5, App.Vector(1, 0, 0), -90),
+            (second, ["Face1"]),
+            plc(0, 5, 5, App.Vector(1, 0, 0), -90),
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        sim, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        frames = [0, 5, 10, 15, 20]
+        calls = []
+
+        def progress(k, n):
+            calls.append((k, n))
+
+        series = MotionLoads.solveFrames(
+            self.assembly, rod, frames + [10], maxSize=4.0, progress=progress
+        )
+        self.assertEqual(calls, [(k, 5) for k in range(5)])
+        self.assertEqual(list(series.Frames), frames)
+        self.assertTrue(series.Component == rod)
+        analysis = [o for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")][0]
+        meshes = [o for o in analysis.Group if o.TypeId == "Fem::FemMeshShapeNetgenObject"]
+        self.assertEqual(len(meshes), 1)
+        couplings = [o for o in analysis.Group if o.TypeId == "Fem::ConstraintRigidBody"]
+        self.assertEqual(sorted(c.Coupling for c in couplings), ["Distributing", "Rigid"])
+        results = [o for o in analysis.Group if o.isDerivedFrom("Fem::FemResultObject")]
+        self.assertEqual(len(results), 1)
+
+        body = MotionLoads.loadsOn(self.assembly, rod, 0)
+        weight = body["Mass"] * G * 1e-3
+        box = rod.Shape.BoundBox
+        for k, frame in enumerate(frames):
+            run, fem = series.HeldForce[k], series.FemHeldForce[k]
+            self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight, frame)
+            scale = (run.Length + weight) * 100.0
+            self.assertLess(
+                (series.FemHeldTorque[k] - series.HeldTorque[k]).Length, 5e-3 * scale, frame
+            )
+            self.assertGreater(series.VonMises[k], 0.0)
+            at = series.VonMisesAt[k]
+            # In the rod's own coordinates, those of its shape before its
+            # Placement: 100 along x
+            self.assertTrue(-1e-6 <= at.x <= box.XLength + 1e-6, at)
+            self.assertTrue(-1e-6 <= at.y <= box.YLength + 1e-6, at)
+        # Left at its largest, which its result holds
+        peak = max(series.VonMises)
+        self.assertAlmostEqual(max(results[0].vonMises), peak, delta=1e-6 * peak)
+
+        channels = MotionLoads.stressChannels(self.assembly)
+        self.assertEqual(len(channels), 1)
+        values = channels[0]["Values"]
+        self.assertEqual(len(values), self.assembly.numberOfFrames())
+        for frame, value in enumerate(values):
+            if frame in frames:
+                self.assertEqual(value, series.VonMises[frames.index(frame)])
+            else:
+                self.assertIsNone(value)
+        header, rows = CommandCreateSimulation.resultsTable(self.assembly)
+        column = header.index("Rod: Largest von Mises stress (MPa)")
+        self.assertEqual(rows[5][column], series.VonMises[1])
+        self.assertIsNone(rows[1][column])
+
+        # Run again with other loads: the series is not of this run
+        sim.Gravity = App.Vector(0, 0, -2 * G)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertEqual(MotionLoads.stressChannels(self.assembly), [])
+
     def test_loads_on_spring(self):
         """The oscillator's block: the slider's reaction and the spring's
         force, along the slider, k (4 - length); no gravity."""

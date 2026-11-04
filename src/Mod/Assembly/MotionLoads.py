@@ -62,7 +62,7 @@ def loadsOn(assembly, component, frame):
     inertia and the check that they balance.
 
     Returns a dict:
-      Time, Frame;
+      Component, Time, Frame;
       Loads: a list of dicts, each with Source (the joint, spring or
         bushing), Kind ("Joint", "Spring", "Bushing"), Point, Force,
         Torque (about Point), Reference (a joint's reference on this
@@ -227,6 +227,7 @@ def _freeBody(assembly, component, frame, results, sim):
     moment -= _apply(inertia, rate) + _cross(spin, _apply(inertia, spin))
 
     return {
+        "Component": component,
         "Time": results["Times"][frame],
         "Frame": frame,
         "Loads": loads,
@@ -289,45 +290,50 @@ def _nearestFace(shape, point):
     return ["Face%d" % best[0]]
 
 
-def makeAnalysis(assembly, component, frame, hold=None, maxSize=None):
-    """A static stress analysis of component at the run's frame, from its
-    free body (loadsOn): a copy of its shape where it stands now, its
-    material (its density the one its run's mass is of), a Netgen mesh,
-    each load through a distributing coupling on its faces, the body motion
-    load, and the part held at one joint -- hold, or the one with the
-    largest force -- through a rigid coupling, that joint's own load left
-    out: what holds it there is the check, against the run's (sec D4a).
+def _heldJoint(bodies, hold):
+    """The joint the part is held at over its free bodies: hold, or the one
+    with the largest force at any of them"""
+    largest = []  # (joint, its largest force), joints in order
+    for body in bodies:
+        for load in body["Loads"]:
+            if load["Kind"] != "Joint":
+                continue
+            for entry in largest:
+                if entry[0] == load["Source"]:
+                    entry[1] = max(entry[1], load["Force"].Length)
+                    break
+            else:
+                largest.append([load["Source"], load["Force"].Length])
+    component = bodies[0]["Component"]
+    if not largest:
+        raise ValueError("%s is on no joint to hold it by" % component.Label)
+    if hold is None:
+        return max(largest, key=lambda e: e[1])[0]
+    if not any(e[0] == hold for e in largest):
+        raise ValueError("%s does not hold %s" % (hold.Label, component.Label))
+    return hold
 
-    Returns (analysis, free body, held load). Loads the free body says are
-    missing are not in it."""
+
+def _build(assembly, component, body, heldJoint, maxSize, when):
+    """The analysis' objects for component's free body: the copy of its
+    shape where it stands now, the analysis, its solver, material and mesh,
+    a coupling per load -- the held joint's rigid and fixed -- and the body
+    motion load; their values set by _setFrame. A dict of them."""
     import Part
     import ObjectsFem
 
-    body = loadsOn(assembly, component, frame)
     doc = assembly.Document
-    joints = [l for l in body["Loads"] if l["Kind"] == "Joint"]
-    if not joints:
-        raise ValueError("%s is on no joint to hold it by" % component.Label)
-    if hold is None:
-        held = max(joints, key=lambda l: l["Force"].Length)
-    else:
-        found = [l for l in joints if l["Source"] == hold]
-        if not found:
-            raise ValueError("%s does not hold %s" % (hold.Label, component.Label))
-        held = found[0]
-
     # Where it stands now, in the document -- at rest, or at the frame a
     # player shows: the loads are in its own coordinates
     place = component.getGlobalPlacement()
-    turn = place.Rotation
     local = Part.getShape(component, "", transform=False)
     copy = doc.addObject("Part::Feature", "LoadsAt")
     copy.Shape = local
     copy.Placement = place
-    copy.Label = "%s at %.6g s" % (component.Label, body["Time"])
+    copy.Label = "%s %s" % (component.Label, when)
 
     analysis = ObjectsFem.makeAnalysis(doc, "LoadsAnalysis")
-    analysis.Label = "Loads on %s at %.6g s" % (component.Label, body["Time"])
+    analysis.Label = "Loads on %s %s" % (component.Label, when)
     solver = ObjectsFem.makeSolverCalculiXCcxTools(doc, "LoadsSolver")
     solver.AnalysisType = "static"
     analysis.addObject(solver)
@@ -352,7 +358,8 @@ def makeAnalysis(assembly, component, frame, hold=None, maxSize=None):
     mesh.Fineness = 2
     analysis.addObject(mesh)
 
-    for k, load in enumerate(body["Loads"]):
+    couplings = []
+    for load in body["Loads"]:
         faces = []
         ref = load["Reference"]
         if ref:
@@ -362,32 +369,343 @@ def makeAnalysis(assembly, component, frame, hold=None, maxSize=None):
                 faces = _facesOf(local, element)
         if not faces:
             faces = _nearestFace(local, load["Point"])
-        rb = ObjectsFem.makeConstraintRigidBody(doc, "Hold" if load is held else "Load")
-        rb.Label = ("Held at %s" if load is held else "%s") % load["Source"].Label
+        held = load["Source"] == heldJoint
+        rb = ObjectsFem.makeConstraintRigidBody(doc, "Hold" if held else "Load")
+        rb.Label = ("Held at %s" if held else "%s") % load["Source"].Label
         rb.References = [(copy, tuple(faces))]
         rb.ReferenceNode = place.multVec(load["Point"])
-        if load is held:
+        if held:
             rb.Coupling = "Rigid"
             for axis in "XYZ":
                 setattr(rb, "TranslationalMode" + axis, "Constraint")
                 setattr(rb, "RotationalMode" + axis, "Constraint")
         else:
             rb.Coupling = "Distributing"
-            force = turn.multVec(load["Force"]) * 1e-3  # mN to N
-            torque = turn.multVec(load["Torque"]) * 1e-3  # mN mm to N mm
-            for axis, f, t in zip("XYZ", force, torque):
-                setattr(rb, "Force" + axis, "%.12g N" % f)
-                setattr(rb, "Moment" + axis, "%.12g N*mm" % t)
+            for axis in "XYZ":
                 setattr(rb, "TranslationalMode" + axis, "Load")
                 setattr(rb, "RotationalMode" + axis, "Load")
         analysis.addObject(rb)
+        couplings.append(rb)
 
     motion = ObjectsFem.makeConstraintBodyMotion(doc, "LoadsMotion")
+    analysis.addObject(motion)
+    return {
+        "Analysis": analysis,
+        "Copy": copy,
+        "Solver": solver,
+        "Mesh": mesh,
+        "Couplings": couplings,
+        "Motion": motion,
+        "Placement": place,
+        "Sources": [load["Source"] for load in body["Loads"]],
+    }
+
+
+def _setFrame(objects, body, heldJoint):
+    """One free body's values into the analysis _build made: each load's
+    force and torque, the body motion"""
+    sources = [load["Source"] for load in body["Loads"]]
+    if len(sources) != len(objects["Sources"]) or any(
+        a != b for a, b in zip(sources, objects["Sources"])
+    ):
+        raise ValueError("the loads on %s differ between frames" % body["Component"].Label)
+    turn = objects["Placement"].Rotation
+    for load, rb in zip(body["Loads"], objects["Couplings"]):
+        if load["Source"] == heldJoint:
+            continue
+        force = turn.multVec(load["Force"]) * 1e-3  # mN to N
+        torque = turn.multVec(load["Torque"]) * 1e-3  # mN mm to N mm
+        for axis, f, t in zip("XYZ", force, torque):
+            setattr(rb, "Force" + axis, "%.12g N" % f)
+            setattr(rb, "Moment" + axis, "%.12g N*mm" % t)
+    place = objects["Placement"]
+    motion = objects["Motion"]
     motion.ReferencePoint = place.multVec(body["CenterOfMass"])
     motion.Gravity = turn.multVec(body["Gravity"])
     motion.LinearAcceleration = turn.multVec(body["Acceleration"])
     motion.AngularVelocity = turn.multVec(body["AngularVelocity"])
     motion.AngularAcceleration = turn.multVec(body["AngularAcceleration"])
-    analysis.addObject(motion)
+
+
+def makeAnalysis(assembly, component, frame, hold=None, maxSize=None):
+    """A static stress analysis of component at the run's frame, from its
+    free body (loadsOn): a copy of its shape where it stands now, its
+    material (its density the one its run's mass is of), a Netgen mesh,
+    each load through a distributing coupling on its faces, the body motion
+    load, and the part held at one joint -- hold, or the one with the
+    largest force -- through a rigid coupling, that joint's own load left
+    out: what holds it there is the check, against the run's (sec D4a).
+
+    Returns (analysis, free body, held load). Loads the free body says are
+    missing are not in it."""
+    body = loadsOn(assembly, component, frame)
+    heldJoint = _heldJoint([body], hold)
+    held = [l for l in body["Loads"] if l["Source"] == heldJoint][0]
+    objects = _build(assembly, component, body, heldJoint, maxSize, "at %.6g s" % body["Time"])
+    _setFrame(objects, body, heldJoint)
+    assembly.Document.recompute()
+    return objects["Analysis"], body, held
+
+
+# ---------------------------------------------------------------- frames
+
+
+def ccxBinary():
+    """CalculiX's ccx: the FEM preferences' binary, or one on PATH; None
+    when there is neither"""
+    import shutil
+
+    binary = (
+        App.ParamGet("User parameter:BaseApp/Preferences/Mod/Fem/Ccx")
+        .GetString("ccxBinaryPath", "")
+        .strip()
+    )
+    return shutil.which(binary) if binary else shutil.which("ccx")
+
+
+def _vonMises(frd):
+    """The largest von Mises stress of a CalculiX result file (MPa) and the
+    node it is at"""
+    import numpy as np
+    from feminout import importCcxFrdResults
+
+    results = importCcxFrdResults.read_frd_result(frd)["Results"]
+    stress = results[-1].get("stress", {}) if results else {}
+    if not stress:
+        raise ValueError("CalculiX wrote no stresses: %s" % frd)
+    ids = list(stress.keys())
+    s = np.array([stress[i] for i in ids], dtype=float)
+    normal = s[:, :3]
+    shear = s[:, 3:]
+    mean = normal.mean(axis=1, keepdims=True)
+    vm = np.sqrt(1.5 * ((normal - mean) ** 2).sum(axis=1) + 3.0 * (shear**2).sum(axis=1))
+    k = int(np.nanargmax(vm))
+    return float(vm[k]), ids[k]
+
+
+def _datTotal(text, name):
+    """A node set's total force in a CalculiX .dat, as a vector"""
+    lines = text.splitlines()
+    title = "total force (fx,fy,fz) for set %s" % name.upper()
+    for k, line in enumerate(lines):
+        if line.strip().startswith(title):
+            return App.Vector(*[float(v) for v in lines[k + 2].split()])
+    raise ValueError("CalculiX reported no %s" % title)
+
+
+def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=None):
+    """The stress analysis of component (makeAnalysis) at each of the run's
+    frames, solved by CalculiX: one analysis, its shape, mesh and couplings
+    made once -- the loads are in the part's own coordinates -- each frame's
+    loads set into it and solved in turn. Held at one joint throughout:
+    hold, or the one with the largest force at any of the frames.
+
+    Each frame's largest von Mises stress, where it is, and what holds the
+    part against what the run says holds it there (the check), go into a
+    stress series in the analysis (StressSeries), which the Simulation
+    panel's Results box plots while the run is the one it was taken from.
+    The analysis is left at the frame of the largest stress, with its
+    result. progress(k, n), if given, is called before each frame; it stops
+    the frames by returning False (the series then has those solved).
+
+    Returns the series. Raises ValueError where makeAnalysis would, without
+    CalculiX, or when a solve fails."""
+    import os
+    import shutil
+    import tempfile
+
+    from femtools import ccxtools
+
+    frames = sorted(set(frames))
+    if not frames:
+        raise ValueError("no frames to solve")
+    binary = ccxBinary()
+    if not binary:
+        raise ValueError(
+            "CalculiX (ccx) is not found: set it in the FEM preferences, or put it on PATH"
+        )
+    results = assembly.getSimulationResults()
+    bodies = [loadsOn(assembly, component, f) for f in frames]
+    heldJoint = _heldJoint(bodies, hold)
+    times = [b["Time"] for b in bodies]
+    when = "at %.6g s" % times[0]
+    if len(frames) > 1:
+        when = "from %.6g to %.6g s" % (times[0], times[-1])
+    doc = assembly.Document
+    objects = _build(assembly, component, bodies[0], heldJoint, maxSize, when)
+    analysis = objects["Analysis"]
+    hold_ = [rb for rb, s in zip(objects["Couplings"], objects["Sources"]) if s == heldJoint][0]
+    _setFrame(objects, bodies[0], heldJoint)
     doc.recompute()
-    return analysis, body, held
+    back = objects["Placement"].inverse()
+    nodes = objects["Mesh"].FemMesh.Nodes
+    runForce = _channels(results, heldJoint)["Force"]["Values"]
+
+    work = tempfile.mkdtemp(prefix="loadsfem_")
+    rows = []
+    try:
+        fea = ccxtools.FemToolsCcx(analysis, objects["Solver"], test_mode=True)
+        fea.update_objects()
+        fea.setup_working_dir(work)
+        problems = fea.check_prerequisites()
+        if problems:
+            raise ValueError(problems)
+        fea.setup_ccx(binary)
+
+        def solve(body):
+            _setFrame(objects, body, heldJoint)
+            doc.recompute()
+            fea.write_inp_file()
+            if fea.start_ccx() != 0:
+                raise ValueError(
+                    "CalculiX failed at %.6g s: %s" % (body["Time"], fea.ccx_stderr.strip())
+                )
+            return os.path.splitext(fea.inp_file_name)[0]
+
+        for k, (frame, body) in enumerate(zip(frames, bodies)):
+            if progress is not None and progress(k, len(frames)) is False:
+                break
+            base = solve(body)
+            stress, node = _vonMises(base + ".frd")
+            with open(base + ".dat") as f:
+                text = f.read()
+            held = [l for l in body["Loads"] if l["Source"] == heldJoint][0]
+            rows.append(
+                {
+                    "Frame": frame,
+                    "Time": body["Time"],
+                    "Stress": stress,
+                    "At": back.multVec(nodes[node]),
+                    "HeldForce": held["Force"] * 1e-3,
+                    "HeldTorque": held["Torque"] * 1e-3,
+                    "FemForce": back.Rotation.multVec(_datTotal(text, hold_.Name + "_RefNode")),
+                    "FemTorque": back.Rotation.multVec(_datTotal(text, hold_.Name + "_RotNode")),
+                    "RunForce": runForce[frame],
+                }
+            )
+        if rows:
+            # The analysis left at its largest stress, with that result
+            peak = max(range(len(rows)), key=lambda k: rows[k]["Stress"])
+            solve(bodies[frames.index(rows[peak]["Frame"])])
+            fea.load_results()
+            for obj in analysis.Group:
+                if obj.isDerivedFrom("Fem::FemResultObject"):
+                    obj.Label = "Result at %.6g s" % rows[peak]["Time"]
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+    series = doc.addObject("App::FeaturePython", "StressSeries")
+    StressSeries(series)
+    series.Label = "Stress in %s" % component.Label
+    series.Assembly = assembly
+    series.Simulation = results.get("Simulation")
+    series.Component = component
+    series.Held = heldJoint
+    series.Frames = [r["Frame"] for r in rows]
+    series.Times = [r["Time"] for r in rows]
+    series.VonMises = [r["Stress"] for r in rows]
+    series.VonMisesAt = [r["At"] for r in rows]
+    series.HeldForce = [r["HeldForce"] for r in rows]
+    series.HeldTorque = [r["HeldTorque"] for r in rows]
+    series.FemHeldForce = [r["FemForce"] for r in rows]
+    series.FemHeldTorque = [r["FemTorque"] for r in rows]
+    series.RunHeldForce = [r["RunForce"] for r in rows]
+    analysis.addObject(series)
+    doc.recompute()
+    return series
+
+
+class StressSeries:
+    """A part's stresses over frames of a run (solveFrames): each frame's
+    largest von Mises stress and where it is, and the check -- what holds
+    the part in the analysis against what the run says holds it there. The
+    held joint's force in the run at each frame (RunHeldForce, the run's
+    own values) tells whether a run is the one the series was taken from."""
+
+    PROPERTIES = (
+        ("App::PropertyLinkHidden", "Assembly", "The assembly whose run it is of"),
+        ("App::PropertyLinkHidden", "Simulation", "The study whose run it is of"),
+        ("App::PropertyLink", "Component", "The part analysed"),
+        ("App::PropertyLink", "Held", "The joint it is held at"),
+        ("App::PropertyIntegerList", "Frames", "The run's frames solved"),
+        ("App::PropertyFloatList", "Times", "Their times, s"),
+        ("App::PropertyFloatList", "VonMises", "The largest von Mises stress at each, MPa"),
+        ("App::PropertyVectorList", "VonMisesAt", "Where it is, in the part's coordinates, mm"),
+        ("App::PropertyVectorList", "HeldForce", "The run's load at the held joint, N"),
+        ("App::PropertyVectorList", "HeldTorque", "The run's torque at the held joint, N mm"),
+        ("App::PropertyVectorList", "FemHeldForce", "What holds the part in the analysis, N"),
+        ("App::PropertyVectorList", "FemHeldTorque", "Its torque, N mm"),
+        (
+            "App::PropertyVectorList",
+            "RunHeldForce",
+            "The held joint's force channel at each frame, as the run reported it",
+        ),
+    )
+
+    def __init__(self, obj):
+        obj.Proxy = self
+        self.createProperties(obj)
+
+    def onDocumentRestored(self, obj):
+        self.createProperties(obj)
+
+    def createProperties(self, obj):
+        from PySide.QtCore import QT_TRANSLATE_NOOP
+
+        for kind, name, doc in self.PROPERTIES:
+            if not hasattr(obj, name):
+                obj.addProperty(kind, name, "Stress", QT_TRANSLATE_NOOP("App::Property", doc))
+                obj.setEditorMode(name, 1)
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    def execute(self, obj):
+        pass
+
+
+def isStressSeries(obj):
+    return isinstance(getattr(obj, "Proxy", None), StressSeries)
+
+
+def stressChannels(assembly, results=None):
+    """The stress series taken from the assembly's last run, as channels of
+    the run's results: Quantity "VonMises", Object the part, a value per
+    frame of the run (MPa), None at a frame not solved. A series of another
+    run, or of this study before it was run again, is left out."""
+    results = results or assembly.getSimulationResults()
+    times = results["Times"]
+    channels = []
+    for obj in assembly.Document.Objects:
+        if not isStressSeries(obj) or obj.Assembly != assembly or not obj.Frames:
+            continue
+        if obj.Simulation != results.get("Simulation") or obj.Held is None:
+            continue
+        found = _channels(results, obj.Held).get("Force")
+        if found is None or max(obj.Frames) >= len(times):
+            continue
+        run = found["Values"]
+        scale = max(max(v.Length for v in obj.RunHeldForce), 1e-9)
+        if any(
+            abs(times[f] - t) > 1e-9 * max(1.0, abs(t))
+            or (run[f] - v).Length > 1e-9 * scale
+            for f, t, v in zip(obj.Frames, obj.Times, obj.RunHeldForce)
+        ):
+            continue
+        values = [None] * len(times)
+        for f, v in zip(obj.Frames, obj.VonMises):
+            values[f] = v
+        channels.append(
+            {
+                "Name": obj.Name,
+                "Quantity": "VonMises",
+                "Object": obj.Component,
+                "Values": values,
+                "Unique": True,
+                "Series": obj,
+            }
+        )
+    return channels

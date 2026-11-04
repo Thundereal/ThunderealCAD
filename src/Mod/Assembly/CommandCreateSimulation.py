@@ -109,7 +109,24 @@ ResultQuantities = {
         57.29577951308232,
         "deg/s^2",
     ),
+    # A part's stress analysis over frames of the run (MotionLoads.solveFrames):
+    # its largest von Mises stress, at the frames solved
+    "VonMises": (QT_TRANSLATE_NOOP("Assembly", "Largest von Mises stress"), 1.0, "MPa"),
 }
+
+
+def resultChannels(assembly):
+    """The last run's results with their channels, the run's own and the
+    stress series taken from it (MotionLoads.stressChannels): a value per
+    frame, None at a frame a series did not solve"""
+    import MotionLoads
+
+    results = assembly.getSimulationResults()
+    if results["Channels"]:
+        results["Channels"] = list(results["Channels"]) + MotionLoads.stressChannels(
+            assembly, results
+        )
+    return results
 
 
 def resultsTable(assembly):
@@ -117,9 +134,10 @@ def resultsTable(assembly):
     as a table, (header, rows), a row per frame: the time in s, then each
     channel's components in the units the panel shows (a vector's X, Y and
     Z), each column named by the object, the quantity, the component and the
-    unit, and "(not unique)" for a redundant joint's reaction. None when the
-    run reported no values."""
-    results = assembly.getSimulationResults()
+    unit, and "(not unique)" for a redundant joint's reaction; a stress
+    series' None at a frame it did not solve. None when the run reported no
+    values."""
+    results = resultChannels(assembly)
     if not results["Channels"]:
         return None
     header = [translate("Assembly", "Time") + " (s)"]
@@ -141,7 +159,7 @@ def resultsTable(assembly):
                 columns.append([getattr(v, axis.lower()) * factor for v in values])
         else:
             header.append("%s (%s)%s" % (label, unit, note))
-            columns.append([v * factor for v in values])
+            columns.append([v * factor if v is not None else None for v in values])
     rows = []
     for i, time in enumerate(results["Times"]):
         rows.append([time] + [column[i] if i < len(column) else 0.0 for column in columns])
@@ -161,7 +179,7 @@ def exportResultsCsv(assembly, path):
         writer = csv.writer(f)
         writer.writerow(header)
         for row in rows:
-            writer.writerow(["%.17g" % v for v in row])
+            writer.writerow(["%.17g" % v if v is not None else "" for v in row])
     return True
 
 
@@ -189,7 +207,8 @@ def exportResultsSheet(assembly, doc=None, name="SimulationResults"):
         sheet.set("%s1" % column(k), "'" + text)
     for i, row in enumerate(rows):
         for k, v in enumerate(row):
-            sheet.set("%s%d" % (column(k), i + 2), "%.17g" % v)
+            if v is not None:
+                sheet.set("%s%d" % (column(k), i + 2), "%.17g" % v)
     sheet.recompute()
     return sheet
 
@@ -226,7 +245,8 @@ if App.GuiUp:
             text = palette.color(QtGui.QPalette.WindowText)
             painter.fillRect(self.rect(), palette.color(QtGui.QPalette.Base))
             metrics = painter.fontMetrics()
-            values = [v for _, curve in self.curves for v in curve]
+            # None: a frame without a value (a stress series' frame not solved)
+            values = [v for _, curve in self.curves for v in curve if v is not None]
             if len(self.times) < 2 or not values:
                 painter.setPen(text)
                 painter.drawText(
@@ -293,9 +313,17 @@ if App.GuiUp:
                 colour = QtGui.QColor(self.COLOURS[k % len(self.COLOURS)])
                 painter.setPen(QtGui.QPen(colour, 1.5))
                 n = min(len(self.times), len(curve))
-                painter.drawPolyline(
-                    QtGui.QPolygonF([at(self.times[i], curve[i]) for i in range(n)])
-                )
+                # A line through each run of values, a dot for one alone
+                run = []
+                for i in range(n + 1):
+                    if i < n and curve[i] is not None:
+                        run.append(at(self.times[i], curve[i]))
+                        continue
+                    if len(run) > 1:
+                        painter.drawPolyline(QtGui.QPolygonF(run))
+                    elif run:
+                        painter.drawEllipse(run[0], 2.0, 2.0)
+                    run = []
                 if len(self.curves) > 1:
                     painter.drawText(QtCore.QPointF(x, metrics.ascent()), name)
                     x += metrics.horizontalAdvance(name) + 10
@@ -2196,8 +2224,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.femButton.setToolTip(
             translate(
                 "Assembly",
-                "A static stress analysis of a part at the frame shown: its loads, its\n"
-                "gravity and motion, held at its most loaded joint, for CalculiX",
+                "A static stress analysis of a part, from its loads, its gravity and\n"
+                "motion, held at its most loaded joint: at the frame shown, for CalculiX,\n"
+                "or at a range of frames, solved now and its stress plotted here",
             )
         )
         self.femButton.clicked.connect(self.loadsToFem)
@@ -2498,8 +2527,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def fillResults(self):
         """Not upstream: the run's channels in the Results box, which shows
-        when it has any"""
-        self.results = self.assembly.getSimulationResults()
+        when it has any, and the stress series taken from it"""
+        self.results = resultChannels(self.assembly)
         current = self.resultCombo.currentData()
         self.resultCombo.blockSignals(True)
         self.resultCombo.clear()
@@ -2525,11 +2554,24 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                     ),
                     QtCore.Qt.ToolTipRole,
                 )
-        at = self.resultCombo.findData(current) if current is not None else -1
-        self.resultCombo.setCurrentIndex(max(0, at))
+        self.resultCombo.setCurrentIndex(max(0, self.resultIndex(current)))
         self.resultCombo.blockSignals(False)
         self.resultsBox.setVisible(self.resultCombo.count() > 0)
         self.showResult()
+
+    def resultIndex(self, key):
+        """The Results box's row of a channel's key, (name, quantity); -1
+        when none. Not findData: it matches a key stored as a Python object
+        by identity, never an equal tuple made anew -- so a channel chosen
+        was lost each time the box was filled again, on a new run."""
+        if key is None:
+            return -1
+        key = tuple(key)
+        for k in range(self.resultCombo.count()):
+            data = self.resultCombo.itemData(k)
+            if data is not None and tuple(data) == key:
+                return k
+        return -1
 
     def exportCsv(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -2547,10 +2589,89 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def exportSheet(self):
         exportResultsSheet(self.assembly)
 
+    def femChoice(self, parts):
+        """The part to analyse and its frames: the frame shown (an analysis
+        to run from the FEM workbench) or a range of them, solved now. (part,
+        [frame, ...], solve now), or None when cancelled."""
+        times = self.results["Times"]
+        shownFrame = self.form.frameSlider.value()
+        dialog = QDialog(self.form)
+        dialog.setWindowTitle(translate("Assembly", "Loads to FEM"))
+        grid = QGridLayout(dialog)
+        grid.addWidget(QLabel(translate("Assembly", "Part:")), 0, 0)
+        partCombo = QComboBox()
+        for part in parts:
+            partCombo.addItem(part.Label)
+        grid.addWidget(partCombo, 0, 1, 1, 5)
+        shown = QtWidgets.QRadioButton(
+            translate("Assembly", "The frame shown, at {:g} s: an analysis to run").format(
+                times[shownFrame]
+            )
+        )
+        shown.setChecked(True)
+        grid.addWidget(shown, 1, 0, 1, 6)
+        many = QtWidgets.QRadioButton(translate("Assembly", "Frames, solved now by CalculiX:"))
+        many.setToolTip(
+            translate(
+                "Assembly",
+                "One analysis, solved at each frame in turn: each one's largest von Mises\n"
+                "stress is plotted in the Results box, and the analysis is left at the\n"
+                "frame of the largest, with its result",
+            )
+        )
+        grid.addWidget(many, 2, 0, 1, 6)
+        spins = []
+        for k, (text, value) in enumerate(
+            (
+                (translate("Assembly", "from"), 0),
+                (translate("Assembly", "to"), len(times) - 1),
+                (translate("Assembly", "every"), 1),
+            )
+        ):
+            grid.addWidget(QLabel(text), 3, 2 * k)
+            spin = QtWidgets.QSpinBox()
+            spin.setRange(1 if k == 2 else 0, max(len(times) - 1, 1))
+            spin.setValue(value)
+            grid.addWidget(spin, 3, 2 * k + 1)
+            spins.append(spin)
+        count = QLabel()
+        grid.addWidget(count, 4, 0, 1, 6)
+
+        def chosen():
+            first, last, every = (s.value() for s in spins)
+            return list(range(min(first, last), max(first, last) + 1, every))
+
+        def update():
+            for spin in spins:
+                spin.setEnabled(many.isChecked())
+            frames = chosen()
+            count.setEnabled(many.isChecked())
+            count.setText(
+                translate("Assembly", "{} frames, {:g} to {:g} s").format(
+                    len(frames), times[frames[0]], times[frames[-1]]
+                )
+            )
+
+        for spin in spins:
+            spin.valueChanged.connect(update)
+        many.toggled.connect(update)
+        update()
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        grid.addWidget(buttons, 5, 0, 1, 6)
+        if dialog.exec() != QDialog.Accepted:
+            return None
+        part = parts[partCombo.currentIndex()]
+        if many.isChecked():
+            return part, chosen(), True
+        return part, [shownFrame], False
+
     def loadsToFem(self):
-        """Not upstream: a part of the run at the frame shown as a static
-        stress analysis (MotionLoads.makeAnalysis, docs/AssemblyDynamics.md
-        D4a)"""
+        """Not upstream: a part of the run as a static stress analysis
+        (docs/AssemblyDynamics.md D4a): at the frame shown, to run from the
+        FEM workbench (MotionLoads.makeAnalysis), or at a range of frames,
+        solved now (MotionLoads.solveFrames), its stresses plotted here"""
         import MotionLoads
 
         if not self.results:
@@ -2561,19 +2682,14 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 parts.append(channel["Object"])
         if not parts:
             return
-        labels = [p.Label for p in parts]
-        label, ok = QtWidgets.QInputDialog.getItem(
-            self.form,
-            translate("Assembly", "Loads to FEM"),
-            translate("Assembly", "The part to analyse:"),
-            labels,
-            0,
-            False,
-        )
-        if not ok:
+        choice = self.femChoice(parts)
+        if choice is None:
             return
-        part = parts[labels.index(label)]
-        frame = self.form.frameSlider.value()
+        part, frames, solveNow = choice
+        if solveNow:
+            self.solveFemFrames(part, frames)
+            return
+        frame = frames[0]
         doc = self.assembly.Document
         doc.openTransaction("Loads to FEM")
         try:
@@ -2612,6 +2728,89 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.form, translate("Assembly", "Loads to FEM"), "\n\n".join(notes)
         )
 
+    def solveFemFrames(self, part, frames):
+        """part at each of frames, solved by CalculiX (MotionLoads.
+        solveFrames) behind a progress dialog with a Cancel; its stresses
+        then in the Results box"""
+        import MotionLoads
+
+        progress = QProgressDialog(
+            translate("Assembly", "Solving {} with CalculiX...").format(part.Label),
+            translate("Assembly", "Cancel"),
+            0,
+            len(frames),
+            self.form,
+        )
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+
+        def step(k, n):
+            progress.setValue(k)
+            progress.setLabelText(
+                translate("Assembly", "Solving {}: frame {} of {}").format(part.Label, k + 1, n)
+            )
+            QtWidgets.QApplication.processEvents()
+            return not progress.wasCanceled()
+
+        frame = self.form.frameSlider.value()
+        doc = self.assembly.Document
+        doc.openTransaction("Loads to FEM")
+        try:
+            series = MotionLoads.solveFrames(self.assembly, part, frames, progress=step)
+        except (ValueError, ImportError) as e:
+            doc.abortTransaction()
+            progress.close()
+            self.onFrameChanged(frame)
+            QMessageBox.warning(self.form, translate("Assembly", "Loads to FEM"), str(e))
+            return
+        doc.commitTransaction()
+        progress.close()
+        self.fillResults()
+        at = self.resultIndex((series.Name, "VonMises"))
+        if at >= 0:
+            self.resultCombo.setCurrentIndex(at)
+        self.onFrameChanged(frame)
+        if not series.Frames:
+            return
+        peak = max(range(len(series.Frames)), key=lambda k: series.VonMises[k])
+        # Against the largest reaction: where the reaction is small, what the
+        # held face's own nodes take of the body load is a larger part of it
+        largest = max(max(run.Length for run in series.HeldForce), 1e-12)
+        worst = 0.0
+        for run, fem in zip(series.HeldForce, series.FemHeldForce):
+            worst = max(worst, (fem - run).Length / largest)
+        notes = [
+            translate("Assembly", "{} solved at {} frames, held at {}.").format(
+                part.Label, len(series.Frames), series.Held.Label
+            ),
+            translate("Assembly", "Its largest von Mises stress: {:.4g} MPa at {:g} s.").format(
+                series.VonMises[peak], series.Times[peak]
+            ),
+            translate(
+                "Assembly",
+                "What holds it in the analysis against the run's reaction there: within "
+                "{:.2g}% of the largest reaction, at every frame.",
+            ).format(100.0 * worst),
+        ]
+        if len(series.Frames) < len(frames):
+            notes.append(
+                translate("Assembly", "Cancelled: {} of the {} frames were solved.").format(
+                    len(series.Frames), len(frames)
+                )
+            )
+        notes.append(
+            translate(
+                "Assembly", "The analysis is left at {:g} s with its result: {}."
+            ).format(
+                series.Times[peak],
+                ", ".join(o.Label for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")),
+            )
+        )
+        QMessageBox.information(
+            self.form, translate("Assembly", "Loads to FEM"), "\n\n".join(notes)
+        )
+
     def resultCurves(self):
         """The chosen channel's curves, in the shown unit: a vector's X, Y, Z
         and its length; and the unit"""
@@ -2630,7 +2829,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                     ("Z", [v.z * factor for v in values]),
                     ("|%s|" % translate("Assembly", "total"), [v.Length * factor for v in values]),
                 ], unit
-            return [("", [v * factor for v in values])], unit
+            return [("", [v * factor if v is not None else None for v in values])], unit
         return [], ""
 
     def showResult(self, index=None):
@@ -2650,7 +2849,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         parts = []
         for name, values in curves:
             if frame < len(values):
-                value = f"{values[frame]:.6g} {unit}"
+                if values[frame] is None:
+                    value = translate("Assembly", "not solved at this frame")
+                else:
+                    value = f"{values[frame]:.6g} {unit}"
                 parts.append(f"{name} {value}" if name else value)
         self.resultValue.setText(f"{times[frame]:g} s: " + ", ".join(parts))
 

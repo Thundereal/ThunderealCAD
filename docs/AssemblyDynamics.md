@@ -3268,12 +3268,36 @@ Phase D1 is under way (2026-10-28):
     summing to the resultant and its moment; solved, a coupling each, and
     at the start, none pressed, none in the analysis),
     test_start_with_contact.
+  - Not yet: see the next entry's.
+- Built, D4a: impact frames.
+  - **The video's block landed with the plot flat** (the user's eye): an
+    impact of steel on steel lasts some 60 us and fell between the output
+    frames 2.5 ms apart -- the block's landing at 63.9 ms, 626 mm/s, in
+    none; the stress spiked only at a bounce at 140 ms, 68 mm/s, that
+    happened to span a frame.
+  - A Dynamic study's `ImpactFrames` (the panel's "Impact frames";
+    SimulationSpec::impactFrames): after each substep kept, each contact
+    load's force (watchImpacts); the state where it was the most in an
+    impact, its values and poses, is kept, and when the load lets go or
+    eases to half of that, it becomes a frame, sent in time order before
+    the next output frame (sendImpacts). A load resting at a steady force
+    gives none; a sensor's step back drops those past it. The frames'
+    times are then uneven; the Results box plots by time, a channel's
+    values are at each frame, To FEM solves each.
+  - The places video again with them: 101 output frames and 80 at
+    impacts' peaks (the block's bounces, the lever's rattle on its posts);
+    at the landing, 63.88 ms, the block's 528 N on the lever, the lever's
+    largest 64.6 MPa under it and 54.3 MPa away from the loaded faces,
+    where it showed 2.2 MPa at the bounce before; the hold within 0.013%
+    of the largest reaction, its torque within 0.40%.
+  - Test: TestContact's test_impact_frames.
   - Not yet: several frames as steps of one CalculiX run; the margin the
     largest away from the loaded faces leaves, a mesh size, where a
     section's depth is Saint-Venant's; a part of a group meeting the
     others nowhere (held at the face nearest them); a run's start
     reactions taken back with a contact begun in them (the accelerations
-    now balance them, not the free motion's).
+    now balance them, not the free motion's); a static analysis of a
+    60 us impact, where the lever's own vibration is a dynamic one's.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

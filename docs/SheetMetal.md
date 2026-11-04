@@ -1290,7 +1290,12 @@ and not frozen.
   dashed blue and red, the tangent lines dotted grey, the grain solid green. Picked, a marking
   is the edge of the object's shape it is (`Flat.Edge207`, `;Bend4`), and that name selects and
   highlights it. A bare ray pick (`getObjectInfo()`) has the nearer of a line and the face it
-  lies on; a click, as the selection picks, has the line. `sheet-metal-commands.py` (60).
+  lies on; a click, as the selection picks, has the line. The markings are drawn from the shape
+  in the object's own frame: given its edges as placed, the view's transform placed them again
+  and a moved flat's lines went twice as far (found taking the manual's pictures).
+  `sheet-metal-commands.py` (61).
+- Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
+  flat object, every sheet metal page's script moved to it and its pictures retaken.
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.
@@ -1417,8 +1422,9 @@ folded part in Both, where the two would lie on each other at the root wall).
 recompute; where they are listed and marked is designed with them.
 
 **Ruled 2026-11-04, the flat an object of the sheet** (revises the two rulings of 2026-11-03
-above, the flat as a view and what is drawn while flattening; the details below are proposed for
-the user to check before any code). Asked after the bend lines were seen running into a corner
+above, the flat as a view and what is drawn while flattening). Built the same day in its four
+steps (Progress above), the details as below but for what it draws, changed while building and
+for the user to confirm. Asked after the bend lines were seen running into a corner
 relief's hole, and how other programs style them. How they keep the flat (general knowledge, not
 surveyed): SOLIDWORKS a Flat-Pattern feature at the end of the tree, Bend-Lines and Bounding-Box
 sketches under it; Inventor, Fusion and Solid Edge a flat pattern node with an environment of its

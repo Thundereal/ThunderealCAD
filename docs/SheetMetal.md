@@ -1373,6 +1373,17 @@ and not frozen.
     inside 28 + 18 + BA and outside 29 + 19 + BA; the box's faces as a shell; a shell's open
     face refused; a tray made elsewhere, corners closed, through STEP, ripped, flat as the
     solid's; a rip on an arc refused.
+  - Check Sheet says a thin part's bends' radius comes from the feature, a thickened part's
+    from the rule.
+  - The command, `PartDesign_SheetMetalConvert`, in the Part Design menu's Sheet Metal submenu
+    (the way in, the tool bar coming only with a sheet) and on the tool bar: faces and edges
+    picked on one part, the first face the fixed one, the other faces open, the edges ripped; a
+    part in no body gets a body made on it; the body's tip before it and the part picked hidden.
+    Its panel is the sheet metal panel with Side and three lists: the panel takes several
+    reference lists now (`SheetMetalReferences`), each under its name, its buttons named after
+    it; one list's Add down at a time; a single one (the fixed face) takes a pick in place of
+    what it held. `tests/gui/sheet-metal-convert.py` (15), frozen and not.
+  - The manual's page, `partdesign/sheet-metal/convert` (thundereal-manual 488c915).
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

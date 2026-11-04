@@ -58,14 +58,23 @@ public:
     /// Where a wrap's sketch is read: Folded, where the wall nearest it lies
     /// folded; Flat, in the frame of the feature's flat as the sheet lays it
     App::PropertyEnumeration WrapFrame;
+    /// The flat settings a wrap in the flat's frame was cut by: cut again
+    /// when they are others (mustExecute()), which an undo or a load is not
+    App::PropertyString WrapSettings;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    bool skipRecompute() override;
     void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {
         return "PartDesignGui::ViewProviderSheetMetalCutout";
     }
+
+private:
+    /// A wrap read in the flat's frame, the flat's settings, which it does
+    /// not link, others than it was cut by
+    bool flatSettingsChanged() const;
 };
 
 }  // namespace PartDesign

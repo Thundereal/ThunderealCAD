@@ -68,6 +68,11 @@ SheetMetalCutout::SheetMetalCutout()
     static const char* frames[] = {"Folded", "Flat", nullptr};
     WrapFrame.setEnums(frames);
     WrapFrame.setStatus(App::Property::ReadOnly, true);
+    ADD_PROPERTY_TYPE(WrapSettings,
+                      (""),
+                      "Sheet Metal",
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden | App::Prop_ReadOnly),
+                      "The flat settings a wrap in the flat's frame was cut by");
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -86,10 +91,40 @@ SheetMetalCutout::SheetMetalCutout()
 
 short SheetMetalCutout::mustExecute() const
 {
-    if (UpToFirst.isTouched() || Wrap.isTouched() || WrapFrame.isTouched()) {
+    if (UpToFirst.isTouched() || Wrap.isTouched() || WrapFrame.isTouched()
+        || flatSettingsChanged()) {
         return 1;
     }
     return ProfileBased::mustExecute();
+}
+
+namespace
+{
+/// What of the flat settings lays the flat a wrap is read on, as a string
+std::string wrapKey(const FlatSettings& settings)
+{
+    return settings.root + "|" + (settings.secondSkin ? "1" : "0") + "|" + settings.alignEdge;
+}
+
+/// The settings the sheet's flat is laid by, the defaults if none
+FlatSettings flatSettingsOf(const App::DocumentObject* feature)
+{
+    auto body = Body::findBodyOf(feature);
+    auto solid = body ? body->getSolidBody(feature) : nullptr;
+    return solid ? solid->flatSettings() : FlatSettings();
+}
+}  // namespace
+
+bool SheetMetalCutout::skipRecompute()
+{
+    // no property of its own touched: told by the settings
+    return !flatSettingsChanged() && ProfileBased::skipRecompute();
+}
+
+bool SheetMetalCutout::flatSettingsChanged() const
+{
+    return Wrap.getValue() && WrapFrame.getValue() == 1
+        && wrapKey(flatSettingsOf(this)) != WrapSettings.getValue();
 }
 
 void SheetMetalCutout::onChanged(const App::Property* prop)
@@ -131,10 +166,10 @@ App::DocumentObjectExecReturn* SheetMetalCutout::execute()
         if (Wrap.getValue() && WrapFrame.getValue() == 1) {
             // the flat as the sheet lays it: its root, second skin, the
             // edge it is turned by, as the feature before's flat is
-            FlatSettings settings;
-            auto body = Body::findBodyOf(this);
-            if (auto solid = body ? body->getSolidBody(this) : nullptr) {
-                settings = solid->flatSettings();
+            const FlatSettings settings = flatSettingsOf(this);
+            // what it is cut by, though the cut fail
+            if (wrapKey(settings) != WrapSettings.getValue()) {
+                WrapSettings.setValue(wrapKey(settings));
             }
             int root = -1;
             if (!settings.root.empty()) {

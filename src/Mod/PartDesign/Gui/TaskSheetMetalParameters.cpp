@@ -51,6 +51,9 @@
 #include <App/Document.h>
 #include <Base/Exception.h>
 #include <Gui/Application.h>
+#include <Gui/Document.h>
+#include <Gui/Inventor/SoFCSwitch.h>
+#include <Gui/ViewerContext.h>
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 #include <Gui/QuantitySpinBox.h>
@@ -88,6 +91,10 @@ private:
     App::DocumentObject* base;
     std::string element;
 };
+
+/// Whose the flat's hides are among an edit session's swaps: before the
+/// edit's own "PartDesign.Shown", so they win where both name an occurrence
+constexpr const char* FlatSwaps = "PartDesign.Flat";
 
 QString number(double v)
 {
@@ -269,15 +276,37 @@ void TaskSheetMetalParameters::hideFlat()
     if (root && flatRoot && root->findChild(flatRoot) >= 0) {
         root->removeChild(flatRoot);
     }
+    if (auto gdoc = Gui::Application::Instance->getDocument(sessionDoc.c_str())) {
+        if (flatRoot && gdoc->editingRoot()->hasSessionNode(flatRoot)) {
+            gdoc->editingRoot()->removeSessionNode(flatRoot);
+        }
+    }
     restoreChildren();
+    sessionDoc.clear();
+    if (sheetView) {
+        sheetView->setProperty("flatDrawn", false);
+        sheetView->setProperty("drawnAlone", false);
+    }
 }
 
 void TaskSheetMetalParameters::restoreChildren()
 {
-    for (auto& [objT, child] : keptChildren) {
+    if (auto gdoc = Gui::Application::Instance->getDocument(sessionDoc.c_str())) {
+        for (auto& objT : hiddenInSession) {
+            if (auto obj = objT.getObject()) {
+                gdoc->setEditVisibility(FlatSwaps, obj, objT.getSubName().c_str(), -1);
+            }
+        }
+    }
+    hiddenInSession.clear();
+    for (auto& [objT, children] : keptChildren) {
         auto view = Gui::Application::Instance->getViewProvider(objT.getObject());
+        auto modeSwitch = view ? dynamic_cast<SoFCSwitch*>(view->getModeSwitch()) : nullptr;
         if (view && view->getModeSwitch()) {
-            view->getModeSwitch()->whichChild = child;
+            view->getModeSwitch()->whichChild = children.first;
+        }
+        if (modeSwitch) {
+            modeSwitch->defaultChild = children.second;
         }
     }
     keptChildren.clear();
@@ -385,8 +414,36 @@ void TaskSheetMetalParameters::showSheetView()
     flatOffset->translation.setValue(static_cast<float>(move.x),
                                      static_cast<float>(move.y),
                                      static_cast<float>(move.z));
+    // In an edit session, a node of the session's, where the edit draws
+    // what it shows beside its own geometry (the PartDesign preview hangs
+    // there too), placed as the edited occurrence: the session's own
+    // visibility table can then hide the feature without hiding this.
+    // Without one, under the feature's view.
+    auto gdoc = Gui::Application::Instance->editDocument();
+    Gui::ViewProviderDocumentObject* parentVp = nullptr;
+    std::string subname;
+    if (gdoc) {
+        gdoc->getInEdit(&parentVp, &subname);
+    }
+    Base::Matrix4D world;
+    const bool inSession = gdoc && gdoc->editingViewer() && parentVp
+        && gdoc->canSetEditVisibility()
+        && parentVp->getObject()->getSubObject(subname.c_str(), nullptr, &world) == feature;
     auto root = vp->getRoot();
-    if (root->findChild(flatRoot) < 0) {
+    if (inSession) {
+        if (root->findChild(flatRoot) >= 0) {
+            root->removeChild(flatRoot);
+        }
+        Gui::EditingRoot* editing = gdoc->editingRoot();
+        if (editing->hasSessionNode(flatRoot)) {
+            editing->setSessionNodeTransform(flatRoot, world);
+        }
+        else {
+            editing->addSessionNode(flatRoot, world);
+        }
+        sessionDoc = gdoc->getDocument()->getName();
+    }
+    else if (root->findChild(flatRoot) < 0) {
         root->addChild(flatRoot);
     }
     // Flat: nothing of the body drawn but the flat -- not the feature, nor
@@ -396,12 +453,33 @@ void TaskSheetMetalParameters::showSheetView()
         // the edit's preview (the base drawn, the tool tinted over it) taken
         // away first: the session's views draw it, not the views' switches
         auto addSub = Base::freecad_dynamic_cast<ViewProviderAddSub>(vp);
-        if (addSub && addSub->isPreviewMode() && !keptPreview) {
+        if (addSub && (addSub->isPreviewMode() || addSub->isPreviewInSession())
+            && !keptPreview) {
             keptOccurrence = addSub->previewOccurrenceOf();
             keptPreview = true;
             addSub->setPreviewDisplayMode(false);
         }
-        if (keptChildren.empty()) {
+        if (inSession) {
+            // hidden in the session's views: the body's members and the
+            // feature, by an owner whose entries come before the edit's own
+            // ("PartDesign.Shown", which shows the feature)
+            if (hiddenInSession.empty()) {
+                const App::SubObjectT occurrence(parentVp->getObject(), subname.c_str());
+                const App::SubObjectT bodyT = occurrence.getParent();
+                std::vector<App::DocumentObject*> members = body->Group.getValues();
+                if (std::find(members.begin(), members.end(), feature) == members.end()) {
+                    members.push_back(feature);
+                }
+                for (auto obj : members) {
+                    const App::SubObjectT objT = bodyT.getChild(obj);
+                    if (gdoc->setEditVisibility(FlatSwaps, objT.getObject(),
+                                                objT.getSubName().c_str(), 0)) {
+                        hiddenInSession.push_back(objT);
+                    }
+                }
+            }
+        }
+        else if (keptChildren.empty()) {
             std::vector<App::DocumentObject*> members = body->Group.getValues();
             if (std::find(members.begin(), members.end(), feature) == members.end()) {
                 members.push_back(feature);
@@ -411,14 +489,26 @@ void TaskSheetMetalParameters::showSheetView()
                 if (!view || !view->getModeSwitch() || !view->isShow()) {
                     continue;
                 }
-                keptChildren.emplace_back(obj, view->getModeSwitch()->whichChild.getValue());
+                // and its default child, which a drawing on top (the edited
+                // feature's) draws by
+                auto modeSwitch = dynamic_cast<SoFCSwitch*>(view->getModeSwitch());
+                keptChildren.emplace_back(
+                    obj,
+                    std::make_pair(view->getModeSwitch()->whichChild.getValue(),
+                                   modeSwitch ? modeSwitch->defaultChild.getValue() : -1));
                 view->getModeSwitch()->whichChild = SO_SWITCH_NONE;
+                if (modeSwitch) {
+                    modeSwitch->defaultChild = SO_SWITCH_NONE;
+                }
             }
         }
     }
     else {
         restoreChildren();
     }
+    // what is drawn, as a check reads it: the flat, and nothing else of the body
+    sheetView->setProperty("flatDrawn", true);
+    sheetView->setProperty("drawnAlone", mode == 1);
 }
 
 App::Property* TaskSheetMetalParameters::property(const char* name) const

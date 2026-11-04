@@ -293,12 +293,17 @@ def run():
             pump(10)
 
         # View: the feature folded, laid flat, or both (docs/SheetMetal.md
-        # sec 12, 2026-11-04), drawn under its view while the panel is open
+        # sec 12, 2026-11-04), while the panel is open. In an edit session
+        # the flat is a node of the session's and the rest is hidden by its
+        # views' table, out of reach here: the panel says what it draws
         vo = flange.ViewObject
 
         def field(name):
             value = vo.SwitchNode.getField(name).get()
             return int(value.getString() if hasattr(value, "getString") else str(value))
+
+        def drawn():
+            return (bool(combo.property("flatDrawn")), bool(combo.property("drawnAlone")))
 
         folded = (vo.RootNode.getNumChildren(), field("whichChild"))
         combo = w.get("comboSheetView")
@@ -312,25 +317,17 @@ def run():
         if combo is not None:
             combo.setCurrentIndex(1)
             pump(20)
-            check(
-                "Flat: the flange's flat drawn under its view, the folded part not",
-                vo.RootNode.getNumChildren() == folded[0] + 1 and field("whichChild") == -1,
-                (vo.RootNode.getNumChildren(), field("whichChild"), folded),
-            )
+            check("Flat: the flange's flat drawn, nothing else", drawn() == (True, True), drawn())
             combo.setCurrentIndex(2)
             pump(20)
-            check(
-                "Both: the flat and the folded part",
-                vo.RootNode.getNumChildren() == folded[0] + 1
-                and field("whichChild") == folded[1],
-                (vo.RootNode.getNumChildren(), field("whichChild"), folded),
-            )
+            check("Both: the flat and the folded part", drawn() == (True, False), drawn())
             combo.setCurrentIndex(0)
             pump(20)
             check(
                 "Folded: as it was",
-                (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
-                (vo.RootNode.getNumChildren(), field("whichChild"), folded),
+                drawn() == (False, False)
+                and (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
+                (drawn(), vo.RootNode.getNumChildren(), field("whichChild"), folded),
             )
             solid = body.getSolidBody(flange)
             flatObj = [
@@ -346,18 +343,17 @@ def run():
                 "a flange that does not lie flat says why, and is drawn folded",
                 said is not None
                 and "Wall9" in said.text()
+                and drawn() == (False, False)
                 and (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
-                said and said.text(),
+                said and (said.text(), drawn()),
             )
             flatObj.Root = ""
             doc.recompute()
             pump(20)
             check(
                 "laid again after a recompute",
-                said is not None
-                and said.text() == ""
-                and vo.RootNode.getNumChildren() == folded[0] + 1,
-                said and (said.text(), vo.RootNode.getNumChildren()),
+                said is not None and said.text() == "" and drawn() == (True, True),
+                said and (said.text(), drawn()),
             )
         accept()
         pump(20)

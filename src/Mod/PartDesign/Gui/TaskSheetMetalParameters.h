@@ -122,12 +122,17 @@ private:
     std::unique_ptr<ViewProviderSheetMetalFlatPattern> flatView;
     Gui::CoinPtr<SoSeparator> flatRoot;
     Gui::CoinPtr<SoTransform> flatOffset;
-    /// What the body drew, each view's mode switch's child, kept while the
-    /// flat is drawn alone: the feature and what its edit shows with it
-    std::vector<std::pair<App::DocumentObjectT, int>> keptChildren;
+    /// What the body drew, each view's mode switch's child and default
+    /// child, kept while the flat is drawn alone: the feature and what its
+    /// edit shows with it
+    std::vector<std::pair<App::DocumentObjectT, std::pair<int, int>>> keptChildren;
     /// The edit's preview, taken away while the flat is drawn alone
     bool keptPreview = false;
     App::SubObjectT keptOccurrence;
+    /// In an edit session: its document, the flat a node of it, and what
+    /// its views were told to hide while the flat is drawn alone
+    std::string sessionDoc;
+    std::vector<App::SubObjectT> hiddenInSession;
     bool closing = false;
     std::vector<const char*> names;
     const char* refs;

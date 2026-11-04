@@ -2967,8 +2967,14 @@ Phase D1 is under way (2026-10-28):
     along it; |N| / A + |M| c / I): within 1% wherever it is over a fifth
     of its peak, 96 kPa at 175 ms.
   - Found by the video: the FEM mesh view's `NodeColor`, set as a dict,
-    reads back but is not drawn; `setNodeColorByScalars` is (its scale 0
-    to the largest value given).
+    read back but was not drawn; `setNodeColorByScalars` was (its scale 0
+    to the largest value given). Fixed in FEM: a dict picks its
+    `ColorMode` (it drew only in `ByNode`, the default being `Overall`),
+    `resetNodeColor` draws in every mode, and `setNodeColorByScalars`
+    takes an optional scale, reads no colour past its list for nodes not
+    given, and refuses lists of different lengths
+    (`femtest/gui/test_meshcolor.py`, run by
+    `tests/gui/fem-workbench-suite.py`).
   - Not yet: several frames in one analysis (a step each) or a range from
     the Results box; contacts, torsion springs and applied loads, which
     the run cannot place yet; a part in a rigid group (its body's motion

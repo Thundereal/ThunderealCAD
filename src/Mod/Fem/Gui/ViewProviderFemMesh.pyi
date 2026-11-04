@@ -37,7 +37,12 @@ class ViewProviderFemMesh(ViewProviderDocumentObject):
         ...
 
     def setNodeColorByScalars(self) -> Any:
-        """Sets mesh node colors using element list and value list."""
+        """setNodeColorByScalars(nodeIds, values, [min, max])
+
+        Sets mesh node colors using node list and value list. The colours run
+        from blue at min through green at zero to red at max; min and max are
+        the values' own unless given (min is never above zero, max never below).
+        Nodes not listed take the colour of zero."""
         ...
 
     def setNodeDisplacementByVectors(self) -> Any:

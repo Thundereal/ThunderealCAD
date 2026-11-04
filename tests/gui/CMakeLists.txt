@@ -2519,3 +2519,9 @@ fc_add_gui_test(GuiSaveMergesAnotherProcess_tests_run
 fc_add_gui_test(GuiAssemblyWorkbench_tests_run
                 assembly-workbench-suite.py
                 --timeout 1200)
+
+# The FEM workbench's GUI tests (TestFemGui.py): view providers and their
+# scene graphs, e.g. a mesh's colours by node and by element.
+fc_add_gui_test(GuiFemWorkbench_tests_run
+                fem-workbench-suite.py
+                --timeout 600)

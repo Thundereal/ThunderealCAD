@@ -698,6 +698,10 @@ void ViewProviderFemMesh::setColorByNodeId(
     const std::vector<Base::Color>& NodeColors
 )
 {
+    if (NodeIds.empty()) {
+        resetColorByNodeId();
+        return;
+    }
     long endId = *(std::max_element(NodeIds.begin(), NodeIds.end()));
 
     std::vector<Base::Color> colorVec(endId + 1, Base::Color(0, 1, 0));
@@ -717,11 +721,15 @@ void ViewProviderFemMesh::setColorByNodeIdHelper(const std::vector<Base::Color>&
     pcShapeMaterial->diffuseColor.setNum(vNodeElementIdx.size());
     SbColor* colors = pcShapeMaterial->diffuseColor.startEditing();
 
+    // A node not given (an id past the end of colorVec) takes the colour of
+    // zero, as one inside it does.
+    const Base::Color zero(0, 1, 0);
     long i = 0;
     for (std::vector<unsigned long>::const_iterator it = vNodeElementIdx.begin();
          it != vNodeElementIdx.end();
          ++it, i++) {
-        colors[i] = SbColor(colorVec[*it].r, colorVec[*it].g, colorVec[*it].b);
+        const Base::Color& c = *it < colorVec.size() ? colorVec[*it] : zero;
+        colors[i] = SbColor(c.r, c.g, c.b);
     }
 
     pcShapeMaterial->diffuseColor.finishEditing();
@@ -731,11 +739,26 @@ void ViewProviderFemMesh::resetColorByNodeId()
 {
     const Base::Color& c = ShapeAppearance.getDiffuseColor();
     NodeColorArray.setValue(c);
+    // The material may still hold what setNodeColorByScalars wrote into it,
+    // which does not go through the array: the array's change does not draw
+    // in another mode, nor in ByNode when it held this colour already. Draw
+    // the mode's own colours again.
+    onChanged(&ColorMode);
 }
 
+// Colours given by node or by element are drawn by their mode: switch to it,
+// or what is set is kept but never shown. Already in it, draw anyway: an
+// array set to what it held does not, and setNodeColorByScalars may have
+// drawn over it.
 void ViewProviderFemMesh::setColorByNodeId(const std::map<std::vector<long>, Base::Color>& elemColorMap)
 {
     setColorByIdHelper(elemColorMap, vNodeElementIdx, 0, NodeColorArray);
+    if (ColorMode.getValue() != 2) {
+        ColorMode.setValue(2L);
+    }
+    else {
+        onChanged(&ColorMode);
+    }
 }
 
 void ViewProviderFemMesh::setColorByElementId(
@@ -743,6 +766,12 @@ void ViewProviderFemMesh::setColorByElementId(
 )
 {
     setColorByIdHelper(elemColorMap, vFaceElementIdx, 3, ElementColorArray);
+    if (ColorMode.getValue() != 1) {
+        ColorMode.setValue(1L);
+    }
+    else {
+        onChanged(&ColorMode);
+    }
 }
 
 void ViewProviderFemMesh::setColorByIdHelper(
@@ -882,6 +911,7 @@ void ViewProviderFemMesh::resetColorByElementId()
 {
     const Base::Color& c = ShapeAppearance.getDiffuseColor();
     ElementColorArray.setValue(c);
+    onChanged(&ColorMode);
 }
 
 // ----------------------------------------------------------------------------

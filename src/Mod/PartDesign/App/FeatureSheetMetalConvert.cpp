@@ -179,6 +179,33 @@ gp_Dir outward(const TopoDS_Face& face)
     return n;
 }
 
+/// The largest plane face of \a part in \a face's plane: where the fixed
+/// face went in a part made from it -- thickened outside, an inner skin
+/// facing the other way
+TopoDS_Face faceAt(const TopoShape& part, const TopoDS_Face& face)
+{
+    const gp_Pln plane = BRepAdaptor_Surface(face).Plane();
+    const gp_Dir normal = plane.Axis().Direction();
+    double area = 0;
+    TopoDS_Face res;
+    for (TopExp_Explorer it(part.getShape(), TopAbs_FACE); it.More(); it.Next()) {
+        const TopoDS_Face& f = TopoDS::Face(it.Current());
+        BRepAdaptor_Surface s(f);
+        if (s.GetType() != GeomAbs_Plane
+            || !s.Plane().Axis().Direction().IsParallel(normal, Precision::Angular())
+            || plane.Distance(s.Plane().Location()) > 1e-6) {
+            continue;
+        }
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(f, props);
+        if (props.Mass() > area) {
+            area = props.Mass();
+            res = f;
+        }
+    }
+    return res;
+}
+
 /** A shell thickened into a solid: the shell, its offset along its faces'
  * normals with sharp corners, and a side across each free edge and the one
  * offset from it. OCCT's own thickening of a shell fails on these. Its faces
@@ -265,6 +292,67 @@ TopoShape thickShell(const TopoShape& shell, double offset)
     return TopoShape(fix.Solid());
 }
 
+/// A rip's gap: a slab \a gap thick on the plane halving the corner at a
+/// straight edge through \a p along \a d, between plane faces facing \a na
+/// and \a nb, from \a t0 to \a t1 along it, \a half wide each way across
+TopoDS_Shape ripSlab(const gp_Pnt& p, const gp_Dir& d, const gp_Dir& na, const gp_Dir& nb,
+                     double t0, double t1, double half, double gap)
+{
+    const gp_Dir normal(gp_Vec(na) - gp_Vec(nb));
+    const gp_Dir w = d.Crossed(normal);
+    const gp_Pnt origin =
+        p.Translated(gp_Vec(d) * t0 + gp_Vec(w) * half - gp_Vec(normal) * (gap / 2));
+    return BRepPrimAPI_MakeBox(gp_Ax2(origin, normal, d), t1 - t0, 2 * half, gap).Solid();
+}
+
+/** A thin part ripped: a gap at each edge given, a closed corner seam of
+ * two walls, along the edge and no further -- past its ends lie a relief or
+ * the walls' other sides. Throws naming an edge that is not straight between
+ * two plane faces at an angle.
+ */
+TopoShape ripped(const TopoShape& part, const std::vector<TopoDS_Shape>& rips, double T,
+                 double gap)
+{
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(part.getShape(), TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    TopTools_IndexedMapOfShape edges;
+    TopExp::MapShapes(part.getShape(), TopAbs_EDGE, edges);
+    std::vector<TopoShape> slabs;
+    for (const TopoDS_Shape& rip : rips) {
+        const int index = edgeFaces.FindIndex(rip);
+        std::vector<TopoDS_Face> two;
+        if (index > 0) {
+            for (const TopoDS_Shape& f : edgeFaces(index)) {
+                if (std::none_of(two.begin(), two.end(), [&](const TopoDS_Face& g) {
+                        return g.IsSame(f);
+                    })) {
+                    two.push_back(TopoDS::Face(f));
+                }
+            }
+        }
+        BRepAdaptor_Curve c(TopoDS::Edge(rip));
+        if (two.size() != 2 || c.GetType() != GeomAbs_Line
+            || BRepAdaptor_Surface(two[0]).GetType() != GeomAbs_Plane
+            || BRepAdaptor_Surface(two[1]).GetType() != GeomAbs_Plane
+            || outward(two[0]).IsParallel(outward(two[1]), Precision::Angular())) {
+            FC_THROWM(Base::ValueError,
+                      "Edge" << edges.FindIndex(rip)
+                             << " is ripped but is no straight corner between two plane faces");
+        }
+        slabs.emplace_back(ripSlab(c.Value(c.FirstParameter()),
+                                   c.Line().Direction(),
+                                   outward(two[0]),
+                                   outward(two[1]),
+                                   0,
+                                   c.LastParameter() - c.FirstParameter(),
+                                   3 * T,
+                                   gap));
+    }
+    TopoShape res(0, part.Hasher);
+    res.makEBoolean(Part::OpCodes::Cut, {part, TopoShape().makECompound(slabs)});
+    return res;
+}
+
 /// The line edges of shape lying on the line through p along d
 std::vector<TopoShape> edgesOn(const TopoShape& shape, const gp_Pnt& p, const gp_Dir& d)
 {
@@ -348,34 +436,18 @@ App::DocumentObjectExecReturn* SheetMetalConvert::execute()
         // thickened
         TopoShape part = base;
         TopoDS_Face fixedFace = fixed;
-        const bool thin = open.empty() && rips.empty() && base.countSubShapes(TopAbs_SOLID) == 1
+        const bool thin = open.empty() && base.countSubShapes(TopAbs_SOLID) == 1
             && std::abs(SheetMetal::facingThickness(base.getShape(), fixed) - T) <= 1e-6;
+        if (thin && !rips.empty()) {
+            part = getSolid(ripped(base, rips, T, rule->Gap.getValue()));
+            fixedFace = faceAt(part, fixed);
+        }
         if (!thin) {
             part = thickened(base, fixed, open, rips, *rule);
-            // the fixed face's plane holds a skin of the thickened part
-            const gp_Pln plane = BRepAdaptor_Surface(fixed).Plane();
-            const gp_Dir out = BRepAdaptor_Surface(fixed).Plane().Axis().Direction();
-            double area = 0;
-            fixedFace.Nullify();
-            for (TopExp_Explorer it(part.getShape(), TopAbs_FACE); it.More(); it.Next()) {
-                const TopoDS_Face& face = TopoDS::Face(it.Current());
-                BRepAdaptor_Surface s(face);
-                // Outside, the face is an inner skin, facing the other way
-                if (s.GetType() != GeomAbs_Plane
-                    || !outward(face).IsParallel(out, Precision::Angular())
-                    || plane.Distance(s.Plane().Location()) > 1e-6) {
-                    continue;
-                }
-                GProp_GProps props;
-                BRepGProp::SurfaceProperties(face, props);
-                if (props.Mass() > area) {
-                    area = props.Mass();
-                    fixedFace = face;
-                }
-            }
-            if (fixedFace.IsNull()) {
-                THROWM(Base::ValueError, "The fixed face is no skin of the thickened part");
-            }
+            fixedFace = faceAt(part, fixed);
+        }
+        if (fixedFace.IsNull()) {
+            THROWM(Base::ValueError, "The fixed face is no skin of the part made");
         }
 
         SheetMetal::Recognised found = SheetMetal::recognise(
@@ -650,14 +722,7 @@ TopoShape SheetMetalConvert::thickened(const TopoShape& base,
                 + (end ? -1 : 1) * (sMax - past - R / 2);
             ends[end] = at;
         }
-        const gp_Dir normal(m);
-        const gp_Dir w = e.d.Crossed(normal);
-        const double half = 2 * (R + T) + T;
-        const gp_Pnt origin = e.p.Translated(gp_Vec(e.d) * ends[0] + gp_Vec(w) * half
-                                             - gp_Vec(normal) * (gap / 2));
-        cuts.emplace_back(
-            BRepPrimAPI_MakeBox(gp_Ax2(origin, normal, e.d), ends[1] - ends[0], 2 * half, gap)
-                .Solid());
+        cuts.emplace_back(ripSlab(e.p, e.d, e.na, e.nb, ends[0], ends[1], 2 * (R + T) + T, gap));
     }
     if (!cuts.empty()) {
         res = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,

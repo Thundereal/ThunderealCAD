@@ -54,6 +54,124 @@ def _grounded(assembly, component):
     )
 
 
+def _rigidGroup(assembly, component):
+    """component's rigid group as the run makes it (AssemblyObject's): the
+    groups not suppressed, those sharing a part one; its Members, the
+    Representative whose name the run reports its motion under (the least
+    name), and the Groups it is made of. None when it is in none."""
+    joints = assembly.getGroup("Joints", False)
+    groups = [
+        o
+        for o in (joints.Group if joints else [])
+        if hasattr(o, "ObjectsToRigidGroup") and getattr(o, "Suppressed", True) is False
+    ]
+    objects = {}  # by name
+    parent = {}  # name: its parent's name
+
+    def root(name):
+        while parent[name] != name:
+            name = parent[name]
+        return name
+
+    for g in groups:
+        members = [m for m in g.ObjectsToRigidGroup if m is not None]
+        for m in members:
+            objects[m.Name] = m
+            parent.setdefault(m.Name, m.Name)
+        for m in members[1:]:
+            a, b = root(members[0].Name), root(m.Name)
+            if a != b:
+                parent[b] = a
+    if component.Name not in parent:
+        return None
+    mine = root(component.Name)
+    members = [objects[n] for n in parent if root(n) == mine]
+    if len(members) < 2:
+        return None
+    names = {m.Name for m in members}
+    return {
+        "Members": members,
+        "Representative": min(members, key=lambda m: m.Name),
+        "Groups": [g for g in groups if any(m and m.Name in names for m in g.ObjectsToRigidGroup)],
+    }
+
+
+def _groupFaces(component, members):
+    """The faces of component where it meets the others of its rigid group,
+    and their centre, in its own coordinates: those sharing area with
+    another's solid; else those touching one; else the one nearest them"""
+    import Part
+
+    local = Part.getShape(component, "", transform=False)
+    toLocal = component.Placement.inverse()
+    others = []
+    for m in members:
+        if m.Name == component.Name:
+            continue
+        shape = Part.getShape(m, "", transform=False)
+        shape.transformShape((toLocal * m.Placement).toMatrix())
+        others.append(shape)
+    touching = []
+    shared = []
+    nearest = None
+    for i, face in enumerate(local.Faces, 1):
+        for other in others:
+            gap = face.distToShape(other)[0]
+            if nearest is None or gap < nearest[0]:
+                nearest = (gap, i, face)
+            if gap > 1e-6:
+                continue
+            touching.append((i, face))
+            common = face.common(other)
+            if common.Area > 1e-9 * face.Area:
+                shared.append((i, common))
+            break
+    chosen = shared or touching or ([(nearest[1], nearest[2])] if nearest else [])
+    if not chosen:
+        raise ValueError("%s has no faces" % component.Label)
+    area = sum(s.Area for _, s in chosen)
+    at = App.Vector()
+    for _, s in chosen:
+        at += s.CenterOfMass * s.Area
+    at = at * (1.0 / area) if area > 0.0 else chosen[0][1].CenterOfMass
+    # Where they share only part of the faces (an arm under a rod's end),
+    # the round about their centre that takes it in; else 0, all of them
+    radius = 0.0
+    whole = sum(local.Faces[i - 1].Area for i, _ in chosen)
+    if shared and area < 0.99 * whole:
+        radius = max((v.Point - at).Length for _, s in chosen for v in s.Vertexes)
+    return ["Face%d" % i for i, _ in chosen], at, radius
+
+
+def movingParts(assembly, results=None):
+    """The parts whose motion the run reports, which loadsOn takes: each
+    moving body's, and every part of a rigid group, whose motion is the
+    group's"""
+    results = results or assembly.getSimulationResults()
+    parts = []
+    for channel in results["Channels"]:
+        obj = channel["Object"]
+        if channel["Quantity"] != "Acceleration" or obj is None:
+            continue
+        group = _rigidGroup(assembly, obj)
+        for part in sorted(group["Members"], key=lambda m: m.Name) if group else [obj]:
+            if not any(_same(part, p) for p in parts):
+                parts.append(part)
+    return parts
+
+
+def _runMark(assembly, results, held, component):
+    """The run's channel a stress series keeps to know the run by: the held
+    joint's force, or held by its rigid group, the group's acceleration;
+    None when the run has neither"""
+    found = _channels(results, held).get("Force")
+    if found is None:
+        group = _rigidGroup(assembly, component)
+        body = group["Representative"] if group else component
+        found = _channels(results, body).get("Acceleration")
+    return found["Values"] if found else None
+
+
 def _channels(results, obj):
     """The run's channels of obj, by quantity"""
     return {c["Quantity"]: c for c in results["Channels"] if c["Object"] == obj}
@@ -66,9 +184,9 @@ def loadsOn(assembly, component, frame):
     Returns a dict:
       Component, Time, Frame;
       Loads: a list of dicts, each with Source (the joint, spring,
-        bushing, contact set, torsion spring or applied load), Kind
-        ("Joint", "Spring", "Bushing", "Contact", "TorsionSpring", "Load"),
-        Point, Force, Torque (about Point; a joint's its reaction with
+        bushing, contact set, torsion spring, applied load or rigid group),
+        Kind ("Joint", "Spring", "Bushing", "Contact", "TorsionSpring",
+        "Load", "Group"), Point, Force, Torque (about Point; a joint's its reaction with
         its motor's effort, a motion driving it), Reference (a joint's or a
         torsion spring's joint's reference on this component, (object,
         [element]), else None) and Unique (False for a redundant joint's
@@ -77,9 +195,13 @@ def loadsOn(assembly, component, frame):
         that centre (all none while it does not press); a torsion spring's
         a torque about its joint's axis; an applied load's at its frame's
         origin, or on its reaction the opposite, where that origin was at
-        the run's start;
+        the run's start. In a rigid group, the group's ("Group") is what
+        the rest of it holds the part with, which the run does not split
+        among its parts: what balances the others, on the faces where it
+        meets them (Faces, their names), at their centre;
       Mass (kg), CenterOfMass, Inertia (rows, about the centre of mass,
-        kg mm^2), Gravity (mm/s^2), Acceleration (the centre's, mm/s^2),
+        kg mm^2), Gravity (mm/s^2), Acceleration (the centre's -- in a
+        rigid group, the group's motion at it -- mm/s^2),
         AngularVelocity (rad/s), AngularAcceleration (rad/s^2);
       Residual: (force, torque about the centre of mass), the loads with
         gravity less m a, and their moment less I alpha + omega x I omega:
@@ -298,8 +420,9 @@ def _freeBody(assembly, component, frame, results, sim, start):
             )
 
     # The inertia, at the frame's pose
+    entries = assembly.getMassProperties()["Components"]
     props = None
-    for entry in assembly.getMassProperties()["Components"]:
+    for entry in entries:
         if _same(entry["Object"], component):
             props = entry
     if props is None:
@@ -308,19 +431,33 @@ def _freeBody(assembly, component, frame, results, sim, start):
     centre = props["CenterOfMass"]
     inertia = _tensor(props["Inertia"])
 
-    motion = _channels(results, component)
+    # In a rigid group the run reports the group's motion, its body's, at
+    # the group's centre of mass and under its representative's name: this
+    # part's centre's acceleration from it
+    group = _rigidGroup(assembly, component)
+    members = group["Members"] if group else [component]
+    motion = _channels(results, group["Representative"] if group else component)
     if "Acceleration" in motion:
         accel = motion["Acceleration"]["Values"][frame]
         spin = motion["AngularVelocity"]["Values"][frame]
         rate = motion["AngularAcceleration"]["Values"][frame]
-    elif _grounded(assembly, component):
+        if group:
+            total = 0.0
+            middle = App.Vector()
+            for entry in entries:
+                if any(_same(entry["Object"], m) for m in members):
+                    total += entry["Mass"]
+                    middle += entry["CenterOfMass"] * entry["Mass"]
+            r = centre - middle * (1.0 / total)
+            accel = accel + _cross(rate, r) + _cross(spin, _cross(spin, r))
+    elif any(_grounded(assembly, m) for m in members):
         accel = App.Vector()
         spin = App.Vector()
         rate = App.Vector()
     else:
         raise ValueError(
-            "the run reports no motion of %s: it moves with others as one, "
-            "or stands grounded" % component.Label
+            "the run reports no motion of %s: it stands still, held by nothing "
+            "that the run moves" % component.Label
         )
 
     gravity = App.Vector()
@@ -337,6 +474,30 @@ def _freeBody(assembly, component, frame, results, sim, start):
         force += f
         moment += back.multVec(load["Torque"]) + _cross(p - centre, f)
     moment -= _apply(inertia, rate) + _cross(spin, _apply(inertia, spin))
+
+    # What the rest of its rigid group holds it with: what balances it --
+    # the run does not split the group's loads among its parts -- on the
+    # faces where it meets the others, at their centre
+    if group:
+        faces, at, radius = _groupFaces(component, members)
+        p = here.multVec(at)
+        f = -force
+        t = -moment - _cross(p - centre, f)
+        loads.append(
+            {
+                "Source": group["Groups"][0],
+                "Kind": "Group",
+                "Point": at,
+                "Force": turn.multVec(f),
+                "Torque": turn.multVec(t),
+                "Reference": None,
+                "Faces": faces,
+                "Radius": radius,
+                "Unique": True,
+            }
+        )
+        force += f
+        moment += t + _cross(p - centre, f)
 
     return {
         "Component": component,
@@ -405,7 +566,7 @@ def _nearestFace(shape, point):
 def _jointOf(load):
     """The joint a load is at: a joint's own, a torsion spring's on it;
     else None"""
-    if load["Kind"] == "Joint":
+    if load["Kind"] in ("Joint", "Group"):
         return load["Source"]
     if load["Kind"] == "TorsionSpring":
         return load["Source"].Joint
@@ -426,11 +587,12 @@ def _heldLoad(body, heldJoint):
 
 def _heldJoint(bodies, hold):
     """The joint the part is held at over its free bodies: hold, or the one
-    with the largest force at any of them"""
+    with the largest force at any of them -- a rigid group the part is in
+    holding it too, where it meets the others"""
     largest = []  # (joint, its largest force), joints in order
     for body in bodies:
         for load in body["Loads"]:
-            if load["Kind"] != "Joint":
+            if load["Kind"] not in ("Joint", "Group"):
                 continue
             for entry in largest:
                 if entry[0] == load["Source"]:
@@ -501,9 +663,10 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
         if joint is not None and joint.Name in byJoint:
             couplings.append(byJoint[joint.Name])
             continue
-        faces = []
+        # A rigid group's, its faces where it meets the others
+        faces = list(load.get("Faces") or [])
         ref = load["Reference"]
-        if ref:
+        if ref and not faces:
             sub = ref[1][0] if ref[1] else ""
             element = Part.getShape(ref[0], sub, needSubElement=True, transform=False)
             if not element.isNull():
@@ -516,6 +679,9 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
         rb.Label = ("Held at %s" if held else "%s") % (joint or load["Source"]).Label
         rb.References = [(copy, tuple(faces))]
         rb.ReferenceNode = place.multVec(load["Point"])
+        # A rigid group's on the part of its faces it shares, held or not
+        if load.get("Radius"):
+            rb.CouplingRadius = load["Radius"]
         if held:
             rb.Coupling = "Rigid"
             for axis in "XYZ":
@@ -671,7 +837,7 @@ def _nearLoads(objects, size, cache):
     near = set()
     for rb in objects["Couplings"]:
         radius = rb.CouplingRadius.Value if hasattr(rb, "CouplingRadius") else 0.0
-        if rb.Coupling == "Distributing" and radius > 0.0:
+        if radius > 0.0:
             ref = rb.ReferenceNode
             d = np.linalg.norm(coords - np.array([ref.x, ref.y, ref.z]), axis=1)
             near.update(ids[k] for k in np.nonzero(d <= radius + size)[0])
@@ -752,7 +918,7 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
     # Away from the loaded faces: a mesh size off them
     size = getattr(objects["Mesh"].MaxSize, "Value", objects["Mesh"].MaxSize)
     cache = {}
-    runForce = _channels(results, heldJoint)["Force"]["Values"]
+    runForce = _runMark(assembly, results, heldJoint, component)
 
     work = tempfile.mkdtemp(prefix="loadsfem_")
     rows = []
@@ -868,7 +1034,8 @@ class StressSeries:
         (
             "App::PropertyVectorList",
             "RunHeldForce",
-            "The held joint's force channel at each frame, as the run reported it",
+            "The held joint's force channel at each frame, as the run reported it (held by "
+            "its rigid group, the group's acceleration): the run it is of",
         ),
     )
 
@@ -914,10 +1081,9 @@ def stressChannels(assembly, results=None):
             continue
         if obj.Simulation != results.get("Simulation") or obj.Held is None:
             continue
-        found = _channels(results, obj.Held).get("Force")
-        if found is None or max(obj.Frames) >= len(times):
+        run = _runMark(assembly, results, obj.Held, obj.Component)
+        if run is None or max(obj.Frames) >= len(times):
             continue
-        run = found["Values"]
         scale = max(max(v.Length for v in obj.RunHeldForce), 1e-9)
         if any(
             abs(times[f] - t) > 1e-9 * max(1.0, abs(t))

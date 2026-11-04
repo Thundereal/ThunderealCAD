@@ -886,6 +886,108 @@ class TestDynamics(unittest.TestCase):
                 (series.FemHeldTorque[k] - series.HeldTorque[k]).Length, 5e-3 * scale, frame
             )
 
+    def test_loads_on_rigid_group(self):
+        """The pendulum's rod made of two boxes in a rigid group, Rod and Tip
+        (50 x 10 x 10 on its end): the run reports the group's motion, under
+        Rod's name. Each one's free body: its own centre's acceleration from
+        the group's; what the other holds it with on the faces where they
+        meet -- Rod's Face2, Tip's Face1 -- which balances it. Taken from each
+        side apart, Rod's by the hinge's reaction, the two are equal and
+        opposite; and the parts' m a sum to the group's. Tip, which the run
+        reports no motion of, is taken to FEM, held where it meets Rod."""
+        import JointObject
+        import MotionLoads
+
+        rod = self.pendulum()
+        tip = self.box("Tip", (50, 10, 10), (110, 0, 0))
+        group = self.joints.newObject("Assembly::RigidGroupPython", "RigidGroupJoint")
+        JointObject.RigidGroupJoint(group, [rod, tip])
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            [p.Name for p in MotionLoads.movingParts(self.assembly)], ["Rod", "Tip"]
+        )
+        accels = self.channel("Rod", "Acceleration")
+        weight = 150 * 10 * 10 * 2.7e-6 * G
+        for frame in (0, 8, 16, 20):
+            bodies = self.balanced(rod, [frame], weight, 150.0) + self.balanced(
+                tip, [frame], weight, 150.0
+            )
+            sides = []
+            masses = App.Vector()
+            for body, part, face in zip(bodies, (rod, tip), ("Face2", "Face1")):
+                (load,) = [l for l in body["Loads"] if l["Kind"] == "Group"]
+                self.assertTrue(load["Source"] == group)
+                self.assertEqual(load["Faces"], [face])
+                # The faces they share, whole
+                self.assertEqual(load["Radius"], 0.0)
+                self.assembly.updateForFrame(frame)
+                turn = part.Placement.Rotation
+                point = part.Placement.multVec(load["Point"])
+                sides.append((turn.multVec(load["Force"]), turn.multVec(load["Torque"]), point))
+                masses += turn.multVec(body["Acceleration"]) * body["Mass"]
+            (f1, t1, p1), (f2, t2, p2) = sides
+            self.assertLess((p1 - p2).Length, 1e-6, frame)
+            self.assertLess((f1 + f2).Length, 1e-6 * weight, frame)
+            self.assertLess((t1 + t2).Length, 1e-6 * weight * 150.0, frame)
+            total = bodies[0]["Mass"] + bodies[1]["Mass"]
+            self.assertLess((masses - accels[frame] * total).Length, 1e-6 * weight, frame)
+        if not MotionLoads.ccxBinary():
+            return
+        series = MotionLoads.solveFrames(self.assembly, tip, [8, 16], maxSize=4.0)
+        self.assertTrue(series.Held == group)
+        for k in range(2):
+            run, fem = series.HeldForce[k], series.FemHeldForce[k]
+            self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
+        self.assertEqual(len(MotionLoads.stressChannels(self.assembly)), 2)
+
+    def test_loads_on_rigid_group_patch(self):
+        """An arm 10 x 10 x 60 hanging under the rod's far end, the two in a
+        rigid group: they share the arm's top face whole and a 10 x 10 patch
+        of the rod's underside -- the rod's group load on that patch, a round
+        of 5 sqrt(2) about its centre, not along the underside. Solved, the
+        rod held at its hinge, the arm's load on the patch, the hold is the
+        run's."""
+        import JointObject
+        import MotionLoads
+
+        rod = self.pendulum()
+        arm = self.box("Arm", (10, 10, 60), (100, 0, -60))
+        group = self.joints.newObject("Assembly::RigidGroupPython", "RigidGroupJoint")
+        JointObject.RigidGroupJoint(group, [rod, arm])
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        weight = 160 * 10 * 10 * 2.7e-6 * G
+        (onRod,) = [
+            l
+            for l in self.balanced(rod, [10], weight, 150.0)[0]["Loads"]
+            if l["Kind"] == "Group"
+        ]
+        self.assertEqual(onRod["Faces"], ["Face5"])
+        self.assertLess((onRod["Point"] - App.Vector(95, 5, 0)).Length, 1e-6)
+        self.assertAlmostEqual(onRod["Radius"], 50**0.5, delta=1e-6)
+        (onArm,) = [
+            l
+            for l in self.balanced(arm, [10], weight, 150.0)[0]["Loads"]
+            if l["Kind"] == "Group"
+        ]
+        self.assertEqual(onArm["Faces"], ["Face6"])
+        self.assertEqual(onArm["Radius"], 0.0)
+        if not MotionLoads.ccxBinary():
+            return
+        series = MotionLoads.solveFrames(self.assembly, rod, [10], maxSize=4.0)
+        analysis = [o for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")][0]
+        couplings = [o for o in analysis.Group if o.TypeId == "Fem::ConstraintRigidBody"]
+        (patch,) = [c for c in couplings if c.Coupling == "Distributing"]
+        self.assertEqual(patch.References[0][1], ("Face5",))
+        self.assertAlmostEqual(patch.CouplingRadius.Value, 50**0.5, delta=1e-6)
+        run, fem = series.HeldForce[0], series.FemHeldForce[0]
+        self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
+
     def test_loads_on_driven(self):
         """The rod turned by a motion about its hinge, time^2, a kinematic
         run with its reactions: its free body's hinge load holds the motor's

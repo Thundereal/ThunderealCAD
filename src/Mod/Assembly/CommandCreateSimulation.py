@@ -2707,10 +2707,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
         if not self.results:
             return
-        parts = []
-        for channel in self.results["Channels"]:
-            if channel["Quantity"] == "Acceleration" and channel["Object"] is not None:
-                parts.append(channel["Object"])
+        parts = MotionLoads.movingParts(self.assembly, self.results)
         if not parts:
             return
         choice = self.femChoice(parts)
@@ -2833,12 +2830,22 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                     "Away from the loaded faces (a mesh size off them): {:.4g} MPa at {:g} s.",
                 ).format(value, series.Times[k])
             )
-        notes += [
+        held = (
             translate(
+                "Assembly",
+                "What holds it in the analysis against what the rest of its rigid group holds "
+                "it with, which the run does not split among its parts: within {:.2g}% of the "
+                "largest, at every frame.",
+            )
+            if hasattr(series.Held, "ObjectsToRigidGroup")
+            else translate(
                 "Assembly",
                 "What holds it in the analysis against the run's reaction there: within "
                 "{:.2g}% of the largest reaction, at every frame.",
-            ).format(100.0 * worst),
+            )
+        )
+        notes += [
+            held.format(100.0 * worst),
         ]
         if len(series.Frames) < len(frames):
             notes.append(

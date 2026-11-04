@@ -16,7 +16,7 @@ import FreeCAD
 import Part
 import PartDesign
 
-from .SheetMetalFlatView import Flat
+from .SheetMetalFlatView import Flat, flatObject
 
 V = FreeCAD.Vector
 
@@ -52,12 +52,17 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
     def flat(self, source, root=None):
         """The flat of source, laid from the wall named root if given"""
         if root:
-            self.sheet(source).FlatRoot = root
+            self.sheet(source).Root = root
         self.Doc.recompute()
         return Flat(source)
 
     def sheet(self, feature):
-        return self.Body.getSolidBody(feature)
+        """The flat object of the feature's sheet: its settings and values"""
+        return flatObject(feature)
+
+    def show(self, flat):
+        flat.Visibility = True
+        self.Doc.recompute()
 
     def solid(self, flat):
         self.assertNotIn("Invalid", flat.State)
@@ -237,9 +242,8 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
         flat = self.flat(box)
         self.assertIn("Invalid", flat.State)
         sheet = self.sheet(box)
-        sheet.Flatten = True
-        self.Doc.recompute()
-        self.assertIn("is in no wall or bend", sheet.FlatStatus)
+        self.show(sheet)
+        self.assertIn("is in no wall or bend", sheet.Status)
 
     def testManufacturing(self):
         """What a bill of materials takes (sec 5.4): the flat's size and area,
@@ -251,8 +255,7 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
         card.Name = "Sheet test"
         wall.Rule.ShapeMaterial = card
         flat = self.sheet(wall)
-        flat.Flatten = True
-        self.Doc.recompute()
+        self.show(flat)
         self.assertAlmostEqual(flat.FlatLength.Value, 19 + ba() + 9, places=6)
         self.assertAlmostEqual(flat.FlatWidth.Value, 15, places=6)
         self.assertAlmostEqual(flat.FlatArea.Value, (19 + ba() + 9) * 15, places=6)
@@ -268,11 +271,10 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
         flat; turned over, every bend the other way"""
         wall = self.wall([(0, 0), (20, 0), (20, 10), (40, 10)], Length=15)
         flat = self.sheet(wall)
-        flat.Flatten = True
-        self.Doc.recompute()
+        self.show(flat)
         self.assertEqual(flat.BendDirections, {"Bend1": "Up", "Bend2": "Down"})
         # the first wall's other skin laid down
-        flat.FlatSecondSkin = True
+        flat.SecondSkin = True
         self.Doc.recompute()
         self.assertEqual(flat.BendDirections, {"Bend1": "Down", "Bend2": "Up"})
 
@@ -376,7 +378,7 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
             and all(abs(v.Point.y - 10) < 1e-7 and abs(v.Point.x - 21) < 1e-7 for v in e.Vertexes)
         ]
         self.assertEqual(len(across), 1)
-        self.sheet(wall).FlatAlignEdge = across[0]
+        self.sheet(wall).AlignEdge = across[0]
         flat = self.flat(wall)
         self.assertNotIn("Invalid", flat.State)
         box = self.solid(flat).BoundBox
@@ -403,7 +405,7 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
             for i, e in enumerate(pocket.Shape.Edges)
             if e.Curve.TypeId == "Part::GeomCircle"
         ]
-        self.sheet(pocket).FlatAlignEdge = circle[0]
+        self.sheet(pocket).AlignEdge = circle[0]
         flat = self.flat(pocket)
         self.assertIn("Invalid", flat.State)
 
@@ -546,13 +548,14 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
             self.assertTrue(mx < lo - 1 or mx > hi + 1, (d, lo, hi, mx))
 
     def testSaveAndRestore(self):
-        """The sheet's settings are saved with it; the flat, which is not,
-        laid again by them after the document is opened"""
+        """The sheet's settings are saved with its flat object, and its
+        values; a feature's flat, which is not saved, laid again by them after
+        the document is opened"""
         wall = self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
         flat = self.flat(wall, "Wall2")
         sheet = self.sheet(wall)
         sheet.TangentLines = True
-        sheet.Flatten = True
+        sheet.Visibility = True
         flat = self.flat(wall)
         volume = self.solid(flat).Volume
         center = self.solid(flat).CenterOfMass
@@ -564,8 +567,8 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
         self.Doc = FreeCAD.openDocument(path)
         wall, self.Body = (self.Doc.getObject(n) for n in names)
         sheet = self.sheet(wall)
-        self.assertEqual(sheet.FlatRoot, "Wall2")
-        self.assertTrue(sheet.TangentLines and sheet.Flatten)
+        self.assertEqual(sheet.Root, "Wall2")
+        self.assertTrue(sheet.TangentLines and sheet.Visibility)
         self.assertAlmostEqual(sheet.FlatArea.Value, area, places=6)
         flat = Flat(wall)
         self.assertAlmostEqual(self.solid(flat).Volume, volume, places=6)

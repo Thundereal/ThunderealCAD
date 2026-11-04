@@ -3225,10 +3225,55 @@ Phase D1 is under way (2026-10-28):
     test_loads_on_rigid_group_patch (the rod's load from the arm on a
     round of 5 sqrt(2) about the 10 x 10 patch of its underside, solved);
     FEM's test_rigid_coupling_radius.
-  - Not yet: several frames as steps of one CalculiX run; a contact set
-    that presses a part at places apart is one resultant at their centre,
-    on the face nearest it; a part of a group meeting the others nowhere
-    (held at the face nearest them).
+  - Not yet: see the next entry's.
+- Built, D4a: a contact's places on a part.
+  - A contact set pressing a part at places apart was one resultant at
+    their centre, and To FEM put it there: a lever across two posts, their
+    pushes in the middle of the span. The run reports each place too:
+    "PartContactPlaces" per part, width 40 -- four of force, centre of the
+    points weighted by their forces, torque about it, and how far the
+    points reach from it; a place a patch of a pair of bodies' points
+    (ContactLoad's patches), the most pressed first, the fourth the rest.
+    A channel past a vector's three numbers goes to Python as a tuple and
+    is kept out of the Results box's plots (resultChannels). loadsOn gives
+    a contact load per place, with its reach; To FEM a coupling per place
+    on its patch, the reach and a mesh size round, moved at each frame --
+    a box flat on a face on its whole footprint, a ball on a dot -- and a
+    place not pressed at a frame suppressed (left out of the input).
+  - **Found by it: a run's start was out of balance where a contact began
+    in its smallest steps.** The start's reactions are taken back from
+    them (HHT has none before a step: 2 at 32 of h/1024 less at 64), and
+    the bodies' accelerations were too, while a contact's force is read
+    at the start. A steel lever let go across two steel posts read 131
+    rad/s^2 at the start for the 122 of one with nothing under it, its
+    free body 5% of its weight out, To FEM's hold at the first frame 5%
+    off at any mesh. The start's accelerations are now its own forces --
+    its loads' at the start, a contact's as it stands -- and Cq' L of the
+    reactions taken back (2 L halfway less L at the end), through each
+    body's mass and inertia at its start turn (motionFrom, the frames'
+    too). The free body balances; the accelerations are as good as the
+    reactions taken back, which still have the posts' first push in them:
+    a lever's turn 3.6% under its free rate (test_start_with_contact
+    takes 5%).
+  - The manual's video (`assembly/simulation/loads-to-fem-places`): a
+    steel lever across two posts, a block dropped onto it between them,
+    101 frames: up to three places at once, at the posts (x = 36 and 95
+    mm) and under the block (14.8 N at its landing, on its edge); the hold
+    within 0.051% of the largest reaction, its torque within 0.064%. Its
+    largest away from the loaded faces at the landing, 2.00 MPa at x = 4
+    mm, a mesh size and a little off the held face, is still the hold's:
+    one mesh size is less than a coupling's reach into the stress, about a
+    section's depth.
+  - Tests: TestContact's test_part_contact_places (two places at the posts
+    summing to the resultant and its moment; solved, a coupling each, and
+    at the start, none pressed, none in the analysis),
+    test_start_with_contact.
+  - Not yet: several frames as steps of one CalculiX run; the margin the
+    largest away from the loaded faces leaves, a mesh size, where a
+    section's depth is Saint-Venant's; a part of a group meeting the
+    others nowhere (held at the face nearest them); a run's start
+    reactions taken back with a contact begun in them (the accelerations
+    now balance them, not the free motion's).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

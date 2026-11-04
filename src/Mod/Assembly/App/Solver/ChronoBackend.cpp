@@ -921,6 +921,10 @@ double huntCrossley(double restitution)
     return 0.5 * (low + high);
 }
 
+// The places a contact set's "PartContactPlaces" reports on a part, the
+// most pressed first, the rest past them as one
+constexpr std::size_t contactPlaces = 4;
+
 // Whether a contact set is a profile contact's, its shapes profiles
 bool isProfileSet(const Dynamics& dynamics, const ContactPair& pair)
 {
@@ -1097,7 +1101,7 @@ public:
             onB += f;
             ++count;
             if (keep) {
-                pressed.push_back({f, pA, pB, point.frames});
+                pressed.push_back({f, pA, pB, point.frames, point.patch});
             }
         }
     }
@@ -1222,13 +1226,15 @@ public:
     int count = 0;
     // And, where 'keep' (the run's values, not each of the jacobian's
     // differences), each point pressing: its force on B, absolute, where it
-    // is on A and on B, and the model's frames of the shapes it is on
+    // is on A and on B, the model's frames of the shapes it is on, and the
+    // patch it is in
     struct Pressed
     {
         ch::ChVector3d force;
         ch::ChVector3d onA;
         ch::ChVector3d onB;
         std::array<Id, 2> frames;
+        std::size_t patch = 0;
     };
     bool keep = false;
     std::vector<Pressed> pressed;
@@ -8098,6 +8104,8 @@ Status ChronoSession::simulateDynamics(
             channels.push_back({name, "PartContactForce", 3, true, part});
             channels.push_back({name, "PartContactPoint", 3, true, part});
             channels.push_back({name, "PartContactTorque", 3, true, part});
+            channels.push_back(
+                {name, "PartContactPlaces", static_cast<int>(10 * contactPlaces), true, part});
         }
     }
     for (const auto& load : frictions) {
@@ -8518,15 +8526,44 @@ Status ChronoSession::simulateDynamics(
         std::vector<ch::ChVector3d> onSet(sets);
         std::vector<ch::ChVector3d> normalOnSet(sets);
         std::vector<double> deepest(sets, 0.0);
-        // And on each of its parts: the force, its points weighted by the
-        // sizes of their forces and the sum of those, and the moment about
-        // the origin
-        struct OnPart
+        // And on each of its parts, in all and at each place it presses (a
+        // patch of a load, its pair of bodies): the force, its points
+        // weighted by the sizes of their forces and the sum of those, the
+        // moment about the origin, and the points
+        struct Place
         {
+            const ContactLoad* load = nullptr;
+            std::size_t patch = 0;
             ch::ChVector3d force;
             ch::ChVector3d weighted;
             double weight = 0.0;
             ch::ChVector3d moment;
+            std::vector<ch::ChVector3d> points;
+            void add(const ch::ChVector3d& f, const ch::ChVector3d& at)
+            {
+                force += f;
+                weighted += at * f.Length();
+                weight += f.Length();
+                moment += ch::Vcross(at, f);
+                points.push_back(at);
+            }
+            void add(const Place& other)
+            {
+                force += other.force;
+                weighted += other.weighted;
+                weight += other.weight;
+                moment += other.moment;
+                points.insert(points.end(), other.points.begin(), other.points.end());
+            }
+            ch::ChVector3d centre() const
+            {
+                return weight > 0.0 ? weighted / weight : ch::VNULL;
+            }
+        };
+        struct OnPart
+        {
+            Place total;
+            std::vector<Place> places;
         };
         std::vector<std::vector<OnPart>> onParts(sets);
         for (std::size_t s = 0; s < sets; ++s) {
@@ -8535,17 +8572,24 @@ Status ChronoSession::simulateDynamics(
         auto addOn = [&](std::size_t s,
                          const std::string& part,
                          const ch::ChVector3d& f,
-                         const ch::ChVector3d& at) {
+                         const ch::ChVector3d& at,
+                         const ContactLoad* load,
+                         std::size_t patch) {
             const auto& parts = setParts[s];
             const auto found = std::find(parts.begin(), parts.end(), part);
             if (found == parts.end()) {
                 return;
             }
             OnPart& on = onParts[s][found - parts.begin()];
-            on.force += f;
-            on.weighted += at * f.Length();
-            on.weight += f.Length();
-            on.moment += ch::Vcross(at, f);
+            on.total.add(f, at);
+            auto place = std::find_if(on.places.begin(), on.places.end(), [&](const Place& p) {
+                return p.load == load && p.patch == patch;
+            });
+            if (place == on.places.end()) {
+                on.places.push_back({load, patch});
+                place = on.places.end() - 1;
+            }
+            place->add(f, at);
         };
         for (const auto& load : contactLoads) {
             load->keep = true;
@@ -8559,11 +8603,15 @@ Status ChronoSession::simulateDynamics(
                 addOn(load->set,
                       partName(point.frames[1], load->GetBodyB().get()),
                       point.force,
-                      point.onB);
+                      point.onB,
+                      load.get(),
+                      point.patch);
                 addOn(load->set,
                       partName(point.frames[0], load->GetBodyA().get()),
                       -point.force,
-                      point.onA);
+                      point.onA,
+                      load.get(),
+                      point.patch);
             }
         }
         for (std::size_t s = 0; s < sets; ++s) {
@@ -8591,18 +8639,46 @@ Status ChronoSession::simulateDynamics(
             }
             // The resultant on each part at the centre of its points
             // weighted by their forces, and the torque about it
-            for (const OnPart& on : onParts[s]) {
-                const ch::ChVector3d centre =
-                    on.weight > 0.0 ? on.weighted / on.weight : ch::VNULL;
-                const ch::ChVector3d torque = on.moment - ch::Vcross(centre, on.force);
+            // And the places it presses each part at, the most pressed first:
+            // each's force at its centre, the torque about it and how far
+            // its points reach from it; past the slots, the rest as one
+            for (OnPart& on : onParts[s]) {
+                const Place& total = on.total;
+                const ch::ChVector3d centre = total.centre();
+                const ch::ChVector3d torque = total.moment - ch::Vcross(centre, total.force);
                 for (int k = 0; k < 3; ++k) {
-                    out.push_back(on.force[k] / SI::force);
+                    out.push_back(total.force[k] / SI::force);
                 }
                 for (int k = 0; k < 3; ++k) {
                     out.push_back(centre[k] / SI::length);
                 }
                 for (int k = 0; k < 3; ++k) {
                     out.push_back(torque[k] / SI::torque);
+                }
+                std::ranges::stable_sort(on.places, std::greater<>(), [](const Place& p) {
+                    return p.force.Length();
+                });
+                std::vector<Place> slots(contactPlaces);
+                for (std::size_t i = 0; i < on.places.size(); ++i) {
+                    slots[std::min(i, contactPlaces - 1)].add(on.places[i]);
+                }
+                for (const Place& slot : slots) {
+                    const ch::ChVector3d c = slot.centre();
+                    const ch::ChVector3d t = slot.moment - ch::Vcross(c, slot.force);
+                    double reach = 0.0;
+                    for (const ch::ChVector3d& p : slot.points) {
+                        reach = std::max(reach, (p - c).Length());
+                    }
+                    for (int k = 0; k < 3; ++k) {
+                        out.push_back(slot.force[k] / SI::force);
+                    }
+                    for (int k = 0; k < 3; ++k) {
+                        out.push_back(c[k] / SI::length);
+                    }
+                    for (int k = 0; k < 3; ++k) {
+                        out.push_back(t[k] / SI::torque);
+                    }
+                    out.push_back(reach / SI::length);
                 }
             }
         }

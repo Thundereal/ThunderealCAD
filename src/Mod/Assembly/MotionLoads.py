@@ -351,17 +351,38 @@ def _freeBody(assembly, component, frame, results, sim, start):
             if "PartContactForce" not in mine:
                 missing.append(item)
                 continue
-            loads.append(
-                {
-                    "Source": item,
-                    "Kind": "Contact",
-                    "Point": toLocal.multVec(mine["PartContactPoint"]["Values"][frame]),
-                    "Force": turn.multVec(mine["PartContactForce"]["Values"][frame]),
-                    "Torque": turn.multVec(mine["PartContactTorque"]["Values"][frame]),
-                    "Reference": None,
-                    "Unique": True,
-                }
-            )
+            # At each place it presses the part, a load each, with how far
+            # its points reach from its centre; a run kept from before the
+            # places, all as one at their centre
+            places = mine.get("PartContactPlaces")
+            if places is None:
+                loads.append(
+                    {
+                        "Source": item,
+                        "Kind": "Contact",
+                        "Point": toLocal.multVec(mine["PartContactPoint"]["Values"][frame]),
+                        "Force": turn.multVec(mine["PartContactForce"]["Values"][frame]),
+                        "Torque": turn.multVec(mine["PartContactTorque"]["Values"][frame]),
+                        "Reference": None,
+                        "Radius": 0.0,
+                        "Unique": True,
+                    }
+                )
+                continue
+            row = places["Values"][frame]
+            for k in range(0, len(row), 10):
+                loads.append(
+                    {
+                        "Source": item,
+                        "Kind": "Contact",
+                        "Point": toLocal.multVec(App.Vector(*row[k + 3 : k + 6])),
+                        "Force": turn.multVec(App.Vector(*row[k : k + 3])),
+                        "Torque": turn.multVec(App.Vector(*row[k + 6 : k + 9])),
+                        "Reference": None,
+                        "Radius": row[k + 9],
+                        "Unique": True,
+                    }
+                )
         elif item.isDerivedFrom("Assembly::TorsionSpring"):
             joint = item.Joint
             refs = [getattr(joint, "Reference1", None), getattr(joint, "Reference2", None)]
@@ -680,7 +701,7 @@ def _build(assembly, component, body, heldJoint, maxSize, when):
         rb.References = [(copy, tuple(faces))]
         rb.ReferenceNode = place.multVec(load["Point"])
         # A rigid group's on the part of its faces it shares, held or not
-        if load.get("Radius"):
+        if load["Kind"] == "Group" and load.get("Radius"):
             rb.CouplingRadius = load["Radius"]
         if held:
             rb.Coupling = "Rigid"
@@ -739,6 +760,10 @@ def _setFrame(objects, body, heldJoint):
             faces = tuple(_nearestFace(objects["Shape"], load["Point"]))
             if tuple(rb.References[0][1]) != faces:
                 rb.References = [(objects["Copy"], faces)]
+            # On the patch its points reach over, and a mesh size round:
+            # a box resting flat on its whole underside, a ball on a dot
+            size = getattr(objects["Mesh"].MaxSize, "Value", objects["Mesh"].MaxSize)
+            rb.CouplingRadius = load.get("Radius", 0.0) + size
         _, force, torque = totals.get(rb.Name, (rb, App.Vector(), App.Vector()))
         totals[rb.Name] = (rb, force + load["Force"], torque + load["Torque"])
     for rb, force, torque in totals.values():

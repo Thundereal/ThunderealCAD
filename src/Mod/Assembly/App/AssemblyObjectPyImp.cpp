@@ -261,8 +261,16 @@ PyObject* AssemblyObjectPy::getSimulationResults(PyObject* args) const
                     if (channel.width == 3) {
                         values.append(Py::Vector(Base::Vector3d(v[0], v[1], v[2])));
                     }
-                    else {
+                    else if (channel.width == 1) {
                         values.append(Py::Float(v[0]));
+                    }
+                    else {
+                        // A wider one's numbers as they are, a tuple
+                        Py::Tuple row(channel.width);
+                        for (int k = 0; k < channel.width; ++k) {
+                            row.setItem(k, Py::Float(v[k]));
+                        }
+                        values.append(row);
                     }
                 }
                 Py::Dict entry;

@@ -151,14 +151,19 @@ def resultName(channel):
 def resultChannels(assembly):
     """The last run's results with their channels, the run's own and the
     stress series taken from it (MotionLoads.stressChannels): a value per
-    frame, None at a frame a series did not solve"""
+    frame, None at a frame a series did not solve. A channel of more than a
+    vector's numbers a frame (a contact set's places on a part, for its
+    loads) is not one to plot, and left out."""
     import MotionLoads
 
     results = assembly.getSimulationResults()
     if results["Channels"]:
-        results["Channels"] = list(results["Channels"]) + MotionLoads.stressChannels(
-            assembly, results
-        )
+        shown = [
+            c
+            for c in results["Channels"]
+            if not (c["Values"] and isinstance(c["Values"][0], tuple))
+        ]
+        results["Channels"] = shown + MotionLoads.stressChannels(assembly, results)
     return results
 
 

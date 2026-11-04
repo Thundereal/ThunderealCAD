@@ -178,6 +178,12 @@ struct SimulationSpec
 //                      weighted by their forces (mm, the model's
 //                      coordinates; the origin while none presses), and the
 //                      torque about that centre; width 3
+//   "PartContactPlaces"  the same at each place it presses the part, a
+//                      patch of a pair of bodies' points, the most pressed
+//                      first and the fourth all the rest: four of force (3),
+//                      centre (3), torque about it (3) and how far its
+//                      points reach from it (mm); width 40, a place not
+//                      pressed all none
 //   "AppliedForce", "AppliedTorque"  an applied load's on its component (the
 //                      body of its frame I), the force at frame I's origin
 //                      or the torque; width 3

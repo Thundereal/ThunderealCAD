@@ -25,6 +25,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
@@ -33,11 +34,14 @@
 
 namespace App
 {
+class Document;
 class DocumentObject;
-}
+}  // namespace App
 
 namespace PartDesign
 {
+
+class SolidBody;
 
 /// How a sheet lies flat: its solid's settings (docs/SheetMetal.md sec 12,
 /// ruled 2026-11-03)
@@ -98,5 +102,28 @@ PartDesignExport SheetFlat layFlat(const App::DocumentObject* part, const FlatSe
  * lie flat; Base::FileException where the file cannot be written.
  */
 PartDesignExport void exportFlat(const App::DocumentObject* obj, const char* path);
+
+/// One sheet's file of exportFlats()
+struct PartDesignExport FlatExport
+{
+    /// The sheet's solid
+    const SolidBody* sheet = nullptr;
+    /// The file written; empty if none was
+    std::string path;
+    /// Why none was: its flat cannot be laid or the file written
+    std::string error;
+};
+
+/** Write the flat of every sheet in \a doc into \a folder, one file each,
+ * as DXF or SVG by \a suffix ("dxf" or "svg", a dot and case aside): each
+ * named after its body, and the sheet's solid where the body holds more
+ * than one sheet, made a file name and numbered where taken twice. A sheet
+ * that fails is told and the others written.
+ *
+ * Throws Base::ValueError before anything is written: a suffix neither dxf
+ * nor svg, a folder that is not there.
+ */
+PartDesignExport std::vector<FlatExport>
+exportFlats(const App::Document* doc, const char* folder, const char* suffix);
 
 }  // namespace PartDesign

@@ -24,7 +24,9 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <cstring>
 #include <numbers>
+#include <set>
 #include <vector>
 
 #include <boost/algorithm/string/case_conv.hpp>
@@ -33,6 +35,7 @@
 #include <BRepGProp.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <Standard_Failure.hxx>
 #include <TopoDS.hxx>
 
 #include <App/Document.h>
@@ -222,6 +225,85 @@ void exportFlat(const App::DocumentObject* obj, const char* path)
     else {
         SheetMetal::writeSVG(out, flat.result, solid->flatSettings().tangentLines);
     }
+}
+
+namespace
+{
+
+/// A label made a file name: no separator or character a file system
+/// refuses, nor a trailing dot or space
+std::string fileNameOf(const std::string& label)
+{
+    std::string res;
+    for (char c : label) {
+        const auto u = static_cast<unsigned char>(c);
+        res += u < 0x20 || std::strchr("/\\:*?\"<>|", c) ? '_' : c;
+    }
+    while (!res.empty() && (res.back() == '.' || res.back() == ' ')) {
+        res.pop_back();
+    }
+    return res.empty() ? std::string("Sheet") : res;
+}
+
+}  // namespace
+
+std::vector<FlatExport>
+exportFlats(const App::Document* doc, const char* folder, const char* suffix)
+{
+    if (!doc) {
+        THROWM(Base::ValueError, "No document");
+    }
+    std::string ext = boost::algorithm::to_lower_copy(std::string(suffix ? suffix : ""));
+    if (!ext.empty() && ext.front() == '.') {
+        ext.erase(0, 1);
+    }
+    if (ext != "dxf" && ext != "svg") {
+        FC_THROWM(Base::ValueError,
+                  "Export Flat writes dxf or svg, not '" << (suffix ? suffix : "") << "'");
+    }
+    Base::FileInfo dir(folder ? folder : "");
+    if (!dir.isDir()) {
+        FC_THROWM(Base::ValueError, "No folder " << (folder ? folder : ""));
+    }
+
+    std::vector<FlatExport> res;
+    // names taken, as a case-blind file system sees them
+    std::set<std::string> taken;
+    for (auto obj : doc->getObjectsOfType(Body::getClassTypeId())) {
+        auto body = static_cast<Body*>(obj);
+        std::vector<SolidBody*> sheets;
+        for (auto solid : body->getSolidBodies()) {
+            if (solid && solid->isSheetMetal()) {
+                sheets.push_back(solid);
+            }
+        }
+        for (auto solid : sheets) {
+            std::string name = body->Label.getStrValue();
+            if (sheets.size() > 1) {
+                name += "-" + solid->Label.getStrValue();
+            }
+            name = fileNameOf(name);
+            std::string unique = name;
+            for (int i = 2; !taken.insert(boost::algorithm::to_lower_copy(unique)).second; ++i) {
+                unique = name + "-" + std::to_string(i);
+            }
+            FlatExport item;
+            item.sheet = solid;
+            const std::string path = dir.filePath() + "/" + unique + "." + ext;
+            try {
+                exportFlat(solid, path.c_str());
+                item.path = path;
+            }
+            catch (const Base::Exception& e) {
+                item.error = e.what();
+            }
+            catch (const Standard_Failure& e) {
+                item.error = e.what();
+            }
+            res.push_back(std::move(item));
+        }
+    }
+    return res;
 }
 
 }  // namespace PartDesign

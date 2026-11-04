@@ -27,6 +27,14 @@
 #include "PreCompiled.h"
 
 #include <iomanip>
+#include <sstream>
+
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
+#include <QFileInfo>
+#include <QFormLayout>
 
 #include <boost/algorithm/string/predicate.hpp>
 
@@ -41,6 +49,7 @@
 #include <Gui/Command.h>
 #include <Gui/CommandT.h>
 #include <Gui/FileDialog.h>
+#include <Gui/Macro.h>
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
@@ -51,6 +60,7 @@
 #include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/SheetMetal/Recognise.h>
 #include <Mod/PartDesign/App/SheetMetalExtension.h>
+#include <Mod/PartDesign/App/SheetMetalFlat.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalCheck.h"
@@ -1155,6 +1165,121 @@ bool CmdPartDesignSheetMetalExportDXF::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalExportFlats
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalExportFlats)
+
+CmdPartDesignSheetMetalExportFlats::CmdPartDesignSheetMetalExportFlats()
+    : Command("PartDesign_SheetMetalExportFlats")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Export Every Flat...");
+    sToolTipText = QT_TR_NOOP("Writes the flat of every sheet in the document into a folder,\n"
+                              "one DXF or SVG file each, named after its body");
+    sWhatsThis = "PartDesign_SheetMetalExportFlats";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalExportDXF";
+}
+
+namespace
+{
+/// Whether the document holds a sheet
+bool hasSheet(const App::Document* doc)
+{
+    if (!doc) {
+        return false;
+    }
+    for (auto obj : doc->getObjectsOfType(PartDesign::SolidBody::getClassTypeId())) {
+        if (static_cast<PartDesign::SolidBody*>(obj)->isSheetMetal()) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
+void CmdPartDesignSheetMetalExportFlats::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    App::Document* doc = App::GetApplication().getActiveDocument();
+    if (!hasSheet(doc)) {
+        return;
+    }
+    // the folder and format last used, else the document's folder
+    auto hGrp = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Mod/PartDesign/SheetMetal");
+    QString folder = QString::fromUtf8(hGrp->GetASCII("ExportFolder", "").c_str());
+    if (folder.isEmpty()) {
+        const QString file = QString::fromUtf8(doc->FileName.getValue());
+        folder = file.isEmpty() ? QDir::homePath() : QFileInfo(file).absolutePath();
+    }
+
+    QDialog dlg(Gui::getMainWindow());
+    dlg.setObjectName(QStringLiteral("SheetMetalExportFlats"));
+    dlg.setWindowTitle(QObject::tr("Export Every Flat"));
+    auto form = new QFormLayout(&dlg);
+    auto chooser = new Gui::FileChooser(&dlg);
+    chooser->setObjectName(QStringLiteral("folder"));
+    chooser->setMode(Gui::FileChooser::Directory);
+    chooser->setFileName(folder);
+    form->addRow(QObject::tr("Folder"), chooser);
+    auto format = new QComboBox(&dlg);
+    format->setObjectName(QStringLiteral("format"));
+    format->addItems({QStringLiteral("DXF"), QStringLiteral("SVG")});
+    format->setCurrentIndex(hGrp->GetASCII("ExportFormat", "dxf") == "svg" ? 1 : 0);
+    form->addRow(QObject::tr("Format"), format);
+    auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(buttons);
+    dlg.resize(480, dlg.sizeHint().height());
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    const std::string dir = chooser->fileName().toUtf8().constData();
+    const std::string ext = format->currentIndex() == 1 ? "svg" : "dxf";
+    hGrp->SetASCII("ExportFolder", dir.c_str());
+    hGrp->SetASCII("ExportFormat", ext.c_str());
+
+    // the call, as the macro has it
+    std::ostringstream line;
+    line << "PartDesign.exportFlats(App.getDocument(\"" << doc->getName() << "\"), \""
+         << Base::Tools::escapeEncodeFilename(dir) << "\", \"" << ext << "\")";
+    auto macro = Gui::Application::Instance->macroManager();
+    macro->addLine(Gui::MacroManager::App, "import PartDesign");
+    macro->addLine(Gui::MacroManager::App, line.str().c_str());
+    std::vector<PartDesign::FlatExport> written;
+    try {
+        written = PartDesign::exportFlats(doc, dir.c_str(), ext.c_str());
+    }
+    catch (const Base::Exception& e) {
+        warn(QT_TRANSLATE_NOOP("Command", "Export Every Flat"), e.what());
+        return;
+    }
+    for (const auto& item : written) {
+        const std::string label = item.sheet ? item.sheet->getFullLabel() : std::string("?");
+        if (item.error.empty()) {
+            Base::Console().message("%s: %s\n",
+                                    QObject::tr("Export Every Flat").toUtf8().constData(),
+                                    item.path.c_str());
+        }
+        else {
+            Base::Console().userWarning("%s: %s: %s\n",
+                                        QObject::tr("Export Every Flat").toUtf8().constData(),
+                                        label.c_str(),
+                                        item.error.c_str());
+        }
+    }
+}
+
+bool CmdPartDesignSheetMetalExportFlats::isActive()
+{
+    return hasSheet(App::GetApplication().getActiveDocument());
+}
+
+//===========================================================================
 // PartDesign_SheetMetalCheck
 //===========================================================================
 
@@ -1208,5 +1333,6 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalConvert());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatten());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
+    mgr.addCommand(new CmdPartDesignSheetMetalExportFlats());
     mgr.addCommand(new CmdPartDesignSheetMetalCheck());
 }

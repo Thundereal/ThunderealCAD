@@ -27,10 +27,12 @@
 #include <Base/VectorPy.h>
 #include <Base/Tools.h>
 #include <App/DocumentObjectPy.h>
+#include <App/DocumentPy.h>
 #include <Standard_Failure.hxx>
 
 #include "SheetMetalCheck.h"
 #include "SheetMetalFlat.h"
+#include "SolidBody.h"
 
 
 namespace PartDesign {
@@ -46,6 +48,12 @@ public:
             "exportFlat(obj, path) -- the flat of obj, a feature of a sheet's solid or the\n"
             "solid (its tip's), written with the sheet's settings as DXF or SVG by the\n"
             "suffix of path."
+        );
+        add_varargs_method("exportFlats",&Module::exportFlats,
+            "exportFlats(doc, folder, suffix='dxf') -> list -- the flat of every sheet in doc\n"
+            "written into folder, one file each, as DXF or SVG by suffix, named after its body\n"
+            "(and its solid where the body holds more than one sheet): a dict for each sheet,\n"
+            "{'Sheet': its solid, 'File': the file written or '', 'Error': why not or ''}."
         );
         add_varargs_method("checkSheet",&Module::checkSheet,
             "checkSheet(obj) -> dict -- the bend table of obj, a feature of a sheet's solid\n"
@@ -76,6 +84,39 @@ private:
             }
         } _PY_CATCH(throw Py::Exception())
         return Py::None();
+    }
+
+    Py::Object exportFlats(const Py::Tuple& args)
+    {
+        PyObject *pyDoc;
+        char *folder;
+        const char *suffix = "dxf";
+        if (!PyArg_ParseTuple(args.ptr(), "O!et|s", &(App::DocumentPy::Type), &pyDoc,
+                              "utf-8", &folder, &suffix))
+            throw Py::Exception();
+        const std::string dir(folder);
+        PyMem_Free(folder);
+        std::vector<PartDesign::FlatExport> written;
+        PY_TRY {
+            try {
+                written = PartDesign::exportFlats(
+                        static_cast<App::DocumentPy*>(pyDoc)->getDocumentPtr(),
+                        dir.c_str(), suffix);
+            }
+            catch (const Standard_Failure &e) {
+                THROWM(Base::CADKernelError, e.GetMessageString());
+            }
+        } _PY_CATCH(throw Py::Exception())
+        Py::List res;
+        for (const auto &item : written) {
+            Py::Dict entry;
+            auto sheet = const_cast<PartDesign::SolidBody*>(item.sheet);
+            entry.setItem("Sheet", sheet ? Py::asObject(sheet->getPyObject()) : Py::None());
+            entry.setItem("File", Py::String(item.path));
+            entry.setItem("Error", Py::String(item.error));
+            res.append(entry);
+        }
+        return res;
     }
 
     Py::Object checkSheet(const Py::Tuple& args)

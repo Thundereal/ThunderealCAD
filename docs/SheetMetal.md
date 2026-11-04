@@ -1397,6 +1397,10 @@ and not frozen.
     swallowed the circle; it runs from the corner a thickness out. `TestSheetMetalConvert` (19):
     with a circle or a square 6 across, the tray is the flange suite's mitred tray; None and
     Tear leave the square; outside, the tray is the inside tray of a box a thickness larger.
+  - An imported thin part's rule read from the part (5.3, Recognise): with one face picked and
+    none to open, the command takes the facing thickness into the sheet's rule where it is the
+    convert's own (made for the sheet's first feature); a shared rule is left, the convert
+    saying the two differ. Each bend keeps its own radius already.
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

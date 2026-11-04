@@ -3114,9 +3114,10 @@ Phase D1 is under way (2026-10-28):
     along the lever from x = 67 to 88 mm, 5.3 to 9.5 N. The largest stress,
     2.456 MPa at 0.23 s, is at the hinge, where the spring's 259 N mm
     enters: beam theory 2.43 MPa. The hold within 0.35% of the largest
-    reaction, its torque within 0.024%; the
-    force's difference the held face's own body load (step 4), 0.020 N at
-    a 3 mm mesh, 0.011 N at 1.5 mm.
+    reaction, its torque within 0.024%; the force's difference 0.020 N at
+    a 3 mm mesh, 0.011 N at 1.5 mm -- taken then for the held face's own
+    body load (step 4), it was the disc's push on the underside's nodes at
+    the hinge's end, the held face's too (the next entry).
   - **Found and fixed: a substep taken again started from reactions not
     finite.** The video's disc on its lever, by the steel's own law -- a
     cylinder's side on a face, Johnson's line contact, about 2e8 N/m at its
@@ -3149,10 +3150,48 @@ Phase D1 is under way (2026-10-28):
     link was explicit. A motor's own count (ChLinkMotorRotation's mrot) is
     reported only: its position constraint is the formula's rotation.
     test_lever_on_fast_cam has the spring, its torque the turn's.
-  - Not yet: the largest away from the loaded faces; several frames as
-    steps of one CalculiX run; a part in a rigid group; a contact set that
-    presses a part at places apart is one resultant at their centre, on
-    the face nearest it.
+  - Not yet: see the next entry's.
+- Built, D4a: a point load on a patch, the stress away from the loads.
+  - **A load at a point was spread along its whole face.** A contact's,
+    a spring's or a bushing's end, an applied load, a joint on a vertex:
+    each through a distributing coupling on the face nearest its point,
+    all of it -- the same force and moment about the point, but along the
+    face: a push at a bar's middle bent it as a load along all its length
+    (FEM's test: the tip 0.0715 mm for the point load's 0.0603). FEM, our
+    fork: ConstraintRigidBody's `CouplingRadius`, a distributing coupling
+    on the element faces within it of the reference node only (by the
+    centre of each element's nodes on the faces; the nearest where none
+    is), its node set theirs. MotionLoads gives such a load a patch a mesh
+    size round; a joint's referenced faces stay whole, a bore or a face
+    being what it acts on. test_motionloads' test_coupling_radius: through
+    3 mm, 10 element faces, the tip 0.0596 mm against 0.0603; the whole
+    face, 362, 0.0715 against a uniform load's 0.0722.
+  - Found by it: the lever's hold, 0.35% of the largest reaction off the
+    run's, is within 0.056% with the push on its patch. On the whole
+    underside the push's nodes at the hinge's end were the held face's
+    too, and their share went into the hold without passing through the
+    lever -- not the held face's body load it was taken for; halving the
+    mesh had halved both.
+  - Each frame's largest von Mises stress away from the loaded faces:
+    the nodes within a mesh size of the hold's faces and of a whole-face
+    coupling's, and within a patch's radius and a mesh size of its point,
+    left out (`_nearLoads`), where the stress shows a coupling's own
+    stiffness or the load's concentration. The series keeps it
+    (VonMisesAway, NaN where no node is that far; VonMisesAwayAt), the
+    Results box plots it ("Largest von Mises stress away from the loaded
+    faces"), the summary gives it.
+  - The double pendulum's first rod (the manual's loads-to-fem-frames
+    video, which now plots it): the same as the largest at 74 of the 81
+    frames; at the 7 whose largest was the held face's (0.19 to 0.31 s),
+    the rod's own at x = 20 to 58 mm -- in the middle third (0.19, 0.195,
+    0.29 s) the per-frame video's beam theory within 0.6%. The lever on
+    its cam: the same as the largest, the hinge's bending.
+  - Tests: test_loads_to_fem_frames (the largest away a mesh size off both
+    end faces, the same as the largest where that is; the two channels),
+    test_loads_to_fem_contact (the contact's patch).
+  - Not yet: several frames as steps of one CalculiX run; a part in a
+    rigid group; a contact set that presses a part at places apart is one
+    resultant at their centre, on the face nearest it.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

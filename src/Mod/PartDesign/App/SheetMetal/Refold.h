@@ -74,8 +74,9 @@ PartDesignExport TopoDS_Face cornerReliefFace(const Model& model, int root, int 
                                               int shape, double size);
 
 /** The corner reliefs of bends meeting in pairs at a miter, each pair's
- * shape (cornerReliefFace()) folded back (refold()) through their wall, the
- * two bends and the walls after them: the solids to cut from the part
+ * shape (cornerReliefFace()) folded back (refold()) through the wall they
+ * share -- each bend from it or into it -- the two bends and the walls on
+ * their other sides: the solids to cut from the part
  *
  * Each as large as size, or as cover asks if larger (ruled 2026-11-03):
  * that share of the rectangle the two bends' strips make where they cross,

@@ -57,8 +57,11 @@
 #include <Geom_SurfaceOfLinearExtrusion.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <ShapeBuild_ReShape.hxx>
+#include <ShapeAnalysis_FreeBounds.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_Solid.hxx>
+#include <ShapeFix_Wire.hxx>
+#include <TopTools_HSequenceOfShape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -229,13 +232,33 @@ struct Mapper
     TopoDS_Wire wire(int element, const TopoDS_Wire& w, const TopoDS_Face& face) const
     {
         BRepBuilderAPI_MakeWire mk;
+        Handle(TopTools_HSequenceOfShape) edges = new TopTools_HSequenceOfShape;
         for (BRepTools_WireExplorer it(w, face); it.More(); it.Next()) {
-            mk.Add(edge(element, it.Current(), face));
+            const TopoDS_Edge e = edge(element, it.Current(), face);
+            edges->Append(e);
+            if (mk.Error() == BRepBuilderAPI_WireDone || edges->Length() == 1) {
+                mk.Add(e);
+            }
         }
-        if (!mk.IsDone()) {
+        if (mk.IsDone() && edges->Length() == mk.Wire().NbChildren()) {
+            return mk.Wire();
+        }
+        // Each edge is mapped from its own ends, so two meeting at a vertex
+        // of a looser tolerance -- a corner relief's, cut by a boolean (5e-6)
+        // -- end that far apart flat: joined within the folded wire's
+        // tolerance
+        double tol = Precision::Confusion();
+        for (TopExp_Explorer it(w, TopAbs_VERTEX); it.More(); it.Next()) {
+            tol = std::max(tol, 2 * BRep_Tool::Tolerance(TopoDS::Vertex(it.Current())));
+        }
+        Handle(TopTools_HSequenceOfShape) wires;
+        ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edges, tol, false, wires);
+        if (wires.IsNull() || wires->Length() != 1 || !BRep_Tool::IsClosed(wires->Value(1))) {
             THROWM(Base::ValueError, "A face of a bend does not unroll into a closed outline");
         }
-        return mk.Wire();
+        ShapeFix_Wire fix(TopoDS::Wire(wires->Value(1)), TopoDS_Face(), tol);
+        fix.FixConnected(tol);
+        return fix.Wire();
     }
 
     /** A face across the sheet cut square to it (a hole's wall, a slot's

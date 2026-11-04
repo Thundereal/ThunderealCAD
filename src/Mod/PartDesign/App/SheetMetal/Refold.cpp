@@ -432,20 +432,30 @@ std::vector<TopoShape> cornerReliefs(const Model& model,
     for (const auto& [a, b] : corners) {
         const Element& ea = model.elements[a];
         const Element& eb = model.elements[b];
-        if (ea.before != eb.before) {
+        // the wall the two bends share, each from it or into it -- a flange's
+        // both run from it; a part recognised has each the way its cylinder
+        // runs -- and the wall each goes to from there
+        int root = -1;
+        for (int wall : {ea.before, ea.after}) {
+            if (wall == eb.before || wall == eb.after) {
+                root = wall;
+            }
+        }
+        if (root < 0) {
             continue;
         }
+        const int toA = ea.before == root ? ea.after : ea.before;
+        const int toB = eb.before == root ? eb.after : eb.before;
         // the strips' widths flat, where they cross
         const double wa = std::abs(ea.bend.angle) * ea.bend.neutral();
         const double wb = std::abs(eb.bend.angle) * eb.bend.neutral();
         const double covered = shape == 1 ? std::hypot(wa, wb) : std::max(wa, wb);
-        const int root = ea.before;
         const TopoDS_Face face =
             cornerReliefFace(model, root, a, b, shape, std::max(size, cover * covered));
         if (face.IsNull()) {
             continue;
         }
-        for (TopoShape& tool : refold(model, root, face, {root, a, b, ea.after, eb.after})) {
+        for (TopoShape& tool : refold(model, root, face, {root, a, b, toA, toB})) {
             res.push_back(std::move(tool));
         }
     }

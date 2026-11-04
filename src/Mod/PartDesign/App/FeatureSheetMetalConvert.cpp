@@ -67,6 +67,7 @@
 #include "FeatureSheetMetalConvert.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Recognise.h"
+#include "SheetMetal/Refold.h"
 
 using namespace PartDesign;
 using Part::TopoShape;
@@ -311,7 +312,7 @@ TopoDS_Shape ripSlab(const gp_Pnt& p, const gp_Dir& d, const gp_Dir& na, const g
  * two plane faces at an angle.
  */
 TopoShape ripped(const TopoShape& part, const std::vector<TopoDS_Shape>& rips, double T,
-                 double gap)
+                 double gap, ConvertCuts& cuts)
 {
     TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
     TopExp::MapShapesAndAncestors(part.getShape(), TopAbs_EDGE, TopAbs_FACE, edgeFaces);
@@ -339,6 +340,9 @@ TopoShape ripped(const TopoShape& part, const std::vector<TopoDS_Shape>& rips, d
                       "Edge" << edges.FindIndex(rip)
                              << " is ripped but is no straight corner between two plane faces");
         }
+        cuts.rips.push_back({c.Value((c.FirstParameter() + c.LastParameter()) / 2),
+                             outward(two[0]),
+                             outward(two[1])});
         slabs.emplace_back(ripSlab(c.Value(c.FirstParameter()),
                                    c.Line().Direction(),
                                    outward(two[0]),
@@ -436,14 +440,15 @@ App::DocumentObjectExecReturn* SheetMetalConvert::execute()
         // thickened
         TopoShape part = base;
         TopoDS_Face fixedFace = fixed;
+        ConvertCuts cuts;
         const bool thin = open.empty() && base.countSubShapes(TopAbs_SOLID) == 1
             && std::abs(SheetMetal::facingThickness(base.getShape(), fixed) - T) <= 1e-6;
         if (thin && !rips.empty()) {
-            part = getSolid(ripped(base, rips, T, rule->Gap.getValue()));
+            part = getSolid(ripped(base, rips, T, rule->Gap.getValue(), cuts));
             fixedFace = faceAt(part, fixed);
         }
         if (!thin) {
-            part = thickened(base, fixed, open, rips, *rule);
+            part = thickened(base, fixed, open, rips, *rule, cuts);
             fixedFace = faceAt(part, fixed);
         }
         if (fixedFace.IsNull()) {
@@ -458,6 +463,64 @@ App::DocumentObjectExecReturn* SheetMetalConvert::execute()
             FC_THROWM(Base::ValueError,
                       "The part is " << found.model.thickness << " mm thick, the rule "
                                      << T << " mm: set the rule's thickness to the part's");
+        }
+
+        // Each wall at a rip ends at its side of the gap, as a mitred leg
+        // does: the gap's face its limit. Faces there are its, and a corner
+        // relief folded into it stops there.
+        const double gap = rule->Gap.getValue();
+        for (const ConvertCuts::Rip& rip : cuts.rips) {
+            const gp_Dir normal(gp_Vec(rip.na) - gp_Vec(rip.nb));
+            // the wall whose skin the face facing n lay in, the rip's point
+            // on one of its skins
+            auto wallOf = [&](const gp_Dir& n) -> SheetMetal::Element* {
+                for (auto& e : found.model.elements) {
+                    if (e.kind != SheetMetal::Element::Kind::Wall
+                        || !e.frame.Direction().IsParallel(n, Precision::Angular())) {
+                        continue;
+                    }
+                    const double depth =
+                        gp_Vec(e.frame.Location(), rip.at).Dot(gp_Vec(e.frame.Direction()));
+                    if (depth > -1e-6 && depth < found.model.thickness + 1e-6) {
+                        return &e;
+                    }
+                }
+                return nullptr;
+            };
+            SheetMetal::Element* a = wallOf(rip.na);
+            SheetMetal::Element* b = wallOf(rip.nb);
+            if (a && b && a != b) {
+                // the face a faces with na lies on the gap's positive side
+                a->limits.emplace_back(rip.at.Translated(gp_Vec(normal) * (gap / 2)),
+                                       normal.Reversed());
+                b->limits.emplace_back(rip.at.Translated(gp_Vec(normal) * (-gap / 2)), normal);
+            }
+        }
+
+        // The rule's corner relief where the thickened part's bends meet at
+        // a rip, as a flange cuts it at a miter: the two bends nearest each
+        // corner it relieved, laid flat there and folded back. Its own square
+        // relief stays where the rule's is smaller or none.
+        std::vector<std::pair<int, int>> corners;
+        for (const gp_Pnt& at : cuts.relieved) {
+            std::vector<std::pair<double, int>> near;
+            for (std::size_t i = 0; i < found.model.elements.size(); ++i) {
+                const auto& e = found.model.elements[i];
+                if (e.kind == SheetMetal::Element::Kind::Bend) {
+                    near.emplace_back(gp_Lin(e.bend.frame.Axis()).Distance(at),
+                                      static_cast<int>(i));
+                }
+            }
+            std::sort(near.begin(), near.end());
+            const auto axis = [&](int i) {
+                return found.model.elements[i].bend.frame.Direction();
+            };
+            for (std::size_t j = 1; j < near.size(); ++j) {
+                if (!axis(near[0].second).IsParallel(axis(near[j].second), Precision::Angular())) {
+                    corners.emplace_back(near[0].second, near[j].second);
+                    break;
+                }
+            }
         }
 
         // split where each bend meets its walls, every face in one element
@@ -484,6 +547,20 @@ App::DocumentObjectExecReturn* SheetMetalConvert::execute()
                 result = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Fuse, pieces);
             }
             result = getSolid(result);
+        }
+        // cut last, as a flange cuts it: the split's pieces fused again would
+        // remake its edges on the bends
+        if (!corners.empty()) {
+            const std::vector<TopoShape> reliefs =
+                SheetMetal::cornerReliefs(found.model,
+                                          corners,
+                                          rule->CornerReliefShape.getValue(),
+                                          rule->CornerReliefSize.getValue(),
+                                          rule->CornerReliefCover.getValue());
+            if (!reliefs.empty()) {
+                result = getSolid(TopoShape(0, hasher).makEBoolean(
+                    Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));
+            }
         }
         // every face one element's
         int index = 0;
@@ -513,7 +590,8 @@ TopoShape SheetMetalConvert::thickened(const TopoShape& base,
                                        const TopoDS_Face& fixed,
                                        const std::vector<TopoDS_Shape>& open,
                                        const std::vector<TopoDS_Shape>& rips,
-                                       const SheetMetalRule& rule)
+                                       const SheetMetalRule& rule,
+                                       ConvertCuts& made)
 {
     (void)fixed;
     const bool shell = base.getShape().ShapeType() == TopAbs_SHELL;
@@ -717,12 +795,14 @@ TopoShape SheetMetalConvert::thickened(const TopoShape& base,
                 BRepPrimAPI_MakePrism(BRepBuilderAPI_MakeFace(square.Wire()).Face(),
                                       along * (sMax + over))
                     .Shape());
+            made.relieved.push_back(corner);
             // the gap from within the relief, clear of the skins
             const double at = gp_Vec(e.p, corner).Dot(gp_Vec(e.d))
                 + (end ? -1 : 1) * (sMax - past - R / 2);
             ends[end] = at;
         }
         cuts.emplace_back(ripSlab(e.p, e.d, e.na, e.nb, ends[0], ends[1], 2 * (R + T) + T, gap));
+        made.rips.push_back({e.p.Translated(gp_Vec(e.d) * (e.length / 2)), e.na, e.nb});
     }
     if (!cuts.empty()) {
         res = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,

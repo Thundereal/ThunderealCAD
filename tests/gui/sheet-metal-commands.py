@@ -612,6 +612,43 @@ def run():
         fvo.ShowBendDown = True
         pump()
 
+        # Laid by its second skin the bends go down: a down bend's line lies
+        # on the blank's underside, drawn on its top, as one looking down
+        # sees it
+        camera = view.getCamera()
+        flat.SecondSkin = True
+        doc.recompute()
+        pump(20)
+        view.viewTop()
+        view.fitAll()
+        pump()
+        def bendOf(i):
+            # Bend1, or Bend1Part2: the bend a marking is of, or None
+            name = flat.Shape.getElementMappedName("Edge%d" % i).split(";")[0]
+            if not name.startswith("Bend") or "Tangent" in name:
+                return None
+            return name.split("Part")[0]
+
+        downs = [
+            (i + 1, e)
+            for i, e in enumerate(flat.Shape.Edges)
+            if flat.BendDirections.get(bendOf(i + 1)) == "Down"
+        ]
+        down = max(downs, key=lambda t: t[1].Length) if downs else None
+        hit = pickLine(*down) if down else None
+        check(
+            "a down bend's line, on the underside, is drawn and picked from above",
+            down is not None
+            and abs(down[1].BoundBox.ZMax - flat.Shape.BoundBox.ZMin) < 1e-6
+            and hit is not None
+            and hit.split(".")[-1] == "Edge%d" % down[0],
+            (down and (down[0], down[1].BoundBox), flat.BendDirections, hit),
+        )
+        flat.SecondSkin = False
+        doc.recompute()
+        view.setCamera(camera)
+        pump(20)
+
         # Both: the folded part shown too, the flat moved off it by its own
         # placement
         flatBox = box

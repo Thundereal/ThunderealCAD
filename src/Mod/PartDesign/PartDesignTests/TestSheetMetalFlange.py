@@ -531,6 +531,84 @@ class TestSheetMetalFlange(unittest.TestCase):
         self.assertEqual(second.Rule, self.Plate.Rule)
         self.assertNotIn(None, self.owners(second))
 
+    def topEdge(self, feature, y=None, x=None, top=None):
+        """The longest straight edge on a feature's top (or at z top) along
+        X at y, or along Y at x"""
+        if top is None:
+            top = max(v.Point.z for v in feature.Shape.Vertexes)
+        found = None
+        for i, e in enumerate(feature.Shape.Edges):
+            ends = [v.Point for v in e.Vertexes]
+            if len(ends) != 2 or any(abs(p.z - top) > 1e-7 for p in ends):
+                continue
+            if y is not None and any(abs(p.y - y) > 1e-7 for p in ends):
+                continue
+            if x is not None and any(abs(p.x - x) > 1e-7 for p in ends):
+                continue
+            if not found or e.Length > found[1]:
+                found = ("Edge%d" % (i + 1), e.Length)
+        self.assertIsNotNone(found)
+        return found[0]
+
+    def onEdges(self, base, names, name):
+        """A flange bent outside the edges, so the wall is not cut back and
+        the part is the base and the flange's pieces"""
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", name)
+        flange.Edges = (base, names)
+        flange.BendPosition = "BendOutside"
+        self.Doc.recompute()
+        return flange
+
+    def checkAdded(self, flange, base):
+        """The flange added to the part whole, run into nothing of it"""
+        self.checkValid(flange)
+        self.assertAlmostEqual(
+            flange.Shape.Volume, base.Shape.Volume + flange.AddSubShape.Volume, places=6
+        )
+        self.assertNotIn(None, self.owners(flange))
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertEqual(len(flat.Shape.Solids), 1)
+        self.assertTrue(flat.Shape.Solids[0].isValid())
+
+    def testFlangeOnMiteredLeg(self):
+        """A flange on the top of a mitered leg stops at the corner's plane,
+        x - y = 20, as the leg does, and runs into nothing (found
+        2026-11-04: square, it ran into the other leg and did not lie flat)"""
+        first = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        second = self.onEdges(first, [self.topEdge(first, y=20)], "Flange2")
+        self.checkAdded(second, first)
+        gap = self.Plate.Rule.Gap.Value
+        for v in second.AddSubShape.Vertexes:
+            self.assertLessEqual(v.Point.x - v.Point.y, 20 - gap / 2 + 1e-6, v.Point)
+
+    def testFlangesOnMiteredLegs(self):
+        """Both legs' tops flanged: each stops at the corner's plane, the
+        rule's gap between them, and the flat lies"""
+        first = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        second = self.onEdges(first, [self.topEdge(first, y=20)], "Flange2")
+        top = max(v.Point.z for v in first.Shape.Vertexes)
+        third = self.onEdges(second, [self.topEdge(second, x=40, top=top)], "Flange3")
+        self.checkAdded(third, second)
+        gap = self.Plate.Rule.Gap.Value
+        for v in third.AddSubShape.Vertexes:
+            self.assertGreaterEqual(v.Point.x - v.Point.y, 20 + gap / 2 - 1e-6, v.Point)
+
+    def testCornerFreedByReliefs(self):
+        """Two edges flanged with gaps at the corner they share: the reliefs
+        and the cut-backs part the corner's 1 x 1 from the plate, and it is
+        dropped, as the cutter drops it from the blank (found 2026-11-04: it
+        stayed, a solid of its own, and the flat did not lie)"""
+        flange = self.flange(
+            [((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))], Gap1=2, Gap2=2
+        )
+        self.checkValid(flange)
+        self.assertFalse(flange.Shape.isInside(V(39.5, 19.5, 0.5), 1e-9, True))
+        self.assertTrue(flange.Shape.isInside(V(20, 10, 0.5), 1e-9, True))
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertEqual(len(flat.Shape.Solids), 1)
+
     def testRuleFollowed(self):
         """A rule value changed recomputes the flange"""
         flange = self.far()

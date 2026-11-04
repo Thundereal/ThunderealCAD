@@ -773,6 +773,22 @@ def run():
         # tool bar's update does
         cmd.isActive()
         box = flange.ViewObject.getBoundingBox()
+        # hidden, the flat draws nothing: not its blank, nor its lines
+        for o in body.Group:
+            if o != flat and o.ViewObject and o.ViewObject.Visibility:
+                o.ViewObject.Visibility = False
+        view.fitAll()
+        pump(10)
+        stray = pickLine(*line) if line else None
+        for o in body.Group:
+            if o == flange:
+                o.ViewObject.Visibility = True
+        pump(10)
+        check(
+            "hidden, the flat's lines are not drawn: nothing picked where one lay",
+            line is not None and not (stray and stray.startswith(flat.Name + ".")),
+            stray,
+        )
         check(
             "folded back: the flat hidden, the tip shown as it is, unchecked",
             not flat.Visibility

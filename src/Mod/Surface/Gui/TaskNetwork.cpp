@@ -27,6 +27,7 @@
 #ifndef _PreComp_
 #include <map>
 
+#include <QPointer>
 #include <QAction>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -180,10 +181,15 @@ public:
     {}
     ~Gate() override
     {
-        panel->pick = Pick::None;
+        // The panel can be gone first: a served session's own selection
+        // deletes the gate after the panel closed (ASan, heap-use-after-free).
+        if (panel)
+            panel->pick = Pick::None;
     }
     bool allow(App::Document*, App::DocumentObject* obj, const char* sub) override
     {
+        if (!panel)
+            return false;
         auto network = panel->object();
         if (!network || obj == network || !obj->isDerivedFrom<Part::Feature>()) {
             return false;
@@ -209,7 +215,7 @@ public:
     }
 
 private:
-    NetworkPanel* panel;
+    QPointer<NetworkPanel> panel;
 };
 
 // ----------------------------------------------------------------------------

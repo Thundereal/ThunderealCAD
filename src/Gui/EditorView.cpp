@@ -149,6 +149,11 @@ EditorView::EditorView(TextEdit* editor, QWidget* parent)
 /** Destroys the object and frees any allocated resources */
 EditorView::~EditorView()
 {
+    // The editor outlives d: MDIView's destructor deletes it afterwards, and
+    // its highlighter's teardown changes the document -- contentsChange()
+    // and the undo slots then read d, freed (ASan, heap-use-after-free).
+    d->textEdit->disconnect(this);
+    d->textEdit->document()->disconnect(this);
     d->activityTimer->stop();
     delete d->activityTimer;
     delete d;

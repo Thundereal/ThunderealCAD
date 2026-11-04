@@ -27,6 +27,7 @@
 #ifndef _PreComp_
 #include <array>
 
+#include <QPointer>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -124,15 +125,20 @@ public:
     {}
     ~Gate() override
     {
-        panel->gateOn = false;
+        // The panel can be gone first: a served session's own selection
+        // deletes the gate after the panel closed (ASan, heap-use-after-free).
+        if (panel)
+            panel->gateOn = false;
     }
     bool allow(App::Document*, App::DocumentObject* obj, const char* sub) override
     {
+        if (!panel)
+            return false;
         return panel->allows(obj, sub ? sub : "");
     }
 
 private:
-    ToolPanel* panel;
+    QPointer<ToolPanel> panel;
 };
 
 ToolPanel::ToolPanel(App::DocumentObject* obj, const char* name, const QString& title)

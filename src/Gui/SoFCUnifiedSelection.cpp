@@ -91,6 +91,7 @@
 #include <Inventor/SoRenderManager.h>
 
 #include <QApplication>
+#include <QPointer>
 #include <QtOpenGL.h>
 
 #include <App/Application.h>
@@ -389,7 +390,12 @@ public:
     mutable SoFCRayPickAction rayPickAction;
 
     Gui::Document        *pcDocument;
-    View3DInventorViewer *pcViewer;
+    // Guarded: the node outlives its view -- a delayed selection update
+    // (SoFCRenderCacheManager) traverses it after the view is closed --
+    // and every use below tests it, which a raw pointer to a deleted viewer
+    // passed (ASan: heap-use-after-free in getHiddenLineConfig(), 81 of the
+    // driven tests).
+    QPointer<View3DInventorViewer> pcViewer;
 
     // The owning 3D view object, whose Section_* properties answer for the
     // section style this node picks and renders with. Null for a viewer

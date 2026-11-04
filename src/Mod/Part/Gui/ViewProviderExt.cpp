@@ -1702,8 +1702,13 @@ const std::vector<Base::Color> &PropertyDiffuseColor::getValues() const
 {
     if (_appearance) {
         // Resolved out of the base and the overriding faces, into the member
-        // this property keeps for it -- see the note on _resolved
-        _resolved = _appearance->getDiffuseColors();
+        // this property keeps for it -- see the note on _resolved. Replaced
+        // only when it changed: a reference a caller still holds from the
+        // read before stays good while the colours are the same, as any
+        // other property's does.
+        auto resolved = _appearance->getDiffuseColors();
+        if (resolved != _resolved)
+            _resolved = std::move(resolved);
         return _resolved;
     }
     return App::PropertyColorList::getValues();

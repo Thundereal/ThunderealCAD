@@ -131,7 +131,10 @@ public:
     //@{
     const std::vector<Base::Color> &getValues() const override;
     const std::vector<Base::Color> &getValue() const { return getValues(); }
-    const Base::Color &operator[](int idx) const { return getValues()[idx]; }
+    /// By value: a reference into the resolved list was left dangling by
+    /// the next read, which resolves again (DiffuseColor[0] == DiffuseColor[i]
+    /// read freed memory -- ASan, exporting a part)
+    Base::Color operator[](int idx) const { return getValues()[idx]; }
     int getSize() const override;
     //@}
 

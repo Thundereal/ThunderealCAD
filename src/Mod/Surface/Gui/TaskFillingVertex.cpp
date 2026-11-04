@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 #ifndef _PreComp_
+#include <QPointer>
 #include <QAction>
 #include <QTimer>
 #endif
@@ -48,20 +49,26 @@ namespace SurfaceGui
 class FillingVertexPanel::VertexSelection: public Gui::SelectionFilterGate
 {
 public:
-    VertexSelection(FillingVertexPanel::SelectionMode& mode, Surface::Filling* editedObject)
+    VertexSelection(FillingVertexPanel::SelectionMode& mode, Surface::Filling* editedObject, QObject* owner)
         : Gui::SelectionFilterGate(nullPointer())
         , mode(mode)
         , editedObject(editedObject)
+        , owner(owner)
     {}
     ~VertexSelection() override
     {
-        mode = FillingVertexPanel::None;
+        // The panel can be gone first: a served session's own selection
+        // deletes the gate after the panel closed (ASan, heap-use-after-free).
+        if (owner)
+            mode = FillingVertexPanel::None;
     }
     /**
      * Allow the user to pick only edges.
      */
     bool allow(App::Document*, App::DocumentObject* pObj, const char* sSubName) override
     {
+        if (!owner)
+            return false;
         // don't allow references to itself
         if (pObj == editedObject) {
             return false;
@@ -108,6 +115,7 @@ private:
 
 private:
     FillingVertexPanel::SelectionMode& mode;
+    QPointer<QObject> owner;  ///< the panel mode lives in
     Surface::Filling* editedObject;
 };
 
@@ -255,7 +263,7 @@ void FillingVertexPanel::onButtonVertexAddToggled(bool checked)
 {
     if (checked) {
         // 'selectionMode' is passed by reference and changed when the filter is deleted
-        Gui::Selection().addSelectionGate(new VertexSelection(selectionMode, editedObject));
+        Gui::Selection().addSelectionGate(new VertexSelection(selectionMode, editedObject, this));
         selectionMode = AppendVertex;
     }
     else if (selectionMode == AppendVertex) {
@@ -267,7 +275,7 @@ void FillingVertexPanel::onButtonVertexRemoveToggled(bool checked)
 {
     if (checked) {
         // 'selectionMode' is passed by reference and changed when the filter is deleted
-        Gui::Selection().addSelectionGate(new VertexSelection(selectionMode, editedObject));
+        Gui::Selection().addSelectionGate(new VertexSelection(selectionMode, editedObject, this));
         selectionMode = RemoveVertex;
     }
     else if (selectionMode == RemoveVertex) {

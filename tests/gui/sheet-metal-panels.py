@@ -291,8 +291,77 @@ def run():
             pump(20)
             doc.recompute()
             pump(10)
+
+        # View: the feature folded, laid flat, or both (docs/SheetMetal.md
+        # sec 12, 2026-11-04), while the panel is open. In an edit session
+        # the flat is a node of the session's and the rest is hidden by its
+        # views' table, out of reach here: the panel says what it draws
+        vo = flange.ViewObject
+
+        def field(name):
+            value = vo.SwitchNode.getField(name).get()
+            return int(value.getString() if hasattr(value, "getString") else str(value))
+
+        def drawn():
+            return (bool(combo.property("flatDrawn")), bool(combo.property("drawnAlone")))
+
+        folded = (vo.RootNode.getNumChildren(), field("whichChild"))
+        combo = w.get("comboSheetView")
+        check(
+            "the panel offers View: Folded, Flat, Both, Folded at first",
+            combo is not None
+            and [combo.itemText(i) for i in range(combo.count())] == ["Folded", "Flat", "Both"]
+            and combo.currentIndex() == 0,
+            combo and [combo.itemText(i) for i in range(combo.count())],
+        )
+        if combo is not None:
+            combo.setCurrentIndex(1)
+            pump(20)
+            check("Flat: the flange's flat drawn, nothing else", drawn() == (True, True), drawn())
+            combo.setCurrentIndex(2)
+            pump(20)
+            check("Both: the flat and the folded part", drawn() == (True, False), drawn())
+            combo.setCurrentIndex(0)
+            pump(20)
+            check(
+                "Folded: as it was",
+                drawn() == (False, False)
+                and (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
+                (drawn(), vo.RootNode.getNumChildren(), field("whichChild"), folded),
+            )
+            solid = body.getSolidBody(flange)
+            flatObj = [
+                o for o in solid.InList
+                if o.isDerivedFrom("PartDesign::SheetMetalFlatPattern") and o.Sheet == solid
+            ][0]
+            flatObj.Root = "Wall9"
+            doc.recompute()
+            combo.setCurrentIndex(1)
+            pump(20)
+            said = w.get("labelFlatStatus")
+            check(
+                "a flange that does not lie flat says why, and is drawn folded",
+                said is not None
+                and "Wall9" in said.text()
+                and drawn() == (False, False)
+                and (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
+                said and (said.text(), drawn()),
+            )
+            flatObj.Root = ""
+            doc.recompute()
+            pump(20)
+            check(
+                "laid again after a recompute",
+                said is not None and said.text() == "" and drawn() == (True, True),
+                said and (said.text(), drawn()),
+            )
         accept()
         pump(20)
+        check(
+            "the panel closed on Flat: the flange drawn folded again",
+            (vo.RootNode.getNumChildren(), field("whichChild")) == folded,
+            (vo.RootNode.getNumChildren(), field("whichChild"), folded),
+        )
 
         # the flange went to the near edge in the end: the far end is plain
         far = [
@@ -629,6 +698,40 @@ def run():
             made and doc.getObject(made[0]) is None and not FreeCADGui.Control.activeDialog(),
             made,
         )
+
+        # A flange's panel says what it did of its own accord: on an L's leg,
+        # up to the L's bend, kept off that bend by the relief's width
+        # (ruled 2026-11-04)
+        lbody = doc.addObject("PartDesign::Body", "LBody")
+        lsketch = lbody.newObject("Sketcher::SketchObject", "LSketch")
+        for a, b in (((0, 0), (20, 0)), ((20, 0), (20, 10))):
+            lsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        lwall = lbody.newObject("PartDesign::SheetMetalBaseWall", "L")
+        lwall.Profile = lsketch
+        lwall.Length = 15
+        doc.recompute()
+        top = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(lwall.Shape.Edges)
+            if len(e.Vertexes) == 2
+            and all(abs(v.Point.z - 15) < 1e-7 and abs(v.Point.x - 20) < 1e-7 for v in e.Vertexes)
+            and abs(e.Vertexes[0].Point.y - e.Vertexes[1].Point.y) > 1
+        ]
+        lflange = lbody.newObject("PartDesign::SheetMetalFlange", "LFlange")
+        lflange.Edges = (lwall, top[:1])
+        lflange.Length = 8
+        doc.recompute()
+        FreeCADGui.ActiveDocument.setEdit(lflange.Name)
+        pump(30)
+        w = panel() or {}
+        said = w.get("labelNotice")
+        check(
+            "a flange kept off its wall's own bend says so in its panel",
+            said is not None and "Bend1" in said.text() and "kept 1 mm" in said.text(),
+            said and said.text(),
+        )
+        press(QtWidgets.QDialogButtonBox.Cancel)
+        pump(20)
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

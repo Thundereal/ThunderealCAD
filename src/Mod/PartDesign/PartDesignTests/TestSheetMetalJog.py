@@ -16,7 +16,7 @@ import unittest
 import FreeCAD
 import Part
 
-from .SheetMetalFlatView import Flat
+from .SheetMetalFlatView import Flat, showFlat
 
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
@@ -103,6 +103,50 @@ class TestSheetMetalJog(unittest.TestCase):
         self.assertEqual(len(flat.Shape.Solids), 1)
         self.assertTrue(flat.Shape.Solids[0].isValid())
         return flat
+
+    def testFlangeEndingAtTheJog(self):
+        """A flange on the plate's far edge on its top, up to where the jog's
+        first bend starts: not an earlier flange's corner -- the jog's sheet
+        runs on past its run into another bend -- but a bend of its own
+        wall, so it is kept off it by the relief's width (ruled
+        2026-11-04); one solid, and it lies flat. It was mitered against the
+        jog's run, two solids, and did not lie flat"""
+        jog = self.jog()
+        self.checkValid(jog)
+        # the far edge on the top, from x 0 to where the first bend starts
+        edge = edgeOf(jog, (0, 20, 1), (10, 20, 1))
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (jog, [edge])
+        flange.Length = 8
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertIn("Bend1", flange.Notice)
+        self.flat(flange)
+
+    def testFlangeDownOnTheMovingSide(self):
+        """A flange down from the far edge of the moving side, on its bottom:
+        its leg runs down past the plate's plane, its faces its own, not the
+        plate's, whose slab runs on in its plane; it lies flat (found
+        2026-11-04: the leg's faces were taken as the plate's, laid as it
+        is, upright, whatever gap the flange had)"""
+        jog = self.jog()
+        self.checkValid(jog)
+        # the moving side lies 5 up, its bottom skin at z 5
+        edge = edgeOf(jog, (40, 20, 5), (30, 20, 5))
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (jog, [edge])
+        flange.Length = 8
+        self.Doc.recompute()
+        self.checkValid(flange)
+        legs = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(flange.Shape.Faces)
+            if f.BoundBox.ZMin < -1
+        ]
+        self.assertTrue(legs)
+        for name in legs:
+            self.assertNotEqual(flange.sheetElementOf(name), "Wall1", name)
+        self.flat(flange)
 
     def checkBox(self, shape, **box):
         bb = shape.BoundBox
@@ -205,11 +249,8 @@ class TestSheetMetalJog(unittest.TestCase):
         self.checkBox(jog.Shape, XMax=40, ZMax=6)
         flat = self.flat(jog)
         self.assertAlmostEqual(flat.FlatLength.Value, 40 + added, places=6)
-        # the tip's, its sheet's solid's while flattening is on
-        sheet = self.Body.getSolidBody(jog)
-        sheet.Flatten = True
-        self.Doc.recompute()
-        self.assertAlmostEqual(sheet.MaxBendAngle.Value, 45, places=6)
+        # the tip's, on its sheet's flat object while shown
+        self.assertAlmostEqual(showFlat(jog).MaxBendAngle.Value, 45, places=6)
 
     def testMovingPicked(self):
         """The larger side picked to move: it is raised, its end at x 0"""

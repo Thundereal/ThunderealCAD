@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-# Sheet metal's flat as a view, not a feature (docs/SheetMetal.md sec 12,
-# ruled 2026-11-03): every feature of a sheet's solid lays itself flat when
-# asked, as its element Flat (feature.getSubObject("Flat")), and the
-# solid gives its tip's. The flat's settings are the sheet's, on its solid:
-# the root by the wall's name, the grain and the tangent lines; what a bill
-# of materials takes are read-only values of the solid, from its tip, kept up
-# only while the user has the solid's Flatten on (ruled 2026-11-03: nothing
-# is laid flat in a recompute otherwise). An L
+# Sheet metal's flat (docs/SheetMetal.md sec 12): every feature of a sheet's
+# solid lays itself flat when asked, as its element Flat
+# (feature.getSubObject("Flat")), and the solid gives its tip's. The sheet
+# has one flat object (ruled 2026-11-04), made by the body, hidden: it holds
+# the flat's settings (the root by the wall's name, the grain, the tangent
+# lines), which every feature's flat follows, and saves its solid's tip's
+# flat with what a bill of materials takes of it, laid only while it is
+# shown or something uses it (nothing is laid flat in a recompute
+# otherwise, ruled 2026-11-03). An L
 # of inner legs 19 and 9, 15 wide, 1 thick, the rule's radius 1 and K 0.5:
 # 19 + BA + 9 long flat, where BA is pi / 2 * 1.5.
 
@@ -24,7 +25,9 @@ import PartDesign
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
 VALUES = ("FlatLength", "FlatWidth", "FlatArea", "Thickness", "MaterialName", "BendCount",
-          "MaxBendAngle", "BendDirections", "FlatStatus")
+          "MaxBendAngle", "BendDirections", "Status")
+SETTINGS = ("Root", "SecondSkin", "AlignEdge", "TangentLines", "Grain", "GrainAngle")
+OUT_OF_DATE = "Out of date: it is laid flat when shown"
 
 
 def readDXF(path):
@@ -69,6 +72,10 @@ def flatOf(obj):
     return obj.getSubObject("Flat")
 
 
+def flatObjectsOf(doc):
+    return [o for o in doc.Objects if o.isDerivedFrom("PartDesign::SheetMetalFlatPattern")]
+
+
 class TestSheetMetalFlat(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("PartDesignTestSheetMetalFlat")
@@ -95,6 +102,17 @@ class TestSheetMetalFlat(unittest.TestCase):
 
     def L(self):
         return self.wall([(0, 0), (20, 0), (20, 10)], Length=15)
+
+    def flatObject(self, feature):
+        """The flat object of a feature's sheet"""
+        sheet = self.Body.getSolidBody(feature)
+        found = [o for o in flatObjectsOf(self.Doc) if o.Sheet == sheet]
+        self.assertEqual(len(found), 1)
+        return found[0]
+
+    def show(self, flat):
+        flat.Visibility = True
+        self.Doc.recompute()
 
     def solidOf(self, flat):
         solids = flat.SubShapes[0].Solids
@@ -128,10 +146,10 @@ class TestSheetMetalFlat(unittest.TestCase):
         plate = self.wall([(0, 0), (40, 0), (40, 20), (0, 20)], closed=True)
         sheet = self.Body.getSolidBody(plate)
         self.assertIsNotNone(sheet)
-        sheet.Flatten = True
-        self.Doc.recompute()
+        flat = self.flatObject(plate)
+        self.show(flat)
         self.checkFlat(flatOf(sheet), 40, 20)
-        self.assertEqual(sheet.BendCount, 0)
+        self.assertEqual(flat.BendCount, 0)
         flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
         edge = [
             "Edge%d" % (i + 1)
@@ -145,79 +163,184 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(self.Body.getSolidBody(flange), sheet)
         solid = self.checkFlat(flatOf(sheet), 18 + BA + 8, 40)
         self.assertAlmostEqual(solid.Volume, flange.Shape.Volume, places=6)
-        self.assertEqual(sheet.BendCount, 1)
-        self.assertEqual(sheet.FlatStatus, "")
+        self.assertEqual(flat.BendCount, 1)
+        self.assertEqual(flat.Status, "")
+        self.checkFlat(flat.Shape, 18 + BA + 8, 40)
 
     def testValues(self):
-        """What a bill of materials takes, read only on the solid, its tip's;
-        following an edit of the tip"""
+        """What a bill of materials takes, read only on the flat object, of its
+        solid's tip; following an edit of the tip"""
         import Materials
 
         wall = self.L()
         card = Materials.Material()
         card.Name = "Sheet test"
         wall.Rule.ShapeMaterial = card
-        sheet = self.Body.getSolidBody(wall)
-        sheet.Flatten = True
-        self.Doc.recompute()
-        self.assertAlmostEqual(sheet.FlatLength.Value, 19 + BA + 9, places=6)
-        self.assertAlmostEqual(sheet.FlatWidth.Value, 15, places=6)
-        self.assertAlmostEqual(sheet.FlatArea.Value, (19 + BA + 9) * 15, places=6)
-        self.assertAlmostEqual(sheet.Thickness.Value, 1)
-        self.assertEqual(sheet.MaterialName, "Sheet test")
-        self.assertEqual(sheet.BendCount, 1)
-        self.assertAlmostEqual(sheet.MaxBendAngle.Value, 90)
-        self.assertEqual(sheet.FlatStatus, "")
+        flat = self.flatObject(wall)
+        self.show(flat)
+        self.assertAlmostEqual(flat.FlatLength.Value, 19 + BA + 9, places=6)
+        self.assertAlmostEqual(flat.FlatWidth.Value, 15, places=6)
+        self.assertAlmostEqual(flat.FlatArea.Value, (19 + BA + 9) * 15, places=6)
+        self.assertAlmostEqual(flat.Thickness.Value, 1)
+        self.assertEqual(flat.MaterialName, "Sheet test")
+        self.assertEqual(flat.BendCount, 1)
+        self.assertAlmostEqual(flat.MaxBendAngle.Value, 90)
+        self.assertEqual(flat.Status, "")
         for name in VALUES:
-            self.assertIn("ReadOnly", sheet.getEditorMode(name), name)
+            self.assertIn("ReadOnly", flat.getEditorMode(name), name)
         wall.Length = 12
         self.Doc.recompute()
-        self.assertAlmostEqual(sheet.FlatWidth.Value, 12, places=6)
+        self.assertAlmostEqual(flat.FlatWidth.Value, 12, places=6)
 
-    def testFlattenOff(self):
-        """Flatten off, as it starts: no flat laid in a recompute, the values
-        left as they were; the flat itself still there when asked. On, the
-        values the tip's; off again, an edit leaves them as they were"""
+    def testFlatObject(self):
+        """One flat object per sheet, made by the body with the first sheet
+        metal feature: hidden, its solid's, not in the solid's chain nor the
+        body's tip; a second feature makes no other; the solid has no
+        settings of its own"""
         wall = self.L()
+        flats = flatObjectsOf(self.Doc)
+        self.assertEqual(len(flats), 1)
+        flat = flats[0]
         sheet = self.Body.getSolidBody(wall)
-        self.assertFalse(sheet.Flatten)
-        self.assertAlmostEqual(sheet.FlatArea.Value, 0)
-        self.assertEqual(sheet.BendCount, 0)
-        self.checkFlat(flatOf(sheet), 19 + BA + 9, 15)
-        sheet.Flatten = True
+        self.assertEqual(flat.Sheet, sheet)
+        self.assertFalse(flat.Visibility)
+        self.assertEqual(flat.Label, "Flat")
+        self.assertIn(flat, self.Body.Group)
+        self.assertNotIn(flat, sheet.Group)
+        self.assertEqual(self.Body.Tip, wall)
+        for name in ("Flatten", "FlatRoot", "TangentLines", "FlatLength", "FlatStatus"):
+            self.assertNotIn(name, sheet.PropertiesList)
+        for name in SETTINGS + VALUES:
+            self.assertIn(name, flat.PropertiesList)
+        hem = self.Body.newObject("PartDesign::SheetMetalHem", "Hem")
+        hem.Edges = (wall, [self.endEdge(wall)])
         self.Doc.recompute()
-        self.assertAlmostEqual(sheet.FlatWidth.Value, 15, places=6)
-        self.assertEqual(sheet.BendCount, 1)
-        sheet.Flatten = False
+        self.assertNotIn("Invalid", hem.State)
+        self.assertEqual(flatObjectsOf(self.Doc), [flat])
+
+    def endEdge(self, wall):
+        """An edge where the L's short leg's skin meets its end, at y 10"""
+        for i, e in enumerate(wall.Shape.Edges):
+            ends = [v.Point for v in e.Vertexes]
+            if (
+                len(ends) == 2
+                and all(abs(p.y - 10) < 1e-7 for p in ends)
+                and abs(ends[0].x - ends[1].x) < 1e-7
+            ):
+                return "Edge%d" % (i + 1)
+        self.fail("no end edge")
+
+    def testLaidWhenShown(self):
+        """Hidden, nothing is laid flat in a recompute: no shape, out of date.
+        Shown, it asks for a recompute and holds the tip's flat; it follows an
+        edit; hidden again, an edit leaves the flat as it was, out of date,
+        until it is shown"""
+        wall = self.L()
+        flat = self.flatObject(wall)
+        self.Doc.recompute()
+        self.assertTrue(flat.Shape.isNull())
+        self.assertEqual(flat.Status, OUT_OF_DATE)
+        self.assertEqual(flat.BendCount, 0)
+        flat.Visibility = True
+        self.assertIn("Touched", flat.State)
+        self.Doc.recompute()
+        self.assertEqual(flat.Status, "")
+        self.checkFlat(flat.Shape, 19 + BA + 9, 15)
         wall.Length = 12
         self.Doc.recompute()
-        self.assertAlmostEqual(sheet.FlatWidth.Value, 15, places=6)
-        self.checkFlat(flatOf(sheet), 19 + BA + 9, 12)
-        self.assertNotIn("Flat", wall.State)
+        self.checkFlat(flat.Shape, 19 + BA + 9, 12)
+        flat.Visibility = False
+        wall.Length = 10
+        self.Doc.recompute()
+        self.assertEqual(flat.Status, OUT_OF_DATE)
+        self.checkFlat(flat.Shape, 19 + BA + 9, 12)
+        self.assertAlmostEqual(flat.FlatWidth.Value, 12, places=6)
+        self.show(flat)
+        self.checkFlat(flat.Shape, 19 + BA + 9, 10)
+        self.assertAlmostEqual(flat.FlatWidth.Value, 10, places=6)
+
+    def testLaidWhenUsed(self):
+        """Hidden but used, by a link here: laid flat as if shown"""
+        wall = self.L()
+        flat = self.flatObject(wall)
+        link = self.Doc.addObject("App::Link", "FlatLink")
+        link.LinkedObject = flat
+        self.Doc.recompute()
+        self.assertFalse(flat.Visibility)
+        self.assertEqual(flat.Status, "")
+        self.checkFlat(flat.Shape, 19 + BA + 9, 15)
+
+    def testFlatPlaced(self):
+        """Its placement moves its shape, the flat drawn off the folded part"""
+        wall = self.L()
+        flat = self.flatObject(wall)
+        self.show(flat)
+        before = flat.Shape.BoundBox
+        flat.Placement.Base = V(100, 0, 0)
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.BoundBox.XMin, before.XMin + 100, places=6)
+        wall.Length = 12
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.BoundBox.XMin, before.XMin + 100, places=6)
+
+    def testSaved(self):
+        """Its shape and values are saved: opened again, the flat is there
+        without a recompute, its faces named after the folded ones"""
+        wall = self.L()
+        flat = self.flatObject(wall)
+        self.show(flat)
+        names = flat.Shape.ElementMapSize
+        path = os.path.join(tempfile.mkdtemp(), "flat.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        flat = flatObjectsOf(self.Doc)[0]
+        self.assertNotIn("Touched", flat.State)
+        self.assertEqual(flat.Status, "")
+        self.checkFlat(flat.Shape, 19 + BA + 9, 15)
+        self.assertEqual(flat.Shape.ElementMapSize, names)
+        self.assertAlmostEqual(flat.FlatWidth.Value, 15, places=6)
+
+    def testNotLaying(self):
+        """Shown with a root no wall has: why, the last flat kept"""
+        wall = self.L()
+        flat = self.flatObject(wall)
+        self.show(flat)
+        flat.Root = "Wall9"
+        self.Doc.recompute()
+        self.assertIn("Wall9", flat.Status)
+        self.checkFlat(flat.Shape, 19 + BA + 9, 15)
+
+    def testUndoneWithItsSheet(self):
+        """Made in the same undo step as the first sheet metal feature, and
+        undone with it"""
+        self.Doc.UndoMode = 1
+        self.Doc.openTransaction("Wall")
+        self.L()
+        self.Doc.commitTransaction()
+        self.assertEqual(len(flatObjectsOf(self.Doc)), 1)
+        self.Doc.undo()
+        self.assertEqual(flatObjectsOf(self.Doc), [])
 
     def testRootByWall(self):
         """Laid from the second wall by its name: the same flat moved; a name
-        no wall has said, the values cleared, the flat empty"""
+        no wall has, no flat"""
         wall = self.L()
-        sheet = self.Body.getSolidBody(wall)
-        sheet.Flatten = True
+        flat = self.flatObject(wall)
         first = self.solidOf(flatOf(wall)).CenterOfMass
-        sheet.FlatRoot = "Wall2"
+        flat.Root = "Wall2"
         self.Doc.recompute()
         second = self.checkFlat(flatOf(wall), 19 + BA + 9, 15).CenterOfMass
         self.assertGreater((first - second).Length, 1)
-        sheet.FlatRoot = "Wall9"
+        flat.Root = "Wall9"
         self.Doc.recompute()
-        self.assertIn("Wall9", sheet.FlatStatus)
-        self.assertAlmostEqual(sheet.FlatArea.Value, 0)
         self.assertIsNone(flatOf(wall))
 
     def testSecondSkin(self):
         """The root wall's second skin on XY instead: the same flat turned
         over"""
         wall = self.L()
-        sheet = self.Body.getSolidBody(wall)
-        sheet.FlatSecondSkin = True
+        self.flatObject(wall).SecondSkin = True
         self.Doc.recompute()
         self.checkFlat(flatOf(wall), 19 + BA + 9, 15)
 
@@ -236,10 +359,9 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertNotIn("Invalid", pocket.State)
         solid = self.checkFlat(flatOf(pocket), 19 + BA + 9, 15)
         self.assertAlmostEqual(solid.Volume, pocket.Shape.Volume, places=6)
-        sheet = self.Body.getSolidBody(pocket)
-        sheet.Flatten = True
-        self.Doc.recompute()
-        self.assertAlmostEqual(sheet.FlatArea.Value, pocket.Shape.Volume, places=6)
+        flat = self.flatObject(pocket)
+        self.show(flat)
+        self.assertAlmostEqual(flat.FlatArea.Value, pocket.Shape.Volume, places=6)
 
     def testCached(self):
         """Asked again with nothing changed, the same flat; after an edit, a
@@ -255,8 +377,8 @@ class TestSheetMetalFlat(unittest.TestCase):
 
     def testElementNames(self):
         """Named as a sketch's InternalShape is: Flat the whole, FlatFace1 an
-        element of it, by Part.getShape() too; Flat. names an object, and
-        there is none"""
+        element of it, by Part.getShape() too; Flat. names an object, the
+        flat object"""
         wall = self.L()
         flat = flatOf(wall)
         face = wall.getSubObject("FlatFace1")
@@ -267,7 +389,8 @@ class TestSheetMetalFlat(unittest.TestCase):
         edge = wall.getSubObject("FlatEdge%d" % len(flat.Edges))
         self.assertTrue(edge.isSame(flat.Edges[-1]))
         self.assertIsNone(wall.getSubObject("FlatFace%d" % (len(flat.Faces) + 1)))
-        self.assertIsNone(wall.getSubObject("Flat."))
+        # "Flat." names an object: the sheet's flat object, a member of the body
+        self.assertEqual(wall.getSubObject("Flat.", retType=1), self.flatObject(wall))
         # the folded shape's own elements as they were
         self.assertTrue(wall.getSubObject("Face1").isSame(wall.Shape.Faces[0]))
         sheet = self.Body.getSolidBody(wall)
@@ -279,12 +402,13 @@ class TestSheetMetalFlat(unittest.TestCase):
         return path
 
     def testExportDXF(self):
-        """A feature's flat, or the solid's (its tip's), written as DXF, by
-        the file's suffix: the outline as large as the flat, the bend line on
-        its direction's layer, labelled; the sheet's tangent lines with it"""
+        """A feature's flat, the solid's or the flat object's (its tip's),
+        written as DXF, by the file's suffix: the outline as large as the
+        flat, the bend line on its direction's layer, labelled; the sheet's
+        tangent lines with it"""
         wall = self.L()
         sheet = self.Body.getSolidBody(wall)
-        for obj in (wall, sheet):
+        for obj in (wall, sheet, self.flatObject(wall)):
             ents = readDXF(self.exported(obj, ".dxf"))
             outline = [e for e in ents if e[1] == "OUTLINE"]
             self.assertEqual({e[0] for e in outline}, {"LINE"})
@@ -299,7 +423,7 @@ class TestSheetMetalFlat(unittest.TestCase):
             labels = [e[2]["1"][0] for e in ents if e[1] == "LABELS" and e[0] == "TEXT"]
             self.assertEqual(labels, ["Bend1"])
             self.assertEqual([e for e in ents if e[1] == "BEND_TANGENT"], [])
-        sheet.TangentLines = True
+        self.flatObject(wall).TangentLines = True
         self.Doc.recompute()
         ents = readDXF(self.exported(wall, ".DXF"))
         self.assertEqual(len([e for e in ents if e[1] == "BEND_TANGENT"]), 2)
@@ -321,11 +445,10 @@ class TestSheetMetalFlat(unittest.TestCase):
         """Refused, saying why: a file neither .dxf nor .svg; a feature that
         does not lie flat; one of no sheet. Nothing written"""
         wall = self.L()
-        sheet = self.Body.getSolidBody(wall)
         folder = tempfile.mkdtemp()
         with self.assertRaisesRegex(ValueError, "dxf or .svg"):
             PartDesign.exportFlat(wall, os.path.join(folder, "flat.txt"))
-        sheet.FlatRoot = "Wall9"
+        self.flatObject(wall).Root = "Wall9"
         self.Doc.recompute()
         with self.assertRaisesRegex(ValueError, "Wall9"):
             PartDesign.exportFlat(wall, os.path.join(folder, "flat.dxf"))
@@ -341,12 +464,12 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(os.listdir(folder), [])
 
     def testSettings(self):
-        """The solid's grain and tangent lines are every feature's flat's"""
+        """The flat object's grain and tangent lines are every feature's flat's"""
         wall = self.L()
-        sheet = self.Body.getSolidBody(wall)
+        flat = self.flatObject(wall)
         self.assertEqual(len(flatOf(wall).SubShapes), 2)
-        sheet.TangentLines = True
-        sheet.Grain = True
+        flat.TangentLines = True
+        flat.Grain = True
         self.Doc.recompute()
         flat = flatOf(wall)
         self.assertEqual(len(flat.SubShapes), 4)
@@ -354,14 +477,11 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(len(flat.SubShapes[3].Edges), 3)
 
     def testNotSheet(self):
-        """A body of no sheet metal: no flat, its solid's values hidden"""
+        """A body of no sheet metal: no flat, no flat object"""
         sketch = self.sketch([(0, 0), (10, 0), (10, 10), (0, 10)], closed=True)
         pad = self.Body.newObject("PartDesign::Pad", "Pad")
         pad.Profile = sketch
         pad.Length = 2
         self.Doc.recompute()
         self.assertIsNone(flatOf(pad))
-        sheet = self.Body.getSolidBody(pad)
-        if sheet is not None:
-            for name in VALUES + ("Flatten", "FlatRoot", "Grain", "TangentLines"):
-                self.assertIn("Hidden", sheet.getEditorMode(name), name)
+        self.assertEqual(flatObjectsOf(self.Doc), [])

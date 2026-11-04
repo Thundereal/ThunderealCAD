@@ -94,6 +94,9 @@ public:
     /// as an occurrence; empty when the preview is not the session's or
     /// has no base
     const App::SubObjectT &previewBaseOccurrence() const { return previewBase; }
+    /// The occurrence the preview was shown for (setPreviewDisplayMode()),
+    /// to show it again by after taking it away
+    const App::SubObjectT &previewOccurrenceOf() const { return previewOccurrence; }
     virtual void checkAddSubColor();
 
     /** Light one face of the preview shape, by its number from 1, in the

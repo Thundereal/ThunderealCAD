@@ -160,13 +160,18 @@ void writeSVG(std::ostream& out, const FlatResult& flat, bool tangents)
         TopoDS_Vertex v0, v1;
         TopExp::Vertices(bend.edge, v0, v1);
         const gp_Pnt a = BRep_Tool::Pnt(v0), b = BRep_Tool::Pnt(v1);
-        line(layer(bend.up ? "BEND_UP" : "BEND_DOWN"), a, b);
+        // as far as it lies on the blank, labelled at its middle
+        for (const TopoDS_Edge& segment : bend.segments) {
+            edge(layer(bend.up ? "BEND_UP" : "BEND_DOWN"), segment);
+        }
         const gp_Pnt mid((a.X() + b.X()) / 2, (a.Y() + b.Y()) / 2, 0);
         layer("LABELS") << "    <text x=\"" << num(mid.X()) << "\" y=\"" << num(-mid.Y())
                         << "\">" << bend.name << "</text>\n";
         if (tangents) {
-            for (const TopoDS_Edge& tangent : bend.tangents) {
-                edge(layer("BEND_TANGENT"), tangent);
+            for (const auto& segments : bend.tangentSegments) {
+                for (const TopoDS_Edge& tangent : segments) {
+                    edge(layer("BEND_TANGENT"), tangent);
+                }
             }
         }
     }

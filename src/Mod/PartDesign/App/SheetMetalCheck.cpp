@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <map>
 #include <numbers>
@@ -55,6 +56,8 @@
 #include <Mod/Part/App/PartFeature.h>
 
 #include "Body.h"
+#include "FeatureSheetMetalConvert.h"
+#include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalHem.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Flat.h"
@@ -96,11 +99,17 @@ const App::DocumentObject* makerOf(const SheetMetalExtension* sheet, const std::
     return maker;
 }
 
-/// Where a bend's radius comes from: the feature's own, or the rule's
+/// Where a bend's radius comes from: the feature's own, or the rule's. A
+/// thin part converted keeps the radii it has; one thickened takes the rule's
 const char* radiusSource(const App::DocumentObject* maker, const SheetMetalRule& rule)
 {
     if (maker->isDerivedFrom<SheetMetalHem>()) {
         return "feature";
+    }
+    if (auto convert = dynamic_cast<const SheetMetalConvert*>(maker)) {
+        if (std::strcmp(convert->Kind.getValue(), "Thin part") == 0) {
+            return "feature";
+        }
     }
     auto useRule = dynamic_cast<App::PropertyBool*>(maker->getPropertyByName("UseRuleRadius"));
     if (useRule && !useRule->getValue()) {
@@ -136,6 +145,10 @@ SheetCheck checkSheet(const App::DocumentObject* obj)
         THROWM(Base::ValueError, "No object to check");
     }
     auto solid = Base::freecad_dynamic_cast<const SolidBody>(obj);
+    // the flat object checks its solid
+    if (auto flatObj = Base::freecad_dynamic_cast<const SheetMetalFlatPattern>(obj)) {
+        solid = flatObj->getSheet();
+    }
     const App::DocumentObject* part = obj;
     if (solid) {
         part = solid->Tip.getValue();

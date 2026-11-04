@@ -33,6 +33,7 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QSpinBox>
@@ -41,7 +42,18 @@
 #include <QVBoxLayout>
 #endif
 
+#include <Inventor/nodes/SoPickStyle.h>
+#include <Inventor/nodes/SoSeparator.h>
+#include <Inventor/nodes/SoSwitch.h>
+#include <Inventor/nodes/SoTransform.h>
+#include <Standard_Failure.hxx>
+
 #include <App/Document.h>
+#include <Base/Exception.h>
+#include <Gui/Application.h>
+#include <Gui/Document.h>
+#include <Gui/Inventor/SoFCSwitch.h>
+#include <Gui/ViewerContext.h>
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 #include <Gui/QuantitySpinBox.h>
@@ -49,10 +61,13 @@
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/Feature.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/SheetMetalExtension.h>
+#include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalParameters.h"
+#include "ViewProviderAddSub.h"
 
 using namespace PartDesignGui;
 
@@ -76,6 +91,10 @@ private:
     App::DocumentObject* base;
     std::string element;
 };
+
+/// Whose the flat's hides are among an edit session's swaps: before the
+/// edit's own "PartDesign.Shown", so they win where both name an occurrence
+constexpr const char* FlatSwaps = "PartDesign.Flat";
 
 QString number(double v)
 {
@@ -129,11 +148,23 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
                                                    const std::vector<const char*>& values,
                                                    const char* refs,
                                                    const char* element)
+    : TaskSheetMetalParameters(vp,
+                               pixmap,
+                               title,
+                               values,
+                               refs ? std::vector<SheetMetalReferences> {{refs, element}}
+                                    : std::vector<SheetMetalReferences> {})
+{}
+
+TaskSheetMetalParameters::TaskSheetMetalParameters(
+    ViewProvider* vp,
+    const std::string& pixmap,
+    const QString& title,
+    const std::vector<const char*>& values,
+    const std::vector<SheetMetalReferences>& lists)
     : TaskFeatureParameters(vp, nullptr, pixmap, title)
     , Gui::SelectionObserver(true, Gui::ResolveMode::OldStyleElement)
     , names(values)
-    , refs(refs)
-    , element(element)
 {
     proxy = new QWidget(this);
     proxy->setObjectName(QStringLiteral("TaskSheetMetalParameters"));
@@ -141,36 +172,52 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
 
     auto grid = new QGridLayout;
     int row = 0;
-    if (refs) {
-        // the member: the argument is a pointer, never equal to a literal but by chance
-        const QString kind = this->element == "Face" ? tr("faces") : tr("edges");
-        refList = new QListWidget(proxy);
-        refList->setObjectName(QStringLiteral("list") + QString::fromLatin1(refs));
-        refList->setMaximumHeight(110);
-        if (App::Property* prop = property(refs)) {
-            refList->setToolTip(QString::fromUtf8(prop->getDocumentation()));
+    for (const SheetMetalReferences& refs : lists) {
+        const int index = static_cast<int>(refLists.size());
+        RefList entry {refs};
+        const bool face = std::strcmp(refs.element, "Face") == 0;
+        const QString kind = refs.single ? (face ? tr("a face") : tr("an edge"))
+                                         : (face ? tr("faces") : tr("edges"));
+        // several lists each said by name, its buttons named after it; one
+        // alone as it always was
+        const QString suffix = lists.size() > 1 ? QString::fromLatin1(refs.property) : QString();
+        if (lists.size() > 1) {
+            grid->addWidget(new QLabel(sheetMetalWords(refs.property), proxy), row++, 0, 1, 2);
         }
-        auto remove = new QAction(tr("Remove"), refList);
+        entry.list = new QListWidget(proxy);
+        entry.list->setObjectName(QStringLiteral("list") + QString::fromLatin1(refs.property));
+        entry.list->setMaximumHeight(refs.single ? 28 : 110);
+        if (App::Property* prop = property(refs.property)) {
+            entry.list->setToolTip(QString::fromUtf8(prop->getDocumentation()));
+        }
+        auto remove = new QAction(tr("Remove"), entry.list);
         remove->setShortcut(QKeySequence::Delete);
-        refList->addAction(remove);
-        refList->setContextMenuPolicy(Qt::ActionsContextMenu);
-        connect(remove, &QAction::triggered, this, &TaskSheetMetalParameters::removeCurrent);
-        grid->addWidget(refList, row++, 0, 1, 2);
-        addButton = new QToolButton(proxy);
-        addButton->setObjectName(QStringLiteral("buttonAdd"));
-        addButton->setText(tr("Add"));
-        addButton->setCheckable(true);
-        addButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        addButton->setToolTip(tr("Pick %1 in the view").arg(kind));
-        connect(addButton, &QToolButton::toggled, this, &TaskSheetMetalParameters::startPick);
-        grid->addWidget(addButton, row, 0);
+        entry.list->addAction(remove);
+        entry.list->setContextMenuPolicy(Qt::ActionsContextMenu);
+        connect(remove, &QAction::triggered, this, [this, index] {
+            removeCurrent(index);
+        });
+        grid->addWidget(entry.list, row++, 0, 1, 2);
+        entry.add = new QToolButton(proxy);
+        entry.add->setObjectName(QStringLiteral("buttonAdd") + suffix);
+        entry.add->setText(refs.single ? tr("Pick") : tr("Add"));
+        entry.add->setCheckable(true);
+        entry.add->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        entry.add->setToolTip(tr("Pick %1 in the view").arg(kind));
+        connect(entry.add, &QToolButton::toggled, this, [this, index](bool on) {
+            startPick(index, on);
+        });
+        grid->addWidget(entry.add, row, 0);
         auto removeButton = new QToolButton(proxy);
-        removeButton->setObjectName(QStringLiteral("buttonRemove"));
+        removeButton->setObjectName(QStringLiteral("buttonRemove") + suffix);
         removeButton->setText(tr("Remove"));
         removeButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         removeButton->setToolTip(tr("Take the one selected in the list out"));
-        connect(removeButton, &QToolButton::clicked, this, &TaskSheetMetalParameters::removeCurrent);
+        connect(removeButton, &QToolButton::clicked, this, [this, index] {
+            removeCurrent(index);
+        });
         grid->addWidget(removeButton, row++, 1);
+        refLists.push_back(entry);
     }
     for (const char* name : names) {
         addValue(grid, row++, name);
@@ -186,6 +233,32 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
     status->setWordWrap(true);
     status->setStyleSheet(QStringLiteral("color: #d03030"));
     layout->addWidget(status);
+    // what the feature did of its own accord (a flange's Notice)
+    notice = new QLabel(proxy);
+    notice->setObjectName(QStringLiteral("labelNotice"));
+    notice->setWordWrap(true);
+    layout->addWidget(notice);
+
+    // the feature folded, laid flat, or both (docs/SheetMetal.md sec 12)
+    auto viewRow = new QHBoxLayout;
+    auto viewLabel = new QLabel(tr("View"), proxy);
+    sheetView = new QComboBox(proxy);
+    sheetView->setObjectName(QStringLiteral("comboSheetView"));
+    sheetView->addItems({tr("Folded"), tr("Flat"), tr("Both")});
+    sheetView->setToolTip(tr("Draw the feature folded, laid flat, or both: the flat moved off "
+                             "the part by the sheet's flat object's placement, else beside it"));
+    viewLabel->setBuddy(sheetView);
+    viewRow->addWidget(viewLabel);
+    viewRow->addWidget(sheetView, 1);
+    layout->addLayout(viewRow);
+    connect(sheetView, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
+        showSheetView();
+    });
+    flatStatus = new QLabel(proxy);
+    flatStatus->setObjectName(QStringLiteral("labelFlatStatus"));
+    flatStatus->setWordWrap(true);
+    flatStatus->setStyleSheet(QStringLiteral("color: #d03030"));
+    layout->addWidget(flatStatus);
 
     groupLayout()->addWidget(proxy);
     // what is wrong said after any recompute, not only the panel's own: one
@@ -199,6 +272,10 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
                         showValue(entry.first);
                     }
                     showStatus();
+                    // the flat laid again, as the feature is now
+                    if (sheetView && sheetView->currentIndex() > 0) {
+                        showSheetView();
+                    }
                 });
             });
         // a value set elsewhere -- the property editor, Python -- shown here
@@ -210,7 +287,9 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
                 if (boxes.count(prop.getName())) {
                     showValue(prop.getName());
                 }
-                else if (this->refs && std::strcmp(prop.getName(), this->refs) == 0) {
+                else if (std::any_of(refLists.begin(), refLists.end(), [&](const RefList& r) {
+                             return std::strcmp(prop.getName(), r.refs.property) == 0;
+                         })) {
                     fillList();
                 }
             });
@@ -220,9 +299,251 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(ViewProvider* vp,
 
 TaskSheetMetalParameters::~TaskSheetMetalParameters()
 {
-    if (picking) {
+    if (picking >= 0) {
         Gui::Selection().rmvSelectionGate();
     }
+    hideFlat();
+}
+
+void TaskSheetMetalParameters::hideFlat()
+{
+    auto root = vp ? vp->getRoot() : nullptr;
+    if (root && flatRoot && root->findChild(flatRoot) >= 0) {
+        root->removeChild(flatRoot);
+    }
+    if (auto gdoc = Gui::Application::Instance->getDocument(sessionDoc.c_str())) {
+        if (flatRoot && gdoc->editingRoot()->hasSessionNode(flatRoot)) {
+            gdoc->editingRoot()->removeSessionNode(flatRoot);
+        }
+    }
+    restoreChildren();
+    sessionDoc.clear();
+    if (sheetView) {
+        sheetView->setProperty("flatDrawn", false);
+        sheetView->setProperty("drawnAlone", false);
+    }
+}
+
+void TaskSheetMetalParameters::restoreChildren()
+{
+    if (auto gdoc = Gui::Application::Instance->getDocument(sessionDoc.c_str())) {
+        for (auto& objT : hiddenInSession) {
+            if (auto obj = objT.getObject()) {
+                gdoc->setEditVisibility(FlatSwaps, obj, objT.getSubName().c_str(), -1);
+            }
+        }
+    }
+    hiddenInSession.clear();
+    for (auto& [objT, children] : keptChildren) {
+        auto view = Gui::Application::Instance->getViewProvider(objT.getObject());
+        auto modeSwitch = view ? dynamic_cast<SoFCSwitch*>(view->getModeSwitch()) : nullptr;
+        if (view && view->getModeSwitch()) {
+            view->getModeSwitch()->whichChild = children.first;
+        }
+        if (modeSwitch) {
+            modeSwitch->defaultChild = children.second;
+        }
+    }
+    keptChildren.clear();
+    // the edit's preview back, as it was
+    if (keptPreview) {
+        keptPreview = false;
+        if (auto addSub = Base::freecad_dynamic_cast<ViewProviderAddSub>(vp)) {
+            addSub->setPreviewDisplayMode(true, keptOccurrence);
+        }
+    }
+}
+
+void TaskSheetMetalParameters::closeFlat()
+{
+    closing = true;
+    hideFlat();
+}
+
+void TaskSheetMetalParameters::showSheetView()
+{
+    const int mode = sheetView && !closing ? sheetView->currentIndex() : 0;
+    auto feature = vp ? Base::freecad_dynamic_cast<Part::Feature>(vp->getObject()) : nullptr;
+    flatStatus->clear();
+    if (mode == 0 || !feature) {
+        hideFlat();
+        return;
+    }
+    auto body = PartDesign::Body::findBodyOf(feature);
+    auto solid = body ? body->getSolidBody(feature) : nullptr;
+    Part::TopoShape shape;
+    std::map<std::string, std::string> directions;
+    try {
+        if (!solid) {
+            THROWM(Base::ValueError, "The feature is of no sheet");
+        }
+        const PartDesign::SheetFlat& flat = solid->flatOf(feature);
+        shape = flat.shape;
+        directions = flat.directions;
+    }
+    catch (const Base::Exception& e) {
+        flatStatus->setText(tr("It does not lie flat: %1").arg(QString::fromUtf8(e.what())));
+    }
+    catch (const Standard_Failure& e) {
+        flatStatus->setText(
+            tr("It does not lie flat: %1").arg(QString::fromUtf8(e.GetMessageString())));
+    }
+    if (shape.isNull()) {
+        hideFlat();
+        return;
+    }
+    if (!flatView) {
+        // drawn as the sheet's flat object is, under the feature's view
+        flatView = std::make_unique<ViewProviderSheetMetalFlatPattern>();
+        // drawn whatever the feature's Visibility, which it does not own
+        flatView->forceUpdate();
+        flatView->setStatus(Gui::SecondaryView, true);
+        flatView->attach(feature);
+        // a display mode, as the document gives the views it holds
+        flatView->DisplayMode.setValue("Flat Lines");
+        flatView->setDisplayMode("Flat Lines");
+        flatView->show();
+        flatOffset = new SoTransform;
+        flatRoot = new SoSeparator;
+        auto pick = new SoPickStyle;
+        pick->style = SoPickStyle::UNPICKABLE;
+        flatRoot->addChild(pick);
+        flatRoot->addChild(flatOffset);
+        flatRoot->addChild(flatView->getRoot());
+    }
+    if (auto flatObj = solid->flatPattern()) {
+        if (auto look = Base::freecad_dynamic_cast<ViewProviderSheetMetalFlatPattern>(
+                Gui::Application::Instance->getViewProvider(flatObj))) {
+            flatView->copyLook(*look);
+        }
+    }
+    flatView->showFlat(shape, directions);
+    // shown once it has a shape to show; placed by the feature's view it is
+    // drawn under, not again by its own
+    flatView->show();
+    if (auto transform = flatView->getRoot()->getNumChildren() > 0
+            ? dynamic_cast<SoTransform*>(flatView->getRoot()->getChild(0))
+            : nullptr) {
+        transform->setToDefaults();
+    }
+
+    // Both: off the folded part by the flat object's placement, else beside it
+    Base::Vector3d move;
+    if (mode == 2) {
+        auto flatObj = solid->flatPattern();
+        const Base::Placement placement =
+            flatObj ? flatObj->Placement.getValue() : Base::Placement();
+        if (!placement.isIdentity()) {
+            move = placement.getPosition();
+        }
+        else {
+            const Base::BoundBox3d folded = feature->Shape.getShape().getBoundBox();
+            const Base::BoundBox3d laid = shape.getBoundBox();
+            if (folded.IsValid() && laid.IsValid()) {
+                const double gap = std::max(10.0, 0.2 * laid.LengthX());
+                move.x = folded.MaxX - feature->Placement.getValue().getPosition().x
+                    - laid.MinX + gap;
+            }
+        }
+    }
+    flatOffset->translation.setValue(static_cast<float>(move.x),
+                                     static_cast<float>(move.y),
+                                     static_cast<float>(move.z));
+    // In an edit session, a node of the session's, where the edit draws
+    // what it shows beside its own geometry (the PartDesign preview hangs
+    // there too), placed as the edited occurrence: the session's own
+    // visibility table can then hide the feature without hiding this.
+    // Without one, under the feature's view.
+    auto gdoc = Gui::Application::Instance->editDocument();
+    Gui::ViewProviderDocumentObject* parentVp = nullptr;
+    std::string subname;
+    if (gdoc) {
+        gdoc->getInEdit(&parentVp, &subname);
+    }
+    Base::Matrix4D world;
+    const bool inSession = gdoc && gdoc->editingViewer() && parentVp
+        && gdoc->canSetEditVisibility()
+        && parentVp->getObject()->getSubObject(subname.c_str(), nullptr, &world) == feature;
+    auto root = vp->getRoot();
+    if (inSession) {
+        if (root->findChild(flatRoot) >= 0) {
+            root->removeChild(flatRoot);
+        }
+        Gui::EditingRoot* editing = gdoc->editingRoot();
+        if (editing->hasSessionNode(flatRoot)) {
+            editing->setSessionNodeTransform(flatRoot, world);
+        }
+        else {
+            editing->addSessionNode(flatRoot, world);
+        }
+        sessionDoc = gdoc->getDocument()->getName();
+    }
+    else if (root->findChild(flatRoot) < 0) {
+        root->addChild(flatRoot);
+    }
+    // Flat: nothing of the body drawn but the flat -- not the feature, nor
+    // what its edit shows with it (the feature it is built on) -- by their
+    // views' switches, their visibility untouched
+    if (mode == 1) {
+        // the edit's preview (the base drawn, the tool tinted over it) taken
+        // away first: the session's views draw it, not the views' switches
+        auto addSub = Base::freecad_dynamic_cast<ViewProviderAddSub>(vp);
+        if (addSub && (addSub->isPreviewMode() || addSub->isPreviewInSession())
+            && !keptPreview) {
+            keptOccurrence = addSub->previewOccurrenceOf();
+            keptPreview = true;
+            addSub->setPreviewDisplayMode(false);
+        }
+        if (inSession) {
+            // hidden in the session's views: the body's members and the
+            // feature, by an owner whose entries come before the edit's own
+            // ("PartDesign.Shown", which shows the feature)
+            if (hiddenInSession.empty()) {
+                const App::SubObjectT occurrence(parentVp->getObject(), subname.c_str());
+                const App::SubObjectT bodyT = occurrence.getParent();
+                std::vector<App::DocumentObject*> members = body->Group.getValues();
+                if (std::find(members.begin(), members.end(), feature) == members.end()) {
+                    members.push_back(feature);
+                }
+                for (auto obj : members) {
+                    const App::SubObjectT objT = bodyT.getChild(obj);
+                    if (gdoc->setEditVisibility(FlatSwaps, objT.getObject(),
+                                                objT.getSubName().c_str(), 0)) {
+                        hiddenInSession.push_back(objT);
+                    }
+                }
+            }
+        }
+        else if (keptChildren.empty()) {
+            std::vector<App::DocumentObject*> members = body->Group.getValues();
+            if (std::find(members.begin(), members.end(), feature) == members.end()) {
+                members.push_back(feature);
+            }
+            for (auto obj : members) {
+                auto view = Gui::Application::Instance->getViewProvider(obj);
+                if (!view || !view->getModeSwitch() || !view->isShow()) {
+                    continue;
+                }
+                // and its default child, which a drawing on top (the edited
+                // feature's) draws by
+                auto modeSwitch = dynamic_cast<SoFCSwitch*>(view->getModeSwitch());
+                keptChildren.emplace_back(
+                    obj,
+                    std::make_pair(view->getModeSwitch()->whichChild.getValue(),
+                                   modeSwitch ? modeSwitch->defaultChild.getValue() : -1));
+                view->getModeSwitch()->whichChild = SO_SWITCH_NONE;
+                if (modeSwitch) {
+                    modeSwitch->defaultChild = SO_SWITCH_NONE;
+                }
+            }
+        }
+    }
+    else {
+        restoreChildren();
+    }
+    // what is drawn, as a check reads it: the flat, and nothing else of the body
+    sheetView->setProperty("flatDrawn", true);
+    sheetView->setProperty("drawnAlone", mode == 1);
 }
 
 App::Property* TaskSheetMetalParameters::property(const char* name) const
@@ -401,9 +722,11 @@ void TaskSheetMetalParameters::refresh()
     showStatus();
 }
 
-App::PropertyLinkSub* TaskSheetMetalParameters::references() const
+App::PropertyLinkSub* TaskSheetMetalParameters::references(int index) const
 {
-    return refs ? dynamic_cast<App::PropertyLinkSub*>(property(refs)) : nullptr;
+    return index >= 0 && index < static_cast<int>(refLists.size())
+        ? dynamic_cast<App::PropertyLinkSub*>(property(refLists[index].refs.property))
+        : nullptr;
 }
 
 App::DocumentObject* TaskSheetMetalParameters::builtOn() const
@@ -414,14 +737,17 @@ App::DocumentObject* TaskSheetMetalParameters::builtOn() const
 
 void TaskSheetMetalParameters::fillList()
 {
-    auto list = references();
-    if (!refList || !list) {
-        return;
-    }
-    QSignalBlocker block(refList);
-    refList->clear();
-    for (const auto& sub : list->getSubValues()) {
-        refList->addItem(QString::fromStdString(sub));
+    for (int i = 0; i < static_cast<int>(refLists.size()); ++i) {
+        auto list = references(i);
+        QListWidget* widget = refLists[i].list;
+        if (!list) {
+            continue;
+        }
+        QSignalBlocker block(widget);
+        widget->clear();
+        for (const auto& sub : list->getSubValues()) {
+            widget->addItem(QString::fromStdString(sub));
+        }
     }
 }
 
@@ -429,6 +755,8 @@ void TaskSheetMetalParameters::showStatus()
 {
     auto obj = vp ? vp->getObject() : nullptr;
     status->setText(!obj || obj->isValid() ? QString() : QString::fromUtf8(obj->getStatusString()));
+    auto said = obj ? dynamic_cast<App::PropertyString*>(obj->getPropertyByName("Notice")) : nullptr;
+    notice->setText(said ? QString::fromUtf8(said->getValue()) : QString());
     auto sheet = obj ? obj->getExtensionByType<PartDesign::SheetMetalExtension>(true) : nullptr;
     auto r = sheet ? sheet->getRule() : nullptr;
     if (!r) {
@@ -447,27 +775,37 @@ void TaskSheetMetalParameters::finishedRecomputeFeature()
     showStatus();
 }
 
-void TaskSheetMetalParameters::startPick(bool on)
+void TaskSheetMetalParameters::startPick(int index, bool on)
 {
-    if (on == picking || !references()) {
+    if (!references(index) || (on ? picking == index : picking != index)) {
         return;
+    }
+    if (picking >= 0) {
+        // one list picks at a time: the other's Add let up
+        Gui::Selection().rmvSelectionGate();
+        const int was = picking;
+        picking = -1;
+        if (was != index) {
+            QSignalBlocker block(refLists[was].add);
+            refLists[was].add->setChecked(false);
+        }
     }
     if (on) {
         Gui::Selection().clearSelection();
-        Gui::Selection().addSelectionGate(new ElementGate(builtOn(), element));
+        Gui::Selection().addSelectionGate(
+            new ElementGate(builtOn(), refLists[index].refs.element));
+        picking = index;
     }
-    else {
-        Gui::Selection().rmvSelectionGate();
-    }
-    picking = on;
 }
 
 void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
 {
-    auto list = references();
-    if (!picking || !list || msg.Type != Gui::SelectionChanges::AddSelection) {
+    auto list = references(picking);
+    if (!list || msg.Type != Gui::SelectionChanges::AddSelection) {
         return;
     }
+    const SheetMetalReferences& refs = refLists[picking].refs;
+    const std::string element = refs.element;
     App::DocumentObject* base = builtOn();
     App::DocumentObject* obj = msg.Object.getObject();
     const std::string sub = msg.pSubName ? msg.pSubName : "";
@@ -475,8 +813,11 @@ void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& m
         return;
     }
     auto subs = list->getSubValues();
-    if (std::find(subs.begin(), subs.end(), sub) == subs.end()) {
+    if (refs.single || std::find(subs.begin(), subs.end(), sub) == subs.end()) {
         setupTransaction(element == "Face" ? tr("add a face") : tr("add an edge"));
+        if (refs.single) {
+            subs.clear();
+        }
         subs.push_back(sub);
         list->setValue(base, subs);
         fillList();
@@ -487,10 +828,10 @@ void TaskSheetMetalParameters::onSelectionChanged(const Gui::SelectionChanges& m
     });
 }
 
-void TaskSheetMetalParameters::removeCurrent()
+void TaskSheetMetalParameters::removeCurrent(int index)
 {
-    auto list = references();
-    const int row = refList ? refList->currentRow() : -1;
+    auto list = references(index);
+    const int row = list ? refLists[index].list->currentRow() : -1;
     if (!list || row < 0) {
         return;
     }
@@ -498,7 +839,9 @@ void TaskSheetMetalParameters::removeCurrent()
     if (row >= static_cast<int>(subs.size())) {
         return;
     }
-    setupTransaction(element == "Face" ? tr("remove a face") : tr("remove an edge"));
+    setupTransaction(std::strcmp(refLists[index].refs.element, "Face") == 0
+                         ? tr("remove a face")
+                         : tr("remove an edge"));
     subs.erase(subs.begin() + row);
     list->setValue(list->getValue(), subs);
     fillList();
@@ -508,8 +851,27 @@ void TaskSheetMetalParameters::removeCurrent()
 TaskDlgSheetMetalParameters::TaskDlgSheetMetalParameters(ViewProvider* vp,
                                                          TaskSheetMetalParameters* panel)
     : TaskDlgFeatureParameters(vp)
+    , panel(panel)
 {
     Content.push_back(panel);
+}
+
+bool TaskDlgSheetMetalParameters::accept()
+{
+    // the feature drawn folded again once the panel closes, which outlives
+    // the dialog's end
+    if (panel) {
+        panel->closeFlat();
+    }
+    return TaskDlgFeatureParameters::accept();
+}
+
+bool TaskDlgSheetMetalParameters::reject()
+{
+    if (panel) {
+        panel->closeFlat();
+    }
+    return TaskDlgFeatureParameters::reject();
 }
 
 #include "moc_TaskSheetMetalParameters.cpp"

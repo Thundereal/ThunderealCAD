@@ -54,6 +54,11 @@ struct PartDesignExport FlatResult
         double angle = 0;
         /// Where the bend meets its walls, on the same skin as the line
         std::array<TopoDS_Edge, 2> tangents;
+        /// The line, and each tangent line, as far as it lies on the blank,
+        /// in order along it: cut where it runs over a hole, a slot or a
+        /// relief, or off the outline (docs/SheetMetal.md sec 12)
+        std::vector<TopoDS_Edge> segments;
+        std::array<std::vector<TopoDS_Edge>, 2> tangentSegments;
     };
     /// Each bend's line, along its middle on the inner skin
     std::vector<BendLine> bendLines;
@@ -89,6 +94,13 @@ PartDesignExport std::vector<TopoDS_Edge> grainArrow(const TopoDS_Shape& solid, 
  * where they lie in one plane: what a DXF or an SVG draws. Throws
  * Base::ValueError for a flat with no face on XY.
  */
+/** What of \a line, a straight line on a skin of the flat \a solid (a bend's
+ * line or tangent line), lies on the blank, in order along it: cut where it
+ * runs over a hole, a slot, a relief or off the outline
+ */
+PartDesignExport std::vector<TopoDS_Edge> onBlank(const TopoDS_Shape& solid,
+                                                  const TopoDS_Edge& line);
+
 PartDesignExport std::vector<TopoDS_Face> facesOnXY(const TopoDS_Shape& solid);
 
 }  // namespace PartDesign::SheetMetal

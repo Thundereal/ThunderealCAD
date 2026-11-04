@@ -13,6 +13,27 @@ import Part
 Q = FreeCAD.Units.Quantity
 
 
+def flatObject(feature):
+    """The flat object of a feature's sheet, or of the sheet's solid
+    (docs/SheetMetal.md sec 12, ruled 2026-11-04)"""
+    body = feature.getParentGeoFeatureGroup()
+    solid = feature if feature.isDerivedFrom("PartDesign::SolidBody") else None
+    if solid is None and body is not None:
+        solid = body.getSolidBody(feature)
+    for obj in solid.InList if solid else []:
+        if obj.isDerivedFrom("PartDesign::SheetMetalFlatPattern") and obj.Sheet == solid:
+            return obj
+    return None
+
+
+def showFlat(feature):
+    """The flat object of a feature's sheet, shown and laid flat"""
+    flat = flatObject(feature)
+    flat.Visibility = True
+    flat.Document.recompute()
+    return flat
+
+
 class Flat:
     def __init__(self, feature):
         self.Source = feature

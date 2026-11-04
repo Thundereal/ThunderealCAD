@@ -40,11 +40,12 @@
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Selection.h>
+#include <Mod/PartDesign/App/Body.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
 #include <Mod/PartDesign/App/SheetMetalCheck.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalCheck.h"
-#include "ViewProvider.h"
 
 using namespace PartDesignGui;
 
@@ -73,7 +74,11 @@ TaskSheetMetalCheck::TaskSheetMetalCheck(App::DocumentObject* obj)
     , target(obj)
 {
     // the faces named are the checked part's: the solid's tip for the solid
+    // or its flat object
     auto solid = Base::freecad_dynamic_cast<PartDesign::SolidBody>(obj);
+    if (auto flat = Base::freecad_dynamic_cast<PartDesign::SheetMetalFlatPattern>(obj)) {
+        solid = flat->getSheet();
+    }
     part = solid ? solid->Tip.getValue() : obj;
 
     auto proxy = new QWidget(this);
@@ -207,19 +212,27 @@ void TaskSheetMetalCheck::select(const Marks& marks)
         }
         return;
     }
-    // the faces as they are drawn: on the flat, folded, or both
-    auto vp = Base::freecad_dynamic_cast<ViewProvider>(
-        Gui::Application::Instance->getViewProvider(obj));
-    const bool flat = vp && vp->showsFlat() && !marks.flatElements.empty();
-    const bool folded = !vp || vp->showsShape() || !flat;
+    // The faces as they are drawn: on the sheet's flat object, where it is
+    // shown with the part's flat (the solid's tip's, laid as it is now), on
+    // the folded part, or both
+    auto body = PartDesign::Body::findBodyOf(obj);
+    auto solid = body ? body->getSolidBody(obj) : nullptr;
+    auto flatObj = solid ? solid->flatPattern() : nullptr;
+    const bool flat = flatObj && flatObj->Visibility.getValue() && solid->Tip.getValue() == obj
+        && flatObj->Status.getStrValue().empty() && !marks.flatElements.empty();
+    const bool folded = obj->Visibility.getValue() || !flat;
     if (folded) {
         for (const auto& element : marks.elements) {
             Gui::Selection().addSelection(doc, obj->getNameInDocument(), element.c_str());
         }
     }
     if (flat) {
+        // FlatFace3 of the part's flat is the flat object's Face3
         for (const auto& element : marks.flatElements) {
-            Gui::Selection().addSelection(doc, obj->getNameInDocument(), element.c_str());
+            const char* name = PartDesign::SolidBody::flatSubName(element.c_str());
+            if (name && *name) {
+                Gui::Selection().addSelection(doc, flatObj->getNameInDocument(), name);
+            }
         }
     }
 }

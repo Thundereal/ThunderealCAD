@@ -24,7 +24,16 @@
 
 #pragma once
 
+#include <array>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <Gui/InventorBase.h>
 #include <Mod/Part/Gui/ViewProvider.h>
+
+class SoSwitch;
 
 #include "ViewProviderAddSub.h"
 #include "ViewProviderSketchBased.h"
@@ -176,6 +185,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A part converted, its panel its fixed face, open faces, rip edges and side
+class PartDesignGuiExport ViewProviderSheetMetalConvert: public ViewProvider
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalConvert);
+
+public:
+    ViewProviderSheetMetalConvert();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A sheet metal rule, its panel its card and values; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalRule: public PartGui::ViewProviderPart
 {
@@ -188,6 +209,89 @@ public:
 protected:
     bool setEdit(int ModNum) override;
     void unsetEdit(int ModNum) override;
+};
+
+/** A sheet's flat object (docs/SheetMetal.md sec 12, ruled 2026-11-04): its
+ * solid's tip laid flat. Shown out of date, it has the flat laid by a
+ * recompute of it alone.
+ *
+ * It draws the blank, and each kind of marking -- the bend lines up, those
+ * down, the tangent lines, the grain arrow -- in a view of its own, with its
+ * own colour, line style and width, shown or not; picked and selected, a
+ * marking is the element of the object's shape it is (Edge40).
+ */
+class PartDesignGuiExport ViewProviderSheetMetalFlatPattern: public PartGui::ViewProviderPart
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalFlatPattern);
+
+public:
+    ViewProviderSheetMetalFlatPattern();
+    ~ViewProviderSheetMetalFlatPattern() override;
+
+    /** @name How each kind of marking is drawn */
+    //@{
+    App::PropertyBool ShowBendUp;
+    App::PropertyColor BendUpColor;
+    App::PropertyEnumeration BendUpStyle;
+    App::PropertyFloatConstraint BendUpWidth;
+    App::PropertyBool ShowBendDown;
+    App::PropertyColor BendDownColor;
+    App::PropertyEnumeration BendDownStyle;
+    App::PropertyFloatConstraint BendDownWidth;
+    App::PropertyBool ShowTangentLines;
+    App::PropertyColor TangentLineColor;
+    App::PropertyEnumeration TangentLineStyle;
+    App::PropertyFloatConstraint TangentLineWidth;
+    App::PropertyBool ShowGrain;
+    App::PropertyColor GrainColor;
+    App::PropertyEnumeration GrainStyle;
+    App::PropertyFloatConstraint GrainWidth;
+    //@}
+
+    void attach(App::DocumentObject* obj) override;
+    void show() override;
+    void updateData(const App::Property* prop) override;
+    void beforeDelete() override;
+    void reattach(App::DocumentObject* obj) override;
+    bool getElementPicked(const SoPickedPoint* pp, std::string& subname) const override;
+    bool getDetailPath(const char* subname, SoFullPath* path, bool append,
+                       SoDetail*& det) const override;
+
+    /** Draw \a shape, a flat as layFlat() makes it, each bend Up or Down by
+     * \a directions: the object's own, or another's (a feature's, drawn by
+     * its panel)
+     */
+    void showFlat(const Part::TopoShape& shape,
+                  const std::map<std::string, std::string>& directions);
+    /// The look of \a other: its lines' colour and width, and each kind of
+    /// marking's style
+    void copyLook(const ViewProviderSheetMetalFlatPattern& other);
+
+protected:
+    void onChanged(const App::Property* prop) override;
+
+private:
+    /// The object's shape drawn: the blank for this view, each kind's edges
+    /// for its own
+    void refreshMarkings();
+    /// A kind's look on its view
+    void applyLook(int kind);
+
+    struct Kind
+    {
+        App::PropertyBool* show;
+        App::PropertyColor* color;
+        App::PropertyEnumeration* style;
+        App::PropertyFloatConstraint* width;
+        std::unique_ptr<PartGui::ViewProviderPart> view;
+        /// Each of its edges' index in the object's shape, by its own
+        std::vector<int> edges;
+    };
+    std::array<Kind, 4> kinds;
+    /// The markings' views, drawn while this view is shown
+    Gui::CoinPtr<SoSwitch> pcMarkings;
+    /// How many edges the blank has: the shape's first ones
+    int blankEdges = 0;
 };
 
 }  // namespace PartDesignGui

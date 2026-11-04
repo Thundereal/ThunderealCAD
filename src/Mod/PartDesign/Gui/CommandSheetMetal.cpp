@@ -29,6 +29,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <App/Document.h>
+#include <App/DocumentObserver.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include <Gui/Action.h>
@@ -42,6 +43,7 @@
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalCheck.h"
@@ -646,6 +648,117 @@ bool CmdPartDesignSheetMetalTab::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalConvert
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalConvert)
+
+CmdPartDesignSheetMetalConvert::CmdPartDesignSheetMetalConvert()
+    : Command("PartDesign_SheetMetalConvert")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Convert");
+    sToolTipText = QT_TR_NOOP("Takes a part made elsewhere as sheet metal: a thin part as it is, a\n"
+                              "solid or a shell thickened, its sharp edges bends. Select the face\n"
+                              "the flat lies on first, then any faces to leave open and edges to\n"
+                              "rip");
+    sWhatsThis = "PartDesign_SheetMetalConvert";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalConvert";
+}
+
+void CmdPartDesignSheetMetalConvert::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    // the faces and edges picked on one part, in the order picked: the
+    // first face the fixed one
+    App::DocumentObject* part = nullptr;
+    std::vector<std::string> faces, edges;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        if (!sel.getObject() || (part && part != sel.getObject())) {
+            continue;
+        }
+        for (const auto& sub : sel.getSubNames()) {
+            if (boost::starts_with(sub, "Face")) {
+                faces.push_back(sub);
+                part = sel.getObject();
+            }
+            else if (boost::starts_with(sub, "Edge")) {
+                edges.push_back(sub);
+                part = sel.getObject();
+            }
+        }
+    }
+    if (!part || faces.empty()) {
+        warn(QT_TR_NOOP("No face"),
+             QT_TR_NOOP("Select a face of the part, a wall's skin, for the flat to lie on; then "
+                        "any faces to leave open and edges to rip."));
+        return;
+    }
+    auto list = [](auto begin, auto end) {
+        std::ostringstream res;
+        for (auto it = begin; it != end; ++it) {
+            res << "'" << *it << "', ";
+        }
+        return res.str();
+    };
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Convert"));
+    // a part in no body: a body made on it, as Body does with a solid
+    // selected
+    auto body = PartDesign::Body::findBodyOf(part);
+    if (!body) {
+        App::Document* doc = part->getDocument();
+        const std::string name = getUniqueObjectName("Body");
+        Gui::cmdAppDocument(doc,
+                            std::ostringstream() << "addObject('PartDesign::Body','" << name << "')");
+        body = Base::freecad_dynamic_cast<PartDesign::Body>(doc->getObject(name.c_str()));
+        if (!body) {
+            abortCommand();
+            return;
+        }
+        Gui::cmdAppObject(body, std::ostringstream() << "BaseFeature = " << getObjectCmd(part));
+        addModule(Gui, "PartDesignGui");
+        doCommand(Gui::Command::Gui,
+                  "Gui.activeView().setActiveObject('%s', %s)",
+                  PDBODYKEY,
+                  getObjectCmd(body).c_str());
+    }
+    // what the body showed: the convert takes its place
+    App::DocumentObject* before = body->Tip.getValue();
+    auto feat = makeFeature(body, "PartDesign::SheetMetalConvert", "Convert");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    const std::string link = getObjectCmd(part);
+    Gui::cmdAppObject(feat,
+                      std::ostringstream() << "FixedFace = (" << link << ", ['" << faces.front()
+                                           << "'])");
+    if (faces.size() > 1) {
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "OpenFaces = (" << link << ", ["
+                                               << list(faces.begin() + 1, faces.end()) << "])");
+    }
+    if (!edges.empty()) {
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "RipEdges = (" << link << ", ["
+                                               << list(edges.begin(), edges.end()) << "])");
+    }
+    finishFeature(this, feat, before ? before : part);
+    // the part taken in, where it is not the body's own feature
+    if (part != before) {
+        FCMD_OBJ_HIDE(part);
+    }
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalConvert::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFold, PartDesign_SheetMetalJog
 //===========================================================================
 
@@ -844,7 +957,24 @@ PartDesign::SolidBody* activeSheet()
 }
 }  // namespace
 
-DEF_STD_CMD_AC(CmdPartDesignSheetMetalFlatten)
+class CmdPartDesignSheetMetalFlatten: public Gui::Command
+{
+public:
+    CmdPartDesignSheetMetalFlatten();
+    const char* className() const override
+    {
+        return "CmdPartDesignSheetMetalFlatten";
+    }
+
+protected:
+    void activated(int iMsg) override;
+    bool isActive() override;
+    Gui::Action* createAction() override;
+
+private:
+    /// The features shown when the sheet was flattened, shown again after
+    std::vector<App::DocumentObjectT> folded;
+};
 
 CmdPartDesignSheetMetalFlatten::CmdPartDesignSheetMetalFlatten()
     : Command("PartDesign_SheetMetalFlatten")
@@ -852,8 +982,8 @@ CmdPartDesignSheetMetalFlatten::CmdPartDesignSheetMetalFlatten()
     sAppModule = "PartDesign";
     sGroup = QT_TR_NOOP("PartDesign");
     sMenuText = QT_TR_NOOP("Flatten");
-    sToolTipText = QT_TR_NOOP("Shows the active body's sheet laid flat, and keeps its flat's\n"
-                              "values (size, area, bends) up to date; again to fold it back");
+    sToolTipText = QT_TR_NOOP("Shows the active body's sheet laid flat, its flat object, in\n"
+                              "place of the folded part; again to fold it back");
     sWhatsThis = "PartDesign_SheetMetalFlatten";
     sStatusTip = sToolTipText;
     sPixmap = "PartDesign_SheetMetalFlatten";
@@ -861,29 +991,52 @@ CmdPartDesignSheetMetalFlatten::CmdPartDesignSheetMetalFlatten()
 
 void CmdPartDesignSheetMetalFlatten::activated(int iMsg)
 {
+    // The flat object's visibility (docs/SheetMetal.md sec 12, ruled
+    // 2026-11-04): no undo step, as no visibility is
     auto solid = activeSheet();
-    if (!solid) {
+    auto flat = solid ? solid->flatPattern() : nullptr;
+    if (!flat) {
         warn(QT_TR_NOOP("No sheet"),
              QT_TR_NOOP("Make a body of sheet metal active to lay it flat."));
         return;
     }
-    openCommand(iMsg ? QT_TRANSLATE_NOOP("Command", "Flatten")
-                     : QT_TRANSLATE_NOOP("Command", "Fold back"));
-    Gui::cmdAppObject(solid, std::ostringstream()
-                                 << "Flatten = " << (iMsg ? "True" : "False"));
-    updateActive();
-    commitCommand();
+    if (iMsg) {
+        folded.clear();
+        for (auto obj : solid->Group.getValues()) {
+            if (obj && obj->Visibility.getValue()) {
+                folded.emplace_back(obj);
+                Gui::cmdAppObject(obj, "Visibility = False");
+            }
+        }
+        Gui::cmdAppObject(flat, "Visibility = True");
+        return;
+    }
+    Gui::cmdAppObject(flat, "Visibility = False");
+    bool shown = false;
+    for (auto& objT : folded) {
+        auto obj = objT.getObject();
+        if (obj && solid->hasFeature(obj)) {
+            Gui::cmdAppObject(obj, "Visibility = True");
+            shown = true;
+        }
+    }
+    folded.clear();
+    // Else the tip, as the body would show
+    if (!shown && solid->Tip.getValue()) {
+        Gui::cmdAppObject(solid->Tip.getValue(), "Visibility = True");
+    }
 }
 
 bool CmdPartDesignSheetMetalFlatten::isActive()
 {
     auto solid = activeSheet();
+    auto flat = solid ? solid->flatPattern() : nullptr;
     if (_pcAction) {
-        bool on = solid && solid->Flatten.getValue();
+        bool on = flat && flat->Visibility.getValue();
         if (_pcAction->isChecked() != on)
             _pcAction->setChecked(on, true);
     }
-    return solid != nullptr;
+    return flat != nullptr;
 }
 
 Gui::Action* CmdPartDesignSheetMetalFlatten::createAction()
@@ -921,6 +1074,10 @@ App::DocumentObject* flatToExport()
 {
     for (auto& sel : Gui::Selection().getSelectionEx()) {
         auto obj = sel.getObject();
+        // the flat object writes its sheet's
+        if (dynamic_cast<PartDesign::SheetMetalFlatPattern*>(obj)) {
+            return obj;
+        }
         auto solid = dynamic_cast<PartDesign::SolidBody*>(obj);
         if (!solid) {
             auto body = PartDesign::Body::findBodyOf(obj);
@@ -1019,6 +1176,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());
     mgr.addCommand(new CmdPartDesignSheetMetalTab());
+    mgr.addCommand(new CmdPartDesignSheetMetalConvert());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatten());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
     mgr.addCommand(new CmdPartDesignSheetMetalCheck());

@@ -20,6 +20,8 @@ import FreeCAD
 import Part
 import PartDesign
 
+from .SheetMetalFlatView import flatObject
+
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
 
@@ -274,7 +276,7 @@ class TestSheetMetalCheck(unittest.TestCase):
         """A flat that cannot be laid is listed, why with it; the bends still
         are"""
         flange = self.flange()
-        self.Body.getSolidBody(flange).FlatRoot = "Wall9"
+        flatObject(flange).Root = "Wall9"
         self.Doc.recompute()
         found = PartDesign.checkSheet(flange)
         self.assertEqual(len(found["Bends"]), 1)

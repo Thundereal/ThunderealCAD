@@ -1076,9 +1076,11 @@ and not frozen.
     its own leg only): give it a gap there.
   - A chain turning back into the sheet is refused: the join must hold the part and the
     flange's pieces whole (their volumes add up).
-- Open: a flange whose edge stops where a jog's bend starts treats that bend as an earlier
+- Was open: a flange whose edge stops where a jog's bend starts treats that bend as an earlier
   flange's at a corner and is mitered against the jog's run; its flat does not close. Seen
-  while building the contour flange; not chased.
+  while building the contour flange. Settled 2026-11-04: an earlier bend is a flange's corner
+  only where its sheet ends past it (no other bend out of its leg); a jog's runs on, so it is a
+  bend of the edge's own wall, kept off by the relief's width (`testFlangeEndingAtTheJog`).
 - M2's bend between walls, `PartDesign::SheetMetalJoin` (5.1, ruled 2026-11-03), with
   `TestSheetMetalJoin` (10), its command (**Join by Bend**), icon and panel. As built:
   - Two sheets come from two base walls in one body: each base wall adds its walls to the one
@@ -1103,7 +1105,7 @@ and not frozen.
     from its start (the second wall's, cut back under the bend), was nobody's. A bend now
     bounds its walls only between its limits along its axis (`besideBend()` in
     `SheetMetal/Model.cpp`); `testWiderTrimmed` failed without it.
-- Open: a wall's slab has no extent across it in the model, so with two sheets in one body a
+- Open, in part: a wall's slab has no extent across it in the model, so with two sheets in one body a
   face of one lying in the plane of the other's skin can be taken for that wall's (an end face
   at x 50 beside a wall whose skin is x 50 was, and `wallEdge()` refused the edge). Seen while
   building the join; the tests keep clear of it.
@@ -1198,9 +1200,10 @@ and not frozen.
     written, for another suffix, an object of no sheet, and a flat that does not lie flat.
     Export Flat... takes a selected feature or solid of a sheet, else the active body's sheet,
     and a selected flat pattern still. `testExportDXF`, `testExportSVG`, `testExportRefused`.
-  - Open: a flange whose end runs into a bend of the wall it is on (on the top edge of an L's
-    leg, up to the L's bend) is valid folded, but does not lie flat ("faces overlap or are
-    missing"); the flat pattern the same. Found writing `testSolidFlat`.
+  - Was open: a flange whose end runs into a bend of the wall it is on (on the top edge of an
+    L's leg, up to the L's bend) is valid folded, but does not lie flat ("faces overlap or are
+    missing"); the flat pattern the same. Found writing `testSolidFlat`. Settled 2026-11-04,
+    below.
 - The flat, found by the bend cuts: a hole cut across a bend lay flat 2.7e-5 mm^2 short of the
   shape drawn (its outline a B-spline through 24 samples of its image), and its wall, ruled
   between the outlines on the two skins, each sampled on its own parameters, leaned up to
@@ -1231,6 +1234,172 @@ and not frozen.
     thickness, its exact ones do not; and Flatten on costs a recompute the tip's own and one lay,
     no more. A flat that does not lie is laid again each time it is asked for; the flat object
     (sec 12, 2026-11-04) keeps the reason as its status, so that is left to it.
+- The flat object, its first step (ruled 2026-11-04 below): `PartDesign::SheetMetalFlatPattern`
+  (`FeatureSheetMetalFlatPattern.h`), a Part feature, made by the body's solid sync
+  (`Body::syncSolidBodies()`) for each solid holding sheet metal that has none, named `Flat`,
+  hidden, in the body's group behind everything, and removed with its solid. It links its solid
+  (`Sheet`); the solid finds it by its InList (`SolidBody::flatPattern()`), as a link back would
+  be a cycle. As built:
+  - The settings moved off the solid onto it: `Root`, `SecondSkin`, `AlignEdge`, `TangentLines`,
+    `Grain`, `GrainAngle`; `SolidBody::flatSettings()` reads them (the defaults with none), and a
+    change clears the features' shape caches (`flatSettingsChanged()`, which also touches the
+    solid's `Flatten` so the views draw again, until step 2). The values moved too, `Status` in
+    place of `FlatStatus`; the solid keeps `Flatten`, for its features' views, and lays nothing.
+  - Its `execute()` lays its solid's tip flat while it is shown or something but its body uses
+    it (`isWanted()`); otherwise its shape and values stay and `Status` says it is out of date.
+    Shown out of date (or failed), it touches itself; taken up by a user while out of date,
+    `mustExecute()` asks for a recompute, and `skipRecompute()` refuses to be skipped, as the
+    recompute's optimisation skips an object none of whose inputs changed. A tip that does not
+    lie flat says why in `Status`, the last flat kept.
+  - Its shape follows its `Placement` (`shouldApplyPlacement()`), and is saved, its faces named
+    after the folded ones. Check Sheet and Export Flat take it as its solid.
+  - Tests: `TestSheetMetalFlat` (20: the object, laid when shown, when used, placed, saved,
+    not laying, undone with its sheet) and the suites moved to it (`SheetMetalFlatView.py`'s
+    `flatObject()`, `showFlat()`).
+- The flat object, its second step: drawn by its own view
+  (`PartDesignGui::ViewProviderSheetMetalFlatPattern`, a Part view with Flatten's icon), claimed
+  by its solid after its features and left out of the body's top level
+  (`ViewProviderBody::excludeFromExport()`, as the rule is). Shown out of date, the view has it
+  recomputed alone once the change that showed it is through. As built:
+  - Flatten is its visibility: the command shows it and hides the solid's shown features, and
+    folding back hides it and shows them again (else the tip); checked while it is shown; no
+    undo step, as no visibility has one. Both shown is the tree's visibility; its `Placement`
+    moves it off the folded part.
+  - Retired with it: the solid's `Flatten`, each feature view's flat drawing (`refreshFlat()`,
+    the `SheetFlat` and `SheetBoth` modes, the default child kept for the selection drawn on
+    top), and the solid view's `SheetView` and `FlatOffset`; the Gui files are as they were
+    before the flat was drawn (7a5430add6^). Files made with them lose them on loading.
+  - A body whose sheet's flat object is shown is bounded by what its features and flats draw,
+    so a view fitted to it fits the flat.
+  - Check Sheet selects a row's faces on the flat object while it is shown with the checked
+    part's flat (the tip's, up to date), `FlatFace3` there `Face3`; on the folded part where that
+    is shown or the flat is not. Export Flat and Check Sheet take the flat object selected.
+  - Checked by `sheet-metal-commands.py` (56: the object claimed, Flatten showing it laid by its
+    own recompute, the body's bounds, picks and selection on it, moved by its placement beside
+    the folded part, Check Sheet's selection on it and folded, folding back).
+- The flat object, its third step, the markings on the blank: each bend's line and tangent
+  lines are cut where they run over a hole, a slot or a relief (`SheetMetal::onBlank()`, the
+  common of the line with the blank's faces in its plane, the pieces the faces' seams part joined
+  again), in the flat's shape, the DXF and the SVG; a line in pieces is named `Bend1`,
+  `Bend1Part2`, ... (`Bend1Tangent1Part2`). Its whole is kept for what measures from it (Check
+  Sheet's hole near a bend) and for its label. `testBendLineOnTheBlank` (slots cut a line in
+  four), `testLinesStopAtTheRelief` (each had run 0.49 into a mitered corner's relief).
+- The markings styled: the flat's view draws the blank (its shape's solid, given to it, whose
+  faces, edges and vertices come first in the shape and so keep their indices) and each kind of
+  marking in a Part view of its own under its root, whatever its display mode: the bend lines
+  up, those down (by `BendDirections`), the tangent lines, the grain arrow. Each kind has
+  `Show...`, a colour, a line style (a Part view's `DrawStyle`: Solid, Dashed, Dotted, Dashdot)
+  and a width, in the view's `Markings` group; by default as the SVG draws them, up and down
+  dashed blue and red, the tangent lines dotted grey, the grain solid green. Picked, a marking
+  is the edge of the object's shape it is (`Flat.Edge207`, `;Bend4`), and that name selects and
+  highlights it. A bare ray pick (`getObjectInfo()`) has the nearer of a line and the face it
+  lies on; a click, as the selection picks, has the line. The markings are drawn from the shape
+  in the object's own frame: given its edges as placed, the view's transform placed them again
+  and a moved flat's lines went twice as far (found taking the manual's pictures).
+  `sheet-metal-commands.py` (61).
+- A flange whose end stops where a bend of its own wall begins (ruled 2026-11-04: kept off it by
+  the relief's width, the panel saying so; refusing it was the other way). Its bend ended on the
+  plane where that bend ends and touched it face to face; the boolean fused the two over that
+  patch, and no flat shows two bends joined across a face. A gap of the rule's 0.1 is not
+  enough -- the flange's own relief at that end, 1 wide, reaches into the other bend -- and one
+  as wide as the relief is. So at an end with no gap given, which the corner of an earlier
+  flange does not take (`earlierBendAt()`), a bend of the edge's wall -- the one that made it, or
+  one out of it -- holding the sheet's middle just past the end (`ownBendAt()`) keeps the
+  flange the relief's width off, the flange's own or the rule's; its `Notice`, read only, says
+  so, and every sheet metal panel shows a feature's `Notice`. `testIntoItsWallsBend`, and the
+  panels' check. Still open the other way round: a jog's bend at an edge's end is taken by
+  `earlierBendAt()` for an earlier flange's corner (the open note under the contour flange),
+  settled the same day.
+- A face's owner, the same day: a wall's slab runs on in its plane, so a point inside another
+  element's face could lie in it -- a flange down from a jog's moving side, its leg running
+  past the plate's plane, its faces taken for the plate's and laid upright, whatever gap the
+  flange had. A face of a wall spans no more than the sheet along the wall's normal; of the
+  elements holding a face's point, a wall the face is taller than is passed over
+  (`Model::owner(face)`), the first holding it kept where none fits.
+  `testFlangeDownOnTheMovingSide`. The point-level owner, and so the slab, are as they were.
+- M3's convert, its first step, a thin part (ruled 2026-11-04): `PartDesign::SheetMetalConvert`
+  (`FeatureSheetMetalConvert.h`) on the feature before it -- the body's base, an imported or a
+  Part solid -- with `FixedFace`, a wall's skin of that base (a global link, the base lying
+  outside the body), and `Kind`, read only ("Thin part"). `SheetMetal::recognise()`
+  (`SheetMetal/Recognise.h`):
+  - The thickness from the fixed face to the nearest plane face facing it into the material,
+    the two overlapping (`BRepExtrema` no nearer than the planes' gap). A skin is a plane face
+    with one facing it that far; skins join into walls with their partners and with the skins
+    of their plane they share an edge with, so two coplanar walls apart stay two. A plane face
+    that is no skin but lies parallel to a wall is where the thickness varies, refused naming it.
+  - A bend is two coaxial cylinders a thickness apart, between the walls whose skins share the
+    inner one's two straight edges, its own radius; its frame's X toward where the inner skin
+    starts and its Z such that Z x X runs on from the wall it starts from; named out from the
+    fixed face's wall, Wall1, whose first skin is the fixed face.
+  - Any other curved face lies within a wall's thickness (a hole's side) or is refused as
+    curved: only planar walls (rolled walls later).
+  - The feature splits the part at each bend's two tangent planes (`BRepAlgoAPI_Splitter`,
+    two half planes a bend across its band) and fuses the pieces again: a cap across a whole
+    profile, as a part made elsewhere has it, lies in one element after, the solid as it was.
+    Every face must have an owner; the rule's thickness must be the part's.
+  - `TestSheetMetalConvert` (6): M1's part through STEP gives its features' flat, at 1e-6; a
+    Part-made L flat by hand; a bend's own radius; a tube and a stepped plate refused by name;
+    saved and opened again.
+- M3's convert, its second and third steps, a solid or a shell, and rips (2026-11-04).
+  `OpenFaces` (a solid's), `RipEdges` and `Side` (Inside, Outside); `Kind` says Thin part,
+  Solid or Shell. A part that is no thin part the rule's thickness apart, or has faces to open,
+  is thickened by `thickened()`:
+  - A solid by OCCT's thick solid, its open faces taken away. A shell -- or the open solid a
+    body's base makes of one, told by its shell not closing -- is its offset sewn to it with a
+    side across each free edge (`thickShell()`): OCCT's thickening of a shell
+    (`BRepOffset_MakeOffset`, Thickening) failed on every shell tried, `BRepAlgo_Image::Bind`,
+    either join. A shell's faces must be planes.
+  - Inside keeps the part's size; Outside makes its faces the inner skins. Thickened outward,
+    OCCT will not round the outer edges the thick solid makes ("command not done", rounding
+    either edge first), so a solid is grown by T but at its open faces (the thick solid fused
+    to it) and thickened inward as Inside is.
+  - Each straight edge between two plane faces kept is a bend: the outer edge rounded by R + T,
+    then the inner by R. Bends closing a loop round the part (a union-find over the faces) are
+    refused, naming an edge to rip.
+  - A rip is a gap of the rule's on the plane halving the corner. Where two bends meet at its
+    end, a corner relief is cut first, square, as large as their zones (`(R + T) tan(a / 2)`)
+    and half a gap past them; the gap runs from inside the relief, clear of the skins. Rounded
+    without the relief, OCCT blends the corner where the two bends meet, a face that does not
+    unroll; a relief exactly the zones' size has its sides in the planes where the other bend
+    meets its walls, and the recogniser's cutters split them.
+  - On a thin part, a rip is the same gap along the edge and no further (a closed corner seam:
+    past its ends lie a relief or the walls' other sides), cut before recognising.
+  - The model and the recogniser, for these parts: a wall owns a face lying in its slab whole,
+    not only one no taller than the sheet (a mitre lies half in the other wall's slab and went
+    to it); a non-skin plane says the thickness varies only when it faces a skin across the
+    material, by a ray from inside it (a relief's side faced a skin across the empty tray).
+  - `TestSheetMetalConvert` (15): a box opened at its top and ripped at its corners, inside and
+    outside, flat as the flange suite's mitred tray; refused unripped; an L shell flat by hand,
+    inside 28 + 18 + BA and outside 29 + 19 + BA; the box's faces as a shell; a shell's open
+    face refused; a tray made elsewhere, corners closed, through STEP, ripped, flat as the
+    solid's; a rip on an arc refused.
+  - Check Sheet says a thin part's bends' radius comes from the feature, a thickened part's
+    from the rule.
+  - The command, `PartDesign_SheetMetalConvert`, in the Part Design menu's Sheet Metal submenu
+    (the way in, the tool bar coming only with a sheet) and on the tool bar: faces and edges
+    picked on one part, the first face the fixed one, the other faces open, the edges ripped; a
+    part in no body gets a body made on it; the body's tip before it and the part picked hidden.
+    Its panel is the sheet metal panel with Side and three lists: the panel takes several
+    reference lists now (`SheetMetalReferences`), each under its name, its buttons named after
+    it; one list's Add down at a time; a single one (the fixed face) takes a pick in place of
+    what it held. `tests/gui/sheet-metal-convert.py` (15), frozen and not.
+  - The manual's page, `partdesign/sheet-metal/convert` (thundereal-manual 488c915).
+- Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
+  flat object, every sheet metal page's script moved to it and its pictures retaken.
+- A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every
+  sheet metal feature's panel has View, Folded, Flat or Both. Flat or Both lays the feature flat
+  (`SolidBody::flatOf()`) and draws it under the feature's view with the flat object's view
+  class, its look the sheet's flat object's, not pickable; Flat draws nothing else of the body,
+  Both moves the flat off the part by the flat object's placement, else beside it. In an edit
+  session (render-cache mode 3) the flat is a node of the session's, placed as the edited
+  occurrence, and Flat hides the body's members by the session's visibility table, owner
+  `PartDesign.Flat`, whose entries come before the edit's own `PartDesign.Shown`, the edit's
+  preview taken away; the edit draws the feature on top by its switch's default child, which the
+  views' switches alone did not reach. Without a session, under the feature's view, the views'
+  switches and default children off. A hidden flat object drew its markings until they went
+  under a switch of their own following Visibility (found taking these pictures). It follows each recompute while on; a feature
+  that does not lie flat says why under it. Closing the panel puts everything back. Checked by
+  `sheet-metal-panels.py` (64).
 
 **Ruled 2026-11-02, M2:**
 - The order of M2's tools as sec 9 has it; the rolled wall moves to M5.
@@ -1353,12 +1522,31 @@ display mode (which would have to pair each with shaded, wireframe, ...): the so
 `SheetView`, Flat, Folded or Both, and `FlatOffset`, a vector moving the flat drawn (off the
 folded part in Both, where the two would lie on each other at the root wall).
 
+**Ruled 2026-11-04, M3's convert and recognise** (after how other programs do it, general
+knowledge: SOLIDWORKS splits Insert Bends for a thin part from Convert to Sheet Metal for a solid;
+Onshape, Creo and NX take either in one feature; every one is a feature in the tree with a fixed
+face picked; bends found keep their own radius; rip is inside the convert command and, in
+SOLIDWORKS, Inventor and Creo, a feature of its own as well):
+- One feature, `PartDesign::SheetMetalConvert`, on a base no sheet metal feature made (an
+  imported or a Part solid): a fixed face picked, the wall the flat lies on; rip edges picked.
+  From the geometry it tells which it has. A thin part keeps its thickness and its bends, each
+  bend its own radius (Check Sheet's source `feature`); a solid or a shell is thickened by the
+  rule's thickness, inside or outside, and every sharp edge not ripped becomes a bend of the
+  rule's radius. It says which it took the base for, and refuses by name a face no wall or bend
+  owns or a thickness that varies.
+- In this order: the thin part first (the recogniser of 4.2 way 3), then the solid or shell, then
+  the rip edges. Walls planar only in M3; a curved one is refused by name (rolled walls, M5).
+- A Rip of its own, on a closed sheet already made (a welded duct), is M4's.
+- Tests: the M1 parts written to STEP and read back give, converted, the flat their features
+  give; a hand-made shell converted flattens to its hand value.
+
 **Ruled 2026-11-03, sec 7's checks on demand:** run when the user asks, as Flatten is, not on a
 recompute; where they are listed and marked is designed with them.
 
 **Ruled 2026-11-04, the flat an object of the sheet** (revises the two rulings of 2026-11-03
-above, the flat as a view and what is drawn while flattening; the details below are proposed for
-the user to check before any code). Asked after the bend lines were seen running into a corner
+above, the flat as a view and what is drawn while flattening). Built the same day in its four
+steps (Progress above), the details as below but for what it draws, changed while building and
+for the user to confirm. Asked after the bend lines were seen running into a corner
 relief's hole, and how other programs style them. How they keep the flat (general knowledge, not
 surveyed): SOLIDWORKS a Flat-Pattern feature at the end of the tree, Bend-Lines and Bounding-Box
 sketches under it; Inventor, Fusion and Solid Edge a flat pattern node with an environment of its
@@ -1392,7 +1580,10 @@ not, a colour with up and down apart, a line type; most of it again in the DXF's
   goes; a show is not an undo step, as no visibility is.
 - **What it draws:** the tip's flat. While an earlier feature of the sheet is the one shown, the
   view draws that feature's flat (laid in memory, not saved), so showing an earlier feature still
-  shows its flat, as now.
+  shows its flat, as now. **Changed while building step 2 (2026-11-04, for the user to
+  confirm):** it draws its solid's tip's flat only; an earlier feature's is seen by rolling the
+  solid's tip back to it, as in any PartDesign body. Drawn from memory, an earlier feature's
+  flat would be picked and selected by names its object's saved shape does not have.
 - **Its elements** are named as a shape's: `Flat.Face3`, `Flat.Bend1`, `Flat.Bend1Tangent1`,
   `Flat.Grain`. The markings (bend lines, tangent lines, grain) are trimmed to the blank, split
   where they cross a hole or a relief: a bend line now runs on from the bend's faces' axial extent

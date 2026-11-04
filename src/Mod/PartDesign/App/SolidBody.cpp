@@ -41,6 +41,7 @@
 
 #include "Body.h"
 #include "Feature.h"
+#include "FeatureSheetMetalFlatPattern.h"
 #include "SheetMetalExtension.h"
 #include "SolidBody.h"
 
@@ -199,42 +200,6 @@ SolidBody::SolidBody()
     Placement.setStatus(App::Property::Hidden, true);
     Placement.setStatus(App::Property::Immutable, true);
 
-    // The sheet's flat (docs/SheetMetal.md sec 12): its settings, and what a
-    // bill of materials takes of the tip's
-    ADD_PROPERTY_TYPE(Flatten, (false), "Flat", App::Prop_None,
-            "Lay the tip flat in each recompute, for the values below; off, they\n"
-            "are left as they were");
-    ADD_PROPERTY_TYPE(FlatRoot, (""), "Flat", App::Prop_None,
-            "The wall laid on XY, by its name (Wall1); the first wall if empty");
-    ADD_PROPERTY_TYPE(FlatSecondSkin, (false), "Flat", App::Prop_None,
-            "The root wall's second skin on XY, not its first");
-    ADD_PROPERTY_TYPE(FlatAlignEdge, (""), "Flat", App::Prop_None,
-            "An edge of the solid, by its element name, the flat is turned to run\n"
-            "along X by, where the feature laid flat has it");
-    ADD_PROPERTY_TYPE(TangentLines, (false), "Flat", App::Prop_None,
-            "Each bend's two tangent lines in the flat, where it meets its walls");
-    ADD_PROPERTY_TYPE(Grain, (false), "Flat", App::Prop_None,
-            "The grain arrow on the flat's top");
-    ADD_PROPERTY_TYPE(GrainAngle, (0.0), "Flat", App::Prop_None,
-            "The grain's direction, from the flat's X");
-    const auto out = static_cast<App::PropertyType>(App::Prop_ReadOnly | App::Prop_Output);
-    ADD_PROPERTY_TYPE(FlatLength, (0.0), "Manufacturing", out,
-            "The tip's flat's size on XY, its longer side");
-    ADD_PROPERTY_TYPE(FlatWidth, (0.0), "Manufacturing", out,
-            "The tip's flat's size on XY, its shorter side");
-    ADD_PROPERTY_TYPE(FlatArea, (0.0), "Manufacturing", out, "The blank's area");
-    ADD_PROPERTY_TYPE(Thickness, (0.0), "Manufacturing", out, "The sheet's thickness");
-    ADD_PROPERTY_TYPE(MaterialName, (""), "Manufacturing", out,
-            "The name of the rule's material card");
-    ADD_PROPERTY_TYPE(BendCount, (0L), "Manufacturing", out, "How many bends the flat has");
-    ADD_PROPERTY_TYPE(MaxBendAngle, (0.0), "Manufacturing", out, "The largest bend angle");
-    ADD_PROPERTY_TYPE(BendDirections, (), "Manufacturing", out,
-            "Each bend, Up or Down: Up where the material comes up toward one\n"
-            "looking down on the flat");
-    ADD_PROPERTY_TYPE(FlatStatus, (""), "Manufacturing", out,
-            "Why the tip does not lie flat, empty if it does");
-    for (App::Property *prop : flatProperties())
-        prop->setStatus(App::Property::Hidden, true);
 }
 
 Body *SolidBody::getBody() const
@@ -298,9 +263,7 @@ void SolidBody::rememberShown(const App::DocumentObject *obj)
 
 short SolidBody::mustExecute() const
 {
-    if (Tip.isTouched() || Flatten.isTouched() || FlatRoot.isTouched() || FlatSecondSkin.isTouched()
-            || FlatAlignEdge.isTouched() || TangentLines.isTouched() || Grain.isTouched()
-            || GrainAngle.isTouched())
+    if (Tip.isTouched())
         return 1;
     return inherited::mustExecute();
 }
@@ -309,15 +272,8 @@ App::DocumentObjectExecReturn *SolidBody::execute()
 {
     auto res = updateShape();
     if (res == App::DocumentObject::StdReturn)
-        updateFlat();
+        pruneFlats();
     return res;
-}
-
-std::vector<App::Property*> SolidBody::flatProperties()
-{
-    return {&Flatten, &FlatRoot, &FlatSecondSkin, &FlatAlignEdge, &TangentLines, &Grain, &GrainAngle,
-            &FlatLength, &FlatWidth, &FlatArea, &Thickness, &MaterialName, &BendCount,
-            &MaxBendAngle, &BendDirections, &FlatStatus};
 }
 
 bool SolidBody::isSheetMetal() const
@@ -329,16 +285,31 @@ bool SolidBody::isSheetMetal() const
     return false;
 }
 
+SheetMetalFlatPattern *SolidBody::flatPattern() const
+{
+    // It links this object; nothing links it back, which would be a cycle
+    for (auto obj : getInList()) {
+        auto flat = Base::freecad_dynamic_cast<SheetMetalFlatPattern>(obj);
+        if (flat && flat->Sheet.getValue() == this)
+            return flat;
+    }
+    return nullptr;
+}
+
 FlatSettings SolidBody::flatSettings() const
 {
-    FlatSettings res;
-    res.root = FlatRoot.getValue();
-    res.secondSkin = FlatSecondSkin.getValue();
-    res.alignEdge = FlatAlignEdge.getValue();
-    res.tangentLines = TangentLines.getValue();
-    res.grain = Grain.getValue();
-    res.grainAngle = GrainAngle.getValue();
-    return res;
+    if (auto flat = flatPattern())
+        return flat->settings();
+    return {};
+}
+
+void SolidBody::flatSettingsChanged()
+{
+    Part::PropertyShapeCache::clearShapes(this);
+    for (auto obj : Group.getValues()) {
+        if (obj)
+            Part::PropertyShapeCache::clearShapes(obj);
+    }
 }
 
 const SheetFlat &SolidBody::flatOf(const App::DocumentObject *feature) const
@@ -362,21 +333,8 @@ const SheetFlat &SolidBody::flatOf(const App::DocumentObject *feature) const
     return cache.flat;
 }
 
-void SolidBody::showFlatProperties()
+void SolidBody::pruneFlats()
 {
-    const bool sheet = isSheetMetal();
-    for (App::Property *prop : flatProperties()) {
-        if (prop->testStatus(App::Property::Hidden) == sheet)
-            prop->setStatus(App::Property::Hidden, !sheet);
-    }
-}
-
-void SolidBody::updateFlat()
-{
-    showFlatProperties();
-    if (!isSheetMetal())
-        return;
-    // Only the features still the solid's are kept
     for (auto it = flats.begin(); it != flats.end();) {
         auto obj = getDocument() ? getDocument()->getObject(it->first.c_str()) : nullptr;
         if (!obj || !hasFeature(obj))
@@ -384,37 +342,6 @@ void SolidBody::updateFlat()
         else
             ++it;
     }
-    // Nothing is laid flat in a recompute unless the user asked (ruled
-    // 2026-11-03): the values are left as they were
-    if (!Flatten.getValue())
-        return;
-    std::string status;
-    try {
-        const SheetFlat &flat = flatOf();
-        FlatLength.setValue(flat.length);
-        FlatWidth.setValue(flat.width);
-        FlatArea.setValue(flat.area);
-        Thickness.setValue(flat.thickness);
-        MaterialName.setValue(flat.material);
-        BendCount.setValue(flat.bendCount);
-        MaxBendAngle.setValue(flat.maxBendAngle);
-        BendDirections.setValues(flat.directions);
-    }
-    catch (const Base::Exception &e) {
-        status = e.what();
-    }
-    catch (const Standard_Failure &e) {
-        status = e.GetMessageString();
-    }
-    if (!status.empty()) {
-        FlatLength.setValue(0.0);
-        FlatWidth.setValue(0.0);
-        FlatArea.setValue(0.0);
-        BendCount.setValue(0L);
-        MaxBendAngle.setValue(0.0);
-        BendDirections.setValues({});
-    }
-    FlatStatus.setValue(status);
 }
 
 const char *SolidBody::flatSubName(const char *subname)
@@ -682,17 +609,6 @@ void SolidBody::onChanged(const App::Property* prop)
     }
     inherited::onChanged(prop);
 
-    // Every feature's Flat follows the settings, and Part keeps what it
-    // last handed out of a feature until the feature changes
-    if (prop == &FlatRoot || prop == &FlatSecondSkin || prop == &FlatAlignEdge
-            || prop == &TangentLines || prop == &Grain || prop == &GrainAngle) {
-        Part::PropertyShapeCache::clearShapes(this);
-        for (auto obj : Group.getValues()) {
-            if (obj)
-                Part::PropertyShapeCache::clearShapes(obj);
-        }
-    }
-
     if (prop == &Group)
         handOn(true, true);
     else if (prop == &ShapeMaterial)
@@ -725,7 +641,6 @@ void SolidBody::onDocumentRestored()
         if (hasFeature(tip))
             shapeOf = tip->getNameInDocument();
     }
-    showFlatProperties();
     inherited::onDocumentRestored();
 }
 

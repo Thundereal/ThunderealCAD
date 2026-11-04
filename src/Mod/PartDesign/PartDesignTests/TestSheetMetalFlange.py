@@ -364,6 +364,25 @@ class TestSheetMetalFlange(unittest.TestCase):
         relieved, plain, c = self.reliefFlats(flange, "Circle", 2, cover=0.5)
         self.checkCut(relieved, plain, Part.Face(Part.Wire(Part.makeCircle(1, c))))
 
+    def testLinesStopAtTheRelief(self):
+        """Two edges mitered at a corner, the rule's relief there: the bend
+        lines and the tangent lines lie on the blank, stopping at the
+        relief's hole (found 2026-11-04: each ran on 0.49 into it)"""
+        flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
+        self.checkValid(flange)
+        from .SheetMetalFlatView import flatObject
+
+        flatObject(flange).TangentLines = True
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        blank = flat.Shape.SubShapes[0]
+        lines = flat.Shape.SubShapes[1].Edges + flat.Shape.SubShapes[2].Edges
+        self.assertEqual(len(lines), 6)
+        for e in lines:
+            for k in range(9):
+                p = e.valueAt(e.FirstParameter + (e.LastParameter - e.FirstParameter) * k / 8)
+                self.assertLess(Part.Vertex(p).distToShape(blank)[0], 1e-6, p)
+
     def testCornerReliefNone(self):
         """None and Tear: the miter's gap, nothing more"""
         flange = self.flange([((0, 20, 1), (40, 20, 1)), ((40, 0, 1), (40, 20, 1))])
@@ -593,6 +612,41 @@ class TestSheetMetalFlange(unittest.TestCase):
         gap = self.Plate.Rule.Gap.Value
         for v in third.AddSubShape.Vertexes:
             self.assertGreaterEqual(v.Point.x - v.Point.y, 20 + gap / 2 - 1e-6, v.Point)
+
+    def testIntoItsWallsBend(self):
+        """A flange on an L's leg, on its top edge on the inside, running up
+        to the L's bend: kept off that bend by the relief's width, 1, as a
+        gap there would (ruled 2026-11-04); valid, it lies flat, and says so
+        in its Notice. Its bend touched the L's face to face, fused to it,
+        and did not lie flat"""
+        # in a body of its own: the plate's would be a second sheet, not
+        # joined to it, and their flat would not lie
+        self.Body = self.Doc.addObject("PartDesign::Body", "LBody")
+        sketch = self.Body.newObject("Sketcher::SketchObject", "LSketch")
+        for a, b in (((0, 0), (20, 0)), ((20, 0), (20, 10))):
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        wall = self.Body.newObject("PartDesign::SheetMetalBaseWall", "L")
+        wall.Profile = sketch
+        wall.Length = 15
+        self.Doc.recompute()
+        # the leg x 20..21, its bend to the plate ending at y 1
+        flange = self.flange([((20, 10, 15), (20, 1, 15))], base=wall, Length=8)
+        self.checkValid(flange)
+        self.assertNotIn(None, self.owners(flange))
+        box = flange.AddSubShape.BoundBox
+        self.assertAlmostEqual(box.YMin, 2, places=6)
+        self.assertAlmostEqual(box.YMax, 10, places=6)
+        self.assertIn("Bend1", flange.Notice)
+        flat = self.flat(flange)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertEqual(len(flat.Shape.Solids), 1)
+        self.assertTrue(flat.Shape.Solids[0].isValid())
+        # a gap given there is the flange's own: nothing more is kept off
+        flange.Gap2 = 3
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertAlmostEqual(flange.AddSubShape.BoundBox.YMin, 4, places=6)
+        self.assertEqual(flange.Notice, "")
 
     def testCornerFreedByReliefs(self):
         """Two edges flanged with gaps at the corner they share: the reliefs

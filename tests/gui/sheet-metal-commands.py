@@ -7,11 +7,12 @@
     the sketch hidden, and with it the rule; its panel opens, and OK closes it;
   - Flange on a selected edge of the wall's skin makes a flange there;
   - Extend Wall on a selected end of a wall carries it out;
-  - Flatten draws the active body's sheet laid flat while it is on, picked
-    and selected by the flat's element names, and Export Flat is offered for
-    it with nothing selected; the solid's Sheet View draws it flat, folded or
-    both, the flat moved by its Flat Offset; Check Sheet opens a panel of its
-    bends and problems, a row picked selecting its faces as they are drawn;
+  - the sheet has one flat object, claimed by its solid; Flatten shows it in
+    place of the folded part, laid flat by its recompute, picked and
+    selected by its own element names, and Export Flat is offered with
+    nothing selected; shown with the folded part, it is moved off it by its
+    placement; Check Sheet opens a panel of its bends and problems, a row
+    picked selecting its faces as they are drawn;
   - the solid body holding the sheet has the sheet metal overlay on its icon;
   - a double-click on it makes it active, which offers the tool bar, and a
     second lets it go and takes the tool bar away;
@@ -443,9 +444,22 @@ def run():
         )
         flange = cuts
 
-        # Flatten: the active body's sheet drawn laid flat while it is on
-        # (docs/SheetMetal.md sec 12)
+        # Flatten: the sheet's flat object shown in place of the folded part
+        # (docs/SheetMetal.md sec 12, ruled 2026-11-04)
         solid = body.getSolidBody(flange)
+        flats = [
+            o for o in solid.InList
+            if o.isDerivedFrom("PartDesign::SheetMetalFlatPattern") and o.Sheet == solid
+        ]
+        flat = flats[0] if flats else None
+        check(
+            "the sheet has one flat object, hidden, claimed by its solid after its features",
+            len(flats) == 1
+            and not flat.Visibility
+            and solid.ViewObject.claimChildren()[-1] == flat
+            and flat not in body.ViewObject.claimChildren(),
+            (flats, flat and solid.ViewObject.claimChildren()[-3:]),
+        )
         cmd = FreeCADGui.Command.get("PartDesign_SheetMetalFlatten")
         view.setActiveObject("pdbody", body)
         pump()
@@ -456,24 +470,20 @@ def run():
             FreeCADGui.Command.get("PartDesign_SheetMetalExportDXF").isActive(),
         )
         folded = flange.ViewObject.getBoundingBox()
-
-        def switchChild(name):
-            # the feature's mode switch's field, as Coin writes it
-            value = flange.ViewObject.SwitchNode.getField(name).get()
-            return int(value.getString() if hasattr(value, "getString") else str(value))
-
-        foldedDefault = switchChild("defaultChild")
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 1)
-        pump()
-        thick = solid.Thickness.Value
-        box = flange.ViewObject.getBoundingBox()
+        pump(20)
+        thick = flange.Rule.Thickness.Value
+        box = flat.ViewObject.getBoundingBox()
         check(
-            "Flatten turns the solid's Flatten on, its values filled",
-            solid.Flatten and solid.FlatArea.Value > 0 and solid.FlatStatus == "",
-            (solid.Flatten, solid.FlatArea, solid.FlatStatus),
+            "Flatten shows the flat object, laid flat by its own recompute, the folded part hidden",
+            flat.Visibility
+            and flat.Status == ""
+            and "Touched" not in flat.State
+            and not flange.Visibility,
+            (flat.Visibility, flat.Status, flat.State, flange.Visibility),
         )
         check(
-            "the tip drawn laid flat, one thickness high",
+            "the flat drawn, one thickness high",
             thick > 0 and abs(box.ZLength - thick) < 1e-3 and folded.ZLength > 2 * thick,
             (box, folded, thick),
         )
@@ -485,95 +495,12 @@ def run():
             (bodyBox, box),
         )
         check("its button checked", cmd.getAction()[0].isChecked())
-        laid = flange.getSubObject("Flat")
-        top = max(laid.Faces, key=lambda f: f.Area)
-        view.fitAll()
-        pump()
-        hit = None
-        u0, u1, v0, v1 = top.ParameterRange
-        for fu in (0.5, 0.3, 0.7, 0.2, 0.8):
-            for fv in (0.5, 0.3, 0.7, 0.2, 0.8):
-                p = top.valueAt(u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv)
-                if hit is None and top.isInside(p, 1e-6, True):
-                    x, y = view.getPointOnScreen(p)
-                    hit = view.getObjectInfo((int(x), int(y)))
-        check(
-            "picked, the flat names its element FlatFace",
-            hit is not None and "FlatFace" in str(hit.get("Component", "")),
-            hit,
-        )
-        FreeCADGui.Selection.clearSelection()
-        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, "FlatFace1")
-        sel = FreeCADGui.Selection.getSelectionEx("", 0)
-        check(
-            "FlatFace1 selected is the flat's face",
-            len(sel) == 1
-            and len(sel[0].SubObjects) == 1
-            and sel[0].SubObjects[0].isPartner(laid.Faces[0]),
-            sel and [(s.ObjectName, s.SubElementNames) for s in sel],
-        )
-        check(
-            "a selection drawn on top shows the flat, not the folded part: the mode switch's"
-            " default child is the flat's",
-            switchChild("defaultChild") == switchChild("whichChild") != foldedDefault,
-            (switchChild("defaultChild"), switchChild("whichChild"), foldedDefault),
-        )
-        FreeCADGui.Selection.clearSelection()
-
-        # What is drawn while Flatten is on: the solid's Sheet View, the flat
-        # moved by its Flat Offset (docs/SheetMetal.md sec 12)
-        svo = solid.ViewObject
-        check(
-            "the solid's Sheet View offers Flat, Folded and Both, Flat at first, shown",
-            getattr(svo, "SheetView", None) == "Flat"
-            and svo.getEnumerationsOfProperty("SheetView") == ["Flat", "Folded", "Both"]
-            and "Hidden" not in svo.getPropertyStatus("SheetView")
-            and "Hidden" not in svo.getPropertyStatus("FlatOffset"),
-            hasattr(svo, "SheetView") and (svo.SheetView, svo.getPropertyStatus("SheetView")),
-        )
-        flatBox = box
-        svo.SheetView = "Folded"
-        pump()
-        box = flange.ViewObject.getBoundingBox()
-        check(
-            "Folded: the tip drawn as it is, Flatten still on, its values kept",
-            solid.Flatten
-            and solid.FlatArea.Value > 0
-            and abs(box.ZLength - folded.ZLength) < 1e-3
-            and abs(box.XLength - folded.XLength) < 1e-3,
-            (solid.Flatten, box, folded),
-        )
-        # the flat moved clear of the folded part along X
-        shift = folded.XMax - flatBox.XMin + 10
-        svo.FlatOffset = FreeCAD.Vector(shift, 0, 0)
-        svo.SheetView = "Both"
-        pump()
-        box = flange.ViewObject.getBoundingBox()
-        moved = FreeCAD.BoundBox(flatBox)
-        moved.move(FreeCAD.Vector(shift, 0, 0))
-        both = FreeCAD.BoundBox(folded)
-        both.add(moved)
-        check(
-            "Both: the bounds the folded part's and the moved flat's",
-            all(
-                abs(getattr(box, k) - getattr(both, k)) < 1e-3
-                for k in ("XMin", "XMax", "YMin", "YMax", "ZMin", "ZMax")
-            ),
-            (box, both),
-        )
-        # the tip alone shown while picked: an earlier feature of the sheet
-        # draws its flat where the tip's lies
-        others = [
-            o for o in body.Group if o != flange and o.ViewObject and o.ViewObject.Visibility
-        ]
-        for o in others:
-            o.ViewObject.Visibility = False
+        top = max(flat.Shape.Faces, key=lambda f: f.Area)
         view.fitAll()
         pump()
 
-        def pickOn(faces, move, prefix):
-            # the first pick on one of the faces naming an element of the tip
-            # so named: another feature shown may lie in front of a point
+        def pickOn(obj, faces, move=FreeCAD.Vector()):
+            # the first pick on one of the faces naming a face of obj
             last = None
             for face in faces:
                 u0, u1, v0, v1 = face.ParameterRange
@@ -586,23 +513,162 @@ def run():
                         info = view.getObjectInfo((int(x), int(y)))
                         if info:
                             last = info
-                            if info.get("Object") == flange.Name and str(
+                            if info.get("Object") == obj.Name and str(
                                 info.get("Component", "")
-                            ).startswith(prefix):
+                            ).startswith("Face"):
                                 return info
             return last
 
-        hit = pickOn([top], FreeCAD.Vector(shift, 0, 0), "FlatFace")
+        hit = pickOn(flat, [top])
         check(
-            "Both: the moved flat picked names FlatFace",
+            "picked, the flat names its own Face",
             hit is not None
-            and hit.get("Object") == flange.Name
-            and str(hit.get("Component", "")).startswith("FlatFace"),
+            and hit.get("Object") == flat.Name
+            and str(hit.get("Component", "")).startswith("Face"),
             hit,
         )
-        hit = pickOn(
-            sorted(flange.Shape.Faces, key=lambda f: -f.Area), FreeCAD.Vector(), "Face"
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, flat.Name, "Face1")
+        sel = FreeCADGui.Selection.getSelectionEx("", 0)
+        check(
+            "Face1 of the flat selected is its face, the tip's FlatFace1",
+            len(sel) == 1
+            and len(sel[0].SubObjects) == 1
+            and sel[0].SubObjects[0].isPartner(flat.Shape.Faces[0])
+            and sel[0].SubObjects[0].isPartner(flange.getSubObject("FlatFace1")),
+            sel and [(s.ObjectName, s.SubElementNames) for s in sel],
         )
+        FreeCADGui.Selection.clearSelection()
+
+        # The markings, each kind drawn in its own style (sec 12): the bend
+        # lines dashed, up and down in two colours, as the SVG has them
+        fvo = flat.ViewObject
+        check(
+            "the flat's view styles each kind of marking, the bend lines dashed",
+            fvo.BendUpStyle == "Dashed"
+            and fvo.BendDownStyle == "Dashed"
+            and fvo.TangentLineStyle == "Dotted"
+            and fvo.GrainStyle == "Solid"
+            and fvo.getEnumerationsOfProperty("BendUpStyle")
+            == ["Solid", "Dashed", "Dotted", "Dashdot"]
+            and all(fvo.getGroupOfProperty(n) == "Markings" for n in ("ShowBendUp", "GrainWidth"))
+            and fvo.BendUpColor[:3] != fvo.BendDownColor[:3],
+            [(n, getattr(fvo, n)) for n in ("BendUpStyle", "BendUpColor", "BendDownColor")],
+        )
+        lineEdges = [
+            (i + 1, e)
+            for i, e in enumerate(flat.Shape.Edges)
+            if flat.Shape.getElementMappedName("Edge%d" % (i + 1)).startswith("Bend")
+            and "Tangent" not in flat.Shape.getElementMappedName("Edge%d" % (i + 1))
+        ]
+        line = max(lineEdges, key=lambda t: t[1].Length) if lineEdges else None
+
+        def pickLine(index, edge):
+            # a point along the line, off its ends, picked as a click picks:
+            # an edge in a face's plane takes the pick from the face (a bare
+            # ray pick, getObjectInfo(), has the nearer of the two)
+            last = None
+            for f in (0.5, 0.4, 0.6, 0.3, 0.7):
+                p = edge.valueAt(edge.FirstParameter + (edge.LastParameter - edge.FirstParameter) * f)
+                x, y = view.getPointOnScreen(p)
+                res = view.getViewer().getPickedList(
+                    pos=(float(x), float(y)), singlePick=True, mapCoords=False, resolve=0
+                )
+                for obj, sub in res:
+                    last = sub
+                    if sub.startswith(flat.Name + ".") and sub.split(".")[-1] == "Edge%d" % index:
+                        return sub
+            return last
+
+        hit = pickLine(*line) if line else None
+        check(
+            "a bend line picked is the flat's own edge, named after its bend",
+            line is not None and hit is not None and hit.split(".")[-1] == "Edge%d" % line[0],
+            (line and (line[0], flat.Shape.getElementMappedName("Edge%d" % line[0])), hit),
+        )
+        FreeCADGui.Selection.clearSelection()
+        if line:
+            FreeCADGui.Selection.addSelection(doc.Name, flat.Name, "Edge%d" % line[0])
+        sel = FreeCADGui.Selection.getSelectionEx("", 0)
+        check(
+            "and selected by that name, the line",
+            line is not None
+            and len(sel) == 1
+            and len(sel[0].SubObjects) == 1
+            and sel[0].SubObjects[0].isPartner(line[1]),
+            sel and [(x.ObjectName, x.SubElementNames) for x in sel],
+        )
+        FreeCADGui.Selection.clearSelection()
+        fvo.ShowBendUp = False
+        fvo.ShowBendDown = False
+        pump()
+        hit = pickLine(*line) if line else None
+        check(
+            "the bend lines hidden, no longer picked",
+            line is not None and hit is not None and hit.split(".")[-1] != "Edge%d" % line[0],
+            hit,
+        )
+        fvo.ShowBendUp = True
+        fvo.ShowBendDown = True
+        pump()
+
+        # Both: the folded part shown too, the flat moved off it by its own
+        # placement
+        flatBox = box
+        shift = folded.XMax - flatBox.XMin + 10
+        flat.Placement.Base = FreeCAD.Vector(shift, 0, 0)
+        doc.recompute()
+        view.fitAll()
+        pump(20)
+        # (at the scale the line was picked at before, the flat alone shown)
+        moving = max(lineEdges, key=lambda t: t[1].Length) if lineEdges else None
+        hitLine = (
+            pickLine(moving[0], moving[1].translated(FreeCAD.Vector(shift, 0, 0)))
+            if moving
+            else None
+        )
+        check(
+            "its markings moved with it: a bend line picked where it now lies",
+            moving is not None
+            and hitLine is not None
+            and hitLine.split(".")[-1] == "Edge%d" % moving[0],
+            hitLine,
+        )
+        flange.Visibility = True
+        pump(20)
+        moved = FreeCAD.BoundBox(flatBox)
+        moved.move(FreeCAD.Vector(shift, 0, 0))
+        box = flat.ViewObject.getBoundingBox()
+        both = FreeCAD.BoundBox(folded)
+        both.add(moved)
+        bodyBox = body.ViewObject.getBoundingBox()
+        check(
+            "the flat moved by its placement, and the body's bounds both",
+            all(
+                abs(getattr(box, k) - getattr(moved, k)) < 1e-3
+                and abs(getattr(bodyBox, k) - getattr(both, k)) < 1e-3
+                for k in ("XMin", "XMax", "YMin", "YMax", "ZMin", "ZMax")
+            ),
+            (box, moved, bodyBox, both),
+        )
+        # the tip alone of the folded part shown while picked
+        others = [
+            o for o in body.Group
+            if o not in (flange, flat) and o.ViewObject and o.ViewObject.Visibility
+        ]
+        for o in others:
+            o.ViewObject.Visibility = False
+        view.fitAll()
+        pump()
+        hit = pickOn(flat, [top], FreeCAD.Vector(shift, 0, 0))
+        check(
+            "the moved flat picked names its Face",
+            hit is not None
+            and hit.get("Object") == flat.Name
+            and str(hit.get("Component", "")).startswith("Face"),
+            hit,
+        )
+        hit = pickOn(flange, sorted(flange.Shape.Faces, key=lambda f: -f.Area))
         check(
             "and the folded part picked names its Face",
             hit is not None
@@ -614,31 +680,9 @@ def run():
         for o in others:
             o.ViewObject.Visibility = True
         flange.ViewObject.Visibility = True
-        pump()
-        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, "FlatFace1")
-        FreeCADGui.Selection.addSelection(doc.Name, flange.Name, "Face1")
-        sel = FreeCADGui.Selection.getSelectionEx("", 0)
-        check(
-            "Both: FlatFace1 and Face1 selected together",
-            len(sel) == 1
-            and len(sel[0].SubObjects) == 2
-            and sel[0].SubObjects[0].isPartner(laid.Faces[0])
-            and sel[0].SubObjects[1].isPartner(flange.Shape.Faces[0]),
-            sel and [(s.ObjectName, s.SubElementNames) for s in sel],
-        )
-        FreeCADGui.Selection.clearSelection()
-        svo.SheetView = "Flat"
-        pump()
-        box = flange.ViewObject.getBoundingBox()
-        check(
-            "Flat: the flat alone, moved by Flat Offset",
-            all(
-                abs(getattr(box, k) - getattr(moved, k)) < 1e-3
-                for k in ("XMin", "XMax", "YMin", "YMax", "ZMin", "ZMax")
-            ),
-            (box, moved),
-        )
-        svo.FlatOffset = FreeCAD.Vector()
+        flat.Placement.Base = FreeCAD.Vector()
+        doc.recompute()
+        flange.Visibility = False
         pump()
 
         # Check Sheet: the bend table and the problems found, on demand
@@ -657,6 +701,7 @@ def run():
         rule = flange.Rule
         rule.MinFlange = 1000
         doc.recompute()
+        pump()
         found = PartDesign.checkSheet(flange)
         FreeCADGui.runCommand("PartDesign_SheetMetalCheck")
         pump()
@@ -681,21 +726,25 @@ def run():
         listed.setCurrentRow(0)
         pump()
         sel = FreeCADGui.Selection.getSelectionEx("", 0)
-        names = sorted(n.split(".")[-1] for s in sel for n in s.SubElementNames)
+        # a path through the body to the flat: Flat.<its mapped name>.Face1
+        picked = sorted(n.split(".")[-1] for s in sel for n in s.SubElementNames)
+        onFlat = all(n.startswith(flat.Name + ".") for s in sel for n in s.SubElementNames)
         check(
-            "a problem picked selects its faces on the flat drawn",
-            names == sorted(first["FlatElements"]) and names,
-            (names, first["FlatElements"]),
+            "a problem picked selects its faces on the flat object, as they are named there",
+            onFlat
+            and picked == sorted(n[len("Flat"):] for n in first["FlatElements"])
+            and picked,
+            ([n for s in sel for n in s.SubElementNames][:2], picked, first["FlatElements"]),
         )
-        svo.SheetView = "Folded"
-        pump()
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 0)
+        pump(20)
         listed.setCurrentRow(-1)
         listed.setCurrentRow(0)
         pump()
         sel = FreeCADGui.Selection.getSelectionEx("", 0)
         names = sorted(n.split(".")[-1] for s in sel for n in s.SubElementNames)
         check(
-            "folded, its faces as they are",
+            "folded back, its faces on the folded part",
             names == sorted(first["Elements"]) and names,
             (names, first["Elements"]),
         )
@@ -720,25 +769,33 @@ def run():
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Control.closeDialog()
         pump()
-        svo.SheetView = "Flat"
-        pump()
-        FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 0)
-        pump()
-        # the button follows the solid where the command is asked, as the
+        # the button follows the flat where the command is asked, as the
         # tool bar's update does
         cmd.isActive()
         box = flange.ViewObject.getBoundingBox()
+        # hidden, the flat draws nothing: not its blank, nor its lines
+        for o in body.Group:
+            if o != flat and o.ViewObject and o.ViewObject.Visibility:
+                o.ViewObject.Visibility = False
+        view.fitAll()
+        pump(10)
+        stray = pickLine(*line) if line else None
+        for o in body.Group:
+            if o == flange:
+                o.ViewObject.Visibility = True
+        pump(10)
         check(
-            "and its default child given back",
-            switchChild("defaultChild") == foldedDefault,
-            (switchChild("defaultChild"), foldedDefault),
+            "hidden, the flat's lines are not drawn: nothing picked where one lay",
+            line is not None and not (stray and stray.startswith(flat.Name + ".")),
+            stray,
         )
         check(
-            "again, folded back: Flatten off, the tip drawn as it is, unchecked",
-            not solid.Flatten
+            "folded back: the flat hidden, the tip shown as it is, unchecked",
+            not flat.Visibility
+            and flange.Visibility
             and abs(box.ZLength - folded.ZLength) < 1e-3
             and not cmd.getAction()[0].isChecked(),
-            (solid.Flatten, box, folded),
+            (flat.Visibility, flange.Visibility, box, folded),
         )
 
         solid = body.getSolidBody(flange)

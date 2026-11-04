@@ -93,17 +93,15 @@ fi
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 ISO="$OUT/.iso"
-# Every run starts from a fresh profile: what an earlier run stored -- a
-# theme, a language, a window's geometry in Thundereal.conf -- fails the
-# next run of any test that reads a default. The cache is kept (Qt's and
-# Mesa's shader caches), as it only makes the start faster -- but for the
-# application's own: a run killed at its timeout leaves its documents'
-# transient directories there, and the next run's start offers to recover
-# them in a modal box that takes the active window (a lock file alone is
-# not the trigger: a directory with no lock is offered too). Under the
-# application's name, which is no longer FreeCAD.
+# Every run starts fresh: what an earlier run stored -- a theme, a
+# language, a window's geometry in Thundereal.conf, and in the application's
+# cache the documents' transient folders and what a run that died left to
+# recover -- fails the next run of any test that reads a default (a run of
+# GuiOmniSearchRecentItems that died once failed every run after it in the
+# same directory, 2026-11-04). Only Qt's shader cache is kept, as it only
+# makes the start faster; Mesa's is shared, below.
 rm -rf "$ISO/user.cfg" "$ISO/config" "$ISO/data"
-rm -rf "$ISO/cache/FreeCAD/Cache" "$ISO/cache/Thundereal/Cache"
+find "$ISO/cache" -mindepth 1 -maxdepth 1 ! -name 'qtshadercache*' -exec rm -rf {} + 2>/dev/null
 # The data directory too: without it every run read the desktop's
 # ~/.local/share/FreeCAD ("Copied the user settings and files from ...")
 # and wrote there -- a crash log of a test landed in the user's profile.

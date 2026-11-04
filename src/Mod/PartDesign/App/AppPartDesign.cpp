@@ -68,10 +68,12 @@
 #include "FeatureWrap.h"
 #include "ShapeBinder.h"
 #include "SolidBody.h"
+#include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalRule.h"
 #include <Mod/Part/App/BodyBase.h>
 #include "FeatureSheetMetalBaseWall.h"
 #include "FeatureSheetMetalFlange.h"
+#include "FeatureSheetMetalConvert.h"
 #include "FeatureSheetMetalExtendWall.h"
 #include "FeatureSheetMetalHem.h"
 #include "FeatureSheetMetalCornerClosure.h"
@@ -193,6 +195,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::AuxGroup                    ::init();
     PartDesign::SolidBody                   ::init();
     PartDesign::SheetMetalRule              ::init();
+    PartDesign::SheetMetalFlatPattern       ::init();
     PartDesign::PropertySheetModel          ::init();
     PartDesign::SheetMetalExtension         ::init();
     PartDesign::SheetMetalBaseWall          ::init();
@@ -207,6 +210,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalFold              ::init();
     PartDesign::SheetMetalJog               ::init();
     PartDesign::SheetMetalTab               ::init();
+    PartDesign::SheetMetalConvert           ::init();
 
     // Sheet metal's own kind on a body, for its tool bar (docs/SheetMetal.md
     // sec 8.1): what a solid body holding one offers, what an edit of one does
@@ -221,7 +225,8 @@ PyMOD_INIT_FUNC(_PartDesign)
                             PartDesign::SheetMetalCutout::getClassTypeId(),
                             PartDesign::SheetMetalFold::getClassTypeId(),
                             PartDesign::SheetMetalJog::getClassTypeId(),
-                            PartDesign::SheetMetalTab::getClassTypeId()}) {
+                            PartDesign::SheetMetalTab::getClassTypeId(),
+                            PartDesign::SheetMetalConvert::getClassTypeId()}) {
         Part::BodyBase::allowType(type, "SheetMetal");
     }
 

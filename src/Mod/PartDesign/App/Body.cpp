@@ -50,6 +50,7 @@
 #include "AuxGroup.h"
 #include "ShapeBinder.h"
 #include "SolidBody.h"
+#include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetalExtension.h"
 
@@ -257,6 +258,7 @@ bool Body::isAllowed(const Base::Type &type)
             type.isDerivedFrom(PartDesign::Solid::getClassTypeId())   ||
             type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId()) ||
             type.isDerivedFrom(PartDesign::SheetMetalRule::getClassTypeId()) ||
+            type.isDerivedFrom(PartDesign::SheetMetalFlatPattern::getClassTypeId()) ||
             type.isDerivedFrom(Part::Part2DObject::getClassTypeId()) ||
             // the 3D sketch (docs/Sketch3D.md), by name: PartDesign does not link Sketcher
             type.isDerivedFrom(Base::Type::fromName("Sketcher::Sketch3DObject")) ||
@@ -1028,6 +1030,11 @@ void Body::removeSolidBody(SolidBody *solid)
         solid->Tip.setValue(nullptr);
     if (solid->Group.getSize())
         solid->Group.setValues();
+    // Its flat goes with it
+    if (auto flat = solid->flatPattern()) {
+        flat->Sheet.setValue(nullptr);
+        getDocument()->removeObject(flat->getNameInDocument());
+    }
     getDocument()->removeObject(solid->getNameInDocument());
 }
 
@@ -1226,6 +1233,30 @@ void Body::syncSolidBodies(bool force)
         }
         if (touched)
             changed.push_back(solid);
+    }
+
+    // A sheet's flat (docs/SheetMetal.md sec 12, ruled 2026-11-04): one each,
+    // made hidden when its solid first holds sheet metal, out of the solid
+    // chain, as the rule is
+    {
+        auto group = Group.getValues();
+        bool added = false;
+        for (int i=0; i<(int)solids.size(); ++i) {
+            auto solid = assigned[i];
+            if (!solid || !holdsSheetMetal(solids[i]) || solid->flatPattern())
+                continue;
+            auto flat = new SheetMetalFlatPattern();
+            doc->addObject(flat, "Flat", false);
+            flat->Visibility.setValue(false);
+            flat->Sheet.setValue(solid);
+            group.push_back(flat);
+            added = true;
+        }
+        if (added) {
+            Base::ObjectStatusLocker<App::Property::Status, App::Property>
+                guard(App::Property::User3, &Group);
+            Group.setValues(group);
+        }
     }
 
     // In a recompute these have had their turn already, or never get one

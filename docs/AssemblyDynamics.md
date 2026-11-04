@@ -3327,6 +3327,14 @@ Phase D1 is under way (2026-10-28):
   - Tests: TestSimulationResults' test_update_for_time,
     test_playback_speeds, test_peak_safe; TestContact's
     test_impact_frames; TestGuiCommands' test_playback_speed.
+  - Then, the user's eye on the video: a plot whose run's time narrowed
+    with the speed zoomed the whole timeline. It now goes by the video's
+    time, the slowed parts alone stretched, with a movie player's slider
+    under it: ticks spreading and closing up through the easing, the
+    times each slowed span begins and ends, a click or drag going to a
+    time, + and - zooming about it (sec 8.6). In the playback video at
+    the landing's peak, the plot shows 2.9 to 72.8 ms of the run, the
+    landing's 0.1 ms a third of it.
   - Not yet: the plot's value axis is the whole run's, a bounce of 1.5 N
     flat under a landing of 528 N; a part's own stress at a frame through
     an impact is a static analysis of it (as above).
@@ -4547,9 +4555,23 @@ What this fork does:
     (`updateForTime()`).
   - The panel says how fast the run goes against real time at the frame
     shown. The video export goes the same way.
-- **The plot zooms with the speed.** At Normal it shows the whole run; as
-  much less as it plays slower, about the time shown. A strip under it says
-  where in the run.
+- **The plot goes by the video's time** (`Playback.window()`, the user's
+  ask: "do not scale the whole timeline when zoomed in, scale only the
+  slowed down time period"). It shows as much of the video as the whole
+  run takes at Normal: the run at Normal's scale, a part Auto plays slower
+  stretched as much as it is slower, the window following the time shown.
+  A first cut narrowed the run's time shown by the speed, which zoomed the
+  whole of it.
+- **Its timeline is a movie player's slider** under it, on the same axis:
+  - filled up to the time shown, with a handle on it;
+  - ticks an even step of the run's time apart: spreading as the speed
+    eases in, closing up as it eases out;
+  - each slowed span shaded, with the run's time under it where the speed
+    begins to ease in and where it is back at Normal (`slowSpans()`);
+  - a click or a drag on it, or on the curves, goes to the time there,
+    played on from there if playing;
+  - + and - at the plot's top right, and the mouse wheel, zoom in and out
+    about the time shown, out to the whole video.
 - **Peak-safe drawing** (M4, Jugel et al. 2014). Of the values in each
   pixel's column, the first, the least, the largest and the last. A spike
   narrower than a pixel is drawn to its height with the whole run shown.

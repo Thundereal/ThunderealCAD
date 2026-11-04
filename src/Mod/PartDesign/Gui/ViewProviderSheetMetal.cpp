@@ -512,7 +512,8 @@ void ViewProviderSheetMetalFlatPattern::refreshMarkings()
     }
     // The shape is the blank, then a compound of each kind (layFlat()): the
     // blank's edges are the shape's first, the markings' after them
-    const Part::TopoShape shape = flat->Shape.getShape();
+    // in the object's own frame: this view's transform places it
+    const Part::TopoShape shape = flat->Shape.getShape().located();
     Part::TopoShape blank;
     if (shape.countSubShapes(TopAbs_SOLID) > 0) {
         blank = shape.getSubTopoShape(TopAbs_SOLID, 1);

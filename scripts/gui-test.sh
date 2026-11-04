@@ -78,13 +78,16 @@ SCRIPT=$(cd "$(dirname "$SCRIPT")" && pwd)/$(basename "$SCRIPT")
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 ISO="$OUT/.iso"
-# Every run starts from a fresh profile: what an earlier run stored -- a
-# theme, a language, a window's geometry in Thundereal.conf -- fails the
-# next run of any test that reads a default. The cache is kept (Qt's and
-# Mesa's shader caches), as it only makes the start faster.
+# Every run starts fresh: what an earlier run stored -- a theme, a
+# language, a window's geometry in Thundereal.conf, and in the application's
+# cache the documents' transient folders and what a run that died left to
+# recover -- fails the next run of any test that reads a default (a run of
+# GuiOmniSearchRecentItems that died once failed every run after it in the
+# same directory, 2026-11-04). Only Qt's shader cache is kept, as it only
+# makes the start faster; Mesa's is shared, below.
 rm -rf "$ISO/user.cfg" "$ISO/config"
+find "$ISO/cache" -mindepth 1 -maxdepth 1 ! -name 'qtshadercache*' -exec rm -rf {} + 2>/dev/null
 mkdir -p "$ISO/cache" "$ISO/config"
-rm -f "$ISO/cache/FreeCAD/Cache/FreeCAD_"*.lock 2>/dev/null
 
 # Mesa's shader cache is shared by every run instead of living in $ISO:
 # what llvmpipe compiles depends on the driver and the shader, not on the

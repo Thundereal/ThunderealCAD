@@ -399,6 +399,9 @@ as Surface's were after their first round (docs/Surface.md sec 12, fb9aa6ee53).
   settings on the sheet's solid; the solid's `Flatten`, on only when the user turns it on, draws
   the shown features flat and keeps the solid's values current. The FlatPattern feature below
   was built first and is retired; what it did otherwise stands as written.
+- **Revised again 2026-11-04 (sec 12): one flat object per sheet**, claimed by its solid, saving
+  its tip's flat, laid only while shown or used; it holds the flat's settings and values, Flatten
+  is its visibility, and its view styles the bend lines. The features still save no flat.
 - **A FlatPattern feature** per sheet, in the body but not in its solid chain (like a sketch).
 - Its shape is the flat solid, laid on the XY plane from a fixed face the user picks (the root),
   the bend lines as edges in a compound beside it, each named after its bend.
@@ -651,7 +654,8 @@ feature following the rule; OK is one undo step, Cancel puts it all back.
 - **Flanges in the view:** each flange's leg end has a drag arrow for its length and an arc handle
   for its angle, using the gizmos the Surface edge markers use (`LinearGizmo`).
 - **The flat beside the folded part:** the flat pattern can be shown in the same view, laid
-  beside the part, picks cross-highlighting.
+  beside the part, picks cross-highlighting. (2026-11-04: the flat object of sec 12, shown with
+  the folded part and moved by its own placement.)
 - **The browser:** every panel mirrored and every command on the browser allowlist, as Surface's.
 
 ## 9. Phases and tests
@@ -1332,6 +1336,59 @@ folded part in Both, where the two would lie on each other at the root wall).
 
 **Ruled 2026-11-03, sec 7's checks on demand:** run when the user asks, as Flatten is, not on a
 recompute; where they are listed and marked is designed with them.
+
+**Ruled 2026-11-04, the flat an object of the sheet** (revises the two rulings of 2026-11-03
+above, the flat as a view and what is drawn while flattening; the details below are proposed for
+the user to check before any code). Asked after the bend lines were seen running into a corner
+relief's hole, and how other programs style them. How they keep the flat (general knowledge, not
+surveyed): SOLIDWORKS a Flat-Pattern feature at the end of the tree, Bend-Lines and Bounding-Box
+sketches under it; Inventor, Fusion and Solid Edge a flat pattern node with an environment of its
+own; Onshape a flat view beside the 3D view, no object. Their styles are modest but for Inventor's:
+per kind of marking (bend line, bend extent or tangent, relief, punch or form centre) shown or
+not, a colour with up and down apart, a line type; most of it again in the DXF's layer mapping.
+- **One flat object per sheet**, `PartDesign::SheetMetalFlatPattern` (the name of the retired
+  feature, as nothing was released; label `Flat`). It is in the body, as the rule is, outside the
+  solid chain and the body's export (`excludeFromExport()`), and claimed by the sheet's solid in
+  the tree, after its features. The solid makes it when it first holds sheet metal, hidden.
+- **The features save no flat**, as now: `flatOf()` lays one when asked and keeps it in memory
+  until the feature's shape or the settings change. Every feature's element `Flat` (`FlatFace3`)
+  stays, for Check Sheet, the export from a feature and links.
+- **The flat object saves one shape, its solid's tip's flat**, and the values of 5.4 of it. It
+  lays flat only in its own `execute()`, and only while it is shown or something uses it (a
+  TechDraw view, a link: anything in its InList but its owners); otherwise the execute keeps the
+  last shape and says it is out of date (`Status`), at no cost. Showing it lays it flat (a recompute
+  of it alone). Measured 2026-11-04 (RelWithDebInfo, one flange round a plate): 0.18 s for a 4-bend
+  tray, 0.33 s for 12 bends, 0.71 s for 24, 1.7 s for 24 bends and 400 holes, 6.0 s for 48 bends
+  and 900 holes -- 15 to 35% of the feature's own recompute; a flat already laid is free.
+- **The transaction log** takes its shape as a derived value (sec 2.2 of
+  `TransactionLogDesign.md`: written while its own object recomputes), so into the cache tier, not
+  the durable history; an undo of an edit to the sheet gets the flat back from there without
+  laying it again, and one evicted is laid again by the recompute that follows. So it is never
+  written from the view: a flat shown out of date asks for its recompute.
+- **The settings move from the solid to it:** `Root` (by the wall's name), `SecondSkin`,
+  `AlignEdge`, `TangentLines`, `Grain`, `GrainAngle`; Check Sheet and the export lay a feature
+  flat by them. `Placement` is its own, which retires `FlatOffset`.
+- **Flatten is its visibility.** The command shows the flat and hides the folded part, and back;
+  both shown is the tree's ordinary visibility, which retires `SheetView`. The solid's `Flatten`
+  goes; a show is not an undo step, as no visibility is.
+- **What it draws:** the tip's flat. While an earlier feature of the sheet is the one shown, the
+  view draws that feature's flat (laid in memory, not saved), so showing an earlier feature still
+  shows its flat, as now.
+- **Its elements** are named as a shape's: `Flat.Face3`, `Flat.Bend1`, `Flat.Bend1Tangent1`,
+  `Flat.Grain`. The markings (bend lines, tangent lines, grain) are trimmed to the blank, split
+  where they cross a hole or a relief: a bend line now runs on from the bend's faces' axial extent
+  into a corner relief's hole (0.49 mm at a mitered corner with the default relief).
+- **Its view styles the markings**, per kind: bend lines up, bend lines down, tangent lines, grain
+  -- each shown or not, a colour, a line type (solid, dashed, dash-dot, dotted) and a width.
+  Defaults as the SVG draws them: up dashed `#0050d0`, down dashed `#d03030`, tangent lines dotted
+  `#808080`, grain solid `#208020`. The DXF and SVG keep their layers as they are.
+- **Retired:** the solid's `Flatten` and flat settings, the solid view's `SheetView` and
+  `FlatOffset`, and each feature view's flat drawing (`refreshFlat()`, the `SheetFlat` and
+  `SheetBoth` modes); files made with them lose them on loading, as nothing was released.
+- **In steps,** tests first in each: (1) the object, its settings and values, laid only while shown
+  or used, its shape in the log; (2) its view, Flatten as its visibility, an earlier feature's flat
+  drawn; (3) the markings trimmed and styled; (4) the old drawing and properties retired, the
+  manual's Flatten page redone.
 
 **Ruled 2026-11-02, M2's contour flange:**
 - Its own feature, as sec 5.1 lists it, sharing the flange's code: the gaps, the wall cut back under

@@ -276,6 +276,37 @@ class TestSketcherSolver(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("SketchSolverTest")
 
+    def testBSplineKnotPointsOnTheCurve(self):
+        """Each knot point of a B-spline stands on the curve at its knot.
+
+        The last knot of a periodic B-spline is its first, a period on; taken
+        as itself its span reached one knot past the solver's flattened
+        knots, and the factors of its point read beyond them. The value read
+        there happened not to move the point, so on a plain build this checks
+        the geometry only; against an AddressSanitizer build it is the read.
+        Clamped as well, whose end knots take no factors at all.
+        """
+        from FreeCAD import Vector
+
+        poles = [Vector(0, 0, 0), Vector(10, 0, 0), Vector(14, 8, 0), Vector(6, 14, 0),
+                 Vector(-4, 9, 0)]
+        for periodic, mults, knots in ((True, [2, 1, 1, 1, 2], [0, 1, 2, 3, 4]),
+                                       (False, [4, 1, 4], [0, 1, 2])):
+            sketch = self.Doc.addObject("Sketcher::SketchObject", "Sketch")
+            curve = Part.BSplineCurve()
+            curve.buildFromPolesMultsKnots(poles, mults, knots, periodic, 3)
+            geo = sketch.addGeometry(curve, False)
+            sketch.exposeInternalGeometry(geo)
+            self.assertEqual(sketch.solve(), 0)
+            curve = sketch.Geometry[geo]
+            points = [g for i, g in enumerate(sketch.Geometry)
+                      if i != geo and isinstance(g, Part.Point)]
+            self.assertEqual(len(points), len(knots))
+            for point in points:
+                at = Vector(point.X, point.Y, point.Z)
+                self.assertLess(min((curve.value(k) - at).Length for k in curve.getKnots()),
+                                1e-7, "periodic" if periodic else "clamped")
+
     def testBoxCase(self):
         self.Box = self.Doc.addObject("Sketcher::SketchObject", "SketchBox")
         CreateBoxSketchSet(self.Box)

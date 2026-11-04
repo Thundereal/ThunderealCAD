@@ -50,6 +50,13 @@ FCBIN="$BUILD/bin/FreeCAD"
     echo "no FreeCAD binary at $FCBIN (set FC_BUILD to another build tree)"
     exit 2
 }
+# An AddressSanitizer build refuses to start unless its runtime is the first
+# library loaded, and a test that preloads its own (the clock-step shim)
+# would come before it: the runtime goes in front.
+ASAN_LIB=$(ldd "$FCBIN" 2>/dev/null | awk '/libasan/ {print $3; exit}')
+if [ -n "$ASAN_LIB" ] && [ -n "${LD_PRELOAD:-}" ] && [[ "$LD_PRELOAD" != *libasan* ]]; then
+    export LD_PRELOAD="$ASAN_LIB:$LD_PRELOAD"
+fi
 
 SCRIPT=${1:?usage: gui-test.sh <test.py> <outdir> [--timeout N]}
 OUT=${2:?usage: gui-test.sh <test.py> <outdir> [--timeout N]}
@@ -77,6 +84,11 @@ while [ $# -gt 0 ]; do
 done
 [ -f "$SCRIPT" ] || { echo "no test script at $SCRIPT"; exit 2; }
 SCRIPT=$(cd "$(dirname "$SCRIPT")" && pwd)/$(basename "$SCRIPT")
+# A slower build -- AddressSanitizer's, 2 to 3 times -- gets proportionally
+# longer than the test asks for: GT_TIMEOUT_SCALE=3 triples it.
+if [ -n "${GT_TIMEOUT_SCALE:-}" ]; then
+    TIMEOUT=$(( TIMEOUT * GT_TIMEOUT_SCALE ))
+fi
 
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)

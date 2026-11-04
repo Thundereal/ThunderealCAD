@@ -31,6 +31,7 @@
 #include <Inventor/SoFullPath.h>
 #include <Inventor/SoPickedPoint.h>
 #include <Inventor/nodes/SoSeparator.h>
+#include <Inventor/nodes/SoSwitch.h>
 
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
@@ -429,6 +430,11 @@ ViewProviderSheetMetalFlatPattern::~ViewProviderSheetMetalFlatPattern() = defaul
 void ViewProviderSheetMetalFlatPattern::attach(App::DocumentObject* obj)
 {
     PartGui::ViewProviderPart::attach(obj);
+    // The markings beside the mode switch, under one of their own that
+    // follows Visibility: hiding the view switches the mode switch off only
+    pcMarkings = new SoSwitch;
+    pcMarkings->whichChild = Visibility.getValue() ? SO_SWITCH_ALL : SO_SWITCH_NONE;
+    pcRoot->addChild(pcMarkings);
     for (int k = 0; k < static_cast<int>(kinds.size()); ++k) {
         auto& kind = kinds[k];
         kind.view = std::make_unique<PartGui::ViewProviderPart>();
@@ -439,7 +445,7 @@ void ViewProviderSheetMetalFlatPattern::attach(App::DocumentObject* obj)
         kind.view->setDisplayMode("Wireframe");
         kind.view->setGivenShape(Part::TopoShape());
         // drawn whatever this view's display mode
-        pcRoot->addChild(kind.view->getRoot());
+        pcMarkings->addChild(kind.view->getRoot());
         applyLook(k);
     }
     refreshMarkings();
@@ -486,6 +492,9 @@ void ViewProviderSheetMetalFlatPattern::applyLook(int index)
 
 void ViewProviderSheetMetalFlatPattern::onChanged(const App::Property* prop)
 {
+    if (prop == &Visibility && pcMarkings) {
+        pcMarkings->whichChild = Visibility.getValue() ? SO_SWITCH_ALL : SO_SWITCH_NONE;
+    }
     for (int k = 0; k < static_cast<int>(kinds.size()); ++k) {
         const auto& kind = kinds[k];
         if (prop == kind.show || prop == kind.color || prop == kind.style || prop == kind.width) {
@@ -639,6 +648,7 @@ bool ViewProviderSheetMetalFlatPattern::getDetailPath(const char* subname, SoFul
             const auto len = path->getLength();
             if (append) {
                 path->append(pcRoot);
+                path->append(pcMarkings);
             }
             const std::string local = "Edge" + std::to_string(it - kind.edges.begin() + 1);
             if (!kind.view->getDetailPath(local.c_str(), path, true, det)) {

@@ -30,7 +30,10 @@
 #include <string>
 #include <vector>
 
+#include <Gui/InventorBase.h>
 #include <Mod/Part/Gui/ViewProvider.h>
+
+class SoSwitch;
 
 #include "ViewProviderAddSub.h"
 #include "ViewProviderSketchBased.h"
@@ -273,6 +276,8 @@ private:
         std::vector<int> edges;
     };
     std::array<Kind, 4> kinds;
+    /// The markings' views, drawn while this view is shown
+    Gui::CoinPtr<SoSwitch> pcMarkings;
     /// How many edges the blank has: the shape's first ones
     int blankEdges = 0;
 };

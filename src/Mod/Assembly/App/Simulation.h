@@ -79,6 +79,10 @@ public:
     /// take, from the masses, gravity and the Elements (inverse dynamics,
     /// docs/AssemblyDynamics.md sec 6.3), on a backend that runs dynamics
     App::PropertyBool Reactions;
+    /// Dynamic: also a frame at the peak force of each contact's impact,
+    /// between the output frames -- an impact of steel on steel lasts some
+    /// tens of microseconds, and falls between them
+    App::PropertyBool ImpactFrames;
     /// Whether the run kept for this study is of an older mechanism: the
     /// assembly, its motions or the study changed since (docs/
     /// AssemblyDynamics.md sec 8.4). Set by the assembly after a recompute,

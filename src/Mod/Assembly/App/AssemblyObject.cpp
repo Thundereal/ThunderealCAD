@@ -4413,6 +4413,8 @@ void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObjec
         mbdSim->restitution = typed->Restitution.getValue();
         mbdSim->reactions =
             mbdSim->analysis == Solver::Analysis::Kinematic && typed->Reactions.getValue();
+        mbdSim->impactFrames =
+            mbdSim->analysis == Solver::Analysis::Dynamic && typed->ImpactFrames.getValue();
         simulationSpec = std::move(mbdSim);
         return;
     }

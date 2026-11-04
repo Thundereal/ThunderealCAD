@@ -818,6 +818,40 @@ class TestContact(unittest.TestCase):
         run, fem = start.HeldForce[0], start.FemHeldForce[0]
         self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
 
+    def test_impact_frames(self):
+        """A ball dropped 5 mm onto the plate by the materials' law, the run
+        reporting every 5 ms: its impacts, some tens of microseconds each,
+        fall between the frames. With impact frames, a frame at the peak of
+        each: the first at the landing, sqrt(2 h / g) = 31.9 ms, off the
+        output times, the ball pressed at many times its weight; the output
+        times all still there, every time after the one before. Without,
+        the output times only."""
+        plate = self.plate()
+        ball = self.ball(20)
+        self.contact([ball], [plate])
+        sim, result = self.simulate(0.05, 5e-3, ImpactFrames=True)
+        self.assertEqual(result, 0)
+        times = self.assembly.getSimulationResults()["Times"]
+        forces = self.force()
+        grid = [k * 5e-3 for k in range(11)]
+        for t in grid:
+            self.assertTrue(any(abs(t - u) < 1e-9 for u in times), t)
+        self.assertTrue(all(b > a for a, b in zip(times, times[1:])))
+        extra = [k for k, t in enumerate(times) if all(abs(t - g) > 1e-9 for g in grid)]
+        self.assertGreater(len(extra), 0)
+        first = extra[0]
+        landing = (2 * 5.0 / G) ** 0.5
+        self.assertAlmostEqual(times[first], landing, delta=2e-4)
+        weight = BALL * G
+        self.assertGreater(forces[first].Length, 50 * weight)
+        # The same run without: the output times alone, the landing unseen
+        sim.ImpactFrames = False
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        times = self.assembly.getSimulationResults()["Times"]
+        self.assertEqual(len(times), 11)
+        self.assertLess(max(f.Length for f in self.force()), forces[first].Length)
+
     def test_start_with_contact(self):
         """The lever let go across two posts, by the materials' own law:
         its free body balances at the start too. The start's reactions and

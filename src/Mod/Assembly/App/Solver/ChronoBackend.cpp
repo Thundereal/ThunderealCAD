@@ -9909,6 +9909,79 @@ Status ChronoSession::simulateDynamics(
             body->SetAngAccLocal(body->GetAngAccLocal() + turn.transpose() * angular);
         }
     };
+    // Frames at impacts (SimulationSpec::impactFrames): an impact of steel on
+    // steel lasts some tens of microseconds and falls between the output
+    // frames, which saw a block dropped on a lever land at none of its
+    // bounces but one. After each substep kept, each contact load's force:
+    // the state where it was the most in an impact -- its values and poses --
+    // is kept, and when the load lets go or eases to half of that, it is a
+    // frame, sent before the next output frame. A load resting at a steady
+    // force eases to half of nothing it rose to, and gives none.
+    struct ImpactFrame
+    {
+        double time = 0.0;
+        std::vector<double> values;
+        std::vector<BodyPose> poses;
+    };
+    struct Impact
+    {
+        double most = 0.0;  // the force at its most so far, N
+        bool rising = false;
+        ImpactFrame frame;
+    };
+    std::vector<Impact> impacts;           // a contact load's each
+    std::vector<ImpactFrame> impactFrames;  // to be sent
+    auto watchImpacts = [&]() {
+        if (!spec.impactFrames || statics) {
+            return;
+        }
+        impacts.resize(contactLoads.size());
+        for (std::size_t i = 0; i < contactLoads.size(); ++i) {
+            ContactLoad& load = *contactLoads[i];
+            load.ComputeQ(nullptr, nullptr);
+            const double force = load.onB.Length();
+            Impact& impact = impacts[i];
+            if (force > impact.most) {
+                impact.most = force;
+                impact.rising = true;
+                impact.frame = {sys.GetChTime(),
+                                channels.empty() ? std::vector<double>() : valuesNow(),
+                                posesNow()};
+            }
+            else if (impact.rising && (!(force > 0.0) || force < 0.5 * impact.most)) {
+                impactFrames.push_back(std::move(impact.frame));
+                impact = {force, false, {}};
+            }
+            else if (!impact.rising) {
+                impact.most = force;
+            }
+        }
+    };
+    // The impact frames before 'time', in time order, each once; false
+    // when the sink cancels the run
+    auto sendImpacts = [&](double time) {
+        std::ranges::sort(impactFrames, {}, &ImpactFrame::time);
+        std::size_t sent = 0;
+        double last = -std::numeric_limits<double>::infinity();
+        for (; sent < impactFrames.size(); ++sent) {
+            const ImpactFrame& frame = impactFrames[sent];
+            if (!(frame.time < time - 1e-12 * std::max(1.0, std::abs(time)))) {
+                break;
+            }
+            if (frame.time <= last) {
+                continue;
+            }
+            last = frame.time;
+            if (!channels.empty()) {
+                sink.values(frame.values);
+            }
+            if (!sink.frame(frame.time, frame.poses)) {
+                return false;
+            }
+        }
+        impactFrames.erase(impactFrames.begin(), impactFrames.begin() + sent);
+        return true;
+    };
     // A step of dt, in substeps; a substep that found a contact late is taken
     // again, an eighth as long, from the state before it, and the steps
     // grow back after. One longer than the strict rule's that moved a load
@@ -10043,6 +10116,7 @@ Status ChronoSession::simulateDynamics(
             done += h;
             cap = std::min(dt, cap * 2.0);
             keepMoment();
+            watchImpacts();
             // A load pressing as the substep ended that collision detection
             // then found nothing of: the next substeps short, growing back.
             // HHT takes the last substep's accelerations into the next, and
@@ -10240,6 +10314,9 @@ Status ChronoSession::simulateDynamics(
             return s;
         };
         auto restore = [&](Snapshot& s) {
+            // The impacts after it never were; the ones open are read again
+            std::erase_if(impactFrames, [&](const ImpactFrame& f) { return f.time > s.t; });
+            impacts.clear();
             for (std::size_t k = 0; k < stops.size(); ++k) {
                 if (stops[k].link != s.stops[k].link) {
                     if (stops[k].link) {
@@ -10585,6 +10662,10 @@ Status ChronoSession::simulateDynamics(
                 eventTrips();
             }
             sendEvents(tripped || k == steps);
+            if (!sendImpacts(at)) {
+                status = Status::Cancelled;
+                break;
+            }
             if (!channels.empty()) {
                 sink.values(valuesNow());
             }

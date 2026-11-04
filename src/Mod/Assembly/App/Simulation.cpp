@@ -86,6 +86,13 @@ Simulation::Simulation()
                       App::Prop_None,
                       "Kinematic: also the reactions and the motors' efforts the motions "
                       "take, from the masses, gravity and the Elements (inverse dynamics)");
+    ADD_PROPERTY_TYPE(ImpactFrames,
+                      (false),
+                      "Simulation",
+                      App::Prop_None,
+                      "Dynamic: also a frame at the peak force of each contact's impact, "
+                      "between the output frames, where an impact a few tens of "
+                      "microseconds long falls");
     ADD_PROPERTY_TYPE(
         ResultsStale,
         (false),

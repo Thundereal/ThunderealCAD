@@ -2127,6 +2127,17 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             )
         )
         row.addWidget(self.reactionsCheck)
+        self.impactCheck = QtWidgets.QCheckBox(translate("Assembly", "Impact frames"))
+        self.impactCheck.setToolTip(
+            translate(
+                "Assembly",
+                "Dynamic: also a frame at the peak force of each contact's impact,\n"
+                "between the output frames. An impact of metal on metal lasts some\n"
+                "tens of microseconds and falls between them: its loads, and To FEM's\n"
+                "stresses, are seen only at these.",
+            )
+        )
+        row.addWidget(self.impactCheck)
         self.gravityCheck = QtWidgets.QCheckBox(translate("Assembly", "Gravity"))
         self.gravityCheck.setToolTip(
             translate("Assembly", "Dynamic: gravity acts, along the simulation's Gravity")
@@ -2277,6 +2288,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.analysisCombo.currentIndexChanged.connect(self.onAnalysisChanged)
         self.gravityCheck.toggled.connect(self.onGravityChanged)
         self.reactionsCheck.toggled.connect(self.onReactionsChanged)
+        self.impactCheck.toggled.connect(self.onImpactFramesChanged)
         self.restitutionSpin.valueChanged.connect(self.onRestitutionChanged)
 
     def showStale(self):
@@ -2311,6 +2323,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.gravityCheck.blockSignals(False)
         self.reactionsCheck.blockSignals(True)
         self.reactionsCheck.setChecked(getattr(self.simFeaturePy, "Reactions", False))
+        self.impactCheck.setChecked(getattr(self.simFeaturePy, "ImpactFrames", False))
         self.reactionsCheck.blockSignals(False)
         self.restitutionSpin.blockSignals(True)
         self.restitutionSpin.setValue(getattr(self.simFeaturePy, "Restitution", 0.0))
@@ -2360,6 +2373,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # and so does a kinematic run with its reactions
         kinematic = self.analysisCombo.currentData() == "Kinematic"
         self.reactionsCheck.setVisible(kinematic and hasattr(self.simFeaturePy, "Reactions"))
+        self.impactCheck.setVisible(
+            self.analysisCombo.currentData() == "Dynamic"
+            and hasattr(self.simFeaturePy, "ImpactFrames")
+        )
         dynamic = not kinematic or (
             hasattr(self.simFeaturePy, "Reactions") and self.reactionsCheck.isChecked()
         )
@@ -2383,6 +2400,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         if hasattr(self.simFeaturePy, "Reactions"):
             self.simFeaturePy.Reactions = checked
         self.showAnalysis()
+
+    def onImpactFramesChanged(self, checked):
+        if hasattr(self.simFeaturePy, "ImpactFrames"):
+            self.simFeaturePy.ImpactFrames = checked
 
     def onGravityChanged(self, checked):
         if self.hasAnalysis():

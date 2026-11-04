@@ -104,6 +104,25 @@ class TestSheetMetalJog(unittest.TestCase):
         self.assertTrue(flat.Shape.Solids[0].isValid())
         return flat
 
+    def testFlangeEndingAtTheJog(self):
+        """A flange on the plate's far edge on its top, up to where the jog's
+        first bend starts: not an earlier flange's corner -- the jog's sheet
+        runs on past its run into another bend -- but a bend of its own
+        wall, so it is kept off it by the relief's width (ruled
+        2026-11-04); one solid, and it lies flat. It was mitered against the
+        jog's run, two solids, and did not lie flat"""
+        jog = self.jog()
+        self.checkValid(jog)
+        # the far edge on the top, from x 0 to where the first bend starts
+        edge = edgeOf(jog, (0, 20, 1), (10, 20, 1))
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (jog, [edge])
+        flange.Length = 8
+        self.Doc.recompute()
+        self.checkValid(flange)
+        self.assertIn("Bend1", flange.Notice)
+        self.flat(flange)
+
     def checkBox(self, shape, **box):
         bb = shape.BoundBox
         for k, v in box.items():

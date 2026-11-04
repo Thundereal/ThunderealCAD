@@ -2,8 +2,8 @@
 
   - the Part Design menu's Sheet Metal submenu holds Convert;
   - Convert on a Part box in no body -- its bottom picked first, then its
-    top and its four upright edges -- makes a body on it and the convert
-    there, the bottom fixed, the top open, the edges ripped; it is good, a
+    top and its four upright edges -- makes a body on it, the box hidden,
+    and the convert there, the bottom fixed, the top open, the edges ripped; it is good, a
     solid, the box's size;
   - its panel lists the three, each under its name; Side set to Outside
     there is the convert's, a thickness larger every way;
@@ -11,7 +11,8 @@
     the face picked again with that list's Add is listed and it is good;
   - one list's Add at a time: another's pressed lets the first up;
   - the fixed face picked again takes the place of the one it held;
-  - OK closes the panel; Flatten lays the converted tray flat.
+  - OK closes the panel, the convert drawn and not the part under it;
+    Flatten lays the converted tray flat.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
@@ -137,9 +138,9 @@ def run():
         body = [o for o in doc.Objects if o.TypeId == "PartDesign::Body"]
         body = body[0] if body else None
         check(
-            "Convert on a box in no body makes a body on it",
-            body is not None and body.BaseFeature == box,
-            body and body.BaseFeature,
+            "Convert on a box in no body makes a body on it, the box hidden",
+            body is not None and body.BaseFeature == box and not box.Visibility,
+            body and (body.BaseFeature, box.Visibility),
         )
         check(
             "and the convert there, bottom fixed, top open, edges ripped",
@@ -241,6 +242,12 @@ def run():
         check("OK closes the panel", ok() and not FreeCADGui.Control.activeDialog())
         doc.recompute()
         pump(20)
+        drawn = [o.Name for o in body.Group if hasattr(o, "Shape") and o.Visibility]
+        check(
+            "the convert drawn alone of the body's features, not the part under it",
+            drawn == [convert.Name] or drawn == [convert.Name, convert.Rule.Name],
+            drawn,
+        )
 
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 1)

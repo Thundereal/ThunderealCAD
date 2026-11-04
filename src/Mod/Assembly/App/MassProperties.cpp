@@ -38,11 +38,13 @@
 #include <App/GeoFeatureGroupExtension.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
+#include <Base/Interpreter.h>
 #include <Base/Quantity.h>
 #include <Mod/Material/App/MaterialManager.h>
 #include <Mod/Material/App/Materials.h>
 #include <Mod/Part/App/FeatureElement.h>
 #include <Mod/Part/App/PartFeature.h>
+#include <Mod/Part/App/PropertyTopoShape.h>
 
 #include "AssemblyObject.h"
 #include "AssemblyUtils.h"
@@ -361,6 +363,15 @@ std::vector<MassProperties> Assembly::massPropertiesOf(const AssemblyObject* ass
     std::vector<MassProperties> results;
     if (!assembly) {
         return results;
+    }
+    // The shapes come through the assembly's cache, which keeps a component
+    // where it stood until the assembly changes: a placement a script writes
+    // and purges (the player putting the parts back) changes nothing, and a
+    // played frame's free body had its centre of mass at another frame's
+    // pose, 126 mm off (D4a)
+    if (auto* cache = Part::PropertyShapeCache::get(assembly, false)) {
+        Base::PyGILStateLocker lock;
+        cache->setPyObject(Py_None);
     }
     std::string assumedName;
     const double assumed = defaultDensity(&assumedName);

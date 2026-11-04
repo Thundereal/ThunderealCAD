@@ -2852,6 +2852,35 @@ Phase D1 is under way (2026-10-28):
     test_body_motion_kinematic (driven time^2 about the hinge: 2 t rad/s at
     2 rad/s^2, its centre 50 mm out); the CSV's columns; the C++ redundancy
     test counts the body channels after the reactions.
+- Built, D4a step 2: a component's free body at a frame
+  (`MotionLoads.loadsOn(assembly, component, frame)`, Python). In the
+  component's own coordinates (its Placement's, the frame's pose undone),
+  the model's units (mN, mN mm): each joint's reaction at its frame I's
+  origin -- as reported on frame I's body, its opposite on the other --
+  with the joint's reference on the component, for step 4's faces, and
+  whether it is unique; each spring's force at its end, along the line
+  from the other end; each bushing's force and torque at its frame, its
+  opposite on its Other; the mass, centre, inertia, gravity, and the
+  motion step 1 reports (none for a grounded part). Residual: the loads
+  with m g less m a, and their moment about the centre less I alpha +
+  omega x I omega. Missing: what acts on it that it does not take yet --
+  a contact set it is in (a set reports no point of action), a torsion
+  spring on its joint, an applied load (no channel). A joint's reaction
+  already holds its motor's effort, its friction and its stops'. The
+  parts are put back as they were.
+  - **The mass properties read shapes through the assembly's shape cache**,
+    which kept a component where it stood when a script wrote its
+    placement and purged it -- as the player putting the parts back does:
+    the second rod's centre was taken at another frame's pose, 126 mm off,
+    its moment 2381 mN mm out of balance. `massPropertiesOf` now clears the
+    cache first. The Mass Properties table after a playback read the same
+    stale shapes.
+  - Tests (TestDynamics): the pendulum's rod, a double pendulum's two rods
+    (the first between two hinges, the first reference of one and the
+    second of the other), the oscillator's block on its slider and spring:
+    each free body balancing within 1e-6 of its loads at frames across the
+    run, the hinge at (0, 5, 5) on the rod, the spring's force k (4 -
+    length); TestMassProperties' test_moved_by_script.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

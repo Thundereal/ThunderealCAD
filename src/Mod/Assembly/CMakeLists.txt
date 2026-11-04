@@ -36,6 +36,7 @@ set(Assembly_Scripts
     ContactFriction.json
     SimulationTrace.py
     SimulationGltf.py
+    MotionLoads.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
     CommandConvertAsm3.py

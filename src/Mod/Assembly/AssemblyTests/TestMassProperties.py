@@ -79,6 +79,18 @@ class TestMassProperties(unittest.TestCase):
         self.assertTupleAlmost(cube["CenterOfMass"], (5.0, 5.0, 5.0))
         self.assertTupleAlmost(cube["Inertia"], boxInertia(mass, 10, 10, 10))
 
+    def test_moved_by_script(self):
+        """A component a script moves and purges, as the player puts the parts
+        back, is where it now stands: the assembly's shape cache kept it
+        where it had been (D4a's free body, its centre 126 mm off)."""
+        cube = self.box("Cube", (10, 10, 10), (0, 0, 0))
+        components, _ = self.props()
+        self.assertTupleAlmost(components["Cube"]["CenterOfMass"], (5.0, 5.0, 5.0))
+        cube.Placement.Base = App.Vector(100, 0, 0)
+        cube.purgeTouched()
+        result = self.assembly.getMassProperties()
+        self.assertTupleAlmost(result["Components"][0]["CenterOfMass"], (105.0, 5.0, 5.0))
+
     def test_material(self):
         """A material's density; the inertia along the assembly's axes, a box
         turned a quarter about z having its x and y swapped."""

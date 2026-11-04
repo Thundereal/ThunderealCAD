@@ -474,6 +474,87 @@ class TestDynamics(unittest.TestCase):
             self.assertLess((spin - App.Vector(0, omega, 0)).Length, 1e-3 * math.sqrt(G / d), time)
             self.assertLess((rate - App.Vector(0, alpha, 0)).Length, 1e-3 * G / d, time)
 
+    def balanced(self, component, frames, force, length):
+        """The free body of component at each of frames (MotionLoads,
+        docs/AssemblyDynamics.md D4a step 2) balances: its residual within
+        1e-6 of force, and of force times length about its centre; nothing
+        missing. The free bodies, in frame order."""
+        import MotionLoads
+
+        bodies = []
+        for frame in frames:
+            body = MotionLoads.loadsOn(self.assembly, component, frame)
+            residual, moment = body["Residual"]
+            self.assertLess(residual.Length, 1e-6 * force, frame)
+            self.assertLess(moment.Length, 1e-6 * force * length, frame)
+            self.assertEqual(body["Missing"], [])
+            bodies.append(body)
+        return bodies
+
+    def test_loads_on_pendulum(self):
+        """The rod's free body: the hinge's reaction at the hinge, (0, 5, 5)
+        in the rod's coordinates, the opposite of what the run reports on
+        the grounded block, its first reference; gravity and the inertia
+        balance it. The rod is left where it was."""
+        rod = self.pendulum()
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        before = App.Placement(rod.Placement)
+        forces = self.channel("Revolute", "Force")
+        weight = 100 * 10 * 10 * 2.7e-6 * G
+        bodies = self.balanced(rod, range(0, 21, 4), weight, 100.0)
+        self.assertTrue(rod.Placement.isSame(before, 1e-12))
+        for body in bodies:
+            frame = body["Frame"]
+            self.assertEqual(len(body["Loads"]), 1)
+            hinge = body["Loads"][0]
+            self.assertEqual(hinge["Kind"], "Joint")
+            self.assertEqual(hinge["Reference"][0], rod)
+            self.assertLess((hinge["Point"] - App.Vector(0, 5, 5)).Length, 1e-6, frame)
+            self.assertAlmostEqual(hinge["Force"].Length, forces[frame].Length, delta=1e-9 * weight)
+            self.assertLess((body["CenterOfMass"] - App.Vector(50, 5, 5)).Length, 1e-9)
+
+    def test_loads_on_middle_link(self):
+        """A double pendulum's first rod, between two hinges -- the first
+        reference of one, the second of the other: its free body
+        balances."""
+        rod = self.pendulum()
+        second = self.box("Second", (100, 10, 10), (110, 0, 0))
+        self.doc.recompute()
+        self.joint(
+            "Revolute",
+            (rod, ["Face2"]),
+            plc(100, 5, 5, App.Vector(1, 0, 0), -90),
+            (second, ["Face1"]),
+            plc(0, 5, 5, App.Vector(1, 0, 0), -90),
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        weight = 100 * 10 * 10 * 2.7e-6 * G
+        for body in self.balanced(rod, range(0, 21, 4), 2 * weight, 100.0):
+            self.assertEqual(len(body["Loads"]), 2)
+            points = sorted((l["Point"].x for l in body["Loads"]))
+            self.assertAlmostEqual(points[0], 0.0, delta=1e-6)
+            self.assertAlmostEqual(points[1], 100.0, delta=1e-6)
+        # And the second rod's, on one hinge
+        self.balanced(second, range(0, 21, 4), weight, 100.0)
+
+    def test_loads_on_spring(self):
+        """The oscillator's block: the slider's reaction and the spring's
+        force, along the slider, k (4 - length); no gravity."""
+        self.oscillator()
+        block = self.doc.getObject("Block")
+        lengths = self.channel("Spring", "SpringLength")
+        # N/m times mm is mN: k times the 2 mm it swings by
+        for body in self.balanced(block, range(0, 3001, 500), self.K * 2.0, 10.0):
+            spring = [l for l in body["Loads"] if l["Kind"] == "Spring"]
+            self.assertEqual(len(spring), 1)
+            want = self.K * (4.0 - lengths[body["Frame"]])
+            self.assertAlmostEqual(spring[0]["Force"].z, want, delta=1e-9 * self.K)
+            self.assertLess((spring[0]["Point"] - App.Vector(5, 5, 0)).Length, 1e-9)
+
     def test_body_motion_kinematic(self):
         """A kinematic run with its reactions reports the rod's motion too:
         turned by time^2 about the hinge, 2 t rad/s at 2 rad/s^2, its centre

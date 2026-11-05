@@ -407,3 +407,61 @@ class TestMotionLoads(unittest.TestCase):
         self.assertAlmostEqual(fx, -want, delta=0.01 * want)
         self.assertAlmostEqual(fy, want, delta=0.01 * want)
         self.assertAlmostEqual(fz, 0.0, delta=1e-9 * want)
+
+    def frequencies(self):
+        """The frequencies of the analysis' modes, solved (Hz)"""
+        problems, _ = self.write()
+        self.assertEqual(problems, "")
+        text = self.solve()
+        lines = text.splitlines()
+        k = next(i for i, l in enumerate(lines) if "E I G E N V A L U E   O U T P U T" in l)
+        found = []
+        for line in lines[k + 1 :]:
+            parts = line.split()
+            if len(parts) >= 4 and parts[0].isdigit():
+                found.append(float(parts[3]))
+            elif found and not line.strip():
+                break
+        return found
+
+    def test_rigid_coupling_axes(self):
+        """A rigid coupling's axes: the bar held at x = 0 by one, free to
+        turn about z, has the modes of the bar pinned so whether its axes
+        are the global ones (turning about its z) or turned 90 deg about x
+        (turning about its y, along the global z): its first two, clamped
+        across y at 835 Hz (1.875^2 / 2 pi sqrt(E I / rho A L^4)) and
+        pinned across z at about 4.39 times that, (3.927 / 1.875)^2. Held
+        stiff, the bar's first two are both the clamped one."""
+        self.bar()
+        fixed = self.doc.getObject("Fixed")
+        self.analysis.removeObject(fixed)
+        self.doc.removeObject(fixed.Name)
+        rb = ObjectsFem.makeConstraintRigidBody(self.doc, "Hold")
+        rb.References = [(self.box, "Face1")]
+        rb.ReferenceNode = FreeCAD.Vector(0, A / 2, A / 2)
+        rb.Coupling = "Rigid"
+        self.analysis.addObject(rb)
+        self.solver.AnalysisType = "frequency"
+        self.solver.EigenmodesCount = 4
+
+        def held(free, axes=FreeCAD.Rotation()):
+            rb.Axes = axes
+            for axis in "XYZ":
+                setattr(rb, "TranslationalMode" + axis, "Constraint")
+                setattr(rb, "RotationalMode" + axis, "Free" if axis == free else "Constraint")
+            self.doc.recompute()
+            return self.frequencies()
+
+        stiff = held(None)
+        pinned = held("Z")
+        turned = held("Y", FreeCAD.Rotation(FreeCAD.Vector(1, 0, 0), 90))
+        with open(self.fea.inp_file_name) as f:
+            self.assertIn("*TRANSFORM, NSET=Hold_RotNode, TYPE=R", f.read())
+        clamped = 1.8751**2 / (2 * 3.141592653589793) * (E * INERTIA / (RHO * A * A * L**4)) ** 0.5
+        self.assertAlmostEqual(stiff[0], clamped, delta=0.02 * clamped)
+        self.assertAlmostEqual(stiff[1], stiff[0], delta=1e-3 * stiff[0])
+        self.assertAlmostEqual(pinned[0], stiff[0], delta=1e-6 * stiff[0])
+        self.assertAlmostEqual(pinned[1] / pinned[0], (3.9266 / 1.8751) ** 2, delta=0.05 * 4.39)
+        self.assertEqual(len(turned), len(pinned))
+        for a, b in zip(turned, pinned):
+            self.assertAlmostEqual(a, b, delta=1e-6 * b)

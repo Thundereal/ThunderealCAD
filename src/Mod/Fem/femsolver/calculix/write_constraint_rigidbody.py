@@ -26,6 +26,9 @@ __author__ = "Ajinkya Dahale"
 __url__ = "https://www.freecad.org"
 
 
+import FreeCAD
+
+
 def get_analysis_types():
     return "all"  # write for all analysis types
 
@@ -117,3 +120,14 @@ def write_constraint(f, femobj, rb_obj, ccxwriter):
     kw_line = f"*RIGID BODY, NSET={rb_obj.Name}, REF NODE={ref_node_idx}, ROT NODE={rot_node_idx}"
 
     f.write(kw_line + "\n")
+
+    # Not upstream: its axes turned, its nodes' degrees of freedom along
+    # them -- the rotation node's too, a hold free to turn about an axis
+    # that is none of the global ones
+    axes = getattr(rb_obj, "Axes", None)
+    if axes is not None and not axes.isIdentity():
+        a = axes.multVec(FreeCAD.Vector(1, 0, 0))
+        b = axes.multVec(FreeCAD.Vector(0, 1, 0))
+        for node in ("RefNode", "RotNode"):
+            f.write(f"*TRANSFORM, NSET={rb_obj.Name}_{node}, TYPE=R\n")
+            f.write("{:.13G},{:.13G},{:.13G},{:.13G},{:.13G},{:.13G}\n".format(*a, *b))

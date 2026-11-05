@@ -65,6 +65,11 @@ public:
     // contact's) or a hold on the part of it another part shares (a rigid
     // group's); 0, on all of them
     App::PropertyLength CouplingRadius;
+    // Not upstream: a rigid coupling's axes, the global ones turned by
+    // this -- its modes, displacement, rotation, forces and moments are
+    // along them (CalculiX's *TRANSFORM on its two nodes): a hold free to
+    // turn about a hinge's axis however the hinge lies
+    App::PropertyRotation Axes;
 
     /// recalculate the object
     App::DocumentObjectExecReturn* execute() override;

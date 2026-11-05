@@ -913,11 +913,15 @@ class TestContact(unittest.TestCase):
 
     def test_start_with_contact(self):
         """The lever let go across two posts, by the materials' own law:
-        its free body balances at the start too. The start's reactions and
-        accelerations were taken back from the smallest steps, in which the
-        posts began to push; the contact's force, none at the start, was
-        not -- a steel lever's free body 5% of its weight out there, its
-        turn's rate 131 rad/s^2 for the 122 of one with nothing under it."""
+        its free body balances at the start too, and it turns there as one
+        with nothing under it. The start's reactions and accelerations were
+        taken back from the smallest steps, in which the posts began to
+        push; the contact's force, none at the start, was not -- a steel
+        lever's free body 5% of its weight out there, its turn's rate 131
+        rad/s^2 for the 122 of one with nothing under it. Then the
+        accelerations were the start's forces with the reactions taken
+        back, the posts' first push still in those: 3.6% under. Now the
+        reactions are solved at the start."""
         import MotionLoads
 
         lever, hinge = self.lever()
@@ -932,11 +936,9 @@ class TestContact(unittest.TestCase):
             if load["Kind"] == "Contact":
                 self.assertEqual(load["Force"].Length, 0.0)
         # As let go with nothing under it: m g (L/2) / I about the hinge,
-        # I = m ((L^2 + h^2) / 12 + (L/2)^2), 147 rad/s^2 -- within 5%: the
-        # hinge's reaction is still taken back from the smallest steps, the
-        # posts' first push in it (141 measured, 3.6% under)
+        # I = m ((L^2 + h^2) / 12 + (L/2)^2), 147 rad/s^2
         free = G * 50.0 / ((100.0**2 + 10.0**2) / 12.0 + 50.0**2)
-        self.assertAlmostEqual(body["AngularAcceleration"].Length, free, delta=0.05 * free)
+        self.assertAlmostEqual(body["AngularAcceleration"].Length, free, delta=1e-6 * free)
 
     def test_lever_on_fast_cam(self):
         """A steel lever on a steel eccentric disc turned at 2 rev/s, by the

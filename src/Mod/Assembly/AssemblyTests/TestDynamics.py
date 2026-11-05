@@ -185,6 +185,35 @@ class TestDynamics(unittest.TestCase):
         for time, angle in turns:
             self.assertAlmostEqual(angle, time, delta=1e-6, msg=time)
 
+    def test_start_driven(self):
+        """The rod driven from level at 3 t + t^2 rad: at the start it turns
+        at 3 rad/s and speeds up at 2 rad/s^2. Its centre, 50 mm out, at
+        -9 r along it and 2 r across; the hinge's force on it m (a - g).
+        The start's values are the constraints solved at it, the motion's
+        own acceleration and the turn's with them; they were taken back
+        from the run's smallest steps."""
+        self.assertIsNotNone(
+            self.driven("Position", "3*time + time*time", reactions=True)
+        )
+        mass = 100 * 10 * 10 * 2.7e-6
+        r = 50.0
+        accel = self.channel("Rod", "Acceleration")[0]
+        self.assertAlmostEqual(accel.x, -9.0 * r, delta=1e-6 * 9.0 * r)
+        self.assertAlmostEqual(accel.y, 0.0, delta=1e-6 * 9.0 * r)
+        self.assertAlmostEqual(abs(accel.z), 2.0 * r, delta=1e-6 * 9.0 * r)
+        self.assertAlmostEqual(
+            self.channel("Rod", "AngularAcceleration")[0].Length, 2.0, delta=1e-6
+        )
+        want = App.Vector(-9.0 * r, 0, math.copysign(2.0 * r, accel.z) + G) * mass
+        force = self.channel("Revolute", "Force")[0]
+        self.assertLess(min((force - want).Length, (force + want).Length), 1e-6 * want.Length, force)
+        # The motor holds its weight's moment, less I alpha where it turns
+        # down with it
+        inertia = mass * ((100.0**2 + 10.0**2) / 12.0 + r * r)
+        torque = mass * G * r + math.copysign(inertia * 2.0, accel.z)
+        motor = self.channel("Revolute", "MotorTorque")[0]
+        self.assertAlmostEqual(abs(motor), torque, delta=1e-6 * torque)
+
     def test_motor_speed(self):
         """A Speed motion turns at its rate, against gravity."""
         turns = self.driven("Speed", "2")

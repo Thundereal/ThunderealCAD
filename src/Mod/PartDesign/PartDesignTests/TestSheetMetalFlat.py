@@ -149,6 +149,29 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertAlmostEqual(lines[0].Length, 15, places=6)
 
+    def testMarkingsOnTop(self):
+        """Every marking lies on the blank's top, the side a drawing of the
+        flat looks at, a down bend's line too: which way a bend goes is its
+        direction, not where its line lies (TechDraw keeps no hidden line by
+        default, and lost a down bend's)"""
+        wall = self.L()
+        flat = self.flatObject(wall)
+        self.show(flat)
+        directions = set()
+        for second in (False, True):
+            flat.SecondSkin = second
+            self.Doc.recompute()
+            shape = flat.Shape
+            blank = shape.Solids[0]
+            top = blank.BoundBox.ZMax
+            markings = shape.Edges[len(blank.Edges) :]
+            self.assertTrue(markings)
+            for e in markings:
+                for v in e.Vertexes:
+                    self.assertAlmostEqual(v.Point.z, top, places=6)
+            directions |= set(flat.BendDirections.values())
+        self.assertEqual(directions, {"Up", "Down"})
+
     def testSolidFlat(self):
         """The solid's flat is its tip's, and follows the tip: a plate 40 x
         20, then a flange on its far edge, 18 + BA + 8 by 40 flat"""

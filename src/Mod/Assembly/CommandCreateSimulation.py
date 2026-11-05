@@ -3175,13 +3175,21 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         dynamic = getattr(series, "Dynamic", False) and series.SampleTimes
         times, whole, away = series.Times, series.VonMises, series.VonMisesAway
         if dynamic:
+            # Held in them as its joint holds it
+            free = {
+                "Turn": translate("Assembly", "free to turn on {}"),
+                "Slide": translate("Assembly", "free to slide along {}"),
+                "TurnSlide": translate("Assembly", "free to turn on and slide along {}"),
+                "Ball": translate("Assembly", "free to turn every way on {}"),
+            }.get(getattr(series, "ModesFree", ""), translate("Assembly", "held stiff at {}"))
             notes.append(
                 translate(
                     "Assembly",
-                    "With its own vibration, by its first {} modes held so ({:.4g} to {:.4g} "
+                    "With its own vibration, by its first {} modes, {} ({:.4g} to {:.4g} "
                     "Hz), each damped {:.3g}% of critical, from rest at the first frame.",
                 ).format(
                     len(series.ModeFrequencies),
+                    free.format(series.Held.Label),
                     series.ModeFrequencies[0],
                     series.ModeFrequencies[-1],
                     100.0 * series.Damping,

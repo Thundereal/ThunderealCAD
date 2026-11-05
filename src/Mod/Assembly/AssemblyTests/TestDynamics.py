@@ -838,14 +838,106 @@ class TestDynamics(unittest.TestCase):
         rest = u - rebuilt
         self.assertLess(modes.inner(rest[modes.index], rest[modes.index]) / whole, 1e-4)
 
+    def test_held_modes_free(self):
+        """The rod's modes held as its hinge holds it (_holdAsJoint), free
+        to turn about the hinge's axis, the global y: the turn is no mode of
+        them, each a share of it under 1e-4 (4.5e-6); the first across the
+        hinge's axis still the rod clamped at its end, 1.875^2 / (2 pi)
+        sqrt(E I / (rho A)) / L^2 to 1% (0.15%), and the first about it the
+        rod pinned at its end, 3.927^2 instead of 1.875^2, to 5% (2.4% under
+        it: the rod is 10 sections long, and shear takes its share). Its
+        static state held stiff, made of them by its shares of them: what
+        they leave of it is the turn but for 1e-5 of it, by the mass
+        (8.7e-7)."""
+        import os
+        import shutil
+        import tempfile
+
+        import numpy as np
+        from femtools import ccxtools
+
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        _, result = self.simulate(0.01, 1e-2)
+        self.assertEqual(result, 0)
+        analysis, body, held = MotionLoads.makeAnalysis(self.assembly, rod, 0, maxSize=4.0)
+        solver = [o for o in analysis.Group if o.isDerivedFrom("Fem::FemSolverObjectPython")][0]
+        mesh = [o for o in analysis.Group if o.TypeId == "Fem::FemMeshShapeNetgenObject"][0]
+        hold = [o for o in analysis.Group if o.Name.startswith("Hold")][0]
+        material = [o for o in analysis.Group if o.Name.startswith("LoadsMaterial")][0]
+        place = rod.getGlobalPlacement()
+        free, kind = MotionLoads._holdAsJoint({"Placement": place}, hold, held)
+        self.assertEqual(kind, "Turn")
+        self.assertEqual(len(free), 1)
+        axis, point = free[0]
+        y = place.Rotation.multVec(App.Vector(0, 1, 0))
+        self.assertAlmostEqual(abs(App.Vector(*axis).dot(y)), 1.0, delta=1e-9)
+        solver.AnalysisType = "frequency"
+        solver.EigenmodesCount = 8 + len(free)
+        self.doc.recompute()
+        work = tempfile.mkdtemp(prefix="heldfree_")
+        try:
+            fea = ccxtools.FemToolsCcx(analysis, solver, test_mode=True)
+            fea.update_objects()
+            fea.setup_working_dir(work)
+            fea.setup_ccx(MotionLoads.ccxBinary())
+            fea.write_inp_file()
+            with open(fea.inp_file_name) as f:
+                self.assertIn("*TRANSFORM, NSET=%s_RotNode" % hold.Name, f.read())
+            self.assertEqual(fea.start_ccx(), 0)
+            base = os.path.splitext(fea.inp_file_name)[0]
+            modes = MotionLoads._Modes(base, mesh.FemMesh, free, 8)
+            MotionLoads._holdStiff(hold)
+            solver.AnalysisType = "static"
+            self.doc.recompute()
+            fea.write_inp_file()
+            with open(fea.inp_file_name) as f:
+                self.assertNotIn("*TRANSFORM", f.read())
+            self.assertEqual(fea.start_ccx(), 0)
+            blocks = MotionLoads._frdFields(os.path.splitext(fea.inp_file_name)[0] + ".frd")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self.assertEqual(len(modes.frequencies), 8)
+        # The turn about the hinge, by the mass
+        at = np.array([tuple(mesh.FemMesh.Nodes[n]) for n in modes.ids])
+        turn = np.cross(np.array(axis), at - np.array(point))[modes.index]
+        turn /= math.sqrt(modes.inner(turn, turn))
+        shares = [
+            abs(modes.inner(turn, s)) / math.sqrt(n) for s, n in zip(modes.shapes, modes.norms)
+        ]
+        self.assertLess(max(shares), 1e-4)
+        card = material.Material
+        e = App.Units.Quantity(card["YoungsModulus"]).getValueAs("MPa").Value
+        rho = body["Mass"] / (100.0 * 10.0 * 10.0) * 1e-3  # t/mm^3
+        root = math.sqrt(e * 10.0**2 / 12.0 / rho) / (2 * math.pi) / 100.0**2
+        clamped, pinned = 1.8751**2 * root, 3.9266**2 * root
+        # A mode that moves along the hinge's axis bends across it, held
+        # stiff so; one that does not bends about it, pinned
+        along = [float(np.abs(s @ np.array(axis)).max() / np.abs(s).max()) for s in modes.shapes]
+        first = [f for f, a in zip(modes.frequencies, along) if a > 0.5][0]
+        about = [f for f, a in zip(modes.frequencies, along) if a < 0.1][0]
+        self.assertAlmostEqual(first, clamped, delta=0.01 * clamped)
+        self.assertAlmostEqual(about, pinned, delta=0.05 * pinned)
+        # The static state held stiff, by its shares of them
+        u = modes.align([b for b in blocks if b[0] == "DISP"][0])[:, :3]
+        c = modes.coordinate(u)
+        rest = (u - np.tensordot(c, modes.nodal, axes=1))[modes.index]
+        whole = modes.inner(u[modes.index], u[modes.index])
+        rest = rest - modes.inner(turn, rest) * turn
+        self.assertLess(modes.inner(rest, rest) / whole, 1e-5)
+
     def test_loads_to_fem_vibration(self):
         """To FEM's frames with the part's own vibration (D4a): the pendulum
-        swinging, its loads changing slowly against its first period -- 1.2
-        ms, the frames 10 ms apart -- rings by little, its stress at each
-        frame within 1e-3 (1.2e-4) of the largest of the frames' static
-        ones; the series' samples between the frames, at the frames the
-        same; the
-        analysis left at the largest sample, whose result is that field."""
+        swinging, its loads changing slowly against its periods -- 1.2 ms
+        at most, the frames 10 ms apart -- rings by little, its stress at
+        each frame within 1e-3 (1.4e-5; 1.2e-4 with its modes held stiff)
+        of the largest of the frames' static ones; its modes free to turn on
+        its hinge, the first in its swing's plane at 3.5 kHz; the series'
+        samples between the frames, at the frames the same; the analysis
+        left at the largest sample, whose result is that field."""
         import MotionLoads
 
         if not MotionLoads.ccxBinary():
@@ -859,6 +951,7 @@ class TestDynamics(unittest.TestCase):
         )
         self.assertTrue(series.Dynamic)
         self.assertEqual(len(series.ModeFrequencies), MotionLoads.MODES)
+        self.assertEqual(series.ModesFree, "Turn")
         self.assertEqual(list(series.ModeFrequencies), sorted(series.ModeFrequencies))
         largest = max(series.StaticVonMises)
         for k, frame in enumerate(frames):

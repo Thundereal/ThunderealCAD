@@ -318,6 +318,11 @@ def _freeBody(assembly, component, frame, results, sim, start):
                 "Torque": turn.multVec(torque * sign),
                 "Reference": refs[side],
                 "Unique": found["Force"]["Unique"],
+                # Its frame's axes, and whether a motion drives its turn or
+                # its slide: what holding the part at it leaves free
+                "Axes": turn * frameI.Rotation,
+                "DrivenTurn": "MotorTorque" in found,
+                "DrivenSlide": "MotorForce" in found,
             }
         )
 
@@ -633,6 +638,64 @@ def _heldLoad(body, heldJoint):
             force += load["Force"]
             torque += load["Torque"]
     return force, torque
+
+
+# What a joint leaves free between its parts, along and about its frame's
+# axes: (translations, rotations)
+FREES = {"Revolute": ("", "Z"), "Cylindrical": ("Z", "Z"), "Slider": ("Z", ""), "Ball": ("", "XYZ")}
+
+
+def _frees(load):
+    """What holding the part at the held load's joint leaves free, along and
+    about the joint's axes: (translations, rotations), its turn or slide
+    held where a motion drives it. A rigid group's, and a joint of another
+    kind, hold it stiff: ("", "")."""
+    if load["Kind"] != "Joint":
+        return "", ""
+    moves, turns = FREES.get(getattr(load["Source"], "JointType", ""), ("", ""))
+    if load.get("DrivenTurn"):
+        turns = turns.replace("Z", "")
+    if load.get("DrivenSlide"):
+        moves = moves.replace("Z", "")
+    return moves, turns
+
+
+def _freeKind(moves, turns):
+    """What the hold leaves free, for StressSeries.ModesFree: "Turn",
+    "Slide", "TurnSlide", "Ball", or "" -- held stiff"""
+    if turns == "XYZ":
+        return "Ball"
+    return ("Turn" if turns else "") + ("Slide" if moves else "")
+
+
+def _holdAsJoint(objects, rb, held):
+    """The hold rb of the analysis _build made, free as the held load's
+    joint leaves it (_frees), its axes the joint's: ([(axis, point)], kind)
+    -- the motions it leaves free, as _Modes takes them, and _freeKind's"""
+    moves, turns = _frees(held)
+    free = []
+    if moves or turns:
+        place = objects["Placement"]
+        axes = place.Rotation * held["Axes"]
+        rb.Axes = axes
+        point = tuple(place.multVec(held["Point"]))
+        unit = {"X": App.Vector(1, 0, 0), "Y": App.Vector(0, 1, 0), "Z": App.Vector(0, 0, 1)}
+        for axis in moves:
+            setattr(rb, "TranslationalMode" + axis, "Free")
+            free.append((tuple(axes.multVec(unit[axis])), None))
+        for axis in turns:
+            setattr(rb, "RotationalMode" + axis, "Free")
+            free.append((tuple(axes.multVec(unit[axis])), point))
+    return free, _freeKind(moves, turns)
+
+
+def _holdStiff(rb):
+    """The hold rb held stiff, along the global axes, as _build made it:
+    what holds the part is read off its nodes so"""
+    rb.Axes = App.Rotation()
+    for axis in "XYZ":
+        setattr(rb, "TranslationalMode" + axis, "Constraint")
+        setattr(rb, "RotationalMode" + axis, "Constraint")
 
 
 def _heldJoint(bodies, hold):
@@ -1136,9 +1199,13 @@ class _Modes:
     """The held part's modes from a CalculiX frequency run: their
     frequencies, and their shapes and stresses at the mesh's nodes (ids, in
     order; align() puts a result block so); each one's share of a
-    displacement (coordinate())"""
+    displacement (coordinate()). free: the rigid motions the hold leaves
+    free, [(axis, point)] -- a slide along axis where point is None, else a
+    turn about it through point -- whose modes are not the part's own
+    vibration but its motion in the run, and are dropped; count: the modes
+    kept, at most."""
 
-    def __init__(self, base, femmesh):
+    def __init__(self, base, femmesh, free=(), count=None):
         import numpy as np
 
         with open(base + ".dat") as f:
@@ -1163,10 +1230,33 @@ class _Modes:
         self.ids = sorted(femmesh.Nodes.keys())
         where = {n: k for k, n in enumerate(self.ids)}
         self.index = np.vectorize(where.__getitem__)(rows)
+        nodal = np.array([self.align(b)[:, :3] for b in shapes])
+        stresses = np.array([self.align(b)[:, :6] for b in stresses])
+        # The free motions, orthonormal by the mass; a mode that is more of
+        # them than not is one. CalculiX leaves a free motion out when its
+        # eigenvalue comes out below 0, keeps it when just above.
+        at = np.array([tuple(femmesh.Nodes[n]) for n in self.ids])
+        rigid = []
+        for axis, point in free:
+            a = np.array(axis)
+            r = np.tile(a, (len(at), 1)) if point is None else np.cross(a, at - np.array(point))
+            r = r[self.index]
+            for q in rigid:
+                r = r - self.inner(q, r) * q
+            rigid.append(r / math.sqrt(self.inner(r, r)))
+        keep = []
+        for k, phi in enumerate(nodal[:, self.index]):
+            share = sum(self.inner(q, phi) ** 2 for q in rigid) / self.inner(phi, phi)
+            if share < 0.5:
+                keep.append(k)
+        keep = keep[:count]
+        if not keep:
+            raise ValueError("CalculiX gave no modes of the part")
+        freqs = [freqs[k] for k in keep]
         self.omega = 2.0 * math.pi * np.array(freqs)
         self.frequencies = freqs
-        self.nodal = np.array([self.align(b)[:, :3] for b in shapes])
-        self.stresses = np.array([self.align(b)[:, :6] for b in stresses])
+        self.nodal = nodal[keep]
+        self.stresses = stresses[keep]
         self.shapes = self.nodal[:, self.index]
         self.norms = np.array([self.inner(s, s) for s in self.shapes])
 
@@ -1432,12 +1522,20 @@ def solveFrames(
         if jobs is None:
             jobs = max(1, min(4, (os.cpu_count() or 1) // 2))
         modal = None
+        freeKind = ""
         if dynamic:
-            # Its modes first, held as in the frames: each frame's share of
-            # them is taken as it is collected
+            # Its modes first, held as its joint holds it: free to turn on a
+            # hinge, the hinge's axis one of the hold's axes. A frame's
+            # static state holds it stiff there, but what holds it takes
+            # next to nothing, the frame balancing: the state is the one
+            # held free but for a free motion, and no mode has a share of
+            # that. Each frame's share of the modes is taken as it is
+            # collected.
+            held = [l for l in bodies[0]["Loads"] if l["Source"] == heldJoint][0]
+            free, freeKind = _holdAsJoint(objects, hold_, held)
             solver = objects["Solver"]
             solver.AnalysisType = "frequency"
-            solver.EigenmodesCount = modes
+            solver.EigenmodesCount = modes + len(free)
             doc.recompute()
             fea.write_inp_file()
             folder = os.path.join(work, "modes")
@@ -1451,7 +1549,8 @@ def solveFrames(
                 with open(base + ".out", errors="replace") as f:
                     said = f.read().strip().splitlines()[-3:]
                 raise ValueError("CalculiX failed for the modes: %s" % " ".join(said))
-            modal = _Modes(base, objects["Mesh"].FemMesh)
+            modal = _Modes(base, objects["Mesh"].FemMesh, free, modes)
+            _holdStiff(hold_)
             solver.AnalysisType = "static"
             doc.recompute()
 
@@ -1590,6 +1689,7 @@ def solveFrames(
         series.Dynamic = True
         series.Damping = damping
         series.ModeFrequencies = list(modal.frequencies)
+        series.ModesFree = freeKind
         series.StaticVonMises = [r["Static"] for r in rows]
         series.StaticVonMisesAway = [r["StaticAway"] for r in rows]
         series.SampleTimes = samples["Times"]
@@ -1646,6 +1746,12 @@ class StressSeries:
         ),
         ("App::PropertyFloat", "Damping", "Each mode's damping, of critical"),
         ("App::PropertyFloatList", "ModeFrequencies", "The modes', Hz"),
+        (
+            "App::PropertyString",
+            "ModesFree",
+            "What holding the part at its joint leaves free in its modes: Turn, Slide, "
+            "TurnSlide, Ball; empty, held stiff",
+        ),
         ("App::PropertyFloatList", "StaticVonMises", "The frames' static largest, MPa"),
         ("App::PropertyFloatList", "StaticVonMisesAway", "And away from the loaded faces, MPa"),
         (

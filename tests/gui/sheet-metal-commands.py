@@ -957,6 +957,63 @@ def run():
                 image(other.ViewObject.Icon) == image(FreeCADGui.getIcon("PartDesign_SolidBody.svg")),
             )
 
+        # A drawing of the sheet's flat (docs/SheetMetal.md sec 5.6): TechDraw
+        # asks the source's view how to draw an edge, by its source name, and
+        # the flat's bend lines come out in the flat's own colours
+        def pens(page):
+            from PySide import QtGui as _QtGui
+
+            colours = set()
+            for v in mw.findChildren(QtWidgets.QGraphicsView):
+                if v.scene() is None:
+                    continue
+                for item in v.scene().items():
+                    pen = getattr(item, "pen", None)
+                    if callable(pen) and item.isVisible():
+                        c = pen().color()
+                        colours.add((c.red(), c.green(), c.blue()))
+            return colours
+
+        def rgb(prop):
+            return tuple(int(round(x * 255)) for x in prop[:3])
+
+        ups = [b for b, d in flat.BendDirections.items() if d == "Up"]
+        downs = [b for b, d in flat.BendDirections.items() if d == "Down"]
+        page = doc.addObject("TechDraw::DrawPage", "Page")
+        template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        page.Template = template
+        drawing = doc.addObject("TechDraw::DrawViewPart", "FlatDrawing")
+        page.addView(drawing)
+        drawing.Source = [flat]
+        drawing.Direction = FreeCAD.Vector(0, 0, 1)
+        flat.Visibility = True
+        doc.recompute()
+        page.ViewObject.show()
+        pump(60)
+        drawing.recompute()
+        pump(60)
+        seen = pens(page)
+        upColour = rgb(flat.ViewObject.BendUpColor)
+        downColour = rgb(flat.ViewObject.BendDownColor)
+        check(
+            "a drawing of the flat draws its up and down bend lines in the flat's colours",
+            bool(ups) and bool(downs) and upColour in seen and downColour in seen,
+            (ups, downs, upColour, downColour, sorted(seen)[:8]),
+        )
+        flat.ViewObject.BendDownColor = (0.0, 0.6, 0.0)
+        drawing.touch()
+        doc.recompute()
+        pump(60)
+        check(
+            "and follows a colour changed on the flat",
+            (0, 153, 0) in pens(page),
+            sorted(pens(page))[:8],
+        )
+        for name in [o.Name for o in (drawing, page, template)]:
+            if doc.getObject(name) is not None:
+                doc.removeObject(name)
+        pump(20)
+
         # Rip: a tube, which does not lie flat, cut open at a bend picked
         # (docs/SheetMetal.md sec 12, ruled 2026-11-05)
         ripCmd = FreeCADGui.Command.get("PartDesign_SheetMetalRip")

@@ -1016,6 +1016,67 @@ def run():
             (0, 153, 0) in pens(page),
             sorted(pens(page))[:8],
         )
+
+        # Each edge's info, a bend line's note its label, from Python too;
+        # Import Edge Labels makes a balloon of each, to edit
+        downBend = downs[0]
+        info = getattr(flat.ViewObject, "getEdgeInfo", lambda name: None)(downBend)
+        bendRow = [b for b in PartDesign.checkSheet(flat)["Bends"] if b["Name"] == downBend][0]
+        bendNote = "DOWN %g\u00b0 R%g" % (round(bendRow["Angle"], 2), round(bendRow["Radius"], 3))
+        check(
+            "the flat's view tells a drawing a bend line's style and its note",
+            info is not None
+            and info["Label"] == bendNote
+            and abs(info["Color"][0] - flat.ViewObject.BendDownColor[0]) < 1e-6,
+            (info, bendNote),
+        )
+        check(
+            "and nothing of the blank's edges",
+            info is not None and flat.ViewObject.getEdgeInfo(
+                flat.Shape.getElementMappedName("Edge1")) is None,
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, drawing.Name)
+        FreeCADGui.runCommand("TechDraw_ImportEdgeLabels")
+        pump(30)
+        labels = [o for o in doc.Objects if o.TypeId == "TechDraw::DrawEdgeLabel"]
+        byEdge = {o.SourceEdge.split(";")[0]: o for o in labels}
+        check(
+            "Import Edge Labels makes a label of each bend line on the page, its bendNote",
+            len(labels) == len(flat.BendDirections)
+            and downBend in byEdge
+            and byEdge[downBend].Text == bendNote
+            and byEdge[downBend].SourceView == drawing
+            and byEdge[downBend] in page.Views,
+            sorted((k, o.Text) for k, o in byEdge.items()),
+        )
+        if downBend in byEdge:
+            mine = byEdge[downBend]
+            other = [o for k, o in byEdge.items() if k != downBend][0]
+            mine.Text = "DOWN, hem side"
+            moved = (mine.X.Value - mine.OriginX.Value + 5, mine.Y.Value - mine.OriginY.Value)
+            mine.X = mine.OriginX.Value + moved[0]
+            radius = flange.Rule.BendRadius.Value
+            flange.Rule.BendRadius = radius + 1
+            doc.recompute()
+            pump(20)
+            FreeCADGui.Selection.clearSelection()
+            FreeCADGui.Selection.addSelection(doc.Name, drawing.Name)
+            FreeCADGui.runCommand("TechDraw_ImportEdgeLabels")
+            pump(30)
+            check(
+                "imported again: a text the user wrote kept, the others the new notes, "
+                "a label moved by hand kept where it was against its edge",
+                mine.Text == "DOWN, hem side"
+                and ("R%g" % (radius + 1)) in other.Text
+                and abs(mine.X.Value - mine.OriginX.Value - moved[0]) < 1e-6,
+                (mine.Text, other.Text, mine.X.Value - mine.OriginX.Value, moved),
+            )
+            flange.Rule.BendRadius = radius
+            doc.recompute()
+        for o in labels:
+            if doc.getObject(o.Name) is not None:
+                doc.removeObject(o.Name)
         for name in [o.Name for o in (drawing, page, template)]:
             if doc.getObject(name) is not None:
                 doc.removeObject(name)

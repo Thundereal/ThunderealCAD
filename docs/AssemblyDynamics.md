@@ -3554,9 +3554,54 @@ Phase D1 is under way (2026-10-28):
     one's first would be some 4.4 times that, and its largest stress is
     at that hold; held as its joint holds it, the turn left free, its
     rigid mode left out and the frames solved by inertia relief, would
-    take that away. Its rotation's own stiffening and its large
-    motion's coupling to the modes left out; from rest at the first frame
-    solved.
+    take that away (built, next). Its rotation's own stiffening and its
+    large motion's coupling to the modes left out; from rest at the first
+    frame solved.
+- Built, D4a: the vibration's modes held as the joint holds them.
+  - **The modes were the part held stiff at its joint's faces**, a
+    revolute's turn about its axis held with the rest: the places lever's
+    were a cantilever's, its first in its swing's plane 452 Hz, where
+    pinned it is 1958 Hz, and its largest stress, 40.6 MPa, was at that
+    hold.
+  - Now the modes' run holds the part as its joint does (`_holdAsJoint()`):
+    a revolute leaves the turn about its axis free, a cylindrical that and
+    the slide along it, a slider the slide, a ball every turn; a motion
+    driving the joint holds what it drives, and a rigid group's hold or
+    another kind of joint stays stiff. The hold's axes are the joint's,
+    however it lies: FEM's rigid body constraint has Axes now (not
+    upstream), which the CalculiX writer puts as a *TRANSFORM on its
+    reference and rotation nodes -- CalculiX takes it for the rotation
+    node's too, the same modes as the axis freed by hand, others for a
+    wrong one. CalculiX finds the free motion's mode or leaves it out (an
+    eigenvalue just under 0 is out of the range asked for), so one more
+    mode is asked for each motion left free, and a mode more of the free
+    motions than not, by the mass, is dropped (`_Modes(free=)`).
+  - The frames stay as they were, held stiff: what holds the part there
+    takes next to nothing, the frame balancing it, so its static state is
+    the one held free but for a free motion, which no mode has a share of
+    -- the stresses are the same, and so is each mode's share. No inertia
+    relief is needed for it. What holds the part is still read off the
+    stiff hold, along the global axes, for the check.
+  - The places page's run again: its first mode 563.8 Hz, across the
+    hinge's axis and held stiff so; the first in its swing's plane 1958
+    Hz, the pinned lever's. 162 s for the 327 frames, 26168 samples. The
+    largest stress 31.8 MPa at 64.02 ms, away from the loaded faces,
+    where the lever bends between its hinge and the posts; the hinge end
+    no longer the largest (40.6 MPa held stiff). As the frames stand,
+    64.6 MPa under the block and 13.6 away, as before. Undamped, the
+    landing's window peaks at 35.1 MPa (50.8 held stiff).
+  - Tests: test_motionloads' test_rigid_coupling_axes (the bar held free
+    to turn about z, the same modes along the global axes or turned 90
+    deg about x; the clamped and the pinned beam's first); TestDynamics'
+    test_held_modes_free (the rod's turn no mode's, a share of it 4.5e-6;
+    the first across the hinge the clamped beam's to 0.15%, the first
+    about it the pinned one's, 2.4% under it, shear; its static state
+    made of its modes and the turn but 8.7e-7 of it);
+    test_loads_to_fem_vibration now the rod free to turn, 1.4e-5 of its
+    static stress (1.2e-4 held stiff).
+  - Not yet: one way still, from rest, and the rotation's stiffening left
+    out; a joint other than those (a distance, a gear, a cam) holds the
+    part stiff in its modes.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

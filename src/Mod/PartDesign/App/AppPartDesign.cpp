@@ -78,6 +78,7 @@
 #include "FeatureSheetMetalHem.h"
 #include "FeatureSheetMetalCornerClosure.h"
 #include "FeatureSheetMetalRip.h"
+#include "FeatureSheetMetalCrossBreak.h"
 #ifdef PARTDESIGN_WITH_SPREADSHEET
 #include "FeatureSheetMetalBendTable.h"
 #endif
@@ -222,6 +223,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalHem               ::init();
     PartDesign::SheetMetalCornerClosure     ::init();
     PartDesign::SheetMetalRip               ::init();
+    PartDesign::SheetMetalCrossBreak        ::init();
 #ifdef PARTDESIGN_WITH_SPREADSHEET
     PartDesign::SheetMetalBendTable         ::init();
 #endif
@@ -242,6 +244,7 @@ PyMOD_INIT_FUNC(_PartDesign)
                             PartDesign::SheetMetalHem::getClassTypeId(),
                             PartDesign::SheetMetalCornerClosure::getClassTypeId(),
                             PartDesign::SheetMetalRip::getClassTypeId(),
+                            PartDesign::SheetMetalCrossBreak::getClassTypeId(),
                             PartDesign::SheetMetalCutout::getClassTypeId(),
                             PartDesign::SheetMetalFold::getClassTypeId(),
                             PartDesign::SheetMetalJog::getClassTypeId(),

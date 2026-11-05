@@ -1049,6 +1049,67 @@ bool CmdPartDesignSheetMetalRip::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalCrossBreak
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalCrossBreak)
+
+CmdPartDesignSheetMetalCrossBreak::CmdPartDesignSheetMetalCrossBreak()
+    : Command("PartDesign_SheetMetalCrossBreak")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Cross Break");
+    sToolTipText = QT_TR_NOOP("Breaks a wall across its diagonals by a small angle, to stiffen\n"
+                              "it: select a face of each wall, the side the break rises out of.\n"
+                              "The solid is not changed; the flat draws the diagonals");
+    sWhatsThis = "PartDesign_SheetMetalCrossBreak";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalCrossBreak";
+}
+
+void CmdPartDesignSheetMetalCrossBreak::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream faces;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            faces << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue()) {
+        warn(QT_TR_NOOP("Nothing to break"),
+             QT_TR_NOOP("Select a face of each wall to break, on the body's tip."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Cross Break"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalCrossBreak", "CrossBreak");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Faces = (" << getObjectCmd(base) << ", [" << faces.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalCrossBreak::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatten
 //===========================================================================
 
@@ -1646,6 +1707,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
     mgr.addCommand(new CmdPartDesignSheetMetalRip());
+    mgr.addCommand(new CmdPartDesignSheetMetalCrossBreak());
     mgr.addCommand(new CmdPartDesignSheetMetalCutout());
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());

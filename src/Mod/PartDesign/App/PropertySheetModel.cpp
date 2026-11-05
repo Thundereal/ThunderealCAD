@@ -143,6 +143,9 @@ PyObject* PropertySheetModel::getPyObject()
             d.setItem("Kind", Py::String("Wall"));
             d.setItem("Origin", vector(e.frame.Location().XYZ()));
             d.setItem("Normal", vector(e.frame.Direction().XYZ()));
+            if (e.crossBreak != 0) {
+                d.setItem("CrossBreak", Py::Float(e.crossBreak / degree));
+            }
         }
         else {
             d.setItem("Kind", Py::String("Bend"));
@@ -185,6 +188,9 @@ void PropertySheetModel::Save(Base::Writer& writer) const
         if (e.kind == Element::Kind::Wall) {
             writer.Stream() << "<Wall name=\"" << encodeAttribute(e.name) << "\" frame=\""
                             << frameText(e.frame) << "\"";
+            if (e.crossBreak != 0) {
+                writer.Stream() << " crossBreak=\"" << e.crossBreak << "\"";
+            }
         }
         else {
             writer.Stream() << "<Bend name=\"" << encodeAttribute(e.name) << "\" frame=\""
@@ -216,8 +222,12 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
             reader.hasAttribute("limits") ? limitsOf(reader.getAttribute("limits"))
                                           : std::vector<gp_Pln>();
         if (reader.localName() == std::string("Wall")) {
-            value.elements[value.addWall(name, frameOf(reader.getAttribute("frame")))].limits =
-                limits;
+            const int index = value.addWall(name, frameOf(reader.getAttribute("frame")));
+            Element& wall = value.elements[index];
+            wall.limits = limits;
+            if (reader.hasAttribute("crossBreak")) {
+                wall.crossBreak = reader.getAttributeAsFloat("crossBreak");
+            }
             continue;
         }
         // A bend a fold or a jog carries starts from that feature's wall,
@@ -285,7 +295,7 @@ bool PropertySheetModel::isSame(const Property& other) const
             || !sameFrame(a.frame, b.frame) || !sameFrame(a.bend.frame, b.bend.frame)
             || a.bend.radius != b.bend.radius || a.bend.thickness != b.bend.thickness
             || a.bend.angle != b.bend.angle || a.bend.k != b.bend.k
-            || !sameLimits(a.limits, b.limits)) {
+            || !sameLimits(a.limits, b.limits) || a.crossBreak != b.crossBreak) {
             return false;
         }
     }

@@ -24,8 +24,11 @@
 
 #include "PreCompiled.h"
 
+#include <Mod/Part/App/TopoShapeEdgePy.h>
+
 #include "SheetMetalExtensionPy.h"
 #include "SheetMetalExtensionPy.cpp"
+#include "SheetMetalFlat.h"
 
 using namespace PartDesign;
 
@@ -86,6 +89,24 @@ PyObject* SheetMetalExtensionPy::setBendKFactor(PyObject* args)
         }
         getSheetMetalExtensionPtr()->setBendKFactor(bend, k);
         Py_Return;
+    }
+    PY_CATCH
+}
+
+PyObject* SheetMetalExtensionPy::crossBreakLines(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        Py::List res;
+        const auto edges =
+            PartDesign::crossBreakLines(getSheetMetalExtensionPtr()->getExtendedObject());
+        for (const TopoDS_Edge& e : edges) {
+            res.append(Py::asObject(new Part::TopoShapeEdgePy(new Part::TopoShape(e))));
+        }
+        return Py::new_reference_to(res);
     }
     PY_CATCH
 }

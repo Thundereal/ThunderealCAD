@@ -67,6 +67,19 @@ struct PartDesignExport FlatResult
     std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> faces;
     /// The grain arrow, where asked for (grainArrow())
     std::vector<TopoDS_Edge> grain;
+    struct CrossBreak
+    {
+        /// The wall's
+        std::string name;
+        /// Corner to corner of the wall's region, on the blank's top
+        std::array<TopoDS_Edge, 2> diagonals;
+        /// The break rises toward one looking down on the flat
+        bool up = false;
+        /// rad
+        double angle = 0;
+    };
+    /// Each wall's cross break (Element::crossBreak)
+    std::vector<CrossBreak> crossBreaks;
     /// The flat-only markings on the blank's top, the flat object's
     /// (SheetMetalFlatPattern::Markings)
     std::vector<TopoDS_Edge> markings;
@@ -109,6 +122,25 @@ PartDesignExport std::vector<TopoDS_Edge> onBlank(const TopoDS_Shape& solid,
                                                   const TopoDS_Edge& line);
 
 PartDesignExport std::vector<TopoDS_Face> facesOnXY(const TopoDS_Shape& solid);
+
+/** A cross break's note, "CROSS BREAK UP 3" and \a degree after the angle
+ * (deg, to 6 places at most)
+ */
+PartDesignExport std::string crossBreakNote(const FlatResult::CrossBreak& cross,
+                                            const char* degree);
+
+/** The face of wall \a index of \a shape its cross break rises from: of
+ * the wall's plane faces whose outer normal goes the way the break rises
+ * (Element::crossBreak), the largest; null for none
+ */
+PartDesignExport TopoDS_Face crossBreakFace(const TopoDS_Shape& shape, const Model& model,
+                                            int index);
+
+/** The diagonals of a plane \a face: corner to corner of its bounds in the
+ * frame of its longest straight edge, each as far as it runs over the face
+ * from its first meeting to its last; none for a face with no straight edge
+ */
+PartDesignExport std::vector<TopoDS_Edge> diagonals(const TopoDS_Face& face);
 
 /// A notch's shape at a bend's line (SheetMetalFlatPattern::Notch)
 enum class NotchKind

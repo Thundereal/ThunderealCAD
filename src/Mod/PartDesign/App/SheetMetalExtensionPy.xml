@@ -39,5 +39,13 @@ Give a bend this feature made, by its name ("Bend2"), a K of its own, from 0 to
 make.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="crossBreakLines" Const="true">
+      <Documentation>
+        <UserDocu>crossBreakLines() -> [Part.Edge]
+
+The cross breaks of this feature's sheet in 3D: the diagonals of the face each
+rises from, two a wall, as the shape lies (docs/SheetMetal.md sec 12).</UserDocu>
+      </Documentation>
+    </Methode>
   </PythonExport>
 </GenerateModel>

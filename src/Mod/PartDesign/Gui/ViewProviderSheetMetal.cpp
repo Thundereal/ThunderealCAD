@@ -34,6 +34,7 @@
 
 #include <Inventor/SoFullPath.h>
 #include <Inventor/SoPickedPoint.h>
+#include <Inventor/nodes/SoPickStyle.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoSwitch.h>
 
@@ -47,7 +48,9 @@
 #include <Gui/Application.h>
 #include <Gui/Control.h>
 #include <Gui/Document.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalCrossBreak.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
+#include <Mod/PartDesign/App/SheetMetalFlat.h>
 #include <Mod/PartDesign/App/SheetMetalExtension.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
@@ -360,6 +363,118 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalTab::getEditDialog()
                                      {"Profile"}));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalCrossBreak, PartDesignGui::ViewProvider)
+
+ViewProviderSheetMetalCrossBreak::ViewProviderSheetMetalCrossBreak()
+{
+    sPixmap = "PartDesign_SheetMetalCrossBreak";
+}
+
+ViewProviderSheetMetalCrossBreak::~ViewProviderSheetMetalCrossBreak() = default;
+
+void ViewProviderSheetMetalCrossBreak::attach(App::DocumentObject* obj)
+{
+    ViewProvider::attach(obj);
+    // beside the mode switch, under one of their own that follows
+    // Visibility, as the flat's markings are; not picked
+    pcLines = new SoSwitch;
+    pcLines->whichChild = Visibility.getValue() ? SO_SWITCH_ALL : SO_SWITCH_NONE;
+    auto group = new SoSeparator;
+    auto pick = new SoPickStyle;
+    pick->style = SoPickStyle::UNPICKABLE;
+    group->addChild(pick);
+    pcLines->addChild(group);
+    pcRoot->addChild(pcLines);
+    lines = std::make_unique<PartGui::ViewProviderPart>();
+    lines->forceUpdate();
+    lines->setStatus(Gui::SecondaryView, true);
+    lines->attach(obj);
+    lines->DisplayMode.setValue("Wireframe");
+    lines->setDisplayMode("Wireframe");
+    lines->setGivenShape(Part::TopoShape());
+    group->addChild(lines->getRoot());
+    refreshLines();
+}
+
+void ViewProviderSheetMetalCrossBreak::reattach(App::DocumentObject* obj)
+{
+    ViewProvider::reattach(obj);
+    if (lines) {
+        lines->reattach(obj);
+    }
+}
+
+void ViewProviderSheetMetalCrossBreak::beforeDelete()
+{
+    if (lines) {
+        lines->beforeDelete();
+    }
+    ViewProvider::beforeDelete();
+}
+
+void ViewProviderSheetMetalCrossBreak::onChanged(const App::Property* prop)
+{
+    if (prop == &Visibility && pcLines) {
+        pcLines->whichChild = Visibility.getValue() ? SO_SWITCH_ALL : SO_SWITCH_NONE;
+    }
+    ViewProvider::onChanged(prop);
+}
+
+void ViewProviderSheetMetalCrossBreak::updateData(const App::Property* prop)
+{
+    auto feature = Base::freecad_dynamic_cast<PartDesign::SheetMetalCrossBreak>(getObject());
+    if (feature && (prop == &feature->Shape || prop == &feature->SheetModel)) {
+        refreshLines();
+    }
+    ViewProvider::updateData(prop);
+}
+
+void ViewProviderSheetMetalCrossBreak::refreshLines()
+{
+    auto feature = getObject();
+    if (!lines || !feature) {
+        return;
+    }
+    std::vector<Part::TopoShape> edges;
+    for (const TopoDS_Edge& e : PartDesign::crossBreakLines(feature)) {
+        edges.emplace_back(e);
+    }
+    Part::TopoShape compound;
+    if (!edges.empty()) {
+        compound.makECompound(edges, nullptr, /*force*/ true);
+        // in the object's own frame: this view's transform places it
+        if (auto part = Base::freecad_dynamic_cast<Part::Feature>(feature)) {
+            compound.transformShape(part->Placement.getValue().inverse().toMatrix(), false);
+        }
+    }
+    lines->setGivenShape(compound);
+    // as the flat draws them (ViewProviderSheetMetalFlatPattern::CrossBreakColor),
+    // set after the shape, which takes the view's colours back
+    lines->LineColor.setValue(0xe0 / 255.0f, 0x80 / 255.0f, 0.0f);
+    lines->PointColor.setValue(0xe0 / 255.0f, 0x80 / 255.0f, 0.0f);
+    lines->DrawStyle.setValue(3L);
+    lines->LineWidth.setValue(2.0);
+    lines->PointSize.setValue(2.0);
+    if (edges.empty()) {
+        lines->hide();
+    }
+    else {
+        lines->show();
+    }
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalCrossBreak::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalCrossBreak",
+                                     QObject::tr("Cross break parameters"),
+                                     {"Angle", "Reversed"},
+                                     "Faces",
+                                     "Face"));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalConvert, PartDesignGui::ViewProvider)
 
 ViewProviderSheetMetalConvert::ViewProviderSheetMetalConvert()
@@ -421,7 +536,8 @@ enum
     BendDown,
     Tangent,
     GrainKind,
-    MarkingKind
+    MarkingKind,
+    CrossBreakKind
 };
 const App::PropertyFloatConstraint::Constraints widthRange = {0.5, 64.0, 0.5};
 /// As a Part view's DrawStyle has them
@@ -433,7 +549,7 @@ ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
     sPixmap = "PartDesign_SheetMetalFlatten";
     // As the SVG draws them (docs/SheetMetal.md sec 12): up and down dashed
     // in two colours, the tangent lines dotted, the grain solid; the flat's
-    // own markings solid and thin
+    // own markings solid and thin; the cross breaks dash-dotted, orange
     const char* group = "Markings";
     ADD_PROPERTY_TYPE(ShowBendUp, (true), group, App::Prop_None, "Draw the bend lines bent up");
     ADD_PROPERTY_TYPE(BendUpColor, (0.0f, 0x50 / 255.0f, 0xd0 / 255.0f), group, App::Prop_None,
@@ -474,12 +590,22 @@ ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
                       "The line style of the flat's own markings");
     ADD_PROPERTY_TYPE(MarkingWidth, (1.0), group, App::Prop_None,
                       "The line width of the flat's own markings");
+    ADD_PROPERTY_TYPE(ShowCrossBreaks, (true), group, App::Prop_None,
+                      "Draw the walls' cross breaks, where the flat has any");
+    ADD_PROPERTY_TYPE(CrossBreakColor, (0xe0 / 255.0f, 0x80 / 255.0f, 0.0f), group,
+                      App::Prop_None, "The colour of the cross breaks");
+    ADD_PROPERTY_TYPE(CrossBreakStyle, (3L), group, App::Prop_None,
+                      "The line style of the cross breaks");
+    ADD_PROPERTY_TYPE(CrossBreakWidth, (1.5), group, App::Prop_None,
+                      "The line width of the cross breaks");
     kinds = {Kind {&ShowBendUp, &BendUpColor, &BendUpStyle, &BendUpWidth, {}, {}},
              Kind {&ShowBendDown, &BendDownColor, &BendDownStyle, &BendDownWidth, {}, {}},
              Kind {&ShowTangentLines, &TangentLineColor, &TangentLineStyle, &TangentLineWidth,
                    {}, {}},
              Kind {&ShowGrain, &GrainColor, &GrainStyle, &GrainWidth, {}, {}},
-             Kind {&ShowMarkings, &MarkingColor, &MarkingStyle, &MarkingWidth, {}, {}}};
+             Kind {&ShowMarkings, &MarkingColor, &MarkingStyle, &MarkingWidth, {}, {}},
+             Kind {&ShowCrossBreaks, &CrossBreakColor, &CrossBreakStyle, &CrossBreakWidth,
+                   {}, {}}};
     for (auto& kind : kinds) {
         kind.style->setEnums(styleEnums);
         kind.width->setConstraints(&widthRange);
@@ -598,9 +724,9 @@ namespace
 {
 
 /** The kind of marking an edge of a flat is, by its mapped name -- Bend1,
- * Bend1Part2, Bend1Tangent1, Grain, GrainHead1 (layFlat()), Marking1 (the
- * object's Markings) with what followed it after the first ';' -- each bend
- * Up or Down by directions; -1 for none
+ * Bend1Part2, Bend1Tangent1, Grain, GrainHead1, Wall1CrossBreak1 (layFlat()),
+ * Marking1 (the object's Markings) with what followed it after the first ';'
+ * -- each bend Up or Down by directions; -1 for none
  */
 int markingKind(std::string name, const std::map<std::string, std::string>& directions)
 {
@@ -608,7 +734,11 @@ int markingKind(std::string name, const std::map<std::string, std::string>& dire
     static const std::regex bend("(Bend[0-9]+)(Tangent[0-9]+)?(Part[0-9]+)?");
     static const std::regex grain("Grain(Head[0-9]+)?");
     static const std::regex marking("Marking[0-9]+");
+    static const std::regex cross(".+CrossBreak[0-9]+");
     std::smatch m;
+    if (std::regex_match(name, cross)) {
+        return CrossBreakKind;
+    }
     if (std::regex_match(name, grain)) {
         return GrainKind;
     }
@@ -681,6 +811,21 @@ bool ViewProviderSheetMetalFlatPattern::getEdgeInfo(const char* mappedName, Edge
                 + noteNumber(bend.radius);
         }
     }
+    // A cross break's first diagonal has its note, "CROSS BREAK UP 3deg"
+    static const std::regex first("(.+)CrossBreak1");
+    std::smatch m;
+    if (k == CrossBreakKind && ext && std::regex_match(name, m, first)) {
+        const auto& crosses = flat->CrossBreaks.getValues();
+        auto it = crosses.find(m[1].str());
+        const PartDesign::SheetMetal::Model model = ext->SheetModel.getValue();
+        const int index = model.find(m[1].str());
+        if (it != crosses.end() && index >= 0) {
+            PartDesign::SheetMetal::FlatResult::CrossBreak cross;
+            cross.up = it->second == "Up";
+            cross.angle = std::abs(model.elements[index].crossBreak);
+            info.label = PartDesign::SheetMetal::crossBreakNote(cross, "\xC2\xB0");
+        }
+    }
     return true;
 }
 
@@ -712,7 +857,7 @@ void ViewProviderSheetMetalFlatPattern::showFlat(
     if (bound.IsValid() && bound.LengthZ() > tol) {
         up.SetTranslation(gp_Vec(0, 0, bound.LengthZ()));
     }
-    std::array<std::vector<Part::TopoShape>, 5> edges;
+    std::array<std::vector<Part::TopoShape>, 6> edges;
     for (auto& kind : kinds) {
         kind.edges.clear();
     }

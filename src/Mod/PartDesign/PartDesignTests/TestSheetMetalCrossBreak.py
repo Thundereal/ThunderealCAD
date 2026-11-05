@@ -87,8 +87,10 @@ class TestSheetMetalCrossBreak(unittest.TestCase):
         FreeCAD.closeDocument(self.Doc.Name)
 
     def crossBreak(self, *points, **props):
+        # faces of the tip, which the feature builds on
+        base = self.Body.Tip
         feature = self.Body.newObject("PartDesign::SheetMetalCrossBreak", "CrossBreak")
-        feature.Faces = (self.Flange, [faceAt(self.Flange, p) for p in points])
+        feature.Faces = (base, [faceAt(base, p) for p in points])
         for k, v in props.items():
             setattr(feature, k, v)
         self.Doc.recompute()
@@ -260,13 +262,13 @@ class TestSheetMetalCrossBreak(unittest.TestCase):
             self.assertIn("CROSS BREAK UP 3\u00b0", [text for _, _, text in layers["LABELS"]])
 
     def testSaveRestore(self):
-        feature = self.crossBreak(TOP, Angle=2.5)
+        name = self.crossBreak(TOP, Angle=2.5).Name
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "crossbreak.FCStd")
             self.Doc.saveAs(path)
             FreeCAD.closeDocument(self.Doc.Name)
             self.Doc = FreeCAD.openDocument(path)
-            feature = self.Doc.getObject(feature.Name)
+            feature = self.Doc.getObject(name)
             wall = [e for e in feature.SheetModel["Elements"] if e["Name"] == "Wall1"][0]
             self.assertAlmostEqual(abs(wall["CrossBreak"]), 2.5)
             self.Doc.recompute()

@@ -92,6 +92,8 @@ public:
     App::PropertyInteger BendCount;
     App::PropertyAngle MaxBendAngle;
     App::PropertyMap BendDirections;
+    /// Each wall's cross break, Up or Down, by the wall's name
+    App::PropertyMap CrossBreaks;
     /// Empty when the shape is the tip's flat; else why not: out of date,
     /// or why the tip does not lie flat
     App::PropertyString Status;

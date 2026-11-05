@@ -130,6 +130,7 @@ void writeSVG(std::ostream& out, const FlatResult& flat, bool tangents)
         {"BEND_UP", "fill=\"none\" stroke=\"#0050d0\" stroke-dasharray=\"2 1\"", {}},
         {"BEND_DOWN", "fill=\"none\" stroke=\"#d03030\" stroke-dasharray=\"2 1\"", {}},
         {"BEND_TANGENT", "fill=\"none\" stroke=\"#808080\" stroke-dasharray=\"0.5 0.5\"", {}},
+        {"CROSS_BREAK", "fill=\"none\" stroke=\"#e08000\" stroke-dasharray=\"4 1 1 1\"", {}},
         {"GRAIN", "fill=\"none\" stroke=\"#208020\"", {}},
         {"MARKING", "fill=\"none\" stroke=\"#a020a0\"", {}},
         {"LABELS",
@@ -175,6 +176,16 @@ void writeSVG(std::ostream& out, const FlatResult& flat, bool tangents)
                 }
             }
         }
+    }
+    for (const auto& cross : flat.crossBreaks) {
+        for (const TopoDS_Edge& e : cross.diagonals) {
+            edge(layer("CROSS_BREAK"), e);
+        }
+        // its note where the diagonals cross
+        BRepAdaptor_Curve c(cross.diagonals[0]);
+        const gp_Pnt mid = c.Value((c.FirstParameter() + c.LastParameter()) / 2);
+        layer("LABELS") << "    <text x=\"" << num(mid.X()) << "\" y=\"" << num(-mid.Y())
+                        << "\">" << crossBreakNote(cross, "&#176;") << "</text>\n";
     }
     for (const TopoDS_Edge& e : flat.grain) {
         edge(layer("GRAIN"), e);

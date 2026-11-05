@@ -109,6 +109,15 @@ TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, 
     named(flat.grain, [](std::size_t k) {
         return k ? "GrainHead" + std::to_string(k) : std::string("Grain");
     });
+    std::vector<TopoDS_Edge> crossEdges;
+    std::vector<std::string> crossNames;
+    for (const auto& cross : flat.crossBreaks) {
+        for (std::size_t k = 0; k < cross.diagonals.size(); ++k) {
+            crossEdges.push_back(cross.diagonals[k]);
+            crossNames.push_back(cross.name + "CrossBreak" + std::to_string(k + 1));
+        }
+    }
+    named(crossEdges, [&](std::size_t k) { return crossNames[k]; });
     named(flat.markings, [](std::size_t k) { return "Marking" + std::to_string(k + 1); });
     TopoShape res(0, hasher);
     res.makECompound(parts, nullptr, /*force*/ true);
@@ -193,6 +202,9 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
         res.directions[line.name] = line.up ? "Up" : "Down";
         res.maxBendAngle = std::max(res.maxBendAngle, line.angle * 180 / std::numbers::pi);
     }
+    for (const auto& cross : flat.crossBreaks) {
+        res.crossBreaks[cross.name] = cross.up ? "Up" : "Down";
+    }
 
     res.thickness = model.thickness;
     res.bendCount = static_cast<long>(flat.bendLines.size());
@@ -211,6 +223,31 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     res.shape = flatShape(solid, flat, settings.tangentLines);
     res.result = std::move(flat);
     measureFlat(res);
+    return res;
+}
+
+std::vector<TopoDS_Edge> crossBreakLines(const App::DocumentObject* part)
+{
+    std::vector<TopoDS_Edge> res;
+    auto sheet = part ? part->getExtensionByType<SheetMetalExtension>(true) : nullptr;
+    if (!sheet) {
+        return res;
+    }
+    SheetMetal::Model model = sheet->SheetModel.getValue();
+    if (auto feature = dynamic_cast<const Part::Feature*>(part)) {
+        model.transform(TopoShape::convert(feature->Placement.getValue().toMatrix()));
+    }
+    const TopoShape shape = Part::Feature::getTopoShape(part);
+    if (shape.isNull()) {
+        return res;
+    }
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
+        const TopoDS_Face face =
+            SheetMetal::crossBreakFace(shape.getShape(), model, static_cast<int>(i));
+        for (const TopoDS_Edge& e : SheetMetal::diagonals(face)) {
+            res.push_back(e);
+        }
+    }
     return res;
 }
 

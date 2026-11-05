@@ -79,6 +79,9 @@ struct PartDesignExport SheetFlat
     /// Each bend, Up or Down: Up where the material comes up toward one
     /// looking down on the flat
     std::map<std::string, std::string> directions;
+    /// Each wall's cross break, Up or Down as a bend's direction, by the
+    /// wall's name
+    std::map<std::string, std::string> crossBreaks;
     /// The name of the rule's material card
     std::string material;
     /// What it was laid out from, for a DXF or an SVG
@@ -103,6 +106,12 @@ flatShape(const Part::TopoShape& solid, const SheetMetal::FlatResult& flat, bool
 
 /// \a flat's length, width and area, from its solid and thickness
 PartDesignExport void measureFlat(SheetFlat& flat);
+
+/** The cross breaks of \a part, a sheet metal feature, in 3D: the diagonals
+ * of the face each rises from (SheetMetal::crossBreakFace()), as its shape
+ * lies, two a wall
+ */
+PartDesignExport std::vector<TopoDS_Edge> crossBreakLines(const App::DocumentObject* part);
 
 /** Write the flat of \a obj, a feature of a sheet's solid or the solid (its
  * tip's), with the sheet's settings (docs/SheetMetal.md sec 12): DXF or SVG

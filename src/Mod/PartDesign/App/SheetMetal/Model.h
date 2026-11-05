@@ -70,6 +70,10 @@ struct PartDesignExport Element
     /// their slabs and tubes would overlap; a bend's sides, where its flange
     /// ends inside the wall's end and its tube runs on through the wall
     std::vector<gp_Pln> limits;
+    /// A wall's cross break (docs/SheetMetal.md sec 12): the angle its
+    /// diagonals bend by, rad, rising along the frame's normal where above 0
+    /// and against it where below; 0 for none
+    double crossBreak = 0;
 };
 
 /** A sheet's walls and bends, and how they lie flat

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's cross break: a wall, seen from above at a slant, broken
+     along its diagonals -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the wall, its four facets shaded as the break tilts them -->
+  <path
+     d="M 4,40 22,12 33,32 Z"
+     style="fill:#d4dce4;stroke:none;" />
+  <path
+     d="M 22,12 60,22 33,32 Z"
+     style="fill:#b4bec8;stroke:none;" />
+  <path
+     d="M 60,22 42,52 33,32 Z"
+     style="fill:#c4cdd6;stroke:none;" />
+  <path
+     d="M 42,52 4,40 33,32 Z"
+     style="fill:#a4aeb8;stroke:none;" />
+  <path
+     d="M 4,40 22,12 60,22 42,52 Z"
+     style="fill:none;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the diagonals, as the flat draws them -->
+  <path
+     d="M 4,40 60,22 M 22,12 42,52"
+     style="fill:none;stroke:#e08000;stroke-width:3;stroke-dasharray:6,2,2,2;" />
+</svg>

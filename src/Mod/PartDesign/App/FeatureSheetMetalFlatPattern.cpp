@@ -118,6 +118,11 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       out,
                       "Each bend, Up or Down: Up where the material comes up toward one\n"
                       "looking down on the flat");
+    ADD_PROPERTY_TYPE(CrossBreaks,
+                      (),
+                      "Manufacturing",
+                      out,
+                      "Each wall's cross break, Up or Down as a bend's direction");
     ADD_PROPERTY_TYPE(Status,
                       (""),
                       "Manufacturing",
@@ -300,6 +305,7 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
         BendCount.setValue(flat.bendCount);
         MaxBendAngle.setValue(flat.maxBendAngle);
         BendDirections.setValues(flat.directions);
+        CrossBreaks.setValues(flat.crossBreaks);
     }
     catch (const Base::Exception& e) {
         why = e.what();

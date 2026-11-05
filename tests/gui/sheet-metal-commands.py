@@ -28,6 +28,7 @@ import traceback
 import FreeCAD
 import FreeCADGui
 import Part
+from pivy import coin
 from PySide import QtCore, QtGui, QtWidgets
 
 OUT = os.environ["GT_OUT"]
@@ -984,6 +985,16 @@ def run():
         def rgb(prop):
             return tuple(int(round(x * 255)) for x in prop[:3])
 
+        def drawnIn(page, colour, turns=5):
+            """Whether the page draws in colour, given it a few turns to draw:
+            a page drawn once only shows its frame"""
+            for _ in range(turns):
+                found = pens(page)
+                if colour in found:
+                    return True, found
+                pump(60)
+            return False, found
+
         ups = [b for b, d in flat.BendDirections.items() if d == "Up"]
         downs = [b for b, d in flat.BendDirections.items() if d == "Down"]
         page = doc.addObject("TechDraw::DrawPage", "Page")
@@ -1139,7 +1150,7 @@ def run():
         pump(60)
         check(
             "and the drawing of the flat draws it in that colour",
-            rgb(flat.ViewObject.MarkingColor) in pens(page),
+            drawnIn(page, rgb(flat.ViewObject.MarkingColor))[0],
             (rgb(flat.ViewObject.MarkingColor), sorted(pens(page))[:10]),
         )
         FreeCADGui.Selection.clearSelection()
@@ -1162,6 +1173,112 @@ def run():
         )
         doc.removeObject(mark.Name)
         doc.recompute()
+
+        # Cross break: a wall's face picked on the tip; the solid as it was,
+        # the X drawn on that face in 3D, the diagonals in the flat with the
+        # note on the first, and on the drawing
+        crossCmd = FreeCADGui.Command.get("PartDesign_SheetMetalCrossBreak")
+        check(
+            "Cross Break is on the tool bar",
+            crossCmd is not None
+            and toolbar() is not None
+            and crossCmd.getAction()[0] in toolbar().actions(),
+        )
+        tip = body.Tip
+        walls = [
+            ("Face%d" % (i + 1), f)
+            for i, f in enumerate(tip.Shape.Faces)
+            if isinstance(f.Surface, Part.Plane)
+            and (tip.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Wall")
+        ]
+        faceName, _ = max(walls, key=lambda w: w[1].Area)
+        wallName = tip.sheetElementOf(faceName)
+        folded = tip.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.runCommand("PartDesign_SheetMetalCrossBreak")
+        pump(20)
+        check(
+            "with no face selected it makes nothing",
+            [o.Name for o in doc.Objects] == before,
+        )
+        FreeCADGui.Selection.addSelection(doc.Name, tip.Name, faceName)
+        FreeCADGui.runCommand("PartDesign_SheetMetalCrossBreak")
+        pump(20)
+        crosses = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalCrossBreak"
+        ]
+        cross = crosses[0] if crosses else None
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        doc.recompute()
+        pump(20)
+        broken = cross and [e["Name"] for e in cross.SheetModel["Elements"] if "CrossBreak" in e]
+        check(
+            "with a wall's face selected it breaks that wall, the solid as it was",
+            cross is not None
+            and "Invalid" not in cross.State
+            and body.Tip == cross
+            and broken == [wallName]
+            and abs(cross.Shape.Volume - folded) < 1e-9,
+            cross and (cross.State, cross.getStatusString(), broken),
+        )
+        lines = cross.crossBreakLines() if cross else []
+        ends = [v.Point for e in lines for v in e.Vertexes]
+        search = coin.SoSearchAction()
+        search.setType(coin.SoCoordinate3.getClassTypeId())
+        search.setInterest(coin.SoSearchAction.ALL)
+        search.setSearchingAll(True)
+        if cross is not None:
+            search.apply(cross.ViewObject.RootNode)
+        drawnX = False
+        for path in search.getPaths() if cross is not None else []:
+            pts = [V(*p.getValue()) for p in path.getTail().point.getValues()]
+            if len(pts) == 4 and all(any(p.isEqual(q, 1e-6) for q in ends) for p in pts):
+                drawnX = True
+        check(
+            "its view draws the X on the face picked",
+            len(lines) == 2 and drawnX,
+            (len(lines), drawnX),
+        )
+        doc.recompute()
+        pump(20)
+        crossNames = [
+            n
+            for n in (
+                flat.Shape.getElementMappedName("Edge%d" % (i + 1)) or ""
+                for i in range(len(flat.Shape.Edges))
+            )
+            if "CrossBreak" in n
+        ]
+        first = [n for n in crossNames if n.startswith(wallName + "CrossBreak1")]
+        crossInfo = flat.ViewObject.getEdgeInfo(first[0]) if first else None
+        check(
+            "the flat has the diagonals, dash-dotted in their colour, the first with the note",
+            len(crossNames) == 2
+            and crossInfo is not None
+            and crossInfo["Style"] == 4
+            and abs(crossInfo["Color"][0] - flat.ViewObject.CrossBreakColor[0]) < 1e-6
+            and crossInfo["Label"]
+            == "CROSS BREAK %s 3\u00b0" % flat.CrossBreaks[wallName].upper(),
+            (crossNames, crossInfo, dict(flat.CrossBreaks)),
+        )
+        drawing.touch()
+        doc.recompute()
+        pump(60)
+        check(
+            "and the drawing of the flat draws them in that colour",
+            drawnIn(page, rgb(flat.ViewObject.CrossBreakColor))[0],
+            (rgb(flat.ViewObject.CrossBreakColor), sorted(pens(page))[:10]),
+        )
+        if cross is not None:
+            body.removeObject(cross)
+            doc.removeObject(cross.Name)
+            doc.recompute()
+            pump(20)
         for o in labels:
             if doc.getObject(o.Name) is not None:
                 doc.removeObject(o.Name)

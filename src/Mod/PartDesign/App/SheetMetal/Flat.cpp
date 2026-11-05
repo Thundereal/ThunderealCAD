@@ -27,12 +27,15 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <iomanip>
 #include <numbers>
+#include <sstream>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepGProp.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -55,6 +58,7 @@
 #include <Geom2d_TrimmedCurve.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Precision.hxx>
+#include <GProp_GProps.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_SurfaceOfLinearExtrusion.hxx>
 #include <Geom_TrimmedCurve.hxx>
@@ -556,6 +560,119 @@ std::vector<TopoDS_Face> facesOnXY(const TopoDS_Shape& solid)
     return res;
 }
 
+std::string crossBreakNote(const FlatResult::CrossBreak& cross, const char* degree)
+{
+    std::ostringstream res;
+    res << "CROSS BREAK " << (cross.up ? "UP " : "DOWN ") << std::setprecision(6)
+        << cross.angle * 180 / std::numbers::pi << (degree ? degree : "");
+    return res.str();
+}
+
+TopoDS_Face crossBreakFace(const TopoDS_Shape& shape, const Model& model, int index)
+{
+    TopoDS_Face res;
+    if (index < 0 || index >= static_cast<int>(model.elements.size())) {
+        return res;
+    }
+    const Element& wall = model.elements[index];
+    if (wall.kind != Element::Kind::Wall || wall.crossBreak == 0) {
+        return res;
+    }
+    const gp_Dir rise = wall.crossBreak > 0 ? wall.frame.Direction()
+                                            : wall.frame.Direction().Reversed();
+    double best = 0;
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
+    for (int i = 1; i <= faces.Extent(); ++i) {
+        const TopoDS_Face& face = TopoDS::Face(faces(i));
+        BRepAdaptor_Surface surface(face);
+        if (surface.GetType() != GeomAbs_Plane) {
+            continue;
+        }
+        gp_Dir normal = surface.Plane().Axis().Direction();
+        if (face.Orientation() == TopAbs_REVERSED) {
+            normal.Reverse();
+        }
+        if (normal.Dot(rise) < 1 - 1e-7 || model.owner(face) != index) {
+            continue;
+        }
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(face, props);
+        if (props.Mass() > best) {
+            best = props.Mass();
+            res = face;
+        }
+    }
+    return res;
+}
+
+std::vector<TopoDS_Edge> diagonals(const TopoDS_Face& face)
+{
+    std::vector<TopoDS_Edge> res;
+    if (face.IsNull() || BRepAdaptor_Surface(face).GetType() != GeomAbs_Plane) {
+        return res;
+    }
+    // the frame: the longest straight edge along X, the face's normal Z
+    gp_Pnt origin;
+    gp_Vec x;
+    double longest = 0;
+    for (TopExp_Explorer it(face, TopAbs_EDGE); it.More(); it.Next()) {
+        BRepAdaptor_Curve c(TopoDS::Edge(it.Current()));
+        if (c.GetType() != GeomAbs_Line) {
+            continue;
+        }
+        const gp_Pnt p0 = c.Value(c.FirstParameter());
+        const gp_Pnt p1 = c.Value(c.LastParameter());
+        if (p0.Distance(p1) > longest) {
+            longest = p0.Distance(p1);
+            origin = p0;
+            x = gp_Vec(p0, p1);
+        }
+    }
+    if (longest <= Precision::Confusion()) {
+        return res;
+    }
+    const gp_Dir z = BRepAdaptor_Surface(face).Plane().Axis().Direction();
+    const gp_Ax3 frame(origin, z, gp_Dir(x));
+    gp_Trsf toFrame;
+    toFrame.SetTransformation(frame);
+    double x0 = std::numeric_limits<double>::max(), y0 = x0;
+    double x1 = -x0, y1 = -x0;
+    for (TopExp_Explorer it(face, TopAbs_VERTEX); it.More(); it.Next()) {
+        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).Transformed(toFrame);
+        x0 = std::min(x0, p.X());
+        x1 = std::max(x1, p.X());
+        y0 = std::min(y0, p.Y());
+        y1 = std::max(y1, p.Y());
+    }
+    const gp_Trsf back = toFrame.Inverted();
+    for (const auto& [a, b] : {std::pair(gp_Pnt(x0, y0, 0), gp_Pnt(x1, y1, 0)),
+                               std::pair(gp_Pnt(x0, y1, 0), gp_Pnt(x1, y0, 0))}) {
+        const gp_Pnt pa = a.Transformed(back);
+        const gp_Pnt pb = b.Transformed(back);
+        const TopoDS_Edge line = BRepBuilderAPI_MakeEdge(pa, pb);
+        BRepAlgoAPI_Common common(line, face);
+        common.SetFuzzyValue(1e-7);
+        common.Build();
+        if (!common.IsDone()) {
+            continue;
+        }
+        // from where it first meets the face to where it last leaves it
+        const gp_Vec dir = gp_Vec(pa, pb).Normalized();
+        double s0 = std::numeric_limits<double>::max(), s1 = -s0;
+        for (TopExp_Explorer it(common.Shape(), TopAbs_VERTEX); it.More(); it.Next()) {
+            const double s = gp_Vec(pa, BRep_Tool::Pnt(TopoDS::Vertex(it.Current()))).Dot(dir);
+            s0 = std::min(s0, s);
+            s1 = std::max(s1, s);
+        }
+        if (s1 - s0 > Precision::Confusion()) {
+            res.push_back(
+                BRepBuilderAPI_MakeEdge(pa.Translated(dir * s0), pa.Translated(dir * s1)));
+        }
+    }
+    return res;
+}
+
 std::vector<TopoDS_Shape>
 notchTools(const FlatResult& flat, NotchKind kind, double depth, double width)
 {
@@ -822,6 +939,30 @@ FlatResult flatten(const TopoDS_Shape& folded,
         }
         res.bendLines.push_back(line);
     }
+    // each wall's cross break: the diagonals of the face it rises from, laid
+    // flat; up where that face is the blank's top
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
+        const TopoDS_Face from = crossBreakFace(folded, model, static_cast<int>(i));
+        if (from.IsNull()) {
+            continue;
+        }
+        for (const auto& [face, laidFace] : res.faces) {
+            if (!face.IsSame(from) || laidFace.ShapeType() != TopAbs_FACE) {
+                continue;
+            }
+            const std::vector<TopoDS_Edge> lines = diagonals(TopoDS::Face(laidFace));
+            if (lines.size() != 2) {
+                break;
+            }
+            FlatResult::CrossBreak cross;
+            cross.name = model.elements[i].name;
+            cross.diagonals = {lines[0], lines[1]};
+            cross.up = BRep_Tool::Pnt(TopExp::FirstVertex(lines[0])).Z() > model.thickness / 2;
+            cross.angle = std::abs(model.elements[i].crossBreak);
+            res.crossBreaks.push_back(cross);
+            break;
+        }
+    }
     // Every marking on the blank's top, the side a drawing of the flat looks
     // at: a down bend's line, on its inner skin, is on the underside, where a
     // drawing's hidden-line removal drops it (TechDraw keeps no hidden line by
@@ -842,6 +983,11 @@ FlatResult flatten(const TopoDS_Shape& folded,
                 edge = TopoDS::Edge(BRepBuilderAPI_Transform(edge, up, true).Shape());
             }
         };
+        for (auto& cross : res.crossBreaks) {
+            for (auto& edge : cross.diagonals) {
+                lift(edge);
+            }
+        }
         for (auto& line : res.bendLines) {
             lift(line.edge);
             for (auto& edge : line.segments) {

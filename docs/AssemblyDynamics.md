@@ -3292,8 +3292,8 @@ Phase D1 is under way (2026-10-28):
     of the largest reaction, its torque within 0.40%.
   - Test: TestContact's test_impact_frames.
   - Not yet: several frames as steps of one CalculiX run; the margin the
-    largest away from the loaded faces leaves, a mesh size, where a
-    section's depth is Saint-Venant's; a part of a group meeting the
+    largest away from the loaded faces leaves (built, below); a part of
+    a group meeting the
     others nowhere (held at the face nearest them); a run's start
     reactions taken back with a contact begun in them (the accelerations
     now balance them, not the free motion's); a static analysis of a
@@ -3353,6 +3353,36 @@ Phase D1 is under way (2026-10-28):
     forces, with `SlowMotion` its scale (sec 8.6). The playback video at
     Auto went from 19.4 s to 5.4 s, the landing still slowed to 1/17,500
     of real time.
+  - Not yet: see the next entry's.
+- Built, D4a: the stress away from the loads, a section's depth off them.
+  - **The largest away from the loaded faces left a mesh size off them**,
+    less than a coupling's or a concentrated load's reach into the stress,
+    about a section's depth (Saint-Venant's). The places video read 54.3
+    MPa at the landing at x = 55 mm, between the block and the near post,
+    where beam theory from the run's loads gives 22 to 41 MPa, as the
+    lever's own inertia goes.
+  - Now `_sectionDepth`: the part's shortest span through the load, along
+    its principal axes (its mesh nodes' spread), each from where the line
+    first meets the mesh to where it last leaves it (the nodes within a
+    mesh size of it), at least a mesh size. A bar's thinner side at its
+    middle or its end; across a hinge's bore, wall to wall. A whole face's
+    through its centre; a patch's through its point, by where it is to a
+    half mesh size, as it moves.
+  - The videos again: the double pendulum's rod, 10 mm, the same at its 81
+    frames -- the 7 the margin moved were the rod's own already. The cam's
+    lever, 8 mm: 2.065 MPa at x = 8.3 mm, against the largest 2.457 at the
+    hinge's face; beam theory there, the hinge's torque less its force
+    over 8.3 mm, 1.99. The group's arm, 10 mm: 0.160 MPa 10.4 mm below its
+    held top, where it read 0.218 MPa 2.4 mm below it. The places lever, 8
+    mm: at the landing 13.56 MPa at x = 20 mm, between the hinge and the
+    near post, beam theory from the hinge's 84.5 N 12.4 MPa; between the
+    post and the block, 33 mm, nothing is a section's depth off both.
+  - The manual's cam video had taken impact frames by their new default,
+    26 through the disc turning at full speed from rest against the lever,
+    and labelled its frames as if 5 ms apart: its scene now sets
+    `ImpactFrames` off.
+  - Tests: TestDynamics' test_section_depth, test_loads_to_fem_frames
+    (10 mm off both end faces).
   - Not yet: the plot's value axis is the whole run's, a bounce of 1.5 N
     flat under a landing of 528 N; a part's own stress at a frame through
     an impact is a static analysis of it (as above).

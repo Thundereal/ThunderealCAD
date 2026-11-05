@@ -268,6 +268,9 @@ public:
     bool getElementPicked(const SoPickedPoint* pp, std::string& subname) const override;
     bool getDetailPath(const char* subname, SoFullPath* path, bool append,
                        SoDetail*& det) const override;
+    /// A drawing's look of a marking: its kind's style, colour, and shown
+    /// or not; the blank's edges are left to the drawing
+    bool getEdgeLineFormat(const char* mappedName, EdgeLineFormat& format) const override;
 
     /** Draw \a shape, a flat as layFlat() makes it, each bend Up or Down by
      * \a directions: the object's own, or another's (a feature's, drawn by

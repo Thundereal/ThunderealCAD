@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <regex>
 
 #include <QTimer>
 
@@ -577,6 +578,55 @@ void ViewProviderSheetMetalFlatPattern::copyLook(const ViewProviderSheetMetalFla
     LineWidth.setValue(other.LineWidth.getValue());
 }
 
+namespace
+{
+
+/** The kind of marking an edge of a flat is, by its mapped name -- Bend1,
+ * Bend1Part2, Bend1Tangent1, Grain, GrainHead1 (layFlat()) with what
+ * followed it after the first ';' -- each bend Up or Down by directions; -1
+ * for none
+ */
+int markingKind(std::string name, const std::map<std::string, std::string>& directions)
+{
+    name = name.substr(0, name.find(';'));
+    static const std::regex bend("(Bend[0-9]+)(Tangent[0-9]+)?(Part[0-9]+)?");
+    static const std::regex grain("Grain(Head[0-9]+)?");
+    std::smatch m;
+    if (std::regex_match(name, grain)) {
+        return GrainKind;
+    }
+    if (!std::regex_match(name, m, bend)) {
+        return -1;
+    }
+    if (m[2].matched) {
+        return Tangent;
+    }
+    auto it = directions.find(m[1].str());
+    return it != directions.end() && it->second == "Down" ? BendDown : BendUp;
+}
+
+}  // namespace
+
+bool ViewProviderSheetMetalFlatPattern::getEdgeLineFormat(const char* mappedName,
+                                                          EdgeLineFormat& format) const
+{
+    auto flat = Base::freecad_dynamic_cast<PartDesign::SheetMetalFlatPattern>(getObject());
+    if (!flat || !mappedName) {
+        return false;
+    }
+    const int k = markingKind(mappedName, flat->BendDirections.getValues());
+    if (k < 0) {
+        return false;
+    }
+    const auto& kind = kinds[k];
+    format.visible = kind.show->getValue();
+    // the styles, Solid Dashed Dotted Dashdot, as Qt numbers them
+    format.style = static_cast<int>(kind.style->getValue()) + 1;
+    format.color = kind.color->getValue();
+    format.width = 0;
+    return true;
+}
+
 void ViewProviderSheetMetalFlatPattern::showFlat(
     const Part::TopoShape& flatShape,
     const std::map<std::string, std::string>& directions)
@@ -593,8 +643,9 @@ void ViewProviderSheetMetalFlatPattern::showFlat(
         blank = shape.getSubTopoShape(TopAbs_SOLID, 1);
     }
     blankEdges = blank.isNull() ? 0 : static_cast<int>(blank.countSubShapes(TopAbs_EDGE));
-    // a marking on the blank's underside (a down bend's line, on its inner
-    // skin) is drawn on its top, where one looking down sees it
+    // a marking on the blank's underside is drawn on its top, where one
+    // looking down sees it: a flat stored before flatten() put every marking
+    // there has a down bend's line on its inner skin
     Base::BoundBox3d bound;
     if (!blank.isNull()) {
         bound = blank.getBoundBox();
@@ -611,20 +662,9 @@ void ViewProviderSheetMetalFlatPattern::showFlat(
     const int count = static_cast<int>(shape.countSubShapes(TopAbs_EDGE));
     for (int i = blankEdges + 1; i <= count; ++i) {
         const Data::IndexedName indexed("Edge", i);
-        std::string name = shape.getMappedName(indexed).toString();
-        name = name.substr(0, name.find(';'));
-        int k = BendUp;
-        if (name.rfind("Grain", 0) == 0) {
-            k = GrainKind;
-        }
-        else if (name.find("Tangent") != std::string::npos) {
-            k = Tangent;
-        }
-        else {
-            // Bend1, or Bend1Part2: the bend's direction
-            auto bend = name.substr(0, name.find("Part"));
-            auto it = directions.find(bend);
-            k = it != directions.end() && it->second == "Down" ? BendDown : BendUp;
+        int k = markingKind(shape.getMappedName(indexed).toString(), directions);
+        if (k < 0) {
+            k = BendUp;
         }
         Part::TopoShape edge = shape.getSubTopoShape(TopAbs_EDGE, i);
         if (up.Form() != gp_Identity && edge.getBoundBox().MaxZ < bound.MinZ + tol) {

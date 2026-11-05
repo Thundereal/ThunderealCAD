@@ -38,6 +38,7 @@
 #include <Base/Vector3D.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
+#include <Gui/ViewProvider.h>
 #include <Mod/TechDraw/App/CenterLine.h>
 #include <Mod/TechDraw/App/Cosmetic.h>
 #include <Mod/TechDraw/App/DrawComplexSection.h>
@@ -370,6 +371,27 @@ void QGIViewPart::drawAllFaces(void)
     }
 }
 
+namespace
+{
+
+/// How the view of one of the drawing view's sources draws the edge of
+/// that source name, where one says (Gui::ViewProvider::getEdgeLineFormat())
+bool sourceFormat(const std::vector<Gui::ViewProvider*>& views, const std::string& name,
+                  Gui::ViewProvider::EdgeLineFormat& format)
+{
+    if (name.empty()) {
+        return false;
+    }
+    for (auto vp : views) {
+        if (vp->getEdgeLineFormat(name.c_str(), format)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
 void QGIViewPart::drawAllEdges()
 {
     // dvp and vp already validated
@@ -378,6 +400,12 @@ void QGIViewPart::drawAllEdges()
 
     const TechDraw::BaseGeomPtrVector& geoms = dvp->getEdgeGeometry();
     TechDraw::BaseGeomPtrVector::const_iterator itGeom = geoms.begin();
+    std::vector<Gui::ViewProvider*> sourceViews;
+    for (auto source : dvp->getAllSources()) {
+        if (auto view = Gui::Application::Instance->getViewProvider(source)) {
+            sourceViews.push_back(view);
+        }
+    }
     QGIEdge* item;
     for (int iEdge = 0; itGeom != geoms.end(); itGeom++, iEdge++) {
         bool showItem = true;
@@ -418,6 +446,18 @@ void QGIViewPart::drawAllEdges()
                 // but we need to actually draw the lines in QGScene coords (0.1 mm).
                 item->setWidth(Rez::guiX(vp->formatWeightScaled(gf->m_format.m_weight)));
                 showItem = gf->m_format.m_visible;
+            } else if (Gui::ViewProvider::EdgeLineFormat source;
+                       sourceFormat(sourceViews, (*itGeom)->getSource3d(), source)) {
+                // as the source's view draws it: a sheet's flat, its bend
+                // lines up and down (docs/SheetMetal.md sec 5.6)
+                const double width = source.width > 0 ? vp->formatWeightScaled(source.width)
+                                                      : vp->lineWidthScaled();
+                item->setNormalColor(source.color.asValue<QColor>());
+                const auto style = static_cast<Qt::PenStyle>(source.style);
+                item->setLinePen(m_dashedLineGenerator->getBestPen(
+                    TechDraw::LineGenerator::fromQtStyle(style), style, width));
+                item->setWidth(Rez::guiX(width));
+                showItem = source.visible;
             } else {
                 // unformatted line, draw as continuous line
                 item->setLinePen(m_dashedLineGenerator->getLinePen(1, vp->lineWidthScaled()));

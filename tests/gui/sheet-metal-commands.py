@@ -646,7 +646,7 @@ def run():
         pump()
 
         # Laid by its second skin the bends go down: a down bend's line lies
-        # on the blank's underside, drawn on its top, as one looking down
+        # on the blank's top, as every marking does, where one looking down
         # sees it
         camera = view.getCamera()
         flat.SecondSkin = True
@@ -670,9 +670,9 @@ def run():
         down = max(downs, key=lambda t: t[1].Length) if downs else None
         hit = pickLine(*down) if down else None
         check(
-            "a down bend's line, on the underside, is drawn and picked from above",
+            "a down bend's line, on the blank's top, is drawn and picked from above",
             down is not None
-            and abs(down[1].BoundBox.ZMax - flat.Shape.BoundBox.ZMin) < 1e-6
+            and abs(down[1].BoundBox.ZMin - flat.Shape.Solids[0].BoundBox.ZMax) < 1e-6
             and hit is not None
             and hit.split(".")[-1] == "Edge%d" % down[0],
             (down and (down[0], down[1].BoundBox), flat.BendDirections, hit),
@@ -961,18 +961,25 @@ def run():
         # asks the source's view how to draw an edge, by its source name, and
         # the flat's bend lines come out in the flat's own colours
         def pens(page):
-            from PySide import QtGui as _QtGui
-
-            colours = set()
+            """The colours the page's scene is drawn in, each of 20 pixels
+            or more: its edges are items Python cannot ask for their pens"""
+            counts = {}
             for v in mw.findChildren(QtWidgets.QGraphicsView):
-                if v.scene() is None:
+                scene = v.scene()
+                if scene is None or not scene.items():
                     continue
-                for item in v.scene().items():
-                    pen = getattr(item, "pen", None)
-                    if callable(pen) and item.isVisible():
-                        c = pen().color()
-                        colours.add((c.red(), c.green(), c.blue()))
-            return colours
+                r = scene.itemsBoundingRect()
+                img = QtGui.QImage(int(r.width()) + 1, int(r.height()) + 1, QtGui.QImage.Format_RGB32)
+                img.fill(QtGui.QColor(255, 255, 255))
+                painter = QtGui.QPainter(img)
+                scene.render(painter, QtCore.QRectF(img.rect()), r)
+                painter.end()
+                for y in range(img.height()):
+                    for x in range(img.width()):
+                        c = img.pixelColor(x, y)
+                        key = (c.red(), c.green(), c.blue())
+                        counts[key] = counts.get(key, 0) + 1
+            return {c for c, n in counts.items() if n >= 20}
 
         def rgb(prop):
             return tuple(int(round(x * 255)) for x in prop[:3])

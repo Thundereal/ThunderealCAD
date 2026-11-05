@@ -1483,6 +1483,27 @@ stored flat and this option do what it was for.
   feature panel, as Corner Closure does); the base wall's panel has Closed Profile.
   `TestSheetMetalRip` (9), `sheet-metal-commands.py` (72, +3), `sheet-metal-panels.py` (68, +1),
   `serve-sheet-metal.py` (16), `serve-toolbar-browser.py` (21).
+- **Built 2026-11-05, M4's fourth item, its first part: a drawing of the flat styles its lines as
+  the flat does.** A TechDraw view takes the sheet's flat object as its source, as any shape. The
+  generic hook: `Gui::ViewProvider::getEdgeLineFormat(mappedName, format)` -- how a drawing draws
+  an edge of the object's, by the edge's mapped name: shown or not, a Qt line style, a colour, a
+  width (0 for the drawing's). False, as every view provider answers unless it overrides it,
+  leaves the edge to the drawing. `QGIViewPart::drawAllEdges()` asks the views of a drawing
+  view's sources for each geometry edge the user has not formatted (`GeomFormats` first),
+  by the source name `GeometryObject` keeps (`getSource3d()`). TechDraw learns nothing of sheet
+  metal, and needs no link to PartGui. The flat object's view answers for its markings by name
+  (`Bend1`, `Bend1Part2`, `Bend1Tangent1`, `Grain`, what follows the first `;` dropped; the
+  blank's edges are hashed names and never match): its kind's style, colour and Show, each bend
+  Up or Down by `BendDirections`, as its own 3D view draws them (one classifier for both); a
+  colour changed there is the drawing's at its next draw. The edge's width stays the drawing's:
+  the 3D view's is in pixels. A down bend's line lay on the blank's underside, its inner skin,
+  and a drawing from above dropped it as hidden (TechDraw extracts no hidden line unless asked):
+  `flatten()` now lifts every marking onto the blank's top, which way a bend goes being the
+  line's `up` and no longer where it lies; DXF and SVG are 2D and unchanged
+  (`TestSheetMetalFlat.testMarkingsOnTop`, 29). `sheet-metal-commands.py` (74, +2; before, the
+  drawing's edges all black). The GUI check reads the drawing's colours from a render of the
+  page's scene: TechDraw's edge items reach Python as plain QGraphicsItems, with no pen. Still to come in the item: the bend notes (angle, radius, direction) and the bend table
+  as a drawing view.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at
@@ -1697,8 +1718,10 @@ not, a colour with up and down apart, a line type; most of it again in the DXF's
   Defaults as the SVG draws them: up dashed `#0050d0`, down dashed `#d03030`, tangent lines dotted
   `#808080`, grain solid `#208020`. The DXF and SVG keep their layers as they are. A marking on
   the blank's underside -- a down bend's line and tangent lines, on the bend's inner skin -- is
-  drawn a thickness up, on its top, where one looking down sees it; the shape keeps it where it
-  is (fixed 2026-11-05: the blank hid it, found with a flat laid by a leg).
+  drawn a thickness up, on its top, where one looking down sees it (fixed 2026-11-05: the blank
+  hid it, found with a flat laid by a leg). Later the same day the shape itself puts every
+  marking on the blank's top (`flatten()`), for the drawings; the view's lift stays for a flat
+  stored before.
 - **Retired:** the solid's `Flatten` and flat settings, the solid view's `SheetView` and
   `FlatOffset`, and each feature view's flat drawing (`refreshFlat()`, the `SheetFlat` and
   `SheetBoth` modes); files made with them lose them on loading, as nothing was released.

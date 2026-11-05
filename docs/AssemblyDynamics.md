@@ -3291,9 +3291,9 @@ Phase D1 is under way (2026-10-28):
     where it showed 2.2 MPa at the bounce before; the hold within 0.013%
     of the largest reaction, its torque within 0.40%.
   - Test: TestContact's test_impact_frames.
-  - Not yet: several frames as steps of one CalculiX run; the margin the
-    largest away from the loaded faces leaves (built, below); a part of
-    a group meeting the
+  - Not yet: several frames as steps of one CalculiX run (the frames'
+    runs at once instead, below); the margin the largest away from the
+    loaded faces leaves (built, below); a part of a group meeting the
     others nowhere (held at the face nearest them); a run's start
     reactions taken back with a contact begun in them (the accelerations
     now balance them, not the free motion's); a static analysis of a
@@ -3383,6 +3383,38 @@ Phase D1 is under way (2026-10-28):
     `ImpactFrames` off.
   - Tests: TestDynamics' test_section_depth, test_loads_to_fem_frames
     (10 mm off both end faces).
+  - Not yet: see the next entry's.
+- Built, D4a: the frames' solves, 0.89 s a frame to 0.24.
+  - Where a frame's time went (the places lever, 40 frames, a 3 mm mesh,
+    profiled): CalculiX 0.37 s, the input 0.39 -- of it 0.25 s FEM's
+    writer finding each coupling face's nodes again, `getNodesByFace` per
+    node by BRepExtrema, on a mesh that had not changed -- and the result
+    0.09.
+  - FEM, our fork: MeshSetsGetter's `cache`, a dict FemToolsCcx keeps
+    between writes (`mesh_sets_cache`): the mesh's element tables, and each
+    reference's nodes while it is the same shape at the same place; cleared
+    when the mesh's nodes or counts change. The input to the card the same
+    as a fresh writer's (FEM's test_mesh_sets_cache, through a coupling
+    moved, given a radius, the mesh made again). The input 0.39 s to 0.10.
+  - Several frames as steps of one CalculiX run, measured on the places
+    input: one step 427 ms, ten 2.9 s -- each step factors the system
+    again, the saving the 200 ms of reading the input and setting it up;
+    and a moving patch's coupling is model data, all of them in the one
+    input. Not taken.
+  - Instead, the frames' runs at once: ccx's SPOOLES solver takes one CPU.
+    solveFrames writes each frame's input, moves it into a folder of its
+    own and starts ccx there (FEM's `ccx_process`, not waited for, one
+    thread, its output to a file), `jobs` at once (4 by default, half the
+    CPUs at most); the oldest collected when that many run, so the rows
+    keep their order; where the stress is away from the loads is taken
+    as the frame is written, before the next moves the couplings. A stop
+    asked for leaves those started.
+  - 40 frames of the places lever: 35.4 s, then 23.0 with the cache, 9.5
+    with 4 at once -- the stresses, the away ones and the hold's forces
+    the same to 9 digits each way.
+  - Tests: TestDynamics' test_loads_to_fem_frames_jobs (3 at once against
+    1, to the last digit; a stop at the fifth frame); FEM's
+    test_mesh_sets_cache.
   - Not yet: the plot's value axis is the whole run's, a bounce of 1.5 N
     flat under a landing of 528 N; a part's own stress at a frame through
     an impact is a static analysis of it (as above).

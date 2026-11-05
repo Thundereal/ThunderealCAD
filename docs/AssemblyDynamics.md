@@ -3429,9 +3429,38 @@ Phase D1 is under way (2026-10-28):
   - Test: TestSimulationResults' test_peak_safe (the bounce by its own
     range; an edge crossed halfway down the landing's fall, 264; a gap,
     none).
+  - Not yet: see the next entry's.
+- Built, D4a: a part of a rigid group over a gap to the others.
+  - **Meeting the rest of its group nowhere, a part was held on the face
+    nearest them first found** -- and along the edge nearest the other,
+    a box's side faces are as near as the face across the gap. The group
+    page's arm hung 1 mm under the rod was held on its side face, all 60
+    mm of it: its largest stress 0.0044 MPa where, touching the rod, it
+    is 0.275, and no point a section's depth off the hold. The rod was
+    held on its end face.
+  - Now each of the others within twice the least gap is moved across
+    its gap to the part (along its nearest points' way), and the faces
+    are those it would meet, as for parts that touch: the area they
+    share, a round of it where it is part of a face. The load's `Gap`
+    says how far (`groupGap()`), and To FEM's message says it: "It meets
+    the rest of its rigid group nowhere, 1 mm off them".
+  - The group page's video again with the arm 1 mm under the rod: 0.2732
+    MPa at 160 ms, 0.1593 away from the loaded faces, against 0.275 and
+    0.160 touching; the hold within 0.44% of the largest.
+  - Part, from upstream (6132f25fdf): `Tools::fromPlacement` set the
+    translation and then the rotation, which in OCCT replaces it -- every
+    location it made was the rotation alone. FEM places a constraint's
+    references with it (`Tools::getFeatureSubShape`): on a part turned
+    and moved, a constraint's symbols were the face turned about the
+    origin, the arm's hold drawn 100 mm off its analysis in the still;
+    and a bearing's or a cylindrical transform's base point, which the
+    input's *TRANSFORM takes, off the cylinder's axis. ShapeFix's Python
+    methods taking a placement made the same location.
+  - Tests: TestDynamics' test_loads_on_rigid_group_gap; FEM's
+    test_placed_references.
   - Not yet: a part's own stress at a frame through an impact is a static
-    analysis of it (as above); a part of a group meeting the others
-    nowhere; a run's start reactions with a contact begun in them.
+    analysis of it (as above); a run's start reactions with a contact
+    begun in them.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

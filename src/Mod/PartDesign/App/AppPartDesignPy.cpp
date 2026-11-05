@@ -33,6 +33,9 @@
 #include "SheetMetalCheck.h"
 #include "SheetMetalFlat.h"
 #include "SolidBody.h"
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+#include "FeatureSheetMetalBendTable.h"
+#endif
 
 
 namespace PartDesign {
@@ -60,6 +63,16 @@ public:
             "or the solid (its tip), and what is wrong with its flat: {'Bends': [...],\n"
             "'Problems': [...]}, each a dict. Asked for, never kept."
         );
+        add_varargs_method("sheetBends",&Module::sheetBends,
+            "sheetBends(obj) -> list -- the bend table alone of obj, as checkSheet() has it\n"
+            "but for the faces: a dict a bend, its values, their sources and its direction."
+        );
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+        add_varargs_method("syncBendTable",&Module::syncBendTable,
+            "syncBendTable(table, force=False) -- fill a bend table from its sheet now; a\n"
+            "cell the user changed stays theirs unless force."
+        );
+#endif
         initialize("This module is the PartDesign module."); // register with Python
     }
 
@@ -143,18 +156,7 @@ private:
         };
         Py::List bends;
         for (const auto &bend : found.bends) {
-            Py::Dict item;
-            item.setItem("Name", Py::String(bend.name));
-            item.setItem("Feature", Py::String(bend.feature));
-            item.setItem("Angle", Py::Float(bend.angle));
-            item.setItem("Radius", Py::Float(bend.radius));
-            item.setItem("RadiusSource", Py::String(bend.radiusSource));
-            item.setItem("KFactor", Py::Float(bend.kFactor));
-            item.setItem("KFactorSource", Py::String(bend.kFactorSource));
-            item.setItem("Method", Py::String(bend.method));
-            item.setItem("MethodSource", Py::String(bend.methodSource));
-            item.setItem("Allowance", Py::Float(bend.allowance));
-            item.setItem("Direction", Py::String(bend.direction));
+            Py::Dict item = bendItem(bend);
             item.setItem("Elements", names(bend.elements));
             item.setItem("FlatElements", names(bend.flatElements));
             bends.append(item);
@@ -176,6 +178,68 @@ private:
         res.setItem("Problems", problems);
         return res;
     }
+
+    static Py::Dict bendItem(const PartDesign::SheetBendRow &bend)
+    {
+        Py::Dict item;
+        item.setItem("Name", Py::String(bend.name));
+        item.setItem("Feature", Py::String(bend.feature));
+        item.setItem("Angle", Py::Float(bend.angle));
+        item.setItem("Radius", Py::Float(bend.radius));
+        item.setItem("RadiusSource", Py::String(bend.radiusSource));
+        item.setItem("KFactor", Py::Float(bend.kFactor));
+        item.setItem("KFactorSource", Py::String(bend.kFactorSource));
+        item.setItem("Method", Py::String(bend.method));
+        item.setItem("MethodSource", Py::String(bend.methodSource));
+        item.setItem("Allowance", Py::Float(bend.allowance));
+        item.setItem("Direction", Py::String(bend.direction));
+        return item;
+    }
+
+    Py::Object sheetBends(const Py::Tuple& args)
+    {
+        PyObject *pyObj;
+        if (!PyArg_ParseTuple(args.ptr(), "O!", &(App::DocumentObjectPy::Type), &pyObj))
+            throw Py::Exception();
+        std::vector<PartDesign::SheetBendRow> rows;
+        PY_TRY {
+            try {
+                rows = PartDesign::sheetBends(
+                        static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr());
+            }
+            catch (const Standard_Failure &e) {
+                THROWM(Base::CADKernelError, e.GetMessageString());
+            }
+        } _PY_CATCH(throw Py::Exception())
+        Py::List res;
+        for (const auto &row : rows)
+            res.append(bendItem(row));
+        return res;
+    }
+
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+    Py::Object syncBendTable(const Py::Tuple& args)
+    {
+        PyObject *pyObj;
+        PyObject *force = Py_False;
+        if (!PyArg_ParseTuple(args.ptr(), "O!|O", &(App::DocumentObjectPy::Type), &pyObj,
+                              &force))
+            throw Py::Exception();
+        auto table = Base::freecad_dynamic_cast<PartDesign::SheetMetalBendTable>(
+                static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr());
+        if (!table)
+            throw Py::TypeError("Expect a PartDesign::SheetMetalBendTable");
+        PY_TRY {
+            try {
+                table->sync(PyObject_IsTrue(force) == 1);
+            }
+            catch (const Standard_Failure &e) {
+                THROWM(Base::CADKernelError, e.GetMessageString());
+            }
+        } _PY_CATCH(throw Py::Exception())
+        return Py::None();
+    }
+#endif
 
     Py::Object makeFilletArc(const Py::Tuple& args)
     {

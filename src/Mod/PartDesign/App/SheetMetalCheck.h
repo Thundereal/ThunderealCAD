@@ -98,4 +98,11 @@ struct PartDesignExport SheetCheck
  */
 PartDesignExport SheetCheck checkSheet(const App::DocumentObject* obj);
 
+/** The bend table alone: each bend's values and their sources, and which way
+ * it lies flat (empty where the sheet does not), no faces and no problems --
+ * what a drawing's bend table shows (SheetMetalBendTable). Throws as
+ * checkSheet() does.
+ */
+PartDesignExport std::vector<SheetBendRow> sheetBends(const App::DocumentObject* obj);
+
 }  // namespace PartDesign

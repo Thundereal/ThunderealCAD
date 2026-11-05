@@ -57,6 +57,9 @@
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+#include <Mod/PartDesign/App/FeatureSheetMetalBendTable.h>
+#endif
 #include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/SheetMetal/Recognise.h>
 #include <Mod/PartDesign/App/SheetMetalExtension.h>
@@ -1377,6 +1380,118 @@ bool CmdPartDesignSheetMetalCheck::isActive()
     return !Gui::Control().activeDialog() && flatToExport() != nullptr;
 }
 
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+//===========================================================================
+// PartDesign_SheetMetalBendTable, PartDesign_SheetMetalSyncBendTable
+//===========================================================================
+
+namespace
+{
+/// The bend tables selected
+std::vector<PartDesign::SheetMetalBendTable*> selectedBendTables()
+{
+    std::vector<PartDesign::SheetMetalBendTable*> res;
+    for (auto obj : Gui::Selection().getObjectsOfType(
+             PartDesign::SheetMetalBendTable::getClassTypeId())) {
+        res.push_back(static_cast<PartDesign::SheetMetalBendTable*>(obj));
+    }
+    return res;
+}
+}  // namespace
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalBendTable)
+
+CmdPartDesignSheetMetalBendTable::CmdPartDesignSheetMetalBendTable()
+    : Command("PartDesign_SheetMetalBendTable")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Bend Table");
+    sToolTipText = QT_TR_NOOP("Makes a spreadsheet of the sheet's bends, for a drawing: filled\n"
+                              "at each recompute, or by Sync Bend Table with Auto Sync off; the\n"
+                              "cells you edit stay yours");
+    sWhatsThis = "PartDesign_SheetMetalBendTable";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalCheck";
+}
+
+void CmdPartDesignSheetMetalBendTable::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    auto obj = flatToExport();
+    auto solid = dynamic_cast<PartDesign::SolidBody*>(obj);
+    if (auto flat = dynamic_cast<PartDesign::SheetMetalFlatPattern*>(obj)) {
+        solid = flat->getSheet();
+    }
+    if (!solid && obj) {
+        auto body = PartDesign::Body::findBodyOf(obj);
+        solid = body ? body->getSolidBody(obj) : nullptr;
+    }
+    if (!solid) {
+        warn(QT_TR_NOOP("No sheet"),
+             QT_TR_NOOP("Select a sheet metal feature, solid or flat, or make a body with a "
+                        "sheet active."));
+        return;
+    }
+    App::Document* doc = solid->getDocument();
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Bend Table"));
+    const std::string name = doc->getUniqueObjectName("BendTable");
+    doCommand(Doc,
+              "App.getDocument('%s').addObject('PartDesign::SheetMetalBendTable', '%s')"
+              ".Source = App.getDocument('%s').getObject('%s')",
+              doc->getName(),
+              name.c_str(),
+              doc->getName(),
+              solid->getNameInDocument());
+    updateActive();
+    commitCommand();
+}
+
+bool CmdPartDesignSheetMetalBendTable::isActive()
+{
+    return flatToExport() != nullptr;
+}
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalSyncBendTable)
+
+CmdPartDesignSheetMetalSyncBendTable::CmdPartDesignSheetMetalSyncBendTable()
+    : Command("PartDesign_SheetMetalSyncBendTable")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Sync Bend Table");
+    sToolTipText = QT_TR_NOOP("Fills the selected bend tables from their sheets now, keeping\n"
+                              "the cells you edited");
+    sWhatsThis = "PartDesign_SheetMetalSyncBendTable";
+    sStatusTip = sToolTipText;
+    sPixmap = "view-refresh";
+}
+
+void CmdPartDesignSheetMetalSyncBendTable::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    auto tables = selectedBendTables();
+    if (tables.empty()) {
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Sync Bend Table"));
+    for (auto table : tables) {
+        doCommand(Doc,
+                  "import PartDesign\n"
+                  "PartDesign.syncBendTable(App.getDocument('%s').getObject('%s'))",
+                  table->getDocument()->getName(),
+                  table->getNameInDocument());
+    }
+    updateActive();
+    commitCommand();
+}
+
+bool CmdPartDesignSheetMetalSyncBendTable::isActive()
+{
+    return !selectedBendTables().empty();
+}
+#endif
+
 void CreatePartDesignSheetMetalCommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
@@ -1398,4 +1513,8 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
     mgr.addCommand(new CmdPartDesignSheetMetalExportFlats());
     mgr.addCommand(new CmdPartDesignSheetMetalCheck());
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+    mgr.addCommand(new CmdPartDesignSheetMetalBendTable());
+    mgr.addCommand(new CmdPartDesignSheetMetalSyncBendTable());
+#endif
 }

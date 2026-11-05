@@ -120,6 +120,10 @@ PyMOD_INIT_FUNC(PartDesignGui)
     try {
         Base::Interpreter().runString("import PartGui");
         Base::Interpreter().runString("import SketcherGui");
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+        // the bend table is a spreadsheet, and edited as one
+        Base::Interpreter().runString("import SpreadsheetGui");
+#endif
     }
     catch(const Base::Exception& e) {
         PyErr_SetString(PyExc_ImportError, e.what());
@@ -233,7 +237,12 @@ PyMOD_INIT_FUNC(PartDesignGui)
              << "PartDesign_SheetMetalFlatten"
              << "PartDesign_SheetMetalExportDXF"
              << "PartDesign_SheetMetalExportFlats"
-             << "PartDesign_SheetMetalCheck";
+             << "PartDesign_SheetMetalCheck"
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+             << "PartDesign_SheetMetalBendTable"
+             << "PartDesign_SheetMetalSyncBendTable"
+#endif
+             ;
     }}};
     sheetMetal.activeKey = "pdsheetmetal";
     sheetMetal.kind = "SheetMetal";

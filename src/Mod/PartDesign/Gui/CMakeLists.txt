@@ -303,6 +303,10 @@ SET(PartDesignGuiIcon_SVG
 )
 
 add_library(PartDesignGui SHARED ${PartDesignGui_SRCS} ${PartDesignGuiIcon_SVG})
+if(BUILD_SPREADSHEET)
+    add_definitions(-DPARTDESIGN_WITH_SPREADSHEET)
+endif()
+
 target_link_libraries(PartDesignGui ${PartDesignGui_LIBS})
 
 SET_BIN_DIR(PartDesignGui PartDesignGui /Mod/PartDesign)

@@ -139,36 +139,117 @@ double areaOf(const TopoDS_Shape& shape)
 
 }  // namespace
 
-SheetCheck checkSheet(const App::DocumentObject* obj)
+namespace
+{
+
+/// What a check is of: the sheet's solid, the part checked (its tip for the
+/// solid or its flat object), the sheet metal feature it is, and its rule
+struct Checked
+{
+    const SolidBody* solid = nullptr;
+    const App::DocumentObject* part = nullptr;
+    const SheetMetalExtension* sheet = nullptr;
+    SheetMetalRule* rule = nullptr;
+};
+
+Checked checkedOf(const App::DocumentObject* obj)
 {
     if (!obj || !obj->isAttachedToDocument()) {
         THROWM(Base::ValueError, "No object to check");
     }
-    auto solid = Base::freecad_dynamic_cast<const SolidBody>(obj);
+    Checked res;
+    res.solid = Base::freecad_dynamic_cast<const SolidBody>(obj);
     // the flat object checks its solid
     if (auto flatObj = Base::freecad_dynamic_cast<const SheetMetalFlatPattern>(obj)) {
-        solid = flatObj->getSheet();
+        res.solid = flatObj->getSheet();
     }
-    const App::DocumentObject* part = obj;
-    if (solid) {
-        part = solid->Tip.getValue();
+    res.part = obj;
+    if (res.solid) {
+        res.part = res.solid->Tip.getValue();
     }
     else {
         auto body = Body::findBodyOf(obj);
-        solid = body ? body->getSolidBody(obj) : nullptr;
+        res.solid = body ? body->getSolidBody(obj) : nullptr;
     }
-    const SheetMetalExtension* sheet = nullptr;
-    if (part) {
-        sheet = part->getExtensionByType<SheetMetalExtension>(true);
-        if (!sheet) {
-            sheet = SheetMetalExtension::findBefore(part);
+    if (res.part) {
+        res.sheet = res.part->getExtensionByType<SheetMetalExtension>(true);
+        if (!res.sheet) {
+            res.sheet = SheetMetalExtension::findBefore(res.part);
         }
     }
-    auto rule = sheet ? sheet->getRule() : nullptr;
-    if (!solid || !solid->isSheetMetal() || !rule
-        || sheet->SheetModel.getValue().elements.empty()) {
+    res.rule = res.sheet ? res.sheet->getRule() : nullptr;
+    if (!res.solid || !res.solid->isSheetMetal() || !res.rule
+        || res.sheet->SheetModel.getValue().elements.empty()) {
         FC_THROWM(Base::ValueError, obj->getFullLabel() << " is of no sheet metal solid");
     }
+    return res;
+}
+
+/// A bend's row of the table, its values and their sources: no direction,
+/// no faces
+SheetBendRow bendRow(const SheetMetalExtension* sheet, const SheetMetalRule& rule,
+                     const Element& element)
+{
+    const auto maker = makerOf(sheet, element.name);
+    SheetBendRow row;
+    row.name = element.name;
+    row.feature = maker->getNameInDocument();
+    row.angle = std::abs(element.bend.angle) * 180 / std::numbers::pi;
+    row.radius = element.bend.radius;
+    row.radiusSource = radiusSource(maker, rule);
+    row.kFactor = element.bend.k;
+    row.method = rule.AllowanceMethod.getValueAsString();
+    row.methodSource = rule.valueSource(rule.AllowanceMethod);
+    // another method gives a K of its own for each bend; the bend's own,
+    // kept on the feature that made it, beats both
+    auto makerExt = maker->getExtensionByType<SheetMetalExtension>(true);
+    if (makerExt && makerExt->bendKFactor(element.name)) {
+        row.kFactorSource = "bend";
+    }
+    else {
+        row.kFactorSource =
+            row.method == "KFactor" ? rule.valueSource(rule.KFactor) : row.method;
+    }
+    row.allowance = std::abs(element.bend.angle) * element.bend.neutral();
+    return row;
+}
+
+}  // namespace
+
+std::vector<SheetBendRow> sheetBends(const App::DocumentObject* obj)
+{
+    const Checked checked = checkedOf(obj);
+    std::map<std::string, std::string> directions;
+    try {
+        directions = checked.solid->flatOf(checked.part).directions;
+    }
+    catch (const Base::Exception&) {
+        // no direction where the sheet does not lie flat
+    }
+    catch (const Standard_Failure&) {
+    }
+    std::vector<SheetBendRow> rows;
+    for (const Element& element : checked.sheet->SheetModel.getValue().elements) {
+        if (element.kind != Element::Kind::Bend) {
+            continue;
+        }
+        SheetBendRow row = bendRow(checked.sheet, *checked.rule, element);
+        auto it = directions.find(element.name);
+        if (it != directions.end()) {
+            row.direction = it->second;
+        }
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+
+SheetCheck checkSheet(const App::DocumentObject* obj)
+{
+    const Checked checked = checkedOf(obj);
+    const SolidBody* solid = checked.solid;
+    const App::DocumentObject* part = checked.part;
+    const SheetMetalExtension* sheet = checked.sheet;
+    SheetMetalRule* rule = checked.rule;
 
     // the model of the sheet, in the part's placement, as layFlat() has it
     SheetMetal::Model model = sheet->SheetModel.getValue();
@@ -253,27 +334,7 @@ SheetCheck checkSheet(const App::DocumentObject* obj)
         if (element.kind != Element::Kind::Bend) {
             continue;
         }
-        const auto maker = makerOf(sheet, element.name);
-        SheetBendRow row;
-        row.name = element.name;
-        row.feature = maker->getNameInDocument();
-        row.angle = std::abs(element.bend.angle) * 180 / std::numbers::pi;
-        row.radius = element.bend.radius;
-        row.radiusSource = radiusSource(maker, *rule);
-        row.kFactor = element.bend.k;
-        row.method = rule->AllowanceMethod.getValueAsString();
-        row.methodSource = rule->valueSource(rule->AllowanceMethod);
-        // another method gives a K of its own for each bend; the bend's own,
-        // kept on the feature that made it, beats both
-        auto makerExt = maker->getExtensionByType<SheetMetalExtension>(true);
-        if (makerExt && makerExt->bendKFactor(element.name)) {
-            row.kFactorSource = "bend";
-        }
-        else {
-            row.kFactorSource =
-                row.method == "KFactor" ? rule->valueSource(rule->KFactor) : row.method;
-        }
-        row.allowance = std::abs(element.bend.angle) * element.bend.neutral();
+        SheetBendRow row = bendRow(sheet, *rule, element);
         if (flat) {
             auto it = flat->directions.find(element.name);
             if (it != flat->directions.end()) {

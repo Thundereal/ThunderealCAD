@@ -78,6 +78,9 @@
 #include "FeatureSheetMetalHem.h"
 #include "FeatureSheetMetalCornerClosure.h"
 #include "FeatureSheetMetalRip.h"
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+#include "FeatureSheetMetalBendTable.h"
+#endif
 #include "FeatureSheetMetalCutout.h"
 #include "FeatureSheetMetalFold.h"
 #include "FeatureSheetMetalJoin.h"
@@ -98,6 +101,10 @@ PyMOD_INIT_FUNC(_PartDesign)
     try {
         Base::Interpreter().runString("import Part");
         Base::Interpreter().runString("import Sketcher");
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+        // the bend table is a spreadsheet
+        Base::Interpreter().runString("import Spreadsheet");
+#endif
     }
     catch(const Base::Exception& e) {
         PyErr_SetString(PyExc_ImportError, e.what());
@@ -215,6 +222,9 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalHem               ::init();
     PartDesign::SheetMetalCornerClosure     ::init();
     PartDesign::SheetMetalRip               ::init();
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+    PartDesign::SheetMetalBendTable         ::init();
+#endif
     PartDesign::SheetMetalCutout            ::init();
     PartDesign::SheetMetalFold              ::init();
     PartDesign::SheetMetalJog               ::init();

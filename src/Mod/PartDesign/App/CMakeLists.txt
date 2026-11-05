@@ -212,6 +212,16 @@ SET(SheetMetal_SRCS
     SheetMetalExtension.cpp
     SheetMetalExtension.h
 )
+
+# The bend table of a drawing is a spreadsheet (docs/SheetMetal.md sec 5.6)
+if(BUILD_SPREADSHEET)
+    list(APPEND SheetMetal_SRCS
+        FeatureSheetMetalBendTable.cpp
+        FeatureSheetMetalBendTable.h
+    )
+    list(APPEND PartDesign_LIBS Spreadsheet)
+    add_definitions(-DPARTDESIGN_WITH_SPREADSHEET)
+endif()
 SOURCE_GROUP("SheetMetal" FILES ${SheetMetal_SRCS})
 
 SET(Python_SRCS

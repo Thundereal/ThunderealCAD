@@ -24,7 +24,9 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
+#include <vector>
 
 #include <App/DocumentObjectExtension.h>
 #include <App/PropertyLinks.h>
@@ -55,6 +57,16 @@ public:
 
     App::PropertyXLink Rule;
     PropertySheetModel SheetModel;
+    /** The K of each bend this feature makes that does not take the rule's
+     * (docs/SheetMetal.md sec 4.6, ruled 2026-11-05)
+     *
+     * Keyed by the bend's place among the feature's own, counted from 1 in
+     * the order it makes them, not by its name: a bend added earlier in the
+     * sheet renames every later one, and the key holds. A key past the
+     * bends the feature makes is kept and changes nothing. Check Sheet's
+     * bend table edits it, through setBendKFactor().
+     */
+    App::PropertyMap BendKFactors;
 
     /// The rule, null if none
     SheetMetalRule* getRule() const;
@@ -78,6 +90,22 @@ public:
     /// useRule changed: own is read only while it is on; turned off, own
     /// starts at the rule's
     void radiusSwitched(const App::PropertyBool& useRule, App::PropertyLength& own) const;
+
+    /// The bends of a model this feature made: those the sheet it builds on
+    /// has not, by index, in the order it made them
+    std::vector<int> ownBends(const SheetMetal::Model& model) const;
+    /** Put BendKFactors on the bends of model this feature made, before it
+     * is stored. Throws Base::ValueError for a key or a value that is none.
+     */
+    void applyBendOverrides(SheetMetal::Model& model) const;
+    /// The K of one of this feature's bends, by its name, where the bend has
+    /// one of its own
+    std::optional<double> bendKFactor(const std::string& bend) const;
+    /** Give one of this feature's bends a K of its own, or none for the
+     * rule's. Throws Base::ValueError for a K outside 0..1, and for a bend
+     * this feature did not make.
+     */
+    void setBendKFactor(const std::string& bend, std::optional<double> k);
 
     /// The name of the element that owns a face of the feature's shape,
     /// empty if none

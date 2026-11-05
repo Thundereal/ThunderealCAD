@@ -24,6 +24,9 @@
 
 #include "PreCompiled.h"
 
+#include <charconv>
+#include <cmath>
+
 #include <TopoDS.hxx>
 
 #include <Base/Exception.h>
@@ -52,6 +55,13 @@ SheetMetalExtension::SheetMetalExtension()
                                 App::PropertyType(App::Prop_Hidden | App::Prop_Output
                                                   | App::Prop_NoRecompute),
                                 "The sheet's walls and bends, made with the shape");
+    EXTENSION_ADD_PROPERTY_TYPE(BendKFactors,
+                                (),
+                                "Sheet Metal",
+                                App::Prop_Hidden,
+                                "The K of each bend this feature makes that does not take the "
+                                "rule's, by the bend's place among its own counted from 1. Check "
+                                "Sheet's bend table edits it");
 }
 
 SheetMetalRule* SheetMetalExtension::getRule() const
@@ -125,6 +135,132 @@ SheetMetal::Model SheetMetalExtension::modelBefore(double thickness) const
     model.transform(placementOf(getExtendedObject()).Inverted()
                     * placementOf(before->getExtendedObject()));
     return model;
+}
+
+namespace
+{
+
+/// A number written whole, or nothing
+std::optional<double> parseNumber(const std::string& text)
+{
+    double value = 0;
+    const char* end = text.data() + text.size();
+    auto [ptr, ec] = std::from_chars(text.data(), end, value);
+    if (ec != std::errc() || ptr != end || !std::isfinite(value)) {
+        return {};
+    }
+    return value;
+}
+
+bool validK(double k)
+{
+    return k >= 0 && k <= 1;
+}
+
+}  // namespace
+
+std::vector<int> SheetMetalExtension::ownBends(const SheetMetal::Model& model) const
+{
+    SheetMetal::Model earlier;
+    if (auto before = findBefore(getExtendedObject())) {
+        earlier = before->SheetModel.getValue();
+    }
+    std::vector<int> res;
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
+        const auto& element = model.elements[i];
+        if (element.kind == SheetMetal::Element::Kind::Bend && earlier.find(element.name) < 0) {
+            res.push_back(static_cast<int>(i));
+        }
+    }
+    return res;
+}
+
+void SheetMetalExtension::applyBendOverrides(SheetMetal::Model& model) const
+{
+    const auto& values = BendKFactors.getValues();
+    if (values.empty()) {
+        return;
+    }
+    const std::vector<int> own = ownBends(model);
+    for (const auto& [key, text] : values) {
+        int place = 0;
+        auto [ptr, ec] = std::from_chars(key.data(), key.data() + key.size(), place);
+        if (ec != std::errc() || ptr != key.data() + key.size() || place < 1) {
+            FC_THROWM(Base::ValueError,
+                      "BendKFactors: '" << key << "' is no bend's place, counted from 1");
+        }
+        const auto k = parseNumber(text);
+        if (!k || !validK(*k)) {
+            FC_THROWM(Base::ValueError,
+                      "BendKFactors: the K of bend " << key << ", '" << text
+                                                     << "', is no number from 0 to 1");
+        }
+        if (place <= static_cast<int>(own.size())) {
+            model.elements[own[place - 1]].bend.k = *k;
+        }
+    }
+}
+
+namespace
+{
+
+/// The key of one of a feature's bends in BendKFactors, empty if it made
+/// none of that name
+std::string placeOf(const SheetMetalExtension& ext, const std::string& bend)
+{
+    const SheetMetal::Model model = ext.SheetModel.getValue();
+    const std::vector<int> own = ext.ownBends(model);
+    for (std::size_t i = 0; i < own.size(); ++i) {
+        if (model.elements[own[i]].name == bend) {
+            return std::to_string(i + 1);
+        }
+    }
+    return {};
+}
+
+}  // namespace
+
+std::optional<double> SheetMetalExtension::bendKFactor(const std::string& bend) const
+{
+    if (BendKFactors.getValues().empty()) {
+        return {};
+    }
+    const std::string key = placeOf(*this, bend);
+    const auto& values = BendKFactors.getValues();
+    auto it = key.empty() ? values.end() : values.find(key);
+    if (it == values.end()) {
+        return {};
+    }
+    auto k = parseNumber(it->second);
+    if (!k || !validK(*k)) {
+        return {};
+    }
+    return k;
+}
+
+void SheetMetalExtension::setBendKFactor(const std::string& bend, std::optional<double> k)
+{
+    if (k && !(std::isfinite(*k) && validK(*k))) {
+        FC_THROWM(Base::ValueError, "A K factor is from 0 to 1, not " << *k);
+    }
+    const std::string key = placeOf(*this, bend);
+    if (key.empty()) {
+        auto obj = getExtendedObject();
+        FC_THROWM(Base::ValueError,
+                  (obj ? obj->getFullName() : std::string("This feature")) << " makes no bend '"
+                                                                          << bend << "'");
+    }
+    auto values = BendKFactors.getValues();
+    if (k) {
+        // the shortest text that reads back as the same number
+        char buf[32];
+        auto res = std::to_chars(buf, buf + sizeof(buf), *k);
+        values[key] = std::string(buf, res.ptr);
+    }
+    else if (!values.erase(key)) {
+        return;
+    }
+    BendKFactors.setValues(values);
 }
 
 std::string SheetMetalExtension::elementOf(const char* subname) const

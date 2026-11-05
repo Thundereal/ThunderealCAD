@@ -28,7 +28,7 @@ import traceback
 import FreeCAD
 import FreeCADGui
 import Part
-from PySide import QtCore, QtWidgets
+from PySide import QtCore, QtGui, QtWidgets
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
@@ -836,6 +836,61 @@ def run():
             listed.count() == len(PartDesign.checkSheet(flange)["Problems"]),
             listed.count(),
         )
+
+        # a bend's own K, typed in the table (ruled 2026-11-05: kept on the
+        # feature that made the bend), an undoable step each
+        def typeInto(column, text):
+            table.setCurrentCell(0, column)
+            table.editItem(table.item(0, column))
+            pump(5)
+            edit = table.findChild(QtWidgets.QLineEdit, "editBendValue")
+            if edit is None:
+                return False
+            edit.setText(text)
+            for kind in (QtCore.QEvent.KeyPress, QtCore.QEvent.KeyRelease):
+                QtWidgets.QApplication.sendEvent(
+                    edit, QtGui.QKeyEvent(kind, QtCore.Qt.Key_Return, QtCore.Qt.NoModifier)
+                )
+            pump(10)
+            return True
+
+        bend0 = found["Bends"][0]
+        maker = doc.getObject(bend0["Feature"])
+        undos = doc.UndoCount
+        typed = typeInto(4, "0.3")
+        check(
+            "a K typed in the bend table is the bend's own, kept on its feature",
+            typed
+            and maker.bendKFactor(bend0["Name"]) == 0.3
+            and table.item(0, 4).text().endswith("(bend)")
+            and doc.UndoCount == undos + 1
+            and doc.UndoNames[0] == "Bend K factor",
+            (typed, maker.bendKFactor(bend0["Name"]), table.item(0, 4).text(), doc.UndoNames[:1]),
+        )
+        T = maker.Rule.Thickness.Value
+        allowance = math.radians(bend0["Angle"]) * (bend0["Radius"] + 0.25 * T)
+        typed = typeInto(5, "%.9f" % allowance)
+        k = maker.bendKFactor(bend0["Name"])
+        check(
+            "an allowance typed is the K that makes it",
+            typed and k is not None and abs(k - 0.25) < 1e-6,
+            (typed, k),
+        )
+        typed = typeInto(4, "")
+        check(
+            "cleared, the bend takes the rule's again",
+            typed
+            and maker.bendKFactor(bend0["Name"]) is None
+            and not table.item(0, 4).text().endswith("(bend)"),
+            (typed, maker.bendKFactor(bend0["Name"]), table.item(0, 4).text()),
+        )
+        doc.undo()
+        doc.recompute()
+        k = maker.bendKFactor(bend0["Name"])
+        check("and that is undone as a step", k is not None and abs(k - 0.25) < 1e-6, k)
+        maker.setBendKFactor(bend0["Name"], None)
+        doc.recompute()
+
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Control.closeDialog()
         pump()

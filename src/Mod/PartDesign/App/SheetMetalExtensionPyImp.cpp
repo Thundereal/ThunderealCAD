@@ -51,6 +51,45 @@ PyObject* SheetMetalExtensionPy::sheetElementOf(PyObject* args) const
     PY_CATCH
 }
 
+PyObject* SheetMetalExtensionPy::bendKFactor(PyObject* args) const
+{
+    const char* bend;
+    if (!PyArg_ParseTuple(args, "s", &bend)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        const auto k = getSheetMetalExtensionPtr()->bendKFactor(bend);
+        if (!k) {
+            Py_Return;
+        }
+        return Py::new_reference_to(Py::Float(*k));
+    }
+    PY_CATCH
+}
+
+PyObject* SheetMetalExtensionPy::setBendKFactor(PyObject* args)
+{
+    const char* bend;
+    PyObject* value = Py_None;
+    if (!PyArg_ParseTuple(args, "s|O", &bend, &value)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        std::optional<double> k;
+        if (value != Py_None) {
+            k = PyFloat_AsDouble(value);
+            if (PyErr_Occurred()) {
+                return nullptr;
+            }
+        }
+        getSheetMetalExtensionPtr()->setBendKFactor(bend, k);
+        Py_Return;
+    }
+    PY_CATCH
+}
+
 PyObject* SheetMetalExtensionPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

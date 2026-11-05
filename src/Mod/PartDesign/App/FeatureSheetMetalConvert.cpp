@@ -571,6 +571,7 @@ App::DocumentObjectExecReturn* SheetMetalConvert::execute()
             }
         }
         Shape.setValue(result);
+        applyBendOverrides(found.model);
         SheetModel.setValue(found.model);
         const char* kind = thin ? "Thin part" : (shell ? "Shell" : "Solid");
         if (Kind.getStrValue() != kind) {

@@ -529,9 +529,6 @@ class TestSheetMetalCutout(unittest.TestCase):
         cutout = self.Doc.getObject(name)
         self.assertEqual(flatObject(cutout).Root, "Wall2")
         self.assertNotIn("Touched", cutout.State)
-        # read once: a shape not read since the open comes back null from an
-        # undo of a recompute that changed it, any feature's (a fault of the
-        # undo's, not the cutout's; found here 2026-11-05)
         self.assertLess((hole(cutout) - after).Length, 1e-9)
         self.Doc.UndoMode = 1
         self.Doc.openTransaction("Root")

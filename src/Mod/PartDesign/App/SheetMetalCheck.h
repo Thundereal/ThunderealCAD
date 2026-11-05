@@ -49,7 +49,8 @@ struct PartDesignExport SheetBendRow
     double radius = 0;
     std::string radiusSource;
     /// The K its flat length is found by, and where that comes from: "rule",
-    /// "card", or the allowance method where that gives it
+    /// "card", the allowance method where that gives it, or "bend" where the
+    /// bend has its own (SheetMetalExtension::BendKFactors)
     double kFactor = 0;
     std::string kFactorSource;
     /// The rule's allowance method, and where that comes from

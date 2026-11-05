@@ -370,6 +370,7 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
             FC_THROWM(Base::ValueError, both << ": the bend between them runs into the sheet");
         }
         Shape.setValue(result);
+        applyBendOverrides(model);
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

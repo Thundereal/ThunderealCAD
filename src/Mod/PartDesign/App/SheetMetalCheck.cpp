@@ -263,8 +263,16 @@ SheetCheck checkSheet(const App::DocumentObject* obj)
         row.kFactor = element.bend.k;
         row.method = rule->AllowanceMethod.getValueAsString();
         row.methodSource = rule->valueSource(rule->AllowanceMethod);
-        // another method gives a K of its own for each bend
-        row.kFactorSource = row.method == "KFactor" ? rule->valueSource(rule->KFactor) : row.method;
+        // another method gives a K of its own for each bend; the bend's own,
+        // kept on the feature that made it, beats both
+        auto makerExt = maker->getExtensionByType<SheetMetalExtension>(true);
+        if (makerExt && makerExt->bendKFactor(element.name)) {
+            row.kFactorSource = "bend";
+        }
+        else {
+            row.kFactorSource =
+                row.method == "KFactor" ? rule->valueSource(rule->KFactor) : row.method;
+        }
         row.allowance = std::abs(element.bend.angle) * element.bend.neutral();
         if (flat) {
             auto it = flat->directions.find(element.name);

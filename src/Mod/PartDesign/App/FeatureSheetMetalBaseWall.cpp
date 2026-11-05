@@ -242,6 +242,7 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(makeBoolean(base, tool, true));
+        applyBendOverrides(model);
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

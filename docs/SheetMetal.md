@@ -455,7 +455,7 @@ its tracker, not ported.
 | **Bend relief** | Automatic on every bend that ends inside a wall: rectangle, obround or tear, from the rule; overridden per feature. The flange's own, from the rule, built in M1, and its override (sec 12). | B1 5 |
 | **Corner relief** | Where two or three bends meet: circle, square, tear, weld; sized absolutely or by thickness. Automatic from the rule, or a feature on picked corners. Two bends' automatic one, from the rule, built in M2 (sec 12). | B1 13 |
 | **Corner closure** | Two flanges brought to meet at a corner: overlap, underlap or butt, with a gap. Built in M2 (sec 12). | -- |
-| **Rip** | A gap cut along an edge of a closed solid, so it can unfold. | B1 15 |
+| **Rip** | A gap cut along an edge of a closed solid, so it can unfold. Built in M4 as a feature of its own: a tube's bend cut open at its corner, or a wall cut down its middle (sec 12). | B1 15 |
 | **Cutout** | A closed sketch cut normal to the sheet on every wall and bend it crosses. | B1 18 |
 | **Wrap cutout** | A sketch cut as if drawn on the flat: through the flat, and folded back (refold, 4.1). Built in M2 as the cutout's `Wrap` (sec 12). | B1 17 |
 | **Notch at a bend** | A small V or slot at each end of a bend line on the outline, for the press brake operator. | -- (#622) |
@@ -1466,6 +1466,23 @@ stored flat and this option do what it was for.
   bend: the radius. It is the folded part's, and two flanges of one feature meeting at a corner
   are mitered on the one radius they share; it stays the feature's (`UseRuleRadius`,
   `BendRadius`). `TestSheetMetalBendOverride` (9), `sheet-metal-commands.py` (69, +4).
+- **Built 2026-11-05, M4's second item, the Rip of its own:** the base wall's `ClosedProfile`,
+  `Plate` (as before) or `Tube`: a closed sketch of lines makes a wall on each line and a bend at
+  every corner, the last joining the last wall to the first (`ProfileBuilder::closedProfile()`;
+  `MaterialSide` Outside puts the sketch on the bends' inner skins). A loop of bends does not lie
+  flat: `flatten()` refuses it, naming the bend that closes it (`Model::closingBend()`), and says
+  to rip it. `PartDesign::SheetMetalRip` takes faces of the feature it builds on (`Faces`). A
+  bend's face cuts the bend open: the bend goes, and its two walls run on to the corner, mitred on
+  the plane halving it through the bend's axis with the rule's `Gap` between, each wall given that
+  plane as a limit in the model. A wall's face cuts the wall down its middle, along its bends,
+  the gap wide: two walls, the second named on (`Wall5`), each limited at its side of the gap,
+  the bends following the side they are on. Walls are split before bends are taken out, so the
+  indices hold. A rip that leaves a wall joined to nothing is refused (`Model::cutOff()`): a rip
+  opens a loop, and on a sheet with none it cuts a piece off. Not ripped: a bend past 179.9 deg
+  (a hem's). Rip is on the Sheet Metal tool bar and the browser's allowlist (it opens the usual
+  feature panel, as Corner Closure does); the base wall's panel has Closed Profile.
+  `TestSheetMetalRip` (9), `sheet-metal-commands.py` (72, +3), `sheet-metal-panels.py` (68, +1),
+  `serve-sheet-metal.py` (16), `serve-toolbar-browser.py` (21).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

@@ -1120,14 +1120,20 @@ void PropertyPartShape::validateShape(App::DocumentObject *obj)
 
 void PropertyPartShape::setValue(const TopoShape& sh)
 {
-    // An unserved parked entry is dead: the value it would bring is
-    // being overwritten. Never serve it after this.
-    cancelRestorePending();
     // Announced before the blob is dropped: the owner's onBeforeChange may
     // retain the outgoing shape as a generation, and the file the last
     // save wrote for it goes along (Feature::onBeforeChange). The stand-in
     // the transaction takes there is a Copy(), which carries no blob.
+    //
+    // And announced while a parked entry is still parked: the outgoing value
+    // is the one it holds, and whoever looks at it here -- the transaction's
+    // Copy(), the retained generation -- has it served. Cancelled first, an
+    // undo put back a null shape for any object not read since the open.
+    // Nobody looking costs nothing: the entry is then dropped unread.
     aboutToSetValue();
+    // An unserved parked entry is dead: the value it would bring is
+    // being overwritten. Never serve it after this.
+    cancelRestorePending();
     dropBlob(sh.getShape());
     // Made on copies of frozen inputs (ThawInputs, sec 27.82): what the
     // algorithm did not change goes back to the values' own.
@@ -1158,9 +1164,10 @@ void PropertyPartShape::setValue(const TopoShape& sh)
 
 void PropertyPartShape::setValue(const TopoDS_Shape& sh, bool resetElementMap)
 {
-    cancelRestorePending();
-    // Announced first, see setValue(const TopoShape&).
+    // Announced first, then the parked entry dropped, see
+    // setValue(const TopoShape&).
     aboutToSetValue();
+    cancelRestorePending();
     dropBlob(sh);
     const TopoDS_Shape shared = ThawInputs::shareBack(sh);
     makeImmutable(shared);

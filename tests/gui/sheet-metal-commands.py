@@ -847,10 +847,10 @@ def run():
             if edit is None:
                 return False
             edit.setText(text)
-            for kind in (QtCore.QEvent.KeyPress, QtCore.QEvent.KeyRelease):
-                QtWidgets.QApplication.sendEvent(
-                    edit, QtGui.QKeyEvent(kind, QtCore.Qt.Key_Return, QtCore.Qt.NoModifier)
-                )
+            # Return commits and closes the editor, which is then gone
+            QtWidgets.QApplication.sendEvent(
+                edit, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_Return, QtCore.Qt.NoModifier)
+            )
             pump(10)
             return True
 

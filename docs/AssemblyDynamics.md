@@ -3458,9 +3458,34 @@ Phase D1 is under way (2026-10-28):
     methods taking a placement made the same location.
   - Tests: TestDynamics' test_loads_on_rigid_group_gap; FEM's
     test_placed_references.
+  - Not yet: see the next entry's.
+- Built, D4a: a run's start reactions solved at it.
+  - **The start's reactions were taken back from the run's smallest
+    steps**, a line through those after 32 and after 64 of h / 1024, and
+    a contact begun in them was in them: the lever let go across two
+    steel posts turned at 141 rad/s^2 at the start for the 146.7 of one
+    with nothing under it, 3.6% under.
+  - Now solved at the start (`solveReactions()`): [M Cq'; Cq 0] [a; -L]
+    = [F; -g], F the start's forces -- a contact's as it stands, none
+    where it only touches -- and g the constraints' acceleration with
+    none, a motion's own and the velocities' turning: C's second
+    difference along the start's velocities over h / 64, through Chrono's
+    StateSolveCorrection with M alone. The system's accelerations and
+    reactions are put back after it: HHT starts from them, and the
+    run's frames are as without. The line through the smallest steps is
+    the fallback where the solve fails.
+  - Found by its test: the bodies' accelerations at the start, M^-1 (F +
+    Cq' L), took Cq after the smallest steps. A rod driven from level at
+    3 t + t^2 rad, turning at 3 rad/s, read 1.995 rad/s^2 for 2, its
+    centre -449.29 mm/s^2 for -450. The solve gives F + Cq' L at the
+    start itself.
+  - Both now as the closed forms to 1e-6: the lever's 146.7 rad/s^2; the
+    rod's centre -9 r along it and 2 r across, the hinge's force m (a -
+    g), the motor's torque m g r less I alpha.
+  - Tests: TestContact's test_start_with_contact (5% before, now 1e-6);
+    TestDynamics' test_start_driven.
   - Not yet: a part's own stress at a frame through an impact is a static
-    analysis of it (as above); a run's start reactions with a contact
-    begun in them.
+    analysis of it (as above).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

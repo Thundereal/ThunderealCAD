@@ -96,10 +96,32 @@ def _rigidGroup(assembly, component):
     }
 
 
+def _meeting(local, others):
+    """local's faces where it meets others: those sharing area with one,
+    (index, the shared part); else those touching one, (index, the face).
+    And whether they share area"""
+    touching = []
+    shared = []
+    for i, face in enumerate(local.Faces, 1):
+        for other in others:
+            if face.distToShape(other)[0] > 1e-6:
+                continue
+            touching.append((i, face))
+            common = face.common(other)
+            if common.Area > 1e-9 * face.Area:
+                shared.append((i, common))
+            break
+    return (shared, True) if shared else (touching, False)
+
+
 def _groupFaces(component, members):
     """The faces of component where it meets the others of its rigid group,
-    and their centre, in its own coordinates: those sharing area with
-    another's solid; else those touching one; else the one nearest them"""
+    their centre, in its own coordinates, the round about it they take in
+    and the gap to them: those sharing area with another's solid; else
+    those touching one. Meeting them nowhere, where it would meet those
+    nearest it -- within twice the least gap -- each moved across its gap
+    to it: a part held over a clearance, on what faces it across it, not
+    on a face along the edge nearest it, as near"""
     import Part
 
     local = Part.getShape(component, "", transform=False)
@@ -111,22 +133,17 @@ def _groupFaces(component, members):
         shape = Part.getShape(m, "", transform=False)
         shape.transformShape((toLocal * m.Placement).toMatrix())
         others.append(shape)
-    touching = []
-    shared = []
-    nearest = None
-    for i, face in enumerate(local.Faces, 1):
-        for other in others:
-            gap = face.distToShape(other)[0]
-            if nearest is None or gap < nearest[0]:
-                nearest = (gap, i, face)
-            if gap > 1e-6:
-                continue
-            touching.append((i, face))
-            common = face.common(other)
-            if common.Area > 1e-9 * face.Area:
-                shared.append((i, common))
-            break
-    chosen = shared or touching or ([(nearest[1], nearest[2])] if nearest else [])
+    chosen, shared = _meeting(local, others)
+    gap = 0.0
+    if not chosen and others:
+        nearest = [local.distToShape(other) for other in others]
+        gap = min(d for d, _, _ in nearest)
+        moved = []
+        for other, (d, pairs, _) in zip(others, nearest):
+            if d <= 2.0 * gap:
+                a, b = pairs[0]
+                moved.append(other.translated(a - b))
+        chosen, shared = _meeting(local, moved)
     if not chosen:
         raise ValueError("%s has no faces" % component.Label)
     area = sum(s.Area for _, s in chosen)
@@ -140,7 +157,16 @@ def _groupFaces(component, members):
     whole = sum(local.Faces[i - 1].Area for i, _ in chosen)
     if shared and area < 0.99 * whole:
         radius = max((v.Point - at).Length for _, s in chosen for v in s.Vertexes)
-    return ["Face%d" % i for i, _ in chosen], at, radius
+    return ["Face%d" % i for i, _ in chosen], at, radius, gap
+
+
+def groupGap(assembly, component):
+    """How far component stands from the rest of its rigid group, where
+    it meets them nowhere: 0 where it does, None in no group"""
+    group = _rigidGroup(assembly, component)
+    if not group:
+        return None
+    return _groupFaces(component, group["Members"])[3]
 
 
 def movingParts(assembly, results=None):
@@ -198,7 +224,9 @@ def loadsOn(assembly, component, frame):
         the run's start. In a rigid group, the group's ("Group") is what
         the rest of it holds the part with, which the run does not split
         among its parts: what balances the others, on the faces where it
-        meets them (Faces, their names), at their centre;
+        meets them (Faces, their names), at their centre, on a Radius about
+        it where they share part of them (else 0); meeting them nowhere,
+        where it would across the Gap to them (else 0);
       Mass (kg), CenterOfMass, Inertia (rows, about the centre of mass,
         kg mm^2), Gravity (mm/s^2), Acceleration (the centre's -- in a
         rigid group, the group's motion at it -- mm/s^2),
@@ -500,7 +528,7 @@ def _freeBody(assembly, component, frame, results, sim, start):
     # the run does not split the group's loads among its parts -- on the
     # faces where it meets the others, at their centre
     if group:
-        faces, at, radius = _groupFaces(component, members)
+        faces, at, radius, gap = _groupFaces(component, members)
         p = here.multVec(at)
         f = -force
         t = -moment - _cross(p - centre, f)
@@ -514,6 +542,7 @@ def _freeBody(assembly, component, frame, results, sim, start):
                 "Reference": None,
                 "Faces": faces,
                 "Radius": radius,
+                "Gap": gap,
                 "Unique": True,
             }
         )

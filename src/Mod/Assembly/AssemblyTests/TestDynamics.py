@@ -1044,6 +1044,48 @@ class TestDynamics(unittest.TestCase):
         run, fem = series.HeldForce[0], series.FemHeldForce[0]
         self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
 
+    def test_loads_on_rigid_group_gap(self):
+        """test_loads_on_rigid_group_patch's arm hung 1 mm under the rod,
+        the two meeting nowhere: each held where it would meet the other
+        across the gap -- the rod on the 10 x 10 patch of its underside
+        over the arm, the arm on its top face -- not on the face nearest
+        first found, the rod's end and the arm's side as near along their
+        edges. Solved, the hold is the run's."""
+        import JointObject
+        import MotionLoads
+
+        rod = self.pendulum()
+        arm = self.box("Arm", (10, 10, 60), (100, 0, -61))
+        group = self.joints.newObject("Assembly::RigidGroupPython", "RigidGroupJoint")
+        JointObject.RigidGroupJoint(group, [rod, arm])
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        weight = 160 * 10 * 10 * 2.7e-6 * G
+        (onRod,) = [
+            l
+            for l in self.balanced(rod, [10], weight, 150.0)[0]["Loads"]
+            if l["Kind"] == "Group"
+        ]
+        self.assertEqual(onRod["Faces"], ["Face5"])
+        self.assertLess((onRod["Point"] - App.Vector(95, 5, 0)).Length, 1e-6)
+        self.assertAlmostEqual(onRod["Radius"], 50**0.5, delta=1e-6)
+        self.assertAlmostEqual(onRod["Gap"], 1.0, delta=1e-9)
+        (onArm,) = [
+            l
+            for l in self.balanced(arm, [10], weight, 150.0)[0]["Loads"]
+            if l["Kind"] == "Group"
+        ]
+        self.assertEqual(onArm["Faces"], ["Face6"])
+        self.assertEqual(onArm["Radius"], 0.0)
+        self.assertAlmostEqual(MotionLoads.groupGap(self.assembly, arm), 1.0, delta=1e-9)
+        if not MotionLoads.ccxBinary():
+            return
+        series = MotionLoads.solveFrames(self.assembly, rod, [10], maxSize=4.0)
+        run, fem = series.HeldForce[0], series.FemHeldForce[0]
+        self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
+
     def test_loads_on_driven(self):
         """The rod turned by a motion about its hinge, time^2, a kinematic
         run with its reactions: its free body's hinge load holds the motor's

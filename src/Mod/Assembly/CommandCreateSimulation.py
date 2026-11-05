@@ -3049,6 +3049,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                     "A redundant joint's load is one split of it among the joints sharing it.",
                 )
             )
+        notes += self.groupGapNotes(part)
         notes.append(
             translate("Assembly", "Run it with CalculiX from the FEM workbench: {}.").format(
                 analysis.Label
@@ -3147,6 +3148,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         notes += [
             held.format(100.0 * worst),
         ]
+        notes += self.groupGapNotes(part)
         if len(series.Frames) < len(frames):
             notes.append(
                 translate("Assembly", "Cancelled: {} of the {} frames were solved.").format(
@@ -3164,6 +3166,22 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         QMessageBox.information(
             self.form, translate("Assembly", "Loads to FEM"), "\n\n".join(notes)
         )
+
+    def groupGapNotes(self, part):
+        """A note where part meets the rest of its rigid group nowhere: what
+        holds it there is across the gap"""
+        import MotionLoads
+
+        gap = MotionLoads.groupGap(self.assembly, part)
+        if not gap:
+            return []
+        return [
+            translate(
+                "Assembly",
+                "It meets the rest of its rigid group nowhere, {:.3g} mm off them: held "
+                "where it faces them across that.",
+            ).format(gap)
+        ]
 
     def resultCurves(self):
         """The chosen channel's curves, in the shown unit: a vector's X, Y, Z

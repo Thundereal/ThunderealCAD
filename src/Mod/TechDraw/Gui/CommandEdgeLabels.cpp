@@ -24,6 +24,8 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
+#include <cmath>
 #include <map>
 #include <string>
 #include <vector>
@@ -49,8 +51,10 @@ namespace
 /** The labels a drawing view's sources give its edges, made or brought up
  * to date (Gui::ViewProvider::getEdgeInfo(), docs/SheetMetal.md sec 5.6)
  *
- * One label for each labelled source edge, at the middle of its longest
- * piece, a little off it. One there already moves with its edge, keeping
+ * One label for each labelled source edge, past an end of its longest piece
+ * -- the ends taken in turn across the view, so labels of edges side by side
+ * do not meet -- its leader to the piece a tenth in from that end. One there
+ * already moves with its edge, keeping
  * where the user put it against the edge; its text is the source's new one
  * unless the user wrote their own. One whose edge is gone goes, unless the
  * user wrote its text. Returns how many labels there are.
@@ -71,8 +75,8 @@ int importEdgeLabels(DrawViewPart* dvp)
     struct Found
     {
         std::string text;
-        Base::Vector3d mid;
-        Base::Vector3d along;
+        Base::Vector3d start;
+        Base::Vector3d end;
         double length = -1;
     };
     std::map<std::string, Found> found;
@@ -92,10 +96,10 @@ int importEdgeLabels(DrawViewPart* dvp)
         if (!given || info.label.empty()) {
             continue;
         }
-        const Base::Vector3d along = geom->getEndPoint() - geom->getStartPoint();
+        const Base::Vector3d start = geom->getStartPoint(), end = geom->getEndPoint();
         Found& f = found[name];
-        if (along.Length() > f.length) {
-            f = {info.label, geom->getMidPoint(), along, along.Length()};
+        if ((end - start).Length() > f.length) {
+            f = {info.label, start, end, (end - start).Length()};
         }
     }
 
@@ -110,8 +114,34 @@ int importEdgeLabels(DrawViewPart* dvp)
     // the view's geometry is scaled, Y down; a balloon's places are the
     // view's own, unscaled, Y up
     const double scale = dvp->getScale() > 0 ? dvp->getScale() : 1;
+    // the edges in order across the view, by their middles
+    std::vector<std::pair<std::string, const Found*>> order;
     for (const auto& [name, f] : found) {
-        const double ox = f.mid.x / scale, oy = -f.mid.y / scale;
+        order.emplace_back(name, &f);
+    }
+    std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) {
+        const Base::Vector3d ma = (a.second->start + a.second->end) / 2;
+        const Base::Vector3d mb = (b.second->start + b.second->end) / 2;
+        return ma.x != mb.x ? ma.x < mb.x : ma.y < mb.y;
+    });
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        const std::string& name = order[i].first;
+        const Found& f = *order[i].second;
+        // the end it stands past -- the upper one, or the left one of an
+        // edge across, then the other for the next edge -- and the way out
+        // of the edge there; the view's Y runs down
+        const bool startFirst = std::abs(f.start.y - f.end.y) > 1e-6 ? f.start.y < f.end.y
+                                                                       : f.start.x < f.end.x;
+        const bool atStart = (i % 2 == 0) == startFirst;
+        const Base::Vector3d tip = atStart ? f.start : f.end;
+        const Base::Vector3d from = atStart ? f.end : f.start;
+        Base::Vector3d out = tip - from;
+        if (out.Length() < 1e-9) {
+            out = Base::Vector3d(0, -1, 0);
+        }
+        out.Normalize();
+        const Base::Vector3d at = tip - out * (f.length / 10);
+        const double ox = at.x / scale, oy = -at.y / scale;
         DrawEdgeLabel* label = nullptr;
         double dx, dy;
         auto it = existing.find(name);
@@ -128,14 +158,11 @@ int importEdgeLabels(DrawViewPart* dvp)
             label->SourceView.setValue(dvp);
             label->SourceEdge.setValue(name);
             label->BubbleShape.setValue("None");
-            // 8 mm on the paper, across the edge
-            Base::Vector3d across(f.along.y, f.along.x, 0);
-            if (across.Length() < 1e-9) {
-                across = Base::Vector3d(1, 0, 0);
-            }
-            across.Normalize();
-            dx = across.x * 8 / scale;
-            dy = across.y * 8 / scale;
+            // 12 mm on the paper past the end, clear of the view's frame and
+            // its name; Y up
+            const Base::Vector3d stand = tip + out * 12;
+            dx = stand.x / scale - ox;
+            dy = -stand.y / scale - oy;
         }
         label->OriginX.setValue(ox);
         label->OriginY.setValue(oy);

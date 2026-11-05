@@ -1516,7 +1516,9 @@ stored flat and this option do what it was for.
   - `TechDraw::DrawEdgeLabel`, a balloon (`BubbleShape` None), edited as one, with `SourceEdge`
     (the edge's source name) and `SourceText` (what the source gave at the last import).
     TechDraw's Import Edge Labels (Annotations), on the selected part views, makes one for each
-    labelled source edge at the middle of its longest piece, 8 mm off it across, and on a second
+    labelled source edge past an end of its longest piece, 12 mm out (the upper end, then the
+    lower for the next edge across the view, so neighbours do not meet; picture-checked on the
+    manual's bracket), its leader a tenth in from that end, and on a second
     run moves each with its edge -- keeping where the user put it against the edge -- and gives
     it the source's new text unless the user wrote their own (`Text` other than `SourceText`).
     One whose edge is gone goes, unless its text is the user's (kept, and said). Generic: any

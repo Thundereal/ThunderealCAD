@@ -2817,6 +2817,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 )
                 self.runMessage.show()
         self.form.frameSlider.setMaximum(nFrms - 1)
+        self.fitPlayerLabels(nFrms)
         if fresh:
             self.setFrameValue(nFrms - 1)
         else:
@@ -3399,6 +3400,31 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         if k > 0 and time - times[k - 1] <= times[k] - time:
             return k - 1
         return k
+
+    def fitPlayerLabels(self, count):
+        """Not upstream: the frame's, time's and speed's labels as wide as the
+        widest they show, not their text now: the panel, as wide as they are,
+        widened and narrowed as it played"""
+        times = self.frameTimes()
+        end = times[-1] if times else count * float(self.simValues.TimeStepOutput)
+
+        def eights(text):
+            return "".join("8" if c.isdigit() else c for c in text)
+
+        # The time to timeText()'s most places
+        widest = {
+            self.form.FrameLabel: [
+                translate("Assembly", "Frame" + " " + eights(str(max(count - 1, 0))))
+            ],
+            self.form.FrameTimeLabel: [eights("%.9f s" % end)],
+            self.speedLabel: [
+                eights(SimulationPlayback.speedText(rate))
+                for rate in (1.0 / 888, 1.0 / 88.8, 1.0 / 8.88e4, 888)
+            ],
+        }
+        for label, texts in widest.items():
+            metrics = label.fontMetrics()
+            label.setMinimumWidth(max(metrics.horizontalAdvance(t) for t in texts))
 
     def showTime(self, time, frame, rate):
         """The labels and the plot at the run's time, its frame nearest"""

@@ -1539,6 +1539,24 @@ class TestGuiCommands(unittest.TestCase):
             self.assertTrue(panel.animationTimer.isActive())
             self.assertGreater(len(panel.playFrames), 121)
             panel.stopAnimation()
+            # The player's labels as wide at every frame, as wide as their
+            # widest, not their text then: as they were, the panel, as wide
+            # as they are, widened and narrowed as it played
+            labels = (panel.form.FrameLabel, panel.form.FrameTimeLabel, panel.speedLabel)
+
+            def widths():
+                seen = [set() for _ in labels]
+                for t, rate in panel.playFrames:
+                    panel.showPlayed(t, rate)
+                    for k, label in enumerate(labels):
+                        seen[k].add(max(label.sizeHint().width(), label.minimumWidth()))
+                return [len(s) for s in seen]
+
+            for label in labels:
+                label.setMinimumWidth(0)
+            self.assertEqual([n > 1 for n in widths()], [True, True, True])
+            panel.fitPlayerLabels(len(times))
+            self.assertEqual(widths(), [1, 1, 1])
             # Auto's slow motion, the study's
             self.assertFalse(panel.slowSpin.isHidden())
             self.assertEqual(sim.SlowMotion, 1.0)

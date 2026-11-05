@@ -279,7 +279,10 @@ if App.GuiUp:
             self.setMinimumHeight(170)
             self.setToolTip(translate("Assembly", "Click or drag to go to a time"))
             self.times = []
-            self.curves = []  # (name, values)
+            # (name, values), values one a frame; or (name, values, (times,
+            # samples)), drawn by its samples, at their own times
+            self.curves = []
+            self.sampleAxes = {}  # a sampled curve's times on the axis
             self.unit = ""
             self.bridge = set()
             self.time = None
@@ -309,13 +312,25 @@ if App.GuiUp:
             self.bridge = set(bridge)
             self.unit = unit
             self.axisTimes = None
+            self.sampleAxes = {}
             self.update()
 
         def setPlayback(self, playback):
             """The speed the run plays at, whose video's time the axis is"""
             self.playback = playback
             self.axisTimes = None
+            self.sampleAxes = {}
             self.update()
+
+        def curvePoints(self, k):
+            """Curve k's times on the axis and its values: a sampled one's
+            samples, else the frames'"""
+            entry = self.curves[k]
+            if len(entry) < 3:
+                return self.axisTimes, entry[1]
+            if k not in self.sampleAxes:
+                self.sampleAxes[k] = [self.toAxis(t) for t in entry[2][0]]
+            return self.sampleAxes[k], entry[2][1]
 
         def setTime(self, time):
             """The cursor at the run's time"""
@@ -392,8 +407,11 @@ if App.GuiUp:
             text = palette.color(QtGui.QPalette.WindowText)
             painter.fillRect(self.rect(), palette.color(QtGui.QPalette.Base))
             metrics = painter.fontMetrics()
+            if self.axisTimes is None:
+                self.axisTimes = [self.toAxis(t) for t in self.times]
+            sources = [self.curvePoints(k) for k in range(len(self.curves))]
             # None: a frame without a value (a stress series' frame not solved)
-            values = [v for _, curve in self.curves for v in curve if v is not None]
+            values = [v for _, curve in sources for v in curve if v is not None]
             if len(self.times) < 2 or not values:
                 self.area = None
                 painter.setPen(text)
@@ -401,8 +419,6 @@ if App.GuiUp:
                     self.rect(), Qt.AlignCenter, translate("Assembly", "No values to show")
                 )
                 return
-            if self.axisTimes is None:
-                self.axisTimes = [self.toAxis(t) for t in self.times]
             v0, v1 = self.shownWindow()
             if not v1 > v0:
                 v0, v1 = self.axisTimes[0], self.axisTimes[-1] or 1.0
@@ -413,8 +429,10 @@ if App.GuiUp:
             # where they show nothing there
             columns = max(1, int(self.width()))
             drawn = [
-                SimulationPlayback.peakSafe(self.axisTimes, curve, v0, v1, columns, self.bridge)
-                for _, curve in self.curves
+                SimulationPlayback.peakSafe(
+                    axis, curve, v0, v1, columns, self.bridge if axis is self.axisTimes else ()
+                )
+                for axis, curve in sources
             ]
             shown = SimulationPlayback.shownRange([r for runs in drawn for r in runs], v0, v1)
             whole = max(values) - min(values)
@@ -473,7 +491,7 @@ if App.GuiUp:
             xl = area.left()
             painter.save()
             painter.setClipRect(area.adjusted(-3, -3, 3, 3))
-            for k, (name, curve) in enumerate(self.curves):
+            for k in range(len(self.curves)):
                 colour = QtGui.QColor(self.COLOURS[k % len(self.COLOURS)])
                 painter.setPen(QtGui.QPen(colour, 1.5))
                 # A line through each run of values, a dot for one alone
@@ -484,7 +502,7 @@ if App.GuiUp:
                     else:
                         painter.drawEllipse(points[0], 2.0, 2.0)
             painter.restore()
-            for k, (name, curve) in enumerate(self.curves):
+            for k, (name, *_) in enumerate(self.curves):
                 if len(self.curves) > 1:
                     painter.setPen(QtGui.QColor(self.COLOURS[k % len(self.COLOURS)]))
                     painter.drawText(QtCore.QPointF(xl, metrics.ascent()), name)
@@ -2876,7 +2894,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def femChoice(self, parts):
         """The part to analyse and its frames: the frame shown (an analysis
         to run from the FEM workbench) or a range of them, solved now. (part,
-        [frame, ...], solve now), or None when cancelled."""
+        [frame, ...], solve now, the damping of its own vibration or None
+        without it), or None when cancelled."""
+        import MotionLoads
+
         times = self.results["Times"]
         shownFrame = self.form.frameSlider.value()
         dialog = QDialog(self.form)
@@ -2939,8 +2960,29 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         peaksOnly.setChecked(False)
         peaksOnly.setVisible(bool(between))
         grid.addWidget(peaksOnly, 4, 0, 1, 6)
+        # Not upstream: the part's own vibration, by its modes, between the
+        # frames too (MotionLoads.solveFrames' dynamic)
+        vibration = QtWidgets.QCheckBox(
+            translate("Assembly", "With its own vibration, by its modes; damped, % of critical:")
+        )
+        vibration.setToolTip(
+            translate(
+                "Assembly",
+                "Each frame is solved as it stands, and the part's held modes add how it\n"
+                "rings as the loads change from frame to frame: through an impact, its own\n"
+                "inertia takes the blow, and it rings after. Its stress is then sampled\n"
+                "between the frames too. The frames should follow each other: every\n"
+                "frame, each impact's all",
+            )
+        )
+        grid.addWidget(vibration, 5, 0, 1, 5)
+        damping = QtWidgets.QDoubleSpinBox()
+        damping.setRange(0.0, 50.0)
+        damping.setDecimals(2)
+        damping.setValue(100.0 * MotionLoads.DAMPING)
+        grid.addWidget(damping, 5, 5)
         count = QLabel()
-        grid.addWidget(count, 5, 0, 1, 6)
+        grid.addWidget(count, 6, 0, 1, 6)
 
         def peaksOf(part):
             channels = [
@@ -2972,6 +3014,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             for spin in spins:
                 spin.setEnabled(many.isChecked())
             peaksOnly.setEnabled(many.isChecked())
+            vibration.setEnabled(many.isChecked())
+            damping.setEnabled(many.isChecked() and vibration.isChecked())
             frames = chosen()
             count.setEnabled(many.isChecked())
             count.setText(
@@ -2984,18 +3028,22 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             spin.valueChanged.connect(update)
         many.toggled.connect(update)
         peaksOnly.toggled.connect(update)
+        vibration.toggled.connect(update)
         partCombo.currentIndexChanged.connect(update)
         update()
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        grid.addWidget(buttons, 6, 0, 1, 6)
+        grid.addWidget(buttons, 7, 0, 1, 6)
         if dialog.exec() != QDialog.Accepted:
             return None
         part = parts[partCombo.currentIndex()]
         if many.isChecked():
-            return part, chosen(), True
-        return part, [shownFrame], False
+            dynamic = None
+            if vibration.isChecked():
+                dynamic = damping.value() / 100.0
+            return part, chosen(), True, dynamic
+        return part, [shownFrame], False, None
 
     def loadsToFem(self):
         """Not upstream: a part of the run as a static stress analysis
@@ -3012,9 +3060,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         choice = self.femChoice(parts)
         if choice is None:
             return
-        part, frames, solveNow = choice
+        part, frames, solveNow, damping = choice
         if solveNow:
-            self.solveFemFrames(part, frames)
+            self.solveFemFrames(part, frames, damping)
             return
         frame = frames[0]
         doc = self.assembly.Document
@@ -3059,10 +3107,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.form, translate("Assembly", "Loads to FEM"), "\n\n".join(notes)
         )
 
-    def solveFemFrames(self, part, frames):
+    def solveFemFrames(self, part, frames, damping=None):
         """part at each of frames, solved by CalculiX (MotionLoads.
         solveFrames) behind a progress dialog with a Cancel; its stresses
-        then in the Results box"""
+        then in the Results box. damping: with its own vibration, its
+        modes damped so; None, without"""
         import MotionLoads
 
         progress = QProgressDialog(
@@ -3088,7 +3137,12 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         doc = self.assembly.Document
         doc.openTransaction("Loads to FEM")
         try:
-            series = MotionLoads.solveFrames(self.assembly, part, frames, progress=step)
+            if damping is None:
+                series = MotionLoads.solveFrames(self.assembly, part, frames, progress=step)
+            else:
+                series = MotionLoads.solveFrames(
+                    self.assembly, part, frames, progress=step, dynamic=True, damping=damping
+                )
         except (ValueError, ImportError) as e:
             doc.abortTransaction()
             progress.close()
@@ -3114,14 +3168,36 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         notes = [
             translate("Assembly", "{} solved at {} frames, held at {}.").format(
                 part.Label, len(series.Frames), series.Held.Label
-            ),
-            translate("Assembly", "Its largest von Mises stress: {:.4g} MPa at {:g} s.").format(
-                series.VonMises[peak], series.Times[peak]
-            ),
+            )
         ]
+        # With its own vibration: its stresses between the frames too, the
+        # frames' static ones beside them
+        dynamic = getattr(series, "Dynamic", False) and series.SampleTimes
+        times, whole, away = series.Times, series.VonMises, series.VonMisesAway
+        if dynamic:
+            notes.append(
+                translate(
+                    "Assembly",
+                    "With its own vibration, by its first {} modes held so ({:.4g} to {:.4g} "
+                    "Hz), each damped {:.3g}% of critical, from rest at the first frame.",
+                ).format(
+                    len(series.ModeFrequencies),
+                    series.ModeFrequencies[0],
+                    series.ModeFrequencies[-1],
+                    100.0 * series.Damping,
+                )
+            )
+            times = series.SampleTimes
+            whole, away = series.SampleVonMises, series.SampleVonMisesAway
+            peak = max(range(len(whole)), key=lambda k: whole[k])
+        notes.append(
+            translate("Assembly", "Its largest von Mises stress: {:.4g} MPa at {:g} s.").format(
+                whole[peak], times[peak]
+            )
+        )
         # Away from the loaded faces, where the couplings and the loads'
         # concentration do not reach
-        away = [(v, k) for k, v in enumerate(series.VonMisesAway) if not math.isnan(v)]
+        away = [(v, k) for k, v in enumerate(away) if not math.isnan(v)]
         if away:
             value, k = max(away)
             notes.append(
@@ -3129,7 +3205,19 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                     "Assembly",
                     "Away from the loaded faces (about a section's depth off them): "
                     "{:.4g} MPa at {:g} s.",
-                ).format(value, series.Times[k])
+                ).format(value, times[k])
+            )
+        if dynamic:
+            still = [v for v in series.StaticVonMisesAway if not math.isnan(v)]
+            notes.append(
+                translate(
+                    "Assembly",
+                    "Each frame as it stands, without the vibration: {:.4g} MPa at most, "
+                    "{} away from the loaded faces.",
+                ).format(
+                    max(series.StaticVonMises),
+                    "{:.4g} MPa".format(max(still)) if still else "-",
+                )
             )
         held = (
             translate(
@@ -3145,6 +3233,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 "{:.2g}% of the largest reaction, at every frame.",
             )
         )
+        if dynamic:
+            held += " " + translate("Assembly", "(Each frame as it stands.)")
         notes += [
             held.format(100.0 * worst),
         ]
@@ -3159,7 +3249,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             translate(
                 "Assembly", "The analysis is left at {:g} s with its result: {}."
             ).format(
-                series.Times[peak],
+                times[peak],
                 ", ".join(o.Label for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")),
             )
         )
@@ -3201,7 +3291,24 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                     ("Z", [v.z * factor for v in values]),
                     ("|%s|" % translate("Assembly", "total"), [v.Length * factor for v in values]),
                 ], unit
-            return [("", [v * factor if v is not None else None for v in values])], unit
+            scaled = [v * factor if v is not None else None for v in values]
+            # A stress series with the part's vibration: sampled between the
+            # frames too
+            if channel.get("Samples"):
+                samples = [v * factor if v is not None else None for v in channel["Samples"]]
+                if not channel.get("Static"):
+                    return [("", scaled, (channel["SampleTimes"], samples))], unit
+                # Each frame as it stands, beside it
+                static = [v * factor if v is not None else None for v in channel["Static"]]
+                return [
+                    (
+                        translate("Assembly", "vibrating"),
+                        scaled,
+                        (channel["SampleTimes"], samples),
+                    ),
+                    (translate("Assembly", "as it stands"), static),
+                ], unit
+            return [("", scaled)], unit
         return [], ""
 
     def showResult(self, index=None):
@@ -3225,7 +3332,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.resultValue.clear()
             return
         parts = []
-        for name, values in curves:
+        for name, values, *_ in curves:
             if frame < len(values):
                 if values[frame] is None:
                     value = translate("Assembly", "not solved at this frame")

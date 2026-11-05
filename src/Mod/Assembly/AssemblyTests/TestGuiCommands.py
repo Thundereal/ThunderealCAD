@@ -1310,6 +1310,74 @@ class TestGuiCommands(unittest.TestCase):
         combo.deleteLater()
         panel.resultsBox.deleteLater()
 
+    def test_results_sampled(self):
+        """A stress series with the part's own vibration has it sampled
+        between the frames too: the Results box draws the samples, a peak
+        between two frames to its height, each frame's static stress beside
+        them, and reads both at the frame"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        doc = self.doc
+        samples = [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+        values = [1.0, 2.0, 2.5, 9.0, 3.5, 1.0, 1.5]
+
+        class Results:
+            Document = doc
+
+            def getSimulationResults(self):
+                return {
+                    "Times": [0.0, 0.1, 0.2, 0.3],
+                    "Channels": [
+                        {
+                            "Object": None,
+                            "Name": "Series",
+                            "Quantity": "VonMises",
+                            "Values": [1.0, 2.5, 3.5, 1.5],
+                            "Unique": True,
+                            "SampleTimes": samples,
+                            "Samples": values,
+                            "Static": [1.0, 2.4, 3.0, 1.4],
+                        }
+                    ],
+                }
+
+            def updateForFrame(self, frame):
+                pass
+
+        assembly = panel.assembly
+        panel.assembly = Results()
+        try:
+            panel.fillResults()
+            self.assertEqual(
+                panel.resultCurves(),
+                (
+                    [
+                        ("vibrating", [1.0, 2.5, 3.5, 1.5], (samples, values)),
+                        ("as it stands", [1.0, 2.4, 3.0, 1.4]),
+                    ],
+                    "MPa",
+                ),
+            )
+            panel.form.frameSlider.setMaximum(3)
+            panel.form.frameSlider.setValue(2)
+            panel.showResultValue()
+            self.assertIn("vibrating 3.5 MPa", panel.resultValue.text())
+            self.assertIn("as it stands 3 MPa", panel.resultValue.text())
+            self.assertFalse(panel.resultPlot.grab().isNull())
+            low, high = panel.resultPlot.valueRange
+            self.assertGreaterEqual(high, 9.0)
+        finally:
+            panel.assembly = assembly
+        self.accept_task()
+        self.assertClean()
+
     def test_results_with_gaps(self):
         """A stress series' channel has a value only at the frames solved:
         the Results box plots the runs of values, and at a frame without

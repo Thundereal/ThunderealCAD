@@ -718,6 +718,172 @@ class TestDynamics(unittest.TestCase):
         self.assertEqual(list(stopped.Frames), frames[:4])
         self.assertEqual(list(stopped.VonMises), list(one.VonMises)[:4])
 
+    def test_modal_response(self):
+        """A mode's dynamic part through loads linear between frames, in
+        closed form (MotionLoads._modalResponse): y = q - c, q'' + 2 z w q'
+        + w^2 q = w^2 c, at rest at the first frame (q = c, q' = 0) --
+        against the same integrated by RK4 at a thousandth of the shortest
+        period, undamped and damped, to 1e-8 of c's largest. Loads that
+        stand still leave none."""
+        import numpy as np
+
+        import MotionLoads
+
+        omega = 2.0 * math.pi * np.array([1.0, 3.7, 11.0])
+        times = np.array([0.0, 0.3, 0.35, 0.9, 1.0, 1.6, 2.5])
+        c = np.array(
+            [
+                [0.0, 1.0, 1.0, -0.5, 2.0, 0.0, 0.3],
+                [1.0, 0.2, -1.0, 0.0, 0.5, 0.5, 0.5],
+                [0.5, 0.5, 1.5, 0.2, -0.7, 0.1, 0.0],
+            ]
+        )
+        grid = np.linspace(0.0, 2.5, 251)
+        h = 1e-3 / 11.0
+
+        def load(t):
+            k = min(max(np.searchsorted(times, t, side="right") - 1, 0), len(times) - 2)
+            w = (t - times[k]) / (times[k + 1] - times[k])
+            return (1.0 - w) * c[:, k] + w * c[:, k + 1]
+
+        for zeta in (0.0, 0.05):
+            got = MotionLoads._modalResponse(times, c, omega, zeta, grid)
+
+            def rate(t, q, v):
+                return v, omega**2 * (load(t) - q) - 2.0 * zeta * omega * v
+
+            q, v = c[:, 0].copy(), np.zeros(3)
+            t = 0.0
+            want = np.zeros_like(got)
+            want[:, 0] = q - load(0.0)
+            for j in range(1, len(grid)):
+                n = int(round((grid[j] - t) / h))
+                dt = (grid[j] - t) / n
+                for _ in range(n):
+                    k1 = rate(t, q, v)
+                    k2 = rate(t + dt / 2, q + dt / 2 * k1[0], v + dt / 2 * k1[1])
+                    k3 = rate(t + dt / 2, q + dt / 2 * k2[0], v + dt / 2 * k2[1])
+                    k4 = rate(t + dt, q + dt * k3[0], v + dt * k3[1])
+                    q = q + dt / 6 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
+                    v = v + dt / 6 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
+                    t += dt
+                want[:, j] = q - load(grid[j])
+            self.assertLess(np.abs(got - want).max(), 1e-8 * np.abs(c).max(), zeta)
+        still = MotionLoads._modalResponse(times, np.ones_like(c), omega, 0.0, grid)
+        self.assertEqual(np.abs(still).max(), 0.0)
+
+    def test_held_modes(self):
+        """The rod's modes held at its hinge, as To FEM's vibration takes
+        them (MotionLoads._Modes): orthogonal through the mass of its
+        10-node tetrahedra as built here (_tet10Mass, the nodes by where
+        they are), to 1e-4 (1.3e-5) -- a mass or a node order wrong is not
+        -- and the first, the rod clamped at its end, the beam's closed
+        form 1.875^2 / (2 pi) sqrt(E I / (rho A)) / L^2 to 1% (0.15%). Its
+        static state at the start, falling, made of its modes by its
+        shares of them (coordinate()): what they leave of it under 1e-4 of
+        it, by the mass (9.3e-6)."""
+        import os
+        import shutil
+        import tempfile
+
+        import numpy as np
+        from femtools import ccxtools
+
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        _, result = self.simulate(0.01, 1e-2)
+        self.assertEqual(result, 0)
+        analysis, body, _ = MotionLoads.makeAnalysis(self.assembly, rod, 0, maxSize=4.0)
+        solver = [o for o in analysis.Group if o.isDerivedFrom("Fem::FemSolverObjectPython")][0]
+        solver.AnalysisType = "frequency"
+        solver.EigenmodesCount = 8
+        mesh = [o for o in analysis.Group if o.TypeId == "Fem::FemMeshShapeNetgenObject"][0]
+        material = [o for o in analysis.Group if o.Name.startswith("LoadsMaterial")][0]
+        self.doc.recompute()
+        work = tempfile.mkdtemp(prefix="heldmodes_")
+        try:
+            fea = ccxtools.FemToolsCcx(analysis, solver, test_mode=True)
+            fea.update_objects()
+            fea.setup_working_dir(work)
+            fea.setup_ccx(MotionLoads.ccxBinary())
+            fea.write_inp_file()
+            self.assertEqual(fea.start_ccx(), 0)
+            modes = MotionLoads._Modes(os.path.splitext(fea.inp_file_name)[0], mesh.FemMesh)
+            solver.AnalysisType = "static"
+            self.doc.recompute()
+            fea.write_inp_file()
+            self.assertEqual(fea.start_ccx(), 0)
+            blocks = MotionLoads._frdFields(os.path.splitext(fea.inp_file_name)[0] + ".frd")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        n = len(modes.frequencies)
+        self.assertEqual(n, 8)
+        gram = np.array([[modes.inner(a, b) for b in modes.shapes] for a in modes.shapes])
+        scale = np.sqrt(np.outer(np.diag(gram), np.diag(gram)))
+        off = np.abs(gram / scale - np.eye(n)).max()
+        self.assertLess(off, 1e-4)
+        card = material.Material
+        e = App.Units.Quantity(card["YoungsModulus"]).getValueAs("MPa").Value
+        rho = body["Mass"] / (100.0 * 10.0 * 10.0) * 1e-3  # t/mm^3
+        beam = 1.875**2 / (2 * math.pi) * math.sqrt(e * 10.0**2 / 12.0 / rho) / 100.0**2
+        self.assertAlmostEqual(modes.frequencies[0], beam, delta=0.01 * beam)
+        # The static state by its shares of the modes
+        u = modes.align([b for b in blocks if b[0] == "DISP"][0])[:, :3]
+        c = modes.coordinate(u)
+        rebuilt = np.tensordot(c, modes.nodal, axes=1)
+        whole = modes.inner(u[modes.index], u[modes.index])
+        rest = u - rebuilt
+        self.assertLess(modes.inner(rest[modes.index], rest[modes.index]) / whole, 1e-4)
+
+    def test_loads_to_fem_vibration(self):
+        """To FEM's frames with the part's own vibration (D4a): the pendulum
+        swinging, its loads changing slowly against its first period -- 1.2
+        ms, the frames 10 ms apart -- rings by little, its stress at each
+        frame within 1e-3 (1.2e-4) of the largest of the frames' static
+        ones; the series' samples between the frames, at the frames the
+        same; the
+        analysis left at the largest sample, whose result is that field."""
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        frames = list(range(21))
+        series = MotionLoads.solveFrames(
+            self.assembly, rod, frames, maxSize=4.0, dynamic=True, damping=0.02
+        )
+        self.assertTrue(series.Dynamic)
+        self.assertEqual(len(series.ModeFrequencies), MotionLoads.MODES)
+        self.assertEqual(list(series.ModeFrequencies), sorted(series.ModeFrequencies))
+        largest = max(series.StaticVonMises)
+        for k, frame in enumerate(frames):
+            self.assertLess(
+                abs(series.VonMises[k] - series.StaticVonMises[k]), 1e-3 * largest, frame
+            )
+        # The samples: each frame's among them, its value the frame's;
+        # enough between them for the highest mode, at most SAMPLES
+        samples = list(series.SampleTimes)
+        self.assertEqual(samples, sorted(samples))
+        for k, time in enumerate(series.Times):
+            j = samples.index(time)
+            self.assertEqual(series.SampleVonMises[j], series.VonMises[k])
+        self.assertEqual(len(samples), MotionLoads.SAMPLES * 20 + 1)
+        analysis = [o for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")][0]
+        results = [o for o in analysis.Group if o.isDerivedFrom("Fem::FemResultObject")]
+        self.assertEqual(len(results), 1)
+        peak = max(series.SampleVonMises)
+        self.assertAlmostEqual(max(results[0].vonMises), peak, delta=1e-4 * peak)
+        channels = MotionLoads.stressChannels(self.assembly)
+        self.assertEqual([c["Quantity"] for c in channels], ["VonMises", "VonMisesAway"])
+        self.assertEqual(channels[0]["SampleTimes"], samples)
+        self.assertEqual(channels[0]["Samples"], list(series.SampleVonMises))
+        self.assertEqual(channels[0]["Static"], list(series.StaticVonMises))
+
     def test_loads_to_fem_frames(self):
         """The double pendulum's first rod solved at five frames of its run
         (MotionLoads.solveFrames, D4a step 5): one analysis, one mesh, held

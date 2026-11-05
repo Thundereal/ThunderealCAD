@@ -115,7 +115,7 @@ ResultQuantities = {
     # A part's stress analysis over frames of the run (MotionLoads.solveFrames):
     # its largest von Mises stress, at the frames solved
     "VonMises": (QT_TRANSLATE_NOOP("Assembly", "Largest von Mises stress"), 1.0, "MPa"),
-    # And away from the loaded faces, a mesh size off them
+    # And away from the loaded faces, about a section's depth off them
     "VonMisesAway": (
         QT_TRANSLATE_NOOP("Assembly", "Largest von Mises stress away from the loaded faces"),
         1.0,
@@ -3112,7 +3112,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             notes.append(
                 translate(
                     "Assembly",
-                    "Away from the loaded faces (a mesh size off them): {:.4g} MPa at {:g} s.",
+                    "Away from the loaded faces (about a section's depth off them): "
+                    "{:.4g} MPa at {:g} s.",
                 ).format(value, series.Times[k])
             )
         held = (

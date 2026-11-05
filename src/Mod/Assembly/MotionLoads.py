@@ -850,21 +850,58 @@ def _vonMises(frd, near=None):
     return float(vm[k]), ids[k], float(vm[j]), ids[j]
 
 
+def _sectionDepth(coords, axes, point, size):
+    """About the part's section depth at point: the shortest of its spans
+    through it along its principal axes, each from where the line first
+    meets the mesh to where it last leaves it (the nodes within a mesh size
+    of the line; across a bore, its wall to the far one). A load spread on
+    a face there evens out into the section within about that (Saint
+    Venant's). Never less than size."""
+    import numpy as np
+
+    rel = coords - np.asarray(point, dtype=float)
+    best = None
+    for axis in axes:
+        t = rel @ axis
+        off = np.linalg.norm(rel - np.outer(t, axis), axis=1)
+        t = t[off <= size]
+        if len(t):
+            span = float(t.max() - t.min())
+            best = span if best is None else min(best, span)
+    return max(best or 0.0, size)
+
+
 def _nearLoads(objects, size, cache):
     """The mesh's node ids by the loaded faces, where a coupling's own
     stiffness or the load's concentration is what the stress shows (Saint
-    Venant's): within size of the hold's faces and of a whole-face
-    coupling's, and within its radius and size of a coupling on a patch
-    round its point. cache keeps each face's by its name."""
+    Venant's): within about a section's depth (_sectionDepth, at least
+    size) of the hold's faces and of a whole-face coupling's, and within
+    its radius and the depth there of a coupling on a patch round its
+    point. cache keeps each face's by its name, and the depths."""
     import numpy as np
 
     if "Ids" not in cache:
         nodes = objects["Mesh"].FemMesh.Nodes
         cache["Ids"] = list(nodes.keys())
-        cache["Coords"] = np.array([[v.x, v.y, v.z] for v in nodes.values()])
+        coords = np.array([[v.x, v.y, v.z] for v in nodes.values()])
+        cache["Coords"] = coords
+        # The part's principal axes, by its nodes' spread
+        centred = coords - coords.mean(axis=0)
+        cache["Axes"] = np.linalg.eigh(centred.T @ centred)[1].T
     ids = cache["Ids"]
     coords = cache["Coords"]
+    axes = cache["Axes"]
     shape = objects["Copy"].Shape
+    depths = cache.setdefault("Depths", {})
+
+    def depth(point):
+        # A patch moves with its contact: its depth by where it is, to a
+        # half mesh size
+        key = tuple(int(round(2.0 * c / size)) for c in point)
+        if key not in depths:
+            depths[key] = _sectionDepth(coords, axes, point, size)
+        return depths[key]
+
     near = set()
     for rb in objects["Couplings"]:
         if getattr(rb, "Suppressed", False):
@@ -872,20 +909,23 @@ def _nearLoads(objects, size, cache):
         radius = rb.CouplingRadius.Value if hasattr(rb, "CouplingRadius") else 0.0
         if radius > 0.0:
             ref = rb.ReferenceNode
-            d = np.linalg.norm(coords - np.array([ref.x, ref.y, ref.z]), axis=1)
-            near.update(ids[k] for k in np.nonzero(d <= radius + size)[0])
+            ref = (ref.x, ref.y, ref.z)
+            d = np.linalg.norm(coords - np.array(ref), axis=1)
+            near.update(ids[k] for k in np.nonzero(d <= radius + depth(ref))[0])
             continue
         for name in rb.References[0][1]:
             if name not in cache:
                 import Part
 
                 face = shape.getElement(name)
+                at = face.CenterOfMass
+                margin = depth((at.x, at.y, at.z))
                 box = face.BoundBox
-                box.enlarge(size)
+                box.enlarge(margin)
                 found = set()
                 for k, (x, y, z) in enumerate(coords):
                     if box.isInside(App.Vector(x, y, z)):
-                        if face.distToShape(Part.Vertex(App.Vector(x, y, z)))[0] <= size:
+                        if face.distToShape(Part.Vertex(App.Vector(x, y, z)))[0] <= margin:
                             found.add(ids[k])
                 cache[name] = found
             near |= cache[name]
@@ -948,7 +988,8 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
     doc.recompute()
     back = objects["Placement"].inverse()
     nodes = objects["Mesh"].FemMesh.Nodes
-    # Away from the loaded faces: a mesh size off them
+    # Away from the loaded faces: about a section's depth off them, at
+    # least a mesh size
     size = getattr(objects["Mesh"].MaxSize, "Value", objects["Mesh"].MaxSize)
     cache = {}
     runForce = _runMark(assembly, results, heldJoint, component)
@@ -1051,8 +1092,8 @@ class StressSeries:
         (
             "App::PropertyFloatList",
             "VonMisesAway",
-            "The largest away from the loaded faces, a mesh size off them and off a load's "
-            "patch: what the couplings' own stiffness and the loads' concentration leave "
+            "The largest away from the loaded faces, about a section's depth off them and off "
+            "a load's patch: what the couplings' own stiffness and the loads' concentration leave "
             "out, MPa; NaN where nothing is that far",
         ),
         ("App::PropertyVectorList", "VonMisesAwayAt", "Where it is, mm"),

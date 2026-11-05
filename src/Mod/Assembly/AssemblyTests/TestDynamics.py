@@ -634,6 +634,37 @@ class TestDynamics(unittest.TestCase):
         scale = (force.Length + weight) * 100.0
         self.assertLess((total("ROTNODE") - torque).Length, 5e-3 * scale)
 
+    def test_section_depth(self):
+        """The margin the stress away from the loaded faces leaves: about a
+        section's depth, the shortest span through the point along the
+        part's principal axes -- a bar's thinner side, at its middle or at
+        its end; across a bore, wall to wall; never less than the mesh
+        size"""
+        import numpy as np
+
+        import MotionLoads
+
+        # A bar 120 x 10 x 8, its nodes 1 mm apart, turned off the axes
+        grid = np.mgrid[0:121, 0:11, 0:9].reshape(3, -1).T.astype(float)
+        turn = App.Rotation(App.Vector(1, 2, 3), 35).toMatrix()
+        m = np.array([[turn.A[4 * r + c] for c in range(3)] for r in range(3)])
+        coords = grid @ m.T
+        centred = coords - coords.mean(axis=0)
+        axes = np.linalg.eigh(centred.T @ centred)[1].T
+
+        def depth(point, size=1.0, nodes=coords):
+            return MotionLoads._sectionDepth(nodes, axes, m @ np.array(point), size)
+
+        self.assertAlmostEqual(depth((60, 10, 4)), 8.0, delta=1e-9)
+        self.assertAlmostEqual(depth((0, 5, 4)), 8.0, delta=1e-9)
+        self.assertAlmostEqual(depth((60, 10, 4), size=12.0), 12.0)
+        # A bore of 3 mm round its end, along its 8 mm: from the bore's
+        # axis, the line along it is in the bore, and across it the bar's
+        # 10 mm depth, wall to wall
+        bored = [p for p in grid if (p[0] - 5) ** 2 + (p[1] - 5) ** 2 > 9]
+        nodes = np.array(bored) @ m.T
+        self.assertAlmostEqual(depth((5, 5, 4), nodes=nodes), 10.0, delta=1e-9)
+
     def test_loads_to_fem_frames(self):
         """The double pendulum's first rod solved at five frames of its run
         (MotionLoads.solveFrames, D4a step 5): one analysis, one mesh, held
@@ -701,9 +732,10 @@ class TestDynamics(unittest.TestCase):
         peak = max(series.VonMises)
         self.assertAlmostEqual(max(results[0].vonMises), peak, delta=1e-6 * peak)
 
-        # Away from the loaded faces: a mesh size (4 mm) off both end faces,
-        # where the hold and the other hinge's coupling are, and no more
-        size = 4.0
+        # Away from the loaded faces: the rod's section's depth (10 mm, more
+        # than the mesh size) off both end faces, where the hold and the
+        # other hinge's coupling are, and no more
+        size = 10.0
         for k, frame in enumerate(frames):
             away, at = series.VonMisesAway[k], series.VonMisesAwayAt[k]
             self.assertLessEqual(away, series.VonMises[k] + 1e-12, frame)

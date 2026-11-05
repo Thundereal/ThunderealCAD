@@ -458,10 +458,10 @@ its tracker, not ported.
 | **Rip** | A gap cut along an edge of a closed solid, so it can unfold. Built in M4 as a feature of its own: a tube's bend cut open at its corner, or a wall cut down its middle (sec 12). | B1 15 |
 | **Cutout** | A closed sketch cut normal to the sheet on every wall and bend it crosses. | B1 18 |
 | **Wrap cutout** | A sketch cut as if drawn on the flat: through the flat, and folded back (refold, 4.1). Built in M2 as the cutout's `Wrap` (sec 12). | B1 17 |
-| **Notch at a bend** | A small V or slot at each end of a bend line on the outline, for the press brake operator. | -- (#622) |
+| **Notch at a bend** | A small V or slot at each end of a bend line on the outline, for the press brake operator. Built in M4 as the flat object's `Notch` (sec 12). | -- (#622) |
 | **Hinge and perforation cuts** | Slots along a bend line so it can be bent by hand, or a laser living hinge: straight, tiled from a sketch, or wave; drawn in the flat. Built in M2 as **Bend Cuts** (sec 12). | B1 5 (perforation), B1 10 (hinge cuts) |
 | **Tab and slot** | Tabs on the edge of one wall and matching slots cut through another it meets, with a clearance, so laser-cut parts locate themselves for welding. | -- (SOLIDWORKS, gk) |
-| **Cross break** | Two diagonals drawn on a panel as bend lines of a small angle, shown in the flat. | -- |
+| **Cross break** | Two diagonals drawn on a panel as bend lines of a small angle, shown in the flat. Built in M4 as a feature of its own (sec 12). | -- |
 
 Holes, pockets, fillets and chamfers of flat corners, patterns and mirrors are PartDesign's own
 (3.2).
@@ -667,7 +667,7 @@ feature following the rule; OK is one undo step, Cancel puts it all back.
 | M1 | **A first part end to end.** Base wall (plate and profile), Flange with the full option set, extend wall, names by role, the model carried by name through a Pocket and a Hole (4.2 way 2), the flat pattern with both skins and its orientation, the manufacturing properties, the DXF. | Python: flat length of an L, U and box equals the hand sum of legs and allowances at 1e-6; a countersunk hole survives into the flat; a flange end referenced downstream survives an edit upstream; save and reopen; frozen and unfrozen. A 64-flange chain against M0's target. | L |
 | M2 | **Edges, corners, cuts.** In this order (ruled 2026-11-02): hem; corner relief and corner closure; cutout; fold and jog; tab; contour flange; bend between walls; wrap cutout; hinge and perforation cuts; checks (7). The bend relief's override per feature first (built). | per tool, as M1; a wrap cutout across two bends is the same hole in the flat as cut there directly. | L |
 | M3 | **Convert and recognise.** Convert a solid or shell, rip; the geometry recogniser for imported parts. | the M1 parts exported to STEP and read back give the same flat as their features do; a hand-made shell converts and flattens to the hand value. | M |
-| M4 | **Flat state, the table and drawings.** In this order (ruled 2026-11-04): the bend table panel with overrides, the Rip of its own, multi-sheet export, the drawings of 5.6, flat-only markings, notches and cross break. Unfold / refold of picked bends dropped: the Wrap frame does its work. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
+| M4 | **Flat state, the table and drawings.** In this order (ruled 2026-11-04): the bend table panel with overrides, the Rip of its own, multi-sheet export, the drawings of 5.6, flat-only markings, notches and cross break; all built by 2026-11-05. Unfold / refold of picked bends dropped: the Wrap frame does its work. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
 | M5 | **Forms, lofted flanges and the rolled wall** (moved from M2, ruled 2026-11-02: it needs walls that are not plane in the sheet model, and the lofted flange's development). User tools and the built-in set (gusset among them); starter shapes; tab and slot; the flat's three ways of showing a form; lofted flange developed exactly for cones and by facets otherwise. | a cone's development against the closed form; a form kept in the flat is the same solid moved. | M |
 | M6 | **Not built** (question e). **The addon's documents** (6). | a set of addon files saved by addon 0.8.26, converted, and their flats against hand values. The files are made by the user or from the addon's own examples; this session does not run the addon (3.5). | S |
 
@@ -1556,6 +1556,56 @@ stored flat and this option do what it was for.
   sketches all marked already, it takes them off and shows them; one outside the sheet's body is
   refused in the report view. Not on the browser's allowlist, as Bend Table is not.
   `TestSheetMetalFlatMarkings` (12; before, all 12 errored), `sheet-metal-commands.py` (84, +6).
+- **Ruled 2026-11-05, notches and cross break:** notches are the flat object's only, a setting
+  (None, V or Slot, a depth and a width), cut in the flat and its files only where a bend line
+  meets the outer outline -- not at holes or reliefs; the folded part is not notched. A cross
+  break is a feature of its own on picked walls, its angle 3 deg at first, up or down; the solid
+  is unchanged, the X drawn in 3D and the diagonals in the flat in a style of their own, with a
+  note `CROSS BREAK UP 3deg` through `getEdgeInfo()`, and a DXF layer `CROSS_BREAK`.
+- **Built 2026-11-05, M4's sixth item, notches:** the flat object's `Notch` (None, V, Slot),
+  `NotchDepth` and `NotchWidth` (1 mm each). `SheetMetal::notchTools()` makes a prism through
+  the blank where a segment of a bend's line ends on the outer wire of the blank's top (its faces
+  merged), on an edge that is straight (a line, or a curve whose middle lies on its chord) within
+  10 deg of square to the line: a hole the line runs over is an inner wire, and a corner's miter
+  (a B-spline, oblique) or round relief is not straight and square, so neither is notched. A
+  rectangular bend relief beside a partial flange leaves the bend's own end on the outline,
+  square: it is notched, as any end is. A V's sides pass through the outline the width apart, its
+  tip the depth in; a tool reaches past the outline by half the larger of the two, but no more than
+  half way to any blank across a gap (a ray out from the end), so two flanges a gap apart along
+  one edge do not cut each other. A segment no longer than twice the depth is not notched. The
+  flat object cuts them by the element map (`withNotches()`, before `withMarkings()`; together
+  `finished()`, which `exportFlat()` takes for the tip's flat), and each bend's line and tangent
+  line is cut to the blank again (`onBlank()`), so a line stops at its notch. `flatShape()` now
+  builds every flat's compound for `layFlat()` and the flat object alike, and `measureFlat()` its
+  size and area: `FlatArea` counts the notches out. Every feature's flat and the folded part have
+  none. A notch of no size is refused in `Status`, the last flat kept. `TestSheetMetalFlatNotches`
+  (11; before, all 11 errored); the mitred corner's volume is measured to 1e-5 (its faces are
+  B-splines).
+- **Built 2026-11-05, M4's last item, cross break:** `PartDesign::SheetMetalCrossBreak`
+  (`Faces`, of the feature it builds on, a face of each wall; `Angle`, 3 deg, above 0 and up to
+  45; `Reversed`). The solid passes through; each wall picked gets `Element::crossBreak`, rad,
+  signed along the wall frame's normal so it rises out of the face picked (into it Reversed),
+  saved as the `Wall`'s `crossBreak` attribute only where there is one (a file without reads as
+  before), `CrossBreak` (deg) from Python. A bend's face is refused. `flatten()` lays each break
+  out: the wall's largest plane face whose outer normal goes the way it rises
+  (`crossBreakFace()`), found among the laid faces, and its `diagonals()` -- corner to corner of
+  its bounds in the frame of its longest straight edge, each cut to where it first and last meets
+  the face -- lifted onto the top, Up where that face is the top. So every feature's flat after
+  the break has them (a sketch may take one), named `Wall1CrossBreak1`, `...2`; the flat
+  object's `CrossBreaks` says Up or Down by wall, and a second skin turns it over. DXF and SVG:
+  layer `CROSS_BREAK` (SVG dash-dotted `#e08000`), the note at the crossing on `LABELS`,
+  `CROSS BREAK UP 3%%d` in the DXF (its degree code) and `&#176;` in the SVG
+  (`crossBreakNote()`). In 3D, `crossBreakLines()` (and from Python) gives the diagonals on the
+  face picked, drawn by the feature's view dash-dotted orange, unpicked, while it is shown: the
+  folded part shows the X only while the Cross Break is the tip or edited, not under a later
+  feature. The flat's view has a sixth kind (`ShowCrossBreaks`, `CrossBreakColor`,
+  `CrossBreakStyle` Dashdot, `CrossBreakWidth`); `getEdgeInfo()` gives a drawing its style and,
+  on the first diagonal, the note, which Import Edge Labels makes a label. Cross Break is on the
+  Sheet Metal tool bar and the browser's allowlist (the usual feature panel: faces, Angle,
+  Reversed). `TestSheetMetalCrossBreak` (11; before, all 11 errored), `sheet-metal-commands.py`
+  (90, +6), `sheet-metal-panels.py` (70, +2), `serve-sheet-metal.py` (17),
+  `serve-toolbar-browser.py` (21). The manual: notches on the Flatten page, Cross Break a page
+  of its own.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

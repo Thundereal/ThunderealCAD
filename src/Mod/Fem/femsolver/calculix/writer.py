@@ -112,10 +112,17 @@ units_information = """*********************************************************
 
 class FemInputWriterCcx(writerbase.FemInputWriter):
     def __init__(
-        self, analysis_obj, solver_obj, mesh_obj, member, dir_name=None, mat_geo_sets=None
+        self,
+        analysis_obj,
+        solver_obj,
+        mesh_obj,
+        member,
+        dir_name=None,
+        mat_geo_sets=None,
+        cache=None,
     ):
         writerbase.FemInputWriter.__init__(
-            self, analysis_obj, solver_obj, mesh_obj, member, dir_name, mat_geo_sets
+            self, analysis_obj, solver_obj, mesh_obj, member, dir_name, mat_geo_sets, cache
         )
         self.mesh_name = self.mesh_object.Name
         self.file_name = join(self.dir_name, self.mesh_name + ".inp")

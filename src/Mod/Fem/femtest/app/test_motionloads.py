@@ -224,6 +224,64 @@ class TestMotionLoads(unittest.TestCase):
         self.assertAlmostEqual(-near, point, delta=0.02 * point)
         self.assertAlmostEqual(-whole, spread, delta=0.03 * spread)
 
+    def test_mesh_sets_cache(self):
+        """One FemToolsCcx writing again and again keeps its mesh's tables
+        and each reference's nodes (MeshSetsGetter's cache): its input the
+        same as a fresh one's as a coupling moves to another face, takes a
+        radius and the mesh is made again; ccx_process runs it into a file,
+        one thread."""
+        from femtools import ccxtools
+
+        self.bar()
+        rb = self.coupling(ForceY="100 N")
+        kept = ccxtools.FemToolsCcx(self.analysis, self.solver, test_mode=True)
+        kept.update_objects()
+        kept.setup_working_dir(self.dir)
+
+        def cards(text):
+            # Not its comments: the time it was written is one
+            return "\n".join(s for s in text.splitlines() if not s.startswith("**"))
+
+        def both():
+            kept.write_inp_file()
+            with open(kept.inp_file_name) as f:
+                cached = cards(f.read())
+            problems, fresh = self.write()
+            self.assertEqual(problems, "")
+            return cached, cards(fresh)
+
+        cached, fresh = both()
+        self.assertEqual(cached, fresh)
+        self.assertIn("Nodes", [k[0] for k in kept.mesh_sets_cache if isinstance(k, tuple)])
+        cached, again = both()
+        self.assertEqual(cached, fresh)
+        rb.References = [(self.box, "Face6")]
+        rb.ReferenceNode = FreeCAD.Vector(L / 2, A / 2, A)
+        rb.CouplingRadius = "3 mm"
+        self.doc.recompute()
+        cached, fresh = both()
+        self.assertEqual(cached, fresh)
+        self.assertRegex(cached, r"\*COUPLING, REF NODE=\d+, SURFACE=Tip_Surface")
+        mesh = [o for o in self.analysis.Group if o.isDerivedFrom("Fem::FemMeshObject")][0]
+        count = mesh.FemMesh.NodeCount
+        mesh.MaxSize = 4.0
+        self.doc.recompute()
+        self.assertNotEqual(mesh.FemMesh.NodeCount, count)
+        cached, fresh = both()
+        self.assertEqual(cached, fresh)
+
+        binary = ccx_binary()
+        if not binary:
+            self.skipTest("no CalculiX binary")
+        kept.setup_ccx(binary)
+        kept.write_inp_file()
+        base = os.path.splitext(kept.inp_file_name)[0]
+        with open(base + ".out", "wb") as out:
+            self.assertEqual(kept.ccx_process(kept.inp_file_name, 1, out).wait(), 0)
+        self.assertTrue(os.path.exists(base + ".dat"))
+        with open(base + ".out", errors="replace") as f:
+            self.assertIn("Job finished", f.read())
+
     def test_rigid_coupling_radius(self):
         """A rigid coupling with a radius holds only its faces' nodes within
         it of its reference node -- the part of a face another part shares --

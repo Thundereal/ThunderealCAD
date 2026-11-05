@@ -92,6 +92,9 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
         self.ccx_binary_present = False
         self.analysis = None
         self.solver = None
+        # Not upstream: the mesh sets getter's lookups, kept between writes
+        # (meshsetsgetter.MeshSetsGetter's cache)
+        self.mesh_sets_cache = {}
 
         # TODO if something will go wrong in __init__ do not continue,
         # but do not raise a exception, break in a smarter way
@@ -368,6 +371,7 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
             self.solver,
             self.mesh,
             membertools.AnalysisMember(self.analysis),
+            cache=self.mesh_sets_cache,
         )
         # set masks
         masks = define_masks(self.solver)
@@ -397,6 +401,7 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
                 meshdatagetter.member,
                 self.working_dir,
                 meshdatagetter.mat_geo_sets,
+                cache=self.mesh_sets_cache,
             )
             self.inp_file_name = inp_writer.write_solver_input()
         except Exception:
@@ -483,10 +488,24 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
             FreeCAD.Console.PrintError(error_message)
 
     def start_ccx(self):
-        import multiprocessing
-
         self.ccx_stdout = ""
         self.ccx_stderr = ""
+        p = self.ccx_process()
+        self.ccx_stdout, self.ccx_stderr = p.communicate()
+        self.ccx_stdout = self.ccx_stdout.decode(errors="replace")
+        self.ccx_stderr = self.ccx_stderr.decode(errors="replace")
+        return p.returncode
+
+    def ccx_process(self, inp_file_name=None, threads=None, output=None):
+        """Not upstream: ccx started on an input file (the one written,
+        when none is given), not waited for -- its subprocess.Popen, its
+        output piped, or into output, a file, when given: a pipe nobody
+        reads until the run is collected stalls it once it is full.
+        threads, OMP_NUM_THREADS, is the preferences' (all the CPUs when
+        they ask for none) when not given: several runs at once take one
+        each."""
+        import multiprocessing
+
         self.ccx_prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/Fem/Ccx")
         # If number of CPU's specified
         num_cpu_pref = self.ccx_prefs.GetInt("AnalysisNumCPUs", 1)
@@ -496,7 +515,9 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
         # left OMP_NUM_THREADS set in FreeCAD after the run when it was not
         # set before.
         env = dict(os.environ)
-        if num_cpu_pref > 1:
+        if threads is not None:
+            env["OMP_NUM_THREADS"] = str(threads)
+        elif num_cpu_pref > 1:
             # If user picked a number use that instead
             env["OMP_NUM_THREADS"] = str(num_cpu_pref)
         else:
@@ -505,20 +526,16 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
         # no write permission; there is also a limit of the length of file names.
         # Not upstream: as the child's cwd, not FreeCAD's, which this changed for
         # the run and did not restore when it raised.
-        f = QtCore.QFileInfo(self.inp_file_name)
-        p = subprocess.Popen(
+        f = QtCore.QFileInfo(inp_file_name or self.inp_file_name)
+        return subprocess.Popen(
             [self.ccx_binary, "-i ", f.baseName()],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE if output is None else output,
+            stderr=subprocess.PIPE if output is None else subprocess.STDOUT,
             shell=False,
             env=env,
             cwd=f.path(),
             startupinfo=femutils.startProgramInfo(""),
         )
-        self.ccx_stdout, self.ccx_stderr = p.communicate()
-        self.ccx_stdout = self.ccx_stdout.decode(errors="replace")
-        self.ccx_stderr = self.ccx_stderr.decode(errors="replace")
-        return p.returncode
 
     def get_ccx_version(self):
         self.setup_ccx()

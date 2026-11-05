@@ -1485,7 +1485,7 @@ stored flat and this option do what it was for.
   `serve-sheet-metal.py` (16), `serve-toolbar-browser.py` (21).
 - **Built 2026-11-05, M4's fourth item, its first part: a drawing of the flat styles its lines as
   the flat does.** A TechDraw view takes the sheet's flat object as its source, as any shape. The
-  generic hook: `Gui::ViewProvider::getEdgeLineFormat(mappedName, format)` -- how a drawing draws
+  generic hook (renamed `getEdgeInfo()` the same day, below): how a drawing draws
   an edge of the object's, by the edge's mapped name: shown or not, a Qt line style, a colour, a
   width (0 for the drawing's). False, as every view provider answers unless it overrides it,
   leaves the edge to the drawing. `QGIViewPart::drawAllEdges()` asks the views of a drawing
@@ -1504,6 +1504,36 @@ stored flat and this option do what it was for.
   drawing's edges all black). The GUI check reads the drawing's colours from a render of the
   page's scene: TechDraw's edge items reach Python as plain QGraphicsItems, with no pen. Still to come in the item: the bend notes (angle, radius, direction) and the bend table
   as a drawing view.
+- **Ruled 2026-11-05, the rest of the drawings:** the hook gives an edge's label as well as its
+  style; TechDraw imports the labels as real labels the user edits; the bend table is a
+  spreadsheet of its own, synced by hand or at each recompute, and edited.
+- **Built 2026-11-05, the labels and the bend table:**
+  - The hook is `Gui::ViewProvider::getEdgeInfo(mappedName, info)` (was `getEdgeLineFormat`):
+    shown, style, colour, width, and `label`, UTF-8, empty for none; from Python
+    `vobj.getEdgeInfo(name)`, a dict or None. The flat's view labels a bend line by its own name
+    (not a piece's, nor a tangent line's) with its note, `UP 90deg R1` with the degree sign, the
+    angle and radius from the sheet's tip's model.
+  - `TechDraw::DrawEdgeLabel`, a balloon (`BubbleShape` None), edited as one, with `SourceEdge`
+    (the edge's source name) and `SourceText` (what the source gave at the last import).
+    TechDraw's Import Edge Labels (Annotations), on the selected part views, makes one for each
+    labelled source edge at the middle of its longest piece, 8 mm off it across, and on a second
+    run moves each with its edge -- keeping where the user put it against the edge -- and gives
+    it the source's new text unless the user wrote their own (`Text` other than `SourceText`).
+    One whose edge is gone goes, unless its text is the user's (kept, and said). Generic: any
+    source whose view gives labels.
+  - `PartDesign::sheetBends(obj)` (`PartDesign.sheetBends()`): the bend table alone, checkSheet's
+    rows without the faces and problems, the direction from the sheet's flat (`flatOf()`);
+    checkSheet builds its rows with the same code.
+  - `PartDesign::SheetMetalBendTable`, a `Spreadsheet::Sheet` (PartDesign links Spreadsheet when it
+    is built, `PARTDESIGN_WITH_SPREADSHEET`): `Source` (a sheet's solid or feature), `AutoSync`
+    (on: filled at each recompute), hidden `Generated` (each cell it wrote, as it reads back).
+    Header row, then a row a bend: name, the maker's label, angle, radius, K, allowance,
+    direction. A cell the user changed since the table wrote it stays theirs, and one it never
+    wrote is the user's (a column of notes); a bend gone empties its row but for the user's
+    cells. `PartDesign.syncBendTable(table, force=False)`; force takes its own cells back. Bend
+    Table (makes one for the selected or active sheet) and Sync Bend Table on the Sheet Metal
+    tool bar; edited in the spreadsheet editor; TechDraw's spreadsheet view draws it.
+  - `TestSheetMetalBendTable` (8), `sheet-metal-commands.py`.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

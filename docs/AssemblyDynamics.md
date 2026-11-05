@@ -3485,7 +3485,78 @@ Phase D1 is under way (2026-10-28):
   - Tests: TestContact's test_start_with_contact (5% before, now 1e-6);
     TestDynamics' test_start_driven.
   - Not yet: a part's own stress at a frame through an impact is a static
-    analysis of it (as above).
+    analysis of it (built, next).
+- Built, D4a: a part's own vibration through the run.
+  - **Each frame's analysis is the part as it stands**, balanced by its
+    rigid inertia: right where the loads change slowly against its own
+    periods, not through an impact. The places lever's landing, the
+    block's 528 N over some 60 us, is over in under a thirtieth of the
+    lever's first period held at its hinge (2.2 ms, 452 Hz): the frames
+    said 64.5 MPa under the block at the force's peak and 0.03 MPa a
+    millisecond later, where the lever, its own inertia taking the blow
+    first, is at 9 to 22 MPa during it and rings at 30 to 50 after it.
+  - Now To FEM's frames "With its own vibration" (`solveFrames(dynamic=
+    True)`): the held part's modes (20 by default, a CalculiX frequency
+    step on the same analysis), each frame solved as it stands, and the
+    mode-acceleration method between them. The loads are linear between
+    two frames, so the static response is the line between the frames'
+    solutions, exactly; the rest is the modes', each y_i'' + 2 z w y_i' +
+    w^2 y_i = -c_i'' - 2 z w c_i', c_i = phi_i^T M u the static
+    solution's share of the mode -- c linear between frames, so y a damped
+    sine from each frame on, in closed form (`_modalResponse()`): no
+    steps. From rest at the first frame. M is the 10-node tetrahedra's
+    consistent mass, built here (`_tet10Mass()`, the nodes by where they
+    are); the density cancels. The modes that see no change respond
+    statically, which the frames' solutions have.
+  - The stress is sampled between the frames, 8 a period of the highest
+    mode kept and at most 200 an interval; the series keeps the samples
+    (SampleTimes, SampleVonMises, SampleVonMisesAway) and each frame's
+    static stresses beside its own (StaticVonMises). The Results box
+    draws the samples and the frames as they stand under them; the
+    analysis is left at the largest sample, its result that field written
+    over the nearest frame's.
+  - Damping one ratio for every mode, 2% of critical by default, the
+    dialog's. It matters through an impact: the landing's window peaked
+    at 50.8 MPa undamped, 40.6 at 2%, 0.3 ms after the blow, its higher
+    modes'.
+  - Measured against CalculiX's own direct integration (*DYNAMIC, HHT, a
+    step per frame interval, the loads ramped across it) through the
+    landing: at 2.8 us increments, within a few percent of each other at
+    every frame of the impact (22.3 MPa against 22.3, 32.3 against 31.5,
+    35.8 against 36.0). CalculiX iterates Newton's method at each
+    increment however linear the model (0.6 s each here): after the blow
+    its 55 us increments fell behind the ringing, and 1.5 us through a
+    window would be 17 minutes an impact. The modal way took 14 s for the
+    window, 20 modes against 40 to 0.1%.
+  - The places page's run again, every frame (327, 226 through impacts),
+    in the manual's video (`assembly/simulation/loads-to-fem-vibration`):
+    163 s, the frames' solves 92 of it; 25929 samples. The largest 40.6
+    MPa at 64.18 ms, the lever's end at its hold, bending as it rings;
+    away from the loaded faces 29.5 MPa at 63.98 ms, mid-span, where the
+    frames as they stand had 13.6 at most (at a bounce, 121.8 ms) and
+    64.6 under the block.
+  - Found on the way, for that input: CalculiX adds a node's second
+    *CLOAD in a step to its first (the posts pushed twice), and takes one
+    amplitude a node's degree of freedom, which a distributing coupling
+    spreading its six onto the same face nodes breaks.
+  - Tests: TestDynamics' test_modal_response (the closed form against
+    RK4, undamped and damped, 1.2e-9 of c), test_held_modes (the modes
+    orthogonal through the mass to 1.3e-5, the first the clamped beam's
+    to 0.15%, the falling rod's static state made of its modes but 9.3e-6
+    of it), test_loads_to_fem_vibration (the pendulum, slow against its
+    1.2 ms, within 1.2e-4 of its static stress; the samples, the result
+    at the largest); TestGuiCommands' test_results_sampled.
+  - Not yet: one way -- the run's contacts and joints are its rigid
+    bodies', so the posts push as for a rigid lever and the block's
+    impact is a rigid one's; the part held stiff at its joint's faces, as
+    the static frames are -- a revolute's turn about its axis held too,
+    so the lever's modes are a cantilever's (452 Hz first) where a pinned
+    one's first would be some 4.4 times that, and its largest stress is
+    at that hold; held as its joint holds it, the turn left free, its
+    rigid mode left out and the frames solved by inertia relief, would
+    take that away. Its rotation's own stiffening and its large
+    motion's coupling to the modes left out; from rest at the first frame
+    solved.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

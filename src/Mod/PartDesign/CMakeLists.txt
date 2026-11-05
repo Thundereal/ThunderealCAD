@@ -83,6 +83,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestSheetMetalFlatLayout.py
     PartDesignTests/TestSheetMetalCheck.py
     PartDesignTests/TestSheetMetalBendOverride.py
+    PartDesignTests/TestSheetMetalRip.py
     PartDesignTests/TestSheetMetalConvert.py
     PartDesignTests/SheetMetalFlatView.py
     PartDesignTests/TestSheetMetalPart.py

@@ -269,8 +269,9 @@ public:
     bool getDetailPath(const char* subname, SoFullPath* path, bool append,
                        SoDetail*& det) const override;
     /// A drawing's look of a marking: its kind's style, colour, and shown
-    /// or not; the blank's edges are left to the drawing
-    bool getEdgeLineFormat(const char* mappedName, EdgeLineFormat& format) const override;
+    /// or not; a bend line's label its note, "UP 90deg R1"; the blank's
+    /// edges are left to the drawing
+    bool getEdgeInfo(const char* mappedName, EdgeInfo& info) const override;
 
     /** Draw \a shape, a flat as layFlat() makes it, each bend Up or Down by
      * \a directions: the object's own, or another's (a feature's, drawn by

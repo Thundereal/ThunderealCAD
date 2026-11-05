@@ -162,6 +162,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
     *annotations << "TechDraw_Annotation";
     *annotations << "TechDraw_RichTextAnnotation";
     *annotations << "TechDraw_Balloon";
+    *annotations << "TechDraw_ImportEdgeLabels";
     *annotations << "TechDraw_AxoLengthDimension";
 
     // stacking

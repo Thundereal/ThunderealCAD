@@ -43,6 +43,7 @@
 #include "DrawViewAnnotation.h"
 #include "DrawViewArch.h"
 #include "DrawViewBalloon.h"
+#include "DrawEdgeLabel.h"
 #include "DrawViewClip.h"
 #include "DrawViewCollection.h"
 #include "DrawViewDetail.h"
@@ -103,6 +104,7 @@ PyMOD_INIT_FUNC(TechDraw)
     TechDraw::DrawProjGroupItem   ::init();
     TechDraw::DrawViewDetail      ::init();
     TechDraw::DrawViewBalloon     ::init();
+    TechDraw::DrawEdgeLabel       ::init();
     TechDraw::DrawLeaderLine      ::init();
     TechDraw::DrawRichAnno        ::init();
 

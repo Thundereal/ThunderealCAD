@@ -309,6 +309,16 @@ elementName : str
     Name of the element. Optional.</UserDocu>
             </Documentation>
         </Methode>
+        <Methode Name="getEdgeInfo" Const="true">
+            <Documentation>
+                <UserDocu>getEdgeInfo(mappedName) -> dict or None
+
+What a drawing of the object shows of one of its edges, by the edge's mapped
+name, as TechDraw asks it: a dict of Visible, Style (a Qt pen style number),
+Color (r,g,b,a), Width (mm, 0 for the drawing's) and Label; None where the
+object leaves the edge to the drawing.</UserDocu>
+            </Documentation>
+        </Methode>
         <Methode Name="setElementColors">
             <Documentation>
                 <UserDocu>setElementColors(colors) -> None

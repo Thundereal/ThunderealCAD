@@ -1052,27 +1052,43 @@ def run():
         )
         if downBend in byEdge:
             mine = byEdge[downBend]
-            other = [o for k, o in byEdge.items() if k != downBend][0]
             mine.Text = "DOWN, hem side"
             moved = (mine.X.Value - mine.OriginX.Value + 5, mine.Y.Value - mine.OriginY.Value)
             mine.X = mine.OriginX.Value + moved[0]
-            radius = flange.Rule.BendRadius.Value
-            flange.Rule.BendRadius = radius + 1
+            before = {k: o.Text for k, o in byEdge.items()}
+            # laid by the other skin, every bend goes the other way
+            flat.SecondSkin = not flat.SecondSkin
             doc.recompute()
             pump(20)
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.Selection.addSelection(doc.Name, drawing.Name)
             FreeCADGui.runCommand("TechDraw_ImportEdgeLabels")
             pump(30)
+            rows = {b["Name"]: b for b in PartDesign.checkSheet(flat)["Bends"]}
+
+            def noteOf(name):
+                b = rows[name]
+                return "%s %g\u00b0 R%g" % (
+                    "DOWN" if flat.BendDirections.get(name) == "Down" else "UP",
+                    round(b["Angle"], 2),
+                    round(b["Radius"], 3),
+                )
+
+            stale = [
+                (k, o.Text, noteOf(k))
+                for k, o in byEdge.items()
+                if o is not mine and o.Text != noteOf(k)
+            ]
             check(
                 "imported again: a text the user wrote kept, the others the new notes, "
                 "a label moved by hand kept where it was against its edge",
                 mine.Text == "DOWN, hem side"
-                and ("R%g" % (radius + 1)) in other.Text
+                and not stale
+                and all(o.Text != before[k] for k, o in byEdge.items() if o is not mine)
                 and abs(mine.X.Value - mine.OriginX.Value - moved[0]) < 1e-6,
-                (mine.Text, other.Text, mine.X.Value - mine.OriginX.Value, moved),
+                (mine.Text, stale, mine.X.Value - mine.OriginX.Value, moved),
             )
-            flange.Rule.BendRadius = radius
+            flat.SecondSkin = not flat.SecondSkin
             doc.recompute()
         for o in labels:
             if doc.getObject(o.Name) is not None:

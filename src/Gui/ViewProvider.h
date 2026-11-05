@@ -535,21 +535,23 @@ public:
     virtual void setElementColors(const std::map<std::string, Base::Color> &colors) {
         (void)colors;
     }
-    /** How a drawing of the object draws one of its edges, by the edge's
+    /** What a drawing of the object shows of one of its edges, by the edge's
      * mapped name (TechDraw asks it of a view's source, docs/SheetMetal.md
      * sec 5.6): shown or not, a line style as Qt numbers them (1 solid, 2
-     * dash, 3 dot, 4 dash dot, 5 dash dot dot), its colour, and its width in
-     * mm, 0 for the drawing's own. False leaves the edge to the drawing.
+     * dash, 3 dot, 4 dash dot, 5 dash dot dot), its colour, its width in mm,
+     * 0 for the drawing's own, and a label for it, empty for none (a bend
+     * line's "UP 90deg R1"), UTF-8. False leaves the edge to the drawing.
      */
-    struct EdgeLineFormat {
+    struct EdgeInfo {
         bool visible = true;
         int style = 1;
         Base::Color color;
         double width = 0;
+        std::string label;
     };
-    virtual bool getEdgeLineFormat(const char *mappedName, EdgeLineFormat &format) const {
+    virtual bool getEdgeInfo(const char *mappedName, EdgeInfo &info) const {
         (void)mappedName;
-        (void)format;
+        (void)info;
         return false;
     }
     /** The elements' looks, each a whole material

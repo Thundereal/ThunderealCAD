@@ -25,7 +25,10 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <iomanip>
+#include <numbers>
 #include <regex>
+#include <sstream>
 
 #include <QTimer>
 
@@ -45,6 +48,8 @@
 #include <Gui/Control.h>
 #include <Gui/Document.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
+#include <Mod/PartDesign/App/SheetMetalExtension.h>
+#include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalParameters.h"
 #include "TaskSheetMetalRule.h"
@@ -607,23 +612,60 @@ int markingKind(std::string name, const std::map<std::string, std::string>& dire
 
 }  // namespace
 
-bool ViewProviderSheetMetalFlatPattern::getEdgeLineFormat(const char* mappedName,
-                                                          EdgeLineFormat& format) const
+namespace
+{
+
+/// A number as a note writes it: no more decimals than it has, at most 2
+std::string noteNumber(double v)
+{
+    std::ostringstream s;
+    s << std::fixed << std::setprecision(2) << v;
+    std::string text = s.str();
+    text.erase(text.find_last_not_of('0') + 1);
+    if (!text.empty() && text.back() == '.') {
+        text.pop_back();
+    }
+    return text;
+}
+
+}  // namespace
+
+bool ViewProviderSheetMetalFlatPattern::getEdgeInfo(const char* mappedName, EdgeInfo& info) const
 {
     auto flat = Base::freecad_dynamic_cast<PartDesign::SheetMetalFlatPattern>(getObject());
     if (!flat || !mappedName) {
         return false;
     }
-    const int k = markingKind(mappedName, flat->BendDirections.getValues());
+    const auto& directions = flat->BendDirections.getValues();
+    const int k = markingKind(mappedName, directions);
     if (k < 0) {
         return false;
     }
     const auto& kind = kinds[k];
-    format.visible = kind.show->getValue();
+    info.visible = kind.show->getValue();
     // the styles, Solid Dashed Dotted Dashdot, as Qt numbers them
-    format.style = static_cast<int>(kind.style->getValue()) + 1;
-    format.color = kind.color->getValue();
-    format.width = 0;
+    info.style = static_cast<int>(kind.style->getValue()) + 1;
+    info.color = kind.color->getValue();
+    info.width = 0;
+    // A bend line's own name, not a piece's nor a tangent line's, has the
+    // bend's note: which way, how far, at what radius, from the sheet's tip
+    std::string name(mappedName);
+    name = name.substr(0, name.find(';'));
+    auto direction = directions.find(name);
+    auto solid = flat->getSheet();
+    auto tip = solid ? solid->Tip.getValue() : nullptr;
+    auto ext = tip ? tip->getExtensionByType<PartDesign::SheetMetalExtension>(true) : nullptr;
+    if ((k == BendUp || k == BendDown) && direction != directions.end() && ext) {
+        const PartDesign::SheetMetal::Model model = ext->SheetModel.getValue();
+        const int index = model.find(name);
+        if (index >= 0) {
+            const auto& bend = model.elements[index].bend;
+            // the degree sign, UTF-8
+            info.label = (direction->second == "Down" ? "DOWN " : "UP ")
+                + noteNumber(std::abs(bend.angle) * 180 / std::numbers::pi) + "\xC2\xB0 R"
+                + noteNumber(bend.radius);
+        }
+    }
     return true;
 }
 

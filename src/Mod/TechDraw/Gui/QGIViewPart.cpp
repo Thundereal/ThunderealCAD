@@ -375,15 +375,15 @@ namespace
 {
 
 /// How the view of one of the drawing view's sources draws the edge of
-/// that source name, where one says (Gui::ViewProvider::getEdgeLineFormat())
+/// that source name, where one says (Gui::ViewProvider::getEdgeInfo())
 bool sourceFormat(const std::vector<Gui::ViewProvider*>& views, const std::string& name,
-                  Gui::ViewProvider::EdgeLineFormat& format)
+                  Gui::ViewProvider::EdgeInfo& format)
 {
     if (name.empty()) {
         return false;
     }
     for (auto vp : views) {
-        if (vp->getEdgeLineFormat(name.c_str(), format)) {
+        if (vp->getEdgeInfo(name.c_str(), format)) {
             return true;
         }
     }
@@ -446,7 +446,7 @@ void QGIViewPart::drawAllEdges()
                 // but we need to actually draw the lines in QGScene coords (0.1 mm).
                 item->setWidth(Rez::guiX(vp->formatWeightScaled(gf->m_format.m_weight)));
                 showItem = gf->m_format.m_visible;
-            } else if (Gui::ViewProvider::EdgeLineFormat source;
+            } else if (Gui::ViewProvider::EdgeInfo source;
                        sourceFormat(sourceViews, (*itGeom)->getSource3d(), source)) {
                 // as the source's view draws it: a sheet's flat, its bend
                 // lines up and down (docs/SheetMetal.md sec 5.6)

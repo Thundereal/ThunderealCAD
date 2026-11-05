@@ -683,6 +683,39 @@ FlatResult flatten(const TopoDS_Shape& folded,
         }
         res.bendLines.push_back(line);
     }
+    // Every marking on the blank's top, the side a drawing of the flat looks
+    // at: a down bend's line, on its inner skin, is on the underside, where a
+    // drawing's hidden-line removal drops it (TechDraw keeps no hidden line by
+    // default). Which way a bend goes is the line's up, not where it lies.
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(res.solid, box, /*useTriangulation*/ false,
+                           /*useShapeTolerance*/ false);
+    if (!box.IsVoid()) {
+        const double top = box.CornerMax().Z();
+        auto lift = [top](TopoDS_Edge& edge) {
+            if (edge.IsNull()) {
+                return;
+            }
+            const double z = BRep_Tool::Pnt(TopExp::FirstVertex(edge)).Z();
+            if (top - z > Precision::Confusion()) {
+                gp_Trsf up;
+                up.SetTranslation(gp_Vec(0, 0, top - z));
+                edge = TopoDS::Edge(BRepBuilderAPI_Transform(edge, up, true).Shape());
+            }
+        };
+        for (auto& line : res.bendLines) {
+            lift(line.edge);
+            for (auto& edge : line.segments) {
+                lift(edge);
+            }
+            for (std::size_t k = 0; k < line.tangents.size(); ++k) {
+                lift(line.tangents[k]);
+                for (auto& edge : line.tangentSegments[k]) {
+                    lift(edge);
+                }
+            }
+        }
+    }
     return res;
 }
 

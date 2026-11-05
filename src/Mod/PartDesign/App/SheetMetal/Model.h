@@ -101,6 +101,17 @@ public:
     int owner(const TopoDS_Face& face, double tol = 1e-7) const;
     /// Move every element
     void transform(const gp_Trsf& trsf);
+    /** Take an element out, every index after it moved down. A bend's walls
+     * stay; a wall still joined by a bend throws Base::ValueError.
+     */
+    void remove(int index);
+
+    /** The first bend that closes a loop of walls and bends -- a tube's --
+     * which does not lie flat; -1 for none
+     */
+    int closingBend() const;
+    /// The first wall not joined to the first wall by bends, -1 for none
+    int cutOff() const;
 
     /** What moves an element flat with root fixed: for a wall all of it,
      * for a bend what follows its own map (CylBend::toFlat()). Throws

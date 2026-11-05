@@ -956,6 +956,67 @@ def run():
                 "whose icon has no overlay",
                 image(other.ViewObject.Icon) == image(FreeCADGui.getIcon("PartDesign_SolidBody.svg")),
             )
+
+        # Rip: a tube, which does not lie flat, cut open at a bend picked
+        # (docs/SheetMetal.md sec 12, ruled 2026-11-05)
+        ripCmd = FreeCADGui.Command.get("PartDesign_SheetMetalRip")
+        check(
+            "Rip is on the tool bar",
+            ripCmd is not None
+            and toolbar() is not None
+            and ripCmd.getAction()[0] in toolbar().actions(),
+        )
+        duct = doc.addObject("PartDesign::Body", "Duct")
+        view.setActiveObject("pdbody", duct)
+        square = duct.newObject("Sketcher::SketchObject", "Square")
+        pts = [(0, 0), (20, 0), (20, 20), (0, 20)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            square.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        tube = duct.newObject("PartDesign::SheetMetalBaseWall", "Tube")
+        tube.Profile = square
+        tube.ClosedProfile = "Tube"
+        tube.Length = 30
+        doc.recompute()
+        pump()
+        bendFace = [
+            "Face%d" % (i + 1)
+            for i in range(len(tube.Shape.Faces))
+            if tube.sheetElementOf("Face%d" % (i + 1)) == "Bend1"
+        ][:1]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, tube.Name, bendFace[0] if bendFace else "")
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.runCommand("PartDesign_SheetMetalRip")
+        pump(20)
+        rips = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalRip"
+        ]
+        rip = rips[0] if rips else None
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        doc.recompute()
+        bends = rip and [e["Name"] for e in rip.SheetModel["Elements"] if e["Kind"] == "Bend"]
+        check(
+            "with a bend's face selected it rips the tube there, the body's tip",
+            rip is not None
+            and "Invalid" not in rip.State
+            and duct.Tip == rip
+            and rip.Faces[0] == tube
+            and bends is not None
+            and "Bend1" not in bends
+            and len(bends) == 3,
+            rip and (rip.State, rip.getStatusString(), bends),
+        )
+        check(
+            "and the tube that would not lie flat does",
+            rip is not None
+            and rip.getSubObject("Flat") is not None
+            and not [p for p in PartDesign.checkSheet(rip)["Problems"] if p["Kind"] == "NoFlat"],
+        )
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

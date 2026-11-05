@@ -564,6 +564,13 @@ FlatResult flatten(const TopoDS_Shape& folded,
         || model.elements[root].kind != Element::Kind::Wall) {
         THROWM(Base::ValueError, "The flat's root is not a wall");
     }
+    const int closing = model.closingBend();
+    if (closing >= 0) {
+        FC_THROWM(Base::ValueError,
+                  "The sheet is closed: " << model.elements[closing].name
+                                          << " closes a loop of bends, which does not lie "
+                                             "flat; Rip it open");
+    }
     Mapper mapper {model, root, rootToXY(model, root, secondSkin)};
     if (!alongX.IsNull()) {
         mapper.toXY = alongXOf(folded, mapper, alongX) * mapper.toXY;

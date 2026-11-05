@@ -189,6 +189,8 @@ SET(SheetMetal_SRCS
     FeatureSheetMetalHem.h
     FeatureSheetMetalCornerClosure.cpp
     FeatureSheetMetalCornerClosure.h
+    FeatureSheetMetalRip.cpp
+    FeatureSheetMetalRip.h
     FeatureSheetMetalCutout.cpp
     FeatureSheetMetalCutout.h
     FeatureSheetMetalFold.cpp

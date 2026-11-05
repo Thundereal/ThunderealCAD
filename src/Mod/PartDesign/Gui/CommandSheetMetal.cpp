@@ -982,6 +982,68 @@ bool CmdPartDesignSheetMetalCornerClosure::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalRip
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalRip)
+
+CmdPartDesignSheetMetalRip::CmdPartDesignSheetMetalRip()
+    : Command("PartDesign_SheetMetalRip")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Rip");
+    sToolTipText = QT_TR_NOOP("Cuts a closed sheet, a tube, open so it lies flat: select a face\n"
+                              "of a bend to cut it open at its corner, or of a wall to cut it\n"
+                              "down its middle");
+    sWhatsThis = "PartDesign_SheetMetalRip";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalRip";
+}
+
+void CmdPartDesignSheetMetalRip::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream faces;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            faces << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue()) {
+        warn(QT_TR_NOOP("Nothing to rip"),
+             QT_TR_NOOP("Select a face of a bend or of a wall of a closed sheet, on the body's "
+                        "tip."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Rip"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalRip", "Rip");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Faces = (" << getObjectCmd(base) << ", [" << faces.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalRip::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatten
 //===========================================================================
 
@@ -1326,6 +1388,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
+    mgr.addCommand(new CmdPartDesignSheetMetalRip());
     mgr.addCommand(new CmdPartDesignSheetMetalCutout());
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());

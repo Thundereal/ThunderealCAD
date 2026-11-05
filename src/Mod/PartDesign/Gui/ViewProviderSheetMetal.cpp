@@ -66,6 +66,7 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalBaseWall::getEditDialog()
                                      "PartDesign_SheetMetalBaseWall",
                                      QObject::tr("Base wall parameters"),
                                      {"MaterialSide",
+                                      "ClosedProfile",
                                       "Length",
                                       "Reversed",
                                       "Midplane",
@@ -219,6 +220,25 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalCornerClosure::getEditDialog()
                                      "PartDesign_SheetMetalCornerClosure",
                                      QObject::tr("Corner closure parameters"),
                                      {"CornerType"},
+                                     "Faces",
+                                     "Face"));
+}
+
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalRip, PartDesignGui::ViewProviderAddSub)
+
+ViewProviderSheetMetalRip::ViewProviderSheetMetalRip()
+{
+    sPixmap = "PartDesign_SheetMetalRip";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalRip::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalRip",
+                                     QObject::tr("Rip parameters"),
+                                     {},
                                      "Faces",
                                      "Face"));
 }

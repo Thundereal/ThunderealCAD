@@ -37,7 +37,10 @@ namespace PartDesign
  *
  * A closed sketch makes a plate of the rule's thickness. An open sketch of
  * lines makes a profile wall: a wall along each line and a bend of the
- * rule's radius at each corner, extruded by Length. Each wall and bend is
+ * rule's radius at each corner, extruded by Length. A closed sketch of
+ * lines with ClosedProfile Tube makes a tube: a wall along each line and a
+ * bend at every corner, a loop that lies flat once ripped (SheetMetalRip).
+ * Each wall and bend is
  * built as a piece of its own, its edges named by role, and the pieces
  * joined, so every face of the result lies in one element of the model.
  */
@@ -54,6 +57,9 @@ public:
     App::PropertyEnumeration MaterialSide;
     /// How far a profile wall goes along the sketch's normal
     App::PropertyLength Length;
+    /// What a closed sketch makes: Plate, or Tube (docs/SheetMetal.md sec
+    /// 12, ruled 2026-11-05)
+    App::PropertyEnumeration ClosedProfile;
     /// Bend at the rule's radius; off, at BendRadius (docs/SheetMetal.md
     /// sec 12, ruled 2026-11-03)
     App::PropertyBool UseRuleRadius;
@@ -69,6 +75,7 @@ public:
 
 private:
     static const char* MaterialSideEnums[];
+    static const char* ClosedProfileEnums[];
 };
 
 }  // namespace PartDesign

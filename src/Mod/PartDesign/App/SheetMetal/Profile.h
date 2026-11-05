@@ -94,6 +94,13 @@ struct PartDesignExport ProfileBuilder
     /// the material from a to a + the thickness along each line's left, n x
     /// its way
     void profileAt(const std::vector<gp_Pnt>& p, const gp_Dir& n, double a);
+    /** A tube (docs/SheetMetal.md sec 12, ruled 2026-11-05): a closed chain
+     * of lines, a wall on each and a bend at every corner, the last joining
+     * the last wall to the first -- a loop, which does not lie flat until
+     * ripped. side 0 outside the loop (the sketch on the bends' inner
+     * skins), 1 inside, 2 middle.
+     */
+    void closedProfile(std::vector<gp_Pnt> p, const gp_Dir& n, int side);
     /// A bend about the axis through c along n, from the wall before (its
     /// left l) through the turn
     void bend(const gp_Pnt& c, const gp_Dir& l, const gp_Dir& n, double turn, int before,

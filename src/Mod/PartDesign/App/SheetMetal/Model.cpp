@@ -258,6 +258,100 @@ void Model::transform(const gp_Trsf& trsf)
     }
 }
 
+void Model::remove(int index)
+{
+    checkIndex(index);
+    if (elements[index].kind == Element::Kind::Wall) {
+        for (const Element& bend : elements) {
+            if (bend.kind == Element::Kind::Bend
+                && (bend.before == index || bend.after == index)) {
+                FC_THROWM(Base::ValueError,
+                          "Sheet metal: " << elements[index].name << " is joined by "
+                                          << bend.name);
+            }
+        }
+    }
+    elements.erase(elements.begin() + index);
+    for (Element& bend : elements) {
+        if (bend.kind != Element::Kind::Bend) {
+            continue;
+        }
+        if (bend.before > index) {
+            --bend.before;
+        }
+        if (bend.after > index) {
+            --bend.after;
+        }
+    }
+}
+
+namespace
+{
+
+/// The walls' groups joined by bends, as each wall's group's first wall;
+/// closing is set to the first bend joining two walls already joined
+std::vector<int> groups(const Model& model, int* closing = nullptr)
+{
+    std::vector<int> group(model.elements.size());
+    for (std::size_t i = 0; i < group.size(); ++i) {
+        group[i] = static_cast<int>(i);
+    }
+    auto find = [&](int i) {
+        while (group[i] != i) {
+            i = group[i] = group[group[i]];
+        }
+        return i;
+    };
+    if (closing) {
+        *closing = -1;
+    }
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
+        const Element& bend = model.elements[i];
+        if (bend.kind != Element::Kind::Bend || bend.before < 0 || bend.after < 0) {
+            continue;
+        }
+        const int a = find(bend.before), b = find(bend.after);
+        if (a == b) {
+            if (closing && *closing < 0) {
+                *closing = static_cast<int>(i);
+            }
+            continue;
+        }
+        group[std::max(a, b)] = std::min(a, b);
+    }
+    for (std::size_t i = 0; i < group.size(); ++i) {
+        group[i] = find(static_cast<int>(i));
+    }
+    return group;
+}
+
+}  // namespace
+
+int Model::closingBend() const
+{
+    int closing = -1;
+    groups(*this, &closing);
+    return closing;
+}
+
+int Model::cutOff() const
+{
+    const std::vector<int> group = groups(*this);
+    int first = -1;
+    for (std::size_t i = 0; i < elements.size(); ++i) {
+        if (elements[i].kind != Element::Kind::Wall) {
+            continue;
+        }
+        if (first < 0) {
+            first = group[i];
+        }
+        else if (group[i] != first) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 gp_Trsf Model::placement(int index, int root) const
 {
     checkIndex(index);

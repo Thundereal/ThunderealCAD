@@ -137,6 +137,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A rip, its panel the faces of the bends and walls it opens
+class PartDesignGuiExport ViewProviderSheetMetalRip: public ViewProviderAddSub
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalRip);
+
+public:
+    ViewProviderSheetMetalRip();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A cutout, its panel its sketch, its way and how far
 class PartDesignGuiExport ViewProviderSheetMetalCutout: public ViewProviderSketchBased
 {

@@ -133,6 +133,10 @@ def run():
             all(n in w for n in ("MaterialSide", "Length", "Reversed", "Midplane")),
             sorted(n for n in w if n[:1].isupper())[:20],
         )
+        check(
+            "a closed sketch offers a plate or a tube",
+            "ClosedProfile" in w and w["ClosedProfile"].isEnabled(),
+        )
         rule = w.get("labelRule")
         check(
             "the rule's thickness and radius said",

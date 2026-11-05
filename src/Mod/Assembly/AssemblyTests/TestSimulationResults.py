@@ -571,6 +571,27 @@ class TestSimulationResults(unittest.TestCase):
         bridge = set(range(4001, 6000)) - {5000}
         (run,) = P.peakSafe(times, values, 0.45, 0.46, 50, bridge)
         self.assertEqual([v for _, v in run], [1.0, 3.0])
+        # The values the lines show in a window (shownRange()): a bounce of
+        # 1.5 after a landing of 528, zoomed in on the bounce, by the bounce
+        times = [k * 1e-3 for k in range(101)]
+        values = [0.0] * 101
+        values[20] = 528.0
+        values[60] = 1.5
+        runs = P.peakSafe(times, values, 0.0, 0.1, 50)
+        self.assertEqual(P.shownRange(runs, 0.0, 0.1), (0.0, 528.0))
+        runs = P.peakSafe(times, values, 0.05, 0.07, 50)
+        self.assertEqual(P.shownRange(runs, 0.05, 0.07), (0.0, 1.5))
+        # A line crossing an edge, by where it crosses it: the landing's
+        # fall from 528 at 20 ms to 0 at 21 ms, the window from 20.5 ms
+        runs = P.peakSafe(times, values, 0.0205, 0.03, 50)
+        low, high = P.shownRange(runs, 0.0205, 0.03)
+        self.assertEqual(low, 0.0)
+        self.assertAlmostEqual(high, 264.0, delta=1e-9)
+        # Nothing shown, inside a gap
+        values[40:50] = [None] * 10
+        runs = P.peakSafe(times, values, 0.042, 0.045, 50)
+        self.assertIsNone(P.shownRange(runs, 0.042, 0.045))
+
         # The impacts' peaks, between the output frames only
         times, step = self.clustered()
         forces = [0.0] * len(times)

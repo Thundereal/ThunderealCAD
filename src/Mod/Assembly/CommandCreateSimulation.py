@@ -401,10 +401,33 @@ if App.GuiUp:
                     self.rect(), Qt.AlignCenter, translate("Assembly", "No values to show")
                 )
                 return
-            low, high = min(values), max(values)
+            if self.axisTimes is None:
+                self.axisTimes = [self.toAxis(t) for t in self.times]
+            v0, v1 = self.shownWindow()
+            if not v1 > v0:
+                v0, v1 = self.axisTimes[0], self.axisTimes[-1] or 1.0
+            self.window = (v0, v1)
+            span = (v1 - v0) or 1.0
+            # Each curve's points to draw, by its columns' extremes; the
+            # value axis by what they show in the window, the whole run's
+            # where they show nothing there
+            columns = max(1, int(self.width()))
+            drawn = [
+                SimulationPlayback.peakSafe(self.axisTimes, curve, v0, v1, columns, self.bridge)
+                for _, curve in self.curves
+            ]
+            shown = SimulationPlayback.shownRange([r for runs in drawn for r in runs], v0, v1)
+            whole = max(values) - min(values)
+            low, high = shown if shown is not None else (min(values), max(values))
+            # No finer than a thousandth of the whole run's: a steady value's
+            # round-off is not drawn across the plot's height
+            if 0.0 < high - low < 1e-3 * whole:
+                middle = 0.5 * (low + high)
+                low, high = middle - 5e-4 * whole, middle + 5e-4 * whole
             if high - low <= 1e-12 * max(1.0, abs(high)):
                 pad = max(abs(high) * 0.1, 1e-9)
                 low, high = low - pad, high + pad
+            self.valueRange = (low, high)
 
             def label(v):
                 return f"{v:.4g}"
@@ -417,13 +440,6 @@ if App.GuiUp:
                 self.height() - 2 * metrics.height() - 12 - 1.5 * self.BAR,
             )
             self.area = area
-            if self.axisTimes is None:
-                self.axisTimes = [self.toAxis(t) for t in self.times]
-            v0, v1 = self.shownWindow()
-            if not v1 > v0:
-                v0, v1 = self.axisTimes[0], self.axisTimes[-1] or 1.0
-            self.window = (v0, v1)
-            span = (v1 - v0) or 1.0
 
             def x(v):
                 return area.left() + area.width() * (v - v0) / span
@@ -461,9 +477,7 @@ if App.GuiUp:
                 colour = QtGui.QColor(self.COLOURS[k % len(self.COLOURS)])
                 painter.setPen(QtGui.QPen(colour, 1.5))
                 # A line through each run of values, a dot for one alone
-                for run in SimulationPlayback.peakSafe(
-                    self.axisTimes, curve, v0, v1, max(1, int(area.width())), self.bridge
-                ):
+                for run in drawn[k]:
                     points = [at(v, value) for v, value in run]
                     if len(points) > 1:
                         painter.drawPolyline(QtGui.QPolygonF(points))

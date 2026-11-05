@@ -73,6 +73,13 @@ public:
     App::PropertyAngle GrainAngle;
     /// Objects whose edges are drawn on the blank's top, the flat's only
     App::PropertyLinkList Markings;
+    /// A notch where each bend's line meets the outline, the flat's only:
+    /// None, V or Slot (SheetMetal::NotchKind)
+    App::PropertyEnumeration Notch;
+    /// How far a notch goes in along the line
+    App::PropertyLength NotchDepth;
+    /// How wide a notch is at the outline
+    App::PropertyLength NotchWidth;
     //@}
 
     /** @name What a bill of materials takes (sec 5.4), of the shape */
@@ -106,6 +113,19 @@ public:
      * plane parallel to the flat's XY.
      */
     SheetFlat withMarkings(const SheetFlat& flat) const;
+    /** \a flat, its solid's tip's, with Notch's notches cut in its blank
+     * (SheetMetal::notchTools()), each bend's line stopping at them
+     *
+     * Throws Base::ValueError for a notch of no size, or notches that cut
+     * the blank apart.
+     */
+    SheetFlat withNotches(const SheetFlat& flat) const;
+    /// \a flat, its solid's tip's, as the flat object has it: notched, then
+    /// marked
+    SheetFlat finished(const SheetFlat& flat) const
+    {
+        return withMarkings(withNotches(flat));
+    }
     /// Whether it lays flat in its recompute: shown, or used by an object
     /// that is not its body
     bool isWanted() const;

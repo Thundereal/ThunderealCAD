@@ -65,6 +65,75 @@ namespace
 constexpr const char* FlatOp = "SMF";
 }
 
+TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, bool tangentLines)
+{
+    const auto& hasher = solid.Hasher;
+    std::vector<TopoShape> lines;
+    std::vector<TopoShape> tangents;
+    // each line as far as it lies on the blank, a piece after the first
+    // named Bend1Part2, Bend1Part3, ...
+    auto pieces = [](const std::vector<TopoDS_Edge>& segments, const std::string& name,
+                     std::vector<TopoShape>& out) {
+        for (std::size_t k = 0; k < segments.size(); ++k) {
+            TopoShape edge(segments[k]);
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
+                                Data::MappedName(k ? name + "Part" + std::to_string(k + 1) : name));
+            out.push_back(edge);
+        }
+    };
+    for (const auto& line : flat.bendLines) {
+        pieces(line.segments, line.name, lines);
+        for (std::size_t k = 0; k < line.tangents.size() && tangentLines; ++k) {
+            pieces(line.tangentSegments[k], line.name + "Tangent" + std::to_string(k + 1),
+                   tangents);
+        }
+    }
+    std::vector<TopoShape> parts {
+        solid, TopoShape(0, hasher).makECompound(lines, nullptr, /*force*/ true)};
+    if (!tangents.empty()) {
+        parts.push_back(TopoShape(0, hasher).makECompound(tangents, nullptr, /*force*/ true));
+    }
+    // each marking alone, named in turn
+    auto named = [&](const std::vector<TopoDS_Edge>& edges, auto&& nameOf) {
+        std::vector<TopoShape> res;
+        for (std::size_t k = 0; k < edges.size(); ++k) {
+            TopoShape edge(edges[k]);
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
+                                Data::MappedName(nameOf(k)));
+            res.push_back(edge);
+        }
+        if (!res.empty()) {
+            parts.push_back(TopoShape(0, hasher).makECompound(res, nullptr, /*force*/ true));
+        }
+    };
+    named(flat.grain, [](std::size_t k) {
+        return k ? "GrainHead" + std::to_string(k) : std::string("Grain");
+    });
+    named(flat.markings, [](std::size_t k) { return "Marking" + std::to_string(k + 1); });
+    TopoShape res(0, hasher);
+    res.makECompound(parts, nullptr, /*force*/ true);
+    return res;
+}
+
+void measureFlat(SheetFlat& flat)
+{
+    const TopoDS_Shape& solid = flat.result.solid;
+    if (solid.IsNull()) {
+        return;
+    }
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(solid, box, /*useTriangulation*/ false, /*useShapeTolerance*/ false);
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(solid, props);
+    flat.length = std::max(x1 - x0, y1 - y0);
+    flat.width = std::min(x1 - x0, y1 - y0);
+    if (flat.thickness > 0) {
+        flat.area = props.Mass() / flat.thickness;
+    }
+}
+
 SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
 {
     if (!part) {
@@ -120,39 +189,11 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     SheetFlat res;
     auto hasher = part->getDocument() ? part->getDocument()->getStringHasher()
                                       : App::StringHasherRef();
-    std::vector<TopoShape> lines;
-    std::vector<TopoShape> tangents;
-    // each line as far as it lies on the blank, a piece after the first
-    // named Bend1Part2, Bend1Part3, ...
-    auto pieces = [](const std::vector<TopoDS_Edge>& segments, const std::string& name,
-                     std::vector<TopoShape>& out) {
-        for (std::size_t k = 0; k < segments.size(); ++k) {
-            TopoShape edge(segments[k]);
-            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
-                                Data::MappedName(k ? name + "Part" + std::to_string(k + 1) : name));
-            out.push_back(edge);
-        }
-    };
     for (const auto& line : flat.bendLines) {
-        pieces(line.segments, line.name, lines);
-        for (std::size_t k = 0; k < line.tangents.size() && settings.tangentLines; ++k) {
-            pieces(line.tangentSegments[k], line.name + "Tangent" + std::to_string(k + 1),
-                   tangents);
-        }
         res.directions[line.name] = line.up ? "Up" : "Down";
         res.maxBendAngle = std::max(res.maxBendAngle, line.angle * 180 / std::numbers::pi);
     }
 
-    Bnd_Box box;
-    BRepBndLib::AddOptimal(flat.solid, box, /*useTriangulation*/ false,
-                           /*useShapeTolerance*/ false);
-    double x0, y0, z0, x1, y1, z1;
-    box.Get(x0, y0, z0, x1, y1, z1);
-    GProp_GProps props;
-    BRepGProp::VolumeProperties(flat.solid, props);
-    res.length = std::max(x1 - x0, y1 - y0);
-    res.width = std::min(x1 - x0, y1 - y0);
-    res.area = props.Mass() / model.thickness;
     res.thickness = model.thickness;
     res.bendCount = static_cast<long>(flat.bendLines.size());
     if (auto rule = sheet->getRule()) {
@@ -167,24 +208,9 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     }
     TopoShape solid(0, hasher);
     solid.makESHAPE(flat.solid, mapper, {folded}, FlatOp);
-    std::vector<TopoShape> parts {solid,
-                                  TopoShape(0, hasher).makECompound(lines, nullptr, /*force*/ true)};
-    if (!tangents.empty()) {
-        parts.push_back(TopoShape(0, hasher).makECompound(tangents, nullptr, /*force*/ true));
-    }
-    std::vector<TopoShape> grain;
-    for (std::size_t k = 0; k < flat.grain.size(); ++k) {
-        TopoShape edge(flat.grain[k]);
-        edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
-                            Data::MappedName(k ? "GrainHead" + std::to_string(k) : "Grain"));
-        grain.push_back(edge);
-    }
-    if (!grain.empty()) {
-        parts.push_back(TopoShape(0, hasher).makECompound(grain, nullptr, /*force*/ true));
-    }
+    res.shape = flatShape(solid, flat, settings.tangentLines);
     res.result = std::move(flat);
-    res.shape = TopoShape(0, hasher);
-    res.shape.makECompound(parts, nullptr, /*force*/ true);
+    measureFlat(res);
     return res;
 }
 
@@ -215,10 +241,10 @@ void exportFlat(const App::DocumentObject* obj, const char* path)
     }
     // laid flat before the file is opened, so a refusal writes nothing
     SheetFlat flat = solid->flatOf(part);
-    // the sheet's flat, its tip's, has the flat object's markings
+    // the sheet's flat, its tip's, has the flat object's notches and markings
     auto flatObj = solid->flatPattern();
     if (flatObj && (!part || part == solid->Tip.getValue())) {
-        flat = flatObj->withMarkings(flat);
+        flat = flatObj->finished(flat);
     }
     Base::ofstream out(fi, std::ios::out | std::ios::trunc);
     if (!out) {

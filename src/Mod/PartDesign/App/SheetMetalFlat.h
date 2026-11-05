@@ -93,6 +93,17 @@ struct PartDesignExport SheetFlat
  */
 PartDesignExport SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings);
 
+/** The shape of a flat (SheetFlat::shape): \a solid, the flat solid of \a
+ * flat named, then each bend's line, the tangent lines if \a tangentLines,
+ * the grain arrow and the markings, a compound each, the lines' always and
+ * the others where there are any
+ */
+PartDesignExport Part::TopoShape
+flatShape(const Part::TopoShape& solid, const SheetMetal::FlatResult& flat, bool tangentLines);
+
+/// \a flat's length, width and area, from its solid and thickness
+PartDesignExport void measureFlat(SheetFlat& flat);
+
 /** Write the flat of \a obj, a feature of a sheet's solid or the solid (its
  * tip's), with the sheet's settings (docs/SheetMetal.md sec 12): DXF or SVG
  * by the suffix of \a path

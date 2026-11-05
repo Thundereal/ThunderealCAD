@@ -85,6 +85,24 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       App::Prop_None,
                       "Objects whose edges are drawn on the blank's top, the flat's only: a\n"
                       "sketch parallel to XY, read where one taken from the tip's flat lies");
+    ADD_PROPERTY_TYPE(Notch,
+                      (0L),
+                      "Flat",
+                      App::Prop_None,
+                      "A notch where each bend's line meets the blank's outline, the flat's\n"
+                      "only: None, V or Slot");
+    static const char* notches[] = {"None", "V", "Slot", nullptr};
+    Notch.setEnums(notches);
+    ADD_PROPERTY_TYPE(NotchDepth,
+                      (1.0),
+                      "Flat",
+                      App::Prop_None,
+                      "How far a notch goes in along the bend's line");
+    ADD_PROPERTY_TYPE(NotchWidth,
+                      (1.0),
+                      "Flat",
+                      App::Prop_None,
+                      "How wide a notch is at the outline");
 
     const auto out = static_cast<App::PropertyType>(App::Prop_ReadOnly | App::Prop_Output);
     ADD_PROPERTY_TYPE(FlatLength, (0.0), "Manufacturing", out, "The flat's size on XY, its longer side");
@@ -145,7 +163,7 @@ SheetFlat SheetMetalFlatPattern::withMarkings(const SheetFlat& flat) const
     const double top = box.CornerMax().Z();
 
     SheetFlat res = flat;
-    std::vector<TopoShape> edges;
+    bool any = false;
     for (auto obj : objs) {
         if (!obj || !obj->isAttachedToDocument()) {
             continue;
@@ -169,22 +187,52 @@ SheetFlat SheetMetalFlatPattern::withMarkings(const SheetFlat& flat) const
         up.SetTranslation(gp_Vec(0, 0, top - bound.CornerMin().Z()));
         const TopoShape moved = shape.makETransform(up);
         for (const TopoShape& edge : moved.getSubTopoShapes(TopAbs_EDGE)) {
-            TopoShape named(edge.getShape());
-            named.setElementName(
-                Data::IndexedName::fromConst("Edge", 1),
-                Data::MappedName("Marking" + std::to_string(edges.size() + 1)));
-            edges.push_back(named);
             res.result.markings.push_back(TopoDS::Edge(edge.getShape()));
+            any = true;
         }
     }
-    if (edges.empty()) {
+    if (!any) {
         return res;
     }
-    // the flat's own compounds, then the markings' (layFlat())
-    std::vector<TopoShape> parts = flat.shape.getSubTopoShapes();
-    parts.push_back(TopoShape(0, flat.shape.Hasher).makECompound(edges, nullptr, /*force*/ true));
-    res.shape = TopoShape(0, flat.shape.Hasher);
-    res.shape.makECompound(parts, nullptr, /*force*/ true);
+    // the flat's own compounds, then the markings' (flatShape())
+    const auto parts = flat.shape.getSubTopoShapes();
+    if (!parts.empty()) {
+        res.shape = flatShape(parts.front(), res.result, TangentLines.getValue());
+    }
+    return res;
+}
+
+SheetFlat SheetMetalFlatPattern::withNotches(const SheetFlat& flat) const
+{
+    const auto tools =
+        SheetMetal::notchTools(flat.result,
+                               static_cast<SheetMetal::NotchKind>(Notch.getValue()),
+                               NotchDepth.getValue(),
+                               NotchWidth.getValue());
+    const auto parts = flat.shape.getSubTopoShapes();
+    if (tools.empty() || parts.empty()) {
+        return flat;
+    }
+    const auto& hasher = flat.shape.Hasher;
+    std::vector<TopoShape> cutters(tools.begin(), tools.end());
+    TopoShape cut(0, hasher);
+    cut.makECut({parts.front(), TopoShape(0, hasher).makECompound(cutters, nullptr, true)});
+    if (cut.countSubShapes(TopAbs_SOLID) != 1) {
+        THROWM(Base::ValueError, "The notches cut the blank apart");
+    }
+    const TopoShape blank = cut.getSubTopoShape(TopAbs_SOLID, 1);
+
+    SheetFlat res = flat;
+    res.result.solid = blank.getShape();
+    // each line, and each tangent line, as far as it lies on the blank now
+    for (auto& line : res.result.bendLines) {
+        line.segments = SheetMetal::onBlank(res.result.solid, line.edge);
+        for (std::size_t k = 0; k < line.tangents.size(); ++k) {
+            line.tangentSegments[k] = SheetMetal::onBlank(res.result.solid, line.tangents[k]);
+        }
+    }
+    res.shape = flatShape(blank, res.result, TangentLines.getValue());
+    measureFlat(res);
     return res;
 }
 
@@ -207,7 +255,8 @@ short SheetMetalFlatPattern::mustExecute() const
 {
     if (Sheet.isTouched() || Root.isTouched() || SecondSkin.isTouched() || AlignEdge.isTouched()
         || TangentLines.isTouched() || Grain.isTouched() || GrainAngle.isTouched()
-        || Markings.isTouched()) {
+        || Markings.isTouched() || Notch.isTouched() || NotchDepth.isTouched()
+        || NotchWidth.isTouched()) {
         return 1;
     }
     // Out of date and shown, or taken up by something that uses it since
@@ -241,7 +290,7 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
     }
     std::string why;
     try {
-        const SheetFlat flat = withMarkings(solid->flatOf(nullptr));
+        const SheetFlat flat = finished(solid->flatOf(nullptr));
         Shape.setValue(flat.shape);
         FlatLength.setValue(flat.length);
         FlatWidth.setValue(flat.width);

@@ -36,6 +36,7 @@
 #include <Bnd_Box.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
@@ -43,6 +44,7 @@
 #include <BRepFill.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepOffsetAPI_MakeFilling.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
@@ -550,6 +552,143 @@ std::vector<TopoDS_Face> facesOnXY(const TopoDS_Shape& solid)
     }
     if (res.empty()) {
         THROWM(Base::ValueError, "The flat has no face on XY");
+    }
+    return res;
+}
+
+std::vector<TopoDS_Shape>
+notchTools(const FlatResult& flat, NotchKind kind, double depth, double width)
+{
+    std::vector<TopoDS_Shape> res;
+    if (kind == NotchKind::None || flat.solid.IsNull() || flat.bendLines.empty()) {
+        return res;
+    }
+    if (depth <= Precision::Confusion() || width <= Precision::Confusion()) {
+        THROWM(Base::ValueError, "A notch needs a depth and a width above 0");
+    }
+    constexpr double tol = 1e-6;
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(flat.solid, box, /*useTriangulation*/ false,
+                           /*useShapeTolerance*/ false);
+    if (box.IsVoid()) {
+        return res;
+    }
+    const double bottom = box.CornerMin().Z();
+    const double top = box.CornerMax().Z();
+
+    // the blank's top, its faces merged, where the lines lie (flatten()),
+    // and the edges of its outer outline
+    ShapeUpgrade_UnifySameDomain unify(flat.solid, true, true, false);
+    unify.Build();
+    BRep_Builder builder;
+    TopoDS_Compound faces;
+    builder.MakeCompound(faces);
+    std::vector<TopoDS_Edge> outline;
+    for (TopExp_Explorer it(unify.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+        const TopoDS_Face& face = TopoDS::Face(it.Current());
+        if (BRepAdaptor_Surface(face).GetType() != GeomAbs_Plane) {
+            continue;
+        }
+        bool onTop = true;
+        for (TopExp_Explorer v(face, TopAbs_VERTEX); v.More() && onTop; v.Next()) {
+            onTop = std::abs(BRep_Tool::Pnt(TopoDS::Vertex(v.Current())).Z() - top) < tol;
+        }
+        if (!onTop) {
+            continue;
+        }
+        builder.Add(faces, face);
+        for (TopExp_Explorer e(BRepTools::OuterWire(face), TopAbs_EDGE); e.More(); e.Next()) {
+            outline.push_back(TopoDS::Edge(e.Current()));
+        }
+    }
+    // A piece of the outline through p, straight, and its direction
+    auto straightAt = [&](const gp_Pnt& p, gp_Vec& dir) {
+        const TopoDS_Vertex v = BRepBuilderAPI_MakeVertex(p);
+        for (const TopoDS_Edge& e : outline) {
+            BRepExtrema_DistShapeShape dist(v, e);
+            if (!dist.IsDone() || dist.Value() > tol) {
+                continue;
+            }
+            BRepAdaptor_Curve c(e);
+            const gp_Pnt p0 = c.Value(c.FirstParameter());
+            const gp_Pnt p1 = c.Value(c.LastParameter());
+            if (p0.Distance(p1) <= tol) {
+                continue;
+            }
+            // a curve that is a line in fact counts, one that bows does not
+            const gp_Lin chord(p0, gp_Dir(gp_Vec(p0, p1)));
+            const gp_Pnt mid = c.Value((c.FirstParameter() + c.LastParameter()) / 2);
+            if (c.GetType() != GeomAbs_Line && chord.Distance(mid) > tol) {
+                continue;
+            }
+            dir = gp_Vec(p0, p1).Normalized();
+            return true;
+        }
+        return false;
+    };
+    // How far out from p along -u the blank is not, up to far
+    auto clearance = [&](const gp_Pnt& p, const gp_Vec& u, double far) {
+        const TopoDS_Edge ray = BRepBuilderAPI_MakeEdge(p, p.Translated(-u * far));
+        BRepAlgoAPI_Common common(ray, faces);
+        common.SetFuzzyValue(1e-7);
+        common.Build();
+        double res = far;
+        if (!common.IsDone()) {
+            return res;
+        }
+        for (TopExp_Explorer it(common.Shape(), TopAbs_VERTEX); it.More(); it.Next()) {
+            const double s = gp_Vec(p, BRep_Tool::Pnt(TopoDS::Vertex(it.Current()))).Dot(-u);
+            if (s > tol) {
+                res = std::min(res, s);
+            }
+        }
+        return res;
+    };
+    const double square = std::sin(10 * std::numbers::pi / 180);
+    const double reach = std::max(depth, width) / 2;
+    for (const auto& line : flat.bendLines) {
+        for (const TopoDS_Edge& segment : line.segments) {
+            const gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(segment));
+            const gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(segment));
+            // too short for a notch at each end
+            if (a.Distance(b) <= 2 * depth) {
+                continue;
+            }
+            for (const auto& [end, other] : {std::pair(a, b), std::pair(b, a)}) {
+                const gp_Vec u = gp_Vec(end, other).Normalized();
+                gp_Vec dir;
+                if (!straightAt(end, dir) || std::abs(dir.Dot(u)) > square) {
+                    continue;
+                }
+                const gp_Vec n(-u.Y(), u.X(), 0);
+                // past the outline, so the cut opens it cleanly, but half way
+                // at most to the blank across a gap
+                const double margin = std::min(reach, clearance(end, u, 4 * reach) / 2);
+                const gp_Pnt base(end.X(), end.Y(), bottom - 1);
+                std::vector<gp_Pnt> pts;
+                if (kind == NotchKind::V) {
+                    // the sides through the outline width apart
+                    const double half = width / 2 * (depth + margin) / depth;
+                    pts = {base.Translated(u * depth),
+                           base.Translated(-u * margin + n * half),
+                           base.Translated(-u * margin - n * half)};
+                }
+                else {
+                    pts = {base.Translated(-u * margin + n * (width / 2)),
+                           base.Translated(u * depth + n * (width / 2)),
+                           base.Translated(u * depth - n * (width / 2)),
+                           base.Translated(-u * margin - n * (width / 2))};
+                }
+                BRepBuilderAPI_MakePolygon polygon;
+                for (const gp_Pnt& p : pts) {
+                    polygon.Add(p);
+                }
+                polygon.Close();
+                const TopoDS_Face face = BRepBuilderAPI_MakeFace(polygon.Wire(), true);
+                res.push_back(
+                    BRepPrimAPI_MakePrism(face, gp_Vec(0, 0, top - bottom + 2)).Shape());
+            }
+        }
     }
     return res;
 }

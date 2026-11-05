@@ -231,7 +231,8 @@ class TestSheetMetalFlatNotches(unittest.TestCase):
         volume = self.solid().Volume
         thickness = self.Flat.Thickness.Value
         self.notch("V")
-        self.assertAlmostEqual(self.solid().Volume, volume - 2 * 0.5 * thickness, places=6)
+        # the miter's faces are B-splines, measured to 1e-5
+        self.assertAlmostEqual(self.solid().Volume, volume - 2 * 0.5 * thickness, places=4)
 
     def testRefused(self):
         """A notch of no depth or width is refused, the flat's Status saying
@@ -239,10 +240,10 @@ class TestSheetMetalFlatNotches(unittest.TestCase):
         self.notch("V")
         volume = self.solid().Volume
         self.notch("V", depth=0)
-        self.assertIn("Notch", self.Flat.Status)
+        self.assertIn("notch", self.Flat.Status)
         self.assertAlmostEqual(self.Flat.Shape.Solids[0].Volume, volume, places=9)
         self.notch("V", depth=1, width=0)
-        self.assertIn("Notch", self.Flat.Status)
+        self.assertIn("notch", self.Flat.Status)
         self.notch("V", width=1)
         self.assertEqual(self.Flat.Status, "")
 

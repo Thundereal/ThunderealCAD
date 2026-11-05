@@ -110,4 +110,26 @@ PartDesignExport std::vector<TopoDS_Edge> onBlank(const TopoDS_Shape& solid,
 
 PartDesignExport std::vector<TopoDS_Face> facesOnXY(const TopoDS_Shape& solid);
 
+/// A notch's shape at a bend's line (SheetMetalFlatPattern::Notch)
+enum class NotchKind
+{
+    None,
+    V,
+    Slot,
+};
+
+/** The notches of a flat at its bends (docs/SheetMetal.md sec 12): where a
+ * bend's line meets the blank's outer outline, on a straight piece of it
+ * within 10 deg of square to the line -- not where the line ends at a hole it
+ * runs over, nor in a corner's miter or round relief -- a prism through the
+ * blank each, to cut from it: a V \a depth along the line into the blank
+ * and \a width across it at the outline, or a slot of that size. A tool
+ * reaches past the outline only so far as nothing else of the blank is
+ * there.
+ *
+ * Throws Base::ValueError for a notch of no depth or width.
+ */
+PartDesignExport std::vector<TopoDS_Shape>
+notchTools(const FlatResult& flat, NotchKind kind, double depth, double width);
+
 }  // namespace PartDesign::SheetMetal

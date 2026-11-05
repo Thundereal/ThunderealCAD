@@ -1090,6 +1090,78 @@ def run():
             )
             flat.SecondSkin = not flat.SecondSkin
             doc.recompute()
+
+        # Flat-only markings: a sketch given to the flat by Flat Markings is
+        # drawn on the blank in its own colour, and on the drawing; the folded
+        # part knows nothing of it
+        markCmd = FreeCADGui.Command.get("PartDesign_SheetMetalFlatMarkings")
+        check(
+            "Flat Markings is on the tool bar",
+            markCmd is not None
+            and toolbar() is not None
+            and markCmd.getAction()[0] in toolbar().actions(),
+        )
+        centre = flat.Placement.inverse().multVec(flat.Shape.Solids[0].BoundBox.Center)
+        mark = body.newObject("Sketcher::SketchObject", "Mark")
+        mark.addGeometry(Part.Circle(V(centre.x, centre.y, 0), V(0, 0, 1), 5))
+        doc.recompute()
+        folded = body.Tip.Shape.Volume
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, mark.Name)
+        check("offered with a sketch selected", markCmd is not None and markCmd.isActive())
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlatMarkings")
+        doc.recompute()
+        pump(20)
+        names = [
+            flat.Shape.getElementMappedName("Edge%d" % (i + 1)) or ""
+            for i in range(len(flat.Shape.Edges))
+        ]
+        marks = [n for n in names if n.startswith("Marking")]
+        check(
+            "run, the sketch is the flat's marking, drawn on the blank, hidden itself",
+            flat.Markings == [mark]
+            and flat.Status == ""
+            and len(marks) == 1
+            and not mark.Visibility
+            and abs(body.Tip.Shape.Volume - folded) < 1e-9,
+            (flat.Markings, flat.Status, marks, mark.Visibility),
+        )
+        markInfo = flat.ViewObject.getEdgeInfo(marks[0]) if marks else None
+        check(
+            "in the markings' own style, which a drawing takes",
+            markInfo is not None
+            and markInfo["Style"] == 1
+            and abs(markInfo["Color"][0] - flat.ViewObject.MarkingColor[0]) < 1e-6,
+            markInfo,
+        )
+        drawing.touch()
+        doc.recompute()
+        pump(60)
+        check(
+            "and the drawing of the flat draws it in that colour",
+            rgb(flat.ViewObject.MarkingColor) in pens(page),
+            (rgb(flat.ViewObject.MarkingColor), sorted(pens(page))[:10]),
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, mark.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlatMarkings")
+        doc.recompute()
+        pump(20)
+        check(
+            "run again on it, it is taken off and shown",
+            flat.Markings == []
+            and mark.Visibility
+            and not [
+                i
+                for i in range(len(flat.Shape.Edges))
+                if (flat.Shape.getElementMappedName("Edge%d" % (i + 1)) or "").startswith(
+                    "Marking"
+                )
+            ],
+            (flat.Markings, mark.Visibility),
+        )
+        doc.removeObject(mark.Name)
+        doc.recompute()
         for o in labels:
             if doc.getObject(o.Name) is not None:
                 doc.removeObject(o.Name)

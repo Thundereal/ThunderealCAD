@@ -3415,9 +3415,23 @@ Phase D1 is under way (2026-10-28):
   - Tests: TestDynamics' test_loads_to_fem_frames_jobs (3 at once against
     1, to the last digit; a stop at the fifth frame); FEM's
     test_mesh_sets_cache.
-  - Not yet: the plot's value axis is the whole run's, a bounce of 1.5 N
-    flat under a landing of 528 N; a part's own stress at a frame through
-    an impact is a static analysis of it (as above).
+  - Not yet: see the next entry's.
+- Built, D4a: the plot's value axis by its window.
+  - The Results box's value axis was the whole run's: zoomed in on a
+    bounce of 1.5 N after a landing of 528 N, the bounce was drawn flat.
+  - Now by what its lines show in the window (`SimulationPlayback.
+    shownRange()`, over peakSafe's points): those in it, and where a line
+    crosses its edges -- M4 keeps each column's least and largest, so the
+    range is the values' own at any width. The whole run's where nothing
+    shows (a window inside a gap); and no finer than a thousandth of the
+    whole run's, a steady value's round-off not drawn across the height.
+    The labels at its top and bottom are that window's.
+  - Test: TestSimulationResults' test_peak_safe (the bounce by its own
+    range; an edge crossed halfway down the landing's fall, 264; a gap,
+    none).
+  - Not yet: a part's own stress at a frame through an impact is a static
+    analysis of it (as above); a part of a group meeting the others
+    nowhere; a run's start reactions with a contact begun in them.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

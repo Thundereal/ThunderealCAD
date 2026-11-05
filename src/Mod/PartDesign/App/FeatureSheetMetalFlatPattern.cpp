@@ -24,9 +24,14 @@
 
 #include "PreCompiled.h"
 
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <Standard_Failure.hxx>
+#include <TopoDS.hxx>
+#include <gp_Trsf.hxx>
 
 #include <App/Document.h>
+#include <App/GeoFeature.h>
 #include <App/GroupExtension.h>
 #include <Base/Exception.h>
 
@@ -34,6 +39,7 @@
 #include "SolidBody.h"
 
 using namespace PartDesign;
+using Part::TopoShape;
 
 const char* SheetMetalFlatPattern::OutOfDate = "Out of date: it is laid flat when shown";
 
@@ -73,6 +79,12 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       "Flat",
                       App::Prop_None,
                       "The grain's direction, from the flat's X");
+    ADD_PROPERTY_TYPE(Markings,
+                      (nullptr),
+                      "Flat",
+                      App::Prop_None,
+                      "Objects whose edges are drawn on the blank's top, the flat's only: a\n"
+                      "sketch parallel to XY, read where one taken from the tip's flat lies");
 
     const auto out = static_cast<App::PropertyType>(App::Prop_ReadOnly | App::Prop_Output);
     ADD_PROPERTY_TYPE(FlatLength, (0.0), "Manufacturing", out, "The flat's size on XY, its longer side");
@@ -115,6 +127,67 @@ SolidBody* SheetMetalFlatPattern::getSheet() const
     return Base::freecad_dynamic_cast<SolidBody>(Sheet.getValue());
 }
 
+SheetFlat SheetMetalFlatPattern::withMarkings(const SheetFlat& flat) const
+{
+    const auto& objs = Markings.getValues();
+    if (objs.empty() || flat.result.solid.IsNull()) {
+        return flat;
+    }
+    // where a sketch taken from the tip's flat lies: the tip's own frame
+    // (SolidBody::flatSubObject()), as the cutout's WrapFrame Flat reads one
+    auto solid = getSheet();
+    auto tip = solid ? solid->Tip.getValue() : nullptr;
+    const Base::Placement toFlat =
+        tip ? App::GeoFeature::getGlobalPlacement(tip).inverse() : Base::Placement();
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(flat.result.solid, box, /*useTriangulation*/ false,
+                           /*useShapeTolerance*/ false);
+    const double top = box.CornerMax().Z();
+
+    SheetFlat res = flat;
+    std::vector<TopoShape> edges;
+    for (auto obj : objs) {
+        if (!obj || !obj->isAttachedToDocument()) {
+            continue;
+        }
+        Base::Matrix4D mat = (toFlat * App::GeoFeature::getGlobalPlacement(obj)).toMatrix();
+        const TopoShape shape = Part::Feature::getTopoShape(obj, nullptr, false, &mat, nullptr,
+                                                            /*resolveLink*/ true,
+                                                            /*transform*/ false);
+        if (shape.isNull() || shape.countSubShapes(TopAbs_EDGE) == 0) {
+            continue;
+        }
+        Bnd_Box bound;
+        BRepBndLib::AddOptimal(shape.getShape(), bound, false, false);
+        if (bound.CornerMax().Z() - bound.CornerMin().Z() > 1e-6) {
+            FC_THROWM(Base::ValueError,
+                      "The markings of " << obj->Label.getValue()
+                                         << " do not lie parallel to the flat's XY");
+        }
+        // onto the blank's top, where the flat's other markings are
+        gp_Trsf up;
+        up.SetTranslation(gp_Vec(0, 0, top - bound.CornerMin().Z()));
+        const TopoShape moved = shape.makETransform(up);
+        for (const TopoShape& edge : moved.getSubTopoShapes(TopAbs_EDGE)) {
+            TopoShape named(edge.getShape());
+            named.setElementName(
+                Data::IndexedName::fromConst("Edge", 1),
+                Data::MappedName("Marking" + std::to_string(edges.size() + 1)));
+            edges.push_back(named);
+            res.result.markings.push_back(TopoDS::Edge(edge.getShape()));
+        }
+    }
+    if (edges.empty()) {
+        return res;
+    }
+    // the flat's own compounds, then the markings' (layFlat())
+    std::vector<TopoShape> parts = flat.shape.getSubTopoShapes();
+    parts.push_back(TopoShape(0, flat.shape.Hasher).makECompound(edges, nullptr, /*force*/ true));
+    res.shape = TopoShape(0, flat.shape.Hasher);
+    res.shape.makECompound(parts, nullptr, /*force*/ true);
+    return res;
+}
+
 bool SheetMetalFlatPattern::isWanted() const
 {
     if (Visibility.getValue()) {
@@ -133,7 +206,8 @@ bool SheetMetalFlatPattern::isWanted() const
 short SheetMetalFlatPattern::mustExecute() const
 {
     if (Sheet.isTouched() || Root.isTouched() || SecondSkin.isTouched() || AlignEdge.isTouched()
-        || TangentLines.isTouched() || Grain.isTouched() || GrainAngle.isTouched()) {
+        || TangentLines.isTouched() || Grain.isTouched() || GrainAngle.isTouched()
+        || Markings.isTouched()) {
         return 1;
     }
     // Out of date and shown, or taken up by something that uses it since
@@ -167,7 +241,7 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
     }
     std::string why;
     try {
-        const SheetFlat& flat = solid->flatOf(nullptr);
+        const SheetFlat flat = withMarkings(solid->flatOf(nullptr));
         Shape.setValue(flat.shape);
         FlatLength.setValue(flat.length);
         FlatWidth.setValue(flat.width);

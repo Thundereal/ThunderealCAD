@@ -131,6 +131,7 @@ void writeSVG(std::ostream& out, const FlatResult& flat, bool tangents)
         {"BEND_DOWN", "fill=\"none\" stroke=\"#d03030\" stroke-dasharray=\"2 1\"", {}},
         {"BEND_TANGENT", "fill=\"none\" stroke=\"#808080\" stroke-dasharray=\"0.5 0.5\"", {}},
         {"GRAIN", "fill=\"none\" stroke=\"#208020\"", {}},
+        {"MARKING", "fill=\"none\" stroke=\"#a020a0\"", {}},
         {"LABELS",
          "fill=\"#000000\" stroke=\"none\" font-family=\"sans-serif\" font-size=\"2.5\"",
          {}},
@@ -177,6 +178,9 @@ void writeSVG(std::ostream& out, const FlatResult& flat, bool tangents)
     }
     for (const TopoDS_Edge& e : flat.grain) {
         edge(layer("GRAIN"), e);
+    }
+    for (const TopoDS_Edge& e : flat.markings) {
+        edge(layer("MARKING"), e);
     }
 
     double x0, y0, z0, x1, y1, z1;

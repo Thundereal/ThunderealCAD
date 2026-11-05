@@ -71,6 +71,8 @@ public:
     App::PropertyBool Grain;
     /// The grain's direction, from the flat's X
     App::PropertyAngle GrainAngle;
+    /// Objects whose edges are drawn on the blank's top, the flat's only
+    App::PropertyLinkList Markings;
     //@}
 
     /** @name What a bill of materials takes (sec 5.4), of the shape */
@@ -95,6 +97,15 @@ public:
     FlatSettings settings() const;
     /// The solid it is the flat of
     SolidBody* getSheet() const;
+    /** \a flat, its solid's tip's, with the markings on its blank's top
+     * (docs/SheetMetal.md sec 12): each edge of each object of Markings,
+     * read in the frame a sketch taken from the tip's flat lies in, named
+     * Marking1, Marking2, ... in the list's order
+     *
+     * Throws Base::ValueError for an object whose edges do not lie in one
+     * plane parallel to the flat's XY.
+     */
+    SheetFlat withMarkings(const SheetFlat& flat) const;
     /// Whether it lays flat in its recompute: shown, or used by an object
     /// that is not its body
     bool isWanted() const;

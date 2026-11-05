@@ -26,6 +26,7 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 
@@ -56,6 +57,7 @@
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
+#include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
 #ifdef PARTDESIGN_WITH_SPREADSHEET
 #include <Mod/PartDesign/App/FeatureSheetMetalBendTable.h>
@@ -1492,6 +1494,146 @@ bool CmdPartDesignSheetMetalSyncBendTable::isActive()
 }
 #endif
 
+namespace
+{
+/// The selected objects Flat Markings takes, and the flat of their body's
+/// sheet: a flat object selected, else the body's tip's sheet, else its
+/// first; empty if none
+std::vector<App::DocumentObject*> selectedMarkings(PartDesign::SheetMetalFlatPattern** flat)
+{
+    std::vector<App::DocumentObject*> res;
+    PartDesign::SheetMetalFlatPattern* found = nullptr;
+    for (auto obj : Gui::Selection().getObjectsOfType(App::DocumentObject::getClassTypeId())) {
+        if (auto f = dynamic_cast<PartDesign::SheetMetalFlatPattern*>(obj)) {
+            found = f;
+            continue;
+        }
+        // a sheet's own features and solids are not marked on its flat
+        if (obj->isDerivedFrom<PartDesign::Feature>() || obj->isDerivedFrom<PartDesign::Body>()
+            || obj->isDerivedFrom<PartDesign::SolidBody>()) {
+            continue;
+        }
+        if (Part::Feature::getTopoShape(obj).countSubShapes(TopAbs_EDGE) > 0) {
+            res.push_back(obj);
+        }
+    }
+    auto body = res.empty() ? nullptr : PartDesign::Body::findBodyOf(res.front());
+    if (!found && body) {
+        auto solid = body->getTipSolidBody();
+        if (!solid || !solid->isSheetMetal()) {
+            solid = nullptr;
+            for (auto s : body->getSolidBodies()) {
+                if (s && s->isSheetMetal()) {
+                    solid = s;
+                    break;
+                }
+            }
+        }
+        found = solid ? solid->flatPattern() : nullptr;
+    }
+    if (flat) {
+        *flat = found;
+    }
+    return res;
+}
+}  // namespace
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalFlatMarkings)
+
+CmdPartDesignSheetMetalFlatMarkings::CmdPartDesignSheetMetalFlatMarkings()
+    : Command("PartDesign_SheetMetalFlatMarkings")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Flat Markings");
+    sToolTipText = QT_TR_NOOP("Draws the selected sketches on the sheet's flat only, as marks for\n"
+                              "the laser: on the blank, and in the DXF and SVG on a layer of\n"
+                              "their own. Selected again, they are taken off");
+    sWhatsThis = "PartDesign_SheetMetalFlatMarkings";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalFlatMarkings";
+}
+
+void CmdPartDesignSheetMetalFlatMarkings::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::SheetMetalFlatPattern* flat = nullptr;
+    const auto objs = selectedMarkings(&flat);
+    if (objs.empty()) {
+        return;
+    }
+    if (!flat) {
+        warn(QT_TR_NOOP("No sheet"),
+             QT_TR_NOOP("Select sketches in a body holding a sheet, or with its flat."));
+        return;
+    }
+    // the flat links in its body only
+    auto body = PartDesign::Body::findBodyOf(flat);
+    for (auto obj : objs) {
+        if (PartDesign::Body::findBodyOf(obj) != body) {
+            Base::Console().userWarning(
+                "%s\n",
+                QObject::tr("%1 is not in the sheet's body: a flat marks what is in its own")
+                    .arg(QString::fromUtf8(obj->Label.getValue()))
+                    .toUtf8()
+                    .constData());
+            return;
+        }
+    }
+    auto marked = flat->Markings.getValues();
+    // all of them marked already: taken off, as the command's second press
+    const bool remove = std::all_of(objs.begin(), objs.end(), [&](App::DocumentObject* obj) {
+        return std::find(marked.begin(), marked.end(), obj) != marked.end();
+    });
+    std::vector<App::DocumentObject*> next;
+    for (auto obj : marked) {
+        if (!remove || std::find(objs.begin(), objs.end(), obj) == objs.end()) {
+            next.push_back(obj);
+        }
+    }
+    for (auto obj : remove ? std::vector<App::DocumentObject*>() : objs) {
+        if (std::find(marked.begin(), marked.end(), obj) == marked.end()) {
+            next.push_back(obj);
+        }
+    }
+    std::ostringstream list;
+    for (auto obj : next) {
+        list << "App.getDocument('" << obj->getDocument()->getName() << "').getObject('"
+             << obj->getNameInDocument() << "'), ";
+    }
+    openCommand(remove ? QT_TRANSLATE_NOOP("Command", "Remove Flat Markings")
+                       : QT_TRANSLATE_NOOP("Command", "Flat Markings"));
+    doCommand(Doc,
+              "App.getDocument('%s').getObject('%s').Markings = [%s]",
+              flat->getDocument()->getName(),
+              flat->getNameInDocument(),
+              list.str().c_str());
+    // marked, a sketch is seen on the flat; taken off, as it was
+    for (auto obj : objs) {
+        doCommand(Gui,
+                  "Gui.getDocument('%s').getObject('%s').Visibility = %s",
+                  obj->getDocument()->getName(),
+                  obj->getNameInDocument(),
+                  remove ? "True" : "False");
+    }
+    updateActive();
+    commitCommand();
+    Base::Console().message(
+        "%s\n",
+        (remove ? QObject::tr("%1: %2 taken off its markings")
+                : QObject::tr("%1: %2 drawn on it as markings; Flatten shows them"))
+            .arg(QString::fromUtf8(flat->Label.getValue()))
+            .arg(objs.size() == 1 ? QString::fromUtf8(objs.front()->Label.getValue())
+                                  : QObject::tr("%1 objects").arg(objs.size()))
+            .toUtf8()
+            .constData());
+}
+
+bool CmdPartDesignSheetMetalFlatMarkings::isActive()
+{
+    return !selectedMarkings(nullptr).empty();
+}
+
 void CreatePartDesignSheetMetalCommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
@@ -1512,6 +1654,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalFlatten());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
     mgr.addCommand(new CmdPartDesignSheetMetalExportFlats());
+    mgr.addCommand(new CmdPartDesignSheetMetalFlatMarkings());
     mgr.addCommand(new CmdPartDesignSheetMetalCheck());
 #ifdef PARTDESIGN_WITH_SPREADSHEET
     mgr.addCommand(new CmdPartDesignSheetMetalBendTable());

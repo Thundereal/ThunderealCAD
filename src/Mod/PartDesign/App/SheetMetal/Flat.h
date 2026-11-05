@@ -67,6 +67,9 @@ struct PartDesignExport FlatResult
     std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> faces;
     /// The grain arrow, where asked for (grainArrow())
     std::vector<TopoDS_Edge> grain;
+    /// The flat-only markings on the blank's top, the flat object's
+    /// (SheetMetalFlatPattern::Markings)
+    std::vector<TopoDS_Edge> markings;
     /// What lays the root wall, where it stands, on XY: its skin there, the
     /// flat turned as asked
     gp_Trsf toXY;

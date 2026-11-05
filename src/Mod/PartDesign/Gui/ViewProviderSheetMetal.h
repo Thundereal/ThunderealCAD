@@ -258,6 +258,10 @@ public:
     App::PropertyColor GrainColor;
     App::PropertyEnumeration GrainStyle;
     App::PropertyFloatConstraint GrainWidth;
+    App::PropertyBool ShowMarkings;
+    App::PropertyColor MarkingColor;
+    App::PropertyEnumeration MarkingStyle;
+    App::PropertyFloatConstraint MarkingWidth;
     //@}
 
     void attach(App::DocumentObject* obj) override;
@@ -303,7 +307,7 @@ private:
         /// Each of its edges' index in the object's shape, by its own
         std::vector<int> edges;
     };
-    std::array<Kind, 4> kinds;
+    std::array<Kind, 5> kinds;
     /// The markings' views, drawn while this view is shown
     Gui::CoinPtr<SoSwitch> pcMarkings;
     /// How many edges the blank has: the shape's first ones

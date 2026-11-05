@@ -214,7 +214,12 @@ void exportFlat(const App::DocumentObject* obj, const char* path)
         FC_THROWM(Base::ValueError, obj->getFullLabel() << " is of no sheet metal solid");
     }
     // laid flat before the file is opened, so a refusal writes nothing
-    const SheetFlat& flat = solid->flatOf(part);
+    SheetFlat flat = solid->flatOf(part);
+    // the sheet's flat, its tip's, has the flat object's markings
+    auto flatObj = solid->flatPattern();
+    if (flatObj && (!part || part == solid->Tip.getValue())) {
+        flat = flatObj->withMarkings(flat);
+    }
     Base::ofstream out(fi, std::ios::out | std::ios::trunc);
     if (!out) {
         FC_THROWM(Base::FileException, "Cannot write " << path);

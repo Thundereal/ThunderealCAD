@@ -237,6 +237,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
              << "PartDesign_SheetMetalFlatten"
              << "PartDesign_SheetMetalExportDXF"
              << "PartDesign_SheetMetalExportFlats"
+             << "PartDesign_SheetMetalFlatMarkings"
              << "PartDesign_SheetMetalCheck"
 #ifdef PARTDESIGN_WITH_SPREADSHEET
              << "PartDesign_SheetMetalBendTable"

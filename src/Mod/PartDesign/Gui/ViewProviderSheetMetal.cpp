@@ -420,7 +420,8 @@ enum
     BendUp,
     BendDown,
     Tangent,
-    GrainKind
+    GrainKind,
+    MarkingKind
 };
 const App::PropertyFloatConstraint::Constraints widthRange = {0.5, 64.0, 0.5};
 /// As a Part view's DrawStyle has them
@@ -431,7 +432,8 @@ ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
 {
     sPixmap = "PartDesign_SheetMetalFlatten";
     // As the SVG draws them (docs/SheetMetal.md sec 12): up and down dashed
-    // in two colours, the tangent lines dotted, the grain solid
+    // in two colours, the tangent lines dotted, the grain solid; the flat's
+    // own markings solid and thin
     const char* group = "Markings";
     ADD_PROPERTY_TYPE(ShowBendUp, (true), group, App::Prop_None, "Draw the bend lines bent up");
     ADD_PROPERTY_TYPE(BendUpColor, (0.0f, 0x50 / 255.0f, 0xd0 / 255.0f), group, App::Prop_None,
@@ -464,11 +466,20 @@ ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
                       "The line style of the grain arrow");
     ADD_PROPERTY_TYPE(GrainWidth, (2.0), group, App::Prop_None,
                       "The line width of the grain arrow");
+    ADD_PROPERTY_TYPE(ShowMarkings, (true), group, App::Prop_None,
+                      "Draw the flat's own markings (the object's Markings)");
+    ADD_PROPERTY_TYPE(MarkingColor, (0xa0 / 255.0f, 0x20 / 255.0f, 0xa0 / 255.0f), group,
+                      App::Prop_None, "The colour of the flat's own markings");
+    ADD_PROPERTY_TYPE(MarkingStyle, (0L), group, App::Prop_None,
+                      "The line style of the flat's own markings");
+    ADD_PROPERTY_TYPE(MarkingWidth, (1.0), group, App::Prop_None,
+                      "The line width of the flat's own markings");
     kinds = {Kind {&ShowBendUp, &BendUpColor, &BendUpStyle, &BendUpWidth, {}, {}},
              Kind {&ShowBendDown, &BendDownColor, &BendDownStyle, &BendDownWidth, {}, {}},
              Kind {&ShowTangentLines, &TangentLineColor, &TangentLineStyle, &TangentLineWidth,
                    {}, {}},
-             Kind {&ShowGrain, &GrainColor, &GrainStyle, &GrainWidth, {}, {}}};
+             Kind {&ShowGrain, &GrainColor, &GrainStyle, &GrainWidth, {}, {}},
+             Kind {&ShowMarkings, &MarkingColor, &MarkingStyle, &MarkingWidth, {}, {}}};
     for (auto& kind : kinds) {
         kind.style->setEnums(styleEnums);
         kind.width->setConstraints(&widthRange);
@@ -587,18 +598,22 @@ namespace
 {
 
 /** The kind of marking an edge of a flat is, by its mapped name -- Bend1,
- * Bend1Part2, Bend1Tangent1, Grain, GrainHead1 (layFlat()) with what
- * followed it after the first ';' -- each bend Up or Down by directions; -1
- * for none
+ * Bend1Part2, Bend1Tangent1, Grain, GrainHead1 (layFlat()), Marking1 (the
+ * object's Markings) with what followed it after the first ';' -- each bend
+ * Up or Down by directions; -1 for none
  */
 int markingKind(std::string name, const std::map<std::string, std::string>& directions)
 {
     name = name.substr(0, name.find(';'));
     static const std::regex bend("(Bend[0-9]+)(Tangent[0-9]+)?(Part[0-9]+)?");
     static const std::regex grain("Grain(Head[0-9]+)?");
+    static const std::regex marking("Marking[0-9]+");
     std::smatch m;
     if (std::regex_match(name, grain)) {
         return GrainKind;
+    }
+    if (std::regex_match(name, marking)) {
+        return MarkingKind;
     }
     if (!std::regex_match(name, m, bend)) {
         return -1;
@@ -697,7 +712,7 @@ void ViewProviderSheetMetalFlatPattern::showFlat(
     if (bound.IsValid() && bound.LengthZ() > tol) {
         up.SetTranslation(gp_Vec(0, 0, bound.LengthZ()));
     }
-    std::array<std::vector<Part::TopoShape>, 4> edges;
+    std::array<std::vector<Part::TopoShape>, 5> edges;
     for (auto& kind : kinds) {
         kind.edges.clear();
     }

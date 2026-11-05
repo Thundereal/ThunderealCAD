@@ -942,12 +942,14 @@ def _datTotal(text, name):
     raise ValueError("CalculiX reported no %s" % title)
 
 
-def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=None):
+def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=None, jobs=None):
     """The stress analysis of component (makeAnalysis) at each of the run's
     frames, solved by CalculiX: one analysis, its shape, mesh and couplings
     made once -- the loads are in the part's own coordinates -- each frame's
-    loads set into it and solved in turn. Held at one joint throughout:
-    hold, or the one with the largest force at any of the frames.
+    loads set into it and solved, jobs of the frames' CalculiX runs at
+    once (up to 4, half the CPUs, when not given). Held at one joint
+    throughout: hold, or the one with the largest force at any of the
+    frames.
 
     Each frame's largest von Mises stress, where it is, and what holds the
     part against what the run says holds it there (the check), go into a
@@ -955,7 +957,7 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
     panel's Results box plots while the run is the one it was taken from.
     The analysis is left at the frame of the largest stress, with its
     result. progress(k, n), if given, is called before each frame; it stops
-    the frames by returning False (the series then has those solved).
+    the frames by returning False (the series then has those started).
 
     Returns the series. Raises ValueError where makeAnalysis would, without
     CalculiX, or when a solve fails."""
@@ -1015,11 +1017,14 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
                 )
             return os.path.splitext(fea.inp_file_name)[0]
 
-        for k, (frame, body) in enumerate(zip(frames, bodies)):
-            if progress is not None and progress(k, len(frames)) is False:
-                break
-            base = solve(body)
-            near = _nearLoads(objects, size, cache)
+        def collect(job):
+            k, frame, body, base, near, proc, out = job
+            code = proc.wait()
+            out.close()
+            if code != 0:
+                with open(base + ".out", errors="replace") as f:
+                    said = f.read().strip().splitlines()[-3:]
+                raise ValueError("CalculiX failed at %.6g s: %s" % (body["Time"], " ".join(said)))
             stress, node, away, awayNode = _vonMises(base + ".frd", near)
             with open(base + ".dat") as f:
                 text = f.read()
@@ -1039,6 +1044,40 @@ def solveFrames(assembly, component, frames, hold=None, maxSize=None, progress=N
                     "RunForce": runForce[frame],
                 }
             )
+
+        # Each frame's input written in turn and its CalculiX run started,
+        # in a folder of its own, jobs of them at once, one thread each;
+        # the oldest collected when that many run. ccx's solver takes one
+        # CPU, and a frame's 0.4 s of it was the most of its time.
+        if jobs is None:
+            jobs = max(1, min(4, (os.cpu_count() or 1) // 2))
+        running = []
+        try:
+            for k, (frame, body) in enumerate(zip(frames, bodies)):
+                if progress is not None and progress(k, len(frames)) is False:
+                    break
+                _setFrame(objects, body, heldJoint)
+                doc.recompute()
+                fea.write_inp_file()
+                # Where the couplings are now, before the next frame moves them
+                near = _nearLoads(objects, size, cache)
+                folder = os.path.join(work, "frame%05d" % k)
+                os.mkdir(folder)
+                inp = os.path.join(folder, os.path.basename(fea.inp_file_name))
+                os.replace(fea.inp_file_name, inp)
+                base = os.path.splitext(inp)[0]
+                out = open(base + ".out", "wb")
+                proc = fea.ccx_process(inp, threads=1, output=out)
+                running.append((k, frame, body, base, near, proc, out))
+                if len(running) >= jobs:
+                    collect(running.pop(0))
+            while running:
+                collect(running.pop(0))
+        finally:
+            for job in running:
+                job[5].kill()
+                job[5].wait()
+                job[6].close()
         if rows:
             # The analysis left at its largest stress, with that result
             peak = max(range(len(rows)), key=lambda k: rows[k]["Stress"])

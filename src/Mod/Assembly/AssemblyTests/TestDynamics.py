@@ -665,6 +665,30 @@ class TestDynamics(unittest.TestCase):
         nodes = np.array(bored) @ m.T
         self.assertAlmostEqual(depth((5, 5, 4), nodes=nodes), 10.0, delta=1e-9)
 
+    def test_loads_to_fem_frames_jobs(self):
+        """The frames' CalculiX runs several at once, each in a folder of its
+        own: the series the same as one at a time, to the last digit; a
+        stop asked for at a frame leaves those started before it."""
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        frames = list(range(0, 21, 3))
+        one = MotionLoads.solveFrames(self.assembly, rod, frames, maxSize=4.0, jobs=1)
+        three = MotionLoads.solveFrames(self.assembly, rod, frames, maxSize=4.0, jobs=3)
+        self.assertEqual(list(three.Frames), frames)
+        for name in ("VonMises", "VonMisesAt", "VonMisesAway", "FemHeldForce", "FemHeldTorque"):
+            self.assertEqual(list(getattr(three, name)), list(getattr(one, name)), name)
+
+        stopped = MotionLoads.solveFrames(
+            self.assembly, rod, frames, maxSize=4.0, jobs=3, progress=lambda k, n: k < 4
+        )
+        self.assertEqual(list(stopped.Frames), frames[:4])
+        self.assertEqual(list(stopped.VonMises), list(one.VonMises)[:4])
+
     def test_loads_to_fem_frames(self):
         """The double pendulum's first rod solved at five frames of its run
         (MotionLoads.solveFrames, D4a step 5): one analysis, one mesh, held

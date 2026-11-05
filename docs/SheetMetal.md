@@ -483,6 +483,7 @@ Holes, pockets, fillets and chamfers of flat corners, patterns and mirrors are P
 | **Manufacturing properties** | Each sheet's flat size (its bounding box in the flat), area, thickness, material, bend count and largest bend angle, as read-only properties a bill of materials or a drawing table can take. | -- (SOLIDWORKS cut list, gk) |
 | **Export flat** | DXF and SVG of one sheet, or of every sheet in a document in one go, one file each. | B1 10 (#462) |
 | **Bend table in a drawing** | The bend table as a TechDraw table (5.6). | -- |
+| **Flat-only markings** | Sketches drawn on the blank only -- etch lines, part numbers -- and written to the DXF and SVG on a layer of their own; the folded part knows nothing of them. Built in M4 (sec 12). | -- (SOLIDWORKS flat pattern features) |
 
 ### 5.5 Not in this release (section 11 says why)
 
@@ -1536,6 +1537,25 @@ stored flat and this option do what it was for.
     Table (makes one for the selected or active sheet) and Sync Bend Table on the Sheet Metal
     tool bar; edited in the spreadsheet editor; TechDraw's spreadsheet view draws it.
   - `TestSheetMetalBendTable` (8), `sheet-metal-commands.py`.
+- **Built 2026-11-05, M4's fifth item, flat-only markings:** the flat object's `Markings`, a link
+  list of objects in its body -- a sketch, a shape string -- whose edges it draws on the blank's
+  top, named `Marking1`, `Marking2`, ... in the list's order (`SheetMetalFlatPattern::
+  withMarkings()`). Each is read in the frame a sketch taken from the tip's flat lies in (the
+  tip's own, as the cutout's `WrapFrame` Flat reads one), and dropped straight onto the top; one
+  whose edges do not lie in a plane parallel to the flat's XY is refused, the flat's `Status`
+  naming it and the last flat kept. Not trimmed to the blank: a mark off it is the user's. They
+  are the flat object's only: not in `flatOf()`, so every feature's flat -- what a sketch takes
+  geometry from -- and the folded part know nothing of them, and a sketch drawn on the tip's
+  flat makes no loop. The flat object's placement moves them with the blank. The sheet's DXF and
+  SVG (`exportFlat()` of its solid, flat object or tip, and `exportFlats()`) write them on the
+  layer `MARKING` (`FlatResult::markings`), the flat object hidden or not; an earlier feature's
+  flat has none. The flat's view draws them as a fifth kind (`ShowMarkings`, `MarkingColor`,
+  `MarkingStyle`, `MarkingWidth`; solid `#a020a0`, as the SVG), and so does a drawing of it, by
+  the same classifier. Flat Markings on the Sheet Metal tool bar gives the selected sketches to
+  their body's sheet's flat (the tip's sheet, else the body's first) and hides them; run on
+  sketches all marked already, it takes them off and shows them; one outside the sheet's body is
+  refused in the report view. Not on the browser's allowlist, as Bend Table is not.
+  `TestSheetMetalFlatMarkings` (12; before, all 12 errored), `sheet-metal-commands.py` (84, +6).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

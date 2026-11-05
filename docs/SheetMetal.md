@@ -1446,6 +1446,31 @@ stored flat and this option do what it was for.
   remembers both, and reports in the report view; it opens a dialog, so it is not on the
   browser's allowlist. `TestSheetMetalFlat` (28, +3), `sheet-metal-commands.py` (65, +2). The
   first two items wait on a ruling: where a bend's override lives, and what it may override.
+- **Ruled 2026-11-05, M4's first two items and the drawings:** a bend's own value is kept on the
+  feature that made it, collected and edited in Check Sheet's bend table. The Rip of its own and
+  the drawings go as proposed: the Rip cuts a closed base wall's tube open, and an existing bend
+  open with a gap; the drawings take the flat object as TechDraw's source and style an edge by
+  its source name, a generic hook in TechDraw, not a sheet metal view.
+- **Built 2026-11-05, M4's first item, a bend's own K:** every sheet metal feature has
+  `BendKFactors` (hidden, a map), the K of each bend it makes that does not take the rule's. The
+  key is the bend's place among the feature's own, counted from 1 in the order it makes them,
+  not its name: a bend added earlier in the sheet renames every later one (`Bend2` becomes
+  `Bend3`), and the key holds. Each feature puts it on its own bends (those the sheet it builds on
+  has not) before it stores its model, so the features after it carry it on; a key past its
+  bends is kept and changes nothing, a value that is no K from 0 to 1 fails the recompute.
+  `bendKFactor(name)` and `setBendKFactor(name, k=None)` from Python, by the bend's name; the
+  bend table's K source reads `bend`, which beats the rule, the card and an allowance method.
+  Check Sheet: a K or an allowance double-clicked takes a value of the bend's own (an allowance
+  typed is turned into the K that makes it), each an undoable step that recomputes and checks
+  again; cleared, the bend takes the rule's. The folded part does not change. Not overridable per
+  bend: the radius. It is the folded part's, and two flanges of one feature meeting at a corner
+  are mitered on the one radius they share; it stays the feature's (`UseRuleRadius`,
+  `BendRadius`). `TestSheetMetalBendOverride` (9), `sheet-metal-commands.py` (69, +4).
+- The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
+  value an object had not read since the open was dropped before the change was announced, so
+  the transaction's copy of what was there was the null shape. Announced first, whoever looks at
+  the outgoing value has it read; nobody looking, it is dropped unread as before.
+  `parttests.DeferredShapeUndoTest` (3; before, 1).
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every

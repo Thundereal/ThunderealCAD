@@ -337,6 +337,40 @@ class TestMotionLoads(unittest.TestCase):
         want = 100 * L**3 / (3 * E * INERTIA) + shear
         self.assertAlmostEqual(self.tip(text).y, want, delta=0.01 * want)
 
+    def test_placed_references(self):
+        """A constraint's geometry from a part turned and moved, as loads to
+        FEM's copy of a part is: a coupling's points, where its symbols are
+        drawn, on its face; a cylindrical transform's base point, which the
+        input's *TRANSFORM takes, on the cylinder's axis. Part's
+        fromPlacement set the translation and then the rotation, which
+        replaces it: each was turned about the origin, 100 mm off."""
+        import Part
+
+        place = FreeCAD.Placement(
+            FreeCAD.Vector(-100, 0, 10), FreeCAD.Rotation(FreeCAD.Vector(0, 1, 0), 145)
+        )
+        box = self.doc.addObject("Part::Box", "Placed")
+        box.Length, box.Width, box.Height = A, A, 60.0
+        box.Placement = place
+        cylinder = self.doc.addObject("Part::Cylinder", "PlacedCylinder")
+        cylinder.Radius, cylinder.Height = 5.0, 20.0
+        cylinder.Placement = place
+        self.doc.recompute()
+        rb = ObjectsFem.makeConstraintRigidBody(self.doc, "Held")
+        rb.References = [(box, ("Face6",))]
+        transform = ObjectsFem.makeConstraintTransform(self.doc, "Turned")
+        transform.TransformType = "Cylindrical"
+        transform.References = [(cylinder, ("Face1",))]
+        self.doc.recompute()
+        face = box.Shape.Faces[5]
+        self.assertGreater(len(rb.Points), 0)
+        for point in rb.Points:
+            self.assertLess(face.distToShape(Part.Vertex(point))[0], 1e-9, point)
+        axis = place.Rotation.multVec(FreeCAD.Vector(0, 0, 1))
+        self.assertLess(transform.Axis.cross(axis).Length, 1e-9)
+        off = transform.BasePoint - place.Base
+        self.assertLess((off - axis * off.dot(axis)).Length, 1e-9, transform.BasePoint)
+
     def test_distributing_takes_no_constraint(self):
         """A distributing coupling held in place: the checks refuse it."""
         self.bar()

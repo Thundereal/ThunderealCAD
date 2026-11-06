@@ -525,15 +525,74 @@ class TestSheetMetalForm(unittest.TestCase):
                 self.assertIn("Invalid", feature.State)
                 self.Doc.removeObject(feature.Name)
 
+    def emboss(self, **props):
+        """An emboss at the plate's middle, (20, 15): 20 by 12 where it
+        leaves the face, its corners 3 round there, 2 high at 60 deg"""
+        sizes = dict(Length=20, Width=12, CornerRadius=3, Depth=2, Radius=0.5, FlankAngle=60)
+        sizes.update(props)
+        return self.form(Kind="Emboss", Positions=self.points([(20, 15)]), **sizes)
+
+    def testEmboss(self):
+        """A built-in emboss: a flat-topped rounded rectangle raised Depth
+        above the face, its sides at FlankAngle, its bends rounded, the
+        thickness all through it, opened beneath"""
+        feature = self.emboss()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 2, places=6)
+        # its top; open beneath
+        for x, y in ((20, 15), (26, 19)):
+            self.assertTrue(shape.isInside(V(x, y, T + 1.5), 1e-7, True))
+            self.assertFalse(shape.isInside(V(x, y, T + 0.5), 1e-7, True))
+            self.assertFalse(shape.isInside(V(x, y, T / 2), 1e-7, True))
+        # its end 0.6 up, clear of its bends: outside 10 - 0.6 / tan 60, the
+        # thickness / sin 60 less inside, 9.654 and 8.499 from its middle
+        self.assertTrue(shape.isInside(V(29, 15, T + 0.6), 1e-7, True))
+        self.assertFalse(shape.isInside(V(28.2, 15, T + 0.6), 1e-7, True))
+        self.assertFalse(shape.isInside(V(29.9, 15, T + 0.6), 1e-7, True))
+        # past it, the plate as it was
+        self.assertTrue(shape.isInside(V(30.8, 15, T / 2), 1e-7, True))
+        self.assertTrue(shape.isInside(V(20, 21.8, T / 2), 1e-7, True))
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 15, T + 2))), "Form1")
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testEmbossSharp(self):
+        """Radius 0: its bends sharp"""
+        feature = self.emboss(Radius=0)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isValid())
+
+    def testEmbossRefused(self):
+        """Corners rounder than it is wide, corners closing at its slant
+        before its top, no room inside, a size of 0"""
+        for props in (
+            dict(CornerRadius=7),
+            dict(CornerRadius=1),
+            dict(Width=4, CornerRadius=1.5),
+            dict(Depth=0),
+        ):
+            with self.subTest(**props):
+                feature = self.emboss(**props)
+                self.assertIn("Invalid", feature.State)
+                self.Doc.removeObject(feature.Name)
+
     def testSizesFromThickness(self):
         """A built-in form's sizes start from the sheet's thickness: the
         rule's 2 mm doubles them; set before, they are kept"""
         self.Plate.Rule.Thickness = 2
         self.Doc.recompute()
         feature = self.Body.newObject("PartDesign::SheetMetalForm", "Form")
-        sizes = ("Diameter", "Depth", "Radius", "Length", "Width")
+        sizes = ("Diameter", "Depth", "Radius", "Length", "Width", "CornerRadius")
         self.assertEqual(
-            [getattr(feature, p).Value for p in sizes], [20.0, 4.0, 2.0, 40.0, 12.0]
+            [getattr(feature, p).Value for p in sizes], [20.0, 4.0, 2.0, 40.0, 12.0, 6.0]
         )
         self.assertEqual(feature.FlankAngle.Value, 45)
         kept = self.Doc.addObject("PartDesign::SheetMetalForm", "Kept")

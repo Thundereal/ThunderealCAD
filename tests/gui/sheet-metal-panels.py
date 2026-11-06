@@ -22,8 +22,8 @@
     refused; OK keeps ordinary features, one undo takes them away, Cancel
     leaves nothing (M5, ruled 2026-11-06);
   - Form's panel: its face, its kind, its points' sketch, its angle and way,
-    a dimple's sizes, a louver's, a bead's, a lance's, a drawn cutout's and a
-    flanged hole's, each kind's greyed out for the others;
+    a dimple's sizes, a louver's, a bead's, a lance's, a drawn cutout's, a
+    flanged hole's and an emboss's, each kind's greyed out for the others;
     a size set there is the form's.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
@@ -1030,6 +1030,7 @@ def run():
             for kind, size, used, unused in (
                 ("DrawnCutout", 12, ("Diameter", "Length", "FlankAngle"), ("Width",)),
                 ("FlangedHole", 8, ("Diameter", "Depth"), ("Length", "Width", "FlankAngle")),
+                ("Emboss", 12, ("Length", "Width", "CornerRadius", "FlankAngle"), ("Diameter",)),
             ):
                 fforms[0].Kind = kind
                 fforms[0].Diameter = size

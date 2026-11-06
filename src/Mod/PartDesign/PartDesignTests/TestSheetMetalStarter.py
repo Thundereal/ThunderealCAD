@@ -109,10 +109,14 @@ class TestSheetMetalStarter(unittest.TestCase):
         self.assertFalse(tip.Shape.isInside(V(-L / 2 + 0.5, 0, H - 0.5), 1e-7, True))
 
     def testFlat(self):
-        """Each lies flat with nothing wrong"""
-        for kind in KINDS:
-            with self.subTest(kind=kind):
-                tip = self.make(kind)[-1]
+        """Each lies flat with nothing wrong; a lip as wide as the legs' miter
+        planes meet across the shape too (40 by 30, the +Y legs' meet at y
+        -5, where a 10 mm lip on the -Y legs ends: its end face was taken
+        for the +Y lip's and the flat did not close, found 2026-11-06)"""
+        cases = [(kind, {}) for kind in KINDS] + [(k, {"FlangeWidth": 10}) for k in ("Hat", "Box")]
+        for kind, kw in cases:
+            with self.subTest(kind=kind, **kw):
+                tip = self.make(kind, **kw)[-1]
                 problems = PartDesign.checkSheet(tip)["Problems"]
                 self.assertEqual([p for p in problems if p["Kind"] == "NoFlat"], [], problems)
                 self.assertIsNotNone(tip.getSubObject("Flat"))

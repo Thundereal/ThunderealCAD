@@ -13023,10 +13023,10 @@
    }
   },
   "TestSolverGateRoleMappings.test_distance_subtypes[CylinderCylinder B-spline]": {
-   "export": "09a6af65c093d4ffc18ab0555320106cd5f4a5a0f711a2b757da9b39dbe4146b",
+   "export": "ab8f59e2fd66ef99a2024bf378f3b93415e82ba40b170ae4bd75c268e480a0af",
    "solve": {
     "ret": 0,
-    "dump": "09a6af65c093d4ffc18ab0555320106cd5f4a5a0f711a2b757da9b39dbe4146b",
+    "dump": "ab8f59e2fd66ef99a2024bf378f3b93415e82ba40b170ae4bd75c268e480a0af",
     "status": {
      "DoF": 45,
      "SolverStatus": 0,
@@ -13109,8 +13109,8 @@
       1.0
      ],
      "NCylM": [
-      31.138317532076993,
-      -6.516945898018939,
+      31.138317532076986,
+      -6.516945898018944,
       40.832692476851165,
       0.0,
       0.0,
@@ -13595,10 +13595,10 @@
    }
   },
   "TestSolverGateRoleMappings.test_distance_subtypes[Other freeform (refused, planar)]": {
-   "export": "b7cab24203191a4d5d63b0f10d533181a50ab1befcb59ba8b2d61c0a85e8c696",
+   "export": "b27d0775552b47cc90275ba700ea0a40ec1f4a4cf011c5cbd4b322301e1d5d8b",
    "solve": {
     "ret": 0,
-    "dump": "b7cab24203191a4d5d63b0f10d533181a50ab1befcb59ba8b2d61c0a85e8c696",
+    "dump": "b27d0775552b47cc90275ba700ea0a40ec1f4a4cf011c5cbd4b322301e1d5d8b",
     "status": {
      "DoF": 45,
      "SolverStatus": 0,
@@ -13663,9 +13663,9 @@
       0.9762960071199334
      ],
      "Free": [
-      7.0,
+      7.000000000000001,
       -23.0,
-      21.807717567203795,
+      21.807708874990084,
       0.057845920020143056,
       0.11569184004028611,
       0.17353776006042917,

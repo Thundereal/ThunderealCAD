@@ -77,6 +77,12 @@ it has: a start off a Fixed joint is solved whole, so the bench chains and
 test_drag_bundles_fixed are solved as they were in sec 6.20, to rounding
 (three records).
 
+The OCCT fork's B-spline area integrals cut at the knots (LinkVibe-801
+2c45873435..15ce0973f6, 2026-11-01..03) move a B-spline face's centre:
+the two role mappings on one, CylinderCylinder B-spline and Other freeform,
+were taken again (2026-11-06), the freeform part solved 8.7e-6 mm lower.
+With the OCCT before them, 047a9e432d, they were their old records.
+
 Every other registered backend (AssemblyApp.getAvailableSolvers(); since sec
 6.13 the Reference backend) runs the same cases through the assembly's
 SolverBackend property, in a generated class named after the case's class and

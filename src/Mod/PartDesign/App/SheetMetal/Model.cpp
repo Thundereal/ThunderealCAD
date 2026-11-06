@@ -228,7 +228,23 @@ int Model::owner(const TopoDS_Face& face, double tol) const
         }
         return true;
     };
+    // How far inside its limits the point is. A wall's limits are planes (a
+    // miter's, a rip's) and the region they leave is open: two legs mitered
+    // at both ends meet across the part, and past where their planes cross
+    // each holds what is the other's -- a lip's end face on one leg, at the
+    // crossing, was the opposite lip's, and the flat did not close
+    // (2026-11-06). Of the walls the face fits, the one it is deepest in.
+    auto margin = [&](const Element& element) {
+        double res = std::numeric_limits<double>::max();
+        for (const gp_Pln& limit : element.limits) {
+            res = std::min(res,
+                           -gp_Vec(limit.Location(), point).Dot(gp_Vec(limit.Axis().Direction())));
+        }
+        return res;
+    };
     int first = -1;
+    int best = -1;
+    double deepest = -std::numeric_limits<double>::max();
     for (auto kind : {Element::Kind::Bend, Element::Kind::Wall}) {
         for (std::size_t i = 0; i < elements.size(); ++i) {
             const Element& element = elements[i];
@@ -238,13 +254,21 @@ int Model::owner(const TopoDS_Face& face, double tol) const
             if (first < 0) {
                 first = static_cast<int>(i);
             }
-            if (kind == Element::Kind::Bend || within(element.frame)) {
+            if (kind == Element::Kind::Bend) {
                 return static_cast<int>(i);
+            }
+            if (!within(element.frame)) {
+                continue;
+            }
+            const double depth = margin(element);
+            if (depth > deepest + Precision::Confusion()) {
+                best = static_cast<int>(i);
+                deepest = depth;
             }
         }
     }
     // none it fits: as before, the first that holds it
-    return first;
+    return best >= 0 ? best : first;
 }
 
 void Model::transform(const gp_Trsf& trsf)

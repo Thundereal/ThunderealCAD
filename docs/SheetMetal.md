@@ -445,7 +445,7 @@ its tracker, not ported.
 | **Extend wall** | A wall's end face pushed out by a length, or up to a face, with gaps and a clearance against walls it would meet. | B1 7 |
 | **Bend between walls** | Two edges picked, one at each wall's end, joined by a bend of the rule's radius; the walls trimmed or extended to meet it, over the length the edges share. Where two sheets of a part come together. Built in M2 as Join by Bend. | -- (Inventor Bend, Fusion Join by Bend, Creo Merge) |
 | **Rolled wall** | An open sketch of lines and arcs revolved or rolled into a cylindrical or conical sheet, its arcs developed exactly as a lofted flange's are. | -- (Inventor Contour Roll, CATIA Rolled Wall) |
-| **Starter shapes** | A parametric L, U, tub, hat or box as a first feature, made of base wall and flanges. | B1 1 |
+| **Starter shapes** | A parametric L, U, tub, hat or box as a first feature, made of base wall and flanges. Built in M5 (sec 12). | B1 1 |
 | **Lofted flange** | Between two profiles (a round to a square, a cone): developed exactly where the surface is a cone, cylinder or plane, and as conical facets where it is not, with the facet count a parameter. | -- (#603) |
 
 ### 5.2 Edges, corners and cuts
@@ -1626,6 +1626,38 @@ stored flat and this option do what it was for.
   feature's model or `Suppress` changing refreshes it, every feature after it and the body.
   `TestSheetMetalCrossBreak` (15,
   +4; before, the 4 errored), `sheet-metal-commands.py` (97, +7; before, 85 and 2 failing).
+- **Ruled 2026-11-06, M5's order and its forms:** starter shapes; forms (the mechanism and user
+  tools, then dimple, louver, bead, lance, drawn cutout, flanged hole, emboss, the gusset last);
+  tab and slot; the rolled wall; the lofted flange. A starter shape is ordinary features (a
+  sketch, a base wall, flanges), not a feature of its own. A form is an element of its own owned
+  by its wall, carried rigidly into the flat; one across a bend is refused but the gusset. The
+  flat object shows forms Formed, as an Outline or as a Centre mark, one setting for the flat and
+  its files, Outline first, on a `FORMS` layer. A user tool is any object with a shape (a Link
+  too) and a face of it that sits on the wall's skin, placed at a sketch's points and turned by
+  an angle, taken as the formed outside and hollowed to the thickness. The built-in forms are one
+  feature with a `Kind`, their sizes defaulting from the rule's thickness.
+- **Built 2026-11-06, M5's first item, starter shapes:** `PartDesign.makeStarterShape(body,
+  kind, length, width, height, FlangeWidth=5, Centered=True)` (Python, `SheetMetalStarter.py`:
+  the sketch is Sketcher's, which PartDesign's library does not link) makes an L, U, Tub, Hat or
+  Box of the outside sizes asked: a rectangle sketch with its `Length` and `Width` constraints
+  named, centred on the origin or from it, a base wall, one flange on the edges (L the far long
+  edge, U both long ones, the rest all four, mitered), `OuterSharp` and `MaterialInside` so the
+  sizes are the outside ones, and for a hat or a box a second flange, the lip: a hat's on the
+  legs' outer skins, bending out, `FlangeWidth` past them (its length the width and the rule's
+  thickness, by expression); a box's on their inner skins, bending in, `FlangeWidth` from their
+  outsides, each stopped square short of the corners, clear of its neighbour by the rule's gap. A
+  kind unknown or a size too small for the bends is refused, nothing left made. The Starter Shape
+  command (first on the tool bar, and in the Sheet Metal submenu beside Base Wall) opens a panel
+  of the kind, the sizes and Centred that makes the shape as it is set, in a transaction of its
+  own, a refusal said in red and OK refused; OK keeps it, made once more by the logged command,
+  one step to undo; Cancel takes it away. `TestSheetMetalStarter` (8; before, all errored),
+  `sheet-metal-panels.py` (+8; before, it aborted at the unknown command),
+  `sheet-metal-commands.py` (+2).
+- **Found with it, not fixed:** a flange bent in at an inside corner and mitered there (a box's
+  lip as one flange on the four inner edges, or one lip on a tub's leg) does not lie flat: the
+  miter's slant through the lip's bend is not a cut normal to the sheet, and its mapped ends do
+  not meet the skins' (eight free edges in the sewn flat). Bent out (a hat's lip) it lies flat.
+  The box's lips stop square to keep clear of it.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

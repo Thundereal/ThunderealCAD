@@ -27,6 +27,7 @@ import traceback
 
 import FreeCAD
 import FreeCADGui
+import numpy as np
 import Part
 from pivy import coin
 from PySide import QtCore, QtGui, QtWidgets
@@ -1211,8 +1212,32 @@ def run():
             if o.Name not in before and o.TypeId == "PartDesign::SheetMetalCrossBreak"
         ]
         cross = crosses[0] if crosses else None
+
+        def drawnX(obj):
+            """Whether obj's view draws the X of its crossBreakLines(), as its
+            switches stand"""
+            ends = [v.Point for e in obj.crossBreakLines() for v in e.Vertexes]
+            search = coin.SoSearchAction()
+            search.setType(coin.SoCoordinate3.getClassTypeId())
+            search.setInterest(coin.SoSearchAction.ALL)
+            search.apply(obj.ViewObject.RootNode)
+            for path in search.getPaths():
+                pts = [V(*p.getValue()) for p in path.getTail().point.getValues()]
+                if len(pts) == 4 and all(any(p.isEqual(q, 1e-6) for q in ends) for p in pts):
+                    return True
+            return False
+
+        editing = FreeCADGui.Control.activeDialog()
+        if cross is not None:
+            doc.recompute()
+            pump(20)
+        drawnEditing = cross is not None and drawnX(cross)
         if FreeCADGui.Control.activeDialog():
             FreeCADGui.Control.closeDialog()
+            pump()
+        # as OK does: the edit ended, not only the panel
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
             pump()
         doc.recompute()
         pump(20)
@@ -1227,23 +1252,177 @@ def run():
             cross and (cross.State, cross.getStatusString(), broken),
         )
         lines = cross.crossBreakLines() if cross else []
-        ends = [v.Point for e in lines for v in e.Vertexes]
-        search = coin.SoSearchAction()
-        search.setType(coin.SoCoordinate3.getClassTypeId())
-        search.setInterest(coin.SoSearchAction.ALL)
-        search.setSearchingAll(True)
-        if cross is not None:
-            search.apply(cross.ViewObject.RootNode)
-        drawnX = False
-        for path in search.getPaths() if cross is not None else []:
-            pts = [V(*p.getValue()) for p in path.getTail().point.getValues()]
-            if len(pts) == 4 and all(any(p.isEqual(q, 1e-6) for q in ends) for p in pts):
-                drawnX = True
         check(
-            "its view draws the X on the face picked",
-            len(lines) == 2 and drawnX,
-            (len(lines), drawnX),
+            "while its panel is open its view draws the X on the face picked",
+            len(lines) == 2 and editing is not None and drawnEditing,
+            (len(lines), editing is not None, drawnEditing),
         )
+        check(
+            "the panel closed, it does not",
+            cross is not None and not drawnX(cross),
+        )
+
+        # The break as a surface finish the feature implies (ruled
+        # 2026-11-06): App::SurfaceFinish CrossBreak (8) or CrossBreakReversed
+        # (9) on both skins of the wall, carried on by every feature after it
+        # and by the body, gone while it is suppressed
+        def renderMaterial(vo):
+            def walk(node):
+                if node.getTypeId().getName() == "SoFCRenderMaterial":
+                    return node
+                children = getattr(node, "getChildren", None)
+                kids = children() if children else None
+                for i in range(kids.getLength() if kids else 0):
+                    found = walk(kids[i])
+                    if found:
+                        return found
+                return None
+
+            return walk(vo.RootNode)
+
+        def crossFinishes(vo):
+            """{0-based face: palette entry} of the faces vo's render
+            material gives a cross break finish"""
+            node = renderMaterial(vo)
+            if node is None:
+                return {}
+            palette = node.getField("finishPalette")
+            indices = node.getField("finishIndices")
+            res = {}
+            for i in range(indices.getNum()):
+                k = indices[i]
+                if 0 <= k < palette.getNum() and round(palette[k].getValue()[0]) in (8, 9):
+                    res[i] = k
+            return res
+
+        def skins(obj):
+            return sorted(int(f["Face"][4:]) - 1 for f in PartDesign.crossBreakFaces(obj))
+
+        own = crossFinishes(cross.ViewObject) if cross else {}
+        check(
+            "the wall's two skins carry the cross break as a finish, no other face",
+            cross is not None
+            and len(skins(cross)) == 2
+            and sorted(own) == skins(cross)
+            and len(set(own.values())) == 1,
+            (own, cross and skins(cross)),
+        )
+        # the body draws the tip itself in its Tip mode only
+        mode = body.ViewObject.DisplayModeBody
+        body.ViewObject.DisplayModeBody = "Tip"
+        body.touch()
+        doc.recompute()
+        pump(20)
+        shown = crossFinishes(body.ViewObject)
+        body.ViewObject.DisplayModeBody = mode
+        pump(20)
+        check(
+            "and so does the body drawing its tip",
+            len(skins(body)) == 2 and sorted(shown) == skins(body),
+            (shown, skins(body)),
+        )
+        other = [
+            ("Face%d" % (i + 1), f)
+            for i, f in enumerate(cross.Shape.Faces if cross else [])
+            if isinstance(f.Surface, Part.Plane)
+            and (cross.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Wall")
+            and cross.sheetElementOf("Face%d" % (i + 1)) != wallName
+        ]
+        later = None
+        if other:
+            before = [o.Name for o in doc.Objects]
+            FreeCADGui.Selection.clearSelection()
+            FreeCADGui.Selection.addSelection(
+                doc.Name, cross.Name, max(other, key=lambda w: w[1].Area)[0]
+            )
+            FreeCADGui.runCommand("PartDesign_SheetMetalCrossBreak")
+            pump(20)
+            if FreeCADGui.Control.activeDialog():
+                FreeCADGui.Control.closeDialog()
+                pump()
+            doc.recompute()
+            pump(20)
+            found = [
+                o
+                for o in doc.Objects
+                if o.Name not in before and o.TypeId == "PartDesign::SheetMetalCrossBreak"
+            ]
+            later = found[0] if found else None
+        carried = crossFinishes(later.ViewObject) if later else {}
+        check(
+            "a cross break after it carries the first on beside its own",
+            later is not None
+            and len(skins(later)) == 4
+            and sorted(carried) == skins(later)
+            and len(set(carried.values())) == 2,
+            (carried, later and skins(later)),
+        )
+        if later is not None:
+            # the first suppressed: the later one's shape is what it was, and
+            # its walls lose the first's break all the same
+            cross.Suppress = True
+            doc.recompute()
+            pump(20)
+            alone = crossFinishes(later.ViewObject)
+            check(
+                "the first suppressed, the one after it keeps its own wall's only",
+                sorted(alone) == skins(later) and len(skins(later)) == 2,
+                (alone, skins(later)),
+            )
+            cross.Suppress = False
+            doc.recompute()
+            pump(20)
+            body.removeObject(later)
+            doc.removeObject(later.Name)
+            doc.recompute()
+            pump(20)
+
+        def picture(tag):
+            view.redraw()
+            pump(60)
+            path = os.path.join(OUT, "cross-break-%s.png" % tag)
+            view.saveRenderDump(path, metadata=False)
+            image = QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB888)
+            w, h = image.width(), image.height()
+            raw = np.frombuffer(image.constBits(), dtype=np.uint8, count=h * image.bytesPerLine())
+            return raw.reshape(h, image.bytesPerLine())[:, : w * 3].astype(np.int32)
+
+        def differing(a, b):
+            """How many pixels differ by more than a few levels"""
+            if a.shape != b.shape:
+                return -1
+            return int((np.abs(a - b).reshape(a.shape[0], -1, 3).max(axis=2) > 8).sum())
+
+        view.viewIsometric()
+        view.fitAll()
+        pump(40)
+        try:
+            broken = picture("on")
+        except Exception as e:
+            broken = None
+            note("NOTE no picture: %s" % e)
+        if cross is not None:
+            cross.Suppress = True
+            doc.recompute()
+            pump(20)
+        check(
+            "suppressed, neither it nor the body carries the finish",
+            cross is not None
+            and crossFinishes(cross.ViewObject) == {}
+            and crossFinishes(body.ViewObject) == {},
+            cross and (crossFinishes(cross.ViewObject), crossFinishes(body.ViewObject)),
+        )
+        plain = picture("suppressed") if broken is not None else None
+        count = differing(broken, plain) if plain is not None else -1
+        check(
+            "the renderer draws it: the picture differs from the one suppressed",
+            count > 200,
+            "%d pixels" % count,
+        )
+        if cross is not None:
+            cross.Suppress = False
+            doc.recompute()
+            pump(20)
         doc.recompute()
         pump(20)
         crossNames = [

@@ -7,7 +7,11 @@
 # on the blank's top, named after the wall (Wall1CrossBreak1, ...2), Up or
 # Down as the flat lies (the flat object's CrossBreaks); the DXF and SVG
 # write them on the layer CROSS_BREAK with a note at the crossing. In 3D the
-# diagonals lie on the face the break rises from (crossBreakLines()).
+# diagonals lie on the face the break rises from (crossBreakLines()), and
+# the wall's faces carry the break as a surface finish the feature implies:
+# PartDesign.crossBreakFaces() lists them, for the Cross Break, every feature
+# after it -- a Pocket too -- and the body; none for a feature before it, and
+# none while it is suppressed.
 #
 # A plate 40 x 20, 1 thick, a flange 10 high on its far edge: the plate is
 # Wall1, the flange's leg Wall2.
@@ -260,6 +264,104 @@ class TestSheetMetalCrossBreak(unittest.TestCase):
             layers, _ = readSVG(svg)
             self.assertEqual([t for t, _, _ in layers["CROSS_BREAK"]], ["line", "line"])
             self.assertIn("CROSS BREAK UP 3\u00b0", [text for _, _, text in layers["LABELS"]])
+
+    def checkFaces(self, obj, rises=True, angle=3):
+        """Both skins of the plate, the one picked rising; the rectangle the
+        wall's diagonals cross, of its long edge, in obj's shape"""
+        faces = PartDesign.crossBreakFaces(obj)
+        self.assertEqual(sorted(f["Wall"] for f in faces), ["Wall1", "Wall1"], faces)
+        byZ = {round(obj.Shape.getElement(f["Face"]).CenterOfMass.z, 6): f for f in faces}
+        self.assertEqual(sorted(byZ), [0, 1])
+        self.assertEqual(byZ[1]["Rises"], rises)
+        self.assertEqual(byZ[0]["Rises"], not rises)
+        lines = self.Doc.getObject("CrossBreak").crossBreakLines()
+        crossing = lines[0].CenterOfMass
+        for f in faces:
+            self.assertAlmostEqual(f["Angle"], angle)
+            self.assertTrue(
+                f["Direction"].isEqual(V(1, 0, 0), 1e-9)
+                or f["Direction"].isEqual(V(-1, 0, 0), 1e-9),
+                f,
+            )
+            self.assertTrue(f["Normal"].isEqual(V(0, 0, 1 if rises else -1), 1e-9), f)
+            self.assertAlmostEqual(f["Length"], 40, places=6)
+            self.assertAlmostEqual(math.hypot(f["Length"], f["Width"]), lines[0].Length, places=6)
+            self.assertAlmostEqual(f["Center"].x, crossing.x, places=6)
+            self.assertAlmostEqual(f["Center"].y, crossing.y, places=6)
+        return faces
+
+    def pocket(self):
+        """A hole through the plate, after everything else"""
+        sketch = self.Body.newObject("Sketcher::SketchObject", "HoleSketch")
+        sketch.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        sketch.addGeometry(Part.Circle(V(8, 5, 0), V(0, 0, 1), 2))
+        pocket = self.Body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = sketch
+        pocket.Type = "ThroughAll"
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", pocket.State)
+        self.assertLess(pocket.Shape.Volume, pocket.BaseFeature.Shape.Volume - 1)
+        return pocket
+
+    def testFaces(self):
+        """The wall's two skins carry the break; Reversed, the other rises"""
+        self.assertEqual(PartDesign.crossBreakFaces(self.Flange), [])
+        feature = self.crossBreak(TOP)
+        self.checkFaces(feature)
+        feature.Reversed = True
+        feature.Angle = 2
+        self.Doc.recompute()
+        self.checkFaces(feature, rises=False, angle=2)
+
+    def testFacesPassOn(self):
+        """A Pocket after it, the body, a flange after that: the faces left of
+        the wall still carry it, the rectangle the wall's"""
+        self.crossBreak(TOP)
+        pocket = self.pocket()
+        self.checkFaces(pocket)
+        self.checkFaces(self.Body)
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange001")
+        flange.Edges = (pocket, [edgeOf(pocket, (0, 0, 1), (40, 0, 1))])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        faces = PartDesign.crossBreakFaces(flange)
+        self.assertEqual(sorted(f["Rises"] for f in faces), [False, True], faces)
+        self.assertEqual(PartDesign.crossBreakFaces(self.Plate), [])
+
+    def testFacesPlaced(self):
+        """In the shape's own coordinates, the body moved"""
+        self.crossBreak(TOP)
+        self.Body.Placement = FreeCAD.Placement(V(5, 7, 11), FreeCAD.Rotation(V(0, 0, 1), 90))
+        self.Doc.recompute()
+        faces = PartDesign.crossBreakFaces(self.Body)
+        self.assertEqual(len(faces), 2)
+        for f in faces:
+            face = self.Body.Shape.getElement(f["Face"])
+            self.assertLess(face.distToShape(Part.Vertex(f["Center"]))[0], 1e-6)
+            self.assertTrue(
+                f["Direction"].isEqual(V(0, 1, 0), 1e-9)
+                or f["Direction"].isEqual(V(0, -1, 0), 1e-9),
+                f,
+            )
+
+    def testSuppressed(self):
+        """Suppressed, it breaks nothing: no faces, no lines, nothing in the
+        flat"""
+        feature = self.crossBreak(TOP)
+        pocket = self.pocket()
+        feature.Suppress = True
+        self.Doc.recompute()
+        self.assertEqual(PartDesign.crossBreakFaces(feature), [])
+        self.assertEqual(PartDesign.crossBreakFaces(pocket), [])
+        self.assertEqual(PartDesign.crossBreakFaces(self.Body), [])
+        self.assertEqual(feature.crossBreakLines(), [])
+        flat = self.flatObject()
+        self.assertEqual(dict(flat.CrossBreaks), {})
+        self.assertEqual(named(flat.Shape, "Wall1CrossBreak"), {})
+        feature.Suppress = False
+        self.Doc.recompute()
+        self.assertEqual(len(PartDesign.crossBreakFaces(self.Body)), 2)
+        self.assertEqual(dict(self.flatObject().CrossBreaks), {"Wall1": "Up"})
 
     def testSaveRestore(self):
         name = self.crossBreak(TOP, Angle=2.5).Name

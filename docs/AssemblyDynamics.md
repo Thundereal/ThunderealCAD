@@ -3911,6 +3911,64 @@ Phase D1 is under way (2026-10-28):
     flexible-bodies page's strip, coloured, 0.203 MPa at most 3 ms in (the
     release's ringing, 1.73 times), then the swing's 0.1145 MPa at 75 ms
     against the turning bar's rho A g L^2 c / 27 I cos(theta), 0.1152.
+- Built, D4b step 5: a contact on a flexible part.
+  - **Through the faces it is touched on** (`FlexibleBody.ContactFaces`,
+    faces of its component): one interface of their own, its nodes tied to
+    its boundary body as a joint's are, which every contact shape on the
+    part rides (each shape's frame where it is on that body,
+    `frameLocal`). A contact's forces act on that body and bend the part
+    through its static modes, implicitly, as a joint's do; the faces move
+    together, so they are a patch -- a pad, a tip, a tooth's flank -- not
+    a long face that bends. `FlexibleBodies.prepare()` makes the interface
+    (labelled "Contact" in InterfaceFrames), less the nodes a joint's
+    interface holds: two interfaces sharing nodes would hold each other. A
+    contact on a flexible part without them is refused, saying so.
+  - Why not the mesh's own nodes, as Adams' contact on a flexible body
+    has it: the modal assembly takes a force on an internal node (its
+    projection on the modes, `Psi^T f`), but only in the residual, and a
+    metal contact's stiffness is a hundred times and more a gram's mass
+    over a step of 0.1 ms squared -- Newton's iterations, without the
+    coupling, run away on it (an estimate, not tried). The
+    interface is the static modes RecurDyn's RFlex takes for a contact
+    whose place is known; a contact anywhere on a part, its full nodal
+    mesh (FFlex, Chrono's ChContactSurfaceMesh), when a case needs it.
+  - The contact interface's body at its nodes' centre, as a joint's is on
+    its face: at the contact shape's frame -- a mesh's, the part's origin,
+    the hinge's end of a strip 200 mm from the pad it was tied to -- the
+    strip striking a post by Hertz's law diverged, where at the centre it
+    ran (both before the floating frame below was set back).
+  - **Found on the way: a substep taken again lost the floating frame.**
+    The contact's substeps that run off are taken again from their start
+    (`takeBack()`, the state scattered back), and a modal assembly's
+    floating frame is not in the state: its update iterates from where it
+    is, and a substep that ran off left it not finite -- as the strip left
+    the post, every substep after one that diverged failed, down to a
+    nanosecond ("the contact's integration diverged"). Each flexible
+    part's floating frame is now set back with the state (our Chrono's
+    `SetFloatingFrameOfReference()`), and a substep's state is taken as
+    not finite by the whole system's, its modes too, not by the parts'
+    bodies, a flexible one's a proxy that follows.
+  - What a contact load reads of its bodies' masses -- the stiffness from
+    an allowed penetration, Hunt and Crossley's speed, Johnson's line
+    depth, its period for the substeps, a late contact's depth -- is the
+    part's on a flexible side (`ContactLoad::carried`, `lighterMass()`),
+    not the interface body's millionth of it. The part's proxy body has
+    the mesh's mass too, for the run's lightest body.
+  - Test: TestFlexibleBody.test_propped_cantilever -- the rod clamped to
+    the grounded block, a pad under its free end resting on a grounded
+    post, the pad's face its contact face: under its weight the post takes
+    a propped cantilever's prop, q (6 L^2 - 4 L a + a^2) / 8 a and the pad's
+    weight, 106.4 mN against 104.9 (1.4%), the clamp the rest, where a
+    rigid rod's prop takes nothing (its Fixed joint holds it exactly, the
+    penalty contact never presses); test_strike -- a strip 200 x 20 x 4
+    hinged, a pad under its end, let go level onto a post 10 mm below, at
+    an allowance of 1e-4 mm: it strikes, bounces and the run goes through
+    (without the floating frame set back it diverges as it leaves), the
+    blow softer than the rigid strip's (by Hertz's law, 69.7 N at most
+    against 283 N); test_contact_needs_its_faces.
+  - Not yet: stops and joint friction on a flexible part's joints read the
+    interface body's mass too (a stop's bounce, friction's stiction
+    speed); a contact anywhere on a part (above).
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

@@ -263,6 +263,13 @@ public:
          * is stated.
          */
         void setExtent(double dx, double dy, double dz, double zmin, double zmax);
+
+        /** State the frame a cross break lies in (App::SurfaceFinish::
+         * isCrossBreak()): its long side's way (dx, dy, dz) and its middle
+         * as the coordinates \a u and \a v (fc_finish.sh's
+         * fcFinishCrossBreakFrame)
+         */
+        void setLay(double dx, double dy, double dz, double u, double v);
     };
     /// The implied finishes, face by face; the default states none.
     virtual void getImpliedFinishes(std::vector<ImpliedFinish> &finishes) const;

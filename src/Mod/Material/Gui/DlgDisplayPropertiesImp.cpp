@@ -860,6 +860,10 @@ void DlgDisplayPropertiesImp::setupFinishPresets()
     // column.
     addRow(QIcon(blank), tr("None"), App::SurfaceFinish::None);
     for (uint8_t pattern = 1; pattern < App::SurfaceFinish::PatternCount; ++pattern) {
+        // a pattern only a feature states (a cross break) is no preset
+        if (finishPresetLabel(pattern).isEmpty()) {
+            continue;
+        }
         // Each preset is drawn at the size that pattern has on a real
         // part, which is the one size MaterialIcons ships a rendered
         // icon for -- so the list paints from the resource rather than

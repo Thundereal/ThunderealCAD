@@ -1619,17 +1619,16 @@ void ViewProviderGeometryObject::getImpliedFinishes(
 {
 }
 
-void ViewProviderGeometryObject::ImpliedFinish::setExtent(
-        double dx, double dy, double dz, double zmin, double zmax)
+namespace {
+
+// Octahedral: the unit sphere folded onto the square |u| + |v| <= 1, two
+// floats for a direction with no pole to lose precision at (fc_finish.sh's
+// fcFinishDecodeAxis is the inverse). False for no direction.
+bool encodeDirection(double dx, double dy, double dz, float out[2])
 {
-    // Octahedral: the unit sphere folded onto the square |u| + |v| <= 1,
-    // two floats for a direction with no pole to lose precision at
-    // (fc_finish.sh's fcFinishDecodeAxis is the inverse).
     const double l1 = std::fabs(dx) + std::fabs(dy) + std::fabs(dz);
-    if (!(l1 > 0.0) || !(zmin < zmax)) {
-        extent[0] = extent[1] = extent[2] = extent[3] = 0.0F;
-        return;
-    }
+    if (!(l1 > 0.0))
+        return false;
     double u = dx / l1;
     double v = dy / l1;
     if (dz < 0.0) {
@@ -1638,10 +1637,33 @@ void ViewProviderGeometryObject::ImpliedFinish::setExtent(
         u = fu;
         v = fv;
     }
-    extent[0] = float(u);
-    extent[1] = float(v);
+    out[0] = float(u);
+    out[1] = float(v);
+    return true;
+}
+
+} // anonymous namespace
+
+void ViewProviderGeometryObject::ImpliedFinish::setExtent(
+        double dx, double dy, double dz, double zmin, double zmax)
+{
+    if (!(zmin < zmax) || !encodeDirection(dx, dy, dz, extent)) {
+        extent[0] = extent[1] = extent[2] = extent[3] = 0.0F;
+        return;
+    }
     extent[2] = float(zmin);
     extent[3] = float(zmax);
+}
+
+void ViewProviderGeometryObject::ImpliedFinish::setLay(
+        double dx, double dy, double dz, double u, double v)
+{
+    if (!encodeDirection(dx, dy, dz, extent)) {
+        extent[0] = extent[1] = extent[2] = extent[3] = 0.0F;
+        return;
+    }
+    extent[2] = float(u);
+    extent[3] = float(v);
 }
 
 void ViewProviderGeometryObject::deriveAppearanceBase()

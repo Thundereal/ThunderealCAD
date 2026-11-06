@@ -38,7 +38,7 @@ namespace {
 /// Indexed by SurfaceFinish::Pattern; None is the empty name
 const char *finishPatternNames[] = {
     "", "knurl", "knurl-straight", "brushed", "blasted", "turned",
-    "thread", "thread-left"
+    "thread", "thread-left", "cross-break", "cross-break-reversed"
 };
 
 static_assert(sizeof(finishPatternNames) / sizeof(finishPatternNames[0])

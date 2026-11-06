@@ -261,9 +261,11 @@ void main()
 		bool phong = u_pbrParams.x < 0.5;
 		float frough = phong ? fcRoughFromShininess(matSpec.w)
 		                     : rough;
+		vec4 finishExtent = fcFinishExtentEntry(finishSlot.x);
 		fcApplyFinish(v_opos, v_onrm, v_vpos, finishParams,
-		              fcFinishExtentEntry(finishSlot.x), finishSlot.y,
-		              n, frough, occ);
+		              finishExtent, finishSlot.y, n, frough, occ);
+		base.rgb *= fcFinishCrossBreakMark(v_opos, v_onrm, finishParams,
+		                                   finishExtent);
 		if (phong)
 			matSpec.w = fcShininessFromRough(frough);
 		else

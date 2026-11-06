@@ -68,6 +68,8 @@ __title__ = "Assembly Command Create Simulation"
 __author__ = "Ondsel"
 __url__ = "https://www.freecad.org"
 
+# Not upstream: where Save Animation's menu keeps what a video shows
+VideoParams = "User parameter:BaseApp/Preferences/Mod/Assembly"
 
 # Not upstream: what a dynamic run reports with its frames
 # (docs/AssemblyDynamics.md sec 8.4), as getSimulationResults() names it: the
@@ -2285,6 +2287,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.form.RemoveButton.clicked.connect(self.deleteSelectedMotions)
         self.form.groupBox_player.hide()
         self.form.SaveAnimationButton.clicked.connect(self.saveAnimation)
+        self.addVideoOptions()
         self.form.SaveAnimationButton.hide()
         self.addAnalysisWidgets()
 
@@ -3734,6 +3737,107 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 # Delete the object
                 motion.Document.removeObject(motion.Name)
 
+    def addVideoOptions(self):
+        """Not upstream: what a saved video shows with the 3D view -- the
+        Results box beside it as it plays, the time and speed over it -- in
+        the Save Animation button's menu, kept in the preferences"""
+        params = App.ParamGet(VideoParams)
+        menu = QtWidgets.QMenu(self.form.SaveAnimationButton)
+        self.videoBoxAction = menu.addAction(translate("Assembly", "With the Results box"))
+        self.videoBoxAction.setCheckable(True)
+        self.videoBoxAction.setChecked(params.GetBool("VideoResultsBox", True))
+        self.videoBoxAction.toggled.connect(lambda on: params.SetBool("VideoResultsBox", on))
+        self.videoTimeAction = menu.addAction(translate("Assembly", "With the time and speed"))
+        self.videoTimeAction.setCheckable(True)
+        self.videoTimeAction.setChecked(params.GetBool("VideoTime", True))
+        self.videoTimeAction.toggled.connect(lambda on: params.SetBool("VideoTime", on))
+        button = self.form.SaveAnimationButton
+        button.setMenu(menu)
+        button.setPopupMode(QtWidgets.QToolButton.MenuButtonPopup)
+        button.setToolTip(
+            translate(
+                "Assembly",
+                "Save the run as a video, a GIF or an animated glTF.\n"
+                "Its menu: the Results box beside the view as it plays, and the time\n"
+                "and speed over the view, in a video or a GIF.",
+            )
+        )
+
+    def videoFrame(self, path, layout, time, rate):
+        """Not upstream: a saved video's frame, the 3D view's image at path
+        with the Results box beside it and the time over it as layout says
+        (videoLayout()); written over path"""
+        view = QtGui.QImage(path)
+        canvas = QtGui.QImage(layout["size"], QtGui.QImage.Format_RGB32)
+        canvas.fill(self.resultsBox.palette().window().color())
+        painter = QtGui.QPainter(canvas)
+        try:
+            painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+            painter.setRenderHint(QtGui.QPainter.TextAntialiasing)
+            painter.drawImage(0, 0, view)
+            if layout["box"] is not None:
+                # At the first frame's scale, should it be taller now
+                box = self.videoBoxImage()
+                at = layout["box"]
+                scale = layout["scale"]
+                painter.drawImage(
+                    QtCore.QRectF(at.x(), at.y(), box.width() * scale, box.height() * scale), box
+                )
+            if layout["time"]:
+                text = "t = " + SimulationPlayback.timeText(
+                    time, rate, self.currentPlayback().fps
+                )
+                if self.hasPlaybackSpeed():
+                    text += "   (%s)" % SimulationPlayback.speedText(rate)
+                font = QtWidgets.QApplication.font()
+                font.setPixelSize(layout["text"])
+                painter.setFont(font)
+                metrics = QtGui.QFontMetrics(font)
+                pad = layout["text"] // 3
+                back = QtCore.QRect(
+                    pad, pad, metrics.horizontalAdvance(text) + 2 * pad, metrics.height() + pad
+                )
+                painter.fillRect(back, QtGui.QColor(255, 255, 255, 200))
+                painter.setPen(QtGui.QColor(30, 30, 30))
+                painter.drawText(back, Qt.AlignCenter, text)
+        finally:
+            painter.end()
+        canvas.save(path)
+
+    def videoLayout(self, width, height):
+        """Not upstream: a saved video's frames, the view width x height: the
+        Results box beside it, as tall as the view at most, if it is to be
+        and shows; the time over it, if it is to be. None for the view alone"""
+        withBox = self.videoBoxAction.isChecked() and self.resultsBox.isVisible()
+        withTime = self.videoTimeAction.isChecked()
+        if not withBox and not withTime:
+            return None
+        size = QtCore.QSize(width, height)
+        box = None
+        scale = 1.0
+        if withBox:
+            grab = self.videoBoxImage()
+            scale = min(1.0, (height - 16) / max(grab.height(), 1))
+            w, h = int(grab.width() * scale), int(grab.height() * scale)
+            box = QtCore.QRect(width + 8, (height - h) // 2, w, h)
+            size = QtCore.QSize(width + w + 16, height)
+            # Even, as the codecs want
+            size.setWidth(size.width() + size.width() % 2)
+        return {
+            "size": size,
+            "box": box,
+            "scale": scale,
+            "time": withTime,
+            "text": max(12, height // 32),
+        }
+
+    def videoBoxImage(self):
+        """Not upstream: the Results box as a video shows it, down to its
+        value: its buttons left out"""
+        bottom = self.resultValue.geometry().bottom() + 6
+        rect = QtCore.QRect(0, 0, self.resultsBox.width(), min(bottom, self.resultsBox.height()))
+        return self.resultsBox.grab(rect).toImage()
+
     def saveAnimation(self):
         num_frames = self.assembly.numberOfFrames()
         if num_frames <= 1:
@@ -3802,7 +3906,14 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # Not upstream: the video goes as playback does, at the study's speed
         # (SimulationPlayback): its frames' times are the run's at that speed,
         # between the run's frames where it plays slower than them
-        video_times = [t for t, _ in self.makePlayback().frames()]
+        played = self.makePlayback().frames()
+        video_times = [t for t, _ in played]
+        # Not upstream: the Results box beside the view and the time over
+        # it, as the menu says
+        layout = self.videoLayout(width, height)
+        viewSize = (width, height)
+        if layout is not None:
+            width, height = layout["size"].width(), layout["size"].height()
 
         # Setup temporary directory and progress bar
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3828,11 +3939,19 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                         App.Console.PrintMessage("Animation save cancelled.\n")
                         return
 
-                    self.assembly.updateForTime(video_time)
+                    if layout is None:
+                        self.assembly.updateForTime(video_time)
+                    else:
+                        # The panel's labels and plot at the time too
+                        self.showPlayed(video_time, played[i][1])
                     Gui.updateGui()  # Ensure the 3D view is redrawn
 
                     frame_filename = temp_path / f"frame_{i:05d}.png"
-                    view.saveImage(str(frame_filename), width, height, "Current")
+                    if layout is None:
+                        view.saveImage(str(frame_filename), width, height, "Current")
+                    else:
+                        view.saveImage(str(frame_filename), viewSize[0], viewSize[1], "Current")
+                        self.videoFrame(str(frame_filename), layout, video_time, played[i][1])
                     frame_files.append(str(frame_filename))
 
                 # Assemble the final animation file
@@ -3867,6 +3986,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 # Restore original state
                 self.assembly.updateForFrame(original_frame)
                 self.form.frameSlider.setValue(original_frame)
+                # Not upstream: the labels and plot too, which played
+                self.onFrameChanged(original_frame)
 
     def saveGltf(self, file_path):
         """The frames as an animated glTF (SimulationGltf), the parts as

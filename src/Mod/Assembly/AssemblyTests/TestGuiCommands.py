@@ -1442,29 +1442,16 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
-    def test_playback_speed(self):
-        """The player at the study's speed (docs/AssemblyDynamics.md sec
-        8.6): Auto by default; through an impact's frames, microseconds
-        apart, the parts at the run's time between them, the speed said
-        against real time, the time to the microsecond and the plot about
-        it, less of the run, the impact stretched; its + and - zooming about
-        the time shown, a click on its timeline going to the time there;
-        Normal, the whole run shown, an output step a video frame"""
-        import CommandCreateSimulation
+    @staticmethod
+    def impact_times():
+        """A run's frames: every 2.5 ms to 0.25 s, and 20 through an impact
+        at 0.1 s, 3 us apart"""
+        return sorted([k * 2.5e-3 for k in range(101)] + [0.1 + 3e-6 * (k + 1) for k in range(20)])
 
-        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
-        self.run_command("Assembly_CreateSimulation")
-        self.accept_task()
-        sim = self.proxies("Simulation")[0]
-        sim.TimeStepOutput = 2.5e-3
-        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
-        Gui.Control.showDialog(panel)
-        _process()
-        self.assertEqual(sim.PlaybackSpeed, "Auto")
-        self.assertEqual(panel.speedCombo.currentData(), "Auto")
+    def impact_run(self, times, shown):
+        """An assembly's run at times for a panel to play: a spring's force
+        through the impact, the times the parts were put at kept in shown"""
         doc = self.doc
-        times = sorted([k * 2.5e-3 for k in range(101)] + [0.1 + 3e-6 * (k + 1) for k in range(20)])
-        shown = []
 
         class Results:
             Document = doc
@@ -1493,8 +1480,118 @@ class TestGuiCommands(unittest.TestCase):
             def numberOfFrames(self):
                 return len(times)
 
+        return Results()
+
+    def test_video_with_results_box(self):
+        """Save Animation's menu: a video or a GIF with the Results box
+        beside the 3D view as it plays and the time and speed over the view,
+        the menu's choices kept in the preferences; both off, the view alone.
+        The panel left at the frame it was at"""
+        import os
+        import shutil
+        import tempfile
+        from unittest import mock
+
+        from PIL import Image
+
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.TimeStepOutput = 2.5e-3
+        sim.PlaybackSpeed = "Normal"
+        params = App.ParamGet(CommandCreateSimulation.VideoParams)
+        kept = {k: params.GetBool(k, True) for k in ("VideoResultsBox", "VideoTime")}
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        times, shown = self.impact_times(), []
         assembly = panel.assembly
-        panel.assembly = Results()
+        panel.assembly = self.impact_run(times, shown)
+        folder = tempfile.mkdtemp(prefix="VideoBox")
+        # The save's progress, left to run
+        self.modals.expect.append(
+            (lambda w: isinstance(w, QtWidgets.QProgressDialog), lambda w: None)
+        )
+
+        def save(name):
+            chosen = (os.path.join(folder, name), "Animated GIF (*.gif)")
+            with mock.patch.object(
+                CommandCreateSimulation.QFileDialog, "getSaveFileName", return_value=chosen
+            ):
+                panel.saveAnimation()
+            return Image.open(os.path.join(folder, name))
+
+        try:
+            panel.fillResults()
+            panel.form.frameSlider.setMaximum(len(times) - 1)
+            panel.fitPlayerLabels(len(times))
+            panel.resultsBox.show()
+            panel.form.frameSlider.setValue(7)
+            _process()
+            label = panel.form.FrameTimeLabel.text()
+            self.assertTrue(panel.videoBoxAction.isChecked())
+            self.assertTrue(panel.videoTimeAction.isChecked())
+            self.assertIs(panel.form.SaveAnimationButton.menu().actions()[0], panel.videoBoxAction)
+            width, height = Gui.ActiveDocument.ActiveView.getSize()
+            width -= width % 2
+            height -= height % 2
+            # With both: the box beside the view, its frames each the run's
+            # frame at its time, the time over the view on a light backing
+            both = save("both.gif")
+            self.assertEqual(both.n_frames, 101)
+            self.assertGreater(both.width, width + 100)
+            self.assertEqual(both.width % 2, 0)
+            self.assertEqual(both.height, height)
+            both.seek(50)
+            frame = both.convert("RGB")
+            pad = max(12, height // 32) // 3
+            self.assertGreater(min(frame.getpixel((pad + 2, pad + 2))), 180)
+            self.assertAlmostEqual(shown[-1], times[7], delta=1e-12)
+            self.assertEqual(panel.form.FrameTimeLabel.text(), label)
+            # Off, kept in the preferences: the view alone
+            panel.videoBoxAction.setChecked(False)
+            panel.videoTimeAction.setChecked(False)
+            self.assertFalse(params.GetBool("VideoResultsBox", True))
+            self.assertFalse(params.GetBool("VideoTime", True))
+            alone = save("alone.gif")
+            self.assertEqual(alone.size, (width, height))
+            # The time alone: over the view, no box beside it
+            panel.videoTimeAction.setChecked(True)
+            self.assertEqual(save("time.gif").size, (width, height))
+        finally:
+            for k, v in kept.items():
+                params.SetBool(k, v)
+            panel.assembly = assembly
+            shutil.rmtree(folder, ignore_errors=True)
+        self.accept_task()
+        self.assertClean()
+
+    def test_playback_speed(self):
+        """The player at the study's speed (docs/AssemblyDynamics.md sec
+        8.6): Auto by default; through an impact's frames, microseconds
+        apart, the parts at the run's time between them, the speed said
+        against real time, the time to the microsecond and the plot about
+        it, less of the run, the impact stretched; its + and - zooming about
+        the time shown, a click on its timeline going to the time there;
+        Normal, the whole run shown, an output step a video frame"""
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.TimeStepOutput = 2.5e-3
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        self.assertEqual(sim.PlaybackSpeed, "Auto")
+        self.assertEqual(panel.speedCombo.currentData(), "Auto")
+        times, shown = self.impact_times(), []
+        assembly = panel.assembly
+        panel.assembly = self.impact_run(times, shown)
         try:
             panel.fillResults()
             panel.form.frameSlider.setMaximum(len(times) - 1)

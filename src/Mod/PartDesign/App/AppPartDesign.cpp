@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 
+#include <App/Application.h>
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
@@ -236,7 +237,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     // Sheet metal's own kind on a body, for its tool bar (docs/SheetMetal.md
     // sec 8.1): what a solid body holding one offers, what an edit of one does
     for (Base::Type type : {PartDesign::SheetMetalBaseWall::getClassTypeId(),
-                            PartDesign::SheetMetalFlange::getClassTypeId(),
+                            PartDesign::SheetMetalFlange::getClassTypeId(),
                             PartDesign::SheetMetalContourFlange::getClassTypeId(),
                             PartDesign::SheetMetalJoin::getClassTypeId(),
                             PartDesign::SheetMetalBendCuts::getClassTypeId(),

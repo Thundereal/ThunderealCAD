@@ -32,6 +32,9 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_Trsf.hxx>
 
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
@@ -66,6 +69,25 @@ struct PartDesignExport FlatResult
     std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> faces;
     /// The grain arrow, where asked for (grainArrow())
     std::vector<TopoDS_Edge> grain;
+    struct CrossBreak
+    {
+        /// The wall's
+        std::string name;
+        /// Corner to corner of the wall's region, on the blank's top
+        std::array<TopoDS_Edge, 2> diagonals;
+        /// The break rises toward one looking down on the flat
+        bool up = false;
+        /// rad
+        double angle = 0;
+    };
+    /// Each wall's cross break (Element::crossBreak)
+    std::vector<CrossBreak> crossBreaks;
+    /// The flat-only markings on the blank's top, the flat object's
+    /// (SheetMetalFlatPattern::Markings)
+    std::vector<TopoDS_Edge> markings;
+    /// What lays the root wall, where it stands, on XY: its skin there, the
+    /// flat turned as asked
+    gp_Trsf toXY;
 };
 
 /** Lay a folded sheet flat (docs/SheetMetal.md sec 4.7)
@@ -102,5 +124,75 @@ PartDesignExport std::vector<TopoDS_Edge> onBlank(const TopoDS_Shape& solid,
                                                   const TopoDS_Edge& line);
 
 PartDesignExport std::vector<TopoDS_Face> facesOnXY(const TopoDS_Shape& solid);
+
+/** A cross break's note, "CROSS BREAK UP 3" and \a degree after the angle
+ * (deg, to 6 places at most)
+ */
+PartDesignExport std::string crossBreakNote(const FlatResult::CrossBreak& cross,
+                                            const char* degree);
+
+/** The face of wall \a index of \a shape its cross break rises from: of
+ * the wall's plane faces whose outer normal goes the way the break rises
+ * (Element::crossBreak), the largest; null for none
+ */
+PartDesignExport TopoDS_Face crossBreakFace(const TopoDS_Shape& shape, const Model& model,
+                                            int index);
+
+/** The diagonals of a plane \a face: corner to corner of its bounds in the
+ * frame of its longest straight edge, each as far as it runs over the face
+ * from its first meeting to its last; none for a face with no straight edge
+ */
+PartDesignExport std::vector<TopoDS_Edge> diagonals(const TopoDS_Face& face);
+
+/// A face a wall's cross break bows (crossBreakPatches())
+struct PartDesignExport CrossBreakPatch
+{
+    /// The face, 0 based, as TopExp::MapShapes() numbers them
+    int face = -1;
+    /// The wall's, by its index in the model
+    int wall = -1;
+    /// The middle of the rectangle the break is over, on the face's plane
+    gp_Pnt center;
+    /// Its long side's way (the longest straight edge's), and the way the
+    /// break rises, both in the plane's frame
+    gp_Dir direction;
+    gp_Dir normal;
+    /// Its half length along direction, half width across it
+    double halfLength = 0;
+    double halfWidth = 0;
+    /// The break's angle, rad, above 0
+    double angle = 0;
+    /// Whether it rises out of this face, not into it
+    bool rises = false;
+};
+
+/** The faces of \a shape each wall's cross break bows: of the wall's plane
+ * faces, those on either skin, over the rectangle its diagonals run corner
+ * to corner of (diagonals() of crossBreakFace()); none for a wall with none
+ */
+PartDesignExport std::vector<CrossBreakPatch> crossBreakPatches(const TopoDS_Shape& shape,
+                                                                const Model& model);
+
+/// A notch's shape at a bend's line (SheetMetalFlatPattern::Notch)
+enum class NotchKind
+{
+    None,
+    V,
+    Slot,
+};
+
+/** The notches of a flat at its bends (docs/SheetMetal.md sec 12): where a
+ * bend's line meets the blank's outer outline, on a straight piece of it
+ * within 10 deg of square to the line -- not where the line ends at a hole it
+ * runs over, nor in a corner's miter or round relief -- a prism through the
+ * blank each, to cut from it: a V \a depth along the line into the blank
+ * and \a width across it at the outline, or a slot of that size. A tool
+ * reaches past the outline only so far as nothing else of the blank is
+ * there.
+ *
+ * Throws Base::ValueError for a notch of no depth or width.
+ */
+PartDesignExport std::vector<TopoDS_Shape>
+notchTools(const FlatResult& flat, NotchKind kind, double depth, double width);
 
 }  // namespace PartDesign::SheetMetal

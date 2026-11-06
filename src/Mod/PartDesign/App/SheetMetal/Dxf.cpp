@@ -168,8 +168,20 @@ void writeDXF(std::ostream& out, const FlatResult& flat, bool tangents)
             }
         }
     }
+    for (const auto& cross : flat.crossBreaks) {
+        for (const TopoDS_Edge& e : cross.diagonals) {
+            w.edge("CROSS_BREAK", e);
+        }
+        // its note where the diagonals cross; %%d is DXF's degree sign
+        BRepAdaptor_Curve c(cross.diagonals[0]);
+        const gp_Pnt mid = c.Value((c.FirstParameter() + c.LastParameter()) / 2);
+        w.text("LABELS", gp_Pnt(mid.X(), mid.Y(), 0), 2.5, crossBreakNote(cross, "%%d"));
+    }
     for (const TopoDS_Edge& e : flat.grain) {
         w.edge("GRAIN", e);
+    }
+    for (const TopoDS_Edge& e : flat.markings) {
+        w.edge("MARKING", e);
     }
     w.pair(0, "ENDSEC");
     w.pair(0, "EOF");

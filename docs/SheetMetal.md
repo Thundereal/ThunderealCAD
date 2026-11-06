@@ -455,13 +455,13 @@ its tracker, not ported.
 | **Bend relief** | Automatic on every bend that ends inside a wall: rectangle, obround or tear, from the rule; overridden per feature. The flange's own, from the rule, built in M1, and its override (sec 12). | B1 5 |
 | **Corner relief** | Where two or three bends meet: circle, square, tear, weld; sized absolutely or by thickness. Automatic from the rule, or a feature on picked corners. Two bends' automatic one, from the rule, built in M2 (sec 12). | B1 13 |
 | **Corner closure** | Two flanges brought to meet at a corner: overlap, underlap or butt, with a gap. Built in M2 (sec 12). | -- |
-| **Rip** | A gap cut along an edge of a closed solid, so it can unfold. | B1 15 |
+| **Rip** | A gap cut along an edge of a closed solid, so it can unfold. Built in M4 as a feature of its own: a tube's bend cut open at its corner, or a wall cut down its middle (sec 12). | B1 15 |
 | **Cutout** | A closed sketch cut normal to the sheet on every wall and bend it crosses. | B1 18 |
 | **Wrap cutout** | A sketch cut as if drawn on the flat: through the flat, and folded back (refold, 4.1). Built in M2 as the cutout's `Wrap` (sec 12). | B1 17 |
-| **Notch at a bend** | A small V or slot at each end of a bend line on the outline, for the press brake operator. | -- (#622) |
+| **Notch at a bend** | A small V or slot at each end of a bend line on the outline, for the press brake operator. Built in M4 as the flat object's `Notch` (sec 12). | -- (#622) |
 | **Hinge and perforation cuts** | Slots along a bend line so it can be bent by hand, or a laser living hinge: straight, tiled from a sketch, or wave; drawn in the flat. Built in M2 as **Bend Cuts** (sec 12). | B1 5 (perforation), B1 10 (hinge cuts) |
 | **Tab and slot** | Tabs on the edge of one wall and matching slots cut through another it meets, with a clearance, so laser-cut parts locate themselves for welding. | -- (SOLIDWORKS, gk) |
-| **Cross break** | Two diagonals drawn on a panel as bend lines of a small angle, shown in the flat. | -- |
+| **Cross break** | Two diagonals drawn on a panel as bend lines of a small angle, shown in the flat. Built in M4 as a feature of its own (sec 12). | -- |
 
 Holes, pockets, fillets and chamfers of flat corners, patterns and mirrors are PartDesign's own
 (3.2).
@@ -483,6 +483,7 @@ Holes, pockets, fillets and chamfers of flat corners, patterns and mirrors are P
 | **Manufacturing properties** | Each sheet's flat size (its bounding box in the flat), area, thickness, material, bend count and largest bend angle, as read-only properties a bill of materials or a drawing table can take. | -- (SOLIDWORKS cut list, gk) |
 | **Export flat** | DXF and SVG of one sheet, or of every sheet in a document in one go, one file each. | B1 10 (#462) |
 | **Bend table in a drawing** | The bend table as a TechDraw table (5.6). | -- |
+| **Flat-only markings** | Sketches drawn on the blank only -- etch lines, part numbers -- and written to the DXF and SVG on a layer of their own; the folded part knows nothing of them. Built in M4 (sec 12). | -- (SOLIDWORKS flat pattern features) |
 
 ### 5.5 Not in this release (section 11 says why)
 
@@ -666,7 +667,7 @@ feature following the rule; OK is one undo step, Cancel puts it all back.
 | M1 | **A first part end to end.** Base wall (plate and profile), Flange with the full option set, extend wall, names by role, the model carried by name through a Pocket and a Hole (4.2 way 2), the flat pattern with both skins and its orientation, the manufacturing properties, the DXF. | Python: flat length of an L, U and box equals the hand sum of legs and allowances at 1e-6; a countersunk hole survives into the flat; a flange end referenced downstream survives an edit upstream; save and reopen; frozen and unfrozen. A 64-flange chain against M0's target. | L |
 | M2 | **Edges, corners, cuts.** In this order (ruled 2026-11-02): hem; corner relief and corner closure; cutout; fold and jog; tab; contour flange; bend between walls; wrap cutout; hinge and perforation cuts; checks (7). The bend relief's override per feature first (built). | per tool, as M1; a wrap cutout across two bends is the same hole in the flat as cut there directly. | L |
 | M3 | **Convert and recognise.** Convert a solid or shell, rip; the geometry recogniser for imported parts. | the M1 parts exported to STEP and read back give the same flat as their features do; a hand-made shell converts and flattens to the hand value. | M |
-| M4 | **Flat state, the table and drawings.** Unfold / refold of picked bends, notches, the bend table panel with overrides, cross break, multi-sheet export, the drawings of 5.6. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
+| M4 | **Flat state, the table and drawings.** In this order (ruled 2026-11-04): the bend table panel with overrides, the Rip of its own, multi-sheet export, the drawings of 5.6, flat-only markings, notches and cross break; all built by 2026-11-05. Unfold / refold of picked bends dropped: the Wrap frame does its work. | an override changes one bend's flat and nothing else; refold of a slot cut in the flat is the slot cut folded. | M |
 | M5 | **Forms, lofted flanges and the rolled wall** (moved from M2, ruled 2026-11-02: it needs walls that are not plane in the sheet model, and the lofted flange's development). User tools and the built-in set (gusset among them); starter shapes; tab and slot; the flat's three ways of showing a form; lofted flange developed exactly for cones and by facets otherwise. | a cone's development against the closed form; a form kept in the flat is the same solid moved. | M |
 | M6 | **Not built** (question e). **The addon's documents** (6). | a set of addon files saved by addon 0.8.26, converted, and their flats against hand values. The files are made by the user or from the addon's own examples; this session does not run the addon (3.5). | S |
 
@@ -1383,7 +1384,253 @@ and not frozen.
     reference lists now (`SheetMetalReferences`), each under its name, its buttons named after
     it; one list's Add down at a time; a single one (the fixed face) takes a pick in place of
     what it held. `tests/gui/sheet-metal-convert.py` (15), frozen and not.
-  - The manual's page, `partdesign/sheet-metal/convert` (thundereal-manual 488c915).
+  - The manual's page, `partdesign/sheet-metal/convert` (thundereal-manual a8a52ad).
+  - The rule's corner relief (2026-11-04): where a thickened part's bends meet at a rip, the
+    two bends nearest the corner relieved get the rule's relief as a flange's miter does
+    (`SheetMetal::cornerReliefs()`), cut last, after the split; the convert's own square stays
+    where the rule's is smaller, None or Tear. For the tray to be the flange's mitred tray to the
+    volume, each wall at a rip ends at its side of the gap (the gap's face its limit,
+    `ConvertCuts`), as a mitred leg does -- a relief folded into one wall had carried on into the
+    other -- and `cornerReliefs()` takes two bends sharing a wall whichever way each runs (a
+    recognised part has each the way its cylinder runs). Flat joins a bend face's flat edges
+    within the folded wire's vertex tolerance where they do not meet exactly (a relief cut by a
+    boolean leaves 5e-6). Outside, the square ran from the box's corner, the inner one, and
+    swallowed the circle; it runs from the corner a thickness out. `TestSheetMetalConvert` (19):
+    with a circle or a square 6 across, the tray is the flange suite's mitred tray; None and
+    Tear leave the square; outside, the tray is the inside tray of a box a thickness larger.
+  - An imported thin part's rule read from the part (5.3, Recognise): with one face picked and
+    none to open, the command takes the facing thickness into the sheet's rule where it is the
+    convert's own (made for the sheet's first feature); a shared rule is left, the convert
+    saying the two differ. Each bend keeps its own radius already.
+
+**Ruled 2026-11-04, a feature's flat stored while referred to.** A sketch's external geometry (or
+a link, a drawing) may take an earlier feature's flat, `Flange` + `FlatEdge6`, through
+`getSubObject()` -- not the sheet's own flat object nor a later feature's, as no reference may
+look forward. Measured the same day, storing every feature's flat costs +62% (the bracket), +91%
+(a converted tray), +103% (a chain of 16 flanges) and +175% (the mitred tray with its reliefs'
+folded B-splines) on the file; a flat is 1.0 to 1.4 times its feature's shape, laid in 0.003 to
+0.2 s. So it is stored only while referred to. As built: before a save each `PartDesign::Feature`
+that an object links to with a `Flat` subname stores its flat in `StoredFlat`, a hidden output
+property added for it, and one nothing refers to any more has it taken away; the flat's elements
+are read from it while it is there, so a document opened again resolves the reference on the
+flat it was made on; a new shape or the sheet's flat settings changed empty it. No undo step.
+`TestSheetMetalFlat` (25, +5). Still open: the cutout's `Wrap` reads its sketch where the wall
+nearest it lies folded, the flat lies on XY in its own frame (root, align edge, second skin), so
+a sketch drawn on the flat's geometry is in the right place for `Wrap` only where the two frames
+are one.
+
+**Ruled 2026-11-04, the Wrap frame and M4's order.** The cutout has `WrapFrame`, Folded or Flat,
+read only while `Wrap` is off. Folded is the old reading. Flat reads the sketch on the XY plane of
+the flat as the sheet lays it -- the flat settings' root, second skin and align edge -- where
+geometry taken from a feature's flat is; a sketch not parallel to XY is refused. Both go through
+`wrapOnFlat()` in Refold.cpp: each element's skin on XY, what of the sketch lies there taken back by
+the inverse of the flat's `toXY` (now on `FlatResult`) onto the root's first skin, and refolded
+through that element. `TestSheetMetalCutout` (20, +3; before, the three errored), and the cutout
+panel's row in `sheet-metal-panels.py` (67, +2). The flat object cannot be linked by the cutout (it
+follows the sheet's tip, a cycle), so the cutout keeps the settings it was cut by (`WrapSettings`,
+hidden, saved) and is cut again when the sheet's are others (`mustExecute()`, `skipRecompute()`); it
+touches nothing, so an undo, which puts the settings and the cut back together, and a load leave it
+be (`testWrapFlatFrameFollowsSettings`, 21). Found writing that test, not sheet metal's: a shape not
+read since its document was opened comes back null from an undo of a recompute that changed it (a
+`Part::Cut` under a `Part::Box` too; `~/.cache/sm-check/undo-null-shape/repro.py`). M4's order: the
+bend table panel with per-bend overrides, the Rip of its own, export of every sheet, the drawings,
+flat-only markings (a sketch attached to the flat being mostly this option), then notches and cross
+break. Unfold / refold is dropped from M4: the flat object, a feature's flat in its panel, the
+stored flat and this option do what it was for.
+- **Built 2026-11-05, M4's third item, every sheet's flat at once:** `PartDesign::exportFlats(doc,
+  folder, suffix)` (`PartDesign.exportFlats()`) writes each sheet of a document by `exportFlat()`,
+  one DXF or SVG file each, named after its body, and the sheet's solid where a body holds more
+  than one; a label is made a file name (no separator or character a file system refuses, no
+  trailing dot or space) and a name taken twice, case aside, is numbered. A sheet that fails is
+  told with why and the others written; a bad suffix or a missing folder is refused first. Export
+  Every Flat, beside Export Flat, asks a folder (the document's own at first) and DXF or SVG,
+  remembers both, and reports in the report view; it opens a dialog, so it is not on the
+  browser's allowlist. `TestSheetMetalFlat` (28, +3), `sheet-metal-commands.py` (65, +2). The
+  first two items wait on a ruling: where a bend's override lives, and what it may override.
+- **Ruled 2026-11-05, M4's first two items and the drawings:** a bend's own value is kept on the
+  feature that made it, collected and edited in Check Sheet's bend table. The Rip of its own and
+  the drawings go as proposed: the Rip cuts a closed base wall's tube open, and an existing bend
+  open with a gap; the drawings take the flat object as TechDraw's source and style an edge by
+  its source name, a generic hook in TechDraw, not a sheet metal view.
+- **Built 2026-11-05, M4's first item, a bend's own K:** every sheet metal feature has
+  `BendKFactors` (hidden, a map), the K of each bend it makes that does not take the rule's. The
+  key is the bend's place among the feature's own, counted from 1 in the order it makes them,
+  not its name: a bend added earlier in the sheet renames every later one (`Bend2` becomes
+  `Bend3`), and the key holds. Each feature puts it on its own bends (those the sheet it builds on
+  has not) before it stores its model, so the features after it carry it on; a key past its
+  bends is kept and changes nothing, a value that is no K from 0 to 1 fails the recompute.
+  `bendKFactor(name)` and `setBendKFactor(name, k=None)` from Python, by the bend's name; the
+  bend table's K source reads `bend`, which beats the rule, the card and an allowance method.
+  Check Sheet: a K or an allowance double-clicked takes a value of the bend's own (an allowance
+  typed is turned into the K that makes it), each an undoable step that recomputes and checks
+  again; cleared, the bend takes the rule's. The folded part does not change. Not overridable per
+  bend: the radius. It is the folded part's, and two flanges of one feature meeting at a corner
+  are mitered on the one radius they share; it stays the feature's (`UseRuleRadius`,
+  `BendRadius`). `TestSheetMetalBendOverride` (9), `sheet-metal-commands.py` (69, +4).
+- **Built 2026-11-05, M4's second item, the Rip of its own:** the base wall's `ClosedProfile`,
+  `Plate` (as before) or `Tube`: a closed sketch of lines makes a wall on each line and a bend at
+  every corner, the last joining the last wall to the first (`ProfileBuilder::closedProfile()`;
+  `MaterialSide` Outside puts the sketch on the bends' inner skins). A loop of bends does not lie
+  flat: `flatten()` refuses it, naming the bend that closes it (`Model::closingBend()`), and says
+  to rip it. `PartDesign::SheetMetalRip` takes faces of the feature it builds on (`Faces`). A
+  bend's face cuts the bend open: the bend goes, and its two walls run on to the corner, mitred on
+  the plane halving it through the bend's axis with the rule's `Gap` between, each wall given that
+  plane as a limit in the model. A wall's face cuts the wall down its middle, along its bends,
+  the gap wide: two walls, the second named on (`Wall5`), each limited at its side of the gap,
+  the bends following the side they are on. Walls are split before bends are taken out, so the
+  indices hold. A rip that leaves a wall joined to nothing is refused (`Model::cutOff()`): a rip
+  opens a loop, and on a sheet with none it cuts a piece off. Not ripped: a bend past 179.9 deg
+  (a hem's). Rip is on the Sheet Metal tool bar and the browser's allowlist (it opens the usual
+  feature panel, as Corner Closure does); the base wall's panel has Closed Profile.
+  `TestSheetMetalRip` (9), `sheet-metal-commands.py` (72, +3), `sheet-metal-panels.py` (68, +1),
+  `serve-sheet-metal.py` (16), `serve-toolbar-browser.py` (21).
+- **Built 2026-11-05, M4's fourth item, its first part: a drawing of the flat styles its lines as
+  the flat does.** A TechDraw view takes the sheet's flat object as its source, as any shape. The
+  generic hook (renamed `getEdgeInfo()` the same day, below): how a drawing draws
+  an edge of the object's, by the edge's mapped name: shown or not, a Qt line style, a colour, a
+  width (0 for the drawing's). False, as every view provider answers unless it overrides it,
+  leaves the edge to the drawing. `QGIViewPart::drawAllEdges()` asks the views of a drawing
+  view's sources for each geometry edge the user has not formatted (`GeomFormats` first),
+  by the source name `GeometryObject` keeps (`getSource3d()`). TechDraw learns nothing of sheet
+  metal, and needs no link to PartGui. The flat object's view answers for its markings by name
+  (`Bend1`, `Bend1Part2`, `Bend1Tangent1`, `Grain`, what follows the first `;` dropped; the
+  blank's edges are hashed names and never match): its kind's style, colour and Show, each bend
+  Up or Down by `BendDirections`, as its own 3D view draws them (one classifier for both); a
+  colour changed there is the drawing's at its next draw. The edge's width stays the drawing's:
+  the 3D view's is in pixels. A down bend's line lay on the blank's underside, its inner skin,
+  and a drawing from above dropped it as hidden (TechDraw extracts no hidden line unless asked):
+  `flatten()` now lifts every marking onto the blank's top, which way a bend goes being the
+  line's `up` and no longer where it lies; DXF and SVG are 2D and unchanged
+  (`TestSheetMetalFlat.testMarkingsOnTop`, 29). `sheet-metal-commands.py` (74, +2; before, the
+  drawing's edges all black). The GUI check reads the drawing's colours from a render of the
+  page's scene: TechDraw's edge items reach Python as plain QGraphicsItems, with no pen. Still to come in the item: the bend notes (angle, radius, direction) and the bend table
+  as a drawing view.
+- **Ruled 2026-11-05, the rest of the drawings:** the hook gives an edge's label as well as its
+  style; TechDraw imports the labels as real labels the user edits; the bend table is a
+  spreadsheet of its own, synced by hand or at each recompute, and edited.
+- **Built 2026-11-05, the labels and the bend table:**
+  - The hook is `Gui::ViewProvider::getEdgeInfo(mappedName, info)` (was `getEdgeLineFormat`):
+    shown, style, colour, width, and `label`, UTF-8, empty for none; from Python
+    `vobj.getEdgeInfo(name)`, a dict or None. The flat's view labels a bend line by its own name
+    (not a piece's, nor a tangent line's) with its note, `UP 90deg R1` with the degree sign, the
+    angle and radius from the sheet's tip's model.
+  - `TechDraw::DrawEdgeLabel`, a balloon (`BubbleShape` None), edited as one, with `SourceEdge`
+    (the edge's source name) and `SourceText` (what the source gave at the last import).
+    TechDraw's Import Edge Labels (Annotations), on the selected part views, makes one for each
+    labelled source edge past an end of its longest piece, 12 mm out (the upper end, then the
+    lower for the next edge across the view, so neighbours do not meet; picture-checked on the
+    manual's bracket), its leader a tenth in from that end, and on a second
+    run moves each with its edge -- keeping where the user put it against the edge -- and gives
+    it the source's new text unless the user wrote their own (`Text` other than `SourceText`).
+    One whose edge is gone goes, unless its text is the user's (kept, and said). Generic: any
+    source whose view gives labels.
+  - `PartDesign::sheetBends(obj)` (`PartDesign.sheetBends()`): the bend table alone, checkSheet's
+    rows without the faces and problems, the direction from the sheet's flat (`flatOf()`);
+    checkSheet builds its rows with the same code.
+  - `PartDesign::SheetMetalBendTable`, a `Spreadsheet::Sheet` (PartDesign links Spreadsheet when it
+    is built, `PARTDESIGN_WITH_SPREADSHEET`): `Source` (a sheet's solid or feature), `AutoSync`
+    (on: filled at each recompute), hidden `Generated` (each cell it wrote, as it reads back).
+    Header row, then a row a bend: name, the maker's label, angle, radius, K, allowance,
+    direction. A cell the user changed since the table wrote it stays theirs, and one it never
+    wrote is the user's (a column of notes); a bend gone empties its row but for the user's
+    cells. `PartDesign.syncBendTable(table, force=False)`; force takes its own cells back. Bend
+    Table (makes one for the selected or active sheet) and Sync Bend Table on the Sheet Metal
+    tool bar; edited in the spreadsheet editor; TechDraw's spreadsheet view draws it.
+  - `TestSheetMetalBendTable` (8), `sheet-metal-commands.py`.
+- **Built 2026-11-05, M4's fifth item, flat-only markings:** the flat object's `Markings`, a link
+  list of objects in its body -- a sketch, a shape string -- whose edges it draws on the blank's
+  top, named `Marking1`, `Marking2`, ... in the list's order (`SheetMetalFlatPattern::
+  withMarkings()`). Each is read in the frame a sketch taken from the tip's flat lies in (the
+  tip's own, as the cutout's `WrapFrame` Flat reads one), and dropped straight onto the top; one
+  whose edges do not lie in a plane parallel to the flat's XY is refused, the flat's `Status`
+  naming it and the last flat kept. Not trimmed to the blank: a mark off it is the user's. They
+  are the flat object's only: not in `flatOf()`, so every feature's flat -- what a sketch takes
+  geometry from -- and the folded part know nothing of them, and a sketch drawn on the tip's
+  flat makes no loop. The flat object's placement moves them with the blank. The sheet's DXF and
+  SVG (`exportFlat()` of its solid, flat object or tip, and `exportFlats()`) write them on the
+  layer `MARKING` (`FlatResult::markings`), the flat object hidden or not; an earlier feature's
+  flat has none. The flat's view draws them as a fifth kind (`ShowMarkings`, `MarkingColor`,
+  `MarkingStyle`, `MarkingWidth`; solid `#a020a0`, as the SVG), and so does a drawing of it, by
+  the same classifier. Flat Markings on the Sheet Metal tool bar gives the selected sketches to
+  their body's sheet's flat (the tip's sheet, else the body's first) and hides them; run on
+  sketches all marked already, it takes them off and shows them; one outside the sheet's body is
+  refused in the report view. Not on the browser's allowlist, as Bend Table is not.
+  `TestSheetMetalFlatMarkings` (12; before, all 12 errored), `sheet-metal-commands.py` (84, +6).
+- **Ruled 2026-11-05, notches and cross break:** notches are the flat object's only, a setting
+  (None, V or Slot, a depth and a width), cut in the flat and its files only where a bend line
+  meets the outer outline -- not at holes or reliefs; the folded part is not notched. A cross
+  break is a feature of its own on picked walls, its angle 3 deg at first, up or down; the solid
+  is unchanged, the X drawn in 3D and the diagonals in the flat in a style of their own, with a
+  note `CROSS BREAK UP 3deg` through `getEdgeInfo()`, and a DXF layer `CROSS_BREAK`.
+- **Built 2026-11-05, M4's sixth item, notches:** the flat object's `Notch` (None, V, Slot),
+  `NotchDepth` and `NotchWidth` (1 mm each). `SheetMetal::notchTools()` makes a prism through
+  the blank where a segment of a bend's line ends on the outer wire of the blank's top (its faces
+  merged), on an edge that is straight (a line, or a curve whose middle lies on its chord) within
+  10 deg of square to the line: a hole the line runs over is an inner wire, and a corner's miter
+  (a B-spline, oblique) or round relief is not straight and square, so neither is notched. A
+  rectangular bend relief beside a partial flange leaves the bend's own end on the outline,
+  square: it is notched, as any end is. A V's sides pass through the outline the width apart, its
+  tip the depth in; a tool reaches past the outline by half the larger of the two, but no more than
+  half way to any blank across a gap (a ray out from the end), so two flanges a gap apart along
+  one edge do not cut each other. A segment no longer than twice the depth is not notched. The
+  flat object cuts them by the element map (`withNotches()`, before `withMarkings()`; together
+  `finished()`, which `exportFlat()` takes for the tip's flat), and each bend's line and tangent
+  line is cut to the blank again (`onBlank()`), so a line stops at its notch. `flatShape()` now
+  builds every flat's compound for `layFlat()` and the flat object alike, and `measureFlat()` its
+  size and area: `FlatArea` counts the notches out. Every feature's flat and the folded part have
+  none. A notch of no size is refused in `Status`, the last flat kept. `TestSheetMetalFlatNotches`
+  (11; before, all 11 errored); the mitred corner's volume is measured to 1e-5 (its faces are
+  B-splines).
+- **Built 2026-11-05, M4's last item, cross break:** `PartDesign::SheetMetalCrossBreak`
+  (`Faces`, of the feature it builds on, a face of each wall; `Angle`, 3 deg, above 0 and up to
+  45; `Reversed`). The solid passes through; each wall picked gets `Element::crossBreak`, rad,
+  signed along the wall frame's normal so it rises out of the face picked (into it Reversed),
+  saved as the `Wall`'s `crossBreak` attribute only where there is one (a file without reads as
+  before), `CrossBreak` (deg) from Python. A bend's face is refused. `flatten()` lays each break
+  out: the wall's largest plane face whose outer normal goes the way it rises
+  (`crossBreakFace()`), found among the laid faces, and its `diagonals()` -- corner to corner of
+  its bounds in the frame of its longest straight edge, each cut to where it first and last meets
+  the face -- lifted onto the top, Up where that face is the top. So every feature's flat after
+  the break has them (a sketch may take one), named `Wall1CrossBreak1`, `...2`; the flat
+  object's `CrossBreaks` says Up or Down by wall, and a second skin turns it over. DXF and SVG:
+  layer `CROSS_BREAK` (SVG dash-dotted `#e08000`), the note at the crossing on `LABELS`,
+  `CROSS BREAK UP 3%%d` in the DXF (its degree code) and `&#176;` in the SVG
+  (`crossBreakNote()`). In 3D, `crossBreakLines()` (and from Python) gives the diagonals on the
+  face picked, drawn by the feature's view dash-dotted orange, unpicked, while it is shown: the
+  folded part shows the X only while the Cross Break is the tip or edited, not under a later
+  feature (superseded 2026-11-06 by the finish below). The flat's view has a sixth kind (`ShowCrossBreaks`, `CrossBreakColor`,
+  `CrossBreakStyle` Dashdot, `CrossBreakWidth`); `getEdgeInfo()` gives a drawing its style and,
+  on the first diagonal, the note, which Import Edge Labels makes a label. Cross Break is on the
+  Sheet Metal tool bar and the browser's allowlist (the usual feature panel: faces, Angle,
+  Reversed). `TestSheetMetalCrossBreak` (11; before, all 11 errored), `sheet-metal-commands.py`
+  (90, +6), `sheet-metal-panels.py` (70, +2), `serve-sheet-metal.py` (17),
+  `serve-toolbar-browser.py` (21). The manual: notches on the Flatten page, Cross Break a page
+  of its own.
+- **Ruled 2026-11-06, the cross break as a surface finish:** the folded part draws the break on
+  the wall itself, as a finish the feature implies (docs/ShapeAppearanceDesign.md sec 9.14), so
+  every feature after it and the body show it, not only the Cross Break while it is the tip. Both
+  skins, the true angle, a line along each fold; the orange X only while the panel is open.
+- **Built 2026-11-06, the cross break as a surface finish:** `App::SurfaceFinish::CrossBreak` and
+  `CrossBreakReversed` carry the rectangle its diagonals cross: half length and half width in
+  pitch and depth, the angle in its slot, the long side's way and the middle beside the entry.
+  `SheetMetal::crossBreakPatches()` finds every plane face of the wall on either skin, and
+  `PartDesign::crossBreakPatches()` runs it on any feature of a sheet or a body, by
+  `sheetModelOf()`: the feature's own model or the last sheet metal feature's before it, a body's
+  its tip's. Every PartDesign feature's view and the Body's state it beside the cosmetic threads,
+  re-derived when the shape or the sheet's model changes (a sheet metal feature sets its model
+  after its shape). `PartDesign.crossBreakFaces(obj)` lists the faces from Python. Fixed with it:
+  a suppressed sheet metal feature handed on the model it computed, so a suppressed Cross Break
+  still drew its diagonals in the flat; `findBefore()` and `sheetOf()` now skip a suppressed one.
+  `crossBreakLines()` works on any feature after the break too. A cross break changes no shape,
+  so the features after it are given the shape they had, which tells no view: a sheet metal
+  feature's model or `Suppress` changing refreshes it, every feature after it and the body.
+  `TestSheetMetalCrossBreak` (15,
+  +4; before, the 4 errored), `sheet-metal-commands.py` (97, +7; before, 85 and 2 failing).
+- The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
+  value an object had not read since the open was dropped before the change was announced, so
+  the transaction's copy of what was there was the null shape. Announced first, whoever looks at
+  the outgoing value has it read; nobody looking, it is dropped unread as before.
+  `parttests.DeferredShapeUndoTest` (3; before, 1).
 - Its fourth step, the manual (thundereal-manual d417eb7): the Flatten page rewritten for the
   flat object, every sheet metal page's script moved to it and its pictures retaken.
 - A feature's own flat in its panel (asked 2026-11-04, the flat object staying as built): every
@@ -1591,7 +1838,12 @@ not, a colour with up and down apart, a line type; most of it again in the DXF's
 - **Its view styles the markings**, per kind: bend lines up, bend lines down, tangent lines, grain
   -- each shown or not, a colour, a line type (solid, dashed, dash-dot, dotted) and a width.
   Defaults as the SVG draws them: up dashed `#0050d0`, down dashed `#d03030`, tangent lines dotted
-  `#808080`, grain solid `#208020`. The DXF and SVG keep their layers as they are.
+  `#808080`, grain solid `#208020`. The DXF and SVG keep their layers as they are. A marking on
+  the blank's underside -- a down bend's line and tangent lines, on the bend's inner skin -- is
+  drawn a thickness up, on its top, where one looking down sees it (fixed 2026-11-05: the blank
+  hid it, found with a flat laid by a leg). Later the same day the shape itself puts every
+  marking on the blank's top (`flatten()`), for the drawings; the view's lift stays for a flat
+  stored before.
 - **Retired:** the solid's `Flatten` and flat settings, the solid view's `SheetView` and
   `FlatOffset`, and each feature view's flat drawing (`refreshFlat()`, the `SheetFlat` and
   `SheetBoth` modes); files made with them lose them on loading, as nothing was released.

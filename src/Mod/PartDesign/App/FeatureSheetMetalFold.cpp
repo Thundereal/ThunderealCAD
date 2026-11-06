@@ -661,6 +661,7 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         }
 
         Shape.setValue(result);
+        applyBendOverrides(model);
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

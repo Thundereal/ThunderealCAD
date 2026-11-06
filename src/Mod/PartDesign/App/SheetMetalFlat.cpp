@@ -24,7 +24,9 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <cstring>
 #include <numbers>
+#include <set>
 #include <vector>
 
 #include <boost/algorithm/string/case_conv.hpp>
@@ -33,6 +35,7 @@
 #include <BRepGProp.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <Standard_Failure.hxx>
 #include <TopoDS.hxx>
 
 #include <App/Document.h>
@@ -43,6 +46,7 @@
 #include <Mod/Part/App/PartFeature.h>
 
 #include "Body.h"
+#include "Feature.h"
 #include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Dxf.h"
@@ -63,23 +67,95 @@ namespace
 constexpr const char* FlatOp = "SMF";
 }
 
+TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, bool tangentLines)
+{
+    const auto& hasher = solid.Hasher;
+    std::vector<TopoShape> lines;
+    std::vector<TopoShape> tangents;
+    // each line as far as it lies on the blank, a piece after the first
+    // named Bend1Part2, Bend1Part3, ...
+    auto pieces = [](const std::vector<TopoDS_Edge>& segments, const std::string& name,
+                     std::vector<TopoShape>& out) {
+        for (std::size_t k = 0; k < segments.size(); ++k) {
+            TopoShape edge(segments[k]);
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
+                                Data::MappedName(k ? name + "Part" + std::to_string(k + 1) : name));
+            out.push_back(edge);
+        }
+    };
+    for (const auto& line : flat.bendLines) {
+        pieces(line.segments, line.name, lines);
+        for (std::size_t k = 0; k < line.tangents.size() && tangentLines; ++k) {
+            pieces(line.tangentSegments[k], line.name + "Tangent" + std::to_string(k + 1),
+                   tangents);
+        }
+    }
+    std::vector<TopoShape> parts {
+        solid, TopoShape(0, hasher).makECompound(lines, nullptr, /*force*/ true)};
+    if (!tangents.empty()) {
+        parts.push_back(TopoShape(0, hasher).makECompound(tangents, nullptr, /*force*/ true));
+    }
+    // each marking alone, named in turn
+    auto named = [&](const std::vector<TopoDS_Edge>& edges, auto&& nameOf) {
+        std::vector<TopoShape> res;
+        for (std::size_t k = 0; k < edges.size(); ++k) {
+            TopoShape edge(edges[k]);
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
+                                Data::MappedName(nameOf(k)));
+            res.push_back(edge);
+        }
+        if (!res.empty()) {
+            parts.push_back(TopoShape(0, hasher).makECompound(res, nullptr, /*force*/ true));
+        }
+    };
+    named(flat.grain, [](std::size_t k) {
+        return k ? "GrainHead" + std::to_string(k) : std::string("Grain");
+    });
+    std::vector<TopoDS_Edge> crossEdges;
+    std::vector<std::string> crossNames;
+    for (const auto& cross : flat.crossBreaks) {
+        for (std::size_t k = 0; k < cross.diagonals.size(); ++k) {
+            crossEdges.push_back(cross.diagonals[k]);
+            crossNames.push_back(cross.name + "CrossBreak" + std::to_string(k + 1));
+        }
+    }
+    named(crossEdges, [&](std::size_t k) { return crossNames[k]; });
+    named(flat.markings, [](std::size_t k) { return "Marking" + std::to_string(k + 1); });
+    TopoShape res(0, hasher);
+    res.makECompound(parts, nullptr, /*force*/ true);
+    return res;
+}
+
+void measureFlat(SheetFlat& flat)
+{
+    const TopoDS_Shape& solid = flat.result.solid;
+    if (solid.IsNull()) {
+        return;
+    }
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(solid, box, /*useTriangulation*/ false, /*useShapeTolerance*/ false);
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(solid, props);
+    flat.length = std::max(x1 - x0, y1 - y0);
+    flat.width = std::min(x1 - x0, y1 - y0);
+    if (flat.thickness > 0) {
+        flat.area = props.Mass() / flat.thickness;
+    }
+}
+
 SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
 {
     if (!part) {
         THROWM(Base::ValueError, "There is no part to lay flat");
     }
     // the model of the sheet the part is, in the part's placement
-    auto sheet = part->getExtensionByType<SheetMetalExtension>(true);
-    if (!sheet) {
-        sheet = SheetMetalExtension::findBefore(part);
-    }
+    auto sheet = sheetOf(part);
     if (!sheet || sheet->SheetModel.getValue().elements.empty()) {
         THROWM(Base::ValueError, "The part is no sheet metal");
     }
-    SheetMetal::Model model = sheet->SheetModel.getValue();
-    if (auto feature = dynamic_cast<Part::Feature*>(sheet->getExtendedObject())) {
-        model.transform(TopoShape::convert(feature->Placement.getValue().toMatrix()));
-    }
+    SheetMetal::Model model = sheetModelOf(part);
     const TopoShape folded = Part::Feature::getTopoShape(part);
     if (folded.isNull()) {
         THROWM(Base::ValueError, "The part has no shape");
@@ -118,39 +194,14 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     SheetFlat res;
     auto hasher = part->getDocument() ? part->getDocument()->getStringHasher()
                                       : App::StringHasherRef();
-    std::vector<TopoShape> lines;
-    std::vector<TopoShape> tangents;
-    // each line as far as it lies on the blank, a piece after the first
-    // named Bend1Part2, Bend1Part3, ...
-    auto pieces = [](const std::vector<TopoDS_Edge>& segments, const std::string& name,
-                     std::vector<TopoShape>& out) {
-        for (std::size_t k = 0; k < segments.size(); ++k) {
-            TopoShape edge(segments[k]);
-            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
-                                Data::MappedName(k ? name + "Part" + std::to_string(k + 1) : name));
-            out.push_back(edge);
-        }
-    };
     for (const auto& line : flat.bendLines) {
-        pieces(line.segments, line.name, lines);
-        for (std::size_t k = 0; k < line.tangents.size() && settings.tangentLines; ++k) {
-            pieces(line.tangentSegments[k], line.name + "Tangent" + std::to_string(k + 1),
-                   tangents);
-        }
         res.directions[line.name] = line.up ? "Up" : "Down";
         res.maxBendAngle = std::max(res.maxBendAngle, line.angle * 180 / std::numbers::pi);
     }
+    for (const auto& cross : flat.crossBreaks) {
+        res.crossBreaks[cross.name] = cross.up ? "Up" : "Down";
+    }
 
-    Bnd_Box box;
-    BRepBndLib::AddOptimal(flat.solid, box, /*useTriangulation*/ false,
-                           /*useShapeTolerance*/ false);
-    double x0, y0, z0, x1, y1, z1;
-    box.Get(x0, y0, z0, x1, y1, z1);
-    GProp_GProps props;
-    BRepGProp::VolumeProperties(flat.solid, props);
-    res.length = std::max(x1 - x0, y1 - y0);
-    res.width = std::min(x1 - x0, y1 - y0);
-    res.area = props.Mass() / model.thickness;
     res.thickness = model.thickness;
     res.bendCount = static_cast<long>(flat.bendLines.size());
     if (auto rule = sheet->getRule()) {
@@ -165,25 +216,102 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     }
     TopoShape solid(0, hasher);
     solid.makESHAPE(flat.solid, mapper, {folded}, FlatOp);
-    std::vector<TopoShape> parts {solid,
-                                  TopoShape(0, hasher).makECompound(lines, nullptr, /*force*/ true)};
-    if (!tangents.empty()) {
-        parts.push_back(TopoShape(0, hasher).makECompound(tangents, nullptr, /*force*/ true));
-    }
-    std::vector<TopoShape> grain;
-    for (std::size_t k = 0; k < flat.grain.size(); ++k) {
-        TopoShape edge(flat.grain[k]);
-        edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
-                            Data::MappedName(k ? "GrainHead" + std::to_string(k) : "Grain"));
-        grain.push_back(edge);
-    }
-    if (!grain.empty()) {
-        parts.push_back(TopoShape(0, hasher).makECompound(grain, nullptr, /*force*/ true));
-    }
+    res.shape = flatShape(solid, flat, settings.tangentLines);
     res.result = std::move(flat);
-    res.shape = TopoShape(0, hasher);
-    res.shape.makECompound(parts, nullptr, /*force*/ true);
+    measureFlat(res);
     return res;
+}
+
+SheetMetalExtension* sheetOf(const App::DocumentObject* part)
+{
+    if (!part) {
+        return nullptr;
+    }
+    // a suppressed feature's shape is its base's, its model not
+    auto feature = dynamic_cast<const PartDesign::Feature*>(part);
+    auto sheet = feature && feature->Suppress.getValue()
+        ? nullptr
+        : part->getExtensionByType<SheetMetalExtension>(true);
+    return sheet ? sheet : SheetMetalExtension::findBefore(part);
+}
+
+namespace
+{
+
+/// A body's tip, and the body's placement, which its shape has the tip's
+/// shape in
+const App::DocumentObject* tipOf(const App::DocumentObject* part, Base::Placement& placement)
+{
+    auto body = dynamic_cast<const Part::BodyBase*>(part);
+    if (!body) {
+        return part;
+    }
+    placement = body->Placement.getValue();
+    return body->Tip.getValue();
+}
+
+}  // namespace
+
+SheetMetal::Model sheetModelOf(const App::DocumentObject* part)
+{
+    Base::Placement outer;
+    auto sheet = sheetOf(tipOf(part, outer));
+    if (!sheet) {
+        return {};
+    }
+    SheetMetal::Model model = sheet->SheetModel.getValue();
+    Base::Placement placement;
+    if (auto feature = dynamic_cast<const Part::Feature*>(sheet->getExtendedObject())) {
+        placement = feature->Placement.getValue();
+    }
+    model.transform(TopoShape::convert((outer * placement).toMatrix()));
+    return model;
+}
+
+bool hasCrossBreaks(const App::DocumentObject* part)
+{
+    Base::Placement outer;
+    auto sheet = sheetOf(tipOf(part, outer));
+    if (!sheet) {
+        return false;
+    }
+    const auto& elements = sheet->SheetModel.getValue().elements;
+    return std::any_of(elements.begin(), elements.end(), [](const SheetMetal::Element& e) {
+        return e.kind == SheetMetal::Element::Kind::Wall && e.crossBreak != 0;
+    });
+}
+
+std::vector<TopoDS_Edge> crossBreakLines(const App::DocumentObject* part)
+{
+    std::vector<TopoDS_Edge> res;
+    if (!hasCrossBreaks(part)) {
+        return res;
+    }
+    const SheetMetal::Model model = sheetModelOf(part);
+    const TopoShape shape = Part::Feature::getTopoShape(part);
+    if (shape.isNull()) {
+        return res;
+    }
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
+        const TopoDS_Face face =
+            SheetMetal::crossBreakFace(shape.getShape(), model, static_cast<int>(i));
+        for (const TopoDS_Edge& e : SheetMetal::diagonals(face)) {
+            res.push_back(e);
+        }
+    }
+    return res;
+}
+
+std::vector<SheetMetal::CrossBreakPatch> crossBreakPatches(const App::DocumentObject* part)
+{
+    if (!hasCrossBreaks(part)) {
+        return {};
+    }
+    const TopoShape shape = Part::Feature::getTopoShape(part);
+    if (shape.isNull()) {
+        return {};
+    }
+    return SheetMetal::crossBreakPatches(shape.getShape(), sheetModelOf(part));
 }
 
 void exportFlat(const App::DocumentObject* obj, const char* path)
@@ -212,7 +340,12 @@ void exportFlat(const App::DocumentObject* obj, const char* path)
         FC_THROWM(Base::ValueError, obj->getFullLabel() << " is of no sheet metal solid");
     }
     // laid flat before the file is opened, so a refusal writes nothing
-    const SheetFlat& flat = solid->flatOf(part);
+    SheetFlat flat = solid->flatOf(part);
+    // the sheet's flat, its tip's, has the flat object's notches and markings
+    auto flatObj = solid->flatPattern();
+    if (flatObj && (!part || part == solid->Tip.getValue())) {
+        flat = flatObj->finished(flat);
+    }
     Base::ofstream out(fi, std::ios::out | std::ios::trunc);
     if (!out) {
         FC_THROWM(Base::FileException, "Cannot write " << path);
@@ -223,6 +356,85 @@ void exportFlat(const App::DocumentObject* obj, const char* path)
     else {
         SheetMetal::writeSVG(out, flat.result, solid->flatSettings().tangentLines);
     }
+}
+
+namespace
+{
+
+/// A label made a file name: no separator or character a file system
+/// refuses, nor a trailing dot or space
+std::string fileNameOf(const std::string& label)
+{
+    std::string res;
+    for (char c : label) {
+        const auto u = static_cast<unsigned char>(c);
+        res += u < 0x20 || std::strchr("/\\:*?\"<>|", c) ? '_' : c;
+    }
+    while (!res.empty() && (res.back() == '.' || res.back() == ' ')) {
+        res.pop_back();
+    }
+    return res.empty() ? std::string("Sheet") : res;
+}
+
+}  // namespace
+
+std::vector<FlatExport>
+exportFlats(const App::Document* doc, const char* folder, const char* suffix)
+{
+    if (!doc) {
+        THROWM(Base::ValueError, "No document");
+    }
+    std::string ext = boost::algorithm::to_lower_copy(std::string(suffix ? suffix : ""));
+    if (!ext.empty() && ext.front() == '.') {
+        ext.erase(0, 1);
+    }
+    if (ext != "dxf" && ext != "svg") {
+        FC_THROWM(Base::ValueError,
+                  "Export Flat writes dxf or svg, not '" << (suffix ? suffix : "") << "'");
+    }
+    Base::FileInfo dir(folder ? folder : "");
+    if (!dir.isDir()) {
+        FC_THROWM(Base::ValueError, "No folder " << (folder ? folder : ""));
+    }
+
+    std::vector<FlatExport> res;
+    // names taken, as a case-blind file system sees them
+    std::set<std::string> taken;
+    for (auto obj : doc->getObjectsOfType(Body::getClassTypeId())) {
+        auto body = static_cast<Body*>(obj);
+        std::vector<SolidBody*> sheets;
+        for (auto solid : body->getSolidBodies()) {
+            if (solid && solid->isSheetMetal()) {
+                sheets.push_back(solid);
+            }
+        }
+        for (auto solid : sheets) {
+            std::string name = body->Label.getStrValue();
+            if (sheets.size() > 1) {
+                name += "-" + solid->Label.getStrValue();
+            }
+            name = fileNameOf(name);
+            std::string unique = name;
+            for (int i = 2; !taken.insert(boost::algorithm::to_lower_copy(unique)).second; ++i) {
+                unique = name + "-" + std::to_string(i);
+            }
+            FlatExport item;
+            item.sheet = solid;
+            const std::string path = dir.filePath() + "/" + unique + "." + ext;
+            try {
+                exportFlat(solid, path.c_str());
+                item.path = path;
+            }
+            catch (const Base::Exception& e) {
+                item.error = e.what();
+            }
+            catch (const Standard_Failure& e) {
+                item.error = e.what();
+            }
+            res.push_back(std::move(item));
+        }
+    }
+    return res;
 }
 
 }  // namespace PartDesign

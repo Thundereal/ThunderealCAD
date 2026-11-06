@@ -24,9 +24,14 @@
 
 #include "PreCompiled.h"
 
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <Standard_Failure.hxx>
+#include <TopoDS.hxx>
+#include <gp_Trsf.hxx>
 
 #include <App/Document.h>
+#include <App/GeoFeature.h>
 #include <App/GroupExtension.h>
 #include <Base/Exception.h>
 
@@ -34,6 +39,7 @@
 #include "SolidBody.h"
 
 using namespace PartDesign;
+using Part::TopoShape;
 
 const char* SheetMetalFlatPattern::OutOfDate = "Out of date: it is laid flat when shown";
 
@@ -73,6 +79,30 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       "Flat",
                       App::Prop_None,
                       "The grain's direction, from the flat's X");
+    ADD_PROPERTY_TYPE(Markings,
+                      (nullptr),
+                      "Flat",
+                      App::Prop_None,
+                      "Objects whose edges are drawn on the blank's top, the flat's only: a\n"
+                      "sketch parallel to XY, read where one taken from the tip's flat lies");
+    ADD_PROPERTY_TYPE(Notch,
+                      (0L),
+                      "Flat",
+                      App::Prop_None,
+                      "A notch where each bend's line meets the blank's outline, the flat's\n"
+                      "only: None, V or Slot");
+    static const char* notches[] = {"None", "V", "Slot", nullptr};
+    Notch.setEnums(notches);
+    ADD_PROPERTY_TYPE(NotchDepth,
+                      (1.0),
+                      "Flat",
+                      App::Prop_None,
+                      "How far a notch goes in along the bend's line");
+    ADD_PROPERTY_TYPE(NotchWidth,
+                      (1.0),
+                      "Flat",
+                      App::Prop_None,
+                      "How wide a notch is at the outline");
 
     const auto out = static_cast<App::PropertyType>(App::Prop_ReadOnly | App::Prop_Output);
     ADD_PROPERTY_TYPE(FlatLength, (0.0), "Manufacturing", out, "The flat's size on XY, its longer side");
@@ -88,6 +118,11 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       out,
                       "Each bend, Up or Down: Up where the material comes up toward one\n"
                       "looking down on the flat");
+    ADD_PROPERTY_TYPE(CrossBreaks,
+                      (),
+                      "Manufacturing",
+                      out,
+                      "Each wall's cross break, Up or Down as a bend's direction");
     ADD_PROPERTY_TYPE(Status,
                       (""),
                       "Manufacturing",
@@ -115,6 +150,97 @@ SolidBody* SheetMetalFlatPattern::getSheet() const
     return Base::freecad_dynamic_cast<SolidBody>(Sheet.getValue());
 }
 
+SheetFlat SheetMetalFlatPattern::withMarkings(const SheetFlat& flat) const
+{
+    const auto& objs = Markings.getValues();
+    if (objs.empty() || flat.result.solid.IsNull()) {
+        return flat;
+    }
+    // where a sketch taken from the tip's flat lies: the tip's own frame
+    // (SolidBody::flatSubObject()), as the cutout's WrapFrame Flat reads one
+    auto solid = getSheet();
+    auto tip = solid ? solid->Tip.getValue() : nullptr;
+    const Base::Placement toFlat =
+        tip ? App::GeoFeature::getGlobalPlacement(tip).inverse() : Base::Placement();
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(flat.result.solid, box, /*useTriangulation*/ false,
+                           /*useShapeTolerance*/ false);
+    const double top = box.CornerMax().Z();
+
+    SheetFlat res = flat;
+    bool any = false;
+    for (auto obj : objs) {
+        if (!obj || !obj->isAttachedToDocument()) {
+            continue;
+        }
+        Base::Matrix4D mat = (toFlat * App::GeoFeature::getGlobalPlacement(obj)).toMatrix();
+        const TopoShape shape = Part::Feature::getTopoShape(obj, nullptr, false, &mat, nullptr,
+                                                            /*resolveLink*/ true,
+                                                            /*transform*/ false);
+        if (shape.isNull() || shape.countSubShapes(TopAbs_EDGE) == 0) {
+            continue;
+        }
+        Bnd_Box bound;
+        BRepBndLib::AddOptimal(shape.getShape(), bound, false, false);
+        if (bound.CornerMax().Z() - bound.CornerMin().Z() > 1e-6) {
+            FC_THROWM(Base::ValueError,
+                      "The markings of " << obj->Label.getValue()
+                                         << " do not lie parallel to the flat's XY");
+        }
+        // onto the blank's top, where the flat's other markings are
+        gp_Trsf up;
+        up.SetTranslation(gp_Vec(0, 0, top - bound.CornerMin().Z()));
+        const TopoShape moved = shape.makETransform(up);
+        for (const TopoShape& edge : moved.getSubTopoShapes(TopAbs_EDGE)) {
+            res.result.markings.push_back(TopoDS::Edge(edge.getShape()));
+            any = true;
+        }
+    }
+    if (!any) {
+        return res;
+    }
+    // the flat's own compounds, then the markings' (flatShape())
+    const auto parts = flat.shape.getSubTopoShapes();
+    if (!parts.empty()) {
+        res.shape = flatShape(parts.front(), res.result, TangentLines.getValue());
+    }
+    return res;
+}
+
+SheetFlat SheetMetalFlatPattern::withNotches(const SheetFlat& flat) const
+{
+    const auto tools =
+        SheetMetal::notchTools(flat.result,
+                               static_cast<SheetMetal::NotchKind>(Notch.getValue()),
+                               NotchDepth.getValue(),
+                               NotchWidth.getValue());
+    const auto parts = flat.shape.getSubTopoShapes();
+    if (tools.empty() || parts.empty()) {
+        return flat;
+    }
+    const auto& hasher = flat.shape.Hasher;
+    std::vector<TopoShape> cutters(tools.begin(), tools.end());
+    TopoShape cut(0, hasher);
+    cut.makECut({parts.front(), TopoShape(0, hasher).makECompound(cutters, nullptr, true)});
+    if (cut.countSubShapes(TopAbs_SOLID) != 1) {
+        THROWM(Base::ValueError, "The notches cut the blank apart");
+    }
+    const TopoShape blank = cut.getSubTopoShape(TopAbs_SOLID, 1);
+
+    SheetFlat res = flat;
+    res.result.solid = blank.getShape();
+    // each line, and each tangent line, as far as it lies on the blank now
+    for (auto& line : res.result.bendLines) {
+        line.segments = SheetMetal::onBlank(res.result.solid, line.edge);
+        for (std::size_t k = 0; k < line.tangents.size(); ++k) {
+            line.tangentSegments[k] = SheetMetal::onBlank(res.result.solid, line.tangents[k]);
+        }
+    }
+    res.shape = flatShape(blank, res.result, TangentLines.getValue());
+    measureFlat(res);
+    return res;
+}
+
 bool SheetMetalFlatPattern::isWanted() const
 {
     if (Visibility.getValue()) {
@@ -133,7 +259,9 @@ bool SheetMetalFlatPattern::isWanted() const
 short SheetMetalFlatPattern::mustExecute() const
 {
     if (Sheet.isTouched() || Root.isTouched() || SecondSkin.isTouched() || AlignEdge.isTouched()
-        || TangentLines.isTouched() || Grain.isTouched() || GrainAngle.isTouched()) {
+        || TangentLines.isTouched() || Grain.isTouched() || GrainAngle.isTouched()
+        || Markings.isTouched() || Notch.isTouched() || NotchDepth.isTouched()
+        || NotchWidth.isTouched()) {
         return 1;
     }
     // Out of date and shown, or taken up by something that uses it since
@@ -167,7 +295,7 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
     }
     std::string why;
     try {
-        const SheetFlat& flat = solid->flatOf(nullptr);
+        const SheetFlat flat = finished(solid->flatOf(nullptr));
         Shape.setValue(flat.shape);
         FlatLength.setValue(flat.length);
         FlatWidth.setValue(flat.width);
@@ -177,6 +305,7 @@ App::DocumentObjectExecReturn* SheetMetalFlatPattern::execute()
         BendCount.setValue(flat.bendCount);
         MaxBendAngle.setValue(flat.maxBendAngle);
         BendDirections.setValues(flat.directions);
+        CrossBreaks.setValues(flat.crossBreaks);
     }
     catch (const Base::Exception& e) {
         why = e.what();

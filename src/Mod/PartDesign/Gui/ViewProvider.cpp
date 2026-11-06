@@ -63,6 +63,8 @@
 #include <Mod/PartDesign/App/FeatureExtrusion.h>
 #include <Mod/PartDesign/App/FeatureHole.h>
 #include <Mod/PartDesign/App/FeatureTransformed.h>
+#include <Mod/PartDesign/App/SheetMetalExtension.h>
+#include <Mod/PartDesign/App/SheetMetalFlat.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 #include <Mod/Sketcher/App/SketchObject.h>
 
@@ -478,15 +480,46 @@ void ViewProvider::updateData(const App::Property* prop)
     inherited::updateData(prop);
 
     // A new shape has new faces, and the holes behind it may have changed
-    // what they thread: re-derive the cosmetic threads, but only where
-    // there are some to state or some to take away -- the render material
-    // is not rebuilt for every feature of every body on every recompute.
+    // what they thread: re-derive the cosmetic threads.
     if (prop == &feature->Shape) {
-        const bool threads = hasCosmeticThreads(feature);
-        if (threads || impliedThreads) {
-            impliedThreads = threads;
-            updateRenderMaterial();
+        refreshImpliedFinishes();
+        return;
+    }
+    // A sheet metal feature's model says which walls are broken, and is
+    // set after its shape. The features after it and the body take it on,
+    // and a cross break changes no shape: suppressed, or its angle
+    // changed, theirs are set to what they were, which tells no view.
+    auto sheet = feature->getExtensionByType<PartDesign::SheetMetalExtension>(true);
+    if (sheet && (prop == &sheet->SheetModel || prop == &feature->Suppress)) {
+        refreshImpliedFinishes();
+        auto body = PartDesign::Body::findBodyOf(feature);
+        if (!body)
+            return;
+        const auto &group = body->Group.getValues();
+        auto it = std::find(group.begin(), group.end(), feature);
+        for (; it != group.end(); ++it) {
+            if (*it == feature)
+                continue;
+            if (auto vp = Base::freecad_dynamic_cast<ViewProvider>(
+                        Gui::Application::Instance->getViewProvider(*it)))
+                vp->refreshImpliedFinishes();
         }
+        if (auto bodyVp = Base::freecad_dynamic_cast<ViewProviderBody>(
+                    Gui::Application::Instance->getViewProvider(body)))
+            bodyVp->refreshImpliedFinishes();
+    }
+}
+
+void ViewProvider::refreshImpliedFinishes()
+{
+    // only where there are some to state or some to take away -- the
+    // render material is not rebuilt for every feature of every body on
+    // every recompute
+    auto feature = Base::freecad_dynamic_cast<PartDesign::Feature>(getObject());
+    const bool implied = feature && hasImpliedFinishes(feature);
+    if (implied || impliedThreads) {
+        impliedThreads = implied;
+        updateRenderMaterial();
     }
 }
 
@@ -589,6 +622,52 @@ bool ViewProvider::hasCosmeticThreads(const PartDesign::Feature *last)
     return last && !threadsReaching(last, true).empty();
 }
 
+bool ViewProvider::hasImpliedFinishes(const PartDesign::Feature *last)
+{
+    return hasCosmeticThreads(last) || (last && PartDesign::hasCrossBreaks(last));
+}
+
+void ViewProvider::crossBreakFinishes(const App::DocumentObject *obj,
+                                      std::vector<ImpliedFinish> &finishes)
+{
+    std::vector<PartDesign::SheetMetal::CrossBreakPatch> patches;
+    try {
+        patches = PartDesign::crossBreakPatches(obj);
+    }
+    catch (const Base::Exception &) {
+        return;
+    }
+    catch (const Standard_Failure &) {
+        return;
+    }
+    if (patches.empty())
+        return;
+    // as the shape lies, into the frame it is tessellated in
+    gp_Trsf toLocal;
+    if (auto feature = Base::freecad_dynamic_cast<const Part::Feature>(obj))
+        toLocal = Part::TopoShape::convert(feature->Placement.getValue().inverse().toMatrix());
+    const gp_Vec key(1, 2, 3);
+    for (const auto &patch : patches) {
+        const gp_Dir u = patch.direction.Transformed(toLocal);
+        gp_Dir along = patch.normal.Transformed(toLocal);
+        const bool rises = gp_Vec(along).Dot(key) >= 0.0;
+        if (!rises)
+            along.Reverse();
+        const gp_Dir v = along.Crossed(u);
+        const gp_Vec middle(patch.center.Transformed(toLocal).XYZ());
+        ImpliedFinish finish;
+        finish.face = patch.face;
+        finish.finish.pattern = rises ? App::SurfaceFinish::CrossBreak
+                                      : App::SurfaceFinish::CrossBreakReversed;
+        finish.finish.pitch = float(patch.halfLength);
+        finish.finish.depth = float(patch.halfWidth);
+        finish.finish.angle = float(Base::toDegrees(patch.angle));
+        finish.finish.normalize();
+        finish.setLay(u.X(), u.Y(), u.Z(), middle.Dot(gp_Vec(u)), middle.Dot(gp_Vec(v)));
+        finishes.push_back(finish);
+    }
+}
+
 void ViewProvider::cosmeticThreadFinishes(const PartDesign::Feature *last,
                                           const Base::Placement &toLocal,
                                           const TopoDS_Shape &shape,
@@ -677,6 +756,7 @@ void ViewProvider::getImpliedFinishes(std::vector<ImpliedFinish> &finishes) cons
         return;
     }
     cosmeticThreadFinishes(feature, feature->Placement.getValue().inverse(), shape, finishes);
+    crossBreakFinishes(feature, finishes);
 }
 
 void ViewProvider::updateVisual()

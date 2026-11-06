@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <App/DocumentObserver.h>
+#include <Mod/PartDesign/App/SheetMetalCheck.h>
 #include <Gui/TaskView/TaskDialog.h>
 #include <Gui/TaskView/TaskView.h>
 
@@ -43,8 +44,11 @@ namespace PartDesignGui
  * value with where it comes from, and what is wrong with its flat
  * (PartDesign::checkSheet()). A row picked selects its faces, on the flat
  * where that is drawn; Check Again checks once more, nothing is checked
- * otherwise. Its widgets are named for the panel mirror: tableBends,
- * listProblems, labelSummary and buttonCheckAgain.
+ * otherwise. A bend's K or allowance double-clicked takes a value of the
+ * bend's own (ruled 2026-11-05: kept on the feature that made the bend), an
+ * undoable step that recomputes and checks again; cleared, the bend takes the
+ * rule's again. Its widgets are named for the panel mirror: tableBends,
+ * editBendValue, listProblems, labelSummary and buttonCheckAgain.
  */
 class TaskSheetMetalCheck: public Gui::TaskView::TaskBox
 {
@@ -57,6 +61,15 @@ public:
     void check();
 
 private:
+    enum
+    {
+        KColumn = 4,
+        AllowanceColumn = 5,
+    };
+    /// A K, or an allowance it is found from, typed into a row; empty for the
+    /// rule's
+    void setBendValue(int row, int column, const QString& text);
+
     /// What a row marks: the faces of the part checked, folded and flat,
     /// or the feature it is of where it names none
     struct Marks
@@ -72,11 +85,12 @@ private:
     QTableWidget* bends;
     QListWidget* problems;
     QLabel* summary;
+    std::vector<PartDesign::SheetBendRow> bendRows;
     std::vector<Marks> bendMarks;
     std::vector<Marks> problemMarks;
 };
 
-/// The panel, closed with Close: it changes nothing
+/// The panel, closed with Close: each edit in it is a step of its own
 class TaskDlgSheetMetalCheck: public Gui::TaskView::TaskDialog
 {
     Q_OBJECT

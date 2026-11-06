@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's rip: a square tube opened at one corner, the rip marked -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the top wall running back, stopping short of the corner -->
+  <path
+     d="M 10,20 36,20 50,10 24,10 Z"
+     style="fill:#e9a23b;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the right wall running back, starting below the corner -->
+  <path
+     d="M 44,28 44,54 58,44 58,18 Z"
+     style="fill:#c98420;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the tube's end, open at its top right corner -->
+  <path
+     d="M 36,20 H 10 V 54 H 44 V 28 H 39 V 49 H 15 V 25 H 36 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the rip, along the corner -->
+  <path
+     d="M 40,24 56,13"
+     style="fill:none;stroke:#c0392b;stroke-width:3;stroke-linecap:round;stroke-dasharray:5,3;" />
+</svg>

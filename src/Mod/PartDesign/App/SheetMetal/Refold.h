@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <gp_Dir.hxx>
@@ -74,8 +75,9 @@ PartDesignExport TopoDS_Face cornerReliefFace(const Model& model, int root, int 
                                               int shape, double size);
 
 /** The corner reliefs of bends meeting in pairs at a miter, each pair's
- * shape (cornerReliefFace()) folded back (refold()) through their wall, the
- * two bends and the walls after them: the solids to cut from the part
+ * shape (cornerReliefFace()) folded back (refold()) through the wall they
+ * share -- each bend from it or into it -- the two bends and the walls on
+ * their other sides: the solids to cut from the part
  *
  * Each as large as size, or as cover asks if larger (ruled 2026-11-03):
  * that share of the rectangle the two bends' strips make where they cross,
@@ -120,6 +122,20 @@ PartDesignExport std::vector<Part::TopoShape> wrapCutoutTools(const Model& model
                                                               const TopoDS_Shape& part,
                                                               const TopoDS_Shape& profile,
                                                               const gp_Dir& normal);
+
+/** A wrap cutout's tools with the sketch in the flat's own frame (ruled
+ * 2026-11-04): profile on or parallel to XY of the flat as the sheet lays it
+ * -- root, its second skin, turned by alongX -- so geometry taken from a
+ * feature's flat is where it is read. What lies on an element's skin there
+ * goes back through that element, as wrapCutoutTools() does.
+ *
+ * Throws Base::ValueError for a profile not parallel to XY, or lying on none
+ * of the flat.
+ */
+PartDesignExport std::vector<Part::TopoShape>
+wrapCutoutToolsFlat(const Model& model, const TopoDS_Shape& part, const TopoDS_Shape& profile,
+                    const gp_Dir& normal, int root, bool secondSkin,
+                    const TopoDS_Edge& alongX = TopoDS_Edge());
 
 /// How the cuts across a bend are laid out (bendCutTools())
 struct PartDesignExport BendCutPattern

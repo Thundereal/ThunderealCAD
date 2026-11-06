@@ -137,6 +137,18 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A rip, its panel the faces of the bends and walls it opens
+class PartDesignGuiExport ViewProviderSheetMetalRip: public ViewProviderAddSub
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalRip);
+
+public:
+    ViewProviderSheetMetalRip();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A cutout, its panel its sketch, its way and how far
 class PartDesignGuiExport ViewProviderSheetMetalCutout: public ViewProviderSketchBased
 {
@@ -197,6 +209,39 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/** Cross breaks on walls, its panel the faces, the angle and the way; while
+ * the panel is open it draws each wall's diagonals on the face the break
+ * rises from (PartDesign::crossBreakLines()), dash-dotted. Shown, the walls
+ * wear the break as a finish, as every feature after it does
+ * (ViewProvider::crossBreakFinishes())
+ */
+class PartDesignGuiExport ViewProviderSheetMetalCrossBreak: public ViewProvider
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalCrossBreak);
+
+public:
+    ViewProviderSheetMetalCrossBreak();
+    ~ViewProviderSheetMetalCrossBreak() override;
+
+    void attach(App::DocumentObject* obj) override;
+    void updateData(const App::Property* prop) override;
+    void beforeDelete() override;
+    void reattach(App::DocumentObject* obj) override;
+
+protected:
+    bool setEdit(int ModNum) override;
+    void unsetEdit(int ModNum) override;
+    TaskDlgFeatureParameters* getEditDialog() override;
+
+private:
+    /// The diagonals drawn as the object's shape has them now
+    void refreshLines();
+
+    std::unique_ptr<PartGui::ViewProviderPart> lines;
+    /// The diagonals' view, drawn while the panel is open, not picked
+    Gui::CoinPtr<SoSwitch> pcLines;
+};
+
 /// A sheet metal rule, its panel its card and values; a double-click opens it
 class PartDesignGuiExport ViewProviderSheetMetalRule: public PartGui::ViewProviderPart
 {
@@ -246,6 +291,14 @@ public:
     App::PropertyColor GrainColor;
     App::PropertyEnumeration GrainStyle;
     App::PropertyFloatConstraint GrainWidth;
+    App::PropertyBool ShowMarkings;
+    App::PropertyColor MarkingColor;
+    App::PropertyEnumeration MarkingStyle;
+    App::PropertyFloatConstraint MarkingWidth;
+    App::PropertyBool ShowCrossBreaks;
+    App::PropertyColor CrossBreakColor;
+    App::PropertyEnumeration CrossBreakStyle;
+    App::PropertyFloatConstraint CrossBreakWidth;
     //@}
 
     void attach(App::DocumentObject* obj) override;
@@ -256,6 +309,11 @@ public:
     bool getElementPicked(const SoPickedPoint* pp, std::string& subname) const override;
     bool getDetailPath(const char* subname, SoFullPath* path, bool append,
                        SoDetail*& det) const override;
+    /// A drawing's look of a marking: its kind's style, colour, and shown
+    /// or not; a bend line's label its note, "UP 90deg R1", a cross break's
+    /// first diagonal's "CROSS BREAK UP 3deg"; the blank's edges are left to
+    /// the drawing
+    bool getEdgeInfo(const char* mappedName, EdgeInfo& info) const override;
 
     /** Draw \a shape, a flat as layFlat() makes it, each bend Up or Down by
      * \a directions: the object's own, or another's (a feature's, drawn by
@@ -287,7 +345,7 @@ private:
         /// Each of its edges' index in the object's shape, by its own
         std::vector<int> edges;
     };
-    std::array<Kind, 4> kinds;
+    std::array<Kind, 6> kinds;
     /// The markings' views, drawn while this view is shown
     Gui::CoinPtr<SoSwitch> pcMarkings;
     /// How many edges the blank has: the shape's first ones

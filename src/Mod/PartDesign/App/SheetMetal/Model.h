@@ -70,6 +70,10 @@ struct PartDesignExport Element
     /// their slabs and tubes would overlap; a bend's sides, where its flange
     /// ends inside the wall's end and its tube runs on through the wall
     std::vector<gp_Pln> limits;
+    /// A wall's cross break (docs/SheetMetal.md sec 12): the angle its
+    /// diagonals bend by, rad, rising along the frame's normal where above 0
+    /// and against it where below; 0 for none
+    double crossBreak = 0;
 };
 
 /** A sheet's walls and bends, and how they lie flat
@@ -101,6 +105,17 @@ public:
     int owner(const TopoDS_Face& face, double tol = 1e-7) const;
     /// Move every element
     void transform(const gp_Trsf& trsf);
+    /** Take an element out, every index after it moved down. A bend's walls
+     * stay; a wall still joined by a bend throws Base::ValueError.
+     */
+    void remove(int index);
+
+    /** The first bend that closes a loop of walls and bends -- a tube's --
+     * which does not lie flat; -1 for none
+     */
+    int closingBend() const;
+    /// The first wall not joined to the first wall by bends, -1 for none
+    int cutOff() const;
 
     /** What moves an element flat with root fixed: for a wall all of it,
      * for a bend what follows its own map (CylBend::toFlat()). Throws

@@ -49,7 +49,8 @@ struct PartDesignExport SheetBendRow
     double radius = 0;
     std::string radiusSource;
     /// The K its flat length is found by, and where that comes from: "rule",
-    /// "card", or the allowance method where that gives it
+    /// "card", the allowance method where that gives it, or "bend" where the
+    /// bend has its own (SheetMetalExtension::BendKFactors)
     double kFactor = 0;
     std::string kFactorSource;
     /// The rule's allowance method, and where that comes from
@@ -96,5 +97,12 @@ struct PartDesignExport SheetCheck
  * Throws Base::ValueError for an object of no sheet.
  */
 PartDesignExport SheetCheck checkSheet(const App::DocumentObject* obj);
+
+/** The bend table alone: each bend's values and their sources, and which way
+ * it lies flat (empty where the sheet does not), no faces and no problems --
+ * what a drawing's bend table shows (SheetMetalBendTable). Throws as
+ * checkSheet() does.
+ */
+PartDesignExport std::vector<SheetBendRow> sheetBends(const App::DocumentObject* obj);
 
 }  // namespace PartDesign

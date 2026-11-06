@@ -45,6 +45,7 @@ using Part::TopoShape;
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalBaseWall, PartDesign::ProfileBased)
 
 const char* SheetMetalBaseWall::MaterialSideEnums[] = {"Outside", "Inside", "Middle", nullptr};
+const char* SheetMetalBaseWall::ClosedProfileEnums[] = {"Plate", "Tube", nullptr};
 
 SheetMetalBaseWall::SheetMetalBaseWall()
 {
@@ -62,6 +63,14 @@ SheetMetalBaseWall::SheetMetalBaseWall()
                       "Sheet Metal",
                       App::Prop_None,
                       "How far a profile wall goes along the sketch's normal");
+    ADD_PROPERTY_TYPE(ClosedProfile,
+                      (0L),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "What a closed sketch makes: Plate, the sketch's face the rule's thickness "
+                      "through; Tube, a wall along each line and a bend at every corner, which "
+                      "lies flat once ripped");
+    ClosedProfile.setEnums(ClosedProfileEnums);
     ADD_PROPERTY_TYPE(UseRuleRadius,
                       (true),
                       "Sheet Metal",
@@ -90,7 +99,8 @@ SheetMetalBaseWall::SheetMetalBaseWall()
 
 short SheetMetalBaseWall::mustExecute() const
 {
-    if (MaterialSide.isTouched() || Length.isTouched() || UseRuleRadius.isTouched()
+    if (MaterialSide.isTouched() || Length.isTouched() || ClosedProfile.isTouched()
+        || UseRuleRadius.isTouched()
         || BendRadius.isTouched()) {
         return 1;
     }
@@ -157,8 +167,10 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
         for (const auto& wire : profile.getSubTopoShapes(TopAbs_WIRE)) {
             closed = closed && BRep_Tool::IsClosed(wire.getShape());
         }
+        const bool tube = closed && ClosedProfile.getValue() == 1;
         // a plate is the rule's thickness through the sketch's face: the
         // profile wall's values say nothing of it
+        closed = closed && !tube;
         for (App::Property* prop : std::initializer_list<App::Property*> {&Length,
                                                                           &Reversed,
                                                                           &Midplane}) {
@@ -194,12 +206,19 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             }
             if (wires.size() != 1) {
                 return new App::DocumentObjectExecReturn(QT_TRANSLATE_NOOP(
-                    "Exception", "A profile wall takes one open line chain, or closed profiles"));
+                    "Exception",
+                    tube ? "A tube takes one closed line chain"
+                         : "A profile wall takes one open line chain, or closed profiles"));
             }
             auto points = SheetMetal::linePoints(TopoDS::Wire(wires.front().getShape()),
-                                                 "A profile wall");
-            SheetMetal::dropStraight(points);
-            build.profile(points, normal, side);
+                                                 tube ? "A tube" : "A profile wall");
+            if (tube) {
+                build.closedProfile(points, normal, side);
+            }
+            else {
+                SheetMetal::dropStraight(points);
+                build.profile(points, normal, side);
+            }
 
             const double length = Length.getValue();
             if (length < Precision::Confusion()) {
@@ -242,6 +261,7 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(makeBoolean(base, tool, true));
+        applyBendOverrides(model);
         SheetModel.setValue(model);
     }
     catch (const Base::Exception& e) {

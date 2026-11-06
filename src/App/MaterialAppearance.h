@@ -60,6 +60,8 @@ struct AppExport SurfaceFinish
         Turned,         /**< concentric turning marks */
         Thread,         /**< right-hand screw thread, see below */
         ThreadLeft,     /**< left-hand screw thread */
+        CrossBreak,     /**< a sheet metal wall's cross break, see below */
+        CrossBreakReversed, /**< the same, sinking the other way */
         PatternCount
     };
 
@@ -89,6 +91,21 @@ struct AppExport SurfaceFinish
     static bool isThread(uint8_t pattern)
     {
         return pattern == Thread || pattern == ThreadLeft;
+    }
+
+    /** Whether the pattern is one of the two cross breaks
+     *
+     * A sheet metal wall bowed along both its diagonals, which only the
+     * feature that breaks it can state: the rectangle it is broken over
+     * rides beside the record (Gui's ImpliedFinish::extent), and authored
+     * in an appearance, with none, it draws nothing. Pitch and depth are
+     * then the rectangle's half length and half width, angle the break's
+     * (deg). CrossBreak rises along the plane's normal turned so its first
+     * non-zero component is positive, CrossBreakReversed the other way.
+     */
+    static bool isCrossBreak(uint8_t pattern)
+    {
+        return pattern == CrossBreak || pattern == CrossBreakReversed;
     }
 
     bool isSet() const { return pattern != None; }

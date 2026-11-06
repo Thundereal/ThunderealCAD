@@ -104,9 +104,11 @@ first, as Metallic does.
             <Documentation>
                 <UserDocu>
 The surface finish pattern by name: "" (none), "knurl", "knurl-straight",
-"brushed", "blasted", "turned", "thread" or "thread-left". An unrecognised
-name reads back as "". For the two threads FinishAngle is the included
-profile angle (0 = 60), not a lay.
+"brushed", "blasted", "turned", "thread", "thread-left", "cross-break" or
+"cross-break-reversed". An unrecognised name reads back as "". For the two
+threads FinishAngle is the included profile angle (0 = 60), not a lay. The
+two cross breaks are a sheet metal feature's to state, on the rectangle it
+breaks; set here they draw nothing.
 
 A finish states what was done to the surface, not how it shades, so it
 survives every conversion between the Phong and PBR readings. Size it

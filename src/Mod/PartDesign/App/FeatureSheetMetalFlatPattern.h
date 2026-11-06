@@ -71,6 +71,15 @@ public:
     App::PropertyBool Grain;
     /// The grain's direction, from the flat's X
     App::PropertyAngle GrainAngle;
+    /// Objects whose edges are drawn on the blank's top, the flat's only
+    App::PropertyLinkList Markings;
+    /// A notch where each bend's line meets the outline, the flat's only:
+    /// None, V or Slot (SheetMetal::NotchKind)
+    App::PropertyEnumeration Notch;
+    /// How far a notch goes in along the line
+    App::PropertyLength NotchDepth;
+    /// How wide a notch is at the outline
+    App::PropertyLength NotchWidth;
     //@}
 
     /** @name What a bill of materials takes (sec 5.4), of the shape */
@@ -83,6 +92,8 @@ public:
     App::PropertyInteger BendCount;
     App::PropertyAngle MaxBendAngle;
     App::PropertyMap BendDirections;
+    /// Each wall's cross break, Up or Down, by the wall's name
+    App::PropertyMap CrossBreaks;
     /// Empty when the shape is the tip's flat; else why not: out of date,
     /// or why the tip does not lie flat
     App::PropertyString Status;
@@ -95,6 +106,28 @@ public:
     FlatSettings settings() const;
     /// The solid it is the flat of
     SolidBody* getSheet() const;
+    /** \a flat, its solid's tip's, with the markings on its blank's top
+     * (docs/SheetMetal.md sec 12): each edge of each object of Markings,
+     * read in the frame a sketch taken from the tip's flat lies in, named
+     * Marking1, Marking2, ... in the list's order
+     *
+     * Throws Base::ValueError for an object whose edges do not lie in one
+     * plane parallel to the flat's XY.
+     */
+    SheetFlat withMarkings(const SheetFlat& flat) const;
+    /** \a flat, its solid's tip's, with Notch's notches cut in its blank
+     * (SheetMetal::notchTools()), each bend's line stopping at them
+     *
+     * Throws Base::ValueError for a notch of no size, or notches that cut
+     * the blank apart.
+     */
+    SheetFlat withNotches(const SheetFlat& flat) const;
+    /// \a flat, its solid's tip's, as the flat object has it: notched, then
+    /// marked
+    SheetFlat finished(const SheetFlat& flat) const
+    {
+        return withMarkings(withNotches(flat));
+    }
     /// Whether it lays flat in its recompute: shown, or used by an object
     /// that is not its body
     bool isWanted() const;

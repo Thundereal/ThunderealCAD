@@ -21,5 +21,31 @@ The name of the wall or bend of the sheet model that owns a face of this
 feature's shape, None if none owns it.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="bendKFactor" Const="true">
+      <Documentation>
+        <UserDocu>bendKFactor(bend) -> float or None
+
+The K of a bend this feature made, by its name ("Bend2"), where the bend has
+one of its own (BendKFactors); None where it takes the rule's.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setBendKFactor">
+      <Documentation>
+        <UserDocu>setBendKFactor(bend, k=None)
+
+Give a bend this feature made, by its name ("Bend2"), a K of its own, from 0 to
+1; None gives it back to the rule. It changes that bend's flat and nothing else
+(docs/SheetMetal.md sec 4.6). Raises ValueError for a bend this feature did not
+make.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="crossBreakLines" Const="true">
+      <Documentation>
+        <UserDocu>crossBreakLines() -> [Part.Edge]
+
+The cross breaks of this feature's sheet in 3D: the diagonals of the face each
+rises from, two a wall, as the shape lies (docs/SheetMetal.md sec 12).</UserDocu>
+      </Documentation>
+    </Methode>
   </PythonExport>
 </GenerateModel>

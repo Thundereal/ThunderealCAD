@@ -27,8 +27,10 @@ import traceback
 
 import FreeCAD
 import FreeCADGui
+import numpy as np
 import Part
-from PySide import QtCore, QtWidgets
+from pivy import coin
+from PySide import QtCore, QtGui, QtWidgets
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
@@ -469,6 +471,39 @@ def run():
             "and Export Flat, nothing selected",
             FreeCADGui.Command.get("PartDesign_SheetMetalExportDXF").isActive(),
         )
+        # Export Every Flat: a file per sheet of the document into a folder
+        every = FreeCADGui.Command.get("PartDesign_SheetMetalExportFlats")
+        check(
+            "and Export Every Flat, the document holding a sheet",
+            every is not None and every.isActive(),
+        )
+        folder = os.path.join(OUT, "every")
+        os.makedirs(folder, exist_ok=True)
+        asked = []
+
+        def fill():
+            # the command's dialog: the folder, SVG, OK
+            for w in QtWidgets.QApplication.topLevelWidgets():
+                if w.objectName() == "SheetMetalExportFlats" and w.isVisible():
+                    chooser = w.findChild(QtWidgets.QWidget, "folder")
+                    combo = w.findChild(QtWidgets.QComboBox, "format")
+                    asked.append([combo.itemText(i) for i in range(combo.count())])
+                    chooser.setProperty("fileName", folder)
+                    combo.setCurrentIndex(1)
+                    w.accept()
+                    return
+            QtCore.QTimer.singleShot(50, fill)
+
+        if every is not None:
+            QtCore.QTimer.singleShot(0, fill)
+            FreeCADGui.runCommand("PartDesign_SheetMetalExportFlats")
+            pump()
+        written = sorted(os.listdir(folder))
+        check(
+            "which asks a folder and DXF or SVG, and writes each sheet's flat there",
+            asked == [["DXF", "SVG"]] and written == [body.Label + ".svg"],
+            (asked, written),
+        )
         folded = flange.ViewObject.getBoundingBox()
         FreeCADGui.runCommand("PartDesign_SheetMetalFlatten", 1)
         pump(20)
@@ -611,6 +646,43 @@ def run():
         fvo.ShowBendUp = True
         fvo.ShowBendDown = True
         pump()
+
+        # Laid by its second skin the bends go down: a down bend's line lies
+        # on the blank's top, as every marking does, where one looking down
+        # sees it
+        camera = view.getCamera()
+        flat.SecondSkin = True
+        doc.recompute()
+        pump(20)
+        view.viewTop()
+        view.fitAll()
+        pump()
+        def bendOf(i):
+            # Bend1, or Bend1Part2: the bend a marking is of, or None
+            name = flat.Shape.getElementMappedName("Edge%d" % i).split(";")[0]
+            if not name.startswith("Bend") or "Tangent" in name:
+                return None
+            return name.split("Part")[0]
+
+        downs = [
+            (i + 1, e)
+            for i, e in enumerate(flat.Shape.Edges)
+            if flat.BendDirections.get(bendOf(i + 1)) == "Down"
+        ]
+        down = max(downs, key=lambda t: t[1].Length) if downs else None
+        hit = pickLine(*down) if down else None
+        check(
+            "a down bend's line, on the blank's top, is drawn and picked from above",
+            down is not None
+            and abs(down[1].BoundBox.ZMin - flat.Shape.Solids[0].BoundBox.ZMax) < 1e-6
+            and hit is not None
+            and hit.split(".")[-1] == "Edge%d" % down[0],
+            (down and (down[0], down[1].BoundBox), flat.BendDirections, hit),
+        )
+        flat.SecondSkin = False
+        doc.recompute()
+        view.setCamera(camera)
+        pump(20)
 
         # Both: the folded part shown too, the flat moved off it by its own
         # placement
@@ -766,6 +838,61 @@ def run():
             listed.count() == len(PartDesign.checkSheet(flange)["Problems"]),
             listed.count(),
         )
+
+        # a bend's own K, typed in the table (ruled 2026-11-05: kept on the
+        # feature that made the bend), an undoable step each
+        def typeInto(column, text):
+            table.setCurrentCell(0, column)
+            table.editItem(table.item(0, column))
+            pump(5)
+            edit = table.findChild(QtWidgets.QLineEdit, "editBendValue")
+            if edit is None:
+                return False
+            edit.setText(text)
+            # Return commits and closes the editor, which is then gone
+            QtWidgets.QApplication.sendEvent(
+                edit, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_Return, QtCore.Qt.NoModifier)
+            )
+            pump(10)
+            return True
+
+        bend0 = found["Bends"][0]
+        maker = doc.getObject(bend0["Feature"])
+        undos = doc.UndoCount
+        typed = typeInto(4, "0.3")
+        check(
+            "a K typed in the bend table is the bend's own, kept on its feature",
+            typed
+            and maker.bendKFactor(bend0["Name"]) == 0.3
+            and table.item(0, 4).text().endswith("(bend)")
+            and doc.UndoCount == undos + 1
+            and doc.UndoNames[0] == "Bend K factor",
+            (typed, maker.bendKFactor(bend0["Name"]), table.item(0, 4).text(), doc.UndoNames[:1]),
+        )
+        T = maker.Rule.Thickness.Value
+        allowance = math.radians(bend0["Angle"]) * (bend0["Radius"] + 0.25 * T)
+        typed = typeInto(5, "%.9f" % allowance)
+        k = maker.bendKFactor(bend0["Name"])
+        check(
+            "an allowance typed is the K that makes it",
+            typed and k is not None and abs(k - 0.25) < 1e-6,
+            (typed, k),
+        )
+        typed = typeInto(4, "")
+        check(
+            "cleared, the bend takes the rule's again",
+            typed
+            and maker.bendKFactor(bend0["Name"]) is None
+            and not table.item(0, 4).text().endswith("(bend)"),
+            (typed, maker.bendKFactor(bend0["Name"]), table.item(0, 4).text()),
+        )
+        doc.undo()
+        doc.recompute()
+        k = maker.bendKFactor(bend0["Name"])
+        check("and that is undone as a step", k is not None and abs(k - 0.25) < 1e-6, k)
+        maker.setBendKFactor(bend0["Name"], None)
+        doc.recompute()
+
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Control.closeDialog()
         pump()
@@ -831,6 +958,574 @@ def run():
                 "whose icon has no overlay",
                 image(other.ViewObject.Icon) == image(FreeCADGui.getIcon("PartDesign_SolidBody.svg")),
             )
+
+        # A drawing of the sheet's flat (docs/SheetMetal.md sec 5.6): TechDraw
+        # asks the source's view how to draw an edge, by its source name, and
+        # the flat's bend lines come out in the flat's own colours
+        def pens(page):
+            """The colours the page's scene is drawn in, each of 20 pixels
+            or more: its edges are items Python cannot ask for their pens"""
+            counts = {}
+            for v in mw.findChildren(QtWidgets.QGraphicsView):
+                scene = v.scene()
+                if scene is None or not scene.items():
+                    continue
+                r = scene.itemsBoundingRect()
+                img = QtGui.QImage(int(r.width()) + 1, int(r.height()) + 1, QtGui.QImage.Format_RGB32)
+                img.fill(QtGui.QColor(255, 255, 255))
+                painter = QtGui.QPainter(img)
+                scene.render(painter, QtCore.QRectF(img.rect()), r)
+                painter.end()
+                for y in range(img.height()):
+                    for x in range(img.width()):
+                        c = img.pixelColor(x, y)
+                        key = (c.red(), c.green(), c.blue())
+                        counts[key] = counts.get(key, 0) + 1
+            return {c for c, n in counts.items() if n >= 20}
+
+        def rgb(prop):
+            return tuple(int(round(x * 255)) for x in prop[:3])
+
+        def drawnIn(page, colour, turns=5):
+            """Whether the page draws in colour, given it a few turns to draw:
+            a page drawn once only shows its frame"""
+            for _ in range(turns):
+                found = pens(page)
+                if colour in found:
+                    return True, found
+                pump(60)
+            return False, found
+
+        ups = [b for b, d in flat.BendDirections.items() if d == "Up"]
+        downs = [b for b, d in flat.BendDirections.items() if d == "Down"]
+        page = doc.addObject("TechDraw::DrawPage", "Page")
+        template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        page.Template = template
+        drawing = doc.addObject("TechDraw::DrawViewPart", "FlatDrawing")
+        page.addView(drawing)
+        drawing.Source = [flat]
+        drawing.Direction = FreeCAD.Vector(0, 0, 1)
+        flat.Visibility = True
+        doc.recompute()
+        page.ViewObject.show()
+        pump(60)
+        drawing.recompute()
+        pump(60)
+        seen = pens(page)
+        upColour = rgb(flat.ViewObject.BendUpColor)
+        downColour = rgb(flat.ViewObject.BendDownColor)
+        check(
+            "a drawing of the flat draws its up and down bend lines in the flat's colours",
+            bool(ups) and bool(downs) and upColour in seen and downColour in seen,
+            (ups, downs, upColour, downColour, sorted(seen)[:8]),
+        )
+        flat.ViewObject.BendDownColor = (0.0, 0.6, 0.0)
+        drawing.touch()
+        doc.recompute()
+        pump(60)
+        check(
+            "and follows a colour changed on the flat",
+            (0, 153, 0) in pens(page),
+            sorted(pens(page))[:8],
+        )
+
+        # Each edge's info, a bend line's note its label, from Python too;
+        # Import Edge Labels makes a balloon of each, to edit
+        downBend = downs[0]
+        info = getattr(flat.ViewObject, "getEdgeInfo", lambda name: None)(downBend)
+        bendRow = [b for b in PartDesign.checkSheet(flat)["Bends"] if b["Name"] == downBend][0]
+        bendNote = "DOWN %g\u00b0 R%g" % (round(bendRow["Angle"], 2), round(bendRow["Radius"], 3))
+        check(
+            "the flat's view tells a drawing a bend line's style and its note",
+            info is not None
+            and info["Label"] == bendNote
+            and abs(info["Color"][0] - flat.ViewObject.BendDownColor[0]) < 1e-6,
+            (info, bendNote),
+        )
+        check(
+            "and nothing of the blank's edges",
+            info is not None and flat.ViewObject.getEdgeInfo(
+                flat.Shape.getElementMappedName("Edge1")) is None,
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, drawing.Name)
+        FreeCADGui.runCommand("TechDraw_ImportEdgeLabels")
+        pump(30)
+        labels = [o for o in doc.Objects if o.TypeId == "TechDraw::DrawEdgeLabel"]
+        byEdge = {o.SourceEdge.split(";")[0]: o for o in labels}
+        check(
+            "Import Edge Labels makes a label of each bend line on the page, its bendNote",
+            len(labels) == len(flat.BendDirections)
+            and downBend in byEdge
+            and byEdge[downBend].Text == bendNote
+            and byEdge[downBend].SourceView == drawing
+            and byEdge[downBend] in page.Views,
+            sorted((k, o.Text) for k, o in byEdge.items()),
+        )
+        if downBend in byEdge:
+            mine = byEdge[downBend]
+            mine.Text = "DOWN, hem side"
+            moved = (mine.X.Value - mine.OriginX.Value + 5, mine.Y.Value - mine.OriginY.Value)
+            mine.X = mine.OriginX.Value + moved[0]
+            before = {k: o.Text for k, o in byEdge.items()}
+            # laid by the other skin, every bend goes the other way
+            flat.SecondSkin = not flat.SecondSkin
+            doc.recompute()
+            pump(20)
+            FreeCADGui.Selection.clearSelection()
+            FreeCADGui.Selection.addSelection(doc.Name, drawing.Name)
+            FreeCADGui.runCommand("TechDraw_ImportEdgeLabels")
+            pump(30)
+            rows = {b["Name"]: b for b in PartDesign.checkSheet(flat)["Bends"]}
+
+            def noteOf(name):
+                b = rows[name]
+                return "%s %g\u00b0 R%g" % (
+                    "DOWN" if flat.BendDirections.get(name) == "Down" else "UP",
+                    round(b["Angle"], 2),
+                    round(b["Radius"], 3),
+                )
+
+            stale = [
+                (k, o.Text, noteOf(k))
+                for k, o in byEdge.items()
+                if o is not mine and o.Text != noteOf(k)
+            ]
+            check(
+                "imported again: a text the user wrote kept, the others the new notes, "
+                "a label moved by hand kept where it was against its edge",
+                mine.Text == "DOWN, hem side"
+                and not stale
+                and all(o.Text != before[k] for k, o in byEdge.items() if o is not mine)
+                and abs(mine.X.Value - mine.OriginX.Value - moved[0]) < 1e-6,
+                (mine.Text, stale, mine.X.Value - mine.OriginX.Value, moved),
+            )
+            flat.SecondSkin = not flat.SecondSkin
+            doc.recompute()
+
+        # Flat-only markings: a sketch given to the flat by Flat Markings is
+        # drawn on the blank in its own colour, and on the drawing; the folded
+        # part knows nothing of it
+        markCmd = FreeCADGui.Command.get("PartDesign_SheetMetalFlatMarkings")
+        check(
+            "Flat Markings is on the tool bar",
+            markCmd is not None
+            and toolbar() is not None
+            and markCmd.getAction()[0] in toolbar().actions(),
+        )
+        centre = flat.Placement.inverse().multVec(flat.Shape.Solids[0].BoundBox.Center)
+        mark = body.newObject("Sketcher::SketchObject", "Mark")
+        mark.addGeometry(Part.Circle(V(centre.x, centre.y, 0), V(0, 0, 1), 5))
+        doc.recompute()
+        folded = body.Tip.Shape.Volume
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, mark.Name)
+        check("offered with a sketch selected", markCmd is not None and markCmd.isActive())
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlatMarkings")
+        doc.recompute()
+        pump(20)
+        names = [
+            flat.Shape.getElementMappedName("Edge%d" % (i + 1)) or ""
+            for i in range(len(flat.Shape.Edges))
+        ]
+        marks = [n for n in names if n.startswith("Marking")]
+        check(
+            "run, the sketch is the flat's marking, drawn on the blank, hidden itself",
+            flat.Markings == [mark]
+            and flat.Status == ""
+            and len(marks) == 1
+            and not mark.Visibility
+            and abs(body.Tip.Shape.Volume - folded) < 1e-9,
+            (flat.Markings, flat.Status, marks, mark.Visibility),
+        )
+        markInfo = flat.ViewObject.getEdgeInfo(marks[0]) if marks else None
+        check(
+            "in the markings' own style, which a drawing takes",
+            markInfo is not None
+            and markInfo["Style"] == 1
+            and abs(markInfo["Color"][0] - flat.ViewObject.MarkingColor[0]) < 1e-6,
+            markInfo,
+        )
+        drawing.touch()
+        doc.recompute()
+        pump(60)
+        check(
+            "and the drawing of the flat draws it in that colour",
+            drawnIn(page, rgb(flat.ViewObject.MarkingColor))[0],
+            (rgb(flat.ViewObject.MarkingColor), sorted(pens(page))[:10]),
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, mark.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalFlatMarkings")
+        doc.recompute()
+        pump(20)
+        check(
+            "run again on it, it is taken off and shown",
+            flat.Markings == []
+            and mark.Visibility
+            and not [
+                i
+                for i in range(len(flat.Shape.Edges))
+                if (flat.Shape.getElementMappedName("Edge%d" % (i + 1)) or "").startswith(
+                    "Marking"
+                )
+            ],
+            (flat.Markings, mark.Visibility),
+        )
+        doc.removeObject(mark.Name)
+        doc.recompute()
+
+        # Cross break: a wall's face picked on the tip; the solid as it was,
+        # the X drawn on that face in 3D, the diagonals in the flat with the
+        # note on the first, and on the drawing
+        crossCmd = FreeCADGui.Command.get("PartDesign_SheetMetalCrossBreak")
+        check(
+            "Cross Break is on the tool bar",
+            crossCmd is not None
+            and toolbar() is not None
+            and crossCmd.getAction()[0] in toolbar().actions(),
+        )
+        tip = body.Tip
+        walls = [
+            ("Face%d" % (i + 1), f)
+            for i, f in enumerate(tip.Shape.Faces)
+            if isinstance(f.Surface, Part.Plane)
+            and (tip.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Wall")
+        ]
+        faceName, _ = max(walls, key=lambda w: w[1].Area)
+        wallName = tip.sheetElementOf(faceName)
+        folded = tip.Shape.Volume
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.runCommand("PartDesign_SheetMetalCrossBreak")
+        pump(20)
+        check(
+            "with no face selected it makes nothing",
+            [o.Name for o in doc.Objects] == before,
+        )
+        FreeCADGui.Selection.addSelection(doc.Name, tip.Name, faceName)
+        FreeCADGui.runCommand("PartDesign_SheetMetalCrossBreak")
+        pump(20)
+        crosses = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalCrossBreak"
+        ]
+        cross = crosses[0] if crosses else None
+
+        def drawnX(obj):
+            """Whether obj's view draws the X of its crossBreakLines(), as its
+            switches stand"""
+            ends = [v.Point for e in obj.crossBreakLines() for v in e.Vertexes]
+            search = coin.SoSearchAction()
+            search.setType(coin.SoCoordinate3.getClassTypeId())
+            search.setInterest(coin.SoSearchAction.ALL)
+            search.apply(obj.ViewObject.RootNode)
+            for path in search.getPaths():
+                pts = [V(*p.getValue()) for p in path.getTail().point.getValues()]
+                if len(pts) == 4 and all(any(p.isEqual(q, 1e-6) for q in ends) for p in pts):
+                    return True
+            return False
+
+        editing = FreeCADGui.Control.activeDialog()
+        if cross is not None:
+            doc.recompute()
+            pump(20)
+        drawnEditing = cross is not None and drawnX(cross)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        # as OK does: the edit ended, not only the panel
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        pump(20)
+        broken = cross and [e["Name"] for e in cross.SheetModel["Elements"] if "CrossBreak" in e]
+        check(
+            "with a wall's face selected it breaks that wall, the solid as it was",
+            cross is not None
+            and "Invalid" not in cross.State
+            and body.Tip == cross
+            and broken == [wallName]
+            and abs(cross.Shape.Volume - folded) < 1e-9,
+            cross and (cross.State, cross.getStatusString(), broken),
+        )
+        lines = cross.crossBreakLines() if cross else []
+        check(
+            "while its panel is open its view draws the X on the face picked",
+            len(lines) == 2 and editing is not None and drawnEditing,
+            (len(lines), editing is not None, drawnEditing),
+        )
+        check(
+            "the panel closed, it does not",
+            cross is not None and not drawnX(cross),
+        )
+
+        # The break as a surface finish the feature implies (ruled
+        # 2026-11-06): App::SurfaceFinish CrossBreak (8) or CrossBreakReversed
+        # (9) on both skins of the wall, carried on by every feature after it
+        # and by the body, gone while it is suppressed
+        def renderMaterial(vo):
+            def walk(node):
+                if node.getTypeId().getName() == "SoFCRenderMaterial":
+                    return node
+                children = getattr(node, "getChildren", None)
+                kids = children() if children else None
+                for i in range(kids.getLength() if kids else 0):
+                    found = walk(kids[i])
+                    if found:
+                        return found
+                return None
+
+            return walk(vo.RootNode)
+
+        def crossFinishes(vo):
+            """{0-based face: palette entry} of the faces vo's render
+            material gives a cross break finish"""
+            node = renderMaterial(vo)
+            if node is None:
+                return {}
+            palette = node.getField("finishPalette")
+            indices = node.getField("finishIndices")
+            res = {}
+            for i in range(indices.getNum()):
+                k = indices[i]
+                if 0 <= k < palette.getNum() and round(palette[k].getValue()[0]) in (8, 9):
+                    res[i] = k
+            return res
+
+        def skins(obj):
+            return sorted(int(f["Face"][4:]) - 1 for f in PartDesign.crossBreakFaces(obj))
+
+        own = crossFinishes(cross.ViewObject) if cross else {}
+        check(
+            "the wall's two skins carry the cross break as a finish, no other face",
+            cross is not None
+            and len(skins(cross)) == 2
+            and sorted(own) == skins(cross)
+            and len(set(own.values())) == 1,
+            (own, cross and skins(cross)),
+        )
+        # the body draws the tip itself in its Tip mode only
+        mode = body.ViewObject.DisplayModeBody
+        body.ViewObject.DisplayModeBody = "Tip"
+        body.touch()
+        doc.recompute()
+        pump(20)
+        shown = crossFinishes(body.ViewObject)
+        body.ViewObject.DisplayModeBody = mode
+        pump(20)
+        check(
+            "and so does the body drawing its tip",
+            len(skins(body)) == 2 and sorted(shown) == skins(body),
+            (shown, skins(body)),
+        )
+        other = [
+            ("Face%d" % (i + 1), f)
+            for i, f in enumerate(cross.Shape.Faces if cross else [])
+            if isinstance(f.Surface, Part.Plane)
+            and (cross.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Wall")
+            and cross.sheetElementOf("Face%d" % (i + 1)) != wallName
+        ]
+        later = None
+        if other:
+            before = [o.Name for o in doc.Objects]
+            FreeCADGui.Selection.clearSelection()
+            FreeCADGui.Selection.addSelection(
+                doc.Name, cross.Name, max(other, key=lambda w: w[1].Area)[0]
+            )
+            FreeCADGui.runCommand("PartDesign_SheetMetalCrossBreak")
+            pump(20)
+            if FreeCADGui.Control.activeDialog():
+                FreeCADGui.Control.closeDialog()
+                pump()
+            doc.recompute()
+            pump(20)
+            found = [
+                o
+                for o in doc.Objects
+                if o.Name not in before and o.TypeId == "PartDesign::SheetMetalCrossBreak"
+            ]
+            later = found[0] if found else None
+        carried = crossFinishes(later.ViewObject) if later else {}
+        check(
+            "a cross break after it carries the first on beside its own",
+            later is not None
+            and len(skins(later)) == 4
+            and sorted(carried) == skins(later)
+            and len(set(carried.values())) == 2,
+            (carried, later and skins(later)),
+        )
+        if later is not None:
+            # the first suppressed: the later one's shape is what it was, and
+            # its walls lose the first's break all the same
+            cross.Suppress = True
+            doc.recompute()
+            pump(20)
+            alone = crossFinishes(later.ViewObject)
+            check(
+                "the first suppressed, the one after it keeps its own wall's only",
+                sorted(alone) == skins(later) and len(skins(later)) == 2,
+                (alone, skins(later)),
+            )
+            cross.Suppress = False
+            doc.recompute()
+            pump(20)
+            body.removeObject(later)
+            doc.removeObject(later.Name)
+            doc.recompute()
+            pump(20)
+
+        def picture(tag):
+            view.redraw()
+            pump(60)
+            path = os.path.join(OUT, "cross-break-%s.png" % tag)
+            view.saveRenderDump(path, metadata=False)
+            image = QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB888)
+            w, h = image.width(), image.height()
+            raw = np.frombuffer(image.constBits(), dtype=np.uint8, count=h * image.bytesPerLine())
+            return raw.reshape(h, image.bytesPerLine())[:, : w * 3].astype(np.int32)
+
+        def differing(a, b):
+            """How many pixels differ by more than a few levels"""
+            if a.shape != b.shape:
+                return -1
+            return int((np.abs(a - b).reshape(a.shape[0], -1, 3).max(axis=2) > 8).sum())
+
+        view.viewIsometric()
+        view.fitAll()
+        pump(40)
+        try:
+            broken = picture("on")
+        except Exception as e:
+            broken = None
+            note("NOTE no picture: %s" % e)
+        if cross is not None:
+            cross.Suppress = True
+            doc.recompute()
+            pump(20)
+        check(
+            "suppressed, neither it nor the body carries the finish",
+            cross is not None
+            and crossFinishes(cross.ViewObject) == {}
+            and crossFinishes(body.ViewObject) == {},
+            cross and (crossFinishes(cross.ViewObject), crossFinishes(body.ViewObject)),
+        )
+        plain = picture("suppressed") if broken is not None else None
+        count = differing(broken, plain) if plain is not None else -1
+        check(
+            "the renderer draws it: the picture differs from the one suppressed",
+            count > 200,
+            "%d pixels" % count,
+        )
+        if cross is not None:
+            cross.Suppress = False
+            doc.recompute()
+            pump(20)
+        doc.recompute()
+        pump(20)
+        crossNames = [
+            n
+            for n in (
+                flat.Shape.getElementMappedName("Edge%d" % (i + 1)) or ""
+                for i in range(len(flat.Shape.Edges))
+            )
+            if "CrossBreak" in n
+        ]
+        first = [n for n in crossNames if n.startswith(wallName + "CrossBreak1")]
+        crossInfo = flat.ViewObject.getEdgeInfo(first[0]) if first else None
+        check(
+            "the flat has the diagonals, dash-dotted in their colour, the first with the note",
+            len(crossNames) == 2
+            and crossInfo is not None
+            and crossInfo["Style"] == 4
+            and abs(crossInfo["Color"][0] - flat.ViewObject.CrossBreakColor[0]) < 1e-6
+            and crossInfo["Label"]
+            == "CROSS BREAK %s 3\u00b0" % flat.CrossBreaks[wallName].upper(),
+            (crossNames, crossInfo, dict(flat.CrossBreaks)),
+        )
+        drawing.touch()
+        doc.recompute()
+        pump(60)
+        check(
+            "and the drawing of the flat draws them in that colour",
+            drawnIn(page, rgb(flat.ViewObject.CrossBreakColor))[0],
+            (rgb(flat.ViewObject.CrossBreakColor), sorted(pens(page))[:10]),
+        )
+        if cross is not None:
+            body.removeObject(cross)
+            doc.removeObject(cross.Name)
+            doc.recompute()
+            pump(20)
+        for o in labels:
+            if doc.getObject(o.Name) is not None:
+                doc.removeObject(o.Name)
+        for name in [o.Name for o in (drawing, page, template)]:
+            if doc.getObject(name) is not None:
+                doc.removeObject(name)
+        pump(20)
+
+        # Rip: a tube, which does not lie flat, cut open at a bend picked
+        # (docs/SheetMetal.md sec 12, ruled 2026-11-05)
+        ripCmd = FreeCADGui.Command.get("PartDesign_SheetMetalRip")
+        check(
+            "Rip is on the tool bar",
+            ripCmd is not None
+            and toolbar() is not None
+            and ripCmd.getAction()[0] in toolbar().actions(),
+        )
+        duct = doc.addObject("PartDesign::Body", "Duct")
+        view.setActiveObject("pdbody", duct)
+        square = duct.newObject("Sketcher::SketchObject", "Square")
+        pts = [(0, 0), (20, 0), (20, 20), (0, 20)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            square.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        tube = duct.newObject("PartDesign::SheetMetalBaseWall", "Tube")
+        tube.Profile = square
+        tube.ClosedProfile = "Tube"
+        tube.Length = 30
+        doc.recompute()
+        pump()
+        bendFace = [
+            "Face%d" % (i + 1)
+            for i in range(len(tube.Shape.Faces))
+            if tube.sheetElementOf("Face%d" % (i + 1)) == "Bend1"
+        ][:1]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, tube.Name, bendFace[0] if bendFace else "")
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.runCommand("PartDesign_SheetMetalRip")
+        pump(20)
+        rips = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalRip"
+        ]
+        rip = rips[0] if rips else None
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        doc.recompute()
+        bends = rip and [e["Name"] for e in rip.SheetModel["Elements"] if e["Kind"] == "Bend"]
+        check(
+            "with a bend's face selected it rips the tube there, the body's tip",
+            rip is not None
+            and "Invalid" not in rip.State
+            and duct.Tip == rip
+            and rip.Faces[0] == tube
+            and bends is not None
+            and "Bend1" not in bends
+            and len(bends) == 3,
+            rip and (rip.State, rip.getStatusString(), bends),
+        )
+        check(
+            "and the tube that would not lie flat does",
+            rip is not None
+            and rip.getSubObject("Flat") is not None
+            and not [p for p in PartDesign.checkSheet(rip)["Problems"] if p["Kind"] == "NoFlat"],
+        )
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

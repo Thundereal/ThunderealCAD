@@ -26,7 +26,20 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
+
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
+#include <QFileInfo>
+#include <QFormLayout>
+
 #include <boost/algorithm/string/predicate.hpp>
+
+#include <TopoDS.hxx>
 
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
@@ -37,13 +50,22 @@
 #include <Gui/Command.h>
 #include <Gui/CommandT.h>
 #include <Gui/FileDialog.h>
+#include <Gui/Macro.h>
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/PartDesign/App/Body.h>
+#include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+#include <Mod/PartDesign/App/FeatureSheetMetalBendTable.h>
+#endif
+#include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
+#include <Mod/PartDesign/App/SheetMetal/Recognise.h>
+#include <Mod/PartDesign/App/SheetMetalExtension.h>
+#include <Mod/PartDesign/App/SheetMetalFlat.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalCheck.h"
@@ -659,10 +681,10 @@ CmdPartDesignSheetMetalConvert::CmdPartDesignSheetMetalConvert()
     sAppModule = "PartDesign";
     sGroup = QT_TR_NOOP("PartDesign");
     sMenuText = QT_TR_NOOP("Convert");
-    sToolTipText = QT_TR_NOOP("Takes a part made elsewhere as sheet metal: a thin part as it is, a\n"
-                              "solid or a shell thickened, its sharp edges bends. Select the face\n"
-                              "the flat lies on first, then any faces to leave open and edges to\n"
-                              "rip");
+    sToolTipText = QT_TR_NOOP("Takes a part made elsewhere as sheet metal: a thin part as it\n"
+                              "is, a solid or a shell thickened, its sharp edges bends. Select\n"
+                              "the face the flat lies on first, then any faces to leave open and\n"
+                              "edges to rip");
     sWhatsThis = "PartDesign_SheetMetalConvert";
     sStatusTip = sToolTipText;
     sPixmap = "PartDesign_SheetMetalConvert";
@@ -710,8 +732,8 @@ void CmdPartDesignSheetMetalConvert::activated(int iMsg)
     if (!body) {
         App::Document* doc = part->getDocument();
         const std::string name = getUniqueObjectName("Body");
-        Gui::cmdAppDocument(doc,
-                            std::ostringstream() << "addObject('PartDesign::Body','" << name << "')");
+        Gui::cmdAppDocument(
+            doc, std::ostringstream() << "addObject('PartDesign::Body','" << name << "')");
         body = Base::freecad_dynamic_cast<PartDesign::Body>(doc->getObject(name.c_str()));
         if (!body) {
             abortCommand();
@@ -744,6 +766,28 @@ void CmdPartDesignSheetMetalConvert::activated(int iMsg)
         Gui::cmdAppObject(feat,
                           std::ostringstream() << "RipEdges = (" << link << ", ["
                                                << list(edges.begin(), edges.end()) << "])");
+    }
+    // A part picked with no face to open may be a thin part made elsewhere:
+    // the sheet's rule, where it is the convert's own, takes the part's
+    // thickness from it (docs/SheetMetal.md sec 5.3, Recognise). A rule
+    // other features share is left as it is; the convert says if it differs.
+    auto sheet = feat->getExtensionByType<PartDesign::SheetMetalExtension>(true);
+    auto rule = sheet ? sheet->getRule() : nullptr;
+    const auto users = rule ? rule->getInList() : std::vector<App::DocumentObject*>();
+    const bool own = std::none_of(users.begin(), users.end(), [&](App::DocumentObject* o) {
+        return o != feat
+            && o->hasExtension(PartDesign::SheetMetalExtension::getExtensionClassTypeId());
+    });
+    if (rule && own && faces.size() == 1) {
+        const Part::TopoShape shape = Part::Feature::getTopoShape(part);
+        const TopoDS_Shape face = shape.getSubShape(faces.front().c_str(), true);
+        const double thickness = face.IsNull() || face.ShapeType() != TopAbs_FACE
+            ? -1
+            : PartDesign::SheetMetal::facingThickness(shape.getShape(), TopoDS::Face(face));
+        if (thickness > 0 && std::abs(thickness - rule->Thickness.getValue()) > 1e-9) {
+            Gui::cmdAppObject(rule, std::ostringstream() << std::setprecision(17)
+                                                         << "Thickness = " << thickness);
+        }
     }
     finishFeature(this, feat, before ? before : part);
     // the part taken in, where it is not the body's own feature
@@ -943,6 +987,129 @@ bool CmdPartDesignSheetMetalCornerClosure::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalRip
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalRip)
+
+CmdPartDesignSheetMetalRip::CmdPartDesignSheetMetalRip()
+    : Command("PartDesign_SheetMetalRip")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Rip");
+    sToolTipText = QT_TR_NOOP("Cuts a closed sheet, a tube, open so it lies flat: select a face\n"
+                              "of a bend to cut it open at its corner, or of a wall to cut it\n"
+                              "down its middle");
+    sWhatsThis = "PartDesign_SheetMetalRip";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalRip";
+}
+
+void CmdPartDesignSheetMetalRip::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream faces;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            faces << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue()) {
+        warn(QT_TR_NOOP("Nothing to rip"),
+             QT_TR_NOOP("Select a face of a bend or of a wall of a closed sheet, on the body's "
+                        "tip."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Rip"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalRip", "Rip");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Faces = (" << getObjectCmd(base) << ", [" << faces.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalRip::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
+// PartDesign_SheetMetalCrossBreak
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalCrossBreak)
+
+CmdPartDesignSheetMetalCrossBreak::CmdPartDesignSheetMetalCrossBreak()
+    : Command("PartDesign_SheetMetalCrossBreak")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Cross Break");
+    sToolTipText = QT_TR_NOOP("Breaks a wall across its diagonals by a small angle, to stiffen\n"
+                              "it: select a face of each wall, the side the break rises out of.\n"
+                              "The solid is not changed; the flat draws the diagonals");
+    sWhatsThis = "PartDesign_SheetMetalCrossBreak";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalCrossBreak";
+}
+
+void CmdPartDesignSheetMetalCrossBreak::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* base = nullptr;
+    std::ostringstream faces;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face") || (base && base != sel.getObject())) {
+                continue;
+            }
+            base = sel.getObject();
+            faces << "'" << sub << "', ";
+        }
+    }
+    if (!base || base != body->Tip.getValue()) {
+        warn(QT_TR_NOOP("Nothing to break"),
+             QT_TR_NOOP("Select a face of each wall to break, on the body's tip."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Cross Break"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalCrossBreak", "CrossBreak");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Faces = (" << getObjectCmd(base) << ", [" << faces.str() << "])");
+    finishFeature(this, feat, base);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalCrossBreak::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatten
 //===========================================================================
 
@@ -1126,6 +1293,121 @@ bool CmdPartDesignSheetMetalExportDXF::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalExportFlats
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalExportFlats)
+
+CmdPartDesignSheetMetalExportFlats::CmdPartDesignSheetMetalExportFlats()
+    : Command("PartDesign_SheetMetalExportFlats")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Export Every Flat...");
+    sToolTipText = QT_TR_NOOP("Writes the flat of every sheet in the document into a folder,\n"
+                              "one DXF or SVG file each, named after its body");
+    sWhatsThis = "PartDesign_SheetMetalExportFlats";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalExportDXF";
+}
+
+namespace
+{
+/// Whether the document holds a sheet
+bool hasSheet(const App::Document* doc)
+{
+    if (!doc) {
+        return false;
+    }
+    for (auto obj : doc->getObjectsOfType(PartDesign::SolidBody::getClassTypeId())) {
+        if (static_cast<PartDesign::SolidBody*>(obj)->isSheetMetal()) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
+void CmdPartDesignSheetMetalExportFlats::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    App::Document* doc = App::GetApplication().getActiveDocument();
+    if (!hasSheet(doc)) {
+        return;
+    }
+    // the folder and format last used, else the document's folder
+    auto hGrp = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Mod/PartDesign/SheetMetal");
+    QString folder = QString::fromUtf8(hGrp->GetASCII("ExportFolder", "").c_str());
+    if (folder.isEmpty()) {
+        const QString file = QString::fromUtf8(doc->FileName.getValue());
+        folder = file.isEmpty() ? QDir::homePath() : QFileInfo(file).absolutePath();
+    }
+
+    QDialog dlg(Gui::getMainWindow());
+    dlg.setObjectName(QStringLiteral("SheetMetalExportFlats"));
+    dlg.setWindowTitle(QObject::tr("Export Every Flat"));
+    auto form = new QFormLayout(&dlg);
+    auto chooser = new Gui::FileChooser(&dlg);
+    chooser->setObjectName(QStringLiteral("folder"));
+    chooser->setMode(Gui::FileChooser::Directory);
+    chooser->setFileName(folder);
+    form->addRow(QObject::tr("Folder"), chooser);
+    auto format = new QComboBox(&dlg);
+    format->setObjectName(QStringLiteral("format"));
+    format->addItems({QStringLiteral("DXF"), QStringLiteral("SVG")});
+    format->setCurrentIndex(hGrp->GetASCII("ExportFormat", "dxf") == "svg" ? 1 : 0);
+    form->addRow(QObject::tr("Format"), format);
+    auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(buttons);
+    dlg.resize(480, dlg.sizeHint().height());
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    const std::string dir = chooser->fileName().toUtf8().constData();
+    const std::string ext = format->currentIndex() == 1 ? "svg" : "dxf";
+    hGrp->SetASCII("ExportFolder", dir.c_str());
+    hGrp->SetASCII("ExportFormat", ext.c_str());
+
+    // the call, as the macro has it
+    std::ostringstream line;
+    line << "PartDesign.exportFlats(App.getDocument(\"" << doc->getName() << "\"), \""
+         << Base::Tools::escapeEncodeFilename(dir) << "\", \"" << ext << "\")";
+    auto macro = Gui::Application::Instance->macroManager();
+    macro->addLine(Gui::MacroManager::App, "import PartDesign");
+    macro->addLine(Gui::MacroManager::App, line.str().c_str());
+    std::vector<PartDesign::FlatExport> written;
+    try {
+        written = PartDesign::exportFlats(doc, dir.c_str(), ext.c_str());
+    }
+    catch (const Base::Exception& e) {
+        warn(QT_TRANSLATE_NOOP("Command", "Export Every Flat"), e.what());
+        return;
+    }
+    for (const auto& item : written) {
+        const std::string label = item.sheet ? item.sheet->getFullLabel() : std::string("?");
+        if (item.error.empty()) {
+            Base::Console().message("%s: %s\n",
+                                    QObject::tr("Export Every Flat").toUtf8().constData(),
+                                    item.path.c_str());
+        }
+        else {
+            Base::Console().userWarning("%s: %s: %s\n",
+                                        QObject::tr("Export Every Flat").toUtf8().constData(),
+                                        label.c_str(),
+                                        item.error.c_str());
+        }
+    }
+}
+
+bool CmdPartDesignSheetMetalExportFlats::isActive()
+{
+    return hasSheet(App::GetApplication().getActiveDocument());
+}
+
+//===========================================================================
 // PartDesign_SheetMetalCheck
 //===========================================================================
 
@@ -1161,6 +1443,258 @@ bool CmdPartDesignSheetMetalCheck::isActive()
     return !Gui::Control().activeDialog() && flatToExport() != nullptr;
 }
 
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+//===========================================================================
+// PartDesign_SheetMetalBendTable, PartDesign_SheetMetalSyncBendTable
+//===========================================================================
+
+namespace
+{
+/// The bend tables selected
+std::vector<PartDesign::SheetMetalBendTable*> selectedBendTables()
+{
+    std::vector<PartDesign::SheetMetalBendTable*> res;
+    for (auto obj : Gui::Selection().getObjectsOfType(
+             PartDesign::SheetMetalBendTable::getClassTypeId())) {
+        res.push_back(static_cast<PartDesign::SheetMetalBendTable*>(obj));
+    }
+    return res;
+}
+}  // namespace
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalBendTable)
+
+CmdPartDesignSheetMetalBendTable::CmdPartDesignSheetMetalBendTable()
+    : Command("PartDesign_SheetMetalBendTable")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Bend Table");
+    sToolTipText = QT_TR_NOOP("Makes a spreadsheet of the sheet's bends, for a drawing: filled\n"
+                              "at each recompute, or by Sync Bend Table with Auto Sync off; the\n"
+                              "cells you edit stay yours");
+    sWhatsThis = "PartDesign_SheetMetalBendTable";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalCheck";
+}
+
+void CmdPartDesignSheetMetalBendTable::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    auto obj = flatToExport();
+    auto solid = dynamic_cast<PartDesign::SolidBody*>(obj);
+    if (auto flat = dynamic_cast<PartDesign::SheetMetalFlatPattern*>(obj)) {
+        solid = flat->getSheet();
+    }
+    if (!solid && obj) {
+        auto body = PartDesign::Body::findBodyOf(obj);
+        solid = body ? body->getSolidBody(obj) : nullptr;
+    }
+    if (!solid) {
+        warn(QT_TR_NOOP("No sheet"),
+             QT_TR_NOOP("Select a sheet metal feature, solid or flat, or make a body with a "
+                        "sheet active."));
+        return;
+    }
+    App::Document* doc = solid->getDocument();
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Bend Table"));
+    const std::string name = doc->getUniqueObjectName("BendTable");
+    doCommand(Doc,
+              "App.getDocument('%s').addObject('PartDesign::SheetMetalBendTable', '%s')"
+              ".Source = App.getDocument('%s').getObject('%s')",
+              doc->getName(),
+              name.c_str(),
+              doc->getName(),
+              solid->getNameInDocument());
+    updateActive();
+    commitCommand();
+}
+
+bool CmdPartDesignSheetMetalBendTable::isActive()
+{
+    return flatToExport() != nullptr;
+}
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalSyncBendTable)
+
+CmdPartDesignSheetMetalSyncBendTable::CmdPartDesignSheetMetalSyncBendTable()
+    : Command("PartDesign_SheetMetalSyncBendTable")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Sync Bend Table");
+    sToolTipText = QT_TR_NOOP("Fills the selected bend tables from their sheets now, keeping\n"
+                              "the cells you edited");
+    sWhatsThis = "PartDesign_SheetMetalSyncBendTable";
+    sStatusTip = sToolTipText;
+    sPixmap = "view-refresh";
+}
+
+void CmdPartDesignSheetMetalSyncBendTable::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    auto tables = selectedBendTables();
+    if (tables.empty()) {
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Sync Bend Table"));
+    for (auto table : tables) {
+        doCommand(Doc,
+                  "import PartDesign\n"
+                  "PartDesign.syncBendTable(App.getDocument('%s').getObject('%s'))",
+                  table->getDocument()->getName(),
+                  table->getNameInDocument());
+    }
+    updateActive();
+    commitCommand();
+}
+
+bool CmdPartDesignSheetMetalSyncBendTable::isActive()
+{
+    return !selectedBendTables().empty();
+}
+#endif
+
+namespace
+{
+/// The selected objects Flat Markings takes, and the flat of their body's
+/// sheet: a flat object selected, else the body's tip's sheet, else its
+/// first; empty if none
+std::vector<App::DocumentObject*> selectedMarkings(PartDesign::SheetMetalFlatPattern** flat)
+{
+    std::vector<App::DocumentObject*> res;
+    PartDesign::SheetMetalFlatPattern* found = nullptr;
+    for (auto obj : Gui::Selection().getObjectsOfType(App::DocumentObject::getClassTypeId())) {
+        if (auto f = dynamic_cast<PartDesign::SheetMetalFlatPattern*>(obj)) {
+            found = f;
+            continue;
+        }
+        // a sheet's own features and solids are not marked on its flat
+        if (obj->isDerivedFrom<PartDesign::Feature>() || obj->isDerivedFrom<PartDesign::Body>()
+            || obj->isDerivedFrom<PartDesign::SolidBody>()) {
+            continue;
+        }
+        if (Part::Feature::getTopoShape(obj).countSubShapes(TopAbs_EDGE) > 0) {
+            res.push_back(obj);
+        }
+    }
+    auto body = res.empty() ? nullptr : PartDesign::Body::findBodyOf(res.front());
+    if (!found && body) {
+        auto solid = body->getTipSolidBody();
+        if (!solid || !solid->isSheetMetal()) {
+            solid = nullptr;
+            for (auto s : body->getSolidBodies()) {
+                if (s && s->isSheetMetal()) {
+                    solid = s;
+                    break;
+                }
+            }
+        }
+        found = solid ? solid->flatPattern() : nullptr;
+    }
+    if (flat) {
+        *flat = found;
+    }
+    return res;
+}
+}  // namespace
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalFlatMarkings)
+
+CmdPartDesignSheetMetalFlatMarkings::CmdPartDesignSheetMetalFlatMarkings()
+    : Command("PartDesign_SheetMetalFlatMarkings")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Flat Markings");
+    sToolTipText = QT_TR_NOOP("Draws the selected sketches on the sheet's flat only, as marks for\n"
+                              "the laser: on the blank, and in the DXF and SVG on a layer of\n"
+                              "their own. Selected again, they are taken off");
+    sWhatsThis = "PartDesign_SheetMetalFlatMarkings";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalFlatMarkings";
+}
+
+void CmdPartDesignSheetMetalFlatMarkings::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::SheetMetalFlatPattern* flat = nullptr;
+    const auto objs = selectedMarkings(&flat);
+    if (objs.empty()) {
+        return;
+    }
+    if (!flat) {
+        warn(QT_TR_NOOP("No sheet"),
+             QT_TR_NOOP("Select sketches in a body holding a sheet, or with its flat."));
+        return;
+    }
+    // the flat links in its body only
+    auto body = PartDesign::Body::findBodyOf(flat);
+    for (auto obj : objs) {
+        if (PartDesign::Body::findBodyOf(obj) != body) {
+            Base::Console().userWarning(
+                "%s\n",
+                QObject::tr("%1 is not in the sheet's body: a flat marks what is in its own")
+                    .arg(QString::fromUtf8(obj->Label.getValue()))
+                    .toUtf8()
+                    .constData());
+            return;
+        }
+    }
+    auto marked = flat->Markings.getValues();
+    // all of them marked already: taken off, as the command's second press
+    const bool remove = std::all_of(objs.begin(), objs.end(), [&](App::DocumentObject* obj) {
+        return std::find(marked.begin(), marked.end(), obj) != marked.end();
+    });
+    std::vector<App::DocumentObject*> next;
+    for (auto obj : marked) {
+        if (!remove || std::find(objs.begin(), objs.end(), obj) == objs.end()) {
+            next.push_back(obj);
+        }
+    }
+    for (auto obj : remove ? std::vector<App::DocumentObject*>() : objs) {
+        if (std::find(marked.begin(), marked.end(), obj) == marked.end()) {
+            next.push_back(obj);
+        }
+    }
+    std::ostringstream list;
+    for (auto obj : next) {
+        list << "App.getDocument('" << obj->getDocument()->getName() << "').getObject('"
+             << obj->getNameInDocument() << "'), ";
+    }
+    openCommand(remove ? QT_TRANSLATE_NOOP("Command", "Remove Flat Markings")
+                       : QT_TRANSLATE_NOOP("Command", "Flat Markings"));
+    doCommand(Doc,
+              "App.getDocument('%s').getObject('%s').Markings = [%s]",
+              flat->getDocument()->getName(),
+              flat->getNameInDocument(),
+              list.str().c_str());
+    // marked, a sketch is seen on the flat; taken off, as it was
+    for (auto obj : objs) {
+        doCommand(Gui,
+                  "Gui.getDocument('%s').getObject('%s').Visibility = %s",
+                  obj->getDocument()->getName(),
+                  obj->getNameInDocument(),
+                  remove ? "True" : "False");
+    }
+    updateActive();
+    commitCommand();
+    Base::Console().message(
+        "%s\n",
+        (remove ? QObject::tr("%1: %2 taken off its markings")
+                : QObject::tr("%1: %2 drawn on it as markings; Flatten shows them"))
+            .arg(QString::fromUtf8(flat->Label.getValue()))
+            .arg(objs.size() == 1 ? QString::fromUtf8(objs.front()->Label.getValue())
+                                  : QObject::tr("%1 objects").arg(objs.size()))
+            .toUtf8()
+            .constData());
+}
+
+bool CmdPartDesignSheetMetalFlatMarkings::isActive()
+{
+    return !selectedMarkings(nullptr).empty();
+}
+
 void CreatePartDesignSheetMetalCommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
@@ -1172,6 +1706,8 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalExtendWall());
     mgr.addCommand(new CmdPartDesignSheetMetalHem());
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
+    mgr.addCommand(new CmdPartDesignSheetMetalRip());
+    mgr.addCommand(new CmdPartDesignSheetMetalCrossBreak());
     mgr.addCommand(new CmdPartDesignSheetMetalCutout());
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());
@@ -1179,5 +1715,11 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalConvert());
     mgr.addCommand(new CmdPartDesignSheetMetalFlatten());
     mgr.addCommand(new CmdPartDesignSheetMetalExportDXF());
+    mgr.addCommand(new CmdPartDesignSheetMetalExportFlats());
+    mgr.addCommand(new CmdPartDesignSheetMetalFlatMarkings());
     mgr.addCommand(new CmdPartDesignSheetMetalCheck());
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+    mgr.addCommand(new CmdPartDesignSheetMetalBendTable());
+    mgr.addCommand(new CmdPartDesignSheetMetalSyncBendTable());
+#endif
 }

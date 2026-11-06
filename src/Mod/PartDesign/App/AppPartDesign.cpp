@@ -77,6 +77,11 @@
 #include "FeatureSheetMetalExtendWall.h"
 #include "FeatureSheetMetalHem.h"
 #include "FeatureSheetMetalCornerClosure.h"
+#include "FeatureSheetMetalRip.h"
+#include "FeatureSheetMetalCrossBreak.h"
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+#include "FeatureSheetMetalBendTable.h"
+#endif
 #include "FeatureSheetMetalCutout.h"
 #include "FeatureSheetMetalFold.h"
 #include "FeatureSheetMetalJoin.h"
@@ -97,6 +102,10 @@ PyMOD_INIT_FUNC(_PartDesign)
     try {
         Base::Interpreter().runString("import Part");
         Base::Interpreter().runString("import Sketcher");
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+        // the bend table is a spreadsheet
+        Base::Interpreter().runString("import Spreadsheet");
+#endif
     }
     catch(const Base::Exception& e) {
         PyErr_SetString(PyExc_ImportError, e.what());
@@ -105,6 +114,13 @@ PyMOD_INIT_FUNC(_PartDesign)
 
     PyObject* mod = PartDesign::initModule();
     Base::Console().Log("Loading PartDesign module... done\n");
+
+    // A feature's flat stored before a save while something refers to it
+    // (docs/SheetMetal.md sec 12)
+    App::GetApplication().signalStartSaveDocument.connect(
+        [](const App::Document &doc, const std::string &) {
+            PartDesign::Feature::storeFlats(doc);
+        });
 
 
     // NOTE: To finish the initialization of our own type objects we must
@@ -206,6 +222,11 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalExtendWall        ::init();
     PartDesign::SheetMetalHem               ::init();
     PartDesign::SheetMetalCornerClosure     ::init();
+    PartDesign::SheetMetalRip               ::init();
+    PartDesign::SheetMetalCrossBreak        ::init();
+#ifdef PARTDESIGN_WITH_SPREADSHEET
+    PartDesign::SheetMetalBendTable         ::init();
+#endif
     PartDesign::SheetMetalCutout            ::init();
     PartDesign::SheetMetalFold              ::init();
     PartDesign::SheetMetalJog               ::init();
@@ -222,6 +243,8 @@ PyMOD_INIT_FUNC(_PartDesign)
                             PartDesign::SheetMetalExtendWall::getClassTypeId(),
                             PartDesign::SheetMetalHem::getClassTypeId(),
                             PartDesign::SheetMetalCornerClosure::getClassTypeId(),
+                            PartDesign::SheetMetalRip::getClassTypeId(),
+                            PartDesign::SheetMetalCrossBreak::getClassTypeId(),
                             PartDesign::SheetMetalCutout::getClassTypeId(),
                             PartDesign::SheetMetalFold::getClassTypeId(),
                             PartDesign::SheetMetalJog::getClassTypeId(),

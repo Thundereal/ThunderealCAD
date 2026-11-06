@@ -24,12 +24,20 @@
 
 #include "PreCompiled.h"
 
+#include <functional>
+#include <numbers>
+#include <sstream>
+
 #ifndef _PreComp_
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
+#include <QLocale>
 #include <QPushButton>
+#include <QStyledItemDelegate>
 #include <QTableWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 #endif
 
@@ -39,10 +47,13 @@
 #include <Base/Exception.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
+#include <Gui/Command.h>
 #include <Gui/Selection.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalRule.h>
 #include <Mod/PartDesign/App/SheetMetalCheck.h>
+#include <Mod/PartDesign/App/SheetMetalExtension.h>
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalCheck.h"
@@ -63,6 +74,49 @@ QString sourced(const QString& value, const std::string& source)
     return source.empty() ? value
                           : QStringLiteral("%1 (%2)").arg(value, QString::fromStdString(source));
 }
+
+/** The editor of a bend's K or allowance: the plain number, not the source
+ * the cell shows beside it. What is typed goes to the panel, which writes it
+ * to the feature and checks again -- queued, as that refills the table the
+ * editor is closing in.
+ */
+class BendValueDelegate: public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    std::function<void(int, int, const QString&)> edited;
+
+    QWidget* createEditor(QWidget* parent,
+                          const QStyleOptionViewItem& /*option*/,
+                          const QModelIndex& /*index*/) const override
+    {
+        auto edit = new QLineEdit(parent);
+        edit->setObjectName(QStringLiteral("editBendValue"));
+        edit->setPlaceholderText(QObject::tr("the rule's"));
+        return edit;
+    }
+    void setEditorData(QWidget* editor, const QModelIndex& index) const override
+    {
+        static_cast<QLineEdit*>(editor)->setText(index.data(Qt::UserRole).toString());
+    }
+    void setModelData(QWidget* editor,
+                      QAbstractItemModel* /*model*/,
+                      const QModelIndex& index) const override
+    {
+        const QString text = static_cast<QLineEdit*>(editor)->text();
+        if (text == index.data(Qt::UserRole).toString() || !edited) {
+            return;
+        }
+        auto edited = this->edited;
+        const int row = index.row();
+        const int column = index.column();
+        // the delegate as context: gone with the panel, the call is too
+        auto context = const_cast<BendValueDelegate*>(this);
+        QTimer::singleShot(0, context, [edited, row, column, text] {
+            edited(row, column, text);
+        });
+    }
+};
 
 }  // namespace
 
@@ -97,8 +151,16 @@ TaskSheetMetalCheck::TaskSheetMetalCheck(App::DocumentObject* obj)
                                       tr("Allowance"),
                                       tr("Direction")});
     bends->setToolTip(tr("Each bend, its values and where each comes from: the rule, its\n"
-                         "card, or the feature's own. Pick one to select its faces"));
-    bends->setEditTriggers(QAbstractItemView::NoEditTriggers);
+                         "card, the feature's own, or the bend's own. Pick one to select its\n"
+                         "faces. Double-click a K or an allowance to give the bend its own;\n"
+                         "clear it to give the bend back to the rule"));
+    bends->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    auto delegate = new BendValueDelegate(bends);
+    delegate->edited = [this](int row, int column, const QString& text) {
+        setBendValue(row, column, text);
+    };
+    bends->setItemDelegateForColumn(KColumn, delegate);
+    bends->setItemDelegateForColumn(AllowanceColumn, delegate);
     bends->setSelectionBehavior(QAbstractItemView::SelectRows);
     bends->setSelectionMode(QAbstractItemView::SingleSelection);
     bends->verticalHeader()->setVisible(false);
@@ -142,6 +204,7 @@ void TaskSheetMetalCheck::check()
 {
     bends->setRowCount(0);
     problems->clear();
+    bendRows.clear();
     bendMarks.clear();
     problemMarks.clear();
 
@@ -179,8 +242,22 @@ void TaskSheetMetalCheck::check()
             QString::fromStdString(bend.direction),
         };
         for (int c = 0; c < 7; ++c) {
-            bends->setItem(row, c, new QTableWidgetItem(cells[c]));
+            auto item = new QTableWidgetItem(cells[c]);
+            if (c == KColumn || c == AllowanceColumn) {
+                // what the editor starts from: the bend's own K, or nothing
+                // where it takes another's
+                if (bend.kFactorSource == "bend") {
+                    item->setData(Qt::UserRole,
+                                  c == KColumn ? number(bend.kFactor, 6)
+                                               : number(bend.allowance, 6));
+                }
+            }
+            else {
+                item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            }
+            bends->setItem(row, c, item);
         }
+        bendRows.push_back(bend);
         bendMarks.push_back({bend.feature, bend.elements, bend.flatElements});
     }
     for (const auto& problem : found.problems) {
@@ -194,6 +271,61 @@ void TaskSheetMetalCheck::check()
         summary->setText(tr("%n bend(s), %1 problem(s) found.", "", static_cast<int>(found.bends.size()))
                              .arg(found.problems.size()));
     }
+}
+
+void TaskSheetMetalCheck::setBendValue(int row, int column, const QString& text)
+{
+    auto obj = target.getObject();
+    if (!obj || row < 0 || row >= static_cast<int>(bendRows.size())) {
+        return;
+    }
+    const PartDesign::SheetBendRow bend = bendRows[row];
+    auto maker = obj->getDocument()->getObject(bend.feature.c_str());
+    auto ext = maker ? maker->getExtensionByType<PartDesign::SheetMetalExtension>(true) : nullptr;
+    if (!ext) {
+        return;
+    }
+    std::ostringstream cmd;
+    cmd.precision(17);
+    cmd << "setBendKFactor('" << bend.name << "'";
+    const QString value = text.trimmed();
+    if (!value.isEmpty()) {
+        bool ok = false;
+        double k = QLocale().toDouble(value, &ok);
+        if (!ok) {
+            k = value.toDouble(&ok);
+        }
+        if (!ok) {
+            summary->setText(tr("'%1' is not a number.").arg(value));
+            return;
+        }
+        if (column == AllowanceColumn) {
+            // the allowance is angle x (R + K T): the K that makes it
+            auto rule = ext->getRule();
+            const double angle = bend.angle * std::numbers::pi / 180;
+            const double thickness = rule ? rule->Thickness.getValue() : 0;
+            if (angle <= 0 || thickness <= 0) {
+                return;
+            }
+            k = (k / angle - bend.radius) / thickness;
+        }
+        cmd << ", " << k;
+    }
+    cmd << ")";
+
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Bend K factor"));
+    try {
+        FCMD_OBJ_CMD(maker, cmd.str());
+        obj->getDocument()->recompute();
+        Gui::Command::commitCommand();
+    }
+    catch (const Base::Exception& e) {
+        Gui::Command::abortCommand();
+        check();
+        summary->setText(QString::fromUtf8(e.what()));
+        return;
+    }
+    check();
 }
 
 void TaskSheetMetalCheck::select(const Marks& marks)

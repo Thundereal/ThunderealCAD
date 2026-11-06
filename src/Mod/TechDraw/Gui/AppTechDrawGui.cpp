@@ -77,6 +77,7 @@ void CreateTechDrawCommandsExtensionDims();
 void CreateTechDrawCommandsExtensions();
 void CreateTechDrawCommandsStack();
 void CreateTechDrawCommandsAlign();
+void CreateTechDrawCommandsEdgeLabels();
 
 void loadTechDrawResource()
 {
@@ -134,6 +135,7 @@ PyMOD_INIT_FUNC(TechDrawGui)
     CreateTechDrawCommandsExtensions();
     CreateTechDrawCommandsStack();
     CreateTechDrawCommandsAlign();
+    CreateTechDrawCommandsEdgeLabels();
 
     TechDrawGui::Workbench::init();
     TechDrawGui::MDIViewPage::init();

@@ -2273,6 +2273,47 @@ bore of a nut modelled plain, the shank of a bolt.
   part way along a shaft would want one, and would need the record to
   grow, which 9.4.2 made possible and nobody has asked for.
 
+### 9.14 Landed 2026-11-06: the cross break, a finish a sheet metal feature implies
+
+A sheet metal Cross Break (docs/SheetMetal.md sec 12) bows a wall along
+both its diagonals by a few degrees and leaves the solid as it is. It
+became the third finish a feature implies, ruled by the user 2026-11-06,
+so that it is drawn on the wall by every feature after it and by the body,
+not only while the Cross Break itself is shown. Two more patterns,
+`CrossBreak` and `CrossBreakReversed` (`"cross-break"`,
+`"cross-break-reversed"`), and no new field:
+
+- **Seven numbers, the record and its extent.** The rectangle the break
+  is over is the wall's, so it rides beside the entry rather than in any
+  projection frame: pitch and depth are its half length and half width,
+  the angle slot the break's angle, extent xy its long side's way
+  (octahedral, as a thread's axis) and zw its middle as `dot(p, u)` and
+  `dot(p, v)`, with `v = cross(nc, u)`. `nc` is the plane's normal turned
+  toward a fixed skew vector, `(1, 2, 3) / sqrt(14)`, by the producer and
+  by `fc_finish.sh` alike, so both skins of a wall share one palette entry
+  -- a wall costs one of the seven, not two -- and the pattern says which
+  way along `nc` the wall rises. A skew vector rather than "the first
+  non-zero component positive": a 45 degree wall's normal has two equal
+  components, and float noise in the interpolated normal would pick a
+  different one per fragment.
+- **The producer is PartDesign's view.** `PartDesign::crossBreakPatches()`
+  finds, for each wall the sheet's model breaks, every plane face of the
+  shape the wall owns on either skin; the model is the feature's own or,
+  for a Pocket or Hole, the last sheet metal feature's before it
+  (`sheetOf()`), a suppressed one skipped. Every PartDesign feature's view
+  and the Body's state them beside the threads, re-derived on the same
+  trigger, and only for a sheet with a break in it.
+- **The shader.** `fcFinishCrossBreak` tilts four plane facets, apex at the
+  middle, so the fold across each diagonal is the stated angle: true to
+  size, it reads in reflections. `fcFinishCrossBreakMark` darkens the base
+  colour along the two folds over a pixel and a half whatever the
+  distance, because three degrees under a headlight is otherwise close to
+  invisible. Neither filters: a wall is never finer than a pixel.
+- **Deliberately excluded**: an authored cross break (no rectangle; it
+  draws nothing, and the appearance dialog does not offer it), Cycles
+  (it ignores patterns above 7, as before), the legacy Coin renderer (no
+  finish draws there; the Cross Break's own panel still draws its X).
+
 ## 10. Textures: the last fold into the appearance
 
 Stage 9 moved the surface finish onto `App::Material`. This stage moves what

@@ -314,6 +314,9 @@ void SolidBody::flatSettingsChanged()
     for (auto obj : Group.getValues()) {
         if (obj)
             Part::PropertyShapeCache::clearShapes(obj);
+        // laid by the old settings
+        if (auto feat = dynamic_cast<PartDesign::Feature*>(obj))
+            feat->clearStoredFlat();
     }
 }
 
@@ -376,7 +379,15 @@ App::DocumentObject *SolidBody::flatSubObject(const App::DocumentObject *owner,
         return nullptr;
     Part::TopoShape shape;
     try {
-        shape = flatOf(part).shape;
+        // the flat stored with the feature while referred to, the one the
+        // reference was made on -- there until the feature changes -- else
+        // laid
+        auto feat = dynamic_cast<const PartDesign::Feature*>(part ? part : Tip.getValue());
+        auto stored = feat ? feat->storedFlat() : nullptr;
+        if (stored && !stored->getShape().isNull())
+            shape = stored->getShape();
+        else
+            shape = flatOf(part).shape;
         if (element && *element) {
             shape = shape.getSubTopoShape(element, /*silent*/ true);
             if (shape.isNull())

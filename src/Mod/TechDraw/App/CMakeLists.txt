@@ -118,6 +118,8 @@ SET(Draw_SRCS
     GeometryMatcher.h
     DrawViewBalloon.cpp
     DrawViewBalloon.h
+    DrawEdgeLabel.cpp
+    DrawEdgeLabel.h
     DrawViewSection.cpp
     DrawViewSection.h
     DrawHatch.cpp

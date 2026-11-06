@@ -116,7 +116,9 @@ uniform vec4 u_frameParams[FC_FRAME_PALETTE * 3];
 #define FC_FINISH_TURNED          5.0
 #define FC_FINISH_THREAD          6.0
 #define FC_FINISH_THREAD_LEFT     7.0
-#define FC_FINISH_LAST            7.0
+#define FC_FINISH_CROSS_BREAK     8.0
+#define FC_FINISH_CROSS_BREAK_REV 9.0
+#define FC_FINISH_LAST            9.0
 
 #define FC_FINISH_TWOPI 6.2831853
 #define FC_FINISH_PI    3.1415927
@@ -568,6 +570,98 @@ vec3 fcFinishFramed(vec3 opos, vec4 f0, vec4 f1, vec4 f2, float pattern,
 	return g.x * (k / r) * that + g.y * axis;
 }
 
+/// A cross break's frame (App::SurfaceFinish::CrossBreak / ...Reversed):
+/// the rectangle the wall is bowed over, as the feature states it beside
+/// the entry. params y and z = its half length and half width, w = the
+/// break's angle (rad); extent xy = its long side's way, octahedrally
+/// encoded, zw = its middle as dot(p, u) and dot(p, v), v = cross(nc, u)
+/// for nc the plane's normal turned toward FC_FINISH_CROSS_BREAK_KEY.
+///
+/// Answers false where there is none to bow: off the rectangle, or an
+/// entry stating no extent -- a cross break authored in an appearance,
+/// which knows no rectangle. Exactly zero is what an appearance writes,
+/// and a stated one is never that unless its long side runs along +Z
+/// with its middle on both planes through the origin.
+#define FC_FINISH_CROSS_BREAK_KEY vec3(0.267261, 0.534522, 0.801784)
+bool fcFinishCrossBreakFrame(vec3 opos, vec3 onrm, vec4 params, vec4 extent,
+                             out vec3 u, out vec3 v, out vec2 q, out float side)
+{
+	u = vec3(1.0, 0.0, 0.0);
+	v = vec3(0.0, 1.0, 0.0);
+	q = vec2(0.0, 0.0);
+	side = 1.0;
+	if (extent.x == 0.0 && extent.y == 0.0 && extent.z == 0.0
+	    && extent.w == 0.0)
+		return false;
+	if (params.y <= 0.0 || params.z <= 0.0)
+		return false;
+	vec3 nrm = normalize(onrm);
+	float k = dot(nrm, FC_FINISH_CROSS_BREAK_KEY);
+	vec3 nc = k >= 0.0 ? nrm : -nrm;
+	u = fcFinishDecodeAxis(extent.xy);
+	v = normalize(cross(nc, u));
+	q = vec2(dot(opos, u) - extent.z, dot(opos, v) - extent.w);
+	if (abs(q.x) > params.y || abs(q.y) > params.z)
+		return false;
+	// The height is stated along nc; this face's own normal is nc or
+	// its reverse, and Reversed sinks where the other rises
+	side = (k >= 0.0 ? 1.0 : -1.0)
+	     * (params.x > FC_FINISH_CROSS_BREAK + 0.5 ? -1.0 : 1.0);
+	return true;
+}
+
+/// A cross break: the wall bowed into a shallow pyramid over its
+/// rectangle, apex at the middle, so each diagonal is a fold. Four plane
+/// facets, the two meeting the long sides tilted across them and the two
+/// meeting the short ones along: the height is H min(1 - |qx|/hu,
+/// 1 - |qy|/hv), whose fold across a diagonal is the break's angle for H
+/// = tan(angle) / sqrt(1/hu^2 + 1/hv^2). A few degrees, as a real break
+/// is: it reads in what the wall reflects, and fcFinishCrossBreakMark()
+/// draws the folds.
+void fcFinishCrossBreak(vec3 opos, vec3 onrm, vec3 vpos, vec4 params,
+                        vec4 extent, vec3 dox, vec3 doy, inout vec3 n)
+{
+	vec3 u;
+	vec3 v;
+	vec2 q;
+	float side;
+	if (!fcFinishCrossBreakFrame(opos, onrm, params, extent, u, v, q, side))
+		return;
+	float hu = params.y;
+	float hv = params.z;
+	float h = tan(params.w)
+	        / sqrt(1.0 / (hu * hu) + 1.0 / (hv * hv));
+	vec3 g = abs(q.x) * hv > abs(q.y) * hu
+		? (-h * sign(q.x) / hu) * u
+		: (-h * sign(q.y) / hv) * v;
+	fcFinishPerturb(side * g, opos, vpos, dox, doy, n);
+}
+
+/// What a cross break does to the base colour: its two folds drawn as a
+/// line a pixel and a half wide, darker, whatever the distance -- a break
+/// of three degrees under a headlight is otherwise hard to see at all.
+/// 1 everywhere else, and for every other pattern.
+float fcFinishCrossBreakMark(vec3 opos, vec3 onrm, vec4 params, vec4 extent)
+{
+	if (params.x < FC_FINISH_CROSS_BREAK - 0.5
+	    || params.x > FC_FINISH_CROSS_BREAK_REV + 0.5)
+		return 1.0;
+	vec3 u;
+	vec3 v;
+	vec2 q;
+	float side;
+	// The footprint first: a derivative is only defined where every
+	// pixel of the quad takes it
+	float fw = max(length(dFdx(opos)), length(dFdy(opos)));
+	if (!fcFinishCrossBreakFrame(opos, onrm, params, extent, u, v, q, side))
+		return 1.0;
+	float hu = params.y;
+	float hv = params.z;
+	float d = min(abs(q.x * hv - q.y * hu), abs(q.x * hv + q.y * hu))
+	        / sqrt(hu * hu + hv * hv);
+	return mix(0.55, 1.0, smoothstep(0.5, 1.5, d / max(fw, 1.0e-9)));
+}
+
 /// Perturb the shading normal (view space) by the finish, and hand the
 /// part of it this pixel cannot resolve to the roughness.
 ///
@@ -594,6 +688,13 @@ void fcApplyFinish(vec3 opos, vec3 onrm, vec3 vpos, vec4 params,
 	vec3 dox = dFdx(opos);
 	vec3 doy = dFdy(opos);
 
+	// A cross break is laid on the rectangle stated beside it, at the
+	// size it has: a whole wall, never too fine to draw
+	if (pattern > FC_FINISH_CROSS_BREAK - 0.5)
+	{
+		fcFinishCrossBreak(opos, onrm, vpos, params, extent, dox, doy, n);
+		return;
+	}
 	// A thread is laid about an axis and filters itself along it; it
 	// shares nothing below but the footprint.
 	if (pattern > FC_FINISH_THREAD - 0.5)

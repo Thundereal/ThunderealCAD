@@ -162,6 +162,98 @@ void ProfileBuilder::profileAt(const std::vector<gp_Pnt>& p, const gp_Dir& n, do
     }
 }
 
+void ProfileBuilder::closedProfile(std::vector<gp_Pnt> p, const gp_Dir& n, int side)
+{
+    if (p.size() > 1 && p.front().Distance(p.back()) < Precision::Confusion()) {
+        p.pop_back();
+    }
+    // no corner that goes on straight, the first one included
+    for (bool dropped = true; dropped && p.size() > 3;) {
+        dropped = false;
+        for (std::size_t i = 0; i < p.size(); ++i) {
+            const gp_Vec a(p[(i + p.size() - 1) % p.size()], p[i]);
+            const gp_Vec b(p[i], p[(i + 1) % p.size()]);
+            if (a.Magnitude() > Precision::Confusion() && b.Magnitude() > Precision::Confusion()
+                && a.IsParallel(b, Precision::Angular()) && a.Dot(b) > 0) {
+                p.erase(p.begin() + static_cast<long>(i));
+                dropped = true;
+                break;
+            }
+        }
+    }
+    const std::size_t count = p.size();
+    if (count < 3) {
+        THROWM(Base::ValueError, "A tube's profile has three lines at least");
+    }
+    std::vector<gp_Dir> d;
+    for (std::size_t i = 0; i < count; ++i) {
+        const gp_Vec v(p[i], p[(i + 1) % count]);
+        if (v.Magnitude() < Precision::Confusion()) {
+            THROWM(Base::ValueError, "A profile wall has a line of no length");
+        }
+        d.emplace_back(v);
+    }
+    auto before = [count](std::size_t j) {
+        return (j + count - 1) % count;
+    };
+    // the turn at each corner, from the line before it
+    std::vector<double> turn(count);
+    double total = 0;
+    for (std::size_t j = 0; j < count; ++j) {
+        const gp_Dir& from = d[before(j)];
+        turn[j] = std::atan2(from.Crossed(d[j]).Dot(n), from.Dot(d[j]));
+        if (std::abs(turn[j]) > std::numbers::pi - 1e-6) {
+            THROWM(Base::ValueError, "A profile wall cannot turn back on itself");
+        }
+        total += turn[j];
+    }
+    if (std::abs(std::abs(total) - 2 * std::numbers::pi) > 1e-6) {
+        THROWM(Base::ValueError, "A tube's profile goes round more than once");
+    }
+    // the material from a along each line's left: inside the loop where it
+    // turns left
+    const bool inLeft = total > 0;
+    double a = -thickness / 2;
+    if (side == 0) {
+        a = inLeft ? -thickness : 0;
+    }
+    else if (side == 1) {
+        a = inLeft ? 0 : -thickness;
+    }
+    const double b = a + thickness;
+    std::vector<gp_Dir> l;
+    for (const gp_Dir& way : d) {
+        l.push_back(n.Crossed(way));
+    }
+    // where each line's straight part starts and ends, and the bends' axes,
+    // as profileAt() finds them, every corner bent
+    std::vector<gp_Pnt> start(count), end(count), center(count);
+    for (std::size_t j = 0; j < count; ++j) {
+        const std::size_t i = before(j);
+        const double offset = turn[j] > 0 ? b + radius : a - radius;
+        const gp_Vec miter = (gp_Vec(l[i]) + gp_Vec(l[j])) * (offset / (1 + d[i].Dot(d[j])));
+        center[j] = p[j].Translated(miter);
+        end[i] = p[j].Translated(gp_Vec(d[i]) * miter.Dot(gp_Vec(d[i])));
+        start[j] = p[j].Translated(gp_Vec(d[j]) * miter.Dot(gp_Vec(d[j])));
+    }
+    std::vector<int> walls(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        if (gp_Vec(start[i], end[i]).Dot(gp_Vec(d[i])) < Precision::Confusion()) {
+            FC_THROWM(Base::ValueError,
+                      "Line " << i + 1 << " of the profile is too short for its bends");
+        }
+        const gp_Pnt origin = start[i].Translated(gp_Vec(l[i]) * a);
+        const std::string name = nextWall();
+        walls[i] = model.addWall(name, gp_Ax3(origin, l[i], d[i]));
+        added.push_back(walls[i]);
+        faces.push_back(wallSection(origin, d[i], start[i].Distance(end[i]), l[i], thickness,
+                                    name));
+    }
+    for (std::size_t j = 0; j < count; ++j) {
+        bend(center[j], l[before(j)], n, turn[j], walls[before(j)], walls[j]);
+    }
+}
+
 void ProfileBuilder::bend(const gp_Pnt& c, const gp_Dir& l, const gp_Dir& n, double turn,
                           int before, int after)
 {

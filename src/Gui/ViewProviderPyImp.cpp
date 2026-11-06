@@ -629,6 +629,27 @@ PyObject* ViewProviderPy::getElementColors(PyObject* args)
     return Py::new_reference_to(dict);
 }
 
+PyObject* ViewProviderPy::getEdgeInfo(PyObject* args) const
+{
+    const char *name;
+    if (!PyArg_ParseTuple(args, "s", &name))
+        return nullptr;
+    PY_TRY {
+        ViewProvider::EdgeInfo info;
+        if (!getViewProviderPtr()->getEdgeInfo(name, info))
+            Py_Return;
+        Py::Dict dict;
+        dict.setItem("Visible", Py::Boolean(info.visible));
+        dict.setItem("Style", Py::Long(info.style));
+        const auto &c = info.color;
+        dict.setItem("Color",
+                     Py::TupleN(Py::Float(c.r), Py::Float(c.g), Py::Float(c.b), Py::Float(c.a)));
+        dict.setItem("Width", Py::Float(info.width));
+        dict.setItem("Label", Py::String(info.label));
+        return Py::new_reference_to(dict);
+    } PY_CATCH
+}
+
 PyObject* ViewProviderPy::setElementColors(PyObject* args)
 {
     PyObject *pyObj;

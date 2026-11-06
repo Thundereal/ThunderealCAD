@@ -133,6 +133,10 @@ def run():
             all(n in w for n in ("MaterialSide", "Length", "Reversed", "Midplane")),
             sorted(n for n in w if n[:1].isupper())[:20],
         )
+        check(
+            "a closed sketch offers a plate or a tube",
+            "ClosedProfile" in w and w["ClosedProfile"].isEnabled(),
+        )
         rule = w.get("labelRule")
         check(
             "the rule's thickness and radius said",
@@ -428,6 +432,13 @@ def run():
                   cutout.UpToFirst)
         wrap = w.get("Wrap")
         check("and Wrap, the sketch as if drawn on the flat", wrap is not None)
+        frame = w.get("WrapFrame")
+        items = [frame.itemText(i) for i in range(frame.count())] if frame else []
+        check(
+            "and Wrap frame, Folded or Flat, greyed while Wrap is off",
+            items == ["Folded", "Flat"] and not frame.isEnabled(),
+            (items, frame and frame.isEnabled()),
+        )
         if wrap is not None:
             wrap.click()
             pump(20)
@@ -439,6 +450,7 @@ def run():
                 and not w["Reversed"].isEnabled(),
                 (cutout.Wrap, first and first.isEnabled()),
             )
+            check("and Wrap frame then is", frame is not None and frame.isEnabled())
         accept()
         pump(20)
         check("OK keeps a good cutout", "Invalid" not in cutout.State, cutout.State)
@@ -732,6 +744,45 @@ def run():
         )
         press(QtWidgets.QDialogButtonBox.Cancel)
         pump(20)
+
+        # -- the cross break's panel: its faces, its angle and its way --------
+        cbody = doc.addObject("PartDesign::Body", "CrossBody")
+        view.setActiveObject("pdbody", cbody)
+        csketch = cbody.newObject("Sketcher::SketchObject", "CrossSketch")
+        pts = [(0, 0), (40, 0), (40, 20), (0, 20)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            csketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        cplate = cbody.newObject("PartDesign::SheetMetalBaseWall", "CrossPlate")
+        cplate.Profile = csketch
+        doc.recompute()
+        top = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(cplate.Shape.Faces)
+            if abs(f.BoundBox.ZMin - 1) < 1e-7 and abs(f.BoundBox.ZMax - 1) < 1e-7
+        ]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, cplate.Name, top[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalCrossBreak")
+        pump()
+        crosses = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalCrossBreak"]
+        w = panel() or {}
+        check(
+            "Cross Break opens its panel with its angle and its way",
+            crosses and all(n in w for n in ("Angle", "Reversed")),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        accept()
+        pump(20)
+        doc.recompute()
+        check(
+            "accepted, the plate's wall has its break",
+            crosses
+            and "Invalid" not in crosses[0].State
+            and [e["Name"] for e in crosses[0].SheetModel["Elements"] if "CrossBreak" in e]
+            == ["Wall1"],
+            crosses and (crosses[0].State, crosses[0].getStatusString()),
+        )
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

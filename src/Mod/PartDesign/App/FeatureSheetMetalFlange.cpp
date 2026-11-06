@@ -1111,6 +1111,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));
         }
         Shape.setValue(result);
+        applyBendOverrides(model);
         SheetModel.setValue(model);
         if (Notice.getStrValue() != notice) {
             Notice.setValue(notice);

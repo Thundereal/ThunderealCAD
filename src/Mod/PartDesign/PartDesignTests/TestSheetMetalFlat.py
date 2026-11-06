@@ -24,8 +24,17 @@ import PartDesign
 
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
-VALUES = ("FlatLength", "FlatWidth", "FlatArea", "Thickness", "MaterialName", "BendCount",
-          "MaxBendAngle", "BendDirections", "Status")
+VALUES = (
+    "FlatLength",
+    "FlatWidth",
+    "FlatArea",
+    "Thickness",
+    "MaterialName",
+    "BendCount",
+    "MaxBendAngle",
+    "BendDirections",
+    "Status",
+)
 SETTINGS = ("Root", "SecondSkin", "AlignEdge", "TangentLines", "Grain", "GrainAngle")
 OUT_OF_DATE = "Out of date: it is laid flat when shown"
 
@@ -139,6 +148,29 @@ class TestSheetMetalFlat(unittest.TestCase):
         lines = flat.SubShapes[1].Edges
         self.assertEqual(len(lines), 1)
         self.assertAlmostEqual(lines[0].Length, 15, places=6)
+
+    def testMarkingsOnTop(self):
+        """Every marking lies on the blank's top, the side a drawing of the
+        flat looks at, a down bend's line too: which way a bend goes is its
+        direction, not where its line lies (TechDraw keeps no hidden line by
+        default, and lost a down bend's)"""
+        wall = self.L()
+        flat = self.flatObject(wall)
+        self.show(flat)
+        directions = set()
+        for second in (False, True):
+            flat.SecondSkin = second
+            self.Doc.recompute()
+            shape = flat.Shape
+            blank = shape.Solids[0]
+            top = blank.BoundBox.ZMax
+            markings = shape.Edges[len(blank.Edges) :]
+            self.assertTrue(markings)
+            for e in markings:
+                for v in e.Vertexes:
+                    self.assertAlmostEqual(v.Point.z, top, places=6)
+            directions |= set(flat.BendDirections.values())
+        self.assertEqual(directions, {"Up", "Down"})
 
     def testSolidFlat(self):
         """The solid's flat is its tip's, and follows the tip: a plate 40 x
@@ -463,6 +495,102 @@ class TestSheetMetalFlat(unittest.TestCase):
             PartDesign.exportFlat(pad, os.path.join(folder, "flat.dxf"))
         self.assertEqual(os.listdir(folder), [])
 
+    # Every sheet's flat at once, one file each (sec 5.5's catalogue)
+
+    def plate(self, body, label, size, **props):
+        """A plate in body, labelled; its sketch a size[0] x size[1] rectangle"""
+        body.Label = label
+        sketch = body.newObject("Sketcher::SketchObject", "Plate" + body.Name)
+        x, y = size
+        pts = [(0, 0), (x, 0), (x, y), (0, y)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        wall = body.newObject("PartDesign::SheetMetalBaseWall", "Wall" + body.Name)
+        wall.Profile = sketch
+        for k, v in props.items():
+            setattr(wall, k, v)
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", wall.State)
+        return wall
+
+    def outlineSize(self, path):
+        ents = readDXF(path)
+        xs = [float(x) for e in ents if e[1] == "OUTLINE" for x in e[2]["10"] + e[2]["11"]]
+        ys = [float(y) for e in ents if e[1] == "OUTLINE" for y in e[2]["20"] + e[2]["21"]]
+        return sorted([round(max(xs) - min(xs), 6), round(max(ys) - min(ys), 6)])
+
+    def testExportEvery(self):
+        """Every sheet of the document, one file each in the folder, named
+        after its body, as DXF or SVG; a body of no sheet is passed over"""
+        self.L()
+        self.plate(self.Doc.addObject("PartDesign::Body", "Other"), "Bracket", (30, 20))
+        padded = self.Doc.addObject("PartDesign::Body", "Padded")
+        sketch = padded.newObject("Sketcher::SketchObject", "Square")
+        for a, b in (((0, 0), (5, 0)), ((5, 0), (5, 5)), ((5, 5), (0, 5)), ((0, 5), (0, 0))):
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        padded.newObject("PartDesign::Pad", "Pad").Profile = sketch
+        self.Doc.recompute()
+        for suffix in ("dxf", "svg"):
+            folder = tempfile.mkdtemp()
+            res = PartDesign.exportFlats(self.Doc, folder, suffix)
+            self.assertEqual([r["Error"] for r in res], ["", ""])
+            self.assertEqual(
+                [os.path.basename(r["File"]) for r in res],
+                ["Body." + suffix, "Bracket." + suffix],
+            )
+            self.assertEqual(sorted(os.listdir(folder)), ["Body." + suffix, "Bracket." + suffix])
+            self.assertEqual(
+                [r["Sheet"] for r in res],
+                [self.Body.SolidBodies[0], self.Doc.Other.SolidBodies[0]],
+            )
+        folder = tempfile.mkdtemp()
+        PartDesign.exportFlats(self.Doc, folder, ".DXF")
+        self.assertEqual(
+            self.outlineSize(os.path.join(folder, "Body.dxf")), [15, round(19 + BA + 9, 6)]
+        )
+        self.assertEqual(self.outlineSize(os.path.join(folder, "Bracket.dxf")), [20, 30])
+
+    def testExportEveryNames(self):
+        """A body of two sheets names each file after the body and the
+        sheet's solid; a label is made a file name, and a name taken twice
+        is numbered"""
+        first = self.plate(self.Body, "Box/Lid", (10, 10))
+        self.plate(self.Body, "Box/Lid", (20, 10), NewSolid=True)
+        self.assertEqual(len(self.Body.SolidBodies), 2)
+        other = self.Doc.addObject("PartDesign::Body", "Other")
+        self.plate(other, "Box?Lid-" + self.Body.SolidBodies[0].Label, (5, 5))
+        folder = tempfile.mkdtemp()
+        res = PartDesign.exportFlats(self.Doc, folder, "dxf")
+        a, b = (s.Label for s in self.Body.SolidBodies)
+        self.assertEqual(
+            [os.path.basename(r["File"]) for r in res],
+            ["Box_Lid-%s.dxf" % a, "Box_Lid-%s.dxf" % b, "Box_Lid-%s-2.dxf" % a],
+        )
+        self.assertIn(first, self.Body.SolidBodies[0].Group)
+        self.assertEqual(len(os.listdir(folder)), 3)
+
+    def testExportEveryFailing(self):
+        """A sheet that does not lie flat is told, with why, and written not;
+        the others are. Refused before anything is written: a suffix neither
+        dxf nor svg, a folder that is not there"""
+        wall = self.L()
+        self.plate(self.Doc.addObject("PartDesign::Body", "Other"), "Bracket", (30, 20))
+        self.flatObject(wall).Root = "Wall9"
+        self.Doc.recompute()
+        folder = tempfile.mkdtemp()
+        res = PartDesign.exportFlats(self.Doc, folder, "dxf")
+        self.assertEqual(res[0]["File"], "")
+        self.assertIn("Wall9", res[0]["Error"])
+        self.assertEqual(res[1]["Error"], "")
+        self.assertEqual(os.listdir(folder), ["Bracket.dxf"])
+        empty = tempfile.mkdtemp()
+        with self.assertRaisesRegex(ValueError, "dxf or svg"):
+            PartDesign.exportFlats(self.Doc, empty, "txt")
+        with self.assertRaisesRegex(ValueError, "folder"):
+            PartDesign.exportFlats(self.Doc, os.path.join(empty, "none"), "dxf")
+        self.assertEqual(os.listdir(empty), [])
+
     def testSettings(self):
         """The flat object's grain and tangent lines are every feature's flat's"""
         wall = self.L()
@@ -475,6 +603,111 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(len(flat.SubShapes), 4)
         self.assertEqual(len(flat.SubShapes[2].Edges), 2)
         self.assertEqual(len(flat.SubShapes[3].Edges), 3)
+
+    # A feature's flat stored with it while something refers to it -- a
+    # sketch's external geometry -- so the file holds the flat the reference
+    # was made on; laid on demand otherwise (docs/SheetMetal.md sec 12)
+
+    def referenced(self):
+        """The L, and a sketch after it taking a straight edge of its flat's
+        top as external geometry: the wall, the sketch, the element's name"""
+        wall = self.L()
+        flat = flatOf(wall)
+        names = [
+            "FlatEdge%d" % (i + 1)
+            for i, e in enumerate(flat.Edges)
+            if isinstance(e.Curve, Part.Line) and e.BoundBox.ZMin > 1 - 1e-7 and e.Length > 10
+        ]
+        self.assertTrue(names)
+        sketch = self.Body.newObject("Sketcher::SketchObject", "Ref")
+        sketch.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        sketch.addExternal(wall.Name, names[0])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", sketch.State, sketch.getStatusString())
+        return wall, sketch, names[0]
+
+    def saved(self):
+        path = os.path.join(tempfile.mkdtemp(), "stored.FCStd")
+        self.Doc.saveAs(path)
+        return path
+
+    def reopened(self, path):
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        self.Body = self.Doc.getObject("Body")
+        return self.Doc
+
+    def testStoredFlatWhileReferenced(self):
+        """Saved, the referred flat is stored with the feature; opened again,
+        the reference finds the element it was made on, before any
+        recompute"""
+        wall, sketch, name = self.referenced()
+        edge = wall.getSubObject(name)
+        path = self.saved()
+        self.assertIn("StoredFlat", wall.PropertiesList)
+        self.assertEqual(len(wall.StoredFlat.Edges), len(flatOf(wall).Edges))
+        names = wall.Name, sketch.Name
+        doc = self.reopened(path)
+        wall = doc.getObject(names[0])
+        self.assertIn("StoredFlat", wall.PropertiesList)
+        again = wall.getSubObject(name)
+        self.assertIsNotNone(again)
+        for a, b in (
+            (again.Vertexes[0].Point, edge.Vertexes[0].Point),
+            (again.Vertexes[-1].Point, edge.Vertexes[-1].Point),
+        ):
+            self.assertTrue(a.isEqual(b, 1e-9), (a, b))
+        self.assertNotIn("Invalid", doc.getObject(names[1]).State)
+
+    def testNoStoredFlatUnreferenced(self):
+        """Nothing referring to its flat, a feature stores none"""
+        wall = self.L()
+        flatOf(wall)
+        self.saved()
+        self.assertNotIn("StoredFlat", wall.PropertiesList)
+
+    def testStoredFlatDropped(self):
+        """The reference gone, the next save drops the stored flat"""
+        wall, sketch, name = self.referenced()
+        self.saved()
+        self.assertIn("StoredFlat", wall.PropertiesList)
+        self.Doc.removeObject(sketch.Name)
+        self.Doc.recompute()
+        self.saved()
+        self.assertNotIn("StoredFlat", wall.PropertiesList)
+
+    def testStoredFlatChanged(self):
+        """The feature changed, its flat is laid anew, not the stored one,
+        and the next save stores the new one"""
+        wall, sketch, name = self.referenced()
+        path = self.saved()
+        named = wall.Name
+        doc = self.reopened(path)
+        wall = doc.getObject(named)
+        before = flatOf(wall).BoundBox
+        wall.Length = 20
+        doc.recompute()
+        after = flatOf(wall).BoundBox
+        self.assertAlmostEqual(
+            max(after.XLength, after.YLength) - max(before.XLength, before.YLength), 0, places=6
+        )
+        self.assertAlmostEqual(
+            min(after.XLength, after.YLength) - min(before.XLength, before.YLength), 5, places=6
+        )
+        self.saved()
+        stored = wall.StoredFlat.BoundBox
+        self.assertAlmostEqual(
+            min(stored.XLength, stored.YLength), min(after.XLength, after.YLength), places=6
+        )
+
+    def testStoredFlatNoUndoStep(self):
+        """Storing the flat at a save is no undo step"""
+        self.Doc.UndoMode = 1
+        wall, sketch, name = self.referenced()
+        count = self.Doc.UndoCount
+        self.saved()
+        self.assertIn("StoredFlat", wall.PropertiesList)
+        self.assertEqual(self.Doc.UndoCount, count)
 
     def testNotSheet(self):
         """A body of no sheet metal: no flat, no flat object"""

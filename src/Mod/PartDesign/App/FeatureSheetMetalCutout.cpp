@@ -24,15 +24,19 @@
 #include "PreCompiled.h"
 
 #include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
 
 #include <App/Document.h>
 #include <Base/Exception.h>
 #include <Mod/Part/App/TopoShapeOpCode.h>
 
+#include "Body.h"
 #include "FeatureSheetMetalCutout.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Pieces.h"
 #include "SheetMetal/Refold.h"
+#include "SheetMetalFlat.h"
+#include "SolidBody.h"
 
 using namespace PartDesign;
 using Part::TopoShape;
@@ -54,6 +58,21 @@ SheetMetalCutout::SheetMetalCutout()
                       App::Prop_None,
                       "The sketch as if drawn on the flat: the wall parallel to it and nearest "
                       "it stays, and what lies on the flat is cut and folded back");
+    ADD_PROPERTY_TYPE(WrapFrame,
+                      (0L),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Where a wrap's sketch is read: Folded, as if the flat lay on from the "
+                      "wall nearest it where it stands; Flat, in the frame of the feature's flat "
+                      "as the sheet lays it, where geometry taken from a flat is");
+    static const char* frames[] = {"Folded", "Flat", nullptr};
+    WrapFrame.setEnums(frames);
+    WrapFrame.setStatus(App::Property::ReadOnly, true);
+    ADD_PROPERTY_TYPE(WrapSettings,
+                      (""),
+                      "Sheet Metal",
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden | App::Prop_ReadOnly),
+                      "The flat settings a wrap in the flat's frame was cut by");
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -72,10 +91,40 @@ SheetMetalCutout::SheetMetalCutout()
 
 short SheetMetalCutout::mustExecute() const
 {
-    if (UpToFirst.isTouched() || Wrap.isTouched()) {
+    if (UpToFirst.isTouched() || Wrap.isTouched() || WrapFrame.isTouched()
+        || flatSettingsChanged()) {
         return 1;
     }
     return ProfileBased::mustExecute();
+}
+
+namespace
+{
+/// What of the flat settings lays the flat a wrap is read on, as a string
+std::string wrapKey(const FlatSettings& settings)
+{
+    return settings.root + "|" + (settings.secondSkin ? "1" : "0") + "|" + settings.alignEdge;
+}
+
+/// The settings the sheet's flat is laid by, the defaults if none
+FlatSettings flatSettingsOf(const App::DocumentObject* feature)
+{
+    auto body = Body::findBodyOf(feature);
+    auto solid = body ? body->getSolidBody(feature) : nullptr;
+    return solid ? solid->flatSettings() : FlatSettings();
+}
+}  // namespace
+
+bool SheetMetalCutout::skipRecompute()
+{
+    // no property of its own touched: told by the settings
+    return !flatSettingsChanged() && ProfileBased::skipRecompute();
+}
+
+bool SheetMetalCutout::flatSettingsChanged() const
+{
+    return Wrap.getValue() && WrapFrame.getValue() == 1
+        && wrapKey(flatSettingsOf(this)) != WrapSettings.getValue();
 }
 
 void SheetMetalCutout::onChanged(const App::Property* prop)
@@ -84,6 +133,7 @@ void SheetMetalCutout::onChanged(const App::Property* prop)
         // a wrap is cut through the flat: no way, no first only
         Reversed.setStatus(App::Property::ReadOnly, Wrap.getValue());
         UpToFirst.setStatus(App::Property::ReadOnly, Wrap.getValue());
+        WrapFrame.setStatus(App::Property::ReadOnly, !Wrap.getValue());
     }
     ProfileBased::onChanged(prop);
 }
@@ -112,13 +162,53 @@ App::DocumentObjectExecReturn* SheetMetalCutout::execute()
         // against the sketch's normal, as a pocket's
         const gp_Dir way = Reversed.getValue() ? gp_Dir(n) : gp_Dir(n.Reversed());
 
-        const std::vector<TopoShape> tools = Wrap.getValue()
-            ? SheetMetal::wrapCutoutTools(model, base.getShape(), face.getShape(), gp_Dir(n))
-            : SheetMetal::cutoutTools(model,
-                                      base.getShape(),
-                                      face.getShape(),
-                                      way,
-                                      UpToFirst.getValue());
+        std::vector<TopoShape> tools;
+        if (Wrap.getValue() && WrapFrame.getValue() == 1) {
+            // the flat as the sheet lays it: its root, second skin, the
+            // edge it is turned by, as the feature before's flat is
+            const FlatSettings settings = flatSettingsOf(this);
+            // what it is cut by, though the cut fail
+            if (wrapKey(settings) != WrapSettings.getValue()) {
+                WrapSettings.setValue(wrapKey(settings));
+            }
+            int root = -1;
+            if (!settings.root.empty()) {
+                root = model.find(settings.root);
+                if (root < 0 || model.elements[root].kind != SheetMetal::Element::Kind::Wall) {
+                    FC_THROWM(Base::ValueError,
+                              "The sheet has no wall " << settings.root << " to lay on");
+                }
+            }
+            for (std::size_t i = 0; i < model.elements.size() && root < 0; ++i) {
+                if (model.elements[i].kind == SheetMetal::Element::Kind::Wall) {
+                    root = static_cast<int>(i);
+                }
+            }
+            TopoDS_Edge alongX;
+            if (!settings.alignEdge.empty()) {
+                const TopoShape edge =
+                    base.getSubTopoShape(settings.alignEdge.c_str(), /*silent*/ true);
+                if (!edge.isNull() && edge.getShape().ShapeType() == TopAbs_EDGE) {
+                    alongX = TopoDS::Edge(edge.getShape());
+                }
+            }
+            tools = SheetMetal::wrapCutoutToolsFlat(model,
+                                                    base.getShape(),
+                                                    face.getShape(),
+                                                    gp_Dir(n),
+                                                    root,
+                                                    settings.secondSkin,
+                                                    alongX);
+        }
+        else {
+            tools = Wrap.getValue()
+                ? SheetMetal::wrapCutoutTools(model, base.getShape(), face.getShape(), gp_Dir(n))
+                : SheetMetal::cutoutTools(model,
+                                          base.getShape(),
+                                          face.getShape(),
+                                          way,
+                                          UpToFirst.getValue());
+        }
         TopoShape tool = TopoShape().makECompound(tools);
         SheetMetal::storePCurves(tool);
         AddSubShape.setValue(tool);

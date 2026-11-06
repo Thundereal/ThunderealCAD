@@ -29,6 +29,8 @@
 #include <vector>
 
 #include <TopoDS_Face.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
 #include <TopoDS_Shape.hxx>
 
 #include "Feature.h"
@@ -38,6 +40,21 @@ namespace PartDesign
 {
 
 class SheetMetalRule;
+
+/// What a convert cut into the part before recognising it: each rip -- a
+/// point of its edge and the outward normals of the two faces there, the
+/// gap on the plane halving them -- and the sheet's outer corner where a
+/// corner relief was cut
+struct ConvertCuts
+{
+    struct Rip
+    {
+        gp_Pnt at;
+        gp_Dir na, nb;
+    };
+    std::vector<Rip> rips;
+    std::vector<gp_Pnt> relieved;
+};
 
 /** A part no sheet metal feature made, taken as sheet metal
  * (docs/SheetMetal.md sec 5.3, ruled 2026-11-04)
@@ -85,11 +102,12 @@ public:
 
 private:
     /// A solid or a shell made a thin part: thickened, its rips and corner
-    /// reliefs cut, its bends rounded
+    /// reliefs cut, its bends rounded; what it cut in \a cuts
     Part::TopoShape thickened(const Part::TopoShape& base, const TopoDS_Face& fixed,
                               const std::vector<TopoDS_Shape>& open,
                               const std::vector<TopoDS_Shape>& rips,
-                              const SheetMetalRule& rule);
+                              const SheetMetalRule& rule,
+                              ConvertCuts& cuts);
 };
 
 }  // namespace PartDesign

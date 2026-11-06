@@ -247,22 +247,23 @@ class TestSheetMetalConvert(unittest.TestCase):
     def edges(self, shape, test):
         return ["Edge%d" % (i + 1) for i, e in enumerate(shape.Edges) if test(e)]
 
-    def tray(self, **props):
+    def tray(self, size=(40, 20, 10), at=FreeCAD.Vector(), **props):
         """A box 40 x 20 x 10, its top open, its four upright edges ripped"""
-        body = self.body(Part.makeBox(40, 20, 10))
+        body = self.body(Part.makeBox(*size, at))
         box = body.BaseFeature.Shape
+        top = at.z + size[2]
         convert = body.newObject("PartDesign::SheetMetalConvert", "Convert")
         convert.FixedFace = (
             body.BaseFeature,
-            [self.face(box, lambda f: abs(f.BoundBox.ZMax) < 1e-7)],
+            [self.face(box, lambda f: abs(f.BoundBox.ZMax - at.z) < 1e-7)],
         )
         convert.OpenFaces = (
             body.BaseFeature,
-            [self.face(box, lambda f: abs(f.BoundBox.ZMin - 10) < 1e-7)],
+            [self.face(box, lambda f: abs(f.BoundBox.ZMin - top) < 1e-7)],
         )
         convert.RipEdges = (
             body.BaseFeature,
-            self.edges(box, lambda e: abs(e.BoundBox.ZLength - 10) < 1e-7),
+            self.edges(box, lambda e: abs(e.BoundBox.ZLength - size[2]) < 1e-7),
         )
         for k, v in props.items():
             setattr(convert, k, v)
@@ -276,7 +277,7 @@ class TestSheetMetalConvert(unittest.TestCase):
         convert = self.tray()
         self.checkValid(convert)
         self.assertEqual(convert.Kind, "Solid")
-        box = convert.Shape.BoundBox
+        box = convert.Shape.optimalBoundingBox()
         for k, v in (("XLength", 40), ("YLength", 20), ("ZLength", 10)):
             self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
         leg = BA + 8
@@ -285,15 +286,115 @@ class TestSheetMetalConvert(unittest.TestCase):
         bends = PartDesign.checkSheet(convert)["Bends"]
         self.assertEqual([b["RadiusSource"] for b in bends], ["rule"] * 4)
 
+    def flangeTray(self, **rule):
+        """The flange suite's mitred tray -- a 40 x 20 plate, one flange on
+        its four top edges -- the rule so set, in a document of its own: its
+        bound box, volume, and flat's length, width and area"""
+        doc = FreeCAD.newDocument("PartDesignTestSheetMetalConvertFlange")
+        try:
+            body = doc.addObject("PartDesign::Body", "Body")
+            sketch = body.newObject("Sketcher::SketchObject", "Sketch")
+            pts = [(0, 0), (40, 0), (40, 20), (0, 20)]
+            for i in range(4):
+                a, b = pts[i], pts[(i + 1) % 4]
+                sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+            plate = body.newObject("PartDesign::SheetMetalBaseWall", "Plate")
+            plate.Profile = sketch
+            doc.recompute()
+            for k, v in rule.items():
+                setattr(plate.Rule, k, v)
+            doc.recompute()
+            names = []
+            for i, e in enumerate(plate.Shape.Edges):
+                if all(abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes) and (
+                    e.BoundBox.XLength in (0, 40) and e.BoundBox.YLength in (0, 20)
+                ):
+                    names.append("Edge%d" % (i + 1))
+            self.assertEqual(len(names), 4)
+            flange = body.newObject("PartDesign::SheetMetalFlange", "Flange")
+            flange.Edges = (plate, names)
+            doc.recompute()
+            self.assertNotIn("Invalid", flange.State, flange.getStatusString())
+            flat = Flat(flange)
+            self.assertNotIn("Invalid", flat.State)
+            return (
+                flange.Shape.optimalBoundingBox(),
+                flange.Shape.Volume,
+                flat.FlatLength.Value,
+                flat.FlatWidth.Value,
+                flat.FlatArea.Value,
+            )
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+
+    def checkAsFlangeTray(self, convert, **rule):
+        box, volume, length, width, area = self.flangeTray(**rule)
+        self.checkValid(convert)
+        self.assertAlmostEqual(convert.Shape.Volume, volume, places=6)
+        for k in ("XLength", "YLength", "ZLength"):
+            self.assertAlmostEqual(
+                getattr(convert.Shape.optimalBoundingBox(), k), getattr(box, k), places=6, msg=k
+            )
+        self.checkFlat(convert, length, width, area=area, bends=4)
+
+    def testSolidTrayCornerRelief(self):
+        """The rule's corner relief cut where the tray's bends meet at each
+        rip, as a flange cuts it at a miter: with one larger than the
+        convert's own square relief (a circle 6 across), the tray is the
+        flange suite's mitred tray, its volume and its flat"""
+        convert = self.tray()
+        convert.Rule.CornerReliefSize = 6
+        self.Doc.recompute()
+        self.checkAsFlangeTray(convert, CornerReliefSize=6)
+
+    def testSolidTrayCornerReliefSquare(self):
+        """A square relief 6 on a side: the flange tray's too"""
+        convert = self.tray()
+        convert.Rule.CornerReliefShape = "Square"
+        convert.Rule.CornerReliefSize = 6
+        self.Doc.recompute()
+        self.checkAsFlangeTray(convert, CornerReliefShape="Square", CornerReliefSize=6)
+
+    def testSolidTrayCornerReliefNone(self):
+        """None, and Tear, the rip's gap: the convert's own square relief
+        alone, more material than the rule's circle leaves"""
+        convert = self.tray()
+        relieved = convert.Shape.Volume
+        convert.Rule.CornerReliefShape = "None"
+        self.Doc.recompute()
+        self.checkValid(convert)
+        plain = convert.Shape.Volume
+        self.assertGreater(plain, relieved + 1e-3)
+        convert.Rule.CornerReliefShape = "Tear"
+        self.Doc.recompute()
+        self.checkValid(convert)
+        self.assertAlmostEqual(convert.Shape.Volume, plain, places=9)
+
     def testSolidOutside(self):
         """Thickened outside: the box's faces the inner skins, the tray a
         thickness larger every way it was thickened"""
         convert = self.tray(Side="Outside")
         self.checkValid(convert)
-        box = convert.Shape.BoundBox
+        box = convert.Shape.optimalBoundingBox()
         for k, v in (("XLength", 42), ("YLength", 22), ("ZLength", 11)):
             self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
         self.checkFlat(convert, 40 - 2 * 1 + 2 * (BA + 9), 20 - 2 * 1 + 2 * (BA + 9), bends=4)
+
+    def testSolidOutsideAsInside(self):
+        """Thickened outside, the tray is the one a box a thickness larger
+        every way it was thickened makes inside -- its corner reliefs the
+        rule's, cut from the outer corner, not the box's own -- the same
+        solid and the same flat"""
+        outside = self.tray(Side="Outside")
+        inside = self.tray(size=(42, 22, 11), at=V(-1, -1, -1))
+        self.checkValid(outside)
+        self.checkValid(inside)
+        self.assertAlmostEqual(outside.Shape.Volume, inside.Shape.Volume, places=6)
+        self.assertLess(outside.Shape.cut(inside.Shape).Volume, 1e-6)
+        a, b = Flat(outside), Flat(inside)
+        self.assertAlmostEqual(a.FlatLength.Value, b.FlatLength.Value, places=6)
+        self.assertAlmostEqual(a.FlatWidth.Value, b.FlatWidth.Value, places=6)
+        self.assertAlmostEqual(a.FlatArea.Value, b.FlatArea.Value, places=4)
 
     def testSolidLoopRefused(self):
         """Not ripped, the box's sides close a loop of bends round it, which
@@ -336,7 +437,7 @@ class TestSheetMetalConvert(unittest.TestCase):
         convert = self.shellConvert(self.ell())
         self.checkValid(convert)
         self.assertEqual(convert.Kind, "Shell")
-        box = convert.Shape.BoundBox
+        box = convert.Shape.optimalBoundingBox()
         for k, v in (("XLength", 30), ("YLength", 40), ("ZLength", 20)):
             self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
         self.checkFlat(convert, 28 + 18 + BA, 40, area=(28 + 18 + BA) * 40, bends=1)
@@ -346,7 +447,7 @@ class TestSheetMetalConvert(unittest.TestCase):
         only, 29 + 19 + BA long"""
         convert = self.shellConvert(self.ell(), Side="Outside")
         self.checkValid(convert)
-        box = convert.Shape.BoundBox
+        box = convert.Shape.optimalBoundingBox()
         for k, v in (("XLength", 31), ("YLength", 40), ("ZLength", 21)):
             self.assertAlmostEqual(getattr(box, k), v, places=6, msg=k)
         self.checkFlat(convert, 29 + 19 + BA, 40, area=(29 + 19 + BA) * 40, bends=1)

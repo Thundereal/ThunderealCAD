@@ -3770,6 +3770,60 @@ Phase D1 is under way (2026-10-28):
   - Not yet: the run's cost, 2 ms a step for the bar, most of it the modal
     assembly's own update at each iteration; stops' bounces leave a
     flexible part's interfaces as they were.
+- Built, D4b step 3: the document's flexible body.
+  - **`Assembly::FlexibleBody`**, a Physics item (`App/Physics.{h,cpp}`):
+    `Component`, `Modes` (12), `Damping` (0.02, at `DampingFrequency`, 0:
+    the first mode), `MeshSize` (0: a fortieth of the part's size), and
+    what is made for it: `Nodes` (the component's coordinates),
+    `Tetrahedra`, `InterfaceFrames` and `InterfaceNodes`, `MeshSignature`.
+    Its command, Assembly_CreateFlexibleBody (`CommandCreateFlexibleBody.py`):
+    the component selected, used by every Dynamic study; its icon a bar
+    bent from its hold.
+  - **Its mesh and interfaces are made before a run** (`FlexibleBodies.py`,
+    `prepare()`; the Simulation panel calls it, `prepareStudy()`): Netgen
+    through the Fem workbench, second order, in a hidden document of its
+    own; each joint on the component an interface, labelled as the model
+    labels the joint's frame (its full name), its nodes those of the faces
+    its reference stands for (`MotionLoads._facesOf()`, FemMesh
+    `getNodesByFace()`); kept while the shape, the size and the joints'
+    references are the same (`MeshSignature`). A force element's end on
+    the part takes the nearest node, the run's default.
+  - The model's builder (`AssemblyObject::addForces()`) turns it into the
+    `Flexible` record once every frame is made: the nodes into the body's
+    frame, the material the component's (`elasticityOf()`), its density its
+    mass over its volume -- an override's mass too -- and each frame on the
+    body its interface by its label. A component in a rigid group or fixed
+    to the ground stays rigid, with a warning; so does one with no mesh.
+  - **Found on the way: the session wrappers lost the mesh.** The joints'
+    centres (`centredOnJoints()`) move each body's frame to its joints'
+    centre, its frames and inertia with it but not its mesh: the
+    pendulum's rod, its frame moved to its hinge at (0, 5, 5), had its mesh
+    5 mm off and swung down 1.10% early, whatever the mesh or the step.
+    And the rigid groups (`groupedRigidly()`) dropped the flexible
+    records: a part with a block welded to it ran rigid. Now the mesh moves
+    with its body's frame, and a flexible body is neither taken out nor
+    grown into a group: what is welded to it is held at its interface.
+  - And Netgen's tetrahedra turn the other way to Chrono's, whose
+    stiffness takes the Jacobian's sign: each is turned (its corners 1 and
+    2, and their edges' nodes, swapped) where it needs it. And
+    `femmesh.Nodes` makes the whole dict at each read: read once, the
+    mesh's 17 s are 0.8.
+  - The reduction with the symmetric eigensolver (Spectra's Krylov-Schur,
+    a real LU) where the modal assembly took the complex one only (our
+    Chrono takes either now): the rod of 16000 coordinates 9.1 s to 5.3.
+  - Tests: TestFlexibleBody -- test_mesh_and_interfaces (the rod's mesh in
+    its coordinates, its interface every node of the hinge's face, kept,
+    made again for another size); test_welded_block (a block welded to the
+    rod's end held at an interface of its own, the rod still bending);
+    test_flexible_pendulum (aluminium, let go level: its centre at the
+    bottom in a quarter period within 0.2% of the closed form, the run
+    reporting six modal coordinates). TestGuiCommands' test_flexible_body
+    (the command idle until a component is picked, the body in the Dynamic
+    study only, one undo). FlexibleBody.cantileverModesAreTheClampedBeams
+    now with every other tetrahedron turned the other way, the same modes.
+  - Not yet: the reduction is made again at each run (5 s for the rod); a
+    task panel of its own, the modes' frequencies shown before the run;
+    the deformation and stresses (step 4).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

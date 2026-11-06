@@ -1793,6 +1793,25 @@ stored flat and this option do what it was for.
   `testGussetSharpBehindTheBend`, `testGussetSaveRestore`, `testGussetSharp`, `testGussetRefused`;
   `sheet-metal-commands.py` (+1; before, a bend's face made a dimple, refused),
   `sheet-metal-panels.py` (+1; before, an abort).
+- **Built 2026-11-06, M5's third item, tab and slot** (its design as recommended and taken
+  2026-11-06): two features, the tabbed part and the slotted one being two bodies, and a feature
+  changing only its own. Locating Tabs, `PartDesign::SheetMetalLocatingTabs`, in the tabbed part's
+  body: `Face` a wall's end face across its thickness, `Count` tabs (1 at least) `Width` wide along
+  it and `Length` out of it, the wall's thickness through, spread between `Margin` in from either
+  end, their middles evenly apart, one in the middle; they are the wall's (in its slab), lying flat
+  with it; `TabShape` holds them alone. Slots, `PartDesign::SheetMetalSlots`, in the slotted part's
+  body: `Tabs` a Locating Tabs in any body (a global link), its tabs moved from their body's
+  placement into this one's, each grown by `Clearance` all round (an offset, the Intersection join,
+  square), cut through the feature it builds on; a hidden `TabsBody` link to the tabs' body makes
+  the slots follow it moved, as they follow the tabs' count and sizes. The sizes start from the
+  rule's thickness, as a form's (`Width` 6 T, `Length` T, `Margin` 3 T). Refused: tabs on a skin or
+  anything but a wall's end, more than fit between the margins, a size of 0; slots of no tabs, or of
+  tabs that miss the part (nothing cut). Both walls of one sheet (a ripped corner closed by tabs) is
+  the same Slots later in that body; not tested yet. The commands, on the tool bar: an end face of
+  the tip selected makes Locating Tabs, the tabs selected Slots in the active body; their panels
+  have their sizes. `TestSheetMetalTabSlot` (6; before, 0), `sheet-metal-commands.py` (107, +4: the
+  tool bar twice, each command), `sheet-metal-panels.py` (94, +4), the browser's tool bar lists them
+  (`serve-toolbar-browser.py` 21, `serve-sheet-metal.py` 21).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

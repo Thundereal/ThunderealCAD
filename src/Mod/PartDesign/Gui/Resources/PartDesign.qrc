@@ -103,6 +103,8 @@
         <file>icons/PartDesign_SheetMetalCrossBreak.svg</file>
         <file>icons/PartDesign_SheetMetalStarter.svg</file>
         <file>icons/PartDesign_SheetMetalForm.svg</file>
+        <file>icons/PartDesign_SheetMetalLocatingTabs.svg</file>
+        <file>icons/PartDesign_SheetMetalSlots.svg</file>
         <file>icons/PartDesign_SheetMetalFlatMarkings.svg</file>
         <file>icons/PartDesign_SheetMetalCutout.svg</file>
         <file>icons/PartDesign_SheetMetalFold.svg</file>

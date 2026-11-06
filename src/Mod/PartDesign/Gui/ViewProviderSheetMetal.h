@@ -210,6 +210,30 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// Locating tabs on a wall's end, its panel the face, the count and the sizes
+class PartDesignGuiExport ViewProviderSheetMetalLocatingTabs: public ViewProvider
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalLocatingTabs);
+
+public:
+    ViewProviderSheetMetalLocatingTabs();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
+/// Slots for another part's tabs, its panel the clearance
+class PartDesignGuiExport ViewProviderSheetMetalSlots: public ViewProvider
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalSlots);
+
+public:
+    ViewProviderSheetMetalSlots();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A part converted, its panel its fixed face, open faces, rip edges and side
 class PartDesignGuiExport ViewProviderSheetMetalConvert: public ViewProvider
 {

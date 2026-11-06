@@ -524,6 +524,41 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalForm::getEditDialog()
             {{"Face", "Face", true}}));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalLocatingTabs, PartDesignGui::ViewProvider)
+
+ViewProviderSheetMetalLocatingTabs::ViewProviderSheetMetalLocatingTabs()
+{
+    sPixmap = "PartDesign_SheetMetalLocatingTabs";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalLocatingTabs::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalLocatingTabs",
+                                     QObject::tr("Locating tabs parameters"),
+                                     {"Count", "Width", "Length", "Margin"},
+                                     {{"Face", "Face", true}}));
+}
+
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalSlots, PartDesignGui::ViewProvider)
+
+ViewProviderSheetMetalSlots::ViewProviderSheetMetalSlots()
+{
+    sPixmap = "PartDesign_SheetMetalSlots";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalSlots::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalSlots",
+                                     QObject::tr("Slots parameters"),
+                                     {"Clearance"}));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalRule, PartGui::ViewProviderPart)
 
 ViewProviderSheetMetalRule::ViewProviderSheetMetalRule() = default;

@@ -1246,6 +1246,125 @@ bool CmdPartDesignSheetMetalForm::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalLocatingTabs
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalLocatingTabs)
+
+CmdPartDesignSheetMetalLocatingTabs::CmdPartDesignSheetMetalLocatingTabs()
+    : Command("PartDesign_SheetMetalLocatingTabs")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Locating Tabs");
+    sToolTipText = QT_TR_NOOP("Puts tabs on a wall's end, for slots in a part it stands on:\n"
+                              "select the wall's end face, across its thickness");
+    sWhatsThis = "PartDesign_SheetMetalLocatingTabs";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalLocatingTabs";
+}
+
+void CmdPartDesignSheetMetalLocatingTabs::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    auto tip = body->Tip.getValue();
+    std::string face;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        if (sel.getObject() != tip) {
+            continue;
+        }
+        for (const auto& sub : sel.getSubNames()) {
+            if (boost::starts_with(sub, "Face") && face.empty()) {
+                face = sub;
+            }
+        }
+    }
+    if (face.empty()) {
+        warn(QT_TR_NOOP("No end face"),
+             QT_TR_NOOP("Select the end face of a wall on the body's tip, across its "
+                        "thickness, for the tabs."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Locating Tabs"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalLocatingTabs", "LocatingTabs");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Face = (" << getObjectCmd(tip) << ", ['" << face << "'])");
+    finishFeature(this, feat, tip);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalLocatingTabs::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
+// PartDesign_SheetMetalSlots
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalSlots)
+
+CmdPartDesignSheetMetalSlots::CmdPartDesignSheetMetalSlots()
+    : Command("PartDesign_SheetMetalSlots")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Slots");
+    sToolTipText = QT_TR_NOOP("Cuts slots in the active body for another part's tabs, a\n"
+                              "clearance all round: select the Locating Tabs");
+    sWhatsThis = "PartDesign_SheetMetalSlots";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalSlots";
+}
+
+void CmdPartDesignSheetMetalSlots::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* tabs = nullptr;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        auto obj = sel.getObject();
+        if (obj && obj->isDerivedFrom(Base::Type::fromName("PartDesign::SheetMetalLocatingTabs"))) {
+            tabs = obj;
+            break;
+        }
+    }
+    if (!tabs) {
+        warn(QT_TR_NOOP("No tabs"),
+             QT_TR_NOOP("Select the Locating Tabs the slots are for, with the body to cut them "
+                        "in active."));
+        return;
+    }
+    auto tip = body->Tip.getValue();
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Slots"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalSlots", "Slots");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat, std::ostringstream() << "Tabs = " << getObjectCmd(tabs));
+    finishFeature(this, feat, tip);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalSlots::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatten
 //===========================================================================
 
@@ -1846,6 +1965,8 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalRip());
     mgr.addCommand(new CmdPartDesignSheetMetalCrossBreak());
     mgr.addCommand(new CmdPartDesignSheetMetalForm());
+    mgr.addCommand(new CmdPartDesignSheetMetalLocatingTabs());
+    mgr.addCommand(new CmdPartDesignSheetMetalSlots());
     mgr.addCommand(new CmdPartDesignSheetMetalCutout());
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());

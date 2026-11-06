@@ -208,6 +208,8 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderSheetMetalTab::init();
     PartDesignGui::ViewProviderSheetMetalConvert::init();
     PartDesignGui::ViewProviderSheetMetalForm::init();
+    PartDesignGui::ViewProviderSheetMetalLocatingTabs::init();
+    PartDesignGui::ViewProviderSheetMetalSlots::init();
     PartDesignGui::ViewProviderSheetMetalRule::init();
     PartDesignGui::ViewProviderSheetMetalFlatPattern::init();
 
@@ -232,6 +234,8 @@ PyMOD_INIT_FUNC(PartDesignGui)
              << "PartDesign_SheetMetalRip"
              << "PartDesign_SheetMetalCrossBreak"
              << "PartDesign_SheetMetalForm"
+             << "PartDesign_SheetMetalLocatingTabs"
+             << "PartDesign_SheetMetalSlots"
              << "PartDesign_SheetMetalCutout"
              << "PartDesign_SheetMetalBendCuts"
              << "PartDesign_SheetMetalFold"

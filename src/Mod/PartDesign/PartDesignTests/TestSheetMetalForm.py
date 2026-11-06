@@ -273,6 +273,93 @@ class TestSheetMetalForm(unittest.TestCase):
         flat = self.flatObject()
         self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
 
+    def louver(self, **props):
+        """A louver at the plate's middle, (20, 15): 20 long along X, 6 from
+        its hinge to its opening, which faces +Y, its lip 3 above the face"""
+        sizes = dict(Length=20, Width=6, Depth=3, Radius=0.5, FlankAngle=45)
+        sizes.update(props)
+        return self.form(Kind="Louver", Positions=self.points([(20, 15)]), **sizes)
+
+    def testLouver(self):
+        """A built-in louver: the sheet cut along one long side, the strip
+        risen as a hood, a ramp from its hinge to the opening Depth above the
+        face, its ends drawn down to the face at FlankAngle; the thickness all
+        through it, the plate beneath it open"""
+        feature = self.louver()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 3, places=6)
+        # the ramp, 3 over 6, so its top 2.75 above the face 2.5 in from the
+        # middle toward the opening, the thickness square to it 1.118 deep
+        self.assertTrue(shape.isInside(V(20, 17.5, T + 2.25), 1e-7, True))
+        self.assertFalse(shape.isInside(V(20, 17.5, T + 0.5), 1e-7, True))
+        self.assertFalse(shape.isInside(V(20, 17.5, T / 2), 1e-7, True))
+        # open beneath the lip, the plate in front of it as it was
+        self.assertFalse(shape.isInside(V(20, 17.9, T + 1), 1e-7, True))
+        self.assertTrue(shape.isInside(V(20, 18.5, T / 2), 1e-7, True))
+        self.assertFalse(shape.isInside(V(20, 18.5, T + 0.1), 1e-7, True))
+        # an end, drawn: closed, sloping to the face at 45 deg
+        self.assertTrue(shape.isInside(V(29.6, 17, T + 0.2), 1e-7, True))
+        self.assertFalse(shape.isInside(V(29.6, 17, T + 0.6), 1e-7, True))
+        # behind the hinge, the plate as it was
+        self.assertTrue(shape.isInside(V(20, 11.5, T / 2), 1e-7, True))
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 18, T + 3))), "Form1")
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testLouverTurned(self):
+        """Angle 90: the louver along Y, opening toward -X"""
+        feature = self.louver(Angle=90)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isInside(V(17.5, 15, T + 2.25), 1e-7, True))
+        self.assertFalse(feature.Shape.isInside(V(17.9, 15, T + 1), 1e-7, True))
+        self.assertTrue(feature.Shape.isInside(V(11.5, 15, T / 2), 1e-7, True))
+
+    def testLouverSharp(self):
+        """Radius 0: its bends sharp"""
+        feature = self.louver(Radius=0)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isValid())
+
+    def testLouverRefused(self):
+        """Ends meeting before the lip's height, no room inside under the
+        lip for the thickness, a size of 0"""
+        for props in (
+            dict(Length=4),
+            dict(Depth=1),
+            dict(Width=0),
+            dict(Length=0),
+            dict(Depth=0),
+        ):
+            with self.subTest(**props):
+                feature = self.louver(**props)
+                self.assertIn("Invalid", feature.State)
+                self.Doc.removeObject(feature.Name)
+
+    def testSizesFromThickness(self):
+        """A built-in form's sizes start from the sheet's thickness: the
+        rule's 2 mm doubles them; set before, they are kept"""
+        self.Plate.Rule.Thickness = 2
+        self.Doc.recompute()
+        feature = self.Body.newObject("PartDesign::SheetMetalForm", "Form")
+        sizes = ("Diameter", "Depth", "Radius", "Length", "Width")
+        self.assertEqual(
+            [getattr(feature, p).Value for p in sizes], [20.0, 4.0, 2.0, 40.0, 12.0]
+        )
+        self.assertEqual(feature.FlankAngle.Value, 45)
+        kept = self.Doc.addObject("PartDesign::SheetMetalForm", "Kept")
+        kept.Diameter = 7
+        self.Body.addObject(kept)
+        self.assertEqual(kept.Diameter.Value, 7)
+        self.assertEqual(kept.Depth.Value, 4)
+
     def testFollowsEdit(self):
         """A point moved, the form moves"""
         positions = self.points()

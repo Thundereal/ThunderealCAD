@@ -22,8 +22,8 @@
     refused; OK keeps ordinary features, one undo takes them away, Cancel
     leaves nothing (M5, ruled 2026-11-06);
   - Form's panel: its face, its kind, its points' sketch, its angle and way,
-    a dimple's sizes, greyed out for a tool's form; a size set there is the
-    form's.
+    a dimple's sizes and a louver's, each kind's greyed out for the others;
+    a size set there is the form's.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
@@ -932,12 +932,14 @@ def run():
             "Angle",
             "Reversed",
             "Diameter",
+            "Length",
+            "Width",
             "Depth",
             "Radius",
             "FlankAngle",
         )
         check(
-            "Form opens its panel: its kind, points, angle, way and a dimple's sizes",
+            "Form opens its panel: its kind, points, angle, way and the built-ins' sizes",
             fforms and all(n in w for n in names),
             sorted(n for n in w if n[0].isupper()),
         )
@@ -950,12 +952,35 @@ def run():
                 abs(fforms[0].Diameter.Value - 14) < 1e-9 and "Invalid" not in fforms[0].State,
                 (fforms[0].Diameter, fforms[0].State),
             )
+            check(
+                "a dimple greys out the louver's sizes",
+                not w["Length"].isEnabled() and not w["Width"].isEnabled(),
+            )
             fforms[0].Kind = "Tool"
             pump(40)
             w = panel() or {}
             check(
                 "a tool's form greys out the dimple's sizes",
                 "Diameter" in w and not w["Diameter"].isEnabled(),
+            )
+            fforms[0].Kind = "Louver"
+            pump(40)
+            doc.recompute()
+            # the panel greys out what the recompute made read only a moment after
+            pump(20)
+            w = panel() or {}
+            check(
+                "a louver: its sizes, the dimple's diameter greyed out; made at them",
+                "Length" in w
+                and w["Length"].isEnabled()
+                and w["Width"].isEnabled()
+                and not w["Diameter"].isEnabled()
+                and "Invalid" not in fforms[0].State,
+                (
+                    fforms[0].State,
+                    fforms[0].getStatusString(),
+                    {n: w[n].isEnabled() for n in ("Length", "Width", "Diameter") if n in w},
+                ),
             )
             fforms[0].Kind = "Dimple"
             pump(20)

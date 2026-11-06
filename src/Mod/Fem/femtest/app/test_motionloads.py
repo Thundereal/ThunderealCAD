@@ -431,7 +431,10 @@ class TestMotionLoads(unittest.TestCase):
         (turning about its y, along the global z): its first two, clamped
         across y at 835 Hz (1.875^2 / 2 pi sqrt(E I / rho A L^4)) and
         pinned across z at about 4.39 times that, (3.927 / 1.875)^2. Held
-        stiff, the bar's first two are both the clamped one."""
+        stiff, the bar's first two are both the clamped one. Free to turn,
+        the bar also turns as a whole at 0 Hz, a mode ccx lists only when its
+        eigenvalue comes out above zero -- the same input either way from one
+        run to the next -- so the modes compared are the bar's own, above 1 Hz."""
         self.bar()
         fixed = self.doc.getObject("Fixed")
         self.analysis.removeObject(fixed)
@@ -450,7 +453,7 @@ class TestMotionLoads(unittest.TestCase):
                 setattr(rb, "TranslationalMode" + axis, "Constraint")
                 setattr(rb, "RotationalMode" + axis, "Free" if axis == free else "Constraint")
             self.doc.recompute()
-            return self.frequencies()
+            return [f for f in self.frequencies() if f > 1.0]
 
         stiff = held(None)
         pinned = held("Z")

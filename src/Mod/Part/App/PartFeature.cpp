@@ -2255,13 +2255,12 @@ TopLoc_Location Feature::getLocation() const
         return {};
     if (_hasLocation && _locationOf == pl)
         return _location;
-    Base::Rotation rot(pl.getRotation());
-    Base::Vector3d axis;
-    double angle;
-    rot.getValue(axis, angle);
+    // From the placement's matrix, as setTransform(toMatrix()) made the
+    // shape's before there was one location: through the axis and angle
+    // three of its terms came out an ulp off, and every shape and the faces'
+    // centres with them (BoxM in TestSolverGate's ASMT digests)
     gp_Trsf trf;
-    trf.SetRotation(gp_Ax1(gp_Pnt(), gp_Dir(axis.x, axis.y, axis.z)), angle);
-    trf.SetTranslationPart(gp_Vec(pl.getPosition().x,pl.getPosition().y,pl.getPosition().z));
+    TopoShape::convertTogpTrsf(pl.toMatrix(), trf);
     _location = TopLoc_Location(trf);
     _locationOf = pl;
     _hasLocation = true;

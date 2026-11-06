@@ -3824,6 +3824,48 @@ Phase D1 is under way (2026-10-28):
   - Not yet: the reduction is made again at each run (5 s for the rod); a
     task panel of its own, the modes' frequencies shown before the run;
     the deformation and stresses (step 4).
+- Built, D4b step 4 (first half): the deformation, drawn as the run plays.
+  - **What the run reports for it**: each frame, beside the modal
+    coordinates, its interfaces' own deformation ("InterfaceDeformation",
+    six an interface, mm and rad: each boundary body's pose in the floating
+    frame against its pose there at the start, as Chrono's
+    GetLocalDeformations() has them); and once, before the first frame,
+    its mode shapes (`Solver::ModeShapes`, a new TrajectorySink call):
+    the reduction matrix's rows of the mesh's nodes, Psi, turned from the
+    floating frame's axes into the body's, in mm per mm, rad or modal
+    coordinate. A node's displacement in the body's frame is Psi times the
+    two channels together; the body's pose is the floating frame's, so a
+    node is where the pose puts it, displaced. The session wrappers pass
+    them on (in the body's axes, which neither turns).
+  - The document keeps them on the flexible body (`ModeShapes`,
+    `ModeShapeColumns`, hidden: a list that size is saved as a file in the
+    archive), from `keepFrames()`: in its component's axes, which are its
+    body's.
+  - **The player draws it bent** (`FlexibleBodies.Deformation`): the mesh's
+    outer faces, each 6-node triangle as four, turned outward; at the time
+    shown -- between two frames, the coordinates interpolated -- moved by
+    the shapes and the coordinates, scaled up for the largest over the run
+    to be a tenth of the part's size, in place of the component, which
+    hides while it is drawn and shows again when the panel closes. Save
+    Animation's frames have it.
+  - The panel's Elements lists the flexible bodies.
+  - The manual's video (`assembly/simulation/flexible-bodies`): an
+    aluminium strip 200 x 20 x 2 hinged at one end, let go level -- 31130
+    nodes, the run of 0.3 s in 601 frames 90 s -- bending as it swings,
+    7.5 um at most, 3 ms in, drawn 2664 times; the hinge's force ringing
+    at the strip's 180 Hz as it starts.
+  - Tests: FlexibleBody.cantileverBendsAndRingsInARun -- the shapes and the
+    coordinates make the tip's node where the gram welded to it is, within
+    1e-3 of the sag, and the mid-span node's sag the beam's, q x^2 (6 L^2 -
+    4 L x + x^2) / 24 E I + P x^2 (3 L - x) / 6 E I, within 2%;
+    TestFlexibleBody.test_cantilever_deformation (the rod fixed to the
+    grounded block, flexible, not placed on the ground: its end, made of
+    the shapes, sagging q L^4 / 8 E I within 3%, its hold not);
+    TestGuiCommands' test_flexible_body_playback (the surface in the scene,
+    the component hidden, moved at each frame, both undone on closing).
+  - Not yet: the stresses (the second half); the run's cost on a fine mesh,
+    90 s for the strip's 601 steps, much of it the modal assembly's own
+    work at each step over the whole mesh.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

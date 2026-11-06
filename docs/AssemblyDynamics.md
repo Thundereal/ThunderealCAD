@@ -4869,6 +4869,24 @@ What this fork does:
   (the part's contact forces' local largest, a choice), the stress zoomed
   in was a line from the output frame before to the peak and on to the
   one after, an impact of 60 us drawn 5 ms wide.
+- **A saved video shows the Results box and the time**, so that what
+  the manual's videos show takes no script. Save Animation's menu (not
+  upstream) holds two choices, both on by default and kept in the
+  preferences (Mod/Assembly VideoResultsBox, VideoTime):
+  - With the Results box: the box beside the 3D view, as tall as the
+    view at most, at one scale for every frame, down to its value line
+    (`videoBoxImage()`, its buttons left out) -- each frame shown through
+    `showPlayed()`, so the plot, its slider and the value are that
+    frame's. Only when the box shows.
+  - With the time and speed: the panel's two labels' text over the
+    view's top left, on a light backing, whatever the view's background.
+
+  Both off, the frames are the 3D view's, as upstream's. The panel is
+  left at the frame it was at, its labels and plot too. Found on the way:
+  the panel widened and narrowed as it played, its frame, time and speed
+  labels as wide as their text then, and the Results box with it -- a
+  saved or grabbed box resized from frame to frame; the labels are now
+  as wide as their widest (`fitPlayerLabels()`).
 
 
 ## 9. UI / UX sketch

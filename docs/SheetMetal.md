@@ -1658,6 +1658,26 @@ stored flat and this option do what it was for.
   miter's slant through the lip's bend is not a cut normal to the sheet, and its mapped ends do
   not meet the skins' (eight free edges in the sewn flat). Bent out (a hat's lip) it lies flat.
   The box's lips stop square to keep clear of it.
+- **Built 2026-11-06, M5's second item, forms (the mechanism, user tools, the dimple):**
+  `PartDesign::SheetMetalForm`, one feature a kind (`Tool`, `Dimple`; the rest of the built-in
+  set to come), a form at each free point of `Positions`, a sketch on `Face`, a wall's skin of
+  the feature it builds on, turned by `Angle` from the sketch's X, rising into the face if
+  `Reversed`. A user's tool is any solid and a plane face of it set on the skin, taken as the
+  form's outside and hollowed to the thickness with that face open (`MakeThickSolidByJoin`), the
+  hollow opened down through the wall; the dimple is two cones the thickness apart at
+  `FlankAngle`, its four bends rounded concentric (`Radius` inside, `Radius` and the thickness
+  outside), the thickness all through it. Each form is a `SheetMetal::Form` of the model, not an
+  element: owned by its wall, with its frame and what it takes of the part (a box or a circle in
+  its frame, down through the wall); a face lying wholly in one is its wall's for the flat and
+  the form's by name. So the code walking walls and bends is unchanged. The flat object's
+  `FormDisplay`: `Formed` (kept, moved with the wall), `Outline` (first; the form's faces left
+  out, the holes they leave in the skins closed, its outline on the skin it rises from drawn on
+  the top, `Form1Outline1`...) or `CentreMark` (a cross, `Form1Mark1`, `2`); the DXF and SVG on
+  `FORMS`, the flat's view a seventh kind. A form off its face, running off its wall, a dimple
+  that closes to a point or has no room inside, and bends that cannot be rounded are refused.
+  The Form command takes a wall's face of the tip and a sketch, and a tool's face for Kind Tool.
+  `TestSheetMetalForm` (12; before, all errored), `sheet-metal-commands.py` (102, +3),
+  `sheet-metal-panels.py` (82, +4).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

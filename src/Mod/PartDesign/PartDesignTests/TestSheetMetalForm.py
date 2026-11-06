@@ -449,6 +449,82 @@ class TestSheetMetalForm(unittest.TestCase):
                 self.assertIn("Invalid", feature.State)
                 self.Doc.removeObject(feature.Name)
 
+    def drawn(self, kind, **props):
+        sizes = dict(Diameter=12, Length=12, Depth=3, Radius=0.5, FlankAngle=60)
+        sizes.update(props)
+        return self.form(Kind=kind, Positions=self.points([(20, 15)]), **sizes)
+
+    def testDrawnCutout(self):
+        """A built-in drawn cutout: a dimple open at its top, its slant at
+        FlankAngle, its rim's bend rounded, the thickness all through it;
+        round as long as it is wide"""
+        feature = self.drawn("DrawnCutout")
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 3, places=6)
+        # open all through at its middle
+        for z in (T / 2, T + 1.5, T + 2.9):
+            self.assertFalse(shape.isInside(V(20, 15, z), 1e-7, True), z)
+        # its wall 1.5 up: outside 6 - 1.5 / tan 60, the thickness / sin 60
+        # less inside, 5.134 and 3.979 from its axis
+        self.assertTrue(shape.isInside(V(24.5, 15, T + 1.5), 1e-7, True))
+        self.assertFalse(shape.isInside(V(23.5, 15, T + 1.5), 1e-7, True))
+        self.assertFalse(shape.isInside(V(25.5, 15, T + 1.5), 1e-7, True))
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testDrawnCutoutLong(self):
+        """Longer than it is wide: drawn out along the form's X as a bead"""
+        feature = self.drawn("DrawnCutout", Length=24)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertFalse(feature.Shape.isInside(V(26, 15, T + 1.5), 1e-7, True))
+        self.assertTrue(feature.Shape.isInside(V(20, 19.5, T + 1.5), 1e-7, True))
+        self.assertTrue(feature.Shape.isInside(V(30.5, 15, T + 1.5), 1e-7, True))
+
+    def testFlangedHole(self):
+        """A built-in flanged hole: a hole Diameter across, its rim drawn up
+        into a straight collar Depth above the face, its bend rounded"""
+        feature = self.drawn("FlangedHole", Diameter=8)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 3, places=6)
+        for z in (T / 2, T + 1.5):
+            self.assertFalse(shape.isInside(V(20, 15, z), 1e-7, True), z)
+        # its collar from 4 to 5 off its axis, straight
+        for z in (T + 1.5, T + 2.9):
+            self.assertTrue(shape.isInside(V(24.5, 15, z), 1e-7, True), z)
+            self.assertFalse(shape.isInside(V(23.9, 15, z), 1e-7, True), z)
+            self.assertFalse(shape.isInside(V(25.1, 15, z), 1e-7, True), z)
+        # past its bend, the plate as it was
+        self.assertTrue(shape.isInside(V(25.8, 15, T / 2), 1e-7, True))
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+
+    def testDrawnRefused(self):
+        """A drawn cutout closing at its top, one shorter than it is wide, a
+        flanged hole's collar no higher than its bend, a size of 0"""
+        cases = [
+            ("DrawnCutout", dict(Diameter=6, Length=6, FlankAngle=45)),
+            ("DrawnCutout", dict(Length=8)),
+            ("DrawnCutout", dict(Depth=0)),
+            ("FlangedHole", dict(Depth=0.5)),
+            ("FlangedHole", dict(Diameter=0)),
+        ]
+        for kind, props in cases:
+            with self.subTest(kind=kind, **props):
+                feature = self.drawn(kind, **props)
+                self.assertIn("Invalid", feature.State)
+                self.Doc.removeObject(feature.Name)
+
     def testSizesFromThickness(self):
         """A built-in form's sizes start from the sheet's thickness: the
         rule's 2 mm doubles them; set before, they are kept"""

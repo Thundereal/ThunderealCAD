@@ -22,8 +22,8 @@
     refused; OK keeps ordinary features, one undo takes them away, Cancel
     leaves nothing (M5, ruled 2026-11-06);
   - Form's panel: its face, its kind, its points' sketch, its angle and way,
-    a dimple's sizes, a louver's, a bead's and a lance's, each kind's greyed
-    out for the others;
+    a dimple's sizes, a louver's, a bead's, a lance's, a drawn cutout's and a
+    flanged hole's, each kind's greyed out for the others;
     a size set there is the form's.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
@@ -1027,6 +1027,29 @@ def run():
                     },
                 ),
             )
+            for kind, size, used, unused in (
+                ("DrawnCutout", 12, ("Diameter", "Length", "FlankAngle"), ("Width",)),
+                ("FlangedHole", 8, ("Diameter", "Depth"), ("Length", "Width", "FlankAngle")),
+            ):
+                fforms[0].Kind = kind
+                fforms[0].Diameter = size
+                fforms[0].Length = size
+                pump(40)
+                doc.recompute()
+                pump(20)
+                w = panel() or {}
+                check(
+                    "a %s: %s, %s greyed out" % (kind, ", ".join(used), ", ".join(unused)),
+                    all(n in w for n in used + unused)
+                    and all(w[n].isEnabled() for n in used)
+                    and not any(w[n].isEnabled() for n in unused)
+                    and "Invalid" not in fforms[0].State,
+                    (
+                        fforms[0].State,
+                        fforms[0].getStatusString(),
+                        {n: w[n].isEnabled() for n in used + unused if n in w},
+                    ),
+                )
             fforms[0].Kind = "Dimple"
             fforms[0].Diameter = 14
             pump(20)

@@ -25,6 +25,8 @@
     a dimple's sizes, a louver's, a bead's, a lance's, a drawn cutout's, a
     flanged hole's, an emboss's and a gusset's, each kind's greyed out for the
     others;
+  - Locating Tabs' panel and Slots': their sizes, a value set there the
+    feature's;
     a size set there is the form's.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
@@ -1085,6 +1087,85 @@ def run():
             and len(fforms[0].SheetModel.get("Forms", [])) == 1,
             fforms and (fforms[0].State, fforms[0].getStatusString()),
         )
+
+        # -- Locating Tabs' panel and Slots': their sizes, set there ---------
+        def sheetWall(wbody, name, corners, placement=None):
+            wsketch = wbody.newObject("Sketcher::SketchObject", name + "Sketch")
+            if placement:
+                wsketch.Placement = placement
+            for i in range(len(corners)):
+                a, b = corners[i], corners[(i + 1) % len(corners)]
+                wsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+            made = wbody.newObject("PartDesign::SheetMetalBaseWall", name)
+            made.Profile = wsketch
+            doc.recompute()
+            return made
+
+        sbody = doc.addObject("PartDesign::Body", "SlotBody")
+        sheetWall(sbody, "SlotPlate", [(0, 0), (60, 0), (60, 40), (0, 40)])
+        tbody = doc.addObject("PartDesign::Body", "TabBody")
+        upright = sheetWall(
+            tbody,
+            "Upright",
+            [(10, 1), (50, 1), (50, 21), (10, 21)],
+            FreeCAD.Placement(V(0, 20, 0), FreeCAD.Rotation(V(1, 0, 0), 90)),
+        )
+        foot = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(upright.Shape.Faces)
+            if isinstance(f.Surface, Part.Plane)
+            and abs(f.BoundBox.ZMax - 1) < 1e-7
+            and f.normalAt(0, 0).isEqual(V(0, 0, -1), 1e-7)
+        ]
+        view.setActiveObject("pdbody", tbody)
+        FreeCADGui.Selection.clearSelection()
+        if foot:
+            FreeCADGui.Selection.addSelection(doc.Name, upright.Name, foot[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalLocatingTabs")
+        pump()
+        made = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalLocatingTabs"]
+        w = panel() or {}
+        names = ("Count", "Width", "Length", "Margin")
+        check(
+            "Locating Tabs opens its panel: the count, the width, the length and the margin",
+            made and all(n in w for n in names),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        if made and all(n in w for n in names):
+            w["Count"].setValue(3)
+            pump(40)
+            doc.recompute()
+            check(
+                "a count set there is the tabs'",
+                made[0].Count == 3 and len(made[0].TabShape.Solids) == 3,
+                (made[0].Count, made[0].State),
+            )
+        accept()
+        pump(20)
+        view.setActiveObject("pdbody", sbody)
+        FreeCADGui.Selection.clearSelection()
+        if made:
+            FreeCADGui.Selection.addSelection(doc.Name, made[0].Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalSlots")
+        pump()
+        slots = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalSlots"]
+        w = panel() or {}
+        check(
+            "Slots opens its panel: the clearance",
+            slots and "Clearance" in w,
+            sorted(n for n in w if n[0].isupper()),
+        )
+        if slots and "Clearance" in w:
+            w["Clearance"].setProperty("rawValue", 0.2)
+            pump(40)
+            doc.recompute()
+            check(
+                "a clearance set there is the slots'",
+                abs(slots[0].Clearance.Value - 0.2) < 1e-9 and "Invalid" not in slots[0].State,
+                (slots[0].Clearance, slots[0].State, slots[0].getStatusString()),
+            )
+        accept()
+        pump(20)
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

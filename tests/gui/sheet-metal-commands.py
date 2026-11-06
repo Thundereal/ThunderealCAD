@@ -1620,6 +1620,107 @@ def run():
         view.setActiveObject("pdbody", body)
         pump(20)
 
+        # Locating Tabs and Slots (M5, ruled 2026-11-06): a plate, and an
+        # upright wall standing on it in a body of its own; tabs on the
+        # upright's foot, slots for them in the plate
+        def sheetWall(wbody, name, corners, placement=None):
+            wsketch = wbody.newObject("Sketcher::SketchObject", name + "Sketch")
+            if placement:
+                wsketch.Placement = placement
+            for i in range(len(corners)):
+                a, b = corners[i], corners[(i + 1) % len(corners)]
+                wsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+            made = wbody.newObject("PartDesign::SheetMetalBaseWall", name)
+            made.Profile = wsketch
+            doc.recompute()
+            return made
+
+        pbody = doc.addObject("PartDesign::Body", "SlotBody")
+        slotPlate = sheetWall(pbody, "SlotPlate", [(0, 0), (60, 0), (60, 40), (0, 40)])
+        ubody = doc.addObject("PartDesign::Body", "TabBody")
+        upright = sheetWall(
+            ubody,
+            "Upright",
+            [(10, 1), (50, 1), (50, 21), (10, 21)],
+            FreeCAD.Placement(V(0, 20, 0), FreeCAD.Rotation(V(1, 0, 0), 90)),
+        )
+        for name in ("PartDesign_SheetMetalLocatingTabs", "PartDesign_SheetMetalSlots"):
+            cmd = FreeCADGui.Command.get(name)
+            check(
+                "%s is on the tool bar" % name.split("SheetMetal")[1],
+                cmd is not None
+                and toolbar() is not None
+                and cmd.getAction()[0] in toolbar().actions(),
+            )
+        foot = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(upright.Shape.Faces)
+            if isinstance(f.Surface, Part.Plane)
+            and abs(f.BoundBox.ZMax - 1) < 1e-7
+            and f.normalAt(0, 0).isEqual(V(0, 0, -1), 1e-7)
+        ]
+        view.setActiveObject("pdbody", ubody)
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        if foot:
+            FreeCADGui.Selection.addSelection(doc.Name, upright.Name, foot[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalLocatingTabs")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        made = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalLocatingTabs"
+        ]
+        tabs = made[0] if made else None
+        check(
+            "with a wall's end face selected it puts tabs on it, the body's tip",
+            tabs is not None
+            and "Invalid" not in tabs.State
+            and ubody.Tip == tabs
+            and len(tabs.TabShape.Solids) == 2
+            and tabs.ViewObject.TypeId == "PartDesignGui::ViewProviderSheetMetalLocatingTabs",
+            tabs and (tabs.State, tabs.getStatusString()),
+        )
+        view.setActiveObject("pdbody", pbody)
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        if tabs is not None:
+            FreeCADGui.Selection.addSelection(doc.Name, tabs.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalSlots")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        made = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalSlots"
+        ]
+        slots = made[0] if made else None
+        check(
+            "with the tabs selected it cuts their slots in the active body",
+            slots is not None
+            and "Invalid" not in slots.State
+            and slots.Tabs == tabs
+            and pbody.Tip == slots
+            and slots.Shape.Volume < slotPlate.Shape.Volume - 1
+            and slots.ViewObject.TypeId == "PartDesignGui::ViewProviderSheetMetalSlots",
+            slots and (slots.State, slots.getStatusString()),
+        )
+        view.setActiveObject("pdbody", body)
+        pump(20)
+
         # Rip: a tube, which does not lie flat, cut open at a bend picked
         # (docs/SheetMetal.md sec 12, ruled 2026-11-05)
         ripCmd = FreeCADGui.Command.get("PartDesign_SheetMetalRip")

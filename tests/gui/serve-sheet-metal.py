@@ -100,6 +100,8 @@ COMMANDS = (
     "PartDesign_SheetMetalRip",
     "PartDesign_SheetMetalCrossBreak",
     "PartDesign_SheetMetalForm",
+    "PartDesign_SheetMetalLocatingTabs",
+    "PartDesign_SheetMetalSlots",
     "PartDesign_SheetMetalCutout",
     "PartDesign_SheetMetalFold",
     "PartDesign_SheetMetalJog",

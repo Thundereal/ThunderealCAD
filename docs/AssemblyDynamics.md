@@ -3633,9 +3633,9 @@ Phase D1 is under way (2026-10-28):
     coordinates on a floating frame, with the inertial coupling of its
     motion; gravity through the reduced mass; the internal nodes updated
     from the modes for display and stresses, a static correction for loads
-    on them. Its eigensolvers are Spectra's (header only, MPL-2.0,
-    conda-forge `spectra-cpp` 1.2.0); its K_II inverse a direct solver of
-    our choice. The 10-node tetrahedron is corotational
+    on them. Its eigensolvers are Spectra's (header only, MPL-2.0; its
+    develop branch, whose Krylov-Schur solvers no release has); its K_II
+    inverse a direct solver of our choice. The 10-node tetrahedron is corotational
     (`ChElementTetraCorot_10`), its stress at any point (GetStress); its
     mass lumped equally on the ten nodes, which for a 10-node tetrahedron
     is wrong (its corners take negative consistent mass): ours is a
@@ -3685,6 +3685,49 @@ Phase D1 is under way (2026-10-28):
   - Not in it: large deformation (the modes are linear about the shape at
     rest; a corotational mesh unreduced would be); a flexible part on the
     ground; the rotation's stiffening (geometric stiffness).
+- Built, D4b step 1: Chrono's modal module, and a flexible body reduced.
+  - **Spectra is a submodule**, `src/3rdParty/spectra` (Thundereal's fork
+    of yixuan/spectra, its develop branch): Chrono's modal module includes
+    `KrylovSchurGEigsSolver.h`, which no Spectra release has -- conda-forge's
+    `spectra-cpp` 1.2.0 neither -- and Chrono's own build scripts clone
+    develop. `ChronoCore.cmake` builds `Chrono_modal` beside the core when
+    the submodule is there (an imported `ChronoModal`), and the Assembly
+    compiles `Solver/ChronoFlexible.cpp` with it (`ASSEMBLY_WITH_CHRONO_MODAL`);
+    without it the backend says it has no flexible bodies.
+  - The neutral model's `Dynamics::flexibles` (`Flexible`): the body's
+    10-node tetrahedra in its frame, E, nu and the density, the modes and
+    the damping, and each interface's frame and nodes; scaled to SI with
+    the rest (`scaled()`), compared by `sameMechanism()`.
+  - `ChronoFlexible::build()` and `reduce()`: the mesh internal in a
+    `ChModalAssembly`, our tetrahedron with the consistent mass
+    (`ConsistentTet10`); a boundary body per interface, a millionth of the
+    mesh's mass, its nodes tied to it by `ChLinkNodeFrame` (internal, an
+    RBE2); Craig-Bampton; each mode of the reduced system damped at one
+    ratio (`ModalRatio`). `Chrono::flexibleFrequencies()` reports the
+    modes, their interfaces held.
+  - **Found on the way, Chrono's modal module took every item as a body**,
+    7 position and 6 velocity coordinates, and an xyz node -- every node
+    of a mesh of tetrahedra -- has 3 and 3: in the matrices turned to the
+    floating frame's axes every other node was turned wrongly and the last
+    ones, past the final block of 6, had none, so K_II was singular and
+    the eigensolver's LU failed and then solved on regardless, corrupting
+    the heap; the gravity, the internal forces, the internal nodes'
+    positions and velocities likewise. Each item's coordinates are now laid
+    out by `Setup()` and those loops go by them. And the unsymmetric
+    eigensolver, the one a modal assembly takes, reported an undamped
+    mode's frequency as w^2 / 2 pi (the clamped bar's 209.6 Hz as 276137),
+    its shift in the units of the damped problem's. And the reduction's
+    sparse matrices were built a coefficient at a time into a reservation
+    its own `setZero()` had taken back: 8.7 s on the test's bar, 0.4 now,
+    with SparseLU for K_II (SparseQR, Chrono's default, 2.2 s). Our fork
+    of Chrono, branch `thundereal`.
+  - Chrono's tetrahedron lumps its mass equally on its ten nodes; on the
+    test's bar, two elements across, its first two frequencies were 0.06%
+    and 0.25% under the consistent mass's.
+  - Test: FlexibleBody.cantileverModesAreTheClampedBeams (C++): a steel bar
+    200 x 10 x 10 mm, 20 x 2 x 2 cells of six tetrahedra, held at one end
+    by an interface on its end face's 25 nodes: 209.6 and 209.7 Hz against
+    the clamped beam's 208.9, 1299.2 and 1300.1 against 1309 (shear).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

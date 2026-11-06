@@ -1,0 +1,316 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# Forms (docs/SheetMetal.md sec 4.8, M5, ruled 2026-11-06): a form is pressed
+# into a wall at each point of a sketch, an element of its own owned by that
+# wall and carried rigidly into the flat. PartDesign::SheetMetalForm, Kind
+# "Tool" for a user's tool -- any shape and a face of it that sits on the
+# wall's skin, taken as the form's outside and hollowed to the thickness, the
+# hollow opened down through the wall -- or a built-in one ("Dimple"). The
+# flat object shows forms Formed, as an Outline or as a Centre mark
+# (FormDisplay, Outline at first), the outline and the mark on the FORMS
+# layer of the DXF.
+#
+# A plate 40 x 30, 1 thick; a cylinder 4 in radius and 3 high for the tool,
+# pressed up out of the plate's top at (10, 10) and (28, 18).
+
+import math
+import os
+import tempfile
+import unittest
+
+import FreeCAD
+import Part
+import PartDesign
+
+from PartDesignTests.TestSheetMetalFlat import readDXF
+
+V = FreeCAD.Vector
+POINTS = [(10, 10), (28, 18)]
+T = 1.0
+PLATE = 40 * 30 * T
+# a cylinder r 4, h 3 on the top, hollowed to r 3 and 2 high, opened through
+# the plate: 48 pi - 18 pi - 9 pi each
+TOOL_FORM = 21 * math.pi
+
+
+def faceAt(feature, p, normal=None):
+    """The plane face of a feature's shape through p, facing normal"""
+    vertex = Part.Vertex(V(*p))
+    for i, f in enumerate(feature.Shape.Faces):
+        if not isinstance(f.Surface, Part.Plane) or f.distToShape(vertex)[0] > 1e-7:
+            continue
+        if normal is not None and not f.normalAt(0, 0).isEqual(V(*normal), 1e-7):
+            continue
+        return "Face%d" % (i + 1)
+    raise ValueError("no face at %s" % (p,))
+
+
+def named(shape, prefix):
+    res = {}
+    for i in range(len(shape.Edges)):
+        name = shape.getElementMappedName("Edge%d" % (i + 1))
+        if name and name.startswith(prefix):
+            res[name.split(";")[0]] = shape.Edges[i]
+    return res
+
+
+class TestSheetMetalForm(unittest.TestCase):
+    def setUp(self):
+        self.Doc = FreeCAD.newDocument("PartDesignTestSheetMetalForm")
+        self.Body = self.Doc.addObject("PartDesign::Body", "Body")
+        sketch = self.Body.newObject("Sketcher::SketchObject", "Sketch")
+        pts = [(0, 0), (40, 0), (40, 30), (0, 30)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        self.Sketch = sketch
+        self.Plate = self.Body.newObject("PartDesign::SheetMetalBaseWall", "Plate")
+        self.Plate.Profile = sketch
+        self.Doc.recompute()
+        self.Tool = self.Doc.addObject("Part::Cylinder", "Tool")
+        self.Tool.Radius = 4
+        self.Tool.Height = 3
+        self.Doc.recompute()
+
+    def tearDown(self):
+        FreeCAD.closeDocument(self.Doc.Name)
+
+    def points(self, pts=POINTS, z=T):
+        sketch = self.Body.newObject("Sketcher::SketchObject", "Points")
+        sketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+        for x, y in pts:
+            sketch.addGeometry(Part.Point(V(x, y, 0)))
+        self.Doc.recompute()
+        return sketch
+
+    def toolBase(self):
+        return faceAt(self.Tool, (0, 0, 0), (0, 0, -1))
+
+    def form(self, base=None, face=None, **props):
+        base = base or self.Body.Tip
+        positions = props.pop("Positions", None) or self.points()
+        feature = self.Body.newObject("PartDesign::SheetMetalForm", "Form")
+        feature.Face = (base, [face or faceAt(base, (20, 15, T), (0, 0, 1))])
+        feature.Positions = positions
+        if props.get("Kind", "Tool") == "Tool" and "Tool" not in props:
+            feature.Tool = (self.Tool, [self.toolBase()])
+        for k, v in props.items():
+            setattr(feature, k, v)
+        self.Doc.recompute()
+        return feature
+
+    def flatObject(self):
+        sheet = self.Body.getSolidBody(self.Plate)
+        found = [
+            o
+            for o in self.Doc.Objects
+            if o.isDerivedFrom("PartDesign::SheetMetalFlatPattern") and o.Sheet == sheet
+        ]
+        self.assertEqual(len(found), 1)
+        found[0].Visibility = True
+        self.Doc.recompute()
+        self.assertEqual(found[0].Status, "")
+        return found[0]
+
+    def testTool(self):
+        """A user's tool at each point: the formed outside on the top, the
+        hollow opened through the plate; one valid solid"""
+        feature = self.form()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.Volume, PLATE + 2 * TOOL_FORM, places=6)
+        box = shape.optimalBoundingBox(False)
+        self.assertAlmostEqual(box.ZMax, T + 3, places=6)
+        for x, y in POINTS:
+            # the form's top, its hollow, the opening through the plate
+            self.assertTrue(shape.isInside(V(x, y, T + 2.5), 1e-7, True))
+            self.assertFalse(shape.isInside(V(x, y, T + 1.5), 1e-7, True))
+            self.assertFalse(shape.isInside(V(x, y, T / 2), 1e-7, True))
+            self.assertTrue(shape.isInside(V(x + 3.5, y, T + 1.5), 1e-7, True))
+        self.assertTrue(shape.isInside(V(20, 28, T / 2), 1e-7, True))
+
+    def testModel(self):
+        """A form an element of its own a point, owned by its wall: its faces
+        are the form's"""
+        feature = self.form()
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual([f["Name"] for f in forms], ["Form1", "Form2"])
+        self.assertEqual({f["Wall"] for f in forms}, {"Wall1"})
+        for f, (x, y) in zip(forms, POINTS):
+            self.assertTrue(f["Center"].isEqual(V(x, y, T), 1e-7), f)
+            self.assertTrue(f["Normal"].isEqual(V(0, 0, 1), 1e-7), f)
+        top = faceAt(feature, (10, 10, T + 3))
+        self.assertEqual(feature.sheetElementOf(top), "Form1")
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 28, T))), "Wall1")
+        self.assertNotIn("Forms", self.Plate.SheetModel)
+
+    def testFlatOutline(self):
+        """Outline, as it starts: the flat is the plate, the forms' outlines on
+        its top, and on FORMS in the DXF"""
+        feature = self.form()
+        flat = self.flatObject()
+        self.assertEqual(flat.FormDisplay, "Outline")
+        solid = flat.Shape.Solids[0]
+        self.assertAlmostEqual(solid.Volume, PLATE, places=6)
+        outlines = named(flat.Shape, "Form")
+        self.assertEqual(sorted({n.split("Outline")[0] for n in outlines}), ["Form1", "Form2"])
+        top = solid.BoundBox.ZMax
+        centres = []
+        for name, e in outlines.items():
+            self.assertIn("Outline", name)
+            self.assertAlmostEqual(e.BoundBox.ZMin, top, places=6)
+            self.assertAlmostEqual(e.BoundBox.ZMax, top, places=6)
+            centres.append(e.BoundBox.Center)
+        # the tool's base: a circle 4 in radius about each point, as laid
+        lengths = sorted(
+            round(sum(e.Length for n, e in outlines.items() if n.startswith(f)), 6)
+            for f in ("Form1", "Form2")
+        )
+        self.assertAlmostEqual(lengths[0], 8 * math.pi, places=5)
+        self.assertAlmostEqual(lengths[1], 8 * math.pi, places=5)
+        with tempfile.TemporaryDirectory() as tmp:
+            dxf = os.path.join(tmp, "flat.dxf")
+            PartDesign.exportFlat(self.Body.getSolidBody(self.Plate), dxf)
+            layers = {e[1] for e in readDXF(dxf)}
+            self.assertIn("FORMS", layers)
+
+    def testFlatFormed(self):
+        """Formed: the forms kept, moved with their wall"""
+        feature = self.form()
+        flat = self.flatObject()
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        solid = flat.Shape.Solids[0]
+        self.assertAlmostEqual(solid.Volume, feature.Shape.Volume, places=6)
+        self.assertEqual(named(flat.Shape, "Form"), {})
+        self.assertAlmostEqual(solid.BoundBox.ZLength, T + 3, places=6)
+
+    def testFlatCentreMark(self):
+        """Centre mark: the plate, and a cross at each form's middle"""
+        self.form()
+        flat = self.flatObject()
+        flat.FormDisplay = "CentreMark"
+        self.Doc.recompute()
+        solid = flat.Shape.Solids[0]
+        self.assertAlmostEqual(solid.Volume, PLATE, places=6)
+        marks = named(flat.Shape, "Form")
+        self.assertEqual(sorted(marks), ["Form1Mark1", "Form1Mark2", "Form2Mark1", "Form2Mark2"])
+        for f in ("Form1", "Form2"):
+            a, b = marks[f + "Mark1"], marks[f + "Mark2"]
+            self.assertTrue(a.CenterOfMass.isEqual(b.CenterOfMass, 1e-6))
+            self.assertAlmostEqual(abs(a.Curve.Direction.dot(b.Curve.Direction)), 0, places=7)
+
+    def testReversed(self):
+        """Reversed: pressed into the face, down through the plate"""
+        feature = self.form(Reversed=True)
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertAlmostEqual(shape.Volume, PLATE + 2 * TOOL_FORM, places=6)
+        box = shape.optimalBoundingBox(False)
+        self.assertAlmostEqual(box.ZMin, -3, places=6)
+        self.assertAlmostEqual(box.ZMax, T, places=6)
+
+    def testAngle(self):
+        """Turned about the face's normal by Angle: a box tool turned 90"""
+        self.Tool = self.Doc.addObject("Part::Box", "BoxTool")
+        self.Tool.Length, self.Tool.Width, self.Tool.Height = 8, 4, 2
+        self.Tool.Placement.Base = V(-4, -2, 0)
+        self.Doc.recompute()
+        feature = self.form(Positions=self.points([(20, 15)]), Angle=90)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isInside(V(20, 18.5, T + 1.5), 1e-7, True))
+        self.assertFalse(feature.Shape.isInside(V(23.5, 15, T + 1.5), 1e-7, True))
+
+    def testOnLeg(self):
+        """A form on a flange's leg, carried into the flat with it"""
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        edges = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(self.Plate.Shape.Edges)
+            if all(abs(v.Point.y - 30) < 1e-7 and abs(v.Point.z - T) < 1e-7 for v in e.Vertexes)
+        ]
+        flange.Edges = (self.Plate, edges[:1])
+        flange.Length = 20
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        # the leg's outer skin, y 30, facing +Y; a point on it
+        leg = faceAt(flange, (20, 30, 12), (0, 1, 0))
+        sketch = self.Body.newObject("Sketcher::SketchObject", "LegPoints")
+        sketch.Placement = FreeCAD.Placement(V(0, 30, 0), FreeCAD.Rotation(V(1, 0, 0), 90))
+        sketch.addGeometry(Part.Point(V(20, 12, 0)))
+        self.Doc.recompute()
+        feature = self.form(base=flange, face=leg, Positions=sketch)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertAlmostEqual(feature.Shape.optimalBoundingBox(False).YMax, 33, places=6)
+        self.assertEqual({f["Wall"] for f in feature.SheetModel["Forms"]}, {"Wall2"})
+        flat = self.flatObject()
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, feature.Shape.Volume, places=5)
+
+    def testDimple(self):
+        """A built-in dimple: its top Depth above the face, the sheet's
+        thickness all through it, opened beneath"""
+        feature = self.form(Kind="Dimple", Diameter=12, Depth=2, Radius=1)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        box = shape.optimalBoundingBox(False)
+        self.assertAlmostEqual(box.ZMax, T + 2, places=6)
+        for x, y in POINTS:
+            self.assertTrue(shape.isInside(V(x, y, T + 1.5), 1e-7, True))
+            self.assertFalse(shape.isInside(V(x, y, T + 0.5), 1e-7, True))
+            self.assertFalse(shape.isInside(V(x, y, T / 2), 1e-7, True))
+            # past its rim the plate as it was
+            self.assertTrue(shape.isInside(V(x + 6.5, y, T / 2), 1e-7, True))
+        # a sheet's volume, the area it covers about the same: its slant
+        # walls a little more than the plate they replace
+        self.assertGreater(shape.Volume, PLATE)
+        self.assertLess(shape.Volume, PLATE + 2 * math.pi * 6 * 6 * T)
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+
+    def testFollowsEdit(self):
+        """A point moved, the form moves"""
+        positions = self.points()
+        feature = self.form(Positions=positions)
+        positions.movePoint(0, 1, V(15, 12, 0))
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State)
+        self.assertTrue(feature.Shape.isInside(V(15, 12, T + 2.5), 1e-7, True))
+        self.assertFalse(feature.Shape.isInside(V(10, 10, T + 2.5), 1e-7, True))
+
+    def testRefused(self):
+        """A bend's face, no point, no tool, a point off the face"""
+        feature = self.form(Positions=self.points([(20, 15)]))
+        self.assertNotIn("Invalid", feature.State)
+        feature.Tool = None
+        self.Doc.recompute()
+        self.assertIn("Invalid", feature.State)
+        feature.Tool = (self.Tool, [self.toolBase()])
+        feature.Positions = self.points([(80, 80)])
+        self.Doc.recompute()
+        self.assertIn("Invalid", feature.State)
+        feature.Positions = self.Body.newObject("Sketcher::SketchObject", "Empty")
+        self.Doc.recompute()
+        self.assertIn("Invalid", feature.State)
+
+    def testSaveRestore(self):
+        name = self.form().Name
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "form.FCStd")
+            self.Doc.saveAs(path)
+            FreeCAD.closeDocument(self.Doc.Name)
+            self.Doc = FreeCAD.openDocument(path)
+            feature = self.Doc.getObject(name)
+            self.assertEqual([f["Name"] for f in feature.SheetModel["Forms"]], ["Form1", "Form2"])
+            self.Doc.recompute()
+            self.assertNotIn("Invalid", feature.State)
+            self.assertAlmostEqual(feature.Shape.Volume, PLATE + 2 * TOOL_FORM, places=6)
+
+
+if __name__ == "__main__":
+    unittest.main()

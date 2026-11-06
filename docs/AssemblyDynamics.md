@@ -3966,9 +3966,31 @@ Phase D1 is under way (2026-10-28):
     (without the floating frame set back it diverges as it leaves), the
     blow softer than the rigid strip's (by Hertz's law, 69.7 N at most
     against 283 N); test_contact_needs_its_faces.
-  - Not yet: stops and joint friction on a flexible part's joints read the
-    interface body's mass too (a stop's bounce, friction's stiction
-    speed); a contact anywhere on a part (above).
+  - **Stops and joint friction on a flexible part** (2026-11-07): their
+    substeps -- a penalty stop's period on its spring and damper, a
+    friction's time to cross the stiction band -- read the bodies on the
+    joint's two sides, and on a flexible part that is an interface's
+    boundary body, whose mass reads 0 in the run (a millionth of the
+    part's when built). A stop between the flexible rod's hinge and the
+    ground set no substep: let go level onto an undamped stop of 10 N m
+    per radian 30 deg down, the rod came back 0.275 deg above where it
+    fell from, the rigid rod 0.022. Both now read the part's proxy
+    (`carrier()`, `carrierOf()`, which `carriedMass()` shares), synced to
+    the floating frame first; and the proxy takes the part's inertia at
+    the mesh's mass -- it had Chrono's default, 1 kg m^2, which made that
+    stop's period 1.99 s for its 19 ms, and a friction's mass about the
+    pin 4e4 kg for 3.6. The rod now comes back to 0.025.
+  - Tests: TestFlexibleBody.test_stop_bounce_on_flexible_part (the bounce
+    above, the flexible within 0.1 deg of the rigid);
+    test_stop_on_flexible_part (damped near critically, it rests where
+    the rigid rod does, k (a - 30 deg) = m g L cos a, within 0.01 deg);
+    test_friction_on_flexible_part (the hinge preloaded 3 N mm -- its pin's
+    own friction on the hinge's reaction is smaller than the substeps'
+    spread over 50 ms -- the swing slowed as the rigid one's, within
+    0.05 deg at each frame).
+  - Not yet: a contact anywhere on a part (above); the contact's rest
+    correction (`meanAccelerations()`) leaves out a flexible side, whose
+    bodies are not the run's.
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

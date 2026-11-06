@@ -4815,18 +4815,43 @@ struct ChronoSession::Impl
         return toCh(model.frames[frame].local);
     }
 
-    // The mass a flexible part's contact interface carries, its part's
-    // (D4b); 0 for any other body
-    double carriedMass(const ch::ChBody* body) const
+    // The flexible part whose interface a body is the boundary body of, or
+    // null: what moves with it is the part (D4b), its proxy's mass, inertia
+    // and pose -- its own mass, a millionth of the part's when built, reads
+    // 0 in a run
+    const FlexibleRun* carrierOf(const ch::ChBody* body) const
     {
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
         for (const auto& run : flexibles) {
-            if (run.contact >= 0 && run.built.interfaces[run.contact].get() == body) {
-                return run.built.mass;
+            for (const auto& face : run.built.interfaces) {
+                if (face.get() == body) {
+                    return &run;
+                }
             }
         }
 #else
         (void)body;
+#endif
+        return nullptr;
+    }
+
+    // The body that moves with a load on a body: a flexible part's interface
+    // carries its part, the proxy (syncFlexible() brought to the floating
+    // frame); any other body, itself
+    ch::ChBody* carrier(ch::ChBody* body) const
+    {
+        const FlexibleRun* run = carrierOf(body);
+        return run ? bodies[run->body].get() : body;
+    }
+
+    // The mass a flexible part's interface carries, its part's (D4b); 0 for
+    // any other body
+    double carriedMass(const ch::ChBody* body) const
+    {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        if (const FlexibleRun* run = carrierOf(body)) {
+            return run->built.mass;
+        }
 #endif
         return 0.0;
     }
@@ -6797,21 +6822,32 @@ Status ChronoSession::simulateDynamics(
     ch::ChSystemNSC& sys = *run.d->sys;
     for (std::size_t b = 0; b < n; ++b) {
         auto& body = run.d->bodies[b];
-        // A flexible body's mass is its mesh's
-        if (body->IsFixed() || run.d->isFlexible(b)) {
+        if (body->IsFixed()) {
             continue;
         }
         const Inertia* inertia = inertiaOf[b];
+        // A flexible body's mass is its mesh's (buildFlexibles()), and its
+        // proxy, out of the system, takes the part's inertia at that mass,
+        // for what reads a body's -- a stop's and a friction's substeps about
+        // a joint on it (carrier()), which Chrono's default of 1 kg m^2 made
+        // a stop's period 1.99 s for the 27 g rod's 19 ms
+        const bool flexible = run.d->isFlexible(b);
+        if (flexible && (!inertia || inertia->mass <= 0.0)) {
+            continue;
+        }
         if (!inertia || inertia->mass <= 0.0) {
             return refuse("the part " + model.sourceName(model.bodies[b].source)
                           + " has no mass, and is free to move");
         }
-        body->SetMass(inertia->mass * SI::mass);
+        const double scale = flexible ? body->GetMass() / (inertia->mass * SI::mass) : 1.0;
+        if (!flexible) {
+            body->SetMass(inertia->mass * SI::mass);
+        }
         // Scaled with the model: in kg m^2 already
         const auto& i = inertia->inertia;
         ch::ChMatrix33d tensor;
         tensor << i[0], i[3], i[4], i[3], i[1], i[5], i[4], i[5], i[2];
-        body->SetInertia(tensor);
+        body->SetInertia(tensor * scale);
     }
     // What each frame reports besides the poses (sec 8.4)
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkTSDA>>> springs;
@@ -10041,10 +10077,17 @@ Status ChronoSession::simulateDynamics(
     // for its damper, once it is past its bound or will be within a period
     // at the speed it comes in at; half the time it takes to get there
     // before. HHT stepping over a stiff spring's period damps it away: the
-    // stop takes the energy a bumper hands back.
+    // stop takes the energy a bumper hands back. A side on a flexible part's
+    // interface moves the part (carrier()): its boundary body's mass reads 0
+    // in the run, and a stop on the flexible rod's hinge, the ground's other
+    // side, set no substep -- let go level onto it undamped, the rod came
+    // back 0.28 deg above where it fell from, the rigid one's 0.02.
     const bool anyPenalty =
         std::any_of(penalties.begin(), penalties.end(), [](const auto& p) { return bool(p); });
     auto penaltyStep = [&]() {
+        if (!run.d->flexibles.empty()) {
+            run.d->syncFlexible();
+        }
         double h = std::numeric_limits<double>::infinity();
         for (const auto& load : penalties) {
             if (!load || !(load->k > 0.0)) {
@@ -10056,8 +10099,9 @@ Status ChronoSession::simulateDynamics(
             const ch::ChVector3d z = load->GetAbsoluteFrameB().GetRotMat().GetAxisZ();
             const ch::ChVector3d at = load->GetAbsoluteFrameB().GetPos();
             double mass = std::numeric_limits<double>::infinity();
-            for (const auto& body : {load->GetBodyA(), load->GetBodyB()}) {
-                if (body->IsFixed() || !(body->GetMass() > 0.0)) {
+            for (const auto& side : {load->GetBodyA(), load->GetBodyB()}) {
+                ch::ChBody* body = run.d->carrier(side.get());
+                if (side->IsFixed() || !(body->GetMass() > 0.0)) {
                     continue;
                 }
                 if (!load->turn) {
@@ -10099,8 +10143,11 @@ Status ChronoSession::simulateDynamics(
     // velocity, the lighter body moving (for a turn its inertia about the
     // axis, over the radius squared); faster, half the time to come down to
     // the band. Stuck below half the stiction velocity, or sliding fast, the
-    // steps are the run's.
+    // steps are the run's. A flexible part's side is the part's, as a stop's.
     auto frictionStep = [&]() {
+        if (!run.d->flexibles.empty()) {
+            run.d->syncFlexible();
+        }
         double h = std::numeric_limits<double>::infinity();
         for (const auto& load : frictions) {
             const Friction& f = load->friction;
@@ -10112,8 +10159,9 @@ Status ChronoSession::simulateDynamics(
             const ch::ChVector3d z = load->axisNow();
             const ch::ChVector3d at = load->pointNow();
             double mass = std::numeric_limits<double>::infinity();
-            for (const auto& body : {load->GetBodyA(), load->GetBodyB()}) {
-                if (body->IsFixed() || !(body->GetMass() > 0.0)) {
+            for (const auto& side : {load->GetBodyA(), load->GetBodyB()}) {
+                ch::ChBody* body = run.d->carrier(side.get());
+                if (side->IsFixed() || !(body->GetMass() > 0.0)) {
                     continue;
                 }
                 if (f.slides) {

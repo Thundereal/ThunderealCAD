@@ -411,6 +411,140 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertGreater(flexible, 0.0)
         self.assertLess(flexible, rigid)
 
+    def renew(self):
+        """A new document for a second run, as setUp's"""
+        App.closeDocument(self.doc.Name)
+        self.doc = App.newDocument("TestFlexibleBody")
+        self.assembly = self.doc.addObject("Assembly::AssemblyObject", "Assembly")
+        self.joints = self.assembly.getGroup("Joints", True)
+
+    def hingeLoaded(self, flexible, load, end, step):
+        """The pendulum let go level with load(hinge) on its hinge (None:
+        nothing), flexible
+        (6 modes) or rigid: the run's status, the rod's angle below the
+        horizontal at each frame (deg) and the run's time (s)"""
+        import time
+
+        rod, hinge = self.pendulum()
+        item = load(hinge)
+        sim = self.study(end, step)
+        if flexible:
+            body = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+            body.Modes = 6
+            FlexibleBodies.prepare(body)
+        if item is not None:
+            sim.Elements = list(sim.Elements) + [item]
+        self.doc.recompute()
+        start = time.perf_counter()
+        status = self.assembly.generateSimulation(sim)
+        took = time.perf_counter() - start
+        angles = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            centre = rod.Placement.multVec(App.Vector(50, 5, 5))
+            angles.append(math.degrees(math.atan2(5 - centre.z, centre.x - 10)))
+        return status, angles, took
+
+    def test_stop_on_flexible_part(self):
+        """A penalty stop on the flexible rod's hinge, 30 deg below the
+        horizontal, 10 N m per radian, damped near critically: the rod comes
+        to rest on it where the rigid one does, m g L cos a = k (a - 30 deg).
+        The stop's substeps from the rod's inertia about the hinge, not the
+        hinge's interface body's, a millionth of the rod's mass at the
+        hinge's axis"""
+
+        def stop(hinge):
+            hinge.EnableAngleMin = True
+            hinge.EnableAngleMax = True
+            hinge.AngleMin = -30.0
+            hinge.AngleMax = 30.0
+            physics = self.assembly.getGroup("Physics", True)
+            s = physics.newObject("Assembly::JointStop", "JointStop")
+            s.Joint = hinge
+            s.Mode = "Penalty"
+            s.TorsionalStiffness = "10 N*m"
+            s.TorsionalDamping = "0.05 N*m*s"
+            return s
+
+        status, flexible, took = self.hingeLoaded(True, stop, 0.3, 1e-3)
+        self.assertEqual(status, 0)
+        self.renew()
+        status, rigid, _ = self.hingeLoaded(False, stop, 0.3, 1e-3)
+        self.assertEqual(status, 0)
+        # SI, as TestDynamics.test_stop_penalty_rotation
+        torque = 100 * 10 * 10 * 2.7e-6 * G * 1e-3 * 0.05
+        a = math.pi / 6
+        for _ in range(20):
+            a -= (10.0 * (a - math.pi / 6) - torque * math.cos(a)) / (10.0 + torque * math.sin(a))
+        self.assertAlmostEqual(rigid[-1], math.degrees(a), delta=1e-3)
+        self.assertAlmostEqual(flexible[-1], rigid[-1], delta=1e-2)
+        self.assertGreater(max(flexible), 30.0)
+        self.assertLess(took, 60.0)
+
+    def test_stop_bounce_on_flexible_part(self):
+        """Undamped, the stop hands the flexible rod its energy back as it
+        does the rigid one's: let go level onto it, it comes back to where it
+        fell from. The stop sets the substeps by the rod's inertia about the
+        hinge: by the interface body's, which reads no mass in the run, it
+        set none, and the rod came back 0.28 deg above level, the rigid one
+        0.02"""
+
+        def stop(hinge):
+            hinge.EnableAngleMin = True
+            hinge.EnableAngleMax = True
+            hinge.AngleMin = -30.0
+            hinge.AngleMax = 30.0
+            physics = self.assembly.getGroup("Physics", True)
+            s = physics.newObject("Assembly::JointStop", "JointStop")
+            s.Joint = hinge
+            s.Mode = "Penalty"
+            s.TorsionalStiffness = "10 N*m"
+            s.TorsionalDamping = "0 N*m*s"
+            return s
+
+        def bounce(flexible):
+            status, angles, _ = self.hingeLoaded(flexible, stop, 0.25, 1e-3)
+            self.assertEqual(status, 0)
+            deepest = max(range(len(angles)), key=lambda k: angles[k])
+            return angles[deepest], min(angles[deepest:])
+
+        deepest, back = bounce(True)
+        self.renew()
+        rigidDeepest, rigidBack = bounce(False)
+        self.assertGreater(rigidDeepest, 30.0)
+        self.assertAlmostEqual(rigidBack, 0.0, delta=0.05)
+        self.assertAlmostEqual(deepest, rigidDeepest, delta=0.05)
+        self.assertAlmostEqual(back, rigidBack, delta=0.1)
+
+    def test_friction_on_flexible_part(self):
+        """Joint friction on the flexible rod's hinge, preloaded 3 N mm --
+        the pin's own, on the hinge's reaction, takes less off the swing in
+        50 ms than the substeps' own spread, 0.02 deg: let go level, it swings down slowed by the
+        friction as the rigid one is. Its substeps from the rod's inertia
+        about the hinge, as a stop's"""
+        import CommandCreateSpring
+
+        def friction(hinge):
+            f = CommandCreateSpring.makeJointFriction(self.assembly, hinge)
+            f.PinRadius = 5.0
+            f.PreloadTorque = 3000.0  # mN mm
+            return f
+
+        status, flexible, took = self.hingeLoaded(True, friction, 0.05, 1e-3)
+        self.assertEqual(status, 0)
+        self.renew()
+        status, rigid, _ = self.hingeLoaded(False, friction, 0.05, 1e-3)
+        self.assertEqual(status, 0)
+        self.renew()
+        status, free, _ = self.hingeLoaded(False, lambda hinge: None, 0.05, 1e-3)
+        self.assertEqual(status, 0)
+        self.assertEqual(len(flexible), len(rigid))
+        # The friction slows it
+        self.assertLess(rigid[-1], free[-1] - 0.1)
+        for k, (f, r) in enumerate(zip(flexible, rigid)):
+            self.assertAlmostEqual(f, r, delta=0.05, msg=k)
+        self.assertLess(took, 60.0)
+
     def test_contact_needs_its_faces(self):
         """A contact on a flexible part without the faces it is touched on
         is refused (the console says to name them, its ContactFaces)"""

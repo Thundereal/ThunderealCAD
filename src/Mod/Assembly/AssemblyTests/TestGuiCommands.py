@@ -1569,6 +1569,103 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
+    def test_video_background(self):
+        """Save Animation's Background menu: the 3D view saved on white, on
+        black or on a colour of one's own, asked for each time Custom is
+        chosen and kept as it was if the dialog is cancelled, the choice and
+        the colour kept in the preferences"""
+        import os
+        import shutil
+        import tempfile
+        from unittest import mock
+
+        from PIL import Image
+
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.TimeStepOutput = 2.5e-3
+        sim.PlaybackSpeed = "Normal"
+        params = App.ParamGet(CommandCreateSimulation.VideoParams)
+        keptBools = {k: params.GetBool(k, True) for k in ("VideoResultsBox", "VideoTime")}
+        keptStrings = {
+            k: params.GetString(k, "") for k in ("VideoBackground", "VideoBackgroundColor")
+        }
+        params.SetString("VideoBackground", "Current")
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        times, shown = self.impact_times(), []
+        assembly = panel.assembly
+        panel.assembly = self.impact_run(times, shown)
+        folder = tempfile.mkdtemp(prefix="VideoBack")
+        self.modals.expect.append(
+            (lambda w: isinstance(w, QtWidgets.QProgressDialog), lambda w: None)
+        )
+        getColor = CommandCreateSimulation.QtWidgets.QColorDialog
+
+        def save(name):
+            chosen = (os.path.join(folder, name), "Animated GIF (*.gif)")
+            with mock.patch.object(
+                CommandCreateSimulation.QFileDialog, "getSaveFileName", return_value=chosen
+            ):
+                panel.saveAnimation()
+            image = Image.open(os.path.join(folder, name))
+            # The corner, away from the parts and the view's overlays: the
+            # first frame's, as the GIF folds frames that stay the same
+            return image.convert("RGB").getpixel((2, 2))
+
+        def choose(key, color=None):
+            with mock.patch.object(getColor, "getColor", return_value=color) as asked:
+                panel.videoBackgroundActions[key].trigger()
+            return asked.called
+
+        try:
+            panel.fillResults()
+            panel.form.frameSlider.setMaximum(len(times) - 1)
+            panel.fitPlayerLabels(len(times))
+            panel.videoBoxAction.setChecked(False)
+            panel.videoTimeAction.setChecked(False)
+            self.assertTrue(panel.videoBackgroundActions["Current"].isChecked())
+            self.assertEqual(panel.videoBackground(), "Current")
+            self.assertFalse(choose("White"))
+            self.assertEqual(params.GetString("VideoBackground", ""), "White")
+            self.assertGreater(min(save("white.gif")), 245)
+            choose("Black")
+            self.assertLess(max(save("black.gif")), 10)
+            # Custom: its colour asked for, kept, a swatch on the action
+            self.assertTrue(choose("Custom", QtGui.QColor(30, 120, 200)))
+            self.assertEqual(params.GetString("VideoBackground", ""), "Custom")
+            self.assertEqual(params.GetString("VideoBackgroundColor", ""), "#1e78c8")
+            self.assertEqual(panel.videoBackground(), "#1e78c8")
+            self.assertFalse(panel.videoBackgroundActions["Custom"].icon().isNull())
+            for got, want in zip(save("custom.gif"), (30, 120, 200)):
+                self.assertAlmostEqual(got, want, delta=12)
+            # Cancelled from black: black still
+            choose("Black")
+            self.assertTrue(choose("Custom", QtGui.QColor()))
+            self.assertTrue(panel.videoBackgroundActions["Black"].isChecked())
+            self.assertEqual(params.GetString("VideoBackground", ""), "Black")
+            self.assertEqual(params.GetString("VideoBackgroundColor", ""), "#1e78c8")
+            # A choice the menu does not know: the view's own
+            params.SetString("VideoBackground", "Bogus")
+            self.assertEqual(panel.videoBackground(), "Current")
+        finally:
+            for k, v in keptBools.items():
+                params.SetBool(k, v)
+            for k, v in keptStrings.items():
+                if v:
+                    params.SetString(k, v)
+                else:
+                    params.RemString(k)
+            panel.assembly = assembly
+            shutil.rmtree(folder, ignore_errors=True)
+        self.accept_task()
+        self.assertClean()
+
     def test_playback_speed(self):
         """The player at the study's speed (docs/AssemblyDynamics.md sec
         8.6): Auto by default; through an impact's frames, microseconds

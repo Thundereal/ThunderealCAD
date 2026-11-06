@@ -3785,6 +3785,25 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.videoTimeAction.setCheckable(True)
         self.videoTimeAction.setChecked(params.GetBool("VideoTime", True))
         self.videoTimeAction.toggled.connect(lambda on: params.SetBool("VideoTime", on))
+        # The 3D view's background in the video, as Save Picture has it, or
+        # a colour of one's own
+        backMenu = menu.addMenu(translate("Assembly", "Background"))
+        self.videoBackgroundGroup = QtGui.QActionGroup(backMenu)
+        self.videoBackgroundActions = {}
+        for key, text in (
+            ("Current", translate("Assembly", "As in the view")),
+            ("White", translate("Assembly", "White")),
+            ("Black", translate("Assembly", "Black")),
+            ("Custom", translate("Assembly", "Custom color...")),
+        ):
+            action = backMenu.addAction(text)
+            action.setCheckable(True)
+            action.setData(key)
+            self.videoBackgroundGroup.addAction(action)
+            self.videoBackgroundActions[key] = action
+        self.videoBackgroundAction().setChecked(True)
+        self.showVideoBackgroundColor()
+        self.videoBackgroundGroup.triggered.connect(self.onVideoBackground)
         button = self.form.SaveAnimationButton
         button.setMenu(menu)
         button.setPopupMode(QtWidgets.QToolButton.MenuButtonPopup)
@@ -3792,10 +3811,53 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             translate(
                 "Assembly",
                 "Save the run as a video, a GIF or an animated glTF.\n"
-                "Its menu: the Results box beside the view as it plays, and the time\n"
-                "and speed over the view, in a video or a GIF.",
+                "Its menu: the Results box beside the view as it plays, the time\n"
+                "and speed over the view, and the view's background, in a video or a GIF.",
             )
         )
+
+    def videoBackgroundAction(self):
+        """Not upstream: the Background menu's action the preferences have
+        chosen, the view's own background if none"""
+        key = App.ParamGet(VideoParams).GetString("VideoBackground", "Current")
+        return self.videoBackgroundActions.get(key, self.videoBackgroundActions["Current"])
+
+    def videoBackgroundColor(self):
+        """Not upstream: the custom background colour, white if none"""
+        color = QtGui.QColor(App.ParamGet(VideoParams).GetString("VideoBackgroundColor", ""))
+        return color if color.isValid() else QtGui.QColor(255, 255, 255)
+
+    def showVideoBackgroundColor(self):
+        """Not upstream: the custom colour, a swatch on its action"""
+        swatch = QtGui.QPixmap(16, 16)
+        swatch.fill(self.videoBackgroundColor())
+        self.videoBackgroundActions["Custom"].setIcon(QtGui.QIcon(swatch))
+
+    def onVideoBackground(self, action):
+        """Not upstream: a background chosen in the menu; Custom asks for its
+        colour each time, kept as it was if the dialog is cancelled"""
+        params = App.ParamGet(VideoParams)
+        key = action.data()
+        if key == "Custom":
+            color = QtWidgets.QColorDialog.getColor(
+                self.videoBackgroundColor(),
+                self.form,
+                translate("Assembly", "Video background"),
+            )
+            if not color.isValid():
+                self.videoBackgroundAction().setChecked(True)
+                return
+            params.SetString("VideoBackgroundColor", color.name())
+            self.showVideoBackgroundColor()
+        params.SetString("VideoBackground", key)
+
+    def videoBackground(self):
+        """Not upstream: the background a video's 3D frames are saved on,
+        as View3DInventorPy.saveImage() takes it"""
+        key = self.videoBackgroundAction().data()
+        if key == "Custom":
+            return self.videoBackgroundColor().name()
+        return key
 
     def videoFrame(self, path, layout, time, rate):
         """Not upstream: a saved video's frame, the 3D view's image at path
@@ -3945,6 +4007,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # Not upstream: the Results box beside the view and the time over
         # it, as the menu says
         layout = self.videoLayout(width, height)
+        background = self.videoBackground()
         viewSize = (width, height)
         if layout is not None:
             width, height = layout["size"].width(), layout["size"].height()
@@ -3982,9 +4045,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
                     frame_filename = temp_path / f"frame_{i:05d}.png"
                     if layout is None:
-                        view.saveImage(str(frame_filename), width, height, "Current")
+                        view.saveImage(str(frame_filename), width, height, background)
                     else:
-                        view.saveImage(str(frame_filename), viewSize[0], viewSize[1], "Current")
+                        view.saveImage(str(frame_filename), viewSize[0], viewSize[1], background)
                         self.videoFrame(str(frame_filename), layout, video_time, played[i][1])
                     frame_files.append(str(frame_filename))
 

@@ -202,6 +202,17 @@ private:
                     inertia = moved(inertia, centres[inertia.body].inverse());
                 }
             }
+            // A flexible body's mesh with its frames (D4b): left where it
+            // was, the pendulum's rod meshed 5 mm off its hinge swung 1.1%
+            // fast
+            for (auto& flexible : out.dynamics->flexibles) {
+                if (flexible.body < n && shifted[flexible.body]) {
+                    const Base::Placement toCentre = centres[flexible.body].inverse();
+                    for (auto& node : flexible.nodes) {
+                        toCentre.multVec(node, node);
+                    }
+                }
+            }
         }
         return out;
     }

@@ -76,6 +76,33 @@ struct PartDesignExport Element
     double crossBreak = 0;
 };
 
+/** A form pressed into a wall (docs/SheetMetal.md sec 4.8): a dimple, a
+ * louver, a user's tool. Not a wall nor a bend: it is owned by the wall it
+ * sits on and goes flat rigidly with it, and what it takes of the part is
+ * a box (or a cylinder) in its frame, so a face of it is told by lying in
+ * that whole.
+ */
+struct PartDesignExport Form
+{
+    /// Its name by role ("Form1")
+    std::string name;
+    /// Its wall, by index
+    int wall = -1;
+    /// Where it sits on its wall's skin, Z the way it rises out of it, X
+    /// along its length
+    gp_Ax3 frame;
+    /// What it takes of the part, in its frame: |x| up to halfLength and |y|
+    /// up to halfWidth -- within a radius of halfLength where halfWidth is
+    /// 0 -- and z from zMin to zMax
+    double halfLength = 0;
+    double halfWidth = 0;
+    double zMin = 0;
+    double zMax = 0;
+
+    /// Whether the point is in what it takes of the part, within tol
+    bool contains(const gp_Pnt& point, double tol = 1e-7) const;
+};
+
 /** A sheet's walls and bends, and how they lie flat
  *
  * Which element a point of the solid is in is told by its geometry: in a
@@ -88,6 +115,8 @@ class PartDesignExport Model
 public:
     double thickness = 0;
     std::vector<Element> elements;
+    /// The forms pressed into its walls
+    std::vector<Form> forms;
 
     /// Add a wall; returns its index
     int addWall(const std::string& name, const gp_Ax3& frame);
@@ -101,8 +130,14 @@ public:
     bool contains(int index, const gp_Pnt& point, double tol = 1e-7) const;
     /// The element the point is in, bends tried first; -1 for none
     int owner(const gp_Pnt& point, double tol = 1e-7) const;
-    /// The element a face is in, by a point inside it; -1 for none
+    /// The element a face is in, by a point inside it; -1 for none. A
+    /// form's face is in the form's wall.
     int owner(const TopoDS_Face& face, double tol = 1e-7) const;
+    /// The form a face is of: lying in what it takes of the part whole;
+    /// -1 for none
+    int formOf(const TopoDS_Face& face, double tol = 1e-6) const;
+    /// The form of that name, -1 for none
+    int findForm(const std::string& name) const;
     /// Move every element
     void transform(const gp_Trsf& trsf);
     /** Take an element out, every index after it moved down. A bend's walls

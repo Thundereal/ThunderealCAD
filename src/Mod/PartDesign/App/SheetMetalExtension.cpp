@@ -277,6 +277,9 @@ std::string SheetMetalExtension::elementOf(const char* subname) const
     }
     SheetMetal::Model model = SheetModel.getValue();
     model.transform(placementOf(feature));
+    if (const int form = model.formOf(TopoDS::Face(face.getShape())); form >= 0) {
+        return model.forms[form].name;
+    }
     const int index = model.owner(TopoDS::Face(face.getShape()));
     return index < 0 ? std::string() : model.elements[index].name;
 }

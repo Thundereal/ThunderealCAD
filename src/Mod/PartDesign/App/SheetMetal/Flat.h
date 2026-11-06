@@ -43,6 +43,19 @@
 namespace PartDesign::SheetMetal
 {
 
+/// How a flat shows its forms (Form; docs/SheetMetal.md sec 4.7, ruled
+/// 2026-11-06)
+enum class FormDisplay
+{
+    /// Kept, moved rigidly with their wall
+    Formed,
+    /// Taken away, the blank closed over them, each one's outline on the
+    /// skin it rises from drawn on the blank's top
+    Outline,
+    /// Taken away, a cross at each one's middle
+    CentreMark,
+};
+
 /// What a sheet lies flat as
 struct PartDesignExport FlatResult
 {
@@ -85,6 +98,17 @@ struct PartDesignExport FlatResult
     /// The flat-only markings on the blank's top, the flat object's
     /// (SheetMetalFlatPattern::Markings)
     std::vector<TopoDS_Edge> markings;
+    struct FormMark
+    {
+        /// The form's
+        std::string name;
+        /// Its outline, or the two arms of its cross, on the blank's top
+        std::vector<TopoDS_Edge> edges;
+        /// A cross, not an outline
+        bool centre = false;
+    };
+    /// Each form's outline or cross, as FormDisplay asks; none Formed
+    std::vector<FormMark> forms;
     /// What lays the root wall, where it stands, on XY: its skin there, the
     /// flat turned as asked
     gp_Trsf toXY;
@@ -99,12 +123,16 @@ struct PartDesignExport FlatResult
  * folded part, the flat is turned about Z so that the edge's image runs
  * along X, from its first parameter to its last.
  *
+ * A form's faces go with its wall's, Formed; else they are left out, the
+ * skins they leave a hole in closed, and its outline or a cross drawn.
+ *
  * Throws Base::ValueError naming a face no element owns, a face of a bend
  * that does not lie flat as a plane, a flat that does not close, or an
  * alongX that is not on the part or does not lie straight along the flat.
  */
 PartDesignExport FlatResult flatten(const TopoDS_Shape& folded, const Model& model, int root,
-                                    bool secondSkin, const TopoDS_Edge& alongX = TopoDS_Edge());
+                                    bool secondSkin, const TopoDS_Edge& alongX = TopoDS_Edge(),
+                                    FormDisplay forms = FormDisplay::Formed);
 
 /** The grain arrow on a flat solid: a shaft through the middle of its top,
  * at angle (rad) from X, two fifths of its narrower side long, and the two

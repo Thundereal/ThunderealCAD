@@ -76,6 +76,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Vertex.hxx>
@@ -888,7 +889,8 @@ FlatResult flatten(const TopoDS_Shape& folded,
                    const Model& model,
                    int root,
                    bool secondSkin,
-                   const TopoDS_Edge& alongX)
+                   const TopoDS_Edge& alongX,
+                   FormDisplay formDisplay)
 {
     if (root < 0 || root >= static_cast<int>(model.elements.size())
         || model.elements[root].kind != Element::Kind::Wall) {
@@ -929,16 +931,83 @@ FlatResult flatten(const TopoDS_Shape& folded,
             mapper.edge(owners[i], TopoDS::Edge(e.Current()), face);
         }
     }
+    // Forms not kept: their faces left out, and each hole they leave in a
+    // skin -- an inner wire all of whose edges are a form's -- closed. Its
+    // edges on the skin the form rises from are its outline.
+    const bool unformed = formDisplay != FormDisplay::Formed && !model.forms.empty();
+    std::vector<int> formOf(faces.Extent() + 1, -1);
+    TopTools_IndexedMapOfShape formEdges;
+    std::vector<std::vector<TopoDS_Edge>> outlines(model.forms.size());
+    if (unformed) {
+        for (int i = 1; i <= faces.Extent(); ++i) {
+            formOf[i] = model.formOf(TopoDS::Face(faces(i)));
+            if (formOf[i] >= 0) {
+                TopExp::MapShapes(faces(i), TopAbs_EDGE, formEdges);
+            }
+        }
+    }
+    // a skin face with its forms' holes closed, or the face as it is
+    auto closed = [&](const TopoDS_Face& face) -> TopoDS_Face {
+        if (!unformed) {
+            return face;
+        }
+        const TopoDS_Wire outer = BRepTools::OuterWire(face);
+        TopoDS_Face res = TopoDS::Face(face.EmptyCopied());
+        BRep_Builder builder;
+        bool changed = false;
+        for (TopoDS_Iterator it(face); it.More(); it.Next()) {
+            if (it.Value().ShapeType() != TopAbs_WIRE) {
+                continue;
+            }
+            const TopoDS_Wire& wire = TopoDS::Wire(it.Value());
+            int form = -1;
+            bool ofForm = !wire.IsSame(outer);
+            for (TopExp_Explorer e(wire, TopAbs_EDGE); e.More() && ofForm; e.Next()) {
+                ofForm = formEdges.Contains(e.Current());
+                if (ofForm && form < 0) {
+                    BRepAdaptor_Curve c(TopoDS::Edge(e.Current()));
+                    const gp_Pnt mid = c.Value((c.FirstParameter() + c.LastParameter()) / 2);
+                    for (std::size_t k = 0; k < model.forms.size() && form < 0; ++k) {
+                        if (model.forms[k].contains(mid, 1e-6)) {
+                            form = static_cast<int>(k);
+                        }
+                    }
+                }
+            }
+            if (!ofForm) {
+                builder.Add(res, wire);
+                continue;
+            }
+            changed = true;
+            // on the skin it rises from: the face's outer normal its way
+            BRepAdaptor_Surface surface(face);
+            if (form >= 0 && surface.GetType() == GeomAbs_Plane) {
+                gp_Dir normal = surface.Plane().Axis().Direction();
+                if (face.Orientation() == TopAbs_REVERSED) {
+                    normal.Reverse();
+                }
+                if (normal.Dot(model.forms[form].frame.Direction()) > 0.5) {
+                    for (TopExp_Explorer e(wire, TopAbs_EDGE); e.More(); e.Next()) {
+                        outlines[form].push_back(TopoDS::Edge(e.Current()));
+                    }
+                }
+            }
+        }
+        return changed ? res : face;
+    };
     for (int i = 1; i <= faces.Extent(); ++i) {
         const TopoDS_Face& face = TopoDS::Face(faces(i));
         const int owner = owners[i];
         if (owner < 0) {
             FC_THROWM(Base::ValueError, "Face" << i << " is in no wall or bend of the sheet");
         }
+        if (formOf[i] >= 0) {
+            continue;
+        }
         const Element& element = model.elements[owner];
         if (element.kind == Element::Kind::Wall) {
             gp_Trsf move = mapper.toXY * model.placement(owner, root);
-            laid.emplace_back(face, BRepBuilderAPI_Transform(face, move, true).Shape());
+            laid.emplace_back(face, BRepBuilderAPI_Transform(closed(face), move, true).Shape());
             sewing.Add(laid.back().second);
             continue;
         }
@@ -1037,6 +1106,38 @@ FlatResult flatten(const TopoDS_Shape& folded,
             break;
         }
     }
+    // each form's outline or cross, moved with its wall
+    if (unformed) {
+        for (std::size_t k = 0; k < model.forms.size(); ++k) {
+            const Form& form = model.forms[k];
+            const gp_Trsf move = mapper.toXY * model.placement(form.wall, root);
+            FlatResult::FormMark mark;
+            mark.name = form.name;
+            mark.centre = formDisplay == FormDisplay::CentreMark;
+            std::vector<TopoDS_Edge> edges;
+            if (mark.centre) {
+                const double across = form.halfWidth > 0
+                    ? std::min(form.halfLength, form.halfWidth)
+                    : form.halfLength;
+                const double arm = std::max(0.5, across / 4);
+                const gp_Pnt c = form.frame.Location();
+                for (const gp_Dir& d : {form.frame.XDirection(), form.frame.YDirection()}) {
+                    edges.push_back(BRepBuilderAPI_MakeEdge(c.Translated(gp_Vec(d) * -arm),
+                                                            c.Translated(gp_Vec(d) * arm)));
+                }
+            }
+            else {
+                edges = outlines[k];
+            }
+            for (const TopoDS_Edge& e : edges) {
+                mark.edges.push_back(
+                    TopoDS::Edge(BRepBuilderAPI_Transform(e, move, true).Shape()));
+            }
+            if (!mark.edges.empty()) {
+                res.forms.push_back(mark);
+            }
+        }
+    }
     // Every marking on the blank's top, the side a drawing of the flat looks
     // at: a down bend's line, on its inner skin, is on the underside, where a
     // drawing's hidden-line removal drops it (TechDraw keeps no hidden line by
@@ -1059,6 +1160,11 @@ FlatResult flatten(const TopoDS_Shape& folded,
         };
         for (auto& cross : res.crossBreaks) {
             for (auto& edge : cross.diagonals) {
+                lift(edge);
+            }
+        }
+        for (auto& form : res.forms) {
+            for (auto& edge : form.edges) {
                 lift(edge);
             }
         }

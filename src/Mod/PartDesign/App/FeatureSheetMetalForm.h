@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+/***************************************************************************
+ *   Copyright (c) 2026 Zheng Lei (realthunder) <realthunder.dev@gmail.com> *
+ *                                                                         *
+ *   This file is part of the FreeCAD CAx development system.              *
+ *                                                                         *
+ *   This library is free software; you can redistribute it and/or         *
+ *   modify it under the terms of the GNU Library General Public           *
+ *   License as published by the Free Software Foundation; either          *
+ *   version 2 of the License, or (at your option) any later version.      *
+ *                                                                         *
+ *   This library  is distributed in the hope that it will be useful,      *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU Library General Public License for more details.                  *
+ *                                                                         *
+ *   You should have received a copy of the GNU Library General Public     *
+ *   License along with this library; see the file COPYING.LIB. If not,    *
+ *   write to the Free Software Foundation, Inc., 59 Temple Place,         *
+ *   Suite 330, Boston, MA  02111-1307, USA                                *
+ *                                                                         *
+ ***************************************************************************/
+#pragma once
+
+#include <App/PropertyLinks.h>
+#include <App/PropertyStandard.h>
+#include <App/PropertyUnits.h>
+
+#include "Feature.h"
+#include "SheetMetalExtension.h"
+
+namespace PartDesign
+{
+
+/** Forms pressed into a wall (docs/SheetMetal.md sec 4.8, ruled 2026-11-06)
+ *
+ * One at each point of Positions, a sketch on Face, a wall's skin of the
+ * feature this builds on: rising out of that face, or into it if Reversed,
+ * turned by Angle about its normal. Kind is the form: "Tool", Tool's shape
+ * set on its face, taken as the form's outside and hollowed to the sheet's
+ * thickness, the hollow opened down through the wall; or a built-in one,
+ * "Dimple", Diameter across where it leaves the face, Depth high, its slant
+ * at FlankAngle, its bends of Radius inside, the thickness all through it.
+ * Each is a form of the sheet's model (SheetMetal::Form), owned by its wall.
+ */
+class PartDesignExport SheetMetalForm : public PartDesign::Feature, public SheetMetalExtension
+{
+    PROPERTY_HEADER_WITH_EXTENSIONS(PartDesign::SheetMetalForm);
+
+public:
+    SheetMetalForm();
+
+    App::PropertyEnumeration Kind;
+    /// The wall's skin the forms rise out of, of the feature this builds on
+    App::PropertyLinkSub Face;
+    /// A sketch whose points are where the forms are (a sketch alone, its
+    /// subelements unused: the panel's sketch choice takes this kind)
+    App::PropertyLinkSub Positions;
+    /// Each form turned about the face's normal
+    App::PropertyAngle Angle;
+    /// Rising into the face, not out of it
+    App::PropertyBool Reversed;
+    /// Kind Tool: the tool, and its face that sits on the wall's skin
+    App::PropertyLinkSub Tool;
+    /// Kind Dimple: across where it leaves the face
+    App::PropertyLength Diameter;
+    /// Kind Dimple: how high its top is above the face
+    App::PropertyLength Depth;
+    /// Kind Dimple: the inside radius of its two bends
+    App::PropertyLength Radius;
+    /// Kind Dimple: the slant of its side, from the face
+    App::PropertyAngle FlankAngle;
+
+    App::DocumentObjectExecReturn* execute() override;
+    short mustExecute() const override;
+    void onChanged(const App::Property* prop) override;
+    const char* getViewProviderName() const override
+    {
+        return "PartDesignGui::ViewProviderSheetMetalForm";
+    }
+    bool shouldApplyPlacement() override
+    {
+        // the base's shape as it is, in place
+        return false;
+    }
+
+    static const char* KindEnums[];
+};
+
+}  // namespace PartDesign

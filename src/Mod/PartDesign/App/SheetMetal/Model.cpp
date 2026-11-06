@@ -205,11 +205,66 @@ bool interiorPoint(const TopoDS_Face& face, gp_Pnt& point)
 
 }  // namespace
 
+bool Form::contains(const gp_Pnt& point, double tol) const
+{
+    const gp_Vec v(frame.Location(), point);
+    const double x = v.Dot(gp_Vec(frame.XDirection()));
+    const double y = v.Dot(gp_Vec(frame.YDirection()));
+    const double z = v.Dot(gp_Vec(frame.Direction()));
+    if (z < zMin - tol || z > zMax + tol) {
+        return false;
+    }
+    if (halfWidth <= 0) {
+        return x * x + y * y <= (halfLength + tol) * (halfLength + tol);
+    }
+    return std::abs(x) <= halfLength + tol && std::abs(y) <= halfWidth + tol;
+}
+
+int Model::formOf(const TopoDS_Face& face, double tol) const
+{
+    if (forms.empty() || face.IsNull()) {
+        return -1;
+    }
+    gp_Pnt point;
+    if (!interiorPoint(face, point)) {
+        return -1;
+    }
+    for (std::size_t i = 0; i < forms.size(); ++i) {
+        const Form& form = forms[i];
+        if (!form.contains(point, tol)) {
+            continue;
+        }
+        bool whole = true;
+        for (TopExp_Explorer it(face, TopAbs_VERTEX); it.More() && whole; it.Next()) {
+            const TopoDS_Vertex& v = TopoDS::Vertex(it.Current());
+            whole = form.contains(BRep_Tool::Pnt(v), tol + BRep_Tool::Tolerance(v));
+        }
+        if (whole) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int Model::findForm(const std::string& name) const
+{
+    for (std::size_t i = 0; i < forms.size(); ++i) {
+        if (forms[i].name == name) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 int Model::owner(const TopoDS_Face& face, double tol) const
 {
     gp_Pnt point;
     if (face.IsNull() || !interiorPoint(face, point)) {
         return -1;
+    }
+    // a form's face rises out of its wall's slab: it is the form's wall's
+    if (const int form = formOf(face); form >= 0) {
+        return forms[form].wall;
     }
     // A wall's slab runs on in its plane past where the wall is, so a point
     // of another element's face can lie in it -- a flange's leg running down
@@ -280,6 +335,9 @@ void Model::transform(const gp_Trsf& trsf)
             limit.Transform(trsf);
         }
     }
+    for (Form& form : forms) {
+        form.frame.Transform(trsf);
+    }
 }
 
 void Model::remove(int index)
@@ -305,6 +363,18 @@ void Model::remove(int index)
         }
         if (bend.after > index) {
             --bend.after;
+        }
+    }
+    // a removed wall's forms go with it
+    forms.erase(std::remove_if(forms.begin(),
+                               forms.end(),
+                               [index](const Form& form) {
+                                   return form.wall == index;
+                               }),
+                forms.end());
+    for (Form& form : forms) {
+        if (form.wall > index) {
+            --form.wall;
         }
     }
 }

@@ -1148,6 +1148,95 @@ bool CmdPartDesignSheetMetalCrossBreak::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalForm
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalForm)
+
+CmdPartDesignSheetMetalForm::CmdPartDesignSheetMetalForm()
+    : Command("PartDesign_SheetMetalForm")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Form");
+    sToolTipText = QT_TR_NOOP("Presses a form into a wall at each point of a sketch: select\n"
+                              "the wall's face it rises out of and the sketch, and a face of a\n"
+                              "tool's shape to press that, else it is a dimple");
+    sWhatsThis = "PartDesign_SheetMetalForm";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalForm";
+}
+
+void CmdPartDesignSheetMetalForm::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    auto tip = body->Tip.getValue();
+    std::string face;
+    App::DocumentObject* positions = nullptr;
+    App::DocumentObject* tool = nullptr;
+    std::string toolFace;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        auto obj = sel.getObject();
+        if (!obj) {
+            continue;
+        }
+        if (obj->isDerivedFrom<Part::Part2DObject>()) {
+            positions = obj;
+            continue;
+        }
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face")) {
+                continue;
+            }
+            if (obj == tip && face.empty()) {
+                face = sub;
+            }
+            else if (obj != tip && !tool) {
+                tool = obj;
+                toolFace = sub;
+            }
+        }
+    }
+    if (face.empty() || !positions) {
+        warn(QT_TR_NOOP("Nothing to form"),
+             QT_TR_NOOP("Select the face of a wall on the body's tip the forms rise out of, and "
+                        "a sketch of their points; and a face of a tool to press that, which "
+                        "sits on the wall."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Form"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalForm", "Form");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Face = (" << getObjectCmd(tip) << ", ['" << face << "'])");
+    Gui::cmdAppObject(feat, std::ostringstream() << "Positions = " << getObjectCmd(positions));
+    if (tool) {
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "Tool = (" << getObjectCmd(tool) << ", ['"
+                                               << toolFace << "'])");
+    }
+    else {
+        Gui::cmdAppObject(feat, std::ostringstream() << "Kind = 'Dimple'");
+    }
+    FCMD_OBJ_HIDE(positions);
+    finishFeature(this, feat, tip);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalForm::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatten
 //===========================================================================
 
@@ -1747,6 +1836,7 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
     mgr.addCommand(new CmdPartDesignSheetMetalRip());
     mgr.addCommand(new CmdPartDesignSheetMetalCrossBreak());
+    mgr.addCommand(new CmdPartDesignSheetMetalForm());
     mgr.addCommand(new CmdPartDesignSheetMetalCutout());
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());

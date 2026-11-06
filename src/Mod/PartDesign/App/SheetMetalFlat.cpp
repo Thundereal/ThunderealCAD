@@ -119,6 +119,17 @@ TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, 
         }
     }
     named(crossEdges, [&](std::size_t k) { return crossNames[k]; });
+    // each form's outline, Form1Outline1, ..., or its cross, Form1Mark1, 2
+    std::vector<TopoDS_Edge> formEdges;
+    std::vector<std::string> formNames;
+    for (const auto& form : flat.forms) {
+        for (std::size_t k = 0; k < form.edges.size(); ++k) {
+            formEdges.push_back(form.edges[k]);
+            formNames.push_back(form.name + (form.centre ? "Mark" : "Outline")
+                                + std::to_string(k + 1));
+        }
+    }
+    named(formEdges, [&](std::size_t k) { return formNames[k]; });
     named(flat.markings, [](std::size_t k) { return "Marking" + std::to_string(k + 1); });
     TopoShape res(0, hasher);
     res.makECompound(parts, nullptr, /*force*/ true);
@@ -185,7 +196,8 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     }
 
     SheetMetal::FlatResult flat =
-        SheetMetal::flatten(folded.getShape(), model, root, settings.secondSkin, alongX);
+        SheetMetal::flatten(folded.getShape(), model, root, settings.secondSkin, alongX,
+                            settings.formDisplay);
     if (settings.grain) {
         flat.grain = SheetMetal::grainArrow(flat.solid, Base::toRadians(settings.grainAngle));
     }

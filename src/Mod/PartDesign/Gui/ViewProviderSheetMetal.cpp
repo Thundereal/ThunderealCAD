@@ -504,6 +504,26 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalConvert::getEditDialog()
                                       {"RipEdges", "Edge"}}));
 }
 
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalForm, PartDesignGui::ViewProvider)
+
+ViewProviderSheetMetalForm::ViewProviderSheetMetalForm()
+{
+    sPixmap = "PartDesign_SheetMetalForm";
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalForm::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(
+            this,
+            "PartDesign_SheetMetalForm",
+            QObject::tr("Form parameters"),
+            {"Kind", "Positions", "Angle", "Reversed", "Diameter", "Depth", "Radius",
+             "FlankAngle"},
+            {{"Face", "Face", true}}));
+}
+
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalRule, PartGui::ViewProviderPart)
 
 ViewProviderSheetMetalRule::ViewProviderSheetMetalRule() = default;
@@ -546,7 +566,8 @@ enum
     Tangent,
     GrainKind,
     MarkingKind,
-    CrossBreakKind
+    CrossBreakKind,
+    FormKind
 };
 const App::PropertyFloatConstraint::Constraints widthRange = {0.5, 64.0, 0.5};
 /// As a Part view's DrawStyle has them
@@ -607,6 +628,14 @@ ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
                       "The line style of the cross breaks");
     ADD_PROPERTY_TYPE(CrossBreakWidth, (1.5), group, App::Prop_None,
                       "The line width of the cross breaks");
+    ADD_PROPERTY_TYPE(ShowForms, (true), group, App::Prop_None,
+                      "Draw the forms' outlines or centre marks, where the flat has any");
+    ADD_PROPERTY_TYPE(FormColor, (0.0f, 0x80 / 255.0f, 0x80 / 255.0f), group, App::Prop_None,
+                      "The colour of the forms' outlines and centre marks");
+    ADD_PROPERTY_TYPE(FormStyle, (1L), group, App::Prop_None,
+                      "The line style of the forms' outlines and centre marks");
+    ADD_PROPERTY_TYPE(FormWidth, (1.5), group, App::Prop_None,
+                      "The line width of the forms' outlines and centre marks");
     kinds = {Kind {&ShowBendUp, &BendUpColor, &BendUpStyle, &BendUpWidth, {}, {}},
              Kind {&ShowBendDown, &BendDownColor, &BendDownStyle, &BendDownWidth, {}, {}},
              Kind {&ShowTangentLines, &TangentLineColor, &TangentLineStyle, &TangentLineWidth,
@@ -614,7 +643,8 @@ ViewProviderSheetMetalFlatPattern::ViewProviderSheetMetalFlatPattern()
              Kind {&ShowGrain, &GrainColor, &GrainStyle, &GrainWidth, {}, {}},
              Kind {&ShowMarkings, &MarkingColor, &MarkingStyle, &MarkingWidth, {}, {}},
              Kind {&ShowCrossBreaks, &CrossBreakColor, &CrossBreakStyle, &CrossBreakWidth,
-                   {}, {}}};
+                   {}, {}},
+             Kind {&ShowForms, &FormColor, &FormStyle, &FormWidth, {}, {}}};
     for (auto& kind : kinds) {
         kind.style->setEnums(styleEnums);
         kind.width->setConstraints(&widthRange);
@@ -733,7 +763,8 @@ namespace
 {
 
 /** The kind of marking an edge of a flat is, by its mapped name -- Bend1,
- * Bend1Part2, Bend1Tangent1, Grain, GrainHead1, Wall1CrossBreak1 (layFlat()),
+ * Bend1Part2, Bend1Tangent1, Grain, GrainHead1, Wall1CrossBreak1, Form1Outline1,
+ * Form1Mark1 (layFlat()),
  * Marking1 (the object's Markings) with what followed it after the first ';'
  * -- each bend Up or Down by directions; -1 for none
  */
@@ -744,9 +775,13 @@ int markingKind(std::string name, const std::map<std::string, std::string>& dire
     static const std::regex grain("Grain(Head[0-9]+)?");
     static const std::regex marking("Marking[0-9]+");
     static const std::regex cross(".+CrossBreak[0-9]+");
+    static const std::regex form(".+(Outline|Mark)[0-9]+");
     std::smatch m;
     if (std::regex_match(name, cross)) {
         return CrossBreakKind;
+    }
+    if (std::regex_match(name, form)) {
+        return FormKind;
     }
     if (std::regex_match(name, grain)) {
         return GrainKind;
@@ -866,7 +901,7 @@ void ViewProviderSheetMetalFlatPattern::showFlat(
     if (bound.IsValid() && bound.LengthZ() > tol) {
         up.SetTranslation(gp_Vec(0, 0, bound.LengthZ()));
     }
-    std::array<std::vector<Part::TopoShape>, 6> edges;
+    std::array<std::vector<Part::TopoShape>, std::tuple_size_v<decltype(kinds)>> edges;
     for (auto& kind : kinds) {
         kind.edges.clear();
     }

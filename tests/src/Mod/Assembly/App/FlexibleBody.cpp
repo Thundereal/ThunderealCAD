@@ -205,6 +205,18 @@ TEST_F(FlexibleBody, cantileverModesAreTheClampedBeams)  // NOLINT
     EXPECT_NEAR(hz[1], first, 0.01 * first);
     EXPECT_NEAR(hz[2], second, 0.02 * second);
     EXPECT_NEAR(hz[3], second, 0.02 * second);
+
+    // The same with every other tetrahedron's corners turning the other way,
+    // as Netgen's do
+    for (std::size_t i = 0; i < model.dynamics->flexibles[0].tetrahedra.size(); i += 2) {
+        auto& t = model.dynamics->flexibles[0].tetrahedra[i];
+        t = {t[0], t[2], t[1], t[3], t[6], t[5], t[4], t[7], t[9], t[8]};
+    }
+    const std::vector<double> turned = Chrono::flexibleFrequencies(model, 0, &error);
+    ASSERT_EQ(turned.size(), 4u) << error;
+    for (std::size_t i = 0; i < 4; ++i) {
+        EXPECT_NEAR(turned[i], hz[i], 1e-9 * hz[i]);
+    }
 }
 
 namespace

@@ -41,7 +41,12 @@ namespace PartDesign
  * set on its face, taken as the form's outside and hollowed to the sheet's
  * thickness, the hollow opened down through the wall; or a built-in one,
  * "Dimple", Diameter across where it leaves the face, Depth high, its slant
- * at FlankAngle, its bends of Radius inside, the thickness all through it.
+ * at FlankAngle, its bends of Radius inside, the thickness all through it;
+ * "Louver", the sheet cut along one long side and the strip risen as a hood,
+ * Length long along the form's X, Width from its hinge to the opening,
+ * which faces its Y, a ramp up to the lip Depth above the face, its ends
+ * drawn down to the face at FlankAngle. The built-in ones' sizes start from
+ * the rule's thickness.
  * Each is a form of the sheet's model (SheetMetal::Form), owned by its wall.
  */
 class PartDesignExport SheetMetalForm : public PartDesign::Feature, public SheetMetalExtension
@@ -65,12 +70,16 @@ public:
     App::PropertyLinkSub Tool;
     /// Kind Dimple: across where it leaves the face
     App::PropertyLength Diameter;
-    /// Kind Dimple: how high its top is above the face
+    /// Kind Dimple, Louver: how high its top is above the face
     App::PropertyLength Depth;
-    /// Kind Dimple: the inside radius of its two bends
+    /// Kind Dimple, Louver: the inside radius of its bends
     App::PropertyLength Radius;
-    /// Kind Dimple: the slant of its side, from the face
+    /// Kind Dimple: the slant of its side, from the face; Louver: its ends'
     App::PropertyAngle FlankAngle;
+    /// Kind Louver: along the form's X
+    App::PropertyLength Length;
+    /// Kind Louver: from its hinge to its opening, along the form's Y
+    App::PropertyLength Width;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
@@ -86,6 +95,10 @@ public:
     }
 
     static const char* KindEnums[];
+
+private:
+    /// The built-in sizes set from the rule's thickness, or restored
+    bool sized = false;
 };
 
 }  // namespace PartDesign

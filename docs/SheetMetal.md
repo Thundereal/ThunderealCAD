@@ -1687,6 +1687,31 @@ stored flat and this option do what it was for.
   The Form command takes a wall's face of the tip and a sketch, and a tool's face for Kind Tool.
   `TestSheetMetalForm` (12; before, all errored), `sheet-metal-commands.py` (102, +3),
   `sheet-metal-panels.py` (82, +4).
+- **Built 2026-11-06, the louver, and the built-in forms sized from the thickness:** Kind
+  `Louver` of the form. The sheet is cut along one long side and the strip risen as a hood:
+  `Length` along the form's X, `Width` from its hinge to its opening, which faces the form's Y
+  (turned by `Angle` as any form), a plane ramp from the hinge's line on the face up to the lip
+  `Depth` above it, its ends drawn down to the face at `FlankAngle`, closed, the thickness all
+  through it, the plate beneath it open. Its outside lies under the three planes, the hollow
+  under the same planes the thickness in from them; the cut is a slit the rule's gap wide in
+  front of the lip, on past where the ends leave the face: cut as a line, the hood's ends and the
+  sheet before them were one solid near the face, and the bends there could not be rounded. Its
+  outside starts inside the wall, which holds all of it below the face: from the other skin its
+  foot split that skin, a sliver of it neither the wall's nor the form's, and the flat refused
+  it. Rounded in two steps, the ridges between the ramp and the ends first, concentric (`Radius`
+  inside, `Radius` and the thickness outside), then where the ramp and the ends leave the face,
+  on it and beneath, all of `Radius`: OCCT blends no corner beneath where the hinge's and an
+  end's bends, at `Radius` and the thickness, meet the inner ridge at `Radius`, in one step or
+  in any order of steps (tried). So those bends are a little thicker than the sheet, T (1 /
+  cos(a / 2) - 1) more at their middle, a the bend's angle (8% at 45 deg); the form is carried
+  rigidly into the flat, which it does not change. Refused: a size of 0, ends meeting before the
+  lip's height, no room inside for the thickness, a rule's gap of 0, bends that cannot be rounded.
+  The built-in forms' sizes start from the rule's thickness, once, when the feature takes its
+  rule (`Diameter` 10 T, `Depth` 2 T, `Radius` T, `Length` 20 T, `Width` 6 T; ruled with M5 and
+  missed with the dimple), a size set before then kept. The form's panel has the louver's sizes,
+  each kind's greyed out for the others. `TestSheetMetalForm` (17; before, 12), its five new
+  cases `testLouver`, `testLouverTurned`, `testLouverSharp`, `testLouverRefused`,
+  `testSizesFromThickness`; `sheet-metal-panels.py` (+3; before, 79 and 1 failing).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

@@ -222,7 +222,7 @@ bool same(const Flexible& a, const Flexible& b)
         || a.youngs != b.youngs || a.poisson != b.poisson || a.density != b.density
         || a.modes != b.modes || a.damping != b.damping
         || a.dampingFrequency != b.dampingFrequency || a.nodes.size() != b.nodes.size()
-        || a.interfaces.size() != b.interfaces.size()) {
+        || a.interfaces.size() != b.interfaces.size() || a.contactNodes != b.contactNodes) {
         return false;
     }
     for (std::size_t i = 0; i < a.nodes.size(); ++i) {

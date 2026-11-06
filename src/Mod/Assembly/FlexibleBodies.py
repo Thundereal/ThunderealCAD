@@ -7,9 +7,11 @@ mesh of 10-node tetrahedra (Netgen, through the Fem workbench, in a hidden
 document of its own) and its interfaces -- for each frame of the model on
 the component, the nodes on the faces that hold it there: a joint's faces
 on the component, as D4a's loads take them (MotionLoads._facesOf()); a
-force element's end, the nearest node, the run's default. Kept on the
-object, remade when the shape, the mesh size or what holds the component
-changes (MeshSignature)."""
+force element's end, the nearest node, the run's default; and the nodes of
+the faces a contact touches it on (ContactFaces), one interface of their
+own its contacts press it through (D4b step 5). Kept on the object, remade
+when the shape, the mesh size, what holds the component or its contact
+faces change (MeshSignature)."""
 
 import hashlib
 
@@ -86,9 +88,9 @@ def _element(ref):
     return None if element.isNull() else element
 
 
-def _signature(flexible, local, holds):
+def _signature(flexible, local, holds, touched):
     """What the mesh is made of, as text: the shape's measures, the size,
-    and each interface's frame and reference"""
+    each interface's frame and reference, and the faces it is touched on"""
     box = local.BoundBox
     parts = [
         "%.9g %.9g %d %d" % (local.Volume, local.Area, len(local.Faces), len(local.Edges)),
@@ -97,7 +99,29 @@ def _signature(flexible, local, holds):
     ]
     for label, ref in holds:
         parts.append("%s %s" % (label, ref[1]))
+    if touched:
+        parts.append("contact %s" % " ".join(touched))
     return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+# The label of the interface of the faces a contact touches it on: the
+# FlexibleBody's ContactInterface
+CONTACT = "Contact"
+
+
+def contactFacesOf(flexible):
+    """The faces of its component a contact touches the flexible body on,
+    its ContactFaces': their names"""
+    names = []
+    component = flexible.Component
+    for obj, subs in flexible.ContactFaces:
+        if not _same(obj, component):
+            continue
+        for sub in subs:
+            name = sub.split(".")[-1]
+            if name.startswith("Face") and name not in names:
+                names.append(name)
+    return names
 
 
 def prepare(flexible, force=False):
@@ -115,7 +139,8 @@ def prepare(flexible, force=False):
     if local.isNull() or not local.Solids:
         raise ValueError("the flexible body %s is of a component with no solid" % flexible.Label)
     holds = interfacesOf(assembly, component)
-    signature = _signature(flexible, local, holds)
+    touched = contactFacesOf(flexible)
+    signature = _signature(flexible, local, holds, touched)
     if not force and flexible.MeshSignature == signature and flexible.Nodes:
         return False
 
@@ -152,6 +177,25 @@ def prepare(flexible, force=False):
                 face = faces[int(name[4:]) - 1]
                 on.update(index[n] for n in femmesh.getNodesByFace(face) if n in index)
             frames.append(label)
+            held.extend(sorted(on))
+            held.append(-1)
+        # The faces a contact touches it on, one interface of their own,
+        # but for the nodes another holds: two interfaces sharing nodes
+        # would hold each other
+        if touched:
+            holding = {n for n in held if n >= 0}
+            on = set()
+            for name in touched:
+                k = int(name[4:]) - 1
+                if 0 <= k < len(faces):
+                    on.update(index[n] for n in femmesh.getNodesByFace(faces[k]) if n in index)
+            on -= holding
+            if not on:
+                raise ValueError(
+                    "the flexible body %s: its contact faces are none of its component's, "
+                    "or all held by its joints" % flexible.Label
+                )
+            frames.append(CONTACT)
             held.extend(sorted(on))
             held.append(-1)
         flexible.Nodes = [points[n] for n in ids]

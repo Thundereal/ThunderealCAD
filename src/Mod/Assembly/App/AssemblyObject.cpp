@@ -2905,6 +2905,13 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
                 held.back().push_back(static_cast<Solver::Id>(node));
             }
         }
+        // The faces it is touched on (ContactFaces), one interface of their
+        // own, by the label FlexibleBodies.prepare() gives it
+        for (std::size_t i = 0; i < frames.size() && i < held.size(); ++i) {
+            if (frames[i] == FlexibleBody::ContactInterface) {
+                record.contactNodes = held[i];
+            }
+        }
         for (const auto& frame : model.frames) {
             if (frame.body != data.body) {
                 continue;

@@ -624,6 +624,10 @@ struct Flexible
         std::vector<Id> nodes;
     };
     std::vector<Interface> interfaces;
+    // The nodes a contact on it touches it through (D4b step 5): the faces
+    // it is touched on, one interface of their own that every contact
+    // shape on the body rides; empty, none is
+    std::vector<Id> contactNodes;
 };
 
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has

@@ -1087,6 +1087,13 @@ FlexibleBody::FlexibleBody()
                       "Flexible",
                       App::Prop_None,
                       "The largest element of its mesh; 0: a fortieth of its size");
+    ADD_PROPERTY_TYPE(ContactFaces,
+                      (nullptr),
+                      "Flexible",
+                      App::Prop_None,
+                      "The faces of its component a contact touches it on: their nodes move "
+                      "together, as one interface its contacts press it through. A contact on "
+                      "it needs them");
 
     const auto made = static_cast<App::PropertyType>(App::Prop_Output | App::Prop_ReadOnly);
     ADD_PROPERTY_TYPE(Nodes,

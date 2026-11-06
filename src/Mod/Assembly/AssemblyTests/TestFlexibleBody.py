@@ -267,6 +267,170 @@ class TestFlexibleBody(unittest.TestCase):
             )
             self.assertAlmostEqual(ratio, 1.0, delta=0.03, msg=x)
 
+    def test_propped_cantilever(self):
+        """A contact on a flexible part (D4b step 5), through the faces it
+        is touched on: the rod clamped at one end to the grounded block, a
+        pad under its free end resting on a grounded post, the pad's face
+        its contact face. Under its weight the post takes what a propped
+        cantilever's prop does -- the rod's bending decides it, which a
+        rigid rod leaves to chance -- q (6 L^2 - 4 L a + a^2) / 8 a, the
+        prop at a, and the pad's own weight; the clamp the rest"""
+        import Part
+
+        import CommandCreateContact
+
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        rod = self.assembly.newObject("Part::Feature", "Rod")
+        pad = Part.makeBox(5, 10, 1, App.Vector(95, 0, -1))
+        rod.Shape = Part.makeBox(100, 10, 10).fuse(pad).removeSplitter()
+        rod.Placement.Base = App.Vector(10, 0, 0)
+        post = self.box("Post", (8, 14, 10), (10 + 93.5, -2, -11))
+        held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPost")
+        JointObject.GroundedJoint(held, post)
+        self.doc.recompute()
+        faces = rod.Shape.Faces
+        bottom = min(range(len(faces)), key=lambda k: faces[k].CenterOfMass.z)
+        self.assertAlmostEqual(faces[bottom].CenterOfMass.z, -1.0, places=6)
+        # Placed: its end at x = 10
+        ends = [k for k, f in enumerate(faces) if abs(f.CenterOfMass.x - 10) < 1e-6]
+        self.assertEqual(len(ends), 1)
+        clamp = self.joints.newObject("App::FeaturePython", "Fixed")
+        JointObject.Joint(clamp, JointObject.JointTypes.index("Fixed"))
+        clamp.Detach1 = True
+        clamp.Detach2 = True
+        clamp.Reference1 = (base, ["Face2"])
+        clamp.Reference2 = (rod, ["Face%d" % (ends[0] + 1)])
+        clamp.Placement1 = plc(10, 5, 5)
+        clamp.Placement2 = plc(0, 5, 5)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, [rod], [post])
+        contact.StiffnessFrom = "Penetration"
+        contact.AllowedPenetration = 1e-5
+        sim = self.study(0.02, 1e-4)
+        sim.Elements = list(sim.Elements) + [contact]
+        flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        flexible.Modes = 12
+        flexible.Damping = 0.5
+        flexible.ContactFaces = [(rod, ["Face%d" % (bottom + 1)])]
+        FlexibleBodies.prepare(flexible)
+        self.assertEqual(flexible.InterfaceFrames[-1], FlexibleBodies.CONTACT)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        normal = [
+            c["Values"]
+            for c in results["Channels"]
+            if c["Quantity"] == "ContactNormalForce" and c["Name"] == contact.Name
+        ]
+        self.assertEqual(len(normal), 1)
+        # mN: aluminium's 2700 kg/m^3, the prop at the pad's middle
+        q = 2700e-9 * 100 * G
+        a = 97.5
+        weight = 2700e-9 * 50 * G
+        want = q * (6 * 100**2 - 4 * 100 * a + a**2) / (8 * a) + weight
+        # 1.4% over; a rigid rod's prop takes nothing, its clamp all
+        self.assertAlmostEqual(normal[0][-1].z, want, delta=0.03 * want)
+        # The clamp the rest of its weight
+        force = [
+            c["Values"]
+            for c in results["Channels"]
+            if c["Quantity"] == "Force" and c["Name"] == clamp.Name
+        ]
+        self.assertEqual(len(force), 1)
+        total = q * 100 + weight
+        self.assertAlmostEqual(abs(force[0][-1].z) + normal[0][-1].z, total, delta=1e-3 * total)
+
+    def strike(self, flexible):
+        """An aluminium strip 200 x 20 x 4 hinged at one end, a pad 5 x 20 x
+        1 under its free end, let go level onto a grounded post 10 mm under
+        the pad, stiff (an allowance of 1e-4 mm): the run's status and the
+        contact's largest normal force, mN"""
+        import Part
+
+        import CommandCreateContact
+
+        # The hinge 1 mm under the strip's middle: the solve lowers it so
+        mount = self.box("Mount", (10, 20, 10), (0, 0, -4))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
+        JointObject.GroundedJoint(ground, mount)
+        strip = self.assembly.newObject("Part::Feature", "Strip")
+        pad = Part.makeBox(5, 20, 1, App.Vector(195, 0, -1))
+        strip.Shape = Part.makeBox(200, 20, 4).fuse(pad).removeSplitter()
+        strip.Placement.Base = App.Vector(10, 0, 0)
+        post = self.box("Post", (15, 30, 30), (200, -5, -41))
+        held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPost")
+        JointObject.GroundedJoint(held, post)
+        self.doc.recompute()
+        faces = strip.Shape.Faces
+        bottom = min(range(len(faces)), key=lambda k: faces[k].CenterOfMass.z)
+        end = [k for k, f in enumerate(faces) if abs(f.CenterOfMass.x - 10) < 1e-6][0]
+        hinge = self.joints.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (mount, ["Face2"])
+        hinge.Reference2 = (strip, ["Face%d" % (end + 1)])
+        hinge.Placement1 = plc(10, 10, 5, App.Vector(1, 0, 0), -90)
+        hinge.Placement2 = plc(0, 10, 2, App.Vector(1, 0, 0), -90)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, [strip], [post])
+        contact.StiffnessFrom = "Penetration"
+        contact.AllowedPenetration = 1e-4
+        sim = self.study(0.06, 2e-4)
+        sim.Elements = [contact]
+        if flexible:
+            body = FlexibleBodies.makeFlexibleBody(self.assembly, strip)
+            body.MeshSize = 8.0
+            body.ContactFaces = [(strip, ["Face%d" % (bottom + 1)])]
+            FlexibleBodies.prepare(body)
+        self.doc.recompute()
+        status = self.assembly.generateSimulation(sim)
+        results = self.assembly.getSimulationResults()
+        normal = [c["Values"] for c in results["Channels"] if c["Quantity"] == "ContactNormalForce"]
+        return status, max(v.z for v in normal[0]) if normal and normal[0] else 0.0
+
+    def test_strike(self):
+        """The flexible strip strikes the post and bounces: the run goes
+        through it -- a substep taken again after one ran off starts its
+        floating frame from where it was, not where that left it; it did not,
+        and as the strip left the post every substep after failed, down to
+        a nanosecond -- and the blow is softer than the rigid strip's, its
+        own compliance in series with the contact's"""
+        status, flexible = self.strike(True)
+        self.assertEqual(status, 0)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.newDocument("TestFlexibleBody")
+        self.assembly = self.doc.addObject("Assembly::AssemblyObject", "Assembly")
+        self.joints = self.assembly.getGroup("Joints", True)
+        status, rigid = self.strike(False)
+        self.assertEqual(status, 0)
+        self.assertGreater(flexible, 0.0)
+        self.assertLess(flexible, rigid)
+
+    def test_contact_needs_its_faces(self):
+        """A contact on a flexible part without the faces it is touched on
+        is refused (the console says to name them, its ContactFaces)"""
+        rod, hinge = self.pendulum()
+        floor = self.box("Floor", (200, 40, 5), (-50, -15, -60))
+        held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedFloor")
+        JointObject.GroundedJoint(held, floor)
+        self.doc.recompute()
+        import CommandCreateContact
+
+        contact = CommandCreateContact.newContactSet(self.assembly, [rod], [floor])
+        sim = self.study(0.01, 1e-3)
+        sim.Elements = list(sim.Elements) + [contact]
+        flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        flexible.Modes = 4
+        FlexibleBodies.prepare(flexible)
+        self.doc.recompute()
+        self.assertNotEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertEqual(self.assembly.numberOfFrames(), 0)
+
     def test_welded_block(self):
         """A block welded to the flexible rod's free end is held at an
         interface of its own, not grouped with the rod: the rod still bends

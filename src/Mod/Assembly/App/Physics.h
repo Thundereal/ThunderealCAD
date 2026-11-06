@@ -622,6 +622,12 @@ public:
  * tetrahedron's ten nodes, and per interface the label of the model frame
  * it is -- a joint's full name, a force element's with "-1" or "-2" for its
  * end -- and the nodes on the faces it holds.
+ *
+ * A contact on it (D4b step 5) touches it through ContactFaces, faces of
+ * its component: one interface of their own (labelled ContactInterface),
+ * which its contact shapes ride and whose nodes move together, the forces
+ * bending the part through its static modes. A contact on a flexible part
+ * without them is refused.
  */
 class AssemblyExport FlexibleBody: public PhysicsItem
 {
@@ -635,6 +641,10 @@ public:
     App::PropertyFloatConstraint Damping;
     App::PropertyFrequency DampingFrequency;
     App::PropertyLength MeshSize;
+    App::PropertyLinkSubList ContactFaces;
+
+    /// The label of the contact faces' interface in InterfaceFrames
+    static constexpr const char* ContactInterface = "Contact";
 
     App::PropertyVectorList Nodes;
     App::PropertyIntegerList Tetrahedra;

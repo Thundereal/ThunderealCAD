@@ -1576,6 +1576,103 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         self.assertClean()
 
+    def test_video_background(self):
+        """Save Animation's Background menu: the 3D view saved on white, on
+        black or on a colour of one's own, asked for each time Custom is
+        chosen and kept as it was if the dialog is cancelled, the choice and
+        the colour kept in the preferences"""
+        import os
+        import shutil
+        import tempfile
+        from unittest import mock
+
+        from PIL import Image
+
+        import CommandCreateSimulation
+
+        self.make_joint("Assembly_CreateJointRevolute", "Revolute")
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.TimeStepOutput = 2.5e-3
+        sim.PlaybackSpeed = "Normal"
+        params = App.ParamGet(CommandCreateSimulation.VideoParams)
+        keptBools = {k: params.GetBool(k, True) for k in ("VideoResultsBox", "VideoTime")}
+        keptStrings = {
+            k: params.GetString(k, "") for k in ("VideoBackground", "VideoBackgroundColor")
+        }
+        params.SetString("VideoBackground", "Current")
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        times, shown = self.impact_times(), []
+        assembly = panel.assembly
+        panel.assembly = self.impact_run(times, shown)
+        folder = tempfile.mkdtemp(prefix="VideoBack")
+        self.modals.expect.append(
+            (lambda w: isinstance(w, QtWidgets.QProgressDialog), lambda w: None)
+        )
+        getColor = CommandCreateSimulation.QtWidgets.QColorDialog
+
+        def save(name):
+            chosen = (os.path.join(folder, name), "Animated GIF (*.gif)")
+            with mock.patch.object(
+                CommandCreateSimulation.QFileDialog, "getSaveFileName", return_value=chosen
+            ):
+                panel.saveAnimation()
+            image = Image.open(os.path.join(folder, name))
+            # The corner, away from the parts and the view's overlays: the
+            # first frame's, as the GIF folds frames that stay the same
+            return image.convert("RGB").getpixel((2, 2))
+
+        def choose(key, color=None):
+            with mock.patch.object(getColor, "getColor", return_value=color) as asked:
+                panel.videoBackgroundActions[key].trigger()
+            return asked.called
+
+        try:
+            panel.fillResults()
+            panel.form.frameSlider.setMaximum(len(times) - 1)
+            panel.fitPlayerLabels(len(times))
+            panel.videoBoxAction.setChecked(False)
+            panel.videoTimeAction.setChecked(False)
+            self.assertTrue(panel.videoBackgroundActions["Current"].isChecked())
+            self.assertEqual(panel.videoBackground(), "Current")
+            self.assertFalse(choose("White"))
+            self.assertEqual(params.GetString("VideoBackground", ""), "White")
+            self.assertGreater(min(save("white.gif")), 245)
+            choose("Black")
+            self.assertLess(max(save("black.gif")), 10)
+            # Custom: its colour asked for, kept, a swatch on the action
+            self.assertTrue(choose("Custom", QtGui.QColor(30, 120, 200)))
+            self.assertEqual(params.GetString("VideoBackground", ""), "Custom")
+            self.assertEqual(params.GetString("VideoBackgroundColor", ""), "#1e78c8")
+            self.assertEqual(panel.videoBackground(), "#1e78c8")
+            self.assertFalse(panel.videoBackgroundActions["Custom"].icon().isNull())
+            for got, want in zip(save("custom.gif"), (30, 120, 200)):
+                self.assertAlmostEqual(got, want, delta=12)
+            # Cancelled from black: black still
+            choose("Black")
+            self.assertTrue(choose("Custom", QtGui.QColor()))
+            self.assertTrue(panel.videoBackgroundActions["Black"].isChecked())
+            self.assertEqual(params.GetString("VideoBackground", ""), "Black")
+            self.assertEqual(params.GetString("VideoBackgroundColor", ""), "#1e78c8")
+            # A choice the menu does not know: the view's own
+            params.SetString("VideoBackground", "Bogus")
+            self.assertEqual(panel.videoBackground(), "Current")
+        finally:
+            for k, v in keptBools.items():
+                params.SetBool(k, v)
+            for k, v in keptStrings.items():
+                if v:
+                    params.SetString(k, v)
+                else:
+                    params.RemString(k)
+            panel.assembly = assembly
+            shutil.rmtree(folder, ignore_errors=True)
+        self.accept_task()
+        self.assertClean()
+
     def test_playback_speed(self):
         """The player at the study's speed (docs/AssemblyDynamics.md sec
         8.6): Auto by default; through an impact's frames, microseconds
@@ -2186,6 +2283,149 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(self.contactSets(), [])
         self.assertEqual(dynamic.Elements, [])
         self.assertClean()
+
+    def test_flexible_body(self):
+        """Idle until one component is selected -- here by a face of it in the
+        assembly, as the 3D view picks it; then a flexible body of it,
+        selected, ticked in the Dynamic study and neither the Static nor the
+        Kinematic one. One undo takes it out"""
+        sims = self.assembly.getGroup("Simulations", True)
+        dynamic = sims.newObject("Assembly::Simulation", "Dynamic")
+        dynamic.AnalysisType = "Dynamic"
+        static = sims.newObject("Assembly::Simulation", "Static")
+        static.AnalysisType = "Static"
+        kinematic = sims.newObject("Assembly::Simulation", "Kinematic")
+        _process()
+        Gui.Selection.clearSelection()
+        _process()
+        self.assertFalse(Gui.Command.get("Assembly_CreateFlexibleBody").isActive())
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face1")
+        self.run_command("Assembly_CreateFlexibleBody")
+        physics = self.assembly.getGroup("Physics")
+        made = [o for o in physics.Group if o.TypeId == "Assembly::FlexibleBody"]
+        self.assertEqual(len(made), 1)
+        flexible = made[0]
+        self.assertEqual(flexible.Component, self.box)
+        self.assertEqual(Gui.Selection.getSelection(), [flexible])
+        self.assertIn(flexible, dynamic.Elements)
+        self.assertNotIn(flexible, static.Elements)
+        self.assertNotIn(flexible, kinematic.Elements)
+        self.assertEqual(flexible.Modes, 12)
+        self.assertAlmostEqual(flexible.Damping, 0.02)
+        self.doc.undo()
+        _process()
+        self.assertEqual([o for o in physics.Group if o.TypeId == "Assembly::FlexibleBody"], [])
+
+    def test_flexible_body_playback(self):
+        """A run with a flexible body draws it bent as it plays: its mesh's
+        surface in the scene, its component hidden, drawn at each frame the
+        player shows, coloured by its stress, the scale's legend beside it
+        and its largest stress in the Results box; the panel closed, the
+        drawing and the legend go and the component shows again"""
+        import CommandCreateSimulation
+        import FlexibleBodies
+
+        base = self.box
+        base.Length, base.Width, base.Height = 10, 10, 10
+        rod = self.assembly.newObject("Part::Box", "Rod")
+        rod.Length, rod.Width, rod.Height = 60, 10, 10
+        rod.Placement.Base = App.Vector(10, 0, 0)
+        ground = self.jointgroup.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        hinge = self.jointgroup.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (base, ["Face2"])
+        hinge.Reference2 = (rod, ["Face1"])
+        turn = App.Rotation(App.Vector(1, 0, 0), -90)
+        hinge.Placement1 = App.Placement(App.Vector(10, 5, 5), turn)
+        hinge.Placement2 = App.Placement(App.Vector(0, 5, 5), turn)
+        self.doc.recompute()
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.AnalysisType = "Dynamic"
+        sim.TimeEnd = 0.01
+        sim.TimeStepOutput = 1e-3
+        flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        flexible.Modes = 4
+        flexible.MeshSize = 5.0
+        self.doc.recompute()
+        _process()
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        panel.form.RunKinematicsButton.click()
+        start = time.monotonic()
+        while panel.runPoll.isActive():
+            self.assertLess(time.monotonic() - start, 120.0)
+            _process(1)
+            time.sleep(0.01)
+        _process()
+        self.assertFalse(panel.runMessage.isVisibleTo(panel.form), panel.runMessage.text())
+        self.assertGreater(len(flexible.Nodes), 0)
+        self.assertEqual(len(panel.deformations), 1)
+        shape = panel.deformations[0]
+        self.assertIsNotNone(shape.root)
+        self.assertFalse(rod.ViewObject.Visibility)
+        scene = Gui.ActiveDocument.ActiveView.getSceneGraph()
+        drawn = shape.root
+        self.assertGreaterEqual(scene.findChild(drawn), 0)
+        # At each frame shown, the surface there
+        panel.form.frameSlider.setValue(0)
+        _process()
+        first = [tuple(p) for p in shape.coords.point.getValues()]
+        panel.form.frameSlider.setValue(self.assembly.numberOfFrames() - 1)
+        _process()
+        last = [tuple(p) for p in shape.coords.point.getValues()]
+        self.assertEqual(len(first), len(last))
+        self.assertNotEqual(first, last)
+        # Coloured by its stress, a colour a node, red at the largest over
+        # the run; the legend's scale over the view's right side, and in a
+        # saved video's frames at the same place
+        colors = [tuple(c) for c in shape.material.diffuseColor.getValues()]
+        self.assertEqual(len(colors), len(last))
+        self.assertGreater(len(set(colors)), 10)
+        peak = panel.deformations.peakStress()
+        self.assertGreater(peak, 0.0)
+        legend = panel.deformations.legend.widget
+        viewer = Gui.ActiveDocument.ActiveView.graphicsView()
+        self.assertTrue(legend.isVisibleTo(viewer))
+        self.assertEqual(legend.parentWidget(), viewer)
+        place = FlexibleBodies.Legend.place(viewer.width(), viewer.height())
+        self.assertEqual(legend.geometry().getRect(), place)
+        self.assertEqual(panel.deformations.legendOf(), (peak, shape.scale))
+        words = FlexibleBodies.Legend.lines(peak, shape.scale)
+        self.assertEqual(words[2], "%.4g" % peak)
+        self.assertIn("x%.4g" % shape.scale, words[1])
+        width, height = Gui.ActiveDocument.ActiveView.getSize()
+        layout = panel.videoLayout(width, height)
+        self.assertEqual(layout["legend"], (peak, shape.scale))
+        # Painted: the bar's top red, its bottom blue
+        image = QtGui.QImage(width, height, QtGui.QImage.Format_RGB32)
+        image.fill(QtGui.QColor(255, 255, 255))
+        painter = QtGui.QPainter(image)
+        at = FlexibleBodies.Legend.place(width, height)
+        FlexibleBodies.Legend.paint(painter, at, peak, shape.scale)
+        painter.end()
+        top = image.pixelColor(at[0] + 21, at[1] + 54)
+        bottom = image.pixelColor(at[0] + 21, at[1] + at[3] - 16)
+        self.assertGreater(top.red(), 200)
+        self.assertLess(top.blue(), 60)
+        self.assertGreater(bottom.blue(), 200)
+        self.assertLess(bottom.red(), 60)
+        # The Results box: its largest at each frame
+        at = panel.resultIndex((flexible.Name, "FlexibleVonMises"))
+        self.assertGreaterEqual(at, 0)
+        self.assertIn("Largest von Mises stress", panel.resultCombo.itemText(at))
+        self.accept_task()
+        _process()
+        self.assertEqual(scene.findChild(drawn), -1)
+        self.assertIsNone(panel.deformations.legend.widget)
+        _process()
+        self.assertEqual(viewer.findChildren(QtWidgets.QWidget, "FlexibleStressLegend"), [])
+        self.assertTrue(rod.ViewObject.Visibility)
 
     def test_joint_friction(self):
         """Idle until a Slider, Cylindrical or Revolute joint is selected; then

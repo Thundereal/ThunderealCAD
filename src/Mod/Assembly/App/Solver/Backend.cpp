@@ -150,6 +150,11 @@ public:
             {
                 sink.event(event);
             }
+            // In the body's axes, which the centre does not turn
+            void modeShapes(const ModeShapes& shapes) override
+            {
+                sink.modeShapes(shapes);
+            }
         } backSink(*this, sink);
         return inner->simulate(spec, backSink);
     }
@@ -200,6 +205,17 @@ private:
             for (auto& inertia : out.dynamics->inertias) {
                 if (inertia.body < n && shifted[inertia.body]) {
                     inertia = moved(inertia, centres[inertia.body].inverse());
+                }
+            }
+            // A flexible body's mesh with its frames (D4b): left where it
+            // was, the pendulum's rod meshed 5 mm off its hinge swung 1.1%
+            // fast
+            for (auto& flexible : out.dynamics->flexibles) {
+                if (flexible.body < n && shifted[flexible.body]) {
+                    const Base::Placement toCentre = centres[flexible.body].inverse();
+                    for (auto& node : flexible.nodes) {
+                        toCentre.multVec(node, node);
+                    }
                 }
             }
         }

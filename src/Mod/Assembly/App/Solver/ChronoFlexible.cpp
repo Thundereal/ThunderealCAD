@@ -63,7 +63,7 @@
 #include <chrono/solver/ChDirectSolverLS.h>
 #include <chrono_modal/ChModalDamping.h>
 #include <chrono_modal/ChModalSolverUndamped.h>
-#include <chrono_modal/ChUnsymGenEigenvalueSolver.h>
+#include <chrono_modal/ChSymGenEigenvalueSolver.h>
 
 #include "ChronoBackend.h"
 #include "ChronoFlexible.h"
@@ -231,11 +231,25 @@ ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
         built.mesh->AddNode(node);
         nodes.push_back(node);
     }
-    for (const auto& tet : flexible.tetrahedra) {
-        for (Id n : tet) {
+    for (const auto& given : flexible.tetrahedra) {
+        for (Id n : given) {
             if (n >= nodes.size()) {
                 throw std::runtime_error("the flexible body's mesh names a node it does not have");
             }
+        }
+        // Chrono's tetrahedron takes its corners turning positively, its
+        // stiffness of the Jacobian's sign: Netgen's turn the other way. One
+        // turned the other way has corners 1 and 2, and so its edges' nodes
+        // (0 1) (2 0) and (1 3) (2 3), swapped.
+        std::array<Id, 10> tet = given;
+        const ch::ChVector3d a = toCh(flexible.nodes[tet[0]]);
+        const ch::ChVector3d b = toCh(flexible.nodes[tet[1]]) - a;
+        const ch::ChVector3d c = toCh(flexible.nodes[tet[2]]) - a;
+        const ch::ChVector3d d = toCh(flexible.nodes[tet[3]]) - a;
+        const double six = ch::Vdot(b, ch::Vcross(c, d));
+        if (six < 0.0) {
+            tet = {given[0], given[2], given[1], given[3], given[6],
+                   given[5], given[4], given[7], given[9], given[8]};
         }
         auto element = std::make_shared<ConsistentTet10>();
         element->SetNodes(nodes[tet[0]], nodes[tet[1]], nodes[tet[2]], nodes[tet[3]],
@@ -243,12 +257,7 @@ ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
                           nodes[tet[8]], nodes[tet[9]]);
         element->SetMaterial(material);
         built.mesh->AddElement(element);
-        // Its volume, from the corners
-        const ch::ChVector3d a = toCh(flexible.nodes[tet[0]]);
-        const double six = std::abs(ch::Vdot(toCh(flexible.nodes[tet[1]]) - a,
-                                             ch::Vcross(toCh(flexible.nodes[tet[2]]) - a,
-                                                        toCh(flexible.nodes[tet[3]]) - a)));
-        built.mass += flexible.density * six / 6.0;
+        built.mass += flexible.density * std::abs(six) / 6.0;
     }
     built.assembly->AddInternalMesh(built.mesh);
 
@@ -309,9 +318,10 @@ ChronoFlexible::reduce(ch::ChSystem& sys, Built& built, const Flexible& flexible
 {
     sys.Setup();
     sys.Update(ch::UpdateFlags::UPDATE_ALL);
-    auto eigen = std::make_shared<ch::modal::ChUnsymGenEigenvalueSolverKrylovSchur>();
-    // The modal assembly takes the complex eigensolver only (its eigenvectors are complex)
-    ch::modal::ChModalSolverUndamped<ch::modal::ChUnsymGenEigenvalueSolverKrylovSchur> solver(
+    // The symmetric eigensolver (Spectra's Krylov-Schur, a real LU): the
+    // complex one took four times as long (our Chrono takes either)
+    auto eigen = std::make_shared<ch::modal::ChSymGenEigenvalueSolverKrylovSchur>();
+    ch::modal::ChModalSolverUndamped<ch::modal::ChSymGenEigenvalueSolverKrylovSchur> solver(
         std::max(flexible.modes, 1), 1e-5, true, false, eigen);
     std::vector<double> hz;
     built.assembly->DoModalReduction(

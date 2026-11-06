@@ -73,6 +73,7 @@ class AssemblyWorkbench(Workbench):
         import CommandCreateSimulation
         import CommandMassProperties
         import CommandCreateSpring
+        import CommandCreateFlexibleBody
         import CommandCreateLoad
         import CommandCreateBushing
         import CommandCreateContact
@@ -105,6 +106,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_CreateTorsionSpring",
             "Assembly_CreateJointStop",
             "Assembly_CreateJointFriction",
+            "Assembly_CreateFlexibleBody",
             "Assembly_CreateLoad",
             "Assembly_CreateBushing",
             "Assembly_CreateContact",

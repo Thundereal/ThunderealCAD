@@ -3770,6 +3770,211 @@ Phase D1 is under way (2026-10-28):
   - Not yet: the run's cost, 2 ms a step for the bar, most of it the modal
     assembly's own update at each iteration; stops' bounces leave a
     flexible part's interfaces as they were.
+- Built, D4b step 3: the document's flexible body.
+  - **`Assembly::FlexibleBody`**, a Physics item (`App/Physics.{h,cpp}`):
+    `Component`, `Modes` (12), `Damping` (0.02, at `DampingFrequency`, 0:
+    the first mode), `MeshSize` (0: a fortieth of the part's size), and
+    what is made for it: `Nodes` (the component's coordinates),
+    `Tetrahedra`, `InterfaceFrames` and `InterfaceNodes`, `MeshSignature`.
+    Its command, Assembly_CreateFlexibleBody (`CommandCreateFlexibleBody.py`):
+    the component selected, used by every Dynamic study; its icon a bar
+    bent from its hold.
+  - **Its mesh and interfaces are made before a run** (`FlexibleBodies.py`,
+    `prepare()`; the Simulation panel calls it, `prepareStudy()`): Netgen
+    through the Fem workbench, second order, in a hidden document of its
+    own; each joint on the component an interface, labelled as the model
+    labels the joint's frame (its full name), its nodes those of the faces
+    its reference stands for (`MotionLoads._facesOf()`, FemMesh
+    `getNodesByFace()`); kept while the shape, the size and the joints'
+    references are the same (`MeshSignature`). A force element's end on
+    the part takes the nearest node, the run's default.
+  - The model's builder (`AssemblyObject::addForces()`) turns it into the
+    `Flexible` record once every frame is made: the nodes into the body's
+    frame, the material the component's (`elasticityOf()`), its density its
+    mass over its volume -- an override's mass too -- and each frame on the
+    body its interface by its label. A component in a rigid group or fixed
+    to the ground stays rigid, with a warning; so does one with no mesh.
+  - **Found on the way: the session wrappers lost the mesh.** The joints'
+    centres (`centredOnJoints()`) move each body's frame to its joints'
+    centre, its frames and inertia with it but not its mesh: the
+    pendulum's rod, its frame moved to its hinge at (0, 5, 5), had its mesh
+    5 mm off and swung down 1.10% early, whatever the mesh or the step.
+    And the rigid groups (`groupedRigidly()`) dropped the flexible
+    records: a part with a block welded to it ran rigid. Now the mesh moves
+    with its body's frame, and a flexible body is neither taken out nor
+    grown into a group: what is welded to it is held at its interface.
+  - And Netgen's tetrahedra turn the other way to Chrono's, whose
+    stiffness takes the Jacobian's sign: each is turned (its corners 1 and
+    2, and their edges' nodes, swapped) where it needs it. And
+    `femmesh.Nodes` makes the whole dict at each read: read once, the
+    mesh's 17 s are 0.8.
+  - The reduction with the symmetric eigensolver (Spectra's Krylov-Schur,
+    a real LU) where the modal assembly took the complex one only (our
+    Chrono takes either now): the rod of 16000 coordinates 9.1 s to 5.3.
+  - Tests: TestFlexibleBody -- test_mesh_and_interfaces (the rod's mesh in
+    its coordinates, its interface every node of the hinge's face, kept,
+    made again for another size); test_welded_block (a block welded to the
+    rod's end held at an interface of its own, the rod still bending);
+    test_flexible_pendulum (aluminium, let go level: its centre at the
+    bottom in a quarter period within 0.2% of the closed form, the run
+    reporting six modal coordinates). TestGuiCommands' test_flexible_body
+    (the command idle until a component is picked, the body in the Dynamic
+    study only, one undo). FlexibleBody.cantileverModesAreTheClampedBeams
+    now with every other tetrahedron turned the other way, the same modes.
+  - Not yet: the reduction is made again at each run (5 s for the rod); a
+    task panel of its own, the modes' frequencies shown before the run;
+    the deformation and stresses (step 4).
+- Built, D4b step 4 (first half): the deformation, drawn as the run plays.
+  - **What the run reports for it**: each frame, beside the modal
+    coordinates, its interfaces' own deformation ("InterfaceDeformation",
+    six an interface, mm and rad: each boundary body's pose in the floating
+    frame against its pose there at the start, as Chrono's
+    GetLocalDeformations() has them); and once, before the first frame,
+    its mode shapes (`Solver::ModeShapes`, a new TrajectorySink call):
+    the reduction matrix's rows of the mesh's nodes, Psi, turned from the
+    floating frame's axes into the body's, in mm per mm, rad or modal
+    coordinate. A node's displacement in the body's frame is Psi times the
+    two channels together; the body's pose is the floating frame's, so a
+    node is where the pose puts it, displaced. The session wrappers pass
+    them on (in the body's axes, which neither turns).
+  - The document keeps them on the flexible body (`ModeShapes`,
+    `ModeShapeColumns`, hidden: a list that size is saved as a file in the
+    archive), from `keepFrames()`: in its component's axes, which are its
+    body's.
+  - **The player draws it bent** (`FlexibleBodies.Deformation`): the mesh's
+    outer faces, each 6-node triangle as four, turned outward; at the time
+    shown -- between two frames, the coordinates interpolated -- moved by
+    the shapes and the coordinates, scaled up for the largest over the run
+    to be a tenth of the part's size, in place of the component, which
+    hides while it is drawn and shows again when the panel closes. Save
+    Animation's frames have it.
+  - The panel's Elements lists the flexible bodies.
+  - The manual's video (`assembly/simulation/flexible-bodies`): an
+    aluminium strip 200 x 20 x 2 hinged at one end, let go level -- 31130
+    nodes, the run of 0.3 s in 601 frames 90 s -- bending as it swings,
+    7.5 um at most, 3 ms in, drawn 2664 times; the hinge's force ringing
+    at the strip's 180 Hz as it starts.
+  - Tests: FlexibleBody.cantileverBendsAndRingsInARun -- the shapes and the
+    coordinates make the tip's node where the gram welded to it is, within
+    1e-3 of the sag, and the mid-span node's sag the beam's, q x^2 (6 L^2 -
+    4 L x + x^2) / 24 E I + P x^2 (3 L - x) / 6 E I, within 2%;
+    TestFlexibleBody.test_cantilever_deformation (the rod fixed to the
+    grounded block, flexible, not placed on the ground: its end, made of
+    the shapes, sagging q L^4 / 8 E I within 3%, its hold not);
+    TestGuiCommands' test_flexible_body_playback (the surface in the scene,
+    the component hidden, moved at each frame, both undone on closing).
+  - Not yet: the stresses (the second half); the run's cost on a fine mesh,
+    90 s for the strip's 601 steps, much of it the modal assembly's own
+    work at each step over the whole mesh.
+- Built, D4b step 4 (second half): the stresses, coloured as the run plays.
+  - **Recovered from the mode shapes, after the run** (`FlexibleBodies.
+    modalStresses()`), as Adams and MotionSolve do: each coordinate's
+    stress field -- the small strain of its shape, by the 10-node
+    tetrahedron's shape functions' gradients at each of its nodes, linear
+    elastic, each node's the mean of its tetrahedra's -- at the surface's
+    nodes, then weighed by the run's coordinates at the time shown. A rigid
+    turn's linear strain is none, so an interface's column that only
+    carries the part is stress free. The material the run's
+    (`getMassProperties()`' Young's modulus and Poisson's ratio). numpy;
+    0.3 s for the rod's 2915 tetrahedra, kept while the shapes are the same
+    so the player and the Results box share it.
+  - **The player colours it** by its von Mises stress, blue to red as the
+    Fem workbench's results, red the largest over the run of all the
+    study's flexible bodies; a legend at the view's right (`Legend`) with
+    the scale in MPa and how many times the bending is drawn, on a light
+    backing of its own for any background. Painted by Qt: a widget over
+    the view, and Save Animation paints it into its frames at the same
+    place (`videoLayout()`, `videoFrame()`). Not in the scene, because
+    with the bgfx backend on, nothing in the viewer's foreground root -- a
+    view provider's front root, where Fem's colour bar goes -- reached a
+    saved picture or the backend's own frame dump, not even the corner
+    axis cross that feed was built for (a square of plain
+    SoIndexedFaceSet, probed 2026-11-06); and a camera nested in the scene
+    graph is not one the render cache takes. A picture saved by Save
+    Picture is without it.
+  - **The Results box** has each flexible body's largest von Mises stress on
+    its surface at each frame ("FlexibleVonMises", MPa), and the CSV and the
+    spreadsheet with it.
+  - Test: TestFlexibleBody.test_cantilever_stress -- the rod clamped to the
+    grounded block, settled under gravity, 12 modes: its top and bottom
+    sigma_xx the beam's q (L - x)^2 / 2 c / I within 1.3% from 10 to 70 mm
+    off the hold (2% asked); its largest at the hold, 1.06 times the beam's
+    there, the hold's corners; the channel each frame's largest.
+    test_pendulum_stress -- the hinged rod let go level, 20 ms in, its
+    ringing gone: its bending, half the difference of top and bottom (the
+    swing's pull along it adds to both), a bar's turning about its pin
+    under gravity, M = rho A g x (L - x)^2 / 4 L, concave up, within 1.7%
+    at 24 modes (at 12, 4% at L / 3). TestGuiCommands'
+    test_flexible_body_playback, the colours, the legend, the video's
+    layout and the channel.
+  - The manual's video (`assembly/simulation/flexible-stress`): the
+    flexible-bodies page's strip, coloured, 0.203 MPa at most 3 ms in (the
+    release's ringing, 1.73 times), then the swing's 0.1145 MPa at 75 ms
+    against the turning bar's rho A g L^2 c / 27 I cos(theta), 0.1152.
+- Built, D4b step 5: a contact on a flexible part.
+  - **Through the faces it is touched on** (`FlexibleBody.ContactFaces`,
+    faces of its component): one interface of their own, its nodes tied to
+    its boundary body as a joint's are, which every contact shape on the
+    part rides (each shape's frame where it is on that body,
+    `frameLocal`). A contact's forces act on that body and bend the part
+    through its static modes, implicitly, as a joint's do; the faces move
+    together, so they are a patch -- a pad, a tip, a tooth's flank -- not
+    a long face that bends. `FlexibleBodies.prepare()` makes the interface
+    (labelled "Contact" in InterfaceFrames), less the nodes a joint's
+    interface holds: two interfaces sharing nodes would hold each other. A
+    contact on a flexible part without them is refused, saying so.
+  - Why not the mesh's own nodes, as Adams' contact on a flexible body
+    has it: the modal assembly takes a force on an internal node (its
+    projection on the modes, `Psi^T f`), but only in the residual, and a
+    metal contact's stiffness is a hundred times and more a gram's mass
+    over a step of 0.1 ms squared -- Newton's iterations, without the
+    coupling, run away on it (an estimate, not tried). The
+    interface is the static modes RecurDyn's RFlex takes for a contact
+    whose place is known; a contact anywhere on a part, its full nodal
+    mesh (FFlex, Chrono's ChContactSurfaceMesh), when a case needs it.
+  - The contact interface's body at its nodes' centre, as a joint's is on
+    its face: at the contact shape's frame -- a mesh's, the part's origin,
+    the hinge's end of a strip 200 mm from the pad it was tied to -- the
+    strip striking a post by Hertz's law diverged, where at the centre it
+    ran (both before the floating frame below was set back).
+  - **Found on the way: a substep taken again lost the floating frame.**
+    The contact's substeps that run off are taken again from their start
+    (`takeBack()`, the state scattered back), and a modal assembly's
+    floating frame is not in the state: its update iterates from where it
+    is, and a substep that ran off left it not finite -- as the strip left
+    the post, every substep after one that diverged failed, down to a
+    nanosecond ("the contact's integration diverged"). Each flexible
+    part's floating frame is now set back with the state (our Chrono's
+    `SetFloatingFrameOfReference()`), and a substep's state is taken as
+    not finite by the whole system's, its modes too, not by the parts'
+    bodies, a flexible one's a proxy that follows.
+  - What a contact load reads of its bodies' masses -- the stiffness from
+    an allowed penetration, Hunt and Crossley's speed, Johnson's line
+    depth, its period for the substeps, a late contact's depth -- is the
+    part's on a flexible side (`ContactLoad::carried`, `lighterMass()`),
+    not the interface body's millionth of it. The part's proxy body has
+    the mesh's mass too, for the run's lightest body.
+  - Test: TestFlexibleBody.test_propped_cantilever -- the rod clamped to
+    the grounded block, a pad under its free end resting on a grounded
+    post, the pad's face its contact face: under its weight the post takes
+    a propped cantilever's prop, q (6 L^2 - 4 L a + a^2) / 8 a and the pad's
+    weight, 106.4 mN against 104.9 (1.4%), the clamp the rest, where a
+    rigid rod's prop takes nothing (its Fixed joint holds it exactly, the
+    penalty contact never presses); test_strike -- a strip 200 x 20 x 4
+    hinged, a pad under its end, let go level onto a post 10 mm below, at
+    an allowance of 1e-4 mm: it strikes, bounces and the run goes through
+    (without the floating frame set back it diverges as it leaves), the
+    blow softer than the rigid strip's (by Hertz's law, 69.7 N at most
+    against 283 N); test_contact_needs_its_faces.
+  - Not yet: stops and joint friction on a flexible part's joints read the
+    interface body's mass too (a stop's bounce, friction's stiction
+    speed); a contact anywhere on a part (above).
+  - Not yet: near a free end, where the stress is a hundredth of the root's,
+    the modes left out take a fifth of it (6 modes, a third): stress takes
+    more modes than shape, and a static correction for the loads on the
+    mesh -- gravity, inertia -- would give it back; the stresses inside the
+    part (the surface's only, where the largest is but for a load inside);
+    To FEM's vibration from the run's own coordinates.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

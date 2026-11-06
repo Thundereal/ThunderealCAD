@@ -406,6 +406,10 @@ struct TrajectoryRecorder: Solver::TrajectorySink
     {
         frames.events.push_back(event);
     }
+    void modeShapes(const Solver::ModeShapes& shapes) override
+    {
+        frames.shapes.push_back(shapes);
+    }
 };
 }  // namespace
 
@@ -974,6 +978,20 @@ void AssemblyObject::keepFrames(App::DocumentObject* sim,
     trajectory = std::make_unique<Solver::Trajectory>(std::move(frames));
     trajectoryParts = parts;
     trajectorySimulation = sim;
+    // Each flexible body's mode shapes on it, for its deformation's display
+    // (docs/AssemblyDynamics.md D4b): in its component's axes, which are its
+    // body's -- a flexible body is in no rigid group
+    if (auto* typed = freecad_cast<Simulation*>(sim)) {
+        for (const auto& shapes : trajectory->shapes) {
+            for (auto* element : typed->Elements.getValues()) {
+                auto* flexible = freecad_cast<FlexibleBody*>(element);
+                if (flexible && flexible->getFullName() == shapes.source) {
+                    flexible->ModeShapes.setValues(shapes.values);
+                    flexible->ModeShapeColumns.setValue(static_cast<long>(shapes.columns));
+                }
+            }
+        }
+    }
     Baseline& baseline = baselines[sim->getNameInDocument()];
     baseline.model = std::make_unique<Solver::Model>(model);
     baseline.spec = std::make_unique<Solver::SimulationSpec>(spec);
@@ -2063,6 +2081,7 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         dynamics.sensors = std::move(model.dynamics->sensors);
         dynamics.stops = std::move(model.dynamics->stops);
         dynamics.frictions = std::move(model.dynamics->frictions);
+        dynamics.flexibles = std::move(model.dynamics->flexibles);
     }
     model.dynamics = std::move(dynamics);
 }
@@ -2788,6 +2807,127 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             }
         }
         model.dynamics->sensors.push_back(record);
+    }
+
+    // The flexible bodies (docs/AssemblyDynamics.md D4b): each its mesh, in
+    // its body's frame, and its interfaces by the labels of the frames on
+    // it -- the joints', the force elements' and the sensors' frames there
+    // by now. A dynamic run bends it; the others take it rigid.
+    std::vector<MassProperties> masses;
+    for (auto* element : typed->Elements.getValues()) {
+        auto* flexible = freecad_cast<FlexibleBody*>(element);
+        if (!flexible) {
+            continue;
+        }
+        const std::string label = flexible->getFullLabel();
+        auto* component = flexible->Component.getValue();
+        if (!component) {
+            Base::Console().warning(
+                "Assembly: the flexible body %s is of no component, and does nothing\n",
+                label.c_str());
+            continue;
+        }
+        const MbDPartData data = getMbDData(component);
+        if (data.body == Solver::NoId || data.body >= model.bodies.size()) {
+            Base::Console().warning(
+                "Assembly: the flexible body %s is of a component the simulation does not "
+                "move, and does nothing\n",
+                label.c_str());
+            continue;
+        }
+        bool shared = false;
+        for (const auto& [obj, other] : objectPartMap) {
+            shared = shared || (obj != component && other.body == data.body);
+        }
+        if (shared || model.bodies[data.body].grounded) {
+            Base::Console().warning("Assembly: the flexible body %s is of a component %s, and "
+                                    "stays rigid\n",
+                                    label.c_str(),
+                                    shared ? "in a rigid group" : "fixed to the ground");
+            continue;
+        }
+        const auto& points = flexible->Nodes.getValues();
+        const auto& corners = flexible->Tetrahedra.getValues();
+        if (points.empty() || corners.empty() || corners.size() % 10 != 0) {
+            Base::Console().warning(
+                "Assembly: the flexible body %s has no mesh, and stays rigid\n",
+                label.c_str());
+            continue;
+        }
+        Solver::Flexible record;
+        record.source = model.addSource(flexible->getFullName());
+        record.body = data.body;
+        for (const auto& point : points) {
+            Base::Vector3d inBody;
+            data.offsetPlc.multVec(point, inBody);
+            record.nodes.push_back(inBody);
+        }
+        bool fits = true;
+        for (std::size_t i = 0; i + 9 < corners.size() && fits; i += 10) {
+            std::array<Solver::Id, 10> tetrahedron {};
+            for (int k = 0; k < 10; ++k) {
+                const long node = corners[i + k];
+                fits = fits && node >= 0 && static_cast<std::size_t>(node) < points.size();
+                tetrahedron[k] = static_cast<Solver::Id>(node);
+            }
+            record.tetrahedra.push_back(tetrahedron);
+        }
+        if (!fits) {
+            Base::Console().warning(
+                "Assembly: the flexible body %s has a mesh that names a node it does not have, "
+                "and stays rigid\n",
+                label.c_str());
+            continue;
+        }
+        const Elasticity elastic = elasticityOf(component);
+        record.youngs = elastic.youngsModulus;
+        record.poisson = elastic.poissonRatio;
+        // Its mass over its volume: an override's mass too
+        if (masses.empty()) {
+            masses = massPropertiesOf(this);
+        }
+        for (const auto& props : masses) {
+            if (props.obj == component && props.volume > 0.0) {
+                record.density = props.mass / props.volume;
+            }
+        }
+        record.modes = static_cast<int>(flexible->Modes.getValue());
+        record.damping = flexible->Damping.getValue();
+        record.dampingFrequency = flexible->DampingFrequency.getValue();
+        // Each interface's nodes, by its frame's label
+        const auto& frames = flexible->InterfaceFrames.getValues();
+        std::vector<std::vector<Solver::Id>> held(1);
+        for (long node : flexible->InterfaceNodes.getValues()) {
+            if (node < 0) {
+                held.emplace_back();
+            }
+            else if (static_cast<std::size_t>(node) < points.size()) {
+                held.back().push_back(static_cast<Solver::Id>(node));
+            }
+        }
+        // The faces it is touched on (ContactFaces), one interface of their
+        // own, by the label FlexibleBodies.prepare() gives it
+        for (std::size_t i = 0; i < frames.size() && i < held.size(); ++i) {
+            if (frames[i] == FlexibleBody::ContactInterface) {
+                record.contactNodes = held[i];
+            }
+        }
+        for (const auto& frame : model.frames) {
+            if (frame.body != data.body) {
+                continue;
+            }
+            Solver::Flexible::Interface face;
+            face.frame = frame.id;
+            const std::string& name = model.sourceName(frame.label);
+            for (std::size_t i = 0; i < frames.size() && i < held.size(); ++i) {
+                if (frames[i] == name) {
+                    face.nodes = held[i];
+                    break;
+                }
+            }
+            record.interfaces.push_back(std::move(face));
+        }
+        model.dynamics->flexibles.push_back(std::move(record));
     }
 
     // The initial velocities, a Dynamic study's children: a static run

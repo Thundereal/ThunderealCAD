@@ -1147,6 +1147,25 @@ public:
 
     ContactLaw law;
     std::size_t set = 0;  // the ContactPair's index
+    // The mass each side moves where it is not its body's, A's and B's (0:
+    // its body's): a flexible part's contact interface carries the part's
+    // (D4b), its own a millionth of it
+    std::array<double, 2> carried {0.0, 0.0};
+    // The lighter of the two sides' masses that move, as a law and a step
+    // size take it; infinity when neither moves
+    double lighterMass() const
+    {
+        double mass = std::numeric_limits<double>::infinity();
+        // Chrono's GetMass() is not const
+        const std::array<ch::ChBody*, 2> sides {GetBodyA().get(), GetBodyB().get()};
+        for (int k = 0; k < 2; ++k) {
+            const double m = carried[k] > 0.0 ? carried[k] : sides[k]->GetMass();
+            if (!sides[k]->IsFixed() && m > 0.0) {
+                mass = std::min(mass, m);
+            }
+        }
+        return mass;
+    }
     std::vector<Point> points;
     // A cam's or a profile contact's (ContactHandover's CamFollow and
     // ProfileFollow), or one on a sphere or a cylinder's side (rollAlong()):
@@ -1206,12 +1225,7 @@ public:
     double hunt(double depth, std::size_t patch) const
     {
         double v0 = impact;
-        double mass = std::numeric_limits<double>::infinity();
-        for (const auto& body : {GetBodyA(), GetBodyB()}) {
-            if (!body->IsFixed() && body->GetMass() > 0.0) {
-                mass = std::min(mass, body->GetMass());
-            }
-        }
+        const double mass = lighterMass();
         if (depth > 0.0 && std::isfinite(mass)) {
             const double e = exponents[patch];
             v0 = std::max(v0,
@@ -3671,12 +3685,7 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
     // lighter body moving, so that it sinks d under its weight whatever it
     // is made of -- standard gravity's where the run has none
     if (law.from == ContactLaw::Stiffness::Penetration) {
-        double mass = std::numeric_limits<double>::infinity();
-        for (const auto& body : {load.GetBodyA(), load.GetBodyB()}) {
-            if (!body->IsFixed() && body->GetMass() > 0.0) {
-                mass = std::min(mass, body->GetMass());
-            }
-        }
+        const double mass = load.lighterMass();
         const auto* system = load.GetBodyA()->GetSystem();
         double gravity = system ? system->GetGravitationalAcceleration().Length() : 0.0;
         if (!(gravity > 0.0)) {
@@ -3784,12 +3793,7 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
                         depth = std::max(depth, -gap);
                     }
                     if (!(depth > 0.0)) {
-                        double mass = std::numeric_limits<double>::infinity();
-                        for (const auto& body : {bodyA, bodyB}) {
-                            if (!body->IsFixed() && body->GetMass() > 0.0) {
-                                mass = std::min(mass, body->GetMass());
-                            }
-                        }
+                        const double mass = load.lighterMass();
                         if (std::isfinite(mass)) {
                             depth = load.impact * std::sqrt(mass / (pi / 4.0 * modulus * length));
                         }
@@ -4723,12 +4727,21 @@ struct ChronoSession::Impl
 #endif
         // The body's frame in the floating frame's, at the start
         ch::ChFramed inFloating;
+        // The floating frame and the interfaces' boundary bodies at the
+        // start, what the deformation is from
+        ch::ChFramed floating0;
+        std::vector<ch::ChFramed> interfaces0;
         std::vector<double> hz;
+        // Its contact interface's, in built.interfaces, or -1 (step 5)
+        int contact = -1;
     };
     std::vector<FlexibleRun> flexibles;
     // Per frame, the boundary body of the interface it is on, a flexible
-    // body's (the frame at its origin); null, the frame's body's
+    // body's, and where the frame is on it (its origin but for a contact
+    // shape's frame, which shares its part's contact interface); null, the
+    // frame's body's
     std::vector<std::shared_ptr<ch::ChBody>> frameBody;
+    std::vector<ch::ChFramed> frameLocal;
     // Per body, its FlexibleRun, or -1
     std::vector<int> flexibleOf;
 
@@ -4797,9 +4810,25 @@ struct ChronoSession::Impl
     ch::ChFramed localOf(Id frame) const
     {
         if (frame < frameBody.size() && frameBody[frame]) {
-            return ch::ChFramed();
+            return frameLocal[frame];
         }
         return toCh(model.frames[frame].local);
+    }
+
+    // The mass a flexible part's contact interface carries, its part's
+    // (D4b); 0 for any other body
+    double carriedMass(const ch::ChBody* body) const
+    {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        for (const auto& run : flexibles) {
+            if (run.contact >= 0 && run.built.interfaces[run.contact].get() == body) {
+                return run.built.mass;
+            }
+        }
+#else
+        (void)body;
+#endif
+        return 0.0;
     }
 
     ch::ChFramed globalOf(Id frame) const
@@ -4853,6 +4882,7 @@ struct ChronoSession::Impl
     {
         flexibleOf.assign(bodies.size(), -1);
         frameBody.assign(model.frames.size(), nullptr);
+        frameLocal.assign(model.frames.size(), ch::ChFramed());
         flexibles.clear();
         if (!flexibleRun || !model.dynamics || model.dynamics->flexibles.empty()) {
             return {};
@@ -4872,10 +4902,25 @@ struct ChronoSession::Impl
             FlexibleRun run;
             run.body = record.body;
             run.record = r;
+            // Its contact shapes' frames (step 5): not interfaces each, all
+            // on the one of the faces it is touched on, where the first is
+            std::vector<Id> touched;
+            for (const auto& shape : model.dynamics->contactShapes) {
+                if (shape.frame < model.frames.size()
+                    && model.frames[shape.frame].body == record.body
+                    && std::find(touched.begin(), touched.end(), shape.frame) == touched.end()) {
+                    touched.push_back(shape.frame);
+                }
+            }
+            if (!touched.empty() && record.contactNodes.empty()) {
+                return "a contact touches the flexible body " + name
+                    + ", which has no faces it is touched on: name them, its ContactFaces";
+            }
             std::vector<ChronoFlexible::Interface> faces;
             std::vector<Id> on;
             for (const auto& frame : model.frames) {
-                if (frame.body != record.body) {
+                if (frame.body != record.body
+                    || std::find(touched.begin(), touched.end(), frame.id) != touched.end()) {
                     continue;
                 }
                 ChronoFlexible::Interface face;
@@ -4891,6 +4936,26 @@ struct ChronoSession::Impl
             if (faces.empty()) {
                 return "nothing holds the flexible body " + name;
             }
+            // The contact interface's body at its nodes' centre, in the
+            // body's axes, as a joint's is on its faces
+            ch::ChFramed contactAt;
+            if (!touched.empty()) {
+                ch::ChVector3d centre;
+                std::size_t counted = 0;
+                for (Id n : record.contactNodes) {
+                    if (n < record.nodes.size()) {
+                        centre += toCh(record.nodes[n]);
+                        ++counted;
+                    }
+                }
+                if (counted) {
+                    contactAt.SetPos(centre / static_cast<double>(counted));
+                }
+            }
+            if (!touched.empty()) {
+                run.contact = static_cast<int>(faces.size());
+                faces.push_back({contactAt, record.contactNodes});
+            }
             const auto& proxy = bodies[record.body];
             const ch::ChFramed pose(proxy->GetPos(), proxy->GetRot());
             try {
@@ -4902,9 +4967,21 @@ struct ChronoSession::Impl
             }
             const ch::ChFramed floating = run.built.assembly->GetFloatingFrameOfReference();
             run.inFloating = pose >> floating.GetInverse();
+            run.floating0 = floating;
+            for (const auto& body : run.built.interfaces) {
+                run.interfaces0.emplace_back(body->GetPos(), body->GetRot());
+            }
             for (std::size_t i = 0; i < on.size(); ++i) {
                 frameBody[on[i]] = run.built.interfaces[i];
             }
+            // Each contact shape's frame where it is on the contact interface
+            for (Id frame : touched) {
+                frameBody[frame] = run.built.interfaces[run.contact];
+                frameLocal[frame] = toCh(model.frames[frame].local) >> contactAt.GetInverse();
+            }
+            // Its mass the mesh's, for what reads a body's (the tolerance's
+            // lightest body); it is not in the system
+            proxy->SetMass(run.built.mass);
             flexibleOf[record.body] = static_cast<int>(flexibles.size());
             flexibles.push_back(std::move(run));
         }
@@ -4922,6 +4999,81 @@ struct ChronoSession::Impl
         (void)run;
         return {};
 #endif
+    }
+
+    // A flexible body's interfaces' deformation: each boundary body's pose in
+    // the floating frame against its pose there at the start, as Chrono's
+    // GetLocalDeformations() has it (the reduction matrix's coordinates): its
+    // translation (in mm, 'length' the model's to SI) and its turn (rad)
+    std::vector<double> interfaceDeformation(const FlexibleRun& run, double length) const
+    {
+        std::vector<double> out;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        const ch::ChFrameMoving<> floating = run.built.assembly->GetFloatingFrameOfReference();
+        for (std::size_t i = 0; i < run.built.interfaces.size(); ++i) {
+            const auto& body = run.built.interfaces[i];
+            const ch::ChFramed& start = run.interfaces0[i];
+            const ch::ChVector3d moved =
+                floating.GetRot().RotateBack(body->GetPos() - floating.GetPos())
+                - run.floating0.GetRot().RotateBack(start.GetPos() - run.floating0.GetPos());
+            const ch::ChQuaterniond turn = start.GetRot().GetConjugate() * run.floating0.GetRot()
+                * floating.GetRot().GetConjugate() * body->GetRot();
+            double angle = 0.0;
+            ch::ChVector3d axis;
+            turn.GetAngleAxis(angle, axis);
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(moved[k] / length);
+            }
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(angle * axis[k]);
+            }
+        }
+#else
+        (void)run;
+        (void)length;
+#endif
+        return out;
+    }
+
+    // A flexible body's mode shapes (ModeShapes): the reduction matrix's
+    // rows of the mesh's nodes, in the floating frame's axes at the start,
+    // turned into the body's and in mm: a column of a translation in mm per
+    // mm, of a turn in mm per rad, of a mode in mm per modal coordinate
+    ModeShapes modeShapesOf(const FlexibleRun& run, const std::string& source, double length) const
+    {
+        ModeShapes shapes;
+        shapes.source = source;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        const auto& psi = run.built.assembly->GetModalReductionMatrix();
+        const auto boundary = static_cast<Eigen::Index>(6 * run.built.interfaces.size());
+        const auto nodes = static_cast<Eigen::Index>(run.built.mesh->GetNumNodes());
+        if (psi.rows() < boundary + 3 * nodes) {
+            return shapes;
+        }
+        const Eigen::Index columns = psi.cols();
+        shapes.columns = static_cast<std::size_t>(columns);
+        shapes.values.resize(static_cast<std::size_t>(3 * nodes * columns));
+        // The floating frame's axes to the body's
+        const ch::ChMatrix33<> back = run.inFloating.GetRotMat().transpose();
+        for (Eigen::Index node = 0; node < nodes; ++node) {
+            for (Eigen::Index c = 0; c < columns; ++c) {
+                const bool translation = c < boundary && (c % 6) < 3;
+                const double scale = translation ? 1.0 : 1.0 / length;
+                const ch::ChVector3d inFloating(psi(boundary + 3 * node, c),
+                                                psi(boundary + 3 * node + 1, c),
+                                                psi(boundary + 3 * node + 2, c));
+                const ch::ChVector3d inBody = back * inFloating;
+                for (int k = 0; k < 3; ++k) {
+                    shapes.values[static_cast<std::size_t>((3 * node + k) * columns + c)] =
+                        inBody[k] * scale;
+                }
+            }
+        }
+#else
+        (void)run;
+        (void)length;
+#endif
+        return shapes;
     }
 
     // Each flexible body's proxy at its floating frame's motion, carried to
@@ -6631,14 +6783,6 @@ Status ChronoSession::simulateDynamics(
                           + " is not supported yet");
         }
     }
-    // Contact on a flexible body is D4b's step 5
-    for (const auto& shape : si.dynamics->contactShapes) {
-        if (shape.frame < si.frames.size() && run.d->isFlexible(si.frames[shape.frame].body)) {
-            return refuse("a contact on the flexible part "
-                          + model.sourceName(model.bodies[si.frames[shape.frame].body].source)
-                          + " is not supported yet");
-        }
-    }
     // Redundant joints (sec 6.1): the rows that repeat others taken out, the
     // reactions they shared reported as not unique
     const ChronoSession::Impl::Redundancy redundancy = run.d->removeRedundant(SI::length);
@@ -7741,6 +7885,12 @@ Status ChronoSession::simulateDynamics(
                         return body;
                     }
                 }
+                // A flexible part's interface (D4b)
+                for (const auto& body : run.d->frameBody) {
+                    if (body.get() == raw) {
+                        return body;
+                    }
+                }
                 return std::shared_ptr<ch::ChBody>();
             };
             first = own(x);
@@ -7965,6 +8115,12 @@ Status ChronoSession::simulateDynamics(
             }
         }
         sys.RegisterCustomCollisionCallback(handover);
+        // A side on a flexible part's contact interface moves the part's
+        // mass, not the interface body's millionth of it (D4b step 5)
+        for (const auto& load : contactLoads) {
+            load->carried = {run.d->carriedMass(load->GetBodyA().get()),
+                             run.d->carriedMass(load->GetBodyB().get())};
+        }
         collision->Initialize();
         std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*> features;
         std::set<ch::ChBody*> withShapes(shapeBody.begin(), shapeBody.end());
@@ -8312,8 +8468,14 @@ Status ChronoSession::simulateDynamics(
     }
     // Each flexible body's modal coordinates (D4b): what its modes add to
     // the deformation its interfaces make about its floating frame
+    // and the deformation its interfaces make, six each (mm, rad): together
+    // its ModeShapes' coordinates
     for (const auto& flexible : run.d->flexibles) {
-        channels.push_back({si.sourceName(si.dynamics->flexibles[flexible.record].source),
+        const std::string& name = si.sourceName(si.dynamics->flexibles[flexible.record].source);
+        channels.push_back({name,
+                            "InterfaceDeformation",
+                            static_cast<int>(6 * flexible.interfaces0.size())});
+        channels.push_back({name,
                             "ModalCoordinates",
                             static_cast<int>(run.d->modalCoordinates(flexible).size())});
     }
@@ -8980,6 +9142,9 @@ Status ChronoSession::simulateDynamics(
             }
         }
         for (const auto& flexible : run.d->flexibles) {
+            for (double e : run.d->interfaceDeformation(flexible, SI::length)) {
+                out.push_back(e);
+            }
             for (double q : run.d->modalCoordinates(flexible)) {
                 out.push_back(q);
             }
@@ -9159,6 +9324,12 @@ Status ChronoSession::simulateDynamics(
 
     if (!channels.empty()) {
         sink.channels(channels);
+    }
+    for (const auto& flexible : run.d->flexibles) {
+        sink.modeShapes(run.d->modeShapesOf(
+            flexible,
+            si.sourceName(si.dynamics->flexibles[flexible.record].source),
+            SI::length));
     }
 
     // The events found (sec 8.4), held until their step is kept -- a
@@ -9536,12 +9707,7 @@ Status ChronoSession::simulateDynamics(
             }
             const auto a = load->GetBodyA();
             const auto b = load->GetBodyB();
-            double mass = std::numeric_limits<double>::infinity();
-            for (const auto& body : {a, b}) {
-                if (!body->IsFixed() && body->GetMass() > 0.0) {
-                    mass = std::min(mass, body->GetMass());
-                }
-            }
+            double mass = load->lighterMass();
             if (!std::isfinite(mass)) {
                 continue;
             }
@@ -9786,12 +9952,7 @@ Status ChronoSession::simulateDynamics(
     auto late = [&](const ContactLoad& load) {
         const auto a = load.GetBodyA();
         const auto b = load.GetBodyB();
-        double mass = std::numeric_limits<double>::infinity();
-        for (const auto& body : {a, b}) {
-            if (!body->IsFixed() && body->GetMass() > 0.0) {
-                mass = std::min(mass, body->GetMass());
-            }
-        }
+        const double mass = load.lighterMass();
         for (const auto& point : load.points) {
             const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
@@ -10356,7 +10517,25 @@ Status ChronoSession::simulateDynamics(
         // integration diverged"); one that stopped unconverged, finite,
         // left them wrong.
         ch::ChVectorDynamic<> l;
+        // And each flexible part's floating frame (D4b), which is not in the
+        // state: its update iterates from where it is, and one a step that
+        // ran off left not finite stayed so, every substep after failing
+        // down to a nanosecond
+        std::vector<ch::ChFrameMoving<>> floating;
+        auto gatherFloating = [&]() {
+            floating.clear();
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+            for (const auto& flexible : run.d->flexibles) {
+                floating.push_back(flexible.built.assembly->GetFloatingFrameOfReference());
+            }
+#endif
+        };
         auto takeBack = [&](double time) {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+            for (std::size_t i = 0; i < floating.size() && i < run.d->flexibles.size(); ++i) {
+                run.d->flexibles[i].built.assembly->SetFloatingFrameOfReference(floating[i]);
+            }
+#endif
             sys.StateScatter(x, v, time, ch::UpdateFlags::UPDATE_ALL);
             sys.StateScatterAcceleration(a);
             if (l.size() == static_cast<Eigen::Index>(sys.GetNumConstraints())) {
@@ -10388,6 +10567,7 @@ Status ChronoSession::simulateDynamics(
             sys.StateGatherAcceleration(a);
             l.setZero(sys.GetNumConstraints());
             sys.StateGatherReactions(l);
+            gatherFloating();
             contactCollision->reuse = fresh;
             auto implicit =
                 std::dynamic_pointer_cast<ch::ChTimestepperImplicit>(sys.GetTimestepper());
@@ -10406,6 +10586,15 @@ Status ChronoSession::simulateDynamics(
                     && std::isfinite(body->GetRot().Length2())
                     && std::isfinite(body->GetPosDt().Length2())
                     && std::isfinite(body->GetAngVelLocal().Length2());
+            }
+            // A flexible part's state is its interfaces' and its modes',
+            // which its proxy body only follows (D4b)
+            if (finite && !run.d->flexibles.empty()) {
+                ch::ChState xNow(nx, &sys);
+                ch::ChStateDelta vNow(nv, &sys);
+                double tNow = 0.0;
+                sys.StateGather(xNow, vNow, tNow);
+                finite = xNow.allFinite() && vNow.allFinite();
             }
             if (!finite && !(h > 1e-9)) {
                 takeBack(t);

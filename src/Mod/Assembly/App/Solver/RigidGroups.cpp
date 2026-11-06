@@ -224,6 +224,11 @@ public:
             {
                 sink.event(event);
             }
+            // A flexible body is kept as it is (build())
+            void modeShapes(const ModeShapes& shapes) override
+            {
+                sink.modeShapes(shapes);
+            }
         } expandSink(*this, sink);
         return inner->simulate(spec, expandSink);
     }
@@ -414,6 +419,16 @@ private:
         for (const auto& driver : original.drivers) {
             mark(driver.frameI);
             mark(driver.frameJ);
+        }
+        // Nor a flexible body (D4b), nor grown into a group: it bends alone,
+        // what is welded to it held at its interfaces
+        std::vector<bool> flexible(n, false);
+        if (original.dynamics) {
+            for (const auto& record : original.dynamics->flexibles) {
+                if (record.body < n) {
+                    flexible[record.body] = timed[record.body] = true;
+                }
+            }
         }
 
         std::vector<std::vector<Id>> jointsOf(n);
@@ -606,6 +621,9 @@ private:
             }
             assigned[r] = true;
             groupOf[r] = r;
+            if (flexible[r]) {
+                continue;
+            }
             grow(
                 std::set<Id>(neighbours[r].begin(), neighbours[r].end()),
                 [&](Id o) { return o < n && groupOf[o] == r; },
@@ -738,6 +756,14 @@ private:
             dynamics.sensors = original.dynamics->sensors;
             dynamics.stops = original.dynamics->stops;
             dynamics.frictions = original.dynamics->frictions;
+            // A flexible body is kept (build()): on its body as the smaller
+            // model numbers it, its interfaces on frames, which keep their ids
+            for (auto record : original.dynamics->flexibles) {
+                if (record.body < n && map[record.body].role == Role::Kept) {
+                    record.body = map[record.body].reduced;
+                    dynamics.flexibles.push_back(std::move(record));
+                }
+            }
             reduced.dynamics = std::move(dynamics);
         }
     }

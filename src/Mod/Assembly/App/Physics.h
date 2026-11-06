@@ -609,4 +609,60 @@ public:
     }
 };
 
+/** A component that bends in a dynamic run (docs/AssemblyDynamics.md D4b):
+ * its mesh of 10-node tetrahedra, reduced to Modes modes about its shape at
+ * rest (Craig-Bampton, each interface held), damped in proportion to its
+ * stiffness, Damping of critical at DampingFrequency. A kinematic or a
+ * static run takes it rigid.
+ *
+ * The mesh and the interfaces are made for it before a run
+ * (FlexibleBodies.prepare(), Python: Netgen, by MeshSize) and kept here,
+ * remade when the shape, the size or what holds the component changes
+ * (MeshSignature): the nodes in the component's coordinates, each
+ * tetrahedron's ten nodes, and per interface the label of the model frame
+ * it is -- a joint's full name, a force element's with "-1" or "-2" for its
+ * end -- and the nodes on the faces it holds.
+ *
+ * A contact on it (D4b step 5) touches it through ContactFaces, faces of
+ * its component: one interface of their own (labelled ContactInterface),
+ * which its contact shapes ride and whose nodes move together, the forces
+ * bending the part through its static modes. A contact on a flexible part
+ * without them is refused.
+ */
+class AssemblyExport FlexibleBody: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::FlexibleBody);
+
+public:
+    FlexibleBody();
+
+    App::PropertyLink Component;
+    App::PropertyIntegerConstraint Modes;
+    App::PropertyFloatConstraint Damping;
+    App::PropertyFrequency DampingFrequency;
+    App::PropertyLength MeshSize;
+    App::PropertyLinkSubList ContactFaces;
+
+    /// The label of the contact faces' interface in InterfaceFrames
+    static constexpr const char* ContactInterface = "Contact";
+
+    App::PropertyVectorList Nodes;
+    App::PropertyIntegerList Tetrahedra;
+    App::PropertyStringList InterfaceFrames;
+    /// Each interface's nodes, one after the other, each list ended by -1
+    App::PropertyIntegerList InterfaceNodes;
+    App::PropertyString MeshSignature;
+    /// Its last dynamic run's mode shapes (Solver::ModeShapes): how far each
+    /// coordinate of its deformation -- the run's InterfaceDeformation, then
+    /// its ModalCoordinates -- moves each node, in the component's axes and
+    /// mm; a node's x, y and z each a row of ModeShapeColumns
+    App::PropertyFloatList ModeShapes;
+    App::PropertyInteger ModeShapeColumns;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderFlexibleBody";
+    }
+};
+
 }  // namespace Assembly

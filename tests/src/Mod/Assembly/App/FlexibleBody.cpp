@@ -131,6 +131,23 @@ struct RunRecorder: TrajectorySink
     {
         rows.push_back(v);
     }
+    std::vector<ModeShapes> shapes;
+    void modeShapes(const ModeShapes& s) override
+    {
+        shapes.push_back(s);
+    }
+    // The offset in a row of the channel of that quantity
+    std::size_t offsetOf(const std::string& quantity) const
+    {
+        std::size_t at = 0;
+        for (const Channel& channel : seen) {
+            if (channel.quantity == quantity) {
+                return at;
+            }
+            at += static_cast<std::size_t>(channel.width);
+        }
+        return static_cast<std::size_t>(-1);
+    }
 };
 
 class FlexibleBody: public ::testing::Test
@@ -205,6 +222,18 @@ TEST_F(FlexibleBody, cantileverModesAreTheClampedBeams)  // NOLINT
     EXPECT_NEAR(hz[1], first, 0.01 * first);
     EXPECT_NEAR(hz[2], second, 0.02 * second);
     EXPECT_NEAR(hz[3], second, 0.02 * second);
+
+    // The same with every other tetrahedron's corners turning the other way,
+    // as Netgen's do
+    for (std::size_t i = 0; i < model.dynamics->flexibles[0].tetrahedra.size(); i += 2) {
+        auto& t = model.dynamics->flexibles[0].tetrahedra[i];
+        t = {t[0], t[2], t[1], t[3], t[6], t[5], t[4], t[7], t[9], t[8]};
+    }
+    const std::vector<double> turned = Chrono::flexibleFrequencies(model, 0, &error);
+    ASSERT_EQ(turned.size(), 4u) << error;
+    for (std::size_t i = 0; i < 4; ++i) {
+        EXPECT_NEAR(turned[i], hz[i], 1e-9 * hz[i]);
+    }
 }
 
 namespace
@@ -342,7 +371,8 @@ TEST_F(FlexibleBody, cantileverBendsAndRingsInARun)  // NOLINT
     const double rest = settled.frames.back()[2].placement.getPosition().z - 5.0;
     // 8.87 um against 8.95: the mesh a little stiffer, as its modes say
     EXPECT_NEAR(rest, -sag, 0.02 * sag) << "sag " << sag << " mm";
-    // Its modal coordinates, of the six modes
+    // Its modal coordinates, of the six modes, after its two interfaces'
+    // deformation
     bool found = false;
     for (const Channel& channel : settled.seen) {
         if (channel.quantity == "ModalCoordinates") {
@@ -350,8 +380,46 @@ TEST_F(FlexibleBody, cantileverBendsAndRingsInARun)  // NOLINT
             EXPECT_EQ(channel.source, "Flexible");
             EXPECT_EQ(channel.width, 6);
         }
+        if (channel.quantity == "InterfaceDeformation") {
+            EXPECT_EQ(channel.width, 12);
+        }
     }
     EXPECT_TRUE(found);
+    // Its mode shapes: the node at the middle of its end face, made of them
+    // and the coordinates, where the gram welded to that face is
+    ASSERT_EQ(settled.shapes.size(), 1u);
+    const ModeShapes& shapes = settled.shapes[0];
+    EXPECT_EQ(shapes.source, "Flexible");
+    ASSERT_EQ(shapes.columns, 18u);
+    const std::size_t from = settled.offsetOf("InterfaceDeformation");
+    ASSERT_EQ(settled.offsetOf("ModalCoordinates"), from + 12);
+    // A node on the bar's axis at x, where the run leaves it
+    auto nodeAt = [&](int i) {
+        const std::size_t node = (i * 3 + 1) * 3 + 1;  // (10 i, 5, 5)
+        Base::Vector3d at(10.0 * i, 5, 5);
+        for (int k = 0; k < 3; ++k) {
+            double moved = 0.0;
+            for (std::size_t c = 0; c < shapes.columns; ++c) {
+                moved += shapes.values[(3 * node + k) * shapes.columns + c]
+                    * settled.rows.back()[from + c];
+            }
+            at[k] += moved;
+        }
+        Base::Vector3d placed;
+        settled.frames.back()[1].placement.multVec(at, placed);
+        return placed;
+    };
+    const Base::Vector3d end = nodeAt(20);
+    const Base::Vector3d mount = settled.frames.back()[2].placement.getPosition();
+    EXPECT_LT((end - mount).Length(), 1e-3 * sag) << "the node " << end.z << ", the gram "
+                                                   << mount.z;
+    // Mid-span, the beam's q x^2 (6 L^2 - 4 L x + x^2) / 24 E I + P x^2 (3 L
+    // - x) / 6 E I
+    const double x = l / 2;
+    const double mid = (rhoA * g * x * x * (6 * l * l - 4 * l * x + x * x) / (24 * e * inertia)
+                        + tip * g * x * x * (3 * l - x) / (6 * e * inertia))
+        * 1e3;
+    EXPECT_NEAR(nodeAt(10).z - 5.0, -mid, 0.02 * mid);
 
     const double ratio = 0.02;
     RunRecorder ringing;

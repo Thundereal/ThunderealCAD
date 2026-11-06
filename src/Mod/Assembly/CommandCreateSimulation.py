@@ -123,6 +123,9 @@ ResultQuantities = {
         1.0,
         "MPa",
     ),
+    # A flexible body's, recovered from its modes (FlexibleBodies): the largest
+    # on its surface at each frame
+    "FlexibleVonMises": (QT_TRANSLATE_NOOP("Assembly", "Largest von Mises stress"), 1.0, "MPa"),
     # A contact set's on each of its parts, the loads a stress analysis takes:
     # the force at the centre of its points there, that centre, and the
     # torque about it
@@ -153,11 +156,13 @@ def resultName(channel):
 
 
 def resultChannels(assembly):
-    """The last run's results with their channels, the run's own and the
-    stress series taken from it (MotionLoads.stressChannels): a value per
+    """The last run's results with their channels, the run's own, the
+    stress series taken from it (MotionLoads.stressChannels) and its
+    flexible bodies' stresses (FlexibleBodies.stressChannels): a value per
     frame, None at a frame a series did not solve. A channel of more than a
     vector's numbers a frame (a contact set's places on a part, for its
-    loads) is not one to plot, and left out."""
+    loads; a flexible body's coordinates) is not one to plot, and left out."""
+    import FlexibleBodies
     import MotionLoads
 
     results = assembly.getSimulationResults()
@@ -167,7 +172,11 @@ def resultChannels(assembly):
             for c in results["Channels"]
             if not (c["Values"] and isinstance(c["Values"][0], tuple))
         ]
-        results["Channels"] = shown + MotionLoads.stressChannels(assembly, results)
+        results["Channels"] = (
+            shown
+            + FlexibleBodies.stressChannels(assembly, results)
+            + MotionLoads.stressChannels(assembly, results)
+        )
     return results
 
 
@@ -2307,6 +2316,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # frames when played slower than them
         self.playback = None
         self.shownTime = None
+        # Not upstream: the flexible bodies drawn bent as the run plays, by
+        # their stress (docs/AssemblyDynamics.md D4b)
+        import FlexibleBodies
+
+        self.deformations = FlexibleBodies.Deformations()
         self.addSpeedWidgets()
 
         self.simFeaturePy.Proxy.setMotionsChangedCallback(self.onMotionsChanged)
@@ -2588,6 +2602,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             or o.isDerivedFrom("Assembly::JointFriction")
             or o.isDerivedFrom("Assembly::FramedItem")
             or o.isDerivedFrom("Assembly::ContactSet")
+            or o.isDerivedFrom("Assembly::FlexibleBody")
         ]
 
     def fillElements(self):
@@ -2683,6 +2698,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def deactivate(self):
         self.animationTimer.stop()
+        self.removeDeformations()
         # A run going is let go of
         if self.runPoll.isActive():
             self.endRun()
@@ -2749,6 +2765,22 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.resultsBox.hide()
         if self.runPoll.isActive():
             return
+        self.removeDeformations()
+        # Not upstream: the flexible bodies' meshes made, or kept where they
+        # are of the components as they are (docs/AssemblyDynamics.md D4b)
+        import FlexibleBodies
+
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            made = FlexibleBodies.prepareStudy(self.simFeaturePy)
+            if made:
+                App.Console.PrintLog("Assembly: meshed %s\n" % ", ".join(made))
+        except Exception as e:
+            App.Console.PrintError("Assembly: %s\n" % e)
+            self.showRunFailed()
+            return
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
         if self.assembly.startSimulation(self.simFeaturePy) != 0:
             self.showRunFailed()
             return
@@ -2798,6 +2830,12 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         nFrms = self.assembly.numberOfFrames()
         self.playback = None
         self.shownTime = None
+        import FlexibleBodies
+
+        self.removeDeformations()
+        self.deformations = FlexibleBodies.deformationsOf(
+            self.simFeaturePy, self.assembly.getSimulationResults()
+        )
         if fresh:
             # Not upstream: the study's traces follow its run
             import SimulationTrace
@@ -3441,6 +3479,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         )
         if self.results:
             self.showResultValue()
+        self.deformations.show(time)
+
+    def removeDeformations(self):
+        self.deformations.remove()
 
     def onFrameChanged(self, val):
         self.assembly.updateForFrame(val)
@@ -3751,6 +3793,25 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.videoTimeAction.setCheckable(True)
         self.videoTimeAction.setChecked(params.GetBool("VideoTime", True))
         self.videoTimeAction.toggled.connect(lambda on: params.SetBool("VideoTime", on))
+        # The 3D view's background in the video, as Save Picture has it, or
+        # a colour of one's own
+        backMenu = menu.addMenu(translate("Assembly", "Background"))
+        self.videoBackgroundGroup = QtGui.QActionGroup(backMenu)
+        self.videoBackgroundActions = {}
+        for key, text in (
+            ("Current", translate("Assembly", "As in the view")),
+            ("White", translate("Assembly", "White")),
+            ("Black", translate("Assembly", "Black")),
+            ("Custom", translate("Assembly", "Custom color...")),
+        ):
+            action = backMenu.addAction(text)
+            action.setCheckable(True)
+            action.setData(key)
+            self.videoBackgroundGroup.addAction(action)
+            self.videoBackgroundActions[key] = action
+        self.videoBackgroundAction().setChecked(True)
+        self.showVideoBackgroundColor()
+        self.videoBackgroundGroup.triggered.connect(self.onVideoBackground)
         button = self.form.SaveAnimationButton
         button.setMenu(menu)
         button.setPopupMode(QtWidgets.QToolButton.MenuButtonPopup)
@@ -3758,10 +3819,53 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             translate(
                 "Assembly",
                 "Save the run as a video, a GIF or an animated glTF.\n"
-                "Its menu: the Results box beside the view as it plays, and the time\n"
-                "and speed over the view, in a video or a GIF.",
+                "Its menu: the Results box beside the view as it plays, the time\n"
+                "and speed over the view, and the view's background, in a video or a GIF.",
             )
         )
+
+    def videoBackgroundAction(self):
+        """Not upstream: the Background menu's action the preferences have
+        chosen, the view's own background if none"""
+        key = App.ParamGet(VideoParams).GetString("VideoBackground", "Current")
+        return self.videoBackgroundActions.get(key, self.videoBackgroundActions["Current"])
+
+    def videoBackgroundColor(self):
+        """Not upstream: the custom background colour, white if none"""
+        color = QtGui.QColor(App.ParamGet(VideoParams).GetString("VideoBackgroundColor", ""))
+        return color if color.isValid() else QtGui.QColor(255, 255, 255)
+
+    def showVideoBackgroundColor(self):
+        """Not upstream: the custom colour, a swatch on its action"""
+        swatch = QtGui.QPixmap(16, 16)
+        swatch.fill(self.videoBackgroundColor())
+        self.videoBackgroundActions["Custom"].setIcon(QtGui.QIcon(swatch))
+
+    def onVideoBackground(self, action):
+        """Not upstream: a background chosen in the menu; Custom asks for its
+        colour each time, kept as it was if the dialog is cancelled"""
+        params = App.ParamGet(VideoParams)
+        key = action.data()
+        if key == "Custom":
+            color = QtWidgets.QColorDialog.getColor(
+                self.videoBackgroundColor(),
+                self.form,
+                translate("Assembly", "Video background"),
+            )
+            if not color.isValid():
+                self.videoBackgroundAction().setChecked(True)
+                return
+            params.SetString("VideoBackgroundColor", color.name())
+            self.showVideoBackgroundColor()
+        params.SetString("VideoBackground", key)
+
+    def videoBackground(self):
+        """Not upstream: the background a video's 3D frames are saved on,
+        as View3DInventorPy.saveImage() takes it"""
+        key = self.videoBackgroundAction().data()
+        if key == "Custom":
+            return self.videoBackgroundColor().name()
+        return key
 
     def videoFrame(self, path, layout, time, rate):
         """Not upstream: a saved video's frame, the 3D view's image at path
@@ -3775,6 +3879,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
             painter.setRenderHint(QtGui.QPainter.TextAntialiasing)
             painter.drawImage(0, 0, view)
+            if layout.get("legend") is not None:
+                import FlexibleBodies
+
+                at = FlexibleBodies.Legend.place(layout["view"].width(), layout["view"].height())
+                FlexibleBodies.Legend.paint(painter, at, *layout["legend"])
             if layout["box"] is not None:
                 # At the first frame's scale, should it be taller now
                 box = self.videoBoxImage()
@@ -3807,10 +3916,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def videoLayout(self, width, height):
         """Not upstream: a saved video's frames, the view width x height: the
         Results box beside it, as tall as the view at most, if it is to be
-        and shows; the time over it, if it is to be. None for the view alone"""
+        and shows; the time over it, if it is to be; the flexible bodies'
+        stress legend over its right side, as the view has it. None for the
+        view alone"""
         withBox = self.videoBoxAction.isChecked() and self.resultsBox.isVisible()
         withTime = self.videoTimeAction.isChecked()
-        if not withBox and not withTime:
+        legend = self.deformations.legendOf()
+        if not withBox and not withTime and legend is None:
             return None
         size = QtCore.QSize(width, height)
         box = None
@@ -3829,6 +3941,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             "scale": scale,
             "time": withTime,
             "text": max(12, height // 32),
+            "legend": legend,
+            "view": QtCore.QSize(width, height),
         }
 
     def videoBoxImage(self):
@@ -3911,6 +4025,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # Not upstream: the Results box beside the view and the time over
         # it, as the menu says
         layout = self.videoLayout(width, height)
+        background = self.videoBackground()
         viewSize = (width, height)
         if layout is not None:
             width, height = layout["size"].width(), layout["size"].height()
@@ -3948,9 +4063,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
                     frame_filename = temp_path / f"frame_{i:05d}.png"
                     if layout is None:
-                        view.saveImage(str(frame_filename), width, height, "Current")
+                        view.saveImage(str(frame_filename), width, height, background)
                     else:
-                        view.saveImage(str(frame_filename), viewSize[0], viewSize[1], "Current")
+                        view.saveImage(str(frame_filename), viewSize[0], viewSize[1], background)
                         self.videoFrame(str(frame_filename), layout, video_time, played[i][1])
                     frame_files.append(str(frame_filename))
 

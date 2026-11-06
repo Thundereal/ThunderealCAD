@@ -68,6 +68,7 @@ from AssemblyTests.TestInterference import (
 from AssemblyTests.TestImportAsm3 import TestImportAsm3
 from AssemblyTests.TestMassProperties import TestMassProperties
 from AssemblyTests.TestDynamics import TestDynamics
+from AssemblyTests.TestFlexibleBody import TestFlexibleBody
 from AssemblyTests.TestContact import TestContact
 from AssemblyTests.TestProfileContact import TestProfileContact
 from AssemblyTests.TestJointFriction import TestJointFriction
@@ -128,6 +129,7 @@ True if TestDragCollision else False
 True if TestImportAsm3 else False
 True if TestMassProperties else False
 True if TestDynamics else False
+True if TestFlexibleBody else False
 True if TestContact else False
 True if TestProfileContact else False
 True if TestJointFriction else False

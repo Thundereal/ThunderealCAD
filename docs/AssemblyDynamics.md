@@ -3602,6 +3602,89 @@ Phase D1 is under way (2026-10-28):
   - Not yet: one way still, from rest, and the rotation's stiffening left
     out; a joint other than those (a distance, a gear, a cam) holds the
     part stiff in its modes.
+- **D4b, flexible bodies: the plan (2026-11-06).** A part that bends in the
+  run itself, its flex feeding back into the joints and the motion: two
+  ways, where D4a's vibration is one. Open question 10's answer: modal
+  reduction (`chrono_modal`), direct FEA bodies only for a specific need.
+  - How the others do it. Adams takes a modal neutral file (MNF) made by
+    component mode synthesis, Craig-Bampton modified, from Nastran or
+    Ansys: interface nodes at the joints -- at a hole's centre, a spider
+    (RBE2, or beams in Ansys) to the faces it bears on -- their static
+    modes and the fixed-interface modes, orthonormalised
+    (https://ansyshelp.ansys.com/public/Views/Secured/corp/v251/en/ans_substr/advmeth2402.html).
+    MotionSolve's flexible body is OptiStruct's CMS (Craig-Bampton or
+    Craig-Chang) in an H3D file, interface nodes by an ASET, small linear
+    deformation only, the modes' coordinates added to the six of the
+    rigid motion; a "Rigidify" switch runs it rigid with its inertia
+    (https://help.altair.com/hwsolvers/ms/topics/solvers/ms/xml-format_34.htm,
+    https://help.altair.com/hwdesktop/hwx/topics/motionview/optistruct_flexbody_generation.htm).
+    The stresses are recovered after the run: each mode's stress field,
+    weighed by the run's modal coordinates; stress takes more modes than
+    shape (https://help.altair.com/hwsolvers/ms/topics/solvers/ms/intro_to_flex_bodies_intro_r.htm).
+    RecurDyn has both, RFlex (CMS) and FFlex (full nodal), and says a modal
+    body is for well-defined attachment points with no contact on it:
+    a contact is a moving attachment point, whose static modes are not in
+    the basis (https://functionbay.com/en/page/single/22). FFlex is for
+    contact on a flexible part.
+  - What Chrono 10 gives: `ChModalAssembly` (`chrono_modal`), a sub-assembly
+    reduced by Herting (free-free modes) or Craig-Bampton (the boundary
+    held), its boundary items kept -- bodies, nodes, links between them --
+    and its internal ones (a `ChMesh`, internal links) replaced by modal
+    coordinates on a floating frame, with the inertial coupling of its
+    motion; gravity through the reduced mass; the internal nodes updated
+    from the modes for display and stresses, a static correction for loads
+    on them. Its eigensolvers are Spectra's (header only, MPL-2.0,
+    conda-forge `spectra-cpp` 1.2.0); its K_II inverse a direct solver of
+    our choice. The 10-node tetrahedron is corotational
+    (`ChElementTetraCorot_10`), its stress at any point (GetStress); its
+    mass lumped equally on the ten nodes, which for a 10-node tetrahedron
+    is wrong (its corners take negative consistent mass): ours is a
+    subclass with the consistent mass, D4a's `_tet10Mass()`.
+  - The element: a Physics item, `FlexibleBody` -- `Component`, `Modes` (12
+    by default), `Damping` (a ratio for every mode, 2%), `MeshSize`, and the
+    mesh: its nodes (the component's coordinates) and 10-node tetrahedra, a
+    Netgen mesh made for it as D4a's are, and each interface's nodes. An
+    interface is each frame on the component that something holds -- a
+    joint, a spring's or bushing's end, a load -- its nodes those of the
+    faces D4a takes for it (`_facesOf()`); a vertex, the nearest. A study
+    lists it in Elements, as every other.
+  - The run: a dynamic run with a flexible body builds it as a
+    `ChModalAssembly`, Craig-Bampton: a boundary body for each interface,
+    at its frame, of negligible mass; its nodes tied to it rigidly (an
+    RBE2, `ChLinkNodeFrame`, internal); the mesh internal. The joints,
+    springs and loads on the component go on its interfaces' bodies. The
+    component's pose reported is the floating frame's, carried from where
+    the reduction found it; its "ModalCoordinates" a channel of width the
+    modes, from which the deformation and the stresses are recovered after
+    the run (each mode's displacements and stress field, sampled at the
+    nodes). A kinematic run, a static one and a drag take the part rigid,
+    with the mesh's mass.
+  - Steps, each shipping:
+    1. Build `chrono_modal` with Spectra beside the core (ChronoCore.cmake,
+       an imported `ChronoModal`); the consistent-mass tetrahedron. Test
+       (C++): a cantilever bar of 10-node tetrahedra in a ChModalAssembly,
+       its first modes against the beam's closed form and the full mesh's.
+    2. The neutral model's `Dynamics::flexibles` and the backend: a
+       flexible body's interfaces, its joints on them, the floating frame
+       as its pose, the modal coordinates as a channel. Tests: a cantilever
+       held by a Fixed joint, settling under gravity to rho g A L^4 / 8 E I
+       at its tip and ringing at its first frequency; a flexible pendulum,
+       its swing the rigid one's to its stiffness and its bending the
+       pinned-free beam's.
+    3. The document: `FlexibleBody`, its command and task panel, the mesh
+       made for it (kept, remade when the shape or the size changes), its
+       interfaces from the study's joints and loads; the panel listing it.
+    4. The results: the part shown deformed through playback (by a scale),
+       its stresses coloured over it; To FEM's vibration taking the run's
+       own modal coordinates, both ways, where D4a computes them one way.
+    5. Contact on a flexible part: its contact taken at an interface of its
+       own (the contact's faces, their static modes in the basis), as the
+       modal bodies elsewhere allow at best; full nodal bodies, Chrono's
+       `ChMesh` without reduction and `ChContactSurfaceMesh`, only when a
+       case needs them.
+  - Not in it: large deformation (the modes are linear about the shape at
+    rest; a corotational mesh unreduced would be); a flexible part on the
+    ground; the rotation's stiffening (geometric stiffness).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

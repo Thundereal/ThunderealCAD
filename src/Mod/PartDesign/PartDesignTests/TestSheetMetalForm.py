@@ -584,6 +584,163 @@ class TestSheetMetalForm(unittest.TestCase):
                 self.assertIn("Invalid", feature.State)
                 self.Doc.removeObject(feature.Name)
 
+    def bracket(self):
+        """The plate with a leg 20 up on its far edge, y 30: its bend's
+        inner skins the plate's top, z 1, and the leg's inside, y 29, their
+        virtual sharp the line y 29, z 1"""
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        edges = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(self.Plate.Shape.Edges)
+            if all(abs(v.Point.y - 30) < 1e-7 and abs(v.Point.z - T) < 1e-7 for v in e.Vertexes)
+        ]
+        flange.Edges = (self.Plate, edges[:1])
+        flange.Length = 20
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        return flange
+
+    def gusset(self, flange, **props):
+        """Gussets across the bracket's bend at x 10 and 30: each reaching 6
+        along both walls from their sharp, 3 wide at its face"""
+        bend = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(flange.Shape.Faces)
+            if isinstance(f.Surface, Part.Cylinder) and abs(f.Surface.Radius - 1) < 1e-7
+        ][0]
+        positions = props.pop("Positions", None) or self.points([(10, 5), (30, 5)])
+        sizes = dict(Length=6, Width=3, Radius=0.5, FlankAngle=60)
+        sizes.update(props)
+        return self.form(base=flange, face=bend, Kind="Gusset", Positions=positions, **sizes)
+
+    def testGusset(self):
+        """A built-in gusset: a rib pressed in across a bend from its
+        outside, its face a flat across the inside corner, Length along each
+        wall from their sharp, Width wide there, its ends sloping back at
+        FlankAngle; the thickness all through it, open behind. The only form
+        across a bend: owned by the bend"""
+        flange = self.bracket()
+        flat = self.flatObject()
+        plain = flat.Shape.Solids[0].Volume
+        feature = self.gusset(flange)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        # its face 6 sin 45 = 4.243 from the sharp toward the inside, the
+        # thickness behind it; open behind, where the bend's corner was
+        u = V(0, -1, 1).normalize()
+        sharp = V(10, 29, T)
+        self.assertTrue(shape.isInside(sharp + u * 3.74, 1e-7, True))
+        self.assertFalse(shape.isInside(sharp + u * 4.74, 1e-7, True))
+        self.assertFalse(shape.isInside(sharp, 1e-7, True))
+        self.assertFalse(shape.isInside(V(10, 27, T / 2), 1e-7, True))
+        # between the two, the bend as it was
+        self.assertTrue(shape.isInside(V(20, 29, T), 1e-7, True))
+        self.assertTrue(shape.isInside(V(20, 27, T / 2), 1e-7, True))
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual(
+            [(f["Name"], f["Wall"]) for f in forms], [("Form1", "Bend1"), ("Form2", "Bend1")]
+        )
+        # its face is the form's
+        face = faceAt(feature, sharp + u * (6 * math.sin(math.pi / 4)))
+        self.assertEqual(feature.sheetElementOf(face), "Form1")
+        # the flat: the bend's flat as it was, the gussets' outlines on it;
+        # Formed cannot lay a gusset flat, and shows its outline too
+        for mode in ("Outline", "Formed"):
+            with self.subTest(mode=mode):
+                flat.FormDisplay = mode
+                self.Doc.recompute()
+                self.assertEqual(flat.Status, "")
+                self.assertEqual(len(flat.Shape.Solids), 1)
+                self.assertAlmostEqual(flat.Shape.Solids[0].Volume, plain, places=5)
+                outlines = named(flat.Shape, "Form")
+                self.assertEqual(
+                    sorted({n.split("Outline")[0] for n in outlines}), ["Form1", "Form2"]
+                )
+        flat.FormDisplay = "CentreMark"
+        self.Doc.recompute()
+        self.assertEqual(flat.Status, "")
+        self.assertEqual(len(named(flat.Shape, "Form")), 4)
+
+    def testGussetSharpBehindTheBend(self):
+        """A bend whose sharp is behind its outer skin -- R 3 at 90 deg, and
+        135 deg -- valid, rounded, and flat (found 2026-11-06: the outside's
+        corner stood out past the bend there, and its ends left slivers
+        behind it that would not round)"""
+        for angle, radius, length in ((90, 3, 8), (135, 1, 8)):
+            with self.subTest(angle=angle, radius=radius):
+                self.Plate.Rule.BendRadius = radius
+                flange = self.bracket()
+                flange.Angle = angle
+                self.Doc.recompute()
+                self.assertNotIn("Invalid", flange.State)
+                bend = [
+                    "Face%d" % (i + 1)
+                    for i, f in enumerate(flange.Shape.Faces)
+                    if isinstance(f.Surface, Part.Cylinder)
+                    and abs(f.Surface.Radius - radius) < 1e-7
+                ][0]
+                feature = self.form(
+                    base=flange,
+                    face=bend,
+                    Kind="Gusset",
+                    Positions=self.points([(20, 5)]),
+                    Length=length,
+                    Width=3,
+                    Radius=0.3,
+                    FlankAngle=60,
+                )
+                self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+                self.assertTrue(feature.Shape.isValid())
+                self.assertEqual(len(feature.Shape.Solids), 1)
+                flat = self.flatObject()
+                self.assertEqual(flat.Status, "")
+                self.assertEqual(len(flat.Shape.Solids), 1)
+                self.tearDown()
+                self.setUp()
+
+    def testGussetSaveRestore(self):
+        """Saved and opened again, its form still the bend's (found
+        2026-11-06: the model's restore refused a form on no wall)"""
+        name = self.gusset(self.bracket()).Name
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "gusset.FCStd")
+            self.Doc.saveAs(path)
+            FreeCAD.closeDocument(self.Doc.Name)
+            self.Doc = FreeCAD.openDocument(path)
+            feature = self.Doc.getObject(name)
+            self.assertEqual(
+                [(f["Name"], f["Wall"]) for f in feature.SheetModel["Forms"]],
+                [("Form1", "Bend1"), ("Form2", "Bend1")],
+            )
+            self.Doc.recompute()
+            self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+
+    def testGussetSharp(self):
+        """Radius 0: its bends sharp"""
+        feature = self.gusset(self.bracket(), Radius=0)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isValid())
+
+    def testGussetRefused(self):
+        """On a wall's face, not a bend's; no further along a wall than the
+        bend's inside; past a wall's end; off the bend's length; a size of 0"""
+        flange = self.bracket()
+        feature = self.gusset(flange, Length=1)
+        self.assertIn("Invalid", feature.State)
+        self.Doc.removeObject(feature.Name)
+        for props in (dict(Length=25), dict(Width=0), dict(Length=0)):
+            with self.subTest(**props):
+                feature = self.gusset(flange, **props)
+                self.assertIn("Invalid", feature.State)
+                self.Doc.removeObject(feature.Name)
+        feature = self.gusset(flange, Positions=self.points([(45, 5)]))
+        self.assertIn("Invalid", feature.State)
+        self.Doc.removeObject(feature.Name)
+        feature = self.form(base=flange, Kind="Gusset", Positions=self.points([(10, 5)]))
+        self.assertIn("Invalid", feature.State)
+
     def testSizesFromThickness(self):
         """A built-in form's sizes start from the sheet's thickness: the
         rule's 2 mm doubles them; set before, they are kept"""

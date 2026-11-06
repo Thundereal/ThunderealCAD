@@ -23,7 +23,8 @@
     leaves nothing (M5, ruled 2026-11-06);
   - Form's panel: its face, its kind, its points' sketch, its angle and way,
     a dimple's sizes, a louver's, a bead's, a lance's, a drawn cutout's, a
-    flanged hole's and an emboss's, each kind's greyed out for the others;
+    flanged hole's, an emboss's and a gusset's, each kind's greyed out for the
+    others;
     a size set there is the form's.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
@@ -1051,6 +1052,26 @@ def run():
                         {n: w[n].isEnabled() for n in used + unused if n in w},
                     ),
                 )
+            # a gusset's, though there is no bend here for it to cross
+            fforms[0].Kind = "Gusset"
+            pump(40)
+            doc.recompute()
+            pump(20)
+            w = panel() or {}
+            used, unused = ("Length", "Width", "FlankAngle", "Radius"), (
+                "Diameter",
+                "Depth",
+                "CornerRadius",
+                "Reversed",
+                "Angle",
+            )
+            check(
+                "a Gusset: %s, %s greyed out" % (", ".join(used), ", ".join(unused)),
+                all(n in w for n in used + unused)
+                and all(w[n].isEnabled() for n in used)
+                and not any(w[n].isEnabled() for n in unused),
+                {n: w[n].isEnabled() for n in used + unused if n in w},
+            )
             fforms[0].Kind = "Dimple"
             fforms[0].Diameter = 14
             pump(20)

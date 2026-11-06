@@ -1551,6 +1551,75 @@ def run():
         doc.recompute()
         pump(20)
 
+        # and a bend's face, curved, a gusset across the bend: on a bracket
+        # of its own, a plate and a leg, its bend plain (the part's bends
+        # here have cuts along them, or are hems)
+        gbody = doc.addObject("PartDesign::Body", "GussetBody")
+        view.setActiveObject("pdbody", gbody)
+        gsketch = gbody.newObject("Sketcher::SketchObject", "GussetSketch")
+        corners = [(0, 0), (40, 0), (40, 30), (0, 30)]
+        for i in range(4):
+            a, b = corners[i], corners[(i + 1) % 4]
+            gsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        gplate = gbody.newObject("PartDesign::SheetMetalBaseWall", "GussetPlate")
+        gplate.Profile = gsketch
+        doc.recompute()
+        gleg = gbody.newObject("PartDesign::SheetMetalFlange", "GussetLeg")
+        gleg.Edges = (
+            gplate,
+            [
+                "Edge%d" % (i + 1)
+                for i, e in enumerate(gplate.Shape.Edges)
+                if all(abs(v.Point.y - 30) < 1e-7 and abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes)
+            ][:1],
+        )
+        gleg.Length = 20
+        doc.recompute()
+        bends = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(gleg.Shape.Faces)
+            if isinstance(f.Surface, Part.Cylinder)
+            and (gleg.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Bend")
+        ]
+        gpoints = gbody.newObject("Sketcher::SketchObject", "GussetPoints")
+        gpoints.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        gpoints.addGeometry(Part.Point(V(20, 5, 0)))
+        doc.recompute()
+        gbody.Tip = gleg
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        if bends:
+            FreeCADGui.Selection.addSelection(doc.Name, gleg.Name, bends[0])
+        FreeCADGui.Selection.addSelection(doc.Name, gpoints.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalForm")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        made = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalForm"
+        ]
+        gusset = made[0] if made else None
+        if gusset is not None:
+            gusset.Length, gusset.Width, gusset.Radius = 6, 3, 0.5
+            doc.recompute()
+            pump(20)
+        check(
+            "with a bend's face and a sketch of points it presses a gusset across the bend",
+            gusset is not None
+            and gusset.Kind == "Gusset"
+            and "Invalid" not in gusset.State
+            and [f["Wall"] for f in gusset.SheetModel.get("Forms", [])] == ["Bend1"],
+            gusset and (gusset.Kind, gusset.State, gusset.getStatusString()),
+        )
+        view.setActiveObject("pdbody", body)
+        pump(20)
+
         # Rip: a tube, which does not lie flat, cut open at a bend picked
         # (docs/SheetMetal.md sec 12, ruled 2026-11-05)
         ripCmd = FreeCADGui.Command.get("PartDesign_SheetMetalRip")

@@ -613,6 +613,51 @@ class TestSheetMetalFlange(unittest.TestCase):
         for v in third.AddSubShape.Vertexes:
             self.assertGreaterEqual(v.Point.x - v.Point.y, 20 + gap / 2 - 1e-6, v.Point)
 
+    def starter(self, kind, **kw):
+        """A starter shape 100 x 60 x 25 centred, in a body of its own"""
+        import PartDesign
+
+        self.Body = self.Doc.addObject("PartDesign::Body", "StarterBody")
+        return PartDesign.makeStarterShape(self.Body, kind, 100, 60, 25, **kw)
+
+    def checkLip(self, lip):
+        """Bent in from the legs' inner skins at the corner x -50, y -30, the
+        legs mitered on x - y = -20 and the rule's gap: the lip's bend runs
+        on to the miter over the leg's whole end, the bend's tube about
+        y -28, z 23 there, 1 to 2 from it; nothing of the leg is left above
+        where the bend starts, outside the tube. Valid, owned, it lies flat"""
+        self.checkValid(lip)
+        self.assertNotIn(None, self.owners(lip))
+        self.assertTrue(lip.Shape.isInside(V(-49.2, -29.6, 23.4), 1e-7, True))
+        self.assertFalse(lip.Shape.isInside(V(-49.1, -29.9, 24.9), 1e-7, True))
+        flat = self.flat(lip)
+        self.assertNotIn("Invalid", flat.State)
+        self.assertEqual(len(flat.Shape.Solids), 1)
+        self.assertTrue(flat.Shape.Solids[0].isValid())
+
+    def testInwardLipsMitered(self):
+        """A box's lips, one flange on the legs' four inner top edges, with no
+        gaps: each mitered at the legs' miter (found 2026-11-06: built along
+        the inner edge only, the bend stopped short of the miter over the
+        leg's thickness and the leg's mitered end stood on beside it, sharp,
+        to the top, and the part did not lie flat)"""
+        lip = self.starter("Box", FlangeWidth=10)[-1]
+        lip.Gap1 = 0
+        lip.Gap2 = 0
+        self.Doc.recompute()
+        self.checkLip(lip)
+
+    def testInwardLipOnMiteredLeg(self):
+        """One lip on a tub's leg, on its inner top edge: mitered at its ends
+        as the leg is"""
+        flange = self.starter("Tub")[-1]
+        lip = self.Body.newObject("PartDesign::SheetMetalFlange", "Lip")
+        lip.Edges = (flange, [self.topEdge(flange, y=-29)])
+        lip.LengthType = "OuterSharp"
+        lip.Length = 10
+        self.Doc.recompute()
+        self.checkLip(lip)
+
     def testIntoItsWallsBend(self):
         """A flange on an L's leg, on its top edge on the inside, running up
         to the L's bend: kept off that bend by the relief's width, 1, as a

@@ -22,8 +22,8 @@
     refused; OK keeps ordinary features, one undo takes them away, Cancel
     leaves nothing (M5, ruled 2026-11-06);
   - Form's panel: its face, its kind, its points' sketch, its angle and way,
-    a dimple's sizes, a louver's and a bead's, each kind's greyed out for
-    the others;
+    a dimple's sizes, a louver's, a bead's and a lance's, each kind's greyed
+    out for the others;
     a size set there is the form's.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
@@ -1001,6 +1001,30 @@ def run():
                     fforms[0].State,
                     fforms[0].getStatusString(),
                     {n: w[n].isEnabled() for n in ("Length", "Width", "Diameter") if n in w},
+                ),
+            )
+            fforms[0].Kind = "Lance"
+            fforms[0].Length = 20
+            pump(40)
+            doc.recompute()
+            pump(20)
+            w = panel() or {}
+            check(
+                "a lance: a length and a width, the flank angle and the diameter greyed out",
+                "FlankAngle" in w
+                and w["Length"].isEnabled()
+                and w["Width"].isEnabled()
+                and not w["FlankAngle"].isEnabled()
+                and not w["Diameter"].isEnabled()
+                and "Invalid" not in fforms[0].State,
+                (
+                    fforms[0].State,
+                    fforms[0].getStatusString(),
+                    {
+                        n: w[n].isEnabled()
+                        for n in ("Length", "Width", "Diameter", "FlankAngle")
+                        if n in w
+                    },
                 ),
             )
             fforms[0].Kind = "Dimple"

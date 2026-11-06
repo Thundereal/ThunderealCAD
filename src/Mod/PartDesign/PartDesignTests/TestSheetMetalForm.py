@@ -394,6 +394,61 @@ class TestSheetMetalForm(unittest.TestCase):
                 self.assertIn("Invalid", feature.State)
                 self.Doc.removeObject(feature.Name)
 
+    def lance(self, **props):
+        """A lance at the plate's middle, (20, 15): 20 long along X, its tab
+        6 from its hinge to its end, which faces +Y and rises 3 above the
+        face"""
+        sizes = dict(Length=20, Width=6, Depth=3, Radius=0.5)
+        sizes.update(props)
+        return self.form(Kind="Lance", Positions=self.points([(20, 15)]), **sizes)
+
+    def testLance(self):
+        """A built-in lance: the sheet cut on three sides, the tab between
+        bent up along the fourth, its hinge, to its end Depth above the face;
+        free at its sides, the thickness all through it, the plate beneath
+        it open"""
+        feature = self.lance()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 3, places=6)
+        # the tab as the louver's ramp, 3 over 6; open beneath
+        self.assertTrue(shape.isInside(V(20, 17.5, T + 2.25), 1e-7, True))
+        self.assertFalse(shape.isInside(V(20, 17.5, T + 0.5), 1e-7, True))
+        self.assertFalse(shape.isInside(V(20, 17.5, T / 2), 1e-7, True))
+        # its sides cut free, not drawn: the tab to x 30, a slit the rule's
+        # gap wide beside it, the plate past that
+        self.assertTrue(shape.isInside(V(29.9, 17, T + 2), 1e-7, True))
+        self.assertFalse(shape.isInside(V(30.05, 17, T + 2), 1e-7, True))
+        self.assertFalse(shape.isInside(V(29.6, 17, T + 0.2), 1e-7, True))
+        self.assertFalse(shape.isInside(V(30.05, 17, T / 2), 1e-7, True))
+        self.assertTrue(shape.isInside(V(30.5, 17, T / 2), 1e-7, True))
+        # behind the hinge, the plate as it was
+        self.assertTrue(shape.isInside(V(20, 11.5, T / 2), 1e-7, True))
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 18, T + 3))), "Form1")
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testLanceSharp(self):
+        """Radius 0: its hinge sharp"""
+        feature = self.lance(Radius=0)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isValid())
+
+    def testLanceRefused(self):
+        """A tab too shallow to clear the sheet, a size of 0"""
+        for props in (dict(Depth=1), dict(Width=0), dict(Length=0), dict(Depth=0)):
+            with self.subTest(**props):
+                feature = self.lance(**props)
+                self.assertIn("Invalid", feature.State)
+                self.Doc.removeObject(feature.Name)
+
     def testSizesFromThickness(self):
         """A built-in form's sizes start from the sheet's thickness: the
         rule's 2 mm doubles them; set before, they are kept"""

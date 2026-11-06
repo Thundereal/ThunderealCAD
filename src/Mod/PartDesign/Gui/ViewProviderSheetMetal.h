@@ -209,9 +209,11 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
-/** Cross breaks on walls, its panel the faces, the angle and the way; it
- * draws each wall's diagonals on the face the break rises from
- * (PartDesign::crossBreakLines()), dash-dotted, while shown
+/** Cross breaks on walls, its panel the faces, the angle and the way; while
+ * the panel is open it draws each wall's diagonals on the face the break
+ * rises from (PartDesign::crossBreakLines()), dash-dotted. Shown, the walls
+ * wear the break as a finish, as every feature after it does
+ * (ViewProvider::crossBreakFinishes())
  */
 class PartDesignGuiExport ViewProviderSheetMetalCrossBreak: public ViewProvider
 {
@@ -227,7 +229,8 @@ public:
     void reattach(App::DocumentObject* obj) override;
 
 protected:
-    void onChanged(const App::Property* prop) override;
+    bool setEdit(int ModNum) override;
+    void unsetEdit(int ModNum) override;
     TaskDlgFeatureParameters* getEditDialog() override;
 
 private:
@@ -235,7 +238,7 @@ private:
     void refreshLines();
 
     std::unique_ptr<PartGui::ViewProviderPart> lines;
-    /// The diagonals' view, drawn while this view is shown, not picked
+    /// The diagonals' view, drawn while the panel is open, not picked
     Gui::CoinPtr<SoSwitch> pcLines;
 };
 

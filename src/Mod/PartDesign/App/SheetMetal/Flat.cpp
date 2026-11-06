@@ -606,13 +606,22 @@ TopoDS_Face crossBreakFace(const TopoDS_Shape& shape, const Model& model, int in
     return res;
 }
 
-std::vector<TopoDS_Edge> diagonals(const TopoDS_Face& face)
+namespace
 {
-    std::vector<TopoDS_Edge> res;
+
+/// A plane face's bounds in the frame of its longest straight edge
+struct PlaneBounds
+{
+    /// The edge along X, the plane's normal Z
+    gp_Trsf toFrame;
+    double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+};
+
+bool planeBounds(const TopoDS_Face& face, PlaneBounds& res)
+{
     if (face.IsNull() || BRepAdaptor_Surface(face).GetType() != GeomAbs_Plane) {
-        return res;
+        return false;
     }
-    // the frame: the longest straight edge along X, the face's normal Z
     gp_Pnt origin;
     gp_Vec x;
     double longest = 0;
@@ -630,22 +639,33 @@ std::vector<TopoDS_Edge> diagonals(const TopoDS_Face& face)
         }
     }
     if (longest <= Precision::Confusion()) {
-        return res;
+        return false;
     }
     const gp_Dir z = BRepAdaptor_Surface(face).Plane().Axis().Direction();
-    const gp_Ax3 frame(origin, z, gp_Dir(x));
-    gp_Trsf toFrame;
-    toFrame.SetTransformation(frame);
-    double x0 = std::numeric_limits<double>::max(), y0 = x0;
-    double x1 = -x0, y1 = -x0;
+    res.toFrame.SetTransformation(gp_Ax3(origin, z, gp_Dir(x)));
+    res.x0 = res.y0 = std::numeric_limits<double>::max();
+    res.x1 = res.y1 = -res.x0;
     for (TopExp_Explorer it(face, TopAbs_VERTEX); it.More(); it.Next()) {
-        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).Transformed(toFrame);
-        x0 = std::min(x0, p.X());
-        x1 = std::max(x1, p.X());
-        y0 = std::min(y0, p.Y());
-        y1 = std::max(y1, p.Y());
+        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).Transformed(res.toFrame);
+        res.x0 = std::min(res.x0, p.X());
+        res.x1 = std::max(res.x1, p.X());
+        res.y0 = std::min(res.y0, p.Y());
+        res.y1 = std::max(res.y1, p.Y());
     }
-    const gp_Trsf back = toFrame.Inverted();
+    return true;
+}
+
+}  // namespace
+
+std::vector<TopoDS_Edge> diagonals(const TopoDS_Face& face)
+{
+    std::vector<TopoDS_Edge> res;
+    PlaneBounds bounds;
+    if (!planeBounds(face, bounds)) {
+        return res;
+    }
+    const double x0 = bounds.x0, y0 = bounds.y0, x1 = bounds.x1, y1 = bounds.y1;
+    const gp_Trsf back = bounds.toFrame.Inverted();
     for (const auto& [a, b] : {std::pair(gp_Pnt(x0, y0, 0), gp_Pnt(x1, y1, 0)),
                                std::pair(gp_Pnt(x0, y1, 0), gp_Pnt(x1, y0, 0))}) {
         const gp_Pnt pa = a.Transformed(back);
@@ -668,6 +688,60 @@ std::vector<TopoDS_Edge> diagonals(const TopoDS_Face& face)
         if (s1 - s0 > Precision::Confusion()) {
             res.push_back(
                 BRepBuilderAPI_MakeEdge(pa.Translated(dir * s0), pa.Translated(dir * s1)));
+        }
+    }
+    return res;
+}
+
+std::vector<CrossBreakPatch> crossBreakPatches(const TopoDS_Shape& shape, const Model& model)
+{
+    std::vector<CrossBreakPatch> res;
+    TopTools_IndexedMapOfShape faces;
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
+        const int index = static_cast<int>(i);
+        const TopoDS_Face from = crossBreakFace(shape, model, index);
+        PlaneBounds bounds;
+        if (from.IsNull() || !planeBounds(from, bounds)) {
+            continue;
+        }
+        if (faces.IsEmpty()) {
+            TopExp::MapShapes(shape, TopAbs_FACE, faces);
+        }
+        const Element& wall = model.elements[i];
+        const gp_Dir rise = wall.crossBreak > 0 ? wall.frame.Direction()
+                                                : wall.frame.Direction().Reversed();
+        const gp_Trsf back = bounds.toFrame.Inverted();
+        const gp_Pnt middle = gp_Pnt((bounds.x0 + bounds.x1) / 2, (bounds.y0 + bounds.y1) / 2, 0)
+                                  .Transformed(back);
+        const gp_Dir along = gp_Dir(1, 0, 0).Transformed(back);
+        for (int k = 1; k <= faces.Extent(); ++k) {
+            const TopoDS_Face& face = TopoDS::Face(faces(k));
+            BRepAdaptor_Surface surface(face);
+            if (surface.GetType() != GeomAbs_Plane || model.owner(face) != index) {
+                continue;
+            }
+            const gp_Pln plane = surface.Plane();
+            gp_Dir normal = plane.Axis().Direction();
+            if (face.Orientation() == TopAbs_REVERSED) {
+                normal.Reverse();
+            }
+            const double dot = normal.Dot(rise);
+            if (std::abs(dot) < 1 - 1e-7) {
+                continue;
+            }
+            CrossBreakPatch patch;
+            patch.face = k - 1;
+            patch.wall = index;
+            // the middle carried onto this face's plane
+            const gp_Vec off(plane.Location(), middle);
+            patch.center = middle.Translated(-gp_Vec(rise) * off.Dot(gp_Vec(rise)));
+            patch.direction = along;
+            patch.normal = rise;
+            patch.halfLength = (bounds.x1 - bounds.x0) / 2;
+            patch.halfWidth = (bounds.y1 - bounds.y0) / 2;
+            patch.angle = std::abs(wall.crossBreak);
+            patch.rises = dot > 0;
+            res.push_back(patch);
         }
     }
     return res;

@@ -375,10 +375,10 @@ ViewProviderSheetMetalCrossBreak::~ViewProviderSheetMetalCrossBreak() = default;
 void ViewProviderSheetMetalCrossBreak::attach(App::DocumentObject* obj)
 {
     ViewProvider::attach(obj);
-    // beside the mode switch, under one of their own that follows
-    // Visibility, as the flat's markings are; not picked
+    // beside the mode switch, under one of their own shown while the panel
+    // is open; not picked
     pcLines = new SoSwitch;
-    pcLines->whichChild = Visibility.getValue() ? SO_SWITCH_ALL : SO_SWITCH_NONE;
+    pcLines->whichChild = SO_SWITCH_NONE;
     auto group = new SoSeparator;
     auto pick = new SoPickStyle;
     pick->style = SoPickStyle::UNPICKABLE;
@@ -412,12 +412,21 @@ void ViewProviderSheetMetalCrossBreak::beforeDelete()
     ViewProvider::beforeDelete();
 }
 
-void ViewProviderSheetMetalCrossBreak::onChanged(const App::Property* prop)
+bool ViewProviderSheetMetalCrossBreak::setEdit(int ModNum)
 {
-    if (prop == &Visibility && pcLines) {
-        pcLines->whichChild = Visibility.getValue() ? SO_SWITCH_ALL : SO_SWITCH_NONE;
+    const bool res = ViewProvider::setEdit(ModNum);
+    if (res && ModNum == ViewProvider::Default && pcLines) {
+        pcLines->whichChild = SO_SWITCH_ALL;
     }
-    ViewProvider::onChanged(prop);
+    return res;
+}
+
+void ViewProviderSheetMetalCrossBreak::unsetEdit(int ModNum)
+{
+    if (pcLines) {
+        pcLines->whichChild = SO_SWITCH_NONE;
+    }
+    ViewProvider::unsetEdit(ModNum);
 }
 
 void ViewProviderSheetMetalCrossBreak::updateData(const App::Property* prop)

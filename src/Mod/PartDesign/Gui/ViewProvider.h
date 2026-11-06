@@ -137,6 +137,24 @@ public:
     /// question asked before the faces are
     static bool hasCosmeticThreads(const PartDesign::Feature *last);
 
+    /** The cross breaks of the sheet \a obj is, a feature or a body, as
+     *  finishes of the faces of its shape they bow
+     *  (PartDesign::crossBreakPatches()), in its own frame
+     *
+     * One palette entry a wall, both its skins sharing it: the rectangle
+     * is laid along the plane's normal turned toward (1, 2, 3), as
+     * fc_finish.sh turns it, and the pattern says which way along that
+     * the wall rises.
+     */
+    static void crossBreakFinishes(const App::DocumentObject *obj,
+                                   std::vector<ImpliedFinish> &finishes);
+    /// Whether a thread or a cross break reaches \a last: the cheap
+    /// question asked before the faces are
+    static bool hasImpliedFinishes(const PartDesign::Feature *last);
+    /// Re-derive the implied finishes, where there are some to state or
+    /// some to take away
+    void refreshImpliedFinishes();
+
 protected:
     void setupContextMenu(QMenu* menu, QObject* receiver, const char* member) override;
     bool setEdit(int ModNum) override;
@@ -163,8 +181,9 @@ protected:
     std::unique_ptr<PartGui::ViewProviderPart> pSuppressedView;
 
     bool autoCorrectingLink = false;
-    /// Whether the render material last stated a thread, so a shape
-    /// that lost its last one still gets the palette cleared
+    /// Whether the render material last stated a thread or a cross
+    /// break, so a shape that lost its last one still gets the palette
+    /// cleared
     bool impliedThreads = false;
 };
 

@@ -72,7 +72,7 @@ public:
     SheetMetalRule* getRule() const;
 
     /// The sheet metal feature the given feature builds on: the first down
-    /// its BaseFeature chain, null if none
+    /// its BaseFeature chain not suppressed, null if none
     static SheetMetalExtension* findBefore(const App::DocumentObject* feature);
 
     /** The model of the sheet this feature builds on, in this feature's frame

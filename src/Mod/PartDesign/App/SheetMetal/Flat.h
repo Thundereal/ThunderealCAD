@@ -32,6 +32,8 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 
 #include <Mod/PartDesign/PartDesignGlobal.h>
@@ -141,6 +143,35 @@ PartDesignExport TopoDS_Face crossBreakFace(const TopoDS_Shape& shape, const Mod
  * from its first meeting to its last; none for a face with no straight edge
  */
 PartDesignExport std::vector<TopoDS_Edge> diagonals(const TopoDS_Face& face);
+
+/// A face a wall's cross break bows (crossBreakPatches())
+struct PartDesignExport CrossBreakPatch
+{
+    /// The face, 0 based, as TopExp::MapShapes() numbers them
+    int face = -1;
+    /// The wall's, by its index in the model
+    int wall = -1;
+    /// The middle of the rectangle the break is over, on the face's plane
+    gp_Pnt center;
+    /// Its long side's way (the longest straight edge's), and the way the
+    /// break rises, both in the plane's frame
+    gp_Dir direction;
+    gp_Dir normal;
+    /// Its half length along direction, half width across it
+    double halfLength = 0;
+    double halfWidth = 0;
+    /// The break's angle, rad, above 0
+    double angle = 0;
+    /// Whether it rises out of this face, not into it
+    bool rises = false;
+};
+
+/** The faces of \a shape each wall's cross break bows: of the wall's plane
+ * faces, those on either skin, over the rectangle its diagonals run corner
+ * to corner of (diagonals() of crossBreakFace()); none for a wall with none
+ */
+PartDesignExport std::vector<CrossBreakPatch> crossBreakPatches(const TopoDS_Shape& shape,
+                                                                const Model& model);
 
 /// A notch's shape at a bend's line (SheetMetalFlatPattern::Notch)
 enum class NotchKind

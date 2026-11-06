@@ -46,6 +46,7 @@
 #include <Mod/Part/App/PartFeature.h>
 
 #include "Body.h"
+#include "Feature.h"
 #include "FeatureSheetMetalFlatPattern.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Dxf.h"
@@ -149,17 +150,11 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
         THROWM(Base::ValueError, "There is no part to lay flat");
     }
     // the model of the sheet the part is, in the part's placement
-    auto sheet = part->getExtensionByType<SheetMetalExtension>(true);
-    if (!sheet) {
-        sheet = SheetMetalExtension::findBefore(part);
-    }
+    auto sheet = sheetOf(part);
     if (!sheet || sheet->SheetModel.getValue().elements.empty()) {
         THROWM(Base::ValueError, "The part is no sheet metal");
     }
-    SheetMetal::Model model = sheet->SheetModel.getValue();
-    if (auto feature = dynamic_cast<Part::Feature*>(sheet->getExtendedObject())) {
-        model.transform(TopoShape::convert(feature->Placement.getValue().toMatrix()));
-    }
+    SheetMetal::Model model = sheetModelOf(part);
     const TopoShape folded = Part::Feature::getTopoShape(part);
     if (folded.isNull()) {
         THROWM(Base::ValueError, "The part has no shape");
@@ -226,17 +221,72 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     return res;
 }
 
+SheetMetalExtension* sheetOf(const App::DocumentObject* part)
+{
+    if (!part) {
+        return nullptr;
+    }
+    // a suppressed feature's shape is its base's, its model not
+    auto feature = dynamic_cast<const PartDesign::Feature*>(part);
+    auto sheet = feature && feature->Suppress.getValue()
+        ? nullptr
+        : part->getExtensionByType<SheetMetalExtension>(true);
+    return sheet ? sheet : SheetMetalExtension::findBefore(part);
+}
+
+namespace
+{
+
+/// A body's tip, and the body's placement, which its shape has the tip's
+/// shape in
+const App::DocumentObject* tipOf(const App::DocumentObject* part, Base::Placement& placement)
+{
+    auto body = dynamic_cast<const Part::BodyBase*>(part);
+    if (!body) {
+        return part;
+    }
+    placement = body->Placement.getValue();
+    return body->Tip.getValue();
+}
+
+}  // namespace
+
+SheetMetal::Model sheetModelOf(const App::DocumentObject* part)
+{
+    Base::Placement outer;
+    auto sheet = sheetOf(tipOf(part, outer));
+    if (!sheet) {
+        return {};
+    }
+    SheetMetal::Model model = sheet->SheetModel.getValue();
+    Base::Placement placement;
+    if (auto feature = dynamic_cast<const Part::Feature*>(sheet->getExtendedObject())) {
+        placement = feature->Placement.getValue();
+    }
+    model.transform(TopoShape::convert((outer * placement).toMatrix()));
+    return model;
+}
+
+bool hasCrossBreaks(const App::DocumentObject* part)
+{
+    Base::Placement outer;
+    auto sheet = sheetOf(tipOf(part, outer));
+    if (!sheet) {
+        return false;
+    }
+    const auto& elements = sheet->SheetModel.getValue().elements;
+    return std::any_of(elements.begin(), elements.end(), [](const SheetMetal::Element& e) {
+        return e.kind == SheetMetal::Element::Kind::Wall && e.crossBreak != 0;
+    });
+}
+
 std::vector<TopoDS_Edge> crossBreakLines(const App::DocumentObject* part)
 {
     std::vector<TopoDS_Edge> res;
-    auto sheet = part ? part->getExtensionByType<SheetMetalExtension>(true) : nullptr;
-    if (!sheet) {
+    if (!hasCrossBreaks(part)) {
         return res;
     }
-    SheetMetal::Model model = sheet->SheetModel.getValue();
-    if (auto feature = dynamic_cast<const Part::Feature*>(part)) {
-        model.transform(TopoShape::convert(feature->Placement.getValue().toMatrix()));
-    }
+    const SheetMetal::Model model = sheetModelOf(part);
     const TopoShape shape = Part::Feature::getTopoShape(part);
     if (shape.isNull()) {
         return res;
@@ -249,6 +299,18 @@ std::vector<TopoDS_Edge> crossBreakLines(const App::DocumentObject* part)
         }
     }
     return res;
+}
+
+std::vector<SheetMetal::CrossBreakPatch> crossBreakPatches(const App::DocumentObject* part)
+{
+    if (!hasCrossBreaks(part)) {
+        return {};
+    }
+    const TopoShape shape = Part::Feature::getTopoShape(part);
+    if (shape.isNull()) {
+        return {};
+    }
+    return SheetMetal::crossBreakPatches(shape.getShape(), sheetModelOf(part));
 }
 
 void exportFlat(const App::DocumentObject* obj, const char* path)

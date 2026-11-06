@@ -124,9 +124,12 @@ public:
 
     std::map<std::string,App::Color> getElementColors(const char *element) const;
 
-    /// The Tip's cosmetic threads, for when the body draws the Tip's
-    /// shape itself (ViewProvider::cosmeticThreadFinishes)
+    /// The Tip's cosmetic threads and cross breaks, for when the body
+    /// draws the Tip's shape itself (ViewProvider::cosmeticThreadFinishes,
+    /// ViewProvider::crossBreakFinishes)
     void getImpliedFinishes(std::vector<ImpliedFinish> &finishes) const override;
+    /// Re-derive them, where there are some to state or some to take away
+    void refreshImpliedFinishes();
 
 protected:
     /// Copy over all visual properties to the child features
@@ -149,7 +152,7 @@ private:
     static const char* BodyModeEnum[];
     bool checkingSiblings = false;
     bool followingChange = false;
-    /// Whether the render material last stated a thread
+    /// Whether the render material last stated a thread or a cross break
     bool impliedThreads = false;
 };
 

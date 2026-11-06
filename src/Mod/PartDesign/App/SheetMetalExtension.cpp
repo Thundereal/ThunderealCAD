@@ -92,10 +92,12 @@ SheetMetalExtension* SheetMetalExtension::findBefore(const App::DocumentObject* 
 {
     auto pd = dynamic_cast<const PartDesign::Feature*>(feature);
     for (auto obj = pd ? pd->BaseFeature.getValue() : nullptr; obj;) {
-        if (auto ext = obj->getExtensionByType<SheetMetalExtension>(true)) {
+        auto base = dynamic_cast<PartDesign::Feature*>(obj);
+        // a suppressed one's shape is its base's, its model not
+        auto ext = obj->getExtensionByType<SheetMetalExtension>(true);
+        if (ext && !(base && base->Suppress.getValue())) {
             return ext;
         }
-        auto base = dynamic_cast<PartDesign::Feature*>(obj);
         obj = base ? base->BaseFeature.getValue() : nullptr;
     }
     return nullptr;

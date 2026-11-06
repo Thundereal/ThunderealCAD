@@ -41,6 +41,7 @@ class DocumentObject;
 namespace PartDesign
 {
 
+class SheetMetalExtension;
 class SolidBody;
 
 /// How a sheet lies flat: its solid's settings (docs/SheetMetal.md sec 12,
@@ -107,11 +108,32 @@ flatShape(const Part::TopoShape& solid, const SheetMetal::FlatResult& flat, bool
 /// \a flat's length, width and area, from its solid and thickness
 PartDesignExport void measureFlat(SheetFlat& flat);
 
-/** The cross breaks of \a part, a sheet metal feature, in 3D: the diagonals
- * of the face each rises from (SheetMetal::crossBreakFace()), as its shape
- * lies, two a wall
+/** The sheet metal feature whose model \a part has: \a part, or the last
+ * before it (SheetMetalExtension::findBefore()), one suppressed skipped;
+ * null if none
+ */
+PartDesignExport SheetMetalExtension* sheetOf(const App::DocumentObject* part);
+
+/** The model of the sheet \a part is, as its shape lies
+ * (Part::Feature::getTopoShape()): sheetOf()'s, and a body's its tip's;
+ * empty if none
+ */
+PartDesignExport SheetMetal::Model sheetModelOf(const App::DocumentObject* part);
+
+/// Whether a wall of the sheet \a part is has a cross break: asked before
+/// crossBreakPatches(), and cheaper
+PartDesignExport bool hasCrossBreaks(const App::DocumentObject* part);
+
+/** The cross breaks of \a part, a feature of a sheet or a body, in 3D: the
+ * diagonals of the face each rises from (SheetMetal::crossBreakFace()), as
+ * its shape lies, two a wall
  */
 PartDesignExport std::vector<TopoDS_Edge> crossBreakLines(const App::DocumentObject* part);
+
+/// The faces of \a part's shape its sheet's cross breaks bow, as it lies
+/// (SheetMetal::crossBreakPatches())
+PartDesignExport std::vector<SheetMetal::CrossBreakPatch>
+crossBreakPatches(const App::DocumentObject* part);
 
 /** Write the flat of \a obj, a feature of a sheet's solid or the solid (its
  * tip's), with the sheet's settings (docs/SheetMetal.md sec 12): DXF or SVG

@@ -22,6 +22,8 @@
 
 #include "PreCompiled.h"
 
+#include <numbers>
+
 #include <Base/GeometryPyCXX.h>
 #include <Base/Interpreter.h>
 #include <Base/VectorPy.h>
@@ -62,6 +64,13 @@ public:
             "checkSheet(obj) -> dict -- the bend table of obj, a feature of a sheet's solid\n"
             "or the solid (its tip), and what is wrong with its flat: {'Bends': [...],\n"
             "'Problems': [...]}, each a dict. Asked for, never kept."
+        );
+        add_varargs_method("crossBreakFaces",&Module::crossBreakFaces,
+            "crossBreakFaces(obj) -> list -- the faces of obj's shape its sheet's cross breaks\n"
+            "bow, obj a feature of a sheet or a body: a dict a face, {'Face', 'Wall', 'Center',\n"
+            "'Direction', 'Normal', 'Length', 'Width', 'Angle', 'Rises'} -- the rectangle the\n"
+            "wall's diagonals cross, its long side's way, the way the break rises, its size,\n"
+            "the angle (deg) and whether it rises out of that face, as obj's shape lies."
         );
         add_varargs_method("sheetBends",&Module::sheetBends,
             "sheetBends(obj) -> list -- the bend table alone of obj, as checkSheet() has it\n"
@@ -127,6 +136,47 @@ private:
             entry.setItem("Sheet", sheet ? Py::asObject(sheet->getPyObject()) : Py::None());
             entry.setItem("File", Py::String(item.path));
             entry.setItem("Error", Py::String(item.error));
+            res.append(entry);
+        }
+        return res;
+    }
+
+    Py::Object crossBreakFaces(const Py::Tuple& args)
+    {
+        PyObject *pyObj;
+        if (!PyArg_ParseTuple(args.ptr(), "O!", &(App::DocumentObjectPy::Type), &pyObj))
+            throw Py::Exception();
+        auto obj = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
+        std::vector<PartDesign::SheetMetal::CrossBreakPatch> patches;
+        SheetMetal::Model model;
+        PY_TRY {
+            try {
+                patches = PartDesign::crossBreakPatches(obj);
+                if (!patches.empty())
+                    model = PartDesign::sheetModelOf(obj);
+            }
+            catch (const Standard_Failure &e) {
+                THROWM(Base::CADKernelError, e.GetMessageString());
+            }
+        } _PY_CATCH(throw Py::Exception())
+        auto vector = [](double x, double y, double z) {
+            return Py::Vector(Base::Vector3d(x, y, z));
+        };
+        Py::List res;
+        for (const auto &patch : patches) {
+            Py::Dict entry;
+            entry.setItem("Face", Py::String("Face" + std::to_string(patch.face + 1)));
+            entry.setItem("Wall", Py::String(model.elements[patch.wall].name));
+            entry.setItem("Center", vector(patch.center.X(), patch.center.Y(),
+                                           patch.center.Z()));
+            entry.setItem("Direction", vector(patch.direction.X(), patch.direction.Y(),
+                                              patch.direction.Z()));
+            entry.setItem("Normal", vector(patch.normal.X(), patch.normal.Y(),
+                                           patch.normal.Z()));
+            entry.setItem("Length", Py::Float(2 * patch.halfLength));
+            entry.setItem("Width", Py::Float(2 * patch.halfWidth));
+            entry.setItem("Angle", Py::Float(patch.angle * 180 / std::numbers::pi));
+            entry.setItem("Rises", Py::Boolean(patch.rises));
             res.append(entry);
         }
         return res;

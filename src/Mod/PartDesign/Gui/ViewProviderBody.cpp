@@ -606,15 +606,23 @@ void ViewProviderBody::updateData(const App::Property* prop)
             unifyVisualProperty(&PointColor);
     }
 
-    // As a feature does (ViewProvider::updateData): the Tip's threads,
-    // re-derived only where there are some to state or to take away
+    // As a feature does (ViewProvider::updateData): the Tip's threads and
+    // cross breaks
     if (prop == &body->Shape) {
-        auto tip = Base::freecad_dynamic_cast<PartDesign::Feature>(body->Tip.getValue());
-        const bool threads = PartDesignGui::ViewProvider::hasCosmeticThreads(tip);
-        if (threads || impliedThreads) {
-            impliedThreads = threads;
-            updateRenderMaterial();
-        }
+        refreshImpliedFinishes();
+    }
+}
+
+void ViewProviderBody::refreshImpliedFinishes()
+{
+    // re-derived only where there are some to state or to take away
+    auto body = Base::freecad_dynamic_cast<PartDesign::Body>(getObject());
+    auto tip = body ? Base::freecad_dynamic_cast<PartDesign::Feature>(body->Tip.getValue())
+                    : nullptr;
+    const bool implied = PartDesignGui::ViewProvider::hasImpliedFinishes(tip);
+    if (implied || impliedThreads) {
+        impliedThreads = implied;
+        updateRenderMaterial();
     }
 }
 
@@ -636,6 +644,7 @@ void ViewProviderBody::getImpliedFinishes(std::vector<ImpliedFinish> &finishes) 
     // The body's shape is the Tip's with the Tip's own placement baked
     // in (Body::execute), i.e. in the body's coordinates already
     PartDesignGui::ViewProvider::cosmeticThreadFinishes(tip, Base::Placement(), shape, finishes);
+    PartDesignGui::ViewProvider::crossBreakFinishes(body, finishes);
 }
 
 void ViewProviderBody::checkColorUpdate()

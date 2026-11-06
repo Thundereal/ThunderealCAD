@@ -3641,7 +3641,8 @@ Phase D1 is under way (2026-10-28):
     is wrong (its corners take negative consistent mass): ours is a
     subclass with the consistent mass, D4a's `_tet10Mass()`.
   - The element: a Physics item, `FlexibleBody` -- `Component`, `Modes` (12
-    by default), `Damping` (a ratio for every mode, 2%), `MeshSize`, and the
+    by default), `Damping` (2% at the part's first mode, in proportion to
+    its stiffness: step 2), `MeshSize`, and the
     mesh: its nodes (the component's coordinates) and 10-node tetrahedra, a
     Netgen mesh made for it as D4a's are, and each interface's nodes. An
     interface is each frame on the component that something holds -- a
@@ -3728,6 +3729,47 @@ Phase D1 is under way (2026-10-28):
     200 x 10 x 10 mm, 20 x 2 x 2 cells of six tetrahedra, held at one end
     by an interface on its end face's 25 nodes: 209.6 and 209.7 Hz against
     the clamped beam's 208.9, 1299.2 and 1300.1 against 1309 (shear).
+- Built, D4b step 2: a flexible body in a dynamic run.
+  - **The run builds it** (`buildFlexibles()`, at load, before the joints):
+    every frame on the body an interface, its boundary body at the frame
+    -- the frame's interface nodes, or the nearest node -- so the joints,
+    springs, bushings, loads and motors on the part go on those bodies
+    (`bodyOf()`, `localOf()`: the frame at its body's origin). The part's
+    own ChBody stays out of the system, a proxy carrying the floating
+    frame's pose, velocities and accelerations for what reads a body's
+    (`syncFlexible()`): its pose reported, its "Acceleration",
+    "AngularVelocity" and "AngularAcceleration". Its mass is the mesh's.
+    Its "ModalCoordinates", a channel of the modes kept. A kinematic or a
+    static run takes it rigid.
+  - The floating frame's acceleration, which Chrono does not keep: the map
+    its velocity is taken from (P_F Q_0), applied to the boundary's and the
+    modes' accelerations (`GetFloatingFrameAccelerations()`, our Chrono).
+  - **The damping in proportion to the stiffness**, R = (2 z / w) K: the
+    ratio at the frequency given, `dampingFrequency` (0: the part's first
+    mode, its interfaces held), more above it. Each of the reduced system's
+    modes damped at a ratio -- step 1's -- is the free part's, its rigid
+    motions undamped: 0.5 left the cantilever clamped by its joint ringing
+    at 0.023 of critical, its mode mostly a rigid turn about the clamp. The
+    stiffness damps deformation alone, whatever holds the part.
+  - Newton's test a thousandth of the run's tolerance in position, as
+    contact's (`tolerate()`): the modal assembly's Jacobian is approximate,
+    its inertial terms linear, and at the default 1e-10 every step of a
+    flexible pendulum ran its 20 iterations. And the mesh's nodes not moved
+    with the modes as the run goes (SetInternalNodesUpdate(false)): each
+    iteration moved them all. 15.9 s to 3.9 for the pendulum's 2000 steps.
+  - Refused for now: a contact on a flexible part (step 5), a part's own
+    initial velocity (it would start one interface), a flexible part fixed
+    to the ground.
+  - Tests (C++): FlexibleBody.cantileverBendsAndRingsInARun -- the bar fixed
+    to the ground by a Fixed joint at one end, a gram fixed to the other:
+    damped hard it settles 8.87 um down, the beam's 8.95; at 2% it rings at
+    206.60 Hz against the cantilever's with its tip mass, 206.27, decaying
+    at 0.0200; its modal coordinates reported. pendulumSwingsAsTheRigidBar
+    -- hinged at one end, let go level: its centre within 2.4 um of the
+    rigid bar's through the swing, 93 mm down by 0.2 s.
+  - Not yet: the run's cost, 2 ms a step for the bar, most of it the modal
+    assembly's own update at each iteration; stops' bounces leave a
+    flexible part's interfaces as they were.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

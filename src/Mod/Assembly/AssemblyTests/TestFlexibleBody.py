@@ -102,11 +102,10 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertTrue(FlexibleBodies.prepare(flexible))
         self.assertNotEqual(len(flexible.Nodes), len(nodes))
 
-    def test_cantilever_deformation(self):
-        """The rod fixed to the grounded block -- not taken onto the ground,
-        flexible -- sags under gravity, damped hard: its end, made of its
-        mode shapes and the run's coordinates, where the beam's is,
-        q L^4 / 8 E I; at its hold, nothing"""
+    def cantilever(self, modes):
+        """The rod fixed by its end to the grounded block -- not taken onto
+        the ground, flexible -- run 20 ms under gravity, damped hard: the
+        rod, its flexible body and the run's results"""
         base = self.box("Base", (10, 10, 10), (0, 0, 0))
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
         JointObject.GroundedJoint(ground, base)
@@ -124,14 +123,20 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertEqual(self.assembly.solve(), 0)
         sim = self.study(0.02, 1e-4)
         flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
-        flexible.Modes = 6
+        flexible.Modes = modes
         flexible.Damping = 0.5
         FlexibleBodies.prepare(flexible)
         self.doc.recompute()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        return rod, flexible, self.assembly.getSimulationResults()
+
+    def test_cantilever_deformation(self):
+        """The cantilever sags: its end, made of its mode shapes and the
+        run's coordinates, where the beam's is, q L^4 / 8 E I; at its hold,
+        nothing"""
+        rod, flexible, results = self.cantilever(6)
         self.assertEqual(flexible.ModeShapeColumns, 12)
         self.assertEqual(len(flexible.ModeShapes), 3 * len(flexible.Nodes) * 12)
-        results = self.assembly.getSimulationResults()
         shape = FlexibleBodies.Deformation(flexible, results)
         self.assertTrue(shape.valid)
         # In the rod's coordinates, which move with its floating frame: in
@@ -158,6 +163,109 @@ class TestFlexibleBody(unittest.TestCase):
         sag = q * length**4 / (8 * e * side**4 / 12) * 1e3  # mm
         self.assertAlmostEqual(at(100).z, -sag, delta=0.03 * sag)
         self.assertLess(abs(at(0).z), 0.01 * sag)
+
+    def test_cantilever_stress(self):
+        """The cantilever's stress, each mode's weighed by the run's
+        coordinates: settled, along its top the beam's, M c / I with M = q
+        (L - x)^2 / 2, in tension, below it the same in compression; the
+        largest the root's; the Results box's channel of it, the largest at
+        each frame"""
+        import numpy as np
+
+        import CommandCreateSimulation
+
+        rod, flexible, results = self.cantilever(12)
+        shape = FlexibleBodies.Deformation(flexible, results)
+        self.assertTrue(shape.valid)
+        youngs, poisson = shape.elasticity
+        self.assertAlmostEqual(youngs, 70e3, delta=1.0)  # MPa
+        time = results["Times"][-1]
+        stress = shape.stressAt(time)
+        self.assertEqual(stress.shape, (len(shape.rest), 6))
+        # N, mm and MPa: aluminium's 2700 kg/m^3
+        q = 2700e-9 * 100 * G * 1e-3
+        inertia = 10.0**4 / 12
+
+        def beam(x, z):
+            return q * (100 - x) ** 2 / 2 * (z - 5) / inertia
+
+        for x in (30.0, 50.0, 70.0):
+            for z in (10.0, 0.0):
+                near = int(np.argmin(np.linalg.norm(shape.rest - (x, 5.0, z), axis=1)))
+                p = shape.rest[near]
+                want = beam(p[0], p[2])
+                # 1.3% at most here; near the free end, where it is a
+                # hundredth of the root's, the modes left out take a fifth
+                self.assertAlmostEqual(stress[near][0], want, delta=0.02 * abs(want), msg=(x, z))
+        # The largest at the root, as large as the beam's there or more: the
+        # hold's corners
+        root = q * 100**2 / 2 * 5 / inertia
+        vonMises = shape.vonMisesAt(time)
+        worst = shape.rest[int(np.argmax(vonMises))]
+        self.assertLess(worst[0], 10.0)
+        largest = shape.largestStresses()
+        self.assertEqual(len(largest), len(results["Times"]))
+        self.assertAlmostEqual(largest[-1], float(np.max(vonMises)), delta=1e-9 * root)
+        # 1.06 times
+        self.assertGreater(largest[-1], root)
+        self.assertLess(largest[-1], 1.2 * root)
+        self.assertEqual(shape.peakStress(), max(largest))
+        # The Results box's
+        channels = [
+            c
+            for c in CommandCreateSimulation.resultChannels(self.assembly)["Channels"]
+            if c["Quantity"] == "FlexibleVonMises"
+        ]
+        self.assertEqual(len(channels), 1)
+        self.assertEqual(channels[0]["Object"].FullName, flexible.FullName)
+        self.assertEqual(channels[0]["Values"], largest)
+        self.assertNotIn(
+            "ModalCoordinates",
+            [c["Quantity"] for c in CommandCreateSimulation.resultChannels(self.assembly)["Channels"]],
+        )
+
+    def test_pendulum_stress(self):
+        """The hinged rod let go level, its ringing at release died away:
+        along its top the stress of a bar pinned at one end and turning
+        about it under gravity, M = rho A g x (L - x)^2 / 4 L -- the load
+        gravity's less the turn's, g (1 - 3 x / 2 L), upward past 2 L / 3:
+        what is beyond a section lifts it, so the rod bends concave up -- in
+        compression, below it in tension, the largest at L / 3. Its bending
+        alone, half the difference of top and bottom: the swing's pull along
+        the rod adds the same to both. 24 modes: at 12, L / 3 is 4% over"""
+        import numpy as np
+
+        rod, hinge = self.pendulum()
+        sim = self.study(0.03, 1e-4)
+        flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        flexible.Modes = 24
+        FlexibleBodies.prepare(flexible)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        shape = FlexibleBodies.Deformation(flexible, results)
+        self.assertTrue(shape.valid)
+        time = 0.02
+        stress = shape.stressAt(time)
+        # Turned so far: cos of it, the load's share across the rod
+        turned = math.cos(0.5 * 3 * G / (2 * 100) * time**2)
+        q = 2700e-9 * 100 * G * 1e-3 * turned
+        inertia = 10.0**4 / 12
+        def want(p):
+            return -q * p[0] * (100 - p[0]) ** 2 / 400 * (p[2] - 5) / inertia
+
+        for x in (20.0, 100.0 / 3, 50.0, 70.0):
+            top, below = (
+                int(np.argmin(np.linalg.norm(shape.rest - (x, 5.0, z), axis=1))) for z in (10.0, 0.0)
+            )
+            self.assertLess(stress[top][0], 0.0)
+            self.assertGreater(stress[below][0], 0.0)
+            # The difference, which the pull along the rod is not in; 1.7%
+            # at most
+            ratio = (stress[top][0] - stress[below][0]) / (
+                want(shape.rest[top]) - want(shape.rest[below])
+            )
+            self.assertAlmostEqual(ratio, 1.0, delta=0.03, msg=x)
 
     def test_welded_block(self):
         """A block welded to the flexible rod's free end is held at an

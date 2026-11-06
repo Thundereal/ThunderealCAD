@@ -123,6 +123,9 @@ ResultQuantities = {
         1.0,
         "MPa",
     ),
+    # A flexible body's, recovered from its modes (FlexibleBodies): the largest
+    # on its surface at each frame
+    "FlexibleVonMises": (QT_TRANSLATE_NOOP("Assembly", "Largest von Mises stress"), 1.0, "MPa"),
     # A contact set's on each of its parts, the loads a stress analysis takes:
     # the force at the centre of its points there, that centre, and the
     # torque about it
@@ -153,11 +156,13 @@ def resultName(channel):
 
 
 def resultChannels(assembly):
-    """The last run's results with their channels, the run's own and the
-    stress series taken from it (MotionLoads.stressChannels): a value per
+    """The last run's results with their channels, the run's own, the
+    stress series taken from it (MotionLoads.stressChannels) and its
+    flexible bodies' stresses (FlexibleBodies.stressChannels): a value per
     frame, None at a frame a series did not solve. A channel of more than a
     vector's numbers a frame (a contact set's places on a part, for its
-    loads) is not one to plot, and left out."""
+    loads; a flexible body's coordinates) is not one to plot, and left out."""
+    import FlexibleBodies
     import MotionLoads
 
     results = assembly.getSimulationResults()
@@ -167,7 +172,11 @@ def resultChannels(assembly):
             for c in results["Channels"]
             if not (c["Values"] and isinstance(c["Values"][0], tuple))
         ]
-        results["Channels"] = shown + MotionLoads.stressChannels(assembly, results)
+        results["Channels"] = (
+            shown
+            + FlexibleBodies.stressChannels(assembly, results)
+            + MotionLoads.stressChannels(assembly, results)
+        )
     return results
 
 
@@ -2307,9 +2316,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # frames when played slower than them
         self.playback = None
         self.shownTime = None
-        # Not upstream: the flexible bodies drawn bent as the run plays
-        # (docs/AssemblyDynamics.md D4b)
-        self.deformations = []
+        # Not upstream: the flexible bodies drawn bent as the run plays, by
+        # their stress (docs/AssemblyDynamics.md D4b)
+        import FlexibleBodies
+
+        self.deformations = FlexibleBodies.Deformations()
         self.addSpeedWidgets()
 
         self.simFeaturePy.Proxy.setMotionsChangedCallback(self.onMotionsChanged)
@@ -3468,13 +3479,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         )
         if self.results:
             self.showResultValue()
-        for deformation in self.deformations:
-            deformation.show(time)
+        self.deformations.show(time)
 
     def removeDeformations(self):
-        for deformation in self.deformations:
-            deformation.remove()
-        self.deformations = []
+        self.deformations.remove()
 
     def onFrameChanged(self, val):
         self.assembly.updateForFrame(val)
@@ -3871,6 +3879,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
             painter.setRenderHint(QtGui.QPainter.TextAntialiasing)
             painter.drawImage(0, 0, view)
+            if layout.get("legend") is not None:
+                import FlexibleBodies
+
+                at = FlexibleBodies.Legend.place(layout["view"].width(), layout["view"].height())
+                FlexibleBodies.Legend.paint(painter, at, *layout["legend"])
             if layout["box"] is not None:
                 # At the first frame's scale, should it be taller now
                 box = self.videoBoxImage()
@@ -3903,10 +3916,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def videoLayout(self, width, height):
         """Not upstream: a saved video's frames, the view width x height: the
         Results box beside it, as tall as the view at most, if it is to be
-        and shows; the time over it, if it is to be. None for the view alone"""
+        and shows; the time over it, if it is to be; the flexible bodies'
+        stress legend over its right side, as the view has it. None for the
+        view alone"""
         withBox = self.videoBoxAction.isChecked() and self.resultsBox.isVisible()
         withTime = self.videoTimeAction.isChecked()
-        if not withBox and not withTime:
+        legend = self.deformations.legendOf()
+        if not withBox and not withTime and legend is None:
             return None
         size = QtCore.QSize(width, height)
         box = None
@@ -3925,6 +3941,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             "scale": scale,
             "time": withTime,
             "text": max(12, height // 32),
+            "legend": legend,
+            "view": QtCore.QSize(width, height),
         }
 
     def videoBoxImage(self):

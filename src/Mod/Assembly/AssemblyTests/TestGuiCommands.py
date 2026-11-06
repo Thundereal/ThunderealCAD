@@ -2312,8 +2312,9 @@ class TestGuiCommands(unittest.TestCase):
     def test_flexible_body_playback(self):
         """A run with a flexible body draws it bent as it plays: its mesh's
         surface in the scene, its component hidden, drawn at each frame the
-        player shows; the panel closed, the drawing goes and the component
-        shows again"""
+        player shows, coloured by its stress, the scale's legend beside it
+        and its largest stress in the Results box; the panel closed, the
+        drawing and the legend go and the component shows again"""
         import CommandCreateSimulation
         import FlexibleBodies
 
@@ -2373,9 +2374,50 @@ class TestGuiCommands(unittest.TestCase):
         last = [tuple(p) for p in shape.coords.point.getValues()]
         self.assertEqual(len(first), len(last))
         self.assertNotEqual(first, last)
+        # Coloured by its stress, a colour a node, red at the largest over
+        # the run; the legend's scale over the view's right side, and in a
+        # saved video's frames at the same place
+        colors = [tuple(c) for c in shape.material.diffuseColor.getValues()]
+        self.assertEqual(len(colors), len(last))
+        self.assertGreater(len(set(colors)), 10)
+        peak = panel.deformations.peakStress()
+        self.assertGreater(peak, 0.0)
+        legend = panel.deformations.legend.widget
+        viewer = Gui.ActiveDocument.ActiveView.graphicsView()
+        self.assertTrue(legend.isVisibleTo(viewer))
+        self.assertEqual(legend.parentWidget(), viewer)
+        place = FlexibleBodies.Legend.place(viewer.width(), viewer.height())
+        self.assertEqual(legend.geometry().getRect(), place)
+        self.assertEqual(panel.deformations.legendOf(), (peak, shape.scale))
+        words = FlexibleBodies.Legend.lines(peak, shape.scale)
+        self.assertEqual(words[2], "%.4g" % peak)
+        self.assertIn("x%.4g" % shape.scale, words[1])
+        width, height = Gui.ActiveDocument.ActiveView.getSize()
+        layout = panel.videoLayout(width, height)
+        self.assertEqual(layout["legend"], (peak, shape.scale))
+        # Painted: the bar's top red, its bottom blue
+        image = QtGui.QImage(width, height, QtGui.QImage.Format_RGB32)
+        image.fill(QtGui.QColor(255, 255, 255))
+        painter = QtGui.QPainter(image)
+        at = FlexibleBodies.Legend.place(width, height)
+        FlexibleBodies.Legend.paint(painter, at, peak, shape.scale)
+        painter.end()
+        top = image.pixelColor(at[0] + 21, at[1] + 54)
+        bottom = image.pixelColor(at[0] + 21, at[1] + at[3] - 16)
+        self.assertGreater(top.red(), 200)
+        self.assertLess(top.blue(), 60)
+        self.assertGreater(bottom.blue(), 200)
+        self.assertLess(bottom.red(), 60)
+        # The Results box: its largest at each frame
+        at = panel.resultIndex((flexible.Name, "FlexibleVonMises"))
+        self.assertGreaterEqual(at, 0)
+        self.assertIn("Largest von Mises stress", panel.resultCombo.itemText(at))
         self.accept_task()
         _process()
         self.assertEqual(scene.findChild(drawn), -1)
+        self.assertIsNone(panel.deformations.legend.widget)
+        _process()
+        self.assertEqual(viewer.findChildren(QtWidgets.QWidget, "FlexibleStressLegend"), [])
         self.assertTrue(rod.ViewObject.Visibility)
 
     def test_joint_friction(self):

@@ -1653,11 +1653,20 @@ stored flat and this option do what it was for.
   one step to undo; Cancel takes it away. `TestSheetMetalStarter` (8; before, all errored),
   `sheet-metal-panels.py` (+8; before, it aborted at the unknown command),
   `sheet-metal-commands.py` (+2).
-- **Found with it, not fixed:** a flange bent in at an inside corner and mitered there (a box's
-  lip as one flange on the four inner edges, or one lip on a tub's leg) does not lie flat: the
-  miter's slant through the lip's bend is not a cut normal to the sheet, and its mapped ends do
-  not meet the skins' (eight free edges in the sewn flat). Bent out (a hat's lip) it lies flat.
-  The box's lips stop square to keep clear of it.
+- **Found with it, fixed 2026-11-06:** a flange bent in at an inside corner and mitered there (a
+  box's lip as one flange on the four inner edges, or one lip on a tub's leg) did not lie flat.
+  Not the miter's slant through the bend, as first thought: the edge, on the leg's inner skin,
+  is the short side of the leg's mitered end, and the bend and the cut-back under it were built
+  along the edge only, then stopped at the miter's plane. Over the leg's thickness the bend
+  stopped short of the miter, and the leg's end beyond the edge stood on to the top beside it, a
+  sharp prism fused to the bend's end, which the flat could not part. Now where the wall ends on
+  a plane through an end of the edge, what the flange adds and cuts runs on past that end as far
+  as the wall's other skin does (T (s . n) / (o . n), s the edge's skin's normal, n the plane's,
+  o the edge's way out at that end; 1 for a 45 deg miter), then
+  stops at the plane, so the bend takes the leg's whole end. From the outer edge (a hat's lip)
+  it runs on by nothing, its shape unchanged. `testInwardLipsMitered`,
+  `testInwardLipOnMiteredLeg` (before, both failed; `TestSheetMetalFlange` 52 of 54). The box's
+  lips still stop square, as a press could form them.
 - **Built 2026-11-06, M5's second item, forms (the mechanism, user tools, the dimple):**
   `PartDesign::SheetMetalForm`, one feature a kind (`Tool`, `Dimple`; the rest of the built-in
   set to come), a form at each free point of `Positions`, a sketch on `Face`, a wall's skin of

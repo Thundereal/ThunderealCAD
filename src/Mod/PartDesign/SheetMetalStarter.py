@@ -204,9 +204,8 @@ def makeStarterShape(body, kind, length, width, height, FlangeWidth=5.0, Centere
     lip.BendPosition = "MaterialInside"
     if kind == "Box":
         # A box's lips bend in, toward each other at the corners, where a
-        # miter's slant through the bend would not lie flat and a press
-        # could not form them: each stops square, clear of its neighbour's
-        # by the rule's gap. The gap is off each end, measured from the
+        # press could not form them mitered (they lie flat mitered, gaps
+        # 0): each stops square, clear of its neighbour's by the rule's gap. The gap is off each end, measured from the
         # outside of the leg across it, as the lip's width is.
         clear = flangeWidth + rule.Gap.Value
         gaps = []

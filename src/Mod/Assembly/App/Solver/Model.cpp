@@ -220,7 +220,8 @@ bool same(const Flexible& a, const Flexible& b)
 {
     if (a.source != b.source || a.body != b.body || a.tetrahedra != b.tetrahedra
         || a.youngs != b.youngs || a.poisson != b.poisson || a.density != b.density
-        || a.modes != b.modes || a.damping != b.damping || a.nodes.size() != b.nodes.size()
+        || a.modes != b.modes || a.damping != b.damping
+        || a.dampingFrequency != b.dampingFrequency || a.nodes.size() != b.nodes.size()
         || a.interfaces.size() != b.interfaces.size()) {
         return false;
     }

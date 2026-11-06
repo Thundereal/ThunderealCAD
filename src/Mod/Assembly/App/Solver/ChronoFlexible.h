@@ -68,9 +68,9 @@ Built build(chrono::ChSystem& sys,
             const chrono::ChFramed& pose,
             const std::vector<Interface>& interfaces);
 
-// Reduces it to flexible.modes, Craig-Bampton, each mode damped at
-// flexible.damping of critical; the system set up. The modes' frequencies
-// (Hz), their interfaces held.
+// Reduces it to flexible.modes, Craig-Bampton, damped in proportion to its
+// stiffness (Flexible::damping at dampingFrequency); the system set up. The
+// modes' frequencies (Hz), their interfaces held.
 std::vector<double> reduce(chrono::ChSystem& sys, Built& built, const Flexible& flexible);
 
 }  // namespace Assembly::Solver::ChronoFlexible

@@ -32,13 +32,16 @@
 //   mesh. The integrals of N_a N_b are exact for a straight-sided element,
 //   by 6 a! b! c! d! / (a + b + c + d + 3)! over the barycentric monomials
 //   (MotionLoads._tet10Mass(), D4a).
-// - Each mode damped at one ratio of critical, the reduced system's own
-//   modes -- the boundary's static modes with the dynamic ones, the rigid
-//   motions at no frequency undamped: R = M V diag(2 z w) V^T M, V its
-//   eigenvectors normalised by the mass. Chrono's ChModalDampingFactorRmm
-//   leaves the static modes, what the interfaces do against each other,
-//   undamped; its ChModalDampingFactorAssembly says it is not validated
-//   and takes six modes.
+// - The damping in proportion to the stiffness, R = (2 z / w) K: the ratio
+//   z at the frequency w, more above it. Modal damping is the part's modes'
+//   as some boundary holds them, and the run's holds them otherwise: each of
+//   the reduced system's modes damped at 0.5 -- the free part's, its rigid
+//   motions not -- left a cantilever clamped by its joint ringing at 0.023,
+//   its mode mostly a rigid turn about the clamp. Chrono's
+//   ChModalDampingFactorRmm damps the modes held at every interface and
+//   leaves their static modes undamped, and its
+//   ChModalDampingFactorAssembly says it is not validated. The stiffness
+//   damps deformation alone, whatever holds the part.
 // - The interfaces: a boundary ChBody each, of negligible mass, its nodes
 //   tied to it by ChLinkNodeFrame, internal (an RBE2 spider).
 
@@ -46,6 +49,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 
@@ -148,43 +152,37 @@ public:
     }
 };
 
-// Also keeps the modes' frequencies, which the reduction forgets once done
-class ModalRatio: public ch::modal::ChModalDamping
+// R = (2 z / w) K: the ratio z at the frequency w, Flexible::dampingFrequency
+// or the first of the modes the reduction found. Also keeps those modes'
+// frequencies, which the reduction forgets once done.
+class StiffnessDamping: public ch::modal::ChModalDamping
 {
 public:
-    ModalRatio(double ratio, std::vector<double>& hz)
+    StiffnessDamping(double ratio, double frequency, std::vector<double>& hz)
         : ratio(ratio)
+        , frequency(frequency)
         , hz(hz)
     {}
 
     void ComputeR(ch::modal::ChModalAssembly& assembly,
-                  const ch::ChMatrixDynamic<>& modalM,
+                  const ch::ChMatrixDynamic<>&,
                   const ch::ChMatrixDynamic<>& modalK,
                   const ch::ChMatrixDynamic<>&,
                   ch::ChMatrixDynamic<>& modalR) const override
     {
         const auto& f = assembly.GetUndampedFrequencies();
         hz.assign(f.data(), f.data() + f.size());
-        const Eigen::MatrixXd m = 0.5 * (modalM + modalM.transpose());
-        const Eigen::MatrixXd k = 0.5 * (modalK + modalK.transpose());
-        modalR.setZero(m.rows(), m.cols());
-        if (ratio <= 0.0 || m.rows() == 0) {
+        modalR.setZero(modalK.rows(), modalK.cols());
+        const double at = frequency > 0.0 ? frequency : (hz.empty() ? 0.0 : hz.front());
+        if (ratio <= 0.0 || !(at > 0.0)) {
             return;
         }
-        Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> modes(k, m);
-        if (modes.info() != Eigen::Success) {
-            return;
-        }
-        const Eigen::MatrixXd mv = m * modes.eigenvectors();
-        Eigen::VectorXd d(m.rows());
-        for (Eigen::Index i = 0; i < d.size(); ++i) {
-            d(i) = 2.0 * ratio * std::sqrt(std::max(modes.eigenvalues()(i), 0.0));
-        }
-        modalR = mv * d.asDiagonal() * mv.transpose();
+        modalR = (ratio / (std::numbers::pi * at)) * 0.5 * (modalK + modalK.transpose());
     }
 
 private:
     double ratio;
+    double frequency;  // Hz
     std::vector<double>& hz;
 };
 
@@ -210,7 +208,10 @@ ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
     Built built;
     built.assembly = std::make_shared<ch::modal::ChModalAssembly>();
     built.assembly->SetReductionType(ch::modal::ChModalAssembly::ReductionType::CRAIG_BAMPTON);
-    built.assembly->SetInternalNodesUpdate(true);
+    // The mesh's nodes not moved with the modes as the run goes: each Newton
+    // iteration moved them all, half a flexible pendulum's time. Its
+    // deformation is the run's modal coordinates' (D4b step 4).
+    built.assembly->SetInternalNodesUpdate(false);
     // Its K_II inverse, for the static modes: Eigen's SparseLU, 0.4 s for the
     // test's bar where Chrono's default SparseQR took 2.2
     built.assembly->SetModalSolver(std::make_shared<ch::ChSolverSparseLU>());
@@ -313,7 +314,8 @@ ChronoFlexible::reduce(ch::ChSystem& sys, Built& built, const Flexible& flexible
     ch::modal::ChModalSolverUndamped<ch::modal::ChUnsymGenEigenvalueSolverKrylovSchur> solver(
         std::max(flexible.modes, 1), 1e-5, true, false, eigen);
     std::vector<double> hz;
-    built.assembly->DoModalReduction(solver, ModalRatio(flexible.damping, hz));
+    built.assembly->DoModalReduction(
+        solver, StiffnessDamping(flexible.damping, flexible.dampingFrequency, hz));
     return hz;
 }
 

@@ -613,7 +613,11 @@ struct Flexible
     double poisson = 0.3;
     double density = 0.0;  // kg/mm^3
     int modes = 12;
-    double damping = 0.02;  // of critical, every mode's
+    // Its damping, in proportion to the stiffness: 'damping' of critical at
+    // 'dampingFrequency' (Hz; 0, the first of its modes, its interfaces
+    // held), more above it
+    double damping = 0.02;
+    double dampingFrequency = 0.0;
     struct Interface
     {
         Id frame = NoId;

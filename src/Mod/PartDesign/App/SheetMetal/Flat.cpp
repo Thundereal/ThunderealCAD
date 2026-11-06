@@ -58,6 +58,7 @@
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
+#include <GC_MakeArcOfCircle.hxx>
 #include <Geom2dConvert.hxx>
 #include <Geom2d_BSplineCurve.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
@@ -132,7 +133,12 @@ struct Mapper
             res = TopoDS::Edge(done(key));
         }
         else {
-            res = onCylinder(element, TopoDS::Edge(key), face);
+            if (model.elements[element].kind == Element::Kind::Cone) {
+                res = onCone(element, TopoDS::Edge(key));
+            }
+            else {
+                res = onCylinder(element, TopoDS::Edge(key), face);
+            }
             if (res.IsNull()) {
                 res = sampled(element, TopoDS::Edge(key));
             }
@@ -204,6 +210,38 @@ struct Mapper
             curve = new Geom_BSplineCurve(poles, knots, mults, b->Degree(), b->IsPeriodic());
         }
         BRepBuilderAPI_MakeEdge mk(curve);
+        return mk.IsDone() ? mk.Edge() : TopoDS_Edge();
+    }
+
+    /** A circle about a cone's axis, mapped exactly: it keeps its distance
+     * from the neutral cone's apex and its depth, so it lies flat as an arc
+     * about the apex unrolled -- a line for a cylinder's. Null for any other
+     * edge.
+     */
+    TopoDS_Edge onCone(int element, const TopoDS_Edge& e) const
+    {
+        BRepAdaptor_Curve c(e);
+        if (c.GetType() != GeomAbs_Circle) {
+            return {};
+        }
+        const gp_Ax3& frame = model.elements[element].cone.frame;
+        const gp_Ax1 axis = c.Circle().Axis();
+        if (!axis.IsParallel(frame.Axis(), Precision::Angular())
+            || gp_Lin(frame.Axis()).Distance(axis.Location()) > Precision::Confusion()) {
+            return {};
+        }
+        const double f = c.FirstParameter(), l = c.LastParameter();
+        const gp_Pnt a = map(element, c.Value(f)), m = map(element, c.Value((f + l) / 2)),
+                     b = map(element, c.Value(l));
+        if (gp_Vec(a, m).Crossed(gp_Vec(a, b)).Magnitude()
+            <= Precision::Confusion() * a.Distance(b)) {
+            return BRepBuilderAPI_MakeEdge(a, b).Edge();
+        }
+        GC_MakeArcOfCircle arc(a, m, b);
+        if (!arc.IsDone()) {
+            return {};
+        }
+        BRepBuilderAPI_MakeEdge mk(arc.Value());
         return mk.IsDone() ? mk.Edge() : TopoDS_Edge();
     }
 
@@ -1075,8 +1113,8 @@ FlatResult flatten(const TopoDS_Shape& folded,
                    FormDisplay formDisplay)
 {
     if (root < 0 || root >= static_cast<int>(model.elements.size())
-        || model.elements[root].kind != Element::Kind::Wall) {
-        THROWM(Base::ValueError, "The flat's root is not a wall");
+        || model.elements[root].kind == Element::Kind::Bend) {
+        THROWM(Base::ValueError, "The flat's root is not a wall or a cone");
     }
     const int closing = model.closingBend();
     if (closing >= 0) {
@@ -1124,8 +1162,13 @@ FlatResult flatten(const TopoDS_Shape& folded,
     for (int i = 1; i <= faces.Extent(); ++i) {
         const TopoDS_Face& face = TopoDS::Face(faces(i));
         owners[i] = model.owner(face);
-        if (owners[i] < 0 || model.elements[owners[i]].kind != Element::Kind::Bend
-            || BRepAdaptor_Surface(face).GetType() != GeomAbs_Cylinder) {
+        if (owners[i] < 0 || model.elements[owners[i]].kind == Element::Kind::Wall) {
+            continue;
+        }
+        const GeomAbs_SurfaceType type = BRepAdaptor_Surface(face).GetType();
+        if (model.elements[owners[i]].kind == Element::Kind::Bend
+                ? type != GeomAbs_Cylinder
+                : type != GeomAbs_Cone && type != GeomAbs_Cylinder) {
             continue;
         }
         for (TopExp_Explorer e(face, TopAbs_EDGE); e.More(); e.Next()) {
@@ -1215,6 +1258,9 @@ FlatResult flatten(const TopoDS_Shape& folded,
         }
         laid.emplace_back(originOf(face), mapper.face(owner, face, i));
         sewing.Add(laid.back().second);
+        if (element.kind != Element::Kind::Bend) {
+            continue;
+        }
         // how far along its axis the bend goes, for its line
         const gp_Ax3& f = element.bend.frame;
         for (TopExp_Explorer it(face, TopAbs_VERTEX); it.More(); it.Next()) {

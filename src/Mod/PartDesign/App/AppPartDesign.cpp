@@ -81,6 +81,7 @@
 #include "FeatureSheetMetalCrossBreak.h"
 #include "FeatureSheetMetalForm.h"
 #include "FeatureSheetMetalTabSlot.h"
+#include "FeatureSheetMetalLoftedFlange.h"
 #ifdef PARTDESIGN_WITH_SPREADSHEET
 #include "FeatureSheetMetalBendTable.h"
 #endif
@@ -229,6 +230,7 @@ PyMOD_INIT_FUNC(_PartDesign)
     PartDesign::SheetMetalForm              ::init();
     PartDesign::SheetMetalLocatingTabs      ::init();
     PartDesign::SheetMetalSlots             ::init();
+    PartDesign::SheetMetalLoftedFlange      ::init();
 #ifdef PARTDESIGN_WITH_SPREADSHEET
     PartDesign::SheetMetalBendTable         ::init();
 #endif
@@ -253,6 +255,7 @@ PyMOD_INIT_FUNC(_PartDesign)
                             PartDesign::SheetMetalForm::getClassTypeId(),
                             PartDesign::SheetMetalLocatingTabs::getClassTypeId(),
                             PartDesign::SheetMetalSlots::getClassTypeId(),
+                            PartDesign::SheetMetalLoftedFlange::getClassTypeId(),
                             PartDesign::SheetMetalCutout::getClassTypeId(),
                             PartDesign::SheetMetalFold::getClassTypeId(),
                             PartDesign::SheetMetalJog::getClassTypeId(),

@@ -219,6 +219,66 @@ bool CmdPartDesignSheetMetalBaseWall::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalLoftedFlange
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalLoftedFlange)
+
+CmdPartDesignSheetMetalLoftedFlange::CmdPartDesignSheetMetalLoftedFlange()
+    : Command("PartDesign_SheetMetalLoftedFlange")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Lofted Flange");
+    sToolTipText = QT_TR_NOOP("A sheet lofted between the two selected sketches: a cone or a\n"
+                              "cylinder between two circles or arcs about one axis");
+    sWhatsThis = "PartDesign_SheetMetalLoftedFlange";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalLoftedFlange";
+}
+
+void CmdPartDesignSheetMetalLoftedFlange::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    // in the order picked: the profile, then the section
+    std::vector<App::DocumentObject*> sketches;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        App::DocumentObject* obj = sel.getObject();
+        if (obj && obj->isDerivedFrom<Part::Part2DObject>()
+            && std::find(sketches.begin(), sketches.end(), obj) == sketches.end()) {
+            sketches.push_back(obj);
+        }
+    }
+    if (sketches.size() != 2) {
+        warn(QT_TR_NOOP("Two sketches"),
+             QT_TR_NOOP("Select two sketches for the lofted flange, each a circle or an arc, "
+                        "on parallel planes about one axis."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Lofted Flange"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalLoftedFlange", "LoftedFlange");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat, std::ostringstream() << "Profile = " << getObjectCmd(sketches[0]));
+    Gui::cmdAppObject(feat, std::ostringstream() << "Section = " << getObjectCmd(sketches[1]));
+    FCMD_OBJ_HIDE(sketches[0]);
+    FCMD_OBJ_HIDE(sketches[1]);
+    finishFeature(this, feat);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalLoftedFlange::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlange
 //===========================================================================
 
@@ -1955,6 +2015,7 @@ void CreatePartDesignSheetMetalCommands()
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
     mgr.addCommand(new CmdPartDesignSheetMetalStarter());
     mgr.addCommand(new CmdPartDesignSheetMetalBaseWall());
+    mgr.addCommand(new CmdPartDesignSheetMetalLoftedFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalContourFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalJoin());

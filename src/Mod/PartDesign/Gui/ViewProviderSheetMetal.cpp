@@ -50,6 +50,7 @@
 #include <Gui/Document.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalCrossBreak.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
+#include <Mod/PartDesign/App/FeatureSheetMetalLoftedFlange.h>
 #include <Mod/PartDesign/App/SheetMetalFlat.h>
 #include <Mod/PartDesign/App/SheetMetalExtension.h>
 #include <Mod/PartDesign/App/SolidBody.h>
@@ -81,6 +82,36 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalBaseWall::getEditDialog()
                                       "Midplane",
                                       "UseRuleRadius",
                                       "BendRadius"}));
+}
+
+PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalLoftedFlange,
+                PartDesignGui::ViewProviderSketchBased)
+
+ViewProviderSheetMetalLoftedFlange::ViewProviderSheetMetalLoftedFlange()
+{
+    sPixmap = "PartDesign_SheetMetalLoftedFlange";
+}
+
+std::vector<App::DocumentObject*> ViewProviderSheetMetalLoftedFlange::_claimChildren() const
+{
+    std::vector<App::DocumentObject*> res = ViewProviderSketchBased::_claimChildren();
+    auto feature = static_cast<PartDesign::SheetMetalLoftedFlange*>(getObject());
+    App::DocumentObject* section = feature->Section.getValue();
+    if (section && !section->isDerivedFrom<PartDesign::Feature>()
+        && std::find(res.begin(), res.end(), section) == res.end()) {
+        res.push_back(section);
+    }
+    return res;
+}
+
+TaskDlgFeatureParameters* ViewProviderSheetMetalLoftedFlange::getEditDialog()
+{
+    return new TaskDlgSheetMetalParameters(
+        this,
+        new TaskSheetMetalParameters(this,
+                                     "PartDesign_SheetMetalLoftedFlange",
+                                     QObject::tr("Lofted flange parameters"),
+                                     {"MaterialSide"}));
 }
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlange, PartDesignGui::ViewProviderAddSub)

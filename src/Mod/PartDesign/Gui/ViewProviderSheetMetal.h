@@ -53,6 +53,19 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A lofted flange, its panel its values; it holds its two sketches
+class PartDesignGuiExport ViewProviderSheetMetalLoftedFlange: public ViewProviderSketchBased
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalLoftedFlange);
+
+public:
+    ViewProviderSheetMetalLoftedFlange();
+
+protected:
+    std::vector<App::DocumentObject*> _claimChildren() const override;
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A flange, its panel its edges and values
 class PartDesignGuiExport ViewProviderSheetMetalFlange: public ViewProviderAddSub
 {

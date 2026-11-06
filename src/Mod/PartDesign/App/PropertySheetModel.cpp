@@ -147,6 +147,16 @@ PyObject* PropertySheetModel::getPyObject()
                 d.setItem("CrossBreak", Py::Float(e.crossBreak / degree));
             }
         }
+        else if (e.kind == Element::Kind::Cone) {
+            d.setItem("Kind", Py::String("Cone"));
+            d.setItem("Radius", Py::Float(e.cone.radius));
+            d.setItem("SemiAngle", Py::Float(e.cone.semiAngle / degree));
+            d.setItem("Angle", Py::Float(e.cone.angle / degree));
+            d.setItem("KFactor", Py::Float(e.cone.k));
+            d.setItem("Center", vector(e.cone.frame.Location().XYZ()));
+            d.setItem("Axis", vector(e.cone.frame.Direction().XYZ()));
+            d.setItem("XDirection", vector(e.cone.frame.XDirection().XYZ()));
+        }
         else {
             d.setItem("Kind", Py::String("Bend"));
             d.setItem("Radius", Py::Float(e.bend.radius));
@@ -216,6 +226,13 @@ void PropertySheetModel::Save(Base::Writer& writer) const
                 writer.Stream() << " crossBreak=\"" << e.crossBreak << "\"";
             }
         }
+        else if (e.kind == Element::Kind::Cone) {
+            writer.Stream() << "<Cone name=\"" << encodeAttribute(e.name) << "\" frame=\""
+                            << frameText(e.cone.frame) << "\" radius=\"" << e.cone.radius
+                            << "\" semiAngle=\"" << e.cone.semiAngle << "\" thickness=\""
+                            << e.cone.thickness << "\" angle=\"" << e.cone.angle << "\" k=\""
+                            << e.cone.k << "\"";
+        }
         else {
             writer.Stream() << "<Bend name=\"" << encodeAttribute(e.name) << "\" frame=\""
                             << frameText(e.bend.frame) << "\" radius=\"" << e.bend.radius
@@ -259,6 +276,17 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
             if (reader.hasAttribute("crossBreak")) {
                 wall.crossBreak = reader.getAttributeAsFloat("crossBreak");
             }
+            continue;
+        }
+        if (reader.localName() == std::string("Cone")) {
+            SheetMetal::ConeBend cone;
+            cone.frame = frameOf(reader.getAttribute("frame"));
+            cone.radius = reader.getAttributeAsFloat("radius");
+            cone.semiAngle = reader.getAttributeAsFloat("semiAngle");
+            cone.thickness = reader.getAttributeAsFloat("thickness");
+            cone.angle = reader.getAttributeAsFloat("angle");
+            cone.k = reader.getAttributeAsFloat("k");
+            value.elements[value.addCone(name, cone)].limits = limits;
             continue;
         }
         // A bend a fold or a jog carries starts from that feature's wall,
@@ -342,7 +370,10 @@ bool PropertySheetModel::isSame(const Property& other) const
             || !sameFrame(a.frame, b.frame) || !sameFrame(a.bend.frame, b.bend.frame)
             || a.bend.radius != b.bend.radius || a.bend.thickness != b.bend.thickness
             || a.bend.angle != b.bend.angle || a.bend.k != b.bend.k
-            || !sameLimits(a.limits, b.limits) || a.crossBreak != b.crossBreak) {
+            || !sameLimits(a.limits, b.limits) || a.crossBreak != b.crossBreak
+            || !sameFrame(a.cone.frame, b.cone.frame) || a.cone.radius != b.cone.radius
+            || a.cone.semiAngle != b.cone.semiAngle || a.cone.thickness != b.cone.thickness
+            || a.cone.angle != b.cone.angle || a.cone.k != b.cone.k) {
             return false;
         }
     }

@@ -46,7 +46,9 @@ namespace PartDesign::SheetMetal
  * A wall is a slab: its frame's origin on its first skin, its Z the
  * normal from there into the material, the second skin a thickness along
  * it. A bend is a CylBend, between the wall it starts from (before) and
- * the one it ends in (after).
+ * the one it ends in (after). A cone is a ConeBend, a lofted flange's
+ * (M5): a sheet of its own, joining no wall, its frame its startFrame(),
+ * where it lies flat.
  */
 struct PartDesignExport Element
 {
@@ -54,6 +56,7 @@ struct PartDesignExport Element
     {
         Wall,
         Bend,
+        Cone,
     };
     Kind kind = Kind::Wall;
     /// Its name by role, as the feature that made it gave it ("Wall1", "Bend2")
@@ -62,6 +65,8 @@ struct PartDesignExport Element
     gp_Ax3 frame;
     /// A bend's geometry
     CylBend bend;
+    /// A cone's
+    ConeBend cone;
     /// A bend's walls, by index
     int before = -1;
     int after = -1;
@@ -123,6 +128,8 @@ public:
     /// Add a bend between two walls already added; returns its index.
     /// Throws Base::IndexError for a wall that is not one.
     int addBend(const std::string& name, const CylBend& bend, int before, int after);
+    /// Add a cone, a sheet of its own; returns its index
+    int addCone(const std::string& name, const ConeBend& cone);
     /// The element of that name, -1 for none
     int find(const std::string& name) const;
 
@@ -153,9 +160,9 @@ public:
     int cutOff() const;
 
     /** What moves an element flat with root fixed: for a wall all of it,
-     * for a bend what follows its own map (CylBend::toFlat()). Throws
-     * Base::ValueError for a root that is not a wall, Base::IndexError for an
-     * element not joined to it.
+     * for a bend or a cone what follows its own map (CylBend::toFlat(),
+     * ConeBend::toFlat()). Throws Base::ValueError for a root that is not a
+     * wall or a cone, Base::IndexError for an element not joined to it.
      */
     gp_Trsf placement(int index, int root) const;
     /// Where a point of the element lies flat with root fixed

@@ -1828,6 +1828,47 @@ stored flat and this option do what it was for.
   conical wall, which waits for the conical element of the lofted flange. `TestSheetMetalBaseWall`
   (19; before, 16): `testRolledArc`, `testRolledArcInside`, `testRolledAndSharp`,
   `testRolledRefused`.
+- **Built 2026-11-07, M5's last item, the lofted flange, its first step, round to round** (the
+  three steps as recommended and taken 2026-11-07: round to round, lines to lines, mixed):
+  `PartDesign::SheetMetalLoftedFlange`, a `Profile` and a `Section` sketch, each one circle or
+  arc, on parallel planes about one axis, make a cone frustum, a cylinder where they are the same
+  size. It is one element of a new kind, `Kind::Cone`, a `SheetMetal::ConeBend` (`Fold.h`): its
+  frame on the axis, Z the way the cone opens (from the narrow end to the wide), X where the sheet
+  starts; the inner skin, the one facing the axis, through the circle of its radius in the frame's
+  XY plane at its half angle; the outer a thickness out, square to it; the sheet turning through
+  its angle. Its ends are cut square to the sheet (cones of their own), so they lie flat square to
+  the blank. `MaterialSide` puts the sketches on the inner skin (Outside, the default), the outer
+  (Inside) or the middle. Two arcs turn through the same angle; two circles leave a seam the
+  rule's `Gap` wide on the narrow circle, about its X. K is the rule's at the skin's curve across
+  the cone's line halfway along, `(r / cos(semiAngle))`, and the sweep.
+  - **Its development is exact:** a point at angle a from the start, t along the cone's line and
+    d under the inner skin goes to the plane touching the inner skin where the sheet starts
+    (`startFrame()`), the neutral cone (K T under the inner skin) unrolled onto it about its apex:
+    a sin(semiAngle) about the apex, at its distance from it, d under the plane -- every line
+    across the sheet stays square to it, the neutral surface keeps its area. A cylinder is the
+    limit, a rectangle. `Mapper::onCone()` lays a circle about the axis flat as the arc it is
+    exactly (a line for a cylinder); the rest go by `sampled()`.
+  - **A sheet of no wall lies on its cone:** the flat's root may be a cone joining no wall (the
+    flat object picks the first wall, else the first cone); `Model::placement()` refuses only a
+    bend as root.
+  - The model in Python: `Kind` `Cone`, `Radius`, `SemiAngle`, `Angle`, `KFactor`, `Center`,
+    `Axis`, `XDirection`; in the file a `<Cone>` element, read back as written.
+  - Its command, Lofted Flange, takes two sketches picked, the first the profile; its panel the
+    material side; it holds both sketches in the tree.
+  - Refused, saying why: an outline not one circle or arc (lines are the second step), the two
+    not on parallel planes, not about one axis, on one plane, one a circle and the other an arc,
+    arcs over different turns, a circle with no `Gap` for its seam, a narrow end too small for the
+    thickness on its side.
+  - Not yet: a cutout across the cone (`Refold` knows the cylinder's map only), a flange on its
+    seam's edges. A hole a pocket cuts through it at a slant does not lie flat ("does not lie
+    flat as a plane"), as through a cylindrical bend: neither is new, the face across the sheet
+    not square to it is neither upright nor ruled.
+  - `TestSheetMetalLoftedFlange` (10; before, 0 of 10): the frustum on each side, its flat at K
+    0.5 and 0.3 (its arcs about the apex, its sides the slant length, its turn the cone's times
+    sin(semiAngle), its volume the neutral surface's), a cylinder, two arcs over a half turn, the
+    seam's gap, the refusals, save and restore. `sheet-metal-commands.py` (111, +4) checks the
+    command, its place on the tool bar, one sketch making nothing and the sketches held;
+    `sheet-metal-panels.py` (96, +2) its panel.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

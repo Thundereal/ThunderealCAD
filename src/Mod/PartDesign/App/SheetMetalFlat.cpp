@@ -174,14 +174,17 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     int root = -1;
     if (!settings.root.empty()) {
         root = model.find(settings.root);
-        if (root < 0 || model.elements[root].kind != SheetMetal::Element::Kind::Wall) {
+        if (root < 0 || model.elements[root].kind == SheetMetal::Element::Kind::Bend) {
             FC_THROWM(Base::ValueError, "The sheet has no wall " << settings.root << " to lay on");
         }
     }
     else {
-        for (std::size_t i = 0; i < model.elements.size() && root < 0; ++i) {
-            if (model.elements[i].kind == SheetMetal::Element::Kind::Wall) {
-                root = static_cast<int>(i);
+        // the first wall; a sheet of none, a lofted flange's cone, on itself
+        for (auto kind : {SheetMetal::Element::Kind::Wall, SheetMetal::Element::Kind::Cone}) {
+            for (std::size_t i = 0; i < model.elements.size() && root < 0; ++i) {
+                if (model.elements[i].kind == kind) {
+                    root = static_cast<int>(i);
+                }
             }
         }
     }

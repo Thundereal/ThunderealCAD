@@ -108,6 +108,17 @@ int Model::addBend(const std::string& name, const CylBend& bend, int before, int
     return static_cast<int>(elements.size()) - 1;
 }
 
+int Model::addCone(const std::string& name, const ConeBend& cone)
+{
+    Element element;
+    element.kind = Element::Kind::Cone;
+    element.name = name;
+    element.cone = cone;
+    element.frame = cone.startFrame();
+    elements.push_back(element);
+    return static_cast<int>(elements.size()) - 1;
+}
+
 int Model::find(const std::string& name) const
 {
     for (std::size_t i = 0; i < elements.size(); ++i) {
@@ -137,6 +148,9 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
     if (element.kind == Element::Kind::Bend) {
         return element.bend.contains(point, tol);
     }
+    if (element.kind == Element::Kind::Cone) {
+        return element.cone.contains(point, tol);
+    }
     const double depth =
         gp_Vec(element.frame.Location(), point).Dot(gp_Vec(element.frame.Direction()));
     if (depth < -tol || depth > thickness + tol) {
@@ -162,7 +176,7 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
 
 int Model::owner(const gp_Pnt& point, double tol) const
 {
-    for (auto kind : {Element::Kind::Bend, Element::Kind::Wall}) {
+    for (auto kind : {Element::Kind::Bend, Element::Kind::Cone, Element::Kind::Wall}) {
         for (std::size_t i = 0; i < elements.size(); ++i) {
             if (elements[i].kind == kind && contains(static_cast<int>(i), point, tol)) {
                 return static_cast<int>(i);
@@ -300,7 +314,7 @@ int Model::owner(const TopoDS_Face& face, double tol) const
     int first = -1;
     int best = -1;
     double deepest = -std::numeric_limits<double>::max();
-    for (auto kind : {Element::Kind::Bend, Element::Kind::Wall}) {
+    for (auto kind : {Element::Kind::Bend, Element::Kind::Cone, Element::Kind::Wall}) {
         for (std::size_t i = 0; i < elements.size(); ++i) {
             const Element& element = elements[i];
             if (element.kind != kind || !contains(static_cast<int>(i), point, tol)) {
@@ -309,7 +323,7 @@ int Model::owner(const TopoDS_Face& face, double tol) const
             if (first < 0) {
                 first = static_cast<int>(i);
             }
-            if (kind == Element::Kind::Bend) {
+            if (kind != Element::Kind::Wall) {
                 return static_cast<int>(i);
             }
             if (!within(element.frame)) {
@@ -331,6 +345,7 @@ void Model::transform(const gp_Trsf& trsf)
     for (Element& element : elements) {
         element.frame.Transform(trsf);
         element.bend.frame.Transform(trsf);
+        element.cone.frame.Transform(trsf);
         for (gp_Pln& limit : element.limits) {
             limit.Transform(trsf);
         }
@@ -450,8 +465,9 @@ gp_Trsf Model::placement(int index, int root) const
 {
     checkIndex(index);
     checkIndex(root);
-    if (elements[root].kind != Element::Kind::Wall) {
-        FC_THROWM(Base::ValueError, "Sheet metal: the flat's root " << root << " is not a wall");
+    if (elements[root].kind == Element::Kind::Bend) {
+        FC_THROWM(Base::ValueError,
+                  "Sheet metal: the flat's root " << root << " is not a wall or a cone");
     }
     // a bend moves with the wall it starts from
     const int wall = elements[index].kind == Element::Kind::Bend ? elements[index].before : index;
@@ -489,6 +505,9 @@ gp_Pnt Model::toFlat(int index, const gp_Pnt& point, int root) const
     const gp_Trsf move = placement(index, root);
     if (elements[index].kind == Element::Kind::Bend) {
         return elements[index].bend.toFlat(point).Transformed(move);
+    }
+    if (elements[index].kind == Element::Kind::Cone) {
+        return elements[index].cone.toFlat(point).Transformed(move);
     }
     return point.Transformed(move);
 }

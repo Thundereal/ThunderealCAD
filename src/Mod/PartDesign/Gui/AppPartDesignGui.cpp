@@ -193,6 +193,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     PartDesignGui::ViewProviderAuxGroup      ::init();
     PartDesignGui::ViewProviderSolidBody     ::init();
     PartDesignGui::ViewProviderSheetMetalBaseWall::init();
+    PartDesignGui::ViewProviderSheetMetalLoftedFlange::init();
     PartDesignGui::ViewProviderSheetMetalFlange::init();
     PartDesignGui::ViewProviderSheetMetalContourFlange::init();
     PartDesignGui::ViewProviderSheetMetalJoin::init();
@@ -225,6 +226,7 @@ PyMOD_INIT_FUNC(PartDesignGui)
     sheetMetal.toolbars = {{"Sheet Metal", [](Gui::ToolBarItem& item) {
         item << "PartDesign_SheetMetalStarter"
              << "PartDesign_SheetMetalBaseWall"
+             << "PartDesign_SheetMetalLoftedFlange"
              << "PartDesign_SheetMetalFlange"
              << "PartDesign_SheetMetalContourFlange"
              << "PartDesign_SheetMetalJoin"

@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
@@ -114,4 +115,105 @@ bool CylBend::contains(const gp_Pnt& point, double tol) const
     double a, r, z;
     polar(point, from(), a, r, z);
     return a >= 0 && a <= angle && r >= radius - tol && r <= radius + thickness + tol;
+}
+
+double ConeBend::neutral() const
+{
+    return radius + k * thickness * std::cos(semiAngle);
+}
+
+gp_Ax3 ConeBend::startFrame() const
+{
+    const double c = std::cos(semiAngle), s = std::sin(semiAngle);
+    const gp_Vec x(frame.XDirection()), z(frame.Direction());
+    return {frame.Location().Translated(x * radius), gp_Dir(x * c - z * s), gp_Dir(x * s + z * c)};
+}
+
+void ConeBend::local(const gp_Pnt& point, double& a, double& t, double& d) const
+{
+    const gp_Vec v(frame.Location(), point);
+    const double x = v.Dot(gp_Vec(frame.XDirection()));
+    const double y = v.Dot(gp_Vec(frame.YDirection()));
+    const double z = v.Dot(gp_Vec(frame.Direction()));
+    const double rho = std::hypot(x, y);
+    const double from = angle / 2 - std::numbers::pi;
+    a = std::atan2(y, x);
+    while (a < from) {
+        a += 2 * std::numbers::pi;
+    }
+    while (a >= from + 2 * std::numbers::pi) {
+        a -= 2 * std::numbers::pi;
+    }
+    const double c = std::cos(semiAngle), s = std::sin(semiAngle);
+    d = (rho - radius) * c - z * s;
+    t = (rho - radius) * s + z * c;
+}
+
+namespace
+{
+
+/// Below this a cone's half angle is a cylinder's: its apex too far off to
+/// unroll about
+constexpr double flatCone = 1e-9;
+
+}  // namespace
+
+gp_Pnt ConeBend::toFlat(const gp_Pnt& folded) const
+{
+    double a, t, d;
+    local(folded, a, t, d);
+    const double s = std::sin(semiAngle);
+    const double rn = neutral();
+    double u, w;
+    if (s < flatCone) {
+        u = t;
+        w = a * rn;
+    }
+    else {
+        // about the neutral cone's apex, unrolled to -rn / s along the start line
+        const double l = (rn + t * s) / s, psi = a * s;
+        u = -rn / s + l * std::cos(psi);
+        w = l * std::sin(psi);
+    }
+    const gp_Ax3 flat = startFrame();
+    return flat.Location().Translated(gp_Vec(flat.XDirection()) * u
+                                      + gp_Vec(frame.YDirection()) * w
+                                      + gp_Vec(flat.Direction()) * d);
+}
+
+gp_Pnt ConeBend::toFolded(const gp_Pnt& flat) const
+{
+    const gp_Ax3 start = startFrame();
+    const gp_Vec v(start.Location(), flat);
+    const double u = v.Dot(gp_Vec(start.XDirection()));
+    const double w = v.Dot(gp_Vec(frame.YDirection()));
+    const double d = v.Dot(gp_Vec(start.Direction()));
+    const double c = std::cos(semiAngle), s = std::sin(semiAngle);
+    const double rn = neutral();
+    double a, t;
+    if (s < flatCone) {
+        t = u;
+        a = w / rn;
+    }
+    else {
+        const double p = u + rn / s;
+        a = std::atan2(w, p) / s;
+        t = std::hypot(p, w) - rn / s;
+    }
+    const double rho = radius + t * s + d * c, z = t * c - d * s;
+    return frame.Location().Translated(gp_Vec(frame.XDirection()) * (rho * std::cos(a))
+                                       + gp_Vec(frame.YDirection()) * (rho * std::sin(a))
+                                       + gp_Vec(frame.Direction()) * z);
+}
+
+bool ConeBend::contains(const gp_Pnt& point, double tol) const
+{
+    double a, t, d;
+    local(point, a, t, d);
+    // a face where the sheet starts or ends, a seam's, is the cone's: its
+    // point's angle off by the rounding
+    const gp_Vec v(frame.Location(), point);
+    const double rho = v.Crossed(gp_Vec(frame.Direction())).Magnitude();
+    const double slack = tol / std::max(rho, tol);
+    return a >= -slack && a <= angle + slack && d >= -tol && d <= thickness + tol;
 }

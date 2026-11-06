@@ -70,6 +70,14 @@ PartDesignExport TopoDS_Edge arcEdge(const gp_Ax3& frame, double radius, double 
  */
 PartDesignExport Part::TopoShape bendSection(const CylBend& bend, const std::string& name);
 
+/** A cone's section in the half plane through its frame's X and Z, where
+ * the sheet starts, the slant length along the cone's line: the edges name
+ * + Inner, Rim2 (the far end, square to the sheet), Outer, Rim1 (at the
+ * frame's circle), to be turned about the axis through the cone's angle
+ */
+PartDesignExport Part::TopoShape coneSection(const ConeBend& cone, double length,
+                                             const std::string& name);
+
 /** A straight run's section: from start along a length, across by the
  * thickness; the edges name + Skin1 (at start, along), End, Skin2, Start
  */

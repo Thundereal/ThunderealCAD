@@ -1721,6 +1721,72 @@ def run():
         view.setActiveObject("pdbody", body)
         pump(20)
 
+        # Lofted flange (M5): two sketches picked, a cone between them
+        loftCmd = FreeCADGui.Command.get("PartDesign_SheetMetalLoftedFlange")
+        check(
+            "Lofted Flange is on the tool bar",
+            loftCmd is not None
+            and toolbar() is not None
+            and loftCmd.getAction()[0] in toolbar().actions(),
+        )
+        lbody = doc.addObject("PartDesign::Body", "LoftBody")
+        view.setActiveObject("pdbody", lbody)
+        rounds = []
+        for name, r, z in (("Wide", 20, 0), ("Narrow", 10, 30)):
+            rsketch = lbody.newObject("Sketcher::SketchObject", name)
+            rsketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+            rsketch.addGeometry(Part.Circle(V(0, 0, 0), V(0, 0, 1), r))
+            rounds.append(rsketch)
+        doc.recompute()
+        pump()
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, rounds[0].Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalLoftedFlange")
+        pump(20)
+        check(
+            "with one sketch selected it makes nothing",
+            not [o for o in doc.Objects if o.Name not in before],
+            [o.Name for o in doc.Objects if o.Name not in before],
+        )
+        FreeCADGui.Selection.addSelection(doc.Name, rounds[1].Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalLoftedFlange")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        made = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalLoftedFlange"
+        ]
+        loft = made[0] if made else None
+        check(
+            "with two sketches selected it lofts the first to the second, the body's tip",
+            loft is not None
+            and "Invalid" not in loft.State
+            and loft.Profile and loft.Profile[0] == rounds[0]
+            and loft.Section == rounds[1]
+            and lbody.Tip == loft
+            and [e["Kind"] for e in loft.SheetModel["Elements"]] == ["Cone"]
+            and loft.ViewObject.TypeId == "PartDesignGui::ViewProviderSheetMetalLoftedFlange",
+            loft and (loft.State, loft.getStatusString()),
+        )
+        check(
+            "it holds both sketches in the tree, hidden",
+            loft is not None
+            and all(r in loft.ViewObject.claimChildren() for r in rounds)
+            and not any(r.Visibility for r in rounds),
+            loft and ([o.Name for o in loft.ViewObject.claimChildren()],
+                      [r.Visibility for r in rounds]),
+        )
+        view.setActiveObject("pdbody", body)
+        pump(20)
+
         # Rip: a tube, which does not lie flat, cut open at a bend picked
         # (docs/SheetMetal.md sec 12, ruled 2026-11-05)
         ripCmd = FreeCADGui.Command.get("PartDesign_SheetMetalRip")

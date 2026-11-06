@@ -936,6 +936,7 @@ bool isBrowserSafeCommand(const QString &name)
     static const QSet<QString> sheetMetal = {
         QStringLiteral("PartDesign_SheetMetalStarter"),
         QStringLiteral("PartDesign_SheetMetalBaseWall"),
+        QStringLiteral("PartDesign_SheetMetalLoftedFlange"),
         QStringLiteral("PartDesign_SheetMetalFlange"),
         QStringLiteral("PartDesign_SheetMetalContourFlange"),
         QStringLiteral("PartDesign_SheetMetalJoin"),

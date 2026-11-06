@@ -1166,6 +1166,41 @@ def run():
             )
         accept()
         pump(20)
+
+        # Lofted flange (M5): its panel its material side
+        lbody = doc.addObject("PartDesign::Body", "LoftBody")
+        view.setActiveObject("pdbody", lbody)
+        rounds = []
+        for name, r, z in (("Wide", 20, 0), ("Narrow", 10, 30)):
+            rsketch = lbody.newObject("Sketcher::SketchObject", name)
+            rsketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+            rsketch.addGeometry(Part.Circle(V(0, 0, 0), V(0, 0, 1), r))
+            rounds.append(rsketch)
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        for rsketch in rounds:
+            FreeCADGui.Selection.addSelection(doc.Name, rsketch.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalLoftedFlange")
+        pump()
+        lofts = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalLoftedFlange"]
+        w = panel() or {}
+        check(
+            "Lofted Flange opens its panel: the material side",
+            lofts and "MaterialSide" in w,
+            sorted(n for n in w if n[:1].isupper()),
+        )
+        if lofts and "MaterialSide" in w:
+            w["MaterialSide"].setCurrentIndex(1)
+            pump(40)
+            doc.recompute()
+            zmin = lofts[0].Shape.BoundBox.ZMin
+            check(
+                "a side set there is the flange's: the sheet inside the sketches",
+                lofts[0].MaterialSide == "Inside" and zmin < -0.3,
+                (lofts[0].MaterialSide, zmin, lofts[0].State),
+            )
+        accept()
+        pump(20)
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

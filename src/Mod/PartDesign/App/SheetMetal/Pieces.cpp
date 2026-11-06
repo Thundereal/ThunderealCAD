@@ -140,6 +140,20 @@ TopoShape bendSection(const CylBend& bend, const std::string& name)
         name);
 }
 
+TopoShape coneSection(const ConeBend& cone, double length, const std::string& name)
+{
+    const gp_Ax3 start = cone.startFrame();
+    const gp_Vec along = gp_Vec(start.XDirection()) * length;
+    const gp_Vec across = gp_Vec(start.Direction()) * cone.thickness;
+    const gp_Pnt a = start.Location(), b = a.Translated(along), c = b.Translated(across),
+                 d = a.Translated(across);
+    return namedFace({{lineEdge(a, b), name + "Inner"},
+                      {lineEdge(b, c), name + "Rim2"},
+                      {lineEdge(c, d), name + "Outer"},
+                      {lineEdge(d, a), name + "Rim1"}},
+                     name);
+}
+
 TopoShape wallSection(const gp_Pnt& start, const gp_Dir& along, double length,
                       const gp_Dir& across, double thickness, const std::string& name)
 {

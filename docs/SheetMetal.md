@@ -1598,7 +1598,7 @@ stored flat and this option do what it was for.
   (`crossBreakNote()`). In 3D, `crossBreakLines()` (and from Python) gives the diagonals on the
   face picked, drawn by the feature's view dash-dotted orange, unpicked, while it is shown: the
   folded part shows the X only while the Cross Break is the tip or edited, not under a later
-  feature. The flat's view has a sixth kind (`ShowCrossBreaks`, `CrossBreakColor`,
+  feature (superseded 2026-11-06 by the finish below). The flat's view has a sixth kind (`ShowCrossBreaks`, `CrossBreakColor`,
   `CrossBreakStyle` Dashdot, `CrossBreakWidth`); `getEdgeInfo()` gives a drawing its style and,
   on the first diagonal, the note, which Import Edge Labels makes a label. Cross Break is on the
   Sheet Metal tool bar and the browser's allowlist (the usual feature panel: faces, Angle,
@@ -1606,6 +1606,26 @@ stored flat and this option do what it was for.
   (90, +6), `sheet-metal-panels.py` (70, +2), `serve-sheet-metal.py` (17),
   `serve-toolbar-browser.py` (21). The manual: notches on the Flatten page, Cross Break a page
   of its own.
+- **Ruled 2026-11-06, the cross break as a surface finish:** the folded part draws the break on
+  the wall itself, as a finish the feature implies (docs/ShapeAppearanceDesign.md sec 9.14), so
+  every feature after it and the body show it, not only the Cross Break while it is the tip. Both
+  skins, the true angle, a line along each fold; the orange X only while the panel is open.
+- **Built 2026-11-06, the cross break as a surface finish:** `App::SurfaceFinish::CrossBreak` and
+  `CrossBreakReversed` carry the rectangle its diagonals cross: half length and half width in
+  pitch and depth, the angle in its slot, the long side's way and the middle beside the entry.
+  `SheetMetal::crossBreakPatches()` finds every plane face of the wall on either skin, and
+  `PartDesign::crossBreakPatches()` runs it on any feature of a sheet or a body, by
+  `sheetModelOf()`: the feature's own model or the last sheet metal feature's before it, a body's
+  its tip's. Every PartDesign feature's view and the Body's state it beside the cosmetic threads,
+  re-derived when the shape or the sheet's model changes (a sheet metal feature sets its model
+  after its shape). `PartDesign.crossBreakFaces(obj)` lists the faces from Python. Fixed with it:
+  a suppressed sheet metal feature handed on the model it computed, so a suppressed Cross Break
+  still drew its diagonals in the flat; `findBefore()` and `sheetOf()` now skip a suppressed one.
+  `crossBreakLines()` works on any feature after the break too. A cross break changes no shape,
+  so the features after it are given the shape they had, which tells no view: a sheet metal
+  feature's model or `Suppress` changing refreshes it, every feature after it and the body.
+  `TestSheetMetalCrossBreak` (15,
+  +4; before, the 4 errored), `sheet-metal-commands.py` (97, +7; before, 85 and 2 failing).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

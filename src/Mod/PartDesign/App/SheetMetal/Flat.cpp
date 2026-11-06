@@ -34,8 +34,11 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
+#include <BRepGProp_Face.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -47,9 +50,11 @@
 #include <BRepFill.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepOffsetAPI_MakeFilling.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepTools.hxx>
+#include <BRepTools_History.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
@@ -57,6 +62,7 @@
 #include <Geom2d_BSplineCurve.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <Precision.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_BSplineCurve.hxx>
@@ -81,6 +87,7 @@
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
+#include <TopTools_DataMapOfShapeInteger.hxx>
 #include <TopTools_DataMapOfShapeShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -90,6 +97,7 @@
 #include <Base/Exception.h>
 
 #include "Flat.h"
+#include "Pieces.h"
 
 namespace PartDesign::SheetMetal
 {
@@ -610,6 +618,180 @@ TopoDS_Face crossBreakFace(const TopoDS_Shape& shape, const Model& model, int in
 namespace
 {
 
+/// A gusset: a form across a bend, owned by it
+bool acrossBend(const Model& model, const Form& form)
+{
+    return form.wall >= 0 && form.wall < static_cast<int>(model.elements.size())
+        && model.elements[form.wall].kind == Element::Kind::Bend;
+}
+
+/// The box of what a form takes of the part, in its frame
+TopoDS_Shape formBox(const Form& form)
+{
+    const gp_Ax3& f = form.frame;
+    const gp_Pnt corner = f.Location().Translated(gp_Vec(f.XDirection()) * -form.halfLength
+                                                  + gp_Vec(f.YDirection()) * -form.halfWidth
+                                                  + gp_Vec(f.Direction()) * form.zMin);
+    return BRepPrimAPI_MakeBox(gp_Ax2(corner, f.Direction(), f.XDirection()),
+                               2 * form.halfLength,
+                               2 * form.halfWidth,
+                               form.zMax - form.zMin)
+        .Shape();
+}
+
+/** The part with each gusset's box put back as its bend and the bend's
+ * walls were there, plain: a gusset is no wall's, carried flat with it, and
+ * the bend it crosses lies flat as if it were not there. Anything else cut
+ * in the box goes too. origins: each face the putting back made of folded
+ * faces, one of those
+ */
+TopoDS_Shape plainAtGussets(const TopoDS_Shape& folded,
+                            const Model& model,
+                            TopTools_DataMapOfShapeShape& origins)
+{
+    BRep_Builder builder;
+    TopoDS_Compound boxes;
+    builder.MakeCompound(boxes);
+    TopTools_ListOfShape plain;
+    const double T = model.thickness;
+    for (const Form& form : model.forms) {
+        if (!acrossBend(model, form)) {
+            continue;
+        }
+        const TopoDS_Shape box = formBox(form);
+        builder.Add(boxes, box);
+        const Element& element = model.elements[form.wall];
+        const CylBend& b = element.bend;
+        const gp_Vec a(b.frame.Direction()), x0(b.frame.XDirection()), y0(b.frame.YDirection());
+        // the bend and its walls from before the box to past it along the
+        // axis, and as far along each wall as the box reaches
+        const double from =
+            gp_Vec(b.frame.Location(), form.frame.Location()).Dot(a) - form.halfLength - 1;
+        const double length = 2 * form.halfLength + 2;
+        const double run = 2 * (form.halfWidth + form.zMax - form.zMin) + 1;
+        CylBend at = b;
+        at.frame.Translate(a * from);
+        const gp_Pnt o = at.frame.Location();
+        const double A = b.angle, R = b.radius;
+        const gp_Dir nB(x0 * std::cos(A) + y0 * std::sin(A));
+        const TopoDS_Shape sections[] = {
+            bendSection(at, element.name).getShape(),
+            wallSection(o.Translated(x0 * R), gp_Dir(-y0), run, gp_Dir(x0), T, element.name + "A")
+                .getShape(),
+            wallSection(o.Translated(gp_Vec(nB) * R),
+                        gp_Dir(x0 * -std::sin(A) + y0 * std::cos(A)),
+                        run,
+                        nB,
+                        T,
+                        element.name + "B")
+                .getShape(),
+        };
+        for (const TopoDS_Shape& section : sections) {
+            BRepAlgoAPI_Common common(BRepPrimAPI_MakePrism(section, a * length).Shape(), box);
+            common.Build();
+            if (!common.IsDone()) {
+                THROWM(Base::CADKernelError, "A gusset's bend could not be laid flat plain");
+            }
+            plain.Append(common.Shape());
+        }
+    }
+    BRepAlgoAPI_Cut cut(folded, boxes);
+    cut.Build();
+    if (!cut.IsDone()) {
+        THROWM(Base::CADKernelError, "A gusset's bend could not be laid flat plain");
+    }
+    TopTools_ListOfShape arguments;
+    arguments.Append(cut.Shape());
+    BRepAlgoAPI_Fuse fuse;
+    fuse.SetArguments(arguments);
+    fuse.SetTools(plain);
+    fuse.Build();
+    if (!fuse.IsDone()) {
+        THROWM(Base::CADKernelError, "A gusset's bend could not be laid flat plain");
+    }
+    // The skins the boxes parted made one again, and nothing else: every
+    // edge the part had, or a piece of it, kept, so faces it parted (a
+    // plate's end, its bend's and its leg's, in one plane) stay apart
+    Handle(BRepTools_History) history = cut.History();
+    history->Merge(fuse.History());
+    ShapeUpgrade_UnifySameDomain unify(fuse.Shape(), true, true, false);
+    for (TopExp_Explorer it(folded, TopAbs_EDGE); it.More(); it.Next()) {
+        if (history->IsRemoved(it.Current())) {
+            continue;
+        }
+        const TopTools_ListOfShape& pieces = history->Modified(it.Current());
+        if (pieces.IsEmpty()) {
+            unify.KeepShape(it.Current());
+        }
+        for (const TopoDS_Shape& piece : pieces) {
+            unify.KeepShape(piece);
+        }
+    }
+    unify.Build();
+    history->Merge(unify.History());
+    for (TopExp_Explorer it(folded, TopAbs_FACE); it.More(); it.Next()) {
+        for (const TopoDS_Shape& made : history->Modified(it.Current())) {
+            if (!origins.IsBound(made)) {
+                origins.Bind(made, it.Current());
+            }
+        }
+    }
+    TopExp_Explorer solid(unify.Shape(), TopAbs_SOLID);
+    if (!solid.More()) {
+        THROWM(Base::CADKernelError, "A gusset's bend could not be laid flat plain");
+    }
+    return solid.Current();
+}
+
+/// A gusset's footprint on the skins it rises from, folded: each edge
+/// between a face of it and a face of the bend's or a wall's that faces into
+/// the corner, the way it rises, with that face
+std::vector<std::pair<TopoDS_Edge, TopoDS_Face>>
+footprint(const TopoDS_Shape& folded, const Model& model, int form)
+{
+    const gp_Vec rise(model.forms[form].frame.Direction());
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(folded, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    TopTools_DataMapOfShapeInteger formOf;
+    std::vector<std::pair<TopoDS_Edge, TopoDS_Face>> res;
+    for (int i = 1; i <= edgeFaces.Extent(); ++i) {
+        bool ofForm = false;
+        TopoDS_Face skin;
+        for (const TopoDS_Shape& f : edgeFaces(i)) {
+            if (!formOf.IsBound(f)) {
+                formOf.Bind(f, model.formOf(TopoDS::Face(f)));
+            }
+            if (formOf(f) == form) {
+                ofForm = true;
+            }
+            else {
+                skin = TopoDS::Face(f);
+            }
+        }
+        if (!ofForm || skin.IsNull()) {
+            continue;
+        }
+        const TopoDS_Edge& edge = TopoDS::Edge(edgeFaces.FindKey(i));
+        BRepAdaptor_Curve c(edge);
+        const gp_Pnt mid = c.Value((c.FirstParameter() + c.LastParameter()) / 2);
+        GeomAPI_ProjectPointOnSurf onSkin(mid, BRep_Tool::Surface(skin));
+        if (onSkin.NbPoints() == 0) {
+            continue;
+        }
+        double u = 0, v = 0;
+        onSkin.LowerDistanceParameters(u, v);
+        gp_Pnt at;
+        gp_Vec normal;
+        BRepGProp_Face(skin).Normal(u, v, at, normal);
+        if (normal.Magnitude() < Precision::Confusion()
+            || normal.Normalized().Dot(rise) < 0.3) {
+            continue;
+        }
+        res.emplace_back(edge, skin);
+    }
+    return res;
+}
+
 /// A plane face's bounds in the frame of its longest straight edge
 struct PlaneBounds
 {
@@ -908,8 +1090,27 @@ FlatResult flatten(const TopoDS_Shape& folded,
         mapper.toXY = alongXOf(folded, mapper, alongX) * mapper.toXY;
     }
 
+    // Gussets, the forms across a bend: no wall carries one flat. Where each
+    // is, the part is put back as its bend and the bend's walls were, plain,
+    // and its footprint on the skins it rises from is its outline; a form on
+    // a wall is closed over instead, below. A face the putting back made is
+    // named after a folded face it was made of.
+    std::vector<std::vector<std::pair<TopoDS_Edge, TopoDS_Face>>> footprints(model.forms.size());
+    bool gussets = false;
+    for (std::size_t k = 0; k < model.forms.size(); ++k) {
+        if (acrossBend(model, model.forms[k])) {
+            footprints[k] = footprint(folded, model, static_cast<int>(k));
+            gussets = true;
+        }
+    }
+    TopTools_DataMapOfShapeShape origins;
+    const TopoDS_Shape shape = gussets ? plainAtGussets(folded, model, origins) : folded;
+    auto originOf = [&](const TopoDS_Shape& face) {
+        return origins.IsBound(face) ? origins(face) : face;
+    };
+
     TopTools_IndexedMapOfShape faces;
-    TopExp::MapShapes(folded, TopAbs_FACE, faces);
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
     BRepBuilderAPI_Sewing sewing(1e-6);
     // each folded face and the face it lies flat as, before sewing
     std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> laid;
@@ -1007,11 +1208,12 @@ FlatResult flatten(const TopoDS_Shape& folded,
         const Element& element = model.elements[owner];
         if (element.kind == Element::Kind::Wall) {
             gp_Trsf move = mapper.toXY * model.placement(owner, root);
-            laid.emplace_back(face, BRepBuilderAPI_Transform(closed(face), move, true).Shape());
+            laid.emplace_back(originOf(face),
+                              BRepBuilderAPI_Transform(closed(face), move, true).Shape());
             sewing.Add(laid.back().second);
             continue;
         }
-        laid.emplace_back(face, mapper.face(owner, face, i));
+        laid.emplace_back(originOf(face), mapper.face(owner, face, i));
         sewing.Add(laid.back().second);
         // how far along its axis the bend goes, for its line
         const gp_Ax3& f = element.bend.frame;
@@ -1106,14 +1308,57 @@ FlatResult flatten(const TopoDS_Shape& folded,
             break;
         }
     }
-    // each form's outline or cross, moved with its wall
-    if (unformed) {
+    // each form's outline or cross, moved with its wall; a gusset's laid
+    // flat with the bend, Formed too
+    if (unformed || gussets) {
         for (std::size_t k = 0; k < model.forms.size(); ++k) {
             const Form& form = model.forms[k];
-            const gp_Trsf move = mapper.toXY * model.placement(form.wall, root);
             FlatResult::FormMark mark;
             mark.name = form.name;
             mark.centre = formDisplay == FormDisplay::CentreMark;
+            if (acrossBend(model, form)) {
+                if (mark.centre) {
+                    // a cross on the bend's inner skin at its middle
+                    const CylBend& b = model.elements[form.wall].bend;
+                    const gp_Vec a(b.frame.Direction());
+                    const gp_Pnt o = b.frame.Location().Translated(
+                        a * gp_Vec(b.frame.Location(), form.frame.Location()).Dot(a));
+                    const double arm = std::max(0.5, std::min(form.halfLength, form.halfWidth) / 4);
+                    auto skin = [&](double along, double angle) {
+                        const gp_Vec r = gp_Vec(b.frame.XDirection()) * std::cos(angle)
+                            + gp_Vec(b.frame.YDirection()) * std::sin(angle);
+                        return mapper.map(form.wall, o.Translated(r * b.radius + a * along));
+                    };
+                    const double mid = b.angle / 2, turn = arm / b.radius;
+                    mark.edges.push_back(BRepBuilderAPI_MakeEdge(skin(-arm, mid), skin(arm, mid)));
+                    mark.edges.push_back(
+                        BRepBuilderAPI_MakeEdge(skin(0, mid - turn), skin(0, mid + turn)));
+                }
+                else {
+                    for (const auto& [edge, face] : footprints[k]) {
+                        const int owner = model.owner(face);
+                        if (owner < 0) {
+                            continue;
+                        }
+                        if (model.elements[owner].kind == Element::Kind::Bend) {
+                            mark.edges.push_back(mapper.edge(owner, edge, face));
+                        }
+                        else {
+                            const gp_Trsf move = mapper.toXY * model.placement(owner, root);
+                            mark.edges.push_back(
+                                TopoDS::Edge(BRepBuilderAPI_Transform(edge, move, true).Shape()));
+                        }
+                    }
+                }
+                if (!mark.edges.empty()) {
+                    res.forms.push_back(mark);
+                }
+                continue;
+            }
+            if (!unformed) {
+                continue;
+            }
+            const gp_Trsf move = mapper.toXY * model.placement(form.wall, root);
             std::vector<TopoDS_Edge> edges;
             if (mark.centre) {
                 const double across = form.halfWidth > 0

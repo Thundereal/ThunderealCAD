@@ -284,11 +284,11 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
         form.frame = frameOf(reader.getAttribute("frame"));
         std::istringstream size(reader.getAttribute("size"));
         size >> form.halfLength >> form.halfWidth >> form.zMin >> form.zMax;
-        if (form.wall < 0 || form.wall >= static_cast<int>(value.elements.size())
-            || value.elements[form.wall].kind != Element::Kind::Wall) {
+        // a wall's, or a gusset's bend's
+        if (form.wall < 0 || form.wall >= static_cast<int>(value.elements.size())) {
             FC_THROWM(Base::IndexError,
                       "Sheet metal: " << form.name << " is on element " << form.wall
-                                      << ", which is no wall");
+                                      << ", which is no wall or bend");
         }
         value.forms.push_back(form);
     }

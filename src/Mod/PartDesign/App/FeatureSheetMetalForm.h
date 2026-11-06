@@ -51,8 +51,11 @@ namespace PartDesign
  * open at its top; "FlangedHole", a hole Diameter across, its rim drawn up
  * into a straight collar Depth high; "Emboss", a flat-topped rounded
  * rectangle Length by Width, its corners CornerRadius round, where it
- * leaves the face. The built-in ones' sizes start from the rule's
- * thickness.
+ * leaves the face; "Gusset", the one form across a bend, Face a bend's: a
+ * rib pressed in from its outside at each point's place along its axis,
+ * its face across the inside corner Length along each wall from their
+ * sharp, Width wide, its ends sloping back at FlankAngle, owned by the bend.
+ * The built-in ones' sizes start from the rule's thickness.
  * Each is a form of the sheet's model (SheetMetal::Form), owned by its wall.
  */
 class PartDesignExport SheetMetalForm : public PartDesign::Feature, public SheetMetalExtension

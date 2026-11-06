@@ -1761,6 +1761,38 @@ stored flat and this option do what it was for.
   `TestSheetMetalForm` (30; before, 7 errors), `testEmboss`, `testEmbossSharp`,
   `testEmbossRefused`, and `testSizesFromThickness` now with `CornerRadius`;
   `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
+- **Built 2026-11-06, the gusset, the last of the built-in forms** (its four points as recommended
+  and taken 2026-11-06): Kind `Gusset`, the only form across a bend. `Face` is a bend's; at each
+  point of `Positions`, its place along the bend's axis, a rib is pressed in from the bend's
+  outside, its face a plane across the inside corner `Length` along each wall from their virtual
+  sharp, `Width` wide there, its ends sloping back at `FlankAngle`, the thickness all through it,
+  open behind; `Depth`, `Angle` and `Reversed` greyed out. It is owned by the bend (`Form::wall` the
+  bend's index), its region a box in a frame at the sharp, Z into the corner. Its outside lies on
+  the walls' inner skins, not inside them as the louver's: the walls' material is on the skins'
+  other side, so the join splits no skin, and pushed in, the outside's corner stood out past the
+  bend's outer skin. Where the walls' virtual sharp is behind the bend's outer skin (R over about
+  2.4 T at 90 deg, or near 180 deg) the outside is clipped to it, what of the bend's corner sector
+  lies past R + T from its axis taken away: its corner stood out past the bend there, and its ends
+  left slivers behind it that would not round (`testGussetSharpBehindTheBend`, found trying angles
+  and radii). Rounded concentric in two steps, its outside's bends first (where its face and ends
+  leave the walls and the bend behind, and the ridges in front) of `Radius` and the thickness, then
+  its inside's of `Radius`; both at once, or the inside's first, OCCT does not round them (tried).
+  In the flat no wall carries it, and a bend's skins it crosses are notched, not holed, so the
+  louver's closing over does not serve: each gusset's box is put back as the bend and its walls
+  were, plain (`plainAtGussets()` in `SheetMetal/Flat.cpp`: the box cut away, the bend's and the
+  walls' sections run through it and fused in, the faces the box parted made one again, every edge
+  the part had kept so its coplanar ends stay apart), the faces named after a folded face each was
+  made of (the history), and its outline is its footprint on the skins it rises from, mapped through
+  each one's wall's placement or the bend's exact unrolling; its centre mark a cross on the bend's
+  inner skin. Formed shows its outline too. Anything else cut in its box is lost from the flat. The
+  Form command makes a gusset of a bend's (curved) face. Refused: a face no bend's, a bend of 0 or
+  180 deg, `Length` no more than R tan(A / 2) (not reaching past the bend), no room behind its face,
+  past a wall's end or off the bend's length, a size of 0. Found with it, the model's restore
+  refused a form on anything but a wall, so a saved gusset lost its forms (`PropertySheetModel`; a
+  wall's or a bend's now). `TestSheetMetalForm` (35; before, 30), `testGusset`,
+  `testGussetSharpBehindTheBend`, `testGussetSaveRestore`, `testGussetSharp`, `testGussetRefused`;
+  `sheet-metal-commands.py` (+1; before, a bend's face made a dimple, refused),
+  `sheet-metal-panels.py` (+1; before, an abort).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

@@ -76,6 +76,7 @@
 
 using namespace PartDesign;
 using Part::TopoShape;
+using SheetMetal::CylBend;
 using SheetMetal::Element;
 using SheetMetal::Form;
 using SheetMetal::Model;
@@ -83,7 +84,8 @@ using SheetMetal::Model;
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalForm, PartDesign::Feature)
 
 const char* SheetMetalForm::KindEnums[] =
-    {"Tool", "Dimple", "Louver", "Bead", "Lance", "DrawnCutout", "FlangedHole", "Emboss", nullptr};
+    {"Tool", "Dimple", "Louver", "Bead", "Lance", "DrawnCutout", "FlangedHole", "Emboss", "Gusset",
+     nullptr};
 
 namespace
 {
@@ -665,6 +667,226 @@ int roundLouver(BRepFilletAPI_MakeFillet& fillet,
     return count;
 }
 
+/// A gusset across a bend: a rib pressed in from the bend's outside, its
+/// face a plane across the inside corner, l along each wall from their
+/// virtual sharp, w wide there, its ends sloping back from it at phi; the
+/// thickness all through it, open behind. Its bends rounded afterwards
+/// (roundGusset()).
+struct Gusset
+{
+    double l, w, phi, rho, T;
+};
+
+/// A plane by a point of it and its outward normal
+using Plane = std::pair<gp_Pnt, gp_Dir>;
+
+/// A gusset's planes, its outside's and its inside's, each the face, the
+/// two ends and the two walls' skins
+struct GussetPlanes
+{
+    std::array<Plane, 5> outer, inner;
+};
+
+struct GussetPressed
+{
+    Pressed pressed;
+    GussetPlanes planes;
+};
+
+/// The solid behind all the planes
+TopoDS_Shape behindAll(const std::array<Plane, 5>& planes, double size, const char* what)
+{
+    TopoDS_Shape res;
+    for (const auto& [p, n] : planes) {
+        const TopoDS_Shape half = behind(p, n, size);
+        if (res.IsNull()) {
+            res = half;
+            continue;
+        }
+        BRepAlgoAPI_Common common(res, half);
+        common.Build();
+        if (!common.IsDone()) {
+            FC_THROWM(Base::CADKernelError, "The " << what << " could not be made");
+        }
+        res = common.Shape();
+    }
+    return res;
+}
+
+/// The gusset at the point p's place along the bend's axis
+GussetPressed pressGusset(const Gusset& g, const Model& model, int bend, const gp_Pnt& p)
+{
+    const Element& element = model.elements[bend];
+    const CylBend& b = element.bend;
+    const double R = b.radius, A = b.angle, T = g.T;
+    if (A < 1e-3 || A > std::numbers::pi - 1e-3) {
+        THROWM(Base::ValueError, "A gusset goes across a bend of more than 0 and less than 180 deg");
+    }
+    if (g.l <= 0 || g.w <= 0) {
+        THROWM(Base::ValueError, "A gusset's length and width are above 0");
+    }
+    if (g.l <= R * std::tan(A / 2) + Precision::Confusion()) {
+        FC_THROWM(Base::ValueError,
+                  "A gusset reaches past the bend onto its walls: Length above "
+                      << R * std::tan(A / 2));
+    }
+    // its face's way back from the sharp, toward the bend's axis
+    const double e = g.l * std::sin(A / 2);
+    if (e - T <= Precision::Confusion()) {
+        THROWM(Base::ValueError, "A gusset that short has no room behind its face for the thickness");
+    }
+    const gp_Ax3& f = b.frame;
+    const gp_Vec x0(f.XDirection()), y0(f.YDirection()), a(f.Direction());
+    const gp_Vec toSharp = x0 * std::cos(A / 2) + y0 * std::sin(A / 2);
+    const gp_Pnt o = f.Location().Translated(a * gp_Vec(f.Location(), p).Dot(a));
+    const gp_Pnt sharp = o.Translated(toSharp * (R / std::cos(A / 2)));
+    const gp_Dir u(-toSharp);
+    // the walls' inner skins' ways from the sharp, and into their material
+    const gp_Dir dA(-y0);
+    const gp_Dir dB(gp_Vec(sharp, o.Translated(x0 * (R * std::cos(A)) + y0 * (R * std::sin(A)))));
+    const gp_Dir nA(x0), nB(x0 * std::cos(A) + y0 * std::sin(A));
+    const gp_Dir n1(a * std::sin(g.phi) + gp_Vec(u) * std::cos(g.phi));
+    const gp_Dir n2(a * -std::sin(g.phi) + gp_Vec(u) * std::cos(g.phi));
+    // the face moved back by in, the ends in by in, the walls' planes into
+    // their material by wall
+    auto planes = [&](double in, double wall) {
+        const gp_Pnt face = sharp.Translated(gp_Vec(u) * e);
+        return std::array<Plane, 5> {
+            Plane {face.Translated(gp_Vec(u) * -in), u},
+            Plane {face.Translated(a * (g.w / 2) - gp_Vec(n1) * in), n1},
+            Plane {face.Translated(a * (-g.w / 2) - gp_Vec(n2) * in), n2},
+            Plane {sharp.Translated(gp_Vec(nA) * wall), nA},
+            Plane {sharp.Translated(gp_Vec(nB) * wall), nB},
+        };
+    };
+    // as far along the axis as its ends reach, at the walls' outer skins
+    const double half = g.w / 2 + (e + 3 * T) / std::tan(g.phi) + g.rho + T;
+    const double size = 4 * (g.l + half + R + 3 * T) + 1;
+    GussetPressed res;
+    res.planes.outer = planes(0, 0);
+    res.planes.inner = planes(T, T);
+    // its outside on the walls' inner skins: the walls' material is on their
+    // other side, so the join leaves no skin split; the hollow from past the
+    // walls' outer skins
+    res.pressed.outside = behindAll(planes(0, 0), size, "gusset");
+    res.pressed.cuts.push_back(behindAll(planes(T, 2 * T), size, "gusset"));
+    if (R / std::cos(A / 2) > R + T - Precision::Confusion()) {
+        // The sharp behind the bend's outer skin (a bend R more than about
+        // 2.4 T at 90 deg, or near 180 deg): the outside's corner there
+        // stands out past the bend, and its ends' slabs left slivers behind
+        // it. Clipped to the outer skin: what of the bend's corner sector is
+        // past R + T from its axis taken away.
+        const gp_Dir toEnd(x0 * std::sin(A) - y0 * std::cos(A));
+        const std::array<Plane, 2> sector {Plane {o, gp_Dir(-y0)}, Plane {o, toEnd.Reversed()}};
+        TopoDS_Shape wedge = behind(sector[0].first, sector[0].second, size);
+        BRepAlgoAPI_Common within(wedge, behind(sector[1].first, sector[1].second, size));
+        within.Build();
+        const TopoDS_Shape skin =
+            BRepPrimAPI_MakeCylinder(gp_Ax2(o.Translated(a * (-size / 2)), gp_Dir(a)), R + T, size)
+                .Shape();
+        BRepAlgoAPI_Cut past(within.Shape(), skin);
+        past.Build();
+        BRepAlgoAPI_Cut clipped(res.pressed.outside, past.Shape());
+        clipped.Build();
+        if (!within.IsDone() || !past.IsDone() || !clipped.IsDone()) {
+            THROWM(Base::CADKernelError, "The gusset could not be made");
+        }
+        res.pressed.outside = clipped.Shape();
+    }
+
+    // all of it on its bend and its walls
+    const double reach = g.rho + T;
+    const std::pair<int, gp_Pnt> on[] = {
+        {element.before, sharp.Translated(gp_Vec(dA) * (g.l + reach) + gp_Vec(nA) * (T / 2))},
+        {element.after, sharp.Translated(gp_Vec(dB) * (g.l + reach) + gp_Vec(nB) * (T / 2))},
+        {bend, o.Translated(toSharp * (R + T / 2) + a * half)},
+        {bend, o.Translated(toSharp * (R + T / 2) - a * half)},
+    };
+    for (const auto& [k, q] : on) {
+        if (k < 0 || !model.contains(k, q, 1e-6)) {
+            FC_THROWM(Base::ValueError,
+                      "A gusset at (" << p.X() << ", " << p.Y() << ", " << p.Z() << ") runs off "
+                                      << (k < 0 ? element.name : model.elements[k].name));
+        }
+    }
+    // what it takes of the part: its box in its frame, the face its Z
+    Form& form = res.pressed.form;
+    form.frame = gp_Ax3(sharp, u, gp_Dir(a));
+    gp_Trsf toFrame;
+    toFrame.SetTransformation(form.frame);
+    Bnd_Box box;
+    for (const TopoDS_Shape& s : {res.pressed.outside, res.pressed.cuts.front()}) {
+        BRepBndLib::AddOptimal(BRepBuilderAPI_Transform(s, toFrame, true).Shape(), box, false,
+                               false);
+    }
+    double x0b, y0b, z0b, x1b, y1b, z1b;
+    box.Get(x0b, y0b, z0b, x1b, y1b, z1b);
+    form.halfLength = std::min(std::max(std::abs(x0b), std::abs(x1b)), half) + reach;
+    form.halfWidth = std::max(std::abs(y0b), std::abs(y1b)) + reach;
+    form.zMin = std::max(z0b, -(R + 3 * T)) - reach;
+    form.zMax = e + reach;
+    return res;
+}
+
+/// The gusset's bends rounded, added to fillet; how many. Its outside's
+/// first, concentric -- where its face and its ends leave the walls and the
+/// bend behind, and the ridges between its face and its ends in front --
+/// of Radius and the thickness; then its inside's, of Radius. Both at once,
+/// or the inside's first, OCCT does not round them.
+int roundGusset(BRepFilletAPI_MakeFillet& fillet,
+                const TopoDS_Shape& shape,
+                const Gusset& g,
+                const GussetPlanes& planes,
+                const Form& form,
+                int step)
+{
+    if (g.rho <= 0 || step > 1) {
+        return 0;
+    }
+    const auto& outer = planes.outer;
+    const auto& inner = planes.inner;
+    const double tol = 1e-6;
+    int count = 0;
+    TopTools_IndexedMapOfShape edges;
+    TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+    for (int i = 1; i <= edges.Extent(); ++i) {
+        const TopoDS_Edge& edge = TopoDS::Edge(edges(i));
+        BRepAdaptor_Curve c(edge);
+        const double u0 = c.FirstParameter(), u1 = c.LastParameter();
+        const gp_Pnt at[] = {c.Value(u0), c.Value((u0 + u1) / 2), c.Value(u1)};
+        if (!std::all_of(std::begin(at), std::end(at), [&](const gp_Pnt& q) {
+                return form.contains(q, tol);
+            })) {
+            continue;
+        }
+        auto lies = [&](const Plane& plane) {
+            return std::all_of(std::begin(at), std::end(at), [&](const gp_Pnt& q) {
+                return std::abs(gp_Vec(plane.first, q).Dot(gp_Vec(plane.second))) < tol;
+            });
+        };
+        auto onEnd = [&](const std::array<Plane, 5>& pl) {
+            return lies(pl[1]) || lies(pl[2]);
+        };
+        auto onWall = [&](const std::array<Plane, 5>& pl) {
+            return lies(pl[3]) || lies(pl[4]);
+        };
+        bool add = false;
+        if (step == 0) {
+            add = (lies(inner[0]) && onWall(inner)) || (lies(outer[0]) && onEnd(outer))
+                || (onEnd(inner) && !lies(inner[0]));
+        }
+        else {
+            add = (lies(outer[0]) && onWall(outer)) || (lies(inner[0]) && onEnd(inner))
+                || (onEnd(outer) && !lies(outer[0]));
+        }
+        if (add) {
+            fillet.Add(step == 0 ? g.rho + g.T : g.rho, edge);
+            ++count;
+        }
+    }
+    return count;
+}
+
 /// Points around what a form takes of the part, at the middle of the wall
 std::vector<gp_Pnt> around(const Form& form, double T)
 {
@@ -703,7 +925,8 @@ SheetMetalForm::SheetMetalForm()
                       "Sheet Metal",
                       App::Prop_None,
                       "Tool: Tool's shape, set on its face, as the form's outside; Dimple, "
-                      "Louver, Bead, Lance, DrawnCutout, FlangedHole, Emboss: a built-in one");
+                      "Louver, Bead, Lance, DrawnCutout, FlangedHole, Emboss, Gusset: a "
+                      "built-in one");
     Kind.setEnums(KindEnums);
     ADD_PROPERTY_TYPE(Face,
                       (nullptr),
@@ -752,20 +975,22 @@ SheetMetalForm::SheetMetalForm()
                       "Form",
                       App::Prop_None,
                       "Kind Dimple, Bead, DrawnCutout, Emboss: the slant of its side from the "
-                      "face, up to 90 deg; Louver: its ends'");
+                      "face, up to 90 deg; Louver, Gusset: its ends'");
     FlankAngle.setConstraints(&flankRange);
     ADD_PROPERTY_TYPE(Length,
                       (20.0),
                       "Form",
                       App::Prop_None,
                       "Kind Louver, Lance: along the form's X; Bead, DrawnCutout, Emboss: along "
-                      "it end to end, where it leaves the face");
+                      "it end to end, where it leaves the face; Gusset: along each wall from "
+                      "their sharp");
     ADD_PROPERTY_TYPE(Width,
                       (6.0),
                       "Form",
                       App::Prop_None,
                       "Kind Louver, Lance: from its hinge to its opening, which faces the "
-                      "form's Y; Emboss: across it, where it leaves the face");
+                      "form's Y; Emboss: across it, where it leaves the face; Gusset: across, "
+                      "along the bend, at its face");
     ADD_PROPERTY_TYPE(CornerRadius,
                       (3.0),
                       "Form",
@@ -792,17 +1017,19 @@ void SheetMetalForm::onChanged(const App::Property* prop)
         const int kind = Kind.getValue();
         Tool.setStatus(App::Property::ReadOnly, kind != 0);
         // by kind: Tool 0, Dimple 1, Louver 2, Bead 3, Lance 4, DrawnCutout 5,
-        // FlangedHole 6, Emboss 7
+        // FlangedHole 6, Emboss 7, Gusset 8
         auto in = [kind](std::initializer_list<int> kinds) {
             return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
         };
         Diameter.setStatus(App::Property::ReadOnly, !in({1, 3, 5, 6}));
-        for (App::Property* p : std::initializer_list<App::Property*> {&Depth, &Radius}) {
-            p->setStatus(App::Property::ReadOnly, kind == 0);
-        }
-        FlankAngle.setStatus(App::Property::ReadOnly, !in({1, 2, 3, 5, 7}));
-        Length.setStatus(App::Property::ReadOnly, !in({2, 3, 4, 5, 7}));
-        Width.setStatus(App::Property::ReadOnly, !in({2, 4, 7}));
+        Depth.setStatus(App::Property::ReadOnly, kind == 0 || kind == 8);
+        Radius.setStatus(App::Property::ReadOnly, kind == 0);
+        // a gusset is pressed in from the bend's outside, the one way
+        Reversed.setStatus(App::Property::ReadOnly, kind == 8);
+        Angle.setStatus(App::Property::ReadOnly, kind == 8);
+        FlankAngle.setStatus(App::Property::ReadOnly, !in({1, 2, 3, 5, 7, 8}));
+        Length.setStatus(App::Property::ReadOnly, !in({2, 3, 4, 5, 7, 8}));
+        Width.setStatus(App::Property::ReadOnly, !in({2, 4, 7, 8}));
         CornerRadius.setStatus(App::Property::ReadOnly, kind != 7);
     }
     // The built-in sizes start from the sheet's thickness, once, when the
@@ -866,17 +1093,8 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
         }
         const TopoDS_Face face = TopoDS::Face(sub);
         const int wall = model.owner(face);
-        if (wall < 0 || model.elements[wall].kind != Element::Kind::Wall
-            || BRepAdaptor_Surface(face).GetType() != GeomAbs_Plane) {
-            FC_THROWM(Base::ValueError,
-                      "Face " << shadows.front().second
-                              << " is no wall's skin: a form goes on a wall");
-        }
-        const gp_Dir normal = outerNormal(face);
-        const gp_Pln plane = BRepAdaptor_Surface(face).Plane();
-        const gp_Dir rise = Reversed.getValue() ? normal.Reversed() : normal;
 
-        // where: the sketch's points, its X turned by Angle for the forms'
+        // where: the sketch's points
         auto sketch = Base::freecad_dynamic_cast<Part::Feature>(Positions.getValue());
         if (!sketch) {
             THROWM(Base::ValueError, "A form takes a sketch of its points: Positions");
@@ -892,6 +1110,101 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
         if (points.empty()) {
             FC_THROWM(Base::ValueError, sketch->getFullLabel() << " has no point for a form");
         }
+
+        std::vector<TopoShape> adds;
+        std::vector<TopoShape> cuts;
+        const auto hasher = getDocument()->getStringHasher();
+        // each built-in form's bends, rounded once they are all in the part,
+        // in steps: the form's bends of each step added to that step's
+        using Round = std::function<int(BRepFilletAPI_MakeFillet&, const TopoDS_Shape&, int)>;
+        std::vector<Round> rounds;
+        const int steps = 2;
+        // the forms pressed in, their bends rounded, the model with them
+        auto finish = [&]() {
+            std::vector<TopoShape> fuse {base};
+            fuse.insert(fuse.end(), adds.begin(), adds.end());
+            TopoShape fused(0, hasher);
+            fused.makEBoolean(Part::OpCodes::Fuse, fuse);
+            std::vector<TopoShape> cut {fused};
+            cut.insert(cut.end(), cuts.begin(), cuts.end());
+            TopoShape res(0, hasher);
+            res.makEBoolean(Part::OpCodes::Cut, cut);
+            if (res.countSubShapes(TopAbs_SOLID) != 1) {
+                THROWM(Base::ValueError, "The forms left the sheet in pieces");
+            }
+            res = getSolid(res);
+            for (int step = 0; step < steps && !rounds.empty(); ++step) {
+                BRepFilletAPI_MakeFillet fillet(res.getShape());
+                int count = 0;
+                for (const auto& round : rounds) {
+                    count += round(fillet, res.getShape(), step);
+                }
+                if (count > 0) {
+                    try {
+                        fillet.Build();
+                    }
+                    catch (const Standard_Failure&) {
+                    }
+                    if (!fillet.IsDone()) {
+                        std::string kind = Kind.getValueAsString();
+                        kind[0] = static_cast<char>(std::tolower(kind[0]));
+                        FC_THROWM(Base::ValueError,
+                                  "The " << kind
+                                         << "'s bends cannot be rounded that much: a smaller "
+                                            "Radius, or a larger form");
+                    }
+                    TopoShape rounded(0, hasher);
+                    rounded.makESHAPE(fillet.Shape(), Part::MapperMaker(fillet), {res},
+                                      Part::OpCodes::Fillet);
+                    res = getSolid(rounded);
+                }
+            }
+            Shape.setValue(res);
+            SheetModel.setValue(model);
+        };
+
+        // a gusset goes across a bend, the only form that does
+        if (Kind.getValue() == 8) {
+            if (wall < 0 || model.elements[wall].kind != Element::Kind::Bend) {
+                FC_THROWM(Base::ValueError,
+                          "Face " << shadows.front().second
+                                  << " is no bend's: a gusset goes across a bend");
+            }
+            const Gusset g {Length.getValue(),
+                            Width.getValue(),
+                            Base::toRadians(FlankAngle.getValue()),
+                            Radius.getValue(),
+                            T};
+            for (const gp_Pnt& p : points) {
+                GussetPressed made = pressGusset(g, model, wall, p);
+                Form& form = made.pressed.form;
+                form.name = "Form" + std::to_string(model.forms.size() + 1);
+                form.wall = wall;
+                model.forms.push_back(form);
+                adds.emplace_back(made.pressed.outside);
+                for (const TopoDS_Shape& cut : made.pressed.cuts) {
+                    cuts.emplace_back(cut);
+                }
+                rounds.emplace_back([g, planes = made.planes, form](BRepFilletAPI_MakeFillet& f,
+                                                                    const TopoDS_Shape& s,
+                                                                    int step) {
+                    return roundGusset(f, s, g, planes, form, step);
+                });
+            }
+            finish();
+            return App::DocumentObject::StdReturn;
+        }
+        if (wall < 0 || model.elements[wall].kind != Element::Kind::Wall
+            || BRepAdaptor_Surface(face).GetType() != GeomAbs_Plane) {
+            FC_THROWM(Base::ValueError,
+                      "Face " << shadows.front().second
+                              << " is no wall's skin: a form goes on a wall");
+        }
+        const gp_Dir normal = outerNormal(face);
+        const gp_Pln plane = BRepAdaptor_Surface(face).Plane();
+        const gp_Dir rise = Reversed.getValue() ? normal.Reversed() : normal;
+
+        // the forms' X: the sketch's, turned by Angle
         Base::Vector3d sx(1, 0, 0);
         sketch->Placement.getValue().getRotation().multVec(sx, sx);
         gp_Dir xDir;
@@ -929,14 +1242,6 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
             }
         }
 
-        std::vector<TopoShape> adds;
-        std::vector<TopoShape> cuts;
-        const auto hasher = getDocument()->getStringHasher();
-        // each built-in form's bends, rounded once they are all in the part,
-        // in steps: the form's bends of each step added to that step's
-        using Round = std::function<int(BRepFilletAPI_MakeFillet&, const TopoDS_Shape&, int)>;
-        std::vector<Round> rounds;
-        const int steps = 2;
         for (const gp_Pnt& p : points) {
             // onto the face, and in it
             const double off = gp_Vec(plane.Location(), p).Dot(gp_Vec(plane.Axis().Direction()));
@@ -1051,46 +1356,7 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
             }
         }
 
-        std::vector<TopoShape> fuse {base};
-        fuse.insert(fuse.end(), adds.begin(), adds.end());
-        TopoShape fused(0, hasher);
-        fused.makEBoolean(Part::OpCodes::Fuse, fuse);
-        std::vector<TopoShape> cut {fused};
-        cut.insert(cut.end(), cuts.begin(), cuts.end());
-        TopoShape res(0, hasher);
-        res.makEBoolean(Part::OpCodes::Cut, cut);
-        if (res.countSubShapes(TopAbs_SOLID) != 1) {
-            THROWM(Base::ValueError, "The forms left the sheet in pieces");
-        }
-        res = getSolid(res);
-        for (int step = 0; step < steps && !rounds.empty(); ++step) {
-            BRepFilletAPI_MakeFillet fillet(res.getShape());
-            int count = 0;
-            for (const auto& round : rounds) {
-                count += round(fillet, res.getShape(), step);
-            }
-            if (count > 0) {
-                try {
-                    fillet.Build();
-                }
-                catch (const Standard_Failure&) {
-                }
-                if (!fillet.IsDone()) {
-                    std::string kind = Kind.getValueAsString();
-                    kind[0] = static_cast<char>(std::tolower(kind[0]));
-                    FC_THROWM(Base::ValueError,
-                              "The " << kind
-                                     << "'s bends cannot be rounded that much: a smaller "
-                                        "Radius, or a larger form");
-                }
-                TopoShape rounded(0, hasher);
-                rounded.makESHAPE(fillet.Shape(), Part::MapperMaker(fillet), {res},
-                                  Part::OpCodes::Fillet);
-                res = getSolid(rounded);
-            }
-        }
-        Shape.setValue(res);
-        SheetModel.setValue(model);
+        finish();
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

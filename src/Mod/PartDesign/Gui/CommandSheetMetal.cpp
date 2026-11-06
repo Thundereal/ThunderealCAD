@@ -39,6 +39,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <BRepAdaptor_Surface.hxx>
 #include <TopoDS.hxx>
 
 #include <App/Document.h>
@@ -56,6 +57,7 @@
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/App/Part2DObject.h>
+#include <Mod/Part/App/PartFeature.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
@@ -1203,9 +1205,9 @@ void CmdPartDesignSheetMetalForm::activated(int iMsg)
     }
     if (face.empty() || !positions) {
         warn(QT_TR_NOOP("Nothing to form"),
-             QT_TR_NOOP("Select the face of a wall on the body's tip the forms rise out of, and "
-                        "a sketch of their points; and a face of a tool to press that, which "
-                        "sits on the wall."));
+             QT_TR_NOOP("Select the face of a wall on the body's tip the forms rise out of, or "
+                        "of a bend for a gusset, and a sketch of their points; and a face of a "
+                        "tool to press that, which sits on the wall."));
         return;
     }
     openCommand(QT_TRANSLATE_NOOP("Command", "Create Form"));
@@ -1224,7 +1226,14 @@ void CmdPartDesignSheetMetalForm::activated(int iMsg)
                                                << toolFace << "'])");
     }
     else {
-        Gui::cmdAppObject(feat, std::ostringstream() << "Kind = 'Dimple'");
+        // a bend's face, curved, takes a gusset across it; a wall's a dimple
+        const TopoDS_Shape picked =
+            Part::Feature::getTopoShape(tip).getSubShape(face.c_str(), true);
+        const bool curved = !picked.IsNull() && picked.ShapeType() == TopAbs_FACE
+            && BRepAdaptor_Surface(TopoDS::Face(picked)).GetType() == GeomAbs_Cylinder;
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "Kind = '" << (curved ? "Gusset" : "Dimple")
+                                               << "'");
     }
     FCMD_OBJ_HIDE(positions);
     finishFeature(this, feat, tip);

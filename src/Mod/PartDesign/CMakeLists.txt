@@ -92,6 +92,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestSheetMetalStarter.py
     PartDesignTests/TestSheetMetalForm.py
     PartDesignTests/TestSheetMetalTabSlot.py
+    PartDesignTests/TestSheetMetalLoftedFlange.py
     PartDesignTests/TestSheetMetalConvert.py
     PartDesignTests/SheetMetalFlatView.py
     PartDesignTests/TestSheetMetalPart.py

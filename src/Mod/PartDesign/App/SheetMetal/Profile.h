@@ -45,8 +45,21 @@ namespace PartDesign::SheetMetal
  */
 PartDesignExport std::vector<gp_Pnt> linePoints(const TopoDS_Wire& wire, const std::string& what);
 
-/// Drops a point between two lines going on in one direction
-PartDesignExport void dropStraight(std::vector<gp_Pnt>& points);
+/** The lines and arcs of an open wire as its corners in order: an arc
+ * (the rolled wall's, docs/SheetMetal.md sec 5.1, M5), tangent to a line
+ * either side and turning less than 180 deg, is a corner at its lines'
+ * virtual sharp, its radius as drawn in arcs at that corner's index (0 at
+ * a corner of two lines). what names the sketch in the errors: an edge
+ * neither, an arc at either end of the chain, two with no line between,
+ * one not tangent or of 180 deg or more
+ */
+PartDesignExport std::vector<gp_Pnt>
+profilePoints(const TopoDS_Wire& wire, const std::string& what, std::vector<double>& arcs);
+
+/// Drops a point between two lines going on in one direction, and its arc
+/// if arcs are given
+PartDesignExport void dropStraight(std::vector<gp_Pnt>& points,
+                                   std::vector<double>* arcs = nullptr);
 
 /** A sheet along a chain of lines on a plane (docs/SheetMetal.md sec 5.1's
  * profile wall): a wall on each line, a bend of the radius at each corner,
@@ -78,6 +91,10 @@ struct PartDesignExport ProfileBuilder
     /// the first bend made, -1 for none; every element made
     int firstBend = -1;
     std::vector<int> added;
+    /// at each corner drawn as an arc, its radius as drawn (profilePoints()):
+    /// its bend that radius on the sketch's line, not the radius; 0 or none
+    /// for a corner of two lines
+    std::vector<double> arcs;
 
     std::string nextWall()
     {
@@ -101,10 +118,10 @@ struct PartDesignExport ProfileBuilder
      * skins), 1 inside, 2 middle.
      */
     void closedProfile(std::vector<gp_Pnt> p, const gp_Dir& n, int side);
-    /// A bend about the axis through c along n, from the wall before (its
-    /// left l) through the turn
+    /// A bend of inner radius r about the axis through c along n, from the
+    /// wall before (its left l) through the turn
     void bend(const gp_Pnt& c, const gp_Dir& l, const gp_Dir& n, double turn, int before,
-              int after);
+              int after, double r);
 
 private:
     /// the turn at each corner, signed about n, and each line's way

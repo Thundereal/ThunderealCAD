@@ -1812,6 +1812,22 @@ stored flat and this option do what it was for.
   have their sizes. `TestSheetMetalTabSlot` (6; before, 0), `sheet-metal-commands.py` (107, +4: the
   tool bar twice, each command), `sheet-metal-panels.py` (94, +4), the browser's tool bar lists them
   (`serve-toolbar-browser.py` 21, `serve-sheet-metal.py` 21).
+- **Built 2026-11-06, M5's fourth item, the rolled wall, its first step** (as recommended and taken
+  2026-11-06): an arc in a base wall's open profile, tangent to a line either side and turning less
+  than 180 deg, is a bend of its own radius, a cylinder about the arc's axis, unrolled exactly as
+  any bend; no element of a new kind. `SheetMetal::profilePoints()` reads the profile's lines and
+  arcs as corners, each arc at its lines' virtual sharp (R tan(sweep / 2) along its way in from its
+  start) with its radius as drawn, and `ProfileBuilder::arcs` carries that radius to the corner: the
+  bend's inner radius is the drawn one less the material's side of the sketch's line (the arc's
+  radius on the inner skin, Outside; the thickness less on the outer, Inside; half of it, Middle;
+  which skin by the way the arc turns), so the walls' straight parts are as drawn. A corner of two
+  lines keeps the radius (the rule's, or the wall's own `BendRadius`); an arc keeps its own.
+  Refused, saying which arc: one at either end of the chain, two with no line between, one not
+  tangent, one of 180 deg or more (split it in two), one too tight for the thickness on its side; a
+  tube's profile is still lines only. Not yet: arcs in a contour flange's chain, and the revolved,
+  conical wall, which waits for the conical element of the lofted flange. `TestSheetMetalBaseWall`
+  (19; before, 16): `testRolledArc`, `testRolledArcInside`, `testRolledAndSharp`,
+  `testRolledRefused`.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

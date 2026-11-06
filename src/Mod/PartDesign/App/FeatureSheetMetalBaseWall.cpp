@@ -210,13 +210,14 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
                     tube ? "A tube takes one closed line chain"
                          : "A profile wall takes one open line chain, or closed profiles"));
             }
-            auto points = SheetMetal::linePoints(TopoDS::Wire(wires.front().getShape()),
-                                                 tube ? "A tube" : "A profile wall");
+            const TopoDS_Wire wire = TopoDS::Wire(wires.front().getShape());
             if (tube) {
-                build.closedProfile(points, normal, side);
+                build.closedProfile(SheetMetal::linePoints(wire, "A tube"), normal, side);
             }
             else {
-                SheetMetal::dropStraight(points);
+                // its arcs rolled, bends of their own radius (M5)
+                auto points = SheetMetal::profilePoints(wire, "A profile wall", build.arcs);
+                SheetMetal::dropStraight(points, &build.arcs);
                 build.profile(points, normal, side);
             }
 

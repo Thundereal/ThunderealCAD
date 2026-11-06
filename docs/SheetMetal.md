@@ -1734,6 +1734,21 @@ stored flat and this option do what it was for.
   sheet (`Depth` the thickness over the cosine of its slope or less), a rule's gap of 0.
   `TestSheetMetalForm` (23; before, 20), `testLance`, `testLanceSharp`, `testLanceRefused`;
   `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
+- **Built 2026-11-06, the drawn cutout and the flanged hole:** each a dimple open at its top,
+  its hollow run on past the top so the floor is cut away, only its rim's bends rounded
+  (concentric). Kind `DrawnCutout`: `Diameter` across and `Length` end to end where it leaves
+  the face, round when they are equal and drawn out along the form's X as a bead when longer,
+  `Depth`, `FlankAngle`, `Radius`. Kind `FlangedHole`: a hole `Diameter` across, its rim drawn up
+  into a straight collar (`FlankAngle` 90 deg, its outside the thickness wider) `Depth` above the
+  face; `Length`, `Width` and `FlankAngle` greyed out. Refused: a drawn cutout shorter than it is
+  wide or with no room at its top for the thickness, a collar no higher than its bend (`Depth` at
+  most `Radius`), a size of 0. Found with it: the dimple family's outside started at the other
+  skin, splitting it, and at 60 deg the ring left beside the hollow was too thin for `owner()`
+  to find a point in, so the flat refused it ("Face10 is in no wall or bend"); the dimple's, at
+  45 deg, was wide enough to pass. It starts inside the wall now, as the louver's. The solid is
+  the same; the bottom skin is one face. `TestSheetMetalForm` (27; before, 23),
+  `testDrawnCutout`, `testDrawnCutoutLong`, `testFlangedHole`, `testDrawnRefused`;
+  `sheet-metal-panels.py` (+2; before, an abort at the unknown kind).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

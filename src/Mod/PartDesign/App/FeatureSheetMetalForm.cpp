@@ -24,11 +24,13 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
 #include <functional>
 #include <numbers>
+#include <span>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -79,7 +81,8 @@ using SheetMetal::Model;
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalForm, PartDesign::Feature)
 
-const char* SheetMetalForm::KindEnums[] = {"Tool", "Dimple", "Louver", "Bead", "Lance", nullptr};
+const char* SheetMetalForm::KindEnums[] =
+    {"Tool", "Dimple", "Louver", "Bead", "Lance", "DrawnCutout", "FlangedHole", nullptr};
 
 namespace
 {
@@ -197,7 +200,9 @@ Pressed pressTool(const TopoDS_Shape& tool,
 /// leaves the face, the hollow's opened through the wall; its bends rounded
 /// afterwards (roundDimple()). A bead is a dimple drawn out along the
 /// frame's X, straight for 2 s between its round ends: its sides planes,
-/// its ends half cones.
+/// its ends half cones. A drawn cutout is either open at its top, its floor
+/// cut away, only its rim's bend rounded; a flanged hole is a round one at
+/// 90 deg, a collar.
 struct Dimple
 {
     double r0;      // where the outside leaves the face
@@ -206,6 +211,8 @@ struct Dimple
     double rho;     // the bends' inside radius
     double T;
     double s = 0;   // a bead's straight part, half of it
+    bool open = false;
+    const char* what = "dimple";
 
     /// how far a point of the frame's XY is from the straight part's line
     double from(const gp_Pnt& q) const
@@ -274,7 +281,7 @@ TopoDS_Shape drawn(const gp_Ax3& frame, double s, double z0, double r0, double z
 
 Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
 {
-    const char* what = d.s > 0 ? "bead" : "dimple";
+    const char* what = d.what;
     if (d.r0 <= 0 || d.h <= 0) {
         FC_THROWM(Base::ValueError, "A " << what << "'s diameter and depth are above 0");
     }
@@ -283,20 +290,33 @@ Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
                   "A " << what << " " << 2 * d.r0 << " mm across cannot rise " << d.h
                        << " mm at its slant: it closes to a point first");
     }
-    if (d.inside(d.h - d.T) <= Precision::Confusion()) {
+    // its hollow's top: under its own, or, open, past it, its floor cut away
+    double top = d.h - d.T;
+    if (d.open) {
+        if (d.inside(d.h) <= Precision::Confusion()) {
+            FC_THROWM(Base::ValueError,
+                      "A " << what << " that narrow has no room at its top for the thickness");
+        }
+        // as far past the top as its hollow stays open, the thickness at most
+        top = d.h + std::min(d.T, d.inside(d.h) * std::tan(d.phi) / 2);
+    }
+    else if (d.inside(d.h - d.T) <= Precision::Confusion()) {
         FC_THROWM(Base::ValueError,
                   "A " << what << " that narrow has no room inside for the thickness");
     }
+    // Its outside from inside the wall, which holds all of it below the
+    // face, as the louver's: from the other skin, its foot split that skin,
+    // and a ring of it beside the hollow, thin at a steep slant, was neither
+    // the wall's nor the form's
+    const double foot = -d.T / 2;
     Pressed res;
     if (d.s > 0) {
-        res.outside = drawn(frame, d.s, -d.T, d.outside(-d.T), d.h, d.outside(d.h));
-        res.cuts.push_back(
-            drawn(frame, d.s, -2 * d.T, d.inside(-2 * d.T), d.h - d.T, d.inside(d.h - d.T)));
+        res.outside = drawn(frame, d.s, foot, d.outside(foot), d.h, d.outside(d.h));
+        res.cuts.push_back(drawn(frame, d.s, -2 * d.T, d.inside(-2 * d.T), top, d.inside(top)));
     }
     else {
-        res.outside = cone(frame, -d.T, d.outside(-d.T), d.h, d.outside(d.h));
-        res.cuts.push_back(
-            cone(frame, -2 * d.T, d.inside(-2 * d.T), d.h - d.T, d.inside(d.h - d.T)));
+        res.outside = cone(frame, foot, d.outside(foot), d.h, d.outside(d.h));
+        res.cuts.push_back(cone(frame, -2 * d.T, d.inside(-2 * d.T), top, d.inside(top)));
     }
     // as far as its rim's bend reaches on either skin: the two are
     // concentric, so both end rho tan(phi / 2) past where it leaves the face;
@@ -344,7 +364,8 @@ int roundDimple(BRepFilletAPI_MakeFillet& fillet,
         const gp_Pnt at[] = {c.Value(u0).Transformed(toFrame),
                              c.Value((u0 + u1) / 2).Transformed(toFrame),
                              c.Value(u1).Transformed(toFrame)};
-        for (const auto& b : bends) {
+        // open, its top is cut, not bent: the rim's bends alone
+        for (const auto& b : d.open ? std::span(bends).first(2) : std::span(bends)) {
             bool on = true;
             for (const gp_Pnt& q : at) {
                 on = on && std::abs(q.Z() - b.z) < 1e-6 && std::abs(d.from(q) - b.r) < 1e-6;
@@ -645,7 +666,7 @@ SheetMetalForm::SheetMetalForm()
                       "Sheet Metal",
                       App::Prop_None,
                       "Tool: Tool's shape, set on its face, as the form's outside; Dimple, "
-                      "Louver, Bead, Lance: a built-in one");
+                      "Louver, Bead, Lance, DrawnCutout, FlangedHole: a built-in one");
     Kind.setEnums(KindEnums);
     ADD_PROPERTY_TYPE(Face,
                       (nullptr),
@@ -676,30 +697,33 @@ SheetMetalForm::SheetMetalForm()
                       (10.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Bead: across where it leaves the face");
+                      "Kind Dimple, Bead, DrawnCutout: across where it leaves the face; "
+                      "FlangedHole: the hole, inside its collar");
     ADD_PROPERTY_TYPE(Depth,
                       (2.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Louver, Bead, Lance: its top above the face");
+                      "Kind Dimple, Louver, Bead, Lance, DrawnCutout, FlangedHole: its top "
+                      "above the face");
     ADD_PROPERTY_TYPE(Radius,
                       (1.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Louver, Bead, Lance: the inside radius of its bends");
+                      "Kind Dimple, Louver, Bead, Lance, DrawnCutout, FlangedHole: the inside "
+                      "radius of its bends");
     ADD_PROPERTY_TYPE(FlankAngle,
                       (45.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Bead: the slant of its side from the face, up to 90 deg; "
-                      "Louver: its ends'");
+                      "Kind Dimple, Bead, DrawnCutout: the slant of its side from the face, up "
+                      "to 90 deg; Louver: its ends'");
     FlankAngle.setConstraints(&flankRange);
     ADD_PROPERTY_TYPE(Length,
                       (20.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Louver, Lance: along the form's X; Bead: along it end to end, "
-                      "where it leaves the face");
+                      "Kind Louver, Lance: along the form's X; Bead, DrawnCutout: along it end "
+                      "to end, where it leaves the face");
     ADD_PROPERTY_TYPE(Width,
                       (6.0),
                       "Form",
@@ -726,13 +750,18 @@ void SheetMetalForm::onChanged(const App::Property* prop)
     if (prop == &Kind) {
         const int kind = Kind.getValue();
         Tool.setStatus(App::Property::ReadOnly, kind != 0);
-        Diameter.setStatus(App::Property::ReadOnly, kind != 1 && kind != 3);
+        // by kind: Tool 0, Dimple 1, Louver 2, Bead 3, Lance 4, DrawnCutout 5,
+        // FlangedHole 6
+        auto in = [kind](std::initializer_list<int> kinds) {
+            return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
+        };
+        Diameter.setStatus(App::Property::ReadOnly, !in({1, 3, 5, 6}));
         for (App::Property* p : std::initializer_list<App::Property*> {&Depth, &Radius}) {
             p->setStatus(App::Property::ReadOnly, kind == 0);
         }
-        FlankAngle.setStatus(App::Property::ReadOnly, kind == 0 || kind == 4);
-        Length.setStatus(App::Property::ReadOnly, kind < 2);
-        Width.setStatus(App::Property::ReadOnly, kind != 2 && kind != 4);
+        FlankAngle.setStatus(App::Property::ReadOnly, !in({1, 2, 3, 5}));
+        Length.setStatus(App::Property::ReadOnly, !in({2, 3, 4, 5}));
+        Width.setStatus(App::Property::ReadOnly, !in({2, 4}));
     }
     // The built-in sizes start from the sheet's thickness, once, when the
     // feature takes its rule (ruled 2026-11-06); any set by then are kept
@@ -878,18 +907,40 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
             if (isTool) {
                 pressed = pressTool(tool, toolBase, toolX, frame, T);
             }
-            else if (Kind.getValue() == 1 || Kind.getValue() == 3) {
+            else if (const int kind = Kind.getValue(); kind == 1 || kind == 3 || kind >= 5) {
                 Dimple d {Diameter.getValue() / 2,
                           Depth.getValue(),
                           Base::toRadians(FlankAngle.getValue()),
                           Radius.getValue(),
                           T};
-                if (Kind.getValue() == 3) {
+                if (kind == 3) {
                     if (Length.getValue() <= Diameter.getValue() + Precision::Confusion()) {
                         THROWM(Base::ValueError,
                                "A bead is longer than it is wide: as long, it is a dimple");
                     }
                     d.s = (Length.getValue() - Diameter.getValue()) / 2;
+                    d.what = "bead";
+                }
+                else if (kind == 5) {
+                    if (Length.getValue() < Diameter.getValue() - Precision::Confusion()) {
+                        THROWM(Base::ValueError,
+                               "A drawn cutout is no shorter than it is wide: Length at least "
+                               "Diameter");
+                    }
+                    d.s = std::max(Length.getValue() - Diameter.getValue(), 0.0) / 2;
+                    d.open = true;
+                    d.what = "drawn cutout";
+                }
+                else if (kind == 6) {
+                    // a collar, the hole Diameter across inside it
+                    if (Depth.getValue() <= Radius.getValue() + Precision::Confusion()) {
+                        THROWM(Base::ValueError,
+                               "A flanged hole's collar rises past its bend: Depth above Radius");
+                    }
+                    d.r0 = Diameter.getValue() > 0 ? Diameter.getValue() / 2 + T : 0;
+                    d.phi = std::numbers::pi / 2;
+                    d.open = true;
+                    d.what = "flanged hole";
                 }
                 pressed = pressDimple(d, frame);
                 rounds.emplace_back(

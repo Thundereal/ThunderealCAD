@@ -47,8 +47,10 @@ namespace PartDesign
  * which faces its Y, a ramp up to the lip Depth above the face, its ends
  * drawn down to the face at FlankAngle; "Bead", a dimple drawn out along
  * the form's X, Length end to end; "Lance", a louver whose ends are cut,
- * not drawn, its tab free on three sides. The built-in ones' sizes start
- * from the rule's thickness.
+ * not drawn, its tab free on three sides; "DrawnCutout", a dimple or a bead
+ * open at its top; "FlangedHole", a hole Diameter across, its rim drawn up
+ * into a straight collar Depth high. The built-in ones' sizes start from
+ * the rule's thickness.
  * Each is a form of the sheet's model (SheetMetal::Form), owned by its wall.
  */
 class PartDesignExport SheetMetalForm : public PartDesign::Feature, public SheetMetalExtension
@@ -70,15 +72,19 @@ public:
     App::PropertyBool Reversed;
     /// Kind Tool: the tool, and its face that sits on the wall's skin
     App::PropertyLinkSub Tool;
-    /// Kind Dimple, Bead: across where it leaves the face
+    /// Kind Dimple, Bead, DrawnCutout: across where it leaves the face;
+    /// FlangedHole: the hole, inside its collar
     App::PropertyLength Diameter;
-    /// Kind Dimple, Louver, Bead, Lance: how high its top is above the face
+    /// Kind Dimple, Louver, Bead, Lance, DrawnCutout, FlangedHole: how high
+    /// its top is above the face
     App::PropertyLength Depth;
-    /// Kind Dimple, Louver, Bead, Lance: the inside radius of its bends
+    /// The built-in kinds: the inside radius of its bends
     App::PropertyLength Radius;
-    /// Kind Dimple, Bead: the slant of its side, from the face; Louver: its ends'
+    /// Kind Dimple, Bead, DrawnCutout: the slant of its side, from the face;
+    /// Louver: its ends'
     App::PropertyAngle FlankAngle;
-    /// Kind Louver, Lance: along the form's X; Bead: along it end to end
+    /// Kind Louver, Lance: along the form's X; Bead, DrawnCutout: along it
+    /// end to end
     App::PropertyLength Length;
     /// Kind Louver, Lance: from its hinge to its opening, along the form's Y
     App::PropertyLength Width;

@@ -220,7 +220,8 @@ PyMOD_INIT_FUNC(PartDesignGui)
     sheetMetal.name = "SheetMetal";
     sheetMetal.workbenches = {"PartDesignWorkbench"};
     sheetMetal.toolbars = {{"Sheet Metal", [](Gui::ToolBarItem& item) {
-        item << "PartDesign_SheetMetalBaseWall"
+        item << "PartDesign_SheetMetalStarter"
+             << "PartDesign_SheetMetalBaseWall"
              << "PartDesign_SheetMetalFlange"
              << "PartDesign_SheetMetalContourFlange"
              << "PartDesign_SheetMetalJoin"

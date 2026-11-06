@@ -69,6 +69,7 @@
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalCheck.h"
+#include "TaskSheetMetalStarter.h"
 #include "Utils.h"
 
 // Command.cpp's: recompute, look as the base, edit if it has a panel
@@ -121,6 +122,43 @@ App::DocumentObject* makeFeature(PartDesign::Body* body, const char* type, const
 }
 
 }  // namespace
+
+//===========================================================================
+// PartDesign_SheetMetalStarter
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalStarter)
+
+CmdPartDesignSheetMetalStarter::CmdPartDesignSheetMetalStarter()
+    : Command("PartDesign_SheetMetalStarter")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Starter Shape");
+    sToolTipText = QT_TR_NOOP("An L, U, tub, hat or box in the active body, of ordinary\n"
+                              "features: a sketch, a base wall and its flanges");
+    sWhatsThis = "PartDesign_SheetMetalStarter";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalStarter";
+}
+
+void CmdPartDesignSheetMetalStarter::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    if (Gui::Control().activeDialog()) {
+        return;
+    }
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    Gui::Control().showDialog(new PartDesignGui::TaskDlgSheetMetalStarter(body));
+}
+
+bool CmdPartDesignSheetMetalStarter::isActive()
+{
+    return hasActiveDocument() && !Gui::Control().activeDialog();
+}
 
 //===========================================================================
 // PartDesign_SheetMetalBaseWall
@@ -1698,6 +1736,7 @@ bool CmdPartDesignSheetMetalFlatMarkings::isActive()
 void CreatePartDesignSheetMetalCommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
+    mgr.addCommand(new CmdPartDesignSheetMetalStarter());
     mgr.addCommand(new CmdPartDesignSheetMetalBaseWall());
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalContourFlange());

@@ -5,6 +5,7 @@ exportFlats = _PartDesign.exportFlats
 checkSheet = _PartDesign.checkSheet
 sheetBends = _PartDesign.sheetBends
 crossBreakFaces = _PartDesign.crossBreakFaces
+from SheetMetalStarter import makeStarterShape
 if hasattr(_PartDesign, "syncBendTable"):
     syncBendTable = _PartDesign.syncBendTable
 

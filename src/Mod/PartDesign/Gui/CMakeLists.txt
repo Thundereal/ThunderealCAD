@@ -189,6 +189,8 @@ SET(PartDesignGuiTaskDlgs_SRCS
     TaskSheetMetalRule.h
     TaskSheetMetalCheck.cpp
     TaskSheetMetalCheck.h
+    TaskSheetMetalStarter.cpp
+    TaskSheetMetalStarter.h
     TaskThicknessParameters.h
     TaskDefeaturingParameters.ui
     TaskDefeaturingParameters.cpp

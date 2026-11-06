@@ -106,6 +106,9 @@ SET(Solver_SRCS
 # headers and defines go to its source alone (src/3rdParty/ChronoCore.cmake).
 if (BUILD_ASSEMBLY_CHRONO)
     list(APPEND Solver_SRCS Solver/ChronoBackend.cpp Solver/ChronoBackend.h)
+    if (TARGET ChronoModal)
+        list(APPEND Solver_SRCS Solver/ChronoFlexible.cpp Solver/ChronoFlexible.h)
+    endif()
 endif()
 
 SOURCE_GROUP("Solver" FILES ${Solver_SRCS})
@@ -173,7 +176,14 @@ if (BUILD_ASSEMBLY_CHRONO)
     target_compile_definitions(Assembly PRIVATE ASSEMBLY_WITH_CHRONO)
     get_target_property(CHRONO_INCLUDE_DIRS ChronoCore CHRONO_INCLUDE_DIRS)
     get_target_property(CHRONO_DEFINITIONS ChronoCore CHRONO_DEFINITIONS)
-    set_source_files_properties(Solver/ChronoBackend.cpp PROPERTIES
+    set(CHRONO_SOURCES Solver/ChronoBackend.cpp)
+    # The flexible bodies, with Chrono's modal module (docs/AssemblyDynamics.md D4b)
+    if (TARGET ChronoModal)
+        target_link_libraries(Assembly ChronoModal)
+        list(APPEND CHRONO_DEFINITIONS ASSEMBLY_WITH_CHRONO_MODAL)
+        list(APPEND CHRONO_SOURCES Solver/ChronoFlexible.cpp)
+    endif()
+    set_source_files_properties(${CHRONO_SOURCES} PROPERTIES
         INCLUDE_DIRECTORIES "${CHRONO_INCLUDE_DIRS}"
         COMPILE_DEFINITIONS "${CHRONO_DEFINITIONS}"
     )

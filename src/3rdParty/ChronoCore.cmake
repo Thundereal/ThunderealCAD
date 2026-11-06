@@ -19,6 +19,11 @@
 #                 to the sources that include Chrono's headers only (Chrono's
 #                 include root has a directory named "chrono", which must not
 #                 shadow the standard header for every other source).
+#   ChronoModal   Chrono's modal module (chrono_modal: modal reduction, for
+#                 the flexible bodies, docs/AssemblyDynamics.md D4b), an
+#                 imported static library, when Spectra's headers are found
+#                 (the submodule src/3rdParty/spectra; CHRONO_SPECTRA_INCLUDE_DIR,
+#                 the directory holding Spectra/); not defined without them.
 #
 # The nested build runs the build tool's default number of jobs unless
 # CHRONO_BUILD_JOBS says otherwise.
@@ -53,6 +58,30 @@ if (EIGEN3_INCLUDE_DIR)
     list(APPEND _chrono_eigen -DEIGEN3_INCLUDE_DIR:PATH=${EIGEN3_INCLUDE_DIR})
 endif()
 
+# The modal module, with Spectra (header only): the submodule
+# src/3rdParty/spectra, Spectra's develop branch -- Chrono's modal module
+# takes its Krylov-Schur solvers, which no release has (1.2.0 neither)
+find_path(CHRONO_SPECTRA_INCLUDE_DIR Spectra/KrylovSchurGEigsSolver.h
+    PATHS "${CMAKE_CURRENT_SOURCE_DIR}/spectra/include" NO_DEFAULT_PATH
+    DOC "The directory holding Spectra/, for Chrono's modal module")
+set(CHRONO_MODAL_LIBRARY
+    "${CHRONO_BINARY_DIR}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}Chrono_modal${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(_chrono_modal -DCH_ENABLE_MODULE_MODAL:BOOL=OFF)
+set(_chrono_targets Chrono_core)
+set(_chrono_products "${CHRONO_CORE_LIBRARY}")
+if (CHRONO_SPECTRA_INCLUDE_DIR)
+    set(_chrono_modal
+        -DCH_ENABLE_MODULE_MODAL:BOOL=ON
+        -Dspectra_INCLUDE_DIR:PATH=${CHRONO_SPECTRA_INCLUDE_DIR})
+    list(APPEND _chrono_targets Chrono_modal)
+    list(APPEND _chrono_products "${CHRONO_MODAL_LIBRARY}")
+    message(STATUS "Chrono's modal module, with Spectra in ${CHRONO_SPECTRA_INCLUDE_DIR}")
+else()
+    message(STATUS "Chrono's modal module is not built: the spectra submodule is not "
+                   "available (git submodule update --init src/3rdParty/spectra); the "
+                   "Assembly has no flexible bodies")
+endif()
+
 ExternalProject_Add(ChronoCoreBuild
     SOURCE_DIR "${CHRONO_SOURCE_DIR}"
     BINARY_DIR "${CHRONO_BINARY_DIR}"
@@ -84,12 +113,13 @@ ExternalProject_Add(ChronoCoreBuild
         -DCMAKE_DISABLE_FIND_PACKAGE_Thrust:BOOL=ON
         -DCMAKE_DISABLE_FIND_PACKAGE_OpenMP:BOOL=ON
         ${_chrono_eigen}
+        ${_chrono_modal}
     BUILD_COMMAND
-        ${CMAKE_COMMAND} --build <BINARY_DIR> --target Chrono_core --config $<CONFIG> ${_chrono_jobs}
+        ${CMAKE_COMMAND} --build <BINARY_DIR> --target ${_chrono_targets} --config $<CONFIG> ${_chrono_jobs}
     INSTALL_COMMAND ""
     TEST_COMMAND ""
     BUILD_ALWAYS TRUE
-    BUILD_BYPRODUCTS "${CHRONO_CORE_LIBRARY}"
+    BUILD_BYPRODUCTS ${_chrono_products}
     USES_TERMINAL_CONFIGURE TRUE
     USES_TERMINAL_BUILD TRUE
 )
@@ -113,3 +143,12 @@ if (WIN32)
     set_property(TARGET ChronoCore PROPERTY INTERFACE_LINK_LIBRARIES Ws2_32)
 endif()
 add_dependencies(ChronoCore ChronoCoreBuild)
+
+if (CHRONO_SPECTRA_INCLUDE_DIR)
+    # Its headers are Chrono's; Spectra is in its sources only
+    add_library(ChronoModal STATIC IMPORTED GLOBAL)
+    set_target_properties(ChronoModal PROPERTIES
+        IMPORTED_LOCATION "${CHRONO_MODAL_LIBRARY}"
+        INTERFACE_LINK_LIBRARIES ChronoCore)
+    add_dependencies(ChronoModal ChronoCoreBuild)
+endif()

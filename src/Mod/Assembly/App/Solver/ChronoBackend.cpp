@@ -10965,3 +10965,19 @@ int ChronoSession::rank() const
     qr.setThreshold(rankTolerance);
     return static_cast<int>(qr.rank());
 }
+
+#ifndef ASSEMBLY_WITH_CHRONO_MODAL
+// Without Chrono's modal module (ChronoFlexible.cpp has them with it)
+bool Chrono::hasFlexibleBodies()
+{
+    return false;
+}
+
+std::vector<double> Chrono::flexibleFrequencies(const Model&, std::size_t, std::string* error)
+{
+    if (error) {
+        *error = "the Chrono backend was built without its modal module (Spectra)";
+    }
+    return {};
+}
+#endif

@@ -26,3 +26,8 @@
 	path = src/3rdParty/chrono
 	url = https://github.com/Thundereal/chrono.git
 	shallow = true
+[submodule "src/3rdParty/spectra"]
+	path = src/3rdParty/spectra
+	url = https://github.com/Thundereal/spectra.git
+	branch = develop
+	shallow = true

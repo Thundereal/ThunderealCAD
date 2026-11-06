@@ -216,6 +216,28 @@ bool same(const ContactPair& a, const ContactPair& b)
         && same(a.law, b.law) && a.cam == b.cam && a.side == b.side;
 }
 
+bool same(const Flexible& a, const Flexible& b)
+{
+    if (a.source != b.source || a.body != b.body || a.tetrahedra != b.tetrahedra
+        || a.youngs != b.youngs || a.poisson != b.poisson || a.density != b.density
+        || a.modes != b.modes || a.damping != b.damping || a.nodes.size() != b.nodes.size()
+        || a.interfaces.size() != b.interfaces.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.nodes.size(); ++i) {
+        if (!same(a.nodes[i], b.nodes[i])) {
+            return false;
+        }
+    }
+    for (std::size_t i = 0; i < a.interfaces.size(); ++i) {
+        if (a.interfaces[i].frame != b.interfaces[i].frame
+            || a.interfaces[i].nodes != b.interfaces[i].nodes) {
+            return false;
+        }
+    }
+    return true;
+}
+
 template<typename T>
 bool sameRecords(const std::vector<T>& a, const std::vector<T>& b)
 {
@@ -249,7 +271,8 @@ bool sameBeyondBodies(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->stops, b.dynamics->stops)
                 || !sameRecords(a.dynamics->frictions, b.dynamics->frictions)
                 || a.dynamics->families != b.dynamics->families
-                || !sameRecords(a.dynamics->frictionPairs, b.dynamics->frictionPairs)))) {
+                || !sameRecords(a.dynamics->frictionPairs, b.dynamics->frictionPairs)
+                || !sameRecords(a.dynamics->flexibles, b.dynamics->flexibles)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.frames, b.frames)
@@ -299,7 +322,8 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
                 || !sameRecords(a.dynamics->stops, b.dynamics->stops)
                 || !sameRecords(a.dynamics->frictions, b.dynamics->frictions)
                 || a.dynamics->families != b.dynamics->families
-                || !sameRecords(a.dynamics->frictionPairs, b.dynamics->frictionPairs)))) {
+                || !sameRecords(a.dynamics->frictionPairs, b.dynamics->frictionPairs)
+                || !sameRecords(a.dynamics->flexibles, b.dynamics->flexibles)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)
@@ -465,6 +489,15 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             law.allowance *= length;
             law.vStiction *= length;
             law.vFriction *= length;
+        }
+        // A flexible body's modulus as a length to the -1, as a contact's;
+        // its density, a mass over a volume, as a length to the -3
+        for (auto& flexible : out.dynamics->flexibles) {
+            for (auto& node : flexible.nodes) {
+                node = node * length;
+            }
+            flexible.youngs /= length;
+            flexible.density /= length * length * length;
         }
     }
     return out;

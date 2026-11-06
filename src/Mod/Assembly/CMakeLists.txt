@@ -38,6 +38,8 @@ set(Assembly_Scripts
     SimulationGltf.py
     SimulationPlayback.py
     MotionLoads.py
+    FlexibleBodies.py
+    CommandCreateFlexibleBody.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
     CommandConvertAsm3.py
@@ -75,6 +77,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestInterference.py
     AssemblyTests/TestMassProperties.py
     AssemblyTests/TestDynamics.py
+    AssemblyTests/TestFlexibleBody.py
     AssemblyTests/TestContact.py
     AssemblyTests/TestProfileContact.py
     AssemblyTests/TestJointFriction.py

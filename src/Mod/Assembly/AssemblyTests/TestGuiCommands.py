@@ -2180,6 +2180,38 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(dynamic.Elements, [])
         self.assertClean()
 
+    def test_flexible_body(self):
+        """Idle until one component is selected -- here by a face of it in the
+        assembly, as the 3D view picks it; then a flexible body of it,
+        selected, ticked in the Dynamic study and neither the Static nor the
+        Kinematic one. One undo takes it out"""
+        sims = self.assembly.getGroup("Simulations", True)
+        dynamic = sims.newObject("Assembly::Simulation", "Dynamic")
+        dynamic.AnalysisType = "Dynamic"
+        static = sims.newObject("Assembly::Simulation", "Static")
+        static.AnalysisType = "Static"
+        kinematic = sims.newObject("Assembly::Simulation", "Kinematic")
+        _process()
+        Gui.Selection.clearSelection()
+        _process()
+        self.assertFalse(Gui.Command.get("Assembly_CreateFlexibleBody").isActive())
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face1")
+        self.run_command("Assembly_CreateFlexibleBody")
+        physics = self.assembly.getGroup("Physics")
+        made = [o for o in physics.Group if o.TypeId == "Assembly::FlexibleBody"]
+        self.assertEqual(len(made), 1)
+        flexible = made[0]
+        self.assertEqual(flexible.Component, self.box)
+        self.assertEqual(Gui.Selection.getSelection(), [flexible])
+        self.assertIn(flexible, dynamic.Elements)
+        self.assertNotIn(flexible, static.Elements)
+        self.assertNotIn(flexible, kinematic.Elements)
+        self.assertEqual(flexible.Modes, 12)
+        self.assertAlmostEqual(flexible.Damping, 0.02)
+        self.doc.undo()
+        _process()
+        self.assertEqual([o for o in physics.Group if o.TypeId == "Assembly::FlexibleBody"], [])
+
     def test_joint_friction(self):
         """Idle until a Slider, Cylindrical or Revolute joint is selected; then
         a friction on it, selected, ticked in the Dynamic study and neither the

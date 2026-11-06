@@ -1052,6 +1052,72 @@ void JointFriction::updateEditable()
     PreloadTorque.setStatus(App::Property::Hidden, !turns);
 }
 
+PROPERTY_SOURCE(Assembly::FlexibleBody, Assembly::PhysicsItem)
+
+FlexibleBody::FlexibleBody()
+{
+    ADD_PROPERTY_TYPE(Component,
+                      (nullptr),
+                      "Flexible",
+                      App::Prop_None,
+                      "The component that bends in a dynamic run");
+    ADD_PROPERTY_TYPE(Modes,
+                      (12),
+                      "Flexible",
+                      App::Prop_None,
+                      "How many of its modes it bends in, each interface held");
+    static const App::PropertyIntegerConstraint::Constraints modes = {1, 200, 1};
+    Modes.setConstraints(&modes);
+    ADD_PROPERTY_TYPE(Damping,
+                      (0.02),
+                      "Flexible",
+                      App::Prop_None,
+                      "Its damping, a ratio of critical at the damping frequency, in proportion "
+                      "to its stiffness: more above it");
+    static const App::PropertyFloatConstraint::Constraints ratio = {0.0, 1.0, 0.01};
+    Damping.setConstraints(&ratio);
+    ADD_PROPERTY_TYPE(DampingFrequency,
+                      (0.0),
+                      "Flexible",
+                      App::Prop_None,
+                      "Where its damping is the ratio given; 0: its first mode, each interface "
+                      "held");
+    ADD_PROPERTY_TYPE(MeshSize,
+                      (0.0),
+                      "Flexible",
+                      App::Prop_None,
+                      "The largest element of its mesh; 0: a fortieth of its size");
+
+    const auto made = static_cast<App::PropertyType>(App::Prop_Output | App::Prop_ReadOnly);
+    ADD_PROPERTY_TYPE(Nodes,
+                      (),
+                      "Mesh",
+                      made,
+                      "Its mesh's nodes, in the component's coordinates");
+    ADD_PROPERTY_TYPE(Tetrahedra,
+                      (),
+                      "Mesh",
+                      made,
+                      "Each 10-node tetrahedron's nodes: its corners, then those of its edges "
+                      "(0 1) (1 2) (2 0) (0 3) (1 3) (2 3)");
+    ADD_PROPERTY_TYPE(InterfaceFrames,
+                      (),
+                      "Mesh",
+                      made,
+                      "The model frame each interface is: a joint's full name, a force "
+                      "element's with -1 or -2 for its end");
+    ADD_PROPERTY_TYPE(InterfaceNodes,
+                      (),
+                      "Mesh",
+                      made,
+                      "Each interface's nodes, one after the other, each list ended by -1");
+    ADD_PROPERTY_TYPE(MeshSignature,
+                      (""),
+                      "Mesh",
+                      static_cast<App::PropertyType>(made | App::Prop_Hidden),
+                      "What the mesh was made of, to remake it when that changes");
+}
+
 namespace App
 {
 PROPERTY_SOURCE_TEMPLATE(Assembly::BushingPython, Assembly::Bushing)

@@ -53,6 +53,15 @@ public:
     QIcon getIcon() const override;
 };
 
+/// A flexible body: its icon
+class AssemblyGuiExport ViewProviderFlexibleBody: public Gui::ViewProviderDocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderFlexibleBody);
+
+public:
+    QIcon getIcon() const override;
+};
+
 /// A torsion spring: its icon; its joint shows where it is
 class AssemblyGuiExport ViewProviderTorsionSpring: public Gui::ViewProviderDocumentObject
 {

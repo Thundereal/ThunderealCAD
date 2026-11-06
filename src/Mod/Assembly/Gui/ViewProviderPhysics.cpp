@@ -55,6 +55,13 @@ QIcon ViewProviderMassOverride::getIcon() const
     return Gui::BitmapFactory().pixmap("Assembly_MassProperties.svg");
 }
 
+PROPERTY_SOURCE(AssemblyGui::ViewProviderFlexibleBody, Gui::ViewProviderDocumentObject)
+
+QIcon ViewProviderFlexibleBody::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_FlexibleBody.svg");
+}
+
 PROPERTY_SOURCE(AssemblyGui::ViewProviderTorsionSpring, Gui::ViewProviderDocumentObject)
 
 QIcon ViewProviderTorsionSpring::getIcon() const

@@ -2749,6 +2749,21 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.resultsBox.hide()
         if self.runPoll.isActive():
             return
+        # Not upstream: the flexible bodies' meshes made, or kept where they
+        # are of the components as they are (docs/AssemblyDynamics.md D4b)
+        import FlexibleBodies
+
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            made = FlexibleBodies.prepareStudy(self.simFeaturePy)
+            if made:
+                App.Console.PrintLog("Assembly: meshed %s\n" % ", ".join(made))
+        except Exception as e:
+            App.Console.PrintError("Assembly: %s\n" % e)
+            self.showRunFailed()
+            return
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
         if self.assembly.startSimulation(self.simFeaturePy) != 0:
             self.showRunFailed()
             return

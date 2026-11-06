@@ -609,4 +609,44 @@ public:
     }
 };
 
+/** A component that bends in a dynamic run (docs/AssemblyDynamics.md D4b):
+ * its mesh of 10-node tetrahedra, reduced to Modes modes about its shape at
+ * rest (Craig-Bampton, each interface held), damped in proportion to its
+ * stiffness, Damping of critical at DampingFrequency. A kinematic or a
+ * static run takes it rigid.
+ *
+ * The mesh and the interfaces are made for it before a run
+ * (FlexibleBodies.prepare(), Python: Netgen, by MeshSize) and kept here,
+ * remade when the shape, the size or what holds the component changes
+ * (MeshSignature): the nodes in the component's coordinates, each
+ * tetrahedron's ten nodes, and per interface the label of the model frame
+ * it is -- a joint's full name, a force element's with "-1" or "-2" for its
+ * end -- and the nodes on the faces it holds.
+ */
+class AssemblyExport FlexibleBody: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::FlexibleBody);
+
+public:
+    FlexibleBody();
+
+    App::PropertyLink Component;
+    App::PropertyIntegerConstraint Modes;
+    App::PropertyFloatConstraint Damping;
+    App::PropertyFrequency DampingFrequency;
+    App::PropertyLength MeshSize;
+
+    App::PropertyVectorList Nodes;
+    App::PropertyIntegerList Tetrahedra;
+    App::PropertyStringList InterfaceFrames;
+    /// Each interface's nodes, one after the other, each list ended by -1
+    App::PropertyIntegerList InterfaceNodes;
+    App::PropertyString MeshSignature;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderFlexibleBody";
+    }
+};
+
 }  // namespace Assembly

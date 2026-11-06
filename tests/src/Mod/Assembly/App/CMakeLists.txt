@@ -14,5 +14,6 @@ target_sources(
 )
 # The Chrono backend's tests, when it is built (BUILD_ASSEMBLY_CHRONO).
 if (BUILD_ASSEMBLY_CHRONO)
-    target_sources(Assembly_tests_run PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ChronoBackend.cpp)
+    target_sources(Assembly_tests_run PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ChronoBackend.cpp
+                                              ${CMAKE_CURRENT_SOURCE_DIR}/FlexibleBody.cpp)
 endif()

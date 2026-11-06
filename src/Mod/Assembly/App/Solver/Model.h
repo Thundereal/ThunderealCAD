@@ -594,6 +594,38 @@ struct Friction
     double preloadTorque = 0.0;  // mN mm
 };
 
+// A body that bends in a dynamic run (docs/AssemblyDynamics.md, D4b): its
+// mesh of 10-node tetrahedra in the body frame, reduced to its modes about
+// the shape at rest (Craig-Bampton, the interfaces held). Each interface is
+// a frame on the body that something holds -- a joint, a force element's
+// end -- and the nodes it is tied to rigidly; a frame on the body with no
+// interface of its own is on the nearest node. The mesh carries the body's
+// mass, which its Inertia record does not add to. In the model's units.
+struct Flexible
+{
+    Id source = NoId;  // the document's FlexibleBody
+    Id body = NoId;
+    std::vector<Base::Vector3d> nodes;  // mm, in the body frame
+    // Each tetrahedron's nodes: its corners, then the nodes of its edges
+    // (0 1) (1 2) (2 0) (0 3) (1 3) (2 3)
+    std::vector<std::array<Id, 10>> tetrahedra;
+    double youngs = 0.0;   // mN/mm^2
+    double poisson = 0.3;
+    double density = 0.0;  // kg/mm^3
+    int modes = 12;
+    // Its damping, in proportion to the stiffness: 'damping' of critical at
+    // 'dampingFrequency' (Hz; 0, the first of its modes, its interfaces
+    // held), more above it
+    double damping = 0.02;
+    double dampingFrequency = 0.0;
+    struct Interface
+    {
+        Id frame = NoId;
+        std::vector<Id> nodes;
+    };
+    std::vector<Interface> interfaces;
+};
+
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has
 // none. Grows with phase D1: forces, tables, contact, stops, initial
 // velocities, sensors.
@@ -612,6 +644,7 @@ struct Dynamics
     // coefficients
     std::vector<std::string> families;
     std::vector<FrictionPair> frictionPairs;
+    std::vector<Flexible> flexibles;  // at most one per body
 };
 
 struct Model

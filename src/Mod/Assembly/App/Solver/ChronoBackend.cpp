@@ -168,6 +168,9 @@
 #include <Base/Console.h>
 
 #include "ChronoBackend.h"
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+# include "ChronoFlexible.h"
+#endif
 #include "JointEquations.h"
 #include "ProfileGeometry.h"
 #include "ReferenceBackend.h"
@@ -4705,6 +4708,29 @@ struct ChronoSession::Impl
     // A dynamic or static run's: the joints its cams that lift off hold
     // (ContactPair::cam) not made, their followers pushed by the contact
     bool liftCams = false;
+    // A dynamic run's: its flexible bodies built so (docs/AssemblyDynamics.md
+    // D4b), each a ChModalAssembly, the frames on it on its interfaces'
+    // boundary bodies. Its own ChBody stays out of the system, a proxy that
+    // carries the floating frame's motion for what reads a body's
+    // (syncFlexible()). Else a flexible body is rigid, with its mass.
+    bool flexibleRun = false;
+    struct FlexibleRun
+    {
+        Id body = NoId;
+        std::size_t record = 0;  // in model.dynamics->flexibles
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        ChronoFlexible::Built built;
+#endif
+        // The body's frame in the floating frame's, at the start
+        ch::ChFramed inFloating;
+        std::vector<double> hz;
+    };
+    std::vector<FlexibleRun> flexibles;
+    // Per frame, the boundary body of the interface it is on, a flexible
+    // body's (the frame at its origin); null, the frame's body's
+    std::vector<std::shared_ptr<ch::ChBody>> frameBody;
+    // Per body, its FlexibleRun, or -1
+    std::vector<int> flexibleOf;
 
     std::unique_ptr<ch::ChSystemNSC> sys;
     std::shared_ptr<ch::ChBody> world;
@@ -4747,8 +4773,16 @@ struct ChronoSession::Impl
 
     std::shared_ptr<ch::ChBody> bodyOf(Id frame) const
     {
+        if (frame < frameBody.size() && frameBody[frame]) {
+            return frameBody[frame];
+        }
         const Id body = model.frames[frame].body;
         return body == NoId ? world : bodies[body];
+    }
+
+    bool isFlexible(std::size_t body) const
+    {
+        return body < flexibleOf.size() && flexibleOf[body] >= 0;
     }
 
     bool validFrame(Id frame) const
@@ -4762,6 +4796,9 @@ struct ChronoSession::Impl
 
     ch::ChFramed localOf(Id frame) const
     {
+        if (frame < frameBody.size() && frameBody[frame]) {
+            return ch::ChFramed();
+        }
         return toCh(model.frames[frame].local);
     }
 
@@ -4807,6 +4844,101 @@ struct ChronoSession::Impl
     }
 
     // ------------------------------------------------------------ building
+
+    // A dynamic run's flexible bodies (flexibleRun, D4b): each a modal
+    // assembly with a boundary body for every frame on it -- its interface's
+    // nodes, or the nearest -- reduced before the joints go on those bodies.
+    // Why one cannot be built, or empty.
+    std::string buildFlexibles()
+    {
+        flexibleOf.assign(bodies.size(), -1);
+        frameBody.assign(model.frames.size(), nullptr);
+        flexibles.clear();
+        if (!flexibleRun || !model.dynamics || model.dynamics->flexibles.empty()) {
+            return {};
+        }
+#ifndef ASSEMBLY_WITH_CHRONO_MODAL
+        return "it has flexible bodies, and the backend was built without them";
+#else
+        for (std::size_t r = 0; r < model.dynamics->flexibles.size(); ++r) {
+            const Flexible& record = model.dynamics->flexibles[r];
+            const std::string name = model.sourceName(record.source);
+            if (record.body >= bodies.size() || isFlexible(record.body)) {
+                return "the flexible body " + name + " is on no part, or on one with another";
+            }
+            if (pinned[record.body] || model.bodies[record.body].grounded) {
+                return "the flexible body " + name + " is on a part fixed to the ground";
+            }
+            FlexibleRun run;
+            run.body = record.body;
+            run.record = r;
+            std::vector<ChronoFlexible::Interface> faces;
+            std::vector<Id> on;
+            for (const auto& frame : model.frames) {
+                if (frame.body != record.body) {
+                    continue;
+                }
+                ChronoFlexible::Interface face;
+                face.local = toCh(frame.local);
+                for (const auto& given : record.interfaces) {
+                    if (given.frame == frame.id) {
+                        face.nodes = given.nodes;
+                    }
+                }
+                faces.push_back(std::move(face));
+                on.push_back(frame.id);
+            }
+            if (faces.empty()) {
+                return "nothing holds the flexible body " + name;
+            }
+            const auto& proxy = bodies[record.body];
+            const ch::ChFramed pose(proxy->GetPos(), proxy->GetRot());
+            try {
+                run.built = ChronoFlexible::build(*sys, record, pose, faces);
+                run.hz = ChronoFlexible::reduce(*sys, run.built, record);
+            }
+            catch (const std::exception& e) {
+                return "the flexible body " + name + ": " + e.what();
+            }
+            const ch::ChFramed floating = run.built.assembly->GetFloatingFrameOfReference();
+            run.inFloating = pose >> floating.GetInverse();
+            for (std::size_t i = 0; i < on.size(); ++i) {
+                frameBody[on[i]] = run.built.interfaces[i];
+            }
+            flexibleOf[record.body] = static_cast<int>(flexibles.size());
+            flexibles.push_back(std::move(run));
+        }
+        return {};
+#endif
+    }
+
+    // A flexible body's modal coordinates, of the modes the reduction kept
+    std::vector<double> modalCoordinates(const FlexibleRun& run) const
+    {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        const auto& q = run.built.assembly->GetModalCoordinatesPosLevel();
+        return std::vector<double>(q.data(), q.data() + q.size());
+#else
+        (void)run;
+        return {};
+#endif
+    }
+
+    // Each flexible body's proxy at its floating frame's motion, carried to
+    // the body's frame: its pose, velocities and accelerations
+    void syncFlexible()
+    {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        for (const auto& run : flexibles) {
+            ch::ChFrameMoving<> floating = run.built.assembly->GetFloatingFrameOfReference();
+            const ch::ChVectorDynamic<> a = run.built.assembly->GetFloatingFrameAccelerations();
+            floating.SetPosDt2(ch::ChVector3d(a(0), a(1), a(2)));
+            floating.SetAngAccLocal(ch::ChVector3d(a(3), a(4), a(5)));
+            const ch::ChFrameMoving<> moving = ch::ChFrameMoving<>(run.inFloating) >> floating;
+            static_cast<ch::ChFrameMoving<>&>(*bodies[run.body]) = moving;
+        }
+#endif
+    }
 
     template<typename T>
     std::shared_ptr<T> mate(Id fi, Id fj, const ch::ChQuaterniond& turn)
@@ -4888,7 +5020,7 @@ struct ChronoSession::Impl
         auto ref = [&](Id frame) {
             NeutralLink::FrameRef r;
             const Id body = model.frames[frame].body;
-            r.body = body == NoId ? nullptr : bodies[body].get();
+            r.body = body == NoId ? nullptr : bodyOf(frame).get();
             r.local = localOf(frame);
             return r;
         };
@@ -6004,6 +6136,9 @@ Status ChronoSession::load(const Model& model)
     d->boundLinks.clear();
     d->dragBodies.clear();
     d->gearRatio = 1.0;
+    d->flexibles.clear();
+    d->frameBody.clear();
+    d->flexibleOf.clear();
     d->bodies.clear();
     d->world.reset();
     d->sys = std::make_unique<ch::ChSystemNSC>();
@@ -6015,12 +6150,21 @@ Status ChronoSession::load(const Model& model)
         d->world = std::make_shared<ch::ChBody>();
         d->world->SetFixed(true);
         sys.AddBody(d->world);
+        // A flexible body's ChBody is its proxy, not in the system
+        std::set<Id> flexible;
+        if (d->flexibleRun && d->model.dynamics) {
+            for (const auto& record : d->model.dynamics->flexibles) {
+                flexible.insert(record.body);
+            }
+        }
         for (const auto& body : d->model.bodies) {
             auto b = std::make_shared<ch::ChBody>();
             const ch::ChFramed f = toCh(body.placement);
             b->SetPos(f.GetPos());
             b->SetRot(f.GetRot());
-            sys.AddBody(b);
+            if (!flexible.count(body.id)) {
+                sys.AddBody(b);
+            }
             d->bodies.push_back(b);
         }
         d->lever.assign(d->bodies.size(), 1.0);
@@ -6059,6 +6203,10 @@ Status ChronoSession::load(const Model& model)
         }
 
         std::ostringstream why;
+        const std::string flexibleWhy = d->buildFlexibles();
+        if (!flexibleWhy.empty()) {
+            why << flexibleWhy;
+        }
         std::set<Id> lifted;
         if (d->liftCams && d->model.dynamics) {
             for (const auto& pair : d->model.dynamics->contacts) {
@@ -6079,7 +6227,7 @@ Status ChronoSession::load(const Model& model)
                     << "): " << reason;
             }
         }
-        if (!d->unsupported.empty()) {
+        if (!d->unsupported.empty() || !flexibleWhy.empty()) {
             d->refused = "the Chrono backend cannot solve this assembly: " + why.str();
         }
 
@@ -6453,14 +6601,43 @@ Status ChronoSession::simulateDynamics(
             frame.local = centre[frame.body].inverse() * frame.local;
         }
     }
+    // A flexible body's mesh with its frames; built so in a dynamic run only
+    // (D4b), else the body is rigid with its mass
+    for (auto& flexible : si.dynamics->flexibles) {
+        if (flexible.body < n) {
+            const Base::Placement toCentre = centre[flexible.body].inverse();
+            for (auto& node : flexible.nodes) {
+                toCentre.multVec(node, node);
+            }
+        }
+    }
 
     ChronoSession run;
     run.d->liftCams = true;
+    run.d->flexibleRun = !prescribed && spec.analysis == Analysis::Dynamic;
     if (run.load(si) != Status::Ok) {
         return Status::Failed;
     }
     if (!run.d->refused.empty()) {
         return refuse(run.d->refused);
+    }
+    // A part's own initial velocity would start one of a flexible body's
+    // interfaces alone
+    for (const auto& initial : si.dynamics->initial) {
+        if (initial.frameJ == NoId && initial.frameI < si.frames.size()
+            && run.d->isFlexible(si.frames[initial.frameI].body)) {
+            return refuse("an initial velocity of the flexible part "
+                          + model.sourceName(model.bodies[si.frames[initial.frameI].body].source)
+                          + " is not supported yet");
+        }
+    }
+    // Contact on a flexible body is D4b's step 5
+    for (const auto& shape : si.dynamics->contactShapes) {
+        if (shape.frame < si.frames.size() && run.d->isFlexible(si.frames[shape.frame].body)) {
+            return refuse("a contact on the flexible part "
+                          + model.sourceName(model.bodies[si.frames[shape.frame].body].source)
+                          + " is not supported yet");
+        }
     }
     // Redundant joints (sec 6.1): the rows that repeat others taken out, the
     // reactions they shared reported as not unique
@@ -6476,7 +6653,8 @@ Status ChronoSession::simulateDynamics(
     ch::ChSystemNSC& sys = *run.d->sys;
     for (std::size_t b = 0; b < n; ++b) {
         auto& body = run.d->bodies[b];
-        if (body->IsFixed()) {
+        // A flexible body's mass is its mesh's
+        if (body->IsFixed() || run.d->isFlexible(b)) {
             continue;
         }
         const Inertia* inertia = inertiaOf[b];
@@ -6589,8 +6767,8 @@ Status ChronoSession::simulateDynamics(
         spring->Initialize(run.d->bodyOf(force.frameI),
                            run.d->bodyOf(force.frameJ),
                            true,
-                           toCh(si.frames[force.frameI].local.getPosition()),
-                           toCh(si.frames[force.frameJ].local.getPosition()));
+                           run.d->localOf(force.frameI).GetPos(),
+                           run.d->localOf(force.frameJ).GetPos());
         // Else the length at the start, as Initialize takes it
         if (force.rest > 0.0) {
             spring->SetRestLength(force.rest);
@@ -7925,6 +8103,7 @@ Status ChronoSession::simulateDynamics(
     const auto steps =
         static_cast<std::size_t>(std::floor((spec.tEnd - spec.tStart) / spec.tOutput + 1e-9));
     auto posesNow = [&]() {
+        run.d->syncFlexible();
         std::vector<BodyPose> poses;
         poses.reserve(n);
         for (std::size_t b = 0; b < n; ++b) {
@@ -8130,6 +8309,13 @@ Status ChronoSession::simulateDynamics(
             channels.push_back({name, "AngularAcceleration", 3});
             moving.push_back(b);
         }
+    }
+    // Each flexible body's modal coordinates (D4b): what its modes add to
+    // the deformation its interfaces make about its floating frame
+    for (const auto& flexible : run.d->flexibles) {
+        channels.push_back({si.sourceName(si.dynamics->flexibles[flexible.record].source),
+                            "ModalCoordinates",
+                            static_cast<int>(run.d->modalCoordinates(flexible).size())});
     }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
@@ -8458,6 +8644,12 @@ Status ChronoSession::simulateDynamics(
                           std::size_t b,
                           const ch::ChMatrix33<>& turn) {
         const auto& body = run.d->bodies[b];
+        // A flexible body's: its floating frame's, carried to its frame
+        if (run.d->isFlexible(b)) {
+            run.d->syncFlexible();
+            return std::pair<ch::ChVector3d, ch::ChVector3d>(body->GetPosDt2() / SI::acceleration,
+                                                             body->GetAngAccParent());
+        }
         const unsigned int at = body->GetOffset_w();
         const ch::ChVector3d force(R(at), R(at + 1), R(at + 2));
         const ch::ChVector3d torque(R(at + 3), R(at + 4), R(at + 5));
@@ -8785,6 +8977,11 @@ Status ChronoSession::simulateDynamics(
                         out.push_back(v[k]);
                     }
                 }
+            }
+        }
+        for (const auto& flexible : run.d->flexibles) {
+            for (double q : run.d->modalCoordinates(flexible)) {
+                out.push_back(q);
             }
         }
         return out;
@@ -10118,6 +10315,13 @@ Status ChronoSession::simulateDynamics(
     // at rest is taken again by it.
     auto advance = [&](double dt) {
         if (!contact) {
+            // A flexible body's modal coordinates never pass the default
+            // test: the modal assembly's Jacobian is approximate (its
+            // inertial terms linear), Newton's convergence linear, and each
+            // step of a flexible pendulum ran its 20 iterations
+            if (!run.d->flexibles.empty()) {
+                tolerate(dt);
+            }
             if (!anyPenalty && !anyFriction) {
                 sys.DoStepDynamics(dt);
                 return;
@@ -10965,3 +11169,19 @@ int ChronoSession::rank() const
     qr.setThreshold(rankTolerance);
     return static_cast<int>(qr.rank());
 }
+
+#ifndef ASSEMBLY_WITH_CHRONO_MODAL
+// Without Chrono's modal module (ChronoFlexible.cpp has them with it)
+bool Chrono::hasFlexibleBodies()
+{
+    return false;
+}
+
+std::vector<double> Chrono::flexibleFrequencies(const Model&, std::size_t, std::string* error)
+{
+    if (error) {
+        *error = "the Chrono backend was built without its modal module (Spectra)";
+    }
+    return {};
+}
+#endif

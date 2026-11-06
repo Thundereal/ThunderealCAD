@@ -3602,6 +3602,174 @@ Phase D1 is under way (2026-10-28):
   - Not yet: one way still, from rest, and the rotation's stiffening left
     out; a joint other than those (a distance, a gear, a cam) holds the
     part stiff in its modes.
+- **D4b, flexible bodies: the plan (2026-11-06).** A part that bends in the
+  run itself, its flex feeding back into the joints and the motion: two
+  ways, where D4a's vibration is one. Open question 10's answer: modal
+  reduction (`chrono_modal`), direct FEA bodies only for a specific need.
+  - How the others do it. Adams takes a modal neutral file (MNF) made by
+    component mode synthesis, Craig-Bampton modified, from Nastran or
+    Ansys: interface nodes at the joints -- at a hole's centre, a spider
+    (RBE2, or beams in Ansys) to the faces it bears on -- their static
+    modes and the fixed-interface modes, orthonormalised
+    (https://ansyshelp.ansys.com/public/Views/Secured/corp/v251/en/ans_substr/advmeth2402.html).
+    MotionSolve's flexible body is OptiStruct's CMS (Craig-Bampton or
+    Craig-Chang) in an H3D file, interface nodes by an ASET, small linear
+    deformation only, the modes' coordinates added to the six of the
+    rigid motion; a "Rigidify" switch runs it rigid with its inertia
+    (https://help.altair.com/hwsolvers/ms/topics/solvers/ms/xml-format_34.htm,
+    https://help.altair.com/hwdesktop/hwx/topics/motionview/optistruct_flexbody_generation.htm).
+    The stresses are recovered after the run: each mode's stress field,
+    weighed by the run's modal coordinates; stress takes more modes than
+    shape (https://help.altair.com/hwsolvers/ms/topics/solvers/ms/intro_to_flex_bodies_intro_r.htm).
+    RecurDyn has both, RFlex (CMS) and FFlex (full nodal), and says a modal
+    body is for well-defined attachment points with no contact on it:
+    a contact is a moving attachment point, whose static modes are not in
+    the basis (https://functionbay.com/en/page/single/22). FFlex is for
+    contact on a flexible part.
+  - What Chrono 10 gives: `ChModalAssembly` (`chrono_modal`), a sub-assembly
+    reduced by Herting (free-free modes) or Craig-Bampton (the boundary
+    held), its boundary items kept -- bodies, nodes, links between them --
+    and its internal ones (a `ChMesh`, internal links) replaced by modal
+    coordinates on a floating frame, with the inertial coupling of its
+    motion; gravity through the reduced mass; the internal nodes updated
+    from the modes for display and stresses, a static correction for loads
+    on them. Its eigensolvers are Spectra's (header only, MPL-2.0; its
+    develop branch, whose Krylov-Schur solvers no release has); its K_II
+    inverse a direct solver of our choice. The 10-node tetrahedron is corotational
+    (`ChElementTetraCorot_10`), its stress at any point (GetStress); its
+    mass lumped equally on the ten nodes, which for a 10-node tetrahedron
+    is wrong (its corners take negative consistent mass): ours is a
+    subclass with the consistent mass, D4a's `_tet10Mass()`.
+  - The element: a Physics item, `FlexibleBody` -- `Component`, `Modes` (12
+    by default), `Damping` (2% at the part's first mode, in proportion to
+    its stiffness: step 2), `MeshSize`, and the
+    mesh: its nodes (the component's coordinates) and 10-node tetrahedra, a
+    Netgen mesh made for it as D4a's are, and each interface's nodes. An
+    interface is each frame on the component that something holds -- a
+    joint, a spring's or bushing's end, a load -- its nodes those of the
+    faces D4a takes for it (`_facesOf()`); a vertex, the nearest. A study
+    lists it in Elements, as every other.
+  - The run: a dynamic run with a flexible body builds it as a
+    `ChModalAssembly`, Craig-Bampton: a boundary body for each interface,
+    at its frame, of negligible mass; its nodes tied to it rigidly (an
+    RBE2, `ChLinkNodeFrame`, internal); the mesh internal. The joints,
+    springs and loads on the component go on its interfaces' bodies. The
+    component's pose reported is the floating frame's, carried from where
+    the reduction found it; its "ModalCoordinates" a channel of width the
+    modes, from which the deformation and the stresses are recovered after
+    the run (each mode's displacements and stress field, sampled at the
+    nodes). A kinematic run, a static one and a drag take the part rigid,
+    with the mesh's mass.
+  - Steps, each shipping:
+    1. Build `chrono_modal` with Spectra beside the core (ChronoCore.cmake,
+       an imported `ChronoModal`); the consistent-mass tetrahedron. Test
+       (C++): a cantilever bar of 10-node tetrahedra in a ChModalAssembly,
+       its first modes against the beam's closed form and the full mesh's.
+    2. The neutral model's `Dynamics::flexibles` and the backend: a
+       flexible body's interfaces, its joints on them, the floating frame
+       as its pose, the modal coordinates as a channel. Tests: a cantilever
+       held by a Fixed joint, settling under gravity to rho g A L^4 / 8 E I
+       at its tip and ringing at its first frequency; a flexible pendulum,
+       its swing the rigid one's to its stiffness and its bending the
+       pinned-free beam's.
+    3. The document: `FlexibleBody`, its command and task panel, the mesh
+       made for it (kept, remade when the shape or the size changes), its
+       interfaces from the study's joints and loads; the panel listing it.
+    4. The results: the part shown deformed through playback (by a scale),
+       its stresses coloured over it; To FEM's vibration taking the run's
+       own modal coordinates, both ways, where D4a computes them one way.
+    5. Contact on a flexible part: its contact taken at an interface of its
+       own (the contact's faces, their static modes in the basis), as the
+       modal bodies elsewhere allow at best; full nodal bodies, Chrono's
+       `ChMesh` without reduction and `ChContactSurfaceMesh`, only when a
+       case needs them.
+  - Not in it: large deformation (the modes are linear about the shape at
+    rest; a corotational mesh unreduced would be); a flexible part on the
+    ground; the rotation's stiffening (geometric stiffness).
+- Built, D4b step 1: Chrono's modal module, and a flexible body reduced.
+  - **Spectra is a submodule**, `src/3rdParty/spectra` (Thundereal's fork
+    of yixuan/spectra, its develop branch): Chrono's modal module includes
+    `KrylovSchurGEigsSolver.h`, which no Spectra release has -- conda-forge's
+    `spectra-cpp` 1.2.0 neither -- and Chrono's own build scripts clone
+    develop. `ChronoCore.cmake` builds `Chrono_modal` beside the core when
+    the submodule is there (an imported `ChronoModal`), and the Assembly
+    compiles `Solver/ChronoFlexible.cpp` with it (`ASSEMBLY_WITH_CHRONO_MODAL`);
+    without it the backend says it has no flexible bodies.
+  - The neutral model's `Dynamics::flexibles` (`Flexible`): the body's
+    10-node tetrahedra in its frame, E, nu and the density, the modes and
+    the damping, and each interface's frame and nodes; scaled to SI with
+    the rest (`scaled()`), compared by `sameMechanism()`.
+  - `ChronoFlexible::build()` and `reduce()`: the mesh internal in a
+    `ChModalAssembly`, our tetrahedron with the consistent mass
+    (`ConsistentTet10`); a boundary body per interface, a millionth of the
+    mesh's mass, its nodes tied to it by `ChLinkNodeFrame` (internal, an
+    RBE2); Craig-Bampton; each mode of the reduced system damped at one
+    ratio (`ModalRatio`). `Chrono::flexibleFrequencies()` reports the
+    modes, their interfaces held.
+  - **Found on the way, Chrono's modal module took every item as a body**,
+    7 position and 6 velocity coordinates, and an xyz node -- every node
+    of a mesh of tetrahedra -- has 3 and 3: in the matrices turned to the
+    floating frame's axes every other node was turned wrongly and the last
+    ones, past the final block of 6, had none, so K_II was singular and
+    the eigensolver's LU failed and then solved on regardless, corrupting
+    the heap; the gravity, the internal forces, the internal nodes'
+    positions and velocities likewise. Each item's coordinates are now laid
+    out by `Setup()` and those loops go by them. And the unsymmetric
+    eigensolver, the one a modal assembly takes, reported an undamped
+    mode's frequency as w^2 / 2 pi (the clamped bar's 209.6 Hz as 276137),
+    its shift in the units of the damped problem's. And the reduction's
+    sparse matrices were built a coefficient at a time into a reservation
+    its own `setZero()` had taken back: 8.7 s on the test's bar, 0.4 now,
+    with SparseLU for K_II (SparseQR, Chrono's default, 2.2 s). Our fork
+    of Chrono, branch `thundereal`.
+  - Chrono's tetrahedron lumps its mass equally on its ten nodes; on the
+    test's bar, two elements across, its first two frequencies were 0.06%
+    and 0.25% under the consistent mass's.
+  - Test: FlexibleBody.cantileverModesAreTheClampedBeams (C++): a steel bar
+    200 x 10 x 10 mm, 20 x 2 x 2 cells of six tetrahedra, held at one end
+    by an interface on its end face's 25 nodes: 209.6 and 209.7 Hz against
+    the clamped beam's 208.9, 1299.2 and 1300.1 against 1309 (shear).
+- Built, D4b step 2: a flexible body in a dynamic run.
+  - **The run builds it** (`buildFlexibles()`, at load, before the joints):
+    every frame on the body an interface, its boundary body at the frame
+    -- the frame's interface nodes, or the nearest node -- so the joints,
+    springs, bushings, loads and motors on the part go on those bodies
+    (`bodyOf()`, `localOf()`: the frame at its body's origin). The part's
+    own ChBody stays out of the system, a proxy carrying the floating
+    frame's pose, velocities and accelerations for what reads a body's
+    (`syncFlexible()`): its pose reported, its "Acceleration",
+    "AngularVelocity" and "AngularAcceleration". Its mass is the mesh's.
+    Its "ModalCoordinates", a channel of the modes kept. A kinematic or a
+    static run takes it rigid.
+  - The floating frame's acceleration, which Chrono does not keep: the map
+    its velocity is taken from (P_F Q_0), applied to the boundary's and the
+    modes' accelerations (`GetFloatingFrameAccelerations()`, our Chrono).
+  - **The damping in proportion to the stiffness**, R = (2 z / w) K: the
+    ratio at the frequency given, `dampingFrequency` (0: the part's first
+    mode, its interfaces held), more above it. Each of the reduced system's
+    modes damped at a ratio -- step 1's -- is the free part's, its rigid
+    motions undamped: 0.5 left the cantilever clamped by its joint ringing
+    at 0.023 of critical, its mode mostly a rigid turn about the clamp. The
+    stiffness damps deformation alone, whatever holds the part.
+  - Newton's test a thousandth of the run's tolerance in position, as
+    contact's (`tolerate()`): the modal assembly's Jacobian is approximate,
+    its inertial terms linear, and at the default 1e-10 every step of a
+    flexible pendulum ran its 20 iterations. And the mesh's nodes not moved
+    with the modes as the run goes (SetInternalNodesUpdate(false)): each
+    iteration moved them all. 15.9 s to 3.9 for the pendulum's 2000 steps.
+  - Refused for now: a contact on a flexible part (step 5), a part's own
+    initial velocity (it would start one interface), a flexible part fixed
+    to the ground.
+  - Tests (C++): FlexibleBody.cantileverBendsAndRingsInARun -- the bar fixed
+    to the ground by a Fixed joint at one end, a gram fixed to the other:
+    damped hard it settles 8.87 um down, the beam's 8.95; at 2% it rings at
+    206.60 Hz against the cantilever's with its tip mass, 206.27, decaying
+    at 0.0200; its modal coordinates reported. pendulumSwingsAsTheRigidBar
+    -- hinged at one end, let go level: its centre within 2.4 um of the
+    rigid bar's through the swing, 93 mm down by 0.2 s.
+  - Not yet: the run's cost, 2 ms a step for the bar, most of it the modal
+    assembly's own update at each iteration; stops' bounces leave a
+    flexible part's interfaces as they were.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

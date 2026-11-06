@@ -73,6 +73,17 @@ AssemblyExport JointKindSet supportedKinds();
 // value and exact derivatives (for tests). NaN when the formula has none.
 AssemblyExport FormulaValue motionFunction(const Formula& formula, double time);
 
+// Whether the backend has flexible bodies: Chrono's modal module built
+// (ASSEMBLY_WITH_CHRONO_MODAL)
+AssemblyExport bool hasFlexibleBodies();
+
+// The modes of the model's flexible body at 'index' (Dynamics::flexibles),
+// as a dynamic run reduces it -- Craig-Bampton, its interfaces held --
+// their frequencies, Hz, lowest first. Empty, and the reason in 'error',
+// when it cannot be reduced or the backend has no flexible bodies.
+AssemblyExport std::vector<double>
+flexibleFrequencies(const Model& model, std::size_t index, std::string* error = nullptr);
+
 }  // namespace Chrono
 
 class AssemblyExport ChronoBackend: public Backend

@@ -343,6 +343,57 @@ class TestSheetMetalForm(unittest.TestCase):
                 self.assertIn("Invalid", feature.State)
                 self.Doc.removeObject(feature.Name)
 
+    def bead(self, **props):
+        """A bead at the plate's middle, (20, 15): 24 long end to end along
+        X where it leaves the face, 6 across, 2 high, so straight for 18
+        between its round ends"""
+        sizes = dict(Length=24, Diameter=6, Depth=2, Radius=0.5, FlankAngle=45)
+        sizes.update(props)
+        return self.form(Kind="Bead", Positions=self.points([(20, 15)]), **sizes)
+
+    def testBead(self):
+        """A built-in bead: a dimple drawn out along the form's X, its sides
+        and round ends at FlankAngle, its bends rounded, the thickness all
+        through it, opened beneath"""
+        feature = self.bead()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 2, places=6)
+        # its top, 1 across at 45 deg; its hollow; open beneath
+        for x in (20, 20 + 8, 20 + 9.5):
+            self.assertTrue(shape.isInside(V(x, 15, T + 1.5), 1e-7, True), x)
+            self.assertFalse(shape.isInside(V(x, 15, T + 0.5), 1e-7, True), x)
+            self.assertFalse(shape.isInside(V(x, 15, T / 2), 1e-7, True), x)
+        # past its end and its side, the plate as it was
+        self.assertTrue(shape.isInside(V(20 + 12.5, 15, T / 2), 1e-7, True))
+        self.assertTrue(shape.isInside(V(20, 15 + 3.5, T / 2), 1e-7, True))
+        self.assertFalse(shape.isInside(V(20 + 12.5, 15, T + 0.1), 1e-7, True))
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 15, T + 2))), "Form1")
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testBeadTurned(self):
+        """Angle 90: along Y"""
+        feature = self.bead(Angle=90)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isInside(V(20, 15 + 9.5, T + 1.5), 1e-7, True))
+        self.assertTrue(feature.Shape.isInside(V(20 + 9.5, 15, T / 2), 1e-7, True))
+
+    def testBeadRefused(self):
+        """No longer than it is wide, closing to a point first, a size of 0"""
+        for props in (dict(Length=6), dict(Depth=4), dict(Diameter=0), dict(Depth=0)):
+            with self.subTest(**props):
+                feature = self.bead(**props)
+                self.assertIn("Invalid", feature.State)
+                self.Doc.removeObject(feature.Name)
+
     def testSizesFromThickness(self):
         """A built-in form's sizes start from the sheet's thickness: the
         rule's 2 mm doubles them; set before, they are kept"""

@@ -505,6 +505,18 @@ class TestSheetMetalCutout(unittest.TestCase):
             self.assertTrue(edges)
             return sum((e.Curve.Center for e in edges), V()) * (1.0 / len(edges))
 
+        # The plate's flat starts at the first vertex of its sketch's face. Laid
+        # by the plate it lies along +y from there, laid by the leg (Wall2) the
+        # leg lies along -y: the two meet only if that vertex is the far corner,
+        # (0, 20). The sketch is drawn from there, as FaceMakerUnified, which
+        # keeps a plain wire's edge order since 91183f9103, then gives it.
+        profile = self.Doc.getObject("Sketch")
+        profile.deleteAllGeometry()
+        pts = [(0, 20), (0, 0), (40, 0), (40, 20)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            profile.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        self.Doc.recompute()
         self.flange("Far", FAR)
         # on the plate in the flat laid by it, on the leg in one laid by that
         sketch = self.sketch(

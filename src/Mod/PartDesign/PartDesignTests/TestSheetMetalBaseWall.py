@@ -214,8 +214,131 @@ class TestSheetMetalBaseWall(unittest.TestCase):
         self.assertTrue(misc)
         self.assertNotIn(wall.Rule, misc[0].Group)
 
+    def rolled(self, segments, name="Rolled"):
+        """A sketch of lines and arcs: ("line", a, b) or ("arc", centre,
+        radius, from, to) in degrees, counterclockwise from the first to the
+        second; ("arc", ..., cw=True) the other way"""
+        sketch = self.Body.newObject("Sketcher::SketchObject", name)
+        for s in segments:
+            if s[0] == "line":
+                a, b = s[1], s[2]
+                sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+            else:
+                c, r, a0, a1 = s[1], s[2], math.radians(s[3]), math.radians(s[4])
+                if a1 < a0:
+                    a0, a1 = a1, a0
+                circle = Part.Circle(V(c[0], c[1], 0), V(0, 0, 1), r)
+                sketch.addGeometry(Part.ArcOfCircle(circle, a0, a1))
+        return sketch
+
+    def checkRolled(self, wall, radii, straight):
+        """Valid, its bends of those inner radii and 90 deg each, every face
+        owned; it lies flat, as long as its walls' straight parts and each
+        bend's arc at its K factor's line"""
+        self.assertNotIn("Invalid", wall.State, wall.getStatusString())
+        self.assertTrue(wall.Shape.isValid())
+        bends = [e for e in wall.SheetModel["Elements"] if e["Kind"] == "Bend"]
+        self.assertEqual([round(b["Radius"], 9) for b in bends], radii)
+        for b in bends:
+            self.assertAlmostEqual(b["Angle"], 90)
+        self.assertNotIn(None, self.owners(wall))
+        T = 1
+        volume = 15 * (sum(straight) * T + sum(math.pi / 4 * ((r + T) ** 2 - r**2) for r in radii))
+        self.assertAlmostEqual(wall.Shape.Volume, volume, places=6)
+        flat = wall.getSubObject("Flat")
+        self.assertIsNotNone(flat)
+        self.assertAlmostEqual(flat.Volume, wall.Shape.Volume, places=5)
+        developed = sum(straight) + sum(
+            (b["Radius"] + b["KFactor"] * T) * math.pi / 2 for b in bends
+        )
+        box = flat.BoundBox
+        self.assertAlmostEqual(max(box.XLength, box.YLength), developed, places=5)
+
+    def testRolledArc(self):
+        """The rolled wall's first step (M5, ruled 2026-11-06): an arc in a
+        profile, tangent to the lines either side, is a bend of its own
+        radius, rolled, the sketch on the inner skin (Outside): 10; it lies
+        flat exactly"""
+        sketch = self.rolled(
+            [
+                ("line", (0, 0), (20, 0)),
+                ("arc", (20, 10), 10, -90, 0),
+                ("line", (30, 10), (30, 30)),
+            ]
+        )
+        wall = self.wall(sketch, MaterialSide="Outside", Length=15)
+        self.checkRolled(wall, [10.0], [20, 20])
+
+    def testRolledArcInside(self):
+        """The sketch on the outer skin (Inside): the bend's inner radius the
+        thickness less, 9, the walls' straight parts as drawn"""
+        sketch = self.rolled(
+            [
+                ("line", (0, 0), (20, 0)),
+                ("arc", (20, 10), 10, -90, 0),
+                ("line", (30, 10), (30, 30)),
+            ]
+        )
+        wall = self.wall(sketch, MaterialSide="Inside", Length=15)
+        self.checkRolled(wall, [9.0], [20, 20])
+
+    def testRolledAndSharp(self):
+        """A sharp corner, the rule's radius 1 about it, then an arc turning
+        the other way: the sketch on that one's outer skin, its inner radius
+        9; the own radius of a base wall is its corners', not its arcs'"""
+        sketch = self.rolled(
+            [
+                ("line", (0, 0), (20, 0)),
+                ("line", (20, 0), (20, 20)),
+                ("arc", (30, 20), 10, 90, 180),
+                ("line", (30, 30), (50, 30)),
+            ]
+        )
+        wall = self.wall(sketch, MaterialSide="Outside", Length=15)
+        # the corner's setback 1 off each line, the arc's none
+        self.checkRolled(wall, [1.0, 9.0], [19, 19, 20])
+
+    def testRolledRefused(self):
+        """An arc not tangent to its lines, one at the chain's end, of 180
+        deg, two with no line between, one too tight for the thickness"""
+        cases = {
+            "not tangent": [
+                ("line", (0, 0), (20, 0)),
+                ("arc", (20, 10), 10, -90, 0),
+                ("line", (30, 10), (40, 20)),
+            ],
+            "at the end": [("line", (0, 0), (20, 0)), ("arc", (20, 10), 10, -90, 0)],
+            "half a turn": [
+                ("line", (0, 0), (20, 0)),
+                ("arc", (20, 10), 10, -90, 90),
+                ("line", (20, 20), (0, 20)),
+            ],
+            "two in a row": [
+                ("line", (0, 0), (20, 0)),
+                ("arc", (20, 10), 10, -90, 0),
+                ("arc", (40, 10), 10, 90, 180),
+                ("line", (40, 20), (60, 20)),
+            ],
+        }
+        for what, segments in cases.items():
+            with self.subTest(what=what):
+                wall = self.wall(self.rolled(segments, name=what.replace(" ", "")), name="W")
+                self.assertIn("Invalid", wall.State)
+                self.Body.removeObject(wall)
+                self.Doc.removeObject(wall.Name)
+        tight = self.rolled(
+            [
+                ("line", (0, 0), (20, 0)),
+                ("arc", (20, 0.5), 0.5, -90, 0),
+                ("line", (20.5, 0.5), (20.5, 20)),
+            ],
+            name="Tight",
+        )
+        wall = self.wall(tight, MaterialSide="Inside", name="W")
+        self.assertIn("Invalid", wall.State)
+
     def testErrors(self):
-        """No rule, a profile with an arc, a leg shorter than its bend"""
+        """No rule, a profile ending in an arc, a leg shorter than its bend"""
         sketch = self.sketch([(0, 0), (20, 0), (20, 10)])
         sketch.addGeometry(Part.ArcOfCircle(Part.Circle(V(20, 15, 0), V(0, 0, 1), 5), -1.57, 0))
         wall = self.wall(sketch)

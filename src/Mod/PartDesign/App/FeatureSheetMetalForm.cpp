@@ -34,12 +34,15 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepGProp.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -47,6 +50,7 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
+#include <GC_MakeArcOfCircle.hxx>
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <Standard_Failure.hxx>
@@ -75,7 +79,7 @@ using SheetMetal::Model;
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalForm, PartDesign::Feature)
 
-const char* SheetMetalForm::KindEnums[] = {"Tool", "Dimple", "Louver", nullptr};
+const char* SheetMetalForm::KindEnums[] = {"Tool", "Dimple", "Louver", "Bead", nullptr};
 
 namespace
 {
@@ -191,7 +195,9 @@ Pressed pressTool(const TopoDS_Shape& tool,
 
 /// A dimple: two cones the thickness apart, the outside's from where it
 /// leaves the face, the hollow's opened through the wall; its bends rounded
-/// afterwards (roundDimple())
+/// afterwards (roundDimple()). A bead is a dimple drawn out along the
+/// frame's X, straight for 2 s between its round ends: its sides planes,
+/// its ends half cones.
 struct Dimple
 {
     double r0;      // where the outside leaves the face
@@ -199,6 +205,14 @@ struct Dimple
     double phi;     // the slant, rad
     double rho;     // the bends' inside radius
     double T;
+    double s = 0;   // a bead's straight part, half of it
+
+    /// how far a point of the frame's XY is from the straight part's line
+    double from(const gp_Pnt& q) const
+    {
+        const double x = std::max(std::abs(q.X()) - s, 0.0);
+        return std::hypot(x, q.Y());
+    }
 
     double outside(double z) const
     {
@@ -221,34 +235,83 @@ TopoDS_Shape cone(const gp_Ax3& frame, double z0, double r0, double z1, double r
     return BRepPrimAPI_MakeCone(at, r0, r1, z1 - z0).Shape();
 }
 
+/// The stadium in the frame's XY plane at height z, r from the straight
+/// part's line: straight for 2 s along X, its ends half circles
+TopoDS_Wire stadium(double s, double r, double z)
+{
+    const gp_Dir up(0, 0, 1);
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(-s, -r, z), gp_Pnt(s, -r, z)).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(
+                 GC_MakeArcOfCircle(gp_Circ(gp_Ax2(gp_Pnt(s, 0, z), up), r),
+                                    -std::numbers::pi / 2, std::numbers::pi / 2, true)
+                     .Value())
+                 .Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(s, r, z), gp_Pnt(-s, r, z)).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(
+                 GC_MakeArcOfCircle(gp_Circ(gp_Ax2(gp_Pnt(-s, 0, z), up), r),
+                                    std::numbers::pi / 2, 3 * std::numbers::pi / 2, true)
+                     .Value())
+                 .Edge());
+    return wire.Wire();
+}
+
+/// The solid ruled between the stadia at z0 and z1, r0 and r1 from the
+/// straight part's line, placed in the frame: planes and half cones
+TopoDS_Shape drawn(const gp_Ax3& frame, double s, double z0, double r0, double z1, double r1)
+{
+    BRepOffsetAPI_ThruSections loft(true, true);
+    loft.AddWire(stadium(s, r0, z0));
+    loft.AddWire(stadium(s, r1, z1));
+    loft.Build();
+    if (!loft.IsDone()) {
+        THROWM(Base::CADKernelError, "The bead could not be made");
+    }
+    gp_Trsf place;
+    place.SetDisplacement(gp_Ax3(gp::XOY()), frame);
+    return BRepBuilderAPI_Transform(loft.Shape(), place, true).Shape();
+}
+
 Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
 {
+    const char* what = d.s > 0 ? "bead" : "dimple";
     if (d.r0 <= 0 || d.h <= 0) {
-        THROWM(Base::ValueError, "A dimple's diameter and depth are above 0");
+        FC_THROWM(Base::ValueError, "A " << what << "'s diameter and depth are above 0");
     }
     if (d.outside(d.h) <= Precision::Confusion()) {
         FC_THROWM(Base::ValueError,
-                  "A dimple " << 2 * d.r0 << " mm across cannot rise " << d.h
-                              << " mm at its slant: it closes to a point first");
+                  "A " << what << " " << 2 * d.r0 << " mm across cannot rise " << d.h
+                       << " mm at its slant: it closes to a point first");
     }
     if (d.inside(d.h - d.T) <= Precision::Confusion()) {
-        THROWM(Base::ValueError, "A dimple that narrow has no room inside for the thickness");
+        FC_THROWM(Base::ValueError,
+                  "A " << what << " that narrow has no room inside for the thickness");
     }
     Pressed res;
-    res.outside = cone(frame, -d.T, d.outside(-d.T), d.h, d.outside(d.h));
-    res.cuts.push_back(
-        cone(frame, -2 * d.T, d.inside(-2 * d.T), d.h - d.T, d.inside(d.h - d.T)));
+    if (d.s > 0) {
+        res.outside = drawn(frame, d.s, -d.T, d.outside(-d.T), d.h, d.outside(d.h));
+        res.cuts.push_back(
+            drawn(frame, d.s, -2 * d.T, d.inside(-2 * d.T), d.h - d.T, d.inside(d.h - d.T)));
+    }
+    else {
+        res.outside = cone(frame, -d.T, d.outside(-d.T), d.h, d.outside(d.h));
+        res.cuts.push_back(
+            cone(frame, -2 * d.T, d.inside(-2 * d.T), d.h - d.T, d.inside(d.h - d.T)));
+    }
     // as far as its rim's bend reaches on either skin: the two are
-    // concentric, so both end rho tan(phi / 2) past where it leaves the face
-    res.form.halfLength = d.r0 + d.rho * std::tan(d.phi / 2) + 10 * Precision::Confusion();
-    res.form.halfWidth = 0;
+    // concentric, so both end rho tan(phi / 2) past where it leaves the face;
+    // a circle for a dimple, a box for a bead
+    const double reach = d.r0 + d.rho * std::tan(d.phi / 2) + 10 * Precision::Confusion();
+    res.form.halfLength = d.s + reach;
+    res.form.halfWidth = d.s > 0 ? reach : 0;
     res.form.zMin = -d.T;
     res.form.zMax = d.h;
     return res;
 }
 
-/// The dimple's four bends rounded, each a circle about its axis -- the rim
-/// and the top, outside and in -- added to fillet; how many
+/// The dimple's four bends rounded, each a circle about its axis, a bead's
+/// a stadium about its straight part's line -- the rim and the top, outside
+/// and in -- added to fillet; how many
 int roundDimple(BRepFilletAPI_MakeFillet& fillet,
                 const TopoDS_Shape& shape,
                 const Dimple& d,
@@ -266,25 +329,27 @@ int roundDimple(BRepFilletAPI_MakeFillet& fillet,
         {d.h, d.outside(d.h), d.rho + d.T},       // the top, outside
         {d.h - d.T, d.inside(d.h - d.T), d.rho},  // the top, inside
     };
+    gp_Trsf toFrame;
+    toFrame.SetTransformation(frame);
     int count = 0;
     TopTools_IndexedMapOfShape edges;
     TopExp::MapShapes(shape, TopAbs_EDGE, edges);
     for (int i = 1; i <= edges.Extent(); ++i) {
         BRepAdaptor_Curve c(TopoDS::Edge(edges(i)));
-        if (c.GetType() != GeomAbs_Circle) {
+        if (c.GetType() != GeomAbs_Circle && c.GetType() != GeomAbs_Line) {
             continue;
         }
-        const gp_Circ circ = c.Circle();
-        if (!circ.Axis().Direction().IsParallel(frame.Direction(), Precision::Angular())) {
-            continue;
-        }
-        const gp_Vec off(frame.Location(), circ.Location());
-        const double z = off.Dot(gp_Vec(frame.Direction()));
-        if ((off - gp_Vec(frame.Direction()) * z).Magnitude() > 1e-6) {
-            continue;
-        }
+        // its ends and its middle, in the frame
+        const double u0 = c.FirstParameter(), u1 = c.LastParameter();
+        const gp_Pnt at[] = {c.Value(u0).Transformed(toFrame),
+                             c.Value((u0 + u1) / 2).Transformed(toFrame),
+                             c.Value(u1).Transformed(toFrame)};
         for (const auto& b : bends) {
-            if (std::abs(z - b.z) < 1e-6 && std::abs(circ.Radius() - b.r) < 1e-6) {
+            bool on = true;
+            for (const gp_Pnt& q : at) {
+                on = on && std::abs(q.Z() - b.z) < 1e-6 && std::abs(d.from(q) - b.r) < 1e-6;
+            }
+            if (on) {
                 fillet.Add(b.radius, TopoDS::Edge(edges(i)));
                 ++count;
             }
@@ -534,7 +599,7 @@ SheetMetalForm::SheetMetalForm()
                       "Sheet Metal",
                       App::Prop_None,
                       "Tool: Tool's shape, set on its face, as the form's outside; Dimple, "
-                      "Louver: a built-in one");
+                      "Louver, Bead: a built-in one");
     Kind.setEnums(KindEnums);
     ADD_PROPERTY_TYPE(Face,
                       (nullptr),
@@ -565,25 +630,30 @@ SheetMetalForm::SheetMetalForm()
                       (10.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple: across where it leaves the face");
+                      "Kind Dimple, Bead: across where it leaves the face");
     ADD_PROPERTY_TYPE(Depth,
                       (2.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Louver: its top above the face");
+                      "Kind Dimple, Louver, Bead: its top above the face");
     ADD_PROPERTY_TYPE(Radius,
                       (1.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Louver: the inside radius of its bends");
+                      "Kind Dimple, Louver, Bead: the inside radius of its bends");
     ADD_PROPERTY_TYPE(FlankAngle,
                       (45.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple: the slant of its side from the face, up to 90 deg; Louver: "
-                      "its ends'");
+                      "Kind Dimple, Bead: the slant of its side from the face, up to 90 deg; "
+                      "Louver: its ends'");
     FlankAngle.setConstraints(&flankRange);
-    ADD_PROPERTY_TYPE(Length, (20.0), "Form", App::Prop_None, "Kind Louver: along the form's X");
+    ADD_PROPERTY_TYPE(Length,
+                      (20.0),
+                      "Form",
+                      App::Prop_None,
+                      "Kind Louver: along the form's X; Bead: along it end to end, where it "
+                      "leaves the face");
     ADD_PROPERTY_TYPE(Width,
                       (6.0),
                       "Form",
@@ -609,14 +679,13 @@ void SheetMetalForm::onChanged(const App::Property* prop)
     if (prop == &Kind) {
         const int kind = Kind.getValue();
         Tool.setStatus(App::Property::ReadOnly, kind != 0);
-        Diameter.setStatus(App::Property::ReadOnly, kind != 1);
+        Diameter.setStatus(App::Property::ReadOnly, kind != 1 && kind != 3);
         for (App::Property* p :
              std::initializer_list<App::Property*> {&Depth, &Radius, &FlankAngle}) {
             p->setStatus(App::Property::ReadOnly, kind == 0);
         }
-        for (App::Property* p : std::initializer_list<App::Property*> {&Length, &Width}) {
-            p->setStatus(App::Property::ReadOnly, kind != 2);
-        }
+        Length.setStatus(App::Property::ReadOnly, kind != 2 && kind != 3);
+        Width.setStatus(App::Property::ReadOnly, kind != 2);
     }
     // The built-in sizes start from the sheet's thickness, once, when the
     // feature takes its rule (ruled 2026-11-06); any set by then are kept
@@ -762,12 +831,19 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
             if (isTool) {
                 pressed = pressTool(tool, toolBase, toolX, frame, T);
             }
-            else if (Kind.getValue() == 1) {
-                const Dimple d {Diameter.getValue() / 2,
-                                Depth.getValue(),
-                                Base::toRadians(FlankAngle.getValue()),
-                                Radius.getValue(),
-                                T};
+            else if (Kind.getValue() == 1 || Kind.getValue() == 3) {
+                Dimple d {Diameter.getValue() / 2,
+                          Depth.getValue(),
+                          Base::toRadians(FlankAngle.getValue()),
+                          Radius.getValue(),
+                          T};
+                if (Kind.getValue() == 3) {
+                    if (Length.getValue() <= Diameter.getValue() + Precision::Confusion()) {
+                        THROWM(Base::ValueError,
+                               "A bead is longer than it is wide: as long, it is a dimple");
+                    }
+                    d.s = (Length.getValue() - Diameter.getValue()) / 2;
+                }
                 pressed = pressDimple(d, frame);
                 rounds.emplace_back(
                     [d, frame](BRepFilletAPI_MakeFillet& f, const TopoDS_Shape& s, int step) {

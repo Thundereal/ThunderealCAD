@@ -1712,6 +1712,17 @@ stored flat and this option do what it was for.
   each kind's greyed out for the others. `TestSheetMetalForm` (17; before, 12), its five new
   cases `testLouver`, `testLouverTurned`, `testLouverSharp`, `testLouverRefused`,
   `testSizesFromThickness`; `sheet-metal-panels.py` (+3; before, 79 and 1 failing).
+- **Built 2026-11-06, the bead:** Kind `Bead` of the form, a dimple drawn out along the form's X:
+  `Length` end to end where it leaves the face, `Diameter` across, `Depth`, `Radius`,
+  `FlankAngle` as the dimple's. Its outside and its hollow are ruled between two stadia the
+  thickness apart (`BRepOffsetAPI_ThruSections`, ruled: its sides planes, its ends half cones,
+  exact), and its four bends, each a chain of two lines and two arcs, are rounded concentric as
+  the dimple's: unlike the louver's, they meet no corner. The dimple's rounding finds its bends by
+  their distance from the straight part's line, which for a dimple, no straight part, is its
+  axis. Its region is a box. Refused: no longer than it is wide (a dimple), closing to a point
+  first, no room inside, a size of 0. A bead along a sketch's line or arc, not straight at a
+  point, is not built. `TestSheetMetalForm` (20; before, 17), `testBead`, `testBeadTurned`,
+  `testBeadRefused`; `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

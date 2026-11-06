@@ -3866,6 +3866,57 @@ Phase D1 is under way (2026-10-28):
   - Not yet: the stresses (the second half); the run's cost on a fine mesh,
     90 s for the strip's 601 steps, much of it the modal assembly's own
     work at each step over the whole mesh.
+- Built, D4b step 4 (second half): the stresses, coloured as the run plays.
+  - **Recovered from the mode shapes, after the run** (`FlexibleBodies.
+    modalStresses()`), as Adams and MotionSolve do: each coordinate's
+    stress field -- the small strain of its shape, by the 10-node
+    tetrahedron's shape functions' gradients at each of its nodes, linear
+    elastic, each node's the mean of its tetrahedra's -- at the surface's
+    nodes, then weighed by the run's coordinates at the time shown. A rigid
+    turn's linear strain is none, so an interface's column that only
+    carries the part is stress free. The material the run's
+    (`getMassProperties()`' Young's modulus and Poisson's ratio). numpy;
+    0.3 s for the rod's 2915 tetrahedra, kept while the shapes are the same
+    so the player and the Results box share it.
+  - **The player colours it** by its von Mises stress, blue to red as the
+    Fem workbench's results, red the largest over the run of all the
+    study's flexible bodies; a legend at the view's right (`Legend`) with
+    the scale in MPa and how many times the bending is drawn, on a light
+    backing of its own for any background. Painted by Qt: a widget over
+    the view, and Save Animation paints it into its frames at the same
+    place (`videoLayout()`, `videoFrame()`). Not in the scene, because
+    with the bgfx backend on, nothing in the viewer's foreground root -- a
+    view provider's front root, where Fem's colour bar goes -- reached a
+    saved picture or the backend's own frame dump, not even the corner
+    axis cross that feed was built for (a square of plain
+    SoIndexedFaceSet, probed 2026-11-06); and a camera nested in the scene
+    graph is not one the render cache takes. A picture saved by Save
+    Picture is without it.
+  - **The Results box** has each flexible body's largest von Mises stress on
+    its surface at each frame ("FlexibleVonMises", MPa), and the CSV and the
+    spreadsheet with it.
+  - Test: TestFlexibleBody.test_cantilever_stress -- the rod clamped to the
+    grounded block, settled under gravity, 12 modes: its top and bottom
+    sigma_xx the beam's q (L - x)^2 / 2 c / I within 1.3% from 10 to 70 mm
+    off the hold (2% asked); its largest at the hold, 1.06 times the beam's
+    there, the hold's corners; the channel each frame's largest.
+    test_pendulum_stress -- the hinged rod let go level, 20 ms in, its
+    ringing gone: its bending, half the difference of top and bottom (the
+    swing's pull along it adds to both), a bar's turning about its pin
+    under gravity, M = rho A g x (L - x)^2 / 4 L, concave up, within 1.7%
+    at 24 modes (at 12, 4% at L / 3). TestGuiCommands'
+    test_flexible_body_playback, the colours, the legend, the video's
+    layout and the channel.
+  - The manual's video (`assembly/simulation/flexible-stress`): the
+    flexible-bodies page's strip, coloured, 0.203 MPa at most 3 ms in (the
+    release's ringing, 1.73 times), then the swing's 0.1145 MPa at 75 ms
+    against the turning bar's rho A g L^2 c / 27 I cos(theta), 0.1152.
+  - Not yet: near a free end, where the stress is a hundredth of the root's,
+    the modes left out take a fifth of it (6 modes, a third): stress takes
+    more modes than shape, and a static correction for the loads on the
+    mesh -- gravity, inertia -- would give it back; the stresses inside the
+    part (the surface's only, where the largest is but for a load inside);
+    To FEM's vibration from the run's own coordinates.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

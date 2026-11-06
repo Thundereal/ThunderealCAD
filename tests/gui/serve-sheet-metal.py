@@ -87,6 +87,7 @@ def serve_asked():
 
 
 COMMANDS = (
+    "PartDesign_SheetMetalStarter",
     "PartDesign_SheetMetalBaseWall",
     "PartDesign_SheetMetalFlange",
     "PartDesign_SheetMetalContourFlange",

@@ -115,6 +115,11 @@ def run():
             actions is not None and base is not None and base.getAction()[0] in actions,
             [a.text() for a in actions or []],
         )
+        starter = FreeCADGui.Command.get("PartDesign_SheetMetalStarter")
+        check(
+            "and Starter Shape beside it",
+            starter is not None and starter.getAction()[0] in (actions or []),
+        )
         check("the Sheet Metal tool bar is there and not offered", hidden())
 
         doc = FreeCAD.newDocument(DOC)
@@ -1184,6 +1189,12 @@ def run():
             crossCmd is not None
             and toolbar() is not None
             and crossCmd.getAction()[0] in toolbar().actions(),
+        )
+        check(
+            "Starter Shape is on the tool bar, first",
+            starter is not None
+            and toolbar() is not None
+            and toolbar().actions()[:1] == [starter.getAction()[0]],
         )
         tip = body.Tip
         walls = [

@@ -16,12 +16,17 @@
   - Cancel on a new base wall takes it away;
   - the panel says its values in words (Material side, Outer sharp), a
     plate's Length, Reversed and Midplane greyed out, as the plate does not
-    use them, and a value set from Python while it is open shown in its box.
+    use them, and a value set from Python while it is open shown in its box;
+  - Starter Shape's panel: its kind, sizes and Centred, the shape shown as
+    it is set, a size too small said in red with nothing made and OK
+    refused; OK keeps ordinary features, one undo takes them away, Cancel
+    leaves nothing (M5, ruled 2026-11-06).
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
 
 import os
+import time
 import traceback
 
 import FreeCAD
@@ -103,6 +108,14 @@ def press(which):
 
 def accept():
     return press(QtWidgets.QDialogButtonBox.Ok)
+
+
+def wait(seconds):
+    """Events for that long: a panel that rebuilds on a timer"""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        QtWidgets.QApplication.processEvents()
+        time.sleep(0.02)
 
 
 def run():
@@ -782,6 +795,105 @@ def run():
             and [e["Name"] for e in crosses[0].SheetModel["Elements"] if "CrossBreak" in e]
             == ["Wall1"],
             crosses and (crosses[0].State, crosses[0].getStatusString()),
+        )
+
+        # -- Starter Shape: a shape of ordinary features, shown as it is set --
+        sbody = doc.addObject("PartDesign::Body", "StarterBody")
+        view.setActiveObject("pdbody", sbody)
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        names = {o.Name for o in doc.Objects}
+
+        def made():
+            return [o for o in sbody.Group if o.Name not in names]
+
+        FEATURES = (
+            "Sketcher::SketchObject",
+            "PartDesign::SheetMetalBaseWall",
+            "PartDesign::SheetMetalFlange",
+        )
+
+        def size(obj):
+            # the exact box: shown, a shape has a mesh, which the default reads
+            box = obj.Shape.optimalBoundingBox(False)
+            return tuple(round(v, 6) for v in (box.XLength, box.YLength, box.ZLength))
+
+        FreeCADGui.runCommand("PartDesign_SheetMetalStarter")
+        wait(1.5)
+        w = panel() or {}
+        fields = ("Kind", "Length", "Width", "Height", "FlangeWidth", "Centered", "Message")
+        check(
+            "Starter Shape opens its panel: the kind, the sizes, centred",
+            all(n in w for n in fields),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        shown = made()
+        check(
+            "and shows the shape it would make",
+            [o.TypeId for o in shown][:2]
+            == ["Sketcher::SketchObject", "PartDesign::SheetMetalBaseWall"]
+            and sbody.Tip is not None
+            and sbody.Tip.TypeId == "PartDesign::SheetMetalFlange",
+            [o.Name for o in shown],
+        )
+        if all(n in w for n in fields):
+            w["Kind"].setCurrentText("Tub")
+            w["Length"].setProperty("rawValue", 60.0)
+            w["Width"].setProperty("rawValue", 40.0)
+            w["Height"].setProperty("rawValue", 20.0)
+            wait(2)
+            tip = sbody.Tip
+            bends = (
+                [e for e in tip.SheetModel["Elements"] if e["Kind"] == "Bend"]
+                if tip is not None and hasattr(tip, "SheetModel")
+                else []
+            )
+            check(
+                "set to a tub 60 by 40 by 20, it shows one",
+                tip is not None and size(tip) == (60, 40, 20) and len(bends) == 4,
+                tip and (tip.Name, size(tip), len(bends)),
+            )
+            w["Height"].setProperty("rawValue", 1.5)
+            wait(2)
+            message = w["Message"].text()
+            check(
+                "too low for its bends: said in red, nothing made",
+                "too low" in message and "red" in w["Message"].styleSheet() and made() == [],
+                (message, w["Message"].styleSheet(), [o.Name for o in made()]),
+            )
+            accept()
+            check("and OK refused", FreeCADGui.Control.activeDialog())
+            w["Height"].setProperty("rawValue", 20.0)
+            wait(2)
+            accept()
+            wait(0.5)
+            # the features: the body also holds the sheet's solid, rule and flat
+            kept = [o for o in made() if o.TypeId in FEATURES]
+            check(
+                "OK keeps it: ordinary features, the last the body's tip",
+                not FreeCADGui.Control.activeDialog()
+                and [o.TypeId for o in kept]
+                == ["Sketcher::SketchObject", "PartDesign::SheetMetalBaseWall"]
+                + ["PartDesign::SheetMetalFlange"]
+                and sbody.Tip == kept[-1]
+                and size(kept[-1]) == (60, 40, 20),
+                [o.Name for o in kept],
+            )
+            doc.undo()
+            doc.recompute()
+            pump()
+            check("one undo takes it all away", made() == [], [o.Name for o in made()])
+        else:
+            press(QtWidgets.QDialogButtonBox.Cancel)
+        FreeCADGui.runCommand("PartDesign_SheetMetalStarter")
+        wait(1.5)
+        opened = FreeCADGui.Control.activeDialog()
+        press(QtWidgets.QDialogButtonBox.Cancel)
+        wait(0.5)
+        check(
+            "Cancel leaves nothing",
+            opened and not FreeCADGui.Control.activeDialog() and made() == [],
+            [o.Name for o in made()],
         )
     except Exception:
         note("ABORT:\n" + traceback.format_exc())

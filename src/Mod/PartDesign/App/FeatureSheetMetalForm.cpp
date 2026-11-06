@@ -79,7 +79,7 @@ using SheetMetal::Model;
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalForm, PartDesign::Feature)
 
-const char* SheetMetalForm::KindEnums[] = {"Tool", "Dimple", "Louver", "Bead", nullptr};
+const char* SheetMetalForm::KindEnums[] = {"Tool", "Dimple", "Louver", "Bead", "Lance", nullptr};
 
 namespace
 {
@@ -377,16 +377,25 @@ TopoDS_Shape behind(const gp_Pnt& p, const gp_Dir& out, double size)
 /// and out at the front, where the sheet was cut: a slit the rule's gap wide
 /// in front of the lip, on past where its ends leave the face, so the hood
 /// stands free of the sheet before it all along. Its bends rounded
-/// afterwards (roundLouver()).
+/// afterwards (roundLouver()). A lance is a louver whose ends are cut, not
+/// drawn: the ramp alone, square at x = +-l / 2, a slit the gap wide beside
+/// each side, back past where its hinge's bend leaves the face, so the tab
+/// is free on three sides.
 struct Louver
 {
     double l, w, h, phi, rho, T, gap;
+    bool lance = false;
 
     /// how far past x = +-l / 2 the slit runs: past where the ends' bends
-    /// leave the face, and the gap more
+    /// leave the face, and the gap more; a lance's, the gap
     double reach() const
     {
-        return rho * std::tan(phi / 2) + gap;
+        return (lance ? 0 : rho * std::tan(phi / 2)) + gap;
+    }
+    /// how far behind the hinge its bend leaves the face, on either skin
+    double behindHinge() const
+    {
+        return rho * std::tan(theta() / 2);
     }
 
     double theta() const
@@ -412,28 +421,42 @@ struct Louver
 
 Pressed pressLouver(const Louver& d, const gp_Ax3& frame)
 {
+    const char* what = d.lance ? "lance" : "louver";
     if (d.l <= 0 || d.w <= 0 || d.h <= 0) {
-        THROWM(Base::ValueError, "A louver's length, width and depth are above 0");
+        FC_THROWM(Base::ValueError, "A " << what << "'s length, width and depth are above 0");
     }
     if (d.gap <= Precision::Confusion()) {
-        THROWM(Base::ValueError, "A louver's slit is the rule's gap wide: a gap above 0");
+        FC_THROWM(Base::ValueError,
+                  "A " << what << "'s slit is the rule's gap wide: a gap above 0");
     }
     const double sp = std::sin(d.phi), cp = std::cos(d.phi);
-    if (d.l / 2 * sp - d.h * cp <= Precision::Confusion()) {
-        FC_THROWM(Base::ValueError,
-                  "A louver " << d.l << " mm long cannot rise " << d.h
-                              << " mm at its ends' slant: they meet first");
-    }
     // under the lip, inside: the ramp lowered by the thickness, and the ends
     const double lip = d.h - d.T / std::cos(d.theta());
-    if (lip <= Precision::Confusion() || d.l / 2 * sp - lip * cp - d.T <= Precision::Confusion()) {
-        THROWM(Base::ValueError, "A louver that small has no room inside for the thickness");
+    if (d.lance) {
+        if (lip <= Precision::Confusion()) {
+            THROWM(Base::ValueError, "A lance that shallow does not clear the sheet");
+        }
+    }
+    else {
+        if (d.l / 2 * sp - d.h * cp <= Precision::Confusion()) {
+            FC_THROWM(Base::ValueError,
+                      "A louver " << d.l << " mm long cannot rise " << d.h
+                                  << " mm at its ends' slant: they meet first");
+        }
+        if (lip <= Precision::Confusion()
+            || d.l / 2 * sp - lip * cp - d.T <= Precision::Confusion()) {
+            THROWM(Base::ValueError, "A louver that small has no room inside for the thickness");
+        }
     }
     const double size = 4 * (d.l + d.w + d.h + d.T) + 1;
     const double m = d.l + d.w + d.h + d.T;
+    // a lance's ends square, the box's: only the ramp's plane
+    const double ends = d.lance ? 0 : m;
     auto under = [&](double in, const TopoDS_Shape& box) {
         TopoDS_Shape res = box;
-        for (const auto& [p, n] : d.planes(in)) {
+        const auto planes = d.planes(in);
+        for (std::size_t k = 0; k < (d.lance ? 1 : planes.size()); ++k) {
+            const auto& [p, n] = planes[k];
             BRepAlgoAPI_Common common(res, behind(p, n, size));
             common.Build();
             if (!common.IsDone()) {
@@ -449,14 +472,15 @@ Pressed pressLouver(const Louver& d, const gp_Ax3& frame)
     // The hollow from below the wall, out behind the hinge to where the
     // lowered ramp leaves the wall, and up to the front, where the sheet was
     // cut.
-    const TopoDS_Shape outside = under(0,
-                                       BRepPrimAPI_MakeBox(gp_Pnt(-d.l / 2 - m, -d.w / 2, -d.T / 2),
-                                                           gp_Pnt(d.l / 2 + m, d.w / 2, d.h + m))
-                                           .Shape());
+    const TopoDS_Shape outside =
+        under(0,
+              BRepPrimAPI_MakeBox(gp_Pnt(-d.l / 2 - ends, -d.w / 2, -d.T / 2),
+                                  gp_Pnt(d.l / 2 + ends, d.w / 2, d.h + m))
+                  .Shape());
     const TopoDS_Shape hollow = under(
         d.T,
-        BRepPrimAPI_MakeBox(gp_Pnt(-d.l / 2 - m, -d.w / 2 - m, -2 * d.T),
-                            gp_Pnt(d.l / 2 + m, d.w / 2, d.h + m))
+        BRepPrimAPI_MakeBox(gp_Pnt(-d.l / 2 - (d.lance ? d.gap : m), -d.w / 2 - m, -2 * d.T),
+                            gp_Pnt(d.l / 2 + (d.lance ? d.gap : m), d.w / 2, d.h + m))
             .Shape());
     gp_Trsf place;
     place.SetDisplacement(gp_Ax3(gp::XOY()), frame);
@@ -467,11 +491,24 @@ Pressed pressLouver(const Louver& d, const gp_Ax3& frame)
                                                   gp_Pnt(d.l / 2 + d.reach(), d.w / 2 + d.gap, d.T))
                                   .Shape();
     res.cuts.push_back(BRepBuilderAPI_Transform(slit, place, true).Shape());
+    double back = d.behindHinge();
+    if (d.lance) {
+        // a lance's sides cut free, through the wall, from behind its
+        // hinge's bend to the slit before it
+        back += d.gap;
+        for (double side : {-1.0, 1.0}) {
+            const double x0 = side * d.l / 2, x1 = side * (d.l / 2 + d.gap);
+            const TopoDS_Shape cut =
+                BRepPrimAPI_MakeBox(gp_Pnt(std::min(x0, x1), -d.w / 2 - back, -2 * d.T),
+                                    gp_Pnt(std::max(x0, x1), d.w / 2 + d.gap, d.T))
+                    .Shape();
+            res.cuts.push_back(BRepBuilderAPI_Transform(cut, place, true).Shape());
+        }
+    }
     // as far as its bends reach on either skin, each rho tan(half its angle)
-    // past where it leaves the face, and the slit
+    // past where it leaves the face, and the slits
     res.form.halfLength = d.l / 2 + d.reach() + 10 * Precision::Confusion();
-    res.form.halfWidth = d.w / 2
-        + std::max(d.rho * std::tan(d.theta() / 2), d.gap) + 10 * Precision::Confusion();
+    res.form.halfWidth = d.w / 2 + std::max(back, d.gap) + 10 * Precision::Confusion();
     res.form.zMin = -d.T;
     res.form.zMax = d.h;
     return res;
@@ -541,7 +578,16 @@ int roundLouver(BRepFilletAPI_MakeFillet& fillet,
             return std::abs(q.Z() + d.T) < 1e-6;
         });
         double radius = 0;
-        if (step == 0) {
+        if (d.lance) {
+            // its hinge alone, concentric: its ends on the side slits' faces
+            if (step == 0 && face && lies(outer[0])) {
+                radius = d.rho;
+            }
+            else if (step == 0 && beneath && lies(inner[0])) {
+                radius = d.rho + d.T;
+            }
+        }
+        else if (step == 0) {
             if (lies(outer[0]) && onEnd(outer)) {
                 radius = d.rho + d.T;
             }
@@ -599,7 +645,7 @@ SheetMetalForm::SheetMetalForm()
                       "Sheet Metal",
                       App::Prop_None,
                       "Tool: Tool's shape, set on its face, as the form's outside; Dimple, "
-                      "Louver, Bead: a built-in one");
+                      "Louver, Bead, Lance: a built-in one");
     Kind.setEnums(KindEnums);
     ADD_PROPERTY_TYPE(Face,
                       (nullptr),
@@ -635,12 +681,12 @@ SheetMetalForm::SheetMetalForm()
                       (2.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Louver, Bead: its top above the face");
+                      "Kind Dimple, Louver, Bead, Lance: its top above the face");
     ADD_PROPERTY_TYPE(Radius,
                       (1.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Louver, Bead: the inside radius of its bends");
+                      "Kind Dimple, Louver, Bead, Lance: the inside radius of its bends");
     ADD_PROPERTY_TYPE(FlankAngle,
                       (45.0),
                       "Form",
@@ -652,13 +698,14 @@ SheetMetalForm::SheetMetalForm()
                       (20.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Louver: along the form's X; Bead: along it end to end, where it "
-                      "leaves the face");
+                      "Kind Louver, Lance: along the form's X; Bead: along it end to end, "
+                      "where it leaves the face");
     ADD_PROPERTY_TYPE(Width,
                       (6.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Louver: from its hinge to its opening, which faces the form's Y");
+                      "Kind Louver, Lance: from its hinge to its opening, which faces the "
+                      "form's Y");
     onChanged(&Kind);
 }
 
@@ -680,12 +727,12 @@ void SheetMetalForm::onChanged(const App::Property* prop)
         const int kind = Kind.getValue();
         Tool.setStatus(App::Property::ReadOnly, kind != 0);
         Diameter.setStatus(App::Property::ReadOnly, kind != 1 && kind != 3);
-        for (App::Property* p :
-             std::initializer_list<App::Property*> {&Depth, &Radius, &FlankAngle}) {
+        for (App::Property* p : std::initializer_list<App::Property*> {&Depth, &Radius}) {
             p->setStatus(App::Property::ReadOnly, kind == 0);
         }
-        Length.setStatus(App::Property::ReadOnly, kind != 2 && kind != 3);
-        Width.setStatus(App::Property::ReadOnly, kind != 2);
+        FlankAngle.setStatus(App::Property::ReadOnly, kind == 0 || kind == 4);
+        Length.setStatus(App::Property::ReadOnly, kind < 2);
+        Width.setStatus(App::Property::ReadOnly, kind != 2 && kind != 4);
     }
     // The built-in sizes start from the sheet's thickness, once, when the
     // feature takes its rule (ruled 2026-11-06); any set by then are kept
@@ -857,7 +904,8 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
                                 Base::toRadians(FlankAngle.getValue()),
                                 Radius.getValue(),
                                 T,
-                                rule->Gap.getValue()};
+                                rule->Gap.getValue(),
+                                Kind.getValue() == 4};
                 pressed = pressLouver(d, frame);
                 const double hl = pressed.form.halfLength, hw = pressed.form.halfWidth;
                 rounds.emplace_back([d, frame, hl, hw](BRepFilletAPI_MakeFillet& f,

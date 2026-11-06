@@ -1723,6 +1723,17 @@ stored flat and this option do what it was for.
   first, no room inside, a size of 0. A bead along a sketch's line or arc, not straight at a
   point, is not built. `TestSheetMetalForm` (20; before, 17), `testBead`, `testBeadTurned`,
   `testBeadRefused`; `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
+- **Built 2026-11-06, the lance:** Kind `Lance` of the form, a louver whose ends are cut, not
+  drawn: the sheet cut on three sides, the tab between bent up along the fourth, its hinge, a
+  plane ramp to its end `Depth` above the face; `Length` along the form's X, `Width` from the
+  hinge to its end, `Radius` its hinge's; `FlankAngle` unused, greyed out. The cuts are slits the
+  rule's gap wide, the side ones through the wall from behind where the hinge's bend leaves the
+  face to the slit before the tab's end, so the hinge's bend ends on their faces: it is rounded
+  concentric (`Radius` on the face, `Radius` and the thickness beneath), the corners that held
+  the louver to its compromise not there. Refused: a size of 0, a tab too shallow to clear the
+  sheet (`Depth` the thickness over the cosine of its slope or less), a rule's gap of 0.
+  `TestSheetMetalForm` (23; before, 20), `testLance`, `testLanceSharp`, `testLanceRefused`;
+  `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

@@ -46,8 +46,9 @@ namespace PartDesign
  * Length long along the form's X, Width from its hinge to the opening,
  * which faces its Y, a ramp up to the lip Depth above the face, its ends
  * drawn down to the face at FlankAngle; "Bead", a dimple drawn out along
- * the form's X, Length end to end. The built-in ones' sizes start from the
- * rule's thickness.
+ * the form's X, Length end to end; "Lance", a louver whose ends are cut,
+ * not drawn, its tab free on three sides. The built-in ones' sizes start
+ * from the rule's thickness.
  * Each is a form of the sheet's model (SheetMetal::Form), owned by its wall.
  */
 class PartDesignExport SheetMetalForm : public PartDesign::Feature, public SheetMetalExtension
@@ -71,15 +72,15 @@ public:
     App::PropertyLinkSub Tool;
     /// Kind Dimple, Bead: across where it leaves the face
     App::PropertyLength Diameter;
-    /// Kind Dimple, Louver, Bead: how high its top is above the face
+    /// Kind Dimple, Louver, Bead, Lance: how high its top is above the face
     App::PropertyLength Depth;
-    /// Kind Dimple, Louver, Bead: the inside radius of its bends
+    /// Kind Dimple, Louver, Bead, Lance: the inside radius of its bends
     App::PropertyLength Radius;
     /// Kind Dimple, Bead: the slant of its side, from the face; Louver: its ends'
     App::PropertyAngle FlankAngle;
-    /// Kind Louver: along the form's X; Bead: along it end to end
+    /// Kind Louver, Lance: along the form's X; Bead: along it end to end
     App::PropertyLength Length;
-    /// Kind Louver: from its hinge to its opening, along the form's Y
+    /// Kind Louver, Lance: from its hinge to its opening, along the form's Y
     App::PropertyLength Width;
 
     App::DocumentObjectExecReturn* execute() override;

@@ -20,7 +20,10 @@
   - Starter Shape's panel: its kind, sizes and Centred, the shape shown as
     it is set, a size too small said in red with nothing made and OK
     refused; OK keeps ordinary features, one undo takes them away, Cancel
-    leaves nothing (M5, ruled 2026-11-06).
+    leaves nothing (M5, ruled 2026-11-06);
+  - Form's panel: its face, its kind, its points' sketch, its angle and way,
+    a dimple's sizes, greyed out for a tool's form; a size set there is the
+    form's.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
@@ -894,6 +897,77 @@ def run():
             "Cancel leaves nothing",
             opened and not FreeCADGui.Control.activeDialog() and made() == [],
             [o.Name for o in made()],
+        )
+
+        # -- Form's panel: the face, the kind, the points, a dimple's sizes ---
+        fbody = doc.addObject("PartDesign::Body", "FormBody")
+        view.setActiveObject("pdbody", fbody)
+        fsketch = fbody.newObject("Sketcher::SketchObject", "FormSketch")
+        pts = [(0, 0), (40, 0), (40, 30), (0, 30)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            fsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        fplate = fbody.newObject("PartDesign::SheetMetalBaseWall", "FormPlate")
+        fplate.Profile = fsketch
+        fpoints = fbody.newObject("Sketcher::SketchObject", "FormPoints")
+        fpoints.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        fpoints.addGeometry(Part.Point(V(20, 15, 0)))
+        doc.recompute()
+        fbody.Tip = fplate
+        top = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(fplate.Shape.Faces)
+            if abs(f.BoundBox.ZMin - 1) < 1e-7 and abs(f.BoundBox.ZMax - 1) < 1e-7
+        ]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, fplate.Name, top[0])
+        FreeCADGui.Selection.addSelection(doc.Name, fpoints.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalForm")
+        pump()
+        fforms = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalForm"]
+        w = panel() or {}
+        names = (
+            "Kind",
+            "Positions",
+            "Angle",
+            "Reversed",
+            "Diameter",
+            "Depth",
+            "Radius",
+            "FlankAngle",
+        )
+        check(
+            "Form opens its panel: its kind, points, angle, way and a dimple's sizes",
+            fforms and all(n in w for n in names),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        if fforms and all(n in w for n in names):
+            w["Diameter"].setProperty("rawValue", 14.0)
+            pump(40)
+            doc.recompute()
+            check(
+                "a diameter set there is the dimple's",
+                abs(fforms[0].Diameter.Value - 14) < 1e-9 and "Invalid" not in fforms[0].State,
+                (fforms[0].Diameter, fforms[0].State),
+            )
+            fforms[0].Kind = "Tool"
+            pump(40)
+            w = panel() or {}
+            check(
+                "a tool's form greys out the dimple's sizes",
+                "Diameter" in w and not w["Diameter"].isEnabled(),
+            )
+            fforms[0].Kind = "Dimple"
+            pump(20)
+        accept()
+        pump(20)
+        doc.recompute()
+        check(
+            "accepted, the plate has its dimple",
+            fforms
+            and "Invalid" not in fforms[0].State
+            and len(fforms[0].SheetModel.get("Forms", [])) == 1,
+            fforms and (fforms[0].State, fforms[0].getStatusString()),
         )
     except Exception:
         note("ABORT:\n" + traceback.format_exc())

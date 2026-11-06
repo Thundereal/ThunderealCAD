@@ -99,6 +99,7 @@ COMMANDS = (
     "PartDesign_SheetMetalCornerClosure",
     "PartDesign_SheetMetalRip",
     "PartDesign_SheetMetalCrossBreak",
+    "PartDesign_SheetMetalForm",
     "PartDesign_SheetMetalCutout",
     "PartDesign_SheetMetalFold",
     "PartDesign_SheetMetalJog",

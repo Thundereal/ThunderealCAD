@@ -1477,6 +1477,80 @@ def run():
                 doc.removeObject(name)
         pump(20)
 
+        # Form: a face of a wall on the tip and a sketch of points on it make a
+        # dimple at each point (M5, ruled 2026-11-06)
+        formCmd = FreeCADGui.Command.get("PartDesign_SheetMetalForm")
+        check(
+            "Form is on the tool bar",
+            formCmd is not None
+            and toolbar() is not None
+            and formCmd.getAction()[0] in toolbar().actions(),
+        )
+        tip = body.Tip
+        walls = [
+            ("Face%d" % (i + 1), f)
+            for i, f in enumerate(tip.Shape.Faces)
+            if isinstance(f.Surface, Part.Plane)
+            and (tip.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Wall")
+        ]
+        faceName, wallFace = max(walls, key=lambda w: w[1].Area)
+        centre = wallFace.CenterOfMass
+        normal = wallFace.normalAt(*wallFace.Surface.parameter(centre))
+        points = body.newObject("Sketcher::SketchObject", "FormPoints")
+        points.Placement = FreeCAD.Placement(centre, FreeCAD.Rotation(V(0, 0, 1), normal))
+        points.addGeometry(Part.Point(V(0, 0, 0)))
+        doc.recompute()
+        body.Tip = tip
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, tip.Name, faceName)
+        FreeCADGui.Selection.addSelection(doc.Name, points.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalForm")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        pump(20)
+        forms = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalForm"
+        ]
+        form = forms[0] if forms else None
+        if form is not None:
+            # small enough for whatever wall is the largest here
+            form.Diameter, form.Depth, form.Radius = 6, 2, 0.5
+            doc.recompute()
+            pump(20)
+        check(
+            "with a wall's face and a sketch of points selected it presses a dimple there",
+            form is not None
+            and "Invalid" not in form.State
+            and form.Kind == "Dimple"
+            and body.Tip == form
+            and [f["Name"] for f in form.SheetModel.get("Forms", [])] == ["Form1"]
+            and form.Shape.isValid(),
+            form and (form.State, form.getStatusString()),
+        )
+        check(
+            "and its view is the form's, the sketch hidden",
+            form is not None
+            and form.ViewObject.TypeId == "PartDesignGui::ViewProviderSheetMetalForm"
+            and not points.Visibility,
+            form and form.ViewObject.TypeId,
+        )
+        if form is not None:
+            body.removeObject(form)
+            doc.removeObject(form.Name)
+        body.removeObject(points)
+        doc.removeObject(points.Name)
+        doc.recompute()
+        pump(20)
+
         # Rip: a tube, which does not lie flat, cut open at a bend picked
         # (docs/SheetMetal.md sec 12, ruled 2026-11-05)
         ripCmd = FreeCADGui.Command.get("PartDesign_SheetMetalRip")

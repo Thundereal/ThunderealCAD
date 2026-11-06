@@ -1749,6 +1749,18 @@ stored flat and this option do what it was for.
   the same; the bottom skin is one face. `TestSheetMetalForm` (27; before, 23),
   `testDrawnCutout`, `testDrawnCutoutLong`, `testFlangedHole`, `testDrawnRefused`;
   `sheet-metal-panels.py` (+2; before, an abort at the unknown kind).
+- **Built 2026-11-06, the emboss:** Kind `Emboss` of the form, a flat-topped rounded rectangle
+  `Length` by `Width` where it leaves the face, its corners `CornerRadius` round there (new, 3 T
+  at first), raised `Depth` at `FlankAngle`, `Radius` its bends'. It is the dimple about a
+  rectangle, not a point: the dimple, the bead and the emboss are one shape about a point, a
+  line and a rectangle (`Dimple::s`, `t`), their outsides and hollows ruled between rounded
+  rectangles, their bends found by the distance from that core and rounded concentric. Refused:
+  corners not round, or rounder than half its width; corners closing at its slant before its top
+  (`CornerRadius` at most `Depth / tan(FlankAngle)`); no room inside; a size of 0. An emboss of a
+  sketch's profile, not a rounded rectangle at a point, is not built: a tool does that.
+  `TestSheetMetalForm` (30; before, 7 errors), `testEmboss`, `testEmbossSharp`,
+  `testEmbossRefused`, and `testSizesFromThickness` now with `CornerRadius`;
+  `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

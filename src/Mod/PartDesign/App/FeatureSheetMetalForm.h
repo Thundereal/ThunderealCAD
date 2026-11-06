@@ -49,8 +49,10 @@ namespace PartDesign
  * the form's X, Length end to end; "Lance", a louver whose ends are cut,
  * not drawn, its tab free on three sides; "DrawnCutout", a dimple or a bead
  * open at its top; "FlangedHole", a hole Diameter across, its rim drawn up
- * into a straight collar Depth high. The built-in ones' sizes start from
- * the rule's thickness.
+ * into a straight collar Depth high; "Emboss", a flat-topped rounded
+ * rectangle Length by Width, its corners CornerRadius round, where it
+ * leaves the face. The built-in ones' sizes start from the rule's
+ * thickness.
  * Each is a form of the sheet's model (SheetMetal::Form), owned by its wall.
  */
 class PartDesignExport SheetMetalForm : public PartDesign::Feature, public SheetMetalExtension
@@ -86,8 +88,11 @@ public:
     /// Kind Louver, Lance: along the form's X; Bead, DrawnCutout: along it
     /// end to end
     App::PropertyLength Length;
-    /// Kind Louver, Lance: from its hinge to its opening, along the form's Y
+    /// Kind Louver, Lance: from its hinge to its opening, along the form's Y;
+    /// Emboss: across it
     App::PropertyLength Width;
+    /// Kind Emboss: its corners' radius where it leaves the face
+    App::PropertyLength CornerRadius;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;

@@ -28,6 +28,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <functional>
 #include <numbers>
 #include <span>
@@ -82,7 +83,7 @@ using SheetMetal::Model;
 PROPERTY_SOURCE_WITH_EXTENSIONS(PartDesign::SheetMetalForm, PartDesign::Feature)
 
 const char* SheetMetalForm::KindEnums[] =
-    {"Tool", "Dimple", "Louver", "Bead", "Lance", "DrawnCutout", "FlangedHole", nullptr};
+    {"Tool", "Dimple", "Louver", "Bead", "Lance", "DrawnCutout", "FlangedHole", "Emboss", nullptr};
 
 namespace
 {
@@ -202,7 +203,8 @@ Pressed pressTool(const TopoDS_Shape& tool,
 /// frame's X, straight for 2 s between its round ends: its sides planes,
 /// its ends half cones. A drawn cutout is either open at its top, its floor
 /// cut away, only its rim's bend rounded; a flanged hole is a round one at
-/// 90 deg, a collar.
+/// 90 deg, a collar. An emboss is a dimple about a rectangle, 2 s by 2 t,
+/// r0 its corners' radius where it leaves the face: a rounded rectangle.
 struct Dimple
 {
     double r0;      // where the outside leaves the face
@@ -210,15 +212,22 @@ struct Dimple
     double phi;     // the slant, rad
     double rho;     // the bends' inside radius
     double T;
-    double s = 0;   // a bead's straight part, half of it
+    double s = 0;   // a bead's straight part, half of it; an emboss's along X
+    double t = 0;   // an emboss's straight part along Y, half of it
     bool open = false;
     const char* what = "dimple";
 
-    /// how far a point of the frame's XY is from the straight part's line
+    /// drawn about a line or a rectangle, not a point
+    bool drawnOut() const
+    {
+        return s > 0 || t > 0;
+    }
+    /// how far a point of the frame's XY is from the straight part
     double from(const gp_Pnt& q) const
     {
         const double x = std::max(std::abs(q.X()) - s, 0.0);
-        return std::hypot(x, q.Y());
+        const double y = std::max(std::abs(q.Y()) - t, 0.0);
+        return std::hypot(x, y);
     }
 
     double outside(double z) const
@@ -242,37 +251,62 @@ TopoDS_Shape cone(const gp_Ax3& frame, double z0, double r0, double z1, double r
     return BRepPrimAPI_MakeCone(at, r0, r1, z1 - z0).Shape();
 }
 
-/// The stadium in the frame's XY plane at height z, r from the straight
-/// part's line: straight for 2 s along X, its ends half circles
-TopoDS_Wire stadium(double s, double r, double z)
+/// The rounded rectangle in the frame's XY plane at height z, r from the
+/// rectangle 2 s by 2 t: straight for 2 s along X and 2 t along Y, its
+/// corners quarter circles; with no t, a stadium, its ends half circles
+TopoDS_Wire stadium(double s, double t, double r, double z)
 {
     const gp_Dir up(0, 0, 1);
+    constexpr double q = std::numbers::pi / 2;
     BRepBuilderAPI_MakeWire wire;
-    wire.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(-s, -r, z), gp_Pnt(s, -r, z)).Edge());
-    wire.Add(BRepBuilderAPI_MakeEdge(
-                 GC_MakeArcOfCircle(gp_Circ(gp_Ax2(gp_Pnt(s, 0, z), up), r),
-                                    -std::numbers::pi / 2, std::numbers::pi / 2, true)
-                     .Value())
-                 .Edge());
-    wire.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(s, r, z), gp_Pnt(-s, r, z)).Edge());
-    wire.Add(BRepBuilderAPI_MakeEdge(
-                 GC_MakeArcOfCircle(gp_Circ(gp_Ax2(gp_Pnt(-s, 0, z), up), r),
-                                    std::numbers::pi / 2, 3 * std::numbers::pi / 2, true)
-                     .Value())
-                 .Edge());
+    auto line = [&](const gp_Pnt& a, const gp_Pnt& b) {
+        if (a.Distance(b) > Precision::Confusion()) {
+            wire.Add(BRepBuilderAPI_MakeEdge(a, b).Edge());
+        }
+    };
+    auto arc = [&](double x, double y, double from, double to) {
+        wire.Add(BRepBuilderAPI_MakeEdge(
+                     GC_MakeArcOfCircle(gp_Circ(gp_Ax2(gp_Pnt(x, y, z), up), r), from, to, true)
+                         .Value())
+                     .Edge());
+    };
+    line(gp_Pnt(-s, -t - r, z), gp_Pnt(s, -t - r, z));
+    if (t > 0) {
+        arc(s, -t, -q, 0);
+        line(gp_Pnt(s + r, -t, z), gp_Pnt(s + r, t, z));
+        arc(s, t, 0, q);
+    }
+    else {
+        arc(s, 0, -q, q);
+    }
+    line(gp_Pnt(s, t + r, z), gp_Pnt(-s, t + r, z));
+    if (t > 0) {
+        arc(-s, t, q, 2 * q);
+        line(gp_Pnt(-s - r, t, z), gp_Pnt(-s - r, -t, z));
+        arc(-s, -t, 2 * q, 3 * q);
+    }
+    else {
+        arc(-s, 0, q, 3 * q);
+    }
     return wire.Wire();
 }
 
-/// The solid ruled between the stadia at z0 and z1, r0 and r1 from the
-/// straight part's line, placed in the frame: planes and half cones
-TopoDS_Shape drawn(const gp_Ax3& frame, double s, double z0, double r0, double z1, double r1)
+/// The solid ruled between the rounded rectangles at z0 and z1, r0 and r1
+/// from the straight part, placed in the frame: planes and part cones
+TopoDS_Shape drawn(const gp_Ax3& frame,
+                   double s,
+                   double t,
+                   double z0,
+                   double r0,
+                   double z1,
+                   double r1)
 {
     BRepOffsetAPI_ThruSections loft(true, true);
-    loft.AddWire(stadium(s, r0, z0));
-    loft.AddWire(stadium(s, r1, z1));
+    loft.AddWire(stadium(s, t, r0, z0));
+    loft.AddWire(stadium(s, t, r1, z1));
     loft.Build();
     if (!loft.IsDone()) {
-        THROWM(Base::CADKernelError, "The bead could not be made");
+        THROWM(Base::CADKernelError, "The form could not be made");
     }
     gp_Trsf place;
     place.SetDisplacement(gp_Ax3(gp::XOY()), frame);
@@ -281,13 +315,15 @@ TopoDS_Shape drawn(const gp_Ax3& frame, double s, double z0, double r0, double z
 
 Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
 {
-    const char* what = d.what;
+    // "A dimple", "An emboss"
+    const std::string what =
+        std::string(std::strchr("aeiou", d.what[0]) ? "An " : "A ") + d.what;
     if (d.r0 <= 0 || d.h <= 0) {
-        FC_THROWM(Base::ValueError, "A " << what << "'s diameter and depth are above 0");
+        FC_THROWM(Base::ValueError, what << "'s sizes and depth are above 0");
     }
     if (d.outside(d.h) <= Precision::Confusion()) {
         FC_THROWM(Base::ValueError,
-                  "A " << what << " " << 2 * d.r0 << " mm across cannot rise " << d.h
+                  what << " " << 2 * d.r0 << " mm across cannot rise " << d.h
                        << " mm at its slant: it closes to a point first");
     }
     // its hollow's top: under its own, or, open, past it, its floor cut away
@@ -295,14 +331,14 @@ Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
     if (d.open) {
         if (d.inside(d.h) <= Precision::Confusion()) {
             FC_THROWM(Base::ValueError,
-                      "A " << what << " that narrow has no room at its top for the thickness");
+                      what << " that narrow has no room at its top for the thickness");
         }
         // as far past the top as its hollow stays open, the thickness at most
         top = d.h + std::min(d.T, d.inside(d.h) * std::tan(d.phi) / 2);
     }
     else if (d.inside(d.h - d.T) <= Precision::Confusion()) {
         FC_THROWM(Base::ValueError,
-                  "A " << what << " that narrow has no room inside for the thickness");
+                  what << " that narrow has no room inside for the thickness");
     }
     // Its outside from inside the wall, which holds all of it below the
     // face, as the louver's: from the other skin, its foot split that skin,
@@ -310,9 +346,10 @@ Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
     // the wall's nor the form's
     const double foot = -d.T / 2;
     Pressed res;
-    if (d.s > 0) {
-        res.outside = drawn(frame, d.s, foot, d.outside(foot), d.h, d.outside(d.h));
-        res.cuts.push_back(drawn(frame, d.s, -2 * d.T, d.inside(-2 * d.T), top, d.inside(top)));
+    if (d.drawnOut()) {
+        res.outside = drawn(frame, d.s, d.t, foot, d.outside(foot), d.h, d.outside(d.h));
+        res.cuts.push_back(
+            drawn(frame, d.s, d.t, -2 * d.T, d.inside(-2 * d.T), top, d.inside(top)));
     }
     else {
         res.outside = cone(frame, foot, d.outside(foot), d.h, d.outside(d.h));
@@ -320,10 +357,10 @@ Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
     }
     // as far as its rim's bend reaches on either skin: the two are
     // concentric, so both end rho tan(phi / 2) past where it leaves the face;
-    // a circle for a dimple, a box for a bead
+    // a circle for a dimple, a box for a bead or an emboss
     const double reach = d.r0 + d.rho * std::tan(d.phi / 2) + 10 * Precision::Confusion();
     res.form.halfLength = d.s + reach;
-    res.form.halfWidth = d.s > 0 ? reach : 0;
+    res.form.halfWidth = d.drawnOut() ? d.t + reach : 0;
     res.form.zMin = -d.T;
     res.form.zMax = d.h;
     return res;
@@ -666,7 +703,7 @@ SheetMetalForm::SheetMetalForm()
                       "Sheet Metal",
                       App::Prop_None,
                       "Tool: Tool's shape, set on its face, as the form's outside; Dimple, "
-                      "Louver, Bead, Lance, DrawnCutout, FlangedHole: a built-in one");
+                      "Louver, Bead, Lance, DrawnCutout, FlangedHole, Emboss: a built-in one");
     Kind.setEnums(KindEnums);
     ADD_PROPERTY_TYPE(Face,
                       (nullptr),
@@ -703,33 +740,37 @@ SheetMetalForm::SheetMetalForm()
                       (2.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Louver, Bead, Lance, DrawnCutout, FlangedHole: its top "
-                      "above the face");
+                      "Kind Dimple, Louver, Bead, Lance, DrawnCutout, FlangedHole, Emboss: its "
+                      "top above the face");
     ADD_PROPERTY_TYPE(Radius,
                       (1.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Louver, Bead, Lance, DrawnCutout, FlangedHole: the inside "
-                      "radius of its bends");
+                      "The built-in kinds: the inside radius of its bends");
     ADD_PROPERTY_TYPE(FlankAngle,
                       (45.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Dimple, Bead, DrawnCutout: the slant of its side from the face, up "
-                      "to 90 deg; Louver: its ends'");
+                      "Kind Dimple, Bead, DrawnCutout, Emboss: the slant of its side from the "
+                      "face, up to 90 deg; Louver: its ends'");
     FlankAngle.setConstraints(&flankRange);
     ADD_PROPERTY_TYPE(Length,
                       (20.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Louver, Lance: along the form's X; Bead, DrawnCutout: along it end "
-                      "to end, where it leaves the face");
+                      "Kind Louver, Lance: along the form's X; Bead, DrawnCutout, Emboss: along "
+                      "it end to end, where it leaves the face");
     ADD_PROPERTY_TYPE(Width,
                       (6.0),
                       "Form",
                       App::Prop_None,
                       "Kind Louver, Lance: from its hinge to its opening, which faces the "
-                      "form's Y");
+                      "form's Y; Emboss: across it, where it leaves the face");
+    ADD_PROPERTY_TYPE(CornerRadius,
+                      (3.0),
+                      "Form",
+                      App::Prop_None,
+                      "Kind Emboss: its corners' radius where it leaves the face");
     onChanged(&Kind);
 }
 
@@ -738,7 +779,7 @@ short SheetMetalForm::mustExecute() const
     if (Kind.isTouched() || Face.isTouched() || Positions.isTouched() || Angle.isTouched()
         || Reversed.isTouched() || Tool.isTouched() || Diameter.isTouched() || Depth.isTouched()
         || Radius.isTouched() || FlankAngle.isTouched() || Length.isTouched()
-        || Width.isTouched()) {
+        || Width.isTouched() || CornerRadius.isTouched()) {
         return 1;
     }
     return PartDesign::Feature::mustExecute();
@@ -751,7 +792,7 @@ void SheetMetalForm::onChanged(const App::Property* prop)
         const int kind = Kind.getValue();
         Tool.setStatus(App::Property::ReadOnly, kind != 0);
         // by kind: Tool 0, Dimple 1, Louver 2, Bead 3, Lance 4, DrawnCutout 5,
-        // FlangedHole 6
+        // FlangedHole 6, Emboss 7
         auto in = [kind](std::initializer_list<int> kinds) {
             return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
         };
@@ -759,9 +800,10 @@ void SheetMetalForm::onChanged(const App::Property* prop)
         for (App::Property* p : std::initializer_list<App::Property*> {&Depth, &Radius}) {
             p->setStatus(App::Property::ReadOnly, kind == 0);
         }
-        FlankAngle.setStatus(App::Property::ReadOnly, !in({1, 2, 3, 5}));
-        Length.setStatus(App::Property::ReadOnly, !in({2, 3, 4, 5}));
-        Width.setStatus(App::Property::ReadOnly, !in({2, 4}));
+        FlankAngle.setStatus(App::Property::ReadOnly, !in({1, 2, 3, 5, 7}));
+        Length.setStatus(App::Property::ReadOnly, !in({2, 3, 4, 5, 7}));
+        Width.setStatus(App::Property::ReadOnly, !in({2, 4, 7}));
+        CornerRadius.setStatus(App::Property::ReadOnly, kind != 7);
     }
     // The built-in sizes start from the sheet's thickness, once, when the
     // feature takes its rule (ruled 2026-11-06); any set by then are kept
@@ -773,7 +815,12 @@ void SheetMetalForm::onChanged(const App::Property* prop)
             sized = true;
             const double T = rule->Thickness.getValue();
             const std::pair<App::PropertyLength*, double> sizes[] = {
-                {&Diameter, 10}, {&Depth, 2}, {&Radius, 1}, {&Length, 20}, {&Width, 6}};
+                {&Diameter, 10},
+                {&Depth, 2},
+                {&Radius, 1},
+                {&Length, 20},
+                {&Width, 6},
+                {&CornerRadius, 3}};
             for (const auto& [p, k] : sizes) {
                 if (p->getValue() == k) {
                     p->setValue(k * T);
@@ -908,6 +955,7 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
                 pressed = pressTool(tool, toolBase, toolX, frame, T);
             }
             else if (const int kind = Kind.getValue(); kind == 1 || kind == 3 || kind >= 5) {
+                // kind 7, an emboss: about its rectangle less its corners
                 Dimple d {Diameter.getValue() / 2,
                           Depth.getValue(),
                           Base::toRadians(FlankAngle.getValue()),
@@ -941,6 +989,25 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
                     d.phi = std::numbers::pi / 2;
                     d.open = true;
                     d.what = "flanged hole";
+                }
+                else if (kind == 7) {
+                    const double c = CornerRadius.getValue();
+                    const double half =
+                        std::min(Length.getValue(), Width.getValue()) / 2;
+                    if (c <= Precision::Confusion() || c > half + Precision::Confusion()) {
+                        THROWM(Base::ValueError,
+                               "An emboss's corners are round, at most half as round as it is "
+                               "wide: CornerRadius above 0, at most half of Length and Width");
+                    }
+                    if (d.h > 0 && c - d.h / std::tan(d.phi) <= Precision::Confusion()) {
+                        THROWM(Base::ValueError,
+                               "An emboss's corners close before its top at that slant: "
+                               "CornerRadius above Depth / tan(FlankAngle)");
+                    }
+                    d.r0 = c;
+                    d.s = std::max(Length.getValue() / 2 - c, 0.0);
+                    d.t = std::max(Width.getValue() / 2 - c, 0.0);
+                    d.what = "emboss";
                 }
                 pressed = pressDimple(d, frame);
                 rounds.emplace_back(

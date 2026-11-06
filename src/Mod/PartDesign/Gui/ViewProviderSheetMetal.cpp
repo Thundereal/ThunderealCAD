@@ -519,8 +519,8 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalForm::getEditDialog()
             this,
             "PartDesign_SheetMetalForm",
             QObject::tr("Form parameters"),
-            {"Kind", "Positions", "Angle", "Reversed", "Diameter", "Length", "Width", "Depth",
-             "Radius", "FlankAngle"},
+            {"Kind", "Positions", "Angle", "Reversed", "Diameter", "Length", "Width",
+             "CornerRadius", "Depth", "Radius", "FlankAngle"},
             {{"Face", "Face", true}}));
 }
 

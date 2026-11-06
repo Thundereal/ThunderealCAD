@@ -406,6 +406,10 @@ struct TrajectoryRecorder: Solver::TrajectorySink
     {
         frames.events.push_back(event);
     }
+    void modeShapes(const Solver::ModeShapes& shapes) override
+    {
+        frames.shapes.push_back(shapes);
+    }
 };
 }  // namespace
 
@@ -974,6 +978,20 @@ void AssemblyObject::keepFrames(App::DocumentObject* sim,
     trajectory = std::make_unique<Solver::Trajectory>(std::move(frames));
     trajectoryParts = parts;
     trajectorySimulation = sim;
+    // Each flexible body's mode shapes on it, for its deformation's display
+    // (docs/AssemblyDynamics.md D4b): in its component's axes, which are its
+    // body's -- a flexible body is in no rigid group
+    if (auto* typed = freecad_cast<Simulation*>(sim)) {
+        for (const auto& shapes : trajectory->shapes) {
+            for (auto* element : typed->Elements.getValues()) {
+                auto* flexible = freecad_cast<FlexibleBody*>(element);
+                if (flexible && flexible->getFullName() == shapes.source) {
+                    flexible->ModeShapes.setValues(shapes.values);
+                    flexible->ModeShapeColumns.setValue(static_cast<long>(shapes.columns));
+                }
+            }
+        }
+    }
     Baseline& baseline = baselines[sim->getNameInDocument()];
     baseline.model = std::make_unique<Solver::Model>(model);
     baseline.spec = std::make_unique<Solver::SimulationSpec>(spec);

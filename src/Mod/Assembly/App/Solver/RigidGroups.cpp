@@ -224,6 +224,11 @@ public:
             {
                 sink.event(event);
             }
+            // A flexible body is kept as it is (build())
+            void modeShapes(const ModeShapes& shapes) override
+            {
+                sink.modeShapes(shapes);
+            }
         } expandSink(*this, sink);
         return inner->simulate(spec, expandSink);
     }

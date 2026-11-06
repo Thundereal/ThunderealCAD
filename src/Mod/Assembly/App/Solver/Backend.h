@@ -246,6 +246,18 @@ struct Event
     std::string bodyB;
 };
 
+// A flexible body's mode shapes (docs/AssemblyDynamics.md D4b): how far each
+// coordinate of its deformation -- its "InterfaceDeformation" channel's, six
+// an interface, then its "ModalCoordinates" channel's -- moves each node of
+// its mesh, in the body's axes and the model's units. 'values' row by row, a
+// node's x, y and z each a row of 'columns'.
+struct ModeShapes
+{
+    std::string source;  // the model's source name of the flexible body
+    std::size_t columns = 0;
+    std::vector<double> values;
+};
+
 // Poses of the bodies at each output time; owned by the neutral layer, so
 // playback needs no live solver.
 struct Trajectory
@@ -256,6 +268,7 @@ struct Trajectory
     std::vector<Channel> channels;
     std::vector<double> values;  // times.size() * the channels' widths, row per time
     std::vector<Event> events;   // in time order
+    std::vector<ModeShapes> shapes;
 };
 
 class TrajectorySink
@@ -279,6 +292,11 @@ public:
     virtual void event(const Event& event)
     {
         (void)event;
+    }
+    // Once per flexible body, before the first frame: its mode shapes
+    virtual void modeShapes(const ModeShapes& shapes)
+    {
+        (void)shapes;
     }
 };
 

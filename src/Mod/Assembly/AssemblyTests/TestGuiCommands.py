@@ -2212,6 +2212,75 @@ class TestGuiCommands(unittest.TestCase):
         _process()
         self.assertEqual([o for o in physics.Group if o.TypeId == "Assembly::FlexibleBody"], [])
 
+    def test_flexible_body_playback(self):
+        """A run with a flexible body draws it bent as it plays: its mesh's
+        surface in the scene, its component hidden, drawn at each frame the
+        player shows; the panel closed, the drawing goes and the component
+        shows again"""
+        import CommandCreateSimulation
+        import FlexibleBodies
+
+        base = self.box
+        base.Length, base.Width, base.Height = 10, 10, 10
+        rod = self.assembly.newObject("Part::Box", "Rod")
+        rod.Length, rod.Width, rod.Height = 60, 10, 10
+        rod.Placement.Base = App.Vector(10, 0, 0)
+        ground = self.jointgroup.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        hinge = self.jointgroup.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (base, ["Face2"])
+        hinge.Reference2 = (rod, ["Face1"])
+        turn = App.Rotation(App.Vector(1, 0, 0), -90)
+        hinge.Placement1 = App.Placement(App.Vector(10, 5, 5), turn)
+        hinge.Placement2 = App.Placement(App.Vector(0, 5, 5), turn)
+        self.doc.recompute()
+        self.run_command("Assembly_CreateSimulation")
+        self.accept_task()
+        sim = self.proxies("Simulation")[0]
+        sim.AnalysisType = "Dynamic"
+        sim.TimeEnd = 0.01
+        sim.TimeStepOutput = 1e-3
+        flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        flexible.Modes = 4
+        flexible.MeshSize = 5.0
+        self.doc.recompute()
+        _process()
+        panel = CommandCreateSimulation.TaskAssemblyCreateSimulation(sim)
+        Gui.Control.showDialog(panel)
+        _process()
+        panel.form.RunKinematicsButton.click()
+        start = time.monotonic()
+        while panel.runPoll.isActive():
+            self.assertLess(time.monotonic() - start, 120.0)
+            _process(1)
+            time.sleep(0.01)
+        _process()
+        self.assertFalse(panel.runMessage.isVisibleTo(panel.form), panel.runMessage.text())
+        self.assertGreater(len(flexible.Nodes), 0)
+        self.assertEqual(len(panel.deformations), 1)
+        shape = panel.deformations[0]
+        self.assertIsNotNone(shape.root)
+        self.assertFalse(rod.ViewObject.Visibility)
+        scene = Gui.ActiveDocument.ActiveView.getSceneGraph()
+        drawn = shape.root
+        self.assertGreaterEqual(scene.findChild(drawn), 0)
+        # At each frame shown, the surface there
+        panel.form.frameSlider.setValue(0)
+        _process()
+        first = [tuple(p) for p in shape.coords.point.getValues()]
+        panel.form.frameSlider.setValue(self.assembly.numberOfFrames() - 1)
+        _process()
+        last = [tuple(p) for p in shape.coords.point.getValues()]
+        self.assertEqual(len(first), len(last))
+        self.assertNotEqual(first, last)
+        self.accept_task()
+        _process()
+        self.assertEqual(scene.findChild(drawn), -1)
+        self.assertTrue(rod.ViewObject.Visibility)
+
     def test_joint_friction(self):
         """Idle until a Slider, Cylindrical or Revolute joint is selected; then
         a friction on it, selected, ticked in the Dynamic study and neither the

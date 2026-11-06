@@ -1116,6 +1116,17 @@ FlexibleBody::FlexibleBody()
                       "Mesh",
                       static_cast<App::PropertyType>(made | App::Prop_Hidden),
                       "What the mesh was made of, to remake it when that changes");
+    ADD_PROPERTY_TYPE(ModeShapes,
+                      (),
+                      "Mesh",
+                      static_cast<App::PropertyType>(made | App::Prop_Hidden),
+                      "Its last dynamic run's mode shapes: how far each coordinate of its "
+                      "deformation moves each node, mm");
+    ADD_PROPERTY_TYPE(ModeShapeColumns,
+                      (0),
+                      "Mesh",
+                      static_cast<App::PropertyType>(made | App::Prop_Hidden),
+                      "The mode shapes' columns: the deformation's coordinates");
 }
 
 namespace App

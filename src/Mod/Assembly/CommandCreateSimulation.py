@@ -2307,6 +2307,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # frames when played slower than them
         self.playback = None
         self.shownTime = None
+        # Not upstream: the flexible bodies drawn bent as the run plays
+        # (docs/AssemblyDynamics.md D4b)
+        self.deformations = []
         self.addSpeedWidgets()
 
         self.simFeaturePy.Proxy.setMotionsChangedCallback(self.onMotionsChanged)
@@ -2588,6 +2591,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             or o.isDerivedFrom("Assembly::JointFriction")
             or o.isDerivedFrom("Assembly::FramedItem")
             or o.isDerivedFrom("Assembly::ContactSet")
+            or o.isDerivedFrom("Assembly::FlexibleBody")
         ]
 
     def fillElements(self):
@@ -2683,6 +2687,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def deactivate(self):
         self.animationTimer.stop()
+        self.removeDeformations()
         # A run going is let go of
         if self.runPoll.isActive():
             self.endRun()
@@ -2749,6 +2754,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.resultsBox.hide()
         if self.runPoll.isActive():
             return
+        self.removeDeformations()
         # Not upstream: the flexible bodies' meshes made, or kept where they
         # are of the components as they are (docs/AssemblyDynamics.md D4b)
         import FlexibleBodies
@@ -2813,6 +2819,12 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         nFrms = self.assembly.numberOfFrames()
         self.playback = None
         self.shownTime = None
+        import FlexibleBodies
+
+        self.removeDeformations()
+        self.deformations = FlexibleBodies.deformationsOf(
+            self.simFeaturePy, self.assembly.getSimulationResults()
+        )
         if fresh:
             # Not upstream: the study's traces follow its run
             import SimulationTrace
@@ -3456,6 +3468,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         )
         if self.results:
             self.showResultValue()
+        for deformation in self.deformations:
+            deformation.show(time)
+
+    def removeDeformations(self):
+        for deformation in self.deformations:
+            deformation.remove()
+        self.deformations = []
 
     def onFrameChanged(self, val):
         self.assembly.updateForFrame(val)

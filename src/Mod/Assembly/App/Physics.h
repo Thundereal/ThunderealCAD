@@ -642,6 +642,12 @@ public:
     /// Each interface's nodes, one after the other, each list ended by -1
     App::PropertyIntegerList InterfaceNodes;
     App::PropertyString MeshSignature;
+    /// Its last dynamic run's mode shapes (Solver::ModeShapes): how far each
+    /// coordinate of its deformation -- the run's InterfaceDeformation, then
+    /// its ModalCoordinates -- moves each node, in the component's axes and
+    /// mm; a node's x, y and z each a row of ModeShapeColumns
+    App::PropertyFloatList ModeShapes;
+    App::PropertyInteger ModeShapeColumns;
 
     const char* getViewProviderName() const override
     {

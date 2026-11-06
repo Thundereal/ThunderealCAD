@@ -102,6 +102,63 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertTrue(FlexibleBodies.prepare(flexible))
         self.assertNotEqual(len(flexible.Nodes), len(nodes))
 
+    def test_cantilever_deformation(self):
+        """The rod fixed to the grounded block -- not taken onto the ground,
+        flexible -- sags under gravity, damped hard: its end, made of its
+        mode shapes and the run's coordinates, where the beam's is,
+        q L^4 / 8 E I; at its hold, nothing"""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        rod = self.box("Rod", (100, 10, 10), (10, 0, 0))
+        self.doc.recompute()
+        clamp = self.joints.newObject("App::FeaturePython", "Fixed")
+        JointObject.Joint(clamp, JointObject.JointTypes.index("Fixed"))
+        clamp.Detach1 = True
+        clamp.Detach2 = True
+        clamp.Reference1 = (base, ["Face2"])
+        clamp.Reference2 = (rod, ["Face1"])
+        clamp.Placement1 = plc(10, 5, 5)
+        clamp.Placement2 = plc(0, 5, 5)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        sim = self.study(0.02, 1e-4)
+        flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        flexible.Modes = 6
+        flexible.Damping = 0.5
+        FlexibleBodies.prepare(flexible)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertEqual(flexible.ModeShapeColumns, 12)
+        self.assertEqual(len(flexible.ModeShapes), 3 * len(flexible.Nodes) * 12)
+        results = self.assembly.getSimulationResults()
+        shape = FlexibleBodies.Deformation(flexible, results)
+        self.assertTrue(shape.valid)
+        # In the rod's coordinates, which move with its floating frame: in
+        # the assembly's at the last frame, its pose there
+        last = len(results["Times"]) - 1
+        self.assembly.updateForFrame(last)
+        points = shape.pointsAt(results["Times"][-1], 1.0)
+        pose = rod.Placement
+
+        def at(x):
+            near = min(
+                range(len(shape.rest)),
+                key=lambda i: (shape.rest[i][0] - x) ** 2
+                + (shape.rest[i][1] - 5) ** 2
+                + (shape.rest[i][2] - 5) ** 2,
+            )
+            # Where it is, against where it was: the rod at (10, 0, 0), unturned
+            start = App.Vector(*shape.rest[near]) + App.Vector(10, 0, 0)
+            return pose.multVec(App.Vector(*points[near])) - start
+
+        # Aluminium, 70 GPa and 2700 kg/m^3, SI
+        e, rho, side, length = 70e9, 2700.0, 0.01, 0.1
+        q = rho * side * side * G * 1e-3
+        sag = q * length**4 / (8 * e * side**4 / 12) * 1e3  # mm
+        self.assertAlmostEqual(at(100).z, -sag, delta=0.03 * sag)
+        self.assertLess(abs(at(0).z), 0.01 * sag)
+
     def test_welded_block(self):
         """A block welded to the flexible rod's free end is held at an
         interface of its own, not grouped with the rod: the rod still bends

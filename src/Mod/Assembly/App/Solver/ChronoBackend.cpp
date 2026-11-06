@@ -4723,6 +4723,10 @@ struct ChronoSession::Impl
 #endif
         // The body's frame in the floating frame's, at the start
         ch::ChFramed inFloating;
+        // The floating frame and the interfaces' boundary bodies at the
+        // start, what the deformation is from
+        ch::ChFramed floating0;
+        std::vector<ch::ChFramed> interfaces0;
         std::vector<double> hz;
     };
     std::vector<FlexibleRun> flexibles;
@@ -4902,6 +4906,10 @@ struct ChronoSession::Impl
             }
             const ch::ChFramed floating = run.built.assembly->GetFloatingFrameOfReference();
             run.inFloating = pose >> floating.GetInverse();
+            run.floating0 = floating;
+            for (const auto& body : run.built.interfaces) {
+                run.interfaces0.emplace_back(body->GetPos(), body->GetRot());
+            }
             for (std::size_t i = 0; i < on.size(); ++i) {
                 frameBody[on[i]] = run.built.interfaces[i];
             }
@@ -4922,6 +4930,81 @@ struct ChronoSession::Impl
         (void)run;
         return {};
 #endif
+    }
+
+    // A flexible body's interfaces' deformation: each boundary body's pose in
+    // the floating frame against its pose there at the start, as Chrono's
+    // GetLocalDeformations() has it (the reduction matrix's coordinates): its
+    // translation (in mm, 'length' the model's to SI) and its turn (rad)
+    std::vector<double> interfaceDeformation(const FlexibleRun& run, double length) const
+    {
+        std::vector<double> out;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        const ch::ChFrameMoving<> floating = run.built.assembly->GetFloatingFrameOfReference();
+        for (std::size_t i = 0; i < run.built.interfaces.size(); ++i) {
+            const auto& body = run.built.interfaces[i];
+            const ch::ChFramed& start = run.interfaces0[i];
+            const ch::ChVector3d moved =
+                floating.GetRot().RotateBack(body->GetPos() - floating.GetPos())
+                - run.floating0.GetRot().RotateBack(start.GetPos() - run.floating0.GetPos());
+            const ch::ChQuaterniond turn = start.GetRot().GetConjugate() * run.floating0.GetRot()
+                * floating.GetRot().GetConjugate() * body->GetRot();
+            double angle = 0.0;
+            ch::ChVector3d axis;
+            turn.GetAngleAxis(angle, axis);
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(moved[k] / length);
+            }
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(angle * axis[k]);
+            }
+        }
+#else
+        (void)run;
+        (void)length;
+#endif
+        return out;
+    }
+
+    // A flexible body's mode shapes (ModeShapes): the reduction matrix's
+    // rows of the mesh's nodes, in the floating frame's axes at the start,
+    // turned into the body's and in mm: a column of a translation in mm per
+    // mm, of a turn in mm per rad, of a mode in mm per modal coordinate
+    ModeShapes modeShapesOf(const FlexibleRun& run, const std::string& source, double length) const
+    {
+        ModeShapes shapes;
+        shapes.source = source;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        const auto& psi = run.built.assembly->GetModalReductionMatrix();
+        const auto boundary = static_cast<Eigen::Index>(6 * run.built.interfaces.size());
+        const auto nodes = static_cast<Eigen::Index>(run.built.mesh->GetNumNodes());
+        if (psi.rows() < boundary + 3 * nodes) {
+            return shapes;
+        }
+        const Eigen::Index columns = psi.cols();
+        shapes.columns = static_cast<std::size_t>(columns);
+        shapes.values.resize(static_cast<std::size_t>(3 * nodes * columns));
+        // The floating frame's axes to the body's
+        const ch::ChMatrix33<> back = run.inFloating.GetRotMat().transpose();
+        for (Eigen::Index node = 0; node < nodes; ++node) {
+            for (Eigen::Index c = 0; c < columns; ++c) {
+                const bool translation = c < boundary && (c % 6) < 3;
+                const double scale = translation ? 1.0 : 1.0 / length;
+                const ch::ChVector3d inFloating(psi(boundary + 3 * node, c),
+                                                psi(boundary + 3 * node + 1, c),
+                                                psi(boundary + 3 * node + 2, c));
+                const ch::ChVector3d inBody = back * inFloating;
+                for (int k = 0; k < 3; ++k) {
+                    shapes.values[static_cast<std::size_t>((3 * node + k) * columns + c)] =
+                        inBody[k] * scale;
+                }
+            }
+        }
+#else
+        (void)run;
+        (void)length;
+#endif
+        return shapes;
     }
 
     // Each flexible body's proxy at its floating frame's motion, carried to
@@ -8312,8 +8395,14 @@ Status ChronoSession::simulateDynamics(
     }
     // Each flexible body's modal coordinates (D4b): what its modes add to
     // the deformation its interfaces make about its floating frame
+    // and the deformation its interfaces make, six each (mm, rad): together
+    // its ModeShapes' coordinates
     for (const auto& flexible : run.d->flexibles) {
-        channels.push_back({si.sourceName(si.dynamics->flexibles[flexible.record].source),
+        const std::string& name = si.sourceName(si.dynamics->flexibles[flexible.record].source);
+        channels.push_back({name,
+                            "InterfaceDeformation",
+                            static_cast<int>(6 * flexible.interfaces0.size())});
+        channels.push_back({name,
                             "ModalCoordinates",
                             static_cast<int>(run.d->modalCoordinates(flexible).size())});
     }
@@ -8980,6 +9069,9 @@ Status ChronoSession::simulateDynamics(
             }
         }
         for (const auto& flexible : run.d->flexibles) {
+            for (double e : run.d->interfaceDeformation(flexible, SI::length)) {
+                out.push_back(e);
+            }
             for (double q : run.d->modalCoordinates(flexible)) {
                 out.push_back(q);
             }
@@ -9159,6 +9251,12 @@ Status ChronoSession::simulateDynamics(
 
     if (!channels.empty()) {
         sink.channels(channels);
+    }
+    for (const auto& flexible : run.d->flexibles) {
+        sink.modeShapes(run.d->modeShapesOf(
+            flexible,
+            si.sourceName(si.dynamics->flexibles[flexible.record].source),
+            SI::length));
     }
 
     // The events found (sec 8.4), held until their step is kept -- a

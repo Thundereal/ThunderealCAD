@@ -150,6 +150,11 @@ public:
             {
                 sink.event(event);
             }
+            // In the body's axes, which the centre does not turn
+            void modeShapes(const ModeShapes& shapes) override
+            {
+                sink.modeShapes(shapes);
+            }
         } backSink(*this, sink);
         return inner->simulate(spec, backSink);
     }

@@ -38,7 +38,14 @@ from femmesh import meshsetsgetter
 
 class FemInputWriter:
     def __init__(
-        self, analysis_obj, solver_obj, mesh_obj, member, dir_name=None, mat_geo_sets=None
+        self,
+        analysis_obj,
+        solver_obj,
+        mesh_obj,
+        member,
+        dir_name=None,
+        mat_geo_sets=None,
+        cache=None,
     ):
         # class attributes from parameter values
         self.analysis = analysis_obj
@@ -137,6 +144,7 @@ class FemInputWriter:
             self.solver_obj,
             self.mesh_object,
             self.member,
+            cache=cache,
         )
 
     # ********************************************************************************************

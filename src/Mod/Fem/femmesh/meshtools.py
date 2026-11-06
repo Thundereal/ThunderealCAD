@@ -35,7 +35,7 @@ from femtools import geomtools
 
 
 # ************************************************************************************************
-def get_femnodes_by_femobj_with_references(femmesh, femobj):
+def get_femnodes_by_femobj_with_references(femmesh, femobj, cache=None):
     node_set = []
     if femmesh.GroupCount:
         node_set = get_femmesh_groupdata_sets_by_name(femmesh, femobj, "Node")
@@ -50,7 +50,7 @@ def get_femnodes_by_femobj_with_references(femmesh, femobj):
             "    Finite element mesh nodes will be retrieved "
             "by searching the appropriate nodes in the finite element mesh.\n"
         )
-        node_set = get_femnodes_by_references(femmesh, femobj["Object"].References)
+        node_set = get_femnodes_by_references(femmesh, femobj["Object"].References, cache)
         # FreeCAD.Console.PrintMessage("node_set_nogroup: {}\n".format(node_set))
 
     # use set for node sets to be sure all nodes are unique
@@ -82,11 +82,11 @@ def get_femelements_by_references(femmesh, femelement_table, references, femnode
 
 
 # ************************************************************************************************
-def get_femnodes_by_references(femmesh, references):
+def get_femnodes_by_references(femmesh, references, cache=None):
     """get the femnodes for a list of references"""
     references_femnodes = []
     for ref in references:
-        references_femnodes += get_femnodes_by_refshape(femmesh, ref)
+        references_femnodes += get_femnodes_by_refshape(femmesh, ref, cache)
 
     # return references_femnodes  # keeps duplicate nodes, keeps node order
 
@@ -94,9 +94,20 @@ def get_femnodes_by_references(femmesh, references):
     return list(set(references_femnodes))  # removes duplicate nodes, sorts node order
 
 
-def get_femnodes_by_refshape(femmesh, ref):
+def get_femnodes_by_refshape(femmesh, ref, cache=None):
+    """Not upstream: cache, a MeshSetsGetter's (see there), keeps each
+    element's nodes while it is the same shape at the same place"""
     nodes = []
     for refelement in ref[1]:
+        if cache is not None:
+            key = ("Nodes", ref[0].Document.Name, ref[0].Name, refelement)
+            element = ref[0].getSubObject(refelement)
+            placement = ref[0].getGlobalPlacement()
+            hit = cache.get(key)
+            if hit and hit[0].isSame(element) and hit[1] == placement:
+                nodes += hit[2]
+                continue
+            found = len(nodes)
         r = sub_shape_at_global_placement(ref[0], refelement)
         FreeCAD.Console.PrintMessage(
             "    "
@@ -118,6 +129,8 @@ def get_femnodes_by_refshape(femmesh, ref):
                 nodes += femmesh.getNodesBySolid(s)
         else:
             FreeCAD.Console.PrintMessage("  No Vertice, Edge, Face or Solid as reference shapes!\n")
+        if cache is not None:
+            cache[key] = (element, placement, list(nodes[found:]))
     return nodes
 
 
@@ -1582,7 +1595,9 @@ def get_elements_by_references(sets_getter, femobj_ref):
         )
         feat, sub_ref = femobj_ref
         sub = (feat, (sub_ref,))
-        node_set = get_femnodes_by_references(sets_getter.femmesh, [sub])
+        node_set = get_femnodes_by_references(
+            sets_getter.femmesh, [sub], getattr(sets_getter, "cache", None)
+        )
         charged_volume_node_set = sorted(set(node_set))
 
         bit_pattern_dict = get_bit_pattern_dict(
@@ -1621,7 +1636,9 @@ def get_subelements_by_references(sets_getter, femobj_ref, face_masks, edge_mask
         )
         feat, sub_ref = femobj_ref
         sub = (feat, (sub_ref,))
-        node_set = get_femnodes_by_references(sets_getter.femmesh, [sub])
+        node_set = get_femnodes_by_references(
+            sets_getter.femmesh, [sub], getattr(sets_getter, "cache", None)
+        )
         charged_face_node_set = sorted(set(node_set))
 
         bit_pattern_dict = get_bit_pattern_dict(

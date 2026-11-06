@@ -68,6 +68,8 @@ __title__ = "Assembly Command Create Simulation"
 __author__ = "Ondsel"
 __url__ = "https://www.freecad.org"
 
+# Not upstream: where Save Animation's menu keeps what a video shows
+VideoParams = "User parameter:BaseApp/Preferences/Mod/Assembly"
 
 # Not upstream: what a dynamic run reports with its frames
 # (docs/AssemblyDynamics.md sec 8.4), as getSimulationResults() names it: the
@@ -115,7 +117,7 @@ ResultQuantities = {
     # A part's stress analysis over frames of the run (MotionLoads.solveFrames):
     # its largest von Mises stress, at the frames solved
     "VonMises": (QT_TRANSLATE_NOOP("Assembly", "Largest von Mises stress"), 1.0, "MPa"),
-    # And away from the loaded faces, a mesh size off them
+    # And away from the loaded faces, about a section's depth off them
     "VonMisesAway": (
         QT_TRANSLATE_NOOP("Assembly", "Largest von Mises stress away from the loaded faces"),
         1.0,
@@ -279,7 +281,10 @@ if App.GuiUp:
             self.setMinimumHeight(170)
             self.setToolTip(translate("Assembly", "Click or drag to go to a time"))
             self.times = []
-            self.curves = []  # (name, values)
+            # (name, values), values one a frame; or (name, values, (times,
+            # samples)), drawn by its samples, at their own times
+            self.curves = []
+            self.sampleAxes = {}  # a sampled curve's times on the axis
             self.unit = ""
             self.bridge = set()
             self.time = None
@@ -309,13 +314,25 @@ if App.GuiUp:
             self.bridge = set(bridge)
             self.unit = unit
             self.axisTimes = None
+            self.sampleAxes = {}
             self.update()
 
         def setPlayback(self, playback):
             """The speed the run plays at, whose video's time the axis is"""
             self.playback = playback
             self.axisTimes = None
+            self.sampleAxes = {}
             self.update()
+
+        def curvePoints(self, k):
+            """Curve k's times on the axis and its values: a sampled one's
+            samples, else the frames'"""
+            entry = self.curves[k]
+            if len(entry) < 3:
+                return self.axisTimes, entry[1]
+            if k not in self.sampleAxes:
+                self.sampleAxes[k] = [self.toAxis(t) for t in entry[2][0]]
+            return self.sampleAxes[k], entry[2][1]
 
         def setTime(self, time):
             """The cursor at the run's time"""
@@ -392,8 +409,11 @@ if App.GuiUp:
             text = palette.color(QtGui.QPalette.WindowText)
             painter.fillRect(self.rect(), palette.color(QtGui.QPalette.Base))
             metrics = painter.fontMetrics()
+            if self.axisTimes is None:
+                self.axisTimes = [self.toAxis(t) for t in self.times]
+            sources = [self.curvePoints(k) for k in range(len(self.curves))]
             # None: a frame without a value (a stress series' frame not solved)
-            values = [v for _, curve in self.curves for v in curve if v is not None]
+            values = [v for _, curve in sources for v in curve if v is not None]
             if len(self.times) < 2 or not values:
                 self.area = None
                 painter.setPen(text)
@@ -401,10 +421,33 @@ if App.GuiUp:
                     self.rect(), Qt.AlignCenter, translate("Assembly", "No values to show")
                 )
                 return
-            low, high = min(values), max(values)
+            v0, v1 = self.shownWindow()
+            if not v1 > v0:
+                v0, v1 = self.axisTimes[0], self.axisTimes[-1] or 1.0
+            self.window = (v0, v1)
+            span = (v1 - v0) or 1.0
+            # Each curve's points to draw, by its columns' extremes; the
+            # value axis by what they show in the window, the whole run's
+            # where they show nothing there
+            columns = max(1, int(self.width()))
+            drawn = [
+                SimulationPlayback.peakSafe(
+                    axis, curve, v0, v1, columns, self.bridge if axis is self.axisTimes else ()
+                )
+                for axis, curve in sources
+            ]
+            shown = SimulationPlayback.shownRange([r for runs in drawn for r in runs], v0, v1)
+            whole = max(values) - min(values)
+            low, high = shown if shown is not None else (min(values), max(values))
+            # No finer than a thousandth of the whole run's: a steady value's
+            # round-off is not drawn across the plot's height
+            if 0.0 < high - low < 1e-3 * whole:
+                middle = 0.5 * (low + high)
+                low, high = middle - 5e-4 * whole, middle + 5e-4 * whole
             if high - low <= 1e-12 * max(1.0, abs(high)):
                 pad = max(abs(high) * 0.1, 1e-9)
                 low, high = low - pad, high + pad
+            self.valueRange = (low, high)
 
             def label(v):
                 return f"{v:.4g}"
@@ -417,13 +460,6 @@ if App.GuiUp:
                 self.height() - 2 * metrics.height() - 12 - 1.5 * self.BAR,
             )
             self.area = area
-            if self.axisTimes is None:
-                self.axisTimes = [self.toAxis(t) for t in self.times]
-            v0, v1 = self.shownWindow()
-            if not v1 > v0:
-                v0, v1 = self.axisTimes[0], self.axisTimes[-1] or 1.0
-            self.window = (v0, v1)
-            span = (v1 - v0) or 1.0
 
             def x(v):
                 return area.left() + area.width() * (v - v0) / span
@@ -457,20 +493,18 @@ if App.GuiUp:
             xl = area.left()
             painter.save()
             painter.setClipRect(area.adjusted(-3, -3, 3, 3))
-            for k, (name, curve) in enumerate(self.curves):
+            for k in range(len(self.curves)):
                 colour = QtGui.QColor(self.COLOURS[k % len(self.COLOURS)])
                 painter.setPen(QtGui.QPen(colour, 1.5))
                 # A line through each run of values, a dot for one alone
-                for run in SimulationPlayback.peakSafe(
-                    self.axisTimes, curve, v0, v1, max(1, int(area.width())), self.bridge
-                ):
+                for run in drawn[k]:
                     points = [at(v, value) for v, value in run]
                     if len(points) > 1:
                         painter.drawPolyline(QtGui.QPolygonF(points))
                     else:
                         painter.drawEllipse(points[0], 2.0, 2.0)
             painter.restore()
-            for k, (name, curve) in enumerate(self.curves):
+            for k, (name, *_) in enumerate(self.curves):
                 if len(self.curves) > 1:
                     painter.setPen(QtGui.QColor(self.COLOURS[k % len(self.COLOURS)]))
                     painter.drawText(QtCore.QPointF(xl, metrics.ascent()), name)
@@ -2253,6 +2287,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.form.RemoveButton.clicked.connect(self.deleteSelectedMotions)
         self.form.groupBox_player.hide()
         self.form.SaveAnimationButton.clicked.connect(self.saveAnimation)
+        self.addVideoOptions()
         self.form.SaveAnimationButton.hide()
         self.addAnalysisWidgets()
 
@@ -2785,6 +2820,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 )
                 self.runMessage.show()
         self.form.frameSlider.setMaximum(nFrms - 1)
+        self.fitPlayerLabels(nFrms)
         if fresh:
             self.setFrameValue(nFrms - 1)
         else:
@@ -2862,7 +2898,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def femChoice(self, parts):
         """The part to analyse and its frames: the frame shown (an analysis
         to run from the FEM workbench) or a range of them, solved now. (part,
-        [frame, ...], solve now), or None when cancelled."""
+        [frame, ...], solve now, the damping of its own vibration or None
+        without it), or None when cancelled."""
+        import MotionLoads
+
         times = self.results["Times"]
         shownFrame = self.form.frameSlider.value()
         dialog = QDialog(self.form)
@@ -2925,8 +2964,29 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         peaksOnly.setChecked(False)
         peaksOnly.setVisible(bool(between))
         grid.addWidget(peaksOnly, 4, 0, 1, 6)
+        # Not upstream: the part's own vibration, by its modes, between the
+        # frames too (MotionLoads.solveFrames' dynamic)
+        vibration = QtWidgets.QCheckBox(
+            translate("Assembly", "With its own vibration, by its modes; damped, % of critical:")
+        )
+        vibration.setToolTip(
+            translate(
+                "Assembly",
+                "Each frame is solved as it stands, and the part's held modes add how it\n"
+                "rings as the loads change from frame to frame: through an impact, its own\n"
+                "inertia takes the blow, and it rings after. Its stress is then sampled\n"
+                "between the frames too. The frames should follow each other: every\n"
+                "frame, each impact's all",
+            )
+        )
+        grid.addWidget(vibration, 5, 0, 1, 5)
+        damping = QtWidgets.QDoubleSpinBox()
+        damping.setRange(0.0, 50.0)
+        damping.setDecimals(2)
+        damping.setValue(100.0 * MotionLoads.DAMPING)
+        grid.addWidget(damping, 5, 5)
         count = QLabel()
-        grid.addWidget(count, 5, 0, 1, 6)
+        grid.addWidget(count, 6, 0, 1, 6)
 
         def peaksOf(part):
             channels = [
@@ -2958,6 +3018,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             for spin in spins:
                 spin.setEnabled(many.isChecked())
             peaksOnly.setEnabled(many.isChecked())
+            vibration.setEnabled(many.isChecked())
+            damping.setEnabled(many.isChecked() and vibration.isChecked())
             frames = chosen()
             count.setEnabled(many.isChecked())
             count.setText(
@@ -2970,18 +3032,22 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             spin.valueChanged.connect(update)
         many.toggled.connect(update)
         peaksOnly.toggled.connect(update)
+        vibration.toggled.connect(update)
         partCombo.currentIndexChanged.connect(update)
         update()
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        grid.addWidget(buttons, 6, 0, 1, 6)
+        grid.addWidget(buttons, 7, 0, 1, 6)
         if dialog.exec() != QDialog.Accepted:
             return None
         part = parts[partCombo.currentIndex()]
         if many.isChecked():
-            return part, chosen(), True
-        return part, [shownFrame], False
+            dynamic = None
+            if vibration.isChecked():
+                dynamic = damping.value() / 100.0
+            return part, chosen(), True, dynamic
+        return part, [shownFrame], False, None
 
     def loadsToFem(self):
         """Not upstream: a part of the run as a static stress analysis
@@ -2998,9 +3064,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         choice = self.femChoice(parts)
         if choice is None:
             return
-        part, frames, solveNow = choice
+        part, frames, solveNow, damping = choice
         if solveNow:
-            self.solveFemFrames(part, frames)
+            self.solveFemFrames(part, frames, damping)
             return
         frame = frames[0]
         doc = self.assembly.Document
@@ -3035,6 +3101,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                     "A redundant joint's load is one split of it among the joints sharing it.",
                 )
             )
+        notes += self.groupGapNotes(part)
         notes.append(
             translate("Assembly", "Run it with CalculiX from the FEM workbench: {}.").format(
                 analysis.Label
@@ -3044,10 +3111,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.form, translate("Assembly", "Loads to FEM"), "\n\n".join(notes)
         )
 
-    def solveFemFrames(self, part, frames):
+    def solveFemFrames(self, part, frames, damping=None):
         """part at each of frames, solved by CalculiX (MotionLoads.
         solveFrames) behind a progress dialog with a Cancel; its stresses
-        then in the Results box"""
+        then in the Results box. damping: with its own vibration, its
+        modes damped so; None, without"""
         import MotionLoads
 
         progress = QProgressDialog(
@@ -3073,7 +3141,12 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         doc = self.assembly.Document
         doc.openTransaction("Loads to FEM")
         try:
-            series = MotionLoads.solveFrames(self.assembly, part, frames, progress=step)
+            if damping is None:
+                series = MotionLoads.solveFrames(self.assembly, part, frames, progress=step)
+            else:
+                series = MotionLoads.solveFrames(
+                    self.assembly, part, frames, progress=step, dynamic=True, damping=damping
+                )
         except (ValueError, ImportError) as e:
             doc.abortTransaction()
             progress.close()
@@ -3099,21 +3172,64 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         notes = [
             translate("Assembly", "{} solved at {} frames, held at {}.").format(
                 part.Label, len(series.Frames), series.Held.Label
-            ),
-            translate("Assembly", "Its largest von Mises stress: {:.4g} MPa at {:g} s.").format(
-                series.VonMises[peak], series.Times[peak]
-            ),
+            )
         ]
+        # With its own vibration: its stresses between the frames too, the
+        # frames' static ones beside them
+        dynamic = getattr(series, "Dynamic", False) and series.SampleTimes
+        times, whole, away = series.Times, series.VonMises, series.VonMisesAway
+        if dynamic:
+            # Held in them as its joint holds it
+            free = {
+                "Turn": translate("Assembly", "free to turn on {}"),
+                "Slide": translate("Assembly", "free to slide along {}"),
+                "TurnSlide": translate("Assembly", "free to turn on and slide along {}"),
+                "Ball": translate("Assembly", "free to turn every way on {}"),
+            }.get(getattr(series, "ModesFree", ""), translate("Assembly", "held stiff at {}"))
+            notes.append(
+                translate(
+                    "Assembly",
+                    "With its own vibration, by its first {} modes, {} ({:.4g} to {:.4g} "
+                    "Hz), each damped {:.3g}% of critical, from rest at the first frame.",
+                ).format(
+                    len(series.ModeFrequencies),
+                    free.format(series.Held.Label),
+                    series.ModeFrequencies[0],
+                    series.ModeFrequencies[-1],
+                    100.0 * series.Damping,
+                )
+            )
+            times = series.SampleTimes
+            whole, away = series.SampleVonMises, series.SampleVonMisesAway
+            peak = max(range(len(whole)), key=lambda k: whole[k])
+        notes.append(
+            translate("Assembly", "Its largest von Mises stress: {:.4g} MPa at {:g} s.").format(
+                whole[peak], times[peak]
+            )
+        )
         # Away from the loaded faces, where the couplings and the loads'
         # concentration do not reach
-        away = [(v, k) for k, v in enumerate(series.VonMisesAway) if not math.isnan(v)]
+        away = [(v, k) for k, v in enumerate(away) if not math.isnan(v)]
         if away:
             value, k = max(away)
             notes.append(
                 translate(
                     "Assembly",
-                    "Away from the loaded faces (a mesh size off them): {:.4g} MPa at {:g} s.",
-                ).format(value, series.Times[k])
+                    "Away from the loaded faces (about a section's depth off them): "
+                    "{:.4g} MPa at {:g} s.",
+                ).format(value, times[k])
+            )
+        if dynamic:
+            still = [v for v in series.StaticVonMisesAway if not math.isnan(v)]
+            notes.append(
+                translate(
+                    "Assembly",
+                    "Each frame as it stands, without the vibration: {:.4g} MPa at most, "
+                    "{} away from the loaded faces.",
+                ).format(
+                    max(series.StaticVonMises),
+                    "{:.4g} MPa".format(max(still)) if still else "-",
+                )
             )
         held = (
             translate(
@@ -3129,9 +3245,12 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 "{:.2g}% of the largest reaction, at every frame.",
             )
         )
+        if dynamic:
+            held += " " + translate("Assembly", "(Each frame as it stands.)")
         notes += [
             held.format(100.0 * worst),
         ]
+        notes += self.groupGapNotes(part)
         if len(series.Frames) < len(frames):
             notes.append(
                 translate("Assembly", "Cancelled: {} of the {} frames were solved.").format(
@@ -3142,13 +3261,29 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             translate(
                 "Assembly", "The analysis is left at {:g} s with its result: {}."
             ).format(
-                series.Times[peak],
+                times[peak],
                 ", ".join(o.Label for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")),
             )
         )
         QMessageBox.information(
             self.form, translate("Assembly", "Loads to FEM"), "\n\n".join(notes)
         )
+
+    def groupGapNotes(self, part):
+        """A note where part meets the rest of its rigid group nowhere: what
+        holds it there is across the gap"""
+        import MotionLoads
+
+        gap = MotionLoads.groupGap(self.assembly, part)
+        if not gap:
+            return []
+        return [
+            translate(
+                "Assembly",
+                "It meets the rest of its rigid group nowhere, {:.3g} mm off them: held "
+                "where it faces them across that.",
+            ).format(gap)
+        ]
 
     def resultCurves(self):
         """The chosen channel's curves, in the shown unit: a vector's X, Y, Z
@@ -3168,7 +3303,24 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                     ("Z", [v.z * factor for v in values]),
                     ("|%s|" % translate("Assembly", "total"), [v.Length * factor for v in values]),
                 ], unit
-            return [("", [v * factor if v is not None else None for v in values])], unit
+            scaled = [v * factor if v is not None else None for v in values]
+            # A stress series with the part's vibration: sampled between the
+            # frames too
+            if channel.get("Samples"):
+                samples = [v * factor if v is not None else None for v in channel["Samples"]]
+                if not channel.get("Static"):
+                    return [("", scaled, (channel["SampleTimes"], samples))], unit
+                # Each frame as it stands, beside it
+                static = [v * factor if v is not None else None for v in channel["Static"]]
+                return [
+                    (
+                        translate("Assembly", "vibrating"),
+                        scaled,
+                        (channel["SampleTimes"], samples),
+                    ),
+                    (translate("Assembly", "as it stands"), static),
+                ], unit
+            return [("", scaled)], unit
         return [], ""
 
     def showResult(self, index=None):
@@ -3192,7 +3344,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.resultValue.clear()
             return
         parts = []
-        for name, values in curves:
+        for name, values, *_ in curves:
             if frame < len(values):
                 if values[frame] is None:
                     value = translate("Assembly", "not solved at this frame")
@@ -3251,6 +3403,31 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         if k > 0 and time - times[k - 1] <= times[k] - time:
             return k - 1
         return k
+
+    def fitPlayerLabels(self, count):
+        """Not upstream: the frame's, time's and speed's labels as wide as the
+        widest they show, not their text now: the panel, as wide as they are,
+        widened and narrowed as it played"""
+        times = self.frameTimes()
+        end = times[-1] if times else count * float(self.simValues.TimeStepOutput)
+
+        def eights(text):
+            return "".join("8" if c.isdigit() else c for c in text)
+
+        # The time to timeText()'s most places
+        widest = {
+            self.form.FrameLabel: [
+                translate("Assembly", "Frame" + " " + eights(str(max(count - 1, 0))))
+            ],
+            self.form.FrameTimeLabel: [eights("%.9f s" % end)],
+            self.speedLabel: [
+                eights(SimulationPlayback.speedText(rate))
+                for rate in (1.0 / 888, 1.0 / 88.8, 1.0 / 8.88e4, 888)
+            ],
+        }
+        for label, texts in widest.items():
+            metrics = label.fontMetrics()
+            label.setMinimumWidth(max(metrics.horizontalAdvance(t) for t in texts))
 
     def showTime(self, time, frame, rate):
         """The labels and the plot at the run's time, its frame nearest"""
@@ -3560,6 +3737,107 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 # Delete the object
                 motion.Document.removeObject(motion.Name)
 
+    def addVideoOptions(self):
+        """Not upstream: what a saved video shows with the 3D view -- the
+        Results box beside it as it plays, the time and speed over it -- in
+        the Save Animation button's menu, kept in the preferences"""
+        params = App.ParamGet(VideoParams)
+        menu = QtWidgets.QMenu(self.form.SaveAnimationButton)
+        self.videoBoxAction = menu.addAction(translate("Assembly", "With the Results box"))
+        self.videoBoxAction.setCheckable(True)
+        self.videoBoxAction.setChecked(params.GetBool("VideoResultsBox", True))
+        self.videoBoxAction.toggled.connect(lambda on: params.SetBool("VideoResultsBox", on))
+        self.videoTimeAction = menu.addAction(translate("Assembly", "With the time and speed"))
+        self.videoTimeAction.setCheckable(True)
+        self.videoTimeAction.setChecked(params.GetBool("VideoTime", True))
+        self.videoTimeAction.toggled.connect(lambda on: params.SetBool("VideoTime", on))
+        button = self.form.SaveAnimationButton
+        button.setMenu(menu)
+        button.setPopupMode(QtWidgets.QToolButton.MenuButtonPopup)
+        button.setToolTip(
+            translate(
+                "Assembly",
+                "Save the run as a video, a GIF or an animated glTF.\n"
+                "Its menu: the Results box beside the view as it plays, and the time\n"
+                "and speed over the view, in a video or a GIF.",
+            )
+        )
+
+    def videoFrame(self, path, layout, time, rate):
+        """Not upstream: a saved video's frame, the 3D view's image at path
+        with the Results box beside it and the time over it as layout says
+        (videoLayout()); written over path"""
+        view = QtGui.QImage(path)
+        canvas = QtGui.QImage(layout["size"], QtGui.QImage.Format_RGB32)
+        canvas.fill(self.resultsBox.palette().window().color())
+        painter = QtGui.QPainter(canvas)
+        try:
+            painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+            painter.setRenderHint(QtGui.QPainter.TextAntialiasing)
+            painter.drawImage(0, 0, view)
+            if layout["box"] is not None:
+                # At the first frame's scale, should it be taller now
+                box = self.videoBoxImage()
+                at = layout["box"]
+                scale = layout["scale"]
+                painter.drawImage(
+                    QtCore.QRectF(at.x(), at.y(), box.width() * scale, box.height() * scale), box
+                )
+            if layout["time"]:
+                text = "t = " + SimulationPlayback.timeText(
+                    time, rate, self.currentPlayback().fps
+                )
+                if self.hasPlaybackSpeed():
+                    text += "   (%s)" % SimulationPlayback.speedText(rate)
+                font = QtWidgets.QApplication.font()
+                font.setPixelSize(layout["text"])
+                painter.setFont(font)
+                metrics = QtGui.QFontMetrics(font)
+                pad = layout["text"] // 3
+                back = QtCore.QRect(
+                    pad, pad, metrics.horizontalAdvance(text) + 2 * pad, metrics.height() + pad
+                )
+                painter.fillRect(back, QtGui.QColor(255, 255, 255, 200))
+                painter.setPen(QtGui.QColor(30, 30, 30))
+                painter.drawText(back, Qt.AlignCenter, text)
+        finally:
+            painter.end()
+        canvas.save(path)
+
+    def videoLayout(self, width, height):
+        """Not upstream: a saved video's frames, the view width x height: the
+        Results box beside it, as tall as the view at most, if it is to be
+        and shows; the time over it, if it is to be. None for the view alone"""
+        withBox = self.videoBoxAction.isChecked() and self.resultsBox.isVisible()
+        withTime = self.videoTimeAction.isChecked()
+        if not withBox and not withTime:
+            return None
+        size = QtCore.QSize(width, height)
+        box = None
+        scale = 1.0
+        if withBox:
+            grab = self.videoBoxImage()
+            scale = min(1.0, (height - 16) / max(grab.height(), 1))
+            w, h = int(grab.width() * scale), int(grab.height() * scale)
+            box = QtCore.QRect(width + 8, (height - h) // 2, w, h)
+            size = QtCore.QSize(width + w + 16, height)
+            # Even, as the codecs want
+            size.setWidth(size.width() + size.width() % 2)
+        return {
+            "size": size,
+            "box": box,
+            "scale": scale,
+            "time": withTime,
+            "text": max(12, height // 32),
+        }
+
+    def videoBoxImage(self):
+        """Not upstream: the Results box as a video shows it, down to its
+        value: its buttons left out"""
+        bottom = self.resultValue.geometry().bottom() + 6
+        rect = QtCore.QRect(0, 0, self.resultsBox.width(), min(bottom, self.resultsBox.height()))
+        return self.resultsBox.grab(rect).toImage()
+
     def saveAnimation(self):
         num_frames = self.assembly.numberOfFrames()
         if num_frames <= 1:
@@ -3628,7 +3906,14 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # Not upstream: the video goes as playback does, at the study's speed
         # (SimulationPlayback): its frames' times are the run's at that speed,
         # between the run's frames where it plays slower than them
-        video_times = [t for t, _ in self.makePlayback().frames()]
+        played = self.makePlayback().frames()
+        video_times = [t for t, _ in played]
+        # Not upstream: the Results box beside the view and the time over
+        # it, as the menu says
+        layout = self.videoLayout(width, height)
+        viewSize = (width, height)
+        if layout is not None:
+            width, height = layout["size"].width(), layout["size"].height()
 
         # Setup temporary directory and progress bar
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3654,11 +3939,19 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                         App.Console.PrintMessage("Animation save cancelled.\n")
                         return
 
-                    self.assembly.updateForTime(video_time)
+                    if layout is None:
+                        self.assembly.updateForTime(video_time)
+                    else:
+                        # The panel's labels and plot at the time too
+                        self.showPlayed(video_time, played[i][1])
                     Gui.updateGui()  # Ensure the 3D view is redrawn
 
                     frame_filename = temp_path / f"frame_{i:05d}.png"
-                    view.saveImage(str(frame_filename), width, height, "Current")
+                    if layout is None:
+                        view.saveImage(str(frame_filename), width, height, "Current")
+                    else:
+                        view.saveImage(str(frame_filename), viewSize[0], viewSize[1], "Current")
+                        self.videoFrame(str(frame_filename), layout, video_time, played[i][1])
                     frame_files.append(str(frame_filename))
 
                 # Assemble the final animation file
@@ -3693,6 +3986,8 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 # Restore original state
                 self.assembly.updateForFrame(original_frame)
                 self.form.frameSlider.setValue(original_frame)
+                # Not upstream: the labels and plot too, which played
+                self.onFrameChanged(original_frame)
 
     def saveGltf(self, file_path):
         """The frames as an animated glTF (SimulationGltf), the parts as

@@ -8466,6 +8466,61 @@ Status ChronoSession::simulateDynamics(
         const ch::ChVector3d alpha = turn * (body->GetInvInertia() * torque);
         return std::pair<ch::ChVector3d, ch::ChVector3d>(a, alpha);
     };
+    // The constraints' reactions L at the state as it stands, from its own
+    // forces: [M Cq'; Cq 0] [a; -L] = [F; -g], g the constraints'
+    // acceleration with none -- a motion's own, the velocities' turning --
+    // C's second difference along the velocities over 'd'. And R = F + Cq'
+    // L there, motionFrom's: Cq is the state's own. The system's
+    // accelerations and reactions are left as they were: HHT starts from
+    // them, and a run's frames are as without
+    auto solveReactions = [&](double d, ch::ChVectorDynamic<>& L, ch::ChVectorDynamic<>& R) {
+        const auto nx = sys.GetNumCoordsPosLevel();
+        const auto nv = sys.GetNumCoordsVelLevel();
+        const auto nc = sys.GetNumConstraints();
+        ch::ChState x(nx, &sys);
+        ch::ChStateDelta v(nv, &sys);
+        double t = 0.0;
+        sys.StateGather(x, v, t);
+        ch::ChStateDelta accelerationWas(nv, &sys);
+        sys.StateGatherAcceleration(accelerationWas);
+        ch::ChVectorDynamic<> reactionsWas(nc);
+        reactionsWas.setZero();
+        sys.StateGatherReactions(reactionsWas);
+        ch::ChVectorDynamic<> g(nc);
+        g.setZero();
+        sys.LoadConstraint_C(g, -2.0 / (d * d));
+        ch::ChState moved(nx, &sys);
+        for (const double s : {d, -d}) {
+            const ch::ChStateDelta dx(v * s, &sys);
+            sys.StateIncrementX(moved, x, dx);
+            sys.StateScatter(moved, v, t + s, ch::UpdateFlags::UPDATE_ALL_NO_VISUAL);
+            sys.LoadConstraint_C(g, 1.0 / (d * d));
+        }
+        sys.StateScatter(x, v, t, ch::UpdateFlags::UPDATE_ALL_NO_VISUAL);
+        R.setZero(nv);
+        sys.LoadResidual_F(R, 1.0);
+        ch::ChStateDelta a(nv, &sys);
+        a.setZero(nv, &sys);
+        L.setZero(nc);
+        const bool ok = sys.StateSolveCorrection(a,
+                                                 L,
+                                                 R,
+                                                 g,
+                                                 1.0,
+                                                 0.0,
+                                                 0.0,
+                                                 x,
+                                                 v,
+                                                 t,
+                                                 false,
+                                                 ch::UpdateFlags::UPDATE_ALL_NO_VISUAL,
+                                                 true,
+                                                 true);
+        sys.StateScatterAcceleration(accelerationWas);
+        sys.StateScatterReactions(reactionsWas);
+        sys.LoadResidual_CqL(R, L, 1.0);
+        return ok && L.allFinite();
+    };
     auto valuesNow = [&]() {
         std::vector<double> out;
         out.reserve(6 * reactions.size() + rotationMotors.size() + linearMotors.size()
@@ -9927,13 +9982,13 @@ Status ChronoSession::simulateDynamics(
     {
         double time = 0.0;
         std::vector<double> forces;  // the contact loads', N
-        std::vector<double> values;  // the channels'; none: between its neighbours'
+        std::vector<double> values;  // the channels'
         std::vector<BodyPose> poses;
     };
     bool sampling = false;
     Sample anchor;                 // the last output frame's
     std::vector<Sample> samples;   // since it, in time order
-    Sample previous;               // the substep before, its values not read
+    Sample previous;               // the substep before
     bool previousKept = true;
     std::vector<double> scales;    // each load's largest force so far, N
     auto forcesNow = [&]() {
@@ -9963,7 +10018,14 @@ Status ChronoSession::simulateDynamics(
         }
         const double time = sys.GetChTime();
         if (!moved) {
-            previous = {time, std::move(forces), {}, posesNow()};
+            // Its values read too: on the line between its neighbours', a
+            // set-off's contact point and force were, but not their moment
+            // -- r x F is not linear in them -- and a lever's free body was
+            // out by 0.95% of its largest hinge torque at such a frame
+            previous = {time,
+                        std::move(forces),
+                        channels.empty() ? std::vector<double>() : valuesNow(),
+                        posesNow()};
             previousKept = false;
             return;
         }
@@ -9991,20 +10053,6 @@ Status ChronoSession::simulateDynamics(
         auto at = [&](std::size_t k) -> const Sample& {
             return k == 0 ? anchor : k == n + 1 ? end : samples[k - 1];
         };
-        // A set-off's values, on the line between its neighbours'
-        for (std::size_t k = 1; k <= n; ++k) {
-            Sample& s = samples[k - 1];
-            if (!s.values.empty() || channels.empty()) {
-                continue;
-            }
-            const Sample& a = at(k - 1);
-            const Sample& b = at(k + 1);
-            const double u = b.time > a.time ? (s.time - a.time) / (b.time - a.time) : 0.0;
-            s.values.resize(a.values.size());
-            for (std::size_t v = 0; v < s.values.size() && v < b.values.size(); ++v) {
-                s.values[v] = a.values[v] + u * (b.values[v] - a.values[v]);
-            }
-        }
         const double largest = largestScale();
         std::vector<double> tolerance(scales.size());
         std::vector<char> keep(n + 2, 0);
@@ -10600,12 +10648,12 @@ Status ChronoSession::simulateDynamics(
         // velocity projection holds the positions); a whole step from them
         // left the velocities off, a cam's force 15% off at the first frame
         // and 1.5% at the second. The start's reactions (a joint's, a
-        // motor's effort) are those after 32 and after 64 of the smallest
-        // taken back to the start, a line through the two: the transient
-        // gone by then, as measured on the cam, and the 60 us the reading is
-        // late (0.2% of its force) taken out. What the state alone gives (a
-        // spring's force, length, angle) is read at the start itself: a line
-        // through a quadratic path misses it by a t1 t2 / 2.
+        // motor's effort) are solved at it (solveReactions()); where that
+        // fails, those after 32 and after 64 of the smallest taken back to
+        // the start, a line through the two -- which take in what a contact
+        // begun in those steps did. What the state alone gives (a spring's
+        // force, length, angle) is read at the start itself: a line through
+        // a quadratic path misses it by a t1 t2 / 2.
         const int tinySteps = 64;
         const double tiny = h / 1024.0;
         for (std::size_t k = 0; k <= steps; ++k) {
@@ -10626,8 +10674,8 @@ Status ChronoSession::simulateDynamics(
                     channels.empty() ? std::vector<double>() : valuesNow();
                 // The start's own forces, its loads' (a contact's as it
                 // stands, none where it only touches) and its bodies' turns:
-                // its accelerations are those with the reactions taken back
-                // to it. Taken back with the reactions, they took in what a
+                // the fallback's accelerations are those with the reactions
+                // taken back to it. Taken back with them, they took in what a
                 // contact begun in the smallest steps did -- a lever let go
                 // onto two steel posts read 131 rad/s^2 for 122 free, its
                 // free body 5% of its weight out of balance at the start
@@ -10637,6 +10685,22 @@ Status ChronoSession::simulateDynamics(
                 std::vector<ch::ChMatrix33<>> startTurns;
                 for (std::size_t b : movingBodies) {
                     startTurns.push_back(run.d->bodies[b]->GetRotMat());
+                }
+                // Its reactions solved at it, from those forces. Taken back
+                // from the smallest steps, they took in what a contact begun
+                // in them did: a lever let go across two steel posts turned
+                // 3.6% under its free rate at the start. Those are the
+                // fallback where the solve fails
+                ch::ChVectorDynamic<> startL;
+                ch::ChVectorDynamic<> startR;
+                std::vector<double> solved;
+                if (!channels.empty() && solveReactions(h / 64.0, startL, startR)) {
+                    ch::ChVectorDynamic<> was(sys.GetNumConstraints());
+                    was.setZero();
+                    sys.StateGatherReactions(was);
+                    sys.StateScatterReactions(startL);
+                    solved = valuesNow();
+                    sys.StateScatterReactions(was);
                 }
                 std::vector<double> half;
                 ch::ChVectorDynamic<> halfL;
@@ -10658,18 +10722,28 @@ Status ChronoSession::simulateDynamics(
                             || channel.quantity == "Acceleration"
                             || channel.quantity == "AngularAcceleration";
                         for (int c = 0; c < channel.width && v < values.size(); ++c, ++v) {
-                            values[v] = reaction ? 2.0 * half[v] - values[v] : start[v];
+                            values[v] = !reaction        ? start[v]
+                                : solved.size() > v ? solved[v]
+                                                    : 2.0 * half[v] - values[v];
                         }
                     }
                     // The bodies' accelerations from the start's forces and
-                    // the reactions taken back (Cq' L is L's linear map)
+                    // its reactions: the solve's, Cq' L at the start; else
+                    // those taken back (Cq' L is L's linear map), through Cq
+                    // after the smallest steps -- a turn's at 3 rad/s read
+                    // 0.25% under through it
                     ch::ChVectorDynamic<> endL(sys.GetNumConstraints());
                     sys.StateGatherReactions(endL);
                     if (!movingBodies.empty() && halfL.size() == endL.size()
                         && startForces.size() == sys.GetNumCoordsVelLevel()) {
                         ch::ChVectorDynamic<> R = startForces;
-                        sys.LoadResidual_CqL(R, halfL, 2.0);
-                        sys.LoadResidual_CqL(R, endL, -1.0);
+                        if (!solved.empty() && startR.size() == R.size()) {
+                            R = startR;
+                        }
+                        else {
+                            sys.LoadResidual_CqL(R, halfL, 2.0);
+                            sys.LoadResidual_CqL(R, endL, -1.0);
+                        }
                         std::size_t m = 0;
                         v = 0;
                         for (const auto& channel : channels) {

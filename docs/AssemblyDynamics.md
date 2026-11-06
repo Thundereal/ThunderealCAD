@@ -3291,9 +3291,9 @@ Phase D1 is under way (2026-10-28):
     where it showed 2.2 MPa at the bounce before; the hold within 0.013%
     of the largest reaction, its torque within 0.40%.
   - Test: TestContact's test_impact_frames.
-  - Not yet: several frames as steps of one CalculiX run; the margin the
-    largest away from the loaded faces leaves, a mesh size, where a
-    section's depth is Saint-Venant's; a part of a group meeting the
+  - Not yet: several frames as steps of one CalculiX run (the frames'
+    runs at once instead, below); the margin the largest away from the
+    loaded faces leaves (built, below); a part of a group meeting the
     others nowhere (held at the face nearest them); a run's start
     reactions taken back with a contact begun in them (the accelerations
     now balance them, not the free motion's); a static analysis of a
@@ -3321,9 +3321,21 @@ Phase D1 is under way (2026-10-28):
     the lever, the smallest 1.5 N. Solved at every frame in 337 s: the
     lever's largest 64.6 MPa, 54.3 MPa away from the loaded faces, at the
     peak. The hold within 0.013% of the largest reaction, its torque
-    within 0.96% of the largest (0.40% at the peaks alone; not looked
-    into). The video, at Auto, 582 frames, 19.4 s at 30 fps, as slow as
-    1/17,500 of real time through the landing.
+    within 0.96% of the largest (0.40% at the peaks alone). The video, at
+    Auto, 582 frames, 19.4 s at 30 fps, as slow as 1/17,500 of real time
+    through the landing.
+  - The torque's 0.96%, looked into: the lever's free body balanced in
+    force to 1e-15 at every frame, in moment not, out by up to 8.65 N mm
+    at frames through the impacts -- at the set-off frames, each the
+    substep before the forces moved, kept with its values on the line
+    between its neighbours'. Its contact point and force each so, but not
+    their moment: r x F is not linear in them. Its values are now read
+    too, at no cost a run (2.05 s for the 2.2); every frame balances to
+    3e-8 N mm. Test: TestContact's test_impact_frames_balance (65 N mm
+    out at the landing's set-off before, its bound 6). Solved again at
+    every frame, the hold's torque is within 0.49% of the largest: the
+    analysis' own share now, as at the peaks alone (0.40%) -- the contact
+    couplings sharing edge nodes with the held face.
   - Tests: TestSimulationResults' test_update_for_time,
     test_playback_speeds, test_peak_safe; TestContact's
     test_impact_frames; TestGuiCommands' test_playback_speed.
@@ -3341,9 +3353,255 @@ Phase D1 is under way (2026-10-28):
     forces, with `SlowMotion` its scale (sec 8.6). The playback video at
     Auto went from 19.4 s to 5.4 s, the landing still slowed to 1/17,500
     of real time.
-  - Not yet: the plot's value axis is the whole run's, a bounce of 1.5 N
-    flat under a landing of 528 N; a part's own stress at a frame through
-    an impact is a static analysis of it (as above).
+  - Not yet: see the next entry's.
+- Built, D4a: the stress away from the loads, a section's depth off them.
+  - **The largest away from the loaded faces left a mesh size off them**,
+    less than a coupling's or a concentrated load's reach into the stress,
+    about a section's depth (Saint-Venant's). The places video read 54.3
+    MPa at the landing at x = 55 mm, between the block and the near post,
+    where beam theory from the run's loads gives 22 to 41 MPa, as the
+    lever's own inertia goes.
+  - Now `_sectionDepth`: the part's shortest span through the load, along
+    its principal axes (its mesh nodes' spread), each from where the line
+    first meets the mesh to where it last leaves it (the nodes within a
+    mesh size of it), at least a mesh size. A bar's thinner side at its
+    middle or its end; across a hinge's bore, wall to wall. A whole face's
+    through its centre; a patch's through its point, by where it is to a
+    half mesh size, as it moves.
+  - The videos again: the double pendulum's rod, 10 mm, the same at its 81
+    frames -- the 7 the margin moved were the rod's own already. The cam's
+    lever, 8 mm: 2.065 MPa at x = 8.3 mm, against the largest 2.457 at the
+    hinge's face; beam theory there, the hinge's torque less its force
+    over 8.3 mm, 1.99. The group's arm, 10 mm: 0.160 MPa 10.4 mm below its
+    held top, where it read 0.218 MPa 2.4 mm below it. The places lever, 8
+    mm: at the landing 13.56 MPa at x = 20 mm, between the hinge and the
+    near post, beam theory from the hinge's 84.5 N 12.4 MPa; between the
+    post and the block, 33 mm, nothing is a section's depth off both.
+  - The manual's cam video had taken impact frames by their new default,
+    26 through the disc turning at full speed from rest against the lever,
+    and labelled its frames as if 5 ms apart: its scene now sets
+    `ImpactFrames` off.
+  - Tests: TestDynamics' test_section_depth, test_loads_to_fem_frames
+    (10 mm off both end faces).
+  - Not yet: see the next entry's.
+- Built, D4a: the frames' solves, 0.89 s a frame to 0.24.
+  - Where a frame's time went (the places lever, 40 frames, a 3 mm mesh,
+    profiled): CalculiX 0.37 s, the input 0.39 -- of it 0.25 s FEM's
+    writer finding each coupling face's nodes again, `getNodesByFace` per
+    node by BRepExtrema, on a mesh that had not changed -- and the result
+    0.09.
+  - FEM, our fork: MeshSetsGetter's `cache`, a dict FemToolsCcx keeps
+    between writes (`mesh_sets_cache`): the mesh's element tables, and each
+    reference's nodes while it is the same shape at the same place; cleared
+    when the mesh's nodes or counts change. The input to the card the same
+    as a fresh writer's (FEM's test_mesh_sets_cache, through a coupling
+    moved, given a radius, the mesh made again). The input 0.39 s to 0.10.
+  - Several frames as steps of one CalculiX run, measured on the places
+    input: one step 427 ms, ten 2.9 s -- each step factors the system
+    again, the saving the 200 ms of reading the input and setting it up;
+    and a moving patch's coupling is model data, all of them in the one
+    input. Not taken.
+  - Instead, the frames' runs at once: ccx's SPOOLES solver takes one CPU.
+    solveFrames writes each frame's input, moves it into a folder of its
+    own and starts ccx there (FEM's `ccx_process`, not waited for, one
+    thread, its output to a file), `jobs` at once (4 by default, half the
+    CPUs at most); the oldest collected when that many run, so the rows
+    keep their order; where the stress is away from the loads is taken
+    as the frame is written, before the next moves the couplings. A stop
+    asked for leaves those started.
+  - 40 frames of the places lever: 35.4 s, then 23.0 with the cache, 9.5
+    with 4 at once -- the stresses, the away ones and the hold's forces
+    the same to 9 digits each way.
+  - Tests: TestDynamics' test_loads_to_fem_frames_jobs (3 at once against
+    1, to the last digit; a stop at the fifth frame); FEM's
+    test_mesh_sets_cache.
+  - Not yet: see the next entry's.
+- Built, D4a: the plot's value axis by its window.
+  - The Results box's value axis was the whole run's: zoomed in on a
+    bounce of 1.5 N after a landing of 528 N, the bounce was drawn flat.
+  - Now by what its lines show in the window (`SimulationPlayback.
+    shownRange()`, over peakSafe's points): those in it, and where a line
+    crosses its edges -- M4 keeps each column's least and largest, so the
+    range is the values' own at any width. The whole run's where nothing
+    shows (a window inside a gap); and no finer than a thousandth of the
+    whole run's, a steady value's round-off not drawn across the height.
+    The labels at its top and bottom are that window's.
+  - Test: TestSimulationResults' test_peak_safe (the bounce by its own
+    range; an edge crossed halfway down the landing's fall, 264; a gap,
+    none).
+  - Not yet: see the next entry's.
+- Built, D4a: a part of a rigid group over a gap to the others.
+  - **Meeting the rest of its group nowhere, a part was held on the face
+    nearest them first found** -- and along the edge nearest the other,
+    a box's side faces are as near as the face across the gap. The group
+    page's arm hung 1 mm under the rod was held on its side face, all 60
+    mm of it: its largest stress 0.0044 MPa where, touching the rod, it
+    is 0.275, and no point a section's depth off the hold. The rod was
+    held on its end face.
+  - Now each of the others within twice the least gap is moved across
+    its gap to the part (along its nearest points' way), and the faces
+    are those it would meet, as for parts that touch: the area they
+    share, a round of it where it is part of a face. The load's `Gap`
+    says how far (`groupGap()`), and To FEM's message says it: "It meets
+    the rest of its rigid group nowhere, 1 mm off them".
+  - The group page's video again with the arm 1 mm under the rod: 0.2732
+    MPa at 160 ms, 0.1593 away from the loaded faces, against 0.275 and
+    0.160 touching; the hold within 0.44% of the largest.
+  - Part, from upstream (6132f25fdf): `Tools::fromPlacement` set the
+    translation and then the rotation, which in OCCT replaces it -- every
+    location it made was the rotation alone. FEM places a constraint's
+    references with it (`Tools::getFeatureSubShape`): on a part turned
+    and moved, a constraint's symbols were the face turned about the
+    origin, the arm's hold drawn 100 mm off its analysis in the still;
+    and a bearing's or a cylindrical transform's base point, which the
+    input's *TRANSFORM takes, off the cylinder's axis. ShapeFix's Python
+    methods taking a placement made the same location.
+  - Tests: TestDynamics' test_loads_on_rigid_group_gap; FEM's
+    test_placed_references.
+  - Not yet: see the next entry's.
+- Built, D4a: a run's start reactions solved at it.
+  - **The start's reactions were taken back from the run's smallest
+    steps**, a line through those after 32 and after 64 of h / 1024, and
+    a contact begun in them was in them: the lever let go across two
+    steel posts turned at 141 rad/s^2 at the start for the 146.7 of one
+    with nothing under it, 3.6% under.
+  - Now solved at the start (`solveReactions()`): [M Cq'; Cq 0] [a; -L]
+    = [F; -g], F the start's forces -- a contact's as it stands, none
+    where it only touches -- and g the constraints' acceleration with
+    none, a motion's own and the velocities' turning: C's second
+    difference along the start's velocities over h / 64, through Chrono's
+    StateSolveCorrection with M alone. The system's accelerations and
+    reactions are put back after it: HHT starts from them, and the
+    run's frames are as without. The line through the smallest steps is
+    the fallback where the solve fails.
+  - Found by its test: the bodies' accelerations at the start, M^-1 (F +
+    Cq' L), took Cq after the smallest steps. A rod driven from level at
+    3 t + t^2 rad, turning at 3 rad/s, read 1.995 rad/s^2 for 2, its
+    centre -449.29 mm/s^2 for -450. The solve gives F + Cq' L at the
+    start itself.
+  - Both now as the closed forms to 1e-6: the lever's 146.7 rad/s^2; the
+    rod's centre -9 r along it and 2 r across, the hinge's force m (a -
+    g), the motor's torque m g r less I alpha.
+  - Tests: TestContact's test_start_with_contact (5% before, now 1e-6);
+    TestDynamics' test_start_driven.
+  - Not yet: a part's own stress at a frame through an impact is a static
+    analysis of it (built, next).
+- Built, D4a: a part's own vibration through the run.
+  - **Each frame's analysis is the part as it stands**, balanced by its
+    rigid inertia: right where the loads change slowly against its own
+    periods, not through an impact. The places lever's landing, the
+    block's 528 N over some 60 us, is over in under a thirtieth of the
+    lever's first period held at its hinge (2.2 ms, 452 Hz): the frames
+    said 64.5 MPa under the block at the force's peak and 0.03 MPa a
+    millisecond later, where the lever, its own inertia taking the blow
+    first, is at 9 to 22 MPa during it and rings at 30 to 50 after it.
+  - Now To FEM's frames "With its own vibration" (`solveFrames(dynamic=
+    True)`): the held part's modes (20 by default, a CalculiX frequency
+    step on the same analysis), each frame solved as it stands, and the
+    mode-acceleration method between them. The loads are linear between
+    two frames, so the static response is the line between the frames'
+    solutions, exactly; the rest is the modes', each y_i'' + 2 z w y_i' +
+    w^2 y_i = -c_i'' - 2 z w c_i', c_i = phi_i^T M u the static
+    solution's share of the mode -- c linear between frames, so y a damped
+    sine from each frame on, in closed form (`_modalResponse()`): no
+    steps. From rest at the first frame. M is the 10-node tetrahedra's
+    consistent mass, built here (`_tet10Mass()`, the nodes by where they
+    are); the density cancels. The modes that see no change respond
+    statically, which the frames' solutions have.
+  - The stress is sampled between the frames, 8 a period of the highest
+    mode kept and at most 200 an interval; the series keeps the samples
+    (SampleTimes, SampleVonMises, SampleVonMisesAway) and each frame's
+    static stresses beside its own (StaticVonMises). The Results box
+    draws the samples and the frames as they stand under them; the
+    analysis is left at the largest sample, its result that field written
+    over the nearest frame's.
+  - Damping one ratio for every mode, 2% of critical by default, the
+    dialog's. It matters through an impact: the landing's window peaked
+    at 50.8 MPa undamped, 40.6 at 2%, 0.3 ms after the blow, its higher
+    modes'.
+  - Measured against CalculiX's own direct integration (*DYNAMIC, HHT, a
+    step per frame interval, the loads ramped across it) through the
+    landing: at 2.8 us increments, within a few percent of each other at
+    every frame of the impact (22.3 MPa against 22.3, 32.3 against 31.5,
+    35.8 against 36.0). CalculiX iterates Newton's method at each
+    increment however linear the model (0.6 s each here): after the blow
+    its 55 us increments fell behind the ringing, and 1.5 us through a
+    window would be 17 minutes an impact. The modal way took 14 s for the
+    window, 20 modes against 40 to 0.1%.
+  - The places page's run again, every frame (327, 226 through impacts),
+    in the manual's video (`assembly/simulation/loads-to-fem-vibration`):
+    163 s, the frames' solves 92 of it; 25929 samples. The largest 40.6
+    MPa at 64.18 ms, the lever's end at its hold, bending as it rings;
+    away from the loaded faces 29.5 MPa at 63.98 ms, mid-span, where the
+    frames as they stand had 13.6 at most (at a bounce, 121.8 ms) and
+    64.6 under the block.
+  - Found on the way, for that input: CalculiX adds a node's second
+    *CLOAD in a step to its first (the posts pushed twice), and takes one
+    amplitude a node's degree of freedom, which a distributing coupling
+    spreading its six onto the same face nodes breaks.
+  - Tests: TestDynamics' test_modal_response (the closed form against
+    RK4, undamped and damped, 1.2e-9 of c), test_held_modes (the modes
+    orthogonal through the mass to 1.3e-5, the first the clamped beam's
+    to 0.15%, the falling rod's static state made of its modes but 9.3e-6
+    of it), test_loads_to_fem_vibration (the pendulum, slow against its
+    1.2 ms, within 1.2e-4 of its static stress; the samples, the result
+    at the largest); TestGuiCommands' test_results_sampled.
+  - Not yet: one way -- the run's contacts and joints are its rigid
+    bodies', so the posts push as for a rigid lever and the block's
+    impact is a rigid one's; the part held stiff at its joint's faces, as
+    the static frames are -- a revolute's turn about its axis held too,
+    so the lever's modes are a cantilever's (452 Hz first) where a pinned
+    one's first would be some 4.4 times that, and its largest stress is
+    at that hold; held as its joint holds it, the turn left free, its
+    rigid mode left out and the frames solved by inertia relief, would
+    take that away (built, next). Its rotation's own stiffening and its
+    large motion's coupling to the modes left out; from rest at the first
+    frame solved.
+- Built, D4a: the vibration's modes held as the joint holds them.
+  - **The modes were the part held stiff at its joint's faces**, a
+    revolute's turn about its axis held with the rest: the places lever's
+    were a cantilever's, its first in its swing's plane 452 Hz, where
+    pinned it is 1958 Hz, and its largest stress, 40.6 MPa, was at that
+    hold.
+  - Now the modes' run holds the part as its joint does (`_holdAsJoint()`):
+    a revolute leaves the turn about its axis free, a cylindrical that and
+    the slide along it, a slider the slide, a ball every turn; a motion
+    driving the joint holds what it drives, and a rigid group's hold or
+    another kind of joint stays stiff. The hold's axes are the joint's,
+    however it lies: FEM's rigid body constraint has Axes now (not
+    upstream), which the CalculiX writer puts as a *TRANSFORM on its
+    reference and rotation nodes -- CalculiX takes it for the rotation
+    node's too, the same modes as the axis freed by hand, others for a
+    wrong one. CalculiX finds the free motion's mode or leaves it out (an
+    eigenvalue just under 0 is out of the range asked for), so one more
+    mode is asked for each motion left free, and a mode more of the free
+    motions than not, by the mass, is dropped (`_Modes(free=)`).
+  - The frames stay as they were, held stiff: what holds the part there
+    takes next to nothing, the frame balancing it, so its static state is
+    the one held free but for a free motion, which no mode has a share of
+    -- the stresses are the same, and so is each mode's share. No inertia
+    relief is needed for it. What holds the part is still read off the
+    stiff hold, along the global axes, for the check.
+  - The places page's run again: its first mode 563.8 Hz, across the
+    hinge's axis and held stiff so; the first in its swing's plane 1958
+    Hz, the pinned lever's. 162 s for the 327 frames, 26168 samples. The
+    largest stress 31.8 MPa at 64.02 ms, away from the loaded faces,
+    where the lever bends between its hinge and the posts; the hinge end
+    no longer the largest (40.6 MPa held stiff). As the frames stand,
+    64.6 MPa under the block and 13.6 away, as before. Undamped, the
+    landing's window peaks at 35.1 MPa (50.8 held stiff).
+  - Tests: test_motionloads' test_rigid_coupling_axes (the bar held free
+    to turn about z, the same modes along the global axes or turned 90
+    deg about x; the clamped and the pinned beam's first); TestDynamics'
+    test_held_modes_free (the rod's turn no mode's, a share of it 4.5e-6;
+    the first across the hinge the clamped beam's to 0.15%, the first
+    about it the pinned one's, 2.4% under it, shear; its static state
+    made of its modes and the turn but 8.7e-7 of it);
+    test_loads_to_fem_vibration now the rod free to turn, 1.4e-5 of its
+    static stress (1.2e-4 held stiff).
+  - Not yet: one way still, from rest, and the rotation's stiffening left
+    out; a joint other than those (a distance, a gear, a cam) holds the
+    part stiff in its modes.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono
@@ -4539,7 +4797,9 @@ What this fork does:
 - **Frames through each impact** (`ImpactFrames`, on by default). After
   each substep, the contact loads' forces. A substep where one moved from
   the last kept is kept, with its values and poses, and so is the one
-  before where they set off from a steady force. At each output frame
+  before where they set off from a steady force, its values read too (on
+  the line between its neighbours', its free body did not balance in
+  moment). At each output frame
   those since the last are thinned by Douglas-Peucker: each load within 5%
   of the most it is at between a line's two ends, or 0.1% of the largest
   force so far. A peak is the farthest from its line, and kept; a bounce
@@ -4609,6 +4869,24 @@ What this fork does:
   (the part's contact forces' local largest, a choice), the stress zoomed
   in was a line from the output frame before to the peak and on to the
   one after, an impact of 60 us drawn 5 ms wide.
+- **A saved video shows the Results box and the time**, so that what
+  the manual's videos show takes no script. Save Animation's menu (not
+  upstream) holds two choices, both on by default and kept in the
+  preferences (Mod/Assembly VideoResultsBox, VideoTime):
+  - With the Results box: the box beside the 3D view, as tall as the
+    view at most, at one scale for every frame, down to its value line
+    (`videoBoxImage()`, its buttons left out) -- each frame shown through
+    `showPlayed()`, so the plot, its slider and the value are that
+    frame's. Only when the box shows.
+  - With the time and speed: the panel's two labels' text over the
+    view's top left, on a light backing, whatever the view's background.
+
+  Both off, the frames are the 3D view's, as upstream's. The panel is
+  left at the frame it was at, its labels and plot too. Found on the way:
+  the panel widened and narrowed as it played, its frame, time and speed
+  labels as wide as their text then, and the Results box with it -- a
+  saved or grabbed box resized from frame to frame; the labels are now
+  as wide as their widest (`fitPlayerLabels()`).
 
 
 ## 9. UI / UX sketch

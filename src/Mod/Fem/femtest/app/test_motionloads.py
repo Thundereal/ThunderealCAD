@@ -224,6 +224,64 @@ class TestMotionLoads(unittest.TestCase):
         self.assertAlmostEqual(-near, point, delta=0.02 * point)
         self.assertAlmostEqual(-whole, spread, delta=0.03 * spread)
 
+    def test_mesh_sets_cache(self):
+        """One FemToolsCcx writing again and again keeps its mesh's tables
+        and each reference's nodes (MeshSetsGetter's cache): its input the
+        same as a fresh one's as a coupling moves to another face, takes a
+        radius and the mesh is made again; ccx_process runs it into a file,
+        one thread."""
+        from femtools import ccxtools
+
+        self.bar()
+        rb = self.coupling(ForceY="100 N")
+        kept = ccxtools.FemToolsCcx(self.analysis, self.solver, test_mode=True)
+        kept.update_objects()
+        kept.setup_working_dir(self.dir)
+
+        def cards(text):
+            # Not its comments: the time it was written is one
+            return "\n".join(s for s in text.splitlines() if not s.startswith("**"))
+
+        def both():
+            kept.write_inp_file()
+            with open(kept.inp_file_name) as f:
+                cached = cards(f.read())
+            problems, fresh = self.write()
+            self.assertEqual(problems, "")
+            return cached, cards(fresh)
+
+        cached, fresh = both()
+        self.assertEqual(cached, fresh)
+        self.assertIn("Nodes", [k[0] for k in kept.mesh_sets_cache if isinstance(k, tuple)])
+        cached, again = both()
+        self.assertEqual(cached, fresh)
+        rb.References = [(self.box, "Face6")]
+        rb.ReferenceNode = FreeCAD.Vector(L / 2, A / 2, A)
+        rb.CouplingRadius = "3 mm"
+        self.doc.recompute()
+        cached, fresh = both()
+        self.assertEqual(cached, fresh)
+        self.assertRegex(cached, r"\*COUPLING, REF NODE=\d+, SURFACE=Tip_Surface")
+        mesh = [o for o in self.analysis.Group if o.isDerivedFrom("Fem::FemMeshObject")][0]
+        count = mesh.FemMesh.NodeCount
+        mesh.MaxSize = 4.0
+        self.doc.recompute()
+        self.assertNotEqual(mesh.FemMesh.NodeCount, count)
+        cached, fresh = both()
+        self.assertEqual(cached, fresh)
+
+        binary = ccx_binary()
+        if not binary:
+            self.skipTest("no CalculiX binary")
+        kept.setup_ccx(binary)
+        kept.write_inp_file()
+        base = os.path.splitext(kept.inp_file_name)[0]
+        with open(base + ".out", "wb") as out:
+            self.assertEqual(kept.ccx_process(kept.inp_file_name, 1, out).wait(), 0)
+        self.assertTrue(os.path.exists(base + ".dat"))
+        with open(base + ".out", errors="replace") as f:
+            self.assertIn("Job finished", f.read())
+
     def test_rigid_coupling_radius(self):
         """A rigid coupling with a radius holds only its faces' nodes within
         it of its reference node -- the part of a face another part shares --
@@ -279,6 +337,40 @@ class TestMotionLoads(unittest.TestCase):
         want = 100 * L**3 / (3 * E * INERTIA) + shear
         self.assertAlmostEqual(self.tip(text).y, want, delta=0.01 * want)
 
+    def test_placed_references(self):
+        """A constraint's geometry from a part turned and moved, as loads to
+        FEM's copy of a part is: a coupling's points, where its symbols are
+        drawn, on its face; a cylindrical transform's base point, which the
+        input's *TRANSFORM takes, on the cylinder's axis. Part's
+        fromPlacement set the translation and then the rotation, which
+        replaces it: each was turned about the origin, 100 mm off."""
+        import Part
+
+        place = FreeCAD.Placement(
+            FreeCAD.Vector(-100, 0, 10), FreeCAD.Rotation(FreeCAD.Vector(0, 1, 0), 145)
+        )
+        box = self.doc.addObject("Part::Box", "Placed")
+        box.Length, box.Width, box.Height = A, A, 60.0
+        box.Placement = place
+        cylinder = self.doc.addObject("Part::Cylinder", "PlacedCylinder")
+        cylinder.Radius, cylinder.Height = 5.0, 20.0
+        cylinder.Placement = place
+        self.doc.recompute()
+        rb = ObjectsFem.makeConstraintRigidBody(self.doc, "Held")
+        rb.References = [(box, ("Face6",))]
+        transform = ObjectsFem.makeConstraintTransform(self.doc, "Turned")
+        transform.TransformType = "Cylindrical"
+        transform.References = [(cylinder, ("Face1",))]
+        self.doc.recompute()
+        face = box.Shape.Faces[5]
+        self.assertGreater(len(rb.Points), 0)
+        for point in rb.Points:
+            self.assertLess(face.distToShape(Part.Vertex(point))[0], 1e-9, point)
+        axis = place.Rotation.multVec(FreeCAD.Vector(0, 0, 1))
+        self.assertLess(transform.Axis.cross(axis).Length, 1e-9)
+        off = transform.BasePoint - place.Base
+        self.assertLess((off - axis * off.dot(axis)).Length, 1e-9, transform.BasePoint)
+
     def test_distributing_takes_no_constraint(self):
         """A distributing coupling held in place: the checks refuse it."""
         self.bar()
@@ -315,3 +407,61 @@ class TestMotionLoads(unittest.TestCase):
         self.assertAlmostEqual(fx, -want, delta=0.01 * want)
         self.assertAlmostEqual(fy, want, delta=0.01 * want)
         self.assertAlmostEqual(fz, 0.0, delta=1e-9 * want)
+
+    def frequencies(self):
+        """The frequencies of the analysis' modes, solved (Hz)"""
+        problems, _ = self.write()
+        self.assertEqual(problems, "")
+        text = self.solve()
+        lines = text.splitlines()
+        k = next(i for i, l in enumerate(lines) if "E I G E N V A L U E   O U T P U T" in l)
+        found = []
+        for line in lines[k + 1 :]:
+            parts = line.split()
+            if len(parts) >= 4 and parts[0].isdigit():
+                found.append(float(parts[3]))
+            elif found and not line.strip():
+                break
+        return found
+
+    def test_rigid_coupling_axes(self):
+        """A rigid coupling's axes: the bar held at x = 0 by one, free to
+        turn about z, has the modes of the bar pinned so whether its axes
+        are the global ones (turning about its z) or turned 90 deg about x
+        (turning about its y, along the global z): its first two, clamped
+        across y at 835 Hz (1.875^2 / 2 pi sqrt(E I / rho A L^4)) and
+        pinned across z at about 4.39 times that, (3.927 / 1.875)^2. Held
+        stiff, the bar's first two are both the clamped one."""
+        self.bar()
+        fixed = self.doc.getObject("Fixed")
+        self.analysis.removeObject(fixed)
+        self.doc.removeObject(fixed.Name)
+        rb = ObjectsFem.makeConstraintRigidBody(self.doc, "Hold")
+        rb.References = [(self.box, "Face1")]
+        rb.ReferenceNode = FreeCAD.Vector(0, A / 2, A / 2)
+        rb.Coupling = "Rigid"
+        self.analysis.addObject(rb)
+        self.solver.AnalysisType = "frequency"
+        self.solver.EigenmodesCount = 4
+
+        def held(free, axes=FreeCAD.Rotation()):
+            rb.Axes = axes
+            for axis in "XYZ":
+                setattr(rb, "TranslationalMode" + axis, "Constraint")
+                setattr(rb, "RotationalMode" + axis, "Free" if axis == free else "Constraint")
+            self.doc.recompute()
+            return self.frequencies()
+
+        stiff = held(None)
+        pinned = held("Z")
+        turned = held("Y", FreeCAD.Rotation(FreeCAD.Vector(1, 0, 0), 90))
+        with open(self.fea.inp_file_name) as f:
+            self.assertIn("*TRANSFORM, NSET=Hold_RotNode, TYPE=R", f.read())
+        clamped = 1.8751**2 / (2 * 3.141592653589793) * (E * INERTIA / (RHO * A * A * L**4)) ** 0.5
+        self.assertAlmostEqual(stiff[0], clamped, delta=0.02 * clamped)
+        self.assertAlmostEqual(stiff[1], stiff[0], delta=1e-3 * stiff[0])
+        self.assertAlmostEqual(pinned[0], stiff[0], delta=1e-6 * stiff[0])
+        self.assertAlmostEqual(pinned[1] / pinned[0], (3.9266 / 1.8751) ** 2, delta=0.05 * 4.39)
+        self.assertEqual(len(turned), len(pinned))
+        for a, b in zip(turned, pinned):
+            self.assertAlmostEqual(a, b, delta=1e-6 * b)

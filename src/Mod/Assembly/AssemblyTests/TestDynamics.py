@@ -185,6 +185,35 @@ class TestDynamics(unittest.TestCase):
         for time, angle in turns:
             self.assertAlmostEqual(angle, time, delta=1e-6, msg=time)
 
+    def test_start_driven(self):
+        """The rod driven from level at 3 t + t^2 rad: at the start it turns
+        at 3 rad/s and speeds up at 2 rad/s^2. Its centre, 50 mm out, at
+        -9 r along it and 2 r across; the hinge's force on it m (a - g).
+        The start's values are the constraints solved at it, the motion's
+        own acceleration and the turn's with them; they were taken back
+        from the run's smallest steps."""
+        self.assertIsNotNone(
+            self.driven("Position", "3*time + time*time", reactions=True)
+        )
+        mass = 100 * 10 * 10 * 2.7e-6
+        r = 50.0
+        accel = self.channel("Rod", "Acceleration")[0]
+        self.assertAlmostEqual(accel.x, -9.0 * r, delta=1e-6 * 9.0 * r)
+        self.assertAlmostEqual(accel.y, 0.0, delta=1e-6 * 9.0 * r)
+        self.assertAlmostEqual(abs(accel.z), 2.0 * r, delta=1e-6 * 9.0 * r)
+        self.assertAlmostEqual(
+            self.channel("Rod", "AngularAcceleration")[0].Length, 2.0, delta=1e-6
+        )
+        want = App.Vector(-9.0 * r, 0, math.copysign(2.0 * r, accel.z) + G) * mass
+        force = self.channel("Revolute", "Force")[0]
+        self.assertLess(min((force - want).Length, (force + want).Length), 1e-6 * want.Length, force)
+        # The motor holds its weight's moment, less I alpha where it turns
+        # down with it
+        inertia = mass * ((100.0**2 + 10.0**2) / 12.0 + r * r)
+        torque = mass * G * r + math.copysign(inertia * 2.0, accel.z)
+        motor = self.channel("Revolute", "MotorTorque")[0]
+        self.assertAlmostEqual(abs(motor), torque, delta=1e-6 * torque)
+
     def test_motor_speed(self):
         """A Speed motion turns at its rate, against gravity."""
         turns = self.driven("Speed", "2")
@@ -634,6 +663,320 @@ class TestDynamics(unittest.TestCase):
         scale = (force.Length + weight) * 100.0
         self.assertLess((total("ROTNODE") - torque).Length, 5e-3 * scale)
 
+    def test_section_depth(self):
+        """The margin the stress away from the loaded faces leaves: about a
+        section's depth, the shortest span through the point along the
+        part's principal axes -- a bar's thinner side, at its middle or at
+        its end; across a bore, wall to wall; never less than the mesh
+        size"""
+        import numpy as np
+
+        import MotionLoads
+
+        # A bar 120 x 10 x 8, its nodes 1 mm apart, turned off the axes
+        grid = np.mgrid[0:121, 0:11, 0:9].reshape(3, -1).T.astype(float)
+        turn = App.Rotation(App.Vector(1, 2, 3), 35).toMatrix()
+        m = np.array([[turn.A[4 * r + c] for c in range(3)] for r in range(3)])
+        coords = grid @ m.T
+        centred = coords - coords.mean(axis=0)
+        axes = np.linalg.eigh(centred.T @ centred)[1].T
+
+        def depth(point, size=1.0, nodes=coords):
+            return MotionLoads._sectionDepth(nodes, axes, m @ np.array(point), size)
+
+        self.assertAlmostEqual(depth((60, 10, 4)), 8.0, delta=1e-9)
+        self.assertAlmostEqual(depth((0, 5, 4)), 8.0, delta=1e-9)
+        self.assertAlmostEqual(depth((60, 10, 4), size=12.0), 12.0)
+        # A bore of 3 mm round its end, along its 8 mm: from the bore's
+        # axis, the line along it is in the bore, and across it the bar's
+        # 10 mm depth, wall to wall
+        bored = [p for p in grid if (p[0] - 5) ** 2 + (p[1] - 5) ** 2 > 9]
+        nodes = np.array(bored) @ m.T
+        self.assertAlmostEqual(depth((5, 5, 4), nodes=nodes), 10.0, delta=1e-9)
+
+    def test_loads_to_fem_frames_jobs(self):
+        """The frames' CalculiX runs several at once, each in a folder of its
+        own: the series the same as one at a time, to the last digit; a
+        stop asked for at a frame leaves those started before it."""
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        frames = list(range(0, 21, 3))
+        one = MotionLoads.solveFrames(self.assembly, rod, frames, maxSize=4.0, jobs=1)
+        three = MotionLoads.solveFrames(self.assembly, rod, frames, maxSize=4.0, jobs=3)
+        self.assertEqual(list(three.Frames), frames)
+        for name in ("VonMises", "VonMisesAt", "VonMisesAway", "FemHeldForce", "FemHeldTorque"):
+            self.assertEqual(list(getattr(three, name)), list(getattr(one, name)), name)
+
+        stopped = MotionLoads.solveFrames(
+            self.assembly, rod, frames, maxSize=4.0, jobs=3, progress=lambda k, n: k < 4
+        )
+        self.assertEqual(list(stopped.Frames), frames[:4])
+        self.assertEqual(list(stopped.VonMises), list(one.VonMises)[:4])
+
+    def test_modal_response(self):
+        """A mode's dynamic part through loads linear between frames, in
+        closed form (MotionLoads._modalResponse): y = q - c, q'' + 2 z w q'
+        + w^2 q = w^2 c, at rest at the first frame (q = c, q' = 0) --
+        against the same integrated by RK4 at a thousandth of the shortest
+        period, undamped and damped, to 1e-8 of c's largest. Loads that
+        stand still leave none."""
+        import numpy as np
+
+        import MotionLoads
+
+        omega = 2.0 * math.pi * np.array([1.0, 3.7, 11.0])
+        times = np.array([0.0, 0.3, 0.35, 0.9, 1.0, 1.6, 2.5])
+        c = np.array(
+            [
+                [0.0, 1.0, 1.0, -0.5, 2.0, 0.0, 0.3],
+                [1.0, 0.2, -1.0, 0.0, 0.5, 0.5, 0.5],
+                [0.5, 0.5, 1.5, 0.2, -0.7, 0.1, 0.0],
+            ]
+        )
+        grid = np.linspace(0.0, 2.5, 251)
+        h = 1e-3 / 11.0
+
+        def load(t):
+            k = min(max(np.searchsorted(times, t, side="right") - 1, 0), len(times) - 2)
+            w = (t - times[k]) / (times[k + 1] - times[k])
+            return (1.0 - w) * c[:, k] + w * c[:, k + 1]
+
+        for zeta in (0.0, 0.05):
+            got = MotionLoads._modalResponse(times, c, omega, zeta, grid)
+
+            def rate(t, q, v):
+                return v, omega**2 * (load(t) - q) - 2.0 * zeta * omega * v
+
+            q, v = c[:, 0].copy(), np.zeros(3)
+            t = 0.0
+            want = np.zeros_like(got)
+            want[:, 0] = q - load(0.0)
+            for j in range(1, len(grid)):
+                n = int(round((grid[j] - t) / h))
+                dt = (grid[j] - t) / n
+                for _ in range(n):
+                    k1 = rate(t, q, v)
+                    k2 = rate(t + dt / 2, q + dt / 2 * k1[0], v + dt / 2 * k1[1])
+                    k3 = rate(t + dt / 2, q + dt / 2 * k2[0], v + dt / 2 * k2[1])
+                    k4 = rate(t + dt, q + dt * k3[0], v + dt * k3[1])
+                    q = q + dt / 6 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
+                    v = v + dt / 6 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
+                    t += dt
+                want[:, j] = q - load(grid[j])
+            self.assertLess(np.abs(got - want).max(), 1e-8 * np.abs(c).max(), zeta)
+        still = MotionLoads._modalResponse(times, np.ones_like(c), omega, 0.0, grid)
+        self.assertEqual(np.abs(still).max(), 0.0)
+
+    def test_held_modes(self):
+        """The rod's modes held at its hinge, as To FEM's vibration takes
+        them (MotionLoads._Modes): orthogonal through the mass of its
+        10-node tetrahedra as built here (_tet10Mass, the nodes by where
+        they are), to 1e-4 (1.3e-5) -- a mass or a node order wrong is not
+        -- and the first, the rod clamped at its end, the beam's closed
+        form 1.875^2 / (2 pi) sqrt(E I / (rho A)) / L^2 to 1% (0.15%). Its
+        static state at the start, falling, made of its modes by its
+        shares of them (coordinate()): what they leave of it under 1e-4 of
+        it, by the mass (9.3e-6)."""
+        import os
+        import shutil
+        import tempfile
+
+        import numpy as np
+        from femtools import ccxtools
+
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        _, result = self.simulate(0.01, 1e-2)
+        self.assertEqual(result, 0)
+        analysis, body, _ = MotionLoads.makeAnalysis(self.assembly, rod, 0, maxSize=4.0)
+        solver = [o for o in analysis.Group if o.isDerivedFrom("Fem::FemSolverObjectPython")][0]
+        solver.AnalysisType = "frequency"
+        solver.EigenmodesCount = 8
+        mesh = [o for o in analysis.Group if o.TypeId == "Fem::FemMeshShapeNetgenObject"][0]
+        material = [o for o in analysis.Group if o.Name.startswith("LoadsMaterial")][0]
+        self.doc.recompute()
+        work = tempfile.mkdtemp(prefix="heldmodes_")
+        try:
+            fea = ccxtools.FemToolsCcx(analysis, solver, test_mode=True)
+            fea.update_objects()
+            fea.setup_working_dir(work)
+            fea.setup_ccx(MotionLoads.ccxBinary())
+            fea.write_inp_file()
+            self.assertEqual(fea.start_ccx(), 0)
+            modes = MotionLoads._Modes(os.path.splitext(fea.inp_file_name)[0], mesh.FemMesh)
+            solver.AnalysisType = "static"
+            self.doc.recompute()
+            fea.write_inp_file()
+            self.assertEqual(fea.start_ccx(), 0)
+            blocks = MotionLoads._frdFields(os.path.splitext(fea.inp_file_name)[0] + ".frd")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        n = len(modes.frequencies)
+        self.assertEqual(n, 8)
+        gram = np.array([[modes.inner(a, b) for b in modes.shapes] for a in modes.shapes])
+        scale = np.sqrt(np.outer(np.diag(gram), np.diag(gram)))
+        off = np.abs(gram / scale - np.eye(n)).max()
+        self.assertLess(off, 1e-4)
+        card = material.Material
+        e = App.Units.Quantity(card["YoungsModulus"]).getValueAs("MPa").Value
+        rho = body["Mass"] / (100.0 * 10.0 * 10.0) * 1e-3  # t/mm^3
+        beam = 1.875**2 / (2 * math.pi) * math.sqrt(e * 10.0**2 / 12.0 / rho) / 100.0**2
+        self.assertAlmostEqual(modes.frequencies[0], beam, delta=0.01 * beam)
+        # The static state by its shares of the modes
+        u = modes.align([b for b in blocks if b[0] == "DISP"][0])[:, :3]
+        c = modes.coordinate(u)
+        rebuilt = np.tensordot(c, modes.nodal, axes=1)
+        whole = modes.inner(u[modes.index], u[modes.index])
+        rest = u - rebuilt
+        self.assertLess(modes.inner(rest[modes.index], rest[modes.index]) / whole, 1e-4)
+
+    def test_held_modes_free(self):
+        """The rod's modes held as its hinge holds it (_holdAsJoint), free
+        to turn about the hinge's axis, the global y: the turn is no mode of
+        them, each a share of it under 1e-4 (4.5e-6); the first across the
+        hinge's axis still the rod clamped at its end, 1.875^2 / (2 pi)
+        sqrt(E I / (rho A)) / L^2 to 1% (0.15%), and the first about it the
+        rod pinned at its end, 3.927^2 instead of 1.875^2, to 5% (2.4% under
+        it: the rod is 10 sections long, and shear takes its share). Its
+        static state held stiff, made of them by its shares of them: what
+        they leave of it is the turn but for 1e-5 of it, by the mass
+        (8.7e-7)."""
+        import os
+        import shutil
+        import tempfile
+
+        import numpy as np
+        from femtools import ccxtools
+
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        _, result = self.simulate(0.01, 1e-2)
+        self.assertEqual(result, 0)
+        analysis, body, held = MotionLoads.makeAnalysis(self.assembly, rod, 0, maxSize=4.0)
+        solver = [o for o in analysis.Group if o.isDerivedFrom("Fem::FemSolverObjectPython")][0]
+        mesh = [o for o in analysis.Group if o.TypeId == "Fem::FemMeshShapeNetgenObject"][0]
+        hold = [o for o in analysis.Group if o.Name.startswith("Hold")][0]
+        material = [o for o in analysis.Group if o.Name.startswith("LoadsMaterial")][0]
+        place = rod.getGlobalPlacement()
+        free, kind = MotionLoads._holdAsJoint({"Placement": place}, hold, held)
+        self.assertEqual(kind, "Turn")
+        self.assertEqual(len(free), 1)
+        axis, point = free[0]
+        y = place.Rotation.multVec(App.Vector(0, 1, 0))
+        self.assertAlmostEqual(abs(App.Vector(*axis).dot(y)), 1.0, delta=1e-9)
+        solver.AnalysisType = "frequency"
+        solver.EigenmodesCount = 8 + len(free)
+        self.doc.recompute()
+        work = tempfile.mkdtemp(prefix="heldfree_")
+        try:
+            fea = ccxtools.FemToolsCcx(analysis, solver, test_mode=True)
+            fea.update_objects()
+            fea.setup_working_dir(work)
+            fea.setup_ccx(MotionLoads.ccxBinary())
+            fea.write_inp_file()
+            with open(fea.inp_file_name) as f:
+                self.assertIn("*TRANSFORM, NSET=%s_RotNode" % hold.Name, f.read())
+            self.assertEqual(fea.start_ccx(), 0)
+            base = os.path.splitext(fea.inp_file_name)[0]
+            modes = MotionLoads._Modes(base, mesh.FemMesh, free, 8)
+            MotionLoads._holdStiff(hold)
+            solver.AnalysisType = "static"
+            self.doc.recompute()
+            fea.write_inp_file()
+            with open(fea.inp_file_name) as f:
+                self.assertNotIn("*TRANSFORM", f.read())
+            self.assertEqual(fea.start_ccx(), 0)
+            blocks = MotionLoads._frdFields(os.path.splitext(fea.inp_file_name)[0] + ".frd")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self.assertEqual(len(modes.frequencies), 8)
+        # The turn about the hinge, by the mass
+        at = np.array([tuple(mesh.FemMesh.Nodes[n]) for n in modes.ids])
+        turn = np.cross(np.array(axis), at - np.array(point))[modes.index]
+        turn /= math.sqrt(modes.inner(turn, turn))
+        shares = [
+            abs(modes.inner(turn, s)) / math.sqrt(n) for s, n in zip(modes.shapes, modes.norms)
+        ]
+        self.assertLess(max(shares), 1e-4)
+        card = material.Material
+        e = App.Units.Quantity(card["YoungsModulus"]).getValueAs("MPa").Value
+        rho = body["Mass"] / (100.0 * 10.0 * 10.0) * 1e-3  # t/mm^3
+        root = math.sqrt(e * 10.0**2 / 12.0 / rho) / (2 * math.pi) / 100.0**2
+        clamped, pinned = 1.8751**2 * root, 3.9266**2 * root
+        # A mode that moves along the hinge's axis bends across it, held
+        # stiff so; one that does not bends about it, pinned
+        along = [float(np.abs(s @ np.array(axis)).max() / np.abs(s).max()) for s in modes.shapes]
+        first = [f for f, a in zip(modes.frequencies, along) if a > 0.5][0]
+        about = [f for f, a in zip(modes.frequencies, along) if a < 0.1][0]
+        self.assertAlmostEqual(first, clamped, delta=0.01 * clamped)
+        self.assertAlmostEqual(about, pinned, delta=0.05 * pinned)
+        # The static state held stiff, by its shares of them
+        u = modes.align([b for b in blocks if b[0] == "DISP"][0])[:, :3]
+        c = modes.coordinate(u)
+        rest = (u - np.tensordot(c, modes.nodal, axes=1))[modes.index]
+        whole = modes.inner(u[modes.index], u[modes.index])
+        rest = rest - modes.inner(turn, rest) * turn
+        self.assertLess(modes.inner(rest, rest) / whole, 1e-5)
+
+    def test_loads_to_fem_vibration(self):
+        """To FEM's frames with the part's own vibration (D4a): the pendulum
+        swinging, its loads changing slowly against its periods -- 1.2 ms
+        at most, the frames 10 ms apart -- rings by little, its stress at
+        each frame within 1e-3 (1.4e-5; 1.2e-4 with its modes held stiff)
+        of the largest of the frames' static ones; its modes free to turn on
+        its hinge, the first in its swing's plane at 3.5 kHz; the series'
+        samples between the frames, at the frames the same; the analysis
+        left at the largest sample, whose result is that field."""
+        import MotionLoads
+
+        if not MotionLoads.ccxBinary():
+            self.skipTest("no CalculiX binary")
+        rod = self.pendulum()
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        frames = list(range(21))
+        series = MotionLoads.solveFrames(
+            self.assembly, rod, frames, maxSize=4.0, dynamic=True, damping=0.02
+        )
+        self.assertTrue(series.Dynamic)
+        self.assertEqual(len(series.ModeFrequencies), MotionLoads.MODES)
+        self.assertEqual(series.ModesFree, "Turn")
+        self.assertEqual(list(series.ModeFrequencies), sorted(series.ModeFrequencies))
+        largest = max(series.StaticVonMises)
+        for k, frame in enumerate(frames):
+            self.assertLess(
+                abs(series.VonMises[k] - series.StaticVonMises[k]), 1e-3 * largest, frame
+            )
+        # The samples: each frame's among them, its value the frame's;
+        # enough between them for the highest mode, at most SAMPLES
+        samples = list(series.SampleTimes)
+        self.assertEqual(samples, sorted(samples))
+        for k, time in enumerate(series.Times):
+            j = samples.index(time)
+            self.assertEqual(series.SampleVonMises[j], series.VonMises[k])
+        self.assertEqual(len(samples), MotionLoads.SAMPLES * 20 + 1)
+        analysis = [o for o in series.InList if o.isDerivedFrom("Fem::FemAnalysis")][0]
+        results = [o for o in analysis.Group if o.isDerivedFrom("Fem::FemResultObject")]
+        self.assertEqual(len(results), 1)
+        peak = max(series.SampleVonMises)
+        self.assertAlmostEqual(max(results[0].vonMises), peak, delta=1e-4 * peak)
+        channels = MotionLoads.stressChannels(self.assembly)
+        self.assertEqual([c["Quantity"] for c in channels], ["VonMises", "VonMisesAway"])
+        self.assertEqual(channels[0]["SampleTimes"], samples)
+        self.assertEqual(channels[0]["Samples"], list(series.SampleVonMises))
+        self.assertEqual(channels[0]["Static"], list(series.StaticVonMises))
+
     def test_loads_to_fem_frames(self):
         """The double pendulum's first rod solved at five frames of its run
         (MotionLoads.solveFrames, D4a step 5): one analysis, one mesh, held
@@ -701,9 +1044,10 @@ class TestDynamics(unittest.TestCase):
         peak = max(series.VonMises)
         self.assertAlmostEqual(max(results[0].vonMises), peak, delta=1e-6 * peak)
 
-        # Away from the loaded faces: a mesh size (4 mm) off both end faces,
-        # where the hold and the other hinge's coupling are, and no more
-        size = 4.0
+        # Away from the loaded faces: the rod's section's depth (10 mm, more
+        # than the mesh size) off both end faces, where the hold and the
+        # other hinge's coupling are, and no more
+        size = 10.0
         for k, frame in enumerate(frames):
             away, at = series.VonMisesAway[k], series.VonMisesAwayAt[k]
             self.assertLessEqual(away, series.VonMises[k] + 1e-12, frame)
@@ -985,6 +1329,48 @@ class TestDynamics(unittest.TestCase):
         (patch,) = [c for c in couplings if c.Coupling == "Distributing"]
         self.assertEqual(patch.References[0][1], ("Face5",))
         self.assertAlmostEqual(patch.CouplingRadius.Value, 50**0.5, delta=1e-6)
+        run, fem = series.HeldForce[0], series.FemHeldForce[0]
+        self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
+
+    def test_loads_on_rigid_group_gap(self):
+        """test_loads_on_rigid_group_patch's arm hung 1 mm under the rod,
+        the two meeting nowhere: each held where it would meet the other
+        across the gap -- the rod on the 10 x 10 patch of its underside
+        over the arm, the arm on its top face -- not on the face nearest
+        first found, the rod's end and the arm's side as near along their
+        edges. Solved, the hold is the run's."""
+        import JointObject
+        import MotionLoads
+
+        rod = self.pendulum()
+        arm = self.box("Arm", (10, 10, 60), (100, 0, -61))
+        group = self.joints.newObject("Assembly::RigidGroupPython", "RigidGroupJoint")
+        JointObject.RigidGroupJoint(group, [rod, arm])
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(0.2, 1e-2)
+        self.assertEqual(result, 0)
+        weight = 160 * 10 * 10 * 2.7e-6 * G
+        (onRod,) = [
+            l
+            for l in self.balanced(rod, [10], weight, 150.0)[0]["Loads"]
+            if l["Kind"] == "Group"
+        ]
+        self.assertEqual(onRod["Faces"], ["Face5"])
+        self.assertLess((onRod["Point"] - App.Vector(95, 5, 0)).Length, 1e-6)
+        self.assertAlmostEqual(onRod["Radius"], 50**0.5, delta=1e-6)
+        self.assertAlmostEqual(onRod["Gap"], 1.0, delta=1e-9)
+        (onArm,) = [
+            l
+            for l in self.balanced(arm, [10], weight, 150.0)[0]["Loads"]
+            if l["Kind"] == "Group"
+        ]
+        self.assertEqual(onArm["Faces"], ["Face6"])
+        self.assertEqual(onArm["Radius"], 0.0)
+        self.assertAlmostEqual(MotionLoads.groupGap(self.assembly, arm), 1.0, delta=1e-9)
+        if not MotionLoads.ccxBinary():
+            return
+        series = MotionLoads.solveFrames(self.assembly, rod, [10], maxSize=4.0)
         run, fem = series.HeldForce[0], series.FemHeldForce[0]
         self.assertLess((fem - run).Length, 5e-3 * run.Length + 1e-2 * weight * 1e-3)
 

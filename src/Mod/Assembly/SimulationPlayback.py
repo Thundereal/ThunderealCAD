@@ -378,6 +378,27 @@ def peakSafe(times, values, t0, t1, columns, bridge=()):
     return runs
 
 
+def shownRange(runs, t0, t1):
+    """The least and the largest value the lines of runs (peakSafe's) show
+    between t0 and t1: the points in it, and where a line crosses its
+    edges; None when they show none. A plot zoomed in on a bounce of 1.5 N
+    after a landing of 528 N drew it flat under the landing's scale."""
+    shown = []
+    for run in runs:
+        for k, (t, value) in enumerate(run):
+            if t0 <= t <= t1:
+                shown.append(value)
+            if k == 0:
+                continue
+            a, va = run[k - 1]
+            for edge in (t0, t1):
+                if min(a, t) < edge < max(a, t):
+                    shown.append(va + (value - va) * (edge - a) / (t - a))
+    if not shown:
+        return None
+    return min(shown), max(shown)
+
+
 def impactPeaks(times, step, forces):
     """The frames at the peaks of forces between the output frames: in each
     run of frames between two output frames, those whose force is above the

@@ -157,6 +157,15 @@ ConstraintRigidBody::ConstraintRigidBody()
         "part of it another part shares; 0: all of them"
     );
 
+    ADD_PROPERTY_TYPE(
+        Axes,
+        (Base::Rotation()),
+        "ConstraintRigidBody",
+        App::Prop_None,
+        "A rigid coupling's axes, the global ones turned by this: its modes,\n"
+        "displacement, rotation, forces and moments are along them"
+    );
+
     TranslationalModeX.setEnums(boundaryModeEnum);
     TranslationalModeY.setEnums(boundaryModeEnum);
     TranslationalModeZ.setEnums(boundaryModeEnum);

@@ -111,7 +111,7 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalLoftedFlange::getEditDialog()
         new TaskSheetMetalParameters(this,
                                      "PartDesign_SheetMetalLoftedFlange",
                                      QObject::tr("Lofted flange parameters"),
-                                     {"MaterialSide"}));
+                                     {"MaterialSide", "UseRuleRadius", "BendRadius"}));
 }
 
 PROPERTY_SOURCE(PartDesignGui::ViewProviderSheetMetalFlange, PartDesignGui::ViewProviderAddSub)

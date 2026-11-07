@@ -34,12 +34,21 @@ namespace PartDesign
 
 /** A sheet lofted between two outlines (docs/SheetMetal.md sec 5.1, M5)
  *
- * Its first step: Profile and Section each a circle or an arc, on parallel
- * planes about one axis, make a cone frustum -- a cylinder where they are
- * the same size -- one conical bend of the sheet model (SheetMetal::ConeBend),
- * which lies flat exactly. Two arcs turn through the same angle; two
- * circles leave a seam the rule's Gap wide on the narrow one. Its ends are
- * cut square to the sheet, so they lie flat square to the blank.
+ * Profile and Section each a circle or an arc, on parallel planes about one
+ * axis, make a cone frustum -- a cylinder where they are the same size --
+ * one conical bend of the sheet model (SheetMetal::ConeBend), which lies
+ * flat exactly. Two arcs turn through the same angle; two circles leave a
+ * seam the rule's Gap wide on the narrow one.
+ *
+ * Each a chain of lines, as many in each, on parallel planes, make a flat
+ * facet, a wall, between each line of the profile and the section's line in
+ * its place (the one running its way, and on round from there), parallel to
+ * it, and a bend at BendRadius where two facets meet. Two closed chains
+ * leave a seam the rule's Gap wide across the middle of the profile's first
+ * line.
+ *
+ * The ends are cut square to the sheet, so they lie flat square to the
+ * blank, and the flat is exact.
  */
 class PartDesignExport SheetMetalLoftedFlange : public ProfileBased, public SheetMetalExtension
 {
@@ -54,9 +63,13 @@ public:
     /// the inner skin, the one facing the axis; Inside, on the outer skin;
     /// Middle
     App::PropertyEnumeration MaterialSide;
+    /// Lines to lines: bend at the rule's radius; off, at BendRadius
+    App::PropertyBool UseRuleRadius;
+    App::PropertyLength BendRadius;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {
         return "PartDesignGui::ViewProviderSheetMetalLoftedFlange";

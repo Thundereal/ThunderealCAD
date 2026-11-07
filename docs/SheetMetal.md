@@ -1869,6 +1869,45 @@ stored flat and this option do what it was for.
     seam's gap, the refusals, save and restore. `sheet-metal-commands.py` (111, +4) checks the
     command, its place on the tool bar, one sketch making nothing and the sketches held;
     `sheet-metal-panels.py` (96, +2) its panel.
+- **Built 2026-11-07, the lofted flange's second step, lines to lines, its first half: lines
+  that run each other's way** (the design recommended and taken 2026-11-07: a bend of the rule's
+  radius at each fold, the lines matched in order, the rims square to the sheet, a closed
+  outline's seam across the middle of the profile's first line). `Profile` and `Section` each a
+  chain of lines, as many in each, on parallel planes: each line of the profile with the
+  section's line in its place -- for closed chains, both turned counterclockwise about the axis,
+  the one running nearest the profile's first line's way first and on round from there; for open
+  ones, from the end that does that -- parallel to it, so the two span a plane, a facet. A
+  corner going on straight is no corner (`chainOf()` drops it).
+  - **Each facet is a wall,** its outline on its inner skin (the side facing the axis -- an open
+    chain's, away from where it turns, or off its right for one line) through the sheet: its
+    rims the sketched lines less the material's side (`MaterialSide` as for round), its ends
+    where its bends start, a prism of it the solid, so its rims are square to it. **Each corner a
+    `CylBend`,** of the rule's radius or `BendRadius` (`UseRuleRadius` off, as the base wall
+    has), tangent to the two facets' inner skins where the sheet turns in (convex) and their
+    outer ones where it turns out (an L's inner corner), its axis along the fold.
+  - **Each bend is made from its flat:** its strip in its own flat (`CylBend::toFlat()`'s frame)
+    from where facet before's rims meet its start to where facet after's meet its end, straight
+    between, taken onto its cylinders by `bendSolid()` -- its rims helices, square to the sheet,
+    which lie flat as straight lines exactly (`Mapper::onCylinder()` maps the pcurve). The flat
+    is straight lines all round, and keeps the folded volume at K 0.5.
+    `bendSolid()`'s curves are built to 1e-7 now (`BRepLib::BuildCurves3d`, 1e-5 by default),
+    which took the hopper's flat and folded volumes from 3.7e-5 apart to within 5e-6; the suite
+    is unmoved (942 both ways).
+  - **The seam:** a closed outline's first facet in two, the first wall its half after the seam,
+    the last its half before, a gap the rule's `Gap` wide square to the line from the middle of
+    the profile's first line to the middle of the section's; each half has a limit at its side
+    of it (they lie on one plane). An open chain needs none.
+  - Refused, saying why: lines in one sketch and round in the other ("the next step"), a line
+    and an arc in one sketch, chains of different counts, one closed and the other open, a line
+    with none running its way (the triangulated half, next), a line too short for its bends, a
+    closed outline with no `Gap`.
+  - `TestSheetMetalLoftedFlange` (23, +13; before, 1 of 13 -- the refusals, which the round step
+    already refused): a square duct (its volume and its flat's length exact, at K 0.5 and 0.3,
+    the seam's gap, Inside), the bends at their own radius and one too large for the lines, a
+    square to a rectangle on each side (the sketched line on the skin asked, the material where
+    it should be, the rim square to the sheet), its flat, the section drawn from another line or
+    the other way round, an L to a smaller L, an open U, the refusals. `sheet-metal-panels.py`
+    (97, +1) the panel's radius.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

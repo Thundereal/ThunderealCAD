@@ -236,6 +236,59 @@ TEST_F(FlexibleBody, cantileverModesAreTheClampedBeams)  // NOLINT
     }
 }
 
+// The modes a reduction found are taken by the next of the same part, and
+// not by a part changed: the bar of the test above, twice as stiff, makes
+// its own, its frequencies sqrt(2) times. A part moved and turned makes its
+// own too (its floating frame's axes are its principal axes of inertia, the
+// square section's two as the rounding has them), the same frequencies
+TEST_F(FlexibleBody, aPartsModesAreKeptForItsNextReduction)  // NOLINT
+{
+    if (!Chrono::hasFlexibleBodies()) {
+        GTEST_SKIP() << "the Chrono backend has no modal module";
+    }
+    const double side = 10.0;
+    const BoxMesh box(200.0, side, side, 20, 2, 2);
+    Model model;
+    Body body;
+    body.source = model.addSource("Bar");
+    const Id bar = model.addBody(body);
+    Frame end;
+    end.body = bar;
+    end.local = Base::Placement(Base::Vector3d(0, side / 2, side / 2), Base::Rotation());
+    end.label = model.addSource("End");
+    const Id frame = model.addFrame(end);
+    Flexible flexible = steel(box, bar, model.addSource("Flexible"), 5);
+    flexible.interfaces.push_back({frame, faceAt(box, 0.0)});
+    model.dynamics.emplace();
+    model.dynamics->flexibles.push_back(flexible);
+
+    std::string error;
+    const std::vector<double> hz = Chrono::flexibleFrequencies(model, 0, &error);
+    ASSERT_EQ(hz.size(), 5u) << error;
+    const std::size_t kept = Chrono::flexibleModesKept();
+    const std::vector<double> again = Chrono::flexibleFrequencies(model, 0, &error);
+    ASSERT_EQ(again.size(), 5u) << error;
+    EXPECT_EQ(Chrono::flexibleModesKept(), kept + 1);
+    EXPECT_EQ(again, hz);
+
+    model.bodies[bar].placement = Base::Placement(Base::Vector3d(30, -40, 70),
+                                                  Base::Rotation(Base::Vector3d(1, 2, 3), 0.7));
+    const std::vector<double> moved = Chrono::flexibleFrequencies(model, 0, &error);
+    ASSERT_EQ(moved.size(), 5u) << error;
+    for (std::size_t i = 0; i < hz.size(); ++i) {
+        EXPECT_NEAR(moved[i], hz[i], 1e-9 * hz[i]);
+    }
+
+    const std::size_t before = Chrono::flexibleModesKept();
+    model.dynamics->flexibles[0].youngs *= 2.0;
+    const std::vector<double> stiffer = Chrono::flexibleFrequencies(model, 0, &error);
+    ASSERT_EQ(stiffer.size(), 5u) << error;
+    EXPECT_EQ(Chrono::flexibleModesKept(), before);
+    for (std::size_t i = 0; i < hz.size(); ++i) {
+        EXPECT_NEAR(stiffer[i], std::sqrt(2.0) * hz[i], 1e-6 * hz[i]);
+    }
+}
+
 namespace
 {
 

@@ -48,7 +48,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <deque>
 #include <limits>
+#include <mutex>
 #include <numbers>
 #include <stdexcept>
 #include <string>
@@ -186,6 +188,101 @@ private:
     std::vector<double>& hz;
 };
 
+// The modes a reduction found, kept for the next run of the same part: run
+// after run of an unchanged study made them again, 1.9 s of the rod's 6.8 s
+// reduction. Not keyed by the record: a kept set of the same size is taken
+// when its pairs solve this problem, A v = lambda B v to 1e-6 of its terms,
+// so a part changed makes its own. So does a part started elsewhere: its
+// eigenproblem is in its floating frame's axes, which Chrono takes as the
+// part's principal axes of inertia, their order and signs (and for a square
+// section the axes themselves) as the rounding of the pose has them. The
+// last four, the newest first.
+class KeptModesSolver: public ch::modal::ChSymGenEigenvalueSolverKrylovSchur
+{
+public:
+    int Solve(const ch::ChSparseMatrix& A,
+              const ch::ChSparseMatrix& B,
+              ch::ChMatrixDynamic<double>& eigvects,
+              ch::ChVectorDynamic<double>& eigvals,
+              int num_modes,
+              double shift) const override
+    {
+        {
+            std::scoped_lock lock(guard());
+            auto& sets = kept();
+            for (auto it = sets.begin(); it != sets.end(); ++it) {
+                if (it->rows == A.rows() && it->entriesA == A.nonZeros()
+                    && it->entriesB == B.nonZeros() && it->modes == num_modes
+                    && it->shift == shift && it->sorted == sort_ritz_pairs
+                    && solves(A, B, it->vectors, it->values)) {
+                    eigvects = it->vectors;
+                    eigvals = it->values;
+                    std::rotate(sets.begin(), it, std::next(it));
+                    ++taken();
+                    return num_modes;
+                }
+            }
+        }
+        const int found = ChSymGenEigenvalueSolverKrylovSchur::Solve(A, B, eigvects, eigvals,
+                                                                      num_modes, shift);
+        if (found == num_modes) {
+            std::scoped_lock lock(guard());
+            auto& sets = kept();
+            sets.push_front({A.rows(), A.nonZeros(), B.nonZeros(), num_modes, shift,
+                             sort_ritz_pairs, eigvects, eigvals});
+            if (sets.size() > 4) {
+                sets.pop_back();
+            }
+        }
+        return found;
+    }
+
+    // How many solves took a kept set; the kept sets' and its lock
+    static std::size_t& taken()
+    {
+        static std::size_t count = 0;
+        return count;
+    }
+    static std::mutex& guard()
+    {
+        static std::mutex m;
+        return m;
+    }
+
+private:
+    struct Set
+    {
+        Eigen::Index rows;
+        Eigen::Index entriesA;
+        Eigen::Index entriesB;
+        int modes;
+        double shift;
+        bool sorted;
+        ch::ChMatrixDynamic<double> vectors;
+        ch::ChVectorDynamic<double> values;
+    };
+    static std::deque<Set>& kept()
+    {
+        static std::deque<Set> sets;
+        return sets;
+    }
+    static bool solves(const ch::ChSparseMatrix& A,
+                       const ch::ChSparseMatrix& B,
+                       const ch::ChMatrixDynamic<double>& vectors,
+                       const ch::ChVectorDynamic<double>& values)
+    {
+        for (Eigen::Index i = 0; i < vectors.cols(); ++i) {
+            const Eigen::VectorXd Av = A * vectors.col(i);
+            const Eigen::VectorXd Bv = B * vectors.col(i);
+            const double scale = Av.norm() + std::abs(values(i)) * Bv.norm();
+            if (!((Av - values(i) * Bv).norm() <= 1e-6 * scale)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
 ch::ChVector3d toCh(const Base::Vector3d& v)
 {
     return {v.x, v.y, v.z};
@@ -319,9 +416,10 @@ ChronoFlexible::reduce(ch::ChSystem& sys, Built& built, const Flexible& flexible
     sys.Setup();
     sys.Update(ch::UpdateFlags::UPDATE_ALL);
     // The symmetric eigensolver (Spectra's Krylov-Schur, a real LU): the
-    // complex one took four times as long (our Chrono takes either)
-    auto eigen = std::make_shared<ch::modal::ChSymGenEigenvalueSolverKrylovSchur>();
-    ch::modal::ChModalSolverUndamped<ch::modal::ChSymGenEigenvalueSolverKrylovSchur> solver(
+    // complex one took four times as long (our Chrono takes either); the
+    // modes of an earlier run of the part kept (KeptModesSolver)
+    auto eigen = std::make_shared<KeptModesSolver>();
+    ch::modal::ChModalSolverUndamped<KeptModesSolver> solver(
         std::max(flexible.modes, 1), 1e-5, true, false, eigen);
     std::vector<double> hz;
     built.assembly->DoModalReduction(
@@ -332,6 +430,12 @@ ChronoFlexible::reduce(ch::ChSystem& sys, Built& built, const Flexible& flexible
 bool Chrono::hasFlexibleBodies()
 {
     return true;
+}
+
+std::size_t Chrono::flexibleModesKept()
+{
+    std::scoped_lock lock(KeptModesSolver::guard());
+    return KeptModesSolver::taken();
 }
 
 std::vector<double>

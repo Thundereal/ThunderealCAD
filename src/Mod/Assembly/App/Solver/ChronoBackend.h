@@ -84,6 +84,10 @@ AssemblyExport bool hasFlexibleBodies();
 AssemblyExport std::vector<double>
 flexibleFrequencies(const Model& model, std::size_t index, std::string* error = nullptr);
 
+// How many reductions so far, in this process, took the modes an earlier one
+// found for the same part (for tests)
+AssemblyExport std::size_t flexibleModesKept();
+
 }  // namespace Chrono
 
 class AssemblyExport ChronoBackend: public Backend

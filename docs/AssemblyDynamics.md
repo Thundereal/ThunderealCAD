@@ -3821,9 +3821,10 @@ Phase D1 is under way (2026-10-28):
     (the command idle until a component is picked, the body in the Dynamic
     study only, one undo). FlexibleBody.cantileverModesAreTheClampedBeams
     now with every other tetrahedron turned the other way, the same modes.
-  - Not yet: the reduction is made again at each run (5 s for the rod); a
-    task panel of its own, the modes' frequencies shown before the run;
-    the deformation and stresses (step 4).
+  - Not yet: the reduction is made again at each run (5 s for the rod; its
+    modes kept since, step 5's last entry); a task panel of its own, the
+    modes' frequencies shown before the run; the deformation and stresses
+    (step 4).
 - Built, D4b step 4 (first half): the deformation, drawn as the run plays.
   - **What the run reports for it**: each frame, beside the modal
     coordinates, its interfaces' own deformation ("InterfaceDeformation",
@@ -3988,9 +3989,44 @@ Phase D1 is under way (2026-10-28):
     own friction on the hinge's reaction is smaller than the substeps'
     spread over 50 ms -- the swing slowed as the rigid one's, within
     0.05 deg at each frame).
-  - Not yet: a contact anywhere on a part (above); the contact's rest
-    correction (`meanAccelerations()`) leaves out a flexible side, whose
-    bodies are not the run's.
+  - The contact's rest correction (`meanAccelerations()`) leaves out a
+    flexible side, as it leaves out a body on a joint: its interface body's
+    accelerations are held by the modal assembly, which a change to them
+    would not keep (it has columns there, but no mass, no means: not the
+    run's bodies, its part's proxy is).
+  - Not yet: a contact anywhere on a part (above).
+  - **The reduction's cost** (2026-11-07), measured by a trace of
+    `DoModalReduction()`'s steps on the pendulum's rod (16272 internal
+    coordinates, 6 modes, 0.25 s run in 9.6 s, 6.8 of it the reduction):
+    the full K, M and Cq assembled, 1.24 s; turned into the floating
+    frame, 1.56 s; the eigenproblem, 1.94 s; the static and dynamic modes
+    (K_II's LU and a solve each), 1.52 s. Two things taken off:
+    - The damping matrix assembled again and turned, for a full_R_loc
+      nothing reads (our Chrono, `ComputeLocalFullKMCqMatrices()`): its
+      1.56 s are 0.88.
+    - **The modes kept for the next run** (`KeptModesSolver`, the last four
+      solved in the process): a set of the same size is taken when its
+      pairs solve the problem, A v = lambda B v to 1e-6 -- 1.94 s to 0.10,
+      the residuals' check -- not keyed by the record, so a part changed
+      makes its own. And so does one started elsewhere: the floating
+      frame's axes are the part's principal axes of inertia, their order
+      and signs (and the square section's two) as the pose's rounding has
+      them, and the problem is in those axes (measured: the rod started
+      25 deg down solved again).
+    - The rod's second run of an unchanged study: its reduction 6.8 s to
+      4.5, the whole 0.25 s run 9.6 to 7.2 (8.9 started 25 deg down, its
+      modes solved). A mass-only element pass (the corotated K not made for the M)
+      was tried and took nothing: the assembly's time is not the
+      elements'.
+  - Test: FlexibleBody.aPartsModesAreKeptForItsNextReduction -- the bar
+    reduced again takes the kept modes, the same frequencies to the bit;
+    moved and turned, the same frequencies to 1e-9; twice as stiff, its own,
+    sqrt(2) times.
+  - Not yet: the rest kept too -- the assembly, the turning and the static
+    modes, 3.5 s of the 4.5, which would need the reduced state exported
+    from the modal assembly and its floating frame's axes taken from the
+    part, not its inertia's eigensolver; a moved part's modes turned into
+    its new axes.
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

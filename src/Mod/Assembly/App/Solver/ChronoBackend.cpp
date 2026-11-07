@@ -11421,4 +11421,9 @@ std::vector<double> Chrono::flexibleFrequencies(const Model&, std::size_t, std::
     }
     return {};
 }
+
+std::size_t Chrono::flexibleModesKept()
+{
+    return 0;
+}
 #endif

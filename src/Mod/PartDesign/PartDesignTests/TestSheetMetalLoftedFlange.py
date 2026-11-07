@@ -13,6 +13,12 @@
 # rims are cut square to the sheet, so the flat is exact: straight lines
 # all round. A closed outline leaves a seam the rule's Gap wide across the
 # middle of the profile's first line, or along its diagonal.
+#
+# Its third, mixed: round to lines (a square to a round), the round cut into
+# Segments chords all round and lofted to the lines as lines are, each
+# ruling the shorter of the two next -- a fan of triangles from each corner
+# to its share of the round, a triangle on each line -- the seam across the
+# middle of the first line.
 
 import math
 import os
@@ -207,7 +213,8 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
 
     def testRefused(self):
         """Not about one axis, planes not parallel, arcs over different
-        turns, an outline not round, both on one plane, no section"""
+        turns, both on one plane, no section (round to lines is the mixed
+        step's)"""
         cases = {
             "off the axis": (self.round(20, name="A1"), self.round(10, 30, centre=(3, 0), name="B1")),
             "tilted": (self.round(20, name="A2"), self.round(10, 30, tilt=10, name="B2")),
@@ -218,12 +225,6 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
             "one plane": (self.round(20, name="A4"), self.round(10, 0, name="B4")),
             "no section": (self.round(20, name="A5"), None),
         }
-        square = self.Body.newObject("Sketcher::SketchObject", "Square")
-        square.Placement = FreeCAD.Placement(V(0, 0, 30), FreeCAD.Rotation())
-        pts = [V(-5, -5, 0), V(5, -5, 0), V(5, 5, 0), V(-5, 5, 0)]
-        for i in range(4):
-            square.addGeometry(Part.LineSegment(pts[i], pts[(i + 1) % 4]))
-        cases["not round"] = (self.round(20, name="A6"), square)
         for what, (a, b) in cases.items():
             with self.subTest(what=what):
                 loft = self.loft(a, b, name="L")
@@ -497,7 +498,7 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
 
     def testRefusedLines(self):
         """Lines and an arc in one sketch, a different count of lines,
-        lines to a circle"""
+        closed lines to an arc"""
         tri = [(-20, -20), (20, -20), (0, 20)]
         mixed = self.Body.newObject("Sketcher::SketchObject", "Mixed")
         mixed.Placement = FreeCAD.Placement(V(0, 0, 30), FreeCAD.Rotation())
@@ -507,7 +508,10 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         cases = {
             "mixed": (self.lines(self.square(20), name="A1"), mixed),
             "count": (self.lines(self.square(20), name="A2"), self.lines(tri, 30, name="B2")),
-            "line to circle": (self.lines(self.square(20), name="A4"), self.round(10, 30, name="B4")),
+            "closed to open": (
+                self.lines(self.square(20), name="A4"),
+                self.round(10, 30, span=(0, 180), name="B4"),
+            ),
         }
         for what, (a, b) in cases.items():
             with self.subTest(what=what):
@@ -611,3 +615,77 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         self.assertEqual(loft.SheetModel, model)
         self.assertEqual(self.owners(loft), owners)
         self.assertIsNotNone(loft.getSubObject("Flat"))
+
+    # -- mixed: round to lines --
+
+    def squareToRound(self, side="Outside", **props):
+        """A square of 60 to a circle of 20, 50 up"""
+        self.squareSketch = self.lines(self.square(30))
+        self.roundSketch = self.round(20, 50, name="Top")
+        return self.loft(self.squareSketch, self.roundSketch, MaterialSide=side, **props)
+
+    def checkRound(self, loft, radius, z, segments, start=0, notches=4):
+        """The round's corners (Segments of them all round from its X) on
+        the sheet but for the bends rounding them -- but where a line's
+        triangle meets the round, two folds meeting there, a notch -- the
+        chords between within their sagitta of the round"""
+        sagitta = radius * (1 - math.cos(math.pi / segments))
+        off = []
+        for k in range(segments):
+            a = start + 2 * math.pi * k / segments
+            p = V(radius * math.cos(a), radius * math.sin(a), z)
+            if loft.Shape.distToShape(Part.Vertex(p))[0] > 0.02:
+                off.append(k)
+            a += math.pi / segments
+            p = V(radius * math.cos(a), radius * math.sin(a), z)
+            with self.subTest(chord=k):
+                self.assertLess(loft.Shape.distToShape(Part.Vertex(p))[0], sagitta + 0.02)
+        self.assertLessEqual(len(off), notches, off)
+
+    def testSquareToRound(self):
+        """A fan of six triangles from each corner to its quarter of the
+        round, a triangle on each line, a bend at every fold, the first
+        line's triangle split by the seam; exact flat"""
+        loft = self.squareToRound()
+        self.checkExact(loft)
+        kinds = self.kinds(loft)
+        self.assertEqual(kinds["Bend"], 24 + 4)
+        self.assertEqual(kinds["Wall"], kinds["Bend"] + 1)
+        self.checkSketchOnShape(loft, self.squareSketch)
+        self.checkRound(loft, 20, 50, 24)
+
+    def testSquareToRoundInside(self):
+        """The sheet inside the square: at each corner, where a fan of folds
+        meets, a thick sheet cannot come to the point the square has --
+        refused, saying so, rather than laid flat wrong"""
+        loft = self.squareToRound("Inside")
+        self.assertIn("Invalid", loft.State)
+        self.assertIn("runs into itself", loft.getStatusString())
+        # the sheet outside it, the round inside the sheet
+        loft.MaterialSide = "Outside"
+        self.Doc.recompute()
+        self.checkExact(loft)
+
+    def testSegments(self):
+        """Fewer chords, fewer triangles"""
+        loft = self.squareToRound(Segments=12)
+        self.checkExact(loft)
+        self.assertEqual(self.kinds(loft)["Bend"], 12 + 4)
+        self.checkRound(loft, 20, 50, 12)
+
+    def testRoundToSquare(self):
+        """The round the profile, the lines the section"""
+        loft = self.loft(self.round(20), self.lines(self.square(30), 50, name="Top"))
+        self.checkExact(loft)
+        self.assertEqual(self.kinds(loft)["Bend"], 24 + 4)
+
+    def testArcToLines(self):
+        """A half round to two lines, open: no seam, the arc in chords as
+        many as its share of Segments"""
+        arc = self.round(20, span=(0, 180))
+        top = self.lines([(25, 0), (0, 25), (-25, 0)], 30, name="Top", closed=False)
+        loft = self.loft(arc, top)
+        self.checkExact(loft)
+        kinds = self.kinds(loft)
+        self.assertEqual(kinds["Bend"], 12 + 2 - 1)
+        self.assertEqual(kinds["Wall"], kinds["Bend"] + 1)

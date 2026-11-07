@@ -18,7 +18,10 @@
 # Segments chords all round and lofted to the lines as lines are, each
 # ruling the shorter of the two next -- a fan of triangles from each corner
 # to its share of the round, a triangle on each line -- the seam across the
-# middle of the first line.
+# middle of the first line. Where a fan's folds meet at a corner on the side
+# the sheet turns toward (the sheet inside a square to a round, or about
+# it), a thick sheet cannot come to the corner's point: a relief there, cut
+# square to the sheet, so the flat stays exact.
 
 import math
 import os
@@ -654,17 +657,65 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         self.checkSketchOnShape(loft, self.squareSketch)
         self.checkRound(loft, 20, 50, 24)
 
+    def checkRelieved(self, loft, sketch, clear):
+        """A relief at each corner of the lines: the sheet clear of the
+        corner by more than clear, on its lines still a tenth of their
+        length from it"""
+        for e in sketch.Shape.Edges:
+            for v in e.Vertexes:
+                with self.subTest(corner=v.Point):
+                    self.assertGreater(loft.Shape.distToShape(v)[0], clear)
+            for t in (0.1, 0.9):
+                p = e.valueAt(e.FirstParameter + t * (e.LastParameter - e.FirstParameter))
+                with self.subTest(at=p):
+                    self.assertAlmostEqual(loft.Shape.distToShape(Part.Vertex(p))[0], 0,
+                                           places=6)
+
     def testSquareToRoundInside(self):
         """The sheet inside the square: at each corner, where a fan of folds
-        meets, a thick sheet cannot come to the point the square has --
-        refused, saying so, rather than laid flat wrong"""
+        meets, a thick sheet cannot come to the point the square has -- a
+        relief there, cut square to the sheet, so the flat is exact"""
         loft = self.squareToRound("Inside")
-        self.assertIn("Invalid", loft.State)
-        self.assertIn("runs into itself", loft.getStatusString())
-        # the sheet outside it, the round inside the sheet
-        loft.MaterialSide = "Outside"
-        self.Doc.recompute()
         self.checkExact(loft)
+        self.checkRelieved(loft, self.squareSketch, 1)
+        self.checkSketchOnShape(loft, self.squareSketch)
+        self.checkRound(loft, 20, 50, 24)
+
+    def testSquareToRoundMiddle(self):
+        """The sheet about the square: a relief at each corner as well"""
+        loft = self.squareToRound("Middle")
+        self.checkExact(loft)
+        self.checkRelieved(loft, self.squareSketch, 0.5)
+        self.checkRound(loft, 20, 50, 24)
+
+    def testRoundToSquareInside(self):
+        """The lines the section: the reliefs at its corners"""
+        top = self.lines(self.square(30), 50, name="Top")
+        loft = self.loft(self.round(20), top, MaterialSide="Inside")
+        self.checkExact(loft)
+        self.checkRelieved(loft, top, 1)
+
+    def testFewSegmentsInside(self):
+        """Fewer chords, fewer folds at each corner, a relief still where
+        they run into each other"""
+        loft = self.squareToRound("Inside", Segments=8)
+        self.checkExact(loft)
+        self.checkSketchOnShape(loft, self.squareSketch)
+
+    def testFewSegmentsMiddle(self):
+        """Few chords about the square: the sheet runs into itself at the
+        corners by a little only -- a relief all the same, or the flat does
+        not close"""
+        loft = self.squareToRound("Middle", Segments=8)
+        self.checkExact(loft)
+        self.checkRelieved(loft, self.squareSketch, 0.5)
+
+    def testSmallRadiusInside(self):
+        """A small radius: the triangle on each line comes to a point on the
+        round short of it, a relief there too"""
+        loft = self.squareToRound("Inside", UseRuleRadius=False, BendRadius=0.3)
+        self.checkExact(loft)
+        self.checkRelieved(loft, self.squareSketch, 1)
 
     def testSegments(self):
         """Fewer chords, fewer triangles"""

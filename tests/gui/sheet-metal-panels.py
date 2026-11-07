@@ -1189,6 +1189,13 @@ def run():
             lofts and "MaterialSide" in w,
             sorted(n for n in w if n[:1].isupper()),
         )
+        own = w.get("UseRuleRadius")
+        check(
+            "its panel the bends' radius, lines to lines: the rule's, its own greyed",
+            own is not None and own.isChecked() and "BendRadius" in w
+            and not w["BendRadius"].isEnabled(),
+            [(n, n in w and w[n].isEnabled()) for n in ("UseRuleRadius", "BendRadius")],
+        )
         if lofts and "MaterialSide" in w:
             w["MaterialSide"].setCurrentIndex(1)
             pump(40)

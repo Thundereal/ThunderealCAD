@@ -5,6 +5,13 @@
 # arcs on parallel planes about one axis, a cone frustum (a cylinder where
 # they are the same size), one conical bend of the sheet model, laid flat
 # exactly. A circle all round leaves a seam the rule's Gap wide.
+#
+# Its second, lines to lines: each line of the profile with the section's
+# line in its place, parallel to it, a flat facet between them, a wall of
+# the model, and a bend of the rule's radius where two facets meet. The
+# rims are cut square to the sheet, so the flat is exact: straight lines
+# all round. A closed outline leaves a seam the rule's Gap wide across the
+# middle of the profile's first line.
 
 import math
 import os
@@ -254,3 +261,253 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         self.Doc.recompute()
         self.assertAlmostEqual(loft.Shape.Volume, volume)
         self.assertEqual(loft.SheetModel, model)
+
+    # -- lines to lines --
+
+    def lines(self, points, z=0, name="Sketch", closed=True, start=0, reverse=False):
+        """A sketch at height z of lines through points (x, y), closed
+        unless asked, drawn from points[start], the other way round if asked"""
+        sketch = self.Body.newObject("Sketcher::SketchObject", name)
+        sketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+        pts = [V(x, y, 0) for x, y in points]
+        if reverse:
+            pts.reverse()
+        if closed:
+            pts = pts[start:] + pts[:start]
+            pairs = [(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
+        else:
+            pairs = [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
+        for a, b in pairs:
+            sketch.addGeometry(Part.LineSegment(a, b))
+        return sketch
+
+    @staticmethod
+    def square(half, cx=0, cy=0):
+        """A square's corners counterclockwise, the bottom line first"""
+        return [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half),
+                (cx - half, cy + half)]
+
+    def kinds(self, feature):
+        count = {}
+        for e in feature.SheetModel["Elements"]:
+            count[e["Kind"]] = count.get(e["Kind"], 0) + 1
+        return count
+
+    def bends(self, feature):
+        return [e for e in feature.SheetModel["Elements"] if e["Kind"] == "Bend"]
+
+    def duct(self, side="Outside", **props):
+        """A square of 40 to the same 30 up: four upright facets"""
+        return self.loft(self.lines(self.square(20)),
+                         self.lines(self.square(20), 30, name="Top"),
+                         MaterialSide=side, **props)
+
+    def flatOf(self, loft):
+        flat = loft.getSubObject("Flat")
+        self.assertIsNotNone(flat, loft.getStatusString())
+        self.assertTrue(flat.isValid())
+        return flat
+
+    def checkStraight(self, flat):
+        """Exact: every edge of the flat a straight line"""
+        curves = {e.Curve.TypeId for e in flat.Edges}
+        self.assertEqual(curves, {"Part::GeomLine"})
+
+    def testDuct(self):
+        """A facet a wall along each line, a quarter bend of the rule's
+        radius at each corner, the first wall split by the seam"""
+        loft = self.duct()
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        self.assertTrue(loft.Shape.isValid())
+        self.assertEqual(len(loft.Shape.Solids), 1)
+        self.assertEqual(self.kinds(loft), {"Wall": 5, "Bend": 4})
+        for b in self.bends(loft):
+            self.assertAlmostEqual(b["Angle"], 90)
+            self.assertAlmostEqual(b["Radius"], 1)
+        self.assertEqual(self.owners(loft),
+                         {"Wall1": 5, "Wall2": 4, "Wall3": 4, "Wall4": 4, "Wall5": 5,
+                          "Bend1": 4, "Bend2": 4, "Bend3": 4, "Bend4": 4})
+        # the sketches on the inner skin: 38 straight along each line, a
+        # quarter annulus from 1 to 2 at each corner, 30 high, less the seam
+        self.assertAlmostEqual(loft.Shape.Volume, 30 * (4 * 38 - 0.1 + 3 * math.pi), places=5)
+        box = loft.Shape.BoundBox
+        self.assertAlmostEqual(box.XMax, 21, places=6)
+        self.assertAlmostEqual(box.ZMin, 0, places=6)
+        self.assertAlmostEqual(box.ZMax, 30, places=6)
+        # the seam across the middle of the first line, the Gap wide
+        self.assertGreater(loft.Shape.distToShape(Part.Vertex(V(0, -20.5, 15)))[0], 0.04)
+        self.assertAlmostEqual(loft.Shape.distToShape(Part.Vertex(V(0.1, -20.5, 15)))[0], 0)
+        self.assertAlmostEqual(loft.Shape.distToShape(Part.Vertex(V(-0.1, -20.5, 15)))[0], 0)
+
+    def testDuctInside(self):
+        """The sketches on the outer skin"""
+        loft = self.duct("Inside")
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        self.assertAlmostEqual(loft.Shape.Volume, 30 * (4 * 36 - 0.1 + 3 * math.pi), places=5)
+        self.assertAlmostEqual(loft.Shape.BoundBox.XMax, 20, places=6)
+
+    def checkDuctFlat(self, loft, k):
+        """A rectangle as high as the duct, as long as its straight runs and
+        its bends' neutral fibres"""
+        flat = self.flatOf(loft)
+        self.checkStraight(flat)
+        box = flat.BoundBox
+        self.assertAlmostEqual(box.ZLength, 1, places=6)
+        self.assertAlmostEqual(min(box.XLength, box.YLength), 30, places=6)
+        length = 4 * 38 - 0.1 + 4 * math.pi / 2 * (1 + k)
+        self.assertAlmostEqual(max(box.XLength, box.YLength), length, places=6)
+        self.assertAlmostEqual(flat.Volume, 30 * length, places=5)
+        return flat
+
+    def testDuctFlat(self):
+        loft = self.duct()
+        flat = self.checkDuctFlat(loft, 0.5)
+        self.assertAlmostEqual(flat.Volume, loft.Shape.Volume, places=5)
+
+    def testDuctFlatK(self):
+        loft = self.duct()
+        loft.Rule.KFactor = 0.3
+        self.Doc.recompute()
+        for b in self.bends(loft):
+            self.assertAlmostEqual(b["KFactor"], 0.3)
+        self.checkDuctFlat(loft, 0.3)
+
+    def testOwnRadius(self):
+        """The bends at the feature's own radius"""
+        loft = self.duct(UseRuleRadius=False)
+        loft.BendRadius = 3
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        for b in self.bends(loft):
+            self.assertAlmostEqual(b["Radius"], 3)
+        self.assertAlmostEqual(loft.Shape.Volume, 30 * (4 * 34 - 0.1 + 7 * math.pi), places=5)
+        # too large for the lines
+        loft.BendRadius = 25
+        self.Doc.recompute()
+        self.assertIn("Invalid", loft.State)
+
+    def hopper(self, side="Outside", **kw):
+        """A square of 60 to a rectangle of 30 by 20, 50 up"""
+        top = [(-15, -10), (15, -10), (15, 10), (-15, 10)]
+        return self.loft(self.lines(self.square(30)), self.lines(top, 50, name="Top", **kw),
+                         MaterialSide=side)
+
+    # each facet's normal out of the hopper, by the profile's line
+    NORMALS = {
+        (0, -30): V(0, -50, 20),
+        (30, 0): V(50, 0, 15),
+        (0, 30): V(0, 50, 20),
+        (-30, 0): V(-50, 0, 15),
+    }
+
+    def checkHopper(self, loft, side):
+        """Valid, its sketches on the skin asked, the material out of the
+        hopper from them (Outside), into it (Inside), about them (Middle)"""
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        self.assertTrue(loft.Shape.isValid())
+        self.assertEqual(len(loft.Shape.Solids), 1)
+        self.assertEqual(self.kinds(loft), {"Wall": 5, "Bend": 4})
+        out = {"Outside": 0.5, "Inside": -0.5, "Middle": 0}[side]
+        shape = loft.Shape
+        for (x, y), n in self.NORMALS.items():
+            n = V(n).normalize()
+            # a quarter along the line from its middle, off the seam
+            e = V(-y, x, 0).normalize()
+            rim = V(x, y, 0) + e * 7.5
+            # up the facet, square to the line
+            up = n.cross(e)
+            at = rim + up * 5
+            with self.subTest(line=(x, y)):
+                self.assertTrue(shape.isInside(at + n * out, 1e-7, True))
+                self.assertFalse(shape.isInside(at + n * (out + 0.6), 1e-7, True))
+                self.assertFalse(shape.isInside(at + n * (out - 0.6), 1e-7, True))
+                # the rim square to the sheet: through the sketched line
+                # along the normal, the sheet on the facet's side of it only
+                for s in (-0.45, 0, 0.45):
+                    p = rim + n * (out + s)
+                    self.assertTrue(shape.isInside(p + up * 1e-3, 1e-7, True))
+                    self.assertFalse(shape.isInside(p - up * 1e-3, 1e-7, True))
+
+    def testHopperOutside(self):
+        self.checkHopper(self.hopper("Outside"), "Outside")
+
+    def testHopperInside(self):
+        self.checkHopper(self.hopper("Inside"), "Inside")
+
+    def testHopperMiddle(self):
+        self.checkHopper(self.hopper("Middle"), "Middle")
+
+    def testHopperFlat(self):
+        """Exact, straight all round, keeping the volume at K 0.5"""
+        loft = self.hopper()
+        flat = self.flatOf(loft)
+        self.checkStraight(flat)
+        self.assertAlmostEqual(flat.BoundBox.ZLength, 1, places=6)
+        self.assertAlmostEqual(flat.Volume, loft.Shape.Volume, places=5)
+
+    def testMatchedByDirection(self):
+        """Each line of the profile with the section's line running its way:
+        the section drawn from another line, or the other way round, makes
+        the same"""
+        volume = self.hopper().Shape.Volume
+        for kw in ({"start": 2}, {"reverse": True}, {"start": 1, "reverse": True}):
+            with self.subTest(**kw):
+                loft = self.hopper(**kw)
+                self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+                self.assertAlmostEqual(loft.Shape.Volume, volume, places=6)
+
+    def testConcave(self):
+        """An L to a smaller L: the bend at the inner corner turns the other
+        way, its inner skin the sheet's outer one"""
+        a = [(0, 0), (40, 0), (40, 20), (20, 20), (20, 40), (0, 40)]
+        b = [(5, 5), (35, 5), (35, 15), (15, 15), (15, 35), (5, 35)]
+        loft = self.loft(self.lines(a), self.lines(b, 30, name="Top"))
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        self.assertTrue(loft.Shape.isValid())
+        self.assertEqual(len(loft.Shape.Solids), 1)
+        self.assertEqual(self.kinds(loft), {"Wall": 7, "Bend": 6})
+        flat = self.flatOf(loft)
+        self.checkStraight(flat)
+        self.assertAlmostEqual(flat.Volume, loft.Shape.Volume, places=5)
+
+    def testOpen(self):
+        """Open lines to open lines: no seam, a wall each, a bend between"""
+        a = [(-20, 20), (-20, -20), (20, -20), (20, 20)]
+        b = [(-10, 20), (-10, -10), (10, -10), (10, 20)]
+        loft = self.loft(self.lines(a, closed=False),
+                         self.lines(b, 30, name="Top", closed=False))
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        self.assertTrue(loft.Shape.isValid())
+        self.assertEqual(self.kinds(loft), {"Wall": 3, "Bend": 2})
+        self.assertEqual(self.owners(loft),
+                         {"Wall1": 5, "Wall2": 4, "Wall3": 5, "Bend1": 4, "Bend2": 4})
+        # the sheet outside the U (Outside): on the far side of its bottom
+        self.assertTrue(loft.Shape.isInside(V(0, -20.5, 1), 1e-7, True))
+        self.assertFalse(loft.Shape.isInside(V(0, -19.5, 1), 1e-7, True))
+        flat = self.flatOf(loft)
+        self.checkStraight(flat)
+        self.assertAlmostEqual(flat.Volume, loft.Shape.Volume, places=5)
+
+    def testRefusedLines(self):
+        """Lines and an arc in one sketch, a different count of lines, a
+        line with none running its way (until the triangulated step)"""
+        tri = [(-20, -20), (20, -20), (0, 20)]
+        mixed = self.Body.newObject("Sketcher::SketchObject", "Mixed")
+        mixed.Placement = FreeCAD.Placement(V(0, 0, 30), FreeCAD.Rotation())
+        mixed.addGeometry(Part.LineSegment(V(-10, 0, 0), V(10, 0, 0)))
+        mixed.addGeometry(
+            Part.ArcOfCircle(Part.Circle(V(0, 0, 0), V(0, 0, 1), 10), 0, math.pi))
+        turned = [(10 * math.cos(math.radians(a)), 10 * math.sin(math.radians(a)))
+                  for a in (-60, 30, 120, 210)]
+        cases = {
+            "mixed": (self.lines(self.square(20), name="A1"), mixed),
+            "count": (self.lines(self.square(20), name="A2"), self.lines(tri, 30, name="B2")),
+            "turned": (self.lines(self.square(20), name="A3"), self.lines(turned, 30, name="B3")),
+            "line to circle": (self.lines(self.square(20), name="A4"), self.round(10, 30, name="B4")),
+        }
+        for what, (a, b) in cases.items():
+            with self.subTest(what=what):
+                loft = self.loft(a, b, name="L")
+                self.assertIn("Invalid", loft.State)
+                self.Body.removeObject(loft)
+                self.Doc.removeObject(loft.Name)

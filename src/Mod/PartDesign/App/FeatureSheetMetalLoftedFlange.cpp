@@ -356,6 +356,9 @@ struct LinesLoft
     /// which of the two is lines where the other is a round cut into
     /// chords: 0 the profile, 1 the section; -1 both lines
     int lines = -1;
+    /// a relief at each corner where folds meet on the side the sheet
+    /// turns toward, its skin there off the sketch
+    bool relief = false;
 
     void build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model& model,
                std::vector<TopoShape>& pieces, const App::StringHasherRef& hasher) const;
@@ -564,6 +567,7 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
     {
         std::size_t face = 0;
         Bound bound[4];  // the profile's side, the end, the section's, the start
+        std::vector<Bound> reliefs;
         std::vector<gp_Pnt> outline;
         /// the outline along its end and its start, from the profile's side
         gp_Pnt end[2], start[2];
@@ -668,6 +672,81 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         convex.push_back(in);
     }
 
+    // The reliefs. Where folds meet at a corner on the side the sheet turns
+    // toward -- of the lines, or of a round where a line's triangle comes
+    // to a point on it -- and its skin there is off the sketch, the walls
+    // that run to a point there cross their sides short of it, and the
+    // sheet runs into itself: each wall about the corner is cut where the
+    // last of those comes to its full width, square to the sheet -- one
+    // running to the point by a line its base's way, one along a line by a
+    // line square to it -- and the bends between follow their walls.
+    const std::vector<int> sides = relief ? std::vector<int> {0, 1} : std::vector<int> {};
+    for (int c : sides) {
+        const gp_Vec away(c == 0 ? axis : axis.Reversed());
+        auto ends = [&](const Face& f) {
+            return c == 0 ? std::pair {f.pa, f.pb} : std::pair {f.sa, f.sb};
+        };
+        for (const gp_Pnt& corner : (c == 0 ? a : b).points) {
+            auto height = [&](const gp_Pnt& p) {
+                return gp_Vec(corner, p).Dot(away);
+            };
+            double h = 0;
+            bool converges = false;
+            for (std::size_t j = 0; j < list.size(); ++j) {
+                const auto [p, q] = ends(faces[list[j].face]);
+                if (p.Distance(corner) > tol || q.Distance(corner) > tol) {
+                    continue;
+                }
+                const gp_Vec n(faces[list[j].face].normal);
+                const Line &s = list[j].bound[3].line, &e = list[j].bound[1].line;
+                const double den = gp_Vec(s.d).Crossed(gp_Vec(e.d)).Dot(n);
+                if (std::abs(den) > angular) {
+                    const double t = gp_Vec(s.p, e.p).Crossed(gp_Vec(e.d)).Dot(n) / den;
+                    h = std::max(h, height(s.p.Translated(gp_Vec(s.d) * t)));
+                }
+                for (std::size_t k : {j - 1, j}) {
+                    if (k < folds.size()) {
+                        converges = converges || (convex[k] ? off : T - off) > tol;
+                    }
+                }
+            }
+            if (!converges || h <= tol) {
+                continue;
+            }
+            for (Wall& w : list) {
+                const Face& f = faces[w.face];
+                const auto [p, q] = ends(f);
+                const bool atP = p.Distance(corner) <= tol, atQ = q.Distance(corner) <= tol;
+                if (!atP && !atQ) {
+                    continue;
+                }
+                const gp_Vec n(f.normal);
+                auto upward = [&](const gp_Dir& d) {
+                    const gp_Dir g(n.Crossed(gp_Vec(d)));
+                    return g.Dot(gp_Dir(away)) < 0 ? g.Reversed() : g;
+                };
+                if (atP && atQ) {
+                    const gp_Dir base = w.bound[c == 0 ? 2 : 0].line.d;
+                    const gp_Dir g = upward(base);
+                    const gp_Pnt from = f.inner(corner, off);
+                    const gp_Pnt at =
+                        from.Translated(gp_Vec(g) * ((h - height(from)) / gp_Vec(g).Dot(away)));
+                    w.reliefs.push_back({{at, base}, g, "Relief"});
+                    continue;
+                }
+                const Bound& side = w.bound[atQ ? 1 : 3];
+                const double rise = gp_Vec(side.line.d).Dot(away);
+                if (side.role == "Seam" || std::abs(rise) < angular) {
+                    continue;
+                }
+                const double t = (h - height(side.line.p)) / rise;
+                const gp_Pnt at = side.line.p.Translated(gp_Vec(side.line.d) * t);
+                const gp_Dir rim = w.bound[c == 0 ? 0 : 2].line.d;
+                w.reliefs.push_back({{at, upward(rim)}, atQ ? rim.Reversed() : rim, "Relief"});
+            }
+        }
+    }
+
     // each wall's outline: a square about its face cut by its four lines
     double size = 10 * (T + radius + gap);
     for (const gp_Pnt& p : a.points) {
@@ -682,6 +761,9 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         std::vector<gp_Pnt> poly {c.Translated(-x - y), c.Translated(x - y), c.Translated(x + y),
                                   c.Translated(-x + y)};
         for (const Bound& bound : wall.bound) {
+            clipTo(poly, bound.line.p, gp_Vec(bound.into));
+        }
+        for (const Bound& bound : wall.reliefs) {
             clipTo(poly, bound.line.p, gp_Vec(bound.into));
         }
         // its run along its end and its start, from the profile's side
@@ -723,6 +805,12 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
                 if (std::abs(gp_Vec(bound.line.p, mid).Dot(gp_Vec(bound.into))) <= 1e-6) {
                     role = bound.role;
                     break;
+                }
+            }
+            for (std::size_t r = 0; role.empty() && r < wall.reliefs.size(); ++r) {
+                const Bound& bound = wall.reliefs[r];
+                if (std::abs(gp_Vec(bound.line.p, mid).Dot(gp_Vec(bound.into))) <= 1e-6) {
+                    role = bound.role + std::to_string(r + 1);
                 }
             }
             edges.emplace_back(SheetMetal::lineEdge(p, q), name + role);
@@ -913,24 +1001,35 @@ App::DocumentObjectExecReturn* SheetMetalLoftedFlange::execute()
                 THROWM(Base::ValueError,
                        "A lofted flange all round needs the rule's Gap for its seam");
             }
-            std::vector<TopoShape> pieces;
-            loft.build(from, to, gp_Dir(normal), model, pieces, hasher);
-            tool = getSolid(TopoShape(0, hasher).makEFuse(pieces));
             // Pieces that overlap make one solid still, but not a sheet: a
             // thick sheet cannot come to a point inside it, where folds of
-            // round to lines meet at a corner on the material's side
-            double sum = 0;
-            for (const TopoShape& piece : pieces) {
+            // round to lines meet at a corner on the material's side. There
+            // it takes a relief, and is built again. However little they
+            // overlap, the flat does not close; a sheet that does not comes
+            // out within 1e-11 of its pieces' volume.
+            const SheetMetal::Model before = model;
+            for (bool relief : {false, true}) {
+                loft.relief = relief;
+                model = before;
+                std::vector<TopoShape> pieces;
+                loft.build(from, to, gp_Dir(normal), model, pieces, hasher);
+                tool = getSolid(TopoShape(0, hasher).makEFuse(pieces));
+                double sum = 0;
+                for (const TopoShape& piece : pieces) {
+                    GProp_GProps props;
+                    BRepGProp::VolumeProperties(piece.getShape(), props);
+                    sum += props.Mass();
+                }
                 GProp_GProps props;
-                BRepGProp::VolumeProperties(piece.getShape(), props);
-                sum += props.Mass();
-            }
-            GProp_GProps props;
-            BRepGProp::VolumeProperties(tool.getShape(), props);
-            if (sum - props.Mass() > 1e-6 * sum) {
-                THROWM(Base::ValueError,
-                       "The lofted flange's sheet runs into itself where its folds meet at a "
-                       "corner: put the material on the other side, or round the corner");
+                BRepGProp::VolumeProperties(tool.getShape(), props);
+                if (sum - props.Mass() <= 1e-9 * sum) {
+                    break;
+                }
+                if (relief) {
+                    THROWM(Base::ValueError,
+                           "The lofted flange's sheet runs into itself where its folds meet at "
+                           "a corner: put the material on the other side, or round the corner");
+                }
             }
         }
         else {

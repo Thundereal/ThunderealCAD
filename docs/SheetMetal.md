@@ -1965,9 +1965,9 @@ stored flat and this option do what it was for.
     on the material's side: a square to a round with the sheet inside the square (Inside, or
     Middle) overlaps itself there, by 0.43 a corner Inside, 0.038 Middle (T 1), within 2.7 of
     the corner -- "runs into itself where its folds meet at a corner: put the material on the
-    other side, or round the corner". **Open question for the user:** a relief cut at such a
-    corner instead (square to the sheet, so the flat stays exact). No lines-to-lines case of the
-    sweeps meets it.
+    other side, or round the corner". Ruled 2026-11-08: a relief there instead (the entry
+    below); the refusal stays for a sheet the relief does not clear. No lines-to-lines case of
+    the sweeps meets it.
   - A sweep, Outside, each valid, the flat within 2e-6 of the folded volume: a square to a round
     at 8, 24 and 48 segments, at radius 3, low, off centre, wider than the square; a hexagon,
     a rectangle, a round to a square.
@@ -1976,6 +1976,31 @@ stored flat and this option do what it was for.
     chords within their sagitta, the flat), fewer segments, a round to a square, a half round to
     two lines, Inside refused and Outside made. Round to lines leaves the round step's refusals
     ("not round"); closed to open is refused for lines instead.
+- **Built 2026-11-08, the lofted flange's corner relief** (recommended, and taken 2026-11-08,
+  in place of refusing a sheet that runs into itself). Where folds meet at a corner on the side
+  the sheet turns toward and its skin there is off the sketch (a square to a round, the sheet
+  inside the square or about it), the walls that run to a point there cross their sides short of
+  it. Each wall about the corner is cut where the last of those comes to its full width, square
+  to the sheet: one running to the point by a line its base's way, one along a line by a line
+  square to that line; the bends between follow their walls, so the flat stays exact, a notch at
+  each corner. The same at a round's point where a line's triangle comes to it, which a small
+  radius needs (0.3, Inside).
+  - **Only where it is needed:** the loft is built plain first, and with the reliefs only when
+    its pieces overlap. Nothing whose flat closed before changes: every test and sweep case that
+    passed comes out as it was.
+  - **The bar is now 1e-9 of the pieces' volume** (was 1e-6): 8 segments Middle overlaps by
+    0.005 in 9396 only, under the old bar, and its flat did not close. A sheet that does not
+    overlap comes out within 1e-11 of its pieces' volume (the sweeps' worst 1.6e-7 in 9676).
+  - The notch, a square to a round (60 to 20, 50 up, T 1, radius 1): the sheet clear of the
+    corner by 3.2 Inside, 2.4 Middle (2.8 and 2.1 at 8 segments, 6.5 and 5.7 at radius 3).
+  - A sweep, Inside and Middle, each valid and one solid, the flat within 1.8e-6 of the folded
+    volume: 8, 12, 24, 48 segments, radius 0.3 and 3, low, off centre, a hexagon, a triangle, a
+    rectangle, a round to a square, a round wider than the square. The lines-to-lines sweep
+    (squares turned 5 to 40 deg on all three sides, a hexagon, rectangles, tall, off centre)
+    and the mixed Outside one unchanged: none takes a relief.
+  - `TestSheetMetalLoftedFlange` (38, +6, one rewritten; before, 32 of 38): a square to a round
+    Inside and Middle, a round to a square Inside, 8 segments Inside and Middle, radius 0.3
+    Inside -- each exact, the corners clear, the square's lines on the sheet a tenth from them.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

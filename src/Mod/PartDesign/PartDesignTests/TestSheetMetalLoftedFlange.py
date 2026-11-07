@@ -7,11 +7,12 @@
 # exactly. A circle all round leaves a seam the rule's Gap wide.
 #
 # Its second, lines to lines: each line of the profile with the section's
-# line in its place, parallel to it, a flat facet between them, a wall of
-# the model, and a bend of the rule's radius where two facets meet. The
+# line in its place, a flat facet between them where they are parallel, a
+# wall of the model, two triangles either side of the shorter diagonal
+# where they are not, and a bend of the rule's radius at every fold. The
 # rims are cut square to the sheet, so the flat is exact: straight lines
 # all round. A closed outline leaves a seam the rule's Gap wide across the
-# middle of the profile's first line.
+# middle of the profile's first line, or along its diagonal.
 
 import math
 import os
@@ -309,9 +310,15 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         return flat
 
     def checkStraight(self, flat):
-        """Exact: every edge of the flat a straight line"""
-        curves = {e.Curve.TypeId for e in flat.Edges}
-        self.assertEqual(curves, {"Part::GeomLine"})
+        """Exact: every edge of the flat a straight line, whatever curve
+        carries it"""
+        for e in flat.Edges:
+            a, b = e.Vertexes[0].Point, e.Vertexes[-1].Point
+            chord = Part.LineSegment(a, b).toShape()
+            for t in (0.25, 0.5, 0.75):
+                p = e.valueAt(e.FirstParameter + t * (e.LastParameter - e.FirstParameter))
+                self.assertLess(chord.distToShape(Part.Vertex(p))[0], 1e-7,
+                                (e.Curve.TypeId, a, b))
 
     def testDuct(self):
         """A facet a wall along each line, a quarter bend of the rule's
@@ -489,20 +496,17 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         self.assertAlmostEqual(flat.Volume, loft.Shape.Volume, places=5)
 
     def testRefusedLines(self):
-        """Lines and an arc in one sketch, a different count of lines, a
-        line with none running its way (until the triangulated step)"""
+        """Lines and an arc in one sketch, a different count of lines,
+        lines to a circle"""
         tri = [(-20, -20), (20, -20), (0, 20)]
         mixed = self.Body.newObject("Sketcher::SketchObject", "Mixed")
         mixed.Placement = FreeCAD.Placement(V(0, 0, 30), FreeCAD.Rotation())
         mixed.addGeometry(Part.LineSegment(V(-10, 0, 0), V(10, 0, 0)))
         mixed.addGeometry(
             Part.ArcOfCircle(Part.Circle(V(0, 0, 0), V(0, 0, 1), 10), 0, math.pi))
-        turned = [(10 * math.cos(math.radians(a)), 10 * math.sin(math.radians(a)))
-                  for a in (-60, 30, 120, 210)]
         cases = {
             "mixed": (self.lines(self.square(20), name="A1"), mixed),
             "count": (self.lines(self.square(20), name="A2"), self.lines(tri, 30, name="B2")),
-            "turned": (self.lines(self.square(20), name="A3"), self.lines(turned, 30, name="B3")),
             "line to circle": (self.lines(self.square(20), name="A4"), self.round(10, 30, name="B4")),
         }
         for what, (a, b) in cases.items():
@@ -511,3 +515,99 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
                 self.assertIn("Invalid", loft.State)
                 self.Body.removeObject(loft)
                 self.Doc.removeObject(loft.Name)
+
+    # -- lines that do not run each other's way: triangles --
+
+    @staticmethod
+    def turned(radius, angle):
+        """A square's corners on a circle, counterclockwise, turned by angle
+        (degrees) from the bottom line along X"""
+        return [(radius * math.cos(math.radians(a + angle)),
+                 radius * math.sin(math.radians(a + angle)))
+                for a in (-135, -45, 45, 135)]
+
+    def checkSketchOnShape(self, loft, sketch):
+        """Each sketched line on the sheet, but near its ends, where the
+        bends round the corners off, and at its middle, where a seam may
+        be"""
+        for e in sketch.Shape.Edges:
+            for t in (0.3, 0.7):
+                p = e.valueAt(e.FirstParameter + t * (e.LastParameter - e.FirstParameter))
+                with self.subTest(sketch=sketch.Name, at=p):
+                    self.assertAlmostEqual(loft.Shape.distToShape(Part.Vertex(p))[0], 0,
+                                           places=6)
+
+    def checkExact(self, loft):
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        self.assertTrue(loft.Shape.isValid())
+        self.assertEqual(len(loft.Shape.Solids), 1)
+        flat = self.flatOf(loft)
+        self.checkStraight(flat)
+        self.assertAlmostEqual(flat.BoundBox.ZLength, 1, places=6)
+        self.assertAlmostEqual(flat.Volume, loft.Shape.Volume, places=5)
+
+    def testTurned(self):
+        """A square to a smaller one turned 30 deg: each line's facet two
+        triangles and a shallow bend along the shorter diagonal, the seam
+        along the first line's"""
+        a = self.lines(self.turned(20 * math.sqrt(2), 0))
+        b = self.lines(self.turned(10 * math.sqrt(2), 30), 30, name="Top")
+        loft = self.loft(a, b)
+        self.checkExact(loft)
+        self.assertEqual(self.kinds(loft), {"Wall": 8, "Bend": 7})
+        angles = sorted(e["Angle"] for e in self.bends(loft))
+        # three diagonals (the fourth is the seam), four corners, their
+        # turns together all round
+        self.assertTrue(all(x < 40 for x in angles[:3]), angles)
+        self.assertTrue(all(x > 50 for x in angles[3:]), angles)
+        self.assertAlmostEqual(angles[0], angles[2], places=6)
+        self.assertAlmostEqual(angles[3], angles[6], places=6)
+        self.checkSketchOnShape(loft, a)
+        self.checkSketchOnShape(loft, b)
+
+    def testTurnedInside(self):
+        a = self.lines(self.turned(20 * math.sqrt(2), 0))
+        b = self.lines(self.turned(10 * math.sqrt(2), 30), 30, name="Top")
+        loft = self.loft(a, b, MaterialSide="Inside")
+        self.checkExact(loft)
+        self.checkSketchOnShape(loft, a)
+        self.checkSketchOnShape(loft, b)
+
+    def testSomeParallel(self):
+        """A square to a trapezoid: its bottom and top lines run the
+        square's way, a facet each, the bottom one the seam's; its sides do
+        not, two triangles each"""
+        a = self.lines(self.square(20))
+        b = self.lines([(-10, -10), (10, -10), (5, 10), (-5, 10)], 30, name="Top")
+        loft = self.loft(a, b)
+        self.checkExact(loft)
+        self.assertEqual(self.kinds(loft), {"Wall": 7, "Bend": 6})
+        self.checkSketchOnShape(loft, a)
+        self.checkSketchOnShape(loft, b)
+
+    def testOpenTwisted(self):
+        """One line to one line across it: two triangles and their bend"""
+        a = self.lines([(-20, 0), (20, 0)], closed=False)
+        b = self.lines([(-10, 10), (10, -10)], 30, name="Top", closed=False)
+        loft = self.loft(a, b)
+        self.checkExact(loft)
+        self.assertEqual(self.kinds(loft), {"Wall": 2, "Bend": 1})
+
+    def testSaveAndRestoreTurned(self):
+        """The bends' rims come back with the file: each bend still owns its
+        own faces, and the flat closes"""
+        a = self.lines(self.turned(20 * math.sqrt(2), 0))
+        b = self.lines(self.turned(10 * math.sqrt(2), 30), 30, name="Top")
+        loft = self.loft(a, b, MaterialSide="Inside")
+        model = loft.SheetModel
+        self.assertTrue(all("Rims" in e for e in self.bends(loft)))
+        owners = self.owners(loft)
+        path = os.path.join(tempfile.mkdtemp(), "turned.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        self.Body = self.Doc.getObject("Body")
+        loft = self.Doc.getObject("LoftedFlange")
+        self.assertEqual(loft.SheetModel, model)
+        self.assertEqual(self.owners(loft), owners)
+        self.assertIsNotNone(loft.getSubObject("Flat"))

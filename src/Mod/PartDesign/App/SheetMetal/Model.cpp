@@ -136,6 +136,17 @@ void Model::checkIndex(int index) const
     }
 }
 
+gp_Pnt PartDesign::SheetMetal::rimPoint(const CylBend& bend, const gp_Pnt& point)
+{
+    // CylBend::toFlat() with the neutral fibre at the inner skin, so a
+    // K the bend is given later leaves it
+    CylBend skin = bend;
+    skin.k = 0;
+    const gp_Pnt flat = skin.toFlat(point);
+    const gp_Vec x(bend.frame.XDirection());
+    return flat.Translated(x * (bend.radius - gp_Vec(bend.frame.Location(), flat).Dot(x)));
+}
+
 bool Model::contains(int index, const gp_Pnt& point, double tol) const
 {
     checkIndex(index);
@@ -146,7 +157,18 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
         }
     }
     if (element.kind == Element::Kind::Bend) {
-        return element.bend.contains(point, tol);
+        if (!element.bend.contains(point, tol)) {
+            return false;
+        }
+        if (!element.rims.empty()) {
+            const gp_Pnt unrolled = rimPoint(element.bend, point);
+            for (const gp_Pln& rim : element.rims) {
+                if (gp_Vec(rim.Location(), unrolled).Dot(gp_Vec(rim.Axis().Direction())) > tol) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
     if (element.kind == Element::Kind::Cone) {
         return element.cone.contains(point, tol);
@@ -348,6 +370,9 @@ void Model::transform(const gp_Trsf& trsf)
         element.cone.frame.Transform(trsf);
         for (gp_Pln& limit : element.limits) {
             limit.Transform(trsf);
+        }
+        for (gp_Pln& rim : element.rims) {
+            rim.Transform(trsf);
         }
     }
     for (Form& form : forms) {

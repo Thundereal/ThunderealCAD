@@ -40,12 +40,13 @@ namespace PartDesign
  * flat exactly. Two arcs turn through the same angle; two circles leave a
  * seam the rule's Gap wide on the narrow one.
  *
- * Each a chain of lines, as many in each, on parallel planes, make a flat
- * facet, a wall, between each line of the profile and the section's line in
- * its place (the one running its way, and on round from there), parallel to
- * it, and a bend at BendRadius where two facets meet. Two closed chains
- * leave a seam the rule's Gap wide across the middle of the profile's first
- * line.
+ * Each a chain of lines, as many in each, on parallel planes, make a wall
+ * between each line of the profile and the section's line in its place
+ * (the one running its way, and on round from there): a flat facet where
+ * they are parallel, two triangles either side of the shorter diagonal
+ * where they are not, and a bend at BendRadius at every fold. Two closed
+ * chains leave a seam the rule's Gap wide across the middle of the
+ * profile's first line, or along its diagonal.
  *
  * The ends are cut square to the sheet, so they lie flat square to the
  * blank, and the flat is exact.

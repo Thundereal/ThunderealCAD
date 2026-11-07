@@ -75,6 +75,12 @@ struct PartDesignExport Element
     /// their slabs and tubes would overlap; a bend's sides, where its flange
     /// ends inside the wall's end and its tube runs on through the wall
     std::vector<gp_Pln> limits;
+    /// A bend's rims where they run across its strip at a slant (a lofted
+    /// flange's): planes through its inner skin unrolled -- a point at
+    /// angle a about the axis to a times the radius along the frame's Y
+    /// from where the skin starts, its height along Z (rimPoint()) -- its
+    /// material on the side against each normal
+    std::vector<gp_Pln> rims;
     /// A wall's cross break (docs/SheetMetal.md sec 12): the angle its
     /// diagonals bend by, rad, rising along the frame's normal where above 0
     /// and against it where below; 0 for none
@@ -115,6 +121,10 @@ struct PartDesignExport Form
  * it meets, short of any of its limits. Flat, a chosen wall (the root) stays where it is, and every
  * other element moves with the bends between it and the root unrolled.
  */
+/// Where a point of a bend lies on its inner skin unrolled, as its rims
+/// (Element::rims) take it
+PartDesignExport gp_Pnt rimPoint(const CylBend& bend, const gp_Pnt& point);
+
 class PartDesignExport Model
 {
 public:

@@ -1908,6 +1908,44 @@ stored flat and this option do what it was for.
     it should be, the rim square to the sheet), its flat, the section drawn from another line or
     the other way round, an L to a smaller L, an open U, the refusals. `sheet-metal-panels.py`
     (97, +1) the panel's radius.
+- **Built 2026-11-07, the second step's other half: lines that do not run each other's way**
+  (as recommended and taken 2026-11-07: two triangles either side of the shorter diagonal, a
+  shallow bend along it). The builder now works on **rulings**, each from a corner of the profile
+  to one of the section: a pair of lines running one way gives the next ruling at both their
+  ends, a facet; a pair that does not, first its shorter diagonal, then both ends, two
+  triangles. Each face between two rulings is a wall, a triangle's outline its face's half-planes
+  on its inner skin (its sketched side, or the line through its corner the other side's way;
+  where it starts; where it ends) cut from a square about it; each ruling between two walls a
+  bend, as before. The faces round turn together through the whole turn of the outline (a square
+  to one turned 30 deg: corners of 58.2 deg, diagonals of 33.2).
+  - **Where folds meet at a corner of an outline** -- a triangle's corner, between a corner's
+    bend and a diagonal's, or the seam's -- their bends cannot both reach it: the triangle is cut
+    where its two bends' lines cross, and each bend's strip short of the other wall's side. A
+    point s into the strip folds the chord r sin(s / r) across, not s, so the cut's slope across
+    the strip is taken at the least that can be where that side leans back over the strip (R
+    sin(angle) / angle) and the most where it leans away (R + T): straight in the flat, so the
+    flat stays exact, and a small notch in the rim there (`clipBy()`). Without it a corner's bend
+    ran 0.17 past the seam's plane, through the wall beyond (the pieces' volumes, summed and
+    fused, apart by 7.6, then by 5e-6).
+  - **A bend's rims** (`Element::rims`, new): a bend's tube sector runs on along its axis, and at
+    such a corner the next bend's faces lie in it, so the flat laid them through the wrong bend
+    ("does not unroll into a closed outline"). Its strip's edges but its start and end, as planes
+    through its inner skin unrolled (`rimPoint()`: the angle times the radius, so a K given
+    later leaves them), bound what `Model::contains()` gives it. In Python `Rims`, in the file a
+    `rims` attribute, only where there are any.
+  - **The seam** of a closed chain whose first lines do not run one way goes along their
+    diagonal, cut where the two triangles' skins meet as a bend of no radius would, the gap
+    either side, each square to its own: cut where each skin meets the sketched line, Inside, the
+    two overlapped by 7.2.
+  - Lines a right angle or more apart are refused.
+  - A sweep, each valid, one solid, no two pieces overlapping, the flat within 1e-6 of the
+    folded volume: a square to one turned 5, 15, 30 and 40 deg on each side, at radius 3, a
+    hexagon turned 20, a rectangle to one turned, a tall one, one off centre.
+  - `TestSheetMetalLoftedFlange` (28, +5; before, 0 of 5): the turned square Outside and Inside
+    (its sketches on the sheet, its flat straight all round and its volume), a square to a
+    trapezoid, two of its lines running one way, an open line to one across it, the rims back
+    from the file. Straight is now told by the points (a cut across the sheet at a notch is a
+    B-spline of degree 1).
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

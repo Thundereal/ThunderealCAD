@@ -175,6 +175,14 @@ PyObject* PropertySheetModel::getPyObject()
             }
             d.setItem("Limits", limits);
         }
+        if (!e.rims.empty()) {
+            Py::List rims;
+            for (const gp_Pln& plane : e.rims) {
+                rims.append(Py::TupleN(vector(plane.Location().XYZ()),
+                                       vector(plane.Axis().Direction().XYZ())));
+            }
+            d.setItem("Rims", rims);
+        }
         elements.append(d);
     }
     Py::Dict res;
@@ -244,6 +252,9 @@ void PropertySheetModel::Save(Base::Writer& writer) const
         if (!e.limits.empty()) {
             writer.Stream() << " limits=\"" << limitsText(e.limits) << "\"";
         }
+        if (!e.rims.empty()) {
+            writer.Stream() << " rims=\"" << limitsText(e.rims) << "\"";
+        }
         writer.Stream() << "/>\n";
     }
     for (const SheetMetal::Form& f : model.forms) {
@@ -302,6 +313,9 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
         element.before = static_cast<int>(reader.getAttributeAsInteger("before"));
         element.after = static_cast<int>(reader.getAttributeAsInteger("after"));
         element.limits = limits;
+        if (reader.hasAttribute("rims")) {
+            element.rims = limitsOf(reader.getAttribute("rims"));
+        }
         value.elements.push_back(element);
     }
     for (long i = 0; i < formCount; ++i) {
@@ -370,7 +384,8 @@ bool PropertySheetModel::isSame(const Property& other) const
             || !sameFrame(a.frame, b.frame) || !sameFrame(a.bend.frame, b.bend.frame)
             || a.bend.radius != b.bend.radius || a.bend.thickness != b.bend.thickness
             || a.bend.angle != b.bend.angle || a.bend.k != b.bend.k
-            || !sameLimits(a.limits, b.limits) || a.crossBreak != b.crossBreak
+            || !sameLimits(a.limits, b.limits) || !sameLimits(a.rims, b.rims)
+            || a.crossBreak != b.crossBreak
             || !sameFrame(a.cone.frame, b.cone.frame) || a.cone.radius != b.cone.radius
             || a.cone.semiAngle != b.cone.semiAngle || a.cone.thickness != b.cone.thickness
             || a.cone.angle != b.cone.angle || a.cone.k != b.cone.k) {

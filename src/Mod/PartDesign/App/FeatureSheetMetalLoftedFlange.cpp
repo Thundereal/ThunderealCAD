@@ -272,20 +272,42 @@ struct Line
     gp_Dir d;
 };
 
-/// Where two lines in one plane cross
-gp_Pnt crossing(const Line& a, const Line& b)
+/// A convex polygon in a plane cut by a line in it through on, what lies
+/// the way into it from the line kept
+void clipTo(std::vector<gp_Pnt>& poly, const gp_Pnt& on, const gp_Vec& into)
 {
-    const gp_Vec n = gp_Vec(a.d).Crossed(gp_Vec(b.d));
-    const double s = gp_Vec(a.p, b.p).Crossed(gp_Vec(b.d)).Dot(n) / n.SquareMagnitude();
-    return a.p.Translated(gp_Vec(a.d) * s);
+    const double tol = Precision::Confusion();
+    auto d = [&](const gp_Pnt& p) {
+        return gp_Vec(on, p).Dot(into);
+    };
+    std::vector<gp_Pnt> res;
+    for (std::size_t i = 0; i < poly.size(); ++i) {
+        const gp_Pnt &p = poly[i], &q = poly[(i + 1) % poly.size()];
+        const double dp = d(p), dq = d(q);
+        if (dp >= 0) {
+            res.push_back(p);
+        }
+        if ((dp < 0 && dq > 0) || (dp > 0 && dq < 0)) {
+            res.push_back(p.Translated(gp_Vec(p, q) * (dp / (dp - dq))));
+        }
+    }
+    poly.clear();
+    for (const gp_Pnt& p : res) {
+        if (poly.empty() || p.Distance(poly.back()) > tol) {
+            poly.push_back(p);
+        }
+    }
+    if (poly.size() > 1 && poly.front().Distance(poly.back()) <= tol) {
+        poly.pop_back();
+    }
 }
 
-/** Lines to lines: a flat facet, a wall, between each line of the profile
- * and the section's in its place, and a bend where two facets meet. Each
- * facet is its outline on the inner skin through the sheet; each bend its
- * strip in its own flat taken onto its cylinder, its rims there straight
- * from where the facets' rims meet it -- the ends square to the sheet
- * everywhere, so the flat is exact.
+/** Lines to lines: a wall between each line of the profile and the
+ * section's in its place -- a facet, or two triangles -- and a bend at
+ * every fold. Each wall is its outline on the inner skin through the
+ * sheet; each bend its strip in its own flat taken onto its cylinder, its
+ * rims there straight from where the walls' rims meet it -- the ends square
+ * to the sheet everywhere, so the flat is exact.
  */
 struct LinesLoft
 {
@@ -356,56 +378,172 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         }
     }
     for (std::size_t i = 0; i < n; ++i) {
-        if (!a.way(i).IsParallel(b.way(i), angular) || a.way(i).Dot(b.way(i)) < 0) {
+        if (a.way(i).Dot(b.way(i)) <= 0) {
             FC_THROWM(Base::ValueError,
                       "Line " << i + 1
                               << " of the lofted flange's profile and the section's in its "
-                                 "place do not run one way: lofting those is the next step");
+                                 "place run a right angle or more apart");
         }
     }
 
-    // each facet's way along its lines and its normal out, from its inner
+    // The rulings, each from a corner of the profile to one of the
+    // section, where two faces of the sheet meet: lines that run one way
+    // span a facet between them, a pair that does not two triangles either
+    // side of its shorter diagonal
+    struct Ruling
+    {
+        std::size_t p, s;
+    };
+    std::vector<Ruling> rulings {{0, 0}};
+    std::vector<std::size_t> lineOf;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!a.way(i).IsParallel(b.way(i), angular)) {
+            const bool forward = a.at(i).Distance(b.at(i + 1)) <= a.at(i + 1).Distance(b.at(i));
+            rulings.push_back(forward ? Ruling {i, i + 1} : Ruling {i + 1, i});
+            lineOf.push_back(i);
+        }
+        rulings.push_back({i + 1, i + 1});
+        lineOf.push_back(i);
+    }
+
+    // each face between two rulings, flat: its sketched corners (a
+    // triangle's two on one side the same), its normal out, from its inner
     // skin, which is the sketches' less the material's side
     const double off = side == 1 ? T : side == 2 ? T / 2 : 0;
-    std::vector<gp_Dir> way(n), out(n);
-    for (std::size_t i = 0; i < n; ++i) {
-        way[i] = a.way(i);
-        out[i] = gp_Dir(gp_Vec(way[i]).Crossed(gp_Vec(a.at(i), b.at(i))) * outward);
-    }
-    auto onInner = [&](const gp_Pnt& p, std::size_t i) {
-        return p.Translated(gp_Vec(out[i]) * -off);
-    };
-
-    // where each facet starts and ends on its inner skin, and the bends
-    std::vector<Line> start(n), end(n);
-    struct Corner
+    struct Face
     {
-        SheetMetal::CylBend bend;
-        bool convex = true;
-        std::size_t at = 0;
+        gp_Pnt pa, pb, sa, sb, centre;
+        gp_Dir normal;
+        std::size_t line = 0;
+        gp_Pnt inner(const gp_Pnt& p, double off) const
+        {
+            return p.Translated(gp_Vec(normal) * -off);
+        }
+        /// the way into the face from a line of it through p along d
+        gp_Dir into(const gp_Pnt& p, const gp_Dir& d) const
+        {
+            return across(gp_Vec(p, centre), d);
+        }
     };
-    std::vector<Corner> corners;
-    for (std::size_t j = 1; j < (a.closed ? n + 1 : n); ++j) {
-        const std::size_t c = j % n, ia = (c + n - 1) % n, ib = c;
-        const gp_Dir fold(gp_Vec(a.at(c), b.at(c)));
-        auto inFacet = [&](const gp_Dir& e) {
-            return gp_Dir(gp_Vec(e) - gp_Vec(fold) * e.Dot(fold));
-        };
-        const gp_Dir ta = inFacet(way[ia]), tb = inFacet(way[ib]);
+    const std::size_t m = rulings.size() - 1;
+    std::vector<Face> faces(m);
+    for (std::size_t j = 0; j < m; ++j) {
+        Face& f = faces[j];
+        f.pa = a.at(rulings[j].p);
+        f.pb = a.at(rulings[j + 1].p);
+        f.sa = b.at(rulings[j].s);
+        f.sb = b.at(rulings[j + 1].s);
+        f.centre = gp_Pnt((f.pa.XYZ() + f.pb.XYZ() + f.sa.XYZ() + f.sb.XYZ()) / 4);
+        f.normal = gp_Dir(gp_Vec(f.pa, f.sb).Crossed(gp_Vec(f.pb, f.sa)) * outward);
+        f.line = lineOf[j];
+    }
+
+    // The walls, each a face on its inner skin cut by four lines: the
+    // sketched lines (a triangle's corner, the line through it the other
+    // one's way) and where it starts and ends, each with the way into it.
+    // A closed chain's seam: across the middle of the first face where its
+    // lines run one way, the first wall its half after the seam and the
+    // last its half before; else along the first line's diagonal.
+    struct Bound
+    {
+        Line line;
+        gp_Dir into;
+        std::string role;
+    };
+    struct Wall
+    {
+        std::size_t face = 0;
+        Bound bound[4];  // the profile's side, the end, the section's, the start
+        std::vector<gp_Pnt> outline;
+        /// the outline along its end and its start, from the profile's side
+        gp_Pnt end[2], start[2];
+        int index = -1;
+    };
+    auto wallOf = [&](std::size_t j) {
+        const Face& f = faces[j];
+        Wall w;
+        w.face = j;
+        const gp_Dir p = f.pa.Distance(f.pb) > tol ? gp_Dir(gp_Vec(f.pa, f.pb))
+                                                   : gp_Dir(gp_Vec(f.sa, f.sb));
+        const gp_Dir s = f.sa.Distance(f.sb) > tol ? gp_Dir(gp_Vec(f.sa, f.sb)) : p;
+        w.bound[0] = {{f.inner(f.pa, off), p}, f.into(f.pa, p), "Rim1"};
+        w.bound[2] = {{f.inner(f.sa, off), s}, f.into(f.sa, s), "Rim2"};
+        // open ends where the sketches' do, square to the sheet
+        const gp_Dir from(gp_Vec(f.pa, f.sa)), to(gp_Vec(f.pb, f.sb));
+        w.bound[3] = {{f.inner(f.pa, off), from}, f.into(f.pa, from), "Start"};
+        w.bound[1] = {{f.inner(f.pb, off), to}, f.into(f.pb, to), "End"};
+        return w;
+    };
+    // Where two faces meet, on the skins the sheet turns about: their inner
+    // ones where it turns in (toward the side its inner skin faces), their
+    // outer ones where it turns out. The point is on the sketched fold's
+    // plane square to it; turnsIn says which.
+    auto sharpOf = [&](const Face& fa, const Face& fb, bool& turnsIn) {
+        const gp_Dir fold(gp_Vec(fb.pa, fb.sa));
+        turnsIn = fb.into(fb.pa, fold).Dot(fa.normal) < 0;
+        const gp_Vec na(fa.normal), nb(fb.normal);
+        const double skin = turnsIn ? -off : T - off;
+        return fb.pa.Translated((na + nb) * (skin / (1 + na.Dot(nb))));
+    };
+    std::vector<Wall> list;
+    if (!a.closed) {
+        for (std::size_t j = 0; j < m; ++j) {
+            list.push_back(wallOf(j));
+        }
+    }
+    else if (m > 1 && lineOf[1] == 0) {
+        // along the diagonal of the first line's triangles, where their
+        // skins meet as a bend of no radius would, the gap either side of
+        // it, each cut square to its own
+        for (std::size_t j = 1; j < m; ++j) {
+            list.push_back(wallOf(j));
+        }
+        list.push_back(wallOf(0));
+        bool in = true;
+        const gp_Pnt sharp = sharpOf(faces[0], faces[1], in);
+        for (Wall* w : {&list.front(), &list.back()}) {
+            Bound& seam = w->bound[w == &list.front() ? 3 : 1];
+            const gp_Vec n(faces[w->face].normal);
+            seam.line.p = (in ? sharp : sharp.Translated(n * -T))
+                              .Translated(gp_Vec(seam.into) * (gap / 2));
+            seam.role = "Seam";
+        }
+    }
+    else {
+        const Face& f = faces[0];
+        const gp_Pnt mp = f.inner(f.pa.Translated(gp_Vec(f.pa, f.pb) / 2), off);
+        const gp_Pnt ms = f.inner(f.sa.Translated(gp_Vec(f.sa, f.sb) / 2), off);
+        const gp_Dir g(gp_Vec(mp, ms));
+        const gp_Dir w = across(gp_Vec(f.pa, f.pb), g);
+        list.push_back(wallOf(0));
+        list.front().bound[3] = {{mp.Translated(gp_Vec(w) * (gap / 2)), g}, w, "Seam"};
+        for (std::size_t j = 1; j < m; ++j) {
+            list.push_back(wallOf(j));
+        }
+        list.push_back(wallOf(0));
+        list.back().bound[1] = {{mp.Translated(gp_Vec(w) * (-gap / 2)), g}, w.Reversed(), "Seam"};
+    }
+
+    // a bend between each two walls in turn, where their faces meet
+    std::vector<SheetMetal::CylBend> folds;
+    std::vector<bool> convex;
+    for (std::size_t j = 0; j + 1 < list.size(); ++j) {
+        Wall &wa = list[j], &wb = list[j + 1];
+        const Face &fa = faces[wa.face], &fb = faces[wb.face];
+        const gp_Dir fold(gp_Vec(fb.pa, fb.sa));
+        // toward the fold in the one, from it in the other
+        const gp_Dir ta = fa.into(fa.pb, fold).Reversed(), tb = fb.into(fb.pa, fold);
         const double turn = std::atan2(gp_Vec(ta).Crossed(gp_Vec(tb)).Magnitude(), ta.Dot(tb));
         if (turn > std::numbers::pi - 1e-6) {
             THROWM(Base::ValueError, "The lofted flange cannot turn back on itself");
         }
-        Corner corner;
-        corner.at = c;
-        // turning in, its inner skin the facets'; out, their outer one
-        corner.convex = tb.Dot(out[ia]) < 0;
-        const gp_Vec na(out[ia]), nb(out[ib]);
-        const double skin = corner.convex ? -off : T - off;
-        const gp_Vec ua = corner.convex ? -na : na, ub = corner.convex ? -nb : nb;
-        const gp_Pnt sharp = a.at(c).Translated((na + nb) * (skin / (1 + na.Dot(nb))));
+        // turning in, its inner skin the faces'; out, their outer one
+        bool in = true;
+        const gp_Pnt sharp = sharpOf(fa, fb, in);
+        const gp_Vec na(fa.normal), nb(fb.normal);
+        const gp_Vec ua = in ? -na : na, ub = in ? -nb : nb;
         const gp_Pnt centre = sharp.Translated((ua + ub) * (radius / (1 + ua.Dot(ub))));
-        SheetMetal::CylBend& bend = corner.bend;
+        SheetMetal::CylBend bend;
         bend.frame = gp_Ax3(centre, gp_Dir((-ua).Crossed(gp_Vec(ta))), gp_Dir(-ua));
         bend.radius = radius;
         bend.thickness = T;
@@ -413,104 +551,175 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         bend.k = k(turn, radius);
         const gp_Pnt endA = centre.Translated(ua * -radius);
         const gp_Pnt startB = centre.Translated(ub * -radius);
-        end[ia] = {corner.convex ? endA : endA.Translated(na * -T), fold};
-        start[ib] = {corner.convex ? startB : startB.Translated(nb * -T), fold};
-        corners.push_back(corner);
+        wa.bound[1] = {{in ? endA : endA.Translated(na * -T), fold}, ta.Reversed(), "End"};
+        wb.bound[3] = {{in ? startB : startB.Translated(nb * -T), fold}, tb, "Start"};
+        folds.push_back(bend);
+        convex.push_back(in);
     }
 
-    // the walls: a closed chain's first facet in two, either side of the
-    // seam, the first wall its second half and the last its first
-    struct Wall
-    {
-        std::size_t facet;
-        Line from, to;
-        bool seamFrom = false, seamTo = false;
-        int index = -1;
-        gp_Pnt c[4];
-    };
-    std::vector<Wall> list;
-    if (a.closed) {
-        const gp_Pnt mp = onInner(a.at(0).Translated(gp_Vec(a.at(0), a.at(1)) / 2), 0);
-        const gp_Pnt ms = onInner(b.at(0).Translated(gp_Vec(b.at(0), b.at(1)) / 2), 0);
-        const gp_Dir g(gp_Vec(mp, ms));
-        const gp_Dir w = across(gp_Vec(way[0]), g);
-        const Line seamFrom {mp.Translated(gp_Vec(w) * (gap / 2)), g};
-        const Line seamTo {mp.Translated(gp_Vec(w) * (-gap / 2)), g};
-        list.push_back({0, seamFrom, end[0], true, false});
-        for (std::size_t i = 1; i < n; ++i) {
-            list.push_back({i, start[i], end[i]});
-        }
-        list.push_back({0, start[0], seamTo, false, true});
-    }
-    else {
-        start[0] = {onInner(a.at(0), 0), gp_Dir(gp_Vec(a.at(0), b.at(0)))};
-        end[n - 1] = {onInner(a.at(n), n - 1), gp_Dir(gp_Vec(a.at(n), b.at(n)))};
-        for (std::size_t i = 0; i < n; ++i) {
-            list.push_back({i, start[i], end[i]});
-        }
+    // each wall's outline: a square about its face cut by its four lines
+    double size = 10 * (T + radius + gap);
+    for (const gp_Pnt& p : a.points) {
+        size += p.Distance(b.points.front());
     }
     for (std::size_t j = 0; j < list.size(); ++j) {
         Wall& wall = list[j];
-        const std::size_t i = wall.facet;
-        const Line rim1 {onInner(a.at(i), i), way[i]}, rim2 {onInner(b.at(i), i), way[i]};
-        wall.c[0] = crossing(rim1, wall.from);
-        wall.c[1] = crossing(rim1, wall.to);
-        wall.c[2] = crossing(rim2, wall.to);
-        wall.c[3] = crossing(rim2, wall.from);
-        if (gp_Vec(wall.c[0], wall.c[1]).Dot(gp_Vec(way[i])) < tol
-            || gp_Vec(wall.c[3], wall.c[2]).Dot(gp_Vec(way[i])) < tol) {
+        const Face& f = faces[wall.face];
+        const gp_Pnt c = f.inner(f.centre, off);
+        const gp_Vec x = gp_Vec(wall.bound[0].line.d) * size;
+        const gp_Vec y = gp_Vec(f.normal).Crossed(gp_Vec(wall.bound[0].line.d)) * size;
+        std::vector<gp_Pnt> poly {c.Translated(-x - y), c.Translated(x - y), c.Translated(x + y),
+                                  c.Translated(-x + y)};
+        for (const Bound& bound : wall.bound) {
+            clipTo(poly, bound.line.p, gp_Vec(bound.into));
+        }
+        // its run along its end and its start, from the profile's side
+        auto run = [&](const Bound& bound, gp_Pnt res[2]) {
+            bool any = false;
+            double lo = 0, hi = 0;
+            for (const gp_Pnt& p : poly) {
+                const gp_Vec v(bound.line.p, p);
+                if (std::abs(v.Dot(gp_Vec(bound.into))) > 1e-6) {
+                    continue;
+                }
+                const double t = v.Dot(gp_Vec(bound.line.d));
+                if (!any || t < lo) {
+                    lo = t;
+                    res[0] = p;
+                }
+                if (!any || t > hi) {
+                    hi = t;
+                    res[1] = p;
+                }
+                any = true;
+            }
+            return any;
+        };
+        if (poly.size() < 3 || !run(wall.bound[1], wall.end) || !run(wall.bound[3], wall.start)) {
             FC_THROWM(Base::ValueError,
-                      "Line " << i + 1 << " of the lofted flange is too short for its bends");
+                      "Line " << f.line + 1 << " of the lofted flange is too short for its bends");
         }
+        wall.outline = poly;
+
         const std::string name = "Wall" + std::to_string(walls + 1 + static_cast<int>(j));
-        wall.index = model.addWall(name, gp_Ax3(wall.c[0], out[i], way[i]));
-        TopoShape face = SheetMetal::namedFace(
-            {{SheetMetal::lineEdge(wall.c[0], wall.c[1]), name + "Rim1"},
-             {SheetMetal::lineEdge(wall.c[1], wall.c[2]), name + (wall.seamTo ? "Seam" : "End")},
-             {SheetMetal::lineEdge(wall.c[2], wall.c[3]), name + "Rim2"},
-             {SheetMetal::lineEdge(wall.c[3], wall.c[0]),
-              name + (wall.seamFrom ? "Seam" : "Start")}},
-            name);
-        pieces.push_back(TopoShape(0, hasher).makEPrism(face, gp_Vec(out[i]) * T));
-        // the seam's walls lie on one plane: each stops at its side of it
-        if (wall.seamFrom) {
-            model.elements[wall.index].limits.emplace_back(
-                wall.from.p, across(gp_Vec(way[i]), wall.from.d).Reversed());
+        wall.index = model.addWall(name, gp_Ax3(poly.front(), f.normal, wall.bound[0].line.d));
+        std::vector<std::pair<TopoDS_Edge, std::string>> edges;
+        for (std::size_t i = 0; i < poly.size(); ++i) {
+            const gp_Pnt &p = poly[i], &q = poly[(i + 1) % poly.size()];
+            const gp_Pnt mid = p.Translated(gp_Vec(p, q) / 2);
+            std::string role;
+            for (const Bound& bound : wall.bound) {
+                if (std::abs(gp_Vec(bound.line.p, mid).Dot(gp_Vec(bound.into))) <= 1e-6) {
+                    role = bound.role;
+                    break;
+                }
+            }
+            edges.emplace_back(SheetMetal::lineEdge(p, q), name + role);
         }
-        if (wall.seamTo) {
-            model.elements[wall.index].limits.emplace_back(wall.to.p,
-                                                           across(gp_Vec(way[i]), wall.to.d));
+        pieces.push_back(
+            TopoShape(0, hasher).makEPrism(SheetMetal::namedFace(edges, name),
+                                           gp_Vec(f.normal) * T));
+        // a seam's walls stop at their side of it, lying on one plane
+        for (const Bound& bound : {wall.bound[1], wall.bound[3]}) {
+            if (bound.role == "Seam") {
+                model.elements[wall.index].limits.emplace_back(bound.line.p,
+                                                               bound.into.Reversed());
+            }
         }
     }
 
-    // each bend's strip in its own flat, its rims straight between the
-    // facets' where they meet it, on its inner skin
-    for (std::size_t j = 0; j < corners.size(); ++j) {
-        const Corner& corner = corners[j];
-        const SheetMetal::CylBend& bend = corner.bend;
-        const std::size_t before = j, after = j + 1;
-        const Wall &wa = list[before], &wb = list[after];
-        const gp_Vec liftA = corner.convex ? gp_Vec() : gp_Vec(out[wa.facet]) * T;
-        const gp_Vec liftB = corner.convex ? gp_Vec() : gp_Vec(out[wb.facet]) * T;
+    // Each bend's strip in its own flat, on its inner skin: its rims
+    // straight between the walls' where they meet it, short of where each
+    // wall ends at its other side -- where two folds meet at a corner of an
+    // outline, or a fold and the seam, what lies past that is the other's
+    for (std::size_t j = 0; j < folds.size(); ++j) {
+        const SheetMetal::CylBend& bend = folds[j];
+        const Wall &wa = list[j], &wb = list[j + 1];
+        const gp_Vec liftA = convex[j] ? gp_Vec() : gp_Vec(faces[wa.face].normal) * T;
+        const gp_Vec liftB = convex[j] ? gp_Vec() : gp_Vec(faces[wb.face].normal) * T;
         const gp_Pnt o = bend.frame.Location();
         const gp_Vec x(bend.frame.XDirection()), y(bend.frame.YDirection()),
             z(bend.frame.Direction());
-        auto flat = [&](double turn, const gp_Pnt& p) {
-            return o.Translated(x * radius + y * (turn * bend.neutral()) + z * gp_Vec(o, p).Dot(z));
+        const double length = bend.angle * bend.neutral();
+        auto flat = [&](double along, const gp_Pnt& p) {
+            return o.Translated(x * radius + y * along + z * gp_Vec(o, p).Dot(z));
         };
-        BRepBuilderAPI_MakePolygon strip(flat(0, wa.c[1].Translated(liftA)),
-                                         flat(bend.angle, wb.c[0].Translated(liftB)),
-                                         flat(bend.angle, wb.c[3].Translated(liftB)),
-                                         flat(0, wa.c[2].Translated(liftA)),
-                                         true);
-        const TopoDS_Face face = BRepBuilderAPI_MakeFace(strip.Wire(), true).Face();
-        const TopoDS_Shape solid = SheetMetal::bendSolid(bend, face, radius, radius + T);
+        std::vector<gp_Pnt> strip {flat(0, wa.end[0].Translated(liftA)),
+                                   flat(length, wb.start[0].Translated(liftB)),
+                                   flat(length, wb.start[1].Translated(liftB)),
+                                   flat(0, wa.end[1].Translated(liftA))};
+        // The wall before lies flat where it is, the one after unbent. A
+        // point s into the strip folded is the chord r sin(s / r) across
+        // from its line, not s: so that it stays short of the wall's other
+        // side however far round it is, the cut's slope across the strip
+        // is taken at the least that can be where the side leans back over
+        // the strip (the inner skin, sin(angle) / angle of it), at the most
+        // where it leans away (the outer) -- straight in the flat still
+        const gp_Trsf unbend = bend.unbend();
+        auto clipBy = [&](const Bound& bound, const gp_Vec& lift, const gp_Trsf& move,
+                          double line, const gp_Vec& into) {
+            const gp_Pnt p = bound.line.p.Translated(lift).Transformed(move);
+            const gp_Vec d = gp_Vec(bound.line.d).Transformed(move);
+            const gp_Vec w = gp_Vec(bound.into).Transformed(move);
+            const double dy = d.Dot(y);
+            if (std::abs(dy) < angular) {
+                clipTo(strip, p, w);
+                return;
+            }
+            const gp_Pnt at = p.Translated(d * ((line - gp_Vec(o, p).Dot(y)) / dy));
+            const double across = w.Dot(into);
+            const double reach = across < 0 ? radius * std::sin(bend.angle) / bend.angle
+                                            : radius + T;
+            clipTo(strip, at, z * w.Dot(z) + into * (across * reach / bend.neutral()));
+        };
+        clipBy(wa.bound[3], liftA, gp_Trsf(), 0, -y);
+        clipBy(wb.bound[1], liftB, unbend, length, y);
         const std::string name = "Bend" + std::to_string(bends + 1 + static_cast<int>(j));
+        BRepBuilderAPI_MakePolygon outline;
+        for (const gp_Pnt& p : strip) {
+            outline.Add(p);
+        }
+        outline.Close();
+        if (strip.size() < 3 || !outline.IsDone()) {
+            FC_THROWM(Base::RuntimeError, "The lofted flange's " << name << " could not be made");
+        }
+        const TopoDS_Face face = BRepBuilderAPI_MakeFace(outline.Wire(), true).Face();
+        const TopoDS_Shape solid = SheetMetal::bendSolid(bend, face, radius, radius + T);
         if (solid.IsNull()) {
             FC_THROWM(Base::RuntimeError, "The lofted flange's " << name << " could not be made");
         }
         pieces.emplace_back(solid);
-        model.addBend(name, bend, wa.index, wb.index);
+        const int index = model.addBend(name, bend, wa.index, wb.index);
+
+        // Its rims, each edge of the strip but its start and its end,
+        // unrolled (rimPoint()), so that it owns its own faces only: where
+        // folds meet at a corner, the next bend's lie in its tube sector
+        auto along = [&](const gp_Pnt& p) {
+            return gp_Vec(o, p).Dot(y);
+        };
+        auto unrolled = [&](const gp_Pnt& p) {
+            return p.Translated(y * (along(p) * (radius / bend.neutral() - 1)));
+        };
+        gp_XYZ middle;
+        for (const gp_Pnt& p : strip) {
+            middle += unrolled(p).XYZ();
+        }
+        const gp_Pnt inside(middle / static_cast<double>(strip.size()));
+        for (std::size_t i = 0; i < strip.size(); ++i) {
+            const gp_Pnt &p = strip[i], &q = strip[(i + 1) % strip.size()];
+            const bool startOrEnd =
+                (std::abs(along(p)) <= tol && std::abs(along(q)) <= tol)
+                || (std::abs(along(p) - length) <= tol && std::abs(along(q) - length) <= tol);
+            if (startOrEnd) {
+                continue;
+            }
+            const gp_Pnt p0 = unrolled(p), p1 = unrolled(q);
+            gp_Dir normal(x.Crossed(gp_Vec(p0, p1)));
+            if (gp_Vec(p0, inside).Dot(gp_Vec(normal)) > 0) {
+                normal.Reverse();
+            }
+            model.elements[index].rims.emplace_back(p0, normal);
+        }
     }
 }
 

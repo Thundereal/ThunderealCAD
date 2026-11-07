@@ -31,9 +31,12 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepGProp.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
+#include <ElCLib.hxx>
+#include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <TopExp.hxx>
 #include <TopoDS.hxx>
@@ -80,6 +83,14 @@ SheetMetalLoftedFlange::SheetMetalLoftedFlange()
                       App::Prop_None,
                       "The bends' inner radius, when not the rule's");
     BendRadius.setStatus(App::Property::ReadOnly, true);
+    ADD_PROPERTY_TYPE(Segments,
+                      (24),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "Round to lines: the chords the round is cut into, all round (an arc its "
+                      "share of them)");
+    static const App::PropertyIntegerConstraint::Constraints segmentRange = {3, 1000, 1};
+    Segments.setConstraints(&segmentRange);
     // A refined result would merge faces of two elements
     Refine.setValue(false);
     Refine.setStatus(App::Property::Hidden, true);
@@ -100,7 +111,7 @@ SheetMetalLoftedFlange::SheetMetalLoftedFlange()
 short SheetMetalLoftedFlange::mustExecute() const
 {
     if (Section.isTouched() || MaterialSide.isTouched() || UseRuleRadius.isTouched()
-        || BendRadius.isTouched()) {
+        || BendRadius.isTouched() || Segments.isTouched()) {
         return 1;
     }
     return ProfileBased::mustExecute();
@@ -255,6 +266,29 @@ Chain chainOf(const TopoShape& shape, const char* what)
     return res;
 }
 
+/// A round cut into chords: a circle's segments all round from its X, an
+/// arc's share of them from its start the way it turns
+Chain chainOf(const Outline& round, int segments)
+{
+    Chain res;
+    res.closed = round.closed;
+    const gp_Circ& c = round.circle;
+    if (round.closed) {
+        for (int i = 0; i < segments; ++i) {
+            res.points.push_back(ElCLib::Value(2 * std::numbers::pi * i / segments, c));
+        }
+        return res;
+    }
+    const int count =
+        std::max(1, static_cast<int>(std::ceil(segments * round.sweep / (2 * std::numbers::pi)
+                                               - 1e-9)));
+    const double from = ElCLib::Parameter(c, round.start);
+    for (int i = 0; i <= count; ++i) {
+        res.points.push_back(ElCLib::Value(from + round.sweep * i / count, c));
+    }
+    return res;
+}
+
 /// The area a chain closes, about the axis: above 0 where it goes round
 /// counterclockwise
 double areaAbout(const std::vector<gp_Pnt>& p, const gp_Dir& axis)
@@ -319,6 +353,10 @@ struct LinesLoft
     int walls = 0;
     int bends = 0;
 
+    /// which of the two is lines where the other is a round cut into
+    /// chords: 0 the profile, 1 the section; -1 both lines
+    int lines = -1;
+
     void build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model& model,
                std::vector<TopoShape>& pieces, const App::StringHasherRef& hasher) const;
 };
@@ -343,7 +381,7 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         THROWM(Base::ValueError, "The lofted flange's two outlines are one closed, the other open");
     }
     const std::size_t n = a.lines();
-    if (b.lines() != n) {
+    if (lines < 0 && b.lines() != n) {
         FC_THROWM(Base::ValueError,
                   "The lofted flange's two outlines have " << n << " and " << b.lines()
                                                            << " lines: they take as many");
@@ -363,7 +401,7 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         }
         // the section's line running the profile's first one's way first
         std::size_t best = 0;
-        for (std::size_t j = 1; j < n; ++j) {
+        for (std::size_t j = 1; lines < 0 && j < n; ++j) {
             if (b.way(j).Dot(a.way(0)) > b.way(best).Dot(a.way(0))) {
                 best = j;
             }
@@ -372,12 +410,23 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
     }
     else {
         outward = areaAbout(a.points, axis) < -tol ? -1 : 1;
-        const gp_Dir back(gp_Vec(b.points.back(), b.points[b.points.size() - 2]));
-        if (back.Dot(a.way(0)) > b.way(0).Dot(a.way(0))) {
+        bool back = false;
+        if (lines < 0) {
+            const gp_Dir way(gp_Vec(b.points.back(), b.points[b.points.size() - 2]));
+            back = way.Dot(a.way(0)) > b.way(0).Dot(a.way(0));
+        }
+        else {
+            // the round from its end nearer the lines' start
+            back = a.points.front().Distance(b.points.back())
+                       + a.points.back().Distance(b.points.front())
+                   < a.points.front().Distance(b.points.front())
+                         + a.points.back().Distance(b.points.back());
+        }
+        if (back) {
             std::reverse(b.points.begin(), b.points.end());
         }
     }
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; lines < 0 && i < n; ++i) {
         if (a.way(i).Dot(b.way(i)) <= 0) {
             FC_THROWM(Base::ValueError,
                       "Line " << i + 1
@@ -394,16 +443,77 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
     {
         std::size_t p, s;
     };
-    std::vector<Ruling> rulings {{0, 0}};
+    std::vector<Ruling> rulings;
     std::vector<std::size_t> lineOf;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (!a.way(i).IsParallel(b.way(i), angular)) {
-            const bool forward = a.at(i).Distance(b.at(i + 1)) <= a.at(i + 1).Distance(b.at(i));
-            rulings.push_back(forward ? Ruling {i, i + 1} : Ruling {i + 1, i});
+    auto runsWith = [&](std::size_t p, std::size_t s) {
+        return a.way(p).IsParallel(b.way(s), angular) && a.way(p).Dot(b.way(s)) > 0;
+    };
+    if (lines < 0) {
+        rulings.push_back({0, 0});
+        for (std::size_t i = 0; i < n; ++i) {
+            if (!runsWith(i, i)) {
+                const bool forward =
+                    a.at(i).Distance(b.at(i + 1)) <= a.at(i + 1).Distance(b.at(i));
+                rulings.push_back(forward ? Ruling {i, i + 1} : Ruling {i + 1, i});
+                lineOf.push_back(i);
+            }
+            rulings.push_back({i + 1, i + 1});
             lineOf.push_back(i);
         }
-        rulings.push_back({i + 1, i + 1});
-        lineOf.push_back(i);
+    }
+    else {
+        // Round to lines: from the lines' first corner and the round's
+        // nearest to it, each next ruling the shorter of the two -- a step
+        // along both where a chord runs a line's way, a facet
+        const Chain& l = lines == 0 ? a : b;
+        const Chain& r = lines == 0 ? b : a;
+        std::size_t near = 0;
+        for (std::size_t i = 1; l.closed && i < r.points.size(); ++i) {
+            if (r.points[i].Distance(l.points[0]) < r.points[near].Distance(l.points[0])) {
+                near = i;
+            }
+        }
+        std::size_t p = lines == 0 ? 0 : near, s = lines == 0 ? near : 0;
+        const std::size_t endP = p + a.lines(), endS = s + b.lines();
+        rulings.push_back({p, s});
+        while (p < endP || s < endS) {
+            const std::size_t line = (lines == 0 ? p : s) % l.lines();
+            if (p < endP && s < endS && runsWith(p, s)) {
+                ++p;
+                ++s;
+            }
+            else if (p == endP) {
+                ++s;
+            }
+            else if (s == endS) {
+                ++p;
+            }
+            else if (a.at(p + 1).Distance(b.at(s)) <= a.at(p).Distance(b.at(s + 1))) {
+                ++p;
+            }
+            else {
+                ++s;
+            }
+            rulings.push_back({p, s});
+            lineOf.push_back(line);
+        }
+        if (a.closed) {
+            // the first line's face first, for the seam across it
+            const std::size_t m = lineOf.size();
+            std::size_t first = 0;
+            for (std::size_t j = 0; j < m; ++j) {
+                const std::size_t from = lines == 0 ? rulings[j].p : rulings[j].s;
+                const std::size_t to = lines == 0 ? rulings[j + 1].p : rulings[j + 1].s;
+                if (from % l.lines() == 0 && to != from) {
+                    first = j;
+                    break;
+                }
+            }
+            rulings.pop_back();
+            std::rotate(rulings.begin(), rulings.begin() + static_cast<long>(first), rulings.end());
+            std::rotate(lineOf.begin(), lineOf.begin() + static_cast<long>(first), lineOf.end());
+            rulings.push_back(rulings.front());
+        }
     }
 
     // each face between two rulings, flat: its sketched corners (a
@@ -514,7 +624,8 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         const gp_Pnt mp = f.inner(f.pa.Translated(gp_Vec(f.pa, f.pb) / 2), off);
         const gp_Pnt ms = f.inner(f.sa.Translated(gp_Vec(f.sa, f.sb) / 2), off);
         const gp_Dir g(gp_Vec(mp, ms));
-        const gp_Dir w = across(gp_Vec(f.pa, f.pb), g);
+        const gp_Dir w =
+            across(f.pa.Distance(f.pb) > tol ? gp_Vec(f.pa, f.pb) : gp_Vec(f.sa, f.sb), g);
         list.push_back(wallOf(0));
         list.front().bound[3] = {{mp.Translated(gp_Vec(w) * (gap / 2)), g}, w, "Seam"};
         for (std::size_t j = 1; j < m; ++j) {
@@ -619,12 +730,21 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         pieces.push_back(
             TopoShape(0, hasher).makEPrism(SheetMetal::namedFace(edges, name),
                                            gp_Vec(f.normal) * T));
-        // a seam's walls stop at their side of it, lying on one plane
-        for (const Bound& bound : {wall.bound[1], wall.bound[3]}) {
-            if (bound.role == "Seam") {
-                model.elements[wall.index].limits.emplace_back(bound.line.p,
-                                                               bound.into.Reversed());
+        // Each stops at its outline, square to it: a seam's walls lie on
+        // one plane, and where folds meet at a corner the next faces lie
+        // in its slab, on its side of its own bends
+        gp_XYZ middle;
+        for (const gp_Pnt& p : poly) {
+            middle += p.XYZ();
+        }
+        const gp_Pnt inside(middle / static_cast<double>(poly.size()));
+        for (std::size_t i = 0; i < poly.size(); ++i) {
+            const gp_Pnt &p = poly[i], &q = poly[(i + 1) % poly.size()];
+            gp_Dir out(gp_Vec(p, q).Crossed(gp_Vec(f.normal)));
+            if (gp_Vec(p, inside).Dot(gp_Vec(out)) > 0) {
+                out.Reverse();
             }
+            model.elements[wall.index].limits.emplace_back(p, out);
         }
     }
 
@@ -765,12 +885,8 @@ App::DocumentObjectExecReturn* SheetMetalLoftedFlange::execute()
         const bool linesA = allLines(profile), linesB = allLines(section);
         TopoShape tool;
         if (linesA || linesB) {
-            if (!linesA || !linesB) {
-                THROWM(Base::ValueError,
-                       "The lofted flange's two outlines are one lines, the other round: "
-                       "lofting those is the next step");
-            }
             LinesLoft loft;
+            loft.lines = linesA && linesB ? -1 : linesA ? 0 : 1;
             loft.thickness = thickness;
             loft.radius = bendRadius(*rule, UseRuleRadius, BendRadius);
             if (loft.radius <= 0.0) {
@@ -787,7 +903,12 @@ App::DocumentObjectExecReturn* SheetMetalLoftedFlange::execute()
             const Base::Vector3d sketchNormal = getProfileNormal();
             gp_Vec normal(sketchNormal.x, sketchNormal.y, sketchNormal.z);
             normal.Transform(invObjLoc.Transformation());
-            const Chain from = chainOf(profile, "profile"), to = chainOf(section, "section");
+            // a round cut into chords
+            const int segments = Segments.getValue();
+            const Chain from = linesA ? chainOf(profile, "profile")
+                                      : chainOf(roundOf(profile, "profile"), segments);
+            const Chain to = linesB ? chainOf(section, "section")
+                                    : chainOf(roundOf(section, "section"), segments);
             if (from.closed && loft.gap < Precision::Confusion()) {
                 THROWM(Base::ValueError,
                        "A lofted flange all round needs the rule's Gap for its seam");
@@ -795,6 +916,22 @@ App::DocumentObjectExecReturn* SheetMetalLoftedFlange::execute()
             std::vector<TopoShape> pieces;
             loft.build(from, to, gp_Dir(normal), model, pieces, hasher);
             tool = getSolid(TopoShape(0, hasher).makEFuse(pieces));
+            // Pieces that overlap make one solid still, but not a sheet: a
+            // thick sheet cannot come to a point inside it, where folds of
+            // round to lines meet at a corner on the material's side
+            double sum = 0;
+            for (const TopoShape& piece : pieces) {
+                GProp_GProps props;
+                BRepGProp::VolumeProperties(piece.getShape(), props);
+                sum += props.Mass();
+            }
+            GProp_GProps props;
+            BRepGProp::VolumeProperties(tool.getShape(), props);
+            if (sum - props.Mass() > 1e-6 * sum) {
+                THROWM(Base::ValueError,
+                       "The lofted flange's sheet runs into itself where its folds meet at a "
+                       "corner: put the material on the other side, or round the corner");
+            }
         }
         else {
             Outline a = roundOf(profile, "profile");

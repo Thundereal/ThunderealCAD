@@ -48,6 +48,11 @@ namespace PartDesign
  * chains leave a seam the rule's Gap wide across the middle of the
  * profile's first line, or along its diagonal.
  *
+ * One round and the other lines, the round is cut into Segments chords all
+ * round (its share of them for an arc) and lofted to the lines as lines
+ * are, each ruling the shorter of the two next: a fan of triangles from
+ * each corner to its share of the round, a triangle on each line.
+ *
  * The ends are cut square to the sheet, so they lie flat square to the
  * blank, and the flat is exact.
  */
@@ -67,6 +72,8 @@ public:
     /// Lines to lines: bend at the rule's radius; off, at BendRadius
     App::PropertyBool UseRuleRadius;
     App::PropertyLength BendRadius;
+    /// Round to lines: the chords the round is cut into, all round
+    App::PropertyIntegerConstraint Segments;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;

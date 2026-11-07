@@ -1946,6 +1946,36 @@ stored flat and this option do what it was for.
     trapezoid, two of its lines running one way, an open line to one across it, the rims back
     from the file. Straight is now told by the points (a cut across the sheet at a notch is a
     B-spline of degree 1).
+- **Built 2026-11-07, the third step, mixed: round to lines** (as recommended and taken
+  2026-11-07: faceted with a count where not truly conical). One outline a circle or an arc, the
+  other a chain of lines: the round is cut into `Segments` chords all round (24 by default, 3 to
+  1000; an arc its share of them, at least one), corners on it from its X (a circle) or its
+  start (an arc), and lofted to the lines as lines are, by rulings: from the lines' first corner
+  and the round's nearest to it, each next ruling the shorter of the two, a step along both where
+  a chord runs a line's way (a facet). A square to a round so has a fan of six triangles from
+  each corner to its quarter of the round and a triangle on each line, a bend of the rule's
+  radius at every fold, the round's rim the chords within their sagitta of it. The seam: across
+  the middle of the first line, its triangle in two on one plane (its apex on the round). Two
+  open ones: from the round's end nearer the lines' start, no seam.
+  - **Each wall stops at its outline** (a limit square to it at every edge, for every lofted
+    wall): at a fan's corner the next triangles' faces lie in a wall's slab on its side of its
+    own bends, and the flat laid them through it.
+  - **A sheet that runs into itself is refused**: the pieces' volumes summed against the fused
+    solid's, apart by more than 1e-6 of it. A thick sheet cannot come to the point a corner has
+    on the material's side: a square to a round with the sheet inside the square (Inside, or
+    Middle) overlaps itself there, by 0.43 a corner Inside, 0.038 Middle (T 1), within 2.7 of
+    the corner -- "runs into itself where its folds meet at a corner: put the material on the
+    other side, or round the corner". **Open question for the user:** a relief cut at such a
+    corner instead (square to the sheet, so the flat stays exact). No lines-to-lines case of the
+    sweeps meets it.
+  - A sweep, Outside, each valid, the flat within 2e-6 of the folded volume: a square to a round
+    at 8, 24 and 48 segments, at radius 3, low, off centre, wider than the square; a hexagon,
+    a rectangle, a round to a square.
+  - `TestSheetMetalLoftedFlange` (33, +5; before, 0 of 5): a square to a round (its counts, the
+    square on the sheet, the round's corners on it but where a line's triangle meets it, the
+    chords within their sagitta, the flat), fewer segments, a round to a square, a half round to
+    two lines, Inside refused and Outside made. Round to lines leaves the round step's refusals
+    ("not round"); closed to open is refused for lines instead.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

@@ -3,10 +3,12 @@
 # before for some input is made only at the level that brings it: an object
 # made from now on recomputes at the latest level FreeCAD knows, one saved
 # before at 0, as it did (its _OffsetFixLevel, which a file from before has
-# not got). No level does that yet: level 1 brought the dome below, and
-# what it moved in shapes made before lies within their tolerances, so it is
-# made at every level now (the fork's Thickness.md sec 32). That the level is
-# put back after a recompute is tests/src/Mod/Part/App/OffsetFixLevel.cpp.
+# not got). Level 1 brought the dome below, and what it moved in shapes made
+# before lies within their tolerances, so it is made at every level now (the
+# fork's Thickness.md sec 32); level 2 stretches a surface of revolution on
+# its own meridian (sec 57), which moves #346's shell offset outward by 5e-4.
+# That the level is put back after a recompute is
+# tests/src/Mod/Part/App/OffsetFixLevel.cpp.
 
 import os
 import unittest

@@ -162,7 +162,14 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
 ///       tests/fork/thickness/models/Thickness.md sec 31), made at every
 ///       level since (sec 32). Objects made at 1 keep it, so the next level
 ///       is 2.
-constexpr int OCCTOffsetFixLevelLatest = 1;
+///  2 -- a surface of revolution whose meridian is a piece of a conic or a
+///       line is stretched past its outline on that same curve, not by a
+///       B-spline continuation: #346's shell outward with its cone removed
+///       has its rim's corner on the cone where it is, not 5e-4 off, and its
+///       whole offset with the Intersection join the exact area, up to 2.58
+///       off before (Thickness.md sec 57). An OCCT without it makes level 2
+///       as level 1.
+constexpr int OCCTOffsetFixLevelLatest = 2;
 
 /// Sets, for the calling thread, the OCCT fork's offset fix level
 /// (BRepOffset_SetFixLevel): which of the fork's corrections to the offset

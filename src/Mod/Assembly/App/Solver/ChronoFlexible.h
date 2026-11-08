@@ -59,6 +59,18 @@ struct Built
     // By the interfaces given
     std::vector<std::shared_ptr<chrono::ChBody>> interfaces;
     double mass = 0.0;  // the mesh's
+    // What its reduction is made of, in its own frame: the same, and an
+    // earlier reduction's data are its own (reduce()). Its tetrahedra,
+    // material, modes, damping and interfaces' nodes exactly; its nodes and
+    // its interfaces' frames (positions, rotation matrices) to 1e-9 of its
+    // size: a part turned has them in its frame an ulp off (the probe's rod
+    // started 25 deg down, 0.05 m as 0.05000000000000001)
+    struct Key
+    {
+        std::vector<double> exact;
+        std::vector<double> near;
+    };
+    Key key;
 };
 
 // The flexible body (in SI: Solver::scaled()) built into the system at its

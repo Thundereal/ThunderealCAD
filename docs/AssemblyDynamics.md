@@ -4024,14 +4024,40 @@ Phase D1 is under way (2026-10-28):
       before its axes were its own). A mass-only element pass (the corotated K not made for the M)
       was tried and took nothing: the assembly's time is not the
       elements'.
+    - **The whole reduction kept** (2026-11-09): our Chrono's
+      `ChModalAssembly::GetReducedData()` gives what a reduction made --
+      Psi, its static and dynamic modes, the reduced M, K and R -- and
+      `DoModalReduction(const ReducedData&)` reduces with them, its M, K
+      and Cq not assembled, its eigenproblem and its static and dynamic
+      modes not solved. `ChronoFlexible::reduce()` keeps the last two,
+      each by what it is made of in the part's frame (`Built::Key`): its
+      tetrahedra, material, modes, damping and interfaces' nodes exactly,
+      its nodes and interfaces' frames to 1e-9 of its size -- a part turned
+      has them an ulp off (the rod started 25 deg down: 0.05 m as
+      0.05000000000000001, found by a trace after the frames alone were
+      let off, and it still missed). Its pose is not in it: F's axes are
+      the part's. A part damped otherwise makes its own reduction, from
+      the kept modes.
+    - **The modal gravity by three columns** (our Chrono,
+      `ComputeGravityMass()`): it was the whole local mass times the
+      gravity on every item's translation at each residual, 1.5 million
+      terms for the rod; it is the mass's three columns of a unit
+      acceleration along F's axes times the gravity in them, which the
+      kept data carry in place of the mass.
+    - The rod's 0.25 s run of a study run before: 1.9 s, 2.0 at 12 modes
+      (7.2 with the modes kept, 9.6 at first); started 25 deg down, 1.9; a
+      1 ms run 0.46 s (4.4). Its first run, 4.4 s at 6 modes, 6.4 at 12.
   - Test: FlexibleBody.aPartsModesAreKeptForItsNextReduction -- the bar
-    reduced again takes the kept modes, the same frequencies to the bit;
-    moved and turned, takes them too, the same frequencies to 1e-9; twice
-    as stiff, its own, sqrt(2) times.
-  - Not yet: the rest kept too -- the assembly, the turning and the static
-    modes, 3.5 s of the 4.5, which would need the reduced state exported
-    from the modal assembly (its axes are the part's now, so it would be
-    the same wherever the part starts).
+    reduced again takes the kept reduction, the same frequencies to the
+    bit; moved and turned, its interface's frame and a node an ulp off,
+    takes it too; damped twice as much, a reduction of its own from the
+    kept modes; twice as stiff, its own, sqrt(2) times.
+    FlexibleBody.aRunAgainTakesTheKeptReduction -- the flexible pendulum
+    run again takes the first run's, and swings the same: each frame,
+    each channel to 1e-9, the mode shapes to the bit.
+  - Not yet: the kept reductions across sessions (they are the process's);
+    a part's first run, its 1 ms run 4.4 s where the rerun's is 0.46 --
+    the reduction about 3.9.
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

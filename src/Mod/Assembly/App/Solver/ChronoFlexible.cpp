@@ -286,6 +286,78 @@ ch::ChVector3d toCh(const Base::Vector3d& v)
     return {v.x, v.y, v.z};
 }
 
+// What a part's reduction is made of, in its own frame: its mesh, its
+// material, its modes and damping, its interfaces where they are on it and
+// their nodes. Not its pose: the floating frame's axes are the part's
+// (build()), so the reduction is the same wherever the part starts.
+ChronoFlexible::Built::Key reductionKey(const Flexible& flexible,
+                                        const std::vector<ChronoFlexible::Interface>& interfaces,
+                                        double size)
+{
+    ChronoFlexible::Built::Key key;
+    auto& exact = key.exact;
+    auto& near = key.near;
+    exact.reserve(10 * flexible.tetrahedra.size() + interfaces.size() + 6);
+    near.reserve(3 * flexible.nodes.size() + 12 * interfaces.size());
+    for (const auto& p : flexible.nodes) {
+        near.insert(near.end(), {p.x / size, p.y / size, p.z / size});
+    }
+    for (const auto& tet : flexible.tetrahedra) {
+        for (Id n : tet) {
+            exact.push_back(static_cast<double>(n));
+        }
+    }
+    exact.insert(exact.end(),
+                 {flexible.youngs, flexible.poisson, flexible.density,
+                  static_cast<double>(flexible.modes), flexible.damping, flexible.dampingFrequency});
+    for (const auto& face : interfaces) {
+        exact.push_back(static_cast<double>(face.nodes.size()));
+        for (Id n : face.nodes) {
+            exact.push_back(static_cast<double>(n));
+        }
+        const ch::ChVector3d& p = face.local.GetPos();
+        const ch::ChMatrix33<> r = face.local.GetRotMat();
+        near.insert(near.end(), {p.x() / size, p.y() / size, p.z() / size});
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                near.push_back(r(i, j));
+            }
+        }
+    }
+    return key;
+}
+
+bool sameReduction(const ChronoFlexible::Built::Key& a, const ChronoFlexible::Built::Key& b)
+{
+    if (a.exact != b.exact || a.near.size() != b.near.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.near.size(); ++i) {
+        if (!(std::abs(a.near[i] - b.near[i]) <= 1e-9)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The reductions made, kept for the next run of the same part (the same
+// reductionKey()): its M, K and Cq assembled, turned into the floating frame
+// and its static and dynamic modes solved took 3.5 s of the rod's 4.5 s
+// reduction, run after run of an unchanged study. The last two, the newest
+// first: a fine mesh's are its modes' columns over its every coordinate.
+struct KeptReduction
+{
+    ChronoFlexible::Built::Key key;
+    ch::modal::ChModalAssembly::ReducedData data;
+    std::vector<double> hz;
+};
+
+std::deque<KeptReduction>& keptReductions()
+{
+    static std::deque<KeptReduction> kept;
+    return kept;
+}
+
 }  // namespace
 
 ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
@@ -410,6 +482,7 @@ ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
             built.assembly->AddInternalLink(link);
         }
     }
+    built.key = reductionKey(flexible, interfaces, size);
     return built;
 }
 
@@ -421,12 +494,31 @@ ChronoFlexible::reduce(ch::ChSystem& sys, Built& built, const Flexible& flexible
     // The symmetric eigensolver (Spectra's Krylov-Schur, a real LU): the
     // complex one took four times as long (our Chrono takes either); the
     // modes of an earlier run of the part kept (KeptModesSolver)
+    // -- or the whole reduction of one, kept (keptReductions())
+    {
+        std::scoped_lock lock(KeptModesSolver::guard());
+        auto& kept = keptReductions();
+        for (auto it = kept.begin(); it != kept.end(); ++it) {
+            if (sameReduction(it->key, built.key)) {
+                std::rotate(kept.begin(), it, std::next(it));
+                built.assembly->DoModalReduction(kept.front().data);
+                ++KeptModesSolver::taken();
+                return kept.front().hz;
+            }
+        }
+    }
     auto eigen = std::make_shared<KeptModesSolver>();
     ch::modal::ChModalSolverUndamped<KeptModesSolver> solver(
         std::max(flexible.modes, 1), 1e-5, true, false, eigen);
     std::vector<double> hz;
     built.assembly->DoModalReduction(
         solver, StiffnessDamping(flexible.damping, flexible.dampingFrequency, hz));
+    std::scoped_lock lock(KeptModesSolver::guard());
+    auto& kept = keptReductions();
+    kept.push_front({built.key, built.assembly->GetReducedData(), hz});
+    if (kept.size() > 2) {
+        kept.pop_back();
+    }
     return hz;
 }
 

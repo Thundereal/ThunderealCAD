@@ -240,7 +240,8 @@ TEST_F(FlexibleBody, cantileverModesAreTheClampedBeams)  // NOLINT
 // not by a part changed: the bar of the test above, twice as stiff, makes
 // its own, its frequencies sqrt(2) times. A part moved and turned takes
 // them too: its floating frame's axes are its own, not its principal axes
-// of inertia (the square section's two as the rounding had them)
+// of inertia (the square section's two as the rounding had them). Reduced
+// again, or moved, its whole reduction is kept; damped more, only its modes
 TEST_F(FlexibleBody, aPartsModesAreKeptForItsNextReduction)  // NOLINT
 {
     if (!Chrono::hasFlexibleBodies()) {
@@ -273,12 +274,24 @@ TEST_F(FlexibleBody, aPartsModesAreKeptForItsNextReduction)  // NOLINT
 
     model.bodies[bar].placement = Base::Placement(Base::Vector3d(30, -40, 70),
                                                   Base::Rotation(Base::Vector3d(1, 2, 3), 0.7));
+    // its interface's frame and nodes on it as a turned part's rounding finds
+    // them, an ulp off
+    model.frames[frame].local.setPosition(Base::Vector3d(1e-12, side / 2, side / 2));
+    model.dynamics->flexibles[0].nodes[1].x += 1e-12;
     const std::vector<double> moved = Chrono::flexibleFrequencies(model, 0, &error);
     ASSERT_EQ(moved.size(), 5u) << error;
     EXPECT_EQ(Chrono::flexibleModesKept(), kept + 2);
     for (std::size_t i = 0; i < hz.size(); ++i) {
         EXPECT_NEAR(moved[i], hz[i], 1e-9 * hz[i]);
     }
+
+    // Damped more: a reduction of its own, its modes the kept ones
+    model.dynamics->flexibles[0].damping *= 2.0;
+    const std::vector<double> damped = Chrono::flexibleFrequencies(model, 0, &error);
+    ASSERT_EQ(damped.size(), 5u) << error;
+    EXPECT_EQ(Chrono::flexibleModesKept(), kept + 3);
+    EXPECT_EQ(damped, hz);
+    model.dynamics->flexibles[0].damping /= 2.0;
 
     const std::size_t before = Chrono::flexibleModesKept();
     model.dynamics->flexibles[0].youngs *= 2.0;
@@ -594,4 +607,40 @@ TEST_F(FlexibleBody, pendulumSwingsAsTheRigidBar)  // NOLINT
     EXPECT_LT(end.z, -60.0);
     // 2.4 um apart, the centre 93 mm down by the end
     EXPECT_LT(apart, 0.01) << "mm";
+}
+
+// The pendulum run again: its flexible bar's whole reduction is the first
+// run's, kept (its matrices, modes and static modes not made again), and it
+// swings the same -- each frame, each channel, the mode shapes
+TEST_F(FlexibleBody, aRunAgainTakesTheKeptReduction)  // NOLINT
+{
+    if (!Chrono::hasFlexibleBodies()) {
+        GTEST_SKIP() << "the Chrono backend has no modal module";
+    }
+    RunRecorder first;
+    ASSERT_EQ(run(pendulum(true), first, 0.05, 1e-4), Status::Ok);
+    const std::size_t kept = Chrono::flexibleModesKept();
+    RunRecorder again;
+    ASSERT_EQ(run(pendulum(true), again, 0.05, 1e-4), Status::Ok);
+    EXPECT_EQ(Chrono::flexibleModesKept(), kept + 1);
+    ASSERT_EQ(first.frames.size(), again.frames.size());
+    ASSERT_EQ(first.rows.size(), again.rows.size());
+    double apart = 0.0;
+    for (std::size_t f = 0; f < first.frames.size(); ++f) {
+        for (std::size_t b = 0; b < first.frames[f].size(); ++b) {
+            apart = std::max(apart,
+                             (first.frames[f][b].placement.getPosition()
+                              - again.frames[f][b].placement.getPosition())
+                                 .Length());
+        }
+        ASSERT_EQ(first.rows[f].size(), again.rows[f].size());
+        for (std::size_t c = 0; c < first.rows[f].size(); ++c) {
+            EXPECT_NEAR(again.rows[f][c], first.rows[f][c], 1e-9 * (1 + std::abs(first.rows[f][c])))
+                << "frame " << f << ", column " << c;
+        }
+    }
+    EXPECT_LT(apart, 1e-9) << "mm";
+    ASSERT_EQ(first.shapes.size(), 1u);
+    ASSERT_EQ(again.shapes.size(), 1u);
+    EXPECT_EQ(again.shapes[0].values, first.shapes[0].values);
 }

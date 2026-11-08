@@ -169,7 +169,14 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
 ///       whole offset with the Intersection join the exact area, up to 2.58
 ///       off before (Thickness.md sec 57). An OCCT without it makes level 2
 ///       as level 1.
-constexpr int OCCTOffsetFixLevelLatest = 2;
+///  3 -- an offset crossing the axis where a face of revolution comes to a
+///       point is trimmed there, not cut short and capped by a sphere that
+///       crossed it (#346's dome outward: a face BOP refuses as an argument);
+///       level 2's stretch reaches below a circle's origin, with the face's
+///       pcurves; and a peak's offset is carried to the axis on its own
+///       circle with the Intersection join (sec 59). An OCCT without it makes
+///       level 3 as the highest level it has.
+constexpr int OCCTOffsetFixLevelLatest = 3;
 
 /// Sets, for the calling thread, the OCCT fork's offset fix level
 /// (BRepOffset_SetFixLevel): which of the fork's corrections to the offset

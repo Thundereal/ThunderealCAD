@@ -6,7 +6,9 @@
 # not got). Level 1 brought the dome below, and what it moved in shapes made
 # before lies within their tolerances, so it is made at every level now (the
 # fork's Thickness.md sec 32); level 2 stretches a surface of revolution on
-# its own meridian (sec 57), which moves #346's shell offset outward by 5e-4.
+# its own meridian (sec 57), which moves #346's shell offset outward by 5e-4;
+# level 3 trims an offset where it crosses the axis at an apex, not capping it
+# by a sphere, and carries the stretch below a circle's origin (sec 59).
 # That the level is put back after a recompute is
 # tests/src/Mod/Part/App/OffsetFixLevel.cpp.
 

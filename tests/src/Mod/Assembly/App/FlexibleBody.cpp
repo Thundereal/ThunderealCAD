@@ -238,9 +238,9 @@ TEST_F(FlexibleBody, cantileverModesAreTheClampedBeams)  // NOLINT
 
 // The modes a reduction found are taken by the next of the same part, and
 // not by a part changed: the bar of the test above, twice as stiff, makes
-// its own, its frequencies sqrt(2) times. A part moved and turned makes its
-// own too (its floating frame's axes are its principal axes of inertia, the
-// square section's two as the rounding has them), the same frequencies
+// its own, its frequencies sqrt(2) times. A part moved and turned takes
+// them too: its floating frame's axes are its own, not its principal axes
+// of inertia (the square section's two as the rounding had them)
 TEST_F(FlexibleBody, aPartsModesAreKeptForItsNextReduction)  // NOLINT
 {
     if (!Chrono::hasFlexibleBodies()) {
@@ -275,6 +275,7 @@ TEST_F(FlexibleBody, aPartsModesAreKeptForItsNextReduction)  // NOLINT
                                                   Base::Rotation(Base::Vector3d(1, 2, 3), 0.7));
     const std::vector<double> moved = Chrono::flexibleFrequencies(model, 0, &error);
     ASSERT_EQ(moved.size(), 5u) << error;
+    EXPECT_EQ(Chrono::flexibleModesKept(), kept + 2);
     for (std::size_t i = 0; i < hz.size(); ++i) {
         EXPECT_NEAR(moved[i], hz[i], 1e-9 * hz[i]);
     }

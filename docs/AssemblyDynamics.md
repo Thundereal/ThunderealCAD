@@ -4008,25 +4008,30 @@ Phase D1 is under way (2026-10-28):
       solved in the process): a set of the same size is taken when its
       pairs solve the problem, A v = lambda B v to 1e-6 -- 1.94 s to 0.10,
       the residuals' check -- not keyed by the record, so a part changed
-      makes its own. And so does one started elsewhere: the floating
-      frame's axes are the part's principal axes of inertia, their order
-      and signs (and the square section's two) as the pose's rounding has
-      them, and the problem is in those axes (measured: the rod started
-      25 deg down solved again).
+      makes its own.
+    - **A part started elsewhere takes them too** (2026-11-09): the
+      floating frame's axes were the part's principal axes of inertia,
+      their order and signs (and the square section's two) as the pose's
+      rounding had them, and the problem is in those axes -- the rod
+      started 25 deg down solved again, 8.9 s. They are the part's own now
+      (our Chrono's `SetFloatingFrameAxes()`, from `ChronoFlexible::
+      build()`), F's origin still the centre of mass: the same part
+      anywhere has the same local matrices. Nothing read F's axes as
+      principal ones -- the shapes, the interfaces' deformation and the
+      stresses go through F whatever its axes.
     - The rod's second run of an unchanged study: its reduction 6.8 s to
-      4.5, the whole 0.25 s run 9.6 to 7.2 (8.9 started 25 deg down, its
-      modes solved). A mass-only element pass (the corotated K not made for the M)
+      4.5, the whole 0.25 s run 9.6 to 7.2; started 25 deg down, 7.1 (8.9
+      before its axes were its own). A mass-only element pass (the corotated K not made for the M)
       was tried and took nothing: the assembly's time is not the
       elements'.
   - Test: FlexibleBody.aPartsModesAreKeptForItsNextReduction -- the bar
     reduced again takes the kept modes, the same frequencies to the bit;
-    moved and turned, the same frequencies to 1e-9; twice as stiff, its own,
-    sqrt(2) times.
+    moved and turned, takes them too, the same frequencies to 1e-9; twice
+    as stiff, its own, sqrt(2) times.
   - Not yet: the rest kept too -- the assembly, the turning and the static
     modes, 3.5 s of the 4.5, which would need the reduced state exported
-    from the modal assembly and its floating frame's axes taken from the
-    part, not its inertia's eigensolver; a moved part's modes turned into
-    its new axes.
+    from the modal assembly (its axes are the part's now, so it would be
+    the same wherever the part starts).
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

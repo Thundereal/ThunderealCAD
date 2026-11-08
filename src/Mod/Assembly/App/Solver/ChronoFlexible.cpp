@@ -192,11 +192,9 @@ private:
 // after run of an unchanged study made them again, 1.9 s of the rod's 6.8 s
 // reduction. Not keyed by the record: a kept set of the same size is taken
 // when its pairs solve this problem, A v = lambda B v to 1e-6 of its terms,
-// so a part changed makes its own. So does a part started elsewhere: its
-// eigenproblem is in its floating frame's axes, which Chrono takes as the
-// part's principal axes of inertia, their order and signs (and for a square
-// section the axes themselves) as the rounding of the pose has them. The
-// last four, the newest first.
+// so a part changed makes its own. A part started elsewhere takes them too:
+// its eigenproblem is in its floating frame's axes, the part's own (build()).
+// The last four, the newest first.
 class KeptModesSolver: public ch::modal::ChSymGenEigenvalueSolverKrylovSchur
 {
 public:
@@ -313,6 +311,11 @@ ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
     // test's bar where Chrono's default SparseQR took 2.2
     built.assembly->SetModalSolver(std::make_shared<ch::ChSolverSparseLU>());
     built.assembly->SetModalAutomaticGravity(true);
+    // Its floating frame in the part's axes, not Chrono's principal axes of
+    // inertia, whose order and signs (and for a square section the axes) the
+    // rounding of the pose sets: the part started elsewhere has the same local
+    // matrices, and so an earlier run's modes (KeptModesSolver)
+    built.assembly->SetFloatingFrameAxes(pose.GetRot());
     sys.Add(built.assembly);
 
     auto material = std::make_shared<ch::fea::ChContinuumElastic>(flexible.youngs,

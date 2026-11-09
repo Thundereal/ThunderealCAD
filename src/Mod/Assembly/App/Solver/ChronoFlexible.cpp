@@ -138,7 +138,14 @@ public:
                                   double Rfactor = 0,
                                   double Mfactor = 0) override
     {
-        ChElementTetraCorot_10::ComputeKRMmatricesGlobal(H, Kfactor, Rfactor, 0.0);
+        // The mass alone (the reduction's M) without the corotated K made to
+        // be scaled by 0: the strip's mass pass 0.61 s to 0.04
+        if (Kfactor == 0.0 && Rfactor == 0.0) {
+            H.setZero();
+        }
+        else {
+            ChElementTetraCorot_10::ComputeKRMmatricesGlobal(H, Kfactor, Rfactor, 0.0);
+        }
         if (Mfactor == 0.0) {
             return;
         }

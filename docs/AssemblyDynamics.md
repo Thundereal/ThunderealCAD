@@ -4085,6 +4085,15 @@ Phase D1 is under way (2026-10-28):
       solve with has no zero frequency to shift off, and the shift was
       (2 pi 1e-5)^2 = 4e-9 against the first mode's w^2. The strip's first run 33.0 s
       to 26.6; the rod's 1 ms first run 3.0 to 2.2 (12 modes 5.5 to 4.3).
+    - **The full K and M** (2026-11-10), traced (a temporary trace, gone
+      since): 7.2 s, 4.8 of them Chrono's sparsity learner, a list node per
+      element term sorted row by row, for K, M and Cq each (2.13, 2.11,
+      0.55); the mass pass 0.61, each tet10 making its corotated K to scale
+      it by 0; pasting into K and M 0.71 each. Our Chrono's learner keeps a
+      vector a row, sorted once (0.39, 0.63, 0.02), the same pattern; our
+      tet10 asked for its mass alone skips its K (0.04). The strip's K and
+      M 7.2 s to 2.7, its first run 26.6 to 22.4; the rod's 1 ms first run
+      2.2 to 1.8 (12 modes 4.3 to 3.3).
   - Test: FlexibleBody.aPartsModesAreKeptForItsNextReduction -- the bar
     reduced again takes the kept reduction, the same frequencies to the
     bit; moved and turned, its interface's frame and a node an ulp off,
@@ -4094,11 +4103,10 @@ Phase D1 is under way (2026-10-28):
     run again takes the first run's, and swings the same: each frame,
     each channel to 1e-9, the mode shapes to the bit.
   - Not yet: the kept reductions across sessions (they are the process's);
-    a part's first run, its 1 ms run 4.4 s where the rerun's is 0.46 --
-    the reduction about 3.9, the strip's about 20 of its 26.6 -- its K and
-    M assembled by an element pass each (8.5 s), the mass pass making each
-    element's corotated K to scale it by 0, and a sparsity learner of a
-    list node per element term for each.
+    a part's first run, the rod's 1 ms run 1.8 s where the rerun's is 0.2,
+    the strip's reduction about 16 of its 22.4 -- the
+    eigenproblem's factorization (6 s, Eigen's SparseLU) and iterations
+    (3.8), K_II's static and dynamic solves (2), pasting K and M (1.4).
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

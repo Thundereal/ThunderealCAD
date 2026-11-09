@@ -65,6 +65,7 @@
 #include <App/DocumentObjectPy.h>
 #include <App/DocumentObserver.h>
 #include <App/PropertyFile.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>
@@ -503,6 +504,14 @@ private:
                     throw Py::Exception(PyExc_IOError, "no look to read");
                 }
                 return Py::None();
+            }
+            // The type and the file before a document is made for them: a
+            // failed import left the new document open, empty (entry 251).
+            if (!file.hasExtension({"stp", "step", "igs", "iges", "glb", "gltf"})) {
+                throw Py::Exception(PyExc_IOError, "no supported file format");
+            }
+            if (!file.exists()) {
+                throw Py::Exception(PyExc_IOError, "file not found: " + Utf8Name);
             }
             if (!pcDoc) {
                 pcDoc = App::GetApplication().newDocument();

@@ -51,12 +51,15 @@
 # include <QPointer>
 #endif
 
+#include <Inventor/SoRenderManager.h>
+
 #include <boost/range.hpp>
 
 #include <App/ElementNamingUtils.h>
 #include <App/Document.h>
 #include <App/GeoFeature.h>
 #include <App/GeoFeatureGroupExtension.h>
+#include <App/PropertyAppearance.h>
 #include <Base/BoundBoxPy.h>
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
@@ -66,6 +69,7 @@
 #include <Base/Tools.h>
 #include "Application.h"
 #include "ActionFunction.h"
+#include "ViewerContext.h"
 #include "BitmapFactory.h"
 #include "Command.h"
 #include "Control.h"
@@ -1398,6 +1402,15 @@ void LinkView::setChildren(const std::vector<App::DocumentObject*> &children,
                         auto &info = *nodeArray[idx];
                         info.groupIndex = -1;
                         info.link(obj);
+                        if (!info.isLinked()) {
+                            // No view provider to show: the full rebuild
+                            // below skips it, as it skips any such child
+                            nodeArray.erase(nodeArray.begin()+idx);
+                            idx = -1;
+                        }
+                    }
+                    if (idx >= 0) {
+                        auto &info = *nodeArray[idx];
                         auto node = info.getTopNode();
                         for (auto it = nodeArray.begin()+idx; it != nodeArray.end(); ++it) {
                             auto n = (*it)->getTopNode();
@@ -1784,12 +1797,27 @@ bool LinkView::linkGetDetailPath(const char *subname, SoFullPath *path, SoDetail
         if (subname[0]>='0' && subname[0]<='9') {
             idx = App::LinkBaseExtension::getArrayIndex(subname,&subname);
         } else {
+            // The object each step is taken from, to resolve a "$$Name." step
+            App::DocumentObject *parent = nullptr;
+            if (linkOwner && linkOwner->isLinked())
+                parent = linkOwner->pcLinked->getObject();
             while(true) {
                 const char *dot = strchr(subname,'.');
                 if(!dot)
                     break;
                 int i = 0;
-                if (subname[0] == '$') {
+                App::DocumentObject *propObj = nullptr;
+                if (parent && App::DocumentObject::isPropertyStep(subname))
+                    propObj = parent->getSubObject(std::string(subname, dot+1).c_str());
+                if (propObj) {
+                    for(const auto &info : nodeArray) {
+                        if(info->isLinked() && info->linkInfo->pcLinked->getObject() == propObj) {
+                            idx = i;
+                            break;
+                        }
+                        ++i;
+                    }
+                } else if (subname[0] == '$') {
                     CharRange name(subname+1,dot);
                     for(const auto &info : nodeArray) {
                         if(info->isLinked() && boost::equals(name,info->linkInfo->getLinkedLabel())) {
@@ -1823,6 +1851,8 @@ bool LinkView::linkGetDetailPath(const char *subname, SoFullPath *path, SoDetail
                 if(idx < 0 || idx >= (int)nodeArray.size())
                     return false;
 
+                parent = nodeArray[idx]->isLinked()
+                    ? nodeArray[idx]->linkInfo->pcLinked->getObject() : nullptr;
                 subname = dot+1;
                 if(!subname[0] || nodeArray[idx]->isGroup==0)
                     break;
@@ -2920,7 +2950,13 @@ bool ViewProviderLink::getDetailPath(
     if(subname && subname[0]) {
         if (auto linked = ext->getLinkedObjectValue()) {
             if (const char *dot = strchr(subname,'.')) {
-                if(subname[0]=='$') {
+                App::DocumentObject *propObj = nullptr;
+                if (getObject()->resolvePropertyStep(subname, propObj)) {
+                    // A step through a property of the link names the linked
+                    // object only if that is what the property holds
+                    if (propObj != linked)
+                        dot = nullptr;
+                } else if(subname[0]=='$') {
                     CharRange sub(subname+1, dot);
                     if (!boost::equals(sub, linked->Label.getValue()))
                         dot = nullptr;
@@ -3283,7 +3319,10 @@ bool ViewProviderLink::initDraggingPlacement(int mode) {
         FC_ERR("no placement");
         return false;
     }
-    auto doc = Application::Instance->editDocument();
+    // The document whose edit this is: another may be in edit too, and
+    // this one need not be the link's own (the link may be reached through
+    // another document's object)
+    auto doc = Application::Instance->editDocumentOf(getObject());
     if(!doc) {
         FC_ERR("no editing document");
         return false;
@@ -3412,7 +3451,7 @@ ViewProvider *ViewProviderLink::startEditing(int mode) {
     FC_STATIC bool _pendingTransform;
     FC_STATIC Base::Matrix4D  _editingTransform;
 
-    auto doc = Application::Instance->editDocument();
+    auto doc = Application::Instance->editDocumentOf(getObject());
 
     if(_pendingTransform || mode == ViewProvider::Transform || mode == ViewProvider::TransformAt) {
         if(_pendingTransform && doc)

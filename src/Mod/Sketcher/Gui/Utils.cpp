@@ -39,10 +39,12 @@
 #endif
 
 #include <App/Application.h>
+#include <Gui/Utilities.h>
 #include <Gui/ViewParams.h>
 #include <Base/Quantity.h>
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
+#include <Gui/Application.h>
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
 #include <Gui/Selection.h>
@@ -994,38 +996,6 @@ bool SketcherGui::isViewBackgroundParameter(const char* name)
 
 bool SketcherGui::viewBackgroundIsLight()
 {
-    // as View3DSettings draws the background from the same preferences
-    auto grp =
-        App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/View");
-    auto luminance = [](unsigned long packed) {
-        auto channel = [](unsigned long c) {
-            double x = double(c & 0xff) / 255.;
-            return x <= 0.03928 ? x / 12.92 : std::pow((x + 0.055) / 1.055, 2.4);
-        };
-        return 0.2126 * channel(packed >> 24) + 0.7152 * channel(packed >> 16)
-            + 0.0722 * channel(packed >> 8);
-    };
-    std::vector<unsigned long> colours;
-    bool gradient = grp->GetBool("Gradient", Gui::ViewParams::defaultGradient())
-        || grp->GetBool("RadialGradient", Gui::ViewParams::defaultRadialGradient());
-    if (gradient) {
-        colours.push_back(
-            grp->GetUnsigned("BackgroundColor2", Gui::ViewParams::defaultBackgroundColor2()));
-        colours.push_back(
-            grp->GetUnsigned("BackgroundColor3", Gui::ViewParams::defaultBackgroundColor3()));
-        if (grp->GetBool("UseBackgroundColorMid",
-                         Gui::ViewParams::defaultUseBackgroundColorMid())) {
-            colours.push_back(
-                grp->GetUnsigned("BackgroundColor4", Gui::ViewParams::defaultBackgroundColor4()));
-        }
-    }
-    else {
-        colours.push_back(
-            grp->GetUnsigned("BackgroundColor", Gui::ViewParams::defaultBackgroundColor()));
-    }
-    double sum = 0.;
-    for (auto c : colours) {
-        sum += luminance(c);
-    }
-    return sum / double(colours.size()) > 0.35;
+    // in Gui: the on-view values outside a sketch pick their outline by it too
+    return Gui::viewBackgroundIsLight();
 }

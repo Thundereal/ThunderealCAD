@@ -52,6 +52,8 @@
 #include "Renderer/SceneServer.h"
 #include "SceneControl.h"
 #include "SceneRequests.h"
+#include "SceneServeSource.h"
+#include "ViewParams.h"
 #include "SceneWidgets.h"
 
 using namespace Gui;
@@ -254,13 +256,31 @@ void SceneWidgetStream::checkMirror()
     }
 }
 
+namespace
+{
+/// Whether a panel mirror id is \a client's to see (docs/TaskPanelPerView.md
+/// sec 6): with PerViewEdit a dialog is its view's -- a client's own goes
+/// to that client, a desktop view's to none -- and one with no view to
+/// name, the list among them, to everybody. Without it every edit is the
+/// shared session's, and every client in it is sent its panel, as before.
+bool panelIsClients(uint64_t client, const QString& id)
+{
+    if (!ViewParams::getPerViewEdit())
+        return true;
+    const TaskOwner owner = Fw::PanelMirror::instance().ownerOf(id);
+    if (owner.isNull())
+        return true;
+    return owner.isRemote() && SceneServeSource::isClientView(client, owner.context());
+}
+}  // namespace
+
 bool SceneWidgetStream::wants(uint64_t client, const QString& id) const
 {
     if (_all.contains(client))
         return true;
     if (_toolbars.contains(client) && Fw::ToolBarMirror::owns(id))
         return true;
-    return _panels.contains(client) && Fw::PanelMirror::owns(id);
+    return _panels.contains(client) && Fw::PanelMirror::owns(id) && panelIsClients(client, id);
 }
 
 void SceneWidgetStream::send(uint64_t client, const std::string& json)
@@ -397,13 +417,20 @@ void Gui::installSceneWidgetOps()
         // whether a task dialog is up, so a client tells "none" from
         // "pending" (the mirror starts with the subscription, and the
         // dialog up is mirrored at once)
-        const QString panel = Fw::PanelMirror::instance().panelId();
+        // -- this client's own, the newest it is sent (M5)
+        QString panel;
+        for (const QString& pid : Fw::PanelMirror::instance().panelIds()) {
+            if (panelIsClients(client, pid))
+                panel = pid;
+        }
         reply[QLatin1String("panel")] = panel.isEmpty() ? QJsonValue() : QJsonValue(panel);
         // and the top-level dialogs up (M3), in show order: a dialog a
         // client subscribes under is mirrored at once too
         QJsonArray dialogs;
-        for (const QString& did : Fw::PanelMirror::instance().dialogIds())
-            dialogs.append(did);
+        for (const QString& did : Fw::PanelMirror::instance().dialogIds()) {
+            if (panelIsClients(client, did))
+                dialogs.append(did);
+        }
         reply[QLatin1String("dialogs")] = dialogs;
         reply[QLatin1String("theme")] =
             getMainWindow() ? getMainWindow()->overrideIcons() : QString();

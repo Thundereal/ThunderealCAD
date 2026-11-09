@@ -40,13 +40,23 @@ set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 RUN="$REPO/.conda/run.sh"
 # The standard build, the one every test run uses (CLAUDE.md,
-# docs/DevEnvironment.md); FC_BUILD repoints at another tree.
-BUILD=${FC_BUILD:-"$REPO/build/conda-relwithdebinfo-801"}
+# docs/DevEnvironment.md); FC_BUILD repoints at another tree. Under ctest
+# FC_BUILD is the test's own tree, set per test (tests/gui/CMakeLists.txt), so
+# an exported one never reaches here: GT_FC_BUILD wins over it, to run the
+# suite against another build -- an AddressSanitizer one, say.
+BUILD=${GT_FC_BUILD:-${FC_BUILD:-"$REPO/build/conda-relwithdebinfo-801"}}
 FCBIN="$BUILD/bin/FreeCAD"
 [ -x "$FCBIN" ] || {
     echo "no FreeCAD binary at $FCBIN (set FC_BUILD to another build tree)"
     exit 2
 }
+# An AddressSanitizer build refuses to start unless its runtime is the first
+# library loaded, and a test that preloads its own (the clock-step shim)
+# would come before it: the runtime goes in front.
+ASAN_LIB=$(ldd "$FCBIN" 2>/dev/null | awk '/libasan/ {print $3; exit}')
+if [ -n "$ASAN_LIB" ] && [ -n "${LD_PRELOAD:-}" ] && [[ "$LD_PRELOAD" != *libasan* ]]; then
+    export LD_PRELOAD="$ASAN_LIB:$LD_PRELOAD"
+fi
 
 SCRIPT=${1:?usage: gui-test.sh <test.py> <outdir> [--timeout N]}
 OUT=${2:?usage: gui-test.sh <test.py> <outdir> [--timeout N]}
@@ -74,6 +84,11 @@ while [ $# -gt 0 ]; do
 done
 [ -f "$SCRIPT" ] || { echo "no test script at $SCRIPT"; exit 2; }
 SCRIPT=$(cd "$(dirname "$SCRIPT")" && pwd)/$(basename "$SCRIPT")
+# A slower build -- AddressSanitizer's, 2 to 3 times -- gets proportionally
+# longer than the test asks for: GT_TIMEOUT_SCALE=3 triples it.
+if [ -n "${GT_TIMEOUT_SCALE:-}" ]; then
+    TIMEOUT=$(( TIMEOUT * GT_TIMEOUT_SCALE ))
+fi
 
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
@@ -85,9 +100,41 @@ ISO="$OUT/.iso"
 # GuiOmniSearchRecentItems that died once failed every run after it in the
 # same directory, 2026-11-04). Only Qt's shader cache is kept, as it only
 # makes the start faster; Mesa's is shared, below.
-rm -rf "$ISO/user.cfg" "$ISO/config"
+rm -rf "$ISO/user.cfg" "$ISO/config" "$ISO/data"
 find "$ISO/cache" -mindepth 1 -maxdepth 1 ! -name 'qtshadercache*' -exec rm -rf {} + 2>/dev/null
-mkdir -p "$ISO/cache" "$ISO/config"
+# The data directory too: without it every run read the desktop's
+# ~/.local/share/FreeCAD ("Copied the user settings and files from ...")
+# and wrote there -- a crash log of a test landed in the user's profile.
+mkdir -p "$ISO/cache" "$ISO/config" "$ISO/data"
+# What a browser test's driver wrote in an earlier run: appended to, so a
+# second run read the first's phases and sampled the host at the wrong times.
+rm -f "$OUT/phases.txt"
+
+# The font is stated too, the one the conda env brings. The box's default
+# otherwise decides what a test sees: a panel's minimum widths, the room left
+# for a view in a 1280 px window, a sketch's label size. Noto Sans, Ubuntu's
+# default, is 3 px taller than DejaVu Sans at the same size, and that alone
+# failed four tests on 26.04 (docs/Testing.md, the fifth trap).
+FONT_ENV=()
+CONDA_FONTS="$REPO/.conda/freecad/fonts"
+if [ -z "${FONTCONFIG_FILE:-}" ] && [ -f "$CONDA_FONTS/DejaVuSans.ttf" ]; then
+    {
+        echo '<?xml version="1.0"?>'
+        echo '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">'
+        echo '<fontconfig>'
+        echo "  <include ignore_missing=\"yes\">$REPO/.conda/freecad/etc/fonts/fonts.conf</include>"
+        echo "  <dir>$CONDA_FONTS</dir>"
+        for family in "sans-serif" "Sans Serif" "Helvetica" "Arial" "Liberation Sans" \
+                      "Noto Sans"; do
+            echo "  <match target=\"pattern\"><test name=\"family\" qual=\"any\">"
+            echo "    <string>$family</string></test>"
+            echo "    <edit name=\"family\" mode=\"prepend\" binding=\"strong\">"
+            echo "    <string>DejaVu Sans</string></edit></match>"
+        done
+        echo '</fontconfig>'
+    } > "$ISO/fonts.conf"
+    FONT_ENV=(FONTCONFIG_FILE="$ISO/fonts.conf")
+fi
 
 # Mesa's shader cache is shared by every run instead of living in $ISO:
 # what llvmpipe compiles depends on the driver and the shader, not on the
@@ -108,8 +155,8 @@ LOG="$OUT/run.log"
 
 echo "GUI test $(basename "$SCRIPT") (log: $LOG)"
 if [ "$WINDOW" = 1 ]; then
-    env -u WAYLAND_DISPLAY DISPLAY="${GT_DISPLAY:-:0}" "${GL[@]}" "${MESA_ENV[@]}" \
-        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" \
+    env -u WAYLAND_DISPLAY DISPLAY="${GT_DISPLAY:-:0}" "${GL[@]}" "${MESA_ENV[@]}" "${FONT_ENV[@]}" \
+        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" XDG_DATA_HOME="$ISO/data" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \
         timeout -k 15 "$TIMEOUT" \
@@ -117,8 +164,8 @@ if [ "$WINDOW" = 1 ]; then
         "$REPO/scripts/gui-test-profile.py" "$SCRIPT" \
         > "$LOG" 2>&1 </dev/null
 else
-    env -u WAYLAND_DISPLAY "${GL[@]}" "${MESA_ENV[@]}" \
-        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" \
+    env -u WAYLAND_DISPLAY "${GL[@]}" "${MESA_ENV[@]}" "${FONT_ENV[@]}" \
+        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" XDG_DATA_HOME="$ISO/data" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \
         timeout -k 15 "$TIMEOUT" \

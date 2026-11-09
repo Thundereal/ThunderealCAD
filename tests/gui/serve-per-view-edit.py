@@ -25,7 +25,12 @@ Then client A entering:
   - the desktop window did not join: the session's editing root is not
     in its graph, and asked from the window the document is not in edit;
   - B can neither leave A's edit nor replace it;
-  - A leaves it, and is the only one told.
+  - B's edit of another object, whose edit runs beside A's, is accepted
+    and told to B alone (docs/HandsOnQueue.md entry 232);
+  - A leaves its own edit though B's began after it, and is the only one
+    told; B's runs on and B leaves it;
+  - an edit whose mode holds a transaction (a Part box's) would end A's:
+    refused.
 
 And with PerViewEdit off, the control: the desktop entering is told to
 both clients, with the swap, and so is its leaving.
@@ -162,6 +167,8 @@ class Talk(threading.Thread):
         self.mark_a, self.mark_b = len(a.pushes), len(b.pushes)
         edit = '{"id":%d,"op":"edit","obj":"Pad","mode":0}'
         reset = '{"id":%d,"op":"resetEdit"}'
+        other = '{"id":%d,"op":"edit","obj":"Box","mode":0}'
+        hold = '{"id":%d,"op":"edit","obj":"Hold","mode":0}'
 
         # 1. The desktop's own session
         gui("per-view")
@@ -179,8 +186,18 @@ class Talk(threading.Thread):
         self.got["b-reset-a"] = error_of(b.op(reset % 22))
         self.got["b-edit-a"] = error_of(b.op(edit % 23))
         gui("sample:client")
+        # B's own edit beside A's, of another object
+        self.got["b-edit-box"] = error_of(b.op(other % 25))
+        self.both(a, b, "b-in")
         self.got["a-reset"] = error_of(a.op(reset % 24))
         self.both(a, b, "a-out")
+        self.got["b-reset"] = error_of(b.op(reset % 26))
+        self.both(a, b, "b-out")
+        # One whose edit holds a transaction would end A's
+        self.got["a-edit-2"] = error_of(a.op(edit % 27))
+        self.got["b-edit-hold"] = error_of(b.op(hold % 28))
+        self.got["a-reset-2"] = error_of(a.op(reset % 29))
+        self.both(a, b, "a-out-2")
         gui("sample:between")
 
         # 3. The control: a shared session
@@ -261,6 +278,8 @@ def build():
         pad = body.newObject("PartDesign::Pad", "Pad")
         pad.Profile = sketch
         pad.Length = 20
+        # Not PartDesign's: its edit holds a transaction to OK
+        doc.addObject("Part::Box", "Hold").Placement.Base = V(30, 0, 0)
         doc.recompute()
         box.Visibility = False
         sketch.Visibility = False
@@ -339,11 +358,25 @@ def verify():
         check("per view: no 3D view was created, no Visibility written",
               own.get("views") == 1 and own.get("pad") is True and own.get("box") is False,
               own)
+        a, b = got.get("b-in", (nothing, nothing))
+        check("per view: B's edit of another object, beside A's, is accepted",
+              got.get("b-edit-box") == "", got.get("b-edit-box"))
+        check("per view: B is told its edit began, A nothing",
+              b["edits"] == [True] and not a["edits"], (a, b))
         a, b = got.get("a-out", (nothing, nothing))
-        check("A's resetEdit is accepted", got.get("a-reset") == "", got.get("a-reset"))
+        check("A's resetEdit is accepted, though B's edit began after",
+              got.get("a-reset") == "", got.get("a-reset"))
         check("per view: A is told its edit ended, and its table is empty again",
               a["edits"] == [False] and bool(a["tables"]) and a["tables"][-1] == (0, 0), a)
         check("per view: B is told nothing of it", not b["edits"] and not b["swaps"], b)
+        a, b = got.get("b-out", (nothing, nothing))
+        check("per view: B's edit ran on, and B leaves it",
+              got.get("b-reset") == "" and b["edits"] == [False] and not a["edits"],
+              (got.get("b-reset"), a, b))
+        check("per view: an edit that holds a transaction would end A's: refused",
+              got.get("a-edit-2") == "" and got.get("b-edit-hold") == "EditInProgress"
+              and got.get("a-reset-2") == "",
+              (got.get("a-edit-2"), got.get("b-edit-hold"), got.get("a-reset-2")))
         between = s.get("between", {})
         check("the document is out of edit", between.get("asked") is False
               and between.get("roots") == 0, between)

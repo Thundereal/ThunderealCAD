@@ -38,6 +38,7 @@
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <Precision.hxx>
+#include <Standard_Failure.hxx>
 #include <TopExp.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
@@ -51,6 +52,7 @@
 
 #include <App/Application.h>
 #include <App/Document.h>
+#include <App/Transactions.h>
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
 #include <Base/Parameter.h>
@@ -98,6 +100,13 @@ DrawGeomHatch::DrawGeomHatch()
     ADD_PROPERTY_TYPE(SavedNames, (), vgroup, App::Prop_None,
                       "Names of the projected faces Source points at");
     SavedNames.setStatus(App::Property::Hidden, true);
+    // registered by hand, as DrawViewPart's ProjectedGeometry: it has no
+    // default to give ADD_PROPERTY_TYPE
+    TrimmedLines.setContainer(this);
+    propertyData.addProperty(static_cast<App::PropertyContainer*>(this), "TrimmedLines",
+                             &TrimmedLines, vgroup,
+                             App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                             "The pattern's lines trimmed to each face, as last trimmed");
 
     m_saveFile = "";
     m_saveName = "";
@@ -166,6 +175,9 @@ App::DocumentObjectExecReturn *DrawGeomHatch::execute()
     //does execute even need to exist? Its all about the property value changes
     DrawViewPart* parent = getSourceView();
     if (parent) {
+        // a view still projecting trims for this once it has its faces
+        // (DrawViewPart::postFaceExtractionTasks)
+        makeTrimmedLines();
         parent->requestPaint();
     }
     // A pattern that cannot be read hatches nothing: the hatch's error, not
@@ -294,8 +306,113 @@ std::vector<LineSet>  DrawGeomHatch::getTrimmedLines(int i)   //get the trimmed 
         !source->hasGeometry()) {
         return std::vector<LineSet>();
     }
+    // as last trimmed, when that was to this outline with this pattern
+    double outline[4];
+    if (outlineOf(source, i, outline)) {
+        if (auto stored = TrimmedLines.find(i, trimSignature(), outline)) {
+            auto lines = PropertyHatchLines::restore(*stored, m_lineSets);
+            if (!lines.empty() || m_lineSets.empty()) {
+                return lines;
+            }
+        }
+    }
     return getTrimmedLines(source, m_lineSets, i, ScalePattern.getValue(),
                            PatternRotation.getValue(), PatternOffset.getValue());
+}
+
+std::string DrawGeomHatch::trimSignature() const
+{
+    Base::Vector3d offset = PatternOffset.getValue();
+    std::ostringstream out;
+    out.precision(17);
+    out << NamePattern.getValue() << '|' << Base::FileInfo(FilePattern.getValue()).fileName()
+        << '|' << ScalePattern.getValue() << '|' << PatternRotation.getValue() << '|'
+        << offset.x << ',' << offset.y;
+    return out.str();
+}
+
+bool DrawGeomHatch::outlineOf(DrawViewPart* source, int iface, double box[4])
+{
+    if (!source || iface < 0) {
+        return false;
+    }
+    const std::vector<TechDraw::FacePtr>& faces = source->getFaceGeometry();
+    if (iface >= static_cast<int>(faces.size()) || !faces.at(iface)) {
+        return false;
+    }
+    Bnd_Box bnd;
+    for (auto& wire : faces.at(iface)->wires) {
+        for (auto& geom : wire->geoms) {
+            BRepBndLib::Add(geom->getOCCEdge(), bnd);
+        }
+    }
+    if (bnd.IsVoid()) {
+        return false;
+    }
+    double zmin, zmax;
+    bnd.Get(box[0], box[1], zmin, box[2], box[3], zmax);
+    return true;
+}
+
+bool DrawGeomHatch::outlineOf(const TopoDS_Face& face, double box[4])
+{
+    if (face.IsNull()) {
+        return false;
+    }
+    Bnd_Box bnd;
+    BRepBndLib::Add(face, bnd);
+    if (bnd.IsVoid()) {
+        return false;
+    }
+    double zmin, zmax;
+    bnd.Get(box[0], box[1], zmin, box[2], box[3], zmax);
+    return true;
+}
+
+//! trim the pattern to each face of Source, and keep what that made: the
+//! boolean takes seconds on a face with many holes, and drawing ran it on
+//! every redraw (docs/TechDrawStoredGeometry.md sec 7)
+void DrawGeomHatch::makeTrimmedLines()
+{
+    // the end of this hatch's update, run on from its view's faces: derived,
+    // as what execute() writes is (TransactionLogJournal.md sec 10.2)
+    App::TransactionDerived derived(this);
+    DrawViewPart* source = getSourceView();
+    if (!Preferences::storeProjectedGeometry() || !source || !source->hasGeometry()
+        || source->waitingForResult()) {
+        if (!Preferences::storeProjectedGeometry()) {
+            TrimmedLines.clear();
+        }
+        return;
+    }
+    if (m_lineSets.empty()) {
+        makeLineSets();
+    }
+    std::vector<PropertyHatchLines::Face> faces;
+    for (auto& name : Source.getSubValues()) {
+        if (DrawUtil::getGeomTypeFromName(name) != "Face") {
+            continue;
+        }
+        int iface = DrawUtil::getIndexFromName(name);
+        double outline[4];
+        if (!outlineOf(source, iface, outline)) {
+            continue;
+        }
+        try {
+            auto lines = getTrimmedLines(source, m_lineSets, iface, ScalePattern.getValue(),
+                                         PatternRotation.getValue(), PatternOffset.getValue());
+            faces.push_back(PropertyHatchLines::capture(iface, outline, lines));
+        }
+        catch (const Standard_Failure& e) {
+            Base::Console().Log("DGH - %s: face %d not trimmed - %s\n", getNameInDocument(),
+                                iface, e.GetMessageString());
+        }
+        catch (const Base::Exception& e) {
+            Base::Console().Log("DGH - %s: face %d not trimmed - %s\n", getNameInDocument(),
+                                iface, e.what());
+        }
+    }
+    TrimmedLines.setValue(trimSignature(), std::move(faces));
 }
 
 /* static */

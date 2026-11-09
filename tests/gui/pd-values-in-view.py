@@ -4,21 +4,22 @@ docs/OnViewValueEditing.md 3.2 to 3.4, brought from the fillet and the
 chamfer to the rest of PartDesign (the reporter 2026-10-18 10:42: "Implement
 the same active handle and on view edit to the rest of partdesign feature").
 Each feature in a body of its own, in edit in turn:
-  - Box: "Length", "Width", "Height" at the top middle; Tab, 12, Enter:
+  - Box: Tab, "Length" beside its handle (entry 240); 12, Enter:
     Length is 12;
-  - Pad: "Length 5 mm" at the top middle, no second length (one side);
-    Tab, 7, Enter: Length is 7; the menu offers "Reversed", "Sides" and
+  - Pad: no label until Tab, then "Length 5 mm" beside its arrow (entry
+    241), no second length (one side); 7, Enter: Length is 7; the menu offers "Reversed", "Sides" and
     "Type"; "Sides" > "Two sides": Tab, Tab, 3, Enter: Length2 is 3;
-  - Revolution: "Angle 180 ..." at the top middle; Tab, 90, Enter: Angle
+  - Revolution: Tab: "Angle 180 ..." beside its handle; 90, Enter: Angle
     is 90; "Reversed" from the menu: Reversed is on;
-  - Helix: "Pitch", "Height", "Cone angle" and no "Turns" (the mode
-    pitch-height-angle); Tab, 4, Enter: Pitch is 4; the menu's "Mode" >
+  - Helix: "Pitch" and "Cone angle" at the top middle, "Height" (it has
+    a handle) and "Turns" not (the mode pitch-height-angle); Tab, 4, Enter: Pitch is 4; the menu's "Mode" >
     the third: "Turns" shown;
-  - Hole: "Diameter" and "Depth"; Tab, Tab, 4, Enter: Depth is 4; "Depth
+  - Hole: "Diameter" at the top middle, "Depth" not; Tab, Tab: "Depth"
+    beside its arrow; 4, Enter: Depth is 4; "Depth
     type" > the second: no "Depth" label;
-  - Draft: "Angle 5 ..."; Tab, 3, Enter: Angle is 3; "Reverse pull
+  - Draft: Tab: "Angle 5 ..."; 3, Enter: Angle is 3; "Reverse pull
     direction": Reversed is on; "Remove Face1" is offered;
-  - Thickness: "Thickness 1 mm"; Tab, 2, Enter: Value is 2; "Join type" >
+  - Thickness: Tab: "Thickness 1 mm"; 2, Enter: Value is 2; "Join type" >
     "Intersection": Join is Intersection;
   - after each edit: no label left in the view, and FreeCAD still runs
     (the value set goes before the handles it holds).
@@ -306,18 +307,24 @@ def run():
 
         # -- Box
         ok, labels = edit(prim, "box")
-        check("box: Length, Width, Height at the top middle",
-              all(has_label(labels, t) for t in ("Length 10", "Width 10", "Height 10")), labels)
+        # each beside its handle while that one is active (entry 240), no
+        # longer all at the top middle
         tabs(1)
+        check("box: Tab: the Length label, beside its handle",
+              has_label(text_labels(), "Length 10"), text_labels())
         type_value("12")
         check("box: Tab, 12, Enter: Length is 12", abs(prim.Length.Value - 12) < 1e-9, prim.Length)
         leave("box")
 
         # -- Pad
         ok, labels = edit(pad, "pad")
-        check("pad: 'Length 5 mm' at the top middle, no second length",
-              "Length 5 mm" in labels and not has_label(labels, "Length 2"), labels)
+        # beside its arrow while that is active, no longer at the top middle
+        # (entry 241)
+        check("pad: no label before a value is active", not has_label(labels, "Length"), labels)
         tabs(1)
+        labels = text_labels()
+        check("pad: Tab: 'Length 5 mm' beside its arrow, no second length",
+              "Length 5 mm" in labels and not has_label(labels, "Length 2"), labels)
         type_value("7")
         check("pad: Tab, 7, Enter: Length is 7", abs(pad.Length.Value - 7) < 1e-9, pad.Length)
         tabs(1)
@@ -334,9 +341,10 @@ def run():
 
         # -- Revolution
         ok, labels = edit(rev, "revolution")
-        check("revolution: 'Angle 180 ...' at the top middle", has_label(labels, "Angle 180"),
-              labels)
         tabs(1)
+        labels = text_labels()
+        check("revolution: Tab: 'Angle 180 ...' beside its handle",
+              has_label(labels, "Angle 180"), labels)
         type_value("90")
         check("revolution: Tab, 90, Enter: Angle is 90", abs(rev.Angle.Value - 90) < 1e-9,
               rev.Angle)
@@ -348,9 +356,9 @@ def run():
 
         # -- Helix
         ok, labels = edit(helix, "helix")
-        check("helix: Pitch, Height, Cone angle at the top middle, no Turns",
-              all(has_label(labels, t) for t in ("Pitch", "Height", "Cone angle"))
-              and not has_label(labels, "Turns"), labels)
+        check("helix: Pitch and Cone angle at the top middle, Height (a handle) and Turns not",
+              all(has_label(labels, t) for t in ("Pitch", "Cone angle"))
+              and not has_label(labels, "Height") and not has_label(labels, "Turns"), labels)
         tabs(1)
         type_value("4")
         check("helix: Tab, 4, Enter: Pitch is 4", abs(helix.Pitch.Value - 4) < 1e-9, helix.Pitch)
@@ -363,9 +371,11 @@ def run():
 
         # -- Hole
         ok, labels = edit(hole, "hole")
-        check("hole: Diameter and Depth at the top middle",
-              has_label(labels, "Diameter") and has_label(labels, "Depth"), labels)
+        check("hole: Diameter at the top middle, Depth (a handle) not",
+              has_label(labels, "Diameter") and not has_label(labels, "Depth"), labels)
         tabs(2)
+        labels = text_labels()
+        check("hole: Tab, Tab: Depth beside its arrow", has_label(labels, "Depth"), labels)
         type_value("4")
         check("hole: Tab, Tab, 4, Enter: Depth is 4", abs(hole.Depth.Value - 4) < 1e-9, hole.Depth)
         tabs(1)
@@ -379,8 +389,9 @@ def run():
 
         # -- Draft
         ok, labels = edit(draft, "draft")
-        check("draft: 'Angle 5 ...' at the top middle", has_label(labels, "Angle 5"), labels)
         tabs(1)
+        labels = text_labels()
+        check("draft: Tab: 'Angle 5 ...' beside its handle", has_label(labels, "Angle 5"), labels)
         type_value("3")
         check("draft: Tab, 3, Enter: Angle is 3", abs(draft.Angle.Value - 3) < 1e-9, draft.Angle)
         tabs(1)
@@ -392,8 +403,10 @@ def run():
 
         # -- Thickness
         ok, labels = edit(thick, "thickness")
-        check("thickness: 'Thickness 1 mm' at the top middle", "Thickness 1 mm" in labels, labels)
         tabs(1)
+        labels = text_labels()
+        check("thickness: Tab: 'Thickness 1 mm' beside its handle", "Thickness 1 mm" in labels,
+              labels)
         type_value("2")
         check("thickness: Tab, 2, Enter: Value is 2", abs(thick.Value.Value - 2) < 1e-9,
               thick.Value)

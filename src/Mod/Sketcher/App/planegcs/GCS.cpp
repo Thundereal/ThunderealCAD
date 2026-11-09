@@ -1612,6 +1612,16 @@ int System::addConstraintInternalAlignmentKnotPoint(
     if (!b.periodic && startpole >= b.poles.size()) {
         startpole = b.poles.size() - 1;
     }
+    // The last knot of a periodic B-spline is its first, a period on: the
+    // same point, of the same poles by the same factors. Taken as itself,
+    // its span reached one knot past `flattenedknots` (k + degree ==
+    // flattenedknots.size()), read beyond the vector (AddressSanitizer,
+    // tests/gui/sketch-bspline-from-knots.py). So the first knot's span.
+    double knotValue = *(b.knots[knotindex]);
+    if (b.periodic && startpole >= b.poles.size()) {
+        startpole %= b.poles.size();
+        knotValue = *(b.knots[0]);
+    }
 
     // Calculate the factors to be passed to weighted linear combination constraint.
     // The if condition has a small performance benefit, but that is not why it is here.
@@ -1620,7 +1630,7 @@ int System::addConstraintInternalAlignmentKnotPoint(
     // cleanest way to handle it.
     if (numpoles > 1) {
         for (size_t i = 0; i < numpoles; ++i) {
-            factors[i] = b.getLinCombFactor(*(b.knots[knotindex]), startpole + b.degree, startpole + i);
+            factors[i] = b.getLinCombFactor(knotValue, startpole + b.degree, startpole + i);
         }
     }
 

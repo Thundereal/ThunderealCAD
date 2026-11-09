@@ -91,6 +91,7 @@
 #include <Inventor/SoRenderManager.h>
 
 #include <QApplication>
+#include <QPointer>
 #include <QtOpenGL.h>
 
 #include <App/Application.h>
@@ -106,6 +107,7 @@
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
 
+#include "View3DInventorViewer.h"
 #include "Inventor/SoFCRenderCacheManager.h"
 #include "Inventor/SoFCDiffuseElement.h"
 #include "Inventor/SoFCVisibilityElement.h"
@@ -389,7 +391,12 @@ public:
     mutable SoFCRayPickAction rayPickAction;
 
     Gui::Document        *pcDocument;
-    View3DInventorViewer *pcViewer;
+    // Guarded: the node outlives its view -- a delayed selection update
+    // (SoFCRenderCacheManager) traverses it after the view is closed --
+    // and every use below tests it, which a raw pointer to a deleted viewer
+    // passed (ASan: heap-use-after-free in getHiddenLineConfig(), 81 of the
+    // driven tests).
+    QPointer<View3DInventorViewer> pcViewer;
 
     // The owning 3D view object, whose Section_* properties answer for the
     // section style this node picks and renders with. Null for a viewer
@@ -927,7 +934,10 @@ SoFCUnifiedSelection::Private::getPickedInfoOnTop(std::vector<PickedInfo> &ret,
         int pathLength = tmpPath.getLength();
         SoState * state = this->rayPickAction.getState();
         SoFCSwitch::setOverrideSwitch(state, true);
-        if (ViewParams::highlightPick()
+        // the preselected object asked first: by a setting, or because it
+        // has a face picked first while highlighted (a datum plane's,
+        // SoFCLatePickGroup::setPickFirst(), entry 235)
+        if ((ViewParams::highlightPick() || SoFCLatePickGroup::anyPickFirst())
                 && Selection().hasPreselection()
                 && !manager.isOnTop(Selection().getPreselection().Object.getSubNameNoElement(true), false)) {
             if (auto path = this->manager.getHighlightPath()) {
@@ -1782,6 +1792,10 @@ SoFCUnifiedSelection::Private::setHighlight(SoFullPath *path,
                 float a = 1.f - ViewParams::getTransparencyOnTop();
                 t = 1.f - a*a;
             }
+            // a whole object lit as the element its view provider names
+            // for it (getDetailPath() with no element): a datum plane as
+            // its face, with the face's outline (entry 235)
+            std::unique_ptr<SoDetail> ownDet;
             if (wholeontop || (ontop && ViewParams::highlightPick())) {
                 SoDetail *_det = nullptr;
                 // Normal path obtained for ray pick action leads to the shape node
@@ -1793,6 +1807,12 @@ SoFCUnifiedSelection::Private::setHighlight(SoFullPath *path,
                 if(vpd->getDetailPath(subname,detailPath,true,_det) && detailPath->getLength()) {
                     path = detailPath;
                     wholeontop = true;
+                    if (_det && !det && !obj.hasSubElement()) {
+                        ownDet.reset(_det);
+                        _det = nullptr;
+                        det = ownDet.get();
+                        wholeontop = false;
+                    }
                 }
                 delete _det;
             }
@@ -4802,9 +4822,47 @@ void SoFCLatePickGroup::GLRenderInPath(SoGLRenderAction * action)
     inherited::GLRenderInPath(action);
 }
 
+SO_NODE_SOURCE(SoFCFaceSet)
+
+SoFCFaceSet::SoFCFaceSet()
+{
+    SO_NODE_CONSTRUCTOR(SoFCFaceSet);
+    SO_NODE_ADD_FIELD(partIndex, (0));
+    partIndex.setNum(0);
+}
+
+SoFCFaceSet::~SoFCFaceSet() = default;
+
+void SoFCFaceSet::initClass()
+{
+    SO_NODE_INIT_CLASS(SoFCFaceSet, SoFaceSet, "FaceSet");
+}
+
+static int PickFirstCount;
+
+SoFCLatePickGroup::~SoFCLatePickGroup()
+{
+    if (pickFirst)
+        --PickFirstCount;
+}
+
+void SoFCLatePickGroup::setPickFirst(bool enable)
+{
+    if (pickFirst == enable)
+        return;
+    pickFirst = enable;
+    PickFirstCount += enable ? 1 : -1;
+}
+
+bool SoFCLatePickGroup::anyPickFirst()
+{
+    return PickFirstCount > 0;
+}
+
 void SoFCLatePickGroup::rayPick(SoRayPickAction *action)
 {
-    if (action->isOfType(SoFCRayPickAction::getClassTypeId())
+    if (!pickFirst
+            && action->isOfType(SoFCRayPickAction::getClassTypeId())
             && !static_cast<SoFCRayPickAction*>(action)->isLatePicking())
     {
         return;

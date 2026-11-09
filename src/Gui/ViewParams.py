@@ -370,6 +370,11 @@ Params = [
         "document as it is and take no input for the edit. When off, every view\n"
         "of the document joins the edit and can work in it. Takes effect with\n"
         "the next edit."),
+    ParamBool('EditStepEachChange', True, title='Undo each change of an edit', doc=
+        "Make each change in an edit's task panel an undo step of its own, so\n"
+        "that it can be undone on its own; Cancel takes back all of the edit's.\n"
+        "When off, an edit's changes are one undo step, made at OK. Always on\n"
+        "with PerViewEdit. Takes effect with the next edit."),
     ParamBool('PerViewSelection', False, title='A selection per view', doc=
         "Give every view a selection of its own. What is selected in one view\n"
         "is then selected, highlighted and acted on in that view only, and the\n"

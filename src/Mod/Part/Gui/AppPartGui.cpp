@@ -48,6 +48,7 @@
 #include "SoFCShapeObject.h"
 #include "ViewProvider.h"
 #include "ViewProvider2DObject.h"
+#include "ViewProviderElement.h"
 #include "ViewProviderAttachExtension.h"
 #include "ViewProviderDatum.h"
 #include "ViewProviderGridExtension.h"
@@ -201,6 +202,11 @@ PyMOD_INIT_FUNC(PartGui)
     PartGui::ViewProviderPoint                      ::init();
     PartGui::ViewProviderLCS                        ::init();
     PartGui::ViewProviderPart                       ::init();
+    PartGui::ViewProviderElement                    ::init();
+    PartGui::ViewProviderElementBinding             ::init();
+    // Renamed 2026-10-28, as Part::ElementBinding
+    Base::Type::addLegacyName(PartGui::ViewProviderElementBinding::getClassTypeId(),
+                              "PartGui::ViewProviderElementLink");
     PartGui::ViewProviderPrimitive                  ::init();
     PartGui::ViewProviderEllipsoid                  ::init();
     PartGui::ViewProviderPython                     ::init();

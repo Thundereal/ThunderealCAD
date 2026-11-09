@@ -8091,3 +8091,431 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   DrawWindowBackground fills a widget's palette ground even when it never
   paints one. The comparison of the r189 rows (alpha 255) with the
   docked ones (181) is what pointed at the list's own ground.
+
+### 2026-10-28: entries 230 and 231 -- COMMITTED `5bb09a4fe1`, `289f655b22`, not pushed, not staged
+
+- 230: ShowFrames defaults to false on a new page and is shown in the
+  page's view properties; a saved page keeps its value (no migration).
+  Set there it redraws the page (onChanged -> refreshFrames); the
+  printer's setFrameState() still sets it quietly. The template's editable
+  text marks are hidden when a page with frames off opens, as Toggle
+  Frames leaves them -- before, they showed on such a page until toggled.
+  techdraw-frames-default-off.py 10 of 10 (rtx17, the rtx16 build).
+- 231: the cause was the click guard of 1a5ce344af: a release counted as
+  a move only if the mouse was startDragDistance (10 px) from the press at
+  the release, while the line follows from the first move. A press is a
+  drag now once it went that far at any time, or the button was held
+  startDragTime (500 ms); the change point marks too. Undo/Redo of a move
+  now repaints the base view (DrawViewSection::onChanged, SectionOrigin or
+  SectionNormal while the document performs a transaction): only a
+  finished cut repainted it, and Undo makes none.
+  techdraw-section-line-click.py 15 of 15 on rtx16 (3.00 px and 4.00 px
+  landed, a quick 3 px shake a click, 0 pixels differ after undo);
+  TestTechDrawApp 13 OK.
+- Not checked: the reporter's own Section003 in their copy (needs a
+  restage); the drag test's synthetic events, not a hand.
+
+### 2026-10-28: entries 233 and 234 -- COMMITTED `8e49bf9df2`, `296e82e496`, not pushed, not staged
+
+- 233 (a): on the reporter's dock layout (left, right and bottom
+  overlays, transparent) both bars stood at the area's own edges, under
+  the docks: place() read each band of the covered() region as a dock, a
+  side dock's upper piece as one at the top, and "too little left" sent
+  the bars back. Reproduced offscreen on a copy of the reporter's
+  user.cfg (dl\handson\2026-10-12\s1\usercfg\user-1028-1200.cfg).
+  OverlayManager::coverRects() gives each cover whole; a corner dock lies
+  along the edge it reaches in from the least (as roomIn()).
+- 233 (b): an application filter (OverlayScrollBars::PointerWatch), asked
+  before OverlayManager passes a move through, reveals by position. (c):
+  goRound() shortens a bar past a cover not at a side, or slides it.
+- overlay-scroll-bars-hover.py 36/36 plain, 31/31 on the reporter's cfg
+  (rtx24); 222 8, 224 16, 225 11, pass-through 19 (rtx22/rtx24).
+- 234: PHONG again, 0.7 diffuse + 0.3 emissive; NO_SHADOWING and the
+  annotation kept. rotation-center-ball-shaded.py 3/3 on Coin and on the
+  backend (red 116..194 across the ball). Full colour diffuse saturated
+  (230..255) on the first try.
+- Not checked by hand on the real Windows screen; the hover runs were
+  offscreen (the platform's own pointer).
+
+### 2026-10-28 afternoon: 233 again -- COMMITTED `ea124fd624`, confirmed by the reporter in the dev build (rtx29), not pushed, not staged
+
+- The reporter on the staged 8e49bf9df2: overlay panels' bars (docked and
+  in-view) never showed on hover, only on a wheel scroll. Offscreen tests
+  had passed: they read the bar's state. On the real screen with the
+  system pointer (overlay-panel-bar-hover-pointer.py, a copy of the
+  reporter's cfg) the tree's bar said shown and 10 of 3250 pixels changed:
+  the bar's QGraphicsOpacityEffect nested in the dock splitter's
+  OverlayGraphicsEffect paints nothing. FadeBar paints at an opacity: 532.
+- On the reporter's word the move goes to the bars from OverlayManager's
+  own event filter, before the pass-through decision
+  (OverlayScrollBars::pointerMoved), not an application filter of their own.
+- The reporter: "if Task overlay panel is empty, then do not slide out
+  affected scroll bar". Their Tasks panel shows a watcher box with no task
+  (TaskView::isEmpty() false); a see-through dock of task views now covers
+  its boxes only (coverRects(widget, true)).
+- The reporter, dev build: "scroll bars works fine now".
+- Diagnostics only, not committed: QTest moves on the real screen do not
+  move the system pointer, by which OverlayManager decides; the pointer
+  test uses QCursor.setPos and puts it back.
+
+### 2026-10-28 afternoon: entry 235 -- COMMITTED `80337cf262`, not pushed, not staged; 238 measured (`98a1ffb0a0`)
+
+- 235: origin plane kept its rest size (the quarter, 7e1824d01d's switch
+  out); its face picked first while hovered or selected
+  (SoFCLatePickGroup::setPickFirst, asked ahead with the highlight path);
+  lit as a face element: getDetailPath() answers the face, SoFCFaceSet
+  (partIndex, one part), preselection keeps that detail, unlit faces
+  outlined in the highlight colour (was black).
+- What broke the colour (the reporter asked): on bgfx the dashed through-
+  copy of datum lines (1109842583, entry 99) lies over the highlighted
+  lines -- blue only between dashes; the OpenGL path drew them solid.
+  Seen on the staged d04054d9b0, both paths. The plane no longer depends
+  on the lines; a datum AXIS on bgfx still has the dashed overlay: not
+  fixed, reported.
+- origin-plane-highlight.py 9/9 bgfx, 9/9 OpenGL (Render/Type Legacy,
+  screen grab), the reporter's cfg; the staged copy fails 7.
+- 238: overlay bars about 1 percent of a page pan (temporary trace, not
+  committed); staged vs dev medians 9.9/9.7 ms 3D, 25.5/16.1 ms page.
+  Start lag or trailing not measured; asked through the note-taker.
+
+### 2026-10-28 evening: 235 on bgfx -- COMMITTED `edc123b9ff`, not pushed, not staged
+
+- The reporter: "yes fix the bgfx". BGFXFrame step 5b drew the dashed
+  through-copy of datum lines (on-top layer, depth test off) after the
+  preselection's/selection's coloured lines; now each order's coloured
+  copies after its plain ones, and the coloured solid lines again after
+  all orders. Matches the OpenGL path.
+- Left as it is (both renderers): where the side-on XZ plane's edge lies
+  on the X axis (a top view), its plain line is drawn over the axis.
+- origin-plane-highlight.py 14/14 bgfx and OpenGL (picture from
+  QWidget.grab of the GL widget: screen grabs caught the reporter's own
+  windows); staged copy, the axis 4 of 14 columns.
+
+### 2026-10-28 evening: entry 236 -- COMMITTED `6669972af0`, not pushed, not staged
+
+- Pushed before it, on the reporter's word: ef7af542e0..c30ae593fa.
+- 236: a placement change in the edit made Gui::Document put the whole
+  editing transform (the new placement in it) on the editing root, over
+  the gizmo frame (editing transform less own placement): handles had the
+  placement twice. GizmoContainer sets its frame back on
+  signalEditingTransformChanged; getWorldMatrix() is that frame from the
+  edit path (it multiplied the editing transform on once more: labels).
+- Audit: all PD gizmo panels go through GizmoContainer, so one fix.
+- pd-box-handles-follow-attachment.py (offscreen; handles read via
+  getAuxSceneGraph with SoBaseKit.setSearchingChildren): 5/5; staged copy
+  fails attached-in-edit (every handle), passes reopened.
+
+### 2026-10-28 evening: entry 237 -- COMMITTED `c20481f73d`, not pushed, not staged
+
+- QGVNavStyleBlender refused the mouse context menu only with LMB down;
+  on Windows it comes at the RMB release, so a pan with LMB let go first
+  got it. Now a LMB+RMB pan since the gesture's first press refuses it.
+  The other page styles test held modifier keys: not touched.
+- techdraw-blender-pan-no-menu.py 5/5 (real screen, QTest on the window:
+  Qt's own Release trigger); staged copy: the menu after the first pan.
+
+### 2026-10-28 evening: entry 239 -- COMMITTED `fb8b27d61d`, not pushed, not staged
+
+- Pushed and restaged 3f3174731f before it (stage30), on the reporter's
+  word.
+- 239: an edit-shown origin (Origin group hidden) is captured tagged
+  perViewShownModeId; the highlight cache kept the tag, so GL dropped it
+  and bgfx did not admit it. buildHighlightCache() untags its result.
+  Not the 235 change (the reporter: no highlight before it either).
+- pd-edit-origin-highlight.py 4/4 (the plane found by moving out from the
+  origin: getObjectInfo returns nothing in an edit); staged copy: 0
+  pixels with the Origin hidden. origin-plane-highlight.py 14/14.
+
+### 2026-10-28 evening: entry 240 -- COMMITTED `664e51d94a`, not pushed, not staged
+
+- PD primitives' values Place::AtHandle (TopMiddle with handles off).
+- SoDatumLabel backgroundColor/backgroundAlpha (default none), painted into
+  the text image; the backend takes the image as is when it has a ground.
+  OnViewValueSet: the tree's effective item ground, else ItemBackground,
+  else the palette base; alpha clamped to 96..200 (the reporter's
+  ItemBackground is black at 20/255: raised to 96 there). Sketcher labels
+  untouched.
+- pd-primitive-labels-at-handle.py 6/6 (staged copy 0/6, three labels at
+  the top middle, no ground, and the box's labels left in the next edit);
+  pd-values-in-view's box claim updated, 37/37; chamfer 19, fillet 21.
+
+### 2026-10-28 night: label ground setting, the Sketch3D merge -- PUSHED and restaged (stage31)
+
+- The reporter: "Add label background transparency setting, default 0 ...
+  another branch added label outline, which should be enough for
+  readability. Merge with remote branch Sketch3D."
+- Merge `3ac952f982`: OverlayScrollBars keeps LinkVibe's placement plus
+  Sketch3D's keepClear(); SoDatumLabel keeps both the ground and the
+  outline fields (ground > 0: the image as is; outline: BLEND two-tone;
+  else the mask).
+- `1a9e336a08` Part: Geom_CurveOnSurface RTTI inline (MSVC C2487, merged
+  code built only on Linux before).
+- `1af7e47607` Gui: Gizmos/OnViewLabelBackgroundOpacity, 0-100 %, default 0,
+  also in the on-view settings menu. PD on-view labels have no outline
+  (Sketch3D's outline is the Sketcher's on-view parameters only).
+- `d4799224b4` Test: testAHeldPathLeavingTheFolderIsNotWritten failed on
+  Windows (a backslash path in re.sub's replacement).
+- OCCT synced to 37cb17ed8e (09c2509936, the network surface fix Sketch3D's
+  NetworkSurface tests need; they failed 3 of 1088 without it).
+- ttx55: ctest 1088/1088; Python 4037, 1 error (the test above, fixed
+  after); GUI all pass except techdraw-page-overlay-scroll-bars "the page
+  is in a view cell" (Sketch3D's new check): offscreen here the view is
+  400 x 338 and the split is refused at the 300 x 300 least cell, so the
+  page opens as a tab. `594f664cf6` lowers it for the run: 20 PASS.
+  TransactionAuditCases 16/16 after the fix.
+- Screenshots (bgfx): the Length label at 0 and 50 %, an origin plane
+  preselected -- g-rtx55-shots-dev.
+
+### 2026-10-28 night: PD on-view labels get the sketch's outline -- pushed and restaged (stage33)
+
+- The reporter: "the label outline is on by default right" -- only the
+  Sketcher's on-view parameters had it; "yes show the outline and give me
+  a screenshot".
+- `14b17ae490`: OnViewValueSet labels call setOutline() with the Sketcher's
+  View preferences (ConstraintOutlineWidth, default 1 px; the
+  ConstrainedOutlineColor / *Light colour by the background).
+  viewBackgroundIsLight moved from SketcherGui to Gui.
+- rtx56: ctest 1088/1088; pd-primitive-labels-at-handle 12/12 (outline
+  1 px), pd-values-in-view 37, chamfer 19, fillet 21, sketch-datum-label-
+  pick 12. sketch-constraint-highlight-view fails offscreen (render dump
+  times out), 12/12 on the real screen with both rtx56 and stage31.
+- Screenshots g-rtx56-shots-dev: dark background, the dark outline shows;
+  on a light one the light outline hardly shows against magenta text (the
+  Sketcher's light scheme darkens its text too; PD keeps its colour).
+- Restaged as stage32; the push was refused by the permission check.
+- The reporter: "Yes, darken ib light theme, only a bit". `d7c714f31e`: the
+  text is the dimension (or expression) colour at four fifths on a light
+  background. The label test checks it on both: 20/20, offscreen and on a
+  hidden desktop.
+- The reporter: "Also can you make off screen test work". Offscreen on
+  Windows has no OpenGL ("QOpenGLWidget is not supported on this
+  platform"): the view never draws, a render dump times out, and the
+  Sketcher's view highlight falls back to the edit graph -- both of the
+  test's offscreen failures. gui.cmd GT_HIDDEN_DESKTOP=1 runs the test on a
+  desktop of its own (tools\run-on-hidden-desktop.ps1): real windows, bgfx
+  D3D11, nothing on the reporter's screen.
+  sketch-constraint-highlight-view 12/12 there.
+- rtx57: ctest 1088/1088; pd-values-in-view 37, chamfer 19, fillet 21.
+- The reporter: "Once done push and restage".
+
+### 2026-10-29: Windows GUI tests on a hidden desktop by default -- pushed
+
+- The reporter: "Commit the hiddden desk test on windows. Use it for testing
+  from now on for windows by default. Push and tell x16win about this too".
+- In the repo now: `scripts/gui-test.cmd`, the Windows GUI test driver
+  (`gui-test.sh`'s counterpart), `scripts/gui-test-guard.py` and
+  `scripts/run-on-hidden-desktop.ps1`. GT_DESKTOP picks hidden (default),
+  screen or offscreen; FC_RUNNER names the wrapper that puts the conda env,
+  OCCT and Coin on PATH. docs/Testing.md "The GUI tests" and CLAUDE.md say
+  to use it on Windows, not QT_QPA_PLATFORM=offscreen.
+- Driven through it: pd-primitive-labels-at-handle 20/20,
+  sketch-constraint-highlight-view 12/12.
+- The local gui.cmd runs dev and staged on the hidden desktop by default
+  too; GT_ON_SCREEN=1 for the old way.
+
+### 2026-11-02: entry 241 -- COMMITTED `6465589eb0`, not pushed, not staged
+
+- The reporter: every PD on-view value's label at its active handle's base
+  point, offset off the handle; a drag of a handle not active makes it
+  active, the label following from the drag's start. (d): the handle's tool
+  tip leads with the label's text; the ruling: it follows the value in a
+  drag and hides while the pointer moves, back once it rests.
+- OnViewValueSet: a value with a handle shown stands by its active handle
+  whatever place the panel gave it (pad length, revolution angle, helix
+  height, hole depth, draft, thickness, fillet/chamfer defaults). No handle,
+  handles off, or an expression (never active): the top middle.
+- Gizmo::getHandleBase(): an arrow's foot (moves with the value), a rotation
+  knob. Beside an arrow on its upper/right side, label edge 10 px off; out
+  from a knob, 20 px. DragEvent::Moved keeps it on the handle in a drag.
+- Drag start activates; the dress-up's edge selection waits for the drag's
+  end (the view's release would clear it); a cancelled drag gives back the
+  value active before.
+- Tool tip "Length 8 mm" over the old hint, on the active handle too; shown
+  by the handle's own rest timer (Qt asks for no tip with a button down).
+- rtx58b: ctest 1088/1088. GUI (hidden desktop): pd-label-at-handle-foot
+  25/25 (after a fade wait fix), pd-values-in-view 39, chamfer 21, fillet
+  radius 23, fillet edge 17, fillet point 6, fillet undo 23, primitive labels
+  20, pad drag-reverse 13, edit menu 25 (button at the middle now; Settings
+  has 3 spin boxes since the label ground setting), serve handle hint 10.
+
+### 2026-11-02: entry 242 -- COMMITTED `0f41b13b35`, not pushed, not staged
+
+- The reporter: the migration recompute box and the recompute error box are
+  not load modal.
+- Probed on a scanner2 copy, dev and staged: both boxes ARE input modal --
+  ApplicationModal, owned by the main window, the main HWND disabled, a menu
+  click and a native wheel in the 3D view blocked (the wheel moves the
+  camera with no box up). But the migration prompt comes from the end of the
+  open with the scene still building (isBuildingVisuals true at the box and
+  3 s into it): the box's event loop ran the progressive load's slices on.
+- Fix: Gui::Application::isLoadHeld() (a modal widget up); the view
+  provider drain's and the Part visual drain's timed slices wait, ask again
+  in 100 ms; a flush still runs through.
+- modal-box-holds-the-load.py: before (rtx58b) 616 visuals built under the
+  box, 2 FAIL; rtx59 6/6, none built under it, 600 of 600 after. scanner2
+  copy: 1 -> 1 under the migration box, 418 -> 418 under the error box, the
+  load ends after. drain-waits-for-premesh 14, pd-label-at-handle-foot 25,
+  ctest 1088/1088.
+
+### 2026-11-03: MultiViewEdit merged -- PUSHED `19cb94f183`, STAGED (stage34)
+
+- The user: merge x16's MultiViewEdit once pushed, build, test, push and
+  restage. 8b020b264e merged as `c0638f0d8e` (clean; cycles submodule to
+  bb7c0e4c5d); 241 and 242 go out with it.
+- rtx60: build OK, wasm viewer build OK; GUI on the hidden desktop: the 31
+  non-browser tests the branch added or changed plus 8 PD on-view / load
+  tests, 39/39 green; ctest 1099/1099 (the two-browser panel test skips here).
+- Pushed thundereal/LinkVibe 3d26fa74de..19cb94f183; stage34 INSTALL-USER OK
+  (binaries rtx60; "dirty" was the uncommitted 237 edit, not in the build).
+
+### 2026-11-03: entry 237 reopened -- COMMITTED `f88afe9703`, not pushed, not staged
+
+- The reporter: "Two button press should not open menu". On a page in the
+  Blender style, left + right down and up without a move, the left up first,
+  opened the page menu (either press order): only a pan set the flag.
+- Fix: QGVNavStyleBlender marks the gesture at the press that makes both
+  buttons down too (`panned` -> `twoButtons`).
+- 3D view's Blender style: no menu for the same press, both release orders
+  (PANNING holds until both are up); a right click alone gives the menu.
+- techdraw-blender-pan-no-menu.py: rtx60 (before) 2 FAIL, the two left-up-
+  first cases; rtx61 13/13 with the 3D view checks. td-edit-two-pages 32/32.
+
+### 2026-11-03: OcctFix and main merged, OCCT synced -- STAGED (stage35), not pushed
+
+- The user: merge OcctFix, then main, sync the repos including OCCT, build,
+  test, restage. thundereal/OcctFix 0ec61d2798 merged as `09c083b9f5`
+  (regression_tests.py / TestFillet.py: OcctFix's ellipse volumes, the
+  doc renamed TransactionLogJournal.md on LinkVibe); thundereal/main
+  bb2636d770 as `4021ece528` (comment-only conflicts, main's wording;
+  cycles to 6ba58e1202). OCCT LinkVibe-801 fast-forwarded 37cb17ed8e ->
+  318d7f1478 (72 commits, tests/fork 0874cbd), rebuilt and installed; coin
+  already current; no feedstock clones on this box.
+- rtx62: OCCT OK, FreeCAD OK, ctest 1099/1099; GUI 11/11 (PD on-view,
+  thicken, two views, TD pages, Blender menu, modal load, surface in body).
+- Python suite 4076: 15 FAIL, all Document.FolderSaveCases ("kept" 0: a
+  second folder save keeps no file). NOT from today's merges: the staged
+  rtx60 (MultiViewEdit merge only) fails the same 15; t55 (10-28) passed
+  them. The keep branch is never reached (no "nothing kept" log line).
+  Sent to x16. The 10-28 error (testAHeldPathLeavingTheFolderIsNotWritten)
+  is gone.
+- stage35 INSTALL-USER OK, fcad 4021ece528, clean.
+- CORRECTION, same morning: the 15 FolderSaveCases failures were my
+  harness, not MultiViewEdit. The suite was started from Git Bash, whose
+  TMPDIR=/tmp reaches cmd as C:\Users\LEI~1.ZHE\AppData\Local\Temp, and
+  Python's tempfile takes TMPDIR first: every folder had an 8.3 name. Started
+  from PowerShell, -t Document.FolderSaveCases is 28 OK (1 skipped) on rtx62;
+  x16 had 28/28 on linux. The runners now clear TMPDIR.
+- What is left is real but narrow: a folder save to a path spelled with an
+  8.3 short name keeps nothing on its next save (same folder, long name:
+  kept 4; short name: kept 0). Not fixed; a folder picked in a dialog
+  comes in its long form.
+
+### 2026-11-03: the 8.3 folder save -- COMMITTED `4e6155fd75`, not pushed, STAGED (stage36)
+
+- The user: "Push and fix the path problem. Then restage". Pushed first
+  (thundereal/LinkVibe 19cb94f183..0a4d49eda5: MultiViewEdit, OcctFix, main
+  merges, 237).
+- Cause, by a temporary trace: the save writes by std::filesystem's
+  canonical form, which makes C:\Users\<8.3>\... long; FileName, Qt's
+  canonical form and all that is read from the file keep the short one. The
+  "own file" check after the save never matched, so the folder state was
+  never kept; then the history copy's folder, the open's keep guard and the
+  blob paths each compared the two spellings as strings (7 more failures
+  after the first fix, all of this kind).
+- Fix: FileHistory::samePath (long form, case folded, on Windows) and the
+  registry keyed by it; the save keeps the spelling it was given when the
+  canonical form is the same file; the same-file checks use samePath.
+- rtx65/66: FolderSaveCases 29/29 with TMPDIR the 8.3 temp and without;
+  Python suite 4077 OK (0 failures, 0 errors); ctest 1100/1100 with the new
+  FileHistorySamePath gtest; GUI 5/5 (two documents, TD pages, per-view
+  undo, modal load, PD values).
+
+### 2026-11-03: entries 243, 247, 244, 243 b, 246 -- COMMITTED, not pushed, not staged
+
+- 243 `5e3a5917c4`: a highlighted line over every other line (the user chose
+  "over lines, not faces"). From the top the side-on XZ plane's edges are IN
+  FRONT of the X axis (z 0.01, 0.157). Both renderers: plain lines mark the
+  stencil where front-most, highlight/selection lines drawn again over the
+  mark without the depth test; bgfx's last redraw selection first, then the
+  preselection. Traps on the way: draw bounds are not where a draw is (the
+  origin's axes share one cached line, bboxes identical) -- marks every plain
+  line; the plane's dashes are its annotation-order through-copy.
+  origin-plane-highlight 17/17 bgfx and Legacy.
+- 247 `dfc36122fe`: 242's hold held for ANY modal widget -- the progress
+  dialog of the migration recompute held restore and visuals through it.
+  Now only a QMessageBox, never while recomputing. And recompute's
+  "Recompute failed!" now sets *hasError (SectionView003 logs its empty cut
+  and returns OK: no error box -- older than 242). scanner COPY: the box now.
+  ctest 1100, Python 4077 OK.
+- 244 `de8f488698`: a label in edit has blank text, and 241 places it by its
+  text size: it moved (18 px left, 30 down), the edit box with it. Placed by
+  the size it had shown. pd-primitive-labels-at-handle 28/28.
+- 243 b `e6a285fa4d`: measured both renderers -- pattern 0: hidden part solid
+  over a line in front (69/69, already so); a dash pattern: 243's copy drew
+  it solid under the line. No copy while a dash pattern is set; dashes over
+  the line, the line between (36/33). hidden-selected-edge-over-line.py new.
+- 246 `d4344a8a82`: handle and menu button tips in Gui::ToolTip's rounded
+  overlay label beside the pointer (2, 16); 241's timing kept. Three tests
+  read the label; fillet-handle-click's 141 claim now 241's rule.
+- 245 moved to x16 by the note-taker; not started here.
+- Git Bash trap: TMPDIR=/tmp reaches cmd as the 8.3 temp (memory note).
+
+### 2026-11-03 evening: 247 (a) again, FreeCADGui.open, 250, the leaked transient dirs
+
+- 247 (a) `1806054df3`: still black through the migration recompute.
+  actualRedraw skipped renderScene whenever the document was recomputing
+  (3b0ae7bdde, 2021); the recompute's progress pumps paints, and an empty
+  paint presents QOpenGLWidget's cleared buffer. 242's hold made it plain
+  (the load now builds DURING the recompute). The skip is gone.
+  view-drawn-during-recompute.py: staged "Frame capture timed out", now
+  drawn with the boxes. My first paint counts were an invalid probe (the
+  filter's obj.event() skipped the scroll area's filter) -- withdrawn.
+- `4463176920`: FreeCADGui.open/insert took FileHandler's types only; any
+  other goes to its import module (as File > Open). gui-open-a-document.py.
+- 250 `4910a46cb5`: not reproduced by three rounds (x16's script, mine at
+  four render setups, a test matching camera, colours, MSAA, the user's
+  user.cfg, GPU, viewport, click sequence). The user: create a Body with a
+  box and click Edge10, "you don't even need to move the camera". Driven so
+  in the build app (MCP), it showed at once. Bisected on the hidden desktop:
+  the box's task panel (setEdit + OK) is the trigger; colours, the active
+  body, the camera, the node tree are not. A TEMPORARY trace (BGFXFrame,
+  FC_TRACE250, removed) of every line draw: after the edit the feed keeps
+  the Origin's datums, hidden, with on-top order 999 -- which runs step 5b,
+  whose last loop redrew the selection's lines in LIST order, the box's
+  plain companion after the green highlight at equal depth. Fixed: that loop
+  in step 5's order (companions, then highlight); a hidden draw opens no
+  order. The Origin SHOWN (no edit) gave the same fault before the fix.
+  selected-edges-on-top-alike.py: staged 6 FAIL (gui, origin), now 8/8
+  (gui, origin, script; Legacy too); origin-plane-highlight 17,
+  hidden-selected-edge-over-line 2, datum-picked-through-a-face 3, x16's
+  matrix 19 -- bgfx and Legacy. ctest 1100/1100 (rtx85).
+- Why every probe missed it: scripts make the box with no edit, so no order
+  in the feed; and scripts/gui-test-profile.py sets AntiAliasing 0 unless
+  stored (the user has none stored: 4x).
+- Leaked transient dirs `42376ec39b`: 25 FreeCAD_Doc_* per ctest run in
+  %LOCALAPPDATA%\cache\FreeCAD\Cache (352 since 10-26, none of Thundereal's
+  own). 22 are FeaturePart Common/Cut/Fuse: empty TearDown, the document
+  never closed. Closed now; those 22 leave none. 3 more per run (one process
+  with two documents, empty dirs) NOT placed yet: not the *_tests_run
+  executables, not the testUser fixtures that close. The 352 moved out and
+  deleted on the user's "you can clean them".
+- Merged thundereal/LinkVibe (x16's 249 (a) revert, 50ab8ff316) as
+  `e23a1f68c8`. rtx87: the three new tests, pd-gui-defects 34,
+  origin-plane-highlight 17 pass; ctest 1100/1100 (3 dirs left, the unplaced
+  ones). PUSHED on the user's "push and restage once done"
+  (50ab8ff316..e23a1f68c8); restaged from rtx87 next.
+- Staged 20:49:53 at `41ab0dba24` (rtx87); on the stage the preferences
+  open and close (9/9) and selected-edges-on-top-alike passes 8/8.
+- 250 pictures for the user (fcad-58's ask): s1\entry250-before-after.png,
+  bgfx and Legacy, selected and hover, before = the dev tree with
+  BGFXFrame.cpp of 4910a46cb5~1 (rtx88-before2; cmd ate the `^` of `x^:path`
+  the first time and rebuilt the fixed file), after = the stage. Dev tree
+  rebuilt with the fix (rtx89).
+- 247 (a), the scanner COPY on the stage, after only (the before stage was
+  gone): 41 frames drawn through the 38.7 s recompute, all full pipeline.
+- 251 `907c54629d` (local): the last 3 dirs, bisected by ctest -I halves
+  (bisect251.ps1): ImportErrorsTest unknown type (1), missing file (2).
+  Import.insert/ImportGui.insert made a new document before looking at the
+  file; now refused first, same OSError. ctest Import 13 passed, no dir
+  left; live-import-nested-loop 8, export-hidden-component 15; Python suite
+  4078 OK.

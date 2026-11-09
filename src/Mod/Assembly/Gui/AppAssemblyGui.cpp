@@ -29,8 +29,10 @@
 #include "Commands.h"
 #include "ViewProviderAssembly.h"
 #include "ViewProviderAssemblyLink.h"
+#include "ViewProviderJoint.h"
 #include "ViewProviderBom.h"
 #include "ViewProviderGroups.h"
+#include "ViewProviderPhysics.h"
 
 namespace AssemblyGui
 {
@@ -50,7 +52,7 @@ PyMOD_INIT_FUNC(AssemblyGui)
     }
 
     PyObject* mod = AssemblyGui::initModule();
-    Base::Console().Log("Loading AssemblyGui module... done\n");
+    Base::Console().log("Loading AssemblyGui module... done\n");
 
     AssemblyGui::CreateAssemblyCommands();
 
@@ -60,9 +62,25 @@ PyMOD_INIT_FUNC(AssemblyGui)
 
     AssemblyGui::ViewProviderAssembly::init();
     AssemblyGui::ViewProviderAssemblyLink::init();
+    AssemblyGui::ViewProviderJoint::init();
+    AssemblyGui::ViewProviderJointPython::init();
     AssemblyGui::ViewProviderBom::init();
+    AssemblyGui::ViewProviderMassOverride::init();
+    AssemblyGui::ViewProviderSpringDamper::init();
+    AssemblyGui::ViewProviderTorsionSpring::init();
+    AssemblyGui::ViewProviderJointStop::init();
+    AssemblyGui::ViewProviderJointFriction::init();
+    AssemblyGui::ViewProviderFramedItem::init();
+    AssemblyGui::ViewProviderAppliedLoad::init();
+    AssemblyGui::ViewProviderBushing::init();
+    AssemblyGui::ViewProviderContactSet::init();
+    AssemblyGui::ViewProviderCamContact::init();
+    AssemblyGui::ViewProviderProfileContact::init();
+    AssemblyGui::ViewProviderFlexibleBody::init();
     AssemblyGui::ViewProviderGroupBase::init();
     AssemblyGui::ViewProviderBomGroup::init();
+    AssemblyGui::ViewProviderAssemblyGroup::init();
+    AssemblyGui::ViewProviderPartsGroup::init();
     AssemblyGui::ViewProviderJointGroup::init();
     AssemblyGui::ViewProviderViewGroup::init();
     AssemblyGui::ViewProviderSimulationGroup::init();

@@ -53,8 +53,16 @@ void QGVNavStyleBlender::handleKeyReleaseEvent(QKeyEvent *event)
 
 void QGVNavStyleBlender::handleMousePressEvent(QMouseEvent *event)
 {
-    Q_UNUSED(event)
 //    Base::Console().Message("QGVNSBlender::handleMousePressEvent() - button: %d buttons: %d\n", event->button(), event->buttons());
+    // a new gesture: no two buttons in it yet
+    if (event->buttons() == event->button()) {
+        twoButtons = false;
+    }
+    // LMB + RMB down is the pan's chord, moved or not (entry 237, the
+    // reporter: "Two button press should not open menu")
+    if ((event->buttons() & Qt::LeftButton) && (event->buttons() & Qt::RightButton)) {
+        twoButtons = true;
+    }
 }
 
 void QGVNavStyleBlender::handleMouseMoveEvent(QMouseEvent *event)
@@ -76,6 +84,7 @@ void QGVNavStyleBlender::handleMouseMoveEvent(QMouseEvent *event)
         } else {
             startPan(event->pos());
         }
+        twoButtons = true;
         event->accept();
     } else if ((QGuiApplication::mouseButtons() & Qt::MiddleButton) &&
                (QGuiApplication::keyboardModifiers().testFlag(Qt::ShiftModifier)) ) {
@@ -120,6 +129,17 @@ bool QGVNavStyleBlender::allowContextMenu(QContextMenuEvent *event)
         //must check for a button combination involving context menu button
         if (QGuiApplication::mouseButtons() & Qt::LeftButton) {
             //LeftButton is down, so this is LMB + RMB - don't allow context menu
+            return false;
+        }
+        // LMB + RMB whose LMB went up first: the menu comes with the RMB's
+        // release (Windows), the LMB up by then, and it opened at the end of
+        // a pan (docs/HandsOnQueue.md entry 237, the reporter: "pan techdraw
+        // page with left and right button button down drag works. but will
+        // releasing the button the page context menu pops up"), and after a
+        // two-button press without a move too ("Two button press should not
+        // open menu"). As the 3D view's Blender style: no menu after either.
+        if (twoButtons) {
+            twoButtons = false;
             return false;
         }
     }

@@ -290,7 +290,8 @@ public:
     void deletedDocument(const Gui::Document& /*doc*/) {
         // When deleting document then there is no way to undo it. Connected
         // to the view provider's own document only, so the view provider is
-        // not asked which: deleted with undo off, it is freed already
+        // not asked which: deleted with undo off it is freed already, and one
+        // removed and kept for an undo may be gone with the step that kept it.
         reset();
     }
     void createdObject(const Gui::ViewProvider& obj) noexcept {

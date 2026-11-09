@@ -31,6 +31,7 @@
 #include <Precision.hxx>
 #endif
 
+#include <Base/Console.h>
 #include <Base/Exception.h>
 
 #include "FeatureScale.h"

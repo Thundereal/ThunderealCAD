@@ -32,6 +32,11 @@
 
 class Ui_TaskSectionView;
 
+namespace Gui
+{
+class EditSteps;
+}
+
 namespace TechDraw {
     class DrawViewPart;
     class DrawViewSection;
@@ -54,6 +59,10 @@ public:
 
     virtual bool accept();
     virtual bool reject();
+    /// Whether its changes go in a transaction held to OK or Cancel; not
+    /// in an edit where each is a step of its own (Gui::EditSteps,
+    /// PerViewEdit)
+    bool holdsTransaction() const;
 
 protected:
     void init();
@@ -122,6 +131,8 @@ private:
     bool m_directionIsSet;
     bool m_modelIsDirty;
     int m_transactionID = 0;
+    /// An edit's steps; none when creating
+    Gui::EditSteps* m_steps = nullptr;
 
     QTimer m_timer;
     ParameterGrp::handle m_param;
@@ -159,6 +170,7 @@ public:
     { return false; }
     bool isAllowedAlterDocument() const override
     { return false; }
+    bool holdsTransaction() const override;
 
 private:
     TaskSectionView * widget;

@@ -59,6 +59,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
 #include <Gui/Control.h>
+#include <Gui/Document.h>
 #include <Gui/InventorBase.h>
 #include <Gui/MDIView.h>
 #include <Gui/View3DInventor.h>

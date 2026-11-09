@@ -41,6 +41,7 @@ class Property;
 }
 
 namespace Gui {
+class EditSteps;
 class ViewProvider;
 }
 
@@ -65,6 +66,15 @@ public:
     int getTransactionID() const {
         return transactionID;
     }
+
+    /// With PerViewEdit on, each change a step of its own, so the edit may
+    /// run beside another view's of the document (docs/HandsOnQueue.md
+    /// entry 232); null for none
+    Gui::EditSteps *editSteps() const {
+        return steps;
+    }
+    /// Whether its changes are steps of their own (editSteps() on)
+    bool ownsItsSteps() const;
 
 private Q_SLOTS:
     void onButtonAdd();
@@ -94,6 +104,7 @@ private:
     fastsignals::scoped_connection redoConn;
     bool selecting = false;
     int transactionID = 0;
+    Gui::EditSteps *steps = nullptr;
 };
 
 /// simulation dialog for the TaskView
@@ -118,6 +129,8 @@ public:
     bool accept() override;
     /// is called by the framework if the dialog is rejected (Cancel)
     bool reject() override;
+    /// False when its changes are steps of their own (ownsItsSteps)
+    bool holdsTransaction() const override;
     /// is called by the framework if the user presses the help button
     bool isAllowedAlterDocument() const override
     { return false; }

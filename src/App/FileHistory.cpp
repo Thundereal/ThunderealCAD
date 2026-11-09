@@ -30,6 +30,10 @@
 # include <sstream>
 #endif
 
+#ifdef FC_OS_WIN32
+# include <windows.h>
+#endif
+
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
@@ -488,32 +492,93 @@ std::string FileHistory::canonicalPath(const std::string& path)
     return canonical.toUtf8().constData();
 }
 
+#ifdef FC_OS_WIN32
+namespace {
+/// `canonical` with every 8.3 short name of it long, as far as it exists:
+/// what is not there yet keeps its name after its longest existing parent.
+QString longForm(const QString& canonical)
+{
+    QString head = QDir::toNativeSeparators(canonical);
+    QString tail;
+    while (!head.isEmpty()) {
+        const auto* in = reinterpret_cast<const wchar_t*>(head.utf16());
+        DWORD size = GetLongPathNameW(in, nullptr, 0);
+        if (size) {
+            std::wstring out(size, L'\0');
+            size = GetLongPathNameW(in, out.data(), size);
+            if (size) {
+                out.resize(size);
+                return QDir::fromNativeSeparators(QString::fromWCharArray(out.c_str()) + tail);
+            }
+        }
+        const int cut = head.lastIndexOf(QLatin1Char('\\'));
+        if (cut <= 0)
+            break;
+        tail = head.mid(cut) + tail;
+        head.truncate(cut);
+    }
+    return canonical;
+}
+}   // namespace
+#endif
+
+namespace {
+/// One key for one file, however a canonical path of it is spelled: on
+/// Windows the long form, case folded. The registry keys by it.
+std::string identityKey(const std::string& canonical)
+{
+#ifdef FC_OS_WIN32
+    if (canonical.empty())
+        return canonical;
+    return longForm(QString::fromUtf8(canonical.c_str())).toLower().toUtf8().constData();
+#else
+    return canonical;
+#endif
+}
+}   // namespace
+
+bool FileHistory::samePath(const std::string& a, const std::string& b)
+{
+    // canonicalPath keeps an 8.3 short name (TEMP may be one) where
+    // std::filesystem's canonical form, which the save writes by, is long:
+    // two spellings of one file, which the folder save never kept from
+    // (TransactionLogJournal.md sec 38.12).
+    const std::string ca = canonicalPath(a);
+    const std::string cb = canonicalPath(b);
+    if (ca == cb)
+        return true;
+    if (ca.empty() || cb.empty())
+        return false;
+    return identityKey(ca) == identityKey(cb);
+}
+
 bool FileHistory::setPath(const std::string& path)
 {
-    const std::string key = canonicalPath(path);
+    const std::string canonical = canonicalPath(path);
+    const std::string key = identityKey(canonical);
     std::lock_guard<std::mutex> lock(registryMutex());
     auto& map = registry();
-    if (key == _path)
+    if (canonical == _path)
         return true;
     if (!key.empty()) {
         auto it = map.find(key);
         if (it != map.end()) {
             auto other = it->second.lock();
             if (other && other.get() != this) {
-                FC_WARN("the file " << key << " has a history already; not registering another");
+                FC_WARN("the file " << canonical << " has a history already; not registering another");
                 return false;
             }
         }
     }
     if (!_path.empty()) {
-        auto it = map.find(_path);
+        auto it = map.find(identityKey(_path));
         if (it != map.end()) {
             auto other = it->second.lock();
             if (!other || other.get() == this)
                 map.erase(it);
         }
     }
-    _path = key;
+    _path = canonical;
     if (!key.empty()) {
         map[key] = weak_from_this();
     }
@@ -620,7 +685,7 @@ bool FileHistory::findVersion(const std::string& path, int64_t num, const std::s
 
 std::shared_ptr<FileHistory> FileHistory::find(const std::string& path)
 {
-    const std::string key = canonicalPath(path);
+    const std::string key = identityKey(canonicalPath(path));
     if (key.empty())
         return {};
     std::lock_guard<std::mutex> lock(registryMutex());

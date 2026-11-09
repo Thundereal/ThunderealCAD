@@ -31,6 +31,7 @@
 #include "ViewProviderSplit.h"
 #include "ViewProviderBody.h"
 #include <Base/Tools.h>
+#include <App/Document.h>
 #include <Mod/PartDesign/App/FeatureSplit.h>
 #include <Mod/PartDesign/App/FeatureSolid.h>
 #include <Mod/PartDesign/App/Body.h>

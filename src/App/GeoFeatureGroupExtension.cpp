@@ -24,16 +24,21 @@
 
 #include "PreCompiled.h"
 
+#include <unordered_map>
+#include <unordered_set>
+
 #include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
 
 #include "GeoFeatureGroupExtension.h"
+#include "AuxGroup.h"
 #include "Link.h"
 #include "Origin.h"
 #include "OriginFeature.h"
 #include "OriginGroupExtension.h"
 #include "GroupParams.h"
+#include "Part.h"
 
 
 FC_LOG_LEVEL_INIT("App",true,true);
@@ -56,7 +61,27 @@ GeoFeatureGroupExtension::GeoFeatureGroupExtension()
     ClaimAllChildren.setValue(false);
 }
 
-GeoFeatureGroupExtension::~GeoFeatureGroupExtension() = default;
+namespace {
+/** The members each group checked at its last change of Group: a change that
+ * only adds checks only what it adds. Every check went over every member --
+ * its other owners, its coordinate-system links -- and a group of N members
+ * built one at a time paid O(N) a member: an assembly's joints and element
+ * links are its members. Held here rather than in the class, whose header
+ * most of the tree includes. Pointers only compared, never followed.
+ */
+std::unordered_map<const GeoFeatureGroupExtension*,
+                   std::unordered_set<const DocumentObject*>> &checkedMembers()
+{
+    static std::unordered_map<const GeoFeatureGroupExtension*,
+                              std::unordered_set<const DocumentObject*>> map;
+    return map;
+}
+}
+
+GeoFeatureGroupExtension::~GeoFeatureGroupExtension()
+{
+    checkedMembers().erase(this);
+}
 
 void GeoFeatureGroupExtension::initExtension(ExtensionContainer* obj) {
 
@@ -92,6 +117,19 @@ DocumentObject* GeoFeatureGroupExtension::getGroupOfObject(const DocumentObject*
     //we will find origins, but not origin features
     if(checkOrigin && obj->isDerivedFrom(App::OriginFeature::getClassTypeId())) 
         return OriginGroupExtension::getGroupOfObject(obj);
+
+    // The Elements group and its elements are in their owner's coordinate
+    // system, as an origin and its features are
+    if (auto aux = Base::freecad_dynamic_cast<const AuxGroup>(obj)) {
+        if (aux->isOwning()) {
+            auto owner = aux->getOwner();
+            if (owner && owner->hasExtension(GeoFeatureGroupExtension::getExtensionClassTypeId()))
+                return owner;
+            return getGroupOfObject(owner, checkOrigin);
+        }
+    }
+    if (auto aux = AuxGroup::getOwningGroupOf(obj))
+        return getGroupOfObject(aux, checkOrigin);
 
     //compared to GroupExtension we do return here all GeoFeatureGroups including all extensions derived from it
     //like OriginGroup. That is needed as we use this function to get all local coordinate systems. Also there
@@ -148,14 +186,35 @@ GeoFeatureGroupExtension::addObject(DocumentObject* obj)
     return addObjects({obj});
 }
 
+static int _MovingObject;
+
+bool GeoFeatureGroupExtension::isMovingObject()
+{
+    return _MovingObject > 0;
+}
+
+GeoFeatureGroupExtension::MovingObjectGuard::MovingObjectGuard()
+{
+    ++_MovingObject;
+}
+
+GeoFeatureGroupExtension::MovingObjectGuard::~MovingObjectGuard()
+{
+    --_MovingObject;
+}
+
 std::vector<DocumentObject*>
 GeoFeatureGroupExtension::addObjects(std::vector<App::DocumentObject*> objects)
 {
+    auto owner = getExtendedObject();
+
+    // A part's GroupMode may put an owned link in place of an object
+    if (auto part = Base::freecad_dynamic_cast<App::Part>(owner))
+        objects = part->prepareObjectsToAdd(objects);
+
     const auto & grp = Group.getValues();
     std::vector<DocumentObject*> ret;
     ret.reserve(objects.size()*2);
-
-    auto owner = getExtendedObject();
 
     auto objSet = owner->getInListEx(true);
     objSet.insert(owner);
@@ -171,6 +230,7 @@ GeoFeatureGroupExtension::addObjects(std::vector<App::DocumentObject*> objects)
         if(group) {
             if (group == owner)
                 continue;
+            MovingObjectGuard moving;
             group->getExtensionByType<App::GroupExtension>()->removeObject(object);
         }
         ret.push_back(object);
@@ -199,28 +259,54 @@ void GeoFeatureGroupExtension::buildExport(
     // NOTE: if there is view provider attached, we rely on
     // ViewProviderGeoFeatureGroupExtension to populate _ExportChildren based
     // on how each child claim their own children. If no view provider is
-    // attached (e.g. Gui module is not loaded), we rely on the following logic
-    // to include only children that do not appear in the inList of any other
-    // child. This logic is similar to ViewProviderGeoFeatureGroupExtension,
-    // but not exactly the same.  So there may have some discrepancy depending
-    // on whether the Gui module is loaded or not.
+    // attached (e.g. Gui module is not loaded), what a child links to is
+    // taken for what it claims, and kept as the view provider keeps a claim:
+    // through a link that is not Global. A Global link only refers (an
+    // element's target, a joint's grounding, a group that is a view), and
+    // leaves the child it refers to in. Nor does a child that is a
+    // coordinate system of its own claim, as in the view provider. An
+    // expression only reads a value, and claims nothing either.
     if(owner->testStatus(ObjectStatus::ViewProviderAttached))
         return;
 
-    std::set<App::DocumentObject *> childSet(children.begin(),children.end());
+    std::set<App::DocumentObject *> claimed;
+    std::vector<Property *> props;
+    for(auto child : children) {
+        if(!child || !child->isAttachedToDocument()
+                || child->hasExtension(GeoFeatureGroupExtension::getExtensionClassTypeId()))
+            continue;
+        props.clear();
+        child->getPropertyList(props);
+        for(auto prop : props) {
+            auto link = Base::freecad_dynamic_cast<PropertyLinkBase>(prop);
+            if(link && link->getScope() != LinkScope::Global
+                    && !prop->isDerivedFrom<PropertyExpressionContainer>())
+                link->getLinkedObjects(std::inserter(claimed, claimed.end()), true);
+        }
+    }
     std::vector<App::DocumentObject *> exportChildren;
     for(auto child : children) {
-        bool exclude = false;
-        for(auto obj : child->getInList()) {
-            if(childSet.count(obj)) {
-                exclude = true;
-                break;
-            }
-        }
-        if(!exclude)
+        if(child && child->isAttachedToDocument() && !claimed.count(child))
             exportChildren.push_back(child);
     }
-    _ExportChildren.setValue(std::move(exportChildren));
+    if(_ExportChildren.getValues() != exportChildren)
+        _ExportChildren.setValues(std::move(exportChildren));
+}
+
+App::DocumentObjectExecReturn *GeoFeatureGroupExtension::extensionExecute()
+{
+    // What a child links to may have changed since Group did: a joint given
+    // its second element after it was added
+    buildExport(Group.getValues());
+    return GroupExtension::extensionExecute();
+}
+
+void GeoFeatureGroupExtension::onExtendedDocumentRestored()
+{
+    // The list read is the one saved, built by the rule of the version that
+    // saved it
+    buildExport(Group.getValues());
+    GroupExtension::onExtendedDocumentRestored();
 }
 
 std::vector<DocumentObject*> GeoFeatureGroupExtension::removeObjects(std::vector<App::DocumentObject*> objects)  {
@@ -244,9 +330,14 @@ std::vector<DocumentObject*> GeoFeatureGroupExtension::removeObjects(std::vector
     }
     
     if(!removed.empty()) {
-        Base::ObjectStatusLocker<Property::Status, Property> guard(Property::User3, &Group);
-        buildExport(grp);
-        Group.setValues(grp);
+        {
+            Base::ObjectStatusLocker<Property::Status, Property> guard(Property::User3, &Group);
+            buildExport(grp);
+            Group.setValues(grp);
+        }
+        // A part deletes the links it owns
+        if (auto part = Base::freecad_dynamic_cast<App::Part>(getExtendedObject()))
+            part->onObjectsRemoved(removed);
     }
     
     return removed;
@@ -258,6 +349,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
     //objects are only allowed in a single GeoFeatureGroup
     if(p == &Group && !Group.testStatus(Property::User3)) {
     
+        auto &checked = checkedMembers()[this];
         if((!owner->isRestoring()
                 || owner->getDocument()->testStatus(Document::Importing))
             && !owner->getDocument()->isPerformingTransaction())
@@ -266,6 +358,21 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
             auto children = Group.getValues();
             std::unordered_map<App::DocumentObject*, bool> objMap;
             std::vector<App::DocumentObject *> crossLinks;
+            // Only what is added needs looking at, unless something left:
+            // a member may have linked to it
+            bool removed = false;
+            {
+                std::unordered_set<const DocumentObject*> now(children.begin(), children.end());
+                for (auto obj : checked) {
+                    if (!now.count(obj)) {
+                        removed = true;
+                        break;
+                    }
+                }
+            }
+            auto isNew = [&](const DocumentObject *obj) {
+                return removed || !checked.count(obj);
+            };
             for(auto it=children.begin(),itNext=it;it!=children.end();it=itNext) {
                 ++itNext;
                 auto obj = *it;
@@ -291,7 +398,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
                 // A member the group does not own (hasObject() says so: a
                 // PartDesign::Boolean's tool body, say) is a reference: it
                 // has its own place, and neither of the checks below is about it
-                if (!hasObject(obj))
+                if (!hasObject(obj) || !isNew(obj))
                     continue;
 
                 //we have already set the obj into the group, so in a case of multiple groups getGroupOfObject
@@ -316,7 +423,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
                 retry = false;
                 for(auto it=children.begin();it!=children.end();++it) {
                     auto obj = *it;
-                    if (!hasObject(obj))
+                    if (!hasObject(obj) || !isNew(obj))
                         continue;
                     auto &valid = objMap[obj];
                     for(auto link : getCSRelevantLinks(obj)) {
@@ -344,6 +451,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
             }while(retry);
 
             buildExport(children);
+            checked = std::unordered_set<const DocumentObject*>(children.begin(), children.end());
 
             //if an error was found we need to correct the values and inform the user
             if(error) {
@@ -357,6 +465,10 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
                 FC_WARN("Auto correct group member for " << owner->getFullName());
 #endif
             }
+        }
+        else {
+            // Not checked: the next change checks every member
+            checked.clear();
         }
 
         // Skip handling in parent class GroupExtension
@@ -539,7 +651,9 @@ bool GeoFeatureGroupExtension::extensionGetSubObject(DocumentObject *&ret, const
                 // using Pad's placement.
                 //
                 const char *next = strchr(dot,'.');
-                if(next) {
+                // A "$$Name." step names a property of 'ret', not a sibling
+                DocumentObject *propObj = nullptr;
+                if(next && !ret->resolvePropertyStep(dot,propObj)) {
                     App::DocumentObject *nret=nullptr;
                     extensionGetSubObject(nret,dot,pyObj,mat,transform,depth+1);
                     if(nret) {

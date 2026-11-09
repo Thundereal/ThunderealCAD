@@ -28,6 +28,7 @@
 #endif
 
 #include <Base/Tools.h>
+#include <App/Document.h>
 #include <Gui/Application.h>
 #include <Mod/PartDesign/App/FeatureWrap.h>
 

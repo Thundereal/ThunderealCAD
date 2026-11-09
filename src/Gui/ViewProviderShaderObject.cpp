@@ -59,6 +59,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
+#include <App/FileBlobManager.h>
 #include <App/MaterialXDocument.h>
 #include <App/ShaderObject.h>
 #include <Base/Console.h>
@@ -83,7 +84,7 @@
 #include "Inventor/SoFCVertexCache.h"
 #include "Inventor/SoFCRenderCacheManager.h"
 #include "Inventor/SoFCRendererBridge.h"
-#include "Renderer/Renderer.h"
+#include "Renderer/RenderConfig.h"
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
 

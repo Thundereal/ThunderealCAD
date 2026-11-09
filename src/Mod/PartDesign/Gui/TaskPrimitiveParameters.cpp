@@ -29,6 +29,9 @@
 # include <QTimer>
 #endif
 
+#include <QAbstractSpinBox>
+#include <QPointer>
+
 #include <App/Document.h>
 #include <App/Origin.h>
 #include <Base/Console.h>
@@ -65,6 +68,13 @@ TaskBoxPrimitives::TaskBoxPrimitives(ViewProviderPrimitive* vp, QWidget* parent)
     ui->setupUi(proxy);
 
     this->groupLayout()->addWidget(proxy);
+
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232); what is
+    // typed into a box one step
+    stepsPerView = true;
+    for (auto box : proxy->findChildren<QAbstractSpinBox*>())
+        holdStepWhileFocused(box);
 
     PartDesignGui::addTaskCheckBox(vp, proxy);
     this->addOperationCombo(qobject_cast<QBoxLayout*>(proxy->layout()));
@@ -199,17 +209,24 @@ void TaskBoxPrimitives::setupGizmos()
     }
 
     // The values that have handles, in the view (docs/OnViewValueEditing.md
-    // 3.3, entry 170): their labels always at the top middle, typed once a
-    // handle is made active by a click or Tab
+    // 3.3, entry 170), typed once a handle is made active by a click or Tab:
+    // each label beside its handle, shown while that one is active, as the
+    // other features' are (docs/HandsOnQueue.md entry 240, the reporter:
+    // "make the on view edit label for all primitve feature in partdesign to
+    // show beside their corresponding handle. only show when the handle is
+    // active"); with the handles off, at the top middle
     const bool handles = Gui::GizmoContainer::isEnabled();
-    const auto top = Gui::OnViewValueSet::Place::TopMiddle;
-    auto value = [this, handles, top](Gui::QuantitySpinBox* box, const QString& title) {
+    const auto place = handles ? Gui::OnViewValueSet::Place::AtHandle
+                               : Gui::OnViewValueSet::Place::TopMiddle;
+    auto value = [this, handles, place](Gui::QuantitySpinBox* box, const QString& title) {
         Gui::LinearGizmo* gizmo = handles ? new Gui::LinearGizmo(box) : nullptr;
         // before the container makes it: its tool tip
-        onViewValues->addValue(box, title, top, gizmo);
+        onViewValues->addValue(box, title, place, gizmo);
         return gizmo;
     };
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     switch (feat->getPrimitiveType()) {
         case PartDesign::FeaturePrimitive::Box:
             lengthGizmo = value(ui->boxLength, tr("Length"));
@@ -1120,6 +1137,15 @@ TaskPrimitiveParameters::TaskPrimitiveParameters(ViewProviderPrimitive* Primitiv
 
     parameter = new PartGui::TaskAttacher(PrimitiveView, nullptr, QString(), tr("Attachment"));
     Content.push_back(parameter);
+    // The attachment's changes steps of the primitive panel's, which Cancel
+    // takes back with its own
+    if (primitive->ownsItsSteps()) {
+        QPointer<TaskBoxPrimitives> panel(primitive);
+        parameter->setStepper([panel]() {
+            if (panel)
+                panel->openStepForEvent();
+        });
+    }
     if (parameter->getPartner())
         Content.push_back(parameter->getPartner());
 }

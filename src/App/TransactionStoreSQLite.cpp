@@ -113,11 +113,12 @@ bool packHash(const char* hex, size_t n, unsigned char* out)
  * at the end of 2026). 0 is a store from before it; 1 is the layout of
  * 2026-10-19; 2 adds the object UIDs (sec 36, 2026-10-21); 3 packs the op
  * table (sec 37.4 P2): its value hashes as 20 bytes, its type and property
- * names as ids of the table `name`. A change of the layout raises it and
+ * names as ids of the table `name`; 4 the group of a row (`txn.grp`,
+ * docs/MultiViewEdit.md sec 12.11). A change of the layout raises it and
  * adds a step to SQLiteStore::migrate(); a store of a higher number than
  * this is refused.
  */
-constexpr int StoreVersion = 3;
+constexpr int StoreVersion = 4;
 
 /// A table of the layout: its name and its columns, as CREATE TABLE has them.
 struct TableDef
@@ -132,7 +133,7 @@ const TableDef Tables[] = {
      "(seq INTEGER PRIMARY KEY, parent INTEGER, id INTEGER,"
      " kind TEXT, origin TEXT, name TEXT, time REAL, script TEXT, session INTEGER,"
      " inverts INTEGER DEFAULT 0, branch INTEGER DEFAULT 1,"
-     " merge_from INTEGER DEFAULT 0, ord INTEGER DEFAULT 0)"},
+     " merge_from INTEGER DEFAULT 0, ord INTEGER DEFAULT 0, grp INTEGER DEFAULT 0)"},
     {"environment", "(id INTEGER PRIMARY KEY, json TEXT UNIQUE)"},
     // Sec 30.6: a session is one login of one user.
     // (sec 32.32: `parent`, the group a user is in)
@@ -392,6 +393,9 @@ public:
                 // theirs from the file (U3).
                 if (from < 3)
                     packOps();
+                // 4 (2026-11-01): the group of a row, 0 for every row before
+                if (from < 4)
+                    addMissingColumns("txn");
                 exec(("PRAGMA user_version=" + std::to_string(StoreVersion)).c_str());
                 exec("COMMIT");
             }
@@ -899,13 +903,14 @@ public:
         t.branch = sqlite3_column_int64(s, 10);
         t.mergeFrom = sqlite3_column_int64(s, 11);
         t.ordinal = sqlite3_column_int64(s, 12);
+        t.group = sqlite3_column_int64(s, 13);
         return t;
     }
 
     std::vector<LogTransaction> transactions(int64_t from, int limit) override
     {
         auto s = prepare("SELECT seq,parent,id,kind,origin,name,time,script,session,inverts,branch,"
-                         "merge_from,ord FROM txn WHERE seq>=? ORDER BY seq LIMIT ?");
+                         "merge_from,ord,grp FROM txn WHERE seq>=? ORDER BY seq LIMIT ?");
         sqlite3_bind_int64(s, 1, from);
         sqlite3_bind_int(s, 2, limit > 0 ? limit : -1);
         std::vector<LogTransaction> out;
@@ -925,7 +930,7 @@ public:
     {
         auto s = prepare(FC_TXN_CHAIN
                          "SELECT seq,parent,id,kind,origin,name,time,script,session,inverts,"
-                         "branch,merge_from,ord FROM txn WHERE seq IN (SELECT seq FROM chain)"
+                         "branch,merge_from,ord,grp FROM txn WHERE seq IN (SELECT seq FROM chain)"
                          " AND seq>=?2 ORDER BY seq");
         sqlite3_bind_int64(s, 1, head);
         sqlite3_bind_int64(s, 2, from);
@@ -947,7 +952,7 @@ public:
                          " (SELECT 0 AS k UNION ALL SELECT 1) e"
                          " WHERE CASE e.k WHEN 0 THEN t.parent ELSE t.merge_from END>0) "
                          "SELECT seq,parent,id,kind,origin,name,time,script,session,inverts,"
-                         "branch,merge_from,ord FROM txn WHERE seq IN (SELECT seq FROM hist)"
+                         "branch,merge_from,ord,grp FROM txn WHERE seq IN (SELECT seq FROM hist)"
                          " ORDER BY seq");
         sqlite3_bind_int64(s, 1, head);
         std::vector<LogTransaction> out;
@@ -955,6 +960,17 @@ public:
             out.push_back(readTransaction(s));
         sqlite3_reset(s);
         return out;
+    }
+
+    void setGroup(const std::vector<int64_t>& seqs, int64_t group) override
+    {
+        auto s = prepare("UPDATE txn SET grp=? WHERE seq=?");
+        for (int64_t seq : seqs) {
+            sqlite3_bind_int64(s, 1, group);
+            sqlite3_bind_int64(s, 2, seq);
+            step(s);
+            sqlite3_reset(s);
+        }
     }
 
     std::vector<int64_t> rowsWithOps(int64_t from) override

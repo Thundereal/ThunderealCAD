@@ -103,6 +103,8 @@ TaskHoleParameters::TaskHoleParameters(ViewProviderHole* HoleView, QWidget* pare
     , observer(new Observer(this, static_cast<PartDesign::Hole*>(vp->getObject())))
     , ui(new Ui_TaskHoleParameters)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     proxy = new QWidget(this);
     ui->setupUi(proxy);
@@ -234,13 +236,15 @@ PartDesign::Hole* TaskHoleParameters::editHole()
 void TaskHoleParameters::setupGizmos(ViewProviderHole* vp)
 {
     // The values in the view (docs/OnViewValueEditing.md 3.3, entry 170): the
-    // diameter's and the depth's labels always at the top middle, the start
-    // offset's beside its handle while it is active -- at the top middle too
-    // without handles. A click on the depth's arrow no longer reverses the
+    // diameter's label always at the top middle, the depth's and the start
+    // offset's beside their handle while it is active (entry 241) -- at the
+    // top middle without handles. A click on the depth's arrow no longer reverses the
     // hole: the handles' menu does (3.3).
     const bool handles = GizmoContainer::isEnabled();
     const auto top = Gui::OnViewValueSet::Place::TopMiddle;
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     onViewValues->addValue(ui->Diameter, tr("Diameter"), top);
     onViewValues->addValue(ui->Depth, tr("Depth"), top);
     onViewValues->addValue(ui->StartOffset, tr("Start offset"),

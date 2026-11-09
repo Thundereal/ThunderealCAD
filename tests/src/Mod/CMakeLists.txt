@@ -1,3 +1,6 @@
+if(BUILD_ASSEMBLY)
+    add_subdirectory(Assembly)
+endif()
 add_subdirectory(Import)
 add_subdirectory(Material)
 add_subdirectory(Mesh)

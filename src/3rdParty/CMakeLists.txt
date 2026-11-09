@@ -79,6 +79,12 @@ if (BUILD_BGFX)
     # bytes a slot.
     set(BGFX_CONFIG_MAX_FRAME_BUFFERS "512" CACHE STRING "" FORCE)
     add_subdirectory(bgfx)
+    # bx turns off /EHs and /EHc for its __try in setThreadName(), but a
+    # Release build with FREECAD_RELEASE_SEH has /EHa from us, which needs
+    # object unwinding there and fails it with C2712. bx throws nothing.
+    if(MSVC AND TARGET bx)
+        target_compile_options(bx PRIVATE /EHa-)
+    endif()
     # ⚠️⚠️ A bgfx occlusion query handle is an object's identity, not a
     # slot to rent: createOcclusionQuery() is the only place bgfx writes
     # the "no result yet" sentinel into a handle's slot, so a handle
@@ -284,4 +290,9 @@ if (BUILD_ASSEMBLY AND NOT FREECAD_USE_EXTERNAL_ONDSELSOLVER)
         git submodule update --init" )
     endif()
     add_subdirectory(OndselSolver)
+endif()
+
+# Project Chrono's core, for the Assembly's optional Chrono solver backend.
+if (BUILD_ASSEMBLY AND BUILD_ASSEMBLY_CHRONO)
+    include(ChronoCore.cmake)
 endif()

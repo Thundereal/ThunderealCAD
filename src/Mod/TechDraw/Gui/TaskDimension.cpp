@@ -30,6 +30,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
 #include <Gui/Document.h>
+#include <Gui/EditSteps.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>
@@ -51,6 +52,9 @@ TaskDimension::TaskDimension(QGIViewDimension *parent, ViewProviderDimension *di
 {
     m_parent = parent;
     m_dimensionVP = dimensionVP;
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232)
+    m_steps = new Gui::EditSteps(dimensionVP, this);
 
     ui->setupUi(this);
 
@@ -133,8 +137,10 @@ TaskDimension::TaskDimension(QGIViewDimension *parent, ViewProviderDimension *di
     connect(ui->pbExtUseDefault, &QPushButton::clicked, this, &TaskDimension::onExtUseDefaultClicked);
     connect(ui->pbExtUseSelection, &QPushButton::clicked, this, &TaskDimension::onExtUseSelectionClicked);
 
-    Gui::Document* doc = m_dimensionVP->getDocument();
-    doc->openCommand("TaskDimension");
+    if (!m_steps->isOn()) {
+        Gui::Document* doc = m_dimensionVP->getDocument();
+        doc->openCommand("TaskDimension");
+    }
 }
 
 TaskDimension::~TaskDimension()
@@ -143,6 +149,14 @@ TaskDimension::~TaskDimension()
 
 bool TaskDimension::accept()
 {
+    if (m_steps->isOn()) {
+        // Each change was a step: the one open is committed, and the edit
+        // ended -- this one, of the several there may be
+        m_steps->close();
+        recomputeFeature();
+        m_steps->endEdit();
+        return true;
+    }
     Gui::Document* doc = m_dimensionVP->getDocument();
     Gui::Command::updateActive();
     Gui::Command::commitCommand();
@@ -153,6 +167,12 @@ bool TaskDimension::accept()
 
 bool TaskDimension::reject()
 {
+    // Its own steps taken back, and no other view's
+    if (m_steps->reject()) {
+        recomputeFeature();
+        m_parent->updateView(true);
+        return true;
+    }
     Gui::Document* doc = m_dimensionVP->getDocument();
     doc->abortCommand();
     recomputeFeature();
@@ -160,6 +180,11 @@ bool TaskDimension::reject()
     doc->resetEdit();
 
     return true;
+}
+
+bool TaskDimension::holdsTransaction() const
+{
+    return !m_steps->isOn();
 }
 
 void TaskDimension::recomputeFeature()
@@ -427,7 +452,9 @@ TaskDlgDimension::TaskDlgDimension(QGIViewDimension *parent, ViewProviderDimensi
     taskbox = new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("TechDraw_Dimension"), widget->windowTitle(), true, nullptr);
     taskbox->groupLayout()->addWidget(widget);
     Content.push_back(taskbox);
-    setAutoCloseOnTransactionChange(true);
+    // Not when each change is a step: an undo of one is no end of the
+    // edit, and its own Cancel undoes
+    setAutoCloseOnTransactionChange(widget->holdsTransaction());
 }
 
 TaskDlgDimension::~TaskDlgDimension()
@@ -458,6 +485,11 @@ bool TaskDlgDimension::reject()
 {
     widget->reject();
     return true;
+}
+
+bool TaskDlgDimension::holdsTransaction() const
+{
+    return widget->holdsTransaction();
 }
 
 #include "moc_TaskDimension.cpp"

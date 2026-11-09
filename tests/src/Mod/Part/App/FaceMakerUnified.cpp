@@ -27,6 +27,7 @@
 #include "Mod/Part/App/FaceMakerUnified.h"
 #include "Mod/Part/App/TopoShape.h"
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <GC_MakeCircle.hxx>
@@ -224,6 +225,33 @@ TEST_F(FaceMakerUnifiedTest, overlappingRectsStable)
 TEST_F(FaceMakerUnifiedTest, selfIntersectingBSplineStable)
 {
     expectNamingStable({makeFigure8Wire()});
+}
+
+// A plain profile's numbering is the caller's: a transfinite mesh takes its
+// corners from it, and a script its Edge1.
+TEST_F(FaceMakerUnifiedTest, aSimpleWireKeepsItsEdgeOrder)
+{
+    auto face = makeUnifiedFace({makeRectWire(0, 0, 10, 4)});
+    ASSERT_EQ(face.countSubShapes(TopAbs_FACE), 1);
+    ASSERT_EQ(face.countSubShapes(TopAbs_EDGE), 4);
+    const gp_Pnt middles[] = {{5, 0, 0}, {10, 2, 0}, {5, 4, 0}, {0, 2, 0}};
+    for (int i = 1; i <= 4; ++i) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(face.getSubShape(TopAbs_EDGE, i)));
+        const gp_Pnt middle = curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2);
+        EXPECT_LT(middle.Distance(middles[i - 1]), Precision::Confusion()) << "Edge" << i;
+    }
+}
+
+// Closed, nothing split, and still two faces: it passes through one point twice.
+TEST_F(FaceMakerUnifiedTest, aWireTouchingItselfIsStillTwoFaces)
+{
+    const gp_Pnt points[] = {{0, 0, 0}, {10, 0, 0}, {5, 5, 0}, {10, 10, 0}, {0, 10, 0}, {5, 5, 0}};
+    BRepBuilderAPI_MakeWire wire;
+    for (int i = 0; i < 6; ++i) {
+        wire.Add(BRepBuilderAPI_MakeEdge(points[i], points[(i + 1) % 6]).Edge());
+    }
+    ASSERT_TRUE(wire.IsDone());
+    EXPECT_EQ(makeUnifiedFace({wire.Wire()}).countSubShapes(TopAbs_FACE), 2);
 }
 
 // NOLINTEND(readability-magic-numbers,cppcoreguidelines-avoid-magic-numbers)

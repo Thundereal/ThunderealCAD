@@ -40,7 +40,7 @@
 
 #include <Base/Writer.h>
 
-#include "FileBlobManager.h"
+#include "FileBlob.h"
 #include "TransactionStore.h"
 #include "TransactionValue.h"
 
@@ -109,9 +109,12 @@ public:
     /// undo stack, or with the inverse an undo or redo just recorded (kind
     /// `undo`/`redo`, `inverts` the seq of the row it inverts, sec 24.2).
     /// Returns the seq of the row written, 0 when nothing was. Never
-    /// throws; a store failure is reported and skipped.
+    /// throws; a store failure is reported and skipped. \a unchanged, when
+    /// given, says whether no row was written because nothing in the
+    /// transaction changed anything (every write `same`), not for a failure.
     int64_t onCommit(const Transaction& txn, const char* kind = "user",
-                     const char* origin = "", int64_t inverts = 0);
+                     const char* origin = "", int64_t inverts = 0,
+                     bool* unchanged = nullptr);
 
     /// One object a recompute made up to date or failed on, for the
     /// recompute record, or one whose touched state it changed otherwise.

@@ -28,8 +28,10 @@
 # include <cassert>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <vector>
 #include <Base/Console.h>
 #include <Base/ExceptionSafeCall.h>
 #include <Base/Tools.h>
@@ -69,6 +71,30 @@ TransactionFollowing::~TransactionFollowing()
 bool TransactionFollowing::active()
 {
     return followingDepth > 0;
+}
+
+namespace {
+/// The owners of the TransactionDerived this thread is in, innermost last
+thread_local std::vector<const DocumentObject*> derivedOwners;
+}
+
+TransactionDerived::TransactionDerived(const DocumentObject* owner)
+    : _owner(owner)
+{
+    derivedOwners.push_back(owner);
+}
+
+TransactionDerived::~TransactionDerived()
+{
+    auto it = std::find(derivedOwners.rbegin(), derivedOwners.rend(), _owner);
+    if (it != derivedOwners.rend())
+        derivedOwners.erase(std::next(it).base());
+}
+
+bool TransactionDerived::active(const DocumentObject* obj)
+{
+    return obj && std::find(derivedOwners.begin(), derivedOwners.end(), obj)
+                      != derivedOwners.end();
 }
 
 TYPESYSTEM_SOURCE(App::Transaction, Base::Persistence)
@@ -240,7 +266,10 @@ Transaction* Transaction::coldCopy(const Transaction& t)
     stub->Implicit = t.Implicit;
     stub->Origin = t.Origin;
     stub->LogSeq = t.LogSeq;
+    stub->Unchanged = t.Unchanged;
     stub->Author = t.Author;   // the step's, not whoever trims the window
+    stub->View = t.View;
+    stub->Group = t.Group;
     stub->StateBefore = t.StateBefore;
     stub->StateAfter = t.StateAfter;
     stub->Cold = true;
@@ -373,21 +402,8 @@ TransactionGuard::~TransactionGuard()
     _PendingPropIndex = 0;
 
     for (auto &docName : _TransactionDocs) {
-        auto doc = GetApplication().getDocument(docName.c_str());
-        if (!doc)
-            continue;
-        for(auto obj : doc->getObjects()) {
-            if(obj->testStatus(ObjectStatus::PendingTransactionUpdate)) {
-                Base::exceptionSafeCall(errMsg,
-                        [](DocumentObject *obj){obj->onUndoRedoFinished();}, obj);
-                if(errMsg.size()) {
-                    FC_ERR("Exception on finishing transaction "
-                            << obj->getFullName() << ": " << errMsg);
-                    errMsg.clear();
-                }
-                obj->setStatus(ObjectStatus::PendingTransactionUpdate,false);
-            }
-        }
+        if (auto doc = GetApplication().getDocument(docName.c_str()))
+            finishObjects(*doc);
     }
 
     auto after = std::move(_AfterTouches);
@@ -452,6 +468,33 @@ void TransactionGuard::afterTouches(std::function<void()> fn)
         return;
     }
     _AfterTouches.push_back(std::move(fn));
+}
+
+void TransactionGuard::addDocument(const Document& doc)
+{
+    // as Transaction::apply registers the document it applies to
+    if (_TransactionActive && !_FlushingProps)
+        _TransactionDocs.insert(doc.getName());
+}
+
+std::vector<DocumentObject*> TransactionGuard::finishObjects(Document& doc)
+{
+    std::vector<DocumentObject*> finished;
+    std::string errMsg;
+    for (auto obj : doc.getObjects()) {
+        if (obj->testStatus(ObjectStatus::PendingTransactionUpdate)) {
+            Base::exceptionSafeCall(errMsg,
+                    [](DocumentObject *obj){obj->onUndoRedoFinished();}, obj);
+            if (errMsg.size()) {
+                FC_ERR("Exception on finishing transaction "
+                        << obj->getFullName() << ": " << errMsg);
+                errMsg.clear();
+            }
+            obj->setStatus(ObjectStatus::PendingTransactionUpdate, false);
+            finished.push_back(obj);
+        }
+    }
+    return finished;
 }
 
 bool TransactionGuard::addPendingRemove(TransactionalObject *obj)
@@ -867,7 +910,7 @@ void TransactionObject::setProperty(const Property* pcProp)
         }
         data.propertyType = pcProp->getTypeId();
         if (auto obj = Base::freecad_dynamic_cast<DocumentObject>(pcProp->getContainer())) {
-            data.derived = obj->isRecomputing();
+            data.derived = obj->isRecomputing() || TransactionDerived::active(obj);
             // Sec 31.25: written because another value changed -- the
             // shape a reference names, the placement of a shape's object.
             data.followed = !data.derived && TransactionFollowing::active();
@@ -1034,4 +1077,36 @@ TransactionObject* TransactionFactory::createTransaction (const Base::Type& type
 
     assert(0);
     return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+
+namespace {
+thread_local const UndoView* currentUndoView = nullptr;
+}
+
+bool UndoView::sees(const Transaction& step) const
+{
+    if (limited)
+        return only.count(step.getID()) != 0;
+    if (hide.count(step.getID()))
+        return false;
+    return !view || !step.View || step.View == view;
+}
+
+UndoViewScope::UndoViewScope(UndoView view)
+    : mine(std::move(view))
+    , previous(currentUndoView)
+{
+    currentUndoView = &mine;
+}
+
+UndoViewScope::~UndoViewScope()
+{
+    currentUndoView = previous;
+}
+
+const UndoView* UndoViewScope::current()
+{
+    return currentUndoView;
 }

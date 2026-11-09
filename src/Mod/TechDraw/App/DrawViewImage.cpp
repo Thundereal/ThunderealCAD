@@ -26,7 +26,6 @@
 # include <sstream>
 #endif
 
-#include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
 

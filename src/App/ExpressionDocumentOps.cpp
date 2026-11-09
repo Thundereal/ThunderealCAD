@@ -309,7 +309,12 @@ bool VariableExpression::_renameObjectIdentifier(
         else {
             var = it->second;
         }
-        if (originalHasDocumentObjectName) {
+        // The object as the user wrote it (a label, say) when the path stays
+        // on it -- a property renamed; not when it goes to another object,
+        // as a link replacement does (replaceObject() comes through here),
+        // which this put back to the old object
+        if (originalHasDocumentObjectName
+                && it->second.getDocumentObject() == it->first.getDocumentObject()) {
             var.setDocumentObjectName(std::move(originalDocumentObjectName),
                                       true,
                                       originalSubObjectName);

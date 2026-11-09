@@ -767,7 +767,7 @@ void SignalConnect::onExecute()
     /* Time to call the callback */
     arglist = Py_BuildValue("(O)", myResource);
 #if PY_VERSION_HEX < 0x03090000
-    result = PyEval_CallObject(myCallback, arglist);
+    result = PyObject_CallObject(myCallback, arglist);
 #else
     result = PyObject_CallObject(myCallback, arglist);
 #endif

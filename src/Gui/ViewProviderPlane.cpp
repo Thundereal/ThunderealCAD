@@ -24,6 +24,9 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <Inventor/SoFullPath.h>
+# include <Inventor/actions/SoSearchAction.h>
+# include <Inventor/details/SoFaceDetail.h>
 # include <Inventor/nodes/SoAsciiText.h>
 # include <Inventor/nodes/SoCoordinate3.h>
 # include <Inventor/nodes/SoFaceSet.h>
@@ -77,6 +80,7 @@ void ViewProviderPlane::attach ( App::DocumentObject *obj ) {
 
     // add semi transparent face
     auto faceSeparator = new SoFCLatePickGroup();
+    pFaceGroup = faceSeparator;
     pHighlight->addChild(faceSeparator);
 
     auto material = new SoMaterial();
@@ -94,7 +98,10 @@ void ViewProviderPlane::attach ( App::DocumentObject *obj ) {
     shapeHints->shapeType = SoShapeHints::UNKNOWN_SHAPE_TYPE;
     faceSeparator->addChild(shapeHints);
 
-    auto faceSet = new SoFaceSet();
+    // the square one part (two triangles): highlighted whole as a face is
+    auto faceSet = new SoFCFaceSet();
+    faceSet->partIndex.setValue(2);
+    pFaceSet = faceSet;
     pFaceVertices = new SoVertexProperty();
     faceSet->vertexProperty.setValue(pFaceVertices);
     faceSeparator->addChild(faceSet);
@@ -128,10 +135,14 @@ void ViewProviderPlane::updateDatumSize()
         pLabel->justification = SoAsciiText::LEFT;
     }
     else {
-        // upstream's layout, in screen units (upstream b942275957)
+        // upstream's layout, in screen units (upstream b942275957). The same
+        // size highlighted or not: it grew to the whole plane under the
+        // pointer and shrank back as the pointer went on across it
+        // (docs/HandsOnQueue.md entry 235, the reporter: "do not change the
+        // plane size when (pre)selected")
         const float size = screenPlaneSize();
         const float offset = 8.0f;
-        if (!getRole().empty() && !isSelected && !isHovered) {
+        if (!getRole().empty()) {
             verts[0] = SbVec3f(size, size, 0);
             verts[1] = SbVec3f(size, offset, 0);
             verts[2] = SbVec3f(offset, offset, 0);
@@ -154,14 +165,10 @@ void ViewProviderPlane::updateDatumSize()
 
 void ViewProviderPlane::onSelectionChanged(const SelectionChanges& msg)
 {
-    if (!screenSize || getRole().empty())
-        return;
-
     auto obj = getObject();
     if (!obj || !obj->isAttachedToDocument())
         return;
 
-    bool before = isSelected || isHovered;
     if (msg.Type == SelectionChanges::ClrSelection) {
         isSelected = false;
     }
@@ -173,6 +180,42 @@ void ViewProviderPlane::onSelectionChanged(const SelectionChanges& msg)
     const auto &presel = Selection().getPreselection();
     isHovered = presel.Object.getSubObject() == obj || presel.Object.getObject() == obj;
 
-    if (before != (isSelected || isHovered))
-        updateDatumSize();
+    // Highlighted, the whole face is picked ahead of the scene: the plane
+    // stays preselected while the pointer goes across it, also over what is
+    // behind it (entry 235, the reporter: "I want the plane to have whole
+    // face high picking priority once it is already highlighted")
+    if (pFaceGroup)
+        pFaceGroup->setPickFirst(isSelected || isHovered);
+}
+
+bool ViewProviderPlane::getDetailPath(const char *subname, SoFullPath *pPath, bool append,
+                                      SoDetail *&det) const
+{
+    if (!ViewProviderDatum::getDetailPath(subname, pPath, append, det))
+        return false;
+    // The plane as a whole is highlighted as its face, as a face of a solid
+    // is: with the outline and the colours of the preselection and selection
+    // settings. Highlighted whole, only its lines took the colour, the face
+    // being nearly clear, and no outline was drawn, which only a face
+    // highlighted as an element gets (entry 235, the reporter: "I want
+    // highlight like other object, following the outline/color setting").
+    // Its selection is still the plane, with no element.
+    if (det || (subname && *subname) || !pFaceSet || pPath->getLength() == 0
+            || pPath->getTail() != pcModeSwitch)
+        return true;
+    SoSearchAction search;
+    search.setNode(pFaceSet);
+    search.setInterest(SoSearchAction::FIRST);
+    search.setSearchingAll(TRUE);
+    search.apply(pcModeSwitch);
+    auto found = static_cast<SoFullPath*>(search.getPath());
+    if (!found || found->getLength() < 2)
+        return true;
+    for (int i = 1; i < found->getLength(); ++i)
+        pPath->append(found->getNode(i));
+    auto face = new SoFaceDetail;
+    face->setFaceIndex(0);
+    face->setPartIndex(0);
+    det = face;
+    return true;
 }

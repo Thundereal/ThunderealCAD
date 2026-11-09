@@ -59,6 +59,10 @@ struct LogTransaction
     /// been copied and each copy has numbered on: `seq` is a counter of one
     /// store, and two copies give the same one to different rows.
     int64_t ordinal {0};
+    /// The group of an edit's steps it is one of (docs/MultiViewEdit.md
+    /// sec 12.11): the seq of the group's oldest row, 0 for none. Set when
+    /// the edit ends, after the row is written (setGroup).
+    int64_t group {0};
 };
 
 /// What a row is known by across copies of its file (sec 30.3 S.e): the
@@ -406,6 +410,8 @@ public:
     /// `head`, itself included, oldest first (sec 28.2 item 1): a row's
     /// history, where chain() is one branch's.
     virtual std::vector<LogTransaction> history(int64_t head) = 0;
+    /// Rows `seqs` made one group, keyed `group` (0 lets them go)
+    virtual void setGroup(const std::vector<int64_t>& seqs, int64_t group) = 0;
     /// The newest op on property `prop` of container (`ckind`, `cid`) in a
     /// transaction after `after` on the chain ending at `head` (0: in any
     /// transaction); false when there is none (sec 24.4).

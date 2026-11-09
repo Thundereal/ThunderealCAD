@@ -1333,7 +1333,7 @@ void TaskAttacher::visibilityAutomation(bool opening_not_closing)
         if (!ViewProvider->getObject()->isAttachedToDocument())
             return;
 
-        auto editDoc = Gui::Application::Instance->editDocument();
+        auto editDoc = Gui::Application::Instance->editDocumentOf(ViewProvider->getObject());
         App::DocumentObject *editObj = ViewProvider->getObject();
         std::string editSubName;
         auto sels = Gui::Selection().getSelection(nullptr, Gui::ResolveMode::NoResolve, true);
@@ -1374,8 +1374,19 @@ void TaskAttacher::visibilityAutomation(bool opening_not_closing)
     }
 }
 
+void TaskAttacher::setStepper(std::function<void()> stepper)
+{
+    this->stepper = stepper;
+    if (partner)
+        partner->stepper = std::move(stepper);
+}
+
 void TaskAttacher::setupTransaction()
 {
+    if (stepper) {
+        stepper();
+        return;
+    }
     if (!ViewProvider || !ViewProvider->getObject())
         return;
 

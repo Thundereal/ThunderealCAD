@@ -60,6 +60,7 @@
 #include <App/GeoFeature.h>
 #include <App/PropertyGeo.h>
 #include <App/PropertyUnits.h>
+#include <App/PropertyAppearance.h>
 
 #include "ViewProviderGeometryObject.h"
 #include "ActionFunction.h"
@@ -74,7 +75,7 @@
 #include "SoFCUnifiedSelection.h"
 #include "Inventor/SoFCRenderMaterial.h"
 #include <Inventor/nodes/SoShaderProgram.h>
-#include "Renderer/Renderer.h"
+#include "Renderer/RenderConfig.h"
 #include "ViewProviderShaderObject.h"
 #include "View3DInventorViewer.h"
 

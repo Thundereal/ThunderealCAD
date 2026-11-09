@@ -113,6 +113,7 @@
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
 #include <App/MappedElement.h>
+#include <App/PropertyAppearance.h>
 #include <map>
 #include <set>
 #include <Base/Console.h>
@@ -1702,8 +1703,13 @@ const std::vector<Base::Color> &PropertyDiffuseColor::getValues() const
 {
     if (_appearance) {
         // Resolved out of the base and the overriding faces, into the member
-        // this property keeps for it -- see the note on _resolved
-        _resolved = _appearance->getDiffuseColors();
+        // this property keeps for it -- see the note on _resolved. Replaced
+        // only when it changed: a reference a caller still holds from the
+        // read before stays good while the colours are the same, as any
+        // other property's does.
+        auto resolved = _appearance->getDiffuseColors();
+        if (resolved != _resolved)
+            _resolved = std::move(resolved);
         return _resolved;
     }
     return App::PropertyColorList::getValues();
@@ -4801,12 +4807,18 @@ void ViewProviderPartExt::updateData(const App::Property* prop)
             updateColors();
 
         // The visual made again is drawn in what is held: what the object
-        // makes of the new shape comes by its own change, if it changes
+        // makes of the new shape comes by its own change, if it changes.
+        // No view of the object's changed by it, so not said through the
+        // object (ViewObject, the HostOnlyView gate): each recompute of a
+        // shape said it three times, to every observer of the document
         {
             Base::StateLocker lock(mirroringAppearance);
+            const bool hostOnly = testStatus(Gui::HostOnlyView);
+            setStatus(Gui::HostOnlyView, true);
             DiffuseColor.touch();
             LineColorArray.touch();
             PointColorArray.touch();
+            setStatus(Gui::HostOnlyView, hostOnly);
         }
 
         if (!VisualTouched) {
@@ -6469,8 +6481,19 @@ void ViewProviderPartExt::scheduleDeferredVisualSlice(int delayMs)
     if (visuals.scheduled || visuals.docs.empty())
         return;
     visuals.scheduled = true;
-    QTimer::singleShot(delayMs, QCoreApplication::instance(),
-                       []() { ViewProviderPartExt::runDeferredVisualSlice(); });
+    QTimer::singleShot(delayMs, QCoreApplication::instance(), []() {
+        // A modal box up -- the migration prompt, the recompute error box:
+        // the load waits for its answer (entry 242, Gui::Application::
+        // isLoadHeld)
+        if (Gui::Application::isLoadHeld()) {
+            auto &visuals = deferredVisuals();
+            visuals.scheduled = false;
+            visuals.pace.idle();
+            ViewProviderPartExt::scheduleDeferredVisualSlice(100);
+            return;
+        }
+        ViewProviderPartExt::runDeferredVisualSlice();
+    });
 }
 
 /// The load's parallel pre-mesh, collected (docs/DocumentLoad.md sec 18).
@@ -7098,7 +7121,11 @@ bool faceProjectionFrame(const TopoDS_Face &face, SbVec4f out[3])
         BRepAdaptor_Surface adapt(face);
         switch (adapt.GetType()) {
         case GeomAbs_Plane: {
-            const gp_Ax3 &pos = adapt.Plane().Position();
+            // Held, as the cylinder and the cone are: Plane() returns by
+            // value, and a reference into that temporary dangled from the
+            // next statement on (ASan: stack-use-after-scope, here).
+            const gp_Pln plane = adapt.Plane();
+            const gp_Ax3 &pos = plane.Position();
             origin = pos.Location();
             axis = pos.Direction();
             xdir = pos.XDirection();

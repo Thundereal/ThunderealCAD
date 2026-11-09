@@ -29,36 +29,61 @@
 namespace Gui {
 namespace Dialog {
 
+/** The list of an undo or a redo button: what the active view would undo
+ * (or redo), newest first. Picking a row undoes down to it.
+ *
+ * The steps of an edit ended with OK are one row (docs/MultiViewEdit.md sec
+ * 12.11), as one undo takes them: picking the row takes the edit, and
+ * hovering it opens its steps, to undo the edit down to one of them.
+ */
+class UndoRedoMenu : public QMenu
+{
+    Q_OBJECT
+
+public:
+  UndoRedoMenu(bool redo, QWidget* parent);
+  ~UndoRedoMenu() override;
+
+protected:
+  void mouseReleaseEvent(QMouseEvent* event) override;
+  void keyPressEvent(QKeyEvent* event) override;
+
+protected Q_SLOTS:
+  void onSelected();
+  void onStepSelected();
+  void onFetchInfo();
+
+private:
+  /// The first \a rows rows taken, one undo (or redo) each
+  bool takeRows(int rows);
+  /// The row \a action is, or -1
+  int rowOf(QAction* action) const;
+
+  bool redo;
+};
+
 /** This class implements the undo dialog.
  * \author Werner Mayer
  */
-class UndoDialog : public QMenu
+class UndoDialog : public UndoRedoMenu
 {
     Q_OBJECT
 
 public:
   explicit UndoDialog( QWidget* parent = nullptr );
   ~UndoDialog() override;
-
-protected Q_SLOTS:
-  void onSelected();
-  void onFetchInfo();
 };
 
 /** This class implements the redo dialog.
  * \author Werner Mayer
  */
-class RedoDialog : public QMenu
+class RedoDialog : public UndoRedoMenu
 {
     Q_OBJECT
 
 public:
   explicit RedoDialog( QWidget* parent = nullptr );
   ~RedoDialog() override;
-
-protected Q_SLOTS:
-  void onSelected();
-  void onFetchInfo();
 };
 
 } // namespace Dialog

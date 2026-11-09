@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 
+#include <Base/Console.h>
 #include "PythonConsolePy.h"
 #include "PythonConsole.h"
 

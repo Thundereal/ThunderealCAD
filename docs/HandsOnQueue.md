@@ -166,6 +166,120 @@ Evidence that does not belong in the repository -- configuration snapshots,
 report views, the reporter's own files -- is kept beside the dev tree under
 `..\dl\handson\<date>\`, and an entry names what it holds.
 
+**2026-11-03 20:55: 247 (a), 250 and 251 (new: tests leak documents) FIXED, PUSHED
+and STAGED at `41ab0dba24` (20:49) by dwin on the reporter's word to it;
+251's last 3 documents and 250's screenshots with dwin.** Under the
+entries.
+
+**2026-11-03 15:10: entry 250 -- bgfx regression: a selected edge fights its own
+highlight for depth and covers the pre-selection (Legacy right);
+ASSIGNED to x16.** Under the entries.
+
+**2026-11-03 15:08: 247 (a) REOPENED -- scanner's migration recompute still shows a
+black view on the stage that holds the fix; ASSIGNED to dwin.** Under
+the entries.
+
+**2026-11-03 12:56: everything PUSHED -- thundereal/LinkVibe `2523224972` (x16's
+merge, on the reporter's word to it): 243, 243 b, 244, 245, 246, 247,
+248, 249 b. Not staged (x16's); a restage waits for the reporter.**
+Under the entries.
+
+**2026-11-03 12:44: 246 DONE by dwin (d4344a8a82), local -- the handle tips in the
+rounded label, beside the pointer. Both sessions free; 243, 247, 244,
+243 b, 246 (dwin) and 248, 249 b, 245 (x16) unpushed.** Under the
+entries.
+
+**2026-11-03 12:39: 245 DONE by x16 (5d64b9d7e5, on its tree) -- the pre-selection tip
+in its corner of the view (an older bug put it in the window's corner),
+clear of the overlay panels. x16 free; dwin on 246.** Under the entries.
+
+**2026-11-03 12:26: 249 (b) DONE by x16 (a3a986c749, on its tree) -- a hidden body's
+selected feature drawn on top no longer clipped. (a) held. x16 free.**
+Under the entries.
+
+**2026-11-03 12:14: 248 DONE by x16 (a7bf62e050, on its tree), local -- Defeaturing's
+hover lights the faces it changed. x16 on 249 (b).** Under the entries.
+
+**2026-11-03 12:07: 244 DONE by dwin (de8f488698), local -- the label in edit kept its
+place, the edit box opens over it. Unpushed: 243, 247, 244. dwin on
+243 b.** Under the entries.
+
+**2026-11-03 11:49: 247 DONE by dwin (dfc36122fe), local -- only a question box holds
+the load now (the recompute's progress dialog held it); the missing error
+box was an older fault, fixed too. Unpushed: 243, 247. dwin on 244.**
+Under the entries.
+
+**2026-11-03 11:17: entry 249 -- Space on a picked face hides the body (on purpose
+since 09-26; the reporter wants the selected object), and a hidden
+body's selected feature drawn on top is clipped; ASSIGNED to x16 after
+248.** Under the entries.
+
+**2026-11-03 10:54: entry 248 -- PD Defeaturing's tree hover highlights the whole
+shape, not its changed elements; ASSIGNED to x16.** Under the entries.
+
+**2026-11-03 10:49: 243 DONE by dwin (5e3a5917c4), local -- a highlighted line now
+over every other line, pre-selection over selection, both renderers;
+faces in front still hide it (the reporter's choice to dwin). dwin on
+247.** Under the entries.
+
+**2026-11-03 10:44: entry 247 -- a REGRESSION (242's hold): opening scanner, after the
+migration box the recompute runs with a black view, no error box, and
+once Section007 left empty unmarked; ASSIGNED to dwin, first.** Under the
+entries.
+
+**2026-11-03 10:41: entries 244 (a regression: a PD Box label's edit box opens away
+from the label), 245 (the measure pre-selection tip ignores the overlay
+panels), 246 (a handle's tip: round border, square corners -- use the
+pre-selection helper); all ASSIGNED to dwin, 244 first.** Under the
+entries.
+
+**2026-11-03 08:59: 238 closed (the pan delay gone); entry 243 -- a highlighted line
+always on top, pre-selection over selection, also over another object's
+coinciding line; ASSIGNED to dwin. 237's push word: to dwin from the
+reporter.** Under the entries.
+
+**2026-11-03 00:44: MultiViewEdit (232) merged into LinkVibe, pushed and staged
+(stage34) with 241 and 242, on the reporter's word to dwin; 237
+(reopened) done by dwin, local, unpushed. dwin free.** Under the entries.
+
+**2026-11-02 22:52: 237 reopened -- a two-button press with no drag opens no menu
+either (the reporter took the note-taker's offer); ASSIGNED to dwin.**
+Under the entries.
+
+**2026-11-02 20:04: 242 DONE by dwin (0f41b13b35), local -- the boxes were modal,
+the load went on under them; now it waits. dwin's queue empty; 241 and
+242 unpushed.** Under the entries.
+
+**2026-11-02 19:09: 241 DONE by dwin (6465589eb0), local; dwin on 242.** Under the
+entries.
+
+**2026-11-02 18:15: entry 242 -- the migration recompute box and the recompute error
+box are not modal; ASSIGNED to dwin after 241.** Under the entries.
+
+**2026-11-02 18:12: entry 241 -- every PD on-view value's label at its active handle's
+base point (the dress-ups' common radius too); a drag activates its
+handle; ASSIGNED to dwin.** Under the entries.
+
+**2026-10-30 21:21: 227 -- per-view undo ruled ("for 3D views it is 3. other views
+1"), built and pushed on MultiViewEdit (40e09a85c5) by x16; done on the
+branch, landing is the reporter's call.** Under the entries.
+
+**2026-10-30 15:35: 232 -- an undo step for each change in an edit, behind
+View/EditStepEachChange (on), PD and TD, on the reporter's ask to x16;
+local on MultiViewEdit.** Under the entries.
+
+**2026-10-30 14:10: 232 -- the TechDraw round was done and pushed with stages 1-2
+(x16's answer); open: the per-view undo list (227), landing (the
+reporter's call), the make+remove fold.** Under the entries.
+
+**2026-10-30 14:09: 232 -- x16 pushed the PD round (..971fa82c77) on the reporter's
+word; the serving-tier edit guard done (f610c1bf29), local; landing the
+branch is the reporter's call.** Under the entries.
+
+**2026-10-30 12:26: 232 -- x16's PartDesign per-view round done (every PD dialog,
+each change its own step, beside another view's edit), local on
+MultiViewEdit.** Under the entries.
+
 **2026-10-09 11:10:** committed, local, not staged, not pushed: entries 49
 (`664d57f39b`), 50 (`4cb1ee6ad1`, `69a2028e23`) and the repair of entry
 25's regression (`1ccc6c2f60`); entry 51 is in work. Entries 52 to 57 are
@@ -173,10 +287,122 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-30 09:14: 232 -- x16 pushed MultiViewEdit ..7bc1f3a740 (stages 1-2) on the
+reporter's word; stage 3 (documents with no log) done, local.** Under
+the entries.
+
+**2026-10-29 23:16: 232 -- x16's cross-document undo stage 2 done (rules 1, 5, 6;
+UndoGroupByInput on), local on MultiViewEdit; a console CallTips crash
+fixed there.** Under the entries.
+
+**2026-10-29 18:48: 232 -- x16's cross-document undo stage 1 (4bde00ce23), local on
+MultiViewEdit; a question for the reporter on stacked
+openTransaction().** Under the entries.
+
+**2026-10-29 07:11: Windows GUI tests on a hidden desktop by default (ffc92bb1d9,
+scripts/gui-test.cmd); PUSHED ..5408ca6c3a by dwin on the reporter's
+word; no restage.** Under the entries.
+
 **2026-10-21 17:44: entry 210 -- the distinct-colour pick made reusable: dress-up
 groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
+
+**2026-10-29 06:54: 232 -- x16 pushed branch MultiViewEdit (d416e67f2c) to
+thundereal on the reporter's word; PD (most panels) and Sketcher
+per-step; TechDraw round starting.** Under the entries.
+
+**2026-10-28 23:25: 240 follow-ups by dwin (PD labels outlined, text a little darker on
+a light background); PUSHED ..c1ce3df7d1 and RESTAGED (stage33) on the
+reporter's word; dwin free.** Under the entries.
+
+**2026-10-28 22:00: PUSHED ..1a2436c219 and RESTAGED (stage31) by dwin on the
+reporter's word: 239, 240, the Sketch3D merge, the label ground opacity
+setting (default 0); dwin free.** Under the entries.
+
+**2026-10-28 18:33: 240 DONE by dwin (664e51d94a), local; dwin's queue empty; 239 and
+240 unpushed.** Under the entries.
+
+**2026-10-28 18:16: 239 DONE by dwin (fb8b27d61d), local; dwin on 240.** Under the
+entries.
+
+**2026-10-28 18:08: 232 -- x16's first five commits (two documents in edit at once,
+EditSession per view, undoLogged by step ids), local on its tree; the
+reporter's rulings to x16 recorded.** Under the entries.
+
+**2026-10-28 18:03: entry 240 -- PD primitives' labels beside their active handle;
+a see-through tree-item background for every on-view label; ASSIGNED to
+dwin after 239.** Under the entries.
+
+**2026-10-28 17:59: entry 239 -- PD Box edit: the origin shown while hidden does not
+highlight unless the Origin group is visible; ASSIGNED to dwin.** Under
+the entries.
+
+**2026-10-28 17:48: PUSHED ..3f3174731f and RESTAGED by dwin on the reporter's word --
+230 to 237 in the reporter's copy for hand checks.** Under the entries.
+
+**2026-10-28 17:29: 237 DONE by dwin (c20481f73d), local; dwin's queue empty; 236
+and 237 unpushed.** Under the entries.
+
+**2026-10-28 17:21: PUSHED ..c30ae593fa by dwin on the reporter's word (230-235);
+236 DONE by dwin (6669972af0), local; dwin on 237.** Under the entries.
+
+**2026-10-28 16:10: 235 DONE by dwin (80337cf262), local, not pushed; a datum axis's
+highlight on bgfx still under the dashed see-through lines (not an
+entry yet); dwin on 236, then 237.** Under the entries.
+
+**2026-10-28 15:20: entry 238 -- panning lags (3D view; the page worse); leads in
+today's scroll bar work, not verified; ASSIGNED to dwin next after 235.**
+Under the entries.
+
+**2026-10-28 15:19: entry 237 -- Blender style: a two-button pan on a TechDraw page
+ends in the page's context menu; ASSIGNED to dwin after 236.** Under
+the entries.
+
+**2026-10-28 12:43: 233 (8e49bf9df2) and 234 (296e82e496) DONE by dwin, local, not
+pushed, not restaged; dwin on 235, then 236.** Under the entries.
+
+**2026-10-28 12:15: entry 236 -- PD Box's edit handles ignore its orientation (on the
+YZ plane they drive the wrong dimension); audit every feature's
+handles; ASSIGNED to dwin after 235.** Under the entries.
+
+**2026-10-28 12:14: entry 235 -- an origin plane's pre-selection glitches (grows,
+no colour, drops off the edge, shrinks); wanted whole-face pick once
+highlighted, normal highlight, no size change; ASSIGNED to dwin after
+234.** Under the entries.
+
+**2026-10-28 12:03: entry 234 -- the spin centre ball shaded, not flat (unlit on
+purpose since 201889b931); ASSIGNED to dwin after 233.** Under the
+entries.
+
+**2026-10-28 11:44: entry 233 -- the overlay auto scroll bars do not show on hover;
+transparent panels to be tested with the reveal before the pass-through;
+the views' bars to slide clear of overlays like the cell's handles;
+ASSIGNED to dwin.** Under the entries.
+
+**2026-10-28 11:40: 230 and 231 DONE by dwin (5bb09a4fe1, 289f655b22), local, not
+pushed, not restaged.** Under the entries.
+
+**2026-10-28 11:35: 232 DECIDED (B; dependent edits allowed; PD, then Sketcher, then
+TechDraw), ASSIGNED to x16.** Under the entries.
+
+**2026-10-28 11:26: entry 232 -- several edits in one document, one per view
+(PerViewEdit on); a plan given, the reporter's decisions awaited.**
+Under the entries.
+
+**2026-10-28 09:57: 231 REPRODUCED in the reporter's live session -- a section line
+dragged less than 10 px (the drag distance) goes back on release; Undo
+does not redraw the line; 230 and 231 to dwin, NOT delivered (not
+reachable).** Under the entries.
+
+**2026-10-28 09:45: 230 -- ShowFrames made visible, saved pages as they are; entry 231
+-- a dragged section line jumps up or down on release (scanner,
+Section003 on Top003); both for fcad-dc, NOT delivered (not
+reachable).** Under the entries.
+
+**2026-10-28 09:41: entry 230 -- TechDraw's Toggle Frames default off for a new page
+(stored as the page view provider's hidden ShowFrames, default true);
+ASSIGNED to fcad-dc.** Under the entries.
 
 **2026-10-23 23:20: PUSHED a19fb686e7..f012b2550f by fcad-dc on the reporter's word
 ("Push") -- 223, 226, 228, 224, 225, 229; NOT restaged, the staged copy
@@ -4410,9 +4636,31 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 224 | 2026-10-23 | a change request: the TechDraw PAGE view gets the SAME AUTO SCROLL BARS as the spreadsheet (222's Gui::OverlayScrollBars: out of the overlaid docks' way, thin, shown while scrolling or with the pointer near, faded after) -- "it looks nice" | OPEN; said to the note-taker 2026-10-23 17:30; ASSIGNED to fcad-dc (222 was its), after 223; the default of 221's HideScrollBars option asked of the reporter. 2026-10-23 17:33 the reporter (to the note-taker, the tool's choice): "Keep, default off (Recommended)" -- 221's HideScrollBars option KEPT, its default turned OFF: the page shows the new auto bars by default, the option ticked hides them; passed on to fcad-dc. 2026-10-23 19:37 DONE by fcad-dc `87fb333ff9`, local, NOT pushed, NOT staged: the page view uses 222's thin overlaid bars; "Hide page view scroll bars" stays, default OFF, hides them at once; the saved default: the key RENAMED General/HideScrollBars -> General/HidePageScrollBars, so a true stage29's preference page wrote is no longer read; techdraw-page-overlay-scroll-bars.py 16/16 (replaces techdraw-page-scroll-bars-hidden.py). 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
 | 225 | 2026-10-23 | a question and a possible change request: a GENERAL way to REPLACE the SCROLL BARS of ALL OTHER WIDGETS in OVERLAY TRANSPARENT mode (with 222's auto bars) | OPEN; asked of the note-taker 2026-10-23 17:34; ANSWERED by the note-taker from a read: possible -- OverlayTabWidget::_setOverlayMode (OverlayWidgets.cpp 1158) already visits every widget of a dock as it is overlaid and un-overlaid, and today only hides the property view's and the tree's vertical bar by two options; the hook there could give each QAbstractScrollArea in an overlaid dock a Gui::OverlayScrollBars (B: thin, laid over, faded) and take it away when the dock leaves overlay mode; the reporter's word awaited; NOT assigned. 2026-10-23 17:37 the reporter: "225, go ahead. two hide scroll bar options stay the same, but default false" -- BUILD it; the two options (TreeParams HideScrollBar, default TRUE now -> FALSE; OverlayParams DockOverlayHidePropertyViewScrollBar, already false -- read by the note-taker) keep what they do, both default false; ASSIGNED to fcad-dc, after 224. 2026-10-23 19:37 DONE by fcad-dc `0e4a438da7`, local, NOT pushed, NOT staged: every scroll area showing the overlay look (overlaid docks, a task panel over its view, lists made later such as an edge list) gets the thin overlaid bars, given back when the look goes; left out: the spreadsheet's and the page's own, combo popups, areas with both bars off for good; both hide options keep what they do, default false; the tree's key RENAMED TreeView/HideScrollBar -> HideScrollBarInOverlay (the old key defaulted true and the preference page writes it out), so the reporter's own cfg shows the new bars on the tree, ticking the option again brings the old look back; overlay-dock-auto-scroll-bars.py 11/11. 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
 | 226 | 2026-10-23 | a defect: a fillet edge's GROUP set to an EXISTING group's -- the reporter expects the changing group to TAKE the existing group's COLOUR, but it is the OTHER WAY ROUND (the existing group takes the old colour) | OPEN; said to the note-taker 2026-10-23 18:08; READ by the note-taker: TaskDressUpParameters::autoGroupColor (1193) colours the groups that exist, IN ID ORDER, each by Base::spreadHues -- so when a group empties (its last edge joins another), every later group's hue SHIFTS one place: an edge alone in group 1 joining group 3 leaves group 3 first in order, with group 1's old hue; a regression of 209 (c) (`f9682c8e9d`); ASSIGNED to fcad-dc (its code), after 223, before 224. 2026-10-23 19:37 DONE by fcad-dc `ccad8d39c4`, local, NOT pushed, NOT staged: the spread laid over the ids from 1, every id before a group counted, so a group's hue is its id's (kept clear of the handle's hues, the picked colours and the ids' before it); past 64 ids the spread comes round again; the chamfer the same; the body's tag colours (210) kept once given, not affected; dressup-group-colors-kept.py 6/6 (Edge1 into group 3 wears group 3's colour, groups 2 and 3 keep theirs). 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
-| 227 | 2026-10-23 | a question and a defect: does the current implementation have PER-VIEW UNDO/REDO? the problem: with a TechDraw PAGE as the active view, a double click on a FILLET for edit -> an undo step of the fillet edit shows in the TechDraw page view | OPEN; said to the note-taker 2026-10-23 18:17; ANSWERED by the note-taker from a read: NO per-view undo of document changes -- every view of a document shows and acts on the ONE document undo stack (MDIView::onMsg/onHasMsg/undoActions, MDIViewPage the same); per-view stacks are designed for VIEW state only (docs/MultiViewEdit.md sec 5, not built: no undo-view command found); per-AUTHOR stacks are built over the transaction log (docs/ThinClient.md 8.12 G, TransactionLogJournal.md 30.9/30.10), but one desktop user is one author; the reporter's decision awaited on what a view's undo should offer; NOT assigned. 2026-10-23 18:35 the reporter: "But in my test, techdraw page shows different undo list than the 3d view" -- CONTRADICTS the note-taker's read (one stack per document); a second read found no per-view filter: the list is App::Document::getAvailableUndoNames -> stepsOf(), which filters by AUTHOR (ActorScope; every desktop view is the one desktop user), and the drop-down (UndoDialog) asks the active MDI view's undoActions(), which MDIViewPage does not override; NOT explained yet -- the note-taker asks the reporter's word to read their live session (which document each view belongs to, and the two lists). 2026-10-23 19:41 NOT REPRODUCED by the note-taker on the reporter's word ("You can start it and open scanner to test"): stage29 (`a19fb686e7`), a COPY of scanner, migration recompute Yes; a page change (SectionView X + 5, "Drag View") with the Page view active, then Fillet004 (PrismLocker) double-clicked (its view provider's doubleClicked()) -- the edit went to the 3D view, which became active -- and Edge22 moved group 2 -> 3 (the row's data set, as the delegate's commit does): the 3D view's and the page view's undoActions() the SAME at every point (['Drag View'], then ['Edit Fillet004', 'Drag View']); the reporter asked how they saw the two lists differ |
+| 227 | 2026-10-23 | a question and a defect: does the current implementation have PER-VIEW UNDO/REDO? the problem: with a TechDraw PAGE as the active view, a double click on a FILLET for edit -> an undo step of the fillet edit shows in the TechDraw page view | OPEN; said to the note-taker 2026-10-23 18:17; ANSWERED by the note-taker from a read: NO per-view undo of document changes -- every view of a document shows and acts on the ONE document undo stack (MDIView::onMsg/onHasMsg/undoActions, MDIViewPage the same); per-view stacks are designed for VIEW state only (docs/MultiViewEdit.md sec 5, not built: no undo-view command found); per-AUTHOR stacks are built over the transaction log (docs/ThinClient.md 8.12 G, TransactionLogJournal.md 30.9/30.10), but one desktop user is one author; the reporter's decision awaited on what a view's undo should offer; NOT assigned. 2026-10-23 18:35 the reporter: "But in my test, techdraw page shows different undo list than the 3d view" -- CONTRADICTS the note-taker's read (one stack per document); a second read found no per-view filter: the list is App::Document::getAvailableUndoNames -> stepsOf(), which filters by AUTHOR (ActorScope; every desktop view is the one desktop user), and the drop-down (UndoDialog) asks the active MDI view's undoActions(), which MDIViewPage does not override; NOT explained yet -- the note-taker asks the reporter's word to read their live session (which document each view belongs to, and the two lists). 2026-10-23 19:41 NOT REPRODUCED by the note-taker on the reporter's word ("You can start it and open scanner to test"): stage29 (`a19fb686e7`), a COPY of scanner, migration recompute Yes; a page change (SectionView X + 5, "Drag View") with the Page view active, then Fillet004 (PrismLocker) double-clicked (its view provider's doubleClicked()) -- the edit went to the 3D view, which became active -- and Edge22 moved group 2 -> 3 (the row's data set, as the delegate's commit does): the 3D view's and the page view's undoActions() the SAME at every point (['Drag View'], then ['Edit Fillet004', 'Drag View']); the reporter asked how they saw the two lists differ; 2026-10-30 21:21 x16 (relayed): per-view undo RULED by the reporter to x16 (relayed; the note-taker did not hear it) "for 3D views it is 3. other views 1", with two follow-ups "yes to both"; BUILT and PUSHED on MultiViewEdit `40e09a85c5` (checked: ls-remote), per-view-undo.py 16/16; DONE on the branch, NOT on LinkVibe (landing with 232, the reporter's call) |
 | 228 | 2026-10-23 | a change request: each UNDO STEP of a PartDesign editing task gets a CONCISE DESCRIPTION of what it did; today a fillet edit's steps show only the object name and the edge name | OPEN; said to the note-taker 2026-10-23 18:17; READ by the note-taker: TaskFeatureParameters::setupTransaction() names every fine-undo step "Edit <object name>" (TaskFeatureParameters.cpp 438-439); ASSIGNED to fcad-dc (PD task panels), after 226. 2026-10-23 19:37 DONE by fcad-dc `3c40300068`, local, NOT pushed, NOT staged: every fine undo step of the fillet and chamfer panels (the only two with fine undo) named "<label>: <what>" -- e.g. "Fillet: default radius", "Fillet: Edge2 to group 1", "Fillet: remove Edge3", "Chamfer: default size"; OK's step "<label>: OK, recompute"; pd-undo-step-names.py 7/7. 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
 | 229 | 2026-10-23 | test failures found by fcad-dc (on 225), made an entry by the note-taker coordinating: offscreen, NOT from 225 (an A/B in one build with the new bars off fails the same) -- task-panel-overlay ABORT "views: 1"; overlay-pass-through, the Tasks panel's two pass-through claims; overlay-item-outline-and-hover, "cut to the item" and "rows above and below" (Dark and Light) | OPEN; 2026-10-23 19:37; ASSIGNED to fcad-dc (overlays; free): find whether the tests or the code, since which commit. 2026-10-23 19:55 DONE by fcad-dc `793c572a72` (tests only), local, NOT pushed, NOT staged: every failure the TEST's, no code at fault, traced before fixing -- task-panel-overlay a real-screen test run offscreen (offscreen the 400x366 view is not split since `dd336be800`, least cell 300x300); now says NOT RUN offscreen, least cell 100; 43/43 on the real screen; overlay-pass-through: the move and click DO pass through the Tasks panel, the test guessed the plate from the window's middle but since `c9417fada7` (entry 150) the wheel zooms at the pointer; the expected plate is the view's own pick; 19/19; overlay-item-outline-and-hover: offscreen the tree is 121 px and Box05's row ran under the next panel's title; now Box02-Box04, checked inside the viewport; 'cut to the item' measured against the viewport's edge, not column 0 (ResizeToContents); since when NOT pinned (34/34 on 10-13, no build of 10-13 left); 30/30. 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
+| 230 | 2026-10-28 | a change request: TechDraw's Toggle Frames (the page's frames and labels) DEFAULT OFF | OPEN; said to the note-taker 2026-10-28 09:41; READ by the note-taker: stored per page as ViewProviderPage::ShowFrames, a hidden PropertyBool of the page's view provider, default true (ViewProviderPage.cpp 95, hidden 102), saved in the document's GuiDocument.xml; TechDraw_ToggleFrame and the page's context menu flip it (toggleFrameState, 509); no preference behind it (ShowGrid beside it takes PreferencesGui::showGrid()); with frames off a view still shows its frame and label while anything of it is selected (QGIView::getFrameState, entries 155/204); a page already saved keeps its saved value; ASSIGNED to fcad-dc. 2026-10-28 09:45 the reporter: "entry 230, make the property visible, leave existing object as it is" -- ShowFrames shown in the property editor (not Hidden), a saved page keeps its value; NOT YET DELIVERED: fcad-dc not reachable. 2026-10-28 09:57 the reporter: "remote session dwin handle this" -- 230 and 231 to dwin; NOT YET DELIVERED: no dwin among the sessions the note-taker can reach. 2026-10-28 11:15 DELIVERED to fcad-88, on the reporter's word "I think it is fcad-88 on the same box" (dwin itself not listed); asked to say if it is not dwin. 2026-10-28 11:40 DONE by dwin (fcad-88) `5bb09a4fe1`, local, NOT pushed, NOT staged: ShowFrames false on a new page, shown in the view properties (group Grid), saved pages unchanged, setting it redraws like Toggle Frames; ADDED: a page opening with frames off hides the template's editable-text marks too; test techdraw-frames-default-off.py 10/10. 2026-10-28 17:21 PUSHED by dwin on the reporter's word to it ("push and continue"; relayed) thundereal/LinkVibe ef7af542e0..c30ae593fa (read by the note-taker: the remote is c30ae593fa). 2026-10-28 17:48 RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed): staged copy fcad 3f3174731f, IN the reporter's copy |
+| 231 | 2026-10-28 | a defect: scanner, after the migration recompute (Section003 broken, as expected), dragging Section003's section line to line it up with the middle of Top003's two lower holes: on the mouse release the line jumps a bit up or down, "as if the section line can only be placed at some discrete number of possible positions" | OPEN; said to the note-taker 2026-10-28 09:45; READ by the note-taker: no snapping in TechDraw's Gui (snap only in QGTracker's angle snap); the release goes QGISectionLine::onItemMoved (QGISectionLine.cpp 664) -> the line's points moved by the drag offset -> a queued DrawViewSection::setChangePoints (DrawViewSection.cpp 1292), which divides the points by the base view's scale, moves SectionOrigin by inverseProjectPoint(newMid - oldMid) with oldMid from sectionLineEnds(); the line is then drawn from the recomputed origin; cause NOT found by reading; NOT reproduced; ASSIGNED to fcad-dc, NOT YET DELIVERED (not reachable). 2026-10-28 09:57 REPRODUCED by the note-taker in the reporter's LIVE session on their word ("check my live session ... you can drag the Section003"): mouse events on Page004's view, zoom 1.238: drags of -15 and +10 px landed exactly (-15, +10; SectionOrigin.y -0.6057, +0.4038), drags of -7, +3, -2, -1, +1, +4, +8, -9 px went back to where they started -- QApplication::startDragDistance() is 10 there, and onItemMoved puts the line back when the release is less than that from the press (wasDragged, QGISectionLine.cpp 656/692, the click guard); a fine correction under 10 px is lost, which reads as fixed positions; also: after Undo of a 'Move section line' the line is NOT redrawn (SectionOrigin back, the line still where the move left it); the note-taker's two moves undone; to dwin, NOT YET DELIVERED. 2026-10-28 11:15 DELIVERED to fcad-88, on the reporter's word "I think it is fcad-88 on the same box" (dwin itself not listed); asked to say if it is not dwin. 2026-10-28 11:40 DONE by dwin (fcad-88) `289f655b22`, local, NOT pushed, NOT staged: a press is a drag once the mouse has gone startDragDistance at ANY point OR the button was held startDragTime (500 ms) -- a slow small correction lands, a quick click with a wobble stays a click (not 'any move', which would move the line on a wobbly click); change point marks the same; Undo/Redo of SectionOrigin/SectionNormal repaints the base view; test techdraw-section-line-click.py 15/15 (3 px held lands 3.00 px; 15 px out and back to 4 lands 4.00; after undo 0 pixels differ), TestTechDrawApp 13 OK; the reporter's Section003 not checked by hand (needs a restage). 2026-10-28 17:21 PUSHED by dwin on the reporter's word to it ("push and continue"; relayed) thundereal/LinkVibe ef7af542e0..c30ae593fa (read by the note-taker: the remote is c30ae593fa). 2026-10-28 17:48 RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed): staged copy fcad 3f3174731f, IN the reporter's copy |
+| 232 | 2026-10-28 | a change request: with PerViewEdit on, SEVERAL objects of ONE document in edit at once, each in its own view | OPEN; said to the note-taker 2026-10-28 11:26; the reporter asked for a PLAN FIRST; plan given by the note-taker (section 232), the reporter's decisions awaited; NOT assigned. 2026-10-28 11:35 DECIDED by the reporter: transactions B, an edit may depend on another view's edit, PD features and dress-ups first, then the Sketcher, then TechDraw; ASSIGNED to x16 on the reporter's word ("Let x16 do this. I have already briefed there"). 2026-10-28 11:39 x16 (relayed): section received; base main e09f46bdd2 contains thundereal/LinkVibe ef7af542e0 (which contains f012b2550f, read by the note-taker); the reporter asked x16 for its plan before it builds; x16's finding on decision 1: ActorScope cannot tell two desktop sessions apart (sameUser, sec 30.10 item 1), proposes Cancel reverts the session's own step ids (undoLogged(seqs), sec 33.13), put to the reporter. 2026-10-28 18:08 x16 (relayed): the reporter's rulings to x16 (the note-taker did not hear them) -- (a) the lock is App::ObjEditing, (b) Cancel over interleaved steps asks Undo anyway / Skip / Keep, (c) P2/P3 as proposed, the tree's in-edit mark in round one, PerViewSelection NOT required, (d) no pause between the PD, Sketcher and TechDraw rounds, (e) TWO DOCUMENTS in edit at once for every edit, as upstream; Cancel reverts the session's own step ids (not ActorScope); five commits on MultiViewEdit (x16's WSL tree, not pushed): b3f27c9b1f, 163cfda5d2, eba3f4fa42, 87ebf27847, 4107221ff5; GUI gate 339/340 (GuiTechDrawPageBackendLineWidths fails on main too), Python 4004 OK; PD round next -- only Fillet and Chamfer have fine undo; 2026-10-29 06:54 x16 (relayed): branch MultiViewEdit PUSHED to thundereal on the reporter's word (relayed), head `d416e67f2c` (checked by the note-taker: ls-remote); PD (Extrude, Revolution, DressUp, Helix, Hole, Loft, Pipe) and Sketcher per-step, two sketches in edit at once; NOT yet: PD Primitive/Pattern/Boolean, the serving-tier guard, TechDraw (x16 starting it); 2026-10-29 18:48 x16 (relayed): cross-document undo stage 1 committed on MultiViewEdit, NOT pushed (`4bde00ce23`, `6def52fae7` MultiViewEdit doc sec 12); OPEN for the reporter (sec 12.6): stacked openTransaction() outside a command; 2026-10-29 23:16 x16 (relayed): cross-document undo stage 2 done on MultiViewEdit, NOT pushed (`401e3b1aab` a CallTips crash fix, `3f3d270d36` rules 1+5 with Param Document/UndoGroupByInput on, `723c7d5129` rule 6, `7bc1f3a740` docs); the sec 12.6 question RULED by the reporter to x16 (relayed): no stacking outside a command, the console a script; 2026-10-30 09:14 x16 (relayed): stages 1-2 PUSHED to thundereal MultiViewEdit at `7bc1f3a740` on the reporter's word (relayed; the note-taker checked: ls-remote); stage 3 done, local, NOT pushed (`15785faed1`, `97630abae1`, `ea98250cd0` rule 7 with Param Document/UndoImplicitLogOff on, `3f9da2e4fc` docs sec 12.8); 2026-10-30 12:26 x16 (relayed): the PD per-view round DONE on MultiViewEdit, local, NOT pushed (`e5953662de` a crash at document close, `1ca56d24fe` patterns, `489a1a29e7` MultiTransform, `33a1075f4c` Boolean, `971fa82c77` Primitive); pd-edit-two-views.py 47 PASS x3; 2026-10-30 14:09 x16 (relayed): the PD round PUSHED to thundereal MultiViewEdit at `971fa82c77` on the reporter's word (relayed; checked: ls-remote); the serving-tier edit guard DONE, `f610c1bf29`, local, NOT pushed; open per x16: the per-view undo list (waits on 227), landing the branch (the reporter's call), the make+remove fold; the TechDraw round not in x16's list -- asked; 2026-10-30 14:10 x16 (relayed), answering: the TechDraw round DONE and PUSHED with stages 1-2 (`3147f33a6c`, `13f95f1baa`, `af9ec7595a`, fixes `16d714ffd0` `32c0e0c5af`; td-edit-two-pages.py 30 PASS); left one at a time by design: create modes, complex sections, hatches, the other TD dialogs; the rich annotation's panel unreachable, left as is; 2026-10-30 15:35 x16 (relayed): `f610c1bf29` PUSHED on the reporter's word (checked: ls-remote); the reporter asked x16 (relayed) for an undo step per change in an edit, "behind preference, default on. techdraw too" -- DONE, local, NOT pushed (`f17a8efdfb` View/EditStepEachChange on; fixes `95df99f0b5`, `68a2743431`, `d0acf3a3e0`); edit-step-each-change.py 14 PASS; 2026-10-30 21:21 x16 (relayed): `f17a8efdfb`..`d0acf3a3e0` and per-view undo (227) PUSHED on MultiViewEdit at `40e09a85c5`; open per x16: landing on LinkVibe (the reporter's call), more create-mode dialogs to undo each change (TD create modes, Part dialogs), the make+remove fold (deferred by the reporter); 2026-11-03 00:44 LANDED on LinkVibe: dwin merged x16's MultiViewEdit `8b020b264e` as `c0638f0d8e`, on the reporter's word to dwin (relayed: "merge with the branch, build, test, push and restage"); 39/39 GUI, ctest 1099/1099, the wasm build; PUSHED thundereal/LinkVibe ..`19cb94f183` and STAGED (stage34) |
+| 233 | 2026-10-28 | defects and a request on the overlay auto scroll bars (224, 225): (a) they do not show when the pointer comes near, only after a wheel scroll; (b) test overlays with a transparent background, the hover reveal checked BEFORE the pass-through; (c) the bars of views (TechDraw page, spreadsheet) placed aware of overlay widgets, sliding out of the way like the cell's menu button and handles | OPEN; said to the note-taker 2026-10-28 11:44; READ by the note-taker: the hover reveal is OverlayScrollBars::eventFilter on the area's VIEWPORT's MouseMove within 3 x Thickness of a bar (OverlayScrollBars.cpp 306-317), and Enter/press on a bar that is hidden; in a transparent overlay panel the pointer's events go through to the view under it, so the panel's viewport may never see them (not verified); place() (172) moves the bars only for a cover touching a side edge; the cell's slide is ViewAreaCell's (ViewArea.cpp 899-951, entry 83); ASSIGNED to dwin (fcad-88). 2026-10-28 12:43 DONE by dwin `8e49bf9df2`, local, NOT pushed, NOT staged: (a) the cause -- place() took each rectangle of covered() for a dock, but a region is stored in bands, so a side dock's upper piece read as a TOP dock; with a bottom dock too, 'too little left' put both bars back under the docks, where the pointer near them was over a dock (reproduced offscreen on a copy of the reporter's user.cfg); now OverlayManager::coverRects() gives each cover whole, a corner dock counts along the edge it reaches in from least; (b) one application filter, asked BEFORE the pass-through, reveals by the pointer's position; a swapped viewport is rebound; (c) a cover reaching no side: the bar shortened from its freer end if half remains, else slid inward past it, else left; back when it goes; tests overlay-scroll-bars-hover.py 36/36 plain, 31/31 on the reporter's config (the see-through tree reveals from a passed-through spot); 222 8, 224 16, 225 11, overlay-pass-through 19; offscreen only. 2026-10-28 15:18 FOLLOW-UP by dwin `ea124fd624`, local, NOT pushed, NOT staged; the reporter to dwin (relayed): "scroll bars works fine now" (the dev build): overlay panels' bars painted nothing (the bar's QGraphicsOpacityEffect nested in the dock splitter's OverlayGraphicsEffect), now the bar paints itself at its opacity; OverlayManager's event filter calls OverlayScrollBars::pointerMoved before its pass-through decision (on the reporter's word); NEW from the reporter: an empty Tasks panel (its watcher box) no longer pushes the view's bars aside -- a see-through dock of task views covers only where its boxes are; overlay-panel-bar-hover-pointer.py (real system pointer) 15/15, the offscreen hover test 36/36 plain, 29/29 on the reporter's config. 2026-10-28 17:21 PUSHED by dwin on the reporter's word to it ("push and continue"; relayed) thundereal/LinkVibe ef7af542e0..c30ae593fa (read by the note-taker: the remote is c30ae593fa). 2026-10-28 17:48 RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed): staged copy fcad 3f3174731f, IN the reporter's copy |
+| 234 | 2026-10-28 | a change request: the view's spin centre ball (the rotation-center indicator) drawn SHADED; today it looks flat | OPEN; said to the note-taker 2026-10-28 12:03; READ by the note-taker: flat on purpose since `201889b931` (2026-07-21, "keep render-cache effects off the rotation-center sphere"): View3DInventorViewer::showRotationCenter (View3DInventorViewer.cpp 3787) gives the SoSphere an SoLightModel BASE_COLOR and the colour as diffuse AND emissive (3834-3854), so nothing lights it; NO_SHADOWING and the SoAnnotation keep the effects off; ASSIGNED to dwin (fcad-88). 2026-10-28 12:43 DONE by dwin `296e82e496`, local, NOT pushed, NOT staged: lit again (PHONG), 0.7 of the colour diffuse + 0.3 emissive (full diffuse saturated to flat), NO_SHADOWING and SoAnnotation kept; rotation-center-ball-shaded.py 3/3 on Coin and the backend, red 116-194 across the ball; the strength dwin's choice. 2026-10-28 17:21 PUSHED by dwin on the reporter's word to it ("push and continue"; relayed) thundereal/LinkVibe ef7af542e0..c30ae593fa (read by the note-taker: the remote is c30ae593fa). 2026-10-28 17:48 RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed): staged copy fcad 3f3174731f, IN the reporter's copy |
+| 235 | 2026-10-28 | a defect and change request: an origin plane's (pre)selection glitches -- hovering its edge pre-selects it and it grows to full size but shows no highlight colour, and moving off the edge drops the pre-selection at once and it shrinks back to a quarter; wanted: once highlighted, the WHOLE face picks with high priority, the highlight like other objects' (outline/colour settings), and NO size change on pre-selection or selection | OPEN; said to the note-taker 2026-10-28 12:14; READ by the note-taker: the size change is ViewProviderPlane::updateDatumSize/onSelectionChanged (ViewProviderPlane.cpp 115-178): with DatumScreenSize on and a role (an origin plane), a quarter (offset 8 to size) unless isSelected or isHovered, then full -- from `7e1824d01d` (2026-09-28, upstream b942275957); the face is in an SoFCLatePickGroup (79), picked only when nothing else is, with its own SoMaterial transparency 0.95; the highlight node is an SoFCSelection (ViewProviderDatum.cpp 110); ASSIGNED to dwin (fcad-88) after 234. 2026-10-28 16:10 DONE by dwin `80337cf262`, local, NOT pushed, NOT staged: the rest size (quarter) kept, 7e1824d01d's switch gone; while hovered or selected the face picks first (a late-pick group told to pick first; the preselected object's highlight path asked ahead of the scene); lit as a face element, the reporter's outline/colour settings apply (SoFCFaceSet, the square one part; a whole-object preselection keeps getDetailPath's detail; an unlit face's outline in the highlight colour); selection the same; why the colour was lost on bgfx: the dashed see-through copy of a datum's lines (1109842583, entry 99) lies over the highlight -- the plane no longer relies on its lines, a datum AXIS on bgfx still does (NOT fixed); origin-plane-highlight.py 9/9 on bgfx and on Legacy GL, the staged copy fails 7/9. 2026-10-28 16:49 the reporter to dwin (relayed): "yes fix the bgfx" -- DONE `edc123b9ff`, local, NOT pushed, NOT staged: BGFXFrame step 5b draws the coloured copies after the plain dashed see-through ones, then the coloured solid lines again; origin-plane-highlight.py with the X axis 14/14 on bgfx and on OpenGL (the staged bgfx colours the axis in 4 of 14 columns); left on both renderers: two datums' coinciding lines (the side-on XZ plane's edge on the X axis in a top view), the later one wins -- an entry only if the reporter wants the highlighted one to win. 2026-10-28 17:21 PUSHED by dwin on the reporter's word to it ("push and continue"; relayed) thundereal/LinkVibe ef7af542e0..c30ae593fa (read by the note-taker: the remote is c30ae593fa). 2026-10-28 17:48 RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed): staged copy fcad 3f3174731f, IN the reporter's copy |
+| 236 | 2026-10-28 | a defect: PD Box -- the on-view edit handles do not follow the box's orientation; a box attached to the YZ plane, a handle drives the wrong dimension; AUDIT every other feature's handles for the same | OPEN; said to the note-taker 2026-10-28 12:15; READ by the note-taker (not reproduced): TaskBoxPrimitives::setGizmoPositions (TaskPrimitiveParameters.cpp 255-292) places Length/Width/Height along the box Placement's rotated X/Y/Z at its position; GizmoContainer::getWorldMatrix (Gizmo.cpp 1540) starts from the document's editing transform (Document::setEdit, getSubObject's matrix); if that already holds the box's placement the rotation is applied TWICE -- unseen at identity, wrong axes on the YZ plane (a lead, not verified); handles also in the extrude, revolution, helix, hole, fillet, chamfer, draft and thickness panels; ASSIGNED to dwin (fcad-88) after 235. 2026-10-28 17:21 DONE by dwin `6669972af0`, local, NOT pushed, NOT staged: cause -- a panel's gizmo frame is the editing transform less the object's own placement, made the editing root's transform; when the placement changes DURING the edit (attached to YZ in its own panel) Gui::Document re-sets the WHOLE editing transform, placement included, so the handles had it twice (reopening the edit was right); fix -- GizmoContainer sets its frame back on signalEditingTransformChanged, getWorldMatrix() is that frame from the edit path (it multiplied the editing transform in once more); AUDIT: every PD panel with gizmos goes through GizmoContainer -- primitives, pad/pocket, revolution, helix, hole, draft, thickness, fillet, chamfer -- one fix covers them; a moved/rotated Body not tested; pd-box-handles-follow-attachment.py 5/5 (the staged copy fails the attached-in-edit case), pd-values-in-view 37, chamfer 19, fillet 21 pass. 2026-10-28 17:48 PUSHED (c30ae593fa..3f3174731f) and RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed), IN the reporter's copy |
+| 237 | 2026-10-28 | a defect: Blender navigation style on a TechDraw page -- a pan with left and right buttons held works, but releasing the buttons pops up the page's context menu; Gesture style (right-button drag) does not, nor does either style in the 3D view | OPEN; said to the note-taker 2026-10-28 15:19; READ by the note-taker: QGVNavStyleBlender::allowContextMenu (src/Mod/TechDraw/Gui/QGVNavStyleBlender.cpp 116-127) refuses the menu only while the LEFT button is still down when the context menu event comes; on Windows it comes at the right button's release, so a pan that lets go of the left button first gets the menu; nothing remembers that a pan happened (stopPan at the first release, 99-113); Gesture's refuses every mouse context menu event (QGVNavStyleGesture.cpp 99-105); ASSIGNED to dwin (fcad-88) after 236. 2026-10-28 17:29 DONE by dwin `c20481f73d`, local, NOT pushed, NOT staged: the note-taker's reading confirmed; the style remembers a left+right pan from the gesture's first press and refuses the menu at its end (as the 3D view's Blender style); a plain right click still gets the menu; a two-button press with NO drag, left let go first, still gives the menu (the old behaviour, changeable on the reporter's word); CAD, Maya, OCC page styles refuse by keys, not touched; techdraw-blender-pan-no-menu.py (real screen, QTest) 5/5, the staged copy opens the menu. 2026-10-28 17:48 PUSHED (c30ae593fa..3f3174731f) and RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed), IN the reporter's copy; 2026-11-02 22:52 REOPENED on the note-taker's offer, the reporter: "Two button press should not open menu" -- a left+right press with NO drag opens no menu either; READ: `panned` is set only by a two-button MOVE (QGVNavStyleBlender.cpp 74-83), so a press without a move whose left button goes up first still gets the menu at the right button's release (allowContextMenu 120-141); ASSIGNED to dwin (fcad-88); 2026-11-03 00:44 reopened part DONE by dwin, `f88afe9703` (log `bc885397ad`), local, NOT pushed, NOT restaged: the reading confirmed (a two-button press with no move, LEFT up first, opened the page menu, both press orders; right up first did not); fix: the flag (renamed panned -> twoButtons) set at the press that makes both buttons down; the 3D view's Blender style MEASURED: no menu in either release order (PANNING until both are up), a right click alone still gives the menu; techdraw-blender-pan-no-menu.py 13/13 (the old build fails the 2 left-up-first cases), td-edit-two-pages 32/32; 2026-11-03 08:59 the reporter to the note-taker: "push and restage after done" -- NOT passed to dwin as a push word (a push or restage needs the reporter's own word to the build session); the reporter asked to say it to dwin; 2026-11-03 09:21 dwin (relayed): ALREADY PUSHED on the reporter's own "push" to dwin -- thundereal/LinkVibe 19cb94f183..`0a4d49eda5`, which carries `f88afe9703` (checked by git ls-remote and merge-base); staged per dwin, a restage to follow its 8.3 path fix; the note-taker's "no push word yet" was wrong |
+| 238 | 2026-10-28 | a defect: panning lags noticeably, in the 3D view and (worse) on a TechDraw page | OPEN; said to the note-taker 2026-10-28 15:20; build not said (the reporter's dev build was in use for 233); NOT reproduced, cause NOT found; leads from today's work, NOT verified: OverlayManager's application-wide filter now calls OverlayScrollBars::pointerMoved on every mouse move (OverlayManager.cpp 2120, `ea124fd624`), which visits every area with auto bars (revealNear, OverlayScrollBars.cpp 515); on the page a pan scrolls, and every scroll step reveals the bars (follow -> reveal, raise, fade); an A/B against the build before `8e49bf9df2` would tell; ASSIGNED to dwin (fcad-88), NEXT after 235 (a possible regression of unpushed work). 2026-10-28 15:38 dwin (relayed): MEASURED, today's overlay scroll bar work NOT the cause -- tests/gui/pan-timing.py, real screen, the reporter's config, Blender style, 60 pan steps with their redraw: staged d04054d9b0 3D 9.9/12.0 ms (median/p90), page 25.5/30.7; dev build (ea124fd624 + 235 work) 3D 9.7/30.9, page 16.1/18.5; the bars' trace: page about 11 of 980 ms (1%), 3D about 0.3 ms; NOT measured: a lag before a pan starts or the view trailing the pointer; no baseline before today (needs a second tree); questions to the reporter: start lag or trailing, which style, since when. 2026-10-28 16:10 pan-timing.py committed by dwin as `98a1ffb0a0` (a diagnostic); 2026-11-03 08:59 CLOSED by the reporter: "pan delay seems gone already" -- not seen any more; cause never found, nothing fixed for it on purpose |
+| 239 | 2026-10-28 | a defect: creating or editing a PD Box shows the origin planes whatever their visibility, at another size; with the origin group INVISIBLE the origin shown in the edit does not react to the highlight (pre-selection), only once the group is made visible | OPEN; said to the note-taker 2026-10-28 17:59; READ by the note-taker: the Box panel shows the origin's axes and planes on purpose (TaskPrimitiveParameters.cpp 85, setTemporaryVisibility(true, true)), as an edit visibility in the views of the edit (ViewProviderCoordinateSystem::setTemporaryVisibilityInEdit, ViewProviderCoordinateSystem.cpp 144-185, Gui::Document::setEditVisibility) -- the objects' Visibility untouched; the attacher grows them by DatumTemporaryScaleFactor (2.0, TaskAttacher.cpp 350); the highlight missing while the group's own Visibility is off -- cause NOT found (the 235 pick-first path or the selection's visibility test, a lead); ASSIGNED to dwin (fcad-88). 2026-10-28 18:05 the reporter: "entry 239, temp scale is fine and desired. just fix the highlight. there is no highlight before the pick fix" -- the showing and the temporary scale stay; only the highlight; it was missing BEFORE 235's pick fix (so 235 is not its cause); relayed to dwin. 2026-10-28 18:16 DONE by dwin `fb8b27d61d`, local, NOT pushed, NOT staged: cause (older than 235) -- an object shown by an edit visibility is carried TAGGED in the shared scene capture (Render::perViewShownModeId), each view admitting it by its own visibility; the highlight cache built from it kept the tag, so neither renderer drew the highlight (GL leaves tagged draws out, bgfx admits them by a visibility the highlight draws lack); fix -- buildHighlightCache() takes the tag off (a highlight is of what the pointer was over in that view); selection highlights covered; the temporary origin and its size untouched; pd-edit-origin-highlight.py 4/4 (Origin hidden: 4104 pixels change round the plane, as visible; the staged copy 0), origin-plane-highlight.py 14/14; PUSHED (3f3174731f..1a2436c219) and RESTAGED (stage31) by dwin 2026-10-28 22:00 on the reporter's word (relayed) |
+| 240 | 2026-10-28 | a change request: every PD primitive's on-view value labels shown BESIDE their handle, only while that handle is active; and every on-view label gets a see-through background in the tree item's background colour | OPEN; said to the note-taker 2026-10-28 18:03; READ by the note-taker: the primitives put every label at the top middle (TaskPrimitiveParameters.cpp 205, Place::TopMiddle; entry 170's rule then); Place::AtHandle (OnViewValue.h 103, 'shown beside its handle while that one is active') is used by pad/pocket, revolution, hole, fillet, chamfer, which fall back to the top middle with handles off; the tree item background is TreeParams ItemBackground (TreeParams.py 137, the overlaid tree's item background, default 0); the labels draw no background now (OnViewValue.cpp 193 is a button's frame); ASSIGNED to dwin (fcad-88) after 239. 2026-10-28 18:16 dwin started; taking the note-taker's defaults: with handles off a primitive's labels at the top middle; ItemBackground unset -> the tree's own palette base colour; the see-through level dwin's, to be reported. 2026-10-28 18:33 DONE by dwin `664e51d94a`, local, NOT pushed, NOT staged: (a) box, cylinder, sphere values Place::AtHandle, shown only while the handle is active, top middle with handles off (the other primitive types have no handles: setupGizmos returns for them, TaskPrimitiveParameters.cpp 235-237, read by the note-taker); (b) every on-view value label gets a rounded see-through ground -- SoDatumLabel backgroundColor/backgroundAlpha (default none: the Sketcher's labels unchanged), painted into the text image; colour the tree's item ground as painted (effectiveOverlayItemBackground), else ItemBackground, else the palette base; opacity clamped 96..200 of 255 (the reporter's ItemBackground is black at 20, raised to 96); pd-primitive-labels-at-handle.py 6/6 (the staged copy fails 6, and showed the box's labels in the next edit), pd-values-in-view 37 (its box claim updated), chamfer 19, fillet 21; the ground's opacity then made a setting, Gizmos/OnViewLabelBackgroundOpacity 0-100 %%, default 0, also in the on-view settings menu (`1af7e47607`, asked of dwin by the reporter, relayed; the note-taker did not hear it); PUSHED (3f3174731f..1a2436c219) and RESTAGED (stage31) by dwin 2026-10-28 22:00 on the reporter's word (relayed); then, asked of dwin by the reporter (relayed): PD on-view labels get the Sketcher's outline (`14b17ae490`) and their text a little darker on a light background (`d7c714f31e`); PUSHED (1a2436c219..c1ce3df7d1) and RESTAGED (stage33) by dwin 2026-10-28 23:25 on the reporter's word (relayed) |
+| 241 | 2026-11-02 | a change request: EVERY PD on-view value with a handle -- the dress-ups' common radius included -- shows its label anchored to the ACTIVE handle's BASE point, offset so as not to cover the handle; a drag on a handle not yet active makes it active, so the label follows once the drag starts | OPEN; said to the note-taker 2026-11-02 18:12; READ by the note-taker: values with handles still at the top middle -- pad/pocket Length (TaskExtrudeParameters.cpp 245), revolution Angle (184), helix Height (93), hole Depth (245), draft Angle (111), thickness (116), the fillet's common Radius (280), chamfer Size/Size 2/Angle (531-542); the anchor is the handle's dragger placement (OnViewValue.cpp 663), the label up-right by HandleOffset 24 px (OnViewValue.h 268, OnViewValue.cpp 1044-1046); a drag's Started event does not make the handle active (OnViewValue.cpp 545-554); ASSIGNED to dwin (fcad-88) on the reporter's word; 2026-11-02 18:28 the reporter added (d): a highlighted handle shows a tool tip with its label's text and value, as the FIRST line where the handle has a tool tip already (it has: "Drag to change the value; click to type it." / "Right click for the menu.", OnViewValue.cpp 513-514); also read: a handle becomes active at RELEASE (setReleaseCallback, 500-502); relayed to dwin; 2026-11-02 18:33 the reporter on (d): the tool tip's text follows the value while dragging, and it behaves as an ordinary tool tip -- hidden on a timer when the mouse moves, back after a delay once it stops; relayed to dwin; 2026-11-02 19:09 DONE by dwin, `6465589eb0`, local, NOT pushed, NOT restaged: one rule in OnViewValueSet -- a value whose handle is shown puts its label beside the ACTIVE handle (top middle kept for no handle, handles off, and expression-driven values, dwin's choice); anchor Gizmo::getHandleBase() (an arrow's foot, which moves with the value; a rotation handle's knob), 10 px off the arrow line / 20 px off a knob, following the drag; a drag activates its handle at START (Escape gives the earlier one back, dwin's choice); the tool tip's first line the label text, the active handle too (dwin's choice), following a drag, Qt's hide/wake timing; pd-label-at-handle-foot.py 25/25, ctest 1088/1088; 2026-11-03 00:44 PUSHED (thundereal/LinkVibe ..`19cb94f183`) and STAGED (stage34) by dwin with the MultiViewEdit merge, on the reporter's word to dwin (relayed) |
+| 242 | 2026-11-02 | a defect: the migration recompute box (asked after opening an old file) is not modal, nor is the recompute error box after it | OPEN; said to the note-taker 2026-11-02 18:15; READ by the note-taker: both are static QMessageBox calls parented to the main window (QMessageBox::warning, Application.cpp 616-621; QMessageBox::critical, 634-636), from a signalFinishOpenDocument handler (604-637) -- Qt makes such a box application modal, so the code asks for modal; no setWindowModality anywhere in Gui that would undo it (only DocumentRecovery.cpp 1401); cause NOT found, NOT reproduced; ASSIGNED to dwin (fcad-88) after 241; 2026-11-02 20:04 DONE by dwin, `0f41b13b35`, local, NOT pushed, NOT restaged: reproduced on a scanner2 copy (dev and staged) -- the boxes ARE input modal (menu bar and 3D view wheel blocked), but the progressive LOAD went on under them (the box's event loop ran the visual-building slices: 616 of 616 built under the box in a test file); dwin read "load modal" as the load waiting for the answer; fix Gui::Application::isLoadHeld() (a modal widget up): the view provider and Part visual drains' timed slices wait and ask again 100 ms later, an explicit flush still runs to the end; modal-box-holds-the-load.py 6/6 (the old build fails 2); 2026-11-03 00:44 PUSHED (thundereal/LinkVibe ..`19cb94f183`) and STAGED (stage34) by dwin with the MultiViewEdit merge, on the reporter's word to dwin (relayed) |
+| 243 | 2026-11-03 | a defect (the reporter's expectation): a highlighted line always drawn on top, PRE-SELECTION above selection above everything else -- also where another object's line coincides with it (dwin, 235 on 2026-10-28: in a top view the side-on XZ plane's edge covers the highlighted X axis, the later draw wins, both renderers) | OPEN; said to the note-taker 2026-11-03 08:59; READ by the note-taker: the OpenGL path draws the highlight after the scene and the selection (SoFCRenderer.cpp 3243-3266, highlightlinesontop last), thickened (RenderPassHighlight, 827-830); why a coinciding plain line still covers it NOT read (depth function of the highlight pass, a lead); ASSIGNED to dwin (fcad-88): check on the current build first, then fix; 2026-11-03 09:21 dwin: TAKEN, after the 8.3 path fix it is finishing (the reporter's word to dwin, relayed: "Push and fix the path problem. Then restage"); 2026-11-03 10:49 DONE by dwin, `5e3a5917c4`, local, NOT pushed, NOT staged: seen first -- from the top the side-on XZ plane's edges lie IN FRONT of the X axis (z 0.01 and 0.157 vs 0), so the depth test hid the highlighted axis (preselected 0/75 columns OpenGL, 44/75 bgfx; selected 0/75 both); the reporter's choice to dwin (relayed): over LINES, not faces -- a face in front still hides it (dashed); fix both renderers: the plain lines/points mark the stencil where front-most, the highlight/selection lines and points drawn again there without the depth test, preselection after selection; origin-plane-highlight.py 17/17 bgfx and Legacy, 8 neighbouring highlight tests green; 2026-11-03 11:08 FOLLOW-UP (243 b), the reporter: does a selected edge's HIDDEN part (drawn dashed) show over the plain edge in front of it; with the selected hidden line style not overriding (solid, SelectionLinePattern 0, the default) it should be on top; READ: the hidden part is drawn without the depth test in the pattern pass before 243's mark (SoFCRenderer.cpp 3256-3297) -- over the plain lines in OpenGL by the reading, NOT measured, bgfx not read; ASSIGNED to dwin after 247 and 244; 2026-11-03 12:29 243 b DONE by dwin, `e6a285fa4d`, local, NOT pushed, NOT staged: measured both renderers -- SelectionLinePattern 0 (solid): the hidden part already over the line, 69/69 columns ((b) held); a dash pattern: dashed behind the face but SOLID over the line -- 243's copy-over-lines ignored the style; fix: the copy only while the hidden style is solid, the dashes over the line otherwise (36 columns dash, 33 line between); dwin's reading: the hidden style, when set, wins over "on top"; hidden-selected-edge-over-line.py, origin 17/17 both, hidden-edges 18; 2026-11-03 12:56 PUSHED: in thundereal/LinkVibe (..`7ed5c8c868` before x16's push, `2523224972` after; checked by git ls-remote and fetch); who pushed up to 7ed5c8c868 not reported to the note-taker; staged NOT known |
+| 244 | 2026-11-03 | a REGRESSION: creating a PD Box, a click on an on-view label or Enter to type opens the edit box somewhere else, not in place of the label | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the box is placed by EditableDatumLabel::positionSpinbox (EditableDatumLabel.cpp 413-451) at getTextCenterPoint() (453-485); OnViewValueSet::placeLabels puts the label with setPlacement + setPoints(0,0) (OnViewValue.cpp 1109-1111), the primitives' labels at the active handle's foot since 241 (`6465589eb0`, the only change to OnViewValue.cpp since 11-01); avoidMouseCursor ruled out (false for these labels); cause NOT found; ASSIGNED to dwin (fcad-88); 2026-11-03 12:07 DONE by dwin, `de8f488698`, local, NOT pushed, NOT staged: cause (measured, 241's) -- a label at its handle's foot is placed out by half its text's size; in edit the text is blank, so placeLabels moved it in toward the handle (a box: 18 px left, 30 px down) and the edit box, centred on the label, opened there; fix: the set keeps each label's last shown text size and places a label in edit by it; pd-primitive-labels-at-handle.py 28/28 (box and cylinder within 1 px; before 18/30 px off), PD on-view neighbours green; dwin's side note, not chased: once an on-view QuantitySpinBox of the left box edit still answered isVisible() in the next edit; 2026-11-03 12:56 PUSHED: in thundereal/LinkVibe (..`7ed5c8c868` before x16's push, `2523224972` after; checked by git ls-remote and fetch); who pushed up to 7ed5c8c868 not reported to the note-taker; staged NOT known |
+| 245 | 2026-11-03 | a defect: the Measure (pre)selected geometry macro's tool tip ignores the OVERLAY PANELS -- shown under a panel; the reporter wants it aware of them whatever it did before | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: Selection.cpp 1223-1233 shows PreselectionText by Gui::ToolTip::showText with the active view, overlay=true and the corner PreselectionToolTipCorner + offsets; ToolTip::onShowTimer (Widgets.cpp 1601-1623) places it in the corner of the WHOLE view widget -- nothing there asks what the overlay panels cover; whether it once did NOT checked; ASSIGNED to dwin (fcad-88); 2026-11-03 12:26 MOVED to x16 (free after 249 b) by the note-taker; dwin keeps 243 b and 246; 2026-11-03 12:29 dwin had not started it -- with x16; 2026-11-03 12:39 DONE by x16 (relayed), `1979910848` + `5d64b9d7e5` on its LinkVibe tree (on a3a986c749), local, NOT pushed, NOT staged, placement only (ToolTip::onShowTimer): (1) an OLDER defect -- the corner position worked into this->pos (the offsets) then added again: top-left at twice the view's origin, the other corners in the MAIN WINDOW's corner, offsets lost (view 266,178 858x569: bottom-right tip at 675,549); right only for a view at the window's origin; (2) nothing asked the overlay panels; fix: the corner in the view's coordinates; the tip slides clear of OverlayManager::coverRects by the navigation cube's rule (entry 76); every pre-selection macro; presel-tip-clear-of-panels.py 8/8 (all placement claims fail before), GuiNaviCubeClearOfPanels still passes; 2026-11-03 12:56 PUSHED by x16 on the reporter's word to it (relayed: "push"), thundereal/LinkVibe 7ed5c8c868..`2523224972` (a clean merge of the remote into x16's tree; checked by git ls-remote); NOT staged; on the merged build TestDefeaturing 6, on-top-inside-the-clip-planes 3/3, GuiPreselTipClearOfPanels 1/1, hidden-selected-edge-over-line 2/2 |
+| 246 | 2026-11-03 | a defect: an on-view handle's tool tip draws a ROUND-cornered border on a RECTANGULAR widget -- the square corners show; the reporter: use the tooltip helper the measure pre-selection macro uses | OPEN; said to the note-taker 2026-11-03 10:41; READ by the note-taker: the handle's tip is Qt's own QToolTip::showText (Gizmo.cpp 374, 387; 241's tip); the helper is Gui::ToolTip::showText / TipLabel (Widgets.cpp 1471-1640), which the pre-selection text uses (Selection.cpp 1228); ASSIGNED to dwin (fcad-88), with 245 (same helper); 2026-11-03 10:45 the reporter: the helper NOT required -- its code or styling may be taken as reference; the handle tips stand NEAR THE MOUSE POINTER (not in a corner, as the pre-selection macro's tip); 2026-11-03 12:44 DONE by dwin, `d4344a8a82` (log `56bbd701ae`), local, NOT pushed, NOT staged: the handles' tip (Gizmo::restTip) and the on-view menu button's tip shown in Gui::ToolTip's overlay label (the rounded widget shape), beside the pointer (NoCorner: pointer + (2, 16)); 241's timing kept, a drag updates the text in place (TipLabel::set); pd-label-at-handle-foot 27/27, pd-edit-menu-in-view 26/26, fillet-handle-click-in-view 16/16 (its entry 141 claim "moving over the arrow keeps the tool tip" contradicted 241 and passed only through Qt's fade -- now 241's rule), serve-handle-hint 10/10; 2026-11-03 12:56 PUSHED: in thundereal/LinkVibe (..`7ed5c8c868` before x16's push, `2523224972` after; checked by git ls-remote and fetch); who pushed up to 7ed5c8c868 not reported to the note-taker; staged NOT known |
+| 247 | 2026-11-03 | a REGRESSION, the reporter relates it to 242's fix: opening scanner, the migration box now holds the load, but after OK the recompute runs with the 3D view BLACK, the model appearing at once at its end (no progressive load); NO recompute error box although objects fail; the first try also failed Dimension014, through Section007 left with no shape and NOT marked as an error (a manual recompute of Section007 fixed it) | OPEN; said to the note-taker 2026-11-03 10:44; READ by the note-taker: the handler (Application.cpp 607-640) recomputes right after the box, inside signalFinishOpenDocument, and shows the error box when hasError; 242's hold (isLoadHeld = activeModalWidget(), Application.cpp 2505-2508) also holds Document::scheduleDeferredRestore (Document.cpp 4703-4710) -- the deferred RESTORE, not only the visuals -- so the recompute may run on a document not fully restored (a lead for Section007, NOT verified); a modal SequencerDialog in the recompute (ProgressDialog.cpp 105) would keep the hold on through it (a lead, NOT verified); causes NOT found; ASSIGNED to dwin (fcad-88), FIRST; 2026-11-03 11:49 DONE by dwin, `dfc36122fe`, local, NOT pushed, NOT staged: (a)+(c) 242's hold held for ANY modal widget, so the recompute's modal progress dialog held the deferred restore and the visuals through the whole recompute; now only a QMessageBox holds, never while a document recomputes (modal-box-holds-the-load.py: staged 0 visuals under a progress dialog, fixed 616); (b) an OLDER fault, not 242's: Document::recompute printed "Recompute failed!" but set hasError only on a failed execute -- SectionView003 logs its empty cut and returns OK; now the caller is told, the error box shows on a scanner copy (staged: none); the black view and Section007/Dimension014 NOT reproduced on the hidden desktop (no progress dialog there; no object NAMED Section007 -- a label?), both follow from the hold removed; ctest 1100/1100, Python 4077 OK; 2026-11-03 12:56 PUSHED: in thundereal/LinkVibe (..`7ed5c8c868` before x16's push, `2523224972` after; checked by git ls-remote and fetch); who pushed up to 7ed5c8c868 not reported to the note-taker; staged NOT known; 2026-11-03 15:08 REOPENED (a), the reporter: "regression, opening scanner.FCStd and proceed with migration recompute still gives black background during recomputation" -- on the STAGED copy installed 2026-11-03 13:20 from `eca80edde0` (.conda/user-app/INSTALLED.txt), which HOLDS 247's fix `dfc36122fe`; dwin had NOT reproduced the black view on the hidden desktop (no progress dialog there); cause NOT found; ASSIGNED to dwin; 2026-11-03 15:36 (a) REPRODUCED by dwin on the staged copy (a scanner copy, Yes; paints timed on the hidden desktop: 34 of 36 paints during the 42 s recompute drew nothing, 149 after); cause OLD: View3DInventorViewer::actualRedraw skipped drawing while the view's document recomputes (`3b0ae7bdde`, 2021), each paint the recompute's progress let through presented QOpenGLWidget's cleared (black) buffer; 242's hold made it show (the load now builds DURING the recompute, 178 -> 1136 visuals); fix building (rtx82): the skip removed (upstream has none); NOT committed yet; 2026-11-03 15:47 dwin CORRECTION: the paint counts (34 of 36 drew nothing) WITHDRAWN -- its probe delivered paints by obj.event, skipping the scroll area's filter, the path that draws; what stands: view-drawn-during-recompute.py -- the staged copy's picture asked inside a recompute times out, rtx82 draws it (a recompute in general, not the scanner open); the scanner open re-measured with RenderTiming, staged against rtx82; gui-open-a-document 5/5, the hold test 9/9; 2026-11-03 20:55 (a) DONE by dwin (relayed), `1806054df3`: the 2021 skip in actualRedraw removed; view-drawn-during-recompute.py (staged: the capture timed out; now drawn); with it `4463176920`, FreeCADGui.open/insert take any type with an import module (gui-open-a-document.py 5/5); the scanner open re-measured with RenderTiming NOT reported to the note-taker; PUSHED on the reporter's word to dwin (relayed: "push and restage once done"), thundereal/LinkVibe 50ab8ff316..`41ab0dba24` (checked by git ls-remote); STAGED 2026-11-03 20:49:53 at `41ab0dba24` (.conda/user-app/INSTALLED.txt, not dirty, FreeCADGui 20:09:48, rtx87); 2026-11-03 21:07 the scanner open measured by dwin AFTER only (the stage at `41ab0dba24`; a before was no longer possible once restaged), a scanner copy, Yes: the recompute 38.7 s, 41 frames drawn in 15 one-second log lines, each frame the full pipeline; one 14.5 s line with 3 frames (one long feature recompute holding the loop); the boxes "Recompution required" then "Recompute error" (log s1\g-247frames-after-staged\FreeCAD.log) |
+| 248 | 2026-11-03 | a defect: PD Defeaturing's hover in the tree highlights the WHOLE shape, not the elements it changed as other PD features do -- the reporter reads it as no working element mapping | OPEN; said to the note-taker 2026-11-03 10:54; READ by the note-taker: Defeaturing::execute (FeatureDefeaturing.cpp 41-77) builds by TopoShape::makEDefeaturing (TopoShapeEx.cpp 5934-5965): BRepAlgoAPI_Defeaturing with SetToFillHistory(true), mapped through makEShape(mkDefeaturing, shape, op) -- a mapping IS made; the tag 0 + hasher start is the same as Fillet/Chamfer/Draft; why the tree hover finds no changed elements NOT found (what the hover asks of the map not read); ASSIGNED to x16 (idle; dwin's queue full); 2026-11-03 10:55 the reporter's steps: a Box, a Pocket of the top face with -2 "tolerance" (a square blind hole in the top), then Defeaturing picking the hole's bottom and one side face; the session the note-taker calls x16 (bridge 01Gifk77, it signs fcad-86) asked whether x16win was meant -- told no, it takes 248; 2026-11-03 12:14 DONE by x16 (relayed), `3291bf8336` + `a7bf62e050` on its LinkVibe tree (on 0a4d49eda5), local, NOT pushed, NOT staged (not in this tree): the hover lights the faces getGeneratedIndices reports, by default only those mapped as GENERATED (;:G); Defeaturing generates nothing, and BRepAlgoAPI_Defeaturing rebuilds EVERY face, so all six are ;:M;DEF, the untouched ones too -- own elements [] -> the whole shape; fix: Defeaturing::isElementGenerated also counts a modified face that DIFFERS from its source (traced by getElementHistory, compared by edge count and area); the reporter's case lights the top face made whole (area 64 -> 100) and its edges/vertices, sides and bottom out; element names UNCHANGED; new read-only Feature.getGeneratedElements(); TestDefeaturing 6/6 (testHoverLightsWhatChanged fails before), TestPartDesignApp 500 OK; follow-up for the reporter: untouched faces keeping their source names (a naming change for saved files), NOT done; 2026-11-03 12:56 PUSHED by x16 on the reporter's word to it (relayed: "push"), thundereal/LinkVibe 7ed5c8c868..`2523224972` (a clean merge of the remote into x16's tree; checked by git ls-remote); NOT staged; on the merged build TestDefeaturing 6, on-top-inside-the-clip-planes 3/3, GuiPreselTipClearOfPanels 1/1, hidden-selected-edge-over-line 2/2 |
+| 249 | 2026-11-03 | a defect, two parts: (a) a Body with a Box: a face of the box picked in the 3D view, Space hides the BODY -- it should hide the selected object; (b) with the body hidden (by Space or by the body's eye icon in the tree), the still-selected box is drawn on top but CLIPPED -- the scene's clipping ignores what is shown on top | OPEN; said to the note-taker 2026-11-03 11:17; READ by the note-taker: (a) is ON PURPOSE since `cccbe6cc5c` (2026-09-26, upstream bd03414893/20c01000a1 adapted): SelectionSingleton::setVisible cuts a view pick's path to ViewProvider::getPickedVisibilityTarget() (Selection.cpp 1874-1899), a PD feature naming its body -- its reason, a face of a non-Tip feature (Body.Box.Face6 under a pocket) toggled a hidden feature; the reporter now wants the selected object; (b) SoFCRenderer::getBoundingBox takes the selection's and highlight's bounds (SoFCRenderer.cpp 1843-1853) -- what the near/far planes are computed from NOT read; causes for (b) NOT found; ASSIGNED to x16 after 248; 2026-11-03 11:21 (a) ON HOLD, the reporter: "wait, let's see upstream's rational about this override first. I am not convinced yet" -- upstream's rationale read (FreeCAD #29110 fixing issue #11132, then #30231), x16 told to hold (a); (b) goes on; 2026-11-03 12:14 x16 on (b), (a) held; 2026-11-03 12:26 (b) DONE by x16 (relayed), `a3a986c749` on its LinkVibe tree on top of 248, local, NOT pushed, NOT staged: the near/far planes already take in the on-top entries (entry 124, e6bea25bcd, View3DInventorSelection::extendByOnTop) but took the box of the entry AS NAMED, element included -- Body + "Box.Face6" gave the top face's box only; with the body hidden the whole Box is drawn on top and the far plane cut it; fix: the box of the named object without the element (getSubNameNoElement), which can only widen; far plane 11.76 -> 17.62 (the box 17.3 deep); both renderers (shared code), eye icon and Space alike; on-top-inside-the-clip-planes.py 3/3 (fails before); (a) untouched, held; 2026-11-03 12:56 PUSHED by x16 on the reporter's word to it (relayed: "push"), thundereal/LinkVibe 7ed5c8c868..`2523224972` (a clean merge of the remote into x16's tree; checked by git ls-remote); NOT staged; on the merged build TestDefeaturing 6, on-top-inside-the-clip-planes 3/3, GuiPreselTipClearOfPanels 1/1, hidden-selected-edge-over-line 2/2; 2026-11-03 13:04 (a) DECIDED by the reporter: "the space bar override is clearly wrong" -- REVERT `cccbe6cc5c` (a body holds features other than solids, and several solids now; hiding the body hides them all); a better way for upstream's complaint (#11132) to be thought out -- the note-taker's proposals put to the reporter; the revert ASSIGNED to x16; 2026-11-03 13:41 (a) REVERTED by x16 (relayed), `24c98f04d2` on its tree (on 2523224972), local, NOT pushed, NOT staged; GuiPartDesignDefects 34/34 (the Space claim turned round); measured: a view pick of a box's face under a pocket names the TIP (Body + "Pocket.;Front;:H990,F.Face2"), not Body.Box.Face6 as `cccbe6cc5c` said; Space 1 hides the Pocket and the body shows the BOX (no hole) in its place, Space 2 swaps back -- the first Space swaps the solid for the feature before it rather than hiding it; 2026-11-03 14:24 x16 CORRECTION (relayed): the swap measurement was WRONG (a body built from Python left the Box visible; the GUI hides the previous solid); the revert is now `50ab8ff316` (message corrected; `24c98f04d2` gone, never pushed); measured again: Space on the Tip's picked face hides it and shows NOTHING, Space again shows it; Space on a hidden feature in the tree shows it and hides the visible one; the reporter to x16 (relayed): the old behaviour, "hiding a step does not show others", "just revert upstream's relevant code" -- the revert alone gives it; (a) DONE by the revert, local, NOT pushed; 2026-11-03 14:27 the revert PUSHED by x16 on the reporter's word to it (relayed: "push"), thundereal/LinkVibe 2523224972..`50ab8ff316` (fast-forward; checked by git ls-remote); NOT staged |
+| 250 | 2026-11-03 | a REGRESSION on bgfx (Legacy right): an edge's pre-selection highlight still partly covered by the SELECTED line; a selected edge in plain sight and its selection highlight FIGHT for depth (z-fighting), while its part hidden by the object shows the selection full solid | OPEN; said to the note-taker 2026-11-03 15:10; READ by the note-taker: the only recent changes to the bgfx frame are 243 `5e3a5917c4` (the plain lines mark the stencil, the highlight and selection lines drawn again over the mark without the depth test; the last redraw selection first, pre-selection after) and 243 b `e6a285fa4d`; cause NOT found; ASSIGNED to x16 (dwin on 247); 2026-11-03 15:14 the reporter: "preselection highlight worked fine for unselected edge. but it also z fight with a selected edge" -- the hover on an UNSELECTED edge is right; on a SELECTED edge the pre-selection and the selection fight for depth (as the selection with the plain line); passed to x16; 2026-11-03 15:14 the reporter: compare ALL the cases with Legacy -- selection, pre-selection and unselected, each over the others; passed to x16 as a bgfx-against-Legacy matrix, every cell to match; 2026-11-03 15:16 the reporter: "Show me the screenshots once fixed" -- x16 to send them (bgfx and Legacy side by side, before and after) from its own session; and "you can pass them my user.cfg if it helps" -- the View and Selection groups of %APPDATA%\Thundereal\user.cfg sent to x16 (Render/Type Default, pre-selection 0x0004FFFF, selection 0x00FF00FF, no line-pattern keys set), the rest on request; 2026-11-03 15:21 x16 (relayed): NOT REPRODUCED on Linux (bgfx OpenGL and Vulkan, software and GPU, MSAA off and 4x, the reporter's colours, box/circle/large box/perspective/PD body -- all clean as Legacy); the reporter's bgfx is D3D11, which x16 cannot run; its lead: 243's stencil mark is depth EQUAL and D3D11 does not promise matching depths across programs; x16 asked dwin to run its probe on Windows (D3D11 and Legacy); the note-taker confirmed to x16 the stage (`eca80edde0`, installed 13:20) holds 243 and 243 b; 2026-11-03 15:48 x16 (relayed): NOT REPRODUCED on Windows either -- dwin ran x16's probe on rtx82 (LinkVibe `bed2f05dbf` + 247; its src identical to the stage's `eca80edde0`, checked by git diff), the reporter's colours: PASS on bgfx D3D11 MSAA 4x and off, bgfx OpenGL, Legacy; x16's 19-cell matrix passes on Legacy, bgfx GL, bgfx Vulkan (dwin's D3D11 run queued); something in the reporter's session differs (display scale, zoom, a PD body, a fuller document, the view's state) -- x16 asks the reporter directly for a screenshot and those details; 2026-11-03 20:55 FOUND and FIXED by dwin (relayed), `4910a46cb5`: REPRODUCED as the reporter did it (to dwin, relayed: a Body with a box made in the GUI, the task panel OK, click Edge10, "you don't even need to move the camera"); cause: after the box's edit the feed keeps the Body's Origin, hidden, with on-top order 999, which runs the engine's late on-top pass, whose last loop redrew the selection's lines in list order -- the box's plain line after the green highlight at equal depth; now in step 5's order (plain companions first, highlight last), and a hidden draw opens no order; a SHOWN Origin gave the same fault without an edit; every probe missed it (a scripted box has no edit; the GUI test profile forces AntiAliasing 0); selected-edges-on-top-alike.py staged 6 FAIL, now 8/8 (GUI, Origin shown, script; Legacy too), origin-plane-highlight 17, hidden-selected-edge-over-line 2, datum-picked-through-a-face 3, x16's matrix 19 (bgfx and Legacy); ctest 1100/1100; PUSHED on the reporter's word to dwin (relayed: "push and restage once done"), thundereal/LinkVibe 50ab8ff316..`41ab0dba24` (checked by git ls-remote); STAGED 2026-11-03 20:49:53 at `41ab0dba24` (.conda/user-app/INSTALLED.txt, not dirty, FreeCADGui 20:09:48, rtx87); the screenshots the reporter asked for NOT sent yet; 2026-11-03 20:57 x16 (relayed) stopped on 250, nothing committed: its 19-cell matrix (untracked tests/gui/highlight-line-matrix.py) now runs every cell again with an App::Part's Origin SHOWN; on the pre-fix build `50ab8ff316`, bgfx GL MSAA 4x, the GPU: 19/19, the Origin pass 6 FAIL (o01 same edge, o04/o08 coinciding, o10/o14 crossing, o18 point -- the plain line over the selection) -- dwin's cause confirmed independently; Legacy under --gl nvidia fails 3 + 6 cells reading "other" (a stale grab suspected, NOT checked); ASSIGNED to x16 by the note-taker: fix the Legacy capture, run on `41ab0dba24`, commit as an extra test, local, no push; 2026-11-03 21:07 the screenshots SENT to the reporter by dwin (relayed), ..\dl\handson\2026-10-12\s1\entry250-before-after.png: a GUI-made Body + box, Edge10 clicked, the reporter's camera, MSAA 4x; bgfx selected, bgfx hover, Legacy selected, Legacy hover, each with a 3x zoom; BEFORE (BGFXFrame.cpp of 4910a46cb5~1, rtx88-before2): bgfx selected a black line with green only at its sides; AFTER (the stage at `41ab0dba24`): bgfx like Legacy; 2026-11-03 21:15 x16's matrix COMMITTED (relayed), `3fef4b5c10` "Tests: highlighted lines over one another, the engine against Legacy" on x16's tree after `41ab0dba24`, local, NOT pushed: 19 cells x 2 passes (plain, an App::Part's Origin shown) = 38, in ctest as GuiHighlightLineMatrixEngine and GuiHighlightLineMatrixLegacy, MSAA 4x; on `41ab0dba24` 38/38 on bgfx GPU GL, bgfx software GL, Legacy software GL; Legacy's failures on x16's box are Mesa's d3d12 GL driver under WSL (no stipple with MSAA off, wide washed-out lines with 4x), not Legacy against bgfx |
+| 251 | 2026-11-03 | the GUI and C++ tests leave documents behind in the transient directory (the reporter to dwin, relayed: "your test always leaks some documents in transient directory") | said to dwin (the note-taker did not hear it); FOUND by dwin: 25 FreeCAD_Doc_* per ctest run in %LOCALAPPDATA%\cache\FreeCAD\Cache (352 since 10-26); 22 are the FeaturePart Common/Cut/Fuse tests (an empty TearDown, the document never closed) -- FIXED `42376ec39b`, PUSHED on the reporter's word to dwin (relayed: "push and restage once done"), thundereal/LinkVibe 50ab8ff316..`41ab0dba24` (checked by git ls-remote); STAGED 2026-11-03 20:49:53 at `41ab0dba24` (.conda/user-app/INSTALLED.txt, not dirty, FreeCADGui 20:09:48, rtx87); 3 per run REMAIN, NOT placed (one process with two documents, empty dirs; not the *_tests_run executables, not the testUser fixtures); the 352 leftovers deleted on the reporter's word to dwin (relayed: "you can clean them"); the rest ASSIGNED to dwin; 2026-11-03 21:07 dwin bisecting the 3 remaining (ctest -I halves); 2026-11-03 22:06 the 3 PLACED and FIXED by dwin (relayed), `907c54629d` "Import: a failed insert makes no document", local, NOT pushed, NOT staged: ImportErrorsTest.insertOfAnUnknownTypeIsIOError (1) and insertOfAMissingFileIsIOError (2), one per Import.insert call; a PRODUCT bug: Import.insert and ImportGui.insert made a new document when none was named and only then checked the type and the file, so a failed insert left an empty "Unnamed" document open; now both refuse before a document is made (the same OSError); TestImportErrors.cpp also fails a call that leaves a document open; rtx90: those ctest 13 passed, no dir left, live-import-nested-loop 8/8, export-hidden-component 15/15, Python 4078 OK; a full ctest run NOT yet run on it |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30555,6 +30803,2264 @@ restage; so stage29 (`a19fb686e7`) stays the staged copy and none of
 the six is in it for a hand check. fcad-dc FREE; 227 waits on the
 reporter.
 
+## 230. TechDraw's Toggle Frames default off (a change request) -- OPEN
+
+**2026-10-28 09:41, the reporter (to the note-taker):** "new request, how does techdraw
+toggle frames option stored in the page. I want to make it default off."
+The note-taker's reading: two things -- how the state is stored (answered
+from the code), and frames OFF on a page by default.
+READ by the note-taker: the state is ViewProviderPage::ShowFrames, a
+PropertyBool on the page's VIEW PROVIDER (not the DrawPage), group
+"Grid", hidden from the property editor, default `true`
+(src/Mod/TechDraw/Gui/ViewProviderPage.cpp 95 and 102). Being a view
+provider property it is saved per page in the document's GuiDocument.xml
+and restored with it. getFrameState()/setFrameState() read and write it
+(505/507); toggleFrameState() (509) flips it, refreshes the views and the
+template markers; TechDraw_ToggleFrame (CommandDecorate.cpp 280) and the
+page view's context menu "Toggle Frames" (MDIViewPage.cpp 110) call it.
+There is no preference for it; ShowGrid beside it takes its default from
+PreferencesGui::showGrid(). Printing and export switch it off around the
+render and back (PagePrinter.cpp 497, QGSPage.cpp 1096). With frames off,
+a view shows its frame and label while anything of it is selected
+(QGIView::getFrameState, entries 155 and 204), so it can still be dragged.
+What changes with the default: a NEW page starts with frames off; a page
+already saved keeps the value it saved (true for every page so far) -- a
+file opens as it was.
+NOT said: whether existing pages should turn off too; whether it becomes
+a TechDraw preference like ShowGrid's; how a page with frames off is
+told apart from one with them on.
+ASSIGNED to fcad-dc (the note-taker coordinating): ShowFrames' default
+false for a new page; saved pages unchanged.
+
+**2026-10-28 09:45, the reporter (to the note-taker), on 230:** "entry 230, make the
+property visible, leave existing object as it is"
+The note-taker's reading: ShowFrames is no longer hidden -- it shows in
+the page's view properties (drop setStatus(Hidden) at
+ViewProviderPage.cpp 102), so a page's frames can be read and set there;
+the default for a NEW page is false (as asked first); a page already
+saved keeps the value it saved, no migration.
+NOT said: a preference; where in the property list it sits (its group
+is "Grid" today).
+NOT YET DELIVERED: fcad-dc is not reachable (ListAgents 2026-10-28 shows
+no fcad-dc); the reporter asked who takes it.
+
+## 231. A dragged section line jumps up or down on release, as if to fixed positions (a defect) -- OPEN
+
+**2026-10-28 09:45, the reporter (to the note-taker):** "new defect, scanner doc, after
+open and recompute for migration, Section003 is broken which is
+expected. but when I drag the mouse of the section line to try to align
+it to the center of the two lower holes of Top003, the section will
+either move down or up a bit when I release the mosue. it as if the
+section line can only be placed at some discrete number of possible
+positions"
+The note-taker's reading: Section003's line, in Top003's view, dragged
+across itself (perpendicular to its run); where the mouse lets go is not
+where the line ends up -- it lands a little above or below, as if only
+some positions were allowed. That Section003 is broken after the
+migration is expected and not the defect.
+READ by the note-taker (not reproduced, cause not found): TechDraw's Gui
+snaps nothing on a drag (the only snap is QGTracker's angle snap). The
+line's release: QGISectionLine::onItemMoved (QGISectionLine.cpp 664)
+moves the line's points (or its two ends, with no change points) by the
+drag's offset, Rez::appX(pos) - Rez::appX(oldPos), and queues
+DrawViewSection::setChangePoints (DrawViewSection.cpp 1292) in a
+transaction "Move section line". That divides the points by the base
+view's scale, takes oldMid from sectionLineEnds(), and moves
+SectionOrigin by inverseProjectPoint(newMid - oldMid); the line is then
+drawn again from the new origin (QGIViewPart.cpp 805, the ends
+extended by the same length each). So the place the line lands is the
+recomputed origin's, not the mouse's: any difference between the drawn
+line and sectionLineEnds() (Top003's scale or rotation, the base view's
+centring, the broken section) shows as the jump.
+NOT said: Top003's scale and rotation; whether a section that is not
+broken jumps too; whether the jump depends on how far it is dragged.
+ASSIGNED to fcad-dc (the note-taker coordinating); NOT YET DELIVERED:
+fcad-dc is not reachable.
+
+**2026-10-28 09:57, the reporter (to the note-taker):** "remote session dwin handle
+this. entry 231, check my live session. Page004 is opened in a splitter
+view. you can drag the Section003 to try align with the hold center"
+The note-taker's reading: 230 and 231 go to the session dwin (not
+fcad-dc); for 231 the note-taker may drag Section003 in the reporter's
+own running copy.
+NOT said: whether dwin takes later entries too.
+**2026-10-28 09:57, the note-taker's run in the LIVE session (on that word):** the
+staged copy, pid 100060 (Thundereal.exe, .conda/user-app), its MCP
+console. Section003 is SectionView003 on Top003 (ProjItem011 of
+ProjGroup004, scale 2, XDirection (-1, 0, 0), rotation 0); SectionOrigin
+(0.7569, 12.2947, -19), SectionLineMarks on; Page004's view
+(Page004View) at zoom 1.238. Mouse press, six moves and a release sent
+to the view's viewport on the line at x 620, the line's row read from
+the view's grab before and after, SectionOrigin read after each:
+  drag  -7, +3, -2, -1, +1, +4  -> the line back where it was, origin
+                                   unchanged, no undo step
+  drag -15 -> landed -15 px, origin.y -0.6057
+  drag  +8, -9 -> back where it was, no change
+  drag +10 -> landed +10 px, origin.y +0.4038
+So a drag lands where the mouse lets go once it is 10 px or more, and
+one under 10 px is thrown back: QApplication::startDragDistance() is 10
+in the reporter's session, and QGISectionLine::onItemMoved (664) puts
+the line back when the release is nearer the press than that
+(wasDragged, 656; the guard at 692 that stops a CLICK from becoming a
+"Move section line"). The line follows the mouse while it moves and
+jumps back on the release -- a small correction cannot be made, which
+reads as "some discrete number of possible positions". The change point
+marks have the same guard (748).
+Also seen: after Undo of the two moves SectionOrigin is back (12.2947)
+but the line on the page stays where the last move drew it (row 489,
+not 494) -- Undo does not redraw the section line. The section's State
+'Up-to-date'.
+Left in the reporter's session: the note-taker's two moves undone
+(their three earlier 'Move section line' steps untouched; two Redo
+steps 'Move section line' now stand); the line DRAWN 5 px above where
+Section003 is until the page redraws; the first, missed press cleared
+the page's selection.
+What a fix might be (for dwin to weigh, not decided): let the guard
+tell a click from a drag by whether the mouse MOVED the line (any move
+event after the press), not by the distance at the release; and redraw
+the section line when SectionOrigin changes by Undo.
+NOT YET DELIVERED: no dwin among the sessions the note-taker can reach
+(ListAgents: fcad-88, oplab, mac, x16, x16win, delta).
+
+**2026-10-28 11:15, the reporter (to the note-taker):** "try again, dwin should be
+there. I think it is fcad-88 on the same box" -- ListAgents still shows
+no dwin; 230 and 231 SENT to fcad-88 as dwin, with the ask to reply and
+do nothing if it is not dwin.
+
+## 232. Several edits in one document, one per view, with PerViewEdit on (a change request) -- OPEN
+
+**2026-10-28 11:26, the reporter (to the note-taker):** "new request, when per view
+edit is enable, we shall now support multiple editting objects in the
+same document but different view. give me a plan first"
+The note-taker's reading: with PerViewEdit on, view A edits one object
+while view B of the same document edits another, both live; a plan
+before any work.
+READ by the note-taker (what stands):
+- PerViewEdit (ViewParams, default off) only keeps the ONE edit in the
+  view that started it (Document.cpp 925, root->setShared(false)).
+- Gui::Document holds one edit: DocumentP _editViewProvider,
+  _editViewProviderParent, _editSubname, _editingTransform, _editMode,
+  _editingViewer, _editRoot (Document.cpp 132-161).
+- Task panels are per view already (docs/TaskPanelPerView.md); Control
+  is keyed by TaskOwner, but exclusive() allows one open dialog in the
+  process (sec 8), behind the hidden TaskView/TaskPanelAllowConcurrent.
+- The reason given there: ONE active transaction for the application;
+  Application::setActiveTransaction (AutoTransaction.cpp 185) commits
+  every document's open one when a new one opens. thundereal/Transaction
+  is merged (per-author undo, ActorScope), but the active transaction is
+  still one.
+- getInEdit()/resetEdit()/activeDialog() and the like: 563 call sites in
+  216 files (C++ and Python).
+- docs/MultiViewEdit.md sec 6 already sketches it: a view-to-session
+  map, an object lock, a panel per session, TempoVis per view,
+  interleaved transactions.
+
+THE PLAN (the note-taker's, for the reporter to decide):
+P1 Gui::Document, an edit session per view. The DocumentP edit fields
+   become an EditSession record, in a map keyed by the view
+   (ViewerContext). getInEdit() answers for the current view
+   (ViewerContext::current(), else the active view) -- most of the 563
+   callers are the view's own commands and get the right answer without
+   change; getInEdit(view) and a sessions() list for the rest.
+   setEdit(vp, mode, subname) starts a session in the current view;
+   resetEdit() ends the current view's; signalInEdit/signalResetEdit
+   name the view. With PerViewEdit off: one session, every view joins,
+   as today.
+P2 A lock per object. An object in edit in one view cannot be put in
+   edit in another: refused with "<object> is being edited in <view>",
+   and the other view's button to go there. Its parent and sub-objects
+   (the fillet's body, the sketch of a pad being edited) -- see question
+   2.
+P3 Transactions. (A) A transaction per session: the document records
+   each change against the session that made it -- the deep change, in
+   App. (B) RECOMMENDED: a session holds no long open transaction; each
+   change is its own committed step (the fine undo PD already has, entry
+   136, names from 228), tagged with the session as its author
+   (ActorScope); OK keeps them, Cancel undoes the session's own steps
+   with the per-author undo that is built. No change to the one active
+   transaction rule; the steps just never stay open across the other
+   view's work.
+P4 Control. exclusive() lifted while PerViewEdit is on, for dialogs
+   that declare they hold no open transaction
+   (TaskDialog::holdsTransaction(), TaskPanelPerView.md sec 8); any
+   other dialog still refuses a second, as today.
+P5 First clients, one at a time, each with a GUI test of two views:
+   PD's feature and dress-up panels (fine undo already), then the
+   Sketcher (its static state audited: two sketches in two views), then
+   TechDraw's task panels; the rest keep the one-at-a-time rule until
+   moved.
+P6 What a second session changes elsewhere: the tree's in-edit mark per
+   view; the Undo list of a view in edit shows that session's steps
+   (ties into 227); the selection per view (PerViewSelection) required
+   with PerViewEdit; a served client's view is a view like any other.
+Questions for the reporter: 1. A or B for transactions (B
+recommended). 2. May one view edit an object another view's edit
+depends on (a sketch while its pad is in edit)? Recommended: allowed,
+the other session's preview recomputes on the next change. 3. Start
+with PD dress-ups and features only, the rest refused for now?
+
+**2026-10-28 11:35, the reporter (to the note-taker), on 232:** "1, B. 2, yes allow
+it. 3, yes, then sketcher, then techdraw. Let x16 do this. I have
+already briefed there"
+The note-taker's reading: 1 -- transactions by way B (no long open
+transaction in a session; each change its own committed step, tagged
+with the session as author; OK keeps them, Cancel undoes the session's
+own steps by the per-author undo). 2 -- a view may edit an object
+another view's edit depends on; the other session's preview recomputes
+on its next change. 3 -- PD's feature and dress-up panels first, then
+the Sketcher, then TechDraw; other edits keep the one-at-a-time rule
+until moved. ASSIGNED to x16 (the reporter briefed it themselves; the
+note-taker sends the decisions and the plan).
+NOT said: the order inside PD; whether P6 (tree mark, per-view Undo
+list, PerViewSelection required) is in the first round.
+
+**2026-10-28 11:39, x16 (relayed, to the note-taker):** "232: section received,
+thanks. Base is fine and the user has asked to see my plan before I
+start, so nothing is built yet. Base: main (e09f46bdd2) contains
+thundereal/LinkVibe ef7af542e0, 98 commits ahead of it, so f012b2550f,
+3c40300068, the PD fine undo and the Transaction merge are all in it.
+One finding that bends decision 1, put to the user now: ActorScope
+cannot tell two desktop sessions apart. App sameUser() treats every
+desktop (Local/null) actor as one user, on purpose (sec 30.10 item 1),
+so "the session as author" would mean either changing that rule for
+everyone or using a different tag. I propose the session keeps its own
+step ids and Cancel reverts exactly those (undoLogged(seqs), sec
+33.13)."
+READ by the note-taker: thundereal/LinkVibe here is ef7af542e0, and
+f012b2550f is in it (69 commits between); the note-taker's worry about
+x16's base is withdrawn. The note-taker's plan named ActorScope as the
+tag; x16's point stands as stated and is the reporter's to rule on.
+
+**2026-10-28 11:40, dwin (fcad-88; relayed) on 230 and 231: DONE, committed
+`5bb09a4fe1` (230) and `289f655b22` (231), log `196583ba07`; local, NOT
+pushed, NOT restaged.**
+230: "ShowFrames is false on a new page and no longer hidden in the
+page's view properties. A saved page keeps its saved value, with no
+migration. Setting it in the property editor redraws the page, the same
+as Toggle Frames. One addition: a page that opens with frames off now
+hides the template's editable-text marks too, as Toggle Frames does.
+Before, a frames-off page showed them until toggled, and every new page
+would have. No preference was added and the property stays in the
+"Grid" group." Test techdraw-frames-default-off.py 10/10.
+231 (1), the jump back: "The click guard from 1a5ce344af measured only
+the distance at the release. Now a press counts as a drag once the
+mouse has gone startDragDistance (10 px) at any point, OR the button
+was held for startDragTime (500 ms). So a slow small correction lands,
+and a quick click with a 3 px wobble is still a click. I did not use
+"any move at all" because a click with a wobble would then move the
+line." The change point marks follow the same rule.
+231 (2), Undo not redrawn: "DrawViewSection now repaints its base view
+when SectionOrigin or SectionNormal changes during Undo/Redo. Before,
+only a finished cut repainted it, and an Undo makes no cut."
+Test techdraw-section-line-click.py 15/15 on rtx16: a quick 3 px wobble
+stays a click; a held 3 px drag lands at 3.00 px; 15 px out and back to
+4 px lands at 4.00 px; after undo 0 pixels differ from before the
+moves. TestTechDrawApp 13 OK. Not checked: the reporter's own
+Section003 by hand; that needs a restage, the reporter's word.
+The note-taker's note: 231 (1) departs from the "any move" the
+note-taker suggested; the threshold now has a time half -- a quick
+small drag (under 10 px and under 500 ms) is still taken for a click.
+
+## 233. The overlay auto scroll bars: no reveal on hover; transparent panels; view bars slide clear of overlays (defects and a request) -- OPEN
+
+**2026-10-28 11:44, the reporter (to the note-taker):** "new defects, the overlay auto
+scrollbar does not work properly. it does not auto reveal when mouse
+hover, only after mouse wheel scrolls a bit will it show. Also need to
+test overlays with transparent background see if the mouse over reveal
+works or not. need to check before pass through. Also about thecdraw and
+spreadsheet, or those scroll bars for views, I want the placing of those
+scroll bars to be aware of overlay widgets, and slide out the position
+just like cell menu/handler and so on."
+The note-taker's reading, three parts:
+(a) A defect: the thin auto bars (224 on the page, 225 in every overlaid
+    panel) do not appear when the pointer comes near them; only a wheel
+    scroll shows them.
+(b) A test, and the rule behind it: in an overlay panel with a
+    TRANSPARENT background (where the pointer passes through to the view
+    under it), the hover reveal must work too -- whether the pointer is
+    near a bar is decided BEFORE the event is passed through.
+(c) A request: the scroll bars of views -- the TechDraw page, the
+    spreadsheet, any such view -- are placed knowing the overlay widgets
+    over them, and slide out of the way the way the view cell's menu
+    button and handles do.
+READ by the note-taker (not reproduced):
+- The reveal on hover is OverlayScrollBars::eventFilter
+  (src/Gui/OverlayScrollBars.cpp 306-317): a MouseMove on the area's
+  VIEWPORT within Near = 3 x Thickness of a bar's rect; also Enter or a
+  press on a bar -- but a faded bar is hidden (fade finished, 98-103),
+  so it gets no Enter. The viewport has mouse tracking (110).
+- In an overlaid panel in transparent mode the pointer's moves are passed
+  through to the view under it (OverlayManager), so the panel's viewport
+  may never get the MouseMove: a plausible cause for the panels, not
+  verified; for the page and the spreadsheet, not explained by this.
+- place() (172-243) moves the bars only for a cover that touches a side
+  edge of the area (a dock on that side); other covers -- a task panel
+  over part of the view, a dock that does not reach the edge -- leave
+  the bars at the area's edges, under them.
+- The cell's slide (ViewAreaCell, src/Gui/ViewArea.cpp 899-951, entry
+  83): each of the menu button and the two handles slides along its edge
+  to just past whatever covers it, from OverlayManager::covered(), and
+  comes back when the cover goes; it does not move when the clear part is
+  less than two of it.
+NOT said: whether the bars should slide in steps around a cover or keep
+to the clear rectangle; whether (a) is seen in the page and the
+spreadsheet too, or in the overlay panels only.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
+## 234. The spin centre ball shaded (a change request) -- OPEN
+
+**2026-10-28 12:03, the reporter (to the note-taker):** "new request, make the view
+spin center indicating ball shaded. right now it seems to be render as
+flat"
+The note-taker's reading: the ball shown at the rotation centre while
+the view spins (ShowRotationCenter) should look like a lit ball, not a
+flat disc of colour.
+READ by the note-taker: it is flat on purpose. `201889b931` (2026-07-21,
+"Gui: keep render-cache effects off the rotation-center sphere") made
+it unlit so the render-cache backend would not shade, shadow or tint
+it: View3DInventorViewer::showRotationCenter (View3DInventorViewer.cpp
+3787) puts an SoLightModel BASE_COLOR before the SoSphere and gives the
+colour (RotationCenterColor, default 0xFF000033, alpha 0x33) as both
+diffuse and emissive (3834-3854); SoShadowStyle NO_SHADOWING, all under
+an SoAnnotation. So shading it undoes part of that commit; what it kept
+off (shadows, SSAO and the other screen-space effects) should stay off.
+NOT said: how strong the shading; whether on both the Coin and the
+bgfx paths (the render-cache backend is what 201889b931 was for).
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 233.
+
+## 235. An origin plane's pre-selection glitches: size, colour, pick (a defect and change request) -- OPEN
+
+**2026-10-28 12:14, the reporter (to the note-taker):** "new defects, origin feature
+highlight is glitching. the logic as I remember is the origin plane edge
+got high picking prioirty, so mouse over the edge will (pre)select the
+plane. the plane then shows in full, but no highlight color. and also
+when the mouse move off the edge, it immediate remove the pre-selection,
+i.e. the plane goes back to quater size. this makes the pre-selection
+looked glitching. I want the plane to have whole face high picking
+priority once it is already highlighted, and I want highlight like
+other object, following the outline/color setting, and do not change
+the plane size when (pre)selected. same for selection behavior."
+The note-taker's reading:
+- Today: the plane's EDGE picks first; hovering it pre-selects the
+  plane, which grows from a quarter to full size, with no highlight
+  colour; moving off the edge (onto the face it just grew) drops the
+  pre-selection at once, and it shrinks back -- the flicker.
+- Wanted: (1) once the plane is highlighted, its whole face picks with
+  high priority, so the pointer can move across it without losing the
+  pre-selection; (2) its pre-selection and selection highlight like any
+  other object's, following the outline/colour preferences; (3) its
+  size does not change when pre-selected or selected; (4) the same for
+  selection as for pre-selection.
+READ by the note-taker:
+- The size change: ViewProviderPlane::updateDatumSize (ViewProviderPlane
+  .cpp 115-153) -- with DatumScreenSize on and a role (an origin plane),
+  a quarter (from offset 8 to size) unless isSelected or isHovered, then
+  the full square; onSelectionChanged (155-178) sets those from the
+  selection and the pre-selection. From `7e1824d01d` (2026-09-28, "Gui:
+  origins, coordinate systems and datums at a constant size on screen,
+  as upstream", upstream b942275957).
+- The face is in an SoFCLatePickGroup (79) -- picked only when nothing
+  else is under the pointer -- with its own SoMaterial, transparency
+  0.95 (82-89); the edges are an SoIndexedLineSet in the datum root; an
+  SoPickStyle BOUNDING_BOX follows (105-107).
+- The highlight node is an SoFCSelection (ViewProviderDatum.cpp 110).
+NOT said: which size it keeps -- the quarter it shows at rest (the
+note-taker's reading of "do not change the plane size"), or always the
+full square; whether the same goes for the origin's axes and point, and
+for datum planes outside an origin (no role, they do not resize today).
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 234.
+
+## 236. PD Box: the edit handles do not follow the box's orientation; audit the other features (a defect) -- OPEN
+
+**2026-10-28 12:15, the reporter (to the note-taker):** "ne defect, partdesign, box
+object, the one view edit handle does not sync with box orientation. say
+I create a box, then attach to yz plane, the handle then controls the
+wrong dimenion. audit other feature handle for the same problem"
+The note-taker's reading: "one view" is "on-view" -- the handles drawn
+in the 3D view to drag a value (docs/OnViewValueEditing.md, entry 170).
+A PD Box attached to the YZ plane: its handles point along the wrong
+axes, so dragging one changes another dimension than the one it seems
+to. Every other PD feature with handles to be checked for the same
+fault (an attached or rotated feature).
+READ by the note-taker (not reproduced):
+- TaskBoxPrimitives::setGizmoPositions (src/Mod/PartDesign/Gui/
+  TaskPrimitiveParameters.cpp 255-292): Length, Width, Height placed at
+  the Placement's position along its rotation applied to X, Y, Z (the
+  cylinder and the sphere the same way, 279-285); redone on a Placement
+  change (294-301).
+- GizmoContainer::getWorldMatrix (src/Gui/Inventor/Draggers/Gizmo.cpp
+  1540-1550) starts from the Gui document's editing transform
+  (Document::setEdit takes it from getSubObject's matrix) and multiplies
+  the container's origin in.
+- A lead, not verified: if the editing transform already holds the
+  box's own Placement, the rotation is applied twice -- the same as once
+  at identity (a box on XY, unattached), wrong on the YZ plane.
+- Panels with handles to audit: TaskExtrudeParameters (pad, pocket),
+  TaskRevolutionParameters, TaskHelixParameters, TaskHoleParameters,
+  TaskFilletParameters, TaskChamferParameters, TaskDraftParameters,
+  TaskThicknessParameters, TaskPrimitiveParameters (box, cylinder,
+  sphere and the rest of its types).
+NOT said: whether the handles' labels (on-view values) are off too;
+whether a body that is itself moved or rotated counts.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 235.
+
+**2026-10-28 12:43, dwin (fcad-88; relayed) on 233 and 234: DONE, committed
+`8e49bf9df2` (233) and `296e82e496` (234), log `12af6eeebe`; local, NOT
+pushed, NOT restaged.** Next 235, then 236.
+233 (a), "the cause: with docks at the side AND at the bottom, both bars
+went back to the area's own edges, under the docks.
+OverlayScrollBars::place() read each rectangle of the covered() region
+as one dock. But a region stores its rectangles in horizontal bands, so
+a side dock came out as two pieces. Its upper piece "touches the top,
+not the bottom", so it was taken for a top dock. Top and bottom then
+met, and the "too little left" rule put both bars back at the edges. The
+pointer near a bar was then over a dock: no reveal. A scroll showed
+them, but under the docks." Reproduced offscreen on a copy of the
+reporter's user.cfg. Fix: OverlayManager::coverRects() gives each
+cover's whole rectangle; a dock in a corner counts along the edge it
+reaches in from the least, as the task panel host already does.
+233 (b): "one application-wide filter, asked BEFORE OverlayManager passes
+a move through, reveals a bar by the pointer's position. A viewport that
+gets swapped (the page's renderer does this) is rebound."
+233 (c): a cover that reaches no side of the view (a task panel over the
+page): a bar is shortened from the end that leaves more of it, if at
+least half remains; otherwise slid inward past the cover; otherwise
+left where it was; back when the cover goes.
+Tests: overlay-scroll-bars-hover.py 36/36 plain, 31/31 on the reporter's
+config ("the see-through tree reveals its bar from a clear spot that is
+passed through"); 222 8, 224 16, 225 11, overlay-pass-through 19. Offscreen
+only, not tried by hand on the real screen.
+234: "the ball is lit again (PHONG). 0.7 of the colour is diffuse and
+0.3 emissive, so it is the full colour where the light meets it square
+and about a third at the rim, with a soft highlight. NO_SHADOWING and
+the SoAnnotation are kept ... Using the full colour as diffuse
+saturated it, flat again (red 230-255), so I lowered it."
+rotation-center-ball-shaded.py mid-drag: 3/3 on Coin and on the
+backend, red 116-194 across the ball. "Shading strength was my choice;
+easy to change."
+The note-taker's note: 233 (c) shortens or slides a bar, where the
+reporter named the cell's handles, which only slide.
+
+**2026-10-28 15:18, dwin (fcad-88; relayed): 233 follow-up, committed `ea124fd624`;
+local, NOT pushed, NOT restaged.** The reporter to dwin (the note-taker
+did not hear it), in the dev build: "scroll bars works fine now".
+"Overlay panels (docked and in-view) did not show their bars on hover.
+Cause: the bar's QGraphicsOpacityEffect sat inside the dock splitter's
+OverlayGraphicsEffect, and the nested effect painted nothing. The bar
+now paints itself at its opacity." On the reporter's word to dwin,
+OverlayManager's event filter tells the bars of each move
+(OverlayScrollBars::pointerMoved) before its pass-through decision.
+The reporter's new request to dwin: "an empty Tasks panel no longer
+pushes the view's bars aside. Their Tasks panel shows a watcher box even
+with no task. So a see-through dock of task views now counts as a cover
+only where its boxes are."
+Tests: tests/gui/overlay-panel-bar-hover-pointer.py, moving the real
+system pointer, 15/15; the offscreen hover test 36/36 plain, 29/29 on
+the reporter's config. dwin on 235 now, 236 after.
+
+## 237. Blender style: a two-button pan on a TechDraw page ends in the context menu (a defect) -- OPEN
+
+**2026-10-28 15:19, the reporter (to the note-taker):** "new defects, with blender
+navigation style, pan techdraw page with left and right button button
+down drag works. but will releasing the button the page context menu
+pops up. Using gesture style which requires a right button drag does
+not trigger the menu. also both style in 3d view does not trigger menu"
+The note-taker's reading: on a TechDraw page with the Blender navigation
+style, panning by dragging with the left and right buttons both held
+works, but letting go of the buttons opens the page's context menu. It
+should not: with the Gesture style (right-button drag) on the page, and
+with both styles in the 3D view, a pan ends with no menu.
+READ by the note-taker (not reproduced):
+- QGVNavStyleBlender::allowContextMenu (src/Mod/TechDraw/Gui/
+  QGVNavStyleBlender.cpp 116-127) refuses a mouse context menu only if
+  the LEFT button is down at the moment the event comes. On Windows the
+  context menu event comes with the right button's RELEASE; a pan that
+  lets go of the left button first (or both at once, the left a moment
+  earlier) has no left button down by then, and gets the menu.
+- Nothing remembers that the press was a pan: handleMouseReleaseEvent
+  (92-114) stops the pan at the first button's release, and
+  allowContextMenu looks only at the buttons held now.
+- QGVNavStyleGesture::allowContextMenu (QGVNavStyleGesture.cpp 99-105)
+  refuses every mouse context menu event (its menu comes another way),
+  which is why Gesture shows none.
+NOT said: which button the reporter lets go first; whether a two-button
+press with no drag should give the menu.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 236.
+
+## 238. Panning lags, in the 3D view and worse on a TechDraw page (a defect) -- OPEN
+
+**2026-10-28 15:20, the reporter (to the note-taker):** "new defect, pan causing
+noticable delay in both 3d view and techdraw page (worse)."
+The note-taker's reading: while panning, the view follows the mouse
+late, noticeably; on a TechDraw page more than in the 3D view.
+NOT said: which build (the dev build was the one in use for 233's check
+today); which navigation style; since when.
+READ by the note-taker (not reproduced, cause not found). Leads from
+today's unpushed work, NOT verified:
+- `ea124fd624` (233 follow-up): OverlayManager's application-wide event
+  filter calls OverlayScrollBars::pointerMoved on EVERY mouse move
+  (OverlayManager.cpp 2120-2122), which visits every area that has the
+  auto bars (every list in an overlaid panel, the page, the
+  spreadsheet) with revealNear (OverlayScrollBars.cpp 515-525: a
+  mapFromGlobal and a rectangle test each).
+- On the page a pan scrolls the view: every scroll step goes
+  follow() -> reveal() (raise the bars, start the fade, restart the
+  timer), and the page has the swapped renderer viewport (233 (b)).
+- An A/B in one build with the bars off, or against the build before
+  `8e49bf9df2`, separates today's work from anything older.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), NEXT after 235
+-- before 236 and 237 -- as it may be a regression in work not yet
+pushed.
+
+**2026-10-28 15:38, dwin (fcad-88; relayed) on 238:** "measured, and today's overlay
+scroll bar work is NOT the cause." tests/gui/pan-timing.py: real screen,
+the reporter's config, Blender style, a left+right pan in the 3D view
+and on a TechDraw page, 60 steps timed, each with the redraw it causes:
+  staged copy d04054d9b0 (first 233 commit): 3D view 9.9 / 12.0 ms per
+    step (median / p90), page 25.5 / 30.7 ms
+  dev build (ea124fd624 + 235 work), timing trace in the bars' code:
+    3D view 9.7 / 30.9 ms, page 16.1 / 18.5 ms
+Trace over the whole pan: page -- pointerMoved 0.7 ms, reveal 9.4 ms (126
+calls), place 0.8 ms, about 11 ms of 980 ms (1%); 3D view about 0.3 ms.
+"What this does NOT measure: a delay before a pan starts, or the view
+trailing behind the pointer." A baseline before today needs a second
+build tree, not built. The trace lines are temporary, not committed.
+dwin goes on with 235, then 236 and 237.
+Asked of the reporter: what the delay looks like (a lag before the pan
+starts, or the view trailing the pointer), which navigation style, since
+when.
+READ by the note-taker: the staged copy (.conda/user-app/INSTALLED.txt)
+was installed 2026-10-28 13:24:39 from fcad `d04054d9b0` (not dirty),
+FreeCADGui 12:36:55 -- RESTAGED with 230, 231, 233 (first commit) and
+234, not recorded here before; whose word is not known to the
+note-taker. thundereal/LinkVibe is still `ef7af542e0`: not pushed.
+
+**2026-10-28 16:10, dwin (fcad-88; relayed) on 235: DONE, committed `80337cf262`;
+local, NOT pushed, NOT restaged.** Next 236, then 237.
+- Size: the origin plane keeps its rest size, the quarter (the
+  note-taker's reading); the switch from 7e1824d01d is gone.
+- Pick: while the plane is hovered or selected its face picks first: "A
+  late-pick group can now be told to pick first, and the preselected
+  object's highlight path is asked ahead of the scene. The plane stays
+  preselected across its face even with a solid behind it."
+- Highlight: lit as a face element, so the reporter's outline/colour
+  settings apply (in their config outline only, blue and green). A new
+  SoFCFaceSet (a face set with partIndex) makes the square one part
+  (half of it was outlined before); preselecting a whole object keeps
+  the detail getDetailPath() gives (it was dropped); the outline of an
+  unlit face highlighted as an element is drawn in the highlight colour
+  (it was black).
+- Selection the same.
+On the reporter's question to dwin (relayed; the note-taker did not hear
+it) what broke the colour, which worked on the OpenGL path: "On bgfx,
+the dashed copy of a datum's lines drawn through what is in front
+(1109842583, entry 99) lies over the highlighted lines. The highlight
+colour shows only between the dashes. The OpenGL path draws the lines
+solid. Seen on the staged copy, both paths." The plane no longer relies
+on its lines; "A datum AXIS on bgfx still has that dashed overlay; that
+is not fixed. Worth an entry if the user wants it."
+Test origin-plane-highlight.py, the reporter's config: 9/9 on bgfx and
+9/9 on the OpenGL path (Render/Type Legacy); the staged copy fails 7 of
+9. 238: pan-timing.py committed as `98a1ffb0a0`, a diagnostic.
+
+**2026-10-28 16:49, dwin (fcad-88; relayed): 235's bgfx part, committed `edc123b9ff`;
+local, NOT pushed, NOT restaged.** The reporter to dwin (the note-taker
+did not hear it): "yes fix the bgfx". "Cause: each datum's lines are
+drawn twice; the second copy is dashed and shows through what's in
+front (entry 99). On bgfx that dashed copy was drawn after the
+preselected/selected datum's coloured lines, with no depth test, so the
+highlight showed only between the dashes. The OpenGL path ends with the
+highlight. Fix: BGFXFrame step 5b now draws the coloured copies after
+the plain ones, and then the coloured solid lines again."
+origin-plane-highlight.py now checks the X axis too: 14/14 on bgfx and
+14/14 on OpenGL, the reporter's config; the staged copy's bgfx colours
+the axis in 4 of 14 columns.
+Left as is, both renderers: "in a top view the side-on XZ plane's edge
+lies on the X axis, and its plain line covers the axis there. Two
+datums' lines coincide and the later one wins. Could be an entry if the
+user wants the highlighted one to always win." Next 236, then 237.
+
+**2026-10-28 17:21, dwin (fcad-88; relayed): PUSHED on the reporter's word to it
+("push and continue"; the note-taker did not hear it),
+thundereal/LinkVibe ef7af542e0..c30ae593fa -- 230 to 235, 235's bgfx
+part, 238's diagnostic.** Read by the note-taker: the remote is
+`c30ae593fa`.
+**236 DONE, committed `6669972af0`; local, NOT pushed, NOT restaged.**
+"your lead was close. Task panels place their gizmos in a frame that is
+the editing transform less the object's own placement;
+ViewProviderDragger gives that frame to the container, and it becomes
+the editing root's transform. But when the edited object's placement
+changes during the edit (a box attached to YZ in its own panel),
+Gui::Document re-sets the WHOLE editing transform, new placement
+included, on the editing root. So the handles had the placement twice,
+and the length handle pointed along the width. Reopening the edit was
+right." Fix: "GizmoContainer sets its frame back on
+signalEditingTransformChanged. getWorldMatrix() (used for the label
+anchors) is now that frame computed from the edit path; it used to
+multiply the editing transform in once more."
+Audit: "every PD panel with gizmos goes through GizmoContainer, so the
+one fix covers them all: the primitives, pad/pocket, revolution, helix,
+hole, draft, thickness, fillet, chamfer. Fillet and chamfer already
+computed their own label frame." Not covered: a moved/rotated Body ("it
+should hold; not tested").
+Test pd-box-handles-follow-attachment.py (the handles' matrices read
+from the scene): 5/5; the staged copy fails the attached-in-edit case
+(every handle), passes the reopened case. pd-values-in-view 37, chamfer
+19, fillet 21 pass. Next 237.
+
+**2026-10-28 17:29, dwin (fcad-88; relayed): 237 DONE, committed `c20481f73d`;
+local, NOT pushed, NOT restaged.** "Your reading was right. On Windows
+the page's context menu comes with the right button's release, and
+QGVNavStyleBlender::allowContextMenu() refused it only if the left
+button was down at that moment." Fix: "the style now remembers a
+left+right pan from the gesture's first press, and refuses the menu at
+its end. This matches the 3D view's Blender style, which opens no menu
+after a pan, drag or zoom. A plain right click still gets the menu."
+On the NOT-said point: "a two-button press with no drag still gives the
+menu if the left button is let go of first. That is the old behaviour
+and arguably what the 3D style does too; I can change it if the user
+wants." The CAD, Maya and OCC page styles refuse the menu by held keys,
+not touched. Test tests/gui/techdraw-blender-pan-no-menu.py (real
+screen, QTest on the window) 5/5; the staged copy opens the menu after
+the left-first pan.
+dwin's queue is EMPTY: 230, 231, 233 (+ follow-up), 234, 235 (+ bgfx),
+236, 237 done; 238 measured, waiting on the reporter. Unpushed since
+c30ae593fa: `6669972af0` (236), `c20481f73d` (237), and docs.
+
+**2026-10-28 17:48, dwin (fcad-88; relayed): PUSHED c30ae593fa..3f3174731f and
+RESTAGED on the reporter's word to it ("push and restage"; the
+note-taker did not hear it).** "INSTALL-USER OK. INSTALLED.txt shows
+fcad 3f3174731f, occt 1b1801c293. The user's copy now has 233's
+follow-up, 235 (with the bgfx fix), 236 and 237."
+Read by the note-taker: thundereal/LinkVibe is `3f3174731f`;
+INSTALLED.txt -- installed 17:48:07, fcad `3f3174731f` not dirty, occt
+`1b1801c293`, coin `d2da5cc93`, FreeCADGui 17:09:05, pdb True; the
+staged FreeCADGui.dll 17:09:05 is newer than Gizmo.cpp (17:03, 236) and
+TechDrawGui.pyd 17:27:33 newer than QGVNavStyleBlender.cpp (17:23, 237):
+both in the stage. In the reporter's copy for hand checks: 230, 231,
+233 (both), 234, 235 (both), 236, 237.
+
+## 239. PD Box edit: the origin shown at another size, and no highlight while the origin group is hidden (a defect) -- OPEN
+
+**2026-10-28 17:59, the reporter (to the note-taker):** "new defect. when create/edit
+partdesign box, the origin plane is shown regardless of its visibility,
+and it shows at a different size. But when the origin group is
+invisible, the origin shown when editing box does not react to
+highlight. it only reacts when origin group is made visible"
+The note-taker's reading: while a PD Box is created or edited, the
+body's origin planes are shown even if hidden, and larger (or smaller)
+than usual. The defect: when the Origin group itself is hidden, the
+origin shown during the edit does not pre-select (no highlight on
+hover); with the group visible it does.
+READ by the note-taker:
+- The showing is on purpose, for picking an attachment reference: the
+  Box panel calls setTemporaryVisibility(true, true) on the body's
+  origin (src/Mod/PartDesign/Gui/TaskPrimitiveParameters.cpp 85), undone
+  at 315. Since the per-view edit work it is an EDIT visibility in the
+  views of the edit (ViewProviderCoordinateSystem::
+  setTemporaryVisibilityInEdit, src/Gui/ViewProviderCoordinateSystem.cpp
+  144-185, through Gui::Document::setEditVisibility), the objects'
+  Visibility left as it was; the old path writes Visibility (187-232).
+- The size: the attacher grows the datums by DatumTemporaryScaleFactor
+  (ViewParams, default 2.0, "How much datum planes grow while a
+  reference is picked from them") (src/Mod/Part/Gui/TaskAttacher.cpp
+  350, reset at 388); 235 kept the plane's rest size (the quarter) on
+  pre-selection, which this does not touch.
+- The highlight while the group is hidden: cause NOT found. A lead, not
+  verified: a pick or a pre-selection that asks the object's (or its
+  parent group's) own Visibility, not the edit visibility -- the 235
+  pick-first path, or the selection's visible-object test.
+NOT said: whether the showing and the grown size are wanted (the
+note-taker reads them as the context, the defect being the highlight).
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
+## 240. PD primitives' on-view labels beside their handle; a see-through background for every on-view label (a change request) -- OPEN
+
+**2026-10-28 18:03, the reporter (to the note-taker):** "new request, make the on view
+edit label for all primitve feature in partdesign to show beside their
+corresponding handle. only show when the handle is active. add some
+transparent background for each on view lable, using the same
+background color from tree item"
+The note-taker's reading, two parts:
+(a) Every PD primitive's panel (box, cylinder, sphere, cone, ellipsoid,
+    torus, prism, wedge -- whichever have handles) shows each value's
+    label beside its own handle, and only while that handle is the
+    active one -- not all at the top middle as now.
+(b) EVERY on-view label (all panels, not only the primitives) gets a
+    see-through background, its colour the tree item's background
+    colour.
+READ by the note-taker:
+- The primitives put all their labels at the top middle:
+  TaskBoxPrimitives::setupGizmos (src/Mod/PartDesign/Gui/
+  TaskPrimitiveParameters.cpp 201-211), Place::TopMiddle, "their labels
+  always at the top middle" (docs/OnViewValueEditing.md 3.3, entry 170).
+- Place::AtHandle exists (src/Gui/OnViewValue.h 103-104, "shown beside
+  its handle while that one is active"), used by pad/pocket
+  (TaskExtrudeParameters.cpp 242), revolution (181), hole (247), fillet
+  (540, 575), chamfer (629); with handles off those fall back to the top
+  middle.
+- "The tree item's background colour": TreeParams ItemBackground
+  (src/Gui/TreeParams.py 137, "Background of the items of an overlaid
+  tree view, and of the text of an overlaid Python console, report view
+  and selection view", default 0 = none) -- the note-taker's reading of
+  which colour; ItemBackgroundPadding beside it.
+- The labels draw no background today (OnViewValue.cpp 193's rounded
+  rect is a button's frame).
+NOT said: how see-through; what with ItemBackground unset (0); whether a
+value typed only (no handle) stays at the top middle (the rule of
+entry 170 for the other panels); the primitives with handles off.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 239.
+
+**2026-10-28 18:05, the reporter (to the note-taker), on 239:** "entry 239, temp scale
+is fine and desired. just fix the highlight. there is no highlight
+before the pick fix"
+The note-taker's reading: the grown size while picking
+(DatumTemporaryScaleFactor) is wanted, and the origin shown in the edit
+stays; only the missing highlight is to be fixed. "No highlight before
+the pick fix": it was already missing before 235's pick-first change
+(`80337cf262`), so that change is not its cause -- the note-taker's lead
+naming it is withdrawn. Relayed to dwin.
+
+**2026-10-28 18:08, x16 (relayed) on 232: progress, and the reporter's rulings given
+to x16 directly on 2026-10-28 (the note-taker did not hear them),
+recorded on x16's ask.**
+(a) "The lock uses the existing App::ObjEditing bit."
+(b) "Cancel with interleaved steps shows a popup: "Undo anyway"
+    (overwrite), "Skip" (undo only what nobody changed since; theirs
+    stay), "Keep" (exit without undo)."
+(c) "P2/P3 as proposed, the tree in-edit mark in round one,
+    PerViewSelection NOT required."
+(d) "No pause between the PD, Sketcher and TechDraw rounds."
+(e) "TWO DOCUMENTS IN EDIT AT ONCE: allowed for every edit, as upstream
+    has it."
+Deviation from decision 1, as x16 explained it to the reporter:
+"ActorScope cannot tell two desktop sessions apart (App sameUser()
+treats every desktop actor as one user), so a session keeps its own
+step ids and Cancel reverts those log rows."
+Commits on MultiViewEdit (x16's local WSL tree, from main e09f46bdd2,
+NOT pushed):
+- b3f27c9b1f Gui: upstream's editDocuments API (list of documents in
+  edit), callers ask by object.
+- 163cfda5d2 App: bindActiveTransaction -- an edit's active transaction
+  is its document's own while it runs, so another document's step
+  neither commits nor takes it. Test Document.BoundTransactionCases.
+- eba3f4fa42 Gui: two documents in edit at once, Control lets another
+  document's edit dialog stand, lock via ObjEditing with a non-modal "Go
+  there" box. Test GuiEditTwoDocuments_tests_run 20/20.
+- 87ebf27847 Gui: EditSession per view; several per document with
+  PerViewEdit, gated by ViewProvider::editHoldsTransaction() (default
+  true, so nothing runs concurrently in one document yet).
+- 4107221ff5 App: undoLogged(seqs, Refuse|Overwrite|Skip) +
+  logSeqsOf(tids).
+Tests: GUI gate 339/340 and Python 4004 OK; the one failure,
+GuiTechDrawPageBackendLineWidths, also fails on main.
+For the PD round: "only Fillet and Chamfer have fine undo today;
+Pad/Pocket and the rest open a step at most, but not all, of their
+change sites, so each panel needs work before it may run beside another
+view." The note-taker's plan had said PD's panels had fine undo
+already (entry 136); that held for the dress-ups only.
+
+**2026-10-28 18:16, dwin (fcad-88; relayed): 239 DONE, committed `fb8b27d61d`; local,
+NOT pushed, NOT restaged.** "Cause (older than 235, as the user said):
+the box edit shows the origin through an edit visibility, while its own
+Visibility stays off. The shared scene capture carries such an object
+TAGGED (Render::perViewShownModeId), and each view admits it by its own
+visibility. The highlight cache is built from that capture and kept the
+tag, so neither renderer drew it: the GL renderer leaves tagged draws
+out, and bgfx admits them by a visibility the highlight draws don't
+carry." Fix: "buildHighlightCache() takes the tag off. A highlight is of
+what the pointer was over in that very view, which shows it. Selection
+highlights go through the same path, so they are covered too." The
+temporary origin and its grown size untouched. Test
+pd-edit-origin-highlight.py, the reporter's config: 4/4 -- with the
+Origin hidden 4104 pixels change round the plane, as with it visible;
+the staged copy 0 with it hidden. origin-plane-highlight.py (235)
+14/14.
+dwin on 240, with the note-taker's defaults on its NOT-said points:
+handles off -> a primitive's labels at the top middle; ItemBackground
+unset -> the tree's own palette base colour; the see-through level
+dwin's choice, to be reported.
+
+**2026-10-28 18:33, dwin (fcad-88; relayed): 240 DONE, committed `664e51d94a`; local,
+NOT pushed, NOT restaged.**
+(a) "The box, cylinder and sphere values now use Place::AtHandle. Each
+label sits beside its handle and is shown only while that handle is
+active. With handles off, labels go to the top middle, as the other
+features do." (Read by the note-taker: the other primitive types have
+no handles; setupGizmos returns for them, TaskPrimitiveParameters.cpp
+235-237.)
+(b) "Every on-view value label (OnViewValueSet, any feature) gets a
+rounded see-through ground." Two new SoDatumLabel fields,
+backgroundColor and backgroundAlpha, default none (the Sketcher's
+labels unchanged); the ground painted into the text image, which the
+backend uses as is. Colour: the tree's item ground as the tree paints
+it (effectiveOverlayItemBackground), else the ItemBackground setting,
+else the palette base colour. Opacity clamped to 96..200 of 255: "The
+user's ItemBackground is black at 20/255, so there it is raised to 96.
+Easy to change."
+Tests: pd-primitive-labels-at-handle.py 6/6 -- the staged copy fails all
+6 ("three labels at the top middle with no ground, and the box's labels
+were still shown in the next edit"); pd-values-in-view.py (its box
+claim updated) 37/37; chamfer 19/19, fillet 21/21.
+dwin's queue EMPTY. Unpushed: `fb8b27d61d` (239), `664e51d94a` (240),
+docs.
+
+**2026-10-28 22:00, dwin (fcad-88; relayed): PUSHED 3f3174731f..1a2436c219 and
+RESTAGED (stage31, INSTALL-USER OK, occt 37cb17ed8e) on the reporter's
+word -- given to dwin; the note-taker did not hear it.** In it: 239
+(`fb8b27d61d`), 240 (`664e51d94a`), and, asked of dwin directly (the
+note-taker did not hear it):
+- `3ac952f982` the merge of Sketch3D (ThunderealCAD) into LinkVibe:
+  "Surface U0 to U5, curvature analysis, the 3D sketch's constraints, a
+  datum label's outline"; `1a9e336a08` Part: Geom_CurveOnSurface's RTTI
+  inline, so MSVC builds the merged code. The local OCCT synced to
+  37cb17ed8e (Sketch3D's NetworkSurface tests need 09c2509936).
+- `1af7e47607` (240 (b) changed): the label ground's opacity is a
+  setting, Gizmos/OnViewLabelBackgroundOpacity, 0-100 %, default 0 (no
+  ground), also in the on-view settings menu, where a change reaches
+  labels already shown. The commit's reason: "The label outline from
+  Sketch3D is enough to read a value". dwin's note: "PD on-view labels
+  have no outline; Sketch3D's outline is only on the Sketcher's on-view
+  parameters." (The note-taker's reading: so at the default a PD label
+  has neither ground nor outline.)
+- `d4799224b4`, `594f664cf6`: two test fixes (a Windows path in the
+  held-path test; the TechDraw page test's least view cell).
+Tests: ctest 1088/1088; Python 4037, its one error fixed after (16/16);
+every GUI test passes. dwin FREE; nothing unpushed. thundereal/LinkVibe
+at 1a2436c219; .conda/user-app INSTALLED.txt: fcad 1a2436c219,
+installed 21:56:48.
+
+**2026-10-28 23:25, dwin (fcad-88; relayed): 240 follow-ups, asked of dwin by the
+reporter directly (the note-taker did not hear it); PUSHED
+1a2436c219..c1ce3df7d1 and RESTAGED (stage33, INSTALL-USER OK) on the
+reporter's word -- given to dwin.**
+- `14b17ae490` Gui, Sketcher: PD on-view value labels get the
+  Sketcher's outline (ConstraintOutlineWidth, 1 px by default; its
+  colour follows the background); viewBackgroundIsLight moved to Gui.
+  (This answers the note-taker's reading at 72ad36026c that a PD label
+  at the default ground opacity 0 had neither ground nor outline.)
+- `d7c714f31e` Gui: on a light background the text is the dimension
+  colour at 0.8 ("darken ... only a bit", the reporter's words as dwin
+  gives them).
+- Test harness: on Windows QT_QPA_PLATFORM=offscreen has no OpenGL, so
+  render dumps time out; gui.cmd now sets GT_HIDDEN_DESKTOP=1, which
+  runs a test on a private desktop with real D3D11 and nothing on the
+  screen. sketch-constraint-highlight-view 12/12 there.
+Tests: ctest 1088/1088; all GUI tests pass. dwin FREE; nothing
+unpushed. thundereal/LinkVibe at c1ce3df7d1; .conda/user-app
+INSTALLED.txt: fcad c1ce3df7d1, installed 23:24:52.
+
+**2026-10-29 06:54, x16 (relayed) on 232: checkpoint. Branch MultiViewEdit
+(from main e09f46bdd2) PUSHED to thundereal on the reporter's word --
+given to x16; the note-taker did not hear it. Head `d416e67f2c` (the
+note-taker checked: git ls-remote thundereal MultiViewEdit). Not on
+LinkVibe, not staged.**
+Done on the branch, as x16 gives it:
+- App: a per-document bound transaction (setActiveTransaction with a
+  document).
+- Gui: an edit session per view, one per object (the ObjEditing lock),
+  tree marks per session; Cancel undoes the session's own steps (the
+  popup Undo anyway / Skip / Keep when steps interleave).
+- Gui `3132d9c8b0`: an edit's steps are said explicitly
+  (EditStepScope): input to its panel or viewer and the commands the
+  edit owns are its steps; timers and queued calls are nobody's; any
+  step changing the object in edit is that edit's.
+- PD: Extrude, Revolution, DressUp, Helix, Hole, Loft, Pipe per-step
+  (way B). Sketcher: per-step, two sketches in edit at once.
+NOT yet: PD Primitive, Pattern, Boolean; the serving-tier guard;
+TechDraw -- x16 starting it now (page-view sessions, then dimension,
+balloon, leader/rich annotation, projection group, detail/section).
+Tests: new GuiPdEditTwoViews 23 PASS, GuiSketchEditTwoViews 18 PASS;
+GUI gate 341/342 (the one failure GuiTechDrawPageBackendLineWidths,
+which fails on main too); Python 4004 OK.
+(The note-taker's reading: the PD round is not finished -- Primitive,
+Pattern and Boolean remain -- although TechDraw has started.)
+
+**2026-10-29 07:11, dwin (fcad-88; relayed): the reporter asked dwin directly (the
+note-taker did not hear it) to commit the Windows hidden-desktop GUI
+test driver, make it the Windows default, push, and tell x16win. Done;
+PUSHED c1ce3df7d1..5408ca6c3a (the note-taker checked: thundereal
+LinkVibe at 5408ca6c3a); NOT restaged (nothing in the app changed).**
+- `ffc92bb1d9` Tests: scripts/gui-test.cmd, scripts/gui-test-guard.py,
+  scripts/run-on-hidden-desktop.ps1; GT_DESKTOP hidden by default
+  (screen and offscreen the alternatives); docs/Testing.md and
+  CLAUDE.md point Windows GUI tests at the driver. Driven through it:
+  pd-primitive-labels-at-handle 20/20, sketch-constraint-highlight-view
+  12/12.
+- The local dl\handson gui.cmd runs dev and staged tests on the hidden
+  desktop by default too; GT_ON_SCREEN=1 gives the old way.
+- x16win messaged by dwin.
+The push carries the note-taker's queue commit 486fc6e8e9.
+
+**2026-10-29 18:48, x16 (relayed) on 232: cross-document undo, stage 1, committed
+on MultiViewEdit (x16's tree), NOT pushed.** (The note-taker did not
+hear the reporter ask for it; x16 cites "the user's 'undo step = burst
+of work' design".)
+- `4bde00ce23` App: "a step is listed where its input went, a linked
+  recompute joins it". It replaces the "-> name" twin in the ACTIVE
+  document with: (rule 4) a pointer only in the document of the view
+  the input went to (none for timer, script or served steps); (rule 2)
+  a document with no step of its own joins the step set last while it
+  recomputes from a document that has it open. "Linked pair undoes
+  together in all three ways a step opens"; oplab's served-branch case
+  fixed.
+- `6def52fae7` Docs: MultiViewEdit sec 12 -- the design, its rules,
+  before/after tables, and an open question for stage 2.
+Tests: Document.BoundTransactionCases 8/8; new
+tests/gui/xdoc-undo-pair.py 12/12; GUI gate 361/362 (LineWidths, known
+on main); Python 4062 OK (skipped 52, xfail 6); C++ first stage-1 build
+1094/1095 (GoldenCycles, known), a rerun in progress.
+OPEN FOR THE REPORTER (sec 12.6), as x16 puts it: "stacked
+openTransaction() contradicts upstream testUndo (open/open without
+commit = two steps) and 272 Python call sites; recommended: no stacking
+outside a command, console treated as a script."
+(The note-taker's reading: inside a command, a nested
+openTransaction() would join the step already open; outside one -- a
+macro, the Python console -- each openTransaction() stays its own step,
+as upstream's test expects. The note-taker has not read sec 12; it is
+on x16's tree.)
+
+**2026-10-29 23:16, x16 (relayed) on 232: cross-document undo stage 2 DONE on
+MultiViewEdit, four commits, local, NOT pushed.** The sec 12.6 question
+(stacked openTransaction()) was ruled by the reporter to x16 directly
+-- the note-taker did not hear it; as x16 records it: "no stacking
+outside a command; console = script".
+- `401e3b1aab` Gui: a CallTips crash fix. Typing into the Python console
+  while the call tips list was up recursed until the stack overflowed,
+  since `8f3ae4742e` (2021). "A real keyboard reaches the popup, so it
+  only showed when QTest sent keys straight to the console." (The
+  note-taker's reading: on MultiViewEdit only, not on LinkVibe yet.)
+- `3f3d270d36` Gui/App: rules 1 and 5 (docs/MultiViewEdit.md sec 12.2).
+  A step an input left open is committed by the 0-timer that ends its
+  group; not while something holds it -- a command, a
+  TransactionLocker, a task dialog, an edit, a mouse button down, or
+  persist. Persist is now set by the property editor, the omni search
+  box and the tree label editor (which also closes its step when the
+  editor goes). A console line, a timer or a socket starts no group.
+  Param Document/UndoGroupByInput (on). New test GuiUndoGroupByInput,
+  11 checks.
+- `723c7d5129` Gui: rule 6 -- abortCommand() ignores a step its group
+  already committed. Not reachable from Python, so no test.
+- `7bc1f3a740` Docs: the sec 12.6 ruling, rule 3 reworded, sec 12.7
+  stage 2 and the A/B.
+Gate: GUI 362/363 (LineWidths, as on main), Python 4062 OK, C++
+1094/1095 (RenderGoldenCycles, as on main).
+A/B over the whole GUI suite, one binary, the param on vs off, 331
+tests: named steps opened 626 vs 627, implicit 1907 vs 1905, aborts
+64/64, commits 2481 vs 2480; undo steps listed at document close
+432/432; the only differences the new test (by design) and one
+timing-noise implicit recompute in GuiSyncViewDoesNotMesh (4 repeats
+identical). "So the rules change no test's step count. What changes is
+what a later input's change joins."
+
+**2026-10-30 09:14, x16 (relayed) on 232: stages 1-2 PUSHED to thundereal
+MultiViewEdit at `7bc1f3a740` on the reporter's word -- given to x16;
+the note-taker did not hear it (checked: git ls-remote thundereal
+MultiViewEdit = 7bc1f3a740). Cross-document undo stage 3 DONE, four
+commits, local, NOT pushed.**
+- `15785faed1` App: documents with no log (temporary, version and
+  replay documents, or the log off). Their implicit steps no longer use
+  up the undo limit: "before, 25 steps left 10 of the 20; now 20". A
+  run of implicit steps is folded into one (Transaction::absorb), an
+  orphan implicit step is dropped, and a write by hand ends the redo
+  steps.
+- `97630abae1` App: a recompute after an undo keeps the redo, so
+  undo/recompute/redo works again (the first version of 15785faed1
+  broke three PartDesign undo tests with the log off).
+- `ea98250cd0` App: rule 7. With TransactionLog 0, a write with no step
+  open is an implicit step, and so is a removal (before: a "Delete"
+  step). Param Document/UndoImplicitLogOff (on).
+- `3f9da2e4fc` Docs: sec 12.8.
+Cost with the log off: 2000 write+recompute, no time, +1.4 MB; 500
+make-then-remove, +10% time, +63 MB ("removed objects are held for
+undo"). Open follow-up (x16's): fold a make and a later remove to
+nothing.
+Gates: Python 4064 OK, C++ 1094/1095 (GoldenCycles), GUI 362/363
+(LineWidths), both known on main. Python with the log off: the same 3
+failures (BoundTransactionCases reads log rows) with rule 7 on or off.
+The CallTips crash fix `401e3b1aab` is in the pushed part
+(MultiViewEdit only; the note-taker's reading: not on LinkVibe).
+
+**2026-10-30 12:26, x16 (relayed) on 232: the PartDesign per-view round DONE on
+MultiViewEdit, five commits, local, NOT pushed.** "With PerViewEdit on,
+every PD feature dialog now makes each change its own undo step and can
+run beside another view's edit."
+- `e5953662de` Gui: a crash or throw at document close --
+  ViewProviderWeakPtrT::deletedDocument read a view provider already
+  freed with its undo step ("View provider detached", or a SIGSEGV in
+  Type::getName). Found by the extended test; 3/3 runs failed before
+  the fix, 0 after. (The note-taker's reading: on MultiViewEdit only;
+  whether LinkVibe has the same fault x16 does not say.)
+- `1ca56d24fe` PD: the pattern, mirror, scale and generic pattern
+  panels use Gui::EditSteps.
+- `489a1a29e7` PD: MultiTransform, with the transformations added in
+  its panel; its add, delete and move handlers now always call
+  setupTransaction().
+- `33a1075f4c` PD: Boolean.
+- `971fa82c77` PD: Primitive; its attachment panel's steps go into the
+  primitive's (new PartGui::TaskAttacher::setStepper, unset everywhere
+  else).
+Test tests/gui/pd-edit-two-views.py 47 PASS (x3): each feature goes in
+edit beside the fillet, Cancel takes back its own changes only, OK ends
+its own edit only; every new case failed before.
+Gates: GUI 362/363 (LineWidths), Python 4064 OK, C++ 1094/1095
+(GoldenCycles), both known on main.
+Left of 232, from x16's earlier checkpoint: the serving-tier guard and
+the TechDraw round.
+
+**2026-10-30 14:09, x16 (relayed) on 232: the PD round (1ca56d24fe..971fa82c77)
+PUSHED to thundereal MultiViewEdit on the reporter's word -- given to
+x16; the note-taker did not hear it (checked: git ls-remote = 971fa82c77).
+The serving-tier edit guard DONE, `f610c1bf29`, local, NOT pushed.**
+- With PerViewEdit on, a served client's edit is refused only where it
+  would end another view's edit, or another view has the same object
+  in edit -- the rule setEdit uses, now Gui::Document::editEndsAnother();
+  otherwise it runs beside. resetEdit ends the client's own session,
+  wherever it is among the others.
+- Before: any other view's latest edit refused the client's edit
+  (EditInProgress), and a client whose session was not the latest could
+  not leave it.
+Test tests/gui/serve-per-view-edit.py 27 PASS x2; the new case (B edits
+the box beside A's pad) failed before.
+Gates: Python 4064 OK; C++ 1094/1095 (GoldenCycles); GUI 360/363 --
+LineWidths known on main; GuiHoldPerDocument and GuiDrainTurnGrows (load
+timings) failed under parallel load and pass alone.
+Open on 232, as x16 lists it: the per-view undo list (waits on 227);
+landing the branch (the reporter's call); the deferred make+remove fold.
+The note-taker's check: the TechDraw round (the reporter's order "PD,
+then sketcher, then techdraw"; x16 "TechDraw round starting now" at its
+2026-10-29 checkpoint) is not in that list -- asked of x16.
+
+**2026-10-30 14:10, x16 (relayed) on 232, answering the note-taker: the TechDraw
+round is DONE and PUSHED** ("in the 2026-10-30 push to thundereal, with
+stages 1-2"; the note-taker has not checked the commits are under the
+remote tip, no fetch).
+- `3147f33a6c` an edit may run in its page's view; `13f95f1baa`
+  Gui::EditSteps; `af9ec7595a` TD: dimension, balloon, leader, detail,
+  section (not complex) and projection group each own their steps, one
+  edit per page; fixes `16d714ffd0`, `32c0e0c5af`.
+- Test td-edit-two-pages.py 30 PASS.
+- Left one at a time BY DESIGN ("never planned for this round"):
+  create modes, complex sections, hatches, the other TD dialogs. The
+  rich annotation's edit panel is unreachable (its double click opens
+  the text dialog), so it was left as is.
+"I left TD off my open list because it's done." The note-taker's
+earlier question is answered; its reading that TD was missing is
+withdrawn.
+232 open, then: the per-view undo list (waits on 227); landing the
+branch (the reporter's call); the make+remove fold (deferred);
+`f610c1bf29` (the serving-tier guard) local, NOT pushed.
+
+**2026-10-30 15:35, x16 (relayed) on 232: `f610c1bf29` (the serving-tier guard)
+PUSHED on the reporter's word -- given to x16 (checked: git ls-remote
+thundereal MultiViewEdit = f610c1bf29). A follow-up asked of x16 by the
+reporter directly (relayed; the note-taker did not hear it):** "I
+actually want to able to undo each operation" -- "behind preference,
+default on. techdraw too". DONE, four commits, local, NOT pushed.
+- `f17a8efdfb` Gui: new preference View/EditStepEachChange (on). Every
+  PD feature edit and the TD dimension, balloon, leader, detail,
+  section and projection group edits make each panel change its own
+  undo step, independently of PerViewEdit. Std_Undo with the panel open
+  takes back the last change and the panel stays open; Cancel takes
+  back the rest; OK's recompute is a step of its own (the entry 136
+  ruling). Two writes to one property within 3 s still fold into one
+  step (sec 37.4 P4). Off: one step at OK, as before.
+- Fixes found by the new test: `95df99f0b5` Gui: Cancel after a
+  mid-edit undo left an "Edit X" + "Undo Edit X" pair in the undo list;
+  `68a2743431` PD: a pattern's timer recompute was a second undo step
+  per value; `d0acf3a3e0` TD: the dimension dialog closed on an undo.
+Test tests/gui/edit-step-each-change.py 14 PASS (pad, linear pattern,
+TD dimension, and the preference-off control). edit-two-documents.py
+and techdraw-dimension-edit-ends-group-edit.py test the held-transaction
+model and now set the preference off.
+Gates: Python 4064 OK; C++ 1094/1095 (GoldenCycles); GUI 361/364
+before pinning those two (both pass pinned); LineWidths known on main.
+
+**2026-10-30 21:21, x16 (relayed) on 227 and 232: per-view undo RULED, BUILT and
+PUSHED as `40e09a85c5` on thundereal/MultiViewEdit (checked: git
+ls-remote). Not on LinkVibe.**
+The reporter's ruling, given to x16 on 2026-10-30 (relayed; the
+note-taker did not hear it): "for 3D views it is 3. other views 1". Two
+follow-ups agreed with "yes to both": a toolbar, menu or shortcut
+command counts as the active view's; a 3D view not in edit hides the
+steps of another view's open edit. (The numbers 3 and 1 name options
+x16 put to the reporter; the note-taker has not seen the list.)
+Behaviour, as x16 gives it:
+- A 3D view with an edit open offers only that edit's steps. With
+  PerViewEdit off every 3D view of the document joins the edit, so all
+  list the same.
+- A 3D view in no edit (PerViewEdit on): every step except another
+  view's open edit.
+- A non-3D view (TechDraw page, spreadsheet): the steps made in it,
+  plus steps made in no view (tree, property view, console, scripts).
+  (The note-taker's reading: this answers 227's case -- a fillet edit's
+  step no longer shows in the page's list.)
+- An out-of-order undo goes through the log's selective revert, refused
+  if a later step touched the same thing.
+- Log off: no filtering.
+Mechanism: App Transaction::View, App::UndoView/UndoViewScope, the
+Application's input view; Gui MDIView::undoViewId/undoView,
+Gui::Document::undoViewOf, InputDocumentScope tags the step's view. Two
+writes now fold (3 s) only within the same view.
+Known limit: a new step still ends redo in every view.
+Test tests/gui/per-view-undo.py 16/16. Gates: Python 4064 OK; C++
+1094/1095 (RenderGoldenCycles, standing on main); GUI 364/365
+(TechDrawPageBackendLineWidths, standing on main). Doc
+docs/MultiViewEdit.md sec 12.9.
+227: DONE on the branch (x16: "can close"); it reaches the reporter's
+copy only when MultiViewEdit lands on LinkVibe.
+232 open, per x16: landing MultiViewEdit on LinkVibe (the reporter's
+call); more create-mode dialogs to undo each change (TD create modes,
+Part dialogs); the make+remove fold (deferred by the reporter).
+
+## 241. Every PD on-view value's label at its active handle's base point; a drag makes its handle active (a change request) -- OPEN
+
+**2026-11-02 18:12, the reporter (to the note-taker), after asking how other CAD places
+on-view labels:** "new request. I want the same for all partdesign on
+view edit, include dressup feature common radius, anchor the label to
+the active handle base point. it can have some offset to note obscure
+the handle itself. also note, dragging can happen when the handle is
+not activated yet, I want it become active, hence label sync once
+dragging starts."
+Then: "ask fcad-88 to do it".
+The note-taker's reading:
+(a) Every PD on-view value that has a handle shows its label beside
+    its ACTIVE handle -- not at the top middle -- as 240 did for the
+    primitives; the dress-ups' common (default) value included (the
+    fillet's Radius, which has a handle on every edge: the label at the
+    active one).
+(b) The anchor is the handle's BASE point (where it stands, not its
+    arrow tip), with an offset so the label does not cover the handle.
+(c) A drag started on a handle that is not active makes it the active
+    one, so its label shows there from the drag's start.
+READ by the note-taker:
+- At the top middle today though they have handles: pad/pocket Length
+  (src/Mod/PartDesign/Gui/TaskExtrudeParameters.cpp 245), revolution
+  Angle (TaskRevolutionParameters.cpp 184), helix Height
+  (TaskHelixParameters.cpp 93), hole Depth (TaskHoleParameters.cpp
+  245), draft Angle (TaskDraftParameters.cpp 111), thickness
+  (TaskThicknessParameters.cpp 116), the fillet's common Radius
+  (TaskFilletParameters.cpp 280), chamfer Size, Size 2, Angle
+  (TaskChamferParameters.cpp 531-542). Without a handle: helix Pitch,
+  Turns, Cone angle, Radial growth; hole Diameter.
+- The anchor now: the handle's dragger placement
+  (OnViewValueSet::placeAnchors, src/Gui/OnViewValue.cpp 659-670) or
+  one an owner sets (setHandleAnchor: fillet, chamfer); the label goes
+  up and to the right of it by HandleOffset, 24 px (OnViewValue.h 268,
+  OnViewValue.cpp 1043-1046), whichever way the handle points.
+- A drag's Started event (OnViewValue.cpp 545-554) opens the step but
+  does not make the dragged handle active.
+NOT said: what of values with no handle (the note-taker's default: they
+stay at the top middle); what with handles off (default: the top
+middle, as 240); whether the offset should depend on which way the
+handle points.
+ASSIGNED to dwin (fcad-88) on the reporter's word.
+
+## 242. The migration recompute box and the recompute error box are not modal (a defect) -- OPEN
+
+**2026-11-02 18:15, the reporter (to the note-taker):** "new defect, it seems the
+migration recompute dialog is not load modal, neither is recompute
+error dialog."
+The note-taker's reading: after opening an old file, the box "Some
+document(s) require recomputation for migration purpose ... Do you
+want to recompute now?" does not block the rest of the application
+while it is up, and neither does the "Recompute error" box that can
+follow it. ("load modal" read as "modal"; it may instead mean modal
+to the load -- the box coming up while the document is still
+loading.)
+READ by the note-taker:
+- Both boxes are in one handler of App signalFinishOpenDocument
+  (src/Gui/Application.cpp 604-637): QMessageBox::warning(
+  getMainWindow(), "Recompution required", ...) at 616-621, and
+  QMessageBox::critical(getMainWindow(), "Recompute error", ...) at
+  634-636 when the recompute had errors.
+- Qt's static QMessageBox functions show an application-modal box
+  (exec()), so the code asks for modal. Nothing in src/Gui sets a
+  window modality that would undo it (setWindowModality only in
+  DocumentRecovery.cpp 1401).
+- Cause NOT found, NOT reproduced. Not verified leads: what still
+  takes input -- the main window, an overlaid panel, a 3D view or a
+  window of its own -- would tell whether Qt's modal block is passed
+  by something of the fork's (OverlayManager's application-wide event
+  filter, OverlayManager.cpp 2004, takes mouse events but Qt drops
+  input to blocked windows before filters see it).
+NOT said: what the reporter could do while the box was up (click the
+tree, the view, a menu; type); which file; dev build or the staged copy.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 241.
+
+**2026-11-02 18:28, the reporter (to the note-taker), adding to 241:** "Entry 241,
+on highlight handle, show tooltip with lable text and value (in the
+first line if there's already tooltips)"
+The note-taker's reading: (d) while a handle is highlighted (the
+pointer over it), its tool tip shows the value's label text and value
+-- what the label would show, e.g. "Radius 2 mm" -- and where the
+handle has a tool tip already, that text is its first line, the old
+text after it.
+READ by the note-taker:
+- Every handle of an on-view value has a tool tip already, set with
+  its menu: "Drag to change the value; click to type it." / "Right
+  click for the menu." (OnViewValueSet::setupHandle,
+  src/Gui/OnViewValue.cpp 505-514, entry 135). The label's text is
+  made by updateLabel (1054-), title + value (+ what drives it).
+- For 241 (c): a handle becomes active at the button's RELEASE
+  (handle->setReleaseCallback -> setActive, 500-502); the drag's
+  Started event does not (545-554).
+NOT said: whether the tool tip shows for a handle whose label is shown
+already (the active one); whether it follows the value while dragging.
+Relayed to dwin (fcad-88) as part of 241.
+
+**2026-11-02 18:33, the reporter (to the note-taker), on 241 (d):** "Tooltips text
+update as dragging. Note that it should behave like  ordinary tooltip
+which hide with aime timer when mouse move and reappear with some tuner
+when mouse stop. Try do the same"
+The note-taker's reading ("aime" read as "some", "tuner" as "timer"):
+the tool tip's first line follows the value during a drag; and the
+tool tip behaves as an ordinary Qt tool tip does -- when the mouse
+moves it hides (after a timer), and once the mouse stops it comes back
+after a delay. This answers the first NOT-said point's sibling (the
+drag); still NOT said: whether the active handle, its label already
+shown, gets the line.
+Relayed to dwin (fcad-88) as part of 241.
+
+**2026-11-02 19:09, dwin (fcad-88; relayed): 241 (a)-(d) DONE, committed
+`6465589eb0` (+ log `2295a186cf`); local, NOT pushed, NOT restaged.**
+(a) Every PD value whose handle is shown puts its label beside the
+ACTIVE handle, whatever place the panel gave it: pad/pocket Length,
+revolution Angle, helix Height, hole Depth, draft Angle, thickness, the
+fillet's common Radius (at whichever edge's arrow is active), chamfer
+Size / Size 2 / Angle. One rule in OnViewValueSet, not a change in
+each panel. Top middle kept for: values with no handle (helix
+Pitch/Turns/Cone/Growth, hole Diameter); handles off; and -- dwin's
+choice -- expression-driven values ("such a value can never be made
+active, so at the handle its label would never show").
+(b) The anchor is the handle's base point as it stands NOW (new
+Gizmo::getHandleBase()): an arrow's foot, "which moves with the value";
+a rotation handle's knob. Offset: beside an arrow on its upper/right
+side, the label's edge 10 px from the arrow line; out from a knob,
+20 px; up-right by default when the arrow points at the camera. The
+label follows the handle during a drag. (The note-taker's reading: the
+reporter's "base point" taken as the arrow's foot, not where the
+handle's dimension starts.)
+(c) A drag of a handle that is not active makes it active at the
+drag's START. The dress-up's edge selection (activeHandleChanged)
+waits for the drag's end, or the view's release clears it. A drag
+cancelled with Escape gives back the value that was active before it
+-- dwin's choice, matching the old "a cancelled drag activates
+nothing".
+(d) The tool tip's first line is the label text (e.g. "Length 8 mm"),
+the old drag/right-click hint below. The ACTIVE handle gets it too
+(dwin's choice: consistent). Per the reporter's ruling it follows the
+value during a drag; it hides when the pointer moves (Qt's ~300 ms
+fade) and comes back after Qt's wake-up delay once the pointer rests,
+in a drag as well (Qt itself shows no tips with a button down).
+Tests (hidden desktop): ctest 1088/1088; new pd-label-at-handle-foot
+25/25; pd-values-in-view 39, chamfer 21, fillet radius 23, fillet edge
+17, fillet point 6, fillet undo 23, primitive labels 20, pad
+drag-reverse 13, edit menu 25, serve handle hint 10. Updated to the new
+places: pd-values, chamfer, fillet-radius, fillet-edge, edit-menu (the
+edit-menu test also had a stale count: Settings has 3 spin boxes since
+the label-ground setting).
+dwin on 242 next.
+
+**2026-11-02 20:04, dwin (fcad-88; relayed): 242 FIXED, committed `0f41b13b35`
+(+ log); local, NOT pushed, NOT restaged.**
+Reproduced on a scanner2.FCStd COPY, in the dev build and the staged
+copy.
+- What does NOT get past: both boxes ARE input modal --
+  ApplicationModal, owned by the main window, whose native window
+  Windows disables while they are up. A click on the main menu bar and
+  a native mouse wheel in the 3D view are both blocked (the same wheel
+  moves the camera with no box up).
+- What DOES get past: the load. The migration prompt comes at the end
+  of the open while the progressive load is still building the scene
+  off timers (isBuildingVisuals() true when the box shows and 3 s into
+  it); the box's own event loop kept running those slices -- a
+  600-object test file built all 616 of its visuals behind the modal
+  box. The recompute after "Yes" runs events too, so the error box can
+  come up mid-load as well.
+dwin's reading of "load modal": the load must wait for the answer.
+(The note-taker had read it as "modal"; dwin's reading fits the
+finding -- the boxes block input, the load did not wait.)
+Fix: Gui::Application::isLoadHeld() (true while a modal widget is up);
+the view provider drain's and the Part visual drain's timed slices wait
+while it holds and ask again 100 ms later; an explicit flush still
+runs to the end, so nothing deadlocks.
+Results: the scanner2 copy -- no visual built under either box (1 -> 1
+under the migration prompt, 418 -> 418 under the error box; the 417
+between them come from the recompute; the load finishes after the
+boxes). New test modal-box-holds-the-load.py: fails 2 on the old build
+(616 built under the box), 6/6 with the fix. drain-waits-for-premesh
+14, pd-label-at-handle-foot 25, ctest 1088/1088.
+Unpushed: `6465589eb0` (241), `0f41b13b35` (242), docs. dwin's queue
+EMPTY.
+
+**2026-11-02 22:52, the reporter (to the note-taker), on 237, answering the
+note-taker's offer ("stop a two-button press with no drag from opening
+the menu"):** "Two button press should not open menu"
+The note-taker's reading: on a TechDraw page with the Blender style, a
+press of the left and right buttons together opens no context menu
+even when the mouse did not move -- not only after a pan (237's fix).
+READ by the note-taker:
+- QGVNavStyleBlender::handleMouseMoveEvent sets `panned` only on a
+  MOVE with both buttons down (src/Mod/TechDraw/Gui/
+  QGVNavStyleBlender.cpp 74-83); allowContextMenu (120-141) refuses the
+  menu while the left button is down, or after a pan. A two-button
+  press with no move whose left button goes up first: at the right
+  button's release (when Windows sends the menu) the left is up and
+  `panned` false, so the menu opens.
+- The fix the reading suggests: remember the left button was down
+  while the right one was (at the press), not only a move.
+NOT said: the 3D view (the reporter said on 237 that neither style
+there gives a menu after a pan; a press with no drag there not
+checked) -- the note-taker asks dwin to check it and say.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
+**2026-11-03 00:44, dwin (fcad-88; relayed): MultiViewEdit merged, pushed,
+staged; 237 (reopened) done, local.**
+On the reporter's own word to dwin (relayed; the note-taker did not hear
+it): "merge with the branch, build, test, push and restage", once x16
+pushed MultiViewEdit.
+- dwin merged x16's `8b020b264e` (thundereal/MultiViewEdit, checked by
+  git ls-remote) into LinkVibe as `c0638f0d8e`; 39/39 GUI tests, ctest
+  1099/1099, the wasm build. PUSHED thundereal/LinkVibe up to
+  `19cb94f183` (checked by git ls-remote) -- 241 (`6465589eb0`) and 242
+  (`0f41b13b35`) went out with it -- and STAGED (stage34).
+- 237 (reopened) came after: `f88afe9703` (log `bc885397ad`), local,
+  in neither the push nor the stage.
+  - The note-taker's reading held: on a page in the Blender style, left
+    and right down and up with no move, the LEFT up first, opened the
+    page menu (both press orders); the right up first did not.
+  - Fix: QGVNavStyleBlender sets the flag (renamed panned ->
+    twoButtons) at the press that makes both buttons down, not only on
+    a move.
+  - The 3D view's Blender style, the same press with no drag: NO menu in
+    either release order -- it is in PANNING while both are down and
+    stays there until both are up, and the right button's release opens
+    no menu in PANNING; a right click alone gives the menu. Measured,
+    not only read.
+  - techdraw-blender-pan-no-menu.py extended: the old build fails 2
+    (the left-up-first cases), 13/13 with the fix, the 3D view checks
+    included; td-edit-two-pages 32/32.
+Unpushed: `f88afe9703` (237), `bc885397ad` (log), this queue commit.
+dwin FREE.
+
+## 243. A highlighted line always on top, pre-selection over selection, also over another object's coinciding line (a defect) -- OPEN
+
+**2026-11-03 08:59, the reporter (to the note-taker), asked about the note-taker's
+offer "should the highlighted datum line win where two datum lines
+coincide":** "What overlapping lines. I thought highlighted line always
+render on top with the highest priority, preselection higher then
+selection, no?"
+The note-taker's reading: the reporter's rule is that a highlighted
+line is always drawn on top -- the pre-selected one above the selected
+one, both above every other line. A case where it is not is a defect.
+The case (dwin on 235, 2026-10-28 16:49, relayed): "in a top view the
+side-on XZ plane's edge lies on the X axis, and its plain line covers
+the axis there. Two datums' lines coincide and the later one wins."
+Both renderers; measured after the bgfx fix `edc123b9ff`.
+READ by the note-taker:
+- The OpenGL path's order: the scene, then the selection, then the
+  highlight -- highlightlinesontop is drawn last
+  (src/Gui/Inventor/SoFCRenderer.cpp 3243-3266), with the line thickened
+  by SelectionLineThicken (RenderPassHighlight, 827-830). So the order
+  matches the reporter's rule; why a coinciding plain line still covers
+  the highlight is NOT read -- a lead, not verified: the highlight pass
+  keeps a depth test that a line at the same depth fails.
+NOT said: points; faces (a pre-selected face over a coinciding face);
+on-top drawing through what is in front (the reporter said "on top" of
+coinciding lines -- the note-taker does not read it as through solids).
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating): first check
+the case on the current build (a top view, hover and select the X axis,
+both renderers); then make the rule hold.
+
+**2026-11-03 08:59, the reporter (to the note-taker):** "push and restage after
+done. pan delay seems gone already."
+- 237: the note-taker reads "after done" as push and restage now that
+  237 is done (and perhaps as a standing word: after each task). NOT
+  passed to dwin -- a push or restage needs the reporter's own word to
+  the build session; the reporter asked to say it to dwin.
+- 238: CLOSED by the reporter, the pan delay not seen any more; its
+  cause never found.
+
+**2026-11-03 09:21, dwin (fcad-88; relayed):** 237 is ALREADY pushed -- the reporter
+said "push" to dwin directly; thundereal/LinkVibe went 19cb94f183..
+`0a4d49eda5` (checked by git ls-remote; `f88afe9703` is in it, checked by
+merge-base), with dwin's merges of OcctFix (`09c083b9f5`) and main
+(`4021ece528`). Staged per dwin; a restage follows its 8.3 path fix (the
+reporter to dwin, relayed: "Push and fix the path problem. Then
+restage"). The note-taker's line that 237 still waited for a push word
+was wrong. 243 TAKEN by dwin after the 8.3 fix.
+
+## 244. Creating a PD Box: the label's edit box opens somewhere else, not in place of the label (a regression) -- OPEN
+
+**2026-11-03 10:41, the reporter (to the note-taker):** "new regression, create a
+partdesign box, with on view edit label, click or enter to edit will
+move the edit box instead of show in place of the label."
+The note-taker's reading: in a new PD Box with on-view labels, clicking
+a label, or pressing Enter, to type a value opens the edit box at
+another place on the screen; it should open over the label. A
+regression: it worked before.
+READ by the note-taker:
+- The edit box is moved by EditableDatumLabel::positionSpinbox
+  (src/Gui/EditableDatumLabel.cpp 413-451) to the label's text centre,
+  getTextCenterPoint() (453-485), which undoes the label's transform.
+- OnViewValueSet::placeLabels places each label by setPlacement +
+  setPoints(0, 0) (src/Gui/OnViewValue.cpp 1109-1111); since 241
+  (`6465589eb0`, the only commit on OnViewValue.cpp since 11-01) the
+  primitives' labels stand at the active handle's foot (1097-1107), not
+  at the top middle -- the likely start of the regression, NOT verified.
+- avoidMouseCursor (439-446, moves the box off the pointer) is false for
+  these labels -- ruled out.
+- Cause NOT found.
+NOT said: the other primitives and panels (pad, fillet ...); edit (not
+create) of a Box -- read as the same.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
+## 245. The measure pre-selection macro's tool tip ignores the overlay panels (a defect) -- OPEN
+
+**2026-11-03 10:41, the reporter (to the note-taker):** "new defect, measure
+preselection macro tooltip show position ignores the overlay panels. I
+remembered it take those into consideration before. regardless what it
+behave previously, I want to to be aware of overlay panels"
+The note-taker's reading: with "Measure (pre)selected geometry" on, its
+tool tip stands in its corner of the 3D view under an overlay panel (a
+docked panel drawn over the view); it must stand clear of the overlay
+panels -- in the corner of what they leave uncovered. Whether it did so
+before does not matter to the reporter.
+READ by the note-taker:
+- src/Gui/Selection/Selection.cpp 1223-1233: the pre-selection macros'
+  text is shown by Gui::ToolTip::showText(offset, text, activeView,
+  overlay=true, corner) -- ViewParams PreselectionToolTipCorner and
+  PreselectionToolTipOffsetX/Y.
+- ToolTip::onShowTimer (src/Gui/Widgets.cpp 1601-1623) puts the tip in
+  that corner of the WHOLE view widget; nothing there asks what the
+  overlay panels cover. ("overlay" in that code is the overlay tip
+  label, not the panels.)
+- Whether it once did: NOT checked.
+NOT said: the other pre-selection macros (read as the same -- they share
+the path); a panel that covers the whole side; the browser.
+ASSIGNED to dwin (fcad-88), with 246 (the same helper).
+
+## 246. An on-view handle's tool tip: a round border on a square widget (a defect) -- OPEN
+
+**2026-11-03 10:41, the reporter (to the note-taker):** "new defect, the tooltip of
+each handle has a round rectangle border but show as rectangle widget
+shape, so the pointy corner looks bad. Why not use the show tooltip
+helper utility that is used by measurement preselection macro"
+The note-taker's reading: the tip shown over an on-view handle (241's)
+draws a rounded border, but the widget behind it is square, so its
+corners stick out past the rounding. The reporter asks for the tip to be
+shown by the same helper the measure pre-selection macro uses.
+READ by the note-taker:
+- The handle's tip is Qt's own QToolTip::showText (src/Gui/Inventor/
+  Draggers/Gizmo.cpp 374, and 387 when the text changes in a drag).
+- The helper: Gui::ToolTip::showText and its TipLabel (src/Gui/
+  Widgets.cpp 1471-1640), used for the pre-selection text
+  (Selection.cpp 1228).
+NOT said: 241's tip timing (Qt's hide and wake-up delays) -- read as
+kept; the other on-view tips (the menu button) -- read as the same.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
+## 247. Opening scanner: after the migration box, the recompute runs with a black view, no error box, and Section007 left empty (a regression) -- STAGED 2026-11-03 20:49
+
+**2026-11-03 10:44, the reporter (to the note-taker):** "new regression, I think it
+is related to the migration dialog fix, now I open scanner, it prompt
+for migration and background load does stop. but then when I click ok
+it recomputes, the 3d view turns black, and only change to normal when
+recomptue finishes and the model appear at once instead of progressive
+loading. And worse, even if there is recompute error, no recompute
+failed dialog pops anymore. And the first time, I tried the above
+procedure, in addition to the expected failure of Section003,
+Dimension014 failed too, which is caused by Section007 (not marked as
+error) not producing any shape. manual recompute Section007 fix the
+problem."
+The note-taker's reading, three faults after answering the migration
+box (242's hold works while the box is up):
+(a) during the recompute that follows, the 3D view is black; the model
+    appears all at once when the recompute ends -- no progressive load;
+(b) the "Recompute error" box no longer appears, though objects fail;
+(c) the first time only: besides Section003 (an expected failure),
+    Dimension014 failed, because Section007 produced no shape and was
+    NOT marked as an error; recomputing Section007 by hand fixed it.
+The reporter relates it to 242's fix (`0f41b13b35`).
+READ by the note-taker:
+- The handler (src/Gui/Application.cpp 607-640): the box, then on Yes
+  doc->recompute for the dependent documents in the same call, then the
+  error box if hasError.
+- 242's hold: Application::isLoadHeld() is
+  QApplication::activeModalWidget() != nullptr (2505-2508). It holds the
+  view provider and Part drains AND Document::scheduleDeferredRestore
+  (src/Gui/Document.cpp 4703-4710), the deferred RESTORE of the document
+  -- not only the visual building. Before 242 the box's own event loop
+  let the restore and the visuals finish under the box.
+- Leads, NOT verified: (c) the recompute runs on a document whose
+  deferred restore has not finished (Section007's input not there yet);
+  (a) a modal widget during the recompute -- SequencerDialog sets itself
+  modal on the GUI thread (src/Gui/ProgressDialog.cpp 105) -- keeps the
+  hold on through the recompute; (b) not read -- whether hasError stays
+  false (Section007 not marked) or the box is never reached.
+- Causes NOT found.
+NOT said: the reporter's build (read as the staged copy, stage34 or the
+one after); "No" to the box; other files.
+ASSIGNED to dwin (fcad-88), FIRST -- before 244 (the note-taker
+coordinating).
+
+**2026-11-03 10:45, the reporter (to the note-taker), on 246:** "entry 246, does
+not have to use the helper. can reference its code or styling. unlike
+preselection macro tooltip, those handle tooltip shall appeare near the
+mouser pointer."
+The note-taker's reading: Gui::ToolTip is a reference, not a must --
+its code or its styling (the TipLabel's rounded frame) may be borrowed.
+What matters: the handle tip's shape matches its border (no square
+corners), and it stands near the mouse pointer, not in a corner of the
+view as the pre-selection macro's tip does. 245 is not changed by this
+(that tip keeps its corner, clear of the overlay panels).
+Passed to dwin.
+
+**2026-11-03 10:49, dwin (fcad-88; relayed): 243 DONE, `5e3a5917c4`; local, NOT
+pushed, NOT staged.** It was mid-build when 244 and 247 came and
+finished green, so dwin committed it before switching; now on 247, then
+244, 246, 245.
+- Seen on the current build first: from the top, the side-on XZ plane's
+  edges lie IN FRONT of the X axis (z 0.01 and 0.157 against 0), not on
+  it -- the depth test hid the highlighted axis on both renderers:
+  pre-selected 0 of 75 columns (OpenGL) and 44 of 75 (bgfx); selected
+  0 of 75 on both. (The note-taker's lead, a same-depth line, was not
+  the case.)
+- The reporter's choice, asked by dwin (relayed; the note-taker did not
+  hear it): over LINES, not faces -- a highlighted line wins over every
+  other line; a face in front still hides it (its hidden part stays
+  dashed).
+- Fix, both renderers: with something highlighted, the scene's plain
+  lines and points mark the stencil where they are front-most; every
+  depth-tested highlight or selection line or point is drawn again over
+  that mark without the depth test. bgfx's last redraw after the
+  annotation orders draws the selection first, the pre-selection after.
+- tests/gui/origin-plane-highlight.py extended (pre-selected, selected,
+  both, and where the plane's edge lies on the axis): 17/17 on bgfx and
+  Legacy; 8 neighbouring highlight/selection GUI tests green.
+Unpushed: `5e3a5917c4` (243). Origin still `0a4d49eda5`.
+
+## 248. PD Defeaturing: the tree hover highlights the whole shape, not the changed elements (a defect) -- OPEN
+
+**2026-11-03 10:54, the reporter (to the note-taker):** "new defect, it seem the
+defatureing in partdesign does not have effective element mapping,
+becuase when mouse over tree item highlight, it hightlights the whole
+shape, rather then the modified elements like the other partdesign
+featgures."
+The note-taker's reading: hovering a PD Defeaturing in the tree should
+highlight only the elements that feature changed (as for Fillet, Pad
+...); it highlights the whole body. The reporter's reading of the
+cause: the feature's element mapping is not effective.
+READ by the note-taker:
+- PartDesign::Defeaturing::execute (src/Mod/PartDesign/App/
+  FeatureDefeaturing.cpp 41-77): getFaces, then
+  TopoShape::makEDefeaturing, refine if active, getSolid.
+- makEDefeaturing (src/Mod/Part/App/TopoShapeEx.cpp 5934-5965):
+  BRepAlgoAPI_Defeaturing with SetToFillHistory(true), the result mapped
+  by makEShape(mkDefeaturing, shape, op) -- so a mapping is made from
+  OCCT's history. The start, TopoShape(0, hasher), is the same as in
+  Fillet, Chamfer, Draft.
+- Not read: what the tree hover asks of the element map to pick the
+  changed elements; what BRepAlgoAPI_Defeaturing's history reports for
+  the neighbours it extends.
+- Cause NOT found.
+NOT said: the file or model (read as any Defeaturing).
+ASSIGNED to x16 (the note-taker coordinating: x16 idle since
+MultiViewEdit landed; dwin has 247, 244, 246, 245).
+
+**2026-11-03 10:55, the reporter (to the note-taker), 248's steps:** "I tested
+create a box. pocket the top face with -2 tolerance, resulting a box
+with a square top blind hole. then defeaturing by selecting the bottom
+and one the side face of the hole"
+The note-taker's reading: a PD Box; a Pocket on the Box's top face with
+-2 (the reporter's "tolerance" -- read as the pocket's offset of the
+face's outline, inward by 2, leaving a square blind hole); then a
+Defeaturing with the hole's bottom face and ONE of its side faces
+picked. Hovering the Defeaturing in the tree highlights the whole
+shape.
+The session the note-taker calls x16 (bridge session_01Gifk77, which
+signs itself fcad-86 and did 232) asked whether the task was meant for
+x16win; told no -- x16win is left out on the reporter's word -- so it
+takes 248. Steps passed to it.
+
+**2026-11-03 11:08, the reporter (to the note-taker), on 243:** "regarding the
+highlight priority fix. when a selected edge is behind and shows dashed
+lines, does the dashed line show on top of the original edge? if the
+hidden selection edge style does not override, i.e. shows solid edge,
+it should be shown on top"
+The note-taker's reading, 243 b:
+(a) A question: a selected edge with a part hidden behind a face, that
+    part drawn dashed (the "selected hidden line pattern") -- where it
+    crosses a plain edge lying in front of it, is the dashed part drawn
+    over that plain edge?
+(b) A rule: when the hidden-selection style does not override -- the
+    hidden part drawn SOLID (SelectionLinePattern 0, "0 draws it
+    solid", src/Gui/ViewParams.py 306-307, the default) -- the selected
+    edge is drawn on top, over the plain edges.
+READ by the note-taker (OpenGL path, src/Gui/Inventor/SoFCRenderer.cpp):
+the hidden part of a selected line is drawn in the pattern pass
+(3256-3297) WITHOUT the depth test, after the scene, so by the reading
+it already lies over a plain edge in front, dashed or solid; 243's mark
+and copy (3299-3351) follow it for the visible part only. NOT measured;
+bgfx not read. The reporter's "the original edge" read as the plain
+edge in front of the selected one.
+NOT said: the pre-selection's hidden part (read as the same).
+ASSIGNED to dwin (fcad-88): measure (a) on both renderers, with the
+pattern on and with 0, say what is seen; make (b) hold. After 247 and
+244.
+
+## 249. Space on a picked face hides the body, not the selected object; a hidden body's selected feature drawn on top is clipped (a defect) -- OPEN
+
+**2026-11-03 11:17, the reporter (to the note-taker):** "new defect. with a body of
+simple box. select a face of the box in the 3d view and press space
+bar, it hides the body instead of the box. It should hide the selected
+object. in adition, when the body is hidden, the selected box is on top
+so it is still shown but it is now clipped, so there is some bug in
+scene clipping that ignores the on top shown object. This clipping
+problem happens independent of the space bar bug, meaning that the same
+clipping happen if I select the box face, and click the eye icon of the
+body tree item."
+The note-taker's reading, two parts:
+(a) A Body holding one Box. A face of the box picked in the 3D view,
+    then Space: the BODY is hidden. Wanted: the selected object (the
+    box) hidden.
+(b) Once the body is hidden -- by (a) or by the body's eye icon in the
+    tree, the box face still selected -- the selection is drawn on top
+    (so the box stays seen) but CLIPPED: the scene's clipping does not
+    count what is drawn on top.
+READ by the note-taker:
+- (a) is ON PURPOSE in the fork since `cccbe6cc5c` (2026-09-26, "Space
+  on a face picked in the view toggles its PartDesign body", upstream
+  bd03414893 and 20c01000a1 adapted): SelectionSingleton::setVisible
+  (src/Gui/Selection/Selection.cpp 1874-1899) cuts a view pick's path
+  down to ViewProvider::getPickedVisibilityTarget() (src/Gui/
+  ViewProvider.h 514-518), which a PartDesign feature answers with its
+  body (src/Mod/PartDesign/Gui/ViewProvider.cpp 96). Its reason: a view
+  pick selects Body.<feature>.<face> by the feature the face came from
+  -- Body.Box.Face6 for a face of a box under a pocket -- and toggling
+  that hidden, non-Tip feature did nothing at first, then showed the
+  box in place of the Tip. Tree selections are not redirected.
+- (b): SoFCRenderer::getBoundingBox already takes the selection's and
+  the highlight's bounds (src/Gui/Inventor/SoFCRenderer.cpp
+  1843-1853); what the view computes its near/far clipping planes from
+  NOT read. Cause NOT found.
+NOT said, with the note-taker's readings:
+- (a) the case 09-26 was for -- a face that came from a non-Tip,
+  hidden feature (a box under a pocket): read as "the selected object"
+  is still the feature the pick names; what Space should then do (show
+  that feature? hide the Tip?) is the reporter's to say -- the
+  note-taker asks.
+- (b) both renderers; read as yes.
+ASSIGNED to x16 (bridge session_01Gifk77), after 248 (the note-taker
+coordinating; dwin has 247, 244, 243 b, 246, 245).
+
+**2026-11-03 11:21, the reporter (to the note-taker), on 249 (a):** "wait, let's see
+upstream's rational about this override first. I am not convinced yet"
+The note-taker's reading: 249 (a) -- Space on a view-picked face toggles
+the selected object, not its body -- is ON HOLD until the reporter has
+seen why upstream made Space toggle the body. (b), the clipping, is not
+held. x16 told to hold (a).
+Upstream, read by the note-taker (git show and github.com, read only):
+- bd03414893 (FreeCAD PR #29110, 2026-05-09, Max Wilfinger, with Kacper
+  Donat), "PD: Spacebar to toggle visibility of the parent body instead
+  of the last visible feature", fixing issue #11132 (2023, "3D
+  selection select PD feature instead of body" / "Spacebar to toggle
+  visibility of selected body in 3D view toggles only the last feature
+  not the body itself"). The issue: a body picked in the 3D view and
+  Space hid only its last feature; "The whole body is not visible in
+  the 3D view but seems visible when looking at the tree view" -- with
+  collapsed bodies (assemblies) the hidden one is hard to find. Duplicates
+  #19474, #27852, #29706. Its first form: inside the ACTIVE body Space
+  toggles the feature, outside it the body; only solid features --
+  sketches, datums, binders unchanged.
+- Objections in #29110: leoheck ("I am against this PR since it breaks
+  the usability"), FEA-eng ("Visibility switch via Spacebar is currently
+  the easiest way to check the previous steps in a model"), jffmichi (no
+  sign that Space acts differently in an active and an inactive body),
+  entuland (a tree selection should keep the old behaviour).
+- 20c01000a1 (PR #30231, 2026-05-17), "Gui/PD: Toggle body only from 3D
+  view selection": from the 3D view always the body (the active-body rule
+  dropped); Space in the tree toggles the feature itself (Tree.cpp takes
+  the key).
+- The fork's adaptation `cccbe6cc5c` (2026-09-26) keeps the same split:
+  a view pick names an element -> the body; a tree selection -> the
+  feature. Its own reason: a fork pick names the feature the face came
+  from (not upstream's Tip), so a face of a box under a pocket named the
+  hidden box -- Space showed it in place of the Tip.
+
+**2026-11-03 11:49, dwin (fcad-88; relayed): 247 DONE, `dfc36122fe`; local, NOT
+pushed, NOT staged.** Now on 244, then 243 b, 246, 245.
+- (a) and (c): the note-taker's lead held -- 242's hold
+  (isLoadHeld) held for ANY modal widget, so the modal progress dialog
+  of the recompute that "Yes" starts held the deferred restore and the
+  visuals through the whole recompute: the view black to its end, and
+  the recompute ran over objects not yet read in. Now only a QMessageBox
+  holds (the migration prompt, the recompute error box), and never while
+  a document recomputes. Proof: modal-box-holds-the-load.py also opens
+  the file under a modal progress dialog -- the staged (242) build built
+  0 visuals under it, the fix 616.
+- (b): a separate, OLDER fault, not 242's: Document::recompute printed
+  "Recompute failed!" when its log grew but set hasError only when an
+  object's execute failed. In scanner, SectionView003 (Section003) logs
+  its empty cut and returns OK, so the migration prompt's recompute saw
+  no error and showed no box -- the same on the staged build and before
+  dwin's change. Now the caller is told what the console prints. On a
+  COPY of scanner.FCStd, Yes: the "Recompute error" box comes up; the
+  staged build: none.
+- NOT reproduced on the hidden desktop: the black view and
+  Section007/Dimension014 -- no progress dialog shows there during that
+  recompute, so the hold never engaged; and no object in scanner is
+  NAMED Section007 (a label, dwin asks). Both follow from the hold
+  removed -- the reporter's check on the stage is what confirms them.
+- ctest 1100/1100, Python suite 4077 OK.
+Unpushed: `5e3a5917c4` (243), `dfc36122fe` (247).
+
+**2026-11-03 12:07, dwin (fcad-88; relayed): 244 DONE, `de8f488698`; local, NOT
+pushed, NOT staged.** Now on 243 b, then 246, 245.
+- Cause, measured, dwin's own 241: a label at its handle's foot is
+  placed out from the handle by half its text's size; in edit the
+  label's text is blank, so placeLabels moved it in toward the handle --
+  on a box 18 px left and 30 px down -- and the edit box, which centres
+  on the label (positionSpinbox -> getTextCenterPoint), opened there.
+  Click and Enter take the same path.
+- Fix: the set keeps each label's text size as last shown and places a
+  label in edit by it.
+- pd-primitive-labels-at-handle.py: Return opens the edit box where the
+  label stood, and it stays -- before: label (1561, 678), box (1543,
+  708); now within 1 px for box and cylinder, 28/28. PD on-view
+  neighbours green (label-at-foot 25, values 39, chamfer 21, fillet
+  radius 23, fillet edge 17, edit menu 25).
+- dwin's side note, NOT chased: once, after leaving the box's edit, an
+  on-view QuantitySpinBox of it still answered isVisible() in the next
+  feature's edit (dwin's test then picked it up) -- maybe a stale
+  widget; dwin offers to look. The note-taker asks the reporter.
+Unpushed: `5e3a5917c4` (243), `dfc36122fe` (247), `de8f488698` (244).
+
+**2026-11-03 12:14, x16 (bridge session_01Gifk77, signs fcad-86; relayed): 248
+DONE, on its LinkVibe tree (on `0a4d49eda5`), local, NOT pushed, NOT
+staged -- not in the note-taker's tree.**
+- `3291bf8336` PD: a feature tells Python the elements its tree hover
+  lights; `a7bf62e050` PD: Defeaturing's tree hover lights the faces it
+  changed, not the whole shape.
+- Cause, measured on the reporter's case (PD Box 10, a SubtractiveBox
+  6x6x4 as the square blind hole, Defeaturing of its bottom and one
+  side): a tree hover lights a PD feature's own elements -- the faces
+  getGeneratedIndices() reports, through the view provider's
+  highlightIndices; an empty list lights the whole shape. "Own" by
+  default: faces whose mapped name says this feature GENERATED them
+  (;:G) -- a Fillet generates its round. Defeaturing generates nothing
+  (picked faces go, neighbours extend), and OCCT's
+  BRepAlgoAPI_Defeaturing rebuilds EVERY face -- none of the 6 result
+  faces is the same TShape, so the history marks all six ";:M;DEF", the
+  untouched ones too. The mapping is there but cannot tell what changed
+  (the reporter's reading held).
+- Fix: Defeaturing::isElementGenerated also counts a face the history
+  calls modified when it DIFFERS from its source face (traced by
+  getElementHistory into the base shape, compared by edge count and
+  area, both surviving a placement reset). The reporter's case: the top
+  face made whole (area 64 -> 100), its 4 edges and 4 vertices; the 4
+  sides and the bottom out. The same with Refine on. Element names
+  UNCHANGED -- no naming or file impact. In the GUI: highlightIndices
+  [1] (Face2); before, empty.
+- Test PartDesignTests.TestDefeaturing.testHoverLightsWhatChanged: fails
+  without the fix ([] != ['Face2']); TestDefeaturing 6/6,
+  TestPartDesignApp 500 OK. New read-only Python API:
+  Feature.getGeneratedElements().
+- A follow-up for the reporter, NOT done: makEDefeaturing keeping the
+  untouched faces' source names -- a naming change for saved files.
+x16 now on 249 (b); (a) held.
+
+**2026-11-03 12:26, x16 (relayed): 249 (b) DONE, `a3a986c749` "Gui: a face selected
+in a hidden body is drawn on top whole, and not clipped", on its LinkVibe
+tree on top of 248; local, NOT pushed, NOT staged.** (a) untouched, held.
+- Cause, measured: the near/far planes already take in what is shown on
+  top (entry 124, `e6bea25bcd`): View3DInventorSelection::extendByOnTop
+  adds each on-top entry's box -- of the entry AS NAMED, element
+  included. The reporter's selection is Body + "Box.Face6", so it added
+  the top FACE's box only; with the body hidden the whole Box is drawn
+  on top, and the far plane cut through it. With the body shown the
+  scene's box covers the Box, so only the hidden case showed it. Shared
+  code: both renderers; the eye icon and Space alike (both hide the
+  body).
+- Fix: the box of the named object WITHOUT the element
+  (getSubNameNoElement) -- it holds the element's box, so it can only
+  widen the planes.
+- Measured (a body with a 10 mm box, its top face selected, the body
+  hidden): far plane 11.76 before, 17.62 after; the box reaches 17.3
+  deep -- now as with the body shown. Pictures whole and unclipped on
+  bgfx and Legacy (Legacy not measured before the fix).
+- tests/gui/on-top-inside-the-clip-planes.py (scripts/gui-test.sh) gains
+  the face case: without the fix far plane 2006.7 inside the box's
+  2003.7..2013.7 -- FAIL; with it 2016.7; 3/3 PASS.
+x16's local, unpushed: `3291bf8336`, `a7bf62e050` (248), `a3a986c749`
+(249 b). x16 FREE (249 (a) held for the reporter).
+
+**2026-11-03 12:29, dwin (fcad-88; relayed): 243 b DONE, `e6a285fa4d`; local, NOT
+pushed, NOT staged.** 245 not started by dwin, with x16. dwin now on 246.
+(a) measured, both renderers alike: an edge selected by itself, its part
+hidden behind a box's face, a red line in front of that face lying over
+it (tests/gui/hidden-selected-edge-over-line.py):
+- SelectionLinePattern 0 (solid, the default): the hidden part drawn
+  over the line all along, 69 of 69 columns -- (b) already held.
+- A dash pattern: dashed where only the face hides it, but UNDER the
+  line drawn SOLID over it -- dwin's 243 copy over the lines ignored
+  the style there.
+Fix: the copy over the lines is made only while the hidden style is
+solid; with a dash pattern the hidden pass (no depth test) already draws
+the dashes over everything, the line included. With dashes now: 36
+columns of dash over the line, 33 of the line between them; pattern 0
+unchanged (69/69 solid on top). dwin's reading of the reporter's rule:
+the hidden style, when set, wins over "on top"; solid otherwise. 243's
+origin test 17/17 on both, hidden-edges regression 18.
+Unpushed (dwin): 243, 247, 244, 243 b.
+
+**2026-11-03 12:39, x16 (relayed): 245 DONE, on its LinkVibe tree (on
+`a3a986c749`); local, NOT pushed, NOT staged.**
+- `1979910848` Gui: a corner tooltip stands in its corner of the view,
+  not at twice its origin; `5d64b9d7e5` Gui: a corner tooltip stands
+  clear of the overlay panels over its view. Placement only
+  (ToolTip::onShowTimer, Widgets.cpp), no TipLabel styling -- nothing
+  near dwin's 246.
+- Two defects, measured. (1) An older one: onShowTimer worked the
+  corner position INTO this->pos, the member holding the corner
+  offsets, then added this->pos again -- a top-left tip at TWICE the
+  view's origin; bottom right (the default) and the others in the MAIN
+  WINDOW's corner, not the view's; the offsets lost. Measured: a view at
+  266,178 (858x569) -> the bottom-right tip at 675,549 (mid-view), the
+  top-left at 532,356. Right only for a view at the window's origin --
+  perhaps why it once looked right (the reporter's memory). (2) The
+  request: nothing asked what the overlay panels cover.
+- Fix: (1) the corner computed in the view's own coordinates; (2) the
+  tip slides clear of OverlayManager::coverRects (the overlaid docks,
+  and a task panel over the view) by the navigation cube's rule (entry
+  76): along its edge, just past the cover, whichever way is shorter.
+  Shared path -- every pre-selection macro's tip.
+- Test tests/gui/presel-tip-clear-of-panels.py (ctest
+  GuiPreselTipClearOfPanels_tests_run): the measure macro on, the
+  pointer over a box, corners bottom right and top left; docked / all
+  docks overlaid / docked again. Without either fix every placement
+  claim FAILS; with both 8/8 (overlaid, the bottom-right tip ends
+  against the Right dock, x 1130, and the Bottom dock, y 753). Commit 1
+  verified alone (its 4 docked claims pass). GuiNaviCubeClearOfPanels
+  still passes.
+x16's local, unpushed: `3291bf8336`, `a7bf62e050` (248), `a3a986c749`
+(249 b), `1979910848`, `5d64b9d7e5` (245). x16 FREE.
+
+**2026-11-03 12:44, dwin (fcad-88; relayed): 246 DONE, `d4344a8a82`; log
+`56bbd701ae`; local, NOT pushed, NOT staged. dwin's queue EMPTY.**
+- The handles' tip (Gizmo::restTip) and the on-view menu button's tip
+  now show in Gui::ToolTip's overlay label -- the measure macro's,
+  whose widget shape is its rounded border -- beside the pointer
+  (NoCorner: pointer + (2, 16)), not in a corner. 241's timing kept:
+  hidden while the pointer moves, back after the wake-up delay at rest;
+  in a drag the shown tip takes its new text in place (TipLabel::set).
+- Tests: pd-label-at-handle-foot 27/27 (the tip is the rounded label,
+  Qt's not shown, (2, 16) from the pointer); pd-edit-menu-in-view 26/26;
+  fillet-handle-click-in-view 16/16 -- its old entry 141 claim "moving
+  over the arrow keeps the tool tip" contradicted 241's ruling and
+  passed only because Qt's tip answered visible through its fade; it
+  now reads 241's rule. serve-handle-hint 10/10.
+Unpushed on this tree (dwin): `4e6155fd75` (the 8.3 path fix, staged
+per dwin), `5e3a5917c4` (243), `dfc36122fe` (247), `de8f488698` (244),
+`e6a285fa4d` (243 b), `d4344a8a82` (246), logs. On x16's tree:
+`3291bf8336`, `a7bf62e050` (248), `a3a986c749` (249 b), `1979910848`,
+`5d64b9d7e5` (245). thundereal/LinkVibe still `0a4d49eda5`. Both
+sessions FREE.
+
+**2026-11-03 12:56, x16 (relayed): PUSHED on the reporter's word to it ("push";
+the note-taker did not hear it) -- thundereal/LinkVibe
+7ed5c8c868..`2523224972`, NOT staged.** Checked by git ls-remote: the
+remote is `2523224972`, a merge of x16's `5d64b9d7e5` and `7ed5c8c868`.
+- It carries `3291bf8336` + `a7bf62e050` (248), `a3a986c749` (249 b),
+  `1979910848` + `5d64b9d7e5` (245), and the merge of the remote --
+  which already held this tree up to `7ed5c8c868`: dwin's 243
+  (`5e3a5917c4`), 247 (`dfc36122fe`), 244 (`de8f488698`), 243 b
+  (`e6a285fa4d`), 246 (`d4344a8a82`), the 8.3 fix (`4e6155fd75`), the
+  logs and the queue. Who pushed those (dwin, presumably on the
+  reporter's word) was not reported to the note-taker.
+- The merge was clean and touches no file of x16's. On the merged
+  build: TestDefeaturing 6 OK, on-top-inside-the-clip-planes 3/3,
+  GuiPreselTipClearOfPanels 1/1 (ctest), hidden-selected-edge-over-line
+  2/2.
+- NOTHING unpushed now on either tree (this tree's HEAD `7ed5c8c868` is
+  in the remote). Staged: none of x16's; dwin's not known.
+
+**2026-11-03 13:04, the reporter (to the note-taker), on 249 (a):** "the space bar
+override is clearly wrong. There are many features other than solids in
+body any hide body hides them all, besides, we now have multiple solids
+in the body. revert that upstream change. but let's think about a better
+way to address the original complaint"
+The note-taker's reading: REVERT the fork's adaptation `cccbe6cc5c`
+(2026-09-26: SelectionSingleton::setVisible's cut to
+ViewProvider::getPickedVisibilityTarget, the PD override, and its
+pd-gui-defects.py claims) -- Space on a view pick toggles the picked
+object again, not the body. Reasons given: hiding the body hides every
+feature in it, not only the solid; and a body can now hold several
+solids. Upstream's complaint (#11132: Space on a pick hid the last
+feature, the body then showing nothing while its tree item looks
+visible -- with collapsed bodies the hidden one is hard to find) is to
+be met another way, to be thought out with the reporter.
+NOT said: the case `cccbe6cc5c` itself was for -- the fork's pick names
+the feature a face CAME FROM (Body.Box.Face6 for a face of a box under a
+pocket), so after the revert Space on that face toggles the hidden Box
+and shows it over the Pocket; the note-taker raises it with the
+reporter, with the proposals.
+The revert ASSIGNED to x16 (the note-taker coordinating; 249 is x16's).
+
+**2026-11-03 13:16, 249 (a), the better way -- the reporter asked how other CAD
+shows an assembly's visibility against its components ("what other cad
+handles this, I mean the assembly's visible versus its components";
+then "look up the icon first").** The note-taker's proposals put to the
+reporter: (1) Space on a view pick acts on the feature that DRAWS the
+picked face (the end of that solid's chain), not the body; (2) the tree
+marks a body that is on but shows nothing (dimmed); (3) optional
+Shift+Space for the whole body. Looked up (web, read only):
+- Fusion 360: one light bulb per node; a parent's bulb off hides all
+  children while their own bulbs stay on -- the API separates
+  isLightBulbOn from isVisible, and the forum answer is to walk the
+  parent bulbs; no browser cue for "on, hidden by a parent" found. Its
+  blog: hiding from the graphics area hides the BODY, not the component.
+- NX Assembly Navigator: a red check = shown, a grey check = hidden; a
+  top node can be grey (hidden) while children turned back on still
+  show (Siemens KB PL8515810).
+- SOLIDWORKS: a hidden component has a white (wireframe-like) icon;
+  faded icons mark display settings applied inside the subassembly;
+  "Show with Dependents" shows hidden children; no icon for a partly
+  hidden subassembly found.
+- Onshape: an eye per instance and per folder; users report a
+  subassembly's eye unable to bring back children hidden one by one;
+  ":hidden" search finds hidden parts.
+None found marks a container that is on but shows nothing -- the
+note-taker's (2) would be new; NX's grey/red check is the nearest.
+Waiting for the reporter's choice.
+
+**2026-11-03 13:41, x16 (relayed): 249 (a) REVERTED, `24c98f04d2` (Revert "Gui, PD:
+Space on a face picked in the view toggles its PartDesign body") on its
+LinkVibe tree (on `2523224972`); local, NOT pushed, NOT staged.**
+- Removed ViewProvider::getPickedVisibilityTarget(), the PartDesign
+  override, SelectionSingleton::setVisible()'s path cut; nothing since
+  used them. Two conflicts beside 232's editHoldsTransaction /
+  panelOwnsItsSteps, kept; CRLF kept. Kept from `cccbe6cc5c` its
+  unrelated diagnostic in test_body_from_base.
+- tests/gui/pd-gui-defects.py (GuiPartDesignDefects 34/34): Space on
+  Body.Cyl.Face1 now toggles Cyl, the body stays visible -- (Body, Box,
+  Cyl) (T,T,F) -> (T,F,T), the Box going because a body shows one
+  feature at a time; the tree claim unchanged.
+- MEASURED, the case `cccbe6cc5c` was for (not fixed, as asked): Body,
+  AdditiveBox 10, a SubtractiveCylinder r2 through the middle as Tip;
+  the box's front face (untouched by the pocket) picked as a click
+  does: the pick names the TIP -- Body + "Pocket.;Front;:H990,F.Face2"
+  (the face keeps the Box's name) -- NOT Body.Box.Face6 as that commit
+  said; x16 could not reproduce that naming. Space 1: Pocket hidden ->
+  the body shows the BOX, a block without its hole, in the Tip's place;
+  Space 2: Pocket back, Box hidden. Upstream's complaint is back in this
+  form: the first Space swaps the visible solid for the feature before
+  it rather than hiding anything. Pictures on x16's box:
+  .../scratchpad/space/case-picked.png, case-space1.png.
+The note-taker: so the pick already names the feature that draws the
+face (the note-taker's proposal 1 is what the revert gives); the open
+point is what hiding a body's visible solid feature should do -- now the
+body falls back to the feature before it. Put to the reporter.
+
+**2026-11-03 14:24, x16 (relayed): CORRECTION to its 249 (a) report -- the
+measurement was WRONG, an artifact of its setup.** The revert's commit is
+now `50ab8ff316` (same content, message corrected); `24c98f04d2` gone,
+never pushed.
+- What was wrong: x16 built the body from Python, which left the Box
+  with Visibility True behind the Pocket; the GUI's commands hide the
+  previous feature (FCMD_OBJ_HIDE(prevSolid),
+  src/Mod/PartDesign/Gui/Command.cpp 777-778), so in a real session the
+  Box is hidden.
+- Measured again (Box hidden, the cylinder Pocket the Tip shown, the
+  box's front face picked in the view -- it names the Tip,
+  Body.Pocket.Face2): Space -> the Pocket hidden, NOTHING shown; Space
+  again -> the Pocket shown. Space on the hidden Box selected in the
+  tree -> the Box shown and the Pocket hidden; again -> the Box hidden,
+  nothing shown.
+- The reporter's words to x16 (relayed; the note-taker did not hear
+  them): "I want the restore the old behavior before upstream's fix.
+  The space will hide a visible feature but does not show others. Only
+  when the space is pressed for a hidden feature will show that feature
+  and hide the other visible feature in the same solidbody ... hiding a
+  step does not show others, because the ambiguity of which one to
+  show", and "there is no new code to be add if I am correct, just
+  revert upstream's relevant code". The revert alone gives exactly
+  that. The reporter also noted the edit-time handling (hide the edited
+  feature, show the one before it, restore after) is separate --
+  untouched.
+- The note-taker's own report to the reporter (the body falling back to
+  the previous feature on Space) rested on x16's wrong measurement --
+  WITHDRAWN.
+NOT said: the tree marker for a body on but showing nothing (the
+note-taker's proposal 2) -- left open for the reporter.
+x16's local, unpushed: `50ab8ff316`. x16 FREE.
+
+**2026-11-03 15:08, the reporter (to the note-taker):** "regression, opening
+scanner.FCStd and proceed with migration recompute still gives black
+background during recomputation"
+The note-taker's reading: 247 (a) is NOT fixed -- opening scanner.FCStd,
+answering the migration box to recompute, the 3D view is still black
+(the reporter: "black background") while the recompute runs. "Still":
+after 247's fix.
+READ by the note-taker:
+- The reporter's staged copy: .conda/user-app/INSTALLED.txt -- installed
+  2026-11-03 13:20:25 from fcad `eca80edde0` (dirty False), which holds
+  247's fix `dfc36122fe` (11:49) and 246 (`d4344a8a82`). So the fix is
+  in the build the reporter ran.
+- dwin's 247 report: the black view NOT reproduced on the hidden
+  desktop -- no progress dialog showed there during that recompute, so
+  the hold never engaged; the cause dwin fixed (the modal progress
+  dialog holding the load) was a lead, and the black view "follows from
+  the hold removed" was not measured. The cause of what the reporter
+  sees is therefore NOT found.
+NOT said: whether the model appears at once at the end again, or
+progressively; whether the error box now shows; Section007.
+ASSIGNED to dwin (fcad-88): reproduce as the reporter does (the staged
+copy, a COPY of scanner.FCStd, Yes to the migration box); if the hidden
+desktop again does not show it, say so -- running on the real screen is
+the reporter's call (GT_ON_SCREEN=1).
+
+## 250. bgfx: a selected edge fights its own highlight for depth, and covers the pre-selection (a regression) -- STAGED 2026-11-03 20:49
+
+**2026-11-03 15:10, the reporter (to the note-taker):** "regression, edge highlight
+still partially obscured by the selected line with bgfx backend. note
+that when the edge is blocked by the object, it's selection highlight is
+shown full solid. but when the selected edge is shown, then the edge and
+its selection highlight fights for Z depth. just compare with render
+type legacy you'll see"
+The note-taker's reading, on the bgfx renderer only (Render/Type Legacy
+is right, the reference):
+(a) An edge's pre-selection highlight is still partly covered by the
+    selected line -- 243's rule (pre-selection over selection) not
+    holding there ("still": after 243).
+(b) A selected edge: where the object hides it, its selection
+    highlight is drawn full and solid (right); where the edge is in
+    plain sight, the edge's own line and its selection highlight fight
+    for depth -- the highlight broken up by the plain line (z-fighting).
+READ by the note-taker:
+- The only changes to the bgfx frame since 11-01: 243 `5e3a5917c4`
+  (BGFXFrame.cpp, BGFXViewSubmit.cpp, BGFXRendererP.h: the scene's
+  plain lines mark the stencil where front-most; the depth-tested
+  highlight and selection lines drawn again over the mark without the
+  depth test; the last redraw after the annotation orders draws the
+  selection first, the pre-selection after) and 243 b `e6a285fa4d`
+  (that copy only while the hidden style is solid). A lead, NOT
+  verified: the selected edge's own plain line marks the stencil and
+  its selection copy and the plain line meet at the same depth.
+- Cause NOT found.
+NOT said: which model (read as any edge, a PD body's); the dashed
+hidden style (read as the same).
+ASSIGNED to x16 (the note-taker coordinating; dwin is on 247; the
+change is dwin's 243 -- x16 may ask dwin).
+
+**2026-11-03 15:14, the reporter (to the note-taker), on 250:** "preselection
+highlight worked fine for unselected edge. but it also z fight with a
+selected edge"
+The note-taker's reading: 250 narrowed -- the pre-selection highlight of
+an UNSELECTED edge is right on bgfx. The fault is on a SELECTED edge:
+hovered, its pre-selection highlight and its selection highlight fight
+for depth ((a) is that z-fighting, not a plain covering); and, as
+before, (b) the selected edge's plain line fights its selection
+highlight. So: same-edge layers at the same depth, on bgfx only.
+Passed to x16.
+
+**2026-11-03 15:14, the reporter (to the note-taker), on 250:** "just compare all
+the cases (selection, preselection, unselected highlight over one and
+other) with the legacy render"
+The note-taker's reading: x16 is not to fix only the two cases named,
+but to compare bgfx with Legacy over EVERY combination of the three
+line states -- plain (unselected), selected, pre-selected (and selected
++ pre-selected, the same edge) -- each one over each other: the same
+edge, two edges coinciding, one in front of another, and each in plain
+sight and partly hidden by a face; and make bgfx match Legacy in every
+cell. Legacy is the reference.
+NOT said: the hidden-line dash pattern (read as both, pattern 0 and a
+dash); points (read as included if the same code draws them).
+Passed to x16.
+
+**2026-11-03 15:36, dwin (fcad-88; relayed): 247 (a) REPRODUCED on the STAGED copy,
+cause found; the fix building (rtx82), NOT committed, NOT pushed, NOT
+staged.**
+- Reproduced as the reporter does: the staged copy, a COPY of
+  scanner.FCStd, Yes to the box, on the hidden desktop. Grabs read black
+  there even idle, so dwin timed each of the view's paints: during the
+  42 s recompute 36 paints, 34 drew nothing (under 1 ms, 13 ms in all);
+  after it, 149 paints drew.
+- Cause, OLD: View3DInventorViewer::actualRedraw skipped drawing
+  whenever the view's document was recomputing (`3b0ae7bdde`, 2021,
+  "skip redraw when recomputing"). The recompute's progress pumps the
+  event loop, and each paint it lets through presents QOpenGLWidget's
+  cleared buffer -- black.
+- 242's hold made it show: the load used to finish under the migration
+  box; now it builds DURING the recompute (178 -> 1136 visuals), so every
+  frame of that load was black and the model appeared at once at the
+  end. dwin's `dfc36122fe` was right about the hold but left this skip.
+- Fix: the skip removed; upstream has none and draws during a recompute
+  the same way.
+- Also, on the reporter's word to dwin (relayed; the note-taker did not
+  hear it): FreeCADGui.open/insert of an .FCStd said "File type 'fcstd'
+  not supported" (they took only the GUI's own types); they now fall
+  back to the type's registered import module, as File > Open does.
+- New tests: tests/gui/view-drawn-during-recompute.py (a picture asked
+  for inside a recompute -- before, the capture timed out) and
+  tests/gui/gui-open-a-document.py. Chain t247d: both on staged
+  (before), build, the tests on dev, the scanner probe on dev, ctest,
+  the Python suite.
+
+**2026-11-03 15:47, dwin (fcad-88; relayed): 247 (a) CORRECTION -- the paint counts
+("36 paints, 34 drew nothing") WITHDRAWN.** The probe delivered each
+paint itself (obj.event), which skips the scroll area's filter -- the
+path to the view's drawing -- so it timed a path that never draws; the
+fixed build gave the same numbers, which is how dwin caught it.
+What stands: tests/gui/view-drawn-during-recompute.py -- on the STAGED
+copy a picture asked for inside a recompute never comes ("Frame capture
+timed out"); with the fix (rtx82) it is drawn, the boxes as in the
+control picture (0.059 of the picture both). That covers a recompute in
+general, not the scanner open itself; the scanner open is re-measured
+with the engine's own frame log (RenderTiming, per second, stage times),
+staged against rtx82, after ctest. Also on rtx82: gui-open-a-document
+5/5 (staged: the open FAILs); the 242/247 hold test 9/9.
+So the cause (the 2021 skip) rests on the capture test, not yet on the
+scanner open.
+
+**2026-11-03 20:55, dwin (fcad-88; relayed): 247 (a), 250 and 251 FIXED, PUSHED and
+STAGED** -- on the reporter's word to dwin, "push and restage once done"
+(relayed; the note-taker did not hear it). thundereal/LinkVibe
+50ab8ff316..`41ab0dba24` (checked by git ls-remote; it holds x16's 249 (a)
+revert `50ab8ff316`, merged as `e23a1f68c8`, and the note-taker's queue
+commits); the stage installed 2026-11-03 20:49:53 from `41ab0dba24`, not
+dirty (INSTALLED.txt). rtx87: pd-gui-defects 34/34, ctest 1100/1100.
+- 247 (a) `1806054df3`: View3DInventorViewer::actualRedraw no longer
+  skips drawing while the document recomputes (`3b0ae7bdde`, 2021).
+  view-drawn-during-recompute.py: staged, the capture timed out; now
+  drawn. The scanner open measured with RenderTiming: NOT reported.
+  With it `4463176920`: FreeCADGui.open/insert take any type with an
+  import module (an .FCStd opens as a document); gui-open-a-document.py
+  5/5.
+- 250 `4910a46cb5`: REPRODUCED by doing what the reporter did. The
+  reporter to dwin (relayed): a Body with a box, click Edge10, "you
+  don't even need to move the camera". The trigger is the box's task
+  panel (setEdit + OK): after it the feed keeps the Body's Origin,
+  hidden, with on-top order 999, which runs the engine's late on-top
+  pass; its last loop redrew the selection's lines in LIST order, the
+  box's plain line after the green highlight at equal depth. Now in
+  step 5's order (plain companions first, highlight last); a hidden draw
+  opens no order. A SHOWN Origin gave the same fault without any edit.
+  Every earlier probe missed it: a scripted box has no edit, and the GUI
+  test profile forces AntiAliasing 0 (the reporter has 4x, unstored).
+  selected-edges-on-top-alike.py staged 6 FAIL, now 8/8 (by GUI, Origin
+  shown, script; Legacy too); x16's matrix 19, origin-plane-highlight 17,
+  hidden-selected-edge-over-line 2, datum-picked-through-a-face 3 -- bgfx
+  and Legacy.
+- NEW ENTRY 251, said to dwin (relayed): "your test always leaks some
+  documents in transient directory". 25 FreeCAD_Doc_* per ctest run in
+  %LOCALAPPDATA%\cache\FreeCAD\Cache; 22 from the FeaturePart
+  Common/Cut/Fuse tests (an empty TearDown) -- fixed `42376ec39b`; 3 per
+  run remain, NOT placed. The 352 leftovers deleted on the reporter's
+  word to dwin ("you can clean them").
+NOT said by the reporter: anything on the stage of 20:49 yet.
+The screenshots the reporter asked for on 250 ("Show me the screenshots
+once fixed") NOT sent yet -- ASKED of dwin (bgfx and Legacy side by side,
+staged before and after). x16 told 250 is found and fixed; its question
+to the reporter is no longer needed. Next for dwin: the screenshots, then
+251's 3 remaining documents.
+
+## 251. The tests leave documents behind in the transient directory -- STAGED 2026-11-03 20:49 in part (22 of 25); the last 3 FIXED `907c54629d`, not staged
+
+**2026-11-03, the reporter (to dwin; relayed, the note-taker did not hear
+it):** "your test always leaks some documents in transient directory"
+The note-taker's reading: a test run (ctest, the GUI tests) leaves
+FreeCAD_Doc_* directories in the transient directory; every one should go.
+dwin: 25 per ctest run in %LOCALAPPDATA%\cache\FreeCAD\Cache (352 since
+10-26, none of the reporter's own). 22 are the FeaturePart Common/Cut/Fuse
+tests -- an empty TearDown, the document never closed; fixed
+`42376ec39b`, pushed and staged at `41ab0dba24`. 3 per run remain, NOT
+placed (one process with two documents, empty dirs; not the *_tests_run
+executables, not the testUser fixtures, which close). The 352 leftovers
+deleted on the reporter's word to dwin (relayed): "you can clean them".
+NOT said: the GUI tests (read as included).
+ASSIGNED to dwin (the 3 remaining), after 250's screenshots.
+
+**2026-11-03 20:57, x16 (fcad-86; relayed): 250 confirmed independently; its matrix test
+to be finished.** x16 stopped, nothing committed, its LinkVibe at
+`41ab0dba24`. Its 19-cell matrix (untracked,
+tests/gui/highlight-line-matrix.py) now runs each cell a second time with
+an App::Part's Origin SHOWN (at x 70). On the pre-fix build `50ab8ff316`,
+bgfx GL MSAA 4x on the GPU: the first pass 19/19; the Origin pass FAILs 6
+cells, the object's plain line over the selection -- o01 (same edge), o04
+and o08 (coinciding), o10 and o14 (crossing), o18 (a point). That is
+dwin's cause, found by another route. Not commit-ready: Legacy under
+--gl nvidia fails 3 first-pass and 6 Origin cells, most reading "other" --
+x16 suspects a stale QOpenGLWidget grab, NOT checked.
+ASSIGNED to x16 (the note-taker's call: the reporter asked for every case
+compared with Legacy, and this test is that comparison): fix the Legacy
+capture, run the matrix on `41ab0dba24`, bgfx and Legacy; commit it as
+an extra test, local, no push.
+
+**2026-11-03 21:07, dwin (fcad-88; relayed): 250's screenshots SENT; 247 (a) measured on
+the stage; 251 being bisected.**
+- 250: ..\dl\handson\2026-10-12\s1\entry250-before-after.png, sent to the reporter by
+  dwin. A GUI-made Body + box (task panel OK), Edge10 clicked, the
+  reporter's camera, MSAA 4x; columns bgfx selected, bgfx hover on it,
+  Legacy selected, Legacy hover, each with a 3x zoom along Edge10.
+  BEFORE (the dev tree with BGFXFrame.cpp of 4910a46cb5~1, rtx88-before2;
+  no unfixed stage was left): bgfx selected shows the plain black line
+  with green only at its sides; the hover and Legacy fine. AFTER (the
+  stage at `41ab0dba24`): bgfx like Legacy. The dev tree rebuilt with the
+  fix (rtx89, clean). Nothing pushed or staged since `41ab0dba24`.
+- 247 (a): the RenderTiming before/after did NOT run before the restage
+  (held while the reporter had the app open). AFTER only, the stage at
+  `41ab0dba24`, a COPY of scanner.FCStd with the addons, Yes to the
+  migration: the recompute 38.7 s, 41 frames drawn over 15 one-second
+  log lines (1-4 each), every frame the full pipeline; one 14.5 s line
+  with 3 frames, a single long feature recompute holding the loop. The
+  boxes "Recompution required" then "Recompute error", as before. Log
+  s1\g-247frames-after-staged\FreeCAD.log (beside the picture). So the view now draws during
+  the scanner recompute, slowly where one feature takes long.
+- 251: dwin bisects the 3 remaining documents (ctest -I halves).
+
+**2026-11-03 21:15, x16 (fcad-86; relayed): 250's matrix COMMITTED, `3fef4b5c10`, local
+on x16's tree after `41ab0dba24`, NOT pushed.** "Tests: highlighted lines
+over one another, the engine against Legacy": 19 cells x 2 passes (plain,
+and an App::Part's Origin shown) = 38 checks; registered in ctest twice,
+GuiHighlightLineMatrixEngine and GuiHighlightLineMatrixLegacy, MSAA 4x
+(the result files confirm the render type, AntiAliasing 3, 38/38).
+- On `41ab0dba24`: 38/38 on bgfx GPU GL, bgfx software GL, Legacy
+  software GL. Before the fix (`50ab8ff316`): the Origin pass 6 FAIL
+  (earlier sampling).
+- Legacy's failing cells on x16's box: the capture changed
+  (grabFramebuffer, alpha ignored) but NOT the cause; Mesa's d3d12 GL
+  driver (the GPU under WSL) draws Legacy's dashed line solid with MSAA
+  off and every highlighted line wide and washed out with 4x. Software GL
+  and dwin's native Windows Legacy pass -- the box's driver, written in
+  the test's docstring and the commit message.
+- The test's own faults fixed on the way: the hidden line sampled every
+  quarter unit; a crossing judged over 3x3 pixels, not 7x7.
+- An aside, NOT filed (the reporter has not said it): Legacy draws the
+  boxes' faces white where bgfx draws them lavender, every setup.
+- x16's earlier single-edge probe moved out of the tree. x16 FREE.
+
+**2026-11-03 22:06, dwin (fcad-88; relayed): 251's last 3 PLACED and FIXED,
+`907c54629d` "Import: a failed insert makes no document", local, NOT
+pushed, NOT staged.** Bisected by ctest -I halves, counting the new
+FreeCAD_Doc_* dirs per run: ImportErrorsTest.insertOfAnUnknownTypeIsIOError
+(1 dir) and ImportErrorsTest.insertOfAMissingFileIsIOError (2 dirs),
+confirmed alone -- one per Import.insert call.
+- Cause, a PRODUCT bug, not only the test's: Import.insert (and
+  ImportGui.insert, the same code) made a new document whenever none was
+  named, and only then looked at the file type and the file -- a failed
+  insert left an empty "Unnamed" document open, whose transient dir
+  stays when the process ends. Now both refuse an unknown type or a
+  missing file BEFORE a document is made, with the same OSError.
+- TestImportErrors.cpp now also fails a call that leaves a new document
+  open.
+- rtx90: ctest -R "ImportErrorsTest|ExportMarks|ReaderStepStream" 13
+  passed, no dir left; live-import-nested-loop 8/8,
+  export-hidden-component 15/15; Python 4078 OK. A full ctest run on it
+  NOT run (the last one, before this fix, left exactly these 3).
+Push and restage wait for the reporter's word. dwin FREE.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30566,5 +33072,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 229
+the build session, 131 and 132 found by it; entries 134 to 251
 are of 2026-10-15, 134 said to the build session)

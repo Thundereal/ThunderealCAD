@@ -3540,7 +3540,9 @@ bool BGFXRenderer::Private::render(const QColor &col,
                 ? uint16_t(BGFX_CLEAR_COLOR|BGFX_CLEAR_DEPTH
                            |BGFX_CLEAR_STENCIL)
             : (i == V::ViewSectionCap
-               || i == V::ViewSectionCapTransp)
+               || i == V::ViewSectionCapTransp
+               // the plain lines' mark under a highlight (entry 243)
+               || i == V::ViewHighlight)
                 ? uint16_t(BGFX_CLEAR_STENCIL)
                 : uint16_t(BGFX_CLEAR_NONE),
             clearColor, 1.0f, 0);
@@ -4721,7 +4723,11 @@ bool BGFXRenderer::Private::render(const QColor &col,
         if (!draw.material.ontop)
             continue;
         if (layered(draw)) {
-            onTopLayers.push_back(draw.material.ontoplayer);
+            // A hidden draw opens no order: the Origin a PartDesign edit
+            // showed stays in the feed hidden after it (entry 250), and
+            // its datums' order ran the passes below for nothing.
+            if (!isHidden(draw))
+                onTopLayers.push_back(draw.material.ontoplayer);
             continue;
         }
         (isTriangle(draw) ? sceneOnTopTri : sceneOnTopLine) = true;
@@ -4742,6 +4748,7 @@ bool BGFXRenderer::Private::render(const QColor &col,
     }
     bool sceneTwoPass = sceneOnTopTri && sceneOnTopLine;
     bool twoPass = sceneTwoPass || selOnTopLine || hlWholeOnTop;
+
 
 
     // The same object selected through several ids draws its
@@ -6312,6 +6319,54 @@ bool BGFXRenderer::Private::render(const QColor &col,
         }
     }
 
+    // Entry 243 (the reporter: "I thought highlighted line always render
+    // on top with the highest priority, preselection higher then
+    // selection"): with a highlighted line or point to draw, the scene's
+    // plain lines and points mark the stencil where they are the
+    // front-most thing drawn, and every depth-tested highlight line or
+    // point after this is drawn once more over that mark (BGFXView::
+    // overLines) -- over a line in front of it, still under a face. All of
+    // them on screen: a draw's bounds cannot rule one out (the origin's
+    // axes share one cached line and report its bounds, not where each is
+    // drawn).
+    view->overLines = false;
+    auto markLines = [&]() {
+        auto highlighted = [&](const Render::DrawCall &d) {
+            return !isTriangle(d) && d.material.highlightline;
+        };
+        bool any = std::any_of(highlight.begin(), highlight.end(), highlighted);
+        for (const auto &sel : selections) {
+            if (sel.first > 0)
+                any = any || std::any_of(sel.second.begin(), sel.second.end(), highlighted);
+        }
+        if (!any)
+            return;
+        // Only while the hidden part of a selected line is drawn solid: a
+        // dash pattern (View/SelectionLinePattern, which the bridge gives a
+        // highlight line as its hidden pattern) is the style of what is
+        // hidden, by a line or by a face, and the hidden pass already draws
+        // it over everything (entry 243 b, the reporter: "if the hidden
+        // selection edge style does not override, i.e. shows solid edge, it
+        // should be shown on top")
+        auto styled = [&](const Render::DrawCall &d) {
+            return highlighted(d) && d.material.hiddenlinepattern != d.material.linepattern;
+        };
+        bool dashed = std::any_of(highlight.begin(), highlight.end(), styled);
+        for (const auto &sel : selections) {
+            if (sel.first > 0)
+                dashed = dashed || std::any_of(sel.second.begin(), sel.second.end(), styled);
+        }
+        if (dashed)
+            return;
+        for (const auto &draw : scene) {
+            if (isTriangle(draw) || draw.material.ontop || isHidden(draw)
+                    || hidePoints(draw) || culled(draw))
+                continue;
+            view->submit(draw, viewMat, BGFXView::PassLineMark, sceneNoSeam(draw));
+            view->overLines = true;
+        }
+    };
+
     if (twoPass) {
         // 4. Depth-write-only prepass of on-top fills: on-top draws
         // render without depth test and thus never write depth, so the
@@ -6343,6 +6398,8 @@ bool BGFXRenderer::Private::render(const QColor &col,
                     view->submit(draw, viewMat, BGFXView::PassDepthOnly);
             }
         }
+
+        markLines();
 
         // 5. On-top lines/points, dimmed where depth-occluded then
         // solid where visible (GL's RenderPassLinePattern/LineSolid).
@@ -6382,6 +6439,7 @@ bool BGFXRenderer::Private::render(const QColor &col,
             }
         }
     } else {
+        markLines();
         // No fills on top: scene on-top lines draw in a single pass.
         for (const auto &draw : scene) {
             if (draw.material.ontop && !isTriangle(draw)
@@ -6414,6 +6472,65 @@ bool BGFXRenderer::Private::render(const QColor &col,
             else if (!hidePoints(draw)) {
                 view->submit(draw, viewMat, BGFXView::PassNormal,
                              sceneNoSeam(draw));
+            }
+        }
+        // The coloured copies of this order's lines -- of the preselected
+        // object, of a selected one -- over its plain ones, as GL ends
+        // with them: drawn in the passes above, a datum's lines were
+        // covered here by the dashed copy of them drawn through what is
+        // in front (an SoFCPathAnnotation of priority -1, entry 99), the
+        // highlight showing only between the dashes (docs/HandsOnQueue.md
+        // entry 235)
+        for (const auto &draw : highlight) {
+            if (!isTriangle(draw) && draw.material.ontoplayer == layer)
+                view->submit(draw, viewMat);
+        }
+        for (const auto &sel : selections) {
+            for (const auto &draw : sel.second) {
+                if (!isTriangle(draw) && !isDup(draw)
+                        && draw.material.ontoplayer == layer)
+                    view->submit(draw, viewMat);
+            }
+        }
+    }
+    // ... and their solid lines again over every order's plain ones: a
+    // datum's line coincides with another's (an axis with the edge of the
+    // plane through it, seen side on), whose dashed copy covered the
+    // coloured line between its own dashes. Where visible, as the passes
+    // above drew them; the preselection's lines are drawn after this
+    // anyway unless they are whole on top.
+    if (!onTopLayers.empty()) {
+        // In step 5's order: the uncoloured whole-on-top companions first,
+        // the coloured highlight lines last. In list order a companion
+        // came after the highlight it coincides with and covered it at
+        // equal depth -- a selected edge in front showed its plain line
+        // down its middle, one behind a face (the companion failing the
+        // depth test there) kept its colour (docs/HandsOnQueue.md entry
+        // 250). Routed as step 6 routes the selections' fills.
+        for (int hlphase = 0; hlphase < 2; ++hlphase) {
+            for (const auto &sel : selections) {
+                view->ontop = sel.first > 0;
+                view->selPass = sel.first <= 0;
+                for (const auto &draw : sel.second) {
+                    if (isTriangle(draw) || isDup(draw) || draw.material.ontoplayer != 0
+                            || draw.material.highlightline != (hlphase == 1))
+                        continue;
+                    if (sel.first > 0)
+                        view->submit(draw, viewMat, BGFXView::PassLineSolid);
+                    else
+                        view->submit(draw, viewMat);
+                }
+            }
+        }
+        view->ontop = true;
+        view->selPass = false;
+        // the preselection after the selection: over it (entry 243,
+        // "preselection higher then selection")
+        if (hlWholeOnTop) {
+            for (const auto &draw : highlight) {
+                if (!isTriangle(draw) && draw.partIndex < 0
+                        && draw.material.ontoplayer == 0)
+                    view->submit(draw, viewMat, BGFXView::PassLineSolid);
             }
         }
     }
@@ -6531,6 +6648,7 @@ bool BGFXRenderer::Private::render(const QColor &col,
                                 faceOutlineSpec(draw));
     }
     view->ontop = false;
+    view->overLines = false;
 
     // 10. Overlay feeds (foreground superimposition, corner axis
     // cross): each slot draws late into its own view — anchor-derived

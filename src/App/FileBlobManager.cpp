@@ -1847,10 +1847,15 @@ void FileBlobManager::restoreInlineBlobs(Base::XMLReader& reader)
 void FileBlobManager::beginRestore(Base::XMLReader& reader)
 {
     {
-        std::lock_guard<std::mutex> guard(_mutex);
-        _pending.clear();
-        _restoreNames.clear();
-        _restoreClosed = false;
+        // Released after the lock, see endRestore()
+        std::unordered_map<std::string, FileBlobHandle> kept;
+        {
+            std::lock_guard<std::mutex> guard(_mutex);
+            _pending.clear();
+            _restoreNames.clear();
+            _restoreClosed = false;
+            kept.swap(_keptUnclaimed);
+        }
     }
 
     // An unpacked project keeps its content as ordinary files, so there are no
@@ -1867,7 +1872,7 @@ void FileBlobManager::beginRestore(Base::XMLReader& reader)
                 inPlace = _inPlaceDir;
             }
             restoreFromDirectory(dir + "/" + archivePrefix(),
-                                 !inPlace.empty() && FileHistory::canonicalPath(dir) == inPlace);
+                                 !inPlace.empty() && FileHistory::samePath(dir, inPlace));
             return;
         }
     }
@@ -2592,7 +2597,7 @@ void FileBlobManager::dispatchPending()
     }
 }
 
-void FileBlobManager::endRestore()
+void FileBlobManager::endRestore(bool keepUnclaimed)
 {
     {
         std::unordered_map<std::string, FileBlobHandle> hold;
@@ -2600,6 +2605,11 @@ void FileBlobManager::endRestore()
             std::lock_guard<std::mutex> guard(_mutex);
             _pending.clear();
             hold.swap(_restoreHold);
+            if (keepUnclaimed) {
+                for (const auto& kv : hold) {
+                    _keptUnclaimed[kv.first] = kv.second;
+                }
+            }
             _restoreNames.clear();
             // From here a referrer arriving is a bug in whatever produced it,
             // not something to wait for; addPendingReferrer() says so out loud.

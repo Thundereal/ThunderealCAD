@@ -38,6 +38,13 @@ public:
 
     App::DocumentObjectExecReturn *execute() override;
 
+    /// Its own elements, which a tree hover lights: what it generates, and
+    /// the faces it changed -- the neighbours extended over the gap the
+    /// picked faces leave. Not every face its history calls modified:
+    /// OCCT rebuilds them all (docs/HandsOnQueue.md entry 248)
+    bool isElementGenerated(const Part::TopoShape &shape,
+                            const Data::MappedName &name) const override;
+
     const char* getViewProviderName() const override {
         return "PartDesignGui::ViewProviderDefeaturing";
     }

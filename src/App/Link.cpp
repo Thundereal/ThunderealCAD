@@ -41,6 +41,7 @@
 #include "Link.h"
 #include "LinkAppearance.h"
 #include "LinkBaseExtensionPy.h"
+#include "PropertyAppearance.h"
 
 FC_LOG_LEVEL_INIT("App::Link", true,true)
 
@@ -1389,6 +1390,12 @@ int LinkBaseExtension::getElementIndex(const char *subname, const char **psubnam
     const char *dot = strchr(subname,'.');
     if(!dot) dot= subname+strlen(subname);
 
+    // A "$$Name." step naming a property of this link is not an element
+    DocumentObject *propObj = nullptr;
+    auto container = getContainer();
+    if(container && container->resolvePropertyStep(subname,propObj))
+        return -1;
+
     if(isdigit(subname[0])) {
         // If the name start with digits, treat as index reference
         idx = getArrayIndex(subname,nullptr);
@@ -1664,7 +1671,15 @@ bool LinkBaseExtension::extensionGetSubObject(DocumentObject *&ret, const char *
     // object, because other link property may store such reference.
     if (const char* dot=strchr(subname,'.')) {
         auto group = getLinkCopyOnChangeGroupValue();
-        if (subname[0] == '$') {
+        DocumentObject *propObj = nullptr;
+        if (obj->resolvePropertyStep(subname, propObj)) {
+            // A "$$Name." step naming a property of this link, taken as the
+            // linked object is
+            if (propObj && propObj->isAttachedToDocument())
+                linked = propObj;
+            else
+                return true;
+        } else if (subname[0] == '$') {
             CharRange sub(subname+1,dot);
             if (group && boost::equals(sub, group->Label.getValue()))
                 linked = group;
@@ -1688,6 +1703,9 @@ bool LinkBaseExtension::extensionGetSubObject(DocumentObject *&ret, const char *
             if (ret && dot[1])
                 subname = dot+1;
         }
+        // The ambiguity below cannot arise for a property step
+        if (!ret && propObj)
+            return true;
     }
 
     if (!ret) {

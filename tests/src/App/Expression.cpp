@@ -5,6 +5,8 @@
 #include "App/Application.h"
 #include "App/Document.h"
 #include "App/DocumentObject.h"
+#include "App/ObjectIdentifier.h"
+#include "App/PropertyExpressionEngine.h"
 #include "InitApplication.h"
 
 // clang-format off
@@ -99,5 +101,65 @@ TEST_F(ExpressionStatementPrint, oneLineCompoundStatementParsesAgain)
     auto two = App::Expression::parse(owner, "x = 1\nif x: 2\n");
     ASSERT_TRUE(two);
     EXPECT_EQ(two->toString(), "x = 1\nif x: 2");
+}
+
+// An object replaced in an expression -- a link's replacement, which
+// CopyOnLinkReplace() does -- names the new object; a property renamed keeps
+// the object as the expression names it, a label say. Both go through one
+// rename pass, and the second rule put the old object back for the first.
+class ExpressionReplaceObject: public ::testing::Test
+{
+protected:
+    static void SetUpTestSuite()
+    {
+        tests::initApplication();
+    }
+    void SetUp() override
+    {
+        doc = App::GetApplication().newDocument("ExprReplaceObject", "testUser");
+        a = doc->addObject("App::FeaturePython", "A");
+        b = doc->addObject("App::FeaturePython", "B");
+        user = doc->addObject("App::FeaturePython", "User");
+        for (auto obj : {a, b}) {
+            obj->addDynamicProperty("App::PropertyFloat", "Val");
+            obj->addDynamicProperty("App::PropertyFloat", "Other");
+        }
+        user->addDynamicProperty("App::PropertyFloat", "Out");
+    }
+    void TearDown() override
+    {
+        App::GetApplication().closeDocument(doc->getName());
+    }
+    std::string bound() const
+    {
+        auto exprs = user->ExpressionEngine.getExpressions();
+        auto it = exprs.find(App::ObjectIdentifier(user, "Out"));
+        return it == exprs.end() || !it->second ? std::string() : it->second->toString();
+    }
+    App::Document* doc = nullptr;
+    App::DocumentObject* a = nullptr;
+    App::DocumentObject* b = nullptr;
+    App::DocumentObject* user = nullptr;
+};
+
+TEST_F(ExpressionReplaceObject, replacedObjectIsNamed)
+{
+    auto expr = App::Expression::parse(user, "A.Val * 2");
+    ASSERT_TRUE(expr);
+    auto replaced = expr->replaceObject(user, a, b);
+    ASSERT_TRUE(replaced);
+    EXPECT_EQ(replaced->toString(), "B.Val * 2");
+}
+
+TEST_F(ExpressionReplaceObject, renamedPropertyKeepsTheLabel)
+{
+    a->Label.setValue("Alpha");
+    App::ExpressionPtr expr(App::Expression::parse(user, "<<Alpha>>.Val * 2"));
+    user->ExpressionEngine.setValue(App::ObjectIdentifier(user, "Out"), std::move(expr));
+    ASSERT_EQ(bound(), "<<Alpha>>.Val * 2");
+    std::map<App::ObjectIdentifier, App::ObjectIdentifier> paths {
+        {App::ObjectIdentifier(a, "Val"), App::ObjectIdentifier(a, "Other")}};
+    doc->renameObjectIdentifiers(paths);
+    EXPECT_EQ(bound(), "<<Alpha>>.Other * 2");
 }
 // clang-format on

@@ -510,12 +510,6 @@ public:
     virtual void show();
     /// checks whether the view provider is visible or not
     virtual bool isShow() const;
-    /** The object a visibility toggle acts on when this one is picked in
-     * the 3D view, or null for this object itself. A PartDesign feature
-     * names its body: from the view, Space toggles what is seen there.
-     * A selection from the tree (no element picked) is not redirected.
-     */
-    virtual App::DocumentObject *getPickedVisibilityTarget() const { return nullptr; }
     void setVisible(bool);
     bool isVisible() const;
     void setLinkVisible(bool);
@@ -641,6 +635,28 @@ public:
      * Std_Undo and a client's undo come here; an undo straight on the App
      * document does not.
      */
+    /** Whether an edit in \a ModNum holds a transaction open across the
+     * user's work -- its panel's Cancel aborts it.
+     *
+     * Such an edit runs alone in its document: another view's edit beside
+     * it (PerViewEdit, docs/HandsOnQueue.md entry 232) would commit its
+     * work in progress. False for an edit that makes each change a step
+     * of its own and takes back its own steps on Cancel.
+     */
+    virtual bool editHoldsTransaction(int ModNum) const
+    {
+        (void)ModNum;
+        return true;
+    }
+    /** Whether the command \a name, run while this is in edit in the
+     * active view, works on this edit: what it opens is a step of the
+     * edit's own (Gui::EditStepScope, docs/HandsOnQueue.md entry 232).
+     */
+    virtual bool editOwnsCommand(const char *name) const
+    {
+        (void)name;
+        return false;
+    }
     virtual bool undoRedoInEdit(bool redo)
     {
         (void)redo;

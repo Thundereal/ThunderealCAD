@@ -30,6 +30,7 @@
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/FileBlobManager.h>
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
 #include <Base/Stream.h>

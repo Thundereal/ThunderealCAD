@@ -221,13 +221,15 @@ bool MDIViewPage::onMsg(const char *pMsg, const char **ppReturn)
         return true;
     }
     else if (strcmp("Undo", pMsg) == 0) {
-        doc->undo(1);
+        // the user's own: a refused step is said and may be gone past
+        // (docs/TransactionLogJournal.md sec 33.11), as MDIView::onMsg's
+        doc->undo(1, true);
         Gui::Command::updateActive();
         fixSceneDependencies();    // check QGraphicsScene item parenting
         return true;
     }
     else if (strcmp("Redo", pMsg) == 0) {
-        doc->redo(1);
+        doc->redo(1, true);
         Gui::Command::updateActive();
         return true;
     }
@@ -830,8 +832,17 @@ void MDIViewPage::onSelectionChanged(const Gui::SelectionChanges& msg)
     else if (msg.Type == Gui::SelectionChanges::SetPreselect
             || msg.Type == Gui::SelectionChanges::RmvPreselect) {
         auto selObj = msg.Object.getObject();
-        auto resetHighlight = [this]{
+        auto subItem = [](QGIView* view, const std::string& sub) -> QGIPrimPath* {
+            auto part = dynamic_cast<QGIViewPart*>(view);
+            if (!part || sub.empty())
+                return nullptr;
+            return dynamic_cast<QGIPrimPath*>(part->getQGISubItemByName(sub));
+        };
+        auto resetHighlight = [this, subItem]{
             if (m_preselection) {
+                if (auto item = subItem(m_preselection, m_preselectSub))
+                    item->setPreselect(false);
+                m_preselectSub.clear();
                 m_preselection->setPreselect(false);
                 m_preselection = nullptr;
                 if (auto obj = m_preselectOther.getObject()) {
@@ -863,11 +874,21 @@ void MDIViewPage::onSelectionChanged(const Gui::SelectionChanges& msg)
         }
         else if (auto drawView = Base::freecad_dynamic_cast<TechDraw::DrawView>(selObj)) {
             if (QGIView* view = m_scene->findQViewForDocObj(drawView)) {
-                if (msg.Type == Gui::SelectionChanges::RmvPreselect || m_preselection != view) {
+                // A preselection of an edge, a vertex or a face is that item's,
+                // as the mouse over it makes it: from Python, from the tree or
+                // from another view it used to light the view's frame alone,
+                // and with frames off (the default) nothing at all.
+                const std::string sub = msg.pSubName ? msg.pSubName : "";
+                if (msg.Type == Gui::SelectionChanges::RmvPreselect || m_preselection != view
+                    || m_preselectSub != sub) {
                     resetHighlight();
                     if (highlighted) {
                         m_preselection = view;
                         view->setPreselect(true);
+                        if (auto item = subItem(view, sub)) {
+                            m_preselectSub = sub;
+                            item->setPreselect(true);
+                        }
                         if (auto highlight = findHighlight(drawView)) {
                             m_preselectOther = drawView;
                             highlight->setPreselect(true);
@@ -1314,7 +1335,10 @@ Py::Object MDIViewPagePy::getPage(const Py::Tuple& args)
 
 Py::Object MDIViewPagePy::cast_to_base(const Py::Tuple&)
 {
-    return Py::asObject(base);
+    // A reference of the caller's own: asObject() took over the one this
+    // holds, and every call -- each MainWindow.setActiveWindow() of a page
+    // view -- dropped one, until the base was freed under this
+    return Py::Object(base);
 }
 
 #include <Mod/TechDraw/Gui/moc_MDIViewPage.cpp>

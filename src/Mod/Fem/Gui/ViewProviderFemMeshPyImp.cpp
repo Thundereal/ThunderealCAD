@@ -137,22 +137,40 @@ PyObject* ViewProviderFemMeshPy::setNodeColorByScalars(PyObject* args)
     double min = +1e12;
     PyObject* node_ids_py;
     PyObject* values_py;
+    // An optional scale: values are coloured against it rather than against
+    // their own extremes, so a series of frames shares one.
+    PyObject* min_py = Py_None;
+    PyObject* max_py = Py_None;
 
-    if (PyArg_ParseTuple(args, "O!O!", &PyList_Type, &node_ids_py, &PyList_Type, &values_py)) {
+    if (PyArg_ParseTuple(args,
+                         "O!O!|OO",
+                         &PyList_Type,
+                         &node_ids_py,
+                         &PyList_Type,
+                         &values_py,
+                         &min_py,
+                         &max_py)) {
         std::vector<long> ids;
         std::vector<double> values;
-        int num_items = PyList_Size(node_ids_py);
-        if (num_items < 0) {
-            PyErr_SetString(PyExc_ValueError, "PyList_Size < 0. That is not a valid list!");
-            Py_Return;
+        Py_ssize_t num_items = PyList_Size(node_ids_py);
+        if (PyList_Size(values_py) != num_items) {
+            PyErr_SetString(PyExc_ValueError, "node ids and values differ in length");
+            return nullptr;
         }
         std::vector<Base::Color> node_colors(num_items);
-        for (int i = 0; i < num_items; i++) {
+        for (Py_ssize_t i = 0; i < num_items; i++) {
             PyObject* id_py = PyList_GetItem(node_ids_py, i);
             long id = PyLong_AsLong(id_py);
-            ids.push_back(id);
             PyObject* value_py = PyList_GetItem(values_py, i);
             double val = PyFloat_AsDouble(value_py);
+            if (PyErr_Occurred()) {
+                return nullptr;
+            }
+            if (id < 0) {
+                PyErr_SetString(PyExc_ValueError, "a node id is negative");
+                return nullptr;
+            }
+            ids.push_back(id);
             values.push_back(val);
             if (val > max) {
                 max = val;
@@ -160,6 +178,15 @@ PyObject* ViewProviderFemMeshPy::setNodeColorByScalars(PyObject* args)
             if (val < min) {
                 min = val;
             }
+        }
+        if (min_py != Py_None) {
+            min = PyFloat_AsDouble(min_py);
+        }
+        if (max_py != Py_None) {
+            max = PyFloat_AsDouble(max_py);
+        }
+        if (PyErr_Occurred()) {
+            return nullptr;
         }
         long i = 0;
         for (std::vector<double>::const_iterator it = values.begin(); it != values.end();

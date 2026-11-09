@@ -29,6 +29,7 @@ using namespace Fem;
 PROPERTY_SOURCE(Fem::ConstraintRigidBody, Fem::Constraint)
 
 const char* ConstraintRigidBody::boundaryModeEnum[] = {"Free", "Constraint", "Load", nullptr};
+const char* ConstraintRigidBody::couplingEnum[] = {"Rigid", "Distributing", nullptr};
 
 ConstraintRigidBody::ConstraintRigidBody()
 {
@@ -133,6 +134,36 @@ ConstraintRigidBody::ConstraintRigidBody()
         "ConstraintRigidBody",
         (App::PropertyType)(App::Prop_None),
         "Amplitude values"
+    );
+
+    ADD_PROPERTY_TYPE(
+        Coupling,
+        ("Rigid"),
+        "ConstraintRigidBody",
+        App::Prop_None,
+        "Rigid: the faces move as one with the reference node.\n"
+        "Distributing: its loads are spread over the faces, which stay as stiff\n"
+        "as they are; it takes loads only"
+    );
+    Coupling.setEnums(couplingEnum);
+
+    ADD_PROPERTY_TYPE(
+        CouplingRadius,
+        (0.0),
+        "ConstraintRigidBody",
+        App::Prop_None,
+        "The coupling on the faces' parts within this distance of the\n"
+        "reference node only, a load on a patch of a face or a hold on the\n"
+        "part of it another part shares; 0: all of them"
+    );
+
+    ADD_PROPERTY_TYPE(
+        Axes,
+        (Base::Rotation()),
+        "ConstraintRigidBody",
+        App::Prop_None,
+        "A rigid coupling's axes, the global ones turned by this: its modes,\n"
+        "displacement, rotation, forces and moments are along them"
     );
 
     TranslationalModeX.setEnums(boundaryModeEnum);

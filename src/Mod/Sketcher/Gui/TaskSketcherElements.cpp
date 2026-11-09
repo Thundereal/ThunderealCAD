@@ -1196,8 +1196,11 @@ void TaskSketcherElements::on_elementsWidget_itemChanged(QTreeWidgetItem *item, 
     int geoId = ite->ElementNbr;
     QPointer<TaskSketcherElements> self(this);
     QTimer::singleShot(0, this, [self, geoId, shown]() {
-        if (self)
+        // the sketch's step, though a timer's (docs/HandsOnQueue.md entry 232)
+        if (self) {
+            Gui::EditStepScope scope(self->sketchView);
             self->setGeometryLayer(geoId, shown ? 0 : 2);
+        }
     });
 }
 
@@ -1274,8 +1277,11 @@ void TaskSketcherElements::onLayerRequested(int layer, int clickedGeoId)
     // the change rebuilds this list; make it once the menu has returned
     QPointer<TaskSketcherElements> self(this);
     QTimer::singleShot(0, this, [self, geoIds, layer]() {
-        if (self)
+        // the sketch's step, though a timer's (docs/HandsOnQueue.md entry 232)
+        if (self) {
+            Gui::EditStepScope scope(self->sketchView);
             self->setGeometryLayers(geoIds, layer);
+        }
     });
 }
 

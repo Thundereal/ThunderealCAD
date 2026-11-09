@@ -21,7 +21,6 @@
  * on. Its steps are a function of the steady clock and of nothing else,
  * so a step is made at its time whether or not anybody is reading. */
 #define _GNU_SOURCE
-#include <dlfcn.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <time.h>
@@ -38,26 +37,15 @@ static double sched_first;
 static double sched_every;
 static volatile int sched_count;
 
-static int (*real_clock_gettime)(clockid_t, struct timespec*);
-
+/* The kernel's clocks, asked directly: no dlsym(RTLD_NEXT, ...) on the way.
+ * A lookup there can allocate and free (its dlerror buffer), and the clock is
+ * read from inside allocators -- AddressSanitizer's free() quarantines through
+ * MonotonicNanoTime(), which reached this lookup, whose free() ran nested in
+ * the first and freed the buffer twice. A syscall is slower than the vDSO,
+ * which a test does not notice. */
 static int raw_clock_gettime(clockid_t id, struct timespec* ts)
 {
-    if (!real_clock_gettime) {
-        /* Looked up once; until it is found -- the lookup may itself read
-         * a clock -- the kernel is asked directly */
-        static int looking;
-        if (looking) {
-            return (int)syscall(SYS_clock_gettime, id, ts);
-        }
-        looking = 1;
-        real_clock_gettime =
-            (int (*)(clockid_t, struct timespec*))dlsym(RTLD_NEXT, "clock_gettime");
-        looking = 0;
-        if (!real_clock_gettime) {
-            return (int)syscall(SYS_clock_gettime, id, ts);
-        }
-    }
-    return real_clock_gettime(id, ts);
+    return (int)syscall(SYS_clock_gettime, id, ts);
 }
 
 static double steady(void)
@@ -128,11 +116,7 @@ long fc_clock_reads(void)
 
 int gettimeofday(struct timeval* restrict tv, void* restrict tz)
 {
-    static int (*real)(struct timeval*, void*);
-    if (!real) {
-        real = (int (*)(struct timeval*, void*))dlsym(RTLD_NEXT, "gettimeofday");
-    }
-    int r = real(tv, tz);
+    int r = (int)syscall(SYS_gettimeofday, tv, tz);  /* see raw_clock_gettime() */
     ++calls;
     if (r == 0 && tv) {
         double by = shift();

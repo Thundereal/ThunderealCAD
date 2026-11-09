@@ -59,7 +59,6 @@
 #include <QCoreApplication>
 
 #include <App/Application.h>
-#include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Parameter.h>
 #include <Base/Quantity.h>
@@ -79,6 +78,7 @@
 #include "DrawViewPart.h"
 #include "Geometry.h"
 #include "GeometryMatcher.h"
+#include "GeometryObject.h"
 #include "Preferences.h"
 
 using namespace TechDraw;
@@ -305,6 +305,7 @@ void DrawViewDimension::resetArc()
 
 void DrawViewDimension::onChanged(const App::Property* prop)
 {
+    m_measureValid = false;
     if (prop == &References3D) {
         //have to rebuild the Measurement object
         clear3DMeasurements();//Measurement object
@@ -595,6 +596,25 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
     }
 
     try {
+        measure(references);
+    }
+    catch (const Base::Exception& e) {
+        keepMeasurement();
+        return described(e.what());
+    }
+    catch (const std::exception& e) {
+        keepMeasurement();
+        return described(e.what());
+    }
+    keepMeasurement();
+
+    overrideKeepUpdated(false);
+    return DrawView::execute();
+}
+
+//! the points of the references as the view's geometry has them now
+void DrawViewDimension::measure(const ReferenceVector& references)
+{
     if (Type.isValue("Distance") || Type.isValue("DistanceX") || Type.isValue("DistanceY")) {
         if (getRefType() == oneEdge) {
             m_linearPoints = getPointsOneEdge(references);
@@ -642,16 +662,55 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
         m_anglePoints = getAnglePointsThreeVerts(references);
         m_hasGeometry = true;
     }
-    }
-    catch (const Base::Exception& e) {
-        return described(e.what());
-    }
-    catch (const std::exception& e) {
-        return described(e.what());
-    }
+}
 
-    overrideKeepUpdated(false);
-    return DrawView::execute();
+unsigned long DrawViewDimension::measuredAgainst() const
+{
+    DrawViewPart* view = getViewPart();
+    if (!view) {
+        return 0;
+    }
+    GeometryObjectPtr geometry = view->getGeometryObject(true);
+    return geometry ? geometry->stamp() : 0;
+}
+
+void DrawViewDimension::keepMeasurement()
+{
+    m_measuredAgainst = measuredAgainst();
+    m_measureValid = true;
+}
+
+void DrawViewDimension::measured() const
+{
+    const unsigned long against = measuredAgainst();
+    if (m_measuring || (m_measureValid && against == m_measuredAgainst)) {
+        return;
+    }
+    // a cache of what the properties and the view's geometry say: filling it
+    // changes nothing anyone can read differently
+    auto self = const_cast<DrawViewDimension*>(this);
+    m_measuring = true;
+    self->resetLinear();
+    self->resetAngular();
+    self->resetArc();
+    self->m_hasGeometry = false;
+    if (against != 0
+        && (!References3D.getValues().empty() || (has2DReferences() && checkReferences2D()))) {
+        try {
+            self->measure(getEffectiveReferences());
+        }
+        catch (...) {
+            // nothing measured: why is execute()'s to say, a reading has no
+            // one to say it to
+            self->resetLinear();
+            self->resetAngular();
+            self->resetArc();
+            self->m_hasGeometry = false;
+        }
+    }
+    m_measuredAgainst = against;
+    m_measureValid = true;
+    m_measuring = false;
 }
 
 // true if we have enough information to execute, false otherwise
@@ -723,6 +782,7 @@ QStringList DrawViewDimension::getPrefixSuffixSpec(QString fSpec)
 double DrawViewDimension::getDimValue()
 {
     //    Base::Console().Message("DVD::getDimValue()\n");
+    measured();
     double result = 0.0;
     if (!has2DReferences() && !has3DReferences()) {
         //nothing to measure

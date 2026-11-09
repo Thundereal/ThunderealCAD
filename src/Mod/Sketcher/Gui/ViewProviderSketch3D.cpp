@@ -762,7 +762,7 @@ PyObject* ViewProviderSketch3D::getPyObject()
 Base::Matrix4D ViewProviderSketch3D::editingTransform() const
 {
     // The edit's own path, Links included (memory: editing placement, not own).
-    auto doc = Gui::Application::Instance->editDocument();
+    auto doc = Gui::Application::Instance->editDocumentOf(getObject());
     if (!doc || doc->getInEdit() != this) {
         return getSketch3DObject()->globalPlacement().toMatrix();
     }

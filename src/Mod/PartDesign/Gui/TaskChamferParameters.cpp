@@ -281,10 +281,10 @@ TaskChamferParameters::TaskChamferParameters(ViewProviderDressUp *DressUpView,QW
     createGroupColorActions(ui->treeWidgetReferences);
     ui->chamferSize->selectAll();
 
-    // The values in the view (docs/OnViewValueEditing.md 3.4): the defaults'
-    // labels always at the top middle, handles on every edge -- an edge that
-    // takes the defaults drives them, a customised one its own values, whose
-    // labels show beside the handle while it is active
+    // The values in the view (docs/OnViewValueEditing.md 3.4): handles on
+    // every edge -- an edge that takes the defaults drives them, a customised
+    // one its own values -- and each label beside its active handle (entry
+    // 241); the defaults' at the top middle while no edge takes them
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
     // a handle made active selects its edge (entry 213)
     connect(onViewValues.get(), &Gui::OnViewValueSet::activeHandleChanged, this,
@@ -522,8 +522,8 @@ void TaskChamferParameters::updateEdgeHandles()
         clearEdgeHandles();
         edgeHandleLayout = layout;
 
-        // The defaults, at the top middle: the size, and the second size or
-        // the angle by the type
+        // The defaults, by their active handle (at the top middle with none):
+        // the size, and the second size or the angle by the type
         auto menu = [this](QMenu& m, Gui::Gizmo* gizmo) {
             fillEdgeMenu(m, gizmo);
         };
@@ -733,6 +733,10 @@ void TaskChamferParameters::updateEdgeHandles()
 void TaskChamferParameters::placeEdgeHandles()
 {
     const Base::Matrix4D toWorld = gizmoToWorld();
+    if (onViewValues) {
+        // a label at its handle's foot, as the handle stands (entry 241)
+        onViewValues->setFrame(toWorld);
+    }
     bool moved = false;
     for (auto& handle : edgeHandles) {
         if (!handle.placed) {

@@ -57,6 +57,9 @@ public:
 
 protected:
     bool setEdit(int ModNum) override;
+    /// None in its panel's edit with PerViewEdit on: each change is a
+    /// step of its own (docs/HandsOnQueue.md entry 232)
+    bool editHoldsTransaction(int ModNum) const override;
 
 };
 

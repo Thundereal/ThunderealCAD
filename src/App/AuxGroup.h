@@ -1,0 +1,208 @@
+/****************************************************************************
+ *   Copyright (c) 2020 Zheng Lei (realthunder) <realthunder.dev@gmail.com> *
+ *                                                                          *
+ *   This file is part of the FreeCAD CAx development system.               *
+ *                                                                          *
+ *   This library is free software; you can redistribute it and/or          *
+ *   modify it under the terms of the GNU Library General Public            *
+ *   License as published by the Free Software Foundation; either           *
+ *   version 2 of the License, or (at your option) any later version.       *
+ *                                                                          *
+ *   This library  is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of         *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the          *
+ *   GNU Library General Public License for more details.                   *
+ *                                                                          *
+ *   You should have received a copy of the GNU Library General Public      *
+ *   License along with this library; see the file COPYING.LIB. If not,     *
+ *   write to the Free Software Foundation, Inc., 59 Temple Place,          *
+ *   Suite 330, Boston, MA  02111-1307, USA                                 *
+ *                                                                          *
+ ****************************************************************************/
+
+#ifndef APP_AuxGroup_H
+#define APP_AuxGroup_H
+
+#include <string>
+#include <fastsignals/signal.h>
+#include "DocumentObject.h"
+#include "PropertyLinks.h"
+#include "PropertyStandard.h"
+
+namespace App
+{
+class AuxGroup;
+class GroupExtension;
+
+/** The interface of a container that shows its children through aux groups
+ *
+ * An aux group is a view of its owner's children: the owner keeps them in
+ * its own Group, and the aux group lists some of them under one tree item.
+ * The owner decides which children a group of a given role takes.
+ */
+class AppExport AuxGroupOwner
+{
+public:
+    virtual ~AuxGroupOwner();
+
+    /// Whether the given aux group of this owner takes the object
+    virtual bool isAuxGroupAllowed(const AuxGroup *group, const DocumentObject *obj) const = 0;
+
+    /** Whether the object belongs to this owner
+     *
+     * A curated aux group takes only what belongs to its owner. The default
+     * is membership of the owner's Group.
+     */
+    virtual bool isAuxGroupChild(const DocumentObject *obj) const;
+
+    /** The group owning the elements this owner declares
+     *
+     * Held by the owner's link property "Elements", outside its Group, as
+     * an origin is, and reached in a subname as "$$Elements."
+     * (docs/AssemblyObjectModel.md sec 6.2). The default has none.
+     *
+     * @param create: make the group if there is none
+     */
+    virtual AuxGroup *getElementsGroup(bool create = false);
+
+    /** The list the given group of this owner shows a part of
+     *
+     * The default is the owner's Group. A SolidBody's Elements view shows a
+     * part of its body's Elements group instead.
+     */
+    virtual PropertyLinkList *getAuxGroupSource(const AuxGroup *group) const;
+
+    /** Whether the given group still belongs to this owner
+     *
+     * The default is membership of the owner's Group.
+     */
+    virtual bool hasAuxGroup(const AuxGroup *group) const;
+
+    /// Called when this owner's elements change: one is added or removed,
+    /// or what one links to
+    virtual void onElementsChanged() {}
+};
+
+/** A group showing some of its owner's children, which it does not own
+ *
+ * The owner is held by a hidden link property that a derived class names
+ * (setOwnerProperty()), so that each kind of owner keeps the name its
+ * files were written with.
+ *
+ * A group of a role lists every child of its owner the owner allows for that
+ * role, in the owner's order. A group without a role is curated: it lists
+ * the children the user put in it.
+ */
+class AppExport AuxGroup : public DocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(App::AuxGroup);
+
+    using inherited = DocumentObject;
+
+public:
+    AuxGroup();
+    ~AuxGroup() override;
+
+    /// The children shown, computed from the owner's Group
+    PropertyLinkList Group;
+    /// The kind of children shown; empty for a curated group
+    PropertyString Role;
+    /** Touched when a child of an owning group changes, as a group's
+     * _GroupTouched and a link's _LinkTouched are: an output, so the group
+     * is not marked for recompute, but what caches through it (the shape
+     * cache of a subname into the group) is told
+     */
+    PropertyBool _GroupTouched;
+
+    const char* getViewProviderName() const override {
+        return "Gui::ViewProviderAuxGroup";
+    }
+
+    void onDocumentRestored() override;
+    void onChanged(const Property* prop) override;
+    void unsetupObject() override;
+    bool allowDuplicateLabel() const override;
+    /** As the owner: a group of an owner whose children need not be
+     * restored is restored with it, its own children created only
+     */
+    int canLoadPartial() const override;
+
+    /** The role of this group; empty for a curated group
+     *
+     * It is the Role property, or when that is empty, what the derived
+     * class reads from the object's name (getDefaultRole()), as for a file
+     * written before Role existed.
+     */
+    const std::string &getRole() const;
+    /// Whether the user picks the children of this group
+    bool isCurated() const {
+        return getRole().empty();
+    }
+
+    /// The role of a group of elements: the one owning them, or a view of it
+    static const char *ElementsRole;
+    /** Whether this group owns its children
+     *
+     * The Elements group its owner holds does (AuxGroupOwner::
+     * getElementsGroup()): its Group is what it holds, not a view of its
+     * owner's, and deleting it deletes them. It and its children are in its
+     * owner's coordinate system, as an origin and its features are. Another
+     * group of the role, such as a SolidBody's, is a view.
+     */
+    bool isOwning() const;
+    /// The owning group holding \a obj, or null
+    static AuxGroup *getOwningGroupOf(const DocumentObject *obj);
+
+    /// The owner, as a document object
+    DocumentObject *getOwner() const;
+    /// The owner's interface, or null if the owner has none
+    AuxGroupOwner *getAuxGroupOwner() const;
+    /// The group extension of the owner, holding the children shown here
+    GroupExtension *getOwnerGroup() const;
+    /// Set the owner
+    void setOwner(DocumentObject *owner);
+
+    /// Whether this group takes the object, as its owner says
+    bool isObjectAllowed(const DocumentObject *obj) const;
+
+    /// Whether any child is visible, for the group as one item of its owner
+    bool isChildVisible() const;
+    /// Show or hide every child
+    void setChildrenVisible(bool visible);
+
+    /// Recompute the children shown from the owner's
+    void refresh();
+
+protected:
+    /// Called by a derived class's constructor with its owner link property
+    void setOwnerProperty(PropertyLinkHidden *prop);
+
+    /// The role of a group whose Role property is empty
+    virtual std::string getDefaultRole() const;
+
+    void attachOwner();
+
+private:
+    PropertyLinkHidden *ownerProp = nullptr;
+    fastsignals::scoped_connection connOwner;
+    /// The default role, read once the object has a name
+    mutable std::string defaultRole;
+    mutable bool defaultRoleValid = false;
+};
+
+/// An aux group of an App::Part (and so of an assembly)
+class AppExport PartAuxGroup : public AuxGroup
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(App::PartAuxGroup);
+
+public:
+    PartAuxGroup();
+
+    /// The part this group belongs to
+    PropertyLinkHidden _Owner;
+};
+
+}  // namespace App
+
+
+#endif  // APP_AuxGroup_H

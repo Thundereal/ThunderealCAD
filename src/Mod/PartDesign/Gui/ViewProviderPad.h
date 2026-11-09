@@ -33,6 +33,13 @@ class PartDesignGuiExport ViewProviderPad : public ViewProviderSketchBased
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderPad);
 
 public:
+    /// Its panel owns its steps (docs/HandsOnQueue.md entry 232)
+    bool panelOwnsItsSteps() const override
+    {
+        return true;
+    }
+
+public:
     /// constructor
     ViewProviderPad();
     /// destructor

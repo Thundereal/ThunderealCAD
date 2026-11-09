@@ -22,7 +22,10 @@ A task dialog shown for a1, BoxA selected beforehand:
   - the tree shows the active view's selection, and a global Python
     observer is told of it when the active view changes;
   - BoxB selected in a1 alone is drawn selected in a1 and not in a2;
-  - closing the dialog hands a1's selection back to the shared one.
+  - closing the dialog hands a1's selection back to the shared one;
+  - a gate a dialog sets as it is made, before it is shown, gates a1 and
+    not a2, and is gone for both once the dialog's reject() takes it
+    away: the view takes it with its selection.
 
 And an edit of the pad in a1: what is selected while a1 is active is not
 selected when a2 is, and after it the two views share one selection again.
@@ -188,6 +191,19 @@ class Panel:
         return True
 
     def reject(self):
+        return True
+
+
+class GatedPanel(Panel):
+    """A panel that sets its gate as it is made, before it is shown, and
+    takes it away in its reject(), as the Assembly panels did"""
+
+    def __init__(self, title):
+        super().__init__(title)
+        Sel.addSelectionGate("SELECT Part::Feature SUBELEMENT Edge")
+
+    def reject(self):
+        Sel.removeSelectionGate()
         return True
 
 
@@ -407,6 +423,47 @@ def sketch_left():
     # command: that is the edit's own selection, handed back at its end.
     got = seen_from("a2")
     check("a sketch stays selected after it is closed, for every view", got == ["Sketch"], got)
+
+
+@step
+def a_gate_made_with_its_dialog():
+    for name in ("a1", "a2"):
+        activate(name)
+        Sel.clearSelection()
+    activate("a1")
+    state["gated"] = GatedPanel("a gate made with the dialog")
+    Control.showDialog(state["gated"])
+
+
+@step
+def gate_made_with_its_dialog_checked():
+    activate("a1")
+    Sel.clearSelection()
+    Sel.addSelection(DOC, "BoxA", "Face1")
+    settle(100)
+    check("a gate set as its dialog was made gates the dialog's view", selected() == [],
+          selected())
+    activate("a2")
+    Sel.clearSelection()
+    Sel.addSelection(DOC, "BoxA", "Face1")
+    settle(100)
+    check("and not another view", selected() == ["BoxA.Face1"], selected())
+    Sel.clearSelection()
+    activate("a1")
+    state["gated"].reject()
+    Control.closeDialog()
+
+
+@step
+def gate_made_with_its_dialog_gone():
+    for name in ("a1", "a2"):
+        activate(name)
+        Sel.clearSelection()
+        Sel.addSelection(DOC, "BoxA", "Face1")
+        settle(100)
+        check("the dialog's reject() took it away: nothing gates " + name,
+              selected() == ["BoxA.Face1"], selected())
+        Sel.clearSelection()
 
 
 @step

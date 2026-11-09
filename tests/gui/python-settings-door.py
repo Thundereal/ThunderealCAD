@@ -6,7 +6,7 @@ library loads. A module written in Python has no such class, and what its
 Python code reads was in no list. There is a way in from Python now --
 FreeCAD.registerParam(), and freecad.params for a definition file in the
 form the generated classes use -- and Assembly is the first module through
-it: the thirteen settings of Preferences/Mod/Assembly that only its
+it: the fourteen settings of Preferences/Mod/Assembly that only its
 commands and dialogues read (AssemblyPyParams.py, imported by its Init.py).
 
 Claims:
@@ -31,8 +31,8 @@ Claims:
     definition file each;
   - a setting registered while the session runs is listed by the next query;
   - with the module loaded, the settings its generated class describes are
-    listed beside them, each once: "/param Mod/Assembly/" has the thirteen
-    and the seven.
+    listed beside them, each once: "/param Mod/Assembly/" has the fourteen
+    and the ten.
 
 Draft and BIM keep a table of their settings already (draftutils.params),
 part of it read from their preference pages; loading it describes them,
@@ -69,11 +69,12 @@ PYTHON_READ = (
     "GroundFirstPart", "EnforceOneAssemblyRule", "SolveInJointCreation", "AssemblyConstraints",
     "StepLineThickness", "StepLineColor", "BOMOnlyParts", "BOMDetailParts",
     "BOMDetailSubAssemblies", "PartsAsSingleSolid", "InsertShowOnlyParts",
-    "InsertRigidSubAssemblies", "PartInNewFile",
+    "InsertRigidSubAssemblies", "PartInNewFile", "ConvertJointsOnOpen",
 )
 CPP_READ = (
-    "SolveOnRecompute", "SolveOnMove", "LeaveEditWithEscape", "SwitchToWB",
-    "JointHighlightColor", "LogSolverDebug", "BomMirroredSuffix",
+    "SolveOnRecompute", "SolveOnMove", "DragCollision", "DragCollisionTolerance",
+    "LeaveEditWithEscape", "SwitchToWB", "JointHighlightColor", "SolverBackend",
+    "LogSolverDebug", "BomMirroredSuffix",
 )
 
 
@@ -167,7 +168,7 @@ def run():
         settle(0.5)
         rows = [r for r in param_rows("Mod/Assembly/") if r.startswith(ASSEMBLY)]
         want = sorted(ASSEMBLY + n for n in PYTHON_READ + CPP_READ)
-        check("with the module loaded its twenty settings are listed, each once",
+        check("with the module loaded its twenty-four settings are listed, each once",
               sorted(rows) == want, sorted(set(want) ^ set(rows)) or len(rows))
 
         from draftutils import params  # noqa: F401 -- Draft's and BIM's table

@@ -13,7 +13,9 @@ Claims, the camera's planes as the last frame set them:
   - before anything is selected the far box lies past the far plane (the
     case is set up as the entry has it);
   - the far box selected through its hidden part, and shown on top: it lies
-    between the near and far planes.
+    between the near and far planes;
+  - only its top face selected (entry 249): the whole box is drawn on top,
+    and the whole box lies between the planes, not the face alone.
 
 Runs on the SCREEN (the planes are set by a frame drawn); the pointer is not
 moved.
@@ -105,6 +107,22 @@ def run():
               lo >= n - 1e-3 and hi <= f + 1e-3, "%.1f..%.1f in %.1f..%.1f" % (lo, hi, n, f))
         try:
             view.saveRenderDump(os.path.join(OUT, "selected.png"), metadata=False)
+        except Exception as e:
+            note("INFO no picture: %s" % e)
+
+        # Entry 249: a FACE selected, its body hidden -- the whole box is
+        # drawn on top, and the planes took in the face alone, cutting the
+        # rest off. Its top face, the nearest from the top.
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, part.Name, far.Name + ".Face6")
+        frame(view)
+        lo, hi, n, f = depths(view, box)
+        note("INFO the far box's top face selected: %.1f to %.1f deep; the planes %.1f, %.1f"
+             % (lo, hi, n, f))
+        check("its top face selected, the whole far box lies between the planes",
+              lo >= n - 1e-3 and hi <= f + 1e-3, "%.1f..%.1f in %.1f..%.1f" % (lo, hi, n, f))
+        try:
+            view.saveRenderDump(os.path.join(OUT, "face-selected.png"), metadata=False)
         except Exception as e:
             note("INFO no picture: %s" % e)
         FreeCADGui.Selection.clearSelection()

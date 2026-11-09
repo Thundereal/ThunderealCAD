@@ -108,7 +108,6 @@
 #include <sstream>
 
 #include <App/Application.h>
-#include <App/Document.h>
 #include <App/MaterialAppearance.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
@@ -785,6 +784,12 @@ TopoDS_Shape DrawComplexSection::getShapeToIntersect()
     }
     //Aligned
     return m_preparedShape.getShape();
+}
+
+void DrawComplexSection::abortMaking()
+{
+    abortMakeAlignedPieces();
+    DrawViewSection::abortMaking();
 }
 
 TopoDS_Shape DrawComplexSection::getShapeForDetail() const

@@ -41,6 +41,8 @@
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
+#include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 
 #include <Mod/TechDraw/App/DrawBrokenView.h>
 #include <Mod/TechDraw/App/DrawGeomHatch.h>
@@ -320,8 +322,24 @@ bool ViewProviderViewPart::setEdit(int ModNum)
 
 bool ViewProviderViewPart::doubleClicked()
 {
+    // A detail view's panel is the document's edit, as a dimension's is:
+    // the object locked, the tree marking it, the session the page's
+    // (docs/HandsOnQueue.md entry 232). Any other view has no panel.
+    if (dynamic_cast<TechDraw::DrawViewDetail*>(getViewObject())) {
+        startDefaultEditMode();
+        return true;
+    }
     setEdit(ViewProvider::Default);
     return true;
+}
+
+bool ViewProviderViewPart::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()
+            && dynamic_cast<TechDraw::DrawViewDetail*>(getViewObject())) {
+        return false;
+    }
+    return ViewProviderDrawingView::editHoldsTransaction(ModNum);
 }
 
 TechDraw::DrawViewPart* ViewProviderViewPart::getViewObject() const

@@ -1,21 +1,22 @@
 """A chamfer's values shown and typed in the view, its edges' modes from the menu.
 
 docs/OnViewValueEditing.md 3.4 (entry 117 step 4, the reporter's "Do
-chamfer" of 2026-10-15): as the fillet's -- the default values' labels at
-the top middle (the size, and the second size or the angle by the type),
-handles on every edge, the root button's menu: the mode ("Default size",
+chamfer" of 2026-10-15): as the fillet's -- the default values' labels
+(the size, and the second size or the angle by the type) beside their
+active handle (entry 241), handles on every edge, the root button's menu: the mode ("Default size",
 "Own size", "Own two sizes", "Own size and angle"), "Flip direction",
 "Group", "Remove". An angle has a rotation handle. Groups as the fillet's
 (6.5): sizes and angle mirrored, the flip each edge's own.
 
 A 10 mm PartDesign box, a chamfer on Edge1 and Edge2, Size 1, equal
 distance. In edit. Claims:
-  - one arrow per edge, no rotation handle; "Size 1 mm" at the top middle;
+  - one arrow per edge, no rotation handle; no label until Tab, then
+    "Size 1 mm" beside the active arrow;
   - entry 142: each arrow square to the chamfer's face (at 45 deg to both
     faces of the box), pointing into the solid;
   - Tab, 2, Enter: Size is 2;
   - type set to "Distance and Angle": an arrow and a rotation handle per
-    edge, labels "Size 2 mm" and "Angle 45 ...";
+    edge; Tab: "Size 2 mm", Tab, Tab: "Angle 45 ...";
   - Tab, Tab, 30, Enter: Angle is 30;
   - Tab, Space: Edge1's menu, "Default size" checked, "Flip direction"
     enabled; "Own two sizes": Edge1 has its own sizes 2 and 2, group 1;
@@ -156,6 +157,10 @@ def text_labels():
     return found
 
 
+def has_label(labels, start):
+    return any(t.startswith(start) for t in labels)
+
+
 def real_key(widget, k):
     QtTest.QTest.keyPress(widget, k, Qt.NoModifier)
     pump(5)
@@ -286,9 +291,12 @@ def run():
         inside = all(all(0.0 < c < 10.0 for c in (p + w * 0.5)) for p, w in frames)
         check("entry 142: it points into the solid", len(frames) == 2 and inside, frames)
         labels = text_labels()
-        check("'Size 1 mm' at the top middle", "Size 1 mm" in labels, labels)
+        check("no label before a value is active (each by its handle, entry 241)",
+              not has_label(labels, "Size"), labels)
 
         tabs(1)
+        labels = text_labels()
+        check("Tab: 'Size 1 mm' beside the active arrow", "Size 1 mm" in labels, labels)
         type_value("2")
         check("Tab, 2, Enter: Size is 2", abs(chamfer.Size.Value - 2.0) < 1e-9, chamfer.Size)
 
@@ -297,11 +305,13 @@ def run():
         pump(80)
         check("distance and angle: an arrow and a rotation handle per edge",
               handles() == (2, 2), handles())
+        tabs(1)
         labels = text_labels()
-        check("labels 'Size 2 mm' and 'Angle 45 ...'",
-              "Size 2 mm" in labels and any(t.startswith("Angle 45") for t in labels), labels)
+        check("Tab: 'Size 2 mm'", "Size 2 mm" in labels, labels)
 
         tabs(2)
+        labels = text_labels()
+        check("Tab, Tab: 'Angle 45 ...'", has_label(labels, "Angle 45"), labels)
         type_value("30")
         check("Tab, Tab, 30, Enter: Angle is 30", abs(chamfer.Angle.Value - 30.0) < 1e-9,
               chamfer.Angle)

@@ -27,6 +27,11 @@
 # include <QMenu>
 #endif
 
+#include <algorithm>
+#include <set>
+
+#include <App/AuxGroup.h>
+#include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/Part.h>
@@ -39,6 +44,7 @@
 #include "MDIView.h"
 #include "ViewParams.h"
 #include "TaskElementColors.h"
+#include "Document.h"
 #include "Control.h"
 #include "ViewProviderLink.h"
 
@@ -143,7 +149,84 @@ void ViewProviderPart::setupContextMenu(QMenu* menu, QObject* receiver, const ch
         act->setData(QVariant((int)ViewProvider::Color));
     }
 
+    if (auto part = Base::freecad_dynamic_cast<App::Part>(getObject())) {
+        act = menu->addAction(QObject::tr("Parts group"));
+        act->setCheckable(true);
+        act->setChecked(part->getAuxGroup(App::Part::PartsRole) != nullptr);
+        act->setToolTip(QObject::tr("Show the components in a group of their own"));
+        func->trigger(act, [this]() {
+            this->togglePartsGroup();
+        });
+    }
+
     inherited::setupContextMenu(menu, receiver, member);
+}
+
+void ViewProviderPart::togglePartsGroup()
+{
+    auto part = Base::freecad_dynamic_cast<App::Part>(getObject());
+    if (!part)
+        return;
+    App::AutoTransaction committer("Toggle Parts group");
+    try {
+        if (part->getAuxGroup(App::Part::PartsRole))
+            part->removePartsGroup();
+        else
+            part->addPartsGroup();
+    }
+    catch (Base::Exception &e) {
+        e.ReportException();
+        committer.close(true);
+    }
+}
+
+std::vector<App::DocumentObject*> ViewProviderPart::claimChildren() const
+{
+    auto children = inherited::claimChildren();
+    auto part = Base::freecad_dynamic_cast<App::Part>(getObject());
+    if (!part)
+        return children;
+    auto origin = part->Origin.getValue();
+    bool hasOrigin = false;
+    std::vector<App::AuxGroup*> groups;
+    std::vector<App::DocumentObject*> rest;
+    for (auto child : children) {
+        auto group = Base::freecad_dynamic_cast<App::AuxGroup>(child);
+        if (group && group->getOwner() == part)
+            groups.push_back(group);
+        else if (child == origin && origin)
+            hasOrigin = true;
+        else
+            rest.push_back(child);
+    }
+    if (groups.empty())
+        return children;
+    // A child one of the groups shows is under it only. Its link to them is
+    // Global, no claim, so that the part still exports them: the export
+    // list holds them, and this is where the tree differs from it
+    std::set<App::DocumentObject*> shown;
+    for (auto group : groups) {
+        if (!group->isOwning()) {
+            const auto& members = group->Group.getValues();
+            shown.insert(members.begin(), members.end());
+        }
+    }
+    if (!shown.empty()) {
+        rest.erase(std::remove_if(rest.begin(), rest.end(),
+                                  [&shown](App::DocumentObject* obj) { return shown.count(obj) > 0; }),
+                   rest.end());
+    }
+    std::stable_sort(groups.begin(), groups.end(),
+            [](const App::AuxGroup *a, const App::AuxGroup *b) {
+                return App::Part::getAuxGroupRank(a) < App::Part::getAuxGroupRank(b);
+            });
+    std::vector<App::DocumentObject*> res;
+    res.reserve(children.size());
+    if (hasOrigin)
+        res.push_back(origin);
+    res.insert(res.end(), groups.begin(), groups.end());
+    res.insert(res.end(), rest.begin(), rest.end());
+    return res;
 }
 
 bool ViewProviderPart::isActivePart(const char* key)

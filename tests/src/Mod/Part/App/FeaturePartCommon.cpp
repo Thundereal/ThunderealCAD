@@ -22,8 +22,12 @@ protected:
         _common = dynamic_cast<Part::Common*>(_doc->addObject("Part::Common"));
     }
 
+    // Closed, or the process ends with it open and its transient directory stays
+    // in the user cache -- one per test run
     void TearDown() override
-    {}
+    {
+        App::GetApplication().closeDocument(_doc->getName());
+    }
 
     Part::Common* _common = nullptr;  // NOLINT Can't be private in a test framework
 };

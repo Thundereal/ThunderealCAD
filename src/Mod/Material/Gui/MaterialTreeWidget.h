@@ -38,6 +38,7 @@
 
 #include <FCGlobal.h>
 
+#include <Base/Console.h>
 #include <Base/Parameter.h>
 #include <Gui/PrefWidgets.h>
 #include <Gui/WidgetFactory.h>

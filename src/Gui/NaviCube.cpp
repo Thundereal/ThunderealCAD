@@ -76,7 +76,6 @@
 
 
 #include <App/Color.h>
-#include <App/Document.h>
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
 #include <Eigen/Dense>

@@ -26,6 +26,7 @@
 #include <QDir>
 #endif
 
+#include <Base/Console.h>
 #include "ExamplesModel.h"
 #include <App/Application.h>
 

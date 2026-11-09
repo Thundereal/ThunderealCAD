@@ -91,6 +91,7 @@
 #include <customtitlebarkit/MenuIntegration.h>
 
 #include "MainWindow.h"
+#include "Application.h"
 #include "MainWindowParams.h"
 #include <App/UnitsParams.h>
 #include "NotificationAreaParams.h"
@@ -1732,12 +1733,18 @@ void MainWindow::removeWindow(Gui::MDIView* view, bool close)
     //
     auto subwindow = qobject_cast<QMdiSubWindow*>(parent);
     if(subwindow && d->mdiArea->subWindowList().contains(subwindow)) {
-        subwindow->setParent(nullptr);
         // Out of the area a maximized sub window shows itself again as a
         // top-level window of the area's size, on top of the main window
         // until its deferred delete runs -- which a nested event loop puts
         // off indefinitely. On macOS that window occludes the main one, so
-        // Qt stops painting every 3D view in it.
+        // Qt stops painting every 3D view in it. The show happens inside
+        // setParent (hiding first does not stop it), and for that moment
+        // the sub window was a real top-level window that took the focus
+        // from whatever had it; it is going (close: deleted below), so it
+        // never reaches the screen.
+        if (close)
+            subwindow->setAttribute(Qt::WA_DontShowOnScreen);
+        subwindow->setParent(nullptr);
         subwindow->hide();
 
         assert(!d->mdiArea->subWindowList().contains(subwindow));
@@ -2073,7 +2080,9 @@ QList<QWidget*> MainWindow::windows(QMdiArea::WindowOrder order) const
     QList<QWidget*> mdis;
     QList<QMdiSubWindow*> wnds = d->mdiArea->subWindowList(order);
     for (const auto & wnd : wnds) {
-        mdis << wnd->widget();
+        // Not a tab whose view is gone before it (MDIView::closeEvent)
+        if (QWidget *widget = wnd->widget())
+            mdis << widget;
     }
     return mdis;
 }

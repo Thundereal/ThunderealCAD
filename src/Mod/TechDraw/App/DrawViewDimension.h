@@ -148,12 +148,12 @@ enum DimensionType {
     void setAll3DMeasurement();
     void clear3DMeasurements();
     virtual bool checkReferences2D() const;
-    virtual pointPair getLinearPoints() const {return m_linearPoints; }
+    virtual pointPair getLinearPoints() const { measured(); return m_linearPoints; }
     virtual void setLinearPoints(Base::Vector3d point0, Base::Vector3d point1) { m_linearPoints.first(point0);
                                                                                  m_linearPoints.second(point1); };
     virtual void setLinearPoints(pointPair newPair) { m_linearPoints = newPair; }
-    arcPoints getArcPoints() {return m_arcPoints; }
-    anglePoints getAnglePoints() {return m_anglePoints; }
+    arcPoints getArcPoints() { measured(); return m_arcPoints; }
+    anglePoints getAnglePoints() { measured(); return m_anglePoints; }
     bool leaderIntersectsArc(Base::Vector3d s, Base::Vector3d pointOnCircle);
 
     bool isMultiValueSchema() const;
@@ -185,6 +185,17 @@ protected:
 
     virtual anglePoints getAnglePointsTwoEdges(ReferenceVector references);
     virtual anglePoints getAnglePointsThreeVerts(ReferenceVector references);
+
+    //! Work out the points from the references and the view's geometry as they
+    //! are now.  Reads and nothing else -- repairing the references is
+    //! execute()'s -- so it can run whenever the points are read.  Throws when
+    //! the references cannot be measured.
+    virtual void measure(const ReferenceVector& references);
+    //! what measure() reads beside the dimension's own properties: changes
+    //! whenever the view's geometry does, 0 while it has none
+    virtual unsigned long measuredAgainst() const;
+    //! the points just set are what measure() would make now
+    void keepMeasurement();
 
     Measure::Measurement *measurement;
     double dist2Segs(Base::Vector3d s1,
@@ -238,6 +249,16 @@ private:
     GeometryMatcher* m_matcher;
 
     bool m_referencesCorrect;
+
+    //! The points are a function of the properties and the view's geometry,
+    //! worked out when read (docs/TechDrawStoredGeometry.md sec 6): an undo
+    //! that puts the view's projection back leaves them right with no
+    //! recompute.  Measures again when the view's geometry or a property of
+    //! this dimension has changed since the last time.
+    void measured() const;
+    mutable unsigned long m_measuredAgainst {0};
+    mutable bool m_measureValid {false};
+    mutable bool m_measuring {false};
     //! saved geometry is only checked for the pre-rotation-independent
     //! frame once per session, on the first execute after a restore
     bool m_savedGeometryFrameChecked {false};

@@ -1316,6 +1316,13 @@ void BGFXView::submit(const Render::DrawCall &input, const float *viewMatrix,
         depthwrite = false;
         blend = true;
         break;
+    case PassLineMark:
+        // where this plain line is the front-most thing drawn
+        depthtest = true;
+        depthfunc = Render::Material::Equal;
+        depthwrite = false;
+        blend = false;
+        break;
     default:
         break;
     }
@@ -1351,7 +1358,7 @@ void BGFXView::submit(const Render::DrawCall &input, const float *viewMatrix,
 
     uint64_t state = BGFX_STATE_MSAA;
     uint32_t blendRt = 0;
-    if (pass != PassDepthOnly)
+    if (pass != PassDepthOnly && pass != PassLineMark)
         state |= BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A;
     if (depthtest)
         state |= depthFuncState(depthfunc);
@@ -1676,6 +1683,25 @@ void BGFXView::submit(const Render::DrawCall &input, const float *viewMatrix,
         }
     }
 
+    // Entry 243: the plain lines in front of a highlighted one mark the
+    // stencil (the highlight view clears it), and a depth-tested highlight
+    // line or point is drawn once more over that mark, depth test off --
+    // over every line, still under a face in front.
+    if (pass == PassLineMark) {
+        bgfx::setStencil(BGFX_STENCIL_TEST_ALWAYS | BGFX_STENCIL_FUNC_REF(0x80)
+                         | BGFX_STENCIL_FUNC_RMASK(0xff)
+                         | BGFX_STENCIL_OP_FAIL_S_KEEP | BGFX_STENCIL_OP_FAIL_Z_KEEP
+                         | BGFX_STENCIL_OP_PASS_Z_REPLACE);
+    }
+    else if (overLines && passView == ViewHighlight && mat.highlightline && depthtest) {
+        bgfx::submit(vid(passView), prog, depth, BGFX_DISCARD_NONE);
+        ++drawcount;
+        bgfx::setState(state & ~(BGFX_STATE_DEPTH_TEST_MASK | BGFX_STATE_WRITE_Z), blendRt);
+        bgfx::setStencil(BGFX_STENCIL_TEST_EQUAL | BGFX_STENCIL_FUNC_REF(0x80)
+                         | BGFX_STENCIL_FUNC_RMASK(0xff)
+                         | BGFX_STENCIL_OP_FAIL_S_KEEP | BGFX_STENCIL_OP_FAIL_Z_KEEP
+                         | BGFX_STENCIL_OP_PASS_Z_KEEP);
+    }
     bgfx::submit(vid(passView), prog, depth);
     ++drawcount;
 }

@@ -34,6 +34,13 @@ class TaskDlgFeatureParameters;
 class PartDesignGuiExport ViewProviderHole : public ViewProviderAddSub
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderHole);
+
+public:
+    /// Its panel owns its steps (docs/HandsOnQueue.md entry 232)
+    bool panelOwnsItsSteps() const override
+    {
+        return true;
+    }
     using inherited = ViewProviderAddSub;
 
 public:

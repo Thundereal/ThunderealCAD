@@ -328,6 +328,9 @@ std::vector<App::DocumentObject*> ViewProviderSolidBody::claimChildren() const
 {
     auto res = inherited::claimChildren();
     if (auto owner = Base::freecad_dynamic_cast<PartDesign::SolidBody>(getObject())) {
+        // Its elements first, as a container shows its groups first
+        if (auto view = owner->getElementsView())
+            res.push_back(view);
         const auto &features = owner->Group.getValues();
         // First, the rules its sheet metal features follow, those in its body
         // (docs/SheetMetal.md sec 4.6)

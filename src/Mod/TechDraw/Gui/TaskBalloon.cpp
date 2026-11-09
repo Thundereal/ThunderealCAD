@@ -28,9 +28,11 @@
 
 #include <App/Document.h>
 #include <Base/Console.h>
+#include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
 #include <Gui/Document.h>
+#include <Gui/EditSteps.h>
 #include <Gui/Control.h>
 
 #include "TaskBalloon.h"
@@ -50,6 +52,9 @@ TaskBalloon::TaskBalloon(QGIViewBalloon *parent, ViewProviderBalloon *balloonVP)
     int i = 0;
     (void)parent;
     m_balloon = balloonVP->getObject();
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232)
+    m_steps = new Gui::EditSteps(balloonVP, this);
     auto feat = getBalloonFeat();
 
     ui->setupUi(this);
@@ -109,6 +114,14 @@ TaskBalloon::~TaskBalloon()
 
 bool TaskBalloon::accept()
 {
+    if (m_steps->isOn()) {
+        // Each change was a step: the one open is committed, and the edit
+        // ended -- this one, of the several there may be
+        m_steps->close();
+        recomputeFeature();
+        m_steps->endEdit();
+        return true;
+    }
     if (auto vp = getBalloonView()) {
         setupTransaction();
         Gui::Document* doc = vp->getDocument();
@@ -122,6 +135,11 @@ bool TaskBalloon::accept()
 
 bool TaskBalloon::reject()
 {
+    // Its own steps taken back, and no other view's
+    if (m_steps->reject()) {
+        recomputeFeature();
+        return true;
+    }
     App::GetApplication().closeActiveTransaction(true);
     if (auto vp = getBalloonView()) {
         Gui::Document* doc = vp->getDocument();
@@ -131,7 +149,16 @@ bool TaskBalloon::reject()
     return true;
 }
 
+bool TaskBalloon::holdsTransaction() const
+{
+    return !m_steps->isOn();
+}
+
 void TaskBalloon::setupTransaction() {
+    // The event's step is open already (Gui::EditSteps)
+    if (m_steps->isOn()) {
+        return;
+    }
     int tid = 0;
     const char *name = App::GetApplication().getActiveTransaction(&tid);
     if(tid && tid == m_transactionID)
@@ -262,7 +289,9 @@ TaskDlgBalloon::TaskDlgBalloon(QGIViewBalloon *parent, ViewProviderBalloon *ball
     taskbox = new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("TechDraw_Balloon"), widget->windowTitle(), true, nullptr);
     taskbox->groupLayout()->addWidget(widget);
     Content.push_back(taskbox);
-    setAutoCloseOnTransactionChange(true);
+    // Not when each change is a step: another view's undo is no end of
+    // this edit, and its own Cancel undoes
+    setAutoCloseOnTransactionChange(widget->holdsTransaction());
 }
 
 TaskDlgBalloon::~TaskDlgBalloon()
@@ -277,7 +306,14 @@ void TaskDlgBalloon::update()
 //==== calls from the TaskView ===============================================================
 void TaskDlgBalloon::open()
 {
-    App::GetApplication().setActiveTransaction("Edit balloon",true);
+    if (widget->holdsTransaction()) {
+        App::GetApplication().setActiveTransaction("Edit balloon",true);
+    }
+}
+
+bool TaskDlgBalloon::holdsTransaction() const
+{
+    return widget->holdsTransaction();
 }
 
 void TaskDlgBalloon::clicked(int i)

@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 #ifndef _PreComp_
+#include <QPointer>
 #include <QAction>
 #include <QMenu>
 #include <QMessageBox>
@@ -196,20 +197,26 @@ void ViewProviderSections::highlightReferences(ShapeType type, const References&
 class SectionsPanel::ShapeSelection: public Gui::SelectionFilterGate
 {
 public:
-    ShapeSelection(SectionsPanel::SelectionMode& mode, Surface::Sections* editedObject)
+    ShapeSelection(SectionsPanel::SelectionMode& mode, Surface::Sections* editedObject, QObject* owner)
         : Gui::SelectionFilterGate(nullPointer())
         , mode(mode)
         , editedObject(editedObject)
+        , owner(owner)
     {}
     ~ShapeSelection() override
     {
-        mode = SectionsPanel::None;
+        // The panel can be gone first: a served session's own selection
+        // deletes the gate after the panel closed (ASan, heap-use-after-free).
+        if (owner)
+            mode = SectionsPanel::None;
     }
     /**
      * Allow the user to pick only edges.
      */
     bool allow(App::Document*, App::DocumentObject* pObj, const char* sSubName) override
     {
+        if (!owner)
+            return false;
         // don't allow references to itself
         if (pObj == editedObject) {
             return false;
@@ -256,6 +263,7 @@ private:
 
 private:
     SectionsPanel::SelectionMode& mode;
+    QPointer<QObject> owner;  ///< the panel mode lives in
     Surface::Sections* editedObject;
 };
 
@@ -441,7 +449,7 @@ void SectionsPanel::onButtonEdgeAddToggled(bool checked)
     if (checked) {
         selectionMode = AppendEdge;
         // 'selectionMode' is passed by reference and changed when the filter is deleted
-        Gui::Selection().addSelectionGate(new ShapeSelection(selectionMode, editedObject));
+        Gui::Selection().addSelectionGate(new ShapeSelection(selectionMode, editedObject, this));
     }
     else if (selectionMode == AppendEdge) {
         exitSelectionMode();
@@ -453,7 +461,7 @@ void SectionsPanel::onButtonEdgeRemoveToggled(bool checked)
     if (checked) {
         selectionMode = RemoveEdge;
         // 'selectionMode' is passed by reference and changed when the filter is deleted
-        Gui::Selection().addSelectionGate(new ShapeSelection(selectionMode, editedObject));
+        Gui::Selection().addSelectionGate(new ShapeSelection(selectionMode, editedObject, this));
     }
     else if (selectionMode == RemoveEdge) {
         exitSelectionMode();

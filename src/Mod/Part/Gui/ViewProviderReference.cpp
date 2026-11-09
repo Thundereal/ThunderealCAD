@@ -33,7 +33,6 @@
 # include <Inventor/nodes/SoShapeHints.h>
 #endif
 
-#include <App/Document.h>
 #include <Base/Parameter.h>
 
 #include "ViewProvider.h"

@@ -232,4 +232,266 @@ SVG difference is the exporter's scene order and nothing else.
 - **Nothing is deduplicated across views.**  Two identical views store
   two copies.
 - **The stored projection is never consulted by a recompute.**  It is
-  storage for the restore path only; any recompute overwrites it.
+  read when the document is opened and, since sec 6, when an undo or a
+  redo puts it back; any recompute overwrites it.
+
+## 6. An undo puts the projection back (user, 2026-10-31)
+
+Found by `tests/gui/td-model-interleave.py` and `docs/MultiViewEdit.md`
+sec 12.10: after an undo of a change to the model, the drawing showed the
+model from before the undo. The user's ruling: an object must not keep
+what it shows outside its properties -- that is a design error, and it is
+corrected here, not worked around.
+
+### 6.1 What was kept where
+
+Measured on a box drawn by a part view, its length changed from 15 to 20,
+recomputed, undone, redone; after each step a copy of the document was
+reopened with the page not updating, which draws from `ProjectedGeometry`
+alone:
+
+    after              model   view draws   ProjectedGeometry holds
+    build              15      15           15
+    edit + recompute   20      20           20
+    undo               15      20           15
+    redo               20      20           20
+
+Log on and log off alike. The projection was in a property all along, and
+the undo put it back; the view read it at a file's open and never again.
+What TechDraw kept outside its properties came in four kinds:
+
+- **What a view draws** -- the projection, in `m_geometryObject`. Stored
+  (sec 2); not read back after an undo.
+- **What is measured off it** -- a dimension's points (`m_linearPoints`,
+  `m_arcPoints`, `m_anglePoints`), which its value is read from. Made by
+  `execute()` and nothing else. (Hatch line sets look like this and are
+  not: `m_lineSets` holds the pattern read from its file, a function of the
+  hatch's own properties, and the lines are trimmed to the face each time
+  they are read.)
+- **The 3D shapes a view keeps for the views made from it** -- a section's
+  cut (`m_cutShape`, `m_cutShapeRaw`, `m_preparedShape`, the frames), a
+  detail's piece (`m_detailShape`), a complex section's aligned shape.
+  Never drawn; empty after an open, and after an undo still the shapes of
+  the state the undo left.
+- **Machinery** -- watchers, progress, waiting flags, held errors. Not
+  state, and left alone.
+
+### 6.2 What the log pays for the store
+
+The plate of sec 4 (200x120x20, 84 holes), a base view and a section,
+precise HLR under the GUI harness, the height changed three times with a
+recompute after each, measured with the store on and with it off
+(scratchpad `logcost_probe.py`):
+
+    per step                    store on          store off
+    values added                8-9               5
+    their raw size              440-522 KB        172 KB
+    the log's growth            5.6-20 KB         1.5-1.8 KB
+    recompute, cut and project  0.46-0.73 s       0.48-0.56 s
+
+The two `ProjectedGeometry` values of a step are 91 KB and 42 KB raw, 4.0
+and 3.0 KB in the log, and the BRep beside them -- the curves, an
+attachment of the value -- 133 KB raw and 8 KB in the log; the values of
+the step before are rewritten as reverse deltas against them, 31 to 360
+bytes each (`docs/TransactionLogJournal.md` sec 23.2). Net, on this page,
+**the store costs the log 4 to 8.5 KB a recompute, 19 KB on the first**,
+three to six times what the step costs without it.
+
+They were logged as input, not derived (the op's `derived` 0, the tier
+`durable`): the projection is written when its thread is done, after the
+recompute has returned, in an implicit step of its own -- one that rides
+with the user step before it, which is what makes an undo take it back --
+and the log's rule reads a value as derived only while its owner's
+`execute()` runs. So it stayed as long as the log.
+
+Ruled derived (user, 2026-11-01; journal sec 10.2): `captureGeometry()`
+writes under `App::TransactionDerived`, and the op is `derived` 1 in the
+`cache` tier, evictable under its budget. The same three steps measured
+again: the durable tier ends at 17 KB where it ended at 48 KB, the cache
+tier holding the rest (46 KB). An undo within the steps kept in memory is
+as before; one from the log restores the projection while the cache holds
+it, and touches the view to recompute once it does not.
+
+### 6.3 An undo draws what it put back
+
+- **`DrawViewPart::onChanged`** -- `ProjectedGeometry` written while the
+  document performs an undo or a redo sets `PendingTransactionUpdate`.
+  (`DrawViewSection::onChanged` passed its changes to `DrawView`, past
+  the part view, and so never got here; it goes through `DrawViewPart`
+  now.)
+- **`DrawViewPart::onUndoRedoFinished`** -- once the transaction is done:
+  every thread still making the view's result is stopped
+  (`abortMaking()`: the projection, a section's cut, a detail's piece, a
+  complex section's alignment -- each of them was of the state the undo
+  left), the stored projection is installed as at a file's open, and the
+  view and what is drawn on it are repainted. Nothing stored to install
+  leaves the view to recompute.
+- **`DrawViewPart::resultInProperties()`** -- true while the preference
+  stores the projection (`d88b86df28` made it false) and no thread is
+  making one. A view caught projecting is one whose stored projection may
+  be older than its inputs, and `addResultsNotKept` now also sets
+  `PendingTransactionUpdate` on what it picks, so a view the undo did not
+  write, but whose inputs it did, has its threads stopped too, rather than
+  finishing after the undo and drawing -- and storing -- the state taken
+  back.
+
+So an undo of a step whose projection had finished leaves the view drawn
+right and clean, and so does an undo made while the step's projection is
+still running: what is stored is then the projection of before the step,
+which is the state the undo leaves.
+
+### 6.4 The shapes kept for the views made from a view
+
+A section keeps its cut (`m_cutShape`, `m_cutShapeRaw`, `m_cutPieces`,
+`m_preparedShape` and their frames), a detail its piece, a complex section
+its aligned pieces. They were not stored, and after an open the detail
+said its base had no shape, and after an undo it used the cut of the state
+the undo took back. As first corrected (`211e5a97f3`) a view that
+installed a stored projection dropped them, and a section or detail that
+found them missing had its base recompute. That is replaced by storing
+them (sec 8).
+
+The detail tells the sections made from it when its piece is made, as a
+section tells the views made from it when its cut is (`postSectionCutTasks`).
+
+### 6.5 What is measured off a view
+
+A dimension's points are worked out when they are read, and kept until
+the view's geometry or a property of the dimension changes:
+`GeometryObject::stamp()` changes with every change of the edges, vertices
+or faces and differs between any two geometry objects. `execute()` keeps
+what writes -- repairing references by name and by geometry, which writes
+`References2D`, `SavedNames` and `SavedGeometry` -- and measures last;
+`measure()` is the measuring alone, which the extent and landmark
+dimensions have their own of. The landmark keeps writing its reference
+vertices and tags in `execute()`. `DrawViewDimension::resultInProperties()`
+is gone: what it shows is read off properties and the view's stored
+projection.
+
+### 6.6 A view that waited for a cut was not recomputed
+
+Found on the way, on the base build as on this one: a detail of a section
+was empty after the recompute that made it. The detail recomputes while
+the section is still cutting, finds no cut, and waits;
+`postSectionCutTasks` then calls its `recomputeFeature()` -- which skips
+it, as nothing of it is touched (`OptimizeRecompute`,
+`Document::_recomputeFeature`). It drew at its next recompute of its own,
+from the cut before. The section now has it recomputed the way a view has
+its balloons recomputed (`enforceRecompute()` under `NoTouch`), and so
+does a detail for the sections made from it.
+
+### 6.7 What this does not do
+
+- **A projection running from an earlier recompute** when a later step,
+  never recomputed, that changed the view's inputs is undone: the thread
+  is stopped and the stored projection drawn, which is of before that
+  earlier recompute, and nothing marks the view. Each step of an undo run
+  is taken under a guard of its own, and the step that finds the view no
+  longer projecting puts back the touched state the rows give it. It
+  takes an undo within a projection's time of a recompute.
+- **A dimension's references written back by an undo** run
+  `updateSavedGeometry()` in `onChanged`, which reads the view's geometry
+  before the view has installed the projection the undo put back. A write
+  inside an undo, of a value from the state the undo left (journal sec
+  23.6); left as it was found.
+- **The switch off** (`StoreProjectedGeometry` false): nothing is stored
+  and nothing is installed; `resultInProperties()` is false and an undo
+  marks the view to recompute, as `d88b86df28` made it.
+- **A complex section whose cut lands before its alignment** says it is no
+  longer waiting while the alignment still runs; a detail of it may be
+  made from nothing. Found by reading, not changed.
+
+Tests: `TDTest/DrawViewUndoTest.py` (App, CoarseView, log on and off) and
+`tests/gui/td-undo-stored-projection.py` (real HLR, a dimension, a section
+and a detail, and an undo made while they project).
+
+### 6.8 An undo from the log (2026-11-01)
+
+Past the 20 steps an undo keeps in memory, or out of order, an undo reads
+its step from the transaction log. It put `ProjectedGeometry` back, and
+the view never heard: no object was told an undo from the log was done
+(journal sec 24.14), so the page went on drawing the box the undo took
+back, marked clean. Now it draws what was put back, as after an undo in
+memory.
+
+The projection is derived in the log (sec 6.2), and the cache may have let
+the old one go. Then the undo touches the view to recompute; that touch
+was cleared by the steps under it in the same undo, which set the touched
+state their rows recorded (journal sec 24.15). Now the view, the section
+and the detail come back marked.
+
+Test: `tests/gui/td-undo-stored-projection.py`, the two undos from the log.
+
+## 7. The hatch lines are stored (user, 2026-11-01)
+
+Ruled: what a view shows is in its properties, so that an undo in memory
+-- and an open -- costs no construction, only drawing. Measured first, to
+pick what is worth storing beside the projection:
+
+    plate 200x120, 84 holes, top face, the default PAT pattern
+    trimming the pattern to the face (a boolean)   5.0 s at scale 1, 9.8 s at 0.5
+    the same pattern on a plain rectangle           26 ms, 62 ms
+    a dimension measuring its edge on read          7 us (12 to 13 us read
+                                                    afresh, 5 us read cached)
+
+A dimension stays measured on read (sec 6.5): storing its reading would
+save microseconds once per change of its view, and cost a value in the
+log on every recompute. The hatch lines are the opposite: nothing kept
+them, and every redraw of the view (`QGIViewPart::drawViewPart`) and every
+page sent to a renderer (`PageFeed`) trimmed them again.
+
+`TechDraw::PropertyHatchLines` keeps the trimmed lines -- straight
+segments, two end points each, per face and per line of the pattern, with
+the box of their extent -- in `DrawGeomHatch::TrimmedLines` and, for a
+section's cut faces hatched with a PAT pattern,
+`DrawViewSection::CutHatchLines`. The coordinates are a binary file of
+their own beside the XML. They are trimmed when the view's faces are found
+(`postFaceExtractionTasks`, the section's `postHlrTasks`) and when the
+hatch recomputes, under `App::TransactionDerived` (journal sec 10.2), and
+only with `StoreProjectedGeometry` on.
+
+Read back only when they are the face's: each face keeps the box of the
+outline it was trimmed to, and the whole the pattern, scale, rotation and
+offset it was trimmed with. A hatch edited and not yet recomputed, a face
+whose outline moved, lines the log's cache let go before an undo from it,
+an older file: the drawing trims as it always did.
+
+On a plate of 28 holes (`tests/gui/td-stored-hatch.py`): a redraw 6 ms
+from the stored lines against 265 ms trimming, a section's cut face 3 ms
+against 162 ms; undo and redo put back the lines of the state they leave
+with nothing to recompute; a reopened document draws from them.
+
+## 8. The shapes the views made from a view read are stored (user, 2026-11-01)
+
+Ruled with sec 7: an undo in memory, or an open, constructs nothing. What
+a view keeps for the views made from it -- and for the shaded underlay --
+is stored beside its projection, captured with it (`captureGeometry()`,
+derived in the log) and put back with it (`restoreStoredGeometry()`):
+
+- **A section:** `CutShape` (the cut, uncentred; the centred one read by a
+  detail is a location away, moved on restore), `PreparedShape` (centred,
+  scaled, rotated: what was projected, what a complex section's detail and
+  the underlay read), `CutFrame`, `PreparedFrame` and `FramesKnown`.
+- **A detail:** `DetailShape`, `ScaledShape`, their frames, and `ViewAxis`,
+  the axis the piece was projected through, which the underlay reads.
+- **A complex section:** nothing more. Its aligned pieces only make its
+  prepared shape, which the section stores.
+- **A broken view:** `CompressedCentroid`, the one thing read off its
+  compressed shape (the break positions); set by `execute()`.
+
+The drop-and-remake of `211e5a97f3` is gone; a detail of a section
+recomputed alone after an undo, or after an open, cuts the stored cut and
+the section is not recomputed. A view stored before these were -- a
+section or detail with a projection and no shape -- does not take the
+projection from the store, and is made as before anything was stored.
+
+On the 84-hole plate a section's cut is 48 KB of BRep, 7 KB compressed in
+the file: less than the plate's own shape, which the file holds already.
+In the log the shapes are derived (journal sec 10.2), in the cache tier.
+
+The underlay of a section or detail reads those shapes and draws nothing
+when they are missing, as they were after an open and after an undo
+(found by reading `ShadedUnderlay`, not seen); it now has them.
+
+Tests: `tests/gui/td-undo-stored-projection.py` -- the detail recomputed
+alone after an undo and after a reopen, the section not recomputed.

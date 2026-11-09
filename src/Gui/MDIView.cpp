@@ -39,6 +39,7 @@
 
 #include <Base/Interpreter.h>
 #include <App/Document.h>
+#include <App/Transactions.h>
 
 #include "MDIView.h"
 #include "MDIViewPy.h"
@@ -66,6 +67,7 @@ MDIView::MDIView(Gui::Document* pcDocument,QWidget* parent, Qt::WindowFlags wfla
   , wstate(Qt::WindowNoState)
   , ActiveObjects(pcDocument)
 {
+    undoId = newUndoViewId();
     setAttribute(Qt::WA_DeleteOnClose);
 
     // Every view its own selection, for whoever asked for that: from the
@@ -267,7 +269,6 @@ MDIViewPy* MDIView::getMDIViewPyObject()
 MDIViewPy *MDIView::castFrom(PyObject *pyObj)
 {
     if (PyObject_TypeCheck(pyObj, &MDIViewPy::Type)) {
-        Py_INCREF(pyObj);
         return static_cast<MDIViewPy*>(pyObj);
     }
     try {
@@ -432,6 +433,17 @@ void MDIView::closeEvent(QCloseEvent *e)
         if (auto mw = getMainWindow())
             mw->dropActiveWindow(this, own, leaving);
 
+        // Closed of itself rather than through its tab -- a script's
+        // close() of the view, an object's view going with the object
+        // (ViewProviderShaderProgram::beforeDelete): the tab goes too. Left
+        // standing it showed empty, and once the view was deleted
+        // MainWindow::windows() handed out a null for it, which the next
+        // window state change read (MDIView::isBackgroundView, a
+        // segmentation fault). Closed through its tab, the tab is closing
+        // already and this does nothing.
+        if (auto tab = qobject_cast<QMdiSubWindow*>(parentWidget()))
+            tab->close();
+
         // Note: When using QMdiArea we must not use removeWindow()
         // because otherwise the QMdiSubWindow will lose its parent
         // and thus the notification in QMdiSubWindow::closeEvent of
@@ -559,11 +571,39 @@ void MDIView::restorePrinterSettings(QPrinter* printer)
     printer->setColorMode(static_cast<QPrinter::ColorMode>(defaultColorMode));
 }
 
+int MDIView::newUndoViewId()
+{
+    static int lastUndoId = 0;
+    return ++lastUndoId;
+}
+
+int MDIView::undoViewId() const
+{
+    // A view of an object -- a drawing page, a spreadsheet, of which there
+    // is one at a time -- the object's, so that one opened again lists the
+    // steps made in the one before
+    if (auto doc = getGuiDocument()) {
+        if (auto obj = doc->objectOfView(this))
+            return doc->undoViewIdOf(obj);
+    }
+    return undoId;
+}
+
+App::UndoView MDIView::undoView() const
+{
+    auto view = const_cast<MDIView*>(this)->activeSubView();
+    if (!view)
+        view = const_cast<MDIView*>(this);
+    Gui::Document* doc = view->getGuiDocument();
+    return doc ? doc->undoViewOf(view) : App::UndoView();
+}
+
 QStringList MDIView::undoActions() const
 {
     QStringList actions;
     Gui::Document* doc = getGuiDocument();
     if (doc) {
+        App::UndoViewScope scope(undoView());
         std::vector<std::string> vecUndos = doc->getUndoVector();
         for (const auto & vecUndo : vecUndos) {
             actions << QCoreApplication::translate("Command", vecUndo.c_str());
@@ -578,6 +618,7 @@ QStringList MDIView::redoActions() const
     QStringList actions;
     Gui::Document* doc = getGuiDocument();
     if (doc) {
+        App::UndoViewScope scope(undoView());
         std::vector<std::string> vecRedos = doc->getRedoVector();
         for (const auto & vecRedo : vecRedos) {
             actions << QCoreApplication::translate("Command", vecRedo.c_str());
@@ -585,6 +626,16 @@ QStringList MDIView::redoActions() const
     }
 
     return actions;
+}
+
+std::vector<App::UndoStep> MDIView::undoSteps(bool redo) const
+{
+    Gui::Document* doc = getGuiDocument();
+    if (!doc)
+        return {};
+    App::UndoViewScope scope(undoView());
+    return redo ? doc->getDocument()->getAvailableRedoSteps()
+                : doc->getDocument()->getAvailableUndoSteps();
 }
 
 QSize MDIView::minimumSizeHint () const

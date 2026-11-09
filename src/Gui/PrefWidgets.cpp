@@ -48,6 +48,7 @@
 #include <App/Application.h>
 #include <App/Color.h>
 #include "ViewParams.h"
+#include <cfloat>
 
 #include "PrefWidgets.h"
 #include "GeneralParams.h"

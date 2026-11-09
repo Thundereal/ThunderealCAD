@@ -210,6 +210,8 @@ SET(Geometry_SRCS
     PropertyCosmeticVertexList.h
     PropertyProjectedGeometry.cpp
     PropertyProjectedGeometry.h
+    PropertyHatchLines.cpp
+    PropertyHatchLines.h
     CosmeticExtension.cpp
     CosmeticExtension.h
 )

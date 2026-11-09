@@ -41,6 +41,9 @@ namespace App {
 namespace Gui {
 class ControlSingleton;
 class MDIView;
+namespace Fw {
+class PanelMirror;
+}
 namespace TaskView {
 
 class TaskContent;
@@ -180,6 +183,17 @@ public:
     */
     virtual bool usesOwnSelection() const
     { return true; }
+    /*!
+      Whether this dialog holds a transaction open across the user's work,
+      to be aborted by its Cancel. Such a dialog shares its document with
+      no other: another view's dialog opening its own would commit this
+      one's work in progress (docs/TaskPanelPerView.md sec 8). One that
+      makes each change a step of its own and takes back its own steps on
+      Cancel says false, and with PerViewEdit on may be open beside another
+      view's dialog of the same document (docs/HandsOnQueue.md entry 232).
+    */
+    virtual bool holdsTransaction() const
+    { return true; }
 
 public:
     /// is called by the framework when the dialog is opened
@@ -264,6 +278,8 @@ private:
     friend class TaskDialogPy;
     friend class TaskView;
     friend class Gui::ControlSingleton;
+    /// a dialog's button box, for the dialogs open before it started
+    friend class Gui::Fw::PanelMirror;
 };
 
 } //namespace TaskView

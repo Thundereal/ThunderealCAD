@@ -32,6 +32,7 @@ from parttests.regression_tests import RegressionTests
 from parttests.TestFaceMakerUnifiedPlanar import *
 from parttests.TestFaceMakerUnifiedNonPlanar import *
 from parttests.HLRProjectionTest import HLRProjectionTest
+from parttests.ElementTest import ElementTest
 from parttests.TestLinkArray import (
     TestLinkArrayClasses,
     TestLinkArrayPath,

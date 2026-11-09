@@ -46,9 +46,9 @@ class CommandCreateSnapshot:
     def GetResources(self):
         return {
             "Pixmap": "Std_ViewScreenShot",
-            "MenuText": QT_TRANSLATE_NOOP("Assembly_Snapshot", "Snapshot"),
+            "MenuText": QT_TRANSLATE_NOOP("Assembly_CreateSnapshot", "Snapshot"),
             "ToolTip": QT_TRANSLATE_NOOP(
-                "Assembly_Snapshot",
+                "Assembly_CreateSnapshot",
                 "Captures the current assembly state (placements and visibility). Double-clicking the Snapshot object restores the assembly to that state.",
             ),
             "CmdType": "ForEdit",
@@ -71,7 +71,8 @@ class CommandCreateSnapshot:
 
         snapshot_group = UtilsAssembly.getSnapshotGroup(assembly)
 
-        snapshot_obj = snapshot_group.newObject("App::FeaturePython", "Snapshot")
+        # Not upstream: the C++ snapshot (docs/AssemblyObjectModel.md sec 7.2)
+        snapshot_obj = snapshot_group.newObject("Assembly::SnapshotPython", "Snapshot")
         Snapshot(snapshot_obj)
         ViewProviderSnapshot(snapshot_obj.ViewObject)
         snapshot_group.purgeTouched()

@@ -55,6 +55,7 @@
 #include <Gui/ViewProviderDocumentObject.h>
 #include <Gui/Widgets.h>
 
+#include <Base/Console.h>
 #include "TaskView.h"
 #include "TaskDialog.h"
 #include "TaskEditControl.h"
@@ -810,7 +811,8 @@ void TaskView::slotResetEdit(const Gui::ViewProviderDocumentObject &vp)
     Gui::Document *gdoc = vp.getDocument();
     if (!gdoc)
         return;
-    const TaskOwner owner(gdoc->editingViewer());
+    ViewerContext *editing = gdoc->editingViewerOf(&vp);
+    const TaskOwner owner(editing ? editing : gdoc->editingViewer());
     const std::string name = gdoc->getDocument()->getName();
     std::vector<TaskDialog*> closing;
     for (const TaskInfo &info : taskInfos) {

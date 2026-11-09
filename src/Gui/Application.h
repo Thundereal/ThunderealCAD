@@ -25,12 +25,15 @@
 #define APPLICATION_H
 
 #include <QPixmap>
+#include <functional>
 #include <map>
 #include <string>
+#include <vector>
 
 #define  putpix()
 
 #include <App/Application.h>
+#include <Base/Type.h>
 
 class QCloseEvent;
 class SoNode;
@@ -200,11 +203,50 @@ public:
     Gui::Document* activeDocument() const;
     /// Set the active document
     void setActiveDocument(Gui::Document* pcDocument);
-    /// Getter for the editing document
+    /** @name Documents in edit
+     *
+     * Several documents may be in edit at once (upstream's API, kept by
+     * name so ported code applies). A caller that means the edit of a
+     * particular object or document asks with a functor or isInEdit();
+     * editDocument() with no argument is for one that means "any".
+     */
+    //@{
+    /// The active document when it is in edit, else the first in edit
     Gui::Document* editDocument() const;
+    /// The first document in edit that \a eval accepts
+    Gui::Document* editDocument(const std::function<bool(Gui::Document*)>& eval) const;
+    /// Every document in edit, none of them null
+    std::vector<Gui::Document*> editDocuments() const;
+    /** The document in edit whose edit \a obj is part of.
+     *
+     * The one starting an edit, while its view provider starts (code run by
+     * startEditing(), a link forwarding the edit to its linked object's
+     * included); else the one editing \a obj; else editDocument().
+     */
+    Gui::Document* editDocumentOf(const App::DocumentObject* obj) const;
+    /// Whether \a pcDocument is in edit
+    bool isInEdit(Gui::Document* pcDocument) const;
+    /// The view showing \a node's edit, among the documents in edit
     Gui::MDIView* editViewOfNode(SoNode *node) const;
-    /// Set editing document, which will reset editing of all other document
+    /** Add \a pcDocument to the documents in edit.
+     *
+     * Null ends the edit of every document, which is what it meant when
+     * only one could be in edit (Gui.resetEdit()).
+     */
     void setEditDocument(Gui::Document* pcDocument);
+    /// End \a pcDocument's edit; after this isInEdit(pcDocument) is false
+    void unsetEditDocument(Gui::Document* pcDocument);
+    /// End the edit of every document in edit that \a eval accepts
+    void unsetEditDocumentIf(const std::function<bool(Gui::Document*)>& eval);
+    /** Bumped each time an edit starts in any document.
+     *
+     * For a caller that has to know whether what it ran started an edit
+     * (a command's transaction is left open for it): compare before and
+     * after. "No document in edit before, one after" misses an edit
+     * started while another document is in edit.
+     */
+    unsigned long editStartCount() const;
+    //@}
     /** Retrieves a pointer to the Gui::Document whose App::Document has the name \a name.
     * If no such document exists 0 is returned.
     */
@@ -252,6 +294,13 @@ public:
      */
     void setBuildingVisuals(bool building);
     bool isBuildingVisuals() const;
+    /** A modal dialog is up -- the migration prompt, the recompute error
+     * box: a progressive load's timed slices wait for its answer, so that
+     * the box is modal to the load as well as to the input (entry 242, the
+     * reporter 2026-11-02: "the migration recompute dialog is not load
+     * modal, neither is recompute error dialog"). A flush runs regardless.
+     */
+    static bool isLoadHeld();
 
     /** Re-decide whether a progressive load owns the GUI, and say so.
      *
@@ -463,6 +512,7 @@ public:
     // python exports goes here +++++++++++++++++++++++++++++++++++++++++++
     //---------------------------------------------------------------------
     // static python wrapper of the exported functions
+    // New fork-only wrappers go file-local in ApplicationPy.cpp, not here.
     static PyObject* sActivateWorkbenchHandler (PyObject *self,PyObject *args); // activates a workbench object
     static PyObject* sAddWorkbenchHandler      (PyObject *self,PyObject *args); // adds a new workbench handler to a list
     static PyObject* sRemoveWorkbenchHandler   (PyObject *self,PyObject *args); // removes a workbench handler from the list
@@ -474,36 +524,13 @@ public:
     static PyObject* sAddIconPath              (PyObject *self,PyObject *args); // adds a path to an icon file
     static PyObject* sAddIcon                  (PyObject *self,PyObject *args); // adds an icon to the cache
     static PyObject* sGetIcon                  (PyObject *self,PyObject *args); // get an icon from the cache
-    static PyObject* sGetIconContext           (PyObject *self,PyObject *args);
-    static PyObject* sAddIconContext           (PyObject *self,PyObject *args);
     static PyObject* sIsIconCached             (PyObject *self,PyObject *args); // check if an icon is cached
-    static PyObject* sGetIconNames             (PyObject *self,PyObject *args); // get all cached icon names
 
     static PyObject* sSendActiveView           (PyObject *self,PyObject *args);
     static PyObject* sSendFocusView            (PyObject *self,PyObject *args);
 
     static PyObject* sGetMainWindow            (PyObject *self,PyObject *args);
     static PyObject* sUpdateGui                (PyObject *self,PyObject *args);
-    static PyObject* sServeDocument            (PyObject *self,PyObject *args);
-    static PyObject* sServeBranch              (PyObject *self,PyObject *args);
-    static PyObject* sSetLiveImport            (PyObject *self,PyObject *args);
-    static PyObject* sPumpLiveImport           (PyObject *self,PyObject *args);
-    static PyObject* sIsLiveImport             (PyObject *self,PyObject *args);
-    static PyObject* sIsBuildingVisuals        (PyObject *self,PyObject *args);
-    static PyObject* sServeClients             (PyObject *self,PyObject *args);
-    static PyObject* sServeRequests            (PyObject *self,PyObject *args);
-    static PyObject* sServeDropRequest         (PyObject *self,PyObject *args);
-    static PyObject* sServeUploads             (PyObject *self,PyObject *args);
-    static PyObject* sServeSetClientMode       (PyObject *self,PyObject *args);
-    static PyObject* sServeSetClientSelection  (PyObject *self,PyObject *args);
-    static PyObject* sServeKickClient          (PyObject *self,PyObject *args);
-    static PyObject* sCyclesDevices            (PyObject *self,PyObject *args);
-    static PyObject* sCyclesRenderTest         (PyObject *self,PyObject *args,PyObject *kwd);
-    static PyObject* sServeGrants              (PyObject *self,PyObject *args);
-    static PyObject* sServeSetGrants           (PyObject *self,PyObject *args);
-    static PyObject* sServeDevices             (PyObject *self,PyObject *args);
-    static PyObject* sServeSetDevices          (PyObject *self,PyObject *args);
-    static PyObject* sServeStop                (PyObject *self,PyObject *args);
     static PyObject* sUpdateLocale             (PyObject *self,PyObject *args);
     static PyObject* sGetLocale                (PyObject *self,PyObject *args);
     static PyObject* sSetLocale                (PyObject *self,PyObject *args);
@@ -533,7 +560,6 @@ public:
     static PyObject* sActivateView             (PyObject *self,PyObject *args);
     static PyObject* sGetDocument              (PyObject *self,PyObject *args);
     static PyObject* sEditDocument             (PyObject *self,PyObject *args);
-    static PyObject* sResetEdit                (PyObject *self,PyObject *args);
 
     static PyObject* sDoCommand                (PyObject *self,PyObject *args);
     static PyObject* sDoCommandGui             (PyObject *self,PyObject *args);
@@ -541,13 +567,6 @@ public:
 
     static PyObject* sShowDownloads            (PyObject *self,PyObject *args);
     static PyObject* sShowPreferences          (PyObject *self,PyObject *args);
-
-    static PyObject* sListThemes               (PyObject *self,PyObject *args);
-    static PyObject* sApplyTheme               (PyObject *self,PyObject *args);
-    static PyObject* sListConfigBackups        (PyObject *self,PyObject *args);
-    static PyObject* sRevertConfig             (PyObject *self,PyObject *args);
-    static PyObject* sListConfigUndos          (PyObject *self,PyObject *args);
-    static PyObject* sUndoConfig               (PyObject *self,PyObject *args);
 
     static PyObject* sCreateViewer             (PyObject *self,PyObject *args);
     static PyObject* sGetMarkerIndex           (PyObject *self,PyObject *args);

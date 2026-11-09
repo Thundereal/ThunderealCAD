@@ -46,6 +46,7 @@
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <App/InputStratum.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include "Action.h"
@@ -390,7 +391,9 @@ void PropertyEditor::openEditor(const QModelIndex &index)
     str << " " << item->data(0, Qt::DisplayRole).toString().toUtf8().constData();
     if(items.size()>1)
         str << "...";
-    transactionID = app.setActiveTransaction(str.str().c_str());
+    // Kept over the inputs typed into the editor, closed with it
+    // (docs/MultiViewEdit.md sec 12.2 rule 5)
+    transactionID = app.setActiveTransaction(str.str().c_str(), true);
     FC_LOG("editor transaction " << app.getActiveTransaction());
 }
 

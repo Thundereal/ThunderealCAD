@@ -70,6 +70,11 @@ ViewProviderFeaturePythonImp::ViewProviderFeaturePythonImp(
 
 ViewProviderFeaturePythonImp::~ViewProviderFeaturePythonImp() = default;
 
+void ViewProviderFeaturePythonImp::toggleInSceneGraph()
+{
+    object->getDocument()->toggleInSceneGraph(object);
+}
+
 namespace
 {
 /** The object's view-side extension list, or nothing

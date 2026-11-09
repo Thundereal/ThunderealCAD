@@ -35,6 +35,7 @@ from os.path import join
 import FreeCAD
 from FreeCAD import Units
 
+from . import write_constraint_bodymotion as con_bodymotion
 from . import write_constraint_centrif as con_centrif
 from . import write_constraint_bodyheatsource as con_bodyheatsource
 from . import write_constraint_contact as con_contact
@@ -111,10 +112,17 @@ units_information = """*********************************************************
 
 class FemInputWriterCcx(writerbase.FemInputWriter):
     def __init__(
-        self, analysis_obj, solver_obj, mesh_obj, member, dir_name=None, mat_geo_sets=None
+        self,
+        analysis_obj,
+        solver_obj,
+        mesh_obj,
+        member,
+        dir_name=None,
+        mat_geo_sets=None,
+        cache=None,
     ):
         writerbase.FemInputWriter.__init__(
-            self, analysis_obj, solver_obj, mesh_obj, member, dir_name, mat_geo_sets
+            self, analysis_obj, solver_obj, mesh_obj, member, dir_name, mat_geo_sets, cache
         )
         self.mesh_name = self.mesh_object.Name
         self.file_name = join(self.dir_name, self.mesh_name + ".inp")
@@ -198,6 +206,7 @@ class FemInputWriterCcx(writerbase.FemInputWriter):
         self.write_constraints_propdata(inpfile, self.member.cons_sectionprint, con_sectionprint)
         self.write_constraints_propdata(inpfile, self.member.cons_selfweight, con_selfweight)
         self.write_constraints_propdata(inpfile, self.member.cons_centrif, con_centrif)
+        self.write_constraints_propdata(inpfile, self.member.cons_bodymotion, con_bodymotion)
         self.write_constraints_propdata(
             inpfile, self.member.cons_bodyheatsource, con_bodyheatsource
         )

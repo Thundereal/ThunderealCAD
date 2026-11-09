@@ -27,7 +27,6 @@
 
 #include <Gui/Application.h>
 #include <Gui/Command.h>
-#include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Mod/Robot/App/RobotObject.h>

@@ -30,6 +30,7 @@
 
 #include "Widgets/CompassWidget.h"
 #include "Widgets/VectorEditWidget.h"
+#include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <Base/Console.h>
@@ -38,6 +39,7 @@
 #include <Gui/CommandT.h>
 #include <Gui/Control.h>
 #include <Gui/Document.h>
+#include <Gui/EditSteps.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/Tools.h>
@@ -100,6 +102,10 @@ TaskSectionView::TaskSectionView(TechDraw::DrawViewSection* section) :
     m_scaleEdited(false)
 {
     //existence of section is guaranteed by ViewProviderViewSection.setEdit
+
+    // Each change a step of its own with PerViewEdit on, so the edit may
+    // run beside another view's (docs/HandsOnQueue.md entry 232)
+    m_steps = new Gui::EditSteps(m_section, this);
 
     m_doc = m_section->getDocument();
     m_sectionName = m_section->getNameInDocument();
@@ -676,6 +682,12 @@ double TaskSectionView::requiredRotation(double inputAngle)
 }
 
 void TaskSectionView::setupTransaction() {
+    // A step for what is applied now -- from the panel, or deferred by the
+    // live update
+    if (m_steps && m_steps->isOn()) {
+        m_steps->step();
+        return;
+    }
     int tid = 0;
     const char *name = App::GetApplication().getActiveTransaction(&tid);
     if(tid && tid == m_transactionID)
@@ -697,12 +709,29 @@ bool TaskSectionView::accept()
 {
     //    Base::Console().Message("TSV::accept()\n");
     apply(true);
+    if (m_steps && m_steps->isOn()) {
+        // This edit, of the several there may be
+        m_steps->close();
+        m_steps->endEdit();
+        return true;
+    }
     Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
     return true;
 }
 
+bool TaskSectionView::holdsTransaction() const
+{
+    return !m_steps || !m_steps->isOn();
+}
+
 bool TaskSectionView::reject()
 {
+    m_timer.stop();
+    // Its own steps taken back, and no other view's
+    if (m_steps && m_steps->reject()) {
+        Gui::Command::updateActive();
+        return false;
+    }
     if (m_transactionID) {
         int tid = 0;
         App::GetApplication().getActiveTransaction(&tid);
@@ -766,6 +795,11 @@ bool TaskDlgSectionView::reject()
 {
     widget->reject();
     return true;
+}
+
+bool TaskDlgSectionView::holdsTransaction() const
+{
+    return widget->holdsTransaction();
 }
 
 #include <Mod/TechDraw/Gui/moc_TaskSectionView.cpp>

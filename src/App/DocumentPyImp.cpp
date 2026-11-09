@@ -28,6 +28,7 @@
 #include <Base/Stream.h>
 
 #include "Actor.h"
+#include "Application.h"
 #include <optional>
 #include <sstream>
 
@@ -647,7 +648,108 @@ PyObject*  DocumentPy::undo(PyObject * args)
             getDocumentPtr()->undoSkipping(skip);
         else if (getDocumentPtr()->getAvailableUndos())
             getDocumentPtr()->undo();
+        getDocumentPtr()->recomputeAfterUndo();
         Py_Return;
+    } PY_CATCH;
+}
+
+namespace
+{
+Py::List stepList(const std::vector<App::UndoStep>& steps)
+{
+    Py::List list;
+    for (const auto& s : steps) {
+        list.append(Py::TupleN(Py::Long(s.id), Py::String(s.name),
+                               Py::Long(static_cast<long long>(s.group))));
+    }
+    return list;
+}
+}  // namespace
+
+PyObject* DocumentPy::getUndoSteps(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(stepList(getDocumentPtr()->getAvailableUndoSteps()));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::getRedoSteps(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(stepList(getDocumentPtr()->getAvailableRedoSteps()));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::undoTo(PyObject* args)
+{
+    int id = 0;
+    if (!PyArg_ParseTuple(args, "i", &id))
+        return nullptr;
+    PY_TRY {
+        bool done = getDocumentPtr()->undo(id);
+        getDocumentPtr()->recomputeAfterUndo();
+        return Py::new_reference_to(Py::Boolean(done));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::redoTo(PyObject* args)
+{
+    int id = 0;
+    if (!PyArg_ParseTuple(args, "i", &id))
+        return nullptr;
+    PY_TRY {
+        bool done = getDocumentPtr()->redo(id);
+        getDocumentPtr()->recomputeAfterUndo();
+        return Py::new_reference_to(Py::Boolean(done));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::getStepsInTheWay(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        Py::List list;
+        for (const auto& s : getDocumentPtr()->stepsInTheWay()) {
+            list.append(Py::TupleN(Py::Long(s.id), Py::String(s.name),
+                                   Py::Long(static_cast<long long>(s.group)),
+                                   Py::String(s.author)));
+        }
+        return Py::new_reference_to(list);
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::undoSteps(PyObject* args)
+{
+    PyObject* seq = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &seq))
+        return nullptr;
+    PY_TRY {
+        std::vector<int> ids;
+        Py::Sequence items(seq);
+        for (const auto& item : items)
+            ids.push_back(static_cast<int>(Py::Long(item)));
+        bool done = getDocumentPtr()->undoSteps(ids);
+        getDocumentPtr()->recomputeAfterUndo();
+        return Py::new_reference_to(Py::Boolean(done));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::groupSteps(PyObject* args)
+{
+    PyObject* seq = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &seq))
+        return nullptr;
+    PY_TRY {
+        std::vector<int> ids;
+        Py::Sequence items(seq);
+        for (const auto& item : items)
+            ids.push_back(static_cast<int>(Py::Long(item)));
+        return Py::new_reference_to(Py::Boolean(getDocumentPtr()->groupSteps(ids)));
     } PY_CATCH;
 }
 
@@ -661,6 +763,7 @@ PyObject*  DocumentPy::redo(PyObject * args)
             getDocumentPtr()->redoSkipping(skip);
         else if (getDocumentPtr()->getAvailableRedos())
             getDocumentPtr()->redo();
+        getDocumentPtr()->recomputeAfterUndo();
         Py_Return;
     } PY_CATCH;
 }
@@ -1356,25 +1459,40 @@ PyObject* DocumentPy::getTransactionCursor(PyObject *args)
 PyObject* DocumentPy::undoTransactionFromLog(PyObject *args)
 {
     PyObject* arg = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &arg))
+    const char* mode = nullptr;
+    if (!PyArg_ParseTuple(args, "O|s", &arg, &mode))
         return nullptr;
     PY_TRY {
+        auto conflicts = Document::UndoConflicts::Refuse;
+        const std::string modeName = mode ? mode : "refuse";
+        if (modeName == "overwrite")
+            conflicts = Document::UndoConflicts::Overwrite;
+        else if (modeName == "skip")
+            conflicts = Document::UndoConflicts::Skip;
+        else if (modeName != "refuse") {
+            PyErr_SetString(PyExc_ValueError, "conflicts is 'refuse', 'overwrite' or 'skip'");
+            return nullptr;
+        }
         // One row, or several as one step (docs/TransactionLogJournal.md sec 33.13).
-        if (PyLong_Check(arg)) {
+        if (PyLong_Check(arg) && !mode) {
             const long long seq = PyLong_AsLongLong(arg);
             if (seq == -1 && PyErr_Occurred())
                 return nullptr;
             return Py::new_reference_to(Py::Boolean(getDocumentPtr()->undoLogged(seq)));
         }
-        if (!PySequence_Check(arg) || PyUnicode_Check(arg)) {
+        std::vector<int64_t> seqs;
+        if (PyLong_Check(arg))
+            seqs.push_back(static_cast<long long>(Py::Long(arg)));
+        else if (!PySequence_Check(arg) || PyUnicode_Check(arg)) {
             PyErr_SetString(PyExc_TypeError, "expected a row number or a sequence of them");
             return nullptr;
         }
-        std::vector<int64_t> seqs;
-        const Py::Sequence list(arg);
-        for (Py::Sequence::size_type i = 0; i < list.size(); ++i)
-            seqs.push_back(static_cast<long long>(Py::Long(list[i])));
-        return Py::new_reference_to(Py::Boolean(getDocumentPtr()->undoLogged(seqs)));
+        else {
+            const Py::Sequence list(arg);
+            for (Py::Sequence::size_type i = 0; i < list.size(); ++i)
+                seqs.push_back(static_cast<long long>(Py::Long(list[i])));
+        }
+        return Py::new_reference_to(Py::Boolean(getDocumentPtr()->undoLogged(seqs, conflicts)));
     } PY_CATCH;
 }
 

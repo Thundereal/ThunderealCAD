@@ -103,13 +103,15 @@ def optimizeRecompute():
             'User parameter:BaseApp/Preferences/Document').GetBool(
                     'OptimizeRecompute',True)
 
-def transactionLogIsOn():
+def implicitStepsIn(doc):
     # With the log on, a bare write outside any invocation opens an implicit
     # transaction, and observers see it open and commit like any other
-    # (docs/TransactionLogJournal.md sec 24.13).
-    return FreeCAD.ParamGet(
-            'User parameter:BaseApp/Preferences/Document').GetInt(
-                    'TransactionLog',2) != 0
+    # (docs/TransactionLogJournal.md sec 24.13). With it off too, in a
+    # document that keeps undo steps (docs/MultiViewEdit.md sec 12.2 rule 7).
+    param = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')
+    if param.GetInt('TransactionLog', 2) != 0:
+        return True
+    return doc.UndoMode != 0 and param.GetBool('UndoImplicitLogOff', True)
 
 class DocumentBasicCases(unittest.TestCase):
     def setUp(self):
@@ -1569,6 +1571,211 @@ class UndoRedoCases(unittest.TestCase):
         FreeCAD.closeDocument("UndoTest")
 
 
+class _IntegerCopy:
+    """A copy of another document's object's Integer, through an XLink"""
+
+    def __init__(self, obj):
+        obj.addProperty("App::PropertyXLink", "Src")
+        obj.addProperty("App::PropertyInteger", "Integer")
+        obj.Proxy = self
+
+    def execute(self, obj):
+        if obj.Src:
+            obj.Integer = obj.Src.Integer
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+
+class BoundTransactionCases(unittest.TestCase):
+    """A document's own active transaction while it is in edit
+    (App.bindActiveTransaction; docs/HandsOnQueue.md entry 232): several
+    documents in edit at once, each with its steps."""
+
+    def setUp(self):
+        self.docs = []
+        self.active = FreeCAD.ActiveDocument
+
+    def tearDown(self):
+        for doc in self.docs:
+            FreeCAD.unbindActiveTransaction(doc)
+            FreeCAD.closeDocument(doc.Name)
+        if self.active and self.active.Name in FreeCAD.listDocuments():
+            FreeCAD.setActiveDocument(self.active.Name)
+
+    def make(self, name):
+        doc = FreeCAD.newDocument(name)
+        self.docs.append(doc)
+        doc.UndoMode = 1
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        doc.clearUndos()
+        return doc, obj
+
+    def testAnotherDocumentsStepLeavesABoundOneOpen(self):
+        a, objA = self.make("BoundA")
+        b, objB = self.make("BoundB")
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.setActiveTransaction("Edit A")
+        objA.Integer = 1
+        FreeCAD.bindActiveTransaction(a)
+        self.assertTrue(FreeCAD.isActiveTransactionBound(a))
+        self.assertEqual(FreeCAD.getActiveTransaction(a)[0], "Edit A")
+
+        # B is not bound: its step is the application's, and opening it
+        # commits no transaction of A's
+        FreeCAD.setActiveDocument(b.Name)
+        FreeCAD.setActiveTransaction("Edit B")
+        objB.Integer = 2
+        self.assertTrue(a.HasPendingTransaction, "A's step stays open")
+        self.assertEqual(FreeCAD.getActiveTransaction(b)[0], "Edit B")
+
+        # A's next change goes in A's own step, not in B's
+        FreeCAD.setActiveDocument(a.Name)
+        objA.Integer = 3
+        FreeCAD.unbindActiveTransaction(a)
+        self.assertFalse(FreeCAD.isActiveTransactionBound(a))
+        self.assertFalse(a.HasPendingTransaction)
+        self.assertEqual(a.UndoNames, ["Edit A"])
+
+        FreeCAD.setActiveDocument(b.Name)
+        FreeCAD.closeActiveTransaction()
+        self.assertEqual(b.UndoNames, ["Edit B"])
+
+        a.undo()
+        self.assertEqual(objA.Integer, 4711)
+        self.assertEqual(objB.Integer, 2, "undoing A's step leaves B's change")
+
+    def testTwoBoundDocumentsKeepTheirSteps(self):
+        a, objA = self.make("BoundTwoA")
+        b, objB = self.make("BoundTwoB")
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.bindActiveTransaction(a)
+        FreeCAD.setActiveTransaction("A1")
+        objA.Integer = 1
+
+        FreeCAD.setActiveDocument(b.Name)
+        FreeCAD.bindActiveTransaction(b)
+        FreeCAD.setActiveTransaction("B1")
+        objB.Integer = 1
+        self.assertTrue(a.HasPendingTransaction, "B's step commits none of A's")
+
+        # A's next step commits A's first, and none of B's
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.setActiveTransaction("A2")
+        self.assertFalse(a.HasPendingTransaction)
+        self.assertEqual(a.UndoNames, ["A1"])
+        self.assertTrue(b.HasPendingTransaction, "A's step commits none of B's")
+        objA.Integer = 2
+
+        # A step closed by its id ends that edit's, not the other's
+        tidB = FreeCAD.getActiveTransaction(b)[1]
+        FreeCAD.closeActiveTransaction(False, tidB)
+        self.assertFalse(b.HasPendingTransaction)
+        self.assertTrue(a.HasPendingTransaction)
+        self.assertEqual(FreeCAD.getActiveTransaction(a)[0], "A2")
+
+        FreeCAD.unbindActiveTransaction(a)
+        FreeCAD.unbindActiveTransaction(b)
+        self.assertEqual(a.UndoNames, ["A2", "A1"])
+        self.assertEqual(b.UndoNames, ["B1"])
+
+    def testAnUnboundDocumentJoinsTheActiveOnesStep(self):
+        # A part edited in place in an assembly: the change to the part's
+        # document goes in the assembly's edit step, as it always did
+        a, objA = self.make("BoundJoinA")
+        c, objC = self.make("BoundJoinC")
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.setActiveTransaction("Edit")
+        FreeCAD.bindActiveTransaction(a)
+        objA.Integer = 1
+        objC.Integer = 1
+        self.assertEqual(FreeCAD.getActiveTransaction(c), FreeCAD.getActiveTransaction(a))
+        FreeCAD.unbindActiveTransaction(a)
+        self.assertFalse(c.HasPendingTransaction, "committed with the edit's step")
+        self.assertEqual(c.UndoNames, ["Edit"])
+        self.assertEqual(a.UndoNames, ["Edit"])
+
+    def testAnUnboundDocumentJoinsTheStepOpenedLast(self):
+        # The recompute an edit's step causes in a document that is not
+        # bound joins that step, whichever document is active; a change
+        # made to that document directly does not (docs/MultiViewEdit.md
+        # sec 12.2 rule 2)
+        a, objA = self.make("BoundLastA")
+        c, objC = self.make("BoundLastC")
+        d = tempfile.mkdtemp()
+        a.saveAs(os.path.join(d, "boundlasta.FCStd"))
+        copy = c.addObject("App::FeaturePython", "Copy")
+        _IntegerCopy(copy)
+        copy.Src = objA
+        c.saveAs(os.path.join(d, "boundlastc.FCStd"))
+        c.recompute()
+        c.clearUndos()
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.bindActiveTransaction(a)
+        FreeCAD.setActiveTransaction("Edit")
+        FreeCAD.setActiveDocument(c.Name)
+        objA.Integer = 1
+        self.assertIsNone(FreeCAD.getActiveTransaction(c))
+        # A direct change is a step of its own (an implicit one), not "Edit"
+        objC.Integer = 1
+        c.commitTransaction()
+        self.assertEqual(c.UndoNames, [], "a direct change is not the edit's")
+        c.recompute()
+        self.assertEqual(copy.Integer, 1)
+        self.assertTrue(c.HasPendingTransaction, "the recompute it causes is")
+        FreeCAD.unbindActiveTransaction(a)
+        self.assertFalse(c.HasPendingTransaction, "committed with the edit's step")
+        self.assertEqual(c.UndoNames, ["Edit"])
+        self.assertEqual(a.UndoNames, ["Edit"])
+
+    def testAStepWithNoInputIsListedOnlyWhereItChanges(self):
+        # No input opened it -- a script: the active document has no claim
+        # on it, and no empty step of it is put there (sec 12.2 rule 4)
+        a, objA = self.make("ListedA")
+        b, objB = self.make("ListedB")
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.setActiveTransaction("Script")
+        objB.Integer = 1
+        FreeCAD.closeActiveTransaction()
+        self.assertEqual(a.UndoNames, [])
+        self.assertEqual(b.UndoNames, ["Script"])
+
+    def mineAndTheirs(self, name):
+        # A step of mine, then one of another edit's over part of it
+        doc, obj = self.make(name)
+        default = obj.String
+        doc.openTransaction("mine")
+        obj.Integer = 1
+        obj.String = "mine"
+        doc.commitTransaction()
+        doc.openTransaction("theirs")
+        obj.Integer = 2
+        doc.commitTransaction()
+        rows = [r["seq"] for r in doc.getTransactionLog() if r["kind"] == "user"]
+        return doc, obj, default, rows[-2]
+
+    def testUndoingMineOverTheirsIsRefusedByDefault(self):
+        doc, obj, default, mine = self.mineAndTheirs("ConflictRefuse")
+        self.assertFalse(doc.undoTransactionFromLog(mine))
+        self.assertFalse(doc.undoTransactionFromLog([mine], "refuse"))
+        self.assertEqual((obj.Integer, obj.String), (2, "mine"))
+
+    def testSkipLeavesTheirsAndTakesBackTheRest(self):
+        doc, obj, default, mine = self.mineAndTheirs("ConflictSkip")
+        self.assertTrue(doc.undoTransactionFromLog([mine], "skip"))
+        self.assertEqual(obj.Integer, 2, "their change stays")
+        self.assertEqual(obj.String, default, "the rest of mine is taken back")
+
+    def testOverwritePutsMineBackOverTheirs(self):
+        doc, obj, default, mine = self.mineAndTheirs("ConflictOverwrite")
+        self.assertTrue(doc.undoTransactionFromLog(mine, "overwrite"))
+        self.assertEqual(obj.Integer, 4711, "the value before mine, over theirs")
+        self.assertEqual(obj.String, default)
+
+
 class DocumentGroupCases(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("GroupTests")
@@ -2591,7 +2798,7 @@ class DocumentObserverCases(unittest.TestCase):
         self.Obs.clear()
 
         self.Doc1.Comment = "test comment"
-        if transactionLogIsOn():
+        if implicitStepsIn(self.Doc1):
             self.assertEqual(self.Obs.signal.pop(0), "DocOpenTransaction")
             self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
             self.assertEqual(self.Obs.parameter2.pop(0), "<implicit>")
@@ -2611,10 +2818,11 @@ class DocumentObserverCases(unittest.TestCase):
             self.assertTrue(self.Obs.parameter.pop() is self.Doc1)
         self.assertTrue(not self.Obs.signal and not self.Obs.parameter and not self.Obs.parameter2)
 
+        implicit = implicitStepsIn(self.Doc1)  # asked while it is there
         FreeCAD.closeDocument(self.Doc1.Name)
         self.assertEqual(self.Obs.signal.pop(), "DocDeleted")
         self.assertEqual(self.Obs.parameter.pop(), self.Doc1)
-        if transactionLogIsOn():
+        if implicit:
             # the close commits the implicit transaction of the Comment write
             self.assertEqual(self.Obs.signal.pop(), "DocCommitTransaction")
             self.assertEqual(self.Obs.parameter.pop(), self.Doc1)
@@ -2653,7 +2861,7 @@ class DocumentObserverCases(unittest.TestCase):
         self.assertTrue(self.Obs.parameter.pop(0) is obj)
         self.assertTrue(self.Obs.signal.pop(0) == "DocRecomputed")
         self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
-        if transactionLogIsOn():
+        if implicitStepsIn(self.Doc1):
             # the implicit transaction addObject opened, closed with the
             # recompute's invocation
             self.assertTrue(self.Obs.signal.pop(0) == "DocCommitTransaction")
@@ -2661,7 +2869,7 @@ class DocumentObserverCases(unittest.TestCase):
         self.assertTrue(not self.Obs.signal and not self.Obs.parameter and not self.Obs.parameter2)
 
         FreeCAD.ActiveDocument.removeObject(obj.Name)
-        if transactionLogIsOn():
+        if implicitStepsIn(self.Doc1):
             # a removal with nothing open is an implicit step too (sec 37.1)
             self.assertEqual(self.Obs.signal.pop(0), "DocOpenTransaction")
             self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
@@ -2846,7 +3054,7 @@ class DocumentObserverCases(unittest.TestCase):
 
         vo = obj.ViewObject
         FreeCAD.ActiveDocument.removeObject(obj.Name)
-        if transactionLogIsOn():
+        if implicitStepsIn(self.Doc1):
             # a removal with nothing open is an implicit step too (sec 37.1)
             self.assertEqual(self.Obs.signal.pop(0), "DocOpenTransaction")
             self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
@@ -6054,6 +6262,105 @@ class TransactionBranchCases(unittest.TestCase):
         doc.commitTransaction()
         self.assertEqual(doc.RedoNames, [])
         self.assertEqual(doc.UndoNames, ["taller"])
+
+    def testImplicitStepsWithoutALog(self):
+        # docs/MultiViewEdit.md sec 12.2 rule 7: a document with no log --
+        # a temporary one keeps none -- records implicit steps too. They go
+        # with the user's step they followed, kept as one step however many
+        # there are; they end the redo steps, which have no log to go
+        # through; and the undo limit counts the user's steps only.
+        doc = self.track(FreeCAD.newDocument("ImplicitNoLog", hidden=True, temp=True))
+        doc.UndoMode = 1
+        box = doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        self.assertEqual(doc.getTransactionLog(), [])
+        self.assertEqual(doc.UndoCount, 0)
+
+        doc.openTransaction("longer")
+        box.Length = 20
+        doc.commitTransaction()
+        for width in range(1, 6):
+            box.Width = width
+            doc.recompute()
+            doc.commitTransaction()
+        self.assertEqual(doc.UndoNames, ["longer"])
+        doc.undo()
+        self.assertAlmostEqual(box.Length.Value, 10.0)
+        self.assertAlmostEqual(box.Width.Value, 10.0)
+        self.assertAlmostEqual(box.Shape.Volume, 1000.0)
+        self.assertEqual(doc.RedoNames, ["longer"])
+        # A recompute's write keeps it: undo, recompute, redo
+        box.touch()
+        doc.recompute()
+        doc.commitTransaction()
+        self.assertEqual(doc.RedoNames, ["longer"])
+        box.Height = 5
+        doc.commitTransaction()
+        self.assertEqual(doc.RedoNames, [])
+
+        # 25 steps of the user's, each with an implicit one after it: the
+        # last 20 are kept, each undone with its implicit one
+        for i in range(25):
+            doc.openTransaction("step %d" % i)
+            box.Length = 11 + i
+            doc.commitTransaction()
+            box.Width = 2 + i
+            doc.commitTransaction()
+        self.assertEqual(doc.UndoCount, 20)
+        while doc.UndoCount:
+            doc.undo()
+        self.assertAlmostEqual(box.Length.Value, 15.0)
+        self.assertAlmostEqual(box.Width.Value, 6.0)
+
+    def testAWriteWithTheLogOffIsRecordedToo(self):
+        # docs/MultiViewEdit.md sec 12.2 rule 7: with the log off, a write
+        # with no step open is an implicit step, as with it on, undone with
+        # the user's step it followed; a removal too, where it was a
+        # "Delete" step of its own. Document/UndoImplicitLogOff off, it is
+        # not recorded, as before.
+        self.param.SetInt("TransactionLog", 0)
+        doc = self.track(FreeCAD.newDocument("LogOffImplicit"))
+        doc.UndoMode = 1
+        box = doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        doc.openTransaction("longer")
+        box.Length = 20
+        doc.commitTransaction()
+        box.Width = 5
+        doc.recompute()
+        doc.commitTransaction()
+        doc.openTransaction("extra")
+        doc.addObject("App::DocumentObject", "Extra")
+        doc.commitTransaction()
+        doc.removeObject("Extra")
+        doc.commitTransaction()
+        self.assertEqual(doc.UndoNames, ["extra", "longer"])
+        doc.undo()
+        self.assertIsNone(doc.getObject("Extra"))
+        self.assertEqual(doc.UndoNames, ["longer"])
+        doc.undo()
+        self.assertAlmostEqual(box.Length.Value, 10.0)
+        self.assertAlmostEqual(box.Width.Value, 10.0)
+        self.assertAlmostEqual(box.Shape.Volume, 1000.0)
+
+        self.param.SetBool("UndoImplicitLogOff", False)
+        try:
+            doc = self.track(FreeCAD.newDocument("LogOffBare"))
+            doc.UndoMode = 1
+            box = doc.addObject("Part::Box", "Box")
+            doc.recompute()
+            doc.openTransaction("longer")
+            box.Length = 20
+            doc.commitTransaction()
+            box.Width = 5
+            doc.commitTransaction()
+            doc.undo()
+            self.assertAlmostEqual(box.Length.Value, 10.0)
+            self.assertAlmostEqual(box.Width.Value, 5.0)
+        finally:
+            self.param.SetBool("UndoImplicitLogOff", True)
 
     def testAStepRefusedIsSaidAndGonePast(self):
         # Sec 33.11: a redo is refused where what it would set was changed
@@ -12873,6 +13180,51 @@ class FolderSaveCases(unittest.TestCase):
         if was is not None:
             self.addCleanup(os.environ.__setitem__, "FC_FOLDER_SAVE_CHECK", was)
 
+    def testAFolderNamedByItsShortNameKeepsToo(self):
+        # Windows: a folder given by its 8.3 short name (a TEMP may be one)
+        # kept nothing, the save writing by the long name; and an open of it
+        # saved again kept nothing either.
+        import shutil
+        import sys
+
+        if sys.platform != "win32":
+            self.skipTest("8.3 names are Windows'")
+        import ctypes
+
+        self.noCheck()
+        base = os.path.join(os.environ.get("LOCALAPPDATA", self.dir), "Temp")
+        top = tempfile.mkdtemp(prefix="fc-folder-long-name-", dir=base)
+        self.addCleanup(shutil.rmtree, top, True)
+        buf = ctypes.create_unicode_buffer(1024)
+        n = ctypes.windll.kernel32.GetShortPathNameW(top, buf, 1024)
+        if not n or buf.value.lower() == top.lower():
+            self.skipTest("no 8.3 name on this volume")
+        path = os.path.join(buf.value, "Short")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("Short"))
+        doc.UndoMode = 1
+
+        def make(d):
+            for i in range(4):
+                d.addObject("Part::Box", "Box%d" % i)
+
+        self.edit(doc, "create", make)
+        doc.saveAs(path)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 4)
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+        self.assertTrue(doc.getLastSaveHistory()["updated"])
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 30))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+
     def testAnUnchangedObjectIsKeptAsTheFolderHasIt(self):
         # Sec 38.12 (S2b): the second save of a folder writes the objects the
         # log says changed and keeps the others' files; the log's version of
@@ -14273,9 +14625,14 @@ class TransactionAuditCases(unittest.TestCase):
                     continue   # a member Python's zipfile cannot read: the history
                 item.compress_type = zipfile.ZIP_DEFLATED
                 if item.filename == "Document.xml":
-                    text = re.sub(r'<XLink file="[^"]*"',
-                                  '<XLink file="gone.FCStd" held="%s" heldpath="%s"'
-                                  % (digest, "../" * 12 + evil.lstrip("/")),
+                    # Climb to the root and down to `evil`; without the drive
+                    # and with forward slashes, so it climbs on Windows too.
+                    # The replacement is a function: a Windows path's
+                    # backslashes would be read as escapes.
+                    tail = os.path.splitdrive(evil)[1].replace("\\", "/").lstrip("/")
+                    link = '<XLink file="gone.FCStd" held="%s" heldpath="%s"' % (
+                        digest, "../" * 12 + tail)
+                    text = re.sub(r'<XLink file="[^"]*"', lambda m: link,
                                   data.decode("utf-8"))
                     data = text.encode("utf-8")
                 zout.writestr(item, data)

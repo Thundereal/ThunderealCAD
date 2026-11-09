@@ -36,6 +36,7 @@
 #include <App/FileBlobManager.h>
 #include <Gui/MetaTypes.h>
 
+#include <Base/Console.h>
 #include "Materials.h"
 
 #include "MaterialLibrary.h"

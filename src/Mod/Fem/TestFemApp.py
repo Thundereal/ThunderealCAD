@@ -36,6 +36,7 @@ from femtest.app.test_mesh import TestMeshEleTetra10 as FemTest08
 from femtest.app.test_mesh import TestMeshGroups as FemTest09
 from femtest.app.test_result import TestResult as FemTest10
 from femtest.app.test_ccxtools import TestCcxTools as FemTest11
+from femtest.app.test_motionloads import TestMotionLoads as FemTestMotionLoads
 from femtest.app.test_solver_elmer import TestSolverElmer as FemTest13
 from femtest.app.test_solver_z88 import TestSolverZ88 as FemTest14
 from femtest.app.test_gmsh import TestGMSHTransfinite as FemTest15

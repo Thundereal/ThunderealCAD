@@ -36,6 +36,7 @@
 #include "Application.h"
 #include "BitmapFactory.h"
 #include "Command.h"
+#include "Fw/FwImage.h"
 #include "Fw/FwQtView.h"
 #include "Fw/FwStore.h"
 #include "Fw/FwToolBarMirror.h"
@@ -65,9 +66,13 @@ void writeDiff(Widget* model, const QVariantMap& values)
     if (diff.isEmpty())
         return;
     Backend* backend = model->backend();
+    // setProperties() announces the change, and what hears it may stop the
+    // mirror, which deletes this model before the call returns.
+    QPointer<Widget> alive(model);
     model->setBackend(nullptr);
     model->setProperties(diff, Source::Native);
-    model->setBackend(backend);
+    if (alive)
+        alive->setBackend(backend);
 }
 
 /// Fill the bag silently (the initial state, before the object is
@@ -167,7 +172,12 @@ void ToolBarMirror::stop()
     // deleted the bar rebuild() was writing into and the models its items
     // point at, and cleared the tables it walks -- a served desktop whose
     // browser left mid-rebuild crashed, on a freed bar or later in malloc.
-    if (_rebuilding) {
+    // And flush(), for the same reason: a model's change announced from
+    // its loop reaches SceneWidgetStream::checkMirror(), which stopped the
+    // mirror there and deleted the model writeDiff() was still writing --
+    // "corrupted double-linked list" when a served test closed its
+    // documents (ASan: heap-use-after-free in Widget::setBackend).
+    if (_rebuilding || _flushing) {
         _stopPending = true;
         return;
     }
@@ -247,10 +257,18 @@ void ToolBarMirror::flush()
 {
     QSet<::QAction*> dirty;
     dirty.swap(_dirty);
+    _flushing = true;
     for (::QAction* a : dirty) {
+        if (_stopPending)
+            break;
         auto it = _models.find(a);
         if (it != _models.end() && it.value())
             refresh(a, it.value(), false);
+    }
+    _flushing = false;
+    if (_stopPending) {
+        _stopPending = false;
+        stop();
     }
 }
 
@@ -312,6 +330,18 @@ QString ToolBarMirror::areaOf(::QToolBar* bar)
 
 QString ToolBarMirror::iconNameOf(::QAction* real, const QString& command, int index)
 {
+    const QString name = namedIconOf(command, index);
+    if (!name.isEmpty() || !real || real->icon().isNull())
+        return name;
+    // an icon with no name to it (a group's plain members and its face
+    // over them, PartDesign's primitives): its pixels as the desktop
+    // draws them, filed by content -- at twice the stock 24 px, as the
+    // context menu does, for a high-DPI page
+    return ImageStore::instance().ofIcon(real->icon(), QSize(48, 48));
+}
+
+QString ToolBarMirror::namedIconOf(const QString& command, int index)
+{
     Command* cmd = commandByName(command);
     if (!cmd)
         return QString();
@@ -333,7 +363,6 @@ QString ToolBarMirror::iconNameOf(::QAction* real, const QString& command, int i
                 return px;
         }
     }
-    Q_UNUSED(real)
     return pixmapOf(cmd);
 }
 
@@ -601,6 +630,19 @@ void ToolBarMirror::rebuild()
                 fresh.append(w);
                 items.append(w);
                 continue;
+            }
+            // a command's stand-in on a tool bar: UndoAction and RedoAction
+            // put a QAction of their own there (it carries the history
+            // menu), parented to the Action, and it is that command's
+            // button -- its icon, its tool tip, run as the command
+            if (!_commands.contains(a)) {
+                auto owner = qobject_cast<Action*>(a->parent());
+                Command* cmd = owner ? owner->command() : nullptr;
+                if (cmd && owner->action() != a && !_models.contains(owner->action())) {
+                    CommandRef own;
+                    own.name = QString::fromUtf8(cmd->getName());
+                    _commands.insert(a, own);
+                }
             }
             if (Fw::QAction* m = commandModel(a)) {
                 signature.append(store.idOf(m));

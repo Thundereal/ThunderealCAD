@@ -26,6 +26,7 @@
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Gui/Command.h>
 #include <type_traits>

@@ -319,6 +319,10 @@ public:
     static std::shared_ptr<FileHistory> find(const std::string& path);
     /// The canonical form of `path` the registry keys by.
     static std::string canonicalPath(const std::string& path);
+    /// `a` and `b` name one file, whichever way each is spelled: on Windows
+    /// an 8.3 short name and its long one are the same (canonicalPath keeps
+    /// the spelling it is given).
+    static bool samePath(const std::string& a, const std::string& b);
     /// What a file says of the save it is from, with nothing of a history
     /// read (docs/TransactionLogJournal.md sec 30.19).
     struct Saved

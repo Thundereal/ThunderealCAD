@@ -596,6 +596,31 @@ shapes out first. Eviction weighs bytes against the cost to regenerate,
 which the log already knows -- the recompute record has per-object
 duration, and the import transaction records its own.
 
+### 10.2 A recompute that runs on past execute() (user, 2026-11-01)
+
+The rule above reads `isRecomputing()`, which holds only while
+`execute()` runs. A TechDraw view's `execute()` starts its projection in
+threads and returns; the projection is stored in `ProjectedGeometry` when
+they finish, on the main thread, after the recompute is over. That write
+was logged as an input: 4 to 8.5 KB kept for good on each recompute of a
+page of the 84-hole plate, against 1.5 KB with the store off
+(docs/TechDrawStoredGeometry.md sec 6.2). Ruled: it is derived.
+
+The object says so. `App::TransactionDerived scope(obj)` around the
+writes that finish `obj`'s recompute makes what this thread writes to
+`obj`'s own properties derived, as if `execute()` had written it
+(`Transactions.cpp`, `TransactionObject::setProperty`). What it writes to
+another object's properties is not covered, and is set by hand -- a
+change handler that writes elsewhere must not hide an input in the cache
+tier. Not a rule on `Prop_Output` either: an imported body's `Shape` is
+an output property, and an input (10.1).
+
+What follows is the derived rule's: the value goes to the cache tier under
+its budget; an undo within the in-memory steps applies it as it always
+did; a cold undo that finds it evicted touches the owner, which then
+recomputes; a merge leaves it to the owner's recompute. Gtest
+`aWriteFinishingItsOwnersRecomputeIsDerived`.
+
 ## 11. Pseudo transactions
 
 Rows in the transaction table that group no ops, or no user ops. They
@@ -3473,6 +3498,83 @@ log-on ctest run is `-j1` (about 20 minutes), with a check afterwards that
 `user.cfg` still sets it. The log-on ctest figures of 24.11 and 24.12 came
 from `-j6` runs and were at most partly log-on; the `OmniControl`
 failure 24.12 saw was real all the same.
+
+### 24.14 An undo from the log finishes its objects (2026-11-01)
+
+An object that keeps something beside its properties makes it again from
+them once an undo or redo is done: `onUndoRedoFinished()`, run for each
+object the undo marked `PendingTransactionUpdate` -- the sketch's solver
+state, a link array's elements, a TechDraw view's drawing of the
+projection the undo put back (docs/TechDrawStoredGeometry.md sec 6.3). The
+outermost `TransactionGuard` runs them, for the documents a transaction
+was applied to under it, and `Transaction::apply` is what registers a
+document there. An undo from the log applies no transaction: `_takeStep`
+reverts a cold step under a guard that never heard of the document, and
+`_revertStep` and `undoLogged` run under none (a guard would defer the
+touches their recompute needs). So no object was ever finished after an
+undo past the steps kept in memory, or out of order: a TechDraw view went
+on drawing the box the undo had taken back, marked clean.
+
+`TransactionGuard::finishObjects(doc)` is the guard's pass, made callable:
+`_takeStep` registers the document (`TransactionGuard::addDocument`) after
+a cold revert, and the guard runs it as for a hot one; `_revertStep` and
+`undoLogged` call it once the values are in, and `_revertStep` recomputes
+when an object finishing touched itself. GUI test
+`td-undo-stored-projection.py`, the undo from the log.
+
+### 24.15 A derived value gone stays touched through the run (2026-11-01)
+
+A cold step whose derived value the cache has let go touches its owner
+(`_applyRevert`, sec 24.1). An undo takes a run -- the user's step and the
+implicit ones riding on it (sec 33.4), newest first -- and each step sets
+the touched state its own rows record (`StepTouched`, sec 27.63). A step
+under the one that touched an object set it back to the clean the rows
+say: a TechDraw page's projections, written by the implicit steps above
+the edit and evicted (sec 10.2), came back from an undo past the steps
+kept in memory still drawing the edit, marked clean.
+
+`_takeRun` gathers what its cold steps touched for a value gone
+(`DocumentP::runNotRestored`), and touches them again once the run is
+taken -- through `TransactionGuard::afterTouches`, after what a guard
+still open sets. A refused undo puts the steps back and touches nothing.
+GUI test `td-undo-stored-projection.py`, the undo after the cache let go.
+
+### 24.16 An inverse that writes nothing (2026-11-01)
+
+A step taken back from the log does not restore its derived values; it
+touches their owners (24.1). A step of derived values only -- a TechDraw
+view's projection, derived since 10.2, written in an implicit step of its
+own -- is taken back by an inverse that writes nothing, and `onCommit`
+makes no row of an empty transaction: the step left on the other stack
+had seq 0, and taking it the other way was refused, "no log row". In
+`td-model-interleave.py` the page's redo of its format, from under the
+model's steps, stopped working once the projection was derived.
+
+`logInverse` passes `onCommit`'s `unchanged` on to the step, as
+`_commitTransaction` does: a step that changed nothing has nothing to
+apply, and is taken without a row (`Transaction::Unchanged`, 24.7).
+
+### 24.17 A link the undo leaves clean is clean (2026-11-01)
+
+A link is touched while its target has changed since the link was
+purged (`PropertyLink*::isTouched`, the target's revision against the one
+taken at the purge), and an object with a touched link must execute. An
+undo writes the target back -- an input written bumps its object's
+revision -- and the object linking to it, its own output written back by
+the same undo and clean by the rows, kept a touched link: the next
+recompute, of anything, ran it again. A TechDraw view was re-projected,
+and everything drawn from it, after every undo that took back a change to
+its model, though the undo had put its projection back.
+
+Three places in the touched state the rows leave (sec 27.63):
+`setPropertyTouched` clears a property the rows say is clean by
+`isTouched()` rather than the bit, so a link is purged of its target's
+change; `StepTouched::leave` sets the state of every object it covers,
+not only those whose bits differ, as the bits do not show the link; and
+`StepTouched::begin` covers the objects linking to what the step writes,
+which keep the state they had. Gtest
+`anUndoThatLeavesAnObjectCleanLeavesItsLinksClean`, which fails without
+the change.
 
 ## 25. Phase 7: crash recovery (design, 2026-09-25)
 

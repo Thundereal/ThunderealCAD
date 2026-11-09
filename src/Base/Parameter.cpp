@@ -51,6 +51,7 @@
 #include "Parameter.inl"
 #include "Console.h"
 #include "Exception.h"
+#include "FileInfo.h"
 #include "Tools.h"
 
 FC_LOG_LEVEL_INIT("Parameter", true, true)

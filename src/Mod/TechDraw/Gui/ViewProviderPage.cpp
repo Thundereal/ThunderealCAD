@@ -37,6 +37,7 @@
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <Base/Tools.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Document.h>
@@ -92,14 +93,19 @@ ViewProviderPage::ViewProviderPage()
     setToggleVisibility(ToggleVisibilityMode::NoToggleVisibility);
     static const char* group = "Grid";
 
-    ADD_PROPERTY_TYPE(ShowFrames, (true), group, App::Prop_None,
+    // Off for a new page and shown in the property editor; a page saved
+    // with frames on keeps them (docs/HandsOnQueue.md entry 230, the
+    // reporter 2026-10-28: "I want to make it default off"; "make the
+    // property visible, leave existing object as it is"). With frames off
+    // a view shows its frame while anything of it is selected
+    // (QGIView::getFrameState).
+    ADD_PROPERTY_TYPE(ShowFrames, (false), group, App::Prop_None,
                       "Show or hide View frames and Labels on this Page");
     ADD_PROPERTY_TYPE(ShowGrid, (PreferencesGui::showGrid()), group, App::Prop_None,
                       "Show or hide a grid on this Page");
     ADD_PROPERTY_TYPE(GridSpacing, (PreferencesGui::gridSpacing()), group,
                       (App::PropertyType::Prop_None), "Grid line spacing in mm");
 
-    ShowFrames.setStatus(App::Property::Hidden, true);
     // Do not show in property editor   why? wf  WF: because DisplayMode applies only to coin and we
     // don't use coin.
     DisplayMode.setStatus(App::Property::Hidden, true);
@@ -144,6 +150,12 @@ void ViewProviderPage::onChanged(const App::Property* prop)
     }
     else if (prop == &(GridSpacing)) {
         setGrid();
+    }
+    else if (prop == &ShowFrames) {
+        // set in the property editor as well as by Toggle Frames
+        if (!m_quietFrames) {
+            refreshFrames();
+        }
     }
     else if (prop == &Visibility) {
         //Visibility changes are handled in VPDO::onChanged -> show() or hide()
@@ -504,21 +516,33 @@ bool ViewProviderPage::isShow(void) const { return true; }
 
 bool ViewProviderPage::getFrameState() { return ShowFrames.getValue(); }
 
-void ViewProviderPage::setFrameState(bool state) { ShowFrames.setValue(state); }
-
-void ViewProviderPage::toggleFrameState()
+// The printer and the exporter, which switch frames off around a render and
+// draw the views themselves: no refresh of the page for it
+void ViewProviderPage::setFrameState(bool state)
 {
-    if (m_graphicsScene) {
-        setFrameState(!getFrameState());
-        m_graphicsScene->refreshViews();
-        setTemplateMarkers(getFrameState());
+    Base::StateLocker guard(m_quietFrames);
+    ShowFrames.setValue(state);
+}
+
+void ViewProviderPage::toggleFrameState() { ShowFrames.setValue(!ShowFrames.getValue()); }
+
+// The views and the template's editable text marks drawn for ShowFrames
+void ViewProviderPage::refreshFrames()
+{
+    if (!m_graphicsScene || isRestoring() || !getDrawPage()) {
+        return;
     }
+    m_graphicsScene->refreshViews();
+    setTemplateMarkers(getFrameState());
 }
 
 void ViewProviderPage::setTemplateMarkers(bool state)
 {
     App::DocumentObject* templateFeat = nullptr;
     templateFeat = getDrawPage()->Template.getValue();
+    if (!templateFeat) {
+        return;
+    }
     Gui::Document* guiDoc = Gui::Application::Instance->getDocument(templateFeat->getDocument());
     Gui::ViewProvider* vp = guiDoc->getViewProvider(templateFeat);
     ViewProviderTemplate* vpt = dynamic_cast<ViewProviderTemplate*>(vp);

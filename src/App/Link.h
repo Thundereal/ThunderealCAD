@@ -34,6 +34,7 @@
 #include "PropertyElementAppearance.h"
 #include "PropertyLinks.h"
 #include "PropertyStandard.h"
+#include "PropertyAppearance.h"
 
 #define LINK_THROW(_type,_msg) do{\
     if(FC_LOG_INSTANCE.isEnabled(FC_LOGLEVEL_LOG))\

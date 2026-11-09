@@ -31,6 +31,7 @@
 
 #include <QCursor>
 #include <QHelpEvent>
+#include <QPointer>
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QToolTip>
@@ -60,6 +61,7 @@
 #include <algorithm>
 
 #include <App/Application.h>
+#include <App/GeoFeature.h>
 #include <Base/Converter.h>
 #include <Base/Parameter.h>
 #include <Base/Precision.h>
@@ -76,6 +78,7 @@
 #include <Gui/Utilities.h>
 #include <Gui/ViewerContext.h>
 #include <Gui/ViewParams.h>
+#include <Gui/Widgets.h>
 
 #include "SoLinearDragger.h"
 #include "SoLinearDraggerGeometry.h"
@@ -288,8 +291,63 @@ static SbColor litColor(const SbColor& own, bool selected, bool preselected)
 
 namespace
 {
-/// The handle the pointer is over, whose hint Qt's tool tip shows
+/// The handle the pointer is over, whose hint the tip shows
 Gizmo* tipHandle = nullptr;
+
+/** The handle's tip is Gui::ToolTip's (entry 246, the reporter: "the
+ * tooltip of each handle has a round rectangle border but show as rectangle
+ * widget shape, so the pointy corner looks bad"): the label the measure
+ * macro's preselection tip shows in, a child of the window whose shape is
+ * its border, here beside the pointer ("unlike preselection macro tooltip,
+ * those handle tooltip shall appeare near the mouser pointer").
+ */
+struct HandleTip
+{
+    QString text;
+    QPointer<QWidget> widget;
+
+    /// The label up now shows \a what
+    bool shows(const QString& what) const
+    {
+        if (what.isEmpty() || what != text || !widget) {
+            return false;
+        }
+        auto label = TipLabel::instance(widget, QPoint(), true);
+        return label && label->isVisible();
+    }
+    void show(const QPoint& global, const QString& what, QWidget* where)
+    {
+        text = what;
+        widget = where;
+        ToolTip::showText(global, what, where, true, ToolTip::NoCorner);
+    }
+    void hide(const QString& what)
+    {
+        if (shows(what)) {
+            ToolTip::hideText();
+        }
+        if (what == text) {
+            text.clear();
+        }
+    }
+    /// The label up now reads \a what instead, where it stands
+    void change(const QString& old, const QString& what)
+    {
+        if (!shows(old)) {
+            return;
+        }
+        text = what;
+        if (auto label = TipLabel::instance(widget, QPoint(), true)) {
+            label->set(what);
+        }
+    }
+};
+
+HandleTip& handleTip()
+{
+    static HandleTip tip;
+    return tip;
+}
 
 /** Answers Qt's own tool tip request -- the QEvent::ToolTip it sends to the
  * widget under a pointer that rests, after the style's delay, and again at
@@ -321,8 +379,9 @@ protected:
         if (!inView || text.isEmpty()) {
             return false;
         }
-        auto help = static_cast<QHelpEvent*>(event);
-        QToolTip::showText(help->globalPos(), text, static_cast<QWidget*>(watched));
+        // Taken, not answered: the handle's own rest shows its tip
+        // (Gizmo::restTip()), which hides it while the pointer moves; Qt's
+        // request comes 20 ms after a move while a tip was up a moment ago
         return true;
     }
 };
@@ -336,6 +395,54 @@ void Gizmo::setMenu(MenuCallback callback, const QString& toolTip)
     if (!filtered && !toolTip.isEmpty() && qApp) {
         filtered = true;
         qApp->installEventFilter(new HandleTipFilter(qApp));
+    }
+}
+
+void Gizmo::restTip(const SbVec2s& pos)
+{
+    if (menuToolTip.isEmpty()) {
+        return;
+    }
+    // a view with no widget has its hint from setHovered()
+    ViewerContext* view = ViewerContext::current();
+    QWidget* widget = view ? view->getGLWidget() : nullptr;
+    if (!widget && view) {
+        widget = view->getWidget();
+    }
+    if (!widget) {
+        return;
+    }
+    tipHandle = this;
+    handleTip().hide(menuToolTip);
+    const int serial = ++tipSerial;
+    std::weak_ptr<bool> life = alive;
+    QPointer<QWidget> where(widget);
+    const QPoint local = view->toQPoint(pos);
+    const int wait = qApp ? qApp->style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay) : 700;
+    QTimer::singleShot(wait, [this, life, serial, where, local]() {
+        auto still = life.lock();
+        if (!still || !*still || serial != tipSerial || !where || tipHandle != this
+            || !(hovered || isDragging())) {
+            return;
+        }
+        handleTip().show(where->mapToGlobal(local), menuToolTip, where);
+    });
+}
+
+void Gizmo::setMenuToolTip(const QString& toolTip)
+{
+    if (toolTip == menuToolTip) {
+        return;
+    }
+    const QString old = menuToolTip;
+    menuToolTip = toolTip;
+    // the tip or the hint up now, of this handle, reads anew
+    if (tipHandle == this) {
+        handleTip().change(old, toolTip);
+    }
+    ViewerContext* view = hintView;
+    if (view && !hintViewLife.expired() && view->hint() == old) {
+        view->setHint(toolTip);
     }
 }
 
@@ -357,9 +464,7 @@ void Gizmo::dropTip()
         return;
     }
     tipHandle = nullptr;
-    if (QToolTip::isVisible() && QToolTip::text() == menuToolTip) {
-        QToolTip::hideText();
-    }
+    handleTip().hide(menuToolTip);
 }
 
 void Gizmo::buildEventNode(SoNode* own)
@@ -468,6 +573,9 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
     if (cb->getEvent()->isOfType(SoLocation2Event::getClassTypeId())) {
         // The hint, while the pointer is over the handle (entries 135, 141)
         self->setHovered(over);
+        if (over) {
+            self->restTip(cb->getEvent()->getPosition());
+        }
         return;
     }
     const auto* event = static_cast<const SoMouseButtonEvent*>(cb->getEvent());
@@ -475,9 +583,7 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
         self->menuPressed = over;
         if (over) {
             // no hint over the menu
-            if (QToolTip::isVisible() && QToolTip::text() == self->menuToolTip) {
-                QToolTip::hideText();
-            }
+            handleTip().hide(self->menuToolTip);
             self->dropViewHint();
             cb->setHandled();
             // No grabEvents() here. A navigation style can take the release
@@ -644,6 +750,19 @@ void LinearGizmo::setDraggerPlacement(const SbVec3f& pos, const SbVec3f& dir)
     assert(draggerContainer && "Forgot to call GizmoContainer::initGizmos?");
     draggerContainer->translation = pos;
     draggerContainer->setPointerDirection(dir);
+}
+
+std::optional<Gizmo::HandleBase> LinearGizmo::getHandleBase()
+{
+    if (!draggerContainer || !dragger) {
+        return std::nullopt;
+    }
+    // The arrow stands as far along as its dragger is moved -- the value --
+    // from the container's place
+    SbVec3f along;
+    draggerContainer->rotation.getValue().multVec(dragger->translation.getValue(), along);
+    return HandleBase {draggerContainer->translation.getValue() + along,
+                       draggerContainer->getPointerDirection(), false};
 }
 
 void LinearGizmo::reverseDir()
@@ -862,6 +981,10 @@ void LinearGizmo::draggingContinued()
     property->setValue(value);
     // the arrow where the pointer is, behind its start once turned
     setDragLength(reversedInDrag ? -value : value);
+    notifyDrag(DragEvent::Moved);
+    if (const SoEvent* event = dragger->getEvent()) {
+        restTip(event->getPosition());
+    }
 }
 
 
@@ -996,6 +1119,29 @@ void RotationGizmo::setDraggerPlacement(const SbVec3f& pos, const SbVec3f& dir)
     assert(draggerContainer && "Forgot to call GizmoContainer::initGizmos?");
     draggerContainer->translation = pos;
     draggerContainer->setPointerDirection(dir);
+}
+
+std::optional<Gizmo::HandleBase> RotationGizmo::getHandleBase()
+{
+    if (!draggerContainer || !dragger) {
+        return std::nullopt;
+    }
+    auto rotator = SO_GET_PART(dragger, "rotator", SoRotatorGeometryKit);
+    if (!rotator) {
+        return std::nullopt;
+    }
+    // The knob, turned by the angle; its place is in the geometry's scaled
+    // space, sized to the screen
+    SbVec3f knob = rotator->pivotPosition.getValue();
+    const SbVec3f scale = dragger->geometryScale.getValue();
+    knob = SbVec3f(knob[0] * scale[0], knob[1] * scale[1], knob[2] * scale[2]);
+    dragger->rotation.getValue().multVec(knob, knob);
+    draggerContainer->rotation.getValue().multVec(knob, knob);
+    SbVec3f out = knob;
+    if (out.normalize() == 0.0F) {
+        out = draggerContainer->getPointerDirection();
+    }
+    return HandleBase {draggerContainer->translation.getValue() + knob, out, true};
 }
 
 void RotationGizmo::reverseDir()
@@ -1180,6 +1326,10 @@ void RotationGizmo::draggingContinued()
     property->setValue(value);
     // the arc where the pointer is, behind its start once turned
     setRotAngle(reversedInDrag ? -value : value);
+    notifyDrag(DragEvent::Moved);
+    if (const SoEvent* event = dragger->getEvent()) {
+        restTip(event->getPosition());
+    }
 }
 
 void RotationGizmo::orientAlongCamera(SoCamera* camera)
@@ -1546,23 +1696,66 @@ void GizmoContainer::attachViewer(Gui::ViewerContext* viewer, Base::Placement& o
     this->viewer = viewer;
     viewerLife = viewer->lifetime();
 
-    // Upstream also makes `origin` the document's editing transform. Here the
-    // edit path has already set that transform for the object being edited,
-    // and ViewProviderDragger passes the offset from it, so only the gizmo
-    // node is placed.
+    // `origin` is the gizmos' whole frame (ViewProviderDragger: the editing
+    // transform less the object's own placement), and it takes the editing
+    // root's transform: the gizmos are all the edit puts there.
     So3DAnnotation* annotation = SO_GET_ANY_PART(this, "annotation", So3DAnnotation);
     viewer->setupEditingRoot(annotation, &mat);
+
+    connEditingTransform.disconnect();
+    if (auto vp = viewProvider.get()) {
+        if (auto doc = vp->getDocument()) {
+            connEditingTransform = doc->signalEditingTransformChanged.connect(
+                [this](const Gui::Document&) {
+                    onEditingTransformChanged();
+                });
+        }
+    }
+}
+
+void GizmoContainer::onEditingTransformChanged()
+{
+    // A PartDesign box attached to the YZ plane in its own panel: its new
+    // placement was put on the editing root with the rest of the editing
+    // transform, and its handles, placed by that placement in the frame,
+    // had it twice -- along the wrong edges, the length handle on the width
+    // (docs/HandsOnQueue.md entry 236, the reporter: "the handle then
+    // controls the wrong dimenion"). Set back to the frame they are placed
+    // in.
+    if (!viewer || viewerLife.expired()) {
+        return;
+    }
+    origin = getWorldMatrix();
+    viewer->setEditingTransform(origin);
 }
 
 Base::Matrix4D GizmoContainer::getWorldMatrix() const
 {
-    Base::Matrix4D mat;
-    if (auto vp = viewProvider.get()) {
-        if (auto doc = vp->getDocument()) {
-            mat = doc->getEditingTransform();
-        }
+    // The frame attachViewer() was given -- the editing transform less the
+    // object's placement -- as it is now: it used to be put on top of the
+    // editing transform once more, and a value's label stood where its
+    // handle would with the object's placement applied twice
+    auto vp = viewProvider.get();
+    auto doc = vp ? vp->getDocument() : nullptr;
+    if (!doc) {
+        return origin;
     }
-    mat *= origin;
+    // the edit's own path, not the document's copy of its transform, which
+    // a panel re-placing its handles on the same change may read before it
+    // is brought up to date
+    Base::Matrix4D mat;
+    ViewProviderDocumentObject* parentVp = nullptr;
+    std::string subname;
+    if (doc->getInEdit(&parentVp, &subname) != vp || !parentVp || !parentVp->getObject()
+        || parentVp->getObject()->getSubObject(subname.c_str(), nullptr, &mat)
+            != vp->getObject()) {
+        mat = doc->getEditingTransform();
+    }
+    if (auto feat = dynamic_cast<App::GeoFeature*>(vp->getObject())) {
+        Base::Matrix4D inverse = feat->Placement.getValue().toMatrix();
+        inverse.inverse();
+        mat *= inverse;
+    }
     return mat;
 }
 

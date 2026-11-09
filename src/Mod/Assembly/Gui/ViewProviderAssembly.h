@@ -23,22 +23,26 @@
 
 #pragma once
 
+#include <map>
 #include <QCoreApplication>
 #include <QMetaObject>
 #include <fastsignals/signal.h>
 
 #include <Mod/Assembly/AssemblyGlobal.h>
 
-#include <Gui/Selection.h>
+#include <Gui/Selection/Selection.h>
 #include <Gui/ViewProviderPart.h>
 
 class SoSwitch;
+class SoSeparator;
+class SoTransform;
 class SoSensor;
 class SoDragger;
 class SoFieldSensor;
 
 namespace Gui
 {
+class So3DAnnotation;
 class SoTransformDragger;
 class View3DInventorViewer;
 class ViewerContext;
@@ -110,16 +114,23 @@ public:
 
     ViewProviderAssembly();
     ~ViewProviderAssembly() override;
+    void attach(App::DocumentObject* obj) override;
 
     /// deliver the icon shown in the tree view. Override from ViewProvider.h
     QIcon getIcon() const override;
 
     bool doubleClicked() override;
     void setupContextMenu(QMenu* menu, QObject* receiver, const char* member) override;
+    /// Freeze or unfreeze the assembly, in a transaction
+    void toggleFreeze();
+    /// Take the frozen shape again, in a transaction
+    void refreshFrozenShape();
     bool onDelete(const std::vector<std::string>& subNames) override;
     bool canDelete(App::DocumentObject* obj) const override;
 
     void updateData(const App::Property*) override;
+    /// Frozen, the Parts group draws the components' shape in their place
+    std::vector<App::DocumentObject*> claimChildren3D() const override;
 
     /** @name enter/exit edit mode */
     //@{
@@ -202,6 +213,10 @@ public:
     void initMoveDragger();
     void endMoveDragger();
     static void draggerMotionCallback(void* data, SoDragger* d);
+    // Collision while dragging, for the dragger's moves: watched from its
+    // start to its finish
+    static void draggerStartCallback(void* data, SoDragger* d);
+    static void draggerFinishCallback(void* data, SoDragger* d);
 
     void setDragger();
     void unsetDragger();
@@ -228,6 +243,8 @@ public:
     bool moveOnlyPreselected;
     bool moveInCommand;
     bool ctrlPressed;
+    bool forceSolveOnMoveForRigid;
+    bool ungroundedJointDrag;
 
     long lastClickTime;  // Store last click time as milliseconds
 
@@ -235,6 +252,7 @@ public:
     Base::Vector3d prevPosition;
     Base::Vector3d initialPosition;
     Base::Vector3d initialPositionRot;
+    Base::Vector3d initialUngroundedDragPosition;
     Base::Placement jcsPlc;
     Base::Placement jcsGlobalPlc;
     Base::Placement draggerInitPlc;
@@ -247,6 +265,35 @@ public:
 
     Gui::SoTransformDragger* asmDragger = nullptr;
     SoSwitch* asmDraggerSwitch = nullptr;
+    // Collision while dragging: the faces of the components that cross each
+    // other drawn in red while the drag brings them into collision, or would
+    // have (Stop) -- the whole component when none cross, one inside the
+    // other -- from the meshes the assembly's collision watch checks with,
+    // placed as the components are
+    SoSwitch* collisionSwitch = nullptr;
+    SoSeparator* collisionGroup = nullptr;
+    struct CollisionNode
+    {
+        SoSeparator* node = nullptr;
+        SoTransform* transform = nullptr;
+        // What it draws: these faces (InterferenceResult's touchFaces), or all
+        std::vector<std::pair<int, int>> faces;
+        bool whole = false;
+    };
+    std::map<App::DocumentObject*, CollisionNode> collisionNodes;
+    // The markers of where drags brought components into collision
+    // (AssemblyObject::getCollisionMarkers()): arrows pointing at where they
+    // met, drawn over everything, the selection's highlight too, and the same
+    // size on screen however far the view is zoomed
+    Gui::So3DAnnotation* markerGroup = nullptr;
+    fastsignals::scoped_connection connectCollisionMarkers;
+    // In edit, an arrow the mouse is over highlights the faces where the two
+    // met, and a click selects them: the arrows, picked alone; the faces of
+    // the one hovered (its index, -1 for none), drawn over everything
+    SoSeparator* markerArrows = nullptr;
+    SoSeparator* markerHover = nullptr;
+    int hoveredMarker = -1;
+    bool markerPressed = false;
     SoFieldSensor* translationSensor = nullptr;
     SoFieldSensor* rotationSensor = nullptr;
 
@@ -255,6 +302,16 @@ public:
         signalSetUp;
 
 private:
+    void showCollisionMarkers();
+    // The arrow under the cursor, hovered: its faces drawn, its tooltip
+    // shown; true when there is one
+    bool hoverCollisionMarker(const SbVec2s& cursorPos, Gui::ViewerContext* viewer);
+    void showMarkerFaces(int index);
+    QString markerText(int index) const;
+    void selectMarkerFaces(int index);
+    void showDragStopped();
+    void showDragCollisions();
+    void clearDragCollisions();
     bool tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerContext* viewer);
     void tryInitMove(const SbVec2s& cursorPos, Gui::ViewerContext* viewer);
 
@@ -266,6 +323,8 @@ private:
     );
 
     void slotAboutToOpenTransaction(const std::string& cmdName);
+    void slotStartSave(const App::Document& doc, const std::string& filename);
+    void slotDeletedObject(const App::DocumentObject& obj);
     void slotActivatedVP(const Gui::ViewProviderDocumentObject* vp, const char* name);
 
     void onWorkbenchActivated(const QString& name);
@@ -301,6 +360,8 @@ private:
     fastsignals::connection connectActivatedVP;
     fastsignals::connection connectSolverUpdate;
     fastsignals::scoped_connection m_preTransactionConn;
+    fastsignals::scoped_connection m_startSaveConn;
+    fastsignals::scoped_connection m_deletedObjectConn;
 };
 
 }  // namespace AssemblyGui

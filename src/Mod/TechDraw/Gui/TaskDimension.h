@@ -27,6 +27,10 @@
 #include <Gui/TaskView/TaskView.h>
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
+namespace Gui
+{
+class EditSteps;
+}
 
 namespace TechDrawGui
 {
@@ -46,6 +50,9 @@ public:
     virtual bool accept();
     virtual bool reject();
     void recomputeFeature();
+    /// Whether its changes go in a transaction held to OK or Cancel; not
+    /// when each is a step of its own (Gui::EditSteps, PerViewEdit)
+    bool holdsTransaction() const;
 
 private Q_SLOTS:
     void onTheoreticallyExactChanged();
@@ -73,6 +80,7 @@ private:
     std::unique_ptr<Ui_TaskDimension> ui;
     QGIViewDimension *m_parent;
     ViewProviderDimension *m_dimensionVP;
+    Gui::EditSteps *m_steps;
     std::pair<double, bool> getAngleFromSelection();
 };
 
@@ -97,6 +105,7 @@ public:
     void helpRequested() override { return;}
     bool isAllowedAlterDocument() const override
     { return false; }
+    bool holdsTransaction() const override;
 
     void update();
 

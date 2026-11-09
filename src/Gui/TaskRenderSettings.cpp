@@ -40,7 +40,6 @@
 
 #include "TaskRenderSettings.h"
 #include "Application.h"
-#include "Document.h"
 #include "FileDialog.h"
 #include "Selection.h"
 #include "ViewProviderGeometryObject.h"

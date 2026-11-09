@@ -10,6 +10,7 @@ import { ConsolePanel } from './console';
 import { TaskPanelCard } from './widgets/panel';
 import { HudCard } from './hud';
 import { LauncherMenu, NaviCubeMenu } from './menu';
+import { ConsentCards, UndoLauncher } from './undolist';
 import { SceneContextMenu } from './contextmenu';
 import { LoupeOverlay } from './loupe';
 import { OnViewParams } from './onview';
@@ -418,6 +419,11 @@ render(() => (
     {sending() && <div class="fc-sending" role="status">{sending()}</div>}
     <NaviCubeMenu />
     <SceneContextMenu viewOnly={viewOnly} />
+    <UndoLauncher
+      hidden={() => (cardOpen() || taskPanelOpen() || sheetOpen() || logOpen()
+                     || consoleOpen()) && window.innerWidth <= NARROW}
+      viewOnly={viewOnly} />
+    <ConsentCards />
     <LauncherMenu
       hidden={() => (cardOpen() || taskPanelOpen() || sheetOpen() || logOpen()
                      || consoleOpen()) && window.innerWidth <= NARROW}

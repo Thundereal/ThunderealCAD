@@ -37,6 +37,9 @@
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
 #include "DrawViewPart.h"
+#include "PropertyHatchLines.h"
+#include <App/PropertyGeo.h>
+#include <Mod/Part/App/PropertyTopoShape.h>
 
 class Bnd_Box;
 class BRepAlgoAPI_Cut;
@@ -105,6 +108,18 @@ public:
     App::PropertyFloat HatchScale;
     App::PropertyFloat HatchRotation;
     App::PropertyVector HatchOffset;
+    //! the pattern's lines trimmed to each cut face, as last trimmed
+    //! (docs/TechDrawStoredGeometry.md sec 7)
+    PropertyHatchLines CutHatchLines;
+    //! what the views made from this one read -- a detail's base, a section
+    //! using this cut, the shaded underlay -- kept beside the projection so
+    //! that an undo or an open makes none of it again
+    //! (docs/TechDrawStoredGeometry.md sec 8)
+    Part::PropertyPartShape CutShape;       //!< the cut, uncentred
+    Part::PropertyPartShape PreparedShape;  //!< centred, scaled, rotated
+    App::PropertyMatrix CutFrame;           //!< CutShape -> global
+    App::PropertyMatrix PreparedFrame;      //!< PreparedShape -> global
+    App::PropertyInteger FramesKnown;       //!< 1 CutFrame, 2 PreparedFrame
 
     App::PropertyBool FuseBeforeCut;
     App::PropertyBool TrimAfterCut;//new v021
@@ -176,6 +191,9 @@ public:
 
     void makeLineSets(void);
     std::vector<LineSet> getDrawableLines(int i = 0);
+    //! trim the cut faces' pattern and keep the lines
+    void makeCutHatchLines();
+    std::string cutHatchSignature() const;
     std::vector<PATLineSpec> getDecodedSpecsFromFile(std::string fileSpec, std::string myPattern);
 
     TopoDS_Shape getCutShape() const { return m_cutShape; }
@@ -215,6 +233,8 @@ public:
     virtual void onSectionCutFinished(std::shared_ptr<TopoDS_Shape> result);
 
 protected:
+    void abortMaking() override;
+
     TopoDS_Compound m_sectionTopoDSFaces;//needed for hatching
     std::vector<LineSet> m_lineSets;
     /// The hatch lines are to be read from the pattern file when they are

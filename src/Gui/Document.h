@@ -23,6 +23,7 @@
 #ifndef GUI_DOCUMENT_H
 #define GUI_DOCUMENT_H
 
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -31,11 +32,10 @@
 #include <fastsignals/signal.h>
 #include <QString>
 
-#include <App/Document.h>
 #include <Base/Persistence.h>
 #include <Gui/TreeItemMode.h>
 
-#include "MDIView.h"
+#include "View.h"
 
 class SoNode;
 class SoPath;
@@ -48,9 +48,11 @@ namespace App {
 class Document;
 class DocumentObject;
 class DocumentObjectGroup;
+class FileBlobManager;
 class SubObjectT;
 class Property;
 class Transaction;
+struct UndoView;
 }
 
 namespace Gui {
@@ -61,10 +63,42 @@ class View3DInventor;
 class ViewProvider;
 class ViewerContext;
 class EditingRoot;
+struct EditSession;
 class ViewProviderDocumentObject;
 class Application;
 class DocumentPy;
 class TransactionViewProvider;
+
+/** Whose edit a transaction opened now is a step of (docs/HandsOnQueue.md
+ * entry 232): while one stands, a document opening a transaction counts it
+ * a step of \a vp's edit, where \a vp is in edit in it
+ * (Document::editStepsOf()). A null one stands for nobody's: what runs in
+ * it -- a timer, a queued call -- is no edit's, whatever scope it runs
+ * inside, but for a ViewerScope opened in it: the view that names says,
+ * as for a client's operation, which arrives as a queued call. The
+ * innermost counts. Where none stands, the view a ViewerScope names says;
+ * else nobody.
+ */
+class GuiExport EditStepScope
+{
+public:
+    explicit EditStepScope(const ViewProvider *vp);
+    ~EditStepScope();
+    EditStepScope(const EditStepScope&) = delete;
+    EditStepScope& operator=(const EditStepScope&) = delete;
+
+    /// Whether one stands, and whose: null for nobody's
+    static bool isSet();
+    static const ViewProvider *current();
+    /// The view a ViewerScope opened inside the innermost one names, or
+    /// null: what says whose a step is in a null one
+    static ViewerContext *viewerInside();
+
+private:
+    const ViewProvider *previous;
+    bool wasSet;
+    ViewerContext *previousViewer;
+};
 
 /** The Gui Document
  *  This is the document on GUI level. Its main responsibility is keeping
@@ -440,13 +474,106 @@ public:
      * belongs to the current edit session and is cleared when it ends.
      */
     void setEditRestore(bool askRestore);
-    /// reset edit of this document
+    /** End every edit of this document.
+     *
+     * Several may run, one per view, with PerViewEdit on
+     * (docs/HandsOnQueue.md entry 232); resetEdit() ends the one of the
+     * view asking, this ends them all and takes the document out of edit.
+     */
     void _resetEdit();
     /// get the in edit ViewProvider or NULL
     ViewProvider *getInEdit(ViewProviderDocumentObject **parentVp=nullptr,
             std::string *subname=nullptr, int *mode=nullptr, std::string *subElement=nullptr) const;
     /// get the in edit ViewProvider or NULL
     App::SubObjectT getInEditT(int *mode=0) const;
+    /** The view provider in edit, whichever view asks (upstream's name).
+     *
+     * getInEdit() answers for the view asking, and null where that view
+     * is not in the edit; this is for a caller that wants to know what is
+     * in edit in this document at all -- the view's edit, else the latest
+     * when there are several (isEditViewProvider() asks of them all).
+     */
+    ViewProvider* getEditViewProvider() const;
+    /// Whether \a vp is in edit in this document, in any view
+    bool isEditViewProvider(const ViewProvider *vp) const;
+    /** End the edit of \a vp, in whichever view it runs, and the
+     * document's edit with it when it is the last. Nothing when \a vp is
+     * not in edit here.
+     */
+    void resetEditOf(const ViewProvider *vp);
+    /** End the edit that runs in \a view -- a 3D view, or a view of its
+     * own an edit runs in, a TechDraw page -- and the document's edit with
+     * it when it is the last. Nothing when none runs there.
+     */
+    void resetEditIn(const MDIView *view);
+    /// What is in edit in \a view (a 3D view, or a page), null for nothing
+    ViewProvider *editViewProviderIn(const MDIView *view) const;
+    /** What the undo of \a view lists and takes (docs/MultiViewEdit.md sec
+     * 12.9, docs/HandsOnQueue.md entry 227). A 3D view in edit: the edit's
+     * own steps; one in none: every step but those of the edits other views
+     * have open. Any other view -- a TechDraw page, a spreadsheet: the steps
+     * made in it and those made in no view.
+     */
+    App::UndoView undoViewOf(const MDIView *view) const;
+    /** The number the steps made in a view of \a obj carry
+     * (MDIView::undoViewId): the object's for as long as the document is
+     * open, so a page or a sheet opened again lists what was done in it.
+     */
+    int undoViewIdOf(const App::DocumentObject *obj) const;
+    /// The object whose view \a view is (a page, a sheet), null for none
+    App::DocumentObject *objectOfView(const MDIView *view) const;
+    /** A view closes: the steps made in it are every view's, unless it is
+     * a 3D view (whose steps no 3D view tells apart) or a view of an object
+     * (whose steps the object keeps for its next view)
+     */
+    void releaseUndoViewOf(const MDIView *view) const;
+    /** Take back an edit's own undo steps, transaction ids \a tids: its
+     * Cancel, where each change of it was a step of its own
+     * (docs/HandsOnQueue.md entry 232).
+     *
+     * With nothing of anyone else's above them, the plain undo down to the
+     * oldest, as Cancel always was. With another view's steps among them,
+     * they are taken back from the log, as one step; where a step made
+     * since depends on them, the user picks as for an undo refused for it
+     * (resolveInTheWay): with them, or what they changed kept, or nothing
+     * taken back. False when an undo was refused.
+     */
+    bool undoOwnSteps(const std::vector<int>& tids);
+    /** The undo steps of \a vp's edit here, in the order they were
+     * opened: those opened while an EditStepScope of it stood, or with
+     * none, in the view its edit runs in; and those that changed the object
+     * in edit, whoever made them (docs/HandsOnQueue.md entry 232). Empty
+     * when it is not in edit here.
+     */
+    std::vector<int> editStepsOf(const ViewProvider *vp) const;
+    /// The view \a vp is in edit in, null for none
+    ViewerContext *editingViewerOf(const ViewProvider *vp) const;
+    /** The window \a vp is in edit in: its 3D view's, or the view of its
+     * own it runs in (a TechDraw page); null for none, and for a client's
+     * view, which has no window
+     */
+    MDIView *editViewOf(const ViewProvider *vp) const;
+    /// Whether an edit was started in \a viewer (it is the initiator)
+    bool isEditingIn(const ViewerContext *viewer) const;
+    /// The views edits were started in, one per edit
+    std::vector<ViewerContext*> editingViewers() const;
+    /** Whether an edit of \a vp in mode \a mode, started in \a viewer, would
+     * end an edit another view runs (PerViewEdit): one that holds a
+     * transaction across its work, or any when this one would -- the rule
+     * setEdit() ends them by (docs/HandsOnQueue.md entry 232). What a
+     * served client may not do to another's edit.
+     */
+    bool editEndsAnother(const ViewProvider *vp, int mode, const ViewerContext *viewer) const;
+    /** The object in edit: the sub-object of the edited path whose view
+     * provider edits. Known from the moment setEdit() picks it, before the
+     * view provider has started -- what code run by its startEditing() can
+     * find its document by. The view's edit's, else the latest's.
+     */
+    App::DocumentObject* getEditingObject() const;
+    /// Whether \a obj is in edit in this document, in any view
+    bool isEditingObject(const App::DocumentObject *obj) const;
+    /// Whether setEdit() is starting an edit now
+    bool isStartingEdit() const;
     /// set the in edit ViewProvider subname reference
     void setInEdit(ViewProviderDocumentObject *parentVp, const char *subname);
     /** Add or remove view provider from scene graphs of all views
@@ -479,6 +606,12 @@ public:
     void undo(int iSteps, bool ask = false);
     /// Will REDO one or more steps; \a ask as for undo()
     void redo(int iSteps, bool ask = false);
+    /** Undo (or with \a redo, redo) to the step with id \a id, that one
+     * included: inside a group of an edit's steps, the group's steps to it
+     * and no further (docs/MultiViewEdit.md sec 12.11) -- the drop-down's
+     * fine undo. A refusal is said in a dialog. False when nothing went.
+     */
+    bool undoTo(int id, bool redo = false);
     /** Whether undo/redo of \a iSteps here would ask the user first.
      *
      * checkTransactionID puts up a QMessageBox when a grouped transaction
@@ -570,6 +703,18 @@ private:
     int takeSteps(bool undo, int iSteps, int skipped);
     /// Say a refused step and offer the one after; true to go on to it
     bool askToSkip(bool undo, int skipped, const std::string& why);
+    /** An undo of the steps \a own, named \a what, refused for steps made
+     * since that depend on it (docs/MultiViewEdit.md sec 12.11): say them,
+     * and offer the undo with them -- asked of their owner when one is
+     * another user's -- or with what they changed kept, by \a keepTheirs.
+     * An undo's or, \a cancel, a panel's Cancel's. True when the undo went.
+     */
+    bool resolveInTheWay(const std::vector<int>& own, const QString& what,
+                         const std::string& why, const std::function<bool()>& keepTheirs,
+                         bool cancel = false);
+    /// The undo of the steps \a own with the steps \a with: every step of
+    /// one's own found in the way on the way taken too
+    bool undoWithThem(std::vector<int> own, const std::vector<int>& with);
     /// The scan behind checkTransactionID: the other documents that hold
     /// the same transaction ids, how many steps each, and which of them
     /// would need the user asked.
@@ -578,6 +723,12 @@ private:
                              std::map<App::Document*, int>& dmap) const;
     /// Ask for user interaction if saving has failed
     bool askIfSavingFailed(const QString&);
+
+    /// End one edit of this document, and the document's edit with its last
+    void _resetEditSession(EditSession *s);
+    /// End the edit \a s as resetEdit() ends the one it picks
+    void _endEdit(EditSession *s);
+    bool hasEditSession(const EditSession *s) const;
 
     struct DocumentP* d;
     static int _iDocCount;

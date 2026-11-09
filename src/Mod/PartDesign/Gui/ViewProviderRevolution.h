@@ -34,6 +34,13 @@ class PartDesignGuiExport ViewProviderRevolution : public ViewProviderSketchBase
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderRevolution);
 
 public:
+    /// Its panel owns its steps (docs/HandsOnQueue.md entry 232)
+    bool panelOwnsItsSteps() const override
+    {
+        return true;
+    }
+
+public:
     /// constructor
     ViewProviderRevolution();
     /// destructor

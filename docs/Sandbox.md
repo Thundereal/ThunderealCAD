@@ -6254,7 +6254,12 @@ return), `toolbar:<objectName>` for a bar (the `ToolBarManager` key),
 `widget:<bar>#<n>` for a widget action, and ONE list object,
 `toolbars`, whose layout is the ordered bars.  Ids are stable across
 snapshots and workbench switches: a command's real `QAction` lives as
-long as the command, and so does its model.
+long as the command, and so does its model.  A command's stand-in on a
+bar is the command's too: `UndoAction` and `RedoAction` put a `QAction`
+of their own there, carrying the history menu and parented to the
+`Action`, and it is mirrored as `cmd:Std_Undo` / `cmd:Std_Redo` -- the
+command's icon name and tool tip, run as the command -- not as a plain
+action with no name, no icon and no way to run (2026-11-02).
 
 *The models.*  A `Fw::QAction` per real action, bound the existing way
 -- `command` / `commandIndex` set, `FwQt::realizeAction` making the
@@ -6278,7 +6283,12 @@ name when it has one, else "" (a plain-`QAction` member of a
 `BitmapFactory().iconFromTheme` resolves, a theme name or a file
 path as the workbench wrote it; for the group's own action the default
 member's name; for an action with an icon and no name (a toggle
-action, a plain member) "" -- the client shows text.  Never pixels.
+action, a plain member, a group's face over plain members) its pixels
+by id: `Fw::ImageStore::ofIcon` at 48 px, `img:<sha1>`, fetched with
+`widgets.image` -- the desktop draws every button as its icon, and the
+browser did not, showing PartDesign's primitive groups as their text
+(was "" and the client's text, "never pixels", until 2026-11-02).  ""
+only for an action with no icon at all.
 Tooltip and status tip as the desktop shows them (the `QAction`'s,
 translated by `Command::setup`; the rich tool tip `Action::
 createToolTip` makes is HTML -- the mirror sends the plain

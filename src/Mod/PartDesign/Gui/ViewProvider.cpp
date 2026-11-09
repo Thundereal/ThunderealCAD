@@ -29,6 +29,7 @@
 # include <QApplication>
 # include <QMenu>
 # include <QMouseEvent>
+# include <QPainter>
 # include <Inventor/details/SoFaceDetail.h>
 # include <BRepAdaptor_Surface.hxx>
 # include <gp_Lin.hxx>
@@ -49,6 +50,7 @@
 #include <Gui/SoFCUnifiedSelection.h>
 #include <Gui/CommandT.h>
 #include <Gui/ViewParams.h>
+#include <Gui/EditSteps.h>
 #include <Gui/Tree.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>
@@ -94,16 +96,12 @@ ViewProvider::ViewProvider()
 
 ViewProvider::~ViewProvider() = default;
 
-App::DocumentObject *ViewProvider::getPickedVisibilityTarget() const
+bool ViewProvider::editHoldsTransaction(int ModNum) const
 {
-    // What is picked in the view is the body's shape, whichever feature the
-    // face came from: toggling that feature hid nothing, or showed it in
-    // place of the Tip (upstream bd03414893, 20c01000a1)
-    auto obj = getObject();
-    auto body = PartDesign::Body::findBodyOf(obj);
-    if (body && body->isSolidFeature(obj))
-        return body;
-    return nullptr;
+    if (ModNum == ViewProvider::Default && Gui::EditSteps::wanted()
+            && panelOwnsItsSteps())
+        return false;
+    return PartGui::ViewProviderPart::editHoldsTransaction(ModNum);
 }
 
 bool ViewProvider::doubleClicked()
@@ -832,7 +830,7 @@ void ViewProvider::onChanged(const App::Property* prop) {
         Base::StateLocker guard(autoCorrectingLink);
 
         auto body = PartDesign::Body::findBodyOf(getObject());
-        auto editDoc = Gui::Application::Instance->editDocument();
+        auto editDoc = Gui::Application::Instance->editDocumentOf(getObject());
         if (body && editDoc && editDoc->getInEdit() == this
                  && linkProp->getScope() == App::LinkScope::Local
                  && (prop->isDerivedFrom(App::PropertyLink::getClassTypeId())

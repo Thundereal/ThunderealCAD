@@ -51,6 +51,34 @@ STEP = 3
 state = {"doc": None, "client": None, "done": False, "t0": clock(), "tips": []}
 
 
+def tip_label():
+    """The handle's tip: Gui::ToolTip's rounded label (entry 246), shown"""
+    for w in QtWidgets.QApplication.allWidgets():
+        if w.objectName() == "fc_overlay_tiplabel" and w.isVisible():
+            return w
+    return None
+
+
+def tip_shown():
+    """A tip up: the handle's rounded label, or Qt's"""
+    return tip_label() is not None or QtWidgets.QToolTip.isVisible()
+
+
+def tip_text():
+    w = tip_label()
+    if w is not None:
+        labels = w.findChildren(QtWidgets.QLabel)
+        return labels[0].text() if labels else w.text()
+    return QtWidgets.QToolTip.text() if QtWidgets.QToolTip.isVisible() else ""
+
+
+def tip_hide():
+    w = tip_label()
+    if w is not None:
+        w.hide()
+    QtWidgets.QToolTip.hideText()
+
+
 def note(msg):
     with open(RESULT, "a") as f:
         f.write(str(msg) + "\n")
@@ -213,8 +241,8 @@ def build():
 def poll():
     client = state["client"]
     # the desktop's tool tip, which must not show for a client's handle
-    if QtWidgets.QToolTip.isVisible():
-        state["tips"].append(QtWidgets.QToolTip.text())
+    if tip_shown():
+        state["tips"].append(tip_text())
     if client.is_alive():
         if clock() - state["t0"] > CLIENT_WAIT_S:
             check("the client finished", False, "still talking after %ds" % CLIENT_WAIT_S)

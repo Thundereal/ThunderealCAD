@@ -479,6 +479,7 @@ SET(Document_CPP_SRCS
     GroupExtension.cpp
     GroupExtensionPyImp.cpp
     DocumentObjectFileIncluded.cpp
+    AuxGroup.cpp
     DocumentObjectGroup.cpp
     DocumentObjectGroupPyImp.cpp
     GeoFeaturePyImp.cpp
@@ -552,6 +553,7 @@ SET(Document_HPP_SRCS
     DocumentParams.h
     UnitsParams.h
     SandboxParams.h
+    FileBlob.h
     FileBlobManager.h
     FileElsewhere.h
     FileHistory.h
@@ -566,6 +568,7 @@ SET(Document_HPP_SRCS
     GroupExtension.h
     DocumentObjectExtension.h
     DocumentObjectFileIncluded.h
+    AuxGroup.h
     DocumentObjectGroup.h
     AppearanceUpdater.h
     ElementAppearanceMerge.h
@@ -664,6 +667,7 @@ SET(Properties_HPP_SRCS
     ShadowSub.h
     PropertyPythonObject.h
     PropertyStandard.h
+    PropertyAppearance.h
     PropertyUnits.h
     PropertyExpressionEngine.h
 )

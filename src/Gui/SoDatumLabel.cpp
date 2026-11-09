@@ -291,6 +291,8 @@ SoDatumLabel::SoDatumLabel()
     SO_NODE_ADD_FIELD(outlineColor, (SbVec3f(0.f, 0.f, 0.f)));
     SO_NODE_ADD_FIELD(outlineWidth, (0.f));
     SO_NODE_ADD_FIELD(linePattern, (0xFFFF));
+    SO_NODE_ADD_FIELD(backgroundColor, (SbVec3f(1.f, 1.f, 1.f)));
+    SO_NODE_ADD_FIELD(backgroundAlpha, (0.f));
 
     SO_NODE_ADD_FIELD(datumtype, (SoDatumLabel::DISTANCE));
 
@@ -435,7 +437,14 @@ void SoDatumLabel::syncImageTexture()
     SbVec2s size;
     int nc;
     const unsigned char* bytes = this->image.getValue(size, nc);
-    if (bytes && size[0] > 0 && size[1] > 0 && nc == 4 && this->outlineWidth.getValue() > 0.f) {
+    if (bytes && size[0] > 0 && size[1] > 0 && backgroundAlpha.getValue() > 0.f) {
+        // A ground of its own under the glyph (an on-view value's label,
+        // docs/HandsOnQueue.md entry 240): more than two colours, the texel
+        // as it is
+        this->imageTexture->image.setValue(size, nc, bytes);
+        this->imageTexture->model = SoTexture2::REPLACE;
+    }
+    else if (bytes && size[0] > 0 && size[1] > 0 && nc == 4 && this->outlineWidth.getValue() > 0.f) {
         // Two colours, the glyph and its border. BLEND mixes the fragment's colour -- the
         // material, textColor, which a highlight overrides -- toward blendColor by the
         // texel: so each texel is how far it lies from the glyph toward the border, and
@@ -468,7 +477,8 @@ void SoDatumLabel::syncImageTexture()
         this->imageTexture->model = SoTexture2::MODULATE;
     }
     else if (bytes && size[0] > 0 && size[1] > 0) {
-        // no alpha to keep: the texel as it is
+        // no alpha to keep, or a ground of its own under the glyph: the
+        // texel as it is
         this->imageTexture->image.setValue(size, nc, bytes);
         this->imageTexture->model = SoTexture2::REPLACE;
     }
@@ -502,13 +512,15 @@ void SoDatumLabel::drawImage()
     QColor front;
     front.setRgbF(t[0],t[1], t[2]);
 
-    // a border round the glyphs takes room of its own on every side
+    // a border round the glyphs takes room of its own on every side, and a
+    // ground under the text (entry 240) a little more round them
     const float border = std::max(0.f, outlineWidth.getValue());
-    const int pad = int(std::ceil(border));
+    const float groundAlpha = backgroundAlpha.getValue();
+    const int pad = std::max(int(std::ceil(border)), groundAlpha > 0.f ? std::max(2, h / 6) : 0);
     // Not premultiplied, and the clear pixels in the colour of the outermost ink: the
     // texture is filtered, and a clear black would draw a dark fringe round the label,
     // plain on a light background.
-    const SbColor& edge = pad > 0 ? outlineColor.getValue() : t;
+    const SbColor& edge = border > 0.f ? outlineColor.getValue() : t;
     QImage image(w + 2 * pad, h + 2 * pad, QImage::Format_ARGB32);
     image.fill(QColor::fromRgbF(edge[0], edge[1], edge[2], 0.f));
 
@@ -516,7 +528,15 @@ void SoDatumLabel::drawImage()
     if(useAntialiasing)
         painter.setRenderHint(QPainter::Antialiasing);
 
-    if (pad > 0) {
+    if (groundAlpha > 0.f) {
+        const SbColor& b = backgroundColor.getValue();
+        QColor ground;
+        ground.setRgbF(b[0], b[1], b[2], std::min(groundAlpha, 1.f));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(ground);
+        painter.drawRoundedRect(QRectF(0, 0, w + 2 * pad, h + 2 * pad), pad, pad);
+    }
+    if (border > 0.f) {
         // the outline stroked under the text: half the pen falls outside it
         const SbColor& o = outlineColor.getValue();
         QColor back;
@@ -530,7 +550,7 @@ void SoDatumLabel::drawImage()
     else {
         painter.setPen(front);
         painter.setFont(font);
-        painter.drawText(0, 0, w, h, Qt::AlignLeft, str);
+        painter.drawText(pad, pad, w, h, Qt::AlignLeft, str);
     }
     painter.end();
 
@@ -1933,7 +1953,8 @@ void SoDatumLabel::notify(SoNotList * l)
     }
     if (f == &this->string || f == &this->textColor || f == &this->name
         || f == &this->size || f == &this->image || f == &this->outlineColor
-        || f == &this->outlineWidth) {
+        || f == &this->outlineWidth || f == &this->backgroundColor
+        || f == &this->backgroundAlpha) {
         this->glimagevalid = false;
         // The glyph bitmap changed; the companion texture must be re-fed.
         this->imagesynced = false;

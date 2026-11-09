@@ -27,6 +27,7 @@
 #ifndef _PreComp_
 #include <algorithm>
 
+#include <QPointer>
 #include <QAction>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
@@ -112,10 +113,15 @@ public:
     {}
     ~Gate() override
     {
-        panel->pick = Pick::None;
+        // The panel can be gone first: a served session's own selection
+        // deletes the gate after the panel closed (ASan, heap-use-after-free).
+        if (panel)
+            panel->pick = Pick::None;
     }
     bool allow(App::Document*, App::DocumentObject* obj, const char* sub) override
     {
+        if (!panel)
+            return false;
         auto trim = panel->object();
         if (!trim || !obj->isDerivedFrom<Part::Feature>()) {
             return false;
@@ -148,7 +154,7 @@ public:
     }
 
 private:
-    TrimPanel* panel;
+    QPointer<TrimPanel> panel;
 };
 
 // ----------------------------------------------------------------------------

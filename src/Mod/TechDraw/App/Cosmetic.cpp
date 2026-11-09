@@ -34,6 +34,7 @@
 #include <boost/random.hpp>
 
 #include <App/Application.h>
+#include <Base/Console.h>
 #include <Base/Vector3D.h>
 #include <Mod/TechDraw/App/CosmeticEdgePy.h>
 #include <Mod/TechDraw/App/GeomFormatPy.h>

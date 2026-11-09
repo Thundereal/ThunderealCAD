@@ -28,7 +28,6 @@
 #include <Base/Tools.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
-#include <Gui/Document.h>
 #include <Gui/FileDialog.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>

@@ -1599,6 +1599,18 @@ public:
     { return "Gui::PropertyEditor::PropertyLinkItem"; }
 };
 
+/** A PropertyXLinkSub that is hidden from dependency checking
+ *
+ * Upstream's type name, kept so that files saving it (Assembly joints of
+ * FreeCAD 1.0 and 1.1, exploded view steps, simulation motions) restore.
+ */
+class AppExport PropertyXLinkSubHidden: public PropertyXLinkSub
+{
+    TYPESYSTEM_HEADER_WITH_OVERRIDE();
+public:
+    PropertyXLinkSubHidden() {_pcScope = LinkScope::Hidden;}
+};
+
 
 /** Link to one or more (sub)object(s) of one or more object(s) from the same or different document
  */

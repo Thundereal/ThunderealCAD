@@ -1,7 +1,9 @@
-"""A fillet's default radius is shown at the top middle of the view and typed there.
+"""A fillet's default radius is shown beside its active arrow and typed there.
 
 docs/HandsOnQueue.md entry 117, docs/OnViewValueEditing.md section 4 step 1:
-the default radius's label always at the top middle of the view; its arrow
+the default radius's label beside its active arrow (entry 241; it was always
+at the top middle of the view), at the top middle while an expression
+drives it; its arrow
 the handle that takes typing once active (made so by Tab or a click on it);
 keys while it is active -- a digit opens its label with that digit, Enter
 opens it with the value selected, Escape leaves no handle active; a click on
@@ -11,18 +13,18 @@ and closes it, Tab commits and closes it, the focus going elsewhere commits
 and closes it.
 
 A 10 mm PartDesign box, a fillet on Edge1 at 1 mm, in edit. Claims:
-  - the view has one label of the text-only kind reading "Radius 1 mm", at
-    the top middle of the view;
-  - Tab in the view, then 3 and Enter: Radius is 3 mm, the label still open;
+  - no label while no value is active; Tab: one label of the text-only kind
+    reading "Radius 1 mm", not at the top middle of the view;
+  - 3 and Enter: Radius is 3 mm, the label still open;
   - 8 typed, then Escape: Radius stays 3 mm, the label closed and reading so;
   - Enter (the handle still active), 2.5 and Tab: Radius is 2.5 mm, the label
     closed;
   - 9 then Escape in the label: Radius stays 2.5 mm, still in edit;
   - Escape, then 7: no box opens and Radius stays 2.5 mm;
-  - a click on the label, 4 and Enter: Radius is 4 mm; 5 typed and the focus
+  - Tab, a click on the label, 4 and Enter: Radius is 4 mm; 5 typed and the focus
     taken away: Radius is 5 mm, the label closed;
-  - Radius driven by an expression: the label shows it, and Tab then 6
-    opens no box.
+  - Radius driven by an expression: the label shows it, at the top middle,
+    and Tab then 6 opens no box.
 
 Keys go to the viewer widget through QTest, which asks for a shortcut first
 (ShortcutOverride) as a real key does; the typed digits go to the box that
@@ -213,24 +215,27 @@ def run():
         pump(80)
         check("the fillet is in edit", gdoc.getInEdit() is not None)
 
-        labels = text_labels()
-        note("INFO text labels: %s" % [(t, None if p is None else tuple(round(c, 3) for c in p))
-                                       for t, p in labels])
-        if not check("one text label in the view", len(labels) == 1, len(labels)):
-            return
-        text, point = labels[0]
-        check("it reads 'Radius 1 mm'", text == "Radius 1 mm", text)
-        x, y, width, height = label_screen_point(point)
-        check("it stands at the top middle of the view",
-              abs(x - width / 2) <= 2 and 10 <= y <= 50, (x, y, width, height))
-
-        if os.environ.get("GT_PICTURE"):
-            view().saveRenderDump(os.path.join(OUT, "fillet-in-edit.png"), metadata=False)
+        # The label beside the active arrow (entry 241): none before Tab
+        check("no label while no value is active", not text_labels(), text_labels())
 
         # Tab makes the radius's handle active; a digit opens its label
         viewer_widget().setFocus()
         pump(5)
         key(Qt.Key_Tab)
+        labels = text_labels()
+        note("INFO text labels: %s" % [(t, None if p is None else tuple(round(c, 3) for c in p))
+                                       for t, p in labels])
+        if not check("Tab: one text label in the view", len(labels) == 1, len(labels)):
+            return
+        text, point = labels[0]
+        check("it reads 'Radius 1 mm'", text == "Radius 1 mm", text)
+        x, y, width, height = label_screen_point(point)
+        check("it stands by the arrow, not at the top middle of the view",
+              not (abs(x - width / 2) <= 2 and 10 <= y <= 50), (x, y, width, height))
+
+        if os.environ.get("GT_PICTURE"):
+            view().saveRenderDump(os.path.join(OUT, "fillet-in-edit.png"), metadata=False)
+
         key(Qt.Key_3)
         typed = type_into_box("", enter=True)
         check("Tab, 3, Enter: the label opened with the digit", typed is not None
@@ -293,7 +298,10 @@ def run():
         check("and the edit goes on", gdoc.getInEdit() is not None)
         check("and Radius stays 2.5 mm", radius(fillet) == 2.5, radius(fillet))
 
-        # A click on the label opens it
+        # A click on the label opens it: shown once the value is active
+        viewer_widget().setFocus()
+        pump(5)
+        key(Qt.Key_Tab)
         labels = text_labels()
         click_label(labels[0][1])
         typed = type_into_box("4", enter=True)
@@ -320,6 +328,10 @@ def run():
         check("with an expression the label shows it",
               labels and "=" in labels[0][0] and labels[0][0].startswith("Radius 1.5 mm"),
               labels and labels[0][0])
+        if labels and labels[0][1] is not None:
+            x, y, width, height = label_screen_point(labels[0][1])
+            check("at the top middle: never active, it stands by no arrow",
+                  abs(x - width / 2) <= 2 and 10 <= y <= 50, (x, y, width, height))
         viewer_widget().setFocus()
         pump(5)
         key(Qt.Key_Tab)

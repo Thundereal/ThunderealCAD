@@ -38,9 +38,11 @@
 
 #include "ViewProviderGroupExtension.h"
 #include "ViewProviderDocumentObject.h"
+#include "Application.h"
 #include "Command.h"
 #include "Document.h"
 #include "MainWindow.h"
+#include "Tree.h"
 
 
 using namespace Gui;
@@ -207,7 +209,9 @@ void ViewProviderGroupExtension::extensionClaimChildren(
 void ViewProviderGroupExtension::extensionFinishRestoring()
 {
     auto* group = getExtendedViewProvider()->getObject()->getExtensionByType<App::GroupExtension>();
-    if (!group->ClaimAllChildren.getValue() && !group->_ExportChildren.getSize())
+    // Not only when there is none: the list read is the one saved, built by
+    // the rule of the version that saved it
+    if (!group->ClaimAllChildren.getValue())
         buildExport();
     ViewProviderExtension::extensionFinishRestoring();
 }

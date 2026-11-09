@@ -49,6 +49,7 @@
 
 #include <cstring>
 #include <Inventor/CoinFork.h>
+#include <Inventor/actions/SoSearchAction.h>
 #include <Inventor/elements/SoLazyElementEx.h>
 
 #include "SoFCDB.h"
@@ -220,6 +221,7 @@ void Gui::SoFCDB::init()
     SoFCSwitch                      ::initClass();
     SoFCSeparator                   ::initClass();
     SoFCLatePickGroup               ::initClass();
+    SoFCFaceSet                     ::initClass();
     SoFCSelectionRoot               ::initClass();
     SoFCPathAnnotation              ::initClass();
     SoFCDetail                      ::initClass();

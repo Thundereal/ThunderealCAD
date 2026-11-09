@@ -64,6 +64,7 @@
 #include <ShapeFix_Shape.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <Standard_Failure.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
@@ -80,11 +81,13 @@
 
 #include <App/Document.h>
 #include <App/FileBlobManager.h>
+#include <App/Transactions.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
 #include <Base/Parameter.h>
+#include <Base/Tools.h>
 
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/ProgressIndicator.h>
@@ -236,6 +239,27 @@ DrawViewSection::DrawViewSection()
                       App::Prop_None,
                       "Rotation of hatch pattern in degrees anti-clockwise");
     ADD_PROPERTY_TYPE(HatchOffset, (0.0, 0.0, 0.0), fgroup, App::Prop_None, "Hatch pattern offset");
+    // registered by hand, as ProjectedGeometry: it has no default to give
+    CutHatchLines.setContainer(this);
+    propertyData.addProperty(static_cast<App::PropertyContainer*>(this), "CutHatchLines",
+                             &CutHatchLines, fgroup,
+                             App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                             "The pattern's lines trimmed to each cut face, as last trimmed");
+    ADD_PROPERTY_TYPE(CutShape, (TopoDS_Shape()), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "The cut, as last made");
+    ADD_PROPERTY_TYPE(PreparedShape, (TopoDS_Shape()), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "The cut centred, scaled and rotated, as last projected");
+    ADD_PROPERTY_TYPE(CutFrame, (Base::Matrix4D()), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "CutShape to the global frame");
+    ADD_PROPERTY_TYPE(PreparedFrame, (Base::Matrix4D()), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "PreparedShape to the global frame");
+    ADD_PROPERTY_TYPE(FramesKnown, (0), fgroup,
+                      App::PropertyType(App::Prop_Output | App::Prop_Hidden),
+                      "1: CutFrame is known, 2: PreparedFrame is");
 
     ADD_PROPERTY_TYPE(SectionLineStretch, (1.0), agroup, App::Prop_None,
                       "Adjusts the length of the section line.  1.0 is normal length.  1.1 would be 10% longer, 0.9 would be 10% shorter.");
@@ -288,6 +312,15 @@ void DrawViewSection::onChanged(const App::Property* prop)
         return;
     }
 
+    // Undo or Redo of "Move section line" or "Rotate section line" gives
+    // the line its place back, and nothing else draws it there: the base
+    // view is painted again once a cut is made, and an Undo makes none
+    // (docs/HandsOnQueue.md entry 231).
+    if ((prop == &SectionOrigin || prop == &SectionNormal) && doc->isPerformingTransaction()
+        && getBaseDVP()) {
+        getBaseDVP()->requestPaint();
+    }
+
     if (prop == &SectionNormal) {
         Direction.setValue(SectionNormal.getValue());
         return;
@@ -334,7 +367,9 @@ void DrawViewSection::onChanged(const App::Property* prop)
         BaseView.getValue()->touch();
     }
 
-    DrawView::onChanged(prop);
+    // the part view's, not past it: it is where a projection an undo put back
+    // is taken up (DrawViewPart::onUndoRedoFinished)
+    DrawViewPart::onChanged(prop);
 }
 
 Part::TopoShape DrawViewSection::getShapeToCut()
@@ -974,6 +1009,7 @@ void DrawViewSection::postHlrTasks()
         BRepTools::Write(m_sectionTopoDSFaces, "DVSTopoSectionFaces.brep");// debug
     }
     m_tdSectionFaces = makeTDSectionFaces(m_sectionTopoDSFaces);
+    makeCutHatchLines();
 
     TechDraw::DrawViewPart* dvp = dynamic_cast<TechDraw::DrawViewPart*>(BaseView.getValue());
     if (dvp) {
@@ -990,7 +1026,12 @@ void DrawViewSection::postSectionCutTasks()
     std::vector<App::DocumentObject*> children = getInList();
     for (auto& c : children) {
         if (c->isDerivedFrom<DrawViewPart>()) {
-            // details or sections of this need cut shape
+            // details or sections of this need cut shape.  Asked to: a view
+            // that only waited for it has nothing touched, and a recompute of
+            // an object with nothing touched is skipped (OptimizeRecompute)
+            Base::ObjectStatusLocker<App::ObjectStatus, App::DocumentObject> guard(
+                App::ObjectStatus::NoTouch, c);
+            c->enforceRecompute();
             c->recomputeFeature();
         }
     }
@@ -1526,12 +1567,76 @@ std::vector<LineSet> DrawViewSection::getDrawableLines(int i)
     if (m_lineSetsPending) {
         makeLineSets();
     }
+    // as last trimmed, when that was to this face with this pattern
+    double outline[4];
+    if (DrawGeomHatch::outlineOf(getSectionTopoDSFace(i), outline)) {
+        if (auto stored = CutHatchLines.find(i, cutHatchSignature(), outline)) {
+            auto lines = PropertyHatchLines::restore(*stored, m_lineSets);
+            if (!lines.empty() || m_lineSets.empty()) {
+                return lines;
+            }
+        }
+    }
     return DrawGeomHatch::getTrimmedLinesSection(this,
                                                  m_lineSets,
                                                  getSectionTopoDSFace(i),
                                                  HatchScale.getValue(),
                                                  HatchRotation.getValue(),
                                                  HatchOffset.getValue());
+}
+
+std::string DrawViewSection::cutHatchSignature() const
+{
+    Base::Vector3d offset = HatchOffset.getValue();
+    std::ostringstream out;
+    out.precision(17);
+    out << NameGeomPattern.getValue() << '|'
+        << Base::FileInfo(FileGeomPattern.getValue()).fileName() << '|' << HatchScale.getValue()
+        << '|' << HatchRotation.getValue() << '|' << offset.x << ',' << offset.y;
+    return out.str();
+}
+
+//! trim the pattern to each cut face once the faces are there, rather than
+//! at each redraw (docs/TechDrawStoredGeometry.md sec 7)
+void DrawViewSection::makeCutHatchLines()
+{
+    // derived, as DrawViewPart::captureGeometry says
+    App::TransactionDerived derived(this);
+    if (!Preferences::storeProjectedGeometry() || !CutSurfaceDisplay.isValue("PatHatch")) {
+        CutHatchLines.clear();
+        return;
+    }
+    if (m_lineSetsPending) {
+        makeLineSets();
+    }
+    std::vector<PropertyHatchLines::Face> faces;
+    int count = 0;
+    for (TopExp_Explorer expl(m_sectionTopoDSFaces, TopAbs_FACE); expl.More(); expl.Next()) {
+        ++count;
+    }
+    for (int i = 0; i < count; i++) {
+        TopoDS_Face face = getSectionTopoDSFace(i);
+        double outline[4];
+        if (!DrawGeomHatch::outlineOf(face, outline)) {
+            continue;
+        }
+        try {
+            auto lines = DrawGeomHatch::getTrimmedLinesSection(this, m_lineSets, face,
+                                                               HatchScale.getValue(),
+                                                               HatchRotation.getValue(),
+                                                               HatchOffset.getValue());
+            faces.push_back(PropertyHatchLines::capture(i, outline, lines));
+        }
+        catch (const Standard_Failure& e) {
+            Base::Console().Log("DVS - %s: cut face %d not trimmed - %s\n", getNameInDocument(),
+                                i, e.GetMessageString());
+        }
+        catch (const Base::Exception& e) {
+            Base::Console().Log("DVS - %s: cut face %d not trimmed - %s\n", getNameInDocument(),
+                                i, e.what());
+        }
+    }
+    CutHatchLines.setValue(cutHatchSignature(), std::move(faces));
 }
 
 TopoDS_Face DrawViewSection::getSectionTopoDSFace(int i)
@@ -1562,14 +1667,34 @@ void DrawViewSection::unsetupObject()
     DrawViewPart::unsetupObject();
 }
 
+void DrawViewSection::abortMaking()
+{
+    abortSectionCut();
+    DrawViewPart::abortMaking();
+}
+
 //! keep the cut faces beside the projection they belong to
 void DrawViewSection::captureGeometry()
 {
+    // derived, as DrawViewPart::captureGeometry says
+    App::TransactionDerived derived(this);
     if (!m_geometryObject || !Preferences::storeProjectedGeometry()) {
         ProjectedGeometry.clear();
+        if (!CutShape.getShape().isNull()) {
+            CutShape.setValue(TopoDS_Shape());
+        }
+        if (!PreparedShape.getShape().isNull()) {
+            PreparedShape.setValue(TopoDS_Shape());
+        }
         return;
     }
     ProjectedGeometry.capture(*m_geometryObject, m_saveCentroid, m_sectionTopoDSFaces);
+    // and what the views made from this one read (sec 8)
+    CutShape.setValue(m_cutShapeRaw);
+    PreparedShape.setValue(m_preparedShape);
+    CutFrame.setValue(Part::TopoShape::convert(m_cutFrame));
+    PreparedFrame.setValue(Part::TopoShape::convert(m_preparedFrame));
+    FramesKnown.setValue((m_cutFrameValid ? 1 : 0) | (m_preparedFrameValid ? 2 : 0));
 }
 
 //! put the projection and the cut faces back.  The TechDraw faces the cut
@@ -1581,11 +1706,28 @@ bool DrawViewSection::restoreStoredGeometry()
         return false;
     }
 
+    // stored before the shapes the views made from this one read were: the
+    // section is made again, as before anything was stored
+    if (PreparedShape.getShape().isNull()) {
+        return false;
+    }
+
     const TopoDS_Shape& cutFaces = ProjectedGeometry.getCutFaces();
     if (!cutFaces.IsNull() && cutFaces.ShapeType() == TopAbs_COMPOUND) {
         m_sectionTopoDSFaces = TopoDS::Compound(cutFaces);
         m_tdSectionFaces = makeTDSectionFaces(m_sectionTopoDSFaces);
     }
+
+    m_cutShapeRaw = CutShape.getShape();
+    // centred as prepareShape() centres it: a location, nothing built
+    m_cutShape = m_cutShapeRaw.isNull()
+        ? TopoDS_Shape()
+        : ShapeUtils::moveShape(m_cutShapeRaw.getShape(), m_saveCentroid * -1.0);
+    m_preparedShape = PreparedShape.getShape();
+    m_cutFrame = Part::TopoShape::convert(CutFrame.getValue());
+    m_preparedFrame = Part::TopoShape::convert(PreparedFrame.getValue());
+    m_cutFrameValid = (FramesKnown.getValue() & 1) != 0;
+    m_preparedFrameValid = (FramesKnown.getValue() & 2) != 0;
     return true;
 }
 

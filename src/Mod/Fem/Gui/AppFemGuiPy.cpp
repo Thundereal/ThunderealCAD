@@ -25,7 +25,6 @@
 
 #include <App/DocumentObjectPy.h>
 #include <Gui/BitmapFactory.h>
-#include <Gui/Document.h>
 #include <Gui/EditorView.h>
 #include <Gui/MainWindow.h>
 #include <Gui/PythonEditor.h>

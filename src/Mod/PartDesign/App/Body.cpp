@@ -24,6 +24,7 @@
 #include "PreCompiled.h"
 
 #include <set>
+#include <boost/algorithm/string/predicate.hpp>
 
 #include <Base/Console.h>
 #include <Base/Placement.h>
@@ -31,6 +32,7 @@
 #include <App/Document.h>
 #include <App/Origin.h>
 #include <App/VarSet.h>
+#include <Mod/Material/App/Materials.h>
 
 
 #include "Body.h"
@@ -78,6 +80,11 @@ Body::Body() {
     ADD_PROPERTY_TYPE(AddSolidBody,(false),"Base",(App::PropertyType)(App::Prop_Output),
             "Group the features of each solid under a solid body once the body\n"
             "has more than one solid. AutoGroupSolids is ignored while this is on");
+
+    ADD_PROPERTY_TYPE(Elements, (nullptr), "Base",
+            (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly),
+            "The group owning the elements this body declares");
+    Elements.setScope(App::LinkScope::Child);
 }
 
 /*
@@ -266,7 +273,7 @@ bool Body::isAllowed(const Base::Type &type)
             Part::BodyBase::isTypeAllowed(type) ||
             type.isDerivedFrom(PartDesign::ShapeBinder::getClassTypeId()) ||
             type.isDerivedFrom(Part::SubShapeBinder::getClassTypeId()) ||
-            type.isDerivedFrom(PartDesign::AuxGroup::getClassTypeId()) ||
+            type.isDerivedFrom(App::AuxGroup::getClassTypeId()) ||
             // a coordinate system and a lone datum element, as upstream
             // takes them; an origin belongs to its own container
             type.isDerivedFrom(App::DatumElement::getClassTypeId()) ||
@@ -760,6 +767,9 @@ void Body::onChanged (const App::Property* prop) {
         else if (prop == &AddSolidBody) {
             syncSolidBodies(true);
         }
+        else if (prop == &Elements) {
+            syncElementViews();
+        }
         else if (prop == &ShapeMaterial) {
             // A body is one solid of one material (upstream 0804d80ebf). Its
             // features only: a sketch or a datum has no use for it, and
@@ -850,7 +860,9 @@ App::DocumentObject *Body::getSubObject(const char *subname,
     // is free to expand/collapse at any time. To not disrupt subname path
     // because of this, the body will peek the next two sub-objects reference,
     // and skip the first sub-object if possible.
-    if(subname) {
+    // A "$$Name." step names the body's own property, never a sibling to skip
+    App::DocumentObject *propObj = nullptr;
+    if(subname && !resolvePropertyStep(subname, propObj)) {
         const char * firstDot = strchr(subname,'.');
         if (firstDot) {
             const char * secondDot = strchr(firstDot+1, '.');
@@ -1267,6 +1279,8 @@ void Body::syncSolidBodies(bool force)
         }
     }
 
+    syncElementViews();
+
     // The changes made here are not news
     solidBodyTouched = false;
 }
@@ -1369,11 +1383,29 @@ Body::getSiblings(App::DocumentObject *obj, bool all, bool reversed) const
     return res;
 }
 
+namespace {
+// The groups the body makes and fills by itself: not a user's group, and not
+// the Elements group, whose role is its own (getGroupType() UnknownGroup)
+bool isAutoAuxGroup(const AuxGroup *group)
+{
+    if (!group)
+        return false;
+    switch (group->getGroupType()) {
+    case AuxGroup::SketchGroup:
+    case AuxGroup::DatumGroup:
+    case AuxGroup::MiscGroup:
+    case AuxGroup::SurfaceGroup:
+        return true;
+    default:
+        return false;
+    }
+}
+}  // namespace
+
 bool Body::hasAutoAuxGroup() const
 {
     for (auto obj : Group.getValues()) {
-        auto group = freecad_cast<AuxGroup*>(obj);
-        if (group && group->getGroupType() != AuxGroup::OtherGroup)
+        if (isAutoAuxGroup(freecad_cast<AuxGroup*>(obj)))
             return true;
     }
     return false;
@@ -1388,7 +1420,7 @@ void Body::setAutoAuxGroup(bool enable)
     std::vector<std::string> names;
     for (auto obj : Group.getValues()) {
         auto group = freecad_cast<AuxGroup*>(obj);
-        if (group && group->getGroupType() != AuxGroup::OtherGroup)
+        if (isAutoAuxGroup(group))
             names.emplace_back(group->getNameInDocument());
     }
     for (const auto &name : names) {
@@ -1407,7 +1439,7 @@ void Body::addAutoAuxGroups(bool surfacesOnly)
     bool surfaces = false;
     for (int i = 0; i < (int)model.size(); ++i) {
         auto group = freecad_cast<AuxGroup*>(model[i]);
-        if (group && group->getGroupType() != AuxGroup::OtherGroup) {
+        if (isAutoAuxGroup(group)) {
             there.insert(group->getGroupType());
             last = i;
         }
@@ -1422,10 +1454,10 @@ void Body::addAutoAuxGroups(bool surfacesOnly)
             && (model[0] == BaseFeature.getValue() || model[0]->isDerivedFrom<FeatureBase>()))
         pos = 1;
     static const std::pair<AuxGroup::GroupType, const char *> kinds[] = {
-        {AuxGroup::SketchGroup, "Sketches"},
-        {AuxGroup::DatumGroup, "Datums"},
-        {AuxGroup::MiscGroup, "Misc"},
-        {AuxGroup::SurfaceGroup, "Surfaces"},
+        {AuxGroup::SketchGroup, AuxGroup::SketchRole},
+        {AuxGroup::DatumGroup, AuxGroup::DatumRole},
+        {AuxGroup::MiscGroup, AuxGroup::MiscRole},
+        {AuxGroup::SurfaceGroup, AuxGroup::SurfaceRole},
     };
     std::vector<AuxGroup*> made;
     for (const auto &[type, name] : kinds) {
@@ -1434,6 +1466,7 @@ void Body::addAutoAuxGroups(bool surfacesOnly)
             continue;
         auto group = static_cast<AuxGroup*>(
                 getDocument()->addObject("PartDesign::AuxGroup", name));
+        group->Role.setValue(name);
         group->Label.setValue(name);
         model.insert(model.begin() + pos++, group);
         made.push_back(group);
@@ -1445,17 +1478,132 @@ void Body::addAutoAuxGroups(bool surfacesOnly)
         group->_Body.setValue(this);
 }
 
+bool Body::isAuxGroupChild(const App::DocumentObject *obj) const
+{
+    return findBodyOf(obj) == this;
+}
+
+App::AuxGroup *Body::getElementsGroup(bool create)
+{
+    auto group = Base::freecad_dynamic_cast<App::AuxGroup>(Elements.getValue());
+    if (group || !create || !getDocument())
+        return group;
+    auto auxGroup = static_cast<AuxGroup*>(
+            getDocument()->addObject("PartDesign::AuxGroup", "Elements"));
+    auxGroup->Role.setValue(App::AuxGroup::ElementsRole);
+    auxGroup->Label.setValue("Elements");
+    Elements.setValue(auxGroup);
+    auxGroup->_Body.setValue(this);
+    syncElementViews();
+    return auxGroup;
+}
+
+void Body::onElementsChanged()
+{
+    syncElementViews();
+}
+
+void Body::syncElementViews()
+{
+    auto doc = getDocument();
+    if (!doc || !isAttachedToDocument() || isRestoring() || testStatus(App::Remove)
+            || doc->testStatus(App::Document::Restoring)
+            || doc->isPerformingTransaction())
+        return;
+    auto elements = getElementsGroup(false);
+    // A group on its way out is none
+    if (elements && elements->isRemoving())
+        elements = nullptr;
+    bool made = false;
+    for (auto solid : getSolidBodies()) {
+        if (solid->isRemoving())
+            continue;
+        auto view = solid->getElementsView();
+        if (view && view->isRemoving())
+            continue;
+        if (!elements) {
+            if (view)
+                doc->removeObject(view->getNameInDocument());
+            continue;
+        }
+        if (view) {
+            view->refresh();
+            continue;
+        }
+        view = static_cast<App::AuxGroup*>(doc->addObject("App::PartAuxGroup", "Elements"));
+        view->Role.setValue(App::AuxGroup::ElementsRole);
+        view->Label.setValue("Elements");
+        // In the body behind its solid body, which shows it in the tree
+        auto group = Group.getValues();
+        auto it = std::find(group.begin(), group.end(), solid);
+        group.insert(it == group.end() ? it : it+1, view);
+        {
+            // User3 is to skip GeoFeatureGroupExtension group check
+            Base::ObjectStatusLocker<App::Property::Status, App::Property>
+                guard(App::Property::User3, &Group);
+            Group.setValues(group);
+        }
+        view->setOwner(solid);
+        solid->_ElementsView.setValue(view);
+        made = true;
+    }
+    // The tree took the new views as the body's own children when they came
+    // into its Group, before their solid bodies claimed them
+    if (made)
+        _GroupTouched.touch();
+}
+
+bool Body::isAuxGroupAllowed(const App::AuxGroup *group, const App::DocumentObject *obj) const
+{
+    auto auxGroup = Base::freecad_dynamic_cast<const AuxGroup>(group);
+    if (!auxGroup || !obj || boost::starts_with(obj->getNameInDocument(), "BaseFeature"))
+        return false;
+    auto type = obj->getTypeId();
+    // App datums and coordinate systems go with the PartDesign datums.
+    // PartDesign:: is spelled out: in here a bare Feature is Part::Feature.
+    bool isDatum = type.isDerivedFrom(Part::Datum::getClassTypeId())
+        || type.isDerivedFrom(App::DatumElement::getClassTypeId())
+        || type.isDerivedFrom(App::LocalCoordinateSystem::getClassTypeId());
+    switch (auxGroup->getGroupType()) {
+    case AuxGroup::SketchGroup:
+        return type.isDerivedFrom(Part::Part2DObject::getClassTypeId());
+    case AuxGroup::DatumGroup:
+        return isDatum;
+    case AuxGroup::SurfaceGroup:
+        return typeKind(type) == "Surface";
+    case AuxGroup::MiscGroup:
+        // A surface is the surface group's where the body has one; looked
+        // for only then, as this is asked of every child on each refresh
+        if (typeKind(type) == "Surface") {
+            for (auto child : Group.getValues()) {
+                auto aux = freecad_cast<AuxGroup*>(child);
+                if (aux && aux->getGroupType() == AuxGroup::SurfaceGroup)
+                    return false;
+            }
+        }
+        return !type.isDerivedFrom(Part::Part2DObject::getClassTypeId())
+            && !isDatum
+            && !type.isDerivedFrom(PartDesign::Feature::getClassTypeId())
+            && !type.isDerivedFrom(PartDesign::Solid::getClassTypeId())
+            && !type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId())
+            && !type.isDerivedFrom(App::AuxGroup::getClassTypeId())
+            // left to the solid bodies of the sheets using it
+            && !type.isDerivedFrom(SheetMetalRule::getClassTypeId());
+    case AuxGroup::OtherGroup:
+        return !type.isDerivedFrom(App::AuxGroup::getClassTypeId())
+            && !type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId())
+            && !type.isDerivedFrom(PartDesign::Feature::getClassTypeId())
+            && isAllowed(type);
+    default:
+        return false;
+    }
+}
+
 int Body::isElementVisible(const char *element) const
 {
     auto obj = Group.find(element);
-    if (obj && obj->isDerivedFrom<AuxGroup>()) {
-        auto group = static_cast<AuxGroup*>(obj);
-        for (auto child : group->Group.getValues()) {
-            if (child->Visibility.getValue())
-                return 1;
-        }
-        return 0;
-    }
+    if (obj && obj->isDerivedFrom<App::AuxGroup>())
+        return static_cast<App::AuxGroup*>(obj)->isChildVisible() ? 1 : 0;
     if (obj && obj->isDerivedFrom<SolidBody>()) {
         // A solid is seen through one of its features, or through the solid
         // body's own shape when that was asked for
@@ -1467,10 +1615,8 @@ int Body::isElementVisible(const char *element) const
 int Body::setElementVisible(const char *element, bool visible)
 {
     auto obj = Group.find(element);
-    if (obj && obj->isDerivedFrom<AuxGroup>()) {
-        auto group = static_cast<AuxGroup*>(obj);
-        for (auto child : group->Group.getValues())
-            child->Visibility.setValue(visible);
+    if (obj && obj->isDerivedFrom<App::AuxGroup>()) {
+        static_cast<App::AuxGroup*>(obj)->setChildrenVisible(visible);
         return 1;
     }
     if (obj && obj->isDerivedFrom<SolidBody>()) {

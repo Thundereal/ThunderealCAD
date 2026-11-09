@@ -30,7 +30,6 @@
 
 #include "Application.h"
 #include "SandboxParams.h"
-#include "Document.h"
 #include "DocumentObject.h"
 #include "DocumentObjectPy.h"
 #include "DocumentPy.h"

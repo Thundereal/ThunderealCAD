@@ -27,7 +27,6 @@
 #include <sstream>
 
 
-#include <App/Document.h>
 #include <Gui/Command.h>
 #include <Gui/Selection/SelectionObject.h>
 #include <Mod/Fem/App/FemConstraintFixed.h>

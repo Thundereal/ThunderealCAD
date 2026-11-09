@@ -22,7 +22,6 @@
  *                                                                         *
  ***************************************************************************/
 
-#include <App/Document.h>
 #include <App/DocumentObjectGroup.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>

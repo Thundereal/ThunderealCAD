@@ -27,8 +27,8 @@
 #include <QMessageBox>
 #endif
 
-#include <App/Document.h>
 
+#include <Base/Exception.h>
 #include "DlgProjectUtility.h"
 #include "ui_DlgProjectUtility.h"
 #include "Application.h"

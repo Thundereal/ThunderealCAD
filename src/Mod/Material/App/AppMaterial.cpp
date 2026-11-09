@@ -30,6 +30,7 @@
 #include <App/DocumentObjectPy.h>
 #include <App/PropertyStandard.h>
 #include <App/ShaderObject.h>
+#include <App/PropertyAppearance.h>
 
 #include "MaterialLoader.h"
 #include "MaterialManagerLocal.h"

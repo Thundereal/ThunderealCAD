@@ -58,6 +58,8 @@ TaskExtrudeParameters::TaskExtrudeParameters(ViewProviderSketchBased *SketchBase
                                          const QString& parname)
     : TaskSketchBasedParameters(SketchBasedView, parent, pixmapname, parname)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // the form as models, realized by the Qt backend into the proxy
     form.reset(new Gui::Fw::UiForm());
     ui.reset(new Ui_TaskPadPocketParameters());
@@ -232,9 +234,9 @@ void TaskExtrudeParameters::setupGizmos()
         return;
     }
 
-    // The values in the view (docs/OnViewValueEditing.md 3.3, entry 170): the
-    // length's label always at the top middle, the others' beside their
-    // handle while it is active -- at the top middle too without handles.
+    // The values in the view (docs/OnViewValueEditing.md 3.3, entry 170):
+    // each label beside its handle while it is active, the length's too
+    // (entry 241) -- at the top middle without handles.
     // A click on a length's arrow no longer reverses it: the handles' menu
     // does (3.3, "a click on the arrow itself no longer flips anything by
     // surprise").
@@ -242,6 +244,8 @@ void TaskExtrudeParameters::setupGizmos()
     const auto beside = handles ? Gui::OnViewValueSet::Place::AtHandle
                                 : Gui::OnViewValueSet::Place::TopMiddle;
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     onViewValues->addValue(length1, tr("Length"), Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->addValue(length2, tr("Length 2"), beside);
     onViewValues->addValue(taper1, tr("Taper angle"), beside);

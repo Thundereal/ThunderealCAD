@@ -24,6 +24,7 @@
 
 #include <iostream>
 #include <unordered_map>
+#include <Inventor/SbRotation.h>
 #include <Inventor/actions/SoGLRenderAction.h>
 #include <Inventor/elements/SoTextureEnabledElement.h>
 #include <Inventor/elements/SoOverrideElement.h>
@@ -2906,7 +2907,13 @@ SoFCRenderCache::buildHighlightCache(SbFCMap<int, VertexCachePtr> &sharedcache,
             material.polygonoffsetstyle = 0;
         if (material.type != Material::Triangle)
           material.lightmodel = SoLazyElement::BASE_COLOR;
-        if (material.lightmodel != SoLazyElement::BASE_COLOR && detail) {
+        // Lit or not: a face highlighted as an element is outlined in its
+        // emissive colour (SoFCRenderer::renderOutline, the backend's
+        // faceOutlineSpec), which an unlit face -- a datum plane's -- left
+        // black (docs/HandsOnQueue.md entry 235); unlit, the fill takes
+        // the diffuse colour and the emissive changes nothing else
+        if ((material.lightmodel != SoLazyElement::BASE_COLOR
+             || material.type == Material::Triangle) && detail) {
           material.emissive = color | 0xff;
           makeDistinctColor(material.emissive, material.emissive, material.diffuse);
           // the scalar override is the authority now (consumers treat a
@@ -3222,6 +3229,34 @@ SoFCRenderCache::buildHighlightCache(SbFCMap<int, VertexCachePtr> &sharedcache,
     bboxmaterial.frameindices.reset();
 
     res[bboxmaterial].emplace_back(cache, matrix, false, false, CacheKeyPtr());
+  }
+
+  // A hidden object some view shows on its own -- the origin a PartDesign
+  // box's edit shows for picking a reference, the Origin group hidden -- is
+  // captured tagged, for each view to admit by its own visibility. Its
+  // highlight is of what the pointer was over in the view it is drawn in,
+  // which shows it: untagged, or neither renderer drew it, the GL one
+  // leaving such draws out and the backend admitting them by a visibility
+  // the highlight's own draws do not carry (docs/HandsOnQueue.md entry 239,
+  // the reporter: "when the origin group is invisible, the origin shown when
+  // editing box does not react to highlight").
+  bool tagged = false;
+  for (const auto &v : res) {
+    if (v.first.capturedmode == Render::perViewShownModeId()) {
+      tagged = true;
+      break;
+    }
+  }
+  if (tagged) {
+    VertexCacheMap untagged;
+    for (auto &v : res) {
+      Material m = v.first;
+      if (m.capturedmode == Render::perViewShownModeId())
+        m.capturedmode = 0;
+      auto &entries = untagged[m];
+      entries.insert(entries.end(), v.second.begin(), v.second.end());
+    }
+    res.swap(untagged);
   }
 
   return res;

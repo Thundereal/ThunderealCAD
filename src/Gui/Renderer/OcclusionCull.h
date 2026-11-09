@@ -57,7 +57,7 @@
 #include <vector>
 
 #include "ProxyHierarchy.h"
-#include "Renderer.h"
+#include "RenderConfig.h"
 
 namespace Render {
 

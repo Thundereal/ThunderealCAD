@@ -2524,6 +2524,17 @@ bool SceneServeSource::serving(App::Document *doc)
     return sourceFor(doc) != nullptr;
 }
 
+bool SceneServeSource::isClientView(uint64_t client, const ViewerContext *view)
+{
+    if (!view)
+        return false;
+    for (auto &entry : servedDocuments()) {
+        if (entry.second && entry.second->mirrorViewerFor(client) == view)
+            return true;
+    }
+    return false;
+}
+
 void SceneServeSource::withdrawPeerSelection(uint64_t client)
 {
     for (auto &entry : servedDocuments())

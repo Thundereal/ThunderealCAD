@@ -36,6 +36,11 @@ static constexpr int TRACKERCANCEL(2);
 static constexpr int TRACKERCANCELEDIT(3);
 
 
+namespace Gui
+{
+class EditSteps;
+}
+
 namespace TechDraw
 {
 class DrawPage;
@@ -66,6 +71,10 @@ public:
 
     virtual bool accept();
     virtual bool reject();
+    /// Whether its changes go in a transaction held to OK or Cancel; not
+    /// in an edit where each is a step of its own (Gui::EditSteps,
+    /// PerViewEdit)
+    bool holdsTransaction() const;
     void updateTask();
     void saveButtons(QPushButton* btnOK,
                      QPushButton* btnCancel);
@@ -132,6 +141,8 @@ private:
 
     bool m_mode;
     bool m_created;
+    /// An edit's steps; none when creating
+    Gui::EditSteps* m_steps = nullptr;
 };
 
 class TaskDlgDetail : public Gui::TaskView::TaskDialog
@@ -154,6 +165,7 @@ public:
     /// is called by the framework if the user presses the help button
     bool isAllowedAlterDocument() const override
                         { return false; }
+    bool holdsTransaction() const override;
     void update();
 
     void modifyStandardButtons(QDialogButtonBox* box) override;

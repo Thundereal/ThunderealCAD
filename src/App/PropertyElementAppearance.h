@@ -32,7 +32,7 @@
 #include <vector>
 
 #include "AppearanceList.h"
-#include "FileBlobManager.h"
+#include "FileBlob.h"
 #include "PropertyLinks.h"
 
 namespace Data

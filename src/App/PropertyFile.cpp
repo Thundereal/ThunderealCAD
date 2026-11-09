@@ -36,6 +36,7 @@
 #include "PropertyFile.h"
 #include "Document.h"
 #include "DocumentObject.h"
+#include "FileBlobManager.h"
 #include "PropertyContainer.h"
 
 

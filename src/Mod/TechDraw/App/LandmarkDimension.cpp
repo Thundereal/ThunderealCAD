@@ -37,7 +37,6 @@
 
 #include <QCoreApplication>
 
-#include <App/Document.h>
 #include <Base/Console.h>
 
 #include "LandmarkDimension.h"
@@ -151,6 +150,7 @@ App::DocumentObjectExecReturn *LandmarkDimension::execute()
     //                         DrawUtil::formatVector(points.front()).c_str(),
     //                         DrawUtil::formatVector(points.back()).c_str());
     setLinearPoints(points.front(), points.back());
+    keepMeasurement();
 
     // App::DocumentObjectExecReturn* dvdResult = DrawViewDimension::execute();
 
@@ -175,6 +175,24 @@ Base::Vector3d LandmarkDimension::projectPoint(const Base::Vector3d& pt, DrawVie
     return DrawUtil::invertY(result);
 }
 
+//! the two landmarks where the view projects them now; the reference vertices
+//! that mark them on the view are execute()'s
+void LandmarkDimension::measure(const ReferenceVector& references)
+{
+    (void)references;
+    DrawViewPart* dvp = getViewPart();
+    std::vector<DocumentObject*> features = References3D.getValues();
+    if (!dvp || features.size() < 2) {
+        return;
+    }
+    std::vector<Base::Vector3d> points;
+    for (auto& f : features) {
+        Base::Vector3d loc3d = ShapeExtractor::getLocation3dFromFeat(f);
+        points.push_back(projectPoint(loc3d, dvp) * dvp->getScale());
+    }
+    setLinearPoints(points.front(), points.back());
+}
+
 int LandmarkDimension::getRefType() const
 {
     //TODO: need changes here when other reference dim types added
@@ -184,6 +202,10 @@ int LandmarkDimension::getRefType() const
 DrawViewPart* LandmarkDimension::getViewPart() const
 {
     std::vector<App::DocumentObject*> refs2d = References2D.getValues();
+    if (refs2d.empty()) {
+        // not placed yet; read now by the points, which are measured when read
+        return nullptr;
+    }
     App::DocumentObject* obj = refs2d.front();
     DrawViewPart* dvp = dynamic_cast<DrawViewPart*>(obj);
     return dvp;

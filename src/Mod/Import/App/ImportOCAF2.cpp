@@ -70,6 +70,7 @@
 #include <App/Link.h>
 #include <App/LinkAppearance.h>
 #include <App/Part.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Base/Base64.h>
 #include <Base/FileInfo.h>

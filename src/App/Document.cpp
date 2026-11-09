@@ -130,6 +130,8 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "ExpressionGuestProxy.h"
 #endif
 #include "GeoFeature.h"
+#include "PropertyExpressionEngine.h"
+#include "Expression.h"
 #include "InputStratum.h"
 #include "LibraryPaths.h"
 #include "License.h"
@@ -308,8 +310,15 @@ struct Document::ColdRevert
     /// A refusal is not an error but a reason to take another path (sec
     /// 27.34): logged, not reported.
     bool quiet {false};
+    /// A property changed since the row: refuse, overwrite it, or leave it
+    /// (docs/HandsOnQueue.md entry 232)
+    UndoConflicts conflicts {UndoConflicts::Refuse};
     /// Objects touched because a derived value is not in the log.
     std::set<long> touched;
+    /// The rows after it that stand in its way (docs/MultiViewEdit.md sec
+    /// 12.11): one that changed a property it set since, one that linked
+    /// to an object it made, or made a reference its undo would break.
+    std::set<int64_t> inTheWay;
 };
 
 namespace {
@@ -492,14 +501,27 @@ TouchedState touchedStateOf(const DocumentObject& obj)
 /// `prop`'s Touched bit set or cleared, the bit alone: setStatus(Touched)
 /// would touch() and signal a change. Cleared through purgeTouched(), which
 /// for a link also takes its target's revision as seen.
+/// The step a group's run ends at, put back as it was when the run is done
+struct RunStop
+{
+    int& ref;
+    int old;
+    ~RunStop() { ref = old; }
+};
+
 void setPropertyTouched(Property& prop, bool touched)
 {
-    if (prop.hasTouchedBit() == touched)
-        return;
     if (!touched) {
-        prop.purgeTouched();
+        // isTouched(), not the bit: a link is touched too while its target
+        // has changed since it was purged, and an undo that writes the
+        // target back changes it. Left so, the object the rows say is up to
+        // date ran again at the next recompute (sec 24.17).
+        if (prop.isTouched())
+            prop.purgeTouched();
         return;
     }
+    if (prop.hasTouchedBit())
+        return;
     Property::StatusBits bit;
     bit.set(Property::Touched);
     prop.setStatus(bit, true);
@@ -711,8 +733,16 @@ struct StepTouched
         std::set<long> ids;
         for (auto obj : doc.getObjects()) {
             const long id = obj->getID();
-            if (fold.objects.count(id) || named.count(id) || step.hasObject(obj))
+            if (fold.objects.count(id) || named.count(id) || step.hasObject(obj)) {
                 ids.insert(id);
+                // What links to it sees the write as a change of its target
+                // (PropertyLink*::isTouched); the rows do not name it, so it
+                // keeps the state it has (sec 24.17)
+                if (named.count(id) || step.hasObject(obj)) {
+                    for (auto in : obj->getInList())
+                        ids.insert(in->getID());
+                }
+            }
         }
         before = fold.save(doc, ids);
         active = true;
@@ -752,13 +782,44 @@ struct StepTouched
         inverse.LogScript = end(doc, inverse, touch);
         TransactionGuard::afterTouches([&doc, after = after]() {
             for (const auto& kv : after) {
-                auto obj = doc.getObjectByID(kv.first);
-                if (obj && !(touchedStateOf(*obj) == kv.second))
+                // set even where the bits already agree: a link the rows
+                // say is clean is purged of its target's change too, which
+                // the bits do not show (sec 24.17)
+                if (auto obj = doc.getObjectByID(kv.first))
                     setTouchedState(*obj, kv.second);
             }
         });
     }
 };
+
+/// Each object whose result an undo or redo cannot bring back
+/// (DocumentObject::resultInProperties) added to `touch` when `applied`,
+/// the writes it made, holds the object or anything it depends on: a
+/// drawing of a shape put back shows the shape it was last made from, and
+/// the rows say it was clean (docs/MultiViewEdit.md sec 12.10). It is told
+/// too, once the undo is done (onUndoRedoFinished): what it is still making
+/// is made from the state the undo left (docs/TechDrawStoredGeometry.md
+/// sec 6.3).
+void addResultsNotKept(const Document& doc, const Transaction& applied, std::set<long>& touch)
+{
+    for (auto obj : doc.getObjects()) {
+        if (obj->resultInProperties())
+            continue;
+        bool written = applied.hasObject(obj);
+        if (!written) {
+            for (auto dep : obj->getOutListRecursive()) {
+                if (applied.hasObject(dep)) {
+                    written = true;
+                    break;
+                }
+            }
+        }
+        if (written) {
+            touch.insert(obj->getID());
+            obj->setStatus(ObjectStatus::PendingTransactionUpdate, true);
+        }
+    }
+}
 
 /** Section 24.4's refuse rule for undoing row `seq` when it is not the tip:
  * every property it left in a state must still be in that state -- the
@@ -770,9 +831,14 @@ struct StepTouched
  * `together` names the rows undone with it in one step (sec 33.13), newest
  * first: an op of one of them is gone by the time this row is taken back,
  * so the op that counts is the newest of a row that is not among them.
+ *
+ * `conflicted` gets the (kind, id, property) of each conflict.
  */
+using PropKey = std::tuple<std::string, long, std::string>;
 std::string checkSelective(TransactionLog& log, int64_t seq, const std::vector<LogOp>& ops,
-                           const std::set<int64_t>* together = nullptr)
+                           const std::set<int64_t>* together = nullptr,
+                           std::set<PropKey>* conflicted = nullptr,
+                           std::set<int64_t>* inTheWay = nullptr)
 {
     // The state each property is left in by the row: its last op's after,
     // or "gone" for a dynamic property it removed.
@@ -822,14 +888,132 @@ std::string checkSelective(TransactionLog& log, int64_t seq, const std::vector<L
         std::string now = later.op == "delprop" ? std::string("-")
                         : later.op == "set"     ? later.vafter
                                                 : std::string("+");
-        if (now != kv.second)
+        if (now != kv.second) {
             why << " " << std::get<2>(kv.first) << " of id " << std::get<1>(kv.first)
                 << " was changed since, by row " << later.txn << ";";
+            if (conflicted)
+                conflicted->insert(kv.first);
+            if (inTheWay)
+                inTheWay->insert(later.txn);
+        }
     }
     return why.str();
 }
 
+/// The objects with a link or an expression into objects `ids` -- whose
+/// references an undo that writes those may break
+std::vector<DocumentObject*> referrersOf(const Document& doc, const std::set<long>& ids)
+{
+    std::set<DocumentObject*> out;
+    for (long id : ids) {
+        if (auto obj = doc.getObjectByID(id)) {
+            for (auto in : obj->getInList())
+                out.insert(in);
+        }
+    }
+    return {out.begin(), out.end()};
+}
+
+/// The references of `objs` that do not resolve: a link's element or
+/// sub-object that is not there, an expression that does not evaluate. As
+/// (object id, property, what), the property the reference is held in.
+using Unresolved = std::set<std::tuple<long, std::string, std::string>>;
+Unresolved unresolvedReferences(const std::vector<DocumentObject*>& objs)
+{
+    Unresolved out;
+    for (auto obj : objs) {
+        if (!obj || !obj->isAttachedToDocument())
+            continue;
+        std::vector<Property*> props;
+        obj->getPropertyList(props);
+        for (auto prop : props) {
+            const char* name = prop->getName();
+            if (!name)
+                continue;
+            // the engine first: it is a link property too
+            if (auto engine = dynamic_cast<PropertyExpressionEngine*>(prop)) {
+                for (const auto& e : engine->getExpressions()) {
+                    try {
+                        std::unique_ptr<Expression> value(e.second->eval());
+                    }
+                    catch (...) {
+                        out.emplace(obj->getID(), name, e.first.toString());
+                    }
+                }
+            }
+            else if (auto link = dynamic_cast<PropertyLinkBase*>(prop)) {
+                std::vector<DocumentObject*> linked;
+                std::vector<std::string> subs;
+                link->getLinks(linked, true, &subs, true);
+                for (std::size_t i = 0; i < linked.size() && i < subs.size(); ++i) {
+                    if (!linked[i] || subs[i].empty())
+                        continue;
+                    std::pair<std::string, std::string> element;
+                    if (!GeoFeature::resolveElement(linked[i], subs[i].c_str(), element)
+                            || Data::hasMissingElement(element.second.c_str()))
+                        out.emplace(obj->getID(), name, subs[i]);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/// The row after `seq` that last set property `prop` of object `cid`, 0
+/// for none (or one undone with it, `together`)
+int64_t rowSetSince(TransactionLog& log, int64_t seq, long cid, const std::string& prop,
+                    const std::set<int64_t>* together)
+{
+    LogOp later;
+    if (!log.store().lastOpOn("obj", cid, prop, seq, log.head(), later) || later.txn <= seq)
+        return 0;
+    if (together && together->count(later.txn))
+        return 0;
+    return later.txn;
+}
+
 } // namespace
+
+/// Each link made after row `seq` to an object the row made: the row's undo
+/// removes the object and leaves the link to nothing (docs/MultiViewEdit.md
+/// sec 12.11). Its row stands in the way; the reason, empty for none.
+std::string Document::linksMadeSince(TransactionLog& log, int64_t seq, ColdRevert& revert)
+{
+    std::set<long> made;
+    for (const LogOp* o : revert.ops) {
+        if (o->op == "create" && o->ckind == "obj")
+            made.insert(o->cid);
+    }
+    std::ostringstream why;
+    for (long cid : made) {
+        DocumentObject* obj = getObjectByID(cid);
+        if (!obj)
+            continue;
+        for (DocumentObject* in : obj->getInList()) {
+            if (!in || made.count(in->getID()))
+                continue;
+            std::vector<Property*> props;
+            in->getPropertyList(props);
+            for (Property* prop : props) {
+                auto link = dynamic_cast<PropertyLinkBase*>(prop);
+                if (!link || !prop->getName())
+                    continue;
+                std::vector<DocumentObject*> linked;
+                link->getLinks(linked, true);
+                if (std::find(linked.begin(), linked.end(), obj) == linked.end())
+                    continue;
+                const int64_t row = rowSetSince(log, seq, in->getID(), prop->getName(),
+                                                revert.together);
+                if (!row)
+                    continue;
+                revert.inTheWay.insert(row);
+                why << " " << prop->getName() << " of id " << in->getID() << " links to id "
+                    << cid << ", made by it, since row " << row << ";";
+            }
+        }
+    }
+    return why.str();
+}
 
 void Document::setViewResolver(ViewResolver resolver)
 {
@@ -911,13 +1095,32 @@ bool Document::_prepareRevert(int64_t seq, const std::string& name, ColdRevert& 
                         << ") is not in the log;";
             }
         }
-        if (revert.selective)
-            why << checkSelective(*log, seq, revert.log.ops, revert.together);
+        if (revert.selective) {
+            std::set<PropKey> conflicted;
+            const std::string changed = checkSelective(*log, seq, revert.log.ops, revert.together,
+                                                       &conflicted, &revert.inTheWay);
+            if (revert.conflicts == UndoConflicts::Refuse)
+                why << changed;
+            else if (revert.conflicts == UndoConflicts::Skip && !conflicted.empty()) {
+                // What was changed since stays as it is now
+                revert.ops.erase(std::remove_if(revert.ops.begin(), revert.ops.end(),
+                    [&](const LogOp* o) {
+                        return (o->op == "set" || o->op == "delprop")
+                            && conflicted.count(PropKey(o->ckind, o->cid, o->prop));
+                    }), revert.ops.end());
+                FC_LOG("undo " << name << ": " << conflicted.size()
+                       << " property(ies) changed since, left as they are");
+            }
+            // A link made since to an object the row made, which its undo
+            // removes (docs/MultiViewEdit.md sec 12.11): whichever is asked
+            why << linksMadeSince(*log, seq, revert);
+        }
         if (views)
             FC_LOG("cold " << name << ": " << views << " view op(s) not reverted");
     }
     if (!why.str().empty()) {
         d->undoRefusal = why.str();
+        d->undoInTheWay.insert(revert.inTheWay.begin(), revert.inTheWay.end());
         if (revert.quiet)
             FC_LOG("Cannot revert '" << name << "' of " << getName() << " from the log:"
                    << why.str());
@@ -1093,6 +1296,28 @@ void Document::_deleteTransaction(Transaction* t)
 void Document::_trimHotWindow(std::list<Transaction*>& stack, std::map<int, Transaction*>& map)
 {
     auto log = getTransactionLog();
+    if (!log) {
+        // No log, so no cold steps either: what is trimmed is gone. An
+        // implicit step is no step of its own (sec 33.4), so the limit
+        // counts the user's, and one trimmed takes the implicit ones above
+        // it -- they go with it -- as it does those under the first user
+        // step left, which nothing undoes (docs/MultiViewEdit.md sec 12.2
+        // rule 7).
+        size_t user = std::count_if(stack.begin(), stack.end(),
+                                    [](const Transaction* t) { return !t->Implicit; });
+        for (auto it = stack.begin(); it != stack.end();) {
+            Transaction* t = *it;
+            if (!t->Implicit) {
+                if (user <= d->UndoMaxStackSize)
+                    break;
+                --user;
+            }
+            map.erase(t->getID());
+            _deleteTransaction(t);
+            it = stack.erase(it);
+        }
+        return;
+    }
     size_t hot = 0;
     for (auto t : stack)
         hot += t->Cold ? 0 : 1;
@@ -1127,6 +1352,26 @@ bool Document::undoLogged(int64_t seq)
 
 bool Document::undoLogged(const std::vector<int64_t>& seqs)
 {
+    return undoLogged(seqs, UndoConflicts::Refuse);
+}
+
+std::vector<int64_t> Document::logSeqsOf(const std::vector<int>& tids)
+{
+    std::vector<int64_t> seqs;
+    auto log = getTransactionLog();
+    if (!log)
+        return seqs;
+    log->resolvePending();
+    const std::set<int> wanted(tids.begin(), tids.end());
+    for (auto it = mUndoTransactions.rbegin(); it != mUndoTransactions.rend(); ++it) {
+        if (wanted.count((*it)->getID()) && (*it)->LogSeq > 0)
+            seqs.push_back((*it)->LogSeq);
+    }
+    return seqs;
+}
+
+bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts conflicts)
+{
     OperationScope scope;   // sec 27.38
     // docs/TransactionLogJournal.md sec 24.4: a new transaction applying row
     // `seq` reversed, refused when anything since changed what it touched.
@@ -1142,6 +1387,8 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
     if (rows.empty())
         return false;
     const bool several = rows.size() > 1;
+    d->undoRefusal.clear();
+    d->undoInTheWay.clear();
     if (d->activeUndoTransaction)
         _commitTransaction(true);
     log->resolvePending();
@@ -1152,13 +1399,16 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
                 names[seq] = t.name;
         }
     }
-    if (several) {
+    if (several && conflicts == UndoConflicts::Refuse) {
         // What the log alone can say is asked of every row before any is
         // taken back: a row changed since refuses them all with nothing
-        // written, and each one that is in the way is named.
+        // written, and each one that is in the way is named -- and kept,
+        // for stepsInTheWay() (an edit's Cancel, sec 12.11).
         std::string all;
+        std::set<int64_t> inTheWay;
         for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
-            const std::string why = checkSelective(*log, *it, log->store().ops(*it), &rows);
+            const std::string why = checkSelective(*log, *it, log->store().ops(*it), &rows,
+                                                   nullptr, &inTheWay);
             if (why.empty())
                 continue;
             FC_ERR("Cannot undo '" << names[*it] << "' of " << getName() << " from the log:"
@@ -1167,6 +1417,7 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
         }
         if (!all.empty()) {
             d->undoRefusal = all;
+            d->undoInTheWay = std::move(inTheWay);
             return false;
         }
     }
@@ -1202,6 +1453,7 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
         // of the document those leave.
         ColdRevert revert;
         revert.selective = true;
+        revert.conflicts = conflicts;
         if (several)
             revert.together = &rows;
         if (!_prepareRevert(*it, names[*it], revert)) {
@@ -1220,15 +1472,58 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
             step->Name = stepName;
             step->LogKind = "undo";
             step->Inverts = several ? 0 : *rows.begin();
+            // Made in the view its input went to, as _openTransaction's: an
+            // edit's Cancel is that edit's view's (docs/MultiViewEdit.md
+            // sec 12.9), not a step every view lists
+            step->View = GetApplication().getStepView(step->getID());
             mUndoMap[step->getID()] = step;
             d->activeUndoTransaction = step;
         }
-        // As in _revertStep: the values of a row go back whole and in no
-        // order, and object code working one of them out of the others on
-        // the way gets it wrong (docs/TransactionLogJournal.md sec 33.12).
-        Base::FlagToggler<bool> flag(d->undoing);
-        _applyRevert(revert);
+        // What refers to what the row writes, before and after it goes:
+        // a reference made since that it breaks refuses it (sec 12.11)
+        std::set<long> written;
+        for (const LogOp* o : revert.ops) {
+            if (o->ckind == "obj")
+                written.insert(o->cid);
+        }
+        std::vector<DocumentObject*> referrers = referrersOf(*this, written);
+        const Unresolved unresolvedBefore = unresolvedReferences(referrers);
+        std::ostringstream broken;
+        {
+            // As in _revertStep: the values of a row go back whole and in
+            // no order, and object code working one of them out of the
+            // others on the way gets it wrong (docs/TransactionLogJournal.md
+            // sec 33.12).
+            Base::FlagToggler<bool> flag(d->undoing);
+            _applyRevert(revert);
+            for (auto obj : referrersOf(*this, written)) {
+                if (std::find(referrers.begin(), referrers.end(), obj) == referrers.end())
+                    referrers.push_back(obj);
+            }
+            for (const auto& r : unresolvedReferences(referrers)) {
+                if (unresolvedBefore.count(r))
+                    continue;
+                const int64_t row = rowSetSince(*log, *it, std::get<0>(r), std::get<1>(r),
+                                                several ? &rows : nullptr);
+                if (!row)
+                    continue;
+                revert.inTheWay.insert(row);
+                broken << " " << std::get<2>(r) << " of id " << std::get<0>(r)
+                       << " would no longer resolve, set since by row " << row << ";";
+            }
+        }
+        if (!broken.str().empty()) {
+            // what was taken back of it and the rows before, put back
+            _abortTransaction();
+            if (!d->activeUndoTransaction)
+                signalAbortTransaction(*this);
+            d->undoRefusal = broken.str();
+            d->undoInTheWay.insert(revert.inTheWay.begin(), revert.inTheWay.end());
+            return false;
+        }
     }
+    // under no guard, as _revertStep
+    TransactionGuard::finishObjects(*this);
 
     // The redo steps end here, with every row taken back: a refusal above
     // leaves them as they were. Cleared with the step set aside, as
@@ -1294,6 +1589,34 @@ const std::string& Document::undoRefusal() const
     return d->undoRefusal;
 }
 
+bool Document::recomputeAfterUndo()
+{
+    if (!DocumentParams::getRecomputeOnUndo() || Transaction::isApplying()
+            || testStatus(Recomputing) || isPerformingTransaction())
+        return false;
+    for (auto obj : d->objectArray) {
+        if (obj->isTouched() || obj->mustRecompute()) {
+            recompute();
+            return true;
+        }
+    }
+    return false;
+}
+
+void Document::releaseStepView(int view)
+{
+    if (!view)
+        return;
+    for (auto* steps : {&mUndoTransactions, &mRedoTransactions}) {
+        for (auto* step : *steps) {
+            if (step->View == view)
+                step->View = 0;
+        }
+    }
+    if (d->activeUndoTransaction && d->activeUndoTransaction->View == view)
+        d->activeUndoTransaction->View = 0;
+}
+
 bool Document::_revertStep(bool undo, Transaction* step)
 {
     // docs/TransactionLogJournal.md sec 30.10 item 3: someone has written since
@@ -1314,12 +1637,31 @@ bool Document::_revertStep(bool undo, Transaction* step)
     log->resolvePending();
     ColdRevert revert;
     revert.selective = true;
-    if (!_prepareRevert(step->LogSeq, step->Name, revert))
+    // what is changed since: refused, or with "keep theirs" left
+    revert.conflicts = static_cast<UndoConflicts>(d->runConflicts);
+    // A step that changed nothing has nothing to take back: an implicit
+    // one whose every write put back the value that was there rode with
+    // the step below it into every undo of that step from under another's,
+    // which it refused for want of a row
+    if (!step->Unchanged && !_prepareRevert(step->LogSeq, step->Name, revert))
         return false;
+
+    // What refers to what it writes, and what of that resolves now: an
+    // undo that breaks a reference made since is refused (sec 12.11)
+    std::set<long> written;
+    for (const LogOp* o : revert.ops) {
+        if (o->ckind == "obj")
+            written.insert(o->cid);
+    }
+    std::vector<DocumentObject*> referrers = referrersOf(*this, written);
+    const Unresolved unresolvedBefore = unresolvedReferences(referrers);
 
     auto inverse = new Transaction(step->getID());
     inverse->Name = step->Name;
+    inverse->View = step->View;
+    inverse->Group = step->Group;
     d->activeUndoTransaction = inverse;
+    std::ostringstream broken;
     {
         // The values go back as an undo's do: object code does not react to
         // them (isPerformingTransaction()). They come in no order, and a
@@ -1329,8 +1671,56 @@ bool Document::_revertStep(bool undo, Transaction* step)
         // recompute below is outside of it.
         Base::FlagToggler<bool> flag(d->undoing);
         _applyRevert(revert);
+        for (auto obj : referrersOf(*this, written)) {
+            if (std::find(referrers.begin(), referrers.end(), obj) == referrers.end())
+                referrers.push_back(obj);
+        }
+        for (const auto& r : unresolvedReferences(referrers)) {
+            if (unresolvedBefore.count(r))
+                continue;
+            const int64_t row = rowSetSince(*log, step->LogSeq, std::get<0>(r), std::get<1>(r),
+                                            nullptr);
+            if (!row)
+                continue;
+            revert.inTheWay.insert(row);
+            broken << " " << std::get<2>(r) << " of id " << std::get<0>(r)
+                   << " would no longer resolve, set since by row " << row << ";";
+        }
     }
-    if (!revert.touched.empty()) {
+    if (!broken.str().empty()) {
+        // Put back as it was: the inverse applied the other way. Not
+        // _abortTransaction(), which would take the step's own id off its
+        // stack's map, the inverse having the step's id.
+        {
+            Base::FlagToggler<bool> flag(d->rollback);
+            Application::TransactionSignaller signaller(true, true);
+            TransactionGuard guard(TransactionGuard::Abort);
+            inverse->apply(*this, false);
+        }
+        d->activeUndoTransaction = nullptr;
+        _deleteTransaction(inverse);
+        signalAbortTransaction(*this);
+        d->undoRefusal = broken.str();
+        d->undoInTheWay.insert(revert.inTheWay.begin(), revert.inTheWay.end());
+        return false;
+    }
+    {
+        Base::FlagToggler<bool> flag(d->undoing);
+        std::set<long> notKept;
+        addResultsNotKept(*this, *inverse, notKept);
+        for (long id : notKept) {
+            auto obj = getObjectByID(id);
+            if (obj && revert.touched.insert(id).second)
+                obj->touch();
+        }
+    }
+    // No guard here to finish the objects, as one does after a transaction
+    // is applied (it would defer the recompute's touches); one that finds
+    // what it keeps cannot be made from its properties touches itself
+    bool finishedTouched = false;
+    for (auto obj : TransactionGuard::finishObjects(*this))
+        finishedTouched = finishedTouched || obj->isTouched();
+    if (!revert.touched.empty() || finishedTouched) {
         if (Transaction::isApplying())
             FC_WARN((undo ? "undo" : "redo") << " of '" << step->Name << "' in " << getName()
                     << " left objects to recompute");
@@ -1382,35 +1772,105 @@ std::vector<Transaction*> Document::_myRun(bool undo, int skip) const
     // step and the implicit ones above it, one redo the step and the
     // implicit ones it then finds under it.
     //
+    // docs/MultiViewEdit.md sec 12.11: the steps of an edit ended with OK
+    // are one group, and go together the same way -- one undo takes every
+    // step of the group with the implicit ones riding on each, passing
+    // over another's or another view's step between them (taken from the
+    // log, out of order); one redo brings them back. Up to the step
+    // runStopAt names, when one does: the fine undo of a part of it.
+    //
     // `skip` leaves that many of them where they are and gives the one
     // after (sec 33.11): what is taken when a step was refused and the user
     // goes on past it.
     const auto& stack = undo ? mUndoTransactions : mRedoTransactions;
     const bool authors = d->transactionLog != nullptr;
     const auto actor = ActorScope::current();
+    // The view's own (docs/MultiViewEdit.md sec 12.9): a user's step it
+    // does not list is passed over, and the implicit ones that go with it.
+    // The log on only, as for authors: what is passed over is above.
+    const UndoView* view = authors ? UndoViewScope::current() : nullptr;
+    const int stopAt = d->runStopAt;
+    auto sees = [view](const Transaction* step) { return !view || view->sees(*step); };
+    bool passed = false;
     std::vector<Transaction*> run;
+    // The group being gathered, 0 for none; and those left by `skip`
+    int64_t group = 0;
+    bool stopped = false;
+    std::set<int64_t> skipped;
+    // Implicit steps seen above a user step not yet reached (undo)
+    std::vector<Transaction*> pending;
     for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
         Transaction* step = *it;
         if (authors && !sameUser(step->Author.get(), actor.get()))
             continue;
         if (undo) {
+            if (group) {
+                // The rest of the group, under the steps of others
+                if (step->Implicit) {
+                    pending.push_back(step);
+                    continue;
+                }
+                if (step->Group == group && sees(step)) {
+                    run.insert(run.end(), pending.begin(), pending.end());
+                    run.push_back(step);
+                    if (step->getID() == stopAt)
+                        return run;
+                }
+                pending.clear();
+                continue;
+            }
+            if (!step->Implicit && (!sees(step) || skipped.count(step->Group))) {
+                run.clear();
+                continue;
+            }
             run.push_back(step);
             if (!step->Implicit) {
-                if (skip-- <= 0)
-                    return run;
+                if (skip-- <= 0) {
+                    if (!step->Group || step->getID() == stopAt)
+                        return run;
+                    group = step->Group;
+                    continue;
+                }
+                if (step->Group)
+                    skipped.insert(step->Group);
                 run.clear();
             }
         }
         else {
-            if (!step->Implicit && !run.empty()) {
-                if (skip <= 0)
-                    return run;
-                --skip;
-                run.clear();
+            if (!step->Implicit) {
+                if (!run.empty()) {
+                    if (group && !stopped) {
+                        // the group's next step, or another's passed over
+                        // with the implicit ones under it
+                        passed = step->Group != group || !sees(step);
+                        if (!passed && step->getID() == stopAt)
+                            stopped = true;
+                        if (!passed)
+                            run.push_back(step);
+                        continue;
+                    }
+                    if (skip <= 0)
+                        return run;
+                    --skip;
+                    if (group)
+                        skipped.insert(group);
+                    run.clear();
+                    group = 0;
+                }
+                passed = !sees(step) || skipped.count(step->Group);
+                if (!passed) {
+                    group = step->Group;
+                    stopped = !group || step->getID() == stopAt;
+                }
             }
+            if (passed)
+                continue;
             run.push_back(step);
         }
     }
+    // A group gathered to the bottom of the stack
+    if (undo && group)
+        return run;
     // Implicit steps with no step of the user's below them: nothing to
     // undo, as when no log recorded them. And nothing where there are
     // fewer steps than were to be left.
@@ -1436,7 +1896,7 @@ bool Document::_takeStep(bool undo, int id)
         return _revertStep(undo, step);
 
     ColdRevert cold;
-    if (step->Cold && !_prepareRevert(step->LogSeq, step->Name, cold))
+    if (step->Cold && !step->Unchanged && !_prepareRevert(step->LogSeq, step->Name, cold))
         return false;
     StepTouched touched;   // sec 27.63
     if (auto log = getTransactionLog())
@@ -1447,6 +1907,10 @@ bool Document::_takeStep(bool undo, int id)
     // The step that takes this one back again.
     d->activeUndoTransaction = new Transaction(step->getID());
     d->activeUndoTransaction->Name = step->Name;
+    // Still the view's it was made in, whichever view takes it
+    d->activeUndoTransaction->View = step->View;
+    // and still one of the edit's group, on the other stack
+    d->activeUndoTransaction->Group = step->Group;
     // Back in the state the step was made in; the other step is applied
     // from there.
     d->activeUndoTransaction->StateBefore = step->StateAfter;
@@ -1454,15 +1918,32 @@ bool Document::_takeStep(bool undo, int id)
     d->stateToken = step->StateBefore ? step->StateBefore : ++d->stateCounter;
 
     Base::FlagToggler<bool> flag(d->undoing);
-    if (step->Cold)
+    if (step->Cold) {
         _applyRevert(cold);
+        if (d->runNotRestored)
+            d->runNotRestored->insert(cold.touched.begin(), cold.touched.end());
+        // applied by no transaction, finished by the guard all the same:
+        // what the objects keep beside their properties is made again
+        // from them (onUndoRedoFinished)
+        TransactionGuard::addDocument(*this);
+    }
     else
         step->apply(*this, !undo);
     // The stacks are kept whatever the log makes of the step: an inverse
     // left as the active transaction would take the next write as its own.
     try {
+        auto touch = cold.touched;
+        addResultsNotKept(*this, *d->activeUndoTransaction, touch);
         if (touched.active)
-            touched.leave(*this, *d->activeUndoTransaction, cold.touched);
+            touched.leave(*this, *d->activeUndoTransaction, touch);
+        else {
+            // No rows to fold: what the step wrote is touched by the guard,
+            // and these with it
+            for (long cid : touch) {
+                if (auto obj = getObjectByID(cid))
+                    obj->touch();
+            }
+        }
         logInverse(*step, undo ? "undo" : "redo", step->Cold ? &cold : nullptr);
     }
     catch (Base::Exception& e) {
@@ -1498,16 +1979,46 @@ bool Document::_takeRun(bool undo, int skip)
     std::vector<int> ids;
     for (auto step : _myRun(undo, skip))
         ids.push_back(step->getID());
+    return _takeIds(undo, ids);
+}
+
+bool Document::_takeIds(bool undo, const std::vector<int>& ids)
+{
     if (ids.empty())
         return false;
+    std::set<long> notRestored;
     std::size_t taken = 0;
-    while (taken < ids.size() && _takeStep(undo, ids[taken]))
-        ++taken;
-    if (taken == ids.size())
+    {
+        struct Restore
+        {
+            std::set<long>*& ptr;
+            std::set<long>* old;
+            ~Restore() { ptr = old; }
+        } restore {d->runNotRestored, std::exchange(d->runNotRestored, &notRestored)};
+        while (taken < ids.size() && _takeStep(undo, ids[taken]))
+            ++taken;
+    }
+    // Touched again once the run is taken: a step under the one that
+    // touched them set the state its rows record (StepTouched), and does
+    // so after a guard still open has touched what it wrote
+    auto touchNotRestored = [&]() {
+        if (notRestored.empty())
+            return;
+        TransactionGuard::afterTouches([this, ids = std::move(notRestored)]() {
+            for (long id : ids) {
+                if (auto obj = getObjectByID(id))
+                    obj->touch();
+            }
+        });
+    };
+    if (taken == ids.size()) {
+        touchNotRestored();
         return true;
+    }
     if (!undo) {
         // The user's step is redone; an implicit one refused under it
         // stays where it is, to be asked for again or ended by a new step.
+        touchNotRestored();
         return taken > 0;
     }
     // The user's step, or an implicit one above it, was refused: what was
@@ -1517,6 +2028,12 @@ bool Document::_takeRun(bool undo, int skip)
         --taken;
     d->undoRefusal = why;
     return false;
+}
+
+bool Document::stepListed(const Transaction& step) const
+{
+    const UndoView* view = d->transactionLog ? UndoViewScope::current() : nullptr;
+    return !view || view->sees(step);
 }
 
 bool Document::_runNeedsLog(const std::vector<Transaction*>& run) const
@@ -1539,6 +2056,7 @@ bool Document::undo(int id)
     OperationScope scope;   // sec 27.38
     if (d->iUndoMode) {
         d->undoRefusal.clear();
+        d->undoInTheWay.clear();
         if(id) {
             auto it = mUndoMap.find(id);
             if(it == mUndoMap.end())
@@ -1554,13 +2072,19 @@ bool Document::undo(int id)
                     d->undoRefusal = "the step is another's";
                     return false;
                 }
+                // Nor one the view does not list (sec 12.9)
+                if (!stepListed(*it->second)) {
+                    d->undoRefusal = "the step is another view's";
+                    return false;
+                }
                 // The actor's steps down to that one (sec 30.10): another's
                 // on the way are not in its stack.
                 std::optional<TransactionGuard> guard;
                 while (true) {
                     const auto run = _myRun(true);
-                    Transaction* top = run.empty() ? nullptr : run.back();
-                    if (!top || top == it->second)
+                    // the run it is in: a group's taken to it (sec 12.11)
+                    if (run.empty()
+                            || std::find(run.begin(), run.end(), it->second) != run.end())
                         break;
                     // One guard for the run, let go of around a step that
                     // goes through the log: it recomputes, and a guard's
@@ -1574,6 +2098,7 @@ bool Document::undo(int id)
                 }
             }
         }
+        RunStop stop {d->runStopAt, std::exchange(d->runStopAt, id)};
         return _takeRun(true);
     }
 
@@ -1586,6 +2111,7 @@ bool Document::undoSkipping(int skip)
     if (!d->iUndoMode)
         return false;
     d->undoRefusal.clear();
+    d->undoInTheWay.clear();
     return _takeRun(true, skip < 0 ? 0 : skip);
 }
 
@@ -1595,6 +2121,7 @@ bool Document::redoSkipping(int skip)
     if (!d->iUndoMode)
         return false;
     d->undoRefusal.clear();
+    d->undoInTheWay.clear();
     return _takeRun(false, skip < 0 ? 0 : skip);
 }
 
@@ -1603,17 +2130,23 @@ bool Document::redo(int id)
     OperationScope scope;   // sec 27.38
     if (d->iUndoMode) {
         d->undoRefusal.clear();
+        d->undoInTheWay.clear();
         if(id) {
             auto it = mRedoMap.find(id);
             if(it == mRedoMap.end())
                 return false;
             if (it->second->Implicit)
                 return false;   // sec 33.4
+            if (!stepListed(*it->second)) {
+                d->undoRefusal = "the step is another view's";
+                return false;
+            }
             std::optional<TransactionGuard> guard;
             while (true) {
                 const auto run = _myRun(false);
-                Transaction* top = run.empty() ? nullptr : run.front();
-                if (!top || top == it->second)
+                // the run it is in: a group's taken to it (sec 12.11)
+                if (run.empty()
+                        || std::find(run.begin(), run.end(), it->second) != run.end())
                     break;
                 if (_runNeedsLog(run))
                     guard.reset();
@@ -1623,6 +2156,7 @@ bool Document::redo(int id)
                     return false;   // a step refused (sec 24.3, 30.10)
             }
         }
+        RunStop stop {d->runStopAt, std::exchange(d->runStopAt, id)};
         return _takeRun(false);
     }
 
@@ -1659,9 +2193,14 @@ void Document::logInverse(const Transaction& applied, const char* kind, const Co
     }
     else
         d->activeUndoTransaction->inheritDerived(applied);
+    // An inverse that wrote nothing -- a step of derived values only, taken
+    // back from the log, leaves them to recompute -- makes no row: taken
+    // the other way it has nothing to apply, not a row it lacks
+    bool unchanged = false;
     d->activeUndoTransaction->LogSeq =
         log->onCommit(*d->activeUndoTransaction, kind, Application::InvocationScope::current(),
-                      applied.LogSeq);
+                      applied.LogSeq, &unchanged);
+    d->activeUndoTransaction->Unchanged = unchanged;
 }
 
 App::Property* Document::addDynamicProperty(
@@ -1708,7 +2247,7 @@ void Document::_addOrRemoveProperty(TransactionalObject* obj, Property *prop, bo
             && !unsaved) {
         if(!testStatus(Restoring) || testStatus(Importing)) {
             int tid=0;
-            const char *name = GetApplication().getActiveTransaction(&tid);
+            const char *name = GetApplication().getActiveTransaction(&tid, this);
             if(name && tid>0)
                 _openTransaction(name,tid);
             else
@@ -1758,8 +2297,10 @@ std::vector<const Transaction*> stepsOf(const std::list<Transaction*>& stack,
 {
     std::vector<const Transaction*> mine;
     const auto actor = ActorScope::current();
+    // And the view's (docs/MultiViewEdit.md sec 12.9), as Document::_myRun
+    const UndoView* view = authors ? UndoViewScope::current() : nullptr;
     auto take = [&](const Transaction* step) {
-        if (step->Implicit)
+        if (step->Implicit || (view && !view->sees(*step)))
             return;
         if (!authors || sameUser(step->Author.get(), actor.get()))
             mine.push_back(step);
@@ -1788,6 +2329,161 @@ std::vector<std::string> Document::getAvailableRedoNames() const
     for (auto step : stepsOf(mRedoTransactions, nullptr, d->transactionLog != nullptr))
         vList.push_back(step->Name);
     return vList;
+}
+
+std::vector<UndoStep> Document::getAvailableUndoSteps() const
+{
+    std::vector<UndoStep> out;
+    for (auto step : stepsOf(mUndoTransactions, d->activeUndoTransaction,
+                             d->transactionLog != nullptr))
+        out.push_back({step->getID(), step->Name, step->Group});
+    return out;
+}
+
+std::vector<UndoStep> Document::getAvailableRedoSteps() const
+{
+    std::vector<UndoStep> out;
+    for (auto step : stepsOf(mRedoTransactions, nullptr, d->transactionLog != nullptr))
+        out.push_back({step->getID(), step->Name, step->Group});
+    return out;
+}
+
+std::vector<UndoStep> Document::stepsInTheWay() const
+{
+    // The rows the last undo refused for (sec 12.11), as the steps on the
+    // undo stack that made them, whoever's
+    std::vector<UndoStep> out;
+    if (d->undoInTheWay.empty())
+        return out;
+    const auto actor = ActorScope::current();
+    for (auto it = mUndoTransactions.rbegin(); it != mUndoTransactions.rend(); ++it) {
+        const Transaction* step = *it;
+        if (!step->LogSeq || !d->undoInTheWay.count(step->LogSeq))
+            continue;
+        // an implicit row stands for the user's step it rides on
+        auto user = it;
+        while (user != mUndoTransactions.rend() && (*user)->Implicit)
+            ++user;
+        if (user == mUndoTransactions.rend())
+            continue;
+        const Transaction* owner = *user;
+        if (std::find_if(out.begin(), out.end(),
+                         [owner](const UndoStep& s) { return s.id == owner->getID(); })
+                != out.end())
+            continue;
+        UndoStep s {owner->getID(), owner->Name, owner->Group};
+        if (!sameUser(owner->Author.get(), actor.get())) {
+            s.author = owner->Author ? owner->Author->name : std::string("host");
+            s.authorActor = owner->Author;
+        }
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+
+std::vector<int> Document::getRunIds(bool undo, int skip) const
+{
+    std::vector<int> ids;
+    for (auto step : _myRun(undo, skip))
+        ids.push_back(step->getID());
+    return ids;
+}
+
+bool Document::stepInfo(int id, UndoStep& out) const
+{
+    auto it = mUndoMap.find(id);
+    if (it == mUndoMap.end())
+        return false;
+    const Transaction* step = it->second;
+    out = UndoStep {step->getID(), step->Name, step->Group};
+    if (!sameUser(step->Author.get(), ActorScope::current().get())) {
+        out.author = step->Author ? step->Author->name : std::string("host");
+        out.authorActor = step->Author;
+    }
+    return true;
+}
+
+bool Document::undoKeepingTheirs(int skip)
+{
+    OperationScope scope;   // sec 27.38
+    if (!d->iUndoMode)
+        return false;
+    d->undoRefusal.clear();
+    d->undoInTheWay.clear();
+    RunStop conflicts {d->runConflicts,
+                       std::exchange(d->runConflicts, int(UndoConflicts::Skip))};
+    return _takeRun(true, skip);
+}
+
+bool Document::undoSteps(const std::vector<int>& want)
+{
+    OperationScope scope;   // sec 27.38
+    if (!d->iUndoMode)
+        return false;
+    d->undoRefusal.clear();
+    d->undoInTheWay.clear();
+    if (d->activeUndoTransaction)
+        _commitTransaction(true);
+    // Those steps, newest first, each with the implicit ones riding on it;
+    // whoever's they are (the caller asked whoever had to be)
+    const std::set<int> wanted(want.begin(), want.end());
+    std::vector<int> ids;
+    std::vector<int> pending;
+    for (auto it = mUndoTransactions.rbegin(); it != mUndoTransactions.rend(); ++it) {
+        Transaction* step = *it;
+        if (step->Implicit) {
+            pending.push_back(step->getID());
+            continue;
+        }
+        if (wanted.count(step->getID())) {
+            ids.insert(ids.end(), pending.begin(), pending.end());
+            ids.push_back(step->getID());
+        }
+        pending.clear();
+    }
+    return _takeIds(true, ids);
+}
+
+bool Document::groupSteps(const std::vector<int>& ids)
+{
+    std::vector<Transaction*> steps;
+    for (int id : ids) {
+        auto it = mUndoMap.find(id);
+        if (it == mUndoMap.end()) {
+            it = mRedoMap.find(id);
+            if (it == mRedoMap.end())
+                continue;
+        }
+        Transaction* step = it->second;
+        if (!step->Implicit && std::find(steps.begin(), steps.end(), step) == steps.end())
+            steps.push_back(step);
+    }
+    if (steps.size() < 2)
+        return false;
+    // Keyed by the oldest step's row, which the rows keep; a step with no
+    // row (it changed nothing) is in the group for this session only. With
+    // no row at all, by the oldest step's id, negated: no row's seq.
+    std::vector<int64_t> seqs;
+    int oldest = 0;
+    for (auto step : steps) {
+        if (step->LogSeq > 0)
+            seqs.push_back(step->LogSeq);
+        if (!oldest || step->getID() < oldest)
+            oldest = step->getID();
+    }
+    const int64_t key = seqs.empty() ? -int64_t(oldest)
+                                     : *std::min_element(seqs.begin(), seqs.end());
+    for (auto step : steps)
+        step->Group = key;
+    if (auto log = getTransactionLog(); log && !seqs.empty()) {
+        try {
+            log->store().setGroup(seqs, key);
+        }
+        catch (Base::Exception& e) {
+            FC_ERR("transaction log: " << e.what());
+        }
+    }
+    return true;
 }
 
 void Document::openTransaction(const char* name) {
@@ -1824,8 +2520,16 @@ int Document::_openTransaction(const char* name, int id, bool implicit)
         // A new step of the user's ends its redo steps (sec 30.10 item 5).
         // An implicit one does not (sec 33.4): nothing the user cannot see
         // empties the redo list. A redo after it goes through the log, as
-        // after another's write.
-        if (!implicit)
+        // after another's write. Without a log there is none to go through,
+        // and the redo's copies are of a state the write has left: it ends
+        // them too (docs/MultiViewEdit.md sec 12.2 rule 7) -- a write by
+        // hand, not a recompute's: what that wrote the redo's copies put
+        // back and the next recompute writes again, as it always did (undo,
+        // recompute, redo). The log is not made here if it is not yet: a
+        // redo step means a commit, which made it if it can be, and one
+        // made early keeps an object removed in this step for its row, its
+        // name taken till the commit.
+        if (!implicit || (!d->transactionLog && !testStatus(Recomputing)))
             _clearMyRedos();
 
         d->activeUndoTransaction = new Transaction(id);
@@ -1833,26 +2537,32 @@ int Document::_openTransaction(const char* name, int id, bool implicit)
             name = "<empty>";
         d->activeUndoTransaction->Name = name;
         d->activeUndoTransaction->Implicit = implicit;
+        // Made in the view its input went to (docs/MultiViewEdit.md sec 12.9)
+        d->activeUndoTransaction->View =
+            GetApplication().getStepView(d->activeUndoTransaction->getID());
         mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
         id = d->activeUndoTransaction->getID();
 
         signalOpenTransaction(*this, name);
 
-        // An implicit transaction is not mirrored into the active document:
-        // it stays out of the application's transaction as it does at commit,
-        // and a mirror, not implicit itself, was never closed with it
-        // (docs/TransactionLogJournal.md sec 24.13).
-        auto &app = GetApplication();
-        auto activeDoc = app.getActiveDocument();
-        if(!implicit &&
-           activeDoc &&
-           activeDoc!=this &&
-           !activeDoc->hasPendingTransaction())
+        // Listed, as an empty step of the same id, in the document of the
+        // view the input that opened it went to (docs/MultiViewEdit.md sec
+        // 12.2 rule 4): an in-place edit of a linked document is undone
+        // from the document worked in. Not the active document: a script's
+        // step, a served branch's, has no claim on it (sec 11). An implicit
+        // transaction is not listed: it stays out of the application's
+        // transaction as it does at commit, and a listing, not implicit
+        // itself, was never closed with it (docs/TransactionLogJournal.md
+        // sec 24.13).
+        auto listing = implicit ? nullptr : GetApplication().getListingDocument(id);
+        if(listing &&
+           listing!=this &&
+           !listing->hasPendingTransaction())
         {
             std::string aname("-> ");
             aname += d->activeUndoTransaction->Name;
-            FC_LOG("auto transaction " << getName() << " -> " << activeDoc->getName());
-            activeDoc->_openTransaction(aname.c_str(),id);
+            FC_LOG("auto transaction " << getName() << " -> " << listing->getName());
+            listing->_openTransaction(aname.c_str(),id);
         }
         return id;
     }
@@ -1893,8 +2603,12 @@ void Document::_openImplicitTransaction()
 {
     // docs/TransactionLogJournal.md sec 9.1: with the log on, a write that arrives
     // with no transaction active opens one of its own, named after the
-    // invocation it happens in, and closed when that returns.
-    if (DocumentParams::getTransactionLog() == 0 || testStatus(Initializing))
+    // invocation it happens in, and closed when that returns. With the log
+    // off too (docs/MultiViewEdit.md sec 12.2 rule 7): the undo groups the
+    // same either way, and what the write changed is taken back with the
+    // step it followed.
+    if ((DocumentParams::getTransactionLog() == 0 && !DocumentParams::getUndoImplicitLogOff())
+            || testStatus(Initializing))
         return;
     const char* origin = Application::InvocationScope::current();
     std::string name = "<implicit";
@@ -1947,7 +2661,13 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
         if (!d->activeUndoTransaction) {
             if(!testStatus(Restoring) || testStatus(Importing)) {
                 int tid=0;
-                const char *name = GetApplication().getActiveTransaction(&tid);
+                const char *name = GetApplication().getActiveTransaction(&tid, this);
+                // None for this document: a recompute here that a step open
+                // in a document it depends on causes joins that step -- an
+                // edit's, of a linked document (docs/MultiViewEdit.md sec
+                // 12.2 rule 2)
+                if (!name)
+                    name = GetApplication().getOpenStep(&tid, this);
                 bool ignore = false;
                 if(What) {
                     // Legacy: a name over a value kept elsewhere, and the
@@ -1996,8 +2716,12 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
                 }
                 // With the log on, a removal with nothing open is a step
                 // of its own too: the log's `remove` op is written at the
-                // commit, and a removal in no transaction left no row.
-                if(!ignore && (!pcDelObj || d->transactionLog)) {
+                // commit, and a removal in no transaction left no row. With
+                // the log off, as any write is (docs/MultiViewEdit.md sec
+                // 12.2 rule 7).
+                const bool logOff = DocumentParams::getTransactionLog() == 0
+                    && DocumentParams::getUndoImplicitLogOff();
+                if(!ignore && (!pcDelObj || d->transactionLog || logOff)) {
                     _openImplicitTransaction();
                     return;
                 }
@@ -2089,11 +2813,13 @@ void Document::_commitTransaction(bool notify)
         bool snapshotDue = false;
         if (auto log = d->closing ? nullptr : getTransactionLog()) {
             const std::string& kind = d->activeUndoTransaction->LogKind;
+            bool unchanged = false;
             d->activeUndoTransaction->LogSeq =
                 log->onCommit(*d->activeUndoTransaction,
                               !kind.empty() ? kind.c_str() : implicit ? "implicit" : "user",
                               d->activeUndoTransaction->Origin.c_str(),
-                              d->activeUndoTransaction->Inverts);
+                              d->activeUndoTransaction->Inverts, &unchanged);
+            d->activeUndoTransaction->Unchanged = unchanged;
             // What waited on the row: a recompute record (sec 27.59).
             auto after = std::move(d->activeUndoTransaction->AfterLogRow);
             for (auto& write : after)
@@ -2120,7 +2846,8 @@ void Document::_commitTransaction(bool notify)
         if (!d->activeUndoTransaction->isEmpty())
             d->stateToken = ++d->stateCounter;
         d->activeUndoTransaction->StateAfter = d->stateToken;
-        if (d->iUndoMode && !_coalesceStep(d->activeUndoTransaction)) {
+        if (d->iUndoMode && !_coalesceStep(d->activeUndoTransaction)
+                && !_foldImplicit(d->activeUndoTransaction)) {
             mUndoTransactions.push_back(d->activeUndoTransaction);
         }
         else {
@@ -2189,7 +2916,8 @@ bool Document::_coalesceStep(Transaction* later)
             && t->LogScript.empty();
     };
     if (!plain(prev) || !plain(later) || prev->Origin != later->Origin
-            || prev->Author.get() != later->Author.get() || prev->Name != later->Name)
+            || prev->Author.get() != later->Author.get() || prev->Name != later->Name
+            || prev->View != later->View)
         return false;
     // The one same property, written by hand in each, and there still.
     const TransactionalObject *prevObj = nullptr, *laterObj = nullptr;
@@ -2228,6 +2956,25 @@ bool Document::_coalesceStep(Transaction* later)
     prev->LogSeq = later->LogSeq;
     prev->StateAfter = later->StateAfter;
     d->lastCommitSeq = prev->LogSeq;
+    return true;
+}
+
+bool Document::_foldImplicit(Transaction* later)
+{
+    // With a log, every implicit step is a row of its own and the hot
+    // window turns old steps cold; without one, a run of them only ever
+    // undoes whole, with the user's step under it (sec 33.4). So the run
+    // is kept as one step, holding the oldest copy of each property (sec
+    // 12.1), however many writes a timer or a script makes.
+    if (!later->Implicit || getTransactionLog())
+        return false;
+    if (std::none_of(mUndoTransactions.begin(), mUndoTransactions.end(),
+                     [](const Transaction* t) { return !t->Implicit; }))
+        return true;
+    Transaction* prev = mUndoTransactions.back();
+    if (!prev->Implicit || !prev->absorbable() || !prev->absorb(*later))
+        return false;
+    prev->StateAfter = later->StateAfter;
     return true;
 }
 
@@ -2279,7 +3026,7 @@ int Document::getBookedTransactionID() const
     if (d->activeUndoTransaction)
         return d->activeUndoTransaction->getID();
     int tid = 0;
-    GetApplication().getActiveTransaction(&tid);
+    GetApplication().getActiveTransaction(&tid, this);
     return tid;
 }
 
@@ -4643,10 +5390,20 @@ static void _loadDeps(const std::string &name,
         if(it->second.canLoadPartial == 1) {
             // canLoadPartial==1 means all its children will be created but not
             // restored, i.e. exists as if newly created object, and therefore no
-            // need to load dependency of the children
-            for(auto &dep : it->second.deps)
-                objs.emplace(dep,false);
-            objs.emplace(name,true);
+            // need to load dependency of the children. A child answering 1
+            // itself is restored the same way: it is what keeps the object's
+            // state, such as a frozen assembly's stored shape, while the
+            // children of a flat container are only created.
+            objs[name] = true;
+            for(auto &dep : it->second.deps) {
+                auto itDep = deps.find(dep);
+                if(itDep != deps.end() && itDep->second.canLoadPartial == 1) {
+                    auto itObj = objs.find(dep);
+                    if(itObj == objs.end() || !itObj->second)
+                        _loadDeps(dep,objs,deps);
+                } else
+                    objs.emplace(dep,false);
+            }
         }else
             objs.emplace(name,false);
         return;
@@ -5409,11 +6166,10 @@ namespace {
 /// a folder's blob files -- and its history is the file's one (27.5).
 void refuseOtherDocumentOfFile(const Document* self, const std::string& file)
 {
-    const std::string canonical = FileHistory::canonicalPath(file);
     for (auto doc : GetApplication().getDocuments()) {
         if (doc != self && !doc->testStatus(Document::VersionDoc)
                 && !doc->testStatus(Document::TempDoc) && doc->FileName.getStrValue().size()
-                && FileHistory::canonicalPath(doc->FileName.getStrValue()) == canonical)
+                && FileHistory::samePath(doc->FileName.getStrValue(), file))
             THROWM(Base::FileException, (std::string("document ") + doc->Label.getValue()
                                             + " has '" + file + "' open: close it first").c_str());
     }
@@ -6158,6 +6914,18 @@ bool Document::saveToFile(const char* filename) const
 
     //realpath is canonical filename i.e. without symlink
     std::string nativePath = canonical_path(realfile);
+#ifdef FC_OS_WIN32
+    // std::filesystem's canonical form makes an 8.3 short name long, where
+    // FileName and everything read from the file (blob paths, the folder
+    // the history follows) keep the short one: the same file, written by the
+    // spelling it was given, or the folder save keeps nothing and copies in
+    // nothing it takes away (TransactionLogJournal.md sec 38.12).
+    if (FileHistory::samePath(realfile, nativePath)) {
+        const QString given =
+            QDir::cleanPath(QFileInfo(QString::fromUtf8(realfile)).absoluteFilePath());
+        nativePath = QDir::toNativeSeparators(given).toUtf8().constData();
+    }
+#endif
 
     // make a tmp. file where to save the project data first and then rename to
     // the actual file name. This may be useful if overwriting an existing file
@@ -6309,7 +7077,9 @@ bool Document::saveToFile(const char* filename) const
     // Blobs read in place belong to the document's folder (sec 38.9): a save
     // that makes the document another file points them at its folder, or
     // copies them in for an archive. A copy saved elsewhere changes nothing.
-    if (FileHistory::canonicalPath(FileName.getStrValue()) == FileHistory::canonicalPath(nativePath)) {
+    // The document's own file however it is spelled: FileName may keep an
+    // 8.3 short name where the writer's path is long.
+    if (FileHistory::samePath(FileName.getStrValue(), nativePath)) {
         getFileBlobManager().settleInPlace(archive ? std::string() : nativePath);
         // What the next save of the folder keeps from (sec 38.12).
         d->folderLast = archive ? DocumentP::FolderState() : d->folderNext;
@@ -6504,7 +7274,8 @@ void Document::save(Base::Writer &writer, bool archive) const {
         const auto& last = d->folderLast;
         std::set<long> changed;
         std::set<long> changedViews;
-        if (last.folder == d->folderNext.folder && last.options == d->folderNext.options
+        if (FileHistory::samePath(last.folder, d->folderNext.folder)
+                && last.options == d->folderNext.options
                 && last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp)
                 && log->hasVersion(last.version)
                 && log->objectsChangedSince(last.seq, changed, &changedViews)) {
@@ -6522,7 +7293,7 @@ void Document::save(Base::Writer &writer, bool archive) const {
         }
         else if (!last.folder.empty()) {
             FC_LOG("save " << getName() << ": nothing kept, folder "
-                   << (last.folder == d->folderNext.folder) << ", options "
+                   << FileHistory::samePath(last.folder, d->folderNext.folder) << ", options "
                    << (last.options == d->folderNext.options) << ", stamp "
                    << (last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp))
                    << ", version " << log->hasVersion(last.version));
@@ -6661,8 +7432,7 @@ void Document::restore (const char *filename,
                 blobs->readInPlace(std::string());
         }
     } inPlaceGuard;
-    if (folder && FileHistory::canonicalPath(filename)
-                      == FileHistory::canonicalPath(FileName.getStrValue())) {
+    if (folder && FileHistory::samePath(filename, FileName.getStrValue())) {
         // FC_FOLDER_BLOBS_COPY copies them as before, for measuring.
         inPlaceGuard.blobs = &getFileBlobManager();
         if (!std::getenv("FC_FOLDER_BLOBS_COPY"))
@@ -8255,6 +9025,7 @@ void Document::_rebuildUndoFromLog(int64_t after)
         std::shared_ptr<const Actor> author;
         int64_t before;
         int64_t after;
+        int64_t group;   ///< txn.grp (docs/MultiViewEdit.md sec 12.11)
     };
     std::vector<Step> undo;
     std::vector<Step> redo;
@@ -8298,7 +9069,7 @@ void Document::_rebuildUndoFromLog(int64_t after)
             continue;   // a record: save, snapshot, recompute, login
         const int64_t before = state;
         state = ++d->stateCounter;
-        undo.push_back({t.seq, t.name, t.kind == "implicit", author, before, state});
+        undo.push_back({t.seq, t.name, t.kind == "implicit", author, before, state, t.group});
         redo.erase(std::remove_if(redo.begin(), redo.end(),
                                   [&](const Step& s) {
                                       return sameUser(s.author.get(), author.get());
@@ -8314,6 +9085,7 @@ void Document::_rebuildUndoFromLog(int64_t after)
         t->Author = s.author;
         t->StateBefore = s.before;
         t->StateAfter = s.after;
+        t->Group = s.group;
         t->Cold = true;
         return t;
     };
@@ -8829,7 +9601,8 @@ void Document::_saveFolderHistory(const std::string& file, std::string xml,
     // Only a folder this document last wrote stays one it keeps from: one
     // another process saved since is not, whatever this commit does to it
     // (sec 38.21 F5).
-    const bool ours = d->folderLast.folder == native && d->folderLast.stamp.valid()
+    const bool ours = FileHistory::samePath(d->folderLast.folder, native)
+        && d->folderLast.stamp.valid()
         && DiskStamp::of(native).sameAs(d->folderLast.stamp);
     FolderSave::commit(native, removals);
     stageGuard.done = true;
@@ -14485,7 +15258,7 @@ ForkSource openFork(const std::shared_ptr<FileHistory>& mine, const std::string&
     if (!FileHistory::savedAs(path, fork.saved, &reason))
         THROWM(Base::RuntimeError, "cannot read '" + path + "': " + reason);
     if (!mine->path().empty()
-            && FileHistory::canonicalPath(path) == FileHistory::canonicalPath(mine->path()))
+            && FileHistory::samePath(path, mine->path()))
         THROWM(Base::ValueError, "'" + path + "' is this document's own file");
     // No history: a state, and the save it names (sec 30.19).
     if (!fork.saved.history)
@@ -17133,8 +17906,9 @@ bool Document::afterRestore(bool checkPartial) {
     // The last point a referrer can turn up: the Gui document replays its
     // embedded view documents from this signal. Whatever is still unclaimed
     // belongs to nothing and goes. Deliberately not reached on the partial
-    // reload path above, which still has a restore ahead of it.
-    getFileBlobManager().endRestore();
+    // reload path above, which still has a restore ahead of it. A partial
+    // document keeps it: what it restored may borrow from it.
+    getFileBlobManager().endRestore(testStatus(Document::PartialDoc));
     // The version of a file in an older format (sec 27.62): the document as
     // it was read, view providers included, at the current schema. Undo
     // reaches back to it and no further, as to the version of any open.
@@ -18277,8 +19051,15 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
     FC_TIME_LOG(t,"Recompute total");
 
     if (d->recomputeLogAdded != logAddedBefore) {
-        if (!testStatus(Status::IgnoreErrorOnRecompute))
+        if (!testStatus(Status::IgnoreErrorOnRecompute)) {
             Base::Console().Error("Recompute failed!\n");
+            // The caller told the same: an object can log its failure (a
+            // TechDraw section whose cut meets nothing) and still return
+            // without an error, and the migration prompt's recompute then
+            // put up no error box (entry 247)
+            if (hasError)
+                *hasError = true;
+        }
     }
 
     clearPendingRemove();

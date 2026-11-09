@@ -39,6 +39,7 @@
 #include <Base/Sequencer.h>
 
 #include "Action.h"
+#include "Application.h"
 #include "BitmapFactory.h"
 #include "Command.h"
 #include "DlgCustomizeImp.h"

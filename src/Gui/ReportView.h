@@ -27,6 +27,7 @@
 #include <QTextEdit>
 #include <QSyntaxHighlighter>
 
+#include <Base/Console.h>
 #include "Window.h"
 #include "MessageCollapse.h"
 #include <FCGlobal.h>

@@ -100,6 +100,12 @@ typedef boost::iterator_range<const char*> CharRange;
 #include "TopoShapeOpCode.h"
 
 using namespace Part;
+
+namespace Part::detail
+{
+// The feature whose Shape is being set to follow its Placement (PartFeatureAppearance.cpp)
+extern thread_local const Feature* shapeFollowingPlacement;
+}
 namespace sp = std::placeholders;
 
 FC_LOG_LEVEL_INIT("Part",true,true)
@@ -2039,7 +2045,21 @@ void Feature::onChanged(const App::Property* prop)
         // Nobody sets this shape: it follows the property just written
         // (docs/TransactionLogJournal.md sec 31.26)
         App::TransactionFollowing following;
-        this->Shape.setValue(shape);
+        // The same shape moved: its elements' looks stay what they are, and
+        // mapping them again for each part a solve moves was a quarter of an
+        // assembly's drag step
+        const Feature* was = detail::shapeFollowingPlacement;
+        if (prop == &this->Placement) {
+            detail::shapeFollowingPlacement = this;
+        }
+        try {
+            this->Shape.setValue(shape);
+        }
+        catch (...) {
+            detail::shapeFollowingPlacement = was;
+            throw;
+        }
+        detail::shapeFollowingPlacement = was;
     }
     // if the point data has changed check and adjust the transformation as well
     else if (prop == &this->Shape) {
@@ -2235,13 +2255,12 @@ TopLoc_Location Feature::getLocation() const
         return {};
     if (_hasLocation && _locationOf == pl)
         return _location;
-    Base::Rotation rot(pl.getRotation());
-    Base::Vector3d axis;
-    double angle;
-    rot.getValue(axis, angle);
+    // From the placement's matrix, as setTransform(toMatrix()) made the
+    // shape's before there was one location: through the axis and angle
+    // three of its terms came out an ulp off, and every shape and the faces'
+    // centres with them (BoxM in TestSolverGate's ASMT digests)
     gp_Trsf trf;
-    trf.SetRotation(gp_Ax1(gp_Pnt(), gp_Dir(axis.x, axis.y, axis.z)), angle);
-    trf.SetTranslationPart(gp_Vec(pl.getPosition().x,pl.getPosition().y,pl.getPosition().z));
+    TopoShape::convertTogpTrsf(pl.toMatrix(), trf);
     _location = TopLoc_Location(trf);
     _locationOf = pl;
     _hasLocation = true;

@@ -6,11 +6,12 @@ it holds the value's own entries, "Show handles" (this view), the panel's
 "Show preview", and a "Settings" sub-menu of the six drag settings as
 widgets written to their preferences at once. A pad and a box, each in a
 body of its own:
-  - Pad in edit: the menu button is shown, as tall as a label, at the left
-    of the view's middle (where the label "Length" stands);
+  - Pad in edit: the menu button is shown, as tall as a label, at the top
+    middle of the view (the label "Length" stands by its arrow now, entry
+    241; with a label at the top middle the button is at its left);
   - a click on it opens the menu: "Show handles", "Show preview",
-    "Settings"; the sub-menu has two check boxes, two combo boxes and two
-    spin boxes;
+    "Settings"; the sub-menu has two check boxes, two combo boxes and three
+    spin boxes (the third the labels' ground opacity);
   - in the shown sub-menu, a click on "Enable coarse snapping while
     dragging" flips the preference and the sub-menu stays open; the
     multiplier set to 7 and the default drag to "Fine" are the preferences
@@ -246,8 +247,29 @@ def run():
         note("INFO button %s in a %dx%d view" % (geo, vw.width(), vw.height()))
         check("... as tall as a label (16 to 60 px), square",
               16 <= geo.height() <= 60 and geo.width() == geo.height(), geo)
-        check("... left of the view's middle, near the top",
-              geo.right() < vw.width() // 2 and geo.top() < 60, geo)
+        check("... at the view's middle, near the top (no label at the top middle)",
+              abs(geo.center().x() - vw.width() // 2) <= geo.width() and geo.top() < 60, geo)
+        # its tip: Gui::ToolTip's rounded label beside the pointer, as the
+        # handles' (entry 246), not Qt's square one
+        win = mw().windowHandle()
+        centre = btn.mapTo(mw(), btn.rect().center())
+        QtTest.QTest.mouseMove(win, centre - QtCore.QPoint(40, 0))
+        pump(10)
+        QtTest.QTest.mouseMove(win, centre)
+        pump(150)
+        tip = None
+        for w in QtWidgets.QApplication.allWidgets():
+            if w.objectName() == "fc_overlay_tiplabel" and w.isVisible():
+                tip = w
+        labels = tip.findChildren(QtWidgets.QLabel) if tip is not None else []
+        text = labels[0].text() if labels else ""
+        check("resting on the button: its tip in the rounded label, not Qt's",
+              tip is not None and text == "Edit menu" and not QtWidgets.QToolTip.isVisible(),
+              (text, QtWidgets.QToolTip.isVisible()))
+        QtTest.QTest.mouseMove(win, centre + QtCore.QPoint(0, 200))
+        pump(20)
+        if tip is not None:
+            tip.hide()
         # a picture of it beside its label, from the screen (a GL view's own
         # grab is empty)
         def picture(name):
@@ -335,9 +357,9 @@ def run():
         note("INFO menu %s; settings widgets %s" % (names, kinds))
         check("a click on the button opens the menu with Show handles, Show preview, Settings",
               all(n in names for n in ("Show handles", "Show preview", "Settings")), names)
-        check("... the Settings sub-menu: 2 check boxes, 2 combo boxes, 2 spin boxes",
+        check("... the Settings sub-menu: 2 check boxes, 2 combo boxes, 3 spin boxes",
               kinds.get("QCheckBox") == 2 and kinds.get("QComboBox") == 2
-              and kinds.get("QSpinBox") == 2, kinds)
+              and kinds.get("QSpinBox") == 3, kinds)
         note("INFO settings %s" % {k: v for k, v in out.items() if k != "read"})
         c = out.get("coarse", (None, None))
         check("a click on the coarse check box flips the preference at once",

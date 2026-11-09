@@ -34,10 +34,13 @@
 #include <App/ElementNamingUtils.h>
 #include <App/MappedElement.h>
 #include <App/PropertyLinks.h>
+#include <Mod/Material/App/Materials.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>
 #include <Mod/Part/App/PropertyTopoShape.h>
+
+#include <Mod/Part/App/FeatureElement.h>
 
 #include "Body.h"
 #include "Feature.h"
@@ -190,6 +193,8 @@ SolidBody::SolidBody()
     ADD_PROPERTY_TYPE(_Shown, (nullptr), "Base",
             (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly|App::Prop_Output), 0);
     ADD_PROPERTY_TYPE(_ShownShape, (false), "Base",
+            (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly|App::Prop_Output), 0);
+    ADD_PROPERTY_TYPE(_ElementsView, (nullptr), "Base",
             (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly|App::Prop_Output), 0);
     // View state, as Visibility is: no undo step and no modified document
     // for it
@@ -620,12 +625,57 @@ void SolidBody::onChanged(const App::Property* prop)
     }
     inherited::onChanged(prop);
 
-    if (prop == &Group)
+    if (prop == &Group) {
         handOn(true, true);
+        // Its features changed: so may the elements it shows
+        auto doc = getDocument();
+        if (doc && !isRestoring() && !doc->testStatus(App::Document::Restoring)
+                && !doc->isPerformingTransaction()) {
+            if (auto view = getElementsView())
+                view->refresh();
+        }
+    }
     else if (prop == &ShapeMaterial)
         handOn(true, false);
     else if (prop == &ElementAppearance)
         handOn(false, true);
+}
+
+App::AuxGroup *SolidBody::getElementsView() const
+{
+    auto group = Base::freecad_dynamic_cast<App::AuxGroup>(_ElementsView.getValue());
+    if (group && group->getOwner() == this && group->getRole() == App::AuxGroup::ElementsRole)
+        return group;
+    return nullptr;
+}
+
+bool SolidBody::isAuxGroupAllowed(const App::AuxGroup *, const App::DocumentObject *obj) const
+{
+    auto element = Base::freecad_dynamic_cast<const Part::Element>(obj);
+    return element && hasFeature(element->Target.getValue());
+}
+
+App::PropertyLinkList *SolidBody::getAuxGroupSource(const App::AuxGroup *) const
+{
+    auto body = getBody();
+    auto elements = body ? body->getElementsGroup(false) : nullptr;
+    return elements ? &elements->Group : nullptr;
+}
+
+bool SolidBody::hasAuxGroup(const App::AuxGroup *group) const
+{
+    auto body = getBody();
+    return body && group && group->isAttachedToDocument()
+        && body->Group.find(group->getNameInDocument()) == group;
+}
+
+void SolidBody::unsetupObject()
+{
+    if (auto view = getElementsView()) {
+        if (!view->isRemoving())
+            view->getDocument()->removeObject(view->getNameInDocument());
+    }
+    inherited::unsetupObject();
 }
 
 void SolidBody::onDocumentRestored()

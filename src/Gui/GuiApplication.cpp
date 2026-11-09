@@ -43,6 +43,7 @@
 # include <windows.h>
 #endif
 
+#include <QDockWidget>
 #include <QLocalServer>
 #include <QLocalSocket>
 
@@ -63,6 +64,7 @@
 
 #include <App/Actor.h>
 #include <App/Application.h>
+#include <App/DocumentParams.h>
 #include <Base/Console.h>
 #include <Base/CrashLog.h>
 #include <Base/Exception.h>
@@ -70,6 +72,11 @@
 
 #include "GuiApplication.h"
 #include "Application.h"
+#include "Control.h"
+#include "Document.h"
+#include <App/Document.h>
+#include "MDIView.h"
+#include "View3DInventorViewer.h"
 #include "MainWindow.h"
 #include "RenderParams.h"
 #include "SpaceballEvent.h"
@@ -77,6 +84,188 @@
 
 
 using namespace Gui;
+
+namespace {
+/// The view provider in edit an event to \a obj works on: that of the
+/// edit's dialog it is part of, else that of the editing 3D view it is in
+/// -- an editor laid over the view -- or of the view of its own an edit
+/// runs in, a TechDraw page (docs/HandsOnQueue.md entry 232)
+ViewProvider *editOfReceiver(QObject *obj)
+{
+    if (ViewProvider *vp = Control().editViewProviderOf(obj))
+        return vp;
+    for (QObject *o = obj; o; o = o->parent()) {
+        if (auto viewer = dynamic_cast<View3DInventorViewer*>(o))
+            return viewer->getEditingViewProvider();
+        if (auto view = qobject_cast<MDIView*>(o)) {
+            Gui::Document *doc = view->getGuiDocument();
+            return doc ? doc->editViewProviderIn(view) : nullptr;
+        }
+    }
+    return nullptr;
+}
+
+/// The document an input to \a receiver is to (docs/MultiViewEdit.md sec
+/// 12.2 rule 4): of the view it is in, else of the view the dialog it is
+/// part of belongs to, else of the view handled now -- a menu's, a
+/// toolbar's, the console's.
+App::Document *inputDocumentOf(QObject *receiver)
+{
+    for (QObject *o = receiver; o; o = o->parent()) {
+        if (auto view = qobject_cast<MDIView*>(o)) {
+            Gui::Document *doc = view->getGuiDocument();
+            return doc ? doc->getDocument() : nullptr;
+        }
+    }
+    TaskOwner owner = Control().ownerOfContent(receiver);
+    if (owner.isNull())
+        owner = TaskOwner::current();
+    Gui::Document *doc = owner.document();
+    return doc ? doc->getDocument() : nullptr;
+}
+
+/// Whether \a receiver is the Python console: a line typed there is a
+/// script's, no input's group (sec 12.2 rule 1)
+bool isConsoleInput(QObject *receiver)
+{
+    for (QObject *o = receiver; o; o = o->parent()) {
+        if (o->inherits("Gui::PythonConsole"))
+            return true;
+    }
+    return false;
+}
+
+/** The view the input to \a receiver went to (docs/MultiViewEdit.md sec
+ * 12.9), MDIView::undoViewId(): the view it is in; a task panel's, the view
+ * of its dialog; none for the Python console, the tree, the property view
+ * and any other dock; the active view's for the rest -- a toolbar, a menu,
+ * a shortcut.
+ */
+int inputViewOf(QObject *receiver)
+{
+    for (QObject *o = receiver; o; o = o->parent()) {
+        if (auto view = qobject_cast<MDIView*>(o))
+            return view->activeSubView()->undoViewId();
+        if (o->inherits("Gui::PythonConsole"))
+            return 0;
+    }
+    TaskOwner owner = Control().ownerOfContent(receiver);
+    if (!owner.isNull()) {
+        MDIView *view = owner.mdiView();
+        return view ? view->undoViewId() : 0;
+    }
+    for (QObject *o = receiver; o; o = o->parent()) {
+        if (o->inherits("Gui::TaskView::TaskView"))
+            break;
+        if (qobject_cast<QDockWidget*>(o))
+            return 0;
+    }
+    MDIView *view = getMainWindow() ? getMainWindow()->activeWindow() : nullptr;
+    return view ? view->activeSubView()->undoViewId() : 0;
+}
+
+/// What keeps a step past its input's group that only the Gui knows (sec
+/// 12.2 rule 5): a mouse button down -- a drag, closed on the release --
+/// an open task dialog, an edit
+bool groupStepHeld()
+{
+    if (QApplication::mouseButtons() != Qt::NoButton)
+        return true;
+    if (Control().hasOpenDialog())
+        return true;
+    return !Application::Instance->editDocuments().empty();
+}
+
+/// The end of an input's group: the step it left open, that nothing
+/// holds, is committed (sec 12.2 rule 1)
+void endInputGroup()
+{
+    if (!App::DocumentParams::getUndoGroupByInput() || groupStepHeld())
+        return;
+    try {
+        App::GetApplication().closeGroupStep();
+    }
+    catch (Base::Exception &e) {
+        e.ReportException();
+    }
+    catch (...) {
+    }
+}
+
+int notifyDepth = 0;
+
+struct NotifyDepth
+{
+    NotifyDepth() { ++notifyDepth; }
+    ~NotifyDepth() { --notifyDepth; }
+};
+
+/** An input being handled: the application's input document and group
+ * while it is (App::Application::setInputDocument, setInputGroup). Qt
+ * hands a widget's input on from its window, one inside the other: the
+ * outermost starts the group, the innermost names the document, and the
+ * outermost ends both. One the event loop delivered keeps them until the
+ * work it queued has run; one sent from another event's handling -- a
+ * test's timer -- gives back what was there when it returns. Its group
+ * ends after that work either way, unless another input came first: then
+ * that one's end is its end too.
+ */
+class InputDocumentScope
+{
+public:
+    explicit InputDocumentScope(QObject *receiver)
+        : outer(current)
+        , prevGroup(App::GetApplication().getInputGroup())
+        , prevView(App::GetApplication().getInputView())
+    {
+        if (auto prevDoc = App::GetApplication().getInputDocument())
+            prev = prevDoc->getName();
+        current = this;
+        App::GetApplication().setInputDocument(inputDocumentOf(receiver));
+        App::GetApplication().setInputView(inputViewOf(receiver));
+        if (!outer)
+            ++group;
+        App::GetApplication().setInputGroup(isConsoleInput(receiver) ? 0 : group);
+        ++serial;
+    }
+    ~InputDocumentScope()
+    {
+        current = outer;
+        if (outer)
+            return;
+        const bool nested = notifyDepth > 1;
+        if (nested) {
+            App::GetApplication().setInputDocument(
+                prev.empty() ? nullptr : App::GetApplication().getDocument(prev.c_str()));
+            App::GetApplication().setInputGroup(prevGroup);
+            App::GetApplication().setInputView(prevView);
+        }
+        // After the 0-timers its work queued, which were queued first
+        const int mine = serial;
+        QTimer::singleShot(0, [mine, nested]() {
+            if (serial != mine)
+                return;
+            if (!nested) {
+                App::GetApplication().setInputDocument(nullptr);
+                App::GetApplication().setInputGroup(0);
+                App::GetApplication().setInputView(0);
+            }
+            endInputGroup();
+        });
+    }
+    InputDocumentScope(const InputDocumentScope&) = delete;
+    InputDocumentScope& operator=(const InputDocumentScope&) = delete;
+
+private:
+    static inline InputDocumentScope *current = nullptr;
+    static inline int serial = 0;
+    static inline int group = 0;
+    InputDocumentScope *outer;
+    int prevGroup;
+    int prevView;
+    std::string prev;
+};
+}
 
 namespace {
 #if defined(__linux__)
@@ -484,6 +673,7 @@ bool GUIApplication::notify (QObject * receiver, QEvent * event)
         return false;
     }
     SlowDispatchTrace slowTrace(receiver, event);
+    NotifyDepth depth;
     // The desktop user's own input is the desktop user's
     // (docs/TransactionLogJournal.md sec 30.3 S.b): an event the window system
     // delivers while a client's operation spins an event loop of its own --
@@ -491,6 +681,48 @@ bool GUIApplication::notify (QObject * receiver, QEvent * event)
     std::optional<App::ActorScope> own;
     if (event->spontaneous() && App::ActorScope::current())
         own.emplace(std::shared_ptr<const App::Actor>());
+    // Whose edit what this event opens is a step of (docs/HandsOnQueue.md
+    // entry 232): input to an edit's dialog is that edit's; a timer or a
+    // queued call is nobody's, even run inside an edit's event -- a menu's
+    // or a dialog's loop.
+    std::optional<EditStepScope> editStep;
+    switch (event->type()) {
+    case QEvent::Timer:
+    case QEvent::MetaCall:
+        editStep.emplace(nullptr);
+        break;
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::KeyPress:
+    case QEvent::KeyRelease:
+    case QEvent::Wheel:
+    case QEvent::ContextMenu:
+    case QEvent::FocusOut:
+        if (ViewProvider *vp = editOfReceiver(receiver))
+            editStep.emplace(vp);
+        break;
+    default:
+        break;
+    }
+    // Where a step it opens is listed (docs/MultiViewEdit.md sec 12.2 rule 4)
+    std::optional<InputDocumentScope> input;
+    switch (event->type()) {
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::KeyPress:
+    case QEvent::KeyRelease:
+    case QEvent::Wheel:
+    case QEvent::ContextMenu:
+    case QEvent::Shortcut:
+    case QEvent::ShortcutOverride:
+    case QEvent::Drop:
+        input.emplace(receiver);
+        break;
+    default:
+        break;
+    }
     try {
 #if defined(_MSC_VER)
         return guardedDispatch(this, receiver, event);

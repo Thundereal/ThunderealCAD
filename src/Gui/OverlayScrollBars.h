@@ -27,10 +27,10 @@
 #include <QRect>
 #include <QRegion>
 #include <QTimer>
+#include <QVector>
 #include <FCGlobal.h>
 
 class QAbstractScrollArea;
-class QGraphicsOpacityEffect;
 class QScrollBar;
 class QVariantAnimation;
 
@@ -50,6 +50,17 @@ namespace Gui {
  *
  * (B) They are thin and see-through, shown while the area scrolls and while
  * the pointer is near them or on them, and fade out a moment after.
+ *
+ * Near is told by where the pointer is, whatever widget its move goes to:
+ * OverlayManager's event filter tells pointerMoved() of every move before it
+ * decides whether to pass it on to the view under a see-through panel -- the
+ * panel's own lists never saw a move passed on -- and whatever lies over an
+ * area's edge takes no move from its bars (docs/HandsOnQueue.md entry 233).
+ *
+ * (C) A cover that reaches no side of the area -- a task panel over part of
+ * the view, a dock short of its edge -- the bars go round as the view cell's
+ * menu button and handles do: one shortened past a cover over one of its
+ * ends, or else slid inward to just past it (entry 233).
  *
  * The area's own bars are turned off and kept: these follow their ranges,
  * steps and values, and set their values back. Made by and owned by the
@@ -74,6 +85,10 @@ public:
     /// The bars laid over \a area, if any
     static OverlayScrollBars* of(QAbstractScrollArea* area);
 
+    /// The pointer moved to \a global (screen coordinates): the bars of
+    /// every area it is in that it is near show. Asked by OverlayManager's
+    /// event filter, before a move is passed through a see-through panel.
+    static void pointerMoved(const QPoint& global);
     /// What the bars leave free, in the area's coordinates: a view cell's
     /// menu button and corner handles (ViewAreaCell::placeChrome), which
     /// keep their corners. A bar that would run under one stops short of it.
@@ -88,18 +103,27 @@ protected:
 private:
     void follow(QScrollBar* own, QScrollBar* ours);
     void place();
+    /// \a home moved off \a covers (area coordinates) within \a bounds,
+    /// or \a home where no place is clear
+    QRect goRound(const QRect& home, const QVector<QRect>& covers, const QRect& bounds) const;
+    /// The viewport watched: the area's present one (a page swaps its own)
+    void bindViewport();
     /// Shown, and the fade-out put off
     void reveal();
+    /// Shown if the pointer, at \a global, is near a bar
+    void revealNear(const QPoint& global);
     void fadeOut();
     bool pointerNear() const;
+    bool isNearBar(const QPoint& at) const;
+    /// How far the bars are faded in, 0 to 1
+    qreal opacity() const;
 
     QPointer<QAbstractScrollArea> area;
+    QPointer<QWidget> viewport;
     QPointer<QScrollBar> vbar;
     QPointer<QScrollBar> hbar;
     Qt::ScrollBarPolicy ownVPolicy = Qt::ScrollBarAsNeeded;
     Qt::ScrollBarPolicy ownHPolicy = Qt::ScrollBarAsNeeded;
-    QGraphicsOpacityEffect* veffect = nullptr;
-    QGraphicsOpacityEffect* heffect = nullptr;
     QVariantAnimation* fade = nullptr;
     QTimer idle;
     QRect vrect;

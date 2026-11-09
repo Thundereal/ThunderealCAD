@@ -28,6 +28,7 @@
 #include <set>
 
 #include "Page2D.h"
+#include "Renderer.h"
 
 // The record/storage side of Page2D is always built, so consumers
 // (the TechDraw feed) link unconditionally; everything touching

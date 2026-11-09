@@ -1,0 +1,602 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+"""Results kept in the document (docs/AssemblyDynamics.md sec 8.4): a study's
+run saved with the file as its KeepResults says, read back when the study is
+opened again, and marked stale when the mechanism changes after."""
+
+import io
+import json
+import os
+import shutil
+import struct
+import tempfile
+import unittest
+import zipfile
+
+import FreeCAD as App
+import JointObject
+
+
+def plc(x=0.0, y=0.0, z=0.0, axis=None, angle=0.0):
+    rot = App.Rotation(axis, angle) if axis is not None else App.Rotation()
+    return App.Placement(App.Vector(x, y, z), rot)
+
+
+def readGltf(path):
+    """A glTF file's JSON and its buffer: a .glb's chunks, or a .gltf's .bin"""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:4] == b"glTF":
+        magic, version, total = struct.unpack_from("<4sII", data, 0)
+        assert version == 2 and total == len(data), (version, total, len(data))
+        length, kind = struct.unpack_from("<I4s", data, 12)
+        assert kind == b"JSON" and length % 4 == 0
+        gltf = json.loads(data[20 : 20 + length])
+        blength, bkind = struct.unpack_from("<I4s", data, 20 + length)
+        assert bkind == b"BIN\0"
+        blob = data[28 + length : 28 + length + blength]
+        assert 28 + length + blength == total
+    else:
+        gltf = json.loads(data)
+        with open(os.path.join(os.path.dirname(path), gltf["buffers"][0]["uri"]), "rb") as f:
+            blob = f.read()
+    assert len(blob) == gltf["buffers"][0]["byteLength"]
+    return gltf, blob
+
+
+def accessorData(gltf, blob, index):
+    import numpy
+
+    accessor = gltf["accessors"][index]
+    view = gltf["bufferViews"][accessor["bufferView"]]
+    assert view["byteOffset"] % 4 == 0
+    assert view["byteOffset"] + view["byteLength"] <= len(blob)
+    dtype = {5126: numpy.float32, 5125: numpy.uint32}[accessor["componentType"]]
+    width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}[accessor["type"]]
+    array = numpy.frombuffer(
+        blob, dtype=dtype, count=accessor["count"] * width, offset=view["byteOffset"]
+    )
+    return array.reshape(accessor["count"], width) if width > 1 else array
+
+
+class TestSimulationResults(unittest.TestCase):
+    def setUp(self):
+        import AssemblyApp
+
+        if "Chrono" not in AssemblyApp.getAvailableSolvers():
+            self.skipTest("the Chrono backend is not built")
+        self.params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
+        self._solveInCreation = self.params.GetBool("SolveInJointCreation", True)
+        self.params.SetBool("SolveInJointCreation", False)
+        self.folder = tempfile.mkdtemp(prefix="SimulationResults")
+        self.doc = App.newDocument("TestSimulationResults")
+        self.assembly = self.doc.addObject("Assembly::AssemblyObject", "Assembly")
+        self.joints = self.assembly.getGroup("Joints", True)
+
+    def tearDown(self):
+        self.params.SetBool("SolveInJointCreation", self._solveInCreation)
+        App.closeDocument(self.doc.Name)
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def pendulum(self):
+        """A rod 100 x 10 x 10 hinged at one end to a grounded block, lying
+        horizontal along x"""
+        base = self.assembly.newObject("Part::Box", "Base")
+        base.Length, base.Width, base.Height = 10, 10, 10
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        rod = self.assembly.newObject("Part::Box", "Rod")
+        rod.Length, rod.Width, rod.Height = 100, 10, 10
+        rod.Placement.Base = App.Vector(10, 0, 0)
+        self.doc.recompute()
+        j = self.joints.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(j, JointObject.JointTypes.index("Revolute"))
+        j.Detach1 = True
+        j.Detach2 = True
+        j.Reference1 = (base, ["Face2"])
+        j.Reference2 = (rod, ["Face1"])
+        j.Placement1 = plc(10, 5, 5, App.Vector(1, 0, 0), -90)
+        j.Placement2 = plc(0, 5, 5, App.Vector(1, 0, 0), -90)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        # Upstream's Python joint is converted to a C++ one, the GUI's, when
+        # the file is opened -- under another name, another mechanism: done
+        # before any run
+        self.reopen()
+        self.joint = next(o for o in self.joints.Group if o.isDerivedFrom("Assembly::Joint"))
+        return self.doc.getObject("Rod")
+
+    def simulate(self, end=0.05, step=1e-3, **props):
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.TimeEnd = end
+        sim.TimeStepOutput = step
+        for name, value in props.items():
+            setattr(sim, name, value)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        return sim
+
+    def placements(self, part):
+        out = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            out.append(part.Placement)
+        return out
+
+    def reopen(self):
+        """The document saved, closed and opened again; its assembly"""
+        path = os.path.join(self.folder, "Results.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.assembly = self.doc.getObject("Assembly")
+        self.joints = self.assembly.getGroup("Joints")
+        return self.doc
+
+    def assertSameResults(self, before, after, values=True):
+        self.assertEqual(after["Times"], before["Times"])
+        if values:
+            self.assertEqual(len(after["Channels"]), len(before["Channels"]))
+            for a, b in zip(after["Channels"], before["Channels"]):
+                for key in ("Name", "Quantity", "Unique", "Values"):
+                    self.assertEqual(a[key], b[key], key)
+                # The document's own: the one before is closed
+                self.assertEqual(a["Object"].Name, b["Name"])
+        else:
+            self.assertEqual(after["Channels"], [])
+        self.assertEqual(len(after["Events"]), len(before["Events"]))
+        for a, b in zip(after["Events"], before["Events"]):
+            for key in ("Time", "Name", "Value", "Stopped", "Kind"):
+                self.assertEqual(a[key], b[key], key)
+
+    def assertSamePlacements(self, after, before):
+        self.assertEqual(len(after), len(before))
+        for a, b in zip(after, before):
+            self.assertTrue(a.isSame(b, 1e-12), (a, b))
+
+    def test_kept_in_the_file(self):
+        """A run kept whole (All) is saved with the document: opened again,
+        the study's results are read back -- the same times, values and
+        events, bit for bit, and the same placement at each frame (1e-12) --
+        and its archive is a zip numpy reads as it is"""
+        rod = self.pendulum()
+        sim = self.simulate(KeepResults="All")
+        before = self.assembly.getSimulationResults()
+        self.assertTrue(before["Channels"])
+        frames = self.placements(rod)
+        self.assertEqual(len(frames), 51)
+        self.assertTrue(sim.Results)
+
+        # numpy reads the blocks as they are
+        import numpy
+
+        with zipfile.ZipFile(sim.Results) as archive:
+            names = set(archive.namelist())
+            self.assertEqual(names, {"index.json", "times.npy", "poses.npy", "values.npy"})
+            times = numpy.load(io.BytesIO(archive.read("times.npy")))
+            poses = numpy.load(io.BytesIO(archive.read("poses.npy")))
+            values = numpy.load(io.BytesIO(archive.read("values.npy")))
+        self.assertEqual(list(times), before["Times"])
+        self.assertEqual(poses.shape[0], 51)
+        self.assertEqual(poses.shape[2], 7)
+        self.assertEqual(values.shape[0], 51)
+
+        name = sim.Name
+        self.reopen()
+        sim = self.doc.getObject(name)
+        rod = self.doc.getObject("Rod")
+        self.assertEqual(self.assembly.numberOfFrames(), 0)
+        self.assertTrue(self.assembly.loadSimulationResults(sim))
+        after = self.assembly.getSimulationResults()
+        self.assertEqual(after["Simulation"], sim)
+        self.assertSameResults(before, after)
+        self.assertSamePlacements(self.placements(rod), frames)
+        self.assertFalse(sim.ResultsStale)
+
+    def test_what_is_kept(self):
+        """Motion keeps the frames and the events, not the values; None
+        keeps nothing, and a study opened again has no results"""
+        rod = self.pendulum()
+        motion = self.simulate(KeepResults="Motion")
+        before = self.assembly.getSimulationResults()
+        frames = self.placements(rod)
+        with zipfile.ZipFile(motion.Results) as archive:
+            self.assertNotIn("values.npy", archive.namelist())
+        nothing = self.simulate(end=0.02, KeepResults="None")
+        self.assertEqual(nothing.Results, "")
+
+        names = motion.Name, nothing.Name
+        self.reopen()
+        motion, nothing = (self.doc.getObject(n) for n in names)
+        rod = self.doc.getObject("Rod")
+        self.assertFalse(self.assembly.loadSimulationResults(nothing))
+        self.assertTrue(self.assembly.loadSimulationResults(motion))
+        self.assertSameResults(before, self.assembly.getSimulationResults(), values=False)
+        self.assertSamePlacements(self.placements(rod), frames)
+
+    def test_each_study_keeps_its_own(self):
+        """Two studies run one after the other each keep their run: the
+        first's read back after the second's, and the second's again"""
+        self.pendulum()
+        first = self.simulate(end=0.05)
+        second = self.simulate(end=0.02, step=1e-2)
+        self.assertEqual(self.assembly.numberOfFrames(), 3)
+        self.assertTrue(self.assembly.loadSimulationResults(first))
+        self.assertEqual(self.assembly.numberOfFrames(), 51)
+        self.assertEqual(self.assembly.getSimulationResults()["Simulation"], first)
+        self.assertTrue(self.assembly.loadSimulationResults(second))
+        self.assertEqual(self.assembly.numberOfFrames(), 3)
+        self.assertEqual(self.assembly.getSimulationResults()["Simulation"], second)
+
+    def test_stale_after_opening(self):
+        """Opened again, a study's results are stale once the study or a
+        joint changes, fresh once changed back, whether read back or not; a
+        stale flag is saved with them, and stale results still play"""
+        self.pendulum()
+        sim = self.simulate()
+        name = sim.Name
+        self.reopen()
+        sim = self.doc.getObject(name)
+        joint = next(o for o in self.joints.Group if o.isDerivedFrom("Assembly::Joint"))
+
+        def stale():
+            self.doc.recompute()
+            self.assertEqual(sim.ResultsStale, self.assembly.isSimulationStale(sim))
+            return sim.ResultsStale
+
+        # Not read back yet: the study's own change counts
+        sim.TimeEnd = 0.04
+        self.assertTrue(stale())
+        sim.TimeEnd = 0.05
+        self.assertFalse(stale())
+        self.assertTrue(self.assembly.loadSimulationResults(sim))
+        self.assembly.updateForFrame(10)
+        self.assertFalse(stale())
+        joint.Placement2 = plc(0, 5, 4, App.Vector(1, 0, 0), -90)
+        self.assertTrue(stale())
+        joint.Placement2 = plc(0, 5, 5, App.Vector(1, 0, 0), -90)
+        self.assertFalse(stale())
+
+        # Saved stale, opened stale, and played
+        sim.TimeEnd = 0.04
+        self.assertTrue(stale())
+        self.reopen()
+        sim = self.doc.getObject(name)
+        self.assertTrue(sim.ResultsStale)
+        self.assertTrue(self.assembly.loadSimulationResults(sim))
+        self.assertEqual(self.assembly.numberOfFrames(), 51)
+
+    def gltfNodes(self, gltf):
+        return {n["extras"]["name"]: i for i, n in enumerate(gltf["nodes"]) if "extras" in n}
+
+    def test_gltf(self):
+        """The frames as an animated glTF: the rod's node at each frame where
+        playback puts it, in metres (float32), its time from the run's
+        start; the grounded base still; each a mesh of its shape in its own
+        coordinates, under a root turning Z up to Y up. The same from the
+        .glb and from the .gltf and its .bin"""
+        import numpy
+        import SimulationGltf
+
+        rod = self.pendulum()
+        sim = self.simulate()
+        frames = self.placements(rod)
+        times = self.assembly.getSimulationResults()["Times"]
+        glb = os.path.join(self.folder, "run.glb")
+        done = SimulationGltf.exportGltf(self.assembly, glb)
+        self.assertEqual(done["Frames"], 51)
+        self.assertEqual(done["Animated"], 1)
+        self.assertEqual(done["Meshes"], 2)
+        self.assertEqual(done["Bytes"], os.path.getsize(glb))
+        gltf, blob = readGltf(glb)
+        self.assertEqual(gltf["asset"]["version"], "2.0")
+        self.assertEqual(gltf["asset"]["extras"]["study"], sim.Label)
+        self.assertFalse(gltf["asset"]["extras"]["stale"])
+        root = gltf["nodes"][gltf["scenes"][0]["nodes"][0]]
+        self.assertAlmostEqual(root["rotation"][0], -(0.5**0.5))
+        nodes = self.gltfNodes(gltf)
+        self.assertIn("Base", nodes)
+        self.assertIn(nodes["Rod"], gltf["nodes"][nodes["Assembly"]]["children"])
+
+        # The rod's motion, frame by frame
+        (animation,) = gltf["animations"]
+        paths = {}
+        for channel in animation["channels"]:
+            self.assertEqual(channel["target"]["node"], nodes["Rod"])
+            sampler = animation["samplers"][channel["sampler"]]
+            self.assertEqual(sampler["interpolation"], "LINEAR")
+            paths[channel["target"]["path"]] = sampler
+        self.assertEqual(set(paths), {"translation", "rotation"})
+        t = accessorData(gltf, blob, paths["rotation"]["input"])
+        numpy.testing.assert_allclose(t, numpy.array(times) - times[0], atol=1e-7)
+        self.assertEqual(gltf["accessors"][paths["rotation"]["input"]]["max"], [float(t[-1])])
+        translations = accessorData(gltf, blob, paths["translation"]["output"])
+        rotations = accessorData(gltf, blob, paths["rotation"]["output"])
+        for k, placement in enumerate(frames):
+            base = placement.Base
+            numpy.testing.assert_allclose(
+                translations[k], [base.x * 1e-3, base.y * 1e-3, base.z * 1e-3], atol=1e-8
+            )
+            q = numpy.array(placement.Rotation.Q)
+            self.assertLess(min(abs(rotations[k] - q).max(), abs(rotations[k] + q).max()), 1e-6)
+            if k:
+                self.assertGreaterEqual(float(numpy.dot(rotations[k], rotations[k - 1])), 0.0)
+        # The rod swung, about 10 deg: its last frame is not its first
+        self.assertGreater(abs(rotations[-1] - rotations[0]).max(), 0.05)
+
+        # The meshes: the rod's box in its own coordinates, triangles that
+        # index its vertices, a normal each
+        mesh = gltf["meshes"][gltf["nodes"][nodes["Rod"]]["mesh"]]
+        low, high = numpy.full(3, numpy.inf), numpy.full(3, -numpy.inf)
+        for primitive in mesh["primitives"]:
+            positions = accessorData(gltf, blob, primitive["attributes"]["POSITION"])
+            normals = accessorData(gltf, blob, primitive["attributes"]["NORMAL"])
+            indices = accessorData(gltf, blob, primitive["indices"])
+            self.assertEqual(len(normals), len(positions))
+            numpy.testing.assert_allclose(numpy.linalg.norm(normals, axis=1), 1.0, atol=1e-6)
+            self.assertEqual(len(indices) % 3, 0)
+            self.assertLess(int(indices.max()), len(positions))
+            accessor = gltf["accessors"][primitive["attributes"]["POSITION"]]
+            numpy.testing.assert_allclose(accessor["min"], positions.min(axis=0))
+            low = numpy.minimum(low, positions.min(axis=0))
+            high = numpy.maximum(high, positions.max(axis=0))
+        numpy.testing.assert_allclose(low, [0, 0, 0], atol=1e-7)
+        numpy.testing.assert_allclose(high, [0.1, 0.01, 0.01], atol=1e-7)
+        self.assertNotIn("animations", [k for k in gltf["nodes"][nodes["Base"]]])
+
+        # The .gltf and its .bin hold the same
+        path = os.path.join(self.folder, "run.gltf")
+        SimulationGltf.exportGltf(self.assembly, path)
+        other, other_blob = readGltf(path)
+        self.assertEqual(other["buffers"][0]["uri"], "run.bin")
+        self.assertEqual(other_blob, blob)
+        del other["buffers"][0]["uri"]
+        self.assertEqual(other, gltf)
+
+    def test_gltf_from_the_file(self):
+        """Results read back from the document export as the run did, byte
+        for byte; stale ones say so; a part hidden is left out"""
+        import SimulationGltf
+
+        self.pendulum()
+        sim = self.simulate()
+        first = os.path.join(self.folder, "first.glb")
+        SimulationGltf.exportGltf(self.assembly, first)
+        name = sim.Name
+        self.reopen()
+        sim = self.doc.getObject(name)
+        self.assertRaises(ValueError, SimulationGltf.exportGltf, self.assembly, first + ".x")
+        self.assertTrue(self.assembly.loadSimulationResults(sim))
+        again = os.path.join(self.folder, "again.glb")
+        SimulationGltf.exportGltf(self.assembly, again)
+        with open(first, "rb") as a, open(again, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+
+        sim.TimeEnd = 0.04
+        self.doc.recompute()
+        self.assertTrue(sim.ResultsStale)
+        self.doc.getObject("Base").Visibility = False
+        SimulationGltf.exportGltf(self.assembly, again)
+        gltf, _ = readGltf(again)
+        self.assertTrue(gltf["asset"]["extras"]["stale"])
+        self.assertNotIn("Base", self.gltfNodes(gltf))
+        self.assertIn("Rod", self.gltfNodes(gltf))
+
+    def test_update_for_time(self):
+        """The parts at a time between two frames (docs/AssemblyDynamics.md
+        sec 8.6): each one's position on the line between the frames', its
+        turn the way between them; at a frame's time, the frame's; before the
+        run, its first; after, its last"""
+        rod = self.pendulum()
+        self.simulate()
+        times = self.assembly.getSimulationResults()["Times"]
+        frames = self.placements(rod)
+        a, b = frames[20], frames[21]
+        for u in (0.25, 0.5):
+            self.assembly.updateForTime(times[20] + u * (times[21] - times[20]))
+            between = rod.Placement
+            self.assertTrue(
+                (between.Base - (a.Base + (b.Base - a.Base) * u)).Length < 1e-9, between
+            )
+            turn = App.Rotation.slerp(a.Rotation, b.Rotation, u)
+            self.assertTrue(between.Rotation.isSame(turn, 1e-12), between)
+            # Truly between: the rod swings
+            self.assertGreater((between.Base - a.Base).Length, 1e-6)
+        for k in (0, 7, len(times) - 1):
+            self.assembly.updateForTime(times[k])
+            self.assertTrue(rod.Placement.isSame(frames[k], 1e-12))
+        self.assembly.updateForTime(times[0] - 1.0)
+        self.assertTrue(rod.Placement.isSame(frames[0], 1e-12))
+        self.assembly.updateForTime(times[-1] + 1.0)
+        self.assertTrue(rod.Placement.isSame(frames[-1], 1e-12))
+
+    def clustered(self):
+        """Times an output step of 2.5 ms apart from 0 to 0.25 s, and 20
+        between at 0.1 s, 3 us apart -- an impact's"""
+        step = 2.5e-3
+        times = [k * step for k in range(101)]
+        times += [0.1 + 3e-6 * (k + 1) for k in range(20)]
+        return sorted(times), step
+
+    def test_playback_speeds(self):
+        """How the frames play (SimulationPlayback): Normal, an output step
+        a video frame, the output times; 1/4, four video frames each; Auto,
+        Normal away from the impact, and slowed through it so that each of
+        its frames is shown, the speed eased into and out of, no more than
+        EASE from one video frame to the next. The plots' window: the whole
+        run at Normal, a fraction of a millisecond about the impact"""
+        import SimulationPlayback as P
+
+        times, step = self.clustered()
+        normal = P.Playback(times, step, 30, "Normal").frames()
+        self.assertEqual(len(normal), 101)
+        for k, (t, rate) in enumerate(normal):
+            self.assertAlmostEqual(t, k * step, delta=1e-12)
+            self.assertAlmostEqual(rate, step * 30)
+        self.assertEqual(len(P.Playback(times, step, 30, "1/4").frames()), 401)
+
+        auto = P.Playback(times, step, 30, "Auto")
+        frames = auto.frames()
+        self.assertAlmostEqual(frames[0][0], 0.0)
+        self.assertAlmostEqual(frames[-1][0], 0.25)
+        self.assertTrue(all(b[0] > a[0] for a, b in zip(frames, frames[1:])))
+        for a, b in zip(frames, frames[1:]):
+            self.assertLessEqual(b[1] / a[1], P.EASE * (1 + 1e-9))
+            self.assertGreaterEqual(b[1] / a[1], 1 / P.EASE * (1 - 1e-9))
+        self.assertAlmostEqual(auto.rate(0.02), step * 30)
+        self.assertAlmostEqual(auto.rate(0.2), step * 30)
+        # Through the impact, each of its frames
+        inside = [t for t, _ in frames if 0.1 <= t <= 0.1 + 60e-6]
+        self.assertGreaterEqual(len(inside), 15)
+        self.assertLess(auto.rate(0.10003), 3e-6 * 30 * 1.01)
+        # And not much more than the run at Normal and the impact's frames
+        # with the easing either side
+        self.assertLess(len(frames), 101 + 20 + 60)
+        # The plots by the video's time: the run at Normal's scale, the
+        # impact stretched as much as it plays slower; as much of the video
+        # as the run takes at Normal, all of it there
+        width = auto.normalDuration()
+        self.assertAlmostEqual(width, 0.25 / (step * 30))
+        self.assertAlmostEqual(auto.videoTime(0.02) - auto.videoTime(0.01), 0.01 / (step * 30))
+        self.assertGreater(auto.videoTime(0.10006) - auto.videoTime(0.1), 0.4)
+        for t in (0.0, 0.05, 0.1, 0.10003, 0.2, 0.25):
+            self.assertAlmostEqual(auto.runTime(auto.videoTime(t)), t, delta=1e-12)
+        self.assertEqual(auto.window(0.02), (0.0, width))
+        low, high = auto.window(0.10003)
+        self.assertAlmostEqual(high - low, width)
+        self.assertTrue(low <= auto.videoTime(0.10003) <= high)
+        self.assertLess(auto.runTime(high) - auto.runTime(low), 0.25)
+        # Zoomed in about it, half as wide; out, no wider than the video
+        low, high = auto.window(0.10003, 2.0)
+        self.assertAlmostEqual(high - low, width / 2)
+        self.assertEqual(auto.window(0.10003, 1e-3), (0.0, auto.duration()))
+        # Where it slows: eased into before the impact, back after it
+        ((t0, t1, slowest),) = auto.slowSpans()
+        self.assertTrue(t0 < 0.1 and 0.10006 < t1 < 0.12, (t0, t1))
+        self.assertAlmostEqual(slowest, auto.rate(0.10003))
+        normal = P.Playback(times, step, 30, "Normal")
+        self.assertEqual(normal.slowSpans(), [])
+        self.assertEqual(normal.window(0.1), (0.0, normal.duration()))
+        self.assertEqual(P.niceStep(3e-3), 5e-3)
+        self.assertEqual(P.niceStep(1e-3), 1e-3)
+        self.assertEqual(P.niceStep(0.011), 0.02)
+
+    def test_playback_by_the_forces(self):
+        """Auto slows by how far the contact forces swing: a landing at 500
+        N as far as each of its frames shown, a rattle at 25 N between, its
+        frames as close, hardly -- a lever's rattle on its posts slowed as
+        much as a block's landing, the speed never back at Normal between
+        the rattles, and the block was seen flying in slow motion"""
+        import SimulationPlayback as P
+
+        step = 2.5e-3
+        times = [k * step for k in range(101)]
+        landing = [0.1 + 3e-6 * (k + 1) for k in range(20)]
+        rattle = [0.2 + 3e-6 * (k + 1) for k in range(20)]
+        times = sorted(times + landing + rattle)
+        forces = []
+        for t in times:
+            if t in landing:
+                forces.append(500.0 * (1.0 - abs(t - 0.10003) / 3.3e-5))
+            elif t in rattle:
+                forces.append(25.0 * (1.0 - abs(t - 0.20003) / 3.3e-5))
+            else:
+                forces.append(0.0)
+        auto = P.Playback(times, step, 30, "Auto", forces)
+        normal = step * 30
+        self.assertLess(auto.rate(0.10003), normal / 500)
+        # A twentieth of the swing: a twentieth of the way down, in the log
+        dense = 3e-6 * 30
+        self.assertAlmostEqual(
+            auto.rate(0.20003), normal * (dense / normal) ** 0.05, delta=1e-3 * normal
+        )
+        self.assertGreater(auto.rate(0.20003), normal * 0.7)
+        # Its slowed span the landing's alone
+        ((t0, t1, _),) = auto.slowSpans()
+        self.assertTrue(t0 < 0.1 < 0.10006 < t1 < 0.2, (t0, t1))
+        # Slow motion 4 (the study's SlowMotion): each of the landing's
+        # frames four video frames, the rattle a twentieth of that in the log
+        slower = P.Playback(times, step, 30, "Auto", forces, slow=4.0)
+        self.assertAlmostEqual(
+            slower.rate(0.10003), auto.rate(0.10003) / 4.0, delta=1e-6 * auto.rate(0.10003)
+        )
+        self.assertAlmostEqual(
+            slower.rate(0.20003), auto.rate(0.20003) / 4.0**0.05, delta=1e-6 * normal
+        )
+        self.assertGreater(len(slower.frames()), len(auto.frames()) + 50)
+        # Without forces, each as slow as its frames come close
+        self.assertEqual(len(P.Playback(times, step, 30, "Auto").slowSpans()), 2)
+        self.assertIsNone(P.contactForces({"Times": [0.0], "Channels": []}))
+        total = P.contactForces(
+            {
+                "Times": [0.0, 1.0],
+                "Channels": [
+                    {"Quantity": "ContactForce", "Values": [App.Vector(3000, 4000, 0)] * 2},
+                    {"Quantity": "ContactForce", "Values": [App.Vector(), App.Vector(0, 0, 1000)]},
+                    {"Quantity": "Force", "Values": [App.Vector(9e9, 0, 0)] * 2},
+                ],
+            }
+        )
+        self.assertEqual(total, [5.0, 6.0])
+
+    def test_peak_safe(self):
+        """A curve drawn by its pixels' columns (SimulationPlayback.
+        peakSafe()): a spike one value wide among ten thousand is drawn to
+        its height across 50 columns, by no more than four points each and
+        the ones either side; a None ends a line"""
+        import SimulationPlayback as P
+
+        times = [k * 1e-4 for k in range(10001)]
+        values = [0.0] * 10001
+        values[5000] = 100.0
+        (run,) = P.peakSafe(times, values, 0.0, 1.0, 50)
+        self.assertEqual(max(v for _, v in run), 100.0)
+        self.assertLessEqual(len(run), 4 * 51 + 2)
+        self.assertTrue(all(b[0] >= a[0] for a, b in zip(run, run[1:])))
+        # Zoomed about it, the lines to the window's edges
+        (run,) = P.peakSafe(times, values, 0.49995, 0.50005, 50)
+        self.assertEqual([v for _, v in run], [0.0, 100.0, 0.0])
+        values[3000] = None
+        runs = P.peakSafe(times, values, 0.0, 1.0, 50)
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(max(v for _, v in runs[1]), 100.0)
+        # Passed over where it is not a gap: a frame through an impact not
+        # solved, and the line to the values either side of a window of them
+        (run,) = P.peakSafe(times, values, 0.0, 1.0, 50, bridge={3000})
+        values = [None] * 10001
+        values[4000] = 1.0
+        values[5000] = 3.0
+        values[6000] = 2.0
+        bridge = set(range(4001, 6000)) - {5000}
+        (run,) = P.peakSafe(times, values, 0.45, 0.46, 50, bridge)
+        self.assertEqual([v for _, v in run], [1.0, 3.0])
+        # The values the lines show in a window (shownRange()): a bounce of
+        # 1.5 after a landing of 528, zoomed in on the bounce, by the bounce
+        times = [k * 1e-3 for k in range(101)]
+        values = [0.0] * 101
+        values[20] = 528.0
+        values[60] = 1.5
+        runs = P.peakSafe(times, values, 0.0, 0.1, 50)
+        self.assertEqual(P.shownRange(runs, 0.0, 0.1), (0.0, 528.0))
+        runs = P.peakSafe(times, values, 0.05, 0.07, 50)
+        self.assertEqual(P.shownRange(runs, 0.05, 0.07), (0.0, 1.5))
+        # A line crossing an edge, by where it crosses it: the landing's
+        # fall from 528 at 20 ms to 0 at 21 ms, the window from 20.5 ms
+        runs = P.peakSafe(times, values, 0.0205, 0.03, 50)
+        low, high = P.shownRange(runs, 0.0205, 0.03)
+        self.assertEqual(low, 0.0)
+        self.assertAlmostEqual(high, 264.0, delta=1e-9)
+        # Nothing shown, inside a gap
+        values[40:50] = [None] * 10
+        runs = P.peakSafe(times, values, 0.042, 0.045, 50)
+        self.assertIsNone(P.shownRange(runs, 0.042, 0.045))
+
+        # The impacts' peaks, between the output frames only
+        times, step = self.clustered()
+        forces = [0.0] * len(times)
+        forces[42] = 5.0
+        forces[45] = 9.0
+        forces[46] = 9.0
+        forces[61] = 1.0  # an output frame's, 0.1025 s
+        self.assertEqual(P.impactPeaks(times, step, forces), [42, 45])

@@ -74,6 +74,8 @@ public:
     ~GeoFeatureGroupExtension() override;
 
     void extensionOnChanged(const Property* p) override;
+    App::DocumentObjectExecReturn *extensionExecute() override;
+    void onExtendedDocumentRestored() override;
 
     /** Returns the geo feature group which contains this object.
      * In case this object is not part of any geoFeatureGroup 0 is returned.
@@ -122,7 +124,23 @@ public:
     std::vector< DocumentObject* > removeObjects(std::vector< DocumentObject* > obj) override;
 
     virtual bool canRemoveChild(App::DocumentObject *) const {return true;}
-    
+
+    /** Whether objects are being moved from one group to another right now
+     *
+     * A group adding an object takes it out of its old group, and says so
+     * with a MovingObjectGuard, so that a container deleting what it owns
+     * when it is removed (App::Part's owned links) tells a move from a
+     * removal.
+     */
+    static bool isMovingObject();
+    class AppExport MovingObjectGuard {
+    public:
+        MovingObjectGuard();
+        ~MovingObjectGuard();
+        MovingObjectGuard(const MovingObjectGuard &) = delete;
+        MovingObjectGuard &operator=(const MovingObjectGuard &) = delete;
+    };
+
     /// Collects all links that are relevant for the coordinate system, meaning all recursive links to 
     /// obj and from obj excluding expressions and stopping the recursion at other geofeaturegroups. 
     /// The result is the combination of CSOutList and CSInList.
@@ -142,6 +160,11 @@ protected:
         return _ExportChildren;
     }
 
+    /** Build _ExportChildren from the children, when no view provider is
+     * attached to do it: the children no other child takes in through a
+     * link that is not Global (one that only refers), as the view provider
+     * does from the children it claims
+     */
     void buildExport(const std::vector<App::DocumentObject*> &);
 
 private:

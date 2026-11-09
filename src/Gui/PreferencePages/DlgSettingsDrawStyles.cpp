@@ -24,6 +24,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <App/MaterialAppearance.h>
+#include <App/PropertyFile.h>
 #include <Gui/Document.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/Application.h>

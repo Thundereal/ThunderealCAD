@@ -60,6 +60,7 @@ TranslatedJointTypes = [
     translate("Assembly", "Screw"),
     translate("Assembly", "Gears"),
     translate("Assembly", "Belt"),
+    translate("Assembly", "Cam"),  # not upstream: JointCam.py
 ]
 
 JointTypes = [
@@ -76,7 +77,202 @@ JointTypes = [
     "Screw",
     "Gears",
     "Belt",
+    "Cam",  # not upstream: JointCam.py
 ]
+
+# ---------------------------------------------------------------------------
+# The two kinds of joint (docs/AssemblyObjectModel.md sec 7.1)
+#
+# A joint made in an assembly is the C++ one (Assembly::JointPython): its
+# sides are element bindings, children of the assembly, instead of Reference1/2,
+# Offset1/2 and Detach1/2. These helpers answer for a side of either kind, so
+# that the proxy, the view provider and the task below need not ask which.
+
+
+# Not upstream: the types a joint can be multiplied over a link array, those
+# of Assembly3's constraints that multiply (docs/AssemblyObjectModel.md sec 7.4)
+JointMultipliable = ("Fixed", "Revolute", "Cylindrical", "Slider")
+
+
+def isTyped(joint):
+    """Whether the joint is the C++ one, its sides element bindings"""
+    return joint is not None and joint.isDerivedFrom("Assembly::Joint")
+
+
+def sideBinding(joint, i):
+    """The element binding of side i (1 or 2) of a C++ joint, or None"""
+    return joint.Binding1 if i == 1 else joint.Binding2
+
+
+def _plainSub(sub):
+    """A subname with its element by plain name: mapped names depend on the
+    shape they were taken from"""
+    import Part
+
+    path, _mapped, element = Part.splitSubname(sub or "")
+    return path + element
+
+
+def sideRef(joint, i):
+    """The reference of side i as the Python joint holds it,
+    [component, [element, vertex]], or None while it is not set.
+
+    For a C++ joint it is rebuilt from the element binding: the path from the
+    component to the element's geometry, and the element's Vertex (the
+    element again when there is none, as upstream repeats it).
+    """
+    if not isTyped(joint):
+        return joint.Reference1 if i == 1 else joint.Reference2
+    link = sideBinding(joint, i)
+    comp = joint.getComponent(i)
+    if link is None or comp is None or link.Element is None:
+        return None
+    obj, subs = link.Element
+    element = obj.getSubObject(subs[0], retType=1) if subs and subs[0] else None
+    if element is None or not element.isDerivedFrom("Part::Element") or element.Target is None:
+        return None
+    target, tsubs = element.Target
+    tsub = tsubs[0] if tsubs else ""
+    # Declared in the component (whose child the target is), or a
+    # convenience element on the component itself
+    esub = target.Name + "." + tsub if obj == comp else tsub
+    vsub = esub
+    if element.Vertex is not None and element.Vertex[0] is not None and element.Vertex[1]:
+        vobj, vsubs = element.Vertex
+        vsub = vobj.Name + "." + vsubs[0] if obj == comp else vsubs[0]
+        if UtilsAssembly.isFaceEdgePick(esub, vsub):
+            # A face's circle: the reference numbers it among the face's
+            # edges, as the pick does (findElementClosestVertex)
+            local = UtilsAssembly.objectEdgeToFaceEdge(
+                UtilsAssembly.getObject([comp, [esub]]),
+                UtilsAssembly.getElementName(esub),
+                UtilsAssembly.getElementName(vsub),
+            )
+            if local:
+                vsub = UtilsAssembly.swapElNameInSubname(vsub, local)
+    return [comp, [esub, vsub]]
+
+
+def sideMovingPart(joint, i):
+    """The part side i moves"""
+    if isTyped(joint):
+        return joint.getComponent(i)
+    return UtilsAssembly.getMovingPart(sideRef(joint, i))
+
+
+def sideJcsGlobal(joint, i):
+    """The joint coordinate system of side i in the document's"""
+    if isTyped(joint):
+        if sideBinding(joint, i) is None:
+            return App.Placement()
+        assembly = None
+        for obj in joint.InList:
+            if obj.isDerivedFrom("Assembly::AssemblyObject"):
+                assembly = obj
+                break
+        plc = assembly.getGlobalPlacement() if assembly is not None else App.Placement()
+        return plc * joint.getFrame(i)
+    plc = joint.Placement1 if i == 1 else joint.Placement2
+    return UtilsAssembly.getJcsGlobalPlc(plc, sideRef(joint, i))
+
+
+def jointOffset(joint, i):
+    """Upstream's OffsetN: the user's offset of side i.
+
+    A C++ joint's element binding holds it. The picked vertex's share is the
+    element's (Part::Element::Vertex), in the element's Offset.
+    """
+    if not isTyped(joint):
+        return joint.Offset1 if i == 1 else joint.Offset2
+    link = sideBinding(joint, i)
+    if link is None:
+        return App.Placement()
+    return link.Offset
+
+
+def setJointOffset(joint, i, plc):
+    """Set the user's offset of side i (jointOffset())"""
+    if not isTyped(joint):
+        setattr(joint, "Offset1" if i == 1 else "Offset2", plc)
+        return
+    link = sideBinding(joint, i)
+    if link is not None:
+        link.Offset = plc
+
+
+def recomputeSides(joint):
+    """Recompute a C++ joint and what makes its sides, its elements and element
+    links: not the components, which the task may be setting up"""
+    for i in (1, 2):
+        link = sideBinding(joint, i)
+        if link is None:
+            continue
+        if link.Element is not None:
+            obj, subs = link.Element
+            element = obj.getSubObject(subs[0], retType=1) if subs and subs[0] else None
+            if element is not None and element.isDerivedFrom("Part::Element"):
+                element.recompute()
+        link.recompute()
+    joint.recompute()
+
+
+def updateOffset(joint):
+    """Not upstream: Assembly3's AttachmentOffset 'Update element offset'. The
+    second side's offset taken so that its frame is the first side's where
+    the parts are now: a Fixed joint keeps them there"""
+    link = sideBinding(joint, 2)
+    if link is None or sideBinding(joint, 1) is None:
+        return False
+    link.Offset = link.Offset.multiply(joint.getFrame(2).inverse()).multiply(joint.getFrame(1))
+    recomputeSides(joint)
+    proxy = getattr(joint, "Proxy", None)
+    if hasattr(proxy, "onOffsetChanged"):
+        proxy.onOffsetChanged(joint)
+    return True
+
+
+def syncSides(joint, refs):
+    """Make the sides of a C++ joint those the references name, keeping a
+    side that already names its reference (and so its element binding and
+    offset)"""
+    ignoreVertex = joint.JointType in ("Distance", "Cam")
+    for i in (1, 2):
+        ref = refs[i - 1] if len(refs) >= i else None
+        if ref is None:
+            if sideBinding(joint, i) is not None:
+                joint.clearSide(i)
+            continue
+        comp, subs = ref[0], list(ref[1])
+        sub = subs[0] if subs else ""
+        vertex = subs[1] if len(subs) > 1 else ""
+        if ignoreVertex or _plainSub(vertex) == _plainSub(sub):
+            vertex = ""
+        current = sideRef(joint, i)
+        # The element takes the object's name of a face's circle: the
+        # reference has the face's own numbering of it
+        objectVertex = vertex
+        if vertex and UtilsAssembly.isFaceEdgePick(sub, vertex):
+            edge = UtilsAssembly.faceEdgeToObjectEdge(
+                UtilsAssembly.getObject([comp, [sub]]),
+                UtilsAssembly.getElementName(sub),
+                UtilsAssembly.getElementName(vertex),
+            )
+            objectVertex = UtilsAssembly.swapElNameInSubname(vertex, edge) if edge else ""
+        if current is not None and current[0] == comp:
+            csub, cvertex = current[1][0], current[1][1]
+            if cvertex == csub:
+                cvertex = ""
+            if _plainSub(csub) == _plainSub(sub) and _plainSub(cvertex) == _plainSub(vertex):
+                continue
+        try:
+            joint.setSide(i, comp, sub, objectVertex)
+        except Exception as e:
+            App.Console.PrintWarning(
+                f"{translate('Assembly', 'Assembly joint')} '{joint.Label}': {e}\n"
+            )
+            joint.clearSide(i)
+
+
 
 JointUsingAngle = [
     "Angle",
@@ -175,6 +371,11 @@ class Joint:
     def __init__(self, joint, type_index):
         joint.Proxy = self
 
+        if isTyped(joint):
+            # The C++ joint has its properties
+            joint.JointType = JointTypes[type_index]
+            return
+
         joint.addExtension("App::SuppressibleExtensionPython")
 
         joint.addProperty(
@@ -192,6 +393,8 @@ class Joint:
         self.setJointConnectors(joint, [])
 
     def onDocumentRestored(self, joint):
+        if isTyped(joint):
+            return
         self.createProperties(joint)
 
     def createProperties(self, joint):
@@ -610,9 +813,13 @@ class Joint:
         if not joint.hasExtension("App::SuppressibleExtensionPython"):
             joint.addExtension("App::SuppressibleExtensionPython")
 
-        if App.GuiUp:
-            if not joint.ViewObject.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
-                joint.ViewObject.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
+        # Not upstream: this fork builds view providers after the document is
+        # restored, so ViewObject is None here and ViewProviderJoint.attach()
+        # adds the extension instead. Raising here skipped every later script.
+        vobj = joint.ViewObject if App.GuiUp else None
+        if vobj is not None:
+            if not vobj.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
+                vobj.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
 
         if hasattr(joint, "Activated"):
             activated = joint.Activated
@@ -760,6 +967,10 @@ class Joint:
     def setJointType(self, joint, newType):
         oldType = joint.JointType
         if newType != oldType:
+            # Not upstream: a joint from an older file lists the types of its time.
+            if newType not in joint.getEnumerationsOfProperty("JointType"):
+                joint.JointType = JointTypes
+                joint.JointType = oldType
             joint.JointType = newType
 
     def onChanged(self, joint, prop):
@@ -768,6 +979,11 @@ class Joint:
 
         # during loading the onchanged may be triggered before full init.
         if App.isRestoring():
+            return
+
+        # Removing the joint clears its links, and its view provider is gone
+        # by then: there is nothing to recompute or redraw
+        if joint.Removing or not joint.isAttachedToDocument():
             return
 
         if prop == "JointType":
@@ -783,6 +999,17 @@ class Joint:
                     joint.Label = joint.Label.replace(tr_old_type, tr_new_type)
                     break
 
+        if isTyped(joint):
+            # Its sides' offsets are on its element bindings, which the task
+            # changes through setJointOffset() and onOffsetChanged()
+            if prop == "Distance" and joint.JointType == "Distance":
+                solveIfAllowed(self.getAssembly(joint))
+            if prop == "Angle" and joint.JointType == "Angle":
+                if joint.Angle != 0.0:
+                    self.preventParallel(joint)
+                solveIfAllowed(self.getAssembly(joint))
+            return
+
         if prop == "Reference1" or prop == "Reference2":
             joint.recompute()
 
@@ -795,15 +1022,7 @@ class Joint:
             return
 
         if prop == "Offset1" or prop == "Offset2":
-            self.updateJCSPlacements(joint)
-
-            presolved = joint.JointType in JointUsingPreSolve and self.preSolve(joint, False)
-
-            isAssembly = self.getAssembly(joint).Type == "Assembly"
-            if isAssembly and not presolved:
-                solveIfAllowed(self.getAssembly(joint))
-            else:
-                self.updateJCSPlacements(joint)
+            self.onOffsetChanged(joint)
 
         if prop == "Distance" and joint.JointType == "Distance":
             solveIfAllowed(self.getAssembly(joint))
@@ -813,7 +1032,23 @@ class Joint:
                 self.preventParallel(joint)
             solveIfAllowed(self.getAssembly(joint))
 
+    def onOffsetChanged(self, joint):
+        """An offset of a side changed: redraw, pre-solve and solve"""
+        self.updateJCSPlacements(joint)
+
+        presolved = joint.JointType in JointUsingPreSolve and self.preSolve(joint, False)
+
+        assembly = self.getAssembly(joint)
+        isAssembly = assembly is not None and assembly.Type == "Assembly"
+        if isAssembly and not presolved:
+            solveIfAllowed(assembly)
+        else:
+            self.updateJCSPlacements(joint)
+
     def execute(self, joint):
+        if isTyped(joint):
+            # Not handled: the C++ joint's execute() keeps Placement1/2
+            return False
         errStr = joint.Label + ": " + QT_TRANSLATE_NOOP("Assembly", "Broken link in: ")
         if (
             hasattr(joint, "Reference1")
@@ -838,7 +1073,28 @@ class Joint:
     def setJointConnectors(self, joint, refs):
         # current selection is a vector of strings like "Assembly.Assembly1.Assembly2.Body.Pad.Edge16" including both what selection return as obj_name and obj_sub
         assembly = self.getAssembly(joint)
-        isAssembly = assembly.Type == "Assembly"
+        isAssembly = assembly is not None and assembly.Type == "Assembly"
+
+        if isTyped(joint):
+            syncSides(joint, refs)
+            recomputeSides(joint)
+            if joint.Binding1 is None:
+                self.partMovedByPresolved = None
+            if joint.Binding1 is not None and joint.Binding2 is not None:
+                self.ensureUnconnectedIsSecondRef(joint)
+                if joint.JointType in JointUsingPreSolve:
+                    self.preSolve(joint)
+                elif joint.JointType in JointParallelForbidden:
+                    self.preventParallel(joint)
+                if isAssembly:
+                    solveIfAllowed(assembly, True)
+                else:
+                    self.updateJCSPlacements(joint)
+            else:
+                if isAssembly:
+                    assembly.undoSolve()
+                self.undoPreSolve(joint)
+            return
 
         if len(refs) >= 1:
             joint.Reference1 = refs[0]
@@ -870,6 +1126,10 @@ class Joint:
             self.undoPreSolve(joint)
 
     def updateJCSPlacements(self, joint):
+        if isTyped(joint):
+            recomputeSides(joint)
+            self.redrawJointPlacements(joint)
+            return
         if not joint.Detach1:
             joint.Placement1 = self.findPlacement(joint, joint.Reference1, 0)
 
@@ -895,16 +1155,11 @@ class Joint:
     """
 
     def findPlacement(self, joint, ref, index=0):
-        ignoreVertex = joint.JointType == "Distance"
+        ignoreVertex = joint.JointType in ("Distance", "Cam")  # not upstream: Cam
         plc = UtilsAssembly.findPlacement(ref, ignoreVertex)
 
         # We apply the attachment offsets.
-        if index == 0:
-            plc = plc * joint.Offset1
-        else:
-            plc = plc * joint.Offset2
-
-        return plc
+        return plc * jointOffset(joint, index + 1)
 
     def flipOnePart(self, joint):
         self.matchJCS(joint, False, True)
@@ -922,13 +1177,13 @@ class Joint:
         if reverse:
             sameDir = not sameDir
 
-        part1 = UtilsAssembly.getMovingPart(joint.Reference1)
-        part2 = UtilsAssembly.getMovingPart(joint.Reference2)
+        part1 = sideMovingPart(joint, 1)
+        part2 = sideMovingPart(joint, 2)
 
         if not part1 or not part2:
             return False
 
-        isAssembly = assembly.Type == "Assembly"
+        isAssembly = assembly is not None and assembly.Type == "Assembly"
         if isAssembly:
             joint.Suppressed = True
             part1Connected = assembly.isPartConnected(part1)
@@ -939,23 +1194,14 @@ class Joint:
             part2Connected = False
 
         moving_part = None
-        moving_part_ref = None
-        fixed_part_ref = None
-        moving_placement = None
-        fixed_placement = None
+        moving_side = 0
 
         if not part1Connected and part1:
             moving_part = part1
-            moving_part_ref = joint.Reference1
-            fixed_part_ref = joint.Reference2
-            moving_placement = joint.Placement1
-            fixed_placement = joint.Placement2
+            moving_side = 1
         elif not part2Connected and part2:
             moving_part = part2
-            moving_part_ref = joint.Reference2
-            fixed_part_ref = joint.Reference1
-            moving_placement = joint.Placement2
-            fixed_placement = joint.Placement1
+            moving_side = 2
         else:
             # Both parts are constrained, or something is invalid. Nothing to pre-solve.
             return False
@@ -967,8 +1213,8 @@ class Joint:
         if savePlc:
             self.partsMovedByPresolved = {p: p.Placement for p in parts_to_move}
 
-        moving_part_global_jcs = UtilsAssembly.getJcsGlobalPlc(moving_placement, moving_part_ref)
-        fixed_part_global_jcs = UtilsAssembly.getJcsGlobalPlc(fixed_placement, fixed_part_ref)
+        moving_part_global_jcs = sideJcsGlobal(joint, moving_side)
+        fixed_part_global_jcs = sideJcsGlobal(joint, 3 - moving_side)
 
         if not sameDir:
             moving_part_global_jcs = UtilsAssembly.flipPlacement(moving_part_global_jcs)
@@ -998,10 +1244,10 @@ class Joint:
 
         assembly = self.getAssembly(joint)
 
-        part1 = UtilsAssembly.getMovingPart(joint.Reference1)
-        part2 = UtilsAssembly.getMovingPart(joint.Reference2)
+        part1 = sideMovingPart(joint, 1)
+        part2 = sideMovingPart(joint, 2)
 
-        isAssembly = assembly.Type == "Assembly"
+        isAssembly = assembly is not None and assembly.Type == "Assembly"
         if isAssembly:
             part1ConnectedByJoint = assembly.isJointConnectingPartToGround(joint, "Reference1")
             part2ConnectedByJoint = assembly.isJointConnectingPartToGround(joint, "Reference2")
@@ -1014,7 +1260,7 @@ class Joint:
             self.presolveBackupPlc = part2.Placement
 
             # Get the global JCS placement to find a suitable rotation axis (its own X-axis)
-            globalJcsPlc = UtilsAssembly.getJcsGlobalPlc(joint.Placement2, joint.Reference2)
+            globalJcsPlc = sideJcsGlobal(joint, 2)
             # Transform the local X-axis vector (1,0,0) into the global coordinate system
             rotation_axis = globalJcsPlc.Rotation.multVec(App.Vector(1, 0, 0))
 
@@ -1027,7 +1273,7 @@ class Joint:
             self.presolveBackupPlc = part1.Placement
 
             # Get the global JCS placement to find a suitable rotation axis (its own X-axis)
-            globalJcsPlc = UtilsAssembly.getJcsGlobalPlc(joint.Placement1, joint.Reference1)
+            globalJcsPlc = sideJcsGlobal(joint, 1)
             # Transform the local X-axis vector (1,0,0) into the global coordinate system
             rotation_axis = globalJcsPlc.Rotation.multVec(App.Vector(1, 0, 0))
 
@@ -1042,9 +1288,12 @@ class Joint:
         assembly = self.getAssembly(joint)
         if not assembly or assembly.Type != "Assembly":
             return
+        # Not upstream: a cam's references have roles (the cam, the follower).
+        if joint.JointType == "Cam":
+            return
 
-        part1 = UtilsAssembly.getMovingPart(joint.Reference1)
-        part2 = UtilsAssembly.getMovingPart(joint.Reference2)
+        part1 = sideMovingPart(joint, 1)
+        part2 = sideMovingPart(joint, 2)
 
         if not part1 or not part2:
             return
@@ -1057,7 +1306,15 @@ class Joint:
         joint.Suppressed = suppressed_backup
 
         # If only part1 is unconnected and part2 is connected, swap references and related properties
-        if not part1Connected and part2Connected:
+        if not part1Connected and part2Connected and isTyped(joint):
+            # The offsets are on the element bindings: they go with them
+            link1 = joint.Binding1
+            joint.Binding1 = joint.Binding2
+            joint.Binding2 = link1
+            recomputeSides(joint)
+            if activeTask and activeTask.joint == joint:
+                activeTask.updateTaskboxFromJoint()
+        elif not part1Connected and part2Connected:
             ref1 = joint.Reference1
             joint.Reference1 = joint.Reference2
             joint.Reference2 = ref1
@@ -1078,14 +1335,14 @@ class Joint:
                 activeTask.updateTaskboxFromJoint()
 
     def areJcsSameDir(self, joint):
-        globalJcsPlc1 = UtilsAssembly.getJcsGlobalPlc(joint.Placement1, joint.Reference1)
-        globalJcsPlc2 = UtilsAssembly.getJcsGlobalPlc(joint.Placement2, joint.Reference2)
+        globalJcsPlc1 = sideJcsGlobal(joint, 1)
+        globalJcsPlc2 = sideJcsGlobal(joint, 2)
 
         return UtilsAssembly.arePlacementSameDir(globalJcsPlc1, globalJcsPlc2)
 
     def areJcsZParallel(self, joint):
-        globalJcsPlc1 = UtilsAssembly.getJcsGlobalPlc(joint.Placement1, joint.Reference1)
-        globalJcsPlc2 = UtilsAssembly.getJcsGlobalPlc(joint.Placement2, joint.Reference2)
+        globalJcsPlc1 = sideJcsGlobal(joint, 1)
+        globalJcsPlc2 = sideJcsGlobal(joint, 2)
 
         return UtilsAssembly.arePlacementZParallel(globalJcsPlc1, globalJcsPlc2)
 
@@ -1102,6 +1359,21 @@ class ViewProviderJoint:
         """Setup the scene sub-graph of the view provider, this method is mandatory"""
         self.app_obj = vobj.Object
 
+        # A C++ joint's view provider draws the markers itself
+        # (AssemblyGui::ViewProviderJoint): none here, but the joint task's
+        # preview, made when it is first shown. One a file of before it
+        # states as the generic Python feature's draws them here.
+        self.cppMarkers = vobj.TypeId == "AssemblyGui::ViewProviderJointPython"
+        if self.cppMarkers:
+            if not vobj.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
+                vobj.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
+            return
+
+        # Not upstream: migrationScript5's half for a joint from before the
+        # Suppressed property (the view provider did not exist yet when it ran).
+        if not vobj.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
+            vobj.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
+
         self.switch_JCS1 = SoSwitchMarker(vobj)
         self.switch_JCS2 = SoSwitchMarker(vobj)
         self.switch_JCS_preview = SoSwitchMarker(vobj)
@@ -1114,6 +1386,16 @@ class ViewProviderJoint:
 
     def updateData(self, joint, prop):
         """If a property of the handled feature has changed we have the chance to handle this here"""
+        # The JCS switches are created in attach(); updateData() can fire on a
+        # property change before attach() has run (e.g. during document restore).
+        if not hasattr(self, "switch_JCS1"):
+            return
+
+        if isTyped(joint):
+            if prop in ("Placement1", "Placement2", "Binding1", "Binding2", "_Instances"):
+                self.redrawJointPlacements(joint)
+            return
+
         if prop == "Placement1" and hasattr(joint, "Reference1"):
             self.redrawJointPlacement(self.switch_JCS1, joint.Placement1, joint.Reference1)
 
@@ -1121,11 +1403,52 @@ class ViewProviderJoint:
             self.redrawJointPlacement(self.switch_JCS2, joint.Placement2, joint.Reference2)
 
     def redrawJointPlacements(self, joint):
+        if getattr(self, "cppMarkers", False):
+            joint.redrawMarkers()
+            return
+        # Called from AssemblyObject::solve(), which can run before attach() has
+        # created the JCS switches (e.g. right after a document restore).
+        if not hasattr(self, "switch_JCS1"):
+            return
+
+        if isTyped(joint):
+            # The frames are the assembly's, under which the markers are
+            for i, jcs in ((1, self.switch_JCS1), (2, self.switch_JCS2)):
+                if sideBinding(joint, i) is None:
+                    jcs.whichChild = coin.SO_SWITCH_NONE
+                else:
+                    jcs.whichChild = coin.SO_SWITCH_ALL
+                    jcs.set_marker_placement(joint.getFrame(i), None)
+            self.redrawInstanceMarkers(joint)
+            return
+
         if not hasattr(joint, "Reference1") or not hasattr(joint, "Reference2"):
             return
 
         self.redrawJointPlacement(self.switch_JCS1, joint.Placement1, joint.Reference1)
         self.redrawJointPlacement(self.switch_JCS2, joint.Placement2, joint.Reference2)
+
+    def redrawInstanceMarkers(self, joint):
+        """Not upstream: a multiplied joint's pairs, a marker each side, where
+        its instance joints put them (docs/AssemblyObjectModel.md sec 7.4)"""
+        instances = list(getattr(joint, "_Instances", []))
+        markers = getattr(self, "instanceMarkers", [])
+        while len(markers) < 2 * len(instances):
+            marker = SoSwitchMarker(joint.ViewObject)
+            self.display_mode.addChild(marker)
+            markers.append(marker)
+        for k, marker in enumerate(markers):
+            if k < 2 * len(instances):
+                try:
+                    plc = instances[k // 2].getFrame(k % 2 + 1)
+                except Exception:
+                    marker.whichChild = coin.SO_SWITCH_NONE
+                    continue
+                marker.whichChild = coin.SO_SWITCH_ALL
+                marker.set_marker_placement(plc, None)
+            else:
+                marker.whichChild = coin.SO_SWITCH_NONE
+        self.instanceMarkers = markers
 
     def redrawJointPlacement(self, jcs, plc, ref):
         if ref:
@@ -1135,6 +1458,12 @@ class ViewProviderJoint:
             jcs.whichChild = coin.SO_SWITCH_NONE
 
     def showPreviewJCS(self, visible, placement=None, ref=None):
+        if not hasattr(self, "switch_JCS_preview"):
+            if not visible:
+                return
+            # The C++ view provider's: the preview is made when first shown
+            self.switch_JCS_preview = SoSwitchMarker(self.app_obj.ViewObject)
+            self.app_obj.ViewObject.RootNode.addChild(self.switch_JCS_preview)
         if visible:
             self.switch_JCS_preview.whichChild = coin.SO_SWITCH_ALL
             self.setJCSPosition(self.switch_JCS_preview, placement, ref)
@@ -1153,15 +1482,38 @@ class ViewProviderJoint:
 
     def setPickableState(self, state: bool):
         """Set JCS selectable or unselectable in 3D view"""
+        if getattr(self, "cppMarkers", False):
+            # The C++ markers' pick style, and the preview's, under the view
+            sa = coin.SoSearchAction()
+            sa.setType(coin.SoPickStyle.getClassTypeId())
+            sa.setInterest(coin.SoSearchAction.ALL)
+            sa.setSearchingAll(True)
+            sa.apply(self.app_obj.ViewObject.RootNode)
+            style = coin.SoPickStyle.SHAPE_ON_TOP if state else coin.SoPickStyle.UNPICKABLE
+            for i in range(sa.getPaths().getLength()):
+                sa.getPaths()[i].getTail().style.setValue(style)
+            return
         self.switch_JCS1.setPickableState(state)
         self.switch_JCS2.setPickableState(state)
         self.switch_JCS_preview.setPickableState(state)
 
     def getDisplayModes(self, obj):
         """Return a list of display modes."""
+        if getattr(self, "cppMarkers", False):
+            # The C++ view provider's own
+            return []
         modes = []
         modes.append("Wireframe")
         return modes
+
+    def claimChildren(self):
+        """A C++ joint holds its element bindings, and a multiplied one its
+        instance joints, as a link array shows its elements"""
+        joint = self.app_obj if hasattr(self, "app_obj") else None
+        if joint is None or not isTyped(joint):
+            return []
+        links = [link for link in (joint.Binding1, joint.Binding2) if link is not None]
+        return links + list(joint._Instances)
 
     def getDefaultDisplayMode(self):
         """Return the name of the default display mode. It must be defined in getDisplayModes."""
@@ -1170,6 +1522,8 @@ class ViewProviderJoint:
     def onChanged(self, vp, prop):
         """Here we can do something when a single property got changed"""
         # App.Console.PrintMessage("Change property: " + str(prop) + "\n")
+        if not hasattr(self, "switch_JCS1"):
+            return
         if prop == "color_X_axis" or prop == "color_Y_axis" or prop == "color_Z_axis":
             self.switch_JCS1.onChanged(vp, prop)
             self.switch_JCS2.onChanged(vp, prop)
@@ -1216,9 +1570,9 @@ class ViewProviderJoint:
 
         assembly = self.app_obj.Proxy.getAssembly(self.app_obj)
         # Assuming Reference1 corresponds to the first part link
-        if hasattr(self.app_obj, "Reference1"):
-            part = UtilsAssembly.getMovingPart(self.app_obj.Reference1)
-            if part is not None and not assembly.isPartConnected(part):
+        if hasattr(self.app_obj, "Reference1") or isTyped(self.app_obj):
+            part = sideMovingPart(self.app_obj, 1)
+            if part is not None and assembly is not None and not assembly.isPartConnected(part):
                 overlays[Gui.IconPosition.BottomLeft] = "Part_Detached"
 
         return overlays
@@ -1237,7 +1591,26 @@ class ViewProviderJoint:
     def setupContextMenu(self, vobj, menu):
         action = menu.addAction(translate("Assembly", "Edit Joint"))
         action.triggered.connect(lambda: self.editJoint(vobj))
+        joint = vobj.Object
+        if isTyped(joint) and joint.JointType == "Fixed":
+            action = menu.addAction(translate("Assembly", "Update Offset"))
+            action.setToolTip(
+                translate(
+                    "Assembly",
+                    "Keep the parts where they are now: the second side's offset\n"
+                    "taken from where the first side is",
+                )
+            )
+            action.triggered.connect(lambda: self.updateOffset(joint))
         return False
+
+    def updateOffset(self, joint):
+        """Not upstream: Assembly3's 'Update element offset'"""
+        App.setActiveTransaction(translate("Assembly", "Update Offset"))
+        try:
+            updateOffset(joint)
+        finally:
+            App.closeActiveTransaction()
 
     def doubleClicked(self, vobj):
         return self.editJoint(vobj)
@@ -1270,6 +1643,168 @@ class ViewProviderJoint:
         return True
 
 
+class RigidGroupJoint:
+    def __init__(self, joint, objects_to_rigid_group):
+        joint.Proxy = self
+        self.joint = joint
+
+        # Not upstream: the C++ rigid group (Assembly::RigidGroupPython) has
+        # its extension and properties
+        if not joint.isDerivedFrom("Assembly::RigidGroup"):
+            joint.addExtension("App::SuppressibleExtensionPython")
+
+            joint.addProperty(
+                "App::PropertyLinkList",
+                "ObjectsToRigidGroup",
+                "RigidGroup",
+                QT_TRANSLATE_NOOP(
+                    "App::Property", "List of references to compnents to group together"
+                ),
+            )
+
+            # Before the members are set: onChanged() of ObjectsToRigidGroup writes it
+            joint.addProperty(
+                "App::PropertyPlacementList",
+                "RigidPlacements",
+                "RigidGroup",
+                "Relative placements for restore",
+            )
+            joint.setPropertyStatus("RigidPlacements", "Hidden")
+            joint.setPropertyStatus("RigidPlacements", "ReadOnly")
+
+        joint.ObjectsToRigidGroup = objects_to_rigid_group
+
+        self._write_rigid_placements(joint, [])
+        self.updateStoredPositions(joint, True)
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    def getAssembly(self, joint):
+        for obj in joint.InList:
+            if obj.isDerivedFrom("Assembly::AssemblyObject"):
+                return obj
+            elif obj.isDerivedFrom("Assembly::AssemblyLink"):
+                return self.getAssembly(obj)
+        return None
+
+    def _validMembers(self, fp):
+        members = []
+        seen = set()
+
+        for obj in getattr(fp, "ObjectsToRigidGroup", ()) or ():
+            name = getattr(obj, "Name", None)
+
+            if not obj or not name or name in seen:
+                continue
+
+            if not hasattr(obj, "Placement") or obj.getPropertyByName("Placement") is None:
+                continue
+
+            seen.add(name)
+            members.append(obj)
+
+        return members
+
+    def updateStoredPositions(self, fp, force=False):
+        if getattr(self, "_busy", False):
+            return
+
+        if not force and (not hasattr(fp, "Suppressed") or not fp.Suppressed):
+            App.Console.PrintWarning(
+                "Assembly: 'updateStoredPositions' is only available while suppressed.\n"
+            )
+            return
+
+        members = self._validMembers(fp)
+        if len(members) < 2:
+            self._write_rigid_placements(fp, [])
+            App.Console.PrintError("Assembly: Rigid group needs at least 2 valid components.\n")
+            return
+
+        if getattr(fp, "ObjectsToRigidGroup", None) != members:
+            self._busy = True
+            try:
+                fp.ObjectsToRigidGroup = members
+            finally:
+                self._busy = False
+
+        anchor = members[0]
+        anchorPlc = anchor.Placement
+        placements = []
+
+        for member in members:
+            placements.append(anchorPlc.inverse() * member.Placement)
+
+        self._write_rigid_placements(fp, placements)
+
+        App.Console.PrintMessage("Assembly: Rigid group positions updated.\n")
+
+    def _write_rigid_placements(self, fp, placements):
+        self._busy = True
+        try:
+            fp.setPropertyStatus("RigidPlacements", "-ReadOnly")
+            fp.RigidPlacements = placements
+            fp.setPropertyStatus("RigidPlacements", "ReadOnly")
+        finally:
+            self._busy = False
+
+    def restoreFromPlacements(self, fp):
+        members = self._validMembers(fp)
+        placements = getattr(fp, "RigidPlacements", None) or []
+        if len(members) < 2 or len(members) != len(placements):
+            App.Console.PrintWarning("Assembly: Rigid group sync broken, skipping restore.\n")
+            return
+
+        anchor = members[0]
+        anchorPlcNow = anchor.Placement
+        for obj, rel in zip(members, placements):
+            obj.Placement = anchorPlcNow * rel
+
+    def onChanged(self, fp, prop):
+        """Do something when a property has changed"""
+        if getattr(self, "_busy", False):
+            return
+
+        if prop == "ObjectsToRigidGroup":
+            self.updateStoredPositions(fp, True)
+            return
+
+        if prop == "Suppressed" and hasattr(fp, "Suppressed") and not fp.Suppressed:
+            self._busy = True
+            try:
+                self.restoreFromPlacements(fp)
+                assembly = self.getAssembly(fp)
+                if assembly:
+                    solveIfAllowed(assembly)
+            finally:
+                self._busy = False
+
+    def execute(self, fp):
+        """Do something when doing a recomputation, this method is mandatory"""
+        pass
+
+
+class ViewProviderRigidGroupJoint:
+    def __init__(self, vobj):
+        vobj.Proxy = self
+        vobj.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
+
+    def getIcon(self):
+        return ":/icons/Assembly_CreateJointRigidGroup.svg"
+
+    def setupContextMenu(self, vobj, menu):
+        action = menu.addAction(App.Qt.translate("Assembly", "Update Stored Positions"))
+        action.triggered.connect(lambda: self._updateStoredPositions(vobj.Object))
+
+    def _updateStoredPositions(self, obj):
+        if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "updateStoredPositions"):
+            obj.Proxy.updateStoredPositions(obj)
+
+
 ################ Grounded Joint object #################
 
 
@@ -1281,13 +1816,15 @@ class GroundedJoint:
         self.createObjectToGroundProperty(joint, obj_to_ground)
 
     def createObjectToGroundProperty(self, joint, obj_to_ground):
-        joint.addProperty(
-            "App::PropertyLinkGlobal",
-            "ObjectToGround",
-            "Ground",
-            QT_TRANSLATE_NOOP("App::Property", "The object to ground"),
-            locked=True,
-        )
+        # Not upstream: the C++ grounding (Assembly::GroundedJointPython) has it
+        if not joint.isDerivedFrom("Assembly::GroundedJoint"):
+            joint.addProperty(
+                "App::PropertyLinkGlobal",
+                "ObjectToGround",
+                "Ground",
+                QT_TRANSLATE_NOOP("App::Property", "The object to ground"),
+                locked=True,
+            )
         joint.ObjectToGround = obj_to_ground
         self.setReadOnly(joint, True)
 
@@ -1522,6 +2059,12 @@ class MakeJointSelGate:
         ref = [obj, [sub]]
         sel_obj = UtilsAssembly.getObject(ref)
 
+        if not sel_obj:
+            return False
+
+        if UtilsAssembly.isLinkArray(sel_obj):
+            return True
+
         if UtilsAssembly.isLink(sel_obj):
             linked = sel_obj.getLinkedObject()
             if linked == sel_obj:
@@ -1539,13 +2082,13 @@ class MakeJointSelGate:
         if sel_obj.isDerivedFrom("Part::Feature") or sel_obj.isDerivedFrom("App::Part"):
             return True
 
-        if sel_obj.isDerivedFrom("App::Origin") or sel_obj.isDerivedFrom(
-            "App::OriginFeature"
+        if sel_obj.isDerivedFrom("App::LocalCoordinateSystem") or sel_obj.isDerivedFrom(
+            "App::DatumElement"
         ):
             datum = sel_obj
-            if datum.isDerivedFrom("App::OriginFeature"):
+            if datum.isDerivedFrom("App::DatumElement"):
                 parent = datum.getParent()
-                if parent.isDerivedFrom("App::Origin"):
+                if parent.isDerivedFrom("App::LocalCoordinateSystem"):
                     datum = parent
 
             if self.assembly.hasObject(datum) and hasattr(datum, "MapMode"):
@@ -1601,6 +2144,13 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             layout.setSpacing(0)
         layout.addWidget(self.jForm)
 
+        # Not upstream (audit sec 8.1 decision 7): why a Distance pick was refused.
+        self.refusalLabel = QtWidgets.QLabel(self.form)
+        self.refusalLabel.setWordWrap(True)
+        self.refusalLabel.hide()
+        layout.addWidget(self.refusalLabel)
+        self.picksChanged = False
+
         self.isolate_modes = ["Transparent", "Wireframe", "Hidden", "Disabled"]
         self.jForm.isolateType.addItems(
             [translate("Assembly", mode) for mode in self.isolate_modes]
@@ -1626,6 +2176,11 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             Gui.ActiveDocument.openCommand("Edit " + self.jointName + " Joint")
 
             self.updateTaskboxFromJoint()
+            # Showing the joint's own type and picks changes nothing: a joint
+            # of a refused Distance sub-type already in the document stays
+            # acceptable until it is re-picked (audit sec 8.1 decision 7).
+            self.picksChanged = False
+            self.showDistanceRefusal("")
             self.visibilityBackup = self.joint.Visibility
             self.joint.Visibility = True
 
@@ -1651,15 +2206,39 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         bind = Gui.ExpressionBinding(self.jForm.angleSpinbox).bind(self.joint, "Angle")
         bind = Gui.ExpressionBinding(self.jForm.distanceSpinbox).bind(self.joint, "Distance")
         bind = Gui.ExpressionBinding(self.jForm.distanceSpinbox2).bind(self.joint, "Distance2")
-        bind = Gui.ExpressionBinding(self.jForm.offsetSpinbox).bind(self.joint, "Offset2.Base.z")
-        bind = Gui.ExpressionBinding(self.jForm.rotationSpinbox).bind(
-            self.joint, "Offset2.Rotation.Yaw"
-        )
+        if not isTyped(self.joint):
+            # A C++ joint's offset is its element binding's, with the picked
+            # vertex's share in it: not bound to an expression (yet)
+            bind = Gui.ExpressionBinding(self.jForm.offsetSpinbox).bind(
+                self.joint, "Offset2.Base.z"
+            )
+            bind = Gui.ExpressionBinding(self.jForm.rotationSpinbox).bind(
+                self.joint, "Offset2.Rotation.Yaw"
+            )
 
         self.jForm.reverseRotCheckbox.setChecked(self.jType == "Gears")
         self.jForm.reverseRotCheckbox.stateChanged.connect(self.reverseRotToggled)
 
         self.jForm.advancedOffsetCheckbox.stateChanged.connect(self.advancedOffsetToggled)
+
+        # Not upstream: multiply the joint over the link array its first side
+        # is on (docs/AssemblyObjectModel.md sec 7.4)
+        self.multiplyCheckbox = QtWidgets.QCheckBox(
+            translate("Assembly", "Multiply over the link array")
+        )
+        self.multiplyCheckbox.setToolTip(
+            translate(
+                "Assembly",
+                "Pair each element of the link array the first side is on with an\n"
+                "element of the second side's part like the one picked, a circle of\n"
+                "its radius in its plane or a cylinder of its radius and length level\n"
+                "with it: one joint for a pattern of pins in holes. Pick more elements\n"
+                "of that part to pair with those only.",
+            )
+        )
+        self.jForm.layout().addWidget(self.multiplyCheckbox, 13, 0)
+        self.multiplyCheckbox.setChecked(bool(getattr(self.joint, "Multiply", False)))
+        self.multiplyCheckbox.stateChanged.connect(self.multiplyToggled)
 
         self.jForm.offset1Button.clicked.connect(self.onOffset1Clicked)
         self.jForm.offset2Button.clicked.connect(self.onOffset2Clicked)
@@ -1711,6 +2290,13 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
                 translate("Assembly", "Select 2 elements from 2 separate parts")
             )
             return False
+
+        # A joint already in a document keeps its picks; new ones are checked.
+        if self.creating or self.picksChanged:
+            refused = self.refusedDistancePick()
+            if refused:
+                self.showDistanceRefusal(refused)
+                return False
 
         self.deactivate()
 
@@ -1807,7 +2393,56 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             self.refs.clear()
             Gui.Selection.clearSelection()
         else:
+            refused = self.refusedDistancePick()
+            if refused:
+                self.refs.clear()
+                Gui.Selection.clearSelection()
+                self.updateJoint()
+                self.showDistanceRefusal(refused)
+                return
             self.updateJoint()
+
+    def refusedDistancePick(self):
+        """Why a Distance joint between the two picks is refused, else "".
+
+        Not upstream (audit sec 8.1 decision 7, docs/AssemblySolverInterface.md
+        sec 6.11). The rule and the reason are the C++ ones
+        (AssemblyUtils distanceJointRefusal): it names the element and says
+        what it is. The picks are set on the joint to classify them, as
+        setJointConnectors sets them, without solving.
+        """
+        if self.jType == "Cam":
+            import JointCam
+
+            return JointCam.pickRefusal(self.joint, self.refs)
+        if self.jType != "Distance" or len(self.refs) != 2:
+            return ""
+        import AssemblyApp
+
+        if isTyped(self.joint):
+            syncSides(self.joint, self.refs)
+            recomputeSides(self.joint)
+        else:
+            self.joint.Reference1 = self.refs[0]
+            self.joint.Reference2 = self.refs[1]
+        return AssemblyApp.getDistanceRefusal(self.joint)
+
+    def showDistanceRefusal(self, reason):
+        """Says why a Distance pick was refused, or clears it ("")."""
+        if not reason:
+            self.refusalLabel.hide()
+            return
+        msg = translate(
+            "Assembly",
+            "A distance between these elements is not supported: {}. Select other elements.",
+        ).format(reason)
+        if self.jType == "Cam":
+            import JointCam
+
+            msg = JointCam.refusalMessage(reason)
+        App.Console.PrintWarning(msg + "\n")
+        self.refusalLabel.setText(msg)
+        self.refusalLabel.show()
 
     def createJointObject(self):
         type_index = self.jForm.jointType.currentIndex()
@@ -1815,8 +2450,10 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         if self.activeType == "Part":
             self.joint = self.assembly.newObject("App::FeaturePython", "Temporary joint")
         else:
+            # In an assembly a joint is the C++ one, its sides element bindings
+            # (docs/AssemblyObjectModel.md sec 7.1)
             joint_group = UtilsAssembly.getJointGroup(self.assembly)
-            self.joint = joint_group.newObject("App::FeaturePython", "Joint")
+            self.joint = joint_group.newObject("Assembly::JointPython", "Joint")
             self.joint.Label = self.jointName
             joint_group.purgeTouched()
             self.assembly.purgeTouched()
@@ -1829,6 +2466,10 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         self.jType = JointTypes[self.jForm.jointType.currentIndex()]
         self.joint.Proxy.setJointType(self.joint, self.jType)
         self.adaptUi()
+        # A joint turned into a Distance one is a new Distance joint: OK refuses
+        # it if its picks are (audit sec 8.1 decision 7).
+        self.picksChanged = True
+        self.showDistanceRefusal(self.refusedDistancePick())
 
     def onAngleChanged(self, quantity):
         self.joint.Angle = self.jForm.angleSpinbox.property("rawValue")
@@ -1843,15 +2484,23 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         if self.blockOffsetRotation:
             return
 
-        self.joint.Offset2.Base = App.Vector(0, 0, self.jForm.offsetSpinbox.property("rawValue"))
+        offset = jointOffset(self.joint, 2)
+        offset.Base = App.Vector(0, 0, self.jForm.offsetSpinbox.property("rawValue"))
+        setJointOffset(self.joint, 2, offset)
+        if isTyped(self.joint):
+            self.joint.Proxy.onOffsetChanged(self.joint)
 
     def onRotationChanged(self, quantity):
         if self.blockOffsetRotation:
             return
 
         yaw = self.jForm.rotationSpinbox.property("rawValue")
-        ypr = self.joint.Offset2.Rotation.getYawPitchRoll()
-        self.joint.Offset2.Rotation.setYawPitchRoll(yaw, ypr[1], ypr[2])
+        offset = jointOffset(self.joint, 2)
+        ypr = offset.Rotation.getYawPitchRoll()
+        offset.Rotation.setYawPitchRoll(yaw, ypr[1], ypr[2])
+        setJointOffset(self.joint, 2, offset)
+        if isTyped(self.joint):
+            self.joint.Proxy.onOffsetChanged(self.joint)
 
     def onLimitLenMinChanged(self, quantity):
         if self.jForm.limitCheckbox1.isChecked():
@@ -1941,6 +2590,12 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         self.jForm.rotationSpinbox.setVisible(not advancedOffset and needRotation)
 
         self.jForm.PushButtonReverse.setVisible(jType in JointUsingReverse)
+
+        if hasattr(self, "multiplyCheckbox"):
+            canMultiply = self.canMultiply()
+            self.multiplyCheckbox.setVisible(canMultiply)
+            if not canMultiply and getattr(self.joint, "Multiply", False):
+                self.multiplyCheckbox.setChecked(False)
         self.jForm.PushButtonRotate90.setVisible(jType in JointUsingReverse)
 
         needLengthLimits = jType in JointUsingLimitLength
@@ -1980,30 +2635,87 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
 
     def updateOffsetWidgets(self):
         # Makes sure the values in both the simplified and advanced tabs are sync.
-        pos = self.joint.Offset1.Base
+        pos = jointOffset(self.joint, 1).Base
         self.jForm.offset1Button.setText(f"({pos.x}, {pos.y}, {pos.z})")
 
-        pos = self.joint.Offset2.Base
+        offset2 = jointOffset(self.joint, 2)
+        pos = offset2.Base
         self.jForm.offset2Button.setText(f"({pos.x}, {pos.y}, {pos.z})")
 
         self.blockOffsetRotation = True
         self.jForm.offsetSpinbox.setProperty("rawValue", pos.z)
-        self.jForm.rotationSpinbox.setProperty(
-            "rawValue", self.joint.Offset2.Rotation.getYawPitchRoll()[0]
-        )
+        self.jForm.rotationSpinbox.setProperty("rawValue", offset2.Rotation.getYawPitchRoll()[0])
         self.blockOffsetRotation = False
 
     def advancedOffsetToggled(self, on):
         self.adaptUi()
         self.updateOffsetWidgets()
 
-    def onOffset1Clicked(self):
-        UtilsAssembly.openEditingPlacementDialog(self.joint, "Offset1")
+    def canMultiply(self):
+        """Not upstream: whether the joint can be multiplied, a C++ joint of a
+        type Assembly3 multiplies whose first side is on an element of a link
+        array"""
+        if not isTyped(self.joint) or self.jType not in JointMultipliable:
+            return False
+        part = sideMovingPart(self.joint, 1)
+        return part is not None and part.isDerivedFrom("App::LinkElement")
+
+    def multiplyToggled(self, on):
+        self.joint.Multiply = bool(on)
+        self.joint.recompute()
+
+    def targetPart(self):
+        """Not upstream: the part a multiplied joint's targets are picked on,
+        its second side's, or None while the joint is not multiplied"""
+        if len(self.refs) < 2 or not isTyped(self.joint) or not self.joint.Multiply:
+            return None
+        return self.getMovingPart(self.refs[1])
+
+    def addTarget(self, comp, sub):
+        """Not upstream (sec 7.4): with the joint multiplied, a further pick
+        on the second side's part is a target picked by hand, as Assembly3's
+        NoExpand: the second side's own the first of them"""
+        if not sub or comp is None or comp != self.targetPart():
+            return False
+        own = self.refs[1][1][0]
+        targets = list(self.joint.Targets) or [own]
+        if sub not in targets:
+            targets.append(sub)
+        self.joint.Targets = targets
+        self.joint.recompute()
+        return True
+
+    def removeTarget(self, comp, sub):
+        """A target picked by hand unpicked; the last but the second side's
+        own leaves the targets to be every one like it"""
+        if comp is None or comp != self.targetPart() or sub not in self.joint.Targets:
+            return False
+        if sub == self.refs[1][1][0]:
+            return False  # the second side itself
+        targets = [t for t in self.joint.Targets if t != sub]
+        if targets == [self.refs[1][1][0]]:
+            targets = []
+        self.joint.Targets = targets
+        self.joint.recompute()
+        return True
+
+    def editOffset(self, i):
+        if isTyped(self.joint):
+            # The element binding's whole offset, the picked vertex's share in it
+            link = sideBinding(self.joint, i)
+            if link is None:
+                return
+            UtilsAssembly.openEditingPlacementDialog(link, "Offset")
+            self.joint.Proxy.onOffsetChanged(self.joint)
+        else:
+            UtilsAssembly.openEditingPlacementDialog(self.joint, "Offset%d" % i)
         self.updateOffsetWidgets()
 
+    def onOffset1Clicked(self):
+        self.editOffset(1)
+
     def onOffset2Clicked(self):
-        UtilsAssembly.openEditingPlacementDialog(self.joint, "Offset2")
-        self.updateOffsetWidgets()
+        self.editOffset(2)
 
     def updateIsolation(self):
         """Isolates the two selected components or clears isolation."""
@@ -2038,8 +2750,8 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         self.refs = []
         self.presel_ref = None
 
-        ref1 = self.joint.Reference1
-        ref2 = self.joint.Reference2
+        ref1 = sideRef(self.joint, 1)
+        ref2 = sideRef(self.joint, 2)
 
         if UtilsAssembly.isRefValid(ref1, 2):
             self.refs.append(ref1)
@@ -2050,14 +2762,18 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             self.refs.append(ref2)
             sub2 = UtilsAssembly.addTipNameToSub(ref2)
             Gui.Selection.addSelection(ref2[0].Document.Name, ref2[0].Name, sub2)
+            # Not upstream: a multiplied joint's targets picked by hand
+            part = self.targetPart()
+            for target in getattr(self.joint, "Targets", []) if part is not None else []:
+                if target != ref2[1][0]:
+                    Gui.Selection.addSelection(part.Document.Name, part.Name, target)
 
         self.jForm.angleSpinbox.setProperty("rawValue", self.joint.Angle.Value)
         self.jForm.distanceSpinbox.setProperty("rawValue", self.joint.Distance.Value)
         self.jForm.distanceSpinbox2.setProperty("rawValue", self.joint.Distance2.Value)
-        self.jForm.offsetSpinbox.setProperty("rawValue", self.joint.Offset2.Base.z)
-        self.jForm.rotationSpinbox.setProperty(
-            "rawValue", self.joint.Offset2.Rotation.getYawPitchRoll()[0]
-        )
+        offset2 = jointOffset(self.joint, 2)
+        self.jForm.offsetSpinbox.setProperty("rawValue", offset2.Base.z)
+        self.jForm.rotationSpinbox.setProperty("rawValue", offset2.Rotation.getYawPitchRoll()[0])
 
         self.jForm.limitCheckbox1.setChecked(self.joint.EnableLengthMin)
         self.jForm.limitCheckbox2.setChecked(self.joint.EnableLengthMax)
@@ -2246,6 +2962,9 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         # Construct the reference using the Component as the root
         ref = [comp, [new_sub]]
 
+        if self.addTarget(comp, new_sub):
+            return
+
         moving_part = self.getMovingPart(ref)
 
         # Check if the addition is acceptable (we are not doing this in selection gate to let user move objects)
@@ -2274,6 +2993,20 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         ref = UtilsAssembly.addVertexToReference(ref, vertex_name)
 
         self.refs.append(ref)
+        self.picksChanged = True
+
+        # Not upstream (audit sec 8.1 decision 7): a Distance between these
+        # elements has no solver mapping; the pick is not taken.
+        refused = self.refusedDistancePick()
+        if refused:
+            self.refs.pop()
+            self.addition_rejected = True
+            Gui.Selection.removeSelection(doc_name, obj_name, sub_name)
+            self.updateJoint()
+            self.showDistanceRefusal(refused)
+            return
+        self.showDistanceRefusal("")
+
         self.updateJoint()
 
         # We hide the preview JCS if we just added to the selection
@@ -2287,7 +3020,12 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         rootObj = App.getDocument(doc_name).getObject(obj_name)
 
         comp, new_sub = UtilsAssembly.getComponentReference(self.assembly, rootObj, sub_name)
+        if not comp and self.targetPart() is not None and rootObj == self.targetPart():
+            # A target as updateTaskboxFromJoint selects it, from its part
+            comp, new_sub = rootObj, rootObj.resolveSubElement(sub_name, True)[2]
         if not comp:
+            return
+        if self.removeTarget(comp, new_sub):
             return
 
         for reference in self.refs[:]:
@@ -2301,6 +3039,7 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         else:
             print("No matching ref found for removal!")
 
+        self.picksChanged = True
         self.updateJoint()
 
     def setPreselection(self, doc_name, obj_name, sub_name):

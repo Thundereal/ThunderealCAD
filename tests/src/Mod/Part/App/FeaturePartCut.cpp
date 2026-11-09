@@ -21,8 +21,12 @@ protected:
         _cut = dynamic_cast<Part::Cut*>(_doc->addObject("Part::Cut"));
     }
 
+    // Closed, or the process ends with it open and its transient directory stays
+    // in the user cache -- one per test run
     void TearDown() override
-    {}
+    {
+        App::GetApplication().closeDocument(_doc->getName());
+    }
 
     Part::Cut* _cut = nullptr;  // NOLINT Can't be private in a test framework
 };

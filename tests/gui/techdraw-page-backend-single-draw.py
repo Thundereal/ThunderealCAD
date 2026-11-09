@@ -292,7 +292,22 @@ def preselected():
     v = page_view()
     now = pixels(v, "6-preselected")
     n = coloured(now)
+    # The edge itself, as the mouse over it lights it: with frames off, a new
+    # page's default since 5bb09a4fe1, the view's frame and label that a
+    # preselection used to light alone are not drawn at all.
     check("an edge preselected is in the preselection colour on the page",
+          n > STATE["plain"] + 20, "%d coloured pixels, %d before" % (n, STATE["plain"]))
+    # On to another edge of the same view: the first goes out, which the
+    # page used to skip for a view already preselected; what follows checks
+    # the page is as it was, Edge2 included.
+    FreeCADGui.Selection.setPreselection(
+        FreeCAD.getDocument(DOC).getObject(STATE["anchor"]), "Edge1")
+
+
+@step(2000)
+def preselected_other():
+    n = coloured(pixels(page_view()))
+    check("... another edge of the same view preselected instead is lit in its place",
           n > STATE["plain"] + 20, "%d coloured pixels, %d before" % (n, STATE["plain"]))
     FreeCADGui.Selection.clearPreselection()
 

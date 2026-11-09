@@ -1311,6 +1311,17 @@ void SelectionSingleton::rmvSelectionGate()
     }
 }
 
+void SelectionSingleton::moveSelectionGateTo(SelectionSingleton &other)
+{
+    if (!ActiveGate || &other == this)
+        return;
+    if (other.ActiveGate)
+        other.rmvSelectionGate();
+    other.ActiveGate = ActiveGate;
+    other.gateResolve = gateResolve;
+    ActiveGate = nullptr;
+}
+
 void SelectionGate::setOverrideCursor()
 {
     if (Gui::Document* doc = Gui::Application::Instance->activeDocument()) {
@@ -1870,34 +1881,7 @@ void SelectionSingleton::setVisible(VisibleState vis, const std::vector<App::Sub
         visible = 0;
     }
 
-    std::vector<App::SubObjectT> sels = _sels.size()?_sels:getSelectionT(nullptr, ResolveMode::NoResolve);
-    // A toggle of an element picked in the view may be meant for a container
-    // of the object it belongs to (a PartDesign feature's body): cut the path
-    // down to it. A tree selection names no element and is left alone.
-    if (visible < 0) {
-        for (auto &sel : sels) {
-            if (!sel.hasSubElement())
-                continue;
-            auto objs = sel.getSubObjectList();
-            auto vp = objs.empty() ? nullptr : Application::Instance->getViewProvider(objs.back());
-            auto target = vp ? vp->getPickedVisibilityTarget() : nullptr;
-            auto it = std::find(objs.begin(), objs.end(), target);
-            if (!target || it == objs.end())
-                continue;
-            // one dot-terminated segment of the subname per object below the top
-            std::string path = sel.getSubNameNoElement();
-            std::size_t keep = it - objs.begin(), pos = 0;
-            for (std::size_t i = 0; i < keep && pos != std::string::npos; ++i) {
-                pos = path.find('.', pos);
-                if (pos != std::string::npos)
-                    ++pos;
-            }
-            if (pos == std::string::npos)
-                continue;
-            sel = App::SubObjectT(sel.getDocumentName().c_str(), sel.getObjectName().c_str(),
-                                  path.substr(0, pos).c_str());
-        }
-    }
+    const auto &sels = _sels.size()?_sels:getSelectionT(nullptr, ResolveMode::NoResolve);
     for(auto &sel : sels) {
         App::DocumentObject *obj = sel.getObject();
         if(!obj) continue;

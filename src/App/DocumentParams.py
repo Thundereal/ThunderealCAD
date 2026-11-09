@@ -321,9 +321,25 @@ Params = [
     ParamBool('DuplicateLabels', False,
         doc = "Allow several objects of one document to carry the same label. When\n"
               "off a label already in use gets a number added to make it unique."),
+    ParamBool('UndoGroupByInput', True,
+        doc = "Close the undo step an input's handling opened and left open once the\n"
+              "work it queued has run, unless something holds it: a command, a task\n"
+              "dialog, an edit, an editor that keeps it (persist), a mouse button\n"
+              "held down (docs/MultiViewEdit.md sec 12.2 rule 1). Off, it stays open\n"
+              "until the next step is set, as before; for A/B checks."),
     ParamBool('TransactionOnRecompute', False,
         doc = "Record a recompute started with the Refresh command as an undo step.\n"
               "When off, refreshing leaves the undo and redo history alone."),
+    ParamBool('UndoImplicitLogOff', True,
+        doc = "With the transaction log off (TransactionLog 0), a write with no undo\n"
+              "step open is recorded too, as an implicit step that goes with the\n"
+              "step under it, as with the log on (docs/MultiViewEdit.md sec 12.2\n"
+              "rule 7). Off, such a write is not recorded, as before; for A/B checks."),
+    ParamBool('RecomputeOnUndo', False,
+        doc = "Recompute after an undo or redo that leaves objects to recompute: ones\n"
+              "marked so when the step undone was made, and ones whose result an undo\n"
+              "cannot put back, as a TechDraw view's projection (docs/MultiViewEdit.md\n"
+              "sec 12.10). Off, they are left marked for the next recompute."),
     ParamInt('TransactionLog', 2,
         doc='Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n'
             'log is always on; what this chooses is whether a save writes the\n'

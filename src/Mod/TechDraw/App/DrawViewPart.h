@@ -149,6 +149,8 @@ public:
     TechDraw::PropertyProjectedGeometry ProjectedGeometry;
 
     short mustExecute() const override;
+    /// The projection is in ProjectedGeometry, unless the preference keeps it out
+    bool resultInProperties() const override;
     App::DocumentObjectExecReturn* execute() override;
     const char* getViewProviderName() const override { return "TechDrawGui::ViewProviderViewPart"; }
     PyObject* getPyObject() override;
@@ -301,6 +303,9 @@ protected:
     void onHlrFinished(GeometryObjectPtr result);
     void onFacesFinished(std::shared_ptr<std::vector<FacePtr>> faces);
     void abortMakeGeometry();
+    //! stop every thread still making this view's result -- the projection
+    //! here, a section's cut, a detail's piece
+    virtual void abortMaking();
     void waitingForFaces(bool s) { m_waitingForFaces = s; }
     void waitingForHlr(bool s) { m_waitingForHlr = s; }
 
@@ -312,6 +317,7 @@ protected:
     void onChanged(const App::Property* prop) override;
     void unsetupObject() override;
     void onDocumentRestored() override;
+    void onUndoRedoFinished() override;
     void Restore(Base::XMLReader& reader) override;
 
     void buildGeometryObject(const Part::TopoShape& shape, const gp_Ax2& viewAxis);

@@ -26,6 +26,7 @@
 
 
 #include <App/Application.h>
+#include <Base/Console.h>
 #include <Base/Quantity.h>
 #include <Gui/MetaTypes.h>
 

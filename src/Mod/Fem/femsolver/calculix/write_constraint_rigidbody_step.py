@@ -97,7 +97,11 @@ def write_constraint(f, femobj, rb_obj, ccxwriter):
     except:
         constraint = FreeCAD.Vector(0, 0, 0)
 
+    # Not upstream: a distributing coupling's moments are its reference
+    # node's own degrees of freedom 4 to 6; it has no rotation node
+    distributing = getattr(rb_obj, "Coupling", "Rigid") == "Distributing"
     for i in range(3):
-        write_mode(mode[i], rot_node_idx, i + 1, constraint[i], load[i].getValueAs("N*mm").Value)
+        node, dof = (ref_node_idx, i + 4) if distributing else (rot_node_idx, i + 1)
+        write_mode(mode[i], node, dof, constraint[i], load[i].getValueAs("N*mm").Value)
 
     f.write("\n")

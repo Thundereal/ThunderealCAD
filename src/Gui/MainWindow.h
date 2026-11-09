@@ -29,6 +29,7 @@
 #include <QEvent>
 #include <QMdiArea>
 
+#include <Base/Console.h>
 #include "InputHint.h"
 
 #include <customtitlebarkit/CustomTitleBarWindow.h>

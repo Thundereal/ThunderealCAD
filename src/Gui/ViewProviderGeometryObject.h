@@ -26,6 +26,7 @@
 
 #include "ViewProviderDragger.h"
 #include <App/MaterialAppearance.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Tools.h>
 #include <Inventor/lists/SoPickedPointList.h>
 #include <cstdint>

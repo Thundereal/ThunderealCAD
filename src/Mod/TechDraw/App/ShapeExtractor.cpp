@@ -30,7 +30,6 @@
 # include <BRepBuilderAPI_Copy.hxx>
 #endif
 
-#include <App/Document.h>
 #include <App/GroupExtension.h>
 #include <App/Link.h>
 #include <App/Part.h>

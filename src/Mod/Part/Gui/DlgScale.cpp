@@ -42,6 +42,7 @@
 #include <App/DocumentObject.h>
 #include <App/Link.h>
 #include <App/Part.h>
+#include <Base/Console.h>
 #include <Base/UnitsApi.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>

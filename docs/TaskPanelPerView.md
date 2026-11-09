@@ -805,6 +805,17 @@ out. 2: an edit and a dialog start on a copy of the shared selection.)
   next command. *The hand-back is not in the order; it is what keeps
   today's behaviour whole, and wants confirming.* What another view
   selected in the room meanwhile is replaced by it.
+- **A dialog's gate goes with it** (2026-10-30). A dialog that sets its
+  gate as it is made, before `showDialog`, sets it on the room; the view's
+  fresh instance is a copy without it, and the dialog's `deactivate()`
+  removes the current instance's gate -- the view's, none. The gate went
+  on gating every view after the dialog was gone, and was deleted after
+  Python's end at the exit, a crash (the Assembly contact, load and spring
+  panels, edited by a double click). `showDialog` now moves the room's gate
+  into the instance it makes for the dialog's view
+  (`SelectionSingleton::moveSelectionGateTo()`), only from the room and
+  only to a fresh instance: an edit's view has its own already, and the
+  dialog's gate went there. `tests/gui/selection-per-view.py` checks it.
 - **An edit session's instance is its initiator's** -- unchanged from
   `docs/ThinClient.md` 8.11: a view that joins a shared session selects
   into the initiating view's instance. What is new is that a desktop
@@ -1153,7 +1164,7 @@ and nothing in it may assume it is visible.
   desktop shows. The models -- every widget the mirror walks -- do not
   depend on it (`visible` is read as "not explicitly hidden"), and a
   picture was already missing whenever the desktop's Tasks tab was not
-  the one in front. For M5.
+  the one in front. For M5. Done 2026-11-02 (sec 16.1).
 - A page's widgets are used while its view is not active by exactly one
   path today: a keyed `Control().accept(owner)` and its siblings. The
   rest of sec 12.5's second point stands for view mode.
@@ -2223,4 +2234,116 @@ Left, in the order I would take them:
    not run in any of this.
 6. Strings untranslated. `pre-commit` and `clang-format` are not on the box
    this was written on; the format hook ran on none of it.
-7. M5 of sec 9, the browser: a served client's panel is where it was.
+7. M5 of sec 9, the browser: DONE 2026-11-02, sec 16.
+
+## 16. Milestone 5: the browser (built 2026-11-02)
+
+Ordered by the user ("continue m5", 2026-11-02) after
+`tests/gui/serve_pd_multi_user.py` found a served user with no panel at
+all (docs/MultiViewEdit.md sec 12.12): with `PerViewEdit` a client's edit
+runs in its own view, its dialog is that view's, and the mirror followed
+the one dialog the desktop's task view shows -- its show tick asked
+`Control().activeDialog()`, the desktop's, and dropped the client's.
+
+As sec 6 designed it:
+
+- **Every dialog up is a root** (`Fw::PanelMirror`). A task root keeps its
+  owner, class, boxes, button box and `panel:<n>` model; there are as many
+  as dialogs open, keyed by owner (a view has one at most).
+  `signalShowDialog` / `signalRemoveDialog` carry the owner, and the show
+  tick finds that owner's dialog among `Control().shownDialogs()` (new).
+  `start()` mirrors every dialog shown, with the button box its page has
+  (`TaskDialogAttorney::getButtonBox`, the mirror a friend). `panelId()`
+  is the newest root, `panelIds()` all of them.
+- **Each root has an owner**: a task root its dialog's; a top-level
+  dialog's (`dialog:<n>`) the view being handled when its Show passed the
+  application filter -- a client's request, or the panel slot it ran.
+  `PanelMirror::ownerOf(id)` answers it for any mirror id by walking the
+  model tree up to its root; a root being closed keeps its owner while its
+  close goes out, so the close reaches whom the open did.
+- **The stream sends a client its own** (`SceneWidgetStream::wants`,
+  `panelIsClients`): with `PerViewEdit` a client's dialog goes to that
+  client -- `SceneServeSource::isClientView` (new) asks whether the
+  owner is the client's mirror in any document served -- a desktop
+  view's to no client, one with no view to name (the `panel` list
+  among them) to everybody. Without `PerViewEdit` every client is sent
+  every panel, the shared session's rule, as before.
+  `widgets.subscribe` names the client's own newest root in `panel`, and
+  lists only its own `dialogs`.
+- **OK and Cancel act on the root asked**: a root's request carries its
+  id; the click goes to that root's button box, else
+  `Control().accept(owner)` / `reject(owner)`.
+- **The viewer** keeps the dialog roots the `panel` list names that it
+  holds: the list names every view's.
+
+Test: `tests/gui/serve_pd_multi_user.py`, run by
+`serve-pd-multi-user-preview.py` and `serve-pd-multi-user-no-preview.py`
+(GuiServePdMultiUserPreview / NoPreview): two served users, alice and
+bob, with a desktop window, `PerViewEdit` on, a body of two pads. Each
+user types into the length field of their own panel and presses its OK or
+Cancel, as a browser does (`widgets.update` with `q_rawValue`,
+`widgets.custom` accept/reject): one editor while the other changes the
+body, a Cancel, and both editing at once -- each sent their own panel and
+not the other's, alice's OK leaving bob in his edit. 15 and 14 checks;
+before, no client had a panel (every typed value failed).
+
+A real browser on two pages: sec 16.2.
+
+### 16.1 Pictures on a page out of sight
+
+A custom-painted widget travels as a picture (a grab, by image id), and
+the mirror grabbed only what is visible, again when it is painted. A
+served user's page is never the one the desktop shows, so its pictures
+were never sent (sec 13.5). Now:
+
+- `PanelMirror::shownInDialog` -- what is grabbed: a visible widget, or
+  one hidden only by what holds its dialog, i.e. under one of a task
+  root's boxes with nothing between them hidden. A box's collapsed part
+  and a tab not in front stay without a picture.
+- The grab lays the hidden page out: `QWidget::render` activates the
+  layouts of hidden ancestors as if shown, so the size is read after the
+  render, and the render is done again when it moved (a page never shown
+  has its widgets at their pre-layout sizes).
+- Nothing paints a widget out of sight, so nothing announces a change:
+  the poll (`PanelPollMs`, 500 ms) grabs the pictures that are not
+  visible. A grab whose pixels hash as the last one's keeps that id and
+  encodes no PNG, so a still picture costs a render a poll and sends
+  nothing. The render invalidates no layout the mirror watches: no
+  rebuild.
+
+Test: `tests/gui/serve-panel-picture.py` (GuiServePanelPicture): alice's
+Pad1 panel, served under PerViewEdit, given a painted leaf -- its picture
+at its laid-out size and colour, a recolour reaching her within a poll,
+a still leaf keeping its id, the polls rebuilding nothing (5 checks).
+Before, the leaf had no picture at all.
+
+### 16.2 Two real browsers
+
+`tests/gui/serve-panel-two-users-browser.py` (GuiServePanelTwoUsersBrowser,
+driver `scripts/panel-two-users-drive.js`): two Chrome pages, alice and
+bob, each right-clicking their own pad and taking Edit from the host's
+menu (the object's submenu, "Edit pad"), each seeing their own panel and
+not the other's, typing with the keyboard and pressing OK / Cancel; the
+host has what each did. Skips without PUPPETEER_PATH and CHROME.
+
+Found by it:
+
+- The tool bars' card covered the task panel's top rows. Now the card
+  keeps clear of every task panel card in its rows (toolbar.tsx, the user
+  2026-11-02: "make the tool bars aware of the edit panels and not overlap
+  with it"): it stops short of the panel, a bar wider than the room
+  wrapping its buttons, or -- standing under the panel, or with no room
+  for a bar before it -- is shown beside it, where it was put kept for
+  when the panel goes. The panel says when it opens, moves, resizes or
+  closes (`fc:panelsmoved`); the card judges by its own height as it is,
+  so neither state flips the other. Not on a phone. The test measures
+  every bar against the panel, opened, in each edit, and with the panel
+  dragged over where the bars start.
+- The task panel card does not come up by itself for an ordinary edit,
+  only for a value-diff one (main.tsx); the test opens it with `?panel`.
+- After alice's OK, a cell of bob's open panel is taken out of his page
+  and put back about 2 s later (the driver's MutationObserver sees it):
+  his field keeps its element, but a field out of the page loses focus,
+  so bob typing at that moment would lose his place. Open.
+- A page behind another runs no rendering steps, so a ResizeObserver
+  there waits until it is in front: measure a page in front.

@@ -86,6 +86,8 @@ TaskRevolutionParameters::TaskRevolutionParameters(PartDesignGui::ViewProvider* 
       proxy(new QWidget(this)),
       isGroove(isGrooveView(RevolutionView))
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     ui->setupUi(proxy);
 
@@ -172,15 +174,17 @@ LinkSubWidget *TaskRevolutionParameters::makeUpToWidget(QWidget *holder,
 
 void TaskRevolutionParameters::setupGizmos(ViewProvider* vp)
 {
-    // The values in the view (docs/OnViewValueEditing.md 3.3, entry 170): the
-    // angle's label always at the top middle, the others' beside their
-    // handle while it is active -- at the top middle too without handles.
+    // The values in the view (docs/OnViewValueEditing.md 3.3, entry 170):
+    // each label beside its handle while it is active, the angle's too
+    // (entry 241) -- at the top middle without handles.
     // A click on an angle's handle no longer turns the revolution: the
     // handles' menu does (3.3).
     const bool handles = GizmoContainer::isEnabled();
     const auto beside = handles ? Gui::OnViewValueSet::Place::AtHandle
                                 : Gui::OnViewValueSet::Place::TopMiddle;
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     onViewValues->addValue(ui->revolveAngle, tr("Angle"), Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->addValue(ui->revolveAngle2, tr("Angle 2"), beside);
     onViewValues->addValue(ui->startOffsetEdit, tr("Start offset"), beside);

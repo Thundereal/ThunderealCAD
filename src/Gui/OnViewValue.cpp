@@ -22,12 +22,14 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <cmath>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCursor>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QHelpEvent>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
@@ -47,7 +49,9 @@
 #include <App/DocumentObject.h>
 #include <App/Expression.h>
 #include <App/PropertyUnits.h>
+#include <Base/Color.h>
 #include <Base/Console.h>
+#include <Base/Parameter.h>
 #include <Base/Placement.h>
 #include <Base/Quantity.h>
 
@@ -61,8 +65,12 @@
 #include "QuantitySpinBox.h"
 #include "SoDatumLabel.h"
 #include "SpinBox.h"
+#include "Tree.h"
+#include "TreeParams.h"
+#include "Utilities.h"
 #include "ViewerContext.h"
 #include "ViewProvider.h"
+#include "Widgets.h"
 #include "Inventor/Draggers/Gizmo.h"
 
 using namespace Gui;
@@ -81,6 +89,9 @@ struct OnViewValueSet::Entry
     bool hidden = false;
     QMetaObject::Connection boxConnection;
     std::unique_ptr<EditableDatumLabel> label;
+    /// The label's text size as last shown: in edit its text is blank, and
+    /// placed by that the label moved, the edit box with it (entry 244)
+    QSize shownSize;
 };
 
 namespace
@@ -95,6 +106,28 @@ SbColor expressionColor()
     color.setPackedValue(uint32_t(hGrp->GetUnsigned("ExprBasedConstrDimColor", 0xFF7F00FF)),
                          transparency);
     return color;
+}
+
+/// The sketcher's colour of a dimension (EditableDatumLabel::initColors)
+SbColor dimensionColor()
+{
+    auto hGrp = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/View");
+    SbColor color;
+    float transparency = 0.f;
+    color.setPackedValue(uint32_t(hGrp->GetUnsigned("ConstrainedDimColor", 0xFF2600FF)),
+                         transparency);
+    return color;
+}
+
+/** A value's text colour on the view's background: a little darker on a
+ * light one, where the light outline alone does not set it off (the
+ * reporter: "darken in light theme, only a bit"). The sketch has *Light
+ * colours of its own for it; these values keep theirs, darkened.
+ */
+SbColor onBackground(const SbColor& color)
+{
+    return viewBackgroundIsLight() ? SbColor(color * 0.8f) : color;
 }
 
 /// A key that starts a number
@@ -154,11 +187,23 @@ public:
     }
 
 protected:
+    bool event(QEvent* event) override
+    {
+        // The handles' tip (entry 246): Gui::ToolTip's label, whose shape is
+        // its rounded border, beside the pointer -- not Qt's square one
+        if (event->type() == QEvent::ToolTip) {
+            const auto help = static_cast<QHelpEvent*>(event);
+            ToolTip::showText(help->globalPos(), toolTip(), this, true, ToolTip::NoCorner);
+            return true;
+        }
+        return QWidget::event(event);
+    }
     void mousePressEvent(QMouseEvent* event) override
     {
         if (event->button() != Qt::LeftButton) {
             return QWidget::mousePressEvent(event);
         }
+        ToolTip::hideText();
         event->accept();
         if (set) {
             QPointer<OnViewValueSet> keep = set;
@@ -180,6 +225,7 @@ protected:
     {
         QWidget::leaveEvent(event);
         hover = false;
+        ToolTip::hideText();
         update();
     }
     void paintEvent(QPaintEvent*) override
@@ -482,8 +528,7 @@ void OnViewValueSet::setupHandle(int index, Gizmo* handle)
             self->setActive(index, handle);
             self->openMenu(handle, true);
         },
-        tr("Drag to change the value; click to type it.\n"
-           "Right click for the menu."));
+        handleHint());
     // The pointer over it lights its value's handles and its group's
     // (entry 144)
     handle->setHoverCallback([self = QPointer<OnViewValueSet>(this), index](bool over) {
@@ -516,6 +561,22 @@ void OnViewValueSet::setupHandle(int index, Gizmo* handle)
         }
         switch (event) {
             case Gizmo::DragEvent::Started:
+                // A handle dragged is the active one from the drag's start,
+                // its label by it as it moves (entry 241, the reporter
+                // 2026-11-02: "dragging can happen when the handle is not
+                // activated yet, I want it become active"). What a dress-up
+                // does with a handle made active waits for the drag's end.
+                self->dragActivated = false;
+                if (index < self->count() && (self->active != index || self->activeHandle != handle)
+                    && !self->entries[index]->hidden
+                    && !(self->entries[index]->box && self->entries[index]->box->hasExpression())) {
+                    self->dragPrevActive = self->active;
+                    self->dragPrevHandle = self->namedHandle;
+                    self->holdAnnouncement = true;
+                    self->setActive(index, handle);
+                    self->holdAnnouncement = false;
+                    self->dragActivated = true;
+                }
                 self->dragHandle = handle;
                 // The value it starts from is taken to work: a failed
                 // recompute in the drag goes back to the last that did
@@ -525,10 +586,32 @@ void OnViewValueSet::setupHandle(int index, Gizmo* handle)
                 self->dragSettling = false;
                 Q_EMIT self->stepBegun();
                 break;
+            case Gizmo::DragEvent::Moved:
+                // its label and tool tip follow it -- read from the box,
+                // whose signal a delayed update holds back in the drag
+                if (index < self->count()) {
+                    self->updateLabel(index);
+                }
+                if (handle == self->activeHandle) {
+                    self->placeLabels();
+                }
+                break;
             case Gizmo::DragEvent::Finished:
             case Gizmo::DragEvent::Cancelled:
                 if (self->dragHandle == handle) {
                     self->dragHandle = nullptr;
+                }
+                if (self->dragActivated) {
+                    self->dragActivated = false;
+                    if (event == Gizmo::DragEvent::Cancelled) {
+                        // nothing done, nothing made active: the value
+                        // active before the drag is again
+                        self->setActive(self->dragPrevActive, self->dragPrevHandle);
+                    }
+                    else {
+                        // the release made it active already, and said so
+                        self->announceHandle();
+                    }
                 }
                 // A finished drag's last value is still to be recomputed --
                 // its step stays open for that recompute -- and may still
@@ -577,8 +660,14 @@ void OnViewValueSet::addHandle(int index, Gizmo* handle)
     entry->handles.push_back(handle);
     entry->anchors.emplace_back();
     setupHandle(index, handle);
+    updateHandleTips(index);
     handle->setHighlighted(index == active);
     handle->setHiddenInView(!handlesShown);
+    // a value with a handle has its label by it, no longer at the top
+    if (liveView()) {
+        showLabels();
+        placeLabels();
+    }
 }
 
 void OnViewValueSet::clearHandles(int index)
@@ -593,6 +682,12 @@ void OnViewValueSet::clearHandles(int index)
         }
         if (handle == namedHandle) {
             namedHandle = nullptr;
+        }
+        if (handle == announcedHandle) {
+            announcedHandle = nullptr;
+        }
+        if (handle == dragPrevHandle) {
+            dragPrevHandle = nullptr;
         }
         handle->setReleaseCallback(nullptr);
         handle->setMenu(nullptr);
@@ -612,6 +707,10 @@ void OnViewValueSet::clearHandles(int index)
     }
     entry->handles.clear();
     entry->anchors.clear();
+    if (liveView()) {
+        showLabels();
+        placeLabels();
+    }
 }
 
 void OnViewValueSet::setHandleAnchor(Gizmo* handle, const Base::Vector3d& world)
@@ -629,8 +728,17 @@ void OnViewValueSet::setHandleAnchor(Gizmo* handle, const Base::Vector3d& world)
     }
 }
 
+void OnViewValueSet::setFrame(const Base::Matrix4D& toWorld)
+{
+    frame = toWorld;
+    if (activeHandle) {
+        placeLabels();
+    }
+}
+
 void OnViewValueSet::placeAnchors(const Base::Matrix4D& toWorld)
 {
+    frame = toWorld;
     for (auto& entry : entries) {
         for (std::size_t i = 0; i < entry->handles.size(); ++i) {
             const SbVec3f pos = entry->handles[i]->getDraggerPlacement().pos;
@@ -805,6 +913,79 @@ void OnViewValueSet::attachToEdit(const ViewProvider* vp, const GizmoContainer* 
     refresh();
 }
 
+namespace {
+
+/// Where the label ground's opacity is kept, with the gizmos' settings
+ParameterGrp::handle groundParams()
+{
+    return App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Gui/Gizmos");
+}
+
+/// The label ground's opacity, in percent: 0, the default, for none
+int groundOpacity()
+{
+    return std::clamp(int(groundParams()->GetInt("OnViewLabelBackgroundOpacity", 0)), 0, 100);
+}
+
+/** The ground under a value's label: the tree's item ground as the tree
+ * paints it (docs/HandsOnQueue.md entry 240, the reporter: "add some
+ * transparent background for each on view lable, using the same background
+ * color from tree item"), else the tree's item background setting, else the
+ * window's base colour; as opaque as the setting says, none by default (the
+ * reporter: "Add label background transparency setting, default 0. ...
+ * another branch added label outline, which should be enough for
+ * readability").
+ */
+QColor labelGround()
+{
+    QColor colour;
+    if (auto tree = TreeWidget::instance()) {
+        const QBrush brush = tree->effectiveOverlayItemBackground();
+        if (brush.style() != Qt::NoBrush) {
+            colour = brush.color();
+        }
+    }
+    if (!colour.isValid() && TreeParams::getItemBackground()) {
+        Base::Color stored;
+        stored.setPackedValue(TreeParams::getItemBackground());
+        colour = QColor::fromRgbF(stored.r, stored.g, stored.b, stored.a);
+    }
+    if (!colour.isValid()) {
+        colour = QApplication::palette().color(QPalette::Base);
+    }
+    colour.setAlpha(groundOpacity() * 255 / 100);
+    return colour;
+}
+
+void setGround(EditableDatumLabel* label)
+{
+    const QColor ground = labelGround();
+    label->label->backgroundColor.setValue(
+        float(ground.redF()), float(ground.greenF()), float(ground.blueF()));
+    label->label->backgroundAlpha = float(ground.alphaF());
+}
+
+/** The border a sketch's dimensions and its on-view parameters have, so a
+ * value reads on any background without a ground (the reporter: "show the
+ * outline"). The Sketcher's preferences, kept in the View group; their
+ * defaults repeated here (Sketcher::SketcherParams), which Gui cannot reach.
+ */
+void setOutline(EditableDatumLabel* label)
+{
+    auto grp =
+        App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/View");
+    const unsigned long packed = viewBackgroundIsLight()
+        ? grp->GetUnsigned("ConstrainedOutlineColorLight", 0xFFF4F2FF)
+        : grp->GetUnsigned("ConstrainedOutlineColor", 0x280000FF);
+    SbColor outline;
+    float transparency {};
+    outline.setPackedValue(uint32_t(packed), transparency);
+    label->setOutline(outline, float(std::max<long>(0, grp->GetInt("ConstraintOutlineWidth", 1))));
+}
+
+}  // namespace
+
 void OnViewValueSet::makeLabels()
 {
     for (auto& entry : entries) {
@@ -815,6 +996,8 @@ void OnViewValueSet::makeLabels()
         label->setLabelType(SoDatumLabel::TEXT, EditableDatumLabel::Function::Dimensioning);
         label->setPoints(SbVec3f(0, 0, 0), SbVec3f(0, 0, 0));
         label->setPickable(true);
+        setGround(label.get());
+        setOutline(label.get());
         connect(label.get(), &EditableDatumLabel::clicked, this, &OnViewValueSet::onLabelClicked);
         entry->label = std::move(label);
     }
@@ -839,8 +1022,8 @@ void OnViewValueSet::showLabels()
         if (!label) {
             continue;
         }
-        const bool shown =
-            !entries[i]->hidden && (entries[i]->place == Place::TopMiddle || i == active);
+        const bool shown = !entries[i]->hidden
+            && ((entries[i]->place == Place::TopMiddle && !atHandle(i)) || i == active);
         if (shown && !label->isActive()) {
             label->activate();
         }
@@ -864,12 +1047,13 @@ void OnViewValueSet::placeLabels()
     // Facing the camera, so that the text is upright on the screen
     const Base::Rotation rotation = facingCamera(camera);
 
-    // At the top middle: a feature's default value, and an active value
+    // At the top middle: a value with no handle shown, and an active value
     // whose handles this view hides, as there is none to stand by (8.5)
     auto atTop = [this](int i) {
         const auto& entry = entries[i];
         return !entry->hidden && entry->label
-            && (entry->place == Place::TopMiddle || (!handlesShown && i == active));
+            && ((entry->place == Place::TopMiddle && !atHandle(i))
+                || (!handlesShown && i == active));
     };
     // The column stands in the middle of what no overlay covers (8.4), the
     // menu button at the first label's left
@@ -929,7 +1113,7 @@ void OnViewValueSet::placeLabels()
             ++row;
         }
         else {
-            // Beside the active handle, up and to the right of it
+            // Beside the active handle, at its foot
             if (i != active || entry->handles.empty()) {
                 continue;
             }
@@ -938,10 +1122,14 @@ void OnViewValueSet::placeLabels()
             if (it != entry->handles.end()) {
                 h = std::distance(entry->handles.begin(), it);
             }
-            const Base::Vector3d& anchor = entry->anchors[h];
-            const SbVec2s at = view->getPointOnViewport(SbVec3f(float(anchor.x), float(anchor.y), float(anchor.z)));
-            const int offset = int(HandleOffset * ratio);
-            pixel = SbVec2s(short(at[0] + offset), short(at[1] + offset));
+            // In edit, the size the label had shown: the edit box opens where
+            // the label stood (entry 244, the reporter: "click or enter to
+            // edit will move the edit box instead of show in place of the
+            // label")
+            if (!entry->label->isInEdit() || entry->shownSize.isEmpty()) {
+                entry->shownSize = labelTextSize(entry->label.get());
+            }
+            pixel = handleLabelPixel(entry->handles[h], entry->anchors[h], entry->shownSize);
         }
         const SbVec3f p = view->getPointOnFocalPlane(pixel);
         entry->label->setPlacement(Base::Placement(Base::Vector3d(p[0], p[1], p[2]), rotation));
@@ -949,15 +1137,96 @@ void OnViewValueSet::placeLabels()
     }
 }
 
-void OnViewValueSet::updateLabel(int index)
+bool OnViewValueSet::atHandle(int index) const
 {
-    if (index < 0 || index >= count()) {
-        return;
+    if (!handlesShown || index < 0 || index >= count()) {
+        return false;
     }
-    auto& entry = entries[index];
-    if (!entry->label || !entry->box || entry->label->isInEdit()) {
-        return;
+    // a value an expression drives is never active: shown where its place
+    // says, or not at all
+    if (entries[index]->box && entries[index]->box->hasExpression()) {
+        return false;
     }
+    const auto& handles = entries[index]->handles;
+    return std::any_of(handles.begin(), handles.end(), [](Gizmo* handle) {
+        return handle->getVisibility();
+    });
+}
+
+SbVec2s OnViewValueSet::handleLabelPixel(Gizmo* handle, const Base::Vector3d& anchor,
+                                         const QSize& text) const
+{
+    const double ratio = std::max(1.0, view->devicePixelRatio());
+    const auto toSb = [](const Base::Vector3d& v) {
+        return SbVec3f(float(v.x), float(v.y), float(v.z));
+    };
+    const std::optional<Gizmo::HandleBase> base =
+        frame && handle ? handle->getHandleBase() : std::nullopt;
+    if (!base) {
+        // where the owner said the handle stands, up and to the right
+        const SbVec2s at = view->getPointOnViewport(toSb(anchor));
+        const int offset = int(HandleOffset * ratio);
+        return SbVec2s(short(at[0] + offset), short(at[1] + offset));
+    }
+    // The handle's foot as it stands now -- an arrow moves with its value --
+    // and which way the handle reaches from it, on the screen
+    const auto fromSb = [](const SbVec3f& v) {
+        return Base::Vector3d(v[0], v[1], v[2]);
+    };
+    const Base::Vector3d foot = *frame * fromSb(base->point);
+    Base::Vector3d way = *frame * fromSb(base->point + base->direction) - foot;
+    const SbVec2s at = view->getPointOnViewport(toSb(foot));
+    // a point along the handle as far as some 100 pixels make at the foot,
+    // for a way on the screen not rounded to a pixel
+    const SbVec3f near0 = view->getPointOnFocalPlane(at);
+    const SbVec3f near1 = view->getPointOnFocalPlane(SbVec2s(short(at[0] + 100), at[1]));
+    way.Normalize();
+    const SbVec2s along = view->getPointOnViewport(toSb(foot + way * (near1 - near0).length()));
+    double dx = along[0] - at[0];
+    double dy = along[1] - at[1];
+    const double length = std::hypot(dx, dy);
+    double nx = std::sqrt(0.5);
+    double ny = nx;
+    if (length >= 4.0) {
+        dx /= length;
+        dy /= length;
+        if (base->radial) {
+            // out from the axis, past the knob
+            nx = dx;
+            ny = dy;
+        }
+        else {
+            // beside the arrow, on its upper or right side: the arrow
+            // reaches away from its foot, the label stays clear of it
+            nx = -dy;
+            ny = dx;
+            if (nx + ny < 0) {
+                nx = -nx;
+                ny = -ny;
+            }
+        }
+    }
+    // Seen end on (no way on the screen): up and to the right. The label's
+    // middle as far out as its half size along that way, and the clearance
+    const double half = (std::abs(nx) * text.width() + std::abs(ny) * text.height()) * ratio / 2.0;
+    const double reach = half + HandleClearance * ratio * (base->radial ? 2.0 : 1.0);
+    return SbVec2s(short(at[0] + nx * reach), short(at[1] + ny * reach));
+}
+
+void OnViewValueSet::announceHandle()
+{
+    if (namedHandle != announcedHandle) {
+        announcedHandle = namedHandle;
+        Q_EMIT activeHandleChanged(namedHandle);
+    }
+}
+
+QString OnViewValueSet::labelText(int index) const
+{
+    if (index < 0 || index >= count() || !entries[index]->box) {
+        return {};
+    }
+    const auto& entry = entries[index];
     const Base::Quantity value = quantityOf(entry->box);
     // "Radius 2 mm", not "Radius 2.00 mm" (as the omni search writes it)
     QString text = trimTrailingZeros(QString::fromStdString(value.getUserString()), QLocale());
@@ -973,11 +1242,42 @@ void OnViewValueSet::updateLabel(int index)
                 text += QStringLiteral(" = ") + QString::fromStdString(info.expression->toString());
             }
         }
-        entry->label->setColor(expressionColor());
     }
-    else {
-        entry->label->setActivatedColor();
+    return text;
+}
+
+QString OnViewValueSet::handleHint()
+{
+    return tr("Drag to change the value; click to type it.\n"
+              "Right click for the menu.");
+}
+
+void OnViewValueSet::updateHandleTips(int index)
+{
+    // The value as its label reads, first, over what the handle does (entry
+    // 241 (d), the reporter 2026-11-02: "on highlight handle, show tooltip
+    // with lable text and value (in the first line if there's already
+    // tooltips)")
+    const QString text = labelText(index);
+    const QString tip = text.isEmpty() ? handleHint() : text + QLatin1Char('\n') + handleHint();
+    for (Gizmo* handle : entries[index]->handles) {
+        handle->setMenuToolTip(tip);
     }
+}
+
+void OnViewValueSet::updateLabel(int index)
+{
+    if (index < 0 || index >= count()) {
+        return;
+    }
+    auto& entry = entries[index];
+    updateHandleTips(index);
+    if (!entry->label || !entry->box || entry->label->isInEdit()) {
+        return;
+    }
+    const QString text = labelText(index);
+    entry->label->setColor(onBackground(entry->box->hasExpression() ? expressionColor()
+                                                                    : dimensionColor()));
     entry->label->label->string = text.toUtf8().constData();
 }
 
@@ -1034,7 +1334,6 @@ void OnViewValueSet::setActive(int index, Gizmo* handle)
         endTyping(false);
     }
     const bool changed = index != active;
-    Gizmo* const oldNamed = namedHandle;
     active = index;
     activeHandle = nullptr;
     namedHandle = nullptr;
@@ -1057,8 +1356,9 @@ void OnViewValueSet::setActive(int index, Gizmo* handle)
     if (changed) {
         Q_EMIT activeChanged(active);
     }
-    if (namedHandle != oldNamed) {
-        Q_EMIT activeHandleChanged(namedHandle);
+    // a drag that made its handle active says so at its end (setupHandle())
+    if (!holdAnnouncement) {
+        announceHandle();
     }
 }
 
@@ -1278,6 +1578,25 @@ void OnViewValueSet::addSettingsMenu(QMenu& menu)
     settings->addAction(fieldRow(settings, tr("Coarse rotation step (degrees)"), rotation));
     connect(rotation, qOverload<int>(&QSpinBox::valueChanged), [](int v) {
         MiscParams::setCoarseRotationSnapMultiplier(v);
+    });
+
+    // the values' labels' ground, the tree's item colour (entry 240): its
+    // opacity, none by default, the labels shown taking it at once
+    auto ground = new QSpinBox;
+    ground->setObjectName(QStringLiteral("OnViewSettingLabelBackgroundOpacity"));
+    ground->setRange(0, 100);
+    ground->setSuffix(QStringLiteral(" %"));
+    ground->setValue(groundOpacity());
+    ground->setToolTip(tr("How opaque the ground under a value's label is, in the tree's "
+                          "item colour; 0 for none"));
+    settings->addAction(fieldRow(settings, tr("Label background opacity"), ground));
+    connect(ground, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        groundParams()->SetInt("OnViewLabelBackgroundOpacity", v);
+        for (auto& entry : entries) {
+            if (entry->label) {
+                setGround(entry->label.get());
+            }
+        }
     });
 }
 

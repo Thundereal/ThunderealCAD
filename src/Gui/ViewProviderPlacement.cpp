@@ -30,6 +30,7 @@
 
 #include <App/DocumentObject.h>
 
+#include <Inventor/SoFullPath.h>
 #include "ViewProviderPlacement.h"
 #include "SoFCSelection.h"
 #include "SoFCUnifiedSelection.h"

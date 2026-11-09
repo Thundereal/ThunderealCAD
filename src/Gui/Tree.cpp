@@ -44,9 +44,12 @@
 #include <QWindow>
 #include <QStack>
 
+#include <chrono>
+
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <Base/Console.h>
+#include <Base/Interpreter.h>
 #include <Base/Sequencer.h>
 #include <Base/Tools.h>
 #include <Base/Reader.h>
@@ -63,6 +66,7 @@
 #include <optional>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/Link.h>
+#include <App/PropertyPythonObject.h>
 
 #include "Tree.h"
 #include "CommandT.h"
@@ -729,8 +733,11 @@ public:
         if (nextEditingItem == item) {
             nextEditingItem = nullptr;
         }
-        if (master->editingItem == item) {
-            master->editingItem = nullptr;
+        for (auto it = master->editingItems.begin(); it != master->editingItems.end();) {
+            if (it->second == item)
+                it = master->editingItems.erase(it);
+            else
+                ++it;
         }
         if (master->hiddenItem == item) {
             master->hiddenItem = nullptr;
@@ -1137,7 +1144,10 @@ QWidget* TreeWidgetItemDelegate::createEditor(
 
     std::ostringstream str;
     str << "Change " << obj->getNameInDocument() << '.' << prop.getName();
-    App::GetApplication().setActiveTransaction(str.str().c_str());
+    // Kept over the inputs typed into the editor, closed with it below
+    // (docs/MultiViewEdit.md sec 12.2 rule 5); before, the next step set
+    // closed it
+    const int tid = App::GetApplication().setActiveTransaction(str.str().c_str(), true);
     FC_LOG("create editor transaction " << App::GetApplication().getActiveTransaction());
 
     QLineEdit *editor;
@@ -1151,6 +1161,14 @@ QWidget* TreeWidgetItemDelegate::createEditor(
         editor = new QLineEdit(parent);
     editor->setReadOnly(prop.isReadOnly());
     LineEditStyle::setup(editor);
+    // Its value is written (setModelData) before it goes
+    if (tid) {
+        QObject::connect(editor, &QObject::destroyed, [tid]() {
+            int active = 0;
+            if (App::GetApplication().getActiveTransaction(&active) && active == tid)
+                App::GetApplication().closeActiveTransaction(false, tid);
+        });
+    }
     return editor;
 }
 
@@ -1172,7 +1190,6 @@ TreeWidget::TreeWidget(const char *name, QWidget* parent)
     , searchObject(nullptr)
     , searchDoc(nullptr)
     , searchContextDoc(nullptr)
-    , editingItem(nullptr)
     , myName(name)
 {
     // The selection of the view the user is working in, whatever scope
@@ -1715,6 +1732,17 @@ int TreeWidget::changedGone()
     return gone;
 }
 
+namespace
+{
+/// A steady clock in milliseconds, for how long the status pass has waited
+qint64 steadyMsecs()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+}  // namespace
+
 void TreeWidget::_updateStatus(bool delay) {
     if(!delay) {
         if(!ChangedObjects.empty() || !NewObjects.empty()) {
@@ -1732,10 +1760,21 @@ void TreeWidget::_updateStatus(bool delay) {
             _updateStatus(true);
         return;
     }
+    // Restarting a running timer is two system calls on Windows (a kill and a
+    // set), and a solve changes a thousand objects in one turn: a change while
+    // the timer runs asks for the restart, and the timer makes it once when it
+    // fires (onUpdateStatus) -- the status still waits for the changes to stop
+    if (statusTimer->isActive()) {
+        statusTimer->setProperty("restartAsked", true);
+        return;
+    }
     int timeout = TreeParams::getStatusTimeout();
     if (timeout<0)
         timeout = 1;
     TREE_TRACE("delay update status");
+    // A fresh wait: the restarts it may take are counted from here
+    statusTimer->setProperty("restartAsked", false);
+    statusTimer->setProperty("firstAsked", steadyMsecs());
     statusTimer->start(timeout);
 }
 
@@ -1983,9 +2022,20 @@ void TreeWidget::onStartEditing()
 
 void TreeWidget::onFinishEditing()
 {
-    auto doc = Application::Instance->editDocument();
-    if(doc)  {
+    // The edit of the item the menu was opened on: another document may be
+    // in edit too (the action is offered for an item that is in edit)
+    Gui::Document *doc = nullptr;
+    ViewProviderDocumentObject *vp = nullptr;
+    if (this->contextItem && this->contextItem->type() == ObjectType) {
+        vp = static_cast<DocumentObjectItem*>(this->contextItem)->object();
+        doc = Application::Instance->editDocument(
+            [vp](Gui::Document *editDoc) { return editDoc->isEditViewProvider(vp); });
+    }
+    if (doc)
+        doc->resetEditOf(vp);
+    else if ((doc = Application::Instance->editDocument()))
         doc->resetEdit();
+    if(doc)  {
         doc->getDocument()->recompute();
         doc->commitCommand();
     }
@@ -2796,7 +2846,7 @@ bool TreeWidget::onDoubleClickItem(QTreeWidgetItem *item)
 
             const char* commandText = vp->getTransactionText();
             if (commandText) {
-                auto editDoc = Application::Instance->editDocument();
+                auto editStarts = Application::Instance->editStartCount();
                 App::AutoTransaction committer(commandText, true);
 
                 if (!vp->doubleClicked())
@@ -2805,7 +2855,7 @@ bool TreeWidget::onDoubleClickItem(QTreeWidgetItem *item)
                     manager->addLine(MacroManager::Gui, ss.str().c_str());
 
                 // If the double click starts an editing, let the transaction persist
-                if (!editDoc && Application::Instance->editDocument())
+                if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                     committer.setEnable(false);
             }
             else {
@@ -3299,13 +3349,13 @@ void TreeWidget::mousePressEvent(QMouseEvent *event) {
                 || tag == treeUnselectableIconTag())
         {
             ViewProviderDocumentObject* vp = oitem->object();
-            auto editDoc = Application::Instance->editDocument();
+            auto editStarts = Application::Instance->editStartCount();
             App::AutoTransaction committer("Item clicked", true);
             try {
                 SelectionContext sctx(oitem->getSubObjectT());
                 if(vp->iconMouseEvent(event, tag)) {
                     // If the icon click starts an editing, let the transaction persist
-                    if (!editDoc && Application::Instance->editDocument())
+                    if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                         committer.setEnable(false);
                     pimpl->skipMouseRelease = true;
                     event->setAccepted(true);
@@ -3366,7 +3416,7 @@ void TreeWidget::mouseReleaseEvent(QMouseEvent *ev)
         auto oitem = pimpl->itemHitTest(ev->pos(), &tag);
         if (oitem) {
             ViewProviderDocumentObject* vp = oitem->object();
-            auto editDoc = Application::Instance->editDocument();
+            auto editStarts = Application::Instance->editStartCount();
             App::AutoTransaction committer("Item click released", true);
             bool handled = false;
             try {
@@ -3392,7 +3442,7 @@ void TreeWidget::mouseReleaseEvent(QMouseEvent *ev)
             if (handled) {
                 pimpl->skipMouseRelease = false;
                 // If the icon release starts an editing, let the transaction persist
-                if (!editDoc && Application::Instance->editDocument())
+                if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                     committer.setEnable(false);
                 ev->setAccepted(true);
                 return;
@@ -4796,6 +4846,20 @@ DocumentObjectItem *TreeWidget::pickRevealItem(const DocumentObjectDataPtr &data
 
 void TreeWidget::onUpdateStatus()
 {
+    if (statusTimer->property("restartAsked").toBool()) {
+        // Changes came while it ran (_updateStatus): wait for them to stop,
+        // but not forever -- changes that never stop (a script, a playback)
+        // kept new objects out of the tree for as long as they went on
+        statusTimer->setProperty("restartAsked", false);
+        int timeout = TreeParams::getStatusTimeout();
+        if (timeout < 0)
+            timeout = 1;
+        const qint64 waited = steadyMsecs() - statusTimer->property("firstAsked").toLongLong();
+        if (waited < 5 * static_cast<qint64>(timeout)) {
+            statusTimer->start(timeout);
+            return;
+        }
+    }
     if(updateBlocked || _DraggingActive
                      || this->state()==DraggingState
                      || App::GetApplication().isRestoring())
@@ -5068,8 +5132,14 @@ void TreeWidget::onUpdateStatus()
         scrollToItem(errItem);
 
     updateGeometries();
-    if (clearTimer)
+    if (clearTimer) {
         statusTimer->stop();
+        // The timer runs while the pass does: what changed meanwhile asked
+        // for a restart, and gets a pass of its own
+        if (statusTimer->property("restartAsked").toBool()) {
+            _updateStatus();
+        }
+    }
 
     FC_LOG("done update status");
 }
@@ -6261,30 +6331,39 @@ void DocumentItem::slotInEdit(const Gui::ViewProviderDocumentObject& v)
     unsigned long col = TreeParams::getTreeEditColor();
     QColor color(App::Color::fromPackedRGB<QColor>(col));
 
-    auto doc = Application::Instance->editDocument();
+    // The document whose edit this is: another may be in edit too
+    auto doc = Application::Instance->editDocument(
+        [&v](Gui::Document *editDoc) { return editDoc->isEditViewProvider(&v); });
     if(!doc)
         return;
     auto docitem = getTree()->getDocumentItem(doc);
     if (!docitem)
         return;
 
+    // This edit's item; the others' keep their mark
+    DocumentObjectItem *editingItem = nullptr;
     if(getTree()->pimpl->nextEditingItem)
-        getTree()->editingItem = getTree()->pimpl->nextEditingItem;
+        editingItem = getTree()->pimpl->nextEditingItem;
     else {
+        // the session starting, which this signal is sent from
         ViewProviderDocumentObject *parentVp=nullptr;
         std::string subname;
         auto vp = doc->getInEdit(&parentVp,&subname);
         if(!parentVp)
             parentVp = dynamic_cast<ViewProviderDocumentObject*>(vp);
         if(parentVp)
-            getTree()->editingItem = docitem->findItemByObject(
+            editingItem = docitem->findItemByObject(
                     true,parentVp->getObject(),subname.c_str());
     }
+    if (editingItem)
+        getTree()->editingItems[&v] = editingItem;
+    else
+        getTree()->editingItems.erase(&v);
 
-    if(getTree()->editingItem) {
-        getTree()->editingItem->setBackground(0,color);
-        docitem->showItem(getTree()->editingItem, false, true);
-        getTree()->scrollToItem(getTree()->editingItem);
+    if(editingItem) {
+        editingItem->setBackground(0,color);
+        docitem->showItem(editingItem, false, true);
+        getTree()->scrollToItem(editingItem);
     } else{
         FOREACH_ITEM(item,v)
             item->setBackground(0,color);
@@ -6359,17 +6438,21 @@ void DocumentItem::sortObjectItems()
 
 void DocumentItem::slotResetEdit(const Gui::ViewProviderDocumentObject& v)
 {
+    // This edit's item only: another may be in edit still (entry 232)
     auto tree = getTree();
+    auto found = tree->editingItems.find(&v);
+    DocumentObjectItem *editingItem = found != tree->editingItems.end() ? found->second : nullptr;
     FOREACH_ITEM_ALL(item)
-        if(tree->editingItem) {
-            if(item == tree->editingItem) {
+        if(editingItem) {
+            if(item == editingItem) {
                 item->setHighlight(true, item->highlightMode);
                 break;
             }
         }else if(item->object() == &v)
             item->setHighlight(true, item->highlightMode);
     END_FOREACH_ITEM
-    tree->editingItem = nullptr;
+    if (found != tree->editingItems.end())
+        tree->editingItems.erase(found);
 }
 
 void DocumentItem::slotNewObject(const Gui::ViewProviderDocumentObject& obj) {
@@ -8139,6 +8222,63 @@ void DocumentObjectItem::testItemStatus(bool resetStatus)
     this->setIcon(0, icon);
 }
 
+// The overlays a Python view provider asks for with getOverlayIcons(), upstream's
+// hook (ViewProviderFeaturePythonImp::getOverlayIcons): a dict of
+// Gui.IconPosition -> icon name. Upstream merges them into the tree icon only
+// (mergeColorfulOverlayIcons), and so does this. Done here rather than as a
+// ViewProviderFeaturePython member, which would rebuild every module.
+static void mergeProxyOverlayIcons(const ViewProviderDocumentObject *vp,
+                                   QPixmap &pxOn, QPixmap &pxOff, bool hasPxOff)
+{
+    auto prop = Base::freecad_dynamic_cast<App::PropertyPythonObject>(
+            vp->getPropertyByName("Proxy"));
+    if (!prop)
+        return;
+
+    std::vector<std::pair<BitmapFactoryInst::Position, std::string>> overlays;
+    {
+        Base::PyGILStateLocker lock;
+        try {
+            Py::Object proxy = prop->getValue();
+            if (proxy.isNone() || !proxy.hasAttr("getOverlayIcons"))
+                return;
+            Py::Callable method(proxy.getAttr("getOverlayIcons"));
+            Py::Object ret(method.apply(Py::Tuple()));
+            if (!PyDict_Check(ret.ptr()))
+                return;
+            PyObject *key, *value;
+            Py_ssize_t pos = 0;
+            while (PyDict_Next(ret.ptr(), &pos, &key, &value)) {
+                if (!PyLong_Check(key) || !PyUnicode_Check(value))
+                    continue;
+                long position = PyLong_AsLong(key);
+                if (position < BitmapFactoryInst::TopLeft
+                        || position > BitmapFactoryInst::BottomRight)
+                    continue;
+                std::string name = Py::String(value).as_std_string("utf-8");
+                if (!name.empty())
+                    overlays.emplace_back(
+                            static_cast<BitmapFactoryInst::Position>(position), name);
+            }
+        }
+        catch (Py::Exception &) {
+            Base::PyException e;
+            e.reportException();
+            return;
+        }
+    }
+
+    for (const auto &[position, name] : overlays) {
+        // The tree's own status overlays are 32 on a 64 icon
+        QPixmap px = BitmapFactory().pixmapFromSvg(name.c_str(), QSizeF(32, 32));
+        if (px.isNull())
+            continue;
+        if (hasPxOff)
+            pxOff = BitmapFactory().merge(pxOff, px, position);
+        pxOn = BitmapFactory().merge(pxOn, px, position);
+    }
+}
+
 static QPixmap mergePixmaps(const std::vector<std::pair<QByteArray, QPixmap> > &icons,
                             std::vector<std::pair<QByteArray, int> > *iconInfo)
 {
@@ -8231,6 +8371,8 @@ QIcon TreeWidget::Private::getItemIcon(int currentStatus,
             pxOff = BitmapFactory().merge(pxOff, pimpl->pxExternal, BitmapFactoryInst::BottomRight);
         pxOn = BitmapFactory().merge(pxOn, pimpl->pxExternal, BitmapFactoryInst::BottomRight);
     }
+
+    mergeProxyOverlayIcons(vp, pxOn, pxOff, hasPxOff);
 
     if (currentStatus & (ItemStatusInvisible | ItemStatusVisible)) {
         std::vector<std::pair<QByteArray, QPixmap> > icons;

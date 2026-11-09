@@ -32,6 +32,7 @@
 #include <fastsignals/signal.h>
 
 #include <App/PropertyStandard.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>

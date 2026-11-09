@@ -29,7 +29,9 @@
 
 #include "OriginGroupExtension.h"
 #include "GeoFeature.h"
+#include "AuxGroup.h"
 #include "Origin.h"
+#include "Part.h"
 
 
 FC_LOG_LEVEL_INIT("App", true, true)
@@ -102,6 +104,23 @@ bool OriginGroupExtension::extensionGetSubObject(DocumentObject *&ret, const cha
             if(mat && transform)
                 *mat *= const_cast<OriginGroupExtension*>(this)->placement().getValue().toMatrix();
             ret = originObj->getSubObject(dot+1,pyObj,mat,true,depth+1);
+            return true;
+        }
+    }
+    // The Elements group by its name or label, as the origin: it is held by a
+    // property, not in Group, and a path the tree makes names it so
+    auto owner = dynamic_cast<AuxGroupOwner*>(const_cast<DocumentObject*>(getExtendedObject()));
+    auto elements = owner ? owner->getElementsGroup(false) : nullptr;
+    if (elements && elements->isAttachedToDocument() && subname && (dot=strchr(subname,'.'))) {
+        bool found;
+        if (subname[0] == '$')
+            found = std::string(subname+1,dot) == elements->Label.getValue();
+        else
+            found = std::string(subname,dot) == elements->getNameInDocument();
+        if (found) {
+            if (mat && transform)
+                *mat *= const_cast<OriginGroupExtension*>(this)->placement().getValue().toMatrix();
+            ret = elements->getSubObject(dot+1,pyObj,mat,true,depth+1);
             return true;
         }
     }
@@ -184,6 +203,13 @@ void OriginGroupExtension::onExtendedUnsetupObject () {
     App::DocumentObject *origin = Origin.getValue ();
     if (origin && !origin->isRemoving ()) {
         origin->getDocument ()->removeObject (origin->getNameInDocument());
+    }
+
+    // The Elements group goes with its owner, as the origin does
+    if (auto owner = dynamic_cast<AuxGroupOwner*>(getExtendedObject())) {
+        auto elements = owner->getElementsGroup(false);
+        if (elements && !elements->isRemoving())
+            elements->getDocument()->removeObject(elements->getNameInDocument());
     }
 
     GeoFeatureGroupExtension::onExtendedUnsetupObject ();
@@ -280,6 +306,11 @@ void OriginGroupExtension::relinkToOrigin(App::DocumentObject* obj)
 
 std::vector< DocumentObject* > OriginGroupExtension::addObjects(std::vector<DocumentObject*> objs) {
 
+    // A part's GroupMode first, so that an object replaced by a link keeps
+    // its own references
+    if (auto part = Base::freecad_dynamic_cast<App::Part>(getExtendedObject()))
+        objs = part->prepareObjectsToAdd(objs);
+
     for(auto obj : objs)
         relinkToOrigin(obj);
 
@@ -289,6 +320,14 @@ std::vector< DocumentObject* > OriginGroupExtension::addObjects(std::vector<Docu
 bool OriginGroupExtension::hasObject(const DocumentObject* obj, bool recursive) const {
 
     if(Origin.getValue() && (obj == getOrigin() || getOrigin()->hasObject(obj)))
+        return true;
+
+    // The Elements group, held by a property as the origin is, and its
+    // elements are the container's too
+    auto aux = Base::freecad_dynamic_cast<const AuxGroup>(obj);
+    if (!aux)
+        aux = AuxGroup::getOwningGroupOf(obj);
+    if (aux && aux->isOwning() && aux->getOwner() == getExtendedObject())
         return true;
 
     return App::GroupExtension::hasObject(obj, recursive);

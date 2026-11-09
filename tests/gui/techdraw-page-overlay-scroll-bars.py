@@ -42,6 +42,7 @@ OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 GENERAL = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/TechDraw/General")
 VIEW = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
+OPEN_VIEW = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/OpenView")
 ZONE = 14
 
 state = {"done": False}
@@ -107,6 +108,11 @@ def run():
         GENERAL.SetBool("HideScrollBars", True)
         state["area"] = VIEW.GetBool("UseViewArea", True)
         VIEW.SetBool("UseViewArea", True)
+        # A small window (offscreen on Windows: a 400 x 338 view) refuses
+        # the split at the default 300 x 300 least cell, and the page
+        # opens as a tab instead
+        state["least"] = OPEN_VIEW.GetInt("MinimumCellSize", -1)
+        OPEN_VIEW.SetInt("MinimumCellSize", 100)
         doc = FreeCAD.newDocument("PageScrollBars")
         templates = glob.glob(os.path.join(FreeCAD.getResourceDir(), "Mod", "TechDraw",
                                            "Templates", "**", "*A4*Landscape*.svg"), recursive=True)
@@ -199,6 +205,10 @@ def finish():
     GENERAL.RemBool("HideScrollBars")
     if "area" in state:
         VIEW.SetBool("UseViewArea", state["area"])
+    if state.get("least", -1) < 0:
+        OPEN_VIEW.RemInt("MinimumCellSize")
+    else:
+        OPEN_VIEW.SetInt("MinimumCellSize", state["least"])
     for name in list(FreeCAD.listDocuments().keys()):
         FreeCAD.closeDocument(name)
     note("DONE")

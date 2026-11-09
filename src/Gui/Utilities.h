@@ -209,6 +209,11 @@ namespace Gui {
 /// view draws with one projection and picks with another.
 GuiExport SbViewVolume getMappedViewVolume(const SoCamera *camera, float aspect);
 
+/// Whether the 3D view's background, as the View preferences set it (the
+/// mean relative luminance of its colours), is light: what the sketch's
+/// dimensions and the on-view values pick their outline colour by.
+GuiExport bool viewBackgroundIsLight();
+
 /**
  */
 class GuiExport ViewVolumeProjection : public Base::ViewProjMethod

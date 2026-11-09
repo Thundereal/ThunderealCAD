@@ -27,7 +27,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "Renderer.h"
+#include "RenderConfig.h"
 
 namespace Render {
 

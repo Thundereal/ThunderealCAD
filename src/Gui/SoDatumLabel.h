@@ -156,6 +156,10 @@ public:
     /// dark border reads on a dark and a light background alike.
     SoSFColor  outlineColor;
     SoSFFloat  outlineWidth;
+    /// A ground under the text: its colour, and how opaque it is, 0 for none
+    /// (an on-view value's label, docs/HandsOnQueue.md entry 240)
+    SoSFColor  backgroundColor;
+    SoSFFloat  backgroundAlpha;
     bool       useAntialiasing;
 
 protected:

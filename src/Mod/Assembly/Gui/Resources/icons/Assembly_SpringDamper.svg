@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- A coil spring between two plates -->
+  <path d="M 8,6 L 56,6" fill="none" stroke="#2e3436" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 8,58 L 56,58" fill="none" stroke="#2e3436" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 32,8 L 32,14 L 46,18 L 18,24 L 46,30 L 18,36 L 46,42 L 18,48 L 32,52 L 32,56"
+        fill="none" stroke="#204a87" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 32,8 L 32,14 L 46,18 L 18,24 L 46,30 L 18,36 L 46,42 L 18,48 L 32,52 L 32,56"
+        fill="none" stroke="#729fcf" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

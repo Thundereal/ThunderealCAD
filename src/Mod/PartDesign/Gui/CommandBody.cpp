@@ -41,6 +41,7 @@
 #include <Gui/Control.h>
 #include <Gui/Document.h>
 #include <Gui/Application.h>
+#include <Gui/Tree.h>
 #include <Gui/MainWindow.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/View3DInventor.h>

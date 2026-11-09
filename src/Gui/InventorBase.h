@@ -24,7 +24,7 @@
 #define GUI_INVENTOR_BASE_H
 
 #include <boost/intrusive_ptr.hpp>
-#include <Base/Tools.h>
+#include <Base/HashCombine.h>
 
 // define this only if we actually decide to run coin in multiple thread
 #ifdef FC_COIN_MULTI_THREAD

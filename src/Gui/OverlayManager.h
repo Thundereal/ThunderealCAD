@@ -248,6 +248,17 @@ public:
      * (docs/HandsOnQueue.md entry 76).
      */
     QRegion covered(const QWidget *widget) const;
+    /** covered() one cover at a time: each dock's and each cover's own
+     * rectangle in \a widget. A region keeps rectangles in bands, so that
+     * a dock at the side of a dock at the bottom comes back from it in two
+     * pieces, the upper one reading as a dock at the top: what lays itself
+     * out against the docks by side asks this (OverlayScrollBars,
+     * docs/HandsOnQueue.md entry 233). With taskContent, a see-through
+     * dock that shows task views and nothing else by what they show, the
+     * boxes in their panels: the scroll bars do not go round the Tasks
+     * panel while it has nothing in it (entry 233).
+     */
+    QVector<QRect> coverRects(const QWidget *widget, bool taskContent = false) const;
     /// \a cover is laid over views while it is shown: covered() counts it,
     /// and coverChanged() tells when it moves, shows or hides. Forgotten
     /// when it is destroyed.

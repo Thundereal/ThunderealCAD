@@ -26,7 +26,6 @@
 
 #include <App/DocumentObject.h>
 #include <Gui/BitmapFactory.h>
-#include <Gui/Document.h>
 
 #include "TaskObjectName.h"
 #include "ui_TaskObjectName.h"

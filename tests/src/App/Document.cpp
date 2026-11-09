@@ -129,6 +129,31 @@ TEST_F(DocumentTest, liveImportUserEditExemptsTreeRankByIdentity)
     doc()->setStatus(App::Document::LiveImport, false);
 }
 
+// A progressive import keeps the labels it writes, duplicates included, as
+// the synchronous import does; the LiveImport the GUI keeps on a load it is
+// finishing is no import, and a label set then -- a script after the open, a
+// converter on open -- is made unique as any edit's is.
+TEST_F(DocumentTest, liveImportKeepsDuplicateLabelsButALiveLoadDoesNot)
+{
+    auto first = doc()->addObject("App::FeatureTest", "first");
+    auto second = doc()->addObject("App::FeatureTest", "second");
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+    first->Label.setValue("Part");
+
+    doc()->setStatus(App::Document::LiveImport, true);
+    second->Label.setValue("Part");
+    EXPECT_STREQ(second->Label.getValue(), "Part");
+
+    second->Label.setValue("second");
+    doc()->setStatus(App::Document::LiveLoad, true);
+    second->Label.setValue("Part");
+    EXPECT_STRNE(second->Label.getValue(), "Part");
+
+    doc()->setStatus(App::Document::LiveLoad, false);
+    doc()->setStatus(App::Document::LiveImport, false);
+}
+
 // A load is the program filling a document in, also when a command started
 // it: File > Open runs the whole restore under that command's guard, with the
 // document live for exactly as long, and every object of the file was refused.

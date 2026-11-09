@@ -1170,6 +1170,9 @@ class ShapeCongruenceCases(ShapeTestCase):
         project, volumes, _ = self.savedWith(True, "CongDistinct")
         doc = self.openDocument(project)
 
+        # What each surface is, not how much it holds: the two volumes used to
+        # differ by 1e-6 only because the integral was inexact on a B-spline,
+        # and once OCCT integrated one span by span they agreed to 1e-10.
         def kinds(name):
             return {f.Surface.TypeId for f in doc.getObject(name).Shape.Faces}
 

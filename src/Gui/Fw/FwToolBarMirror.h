@@ -131,13 +131,20 @@ private:
     Fw::QAction* commandModel(::QAction* real);
     void watchAction(::QAction* real);
     void rebuildCommandMap();
+    /// The icon a model carries: its name (`namedIconOf`), else the real
+    /// action's QIcon filed in `ImageStore` (`img:<sha1>`), else "".
     static QString iconNameOf(::QAction* real, const QString& command, int index);
+    /// The icon's name, from the command (a group's face: its default
+    /// member's), "" for an action with no command's pixmap behind it.
+    static QString namedIconOf(const QString& command, int index);
     static QString areaOf(::QToolBar* bar);
 
     bool _running = false;
     bool _rebuilding = false;
-    /// stop() asked for while rebuild() was on the stack; rebuild() does it
-    /// on its way out (see stop())
+    /// flush() is on the stack: a stop waits for it, as for a rebuild
+    bool _flushing = false;
+    /// stop() asked for while rebuild() or flush() was on the stack; that
+    /// one does it on its way out (see stop())
     bool _stopPending = false;
     int _rebuilds = 0;
     QTimer _rebuildTimer;

@@ -28,7 +28,6 @@
 #include <csignal>
 #include <string>
 #include "BaseClass.h"
-#include "FileInfo.h"
 
 
 using PyObject = struct _object;
@@ -190,6 +189,8 @@ using PyObject = struct _object;
 
 namespace Base
 {
+
+class FileInfo;
 
 class BaseExport Exception: public BaseClass
 {
@@ -405,7 +406,8 @@ public:
     PyObject* getPyExceptionType() const override;
 
 protected:
-    FileInfo file;
+    /// the path, normalized as FileInfo::filePath() has it
+    std::string file;
     // necessary   for what() legacy behaviour as it returns a buffer that
     // can not be of a temporary object to be destroyed at end of what()
     std::string _sErrMsgAndFileName;

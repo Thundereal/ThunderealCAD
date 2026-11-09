@@ -11,11 +11,19 @@ they all move.
     depth to read back: getRenderStats() answers geometryPixels -1 for it.
     A test about multisampling sets the value itself, which is after this.
 
+  - FONTCONFIG_FILE is taken out of the environment. scripts/gui-test.sh
+    states FreeCAD's font with it, and Qt has read it by now; a browser a test
+    starts is not FreeCAD and keeps the box's own fonts.
+
 Only what is not stored yet is set. scripts/gui-test.sh starts every run
 from a fresh profile, so that is what a test sees unless a --user-cfg is
 handed over by some other means.
 """
+import os
+
 import FreeCAD
+
+os.environ.pop("FONTCONFIG_FILE", None)
 
 _view = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
 if "AntiAliasing" not in _view.GetInts():

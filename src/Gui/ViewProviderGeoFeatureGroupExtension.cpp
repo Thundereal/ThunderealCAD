@@ -198,12 +198,15 @@ void ViewProviderGeoFeatureGroupExtension::extensionModeSwitchChange(void)
     }
 }
 
-bool ViewProviderGeoFeatureGroupExtension::needUpdateChildren(App::DocumentObject *obj)
+bool ViewProviderGeoFeatureGroupExtension::needUpdateChildren(App::DocumentObject *obj,
+                                                               bool exports)
 {
     bool found = false;
     for (auto o : obj->getInList()) {
         auto geogroup = o->getExtensionByType<App::GeoFeatureGroupExtension>(true);
         if (geogroup) {
+            if (!exports)
+                return true;
             auto vp = Application::Instance->getViewProvider(o);
             if (vp) {
                 auto ext = vp->getExtensionByType<ViewProviderGeoFeatureGroupExtension>(true);

@@ -666,6 +666,22 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter UndoGroupByInput
+    ///
+    /// Close the undo step an input's handling opened and left open once the
+    /// work it queued has run, unless something holds it: a command, a task
+    /// dialog, an edit, an editor that keeps it (persist), a mouse button
+    /// held down (docs/MultiViewEdit.md sec 12.2 rule 1). Off, it stays open
+    /// until the next step is set, as before; for A/B checks.
+    static const bool & getUndoGroupByInput();
+    static const bool & defaultUndoGroupByInput();
+    static void removeUndoGroupByInput();
+    static void setUndoGroupByInput(const bool &v);
+    static const char *docUndoGroupByInput();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter TransactionOnRecompute
     ///
     /// Record a recompute started with the Refresh command as an undo step.
@@ -675,6 +691,36 @@ public:
     static void removeTransactionOnRecompute();
     static void setTransactionOnRecompute(const bool &v);
     static const char *docTransactionOnRecompute();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter UndoImplicitLogOff
+    ///
+    /// With the transaction log off (TransactionLog 0), a write with no undo
+    /// step open is recorded too, as an implicit step that goes with the
+    /// step under it, as with the log on (docs/MultiViewEdit.md sec 12.2
+    /// rule 7). Off, such a write is not recorded, as before; for A/B checks.
+    static const bool & getUndoImplicitLogOff();
+    static const bool & defaultUndoImplicitLogOff();
+    static void removeUndoImplicitLogOff();
+    static void setUndoImplicitLogOff(const bool &v);
+    static const char *docUndoImplicitLogOff();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter RecomputeOnUndo
+    ///
+    /// Recompute after an undo or redo that leaves objects to recompute: ones
+    /// marked so when the step undone was made, and ones whose result an undo
+    /// cannot put back, as a TechDraw view's projection (docs/MultiViewEdit.md
+    /// sec 12.10). Off, they are left marked for the next recompute.
+    static const bool & getRecomputeOnUndo();
+    static const bool & defaultRecomputeOnUndo();
+    static void removeRecomputeOnUndo();
+    static void setRecomputeOnUndo(const bool &v);
+    static const char *docRecomputeOnUndo();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)

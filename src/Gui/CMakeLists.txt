@@ -538,6 +538,7 @@ SET(Dialog_CPP_SRCS
     DlgUndoRedo.cpp
     InputVector.cpp
     Placement.cpp
+    TaskPlacementPy.cpp
     PropertyPage.cpp
     SceneInspector.cpp
     TextureMapping.cpp
@@ -584,6 +585,7 @@ SET(Dialog_HPP_SRCS
     DlgUndoRedo.h
     InputVector.h
     Placement.h
+    TaskPlacementPy.h
     PropertyPage.h
     SceneInspector.h
     TextureMapping.h
@@ -1082,6 +1084,7 @@ SET(Viewprovider_CPP_SRCS
     LinkLooks.cpp
     ViewProviderAnnotation.cpp
     ViewProviderDocumentObject.cpp
+    ViewProviderAuxGroup.cpp
     ViewProviderDocumentObjectGroup.cpp
     ViewProviderDocumentObjectPyImp.cpp
     ViewProviderDragger.cpp
@@ -1132,6 +1135,7 @@ SET(Viewprovider_SRCS
     PropertyGroupName.h
     LinkLooks.h
     ViewProviderDocumentObject.h
+    ViewProviderAuxGroup.h
     ViewProviderDocumentObjectGroup.h
     ViewProviderDragger.h
     ViewProviderExtern.h
@@ -1540,6 +1544,8 @@ SET(FreeCADGui_CPP_SRCS
     resource.cpp
     Control.cpp
     TaskOwner.cpp
+    EditSteps.cpp
+    UndoConsent.cpp
     SpaceballEvent.cpp
     PreferencePackManager.cpp
     FreeCADStyle.cpp
@@ -1588,6 +1594,8 @@ SET(FreeCADGui_SRCS
     QtAll.h
     Control.h
     TaskOwner.h
+    EditSteps.h
+    UndoConsent.h
     SpaceballEvent.h
     PreferencePackManager.h
     FreeCADStyle.h

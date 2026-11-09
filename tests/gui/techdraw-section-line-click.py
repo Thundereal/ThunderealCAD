@@ -22,7 +22,15 @@ Claims, on a base view at 2:1 with the section 4 mm off the centroid:
     view's plane and by nothing else, and that is one step to undo and one
     recompute;
   - a click on the line after that changes nothing again;
-  - undo puts the origin back.
+  - a quick click whose mouse shakes 3 px is still a click;
+  - a drag of 3 px with the button held as long as starts a drag lands
+    where it was let go, and so does one that went 15 px out and came back
+    to 4 px: only the distance at the release used to count, and a line
+    could not be moved by less than startDragDistance (entry 231, "as if
+    the section line can only be placed at some discrete number of
+    possible positions");
+  - undo puts the origin back, and the line is drawn there again (it stayed
+    where the last move drew it, entry 231).
 """
 import os
 import traceback
@@ -126,6 +134,12 @@ def click_line():
 def make():
     import TechDrawGui  # the view providers
     GEN.SetBool("PageRendererVg", False)
+    # Each drag its own step, however quickly the next follows: the document
+    # folds commits of one property under one name within this window into a
+    # single step (TransactionLogJournal sec 37.4 P4, 3 s by default), and
+    # this script's drags come 2.5 s apart, so on a fast box two moves were one.
+    FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt(
+        "TransactionLogCoalesceSeconds", 0)
     doc = FreeCAD.newDocument(DOC)
     box = doc.addObject("Part::Box", "Box")
     box.Length = 20
@@ -227,6 +241,37 @@ def after_drag():
     click_line()
 
 
+def press_line():
+    p = at(VIEW_X + 12.0, line_y())
+    mouse(QtCore.QEvent.MouseMove, p)
+    mouse(QtCore.QEvent.MouseButtonPress, p, QtCore.Qt.LeftButton, QtCore.Qt.LeftButton)
+    STATE["press"] = p
+    STATE["before"] = FreeCAD.Vector(section().SectionOrigin)
+
+
+def drag_to(*dys):
+    """Moves to each of the rows dys px up from the press, then releases."""
+    p = STATE["press"]
+    for dy in dys:
+        mouse(QtCore.QEvent.MouseMove, QtCore.QPoint(p.x(), p.y() - dy),
+              QtCore.Qt.NoButton, QtCore.Qt.LeftButton)
+    mouse(QtCore.QEvent.MouseButtonRelease, QtCore.QPoint(p.x(), p.y() - dys[-1]),
+          QtCore.Qt.LeftButton, QtCore.Qt.NoButton)
+    STATE["px"] = dys[-1]
+
+
+def moved_by_px():
+    """The origin's move since the press, in view pixels up the page."""
+    mm = (section().SectionOrigin.y - STATE["before"].y) * SCALE
+    return mm * 10.0 * page_view().transform().m11()
+
+
+def away():
+    """The mouse off the line and nothing selected: the line drawn plain."""
+    mouse(QtCore.QEvent.MouseMove, at(VIEW_X + 60.0, VIEW_Y + 60.0))
+    FreeCADGui.Selection.clearSelection()
+
+
 @step(2500)
 def after_second_click():
     o = section().SectionOrigin
@@ -235,7 +280,47 @@ def after_second_click():
           and RECOMPUTES.count == 0,
           (tuple(o), FreeCAD.getDocument(DOC).UndoNames, RECOMPUTES.count))
     FreeCAD.removeDocumentObserver(RECOMPUTES)
-    for _ in range(4):
+    note("startDragDistance %d, startDragTime %d"
+         % (QtWidgets.QApplication.startDragDistance(),
+            QtWidgets.QApplication.startDragTime()))
+    # a quick click, the hand shaking 3 px
+    press_line()
+    drag_to(1, 2, 3)
+
+
+@step(1500)
+def after_shaky_click():
+    o = section().SectionOrigin
+    check("a quick click that shakes 3 px is still a click",
+          (o - STATE["before"]).Length < 1e-9 and len(moves()) == 1,
+          (tuple(o), FreeCAD.getDocument(DOC).UndoNames))
+    press_line()
+
+
+@step(QtWidgets.QApplication.startDragTime() + 400)
+def held_small_drag():
+    drag_to(1, 2, 3)
+
+
+@step(2500)
+def after_held_small_drag():
+    got = moved_by_px()
+    check("a 3 px drag held as long as starts a drag lands where it was let go",
+          abs(got - 3) < 0.5 and len(moves()) == 2,
+          ("%.2f px" % got, FreeCAD.getDocument(DOC).UndoNames))
+    # out past startDragDistance and back to 4 px, quickly
+    press_line()
+    drag_to(5, 10, 15, 10, 4)
+
+
+@step(2500)
+def after_out_and_back():
+    got = moved_by_px()
+    check("a drag that went 15 px out and came back to 4 px lands at 4 px",
+          abs(got - 4) < 0.5 and len(moves()) == 3,
+          ("%.2f px" % got, FreeCAD.getDocument(DOC).UndoNames))
+    away()
+    for _ in range(6):
         if moves():
             FreeCAD.getDocument(DOC).undo()
 
@@ -244,6 +329,25 @@ def after_second_click():
 def after_undo():
     o = section().SectionOrigin
     check("undo puts the origin back", (o - ORIGIN).Length < 1e-9, tuple(o))
+    # The line drawn where the origin is again: the page as it was before
+    # anything was clicked, in the band the line was dragged over.
+    away()
+    v = page_view()
+    img = v.grab().toImage().convertToFormat(QtGui.QImage.Format_RGB32)
+    img.save(os.path.join(OUT, "3-undone.png"))
+    before = QtGui.QImage(os.path.join(OUT, "1-before.png")).convertToFormat(
+        QtGui.QImage.Format_RGB32)
+    top = at(VIEW_X, line_y() + 14.0).y()
+    bottom = at(VIEW_X, line_y() - 2.0).y()
+    left = at(VIEW_X - 30.0, line_y()).x()
+    right = at(VIEW_X + 30.0, line_y()).x()
+    differ = 0
+    for y in range(max(0, top), min(img.height(), bottom)):
+        for x in range(max(0, left), min(img.width(), right), 2):
+            if img.pixel(x, y) != before.pixel(x, y):
+                differ += 1
+    check("after undo the line is drawn where the section is again",
+          differ <= 20, "%d pixels differ from before the moves" % differ)
 
 
 def finish():

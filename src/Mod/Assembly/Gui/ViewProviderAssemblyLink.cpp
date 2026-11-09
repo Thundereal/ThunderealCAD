@@ -39,6 +39,7 @@
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/CommandT.h>
+#include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 
 #include <Mod/Assembly/App/AssemblyObject.h>
@@ -75,7 +76,7 @@ bool ViewProviderAssemblyLink::setEdit(int mode)
     auto* assemblyLink = dynamic_cast<Assembly::AssemblyLink*>(getObject());
 
     if (!assemblyLink->isRigid() && mode == (int)ViewProvider::Transform) {
-        Base::Console().UserTranslatedNotification("Flexible sub-assemblies cannot be transformed.");
+        Base::Console().userTranslatedNotification("Flexible sub-assemblies cannot be transformed.");
         return true;
     }
 

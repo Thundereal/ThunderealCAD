@@ -48,7 +48,10 @@ public:
 
 protected:
 private:
-
+    /// LMB and RMB were down together since the gesture's first button went
+    /// down, a pan or not: no context menu at its end, whichever button is
+    /// let go of last
+    bool twoButtons = false;
 };
 
 }

@@ -41,11 +41,13 @@
 #endif
 #include <Inventor/elements/SoCacheElement.h>
 
+#include <Base/Console.h>
 #include <Base/UnitsApi.h>
 
 #include "SoFCSelection.h"
 #include "MainWindow.h"
 #include "SoFCSelectionAction.h"
+#include "Selection.h"
 #include "SoFCUnifiedSelection.h"
 #include "ViewParams.h"
 

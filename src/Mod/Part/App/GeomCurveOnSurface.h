@@ -80,7 +80,10 @@ public:
     void Transform(const gp_Trsf& T) override;
     Handle(Geom_Geometry) Copy() const override;
 
-    DEFINE_STANDARD_RTTIEXT(Geom_CurveOnSurface, Geom_BoundedCurve)
+    // INLINE, not RTTIEXT: RTTIEXT declares its members Standard_EXPORT, which
+    // outside OCCT's own DLLs is dllimport, and MSVC refuses that inside a
+    // PartExport class (C2487).
+    DEFINE_STANDARD_RTTI_INLINE(Geom_CurveOnSurface, Geom_BoundedCurve)
 
 private:
     Handle(Geom2d_Curve) myCurve2d;

@@ -61,6 +61,7 @@
 #include "Macro.h"
 #include "DockWindowManager.h"
 #include "MainWindow.h"
+#include "MDIView.h"
 #include "Selection/SelectionObserverPython.h"
 #include "TaskView/TaskDialog.h"
 #include "TaskView/TaskDialogPython.h"

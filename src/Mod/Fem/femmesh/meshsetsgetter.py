@@ -37,8 +37,14 @@ from femtools.femutils import type_of_obj
 
 
 class MeshSetsGetter:
-    def __init__(self, analysis_obj, solver_obj, mesh_obj, member):
+    def __init__(self, analysis_obj, solver_obj, mesh_obj, member, cache=None):
         # class attributes from parameter values
+        # Not upstream: cache, a dict kept between writes of one analysis
+        # (FemToolsCcx keeps one), holds the mesh's tables and each
+        # reference's nodes while the mesh and the shapes stay the same:
+        # a part solved at many frames of a run, its loads moving, looked
+        # its faces' nodes up again at each, a quarter of a second a frame
+        self.cache = cache
         self.analysis = analysis_obj
         self.solver_obj = solver_obj  # TODO without _obj
         self.mesh_object = mesh_obj  # TODO without _object
@@ -113,6 +119,26 @@ class MeshSetsGetter:
         self._load_tables()
 
     def _load_tables(self):
+        if self.mesh_object and self.cache is not None:
+            nodes = self.femmesh.Nodes
+            mesh = self.femmesh
+            token = (
+                self.mesh_object.Name,
+                mesh.EdgeCount,
+                mesh.FaceCount,
+                mesh.VolumeCount,
+            )
+            if self.cache.get("Token") != token or self.cache.get("MeshNodes") != nodes:
+                self.cache.clear()
+                self.cache["Token"] = token
+                self.cache["MeshNodes"] = nodes
+                self.cache["ElementTable"] = meshtools.get_femelement_table(self.femmesh)
+                self.cache["NodesElementTable"] = meshtools.get_femnodes_ele_table(
+                    nodes, self.cache["ElementTable"]
+                )
+            self.femnodes_mesh = nodes
+            self.femelement_table = self.cache["ElementTable"]
+            self.femnodes_ele_table = self.cache["NodesElementTable"]
         if self.mesh_object:
             if not self.femnodes_mesh:
                 self.femnodes_mesh = self.femmesh.Nodes
@@ -275,7 +301,9 @@ class MeshSetsGetter:
         for femobj in self.member.cons_fixed:
             # femobj --> dict, FreeCAD document object is femobj["Object"]
             print_obj_info(femobj["Object"])
-            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(self.femmesh, femobj)
+            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
+                self.femmesh, femobj, self.cache
+            )
             # add nodes to constraint_conflict_nodes, needed by constraint plane rotation
             for node in femobj["Nodes"]:
                 self.constraint_conflict_nodes.append(node)
@@ -310,10 +338,75 @@ class MeshSetsGetter:
         for femobj in self.member.cons_rigidbody:
             # femobj --> dict, FreeCAD document object is femobj["Object"]
             print_obj_info(femobj["Object"])
-            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(self.femmesh, femobj)
+            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
+                self.femmesh, femobj, self.cache
+            )
             # add nodes to constraint_conflict_nodes, needed by constraint plane rotation
             for node in femobj["Nodes"]:
                 self.constraint_conflict_nodes.append(node)
+            # Not upstream: a distributing coupling's element faces
+            if getattr(femobj["Object"], "Coupling", "Rigid") == "Distributing":
+                femobj["CouplingFaces"] = self._get_elements(femobj["Object"])
+                self._coupling_within_radius(femobj)
+            else:
+                self._rigid_within_radius(femobj)
+
+    def _rigid_within_radius(self, femobj):
+        """Not upstream: a rigid coupling's nodes within its CouplingRadius
+        of its reference node -- the part of a face another part shares --
+        the nearest one where none is"""
+        obj = femobj["Object"]
+        radius = getattr(obj, "CouplingRadius", None)
+        radius = radius.getValueAs("mm").Value if radius is not None else 0.0
+        if not radius > 0.0 or not femobj["Nodes"]:
+            return
+        nodes = self.femmesh.Nodes
+        ref = obj.ReferenceNode
+        kept = [n for n in femobj["Nodes"] if (nodes[n] - ref).Length <= radius]
+        if not kept:
+            kept = [min(femobj["Nodes"], key=lambda n: (nodes[n] - ref).Length)]
+        femobj["Nodes"] = kept
+
+    def _coupling_within_radius(self, femobj):
+        """Not upstream: a distributing coupling's element faces within its
+        CouplingRadius of its reference node, each by the centre of its
+        element's nodes on the referenced faces -- the nearest one where
+        none is -- and its nodes those faces' nodes"""
+        obj = femobj["Object"]
+        radius = getattr(obj, "CouplingRadius", None)
+        radius = radius.getValueAs("mm").Value if radius is not None else 0.0
+        if not radius > 0.0:
+            return
+        on = set(femobj["Nodes"])
+        nodes = self.femmesh.Nodes
+        ref = obj.ReferenceNode
+        nearest = None
+        kept_nodes = set()
+        result = []
+        for name, surf, is_sub_el in femobj["CouplingFaces"]:
+            if not is_sub_el:
+                result.append((name, surf, is_sub_el))
+                continue
+            kept = []
+            for elem, fno in surf:
+                face = [n for n in self.femmesh.getElementNodes(elem) if n in on]
+                if not face:
+                    continue
+                centre = FreeCAD.Vector()
+                for n in face:
+                    centre += nodes[n]
+                distance = (centre * (1.0 / len(face)) - ref).Length
+                if nearest is None or distance < nearest[0]:
+                    nearest = (distance, name, elem, fno, face)
+                if distance <= radius:
+                    kept.append((elem, fno))
+                    kept_nodes.update(face)
+            result.append((name, kept, is_sub_el))
+        if not kept_nodes and nearest is not None:
+            result = [(nearest[1], [(nearest[2], nearest[3])], True)]
+            kept_nodes.update(nearest[4])
+        femobj["CouplingFaces"] = result
+        femobj["Nodes"] = sorted(kept_nodes)
 
     def get_constraints_displacement_nodes(self):
         if not self.member.cons_displacement:
@@ -322,7 +415,9 @@ class MeshSetsGetter:
         for femobj in self.member.cons_displacement:
             # femobj --> dict, FreeCAD document object is femobj["Object"]
             print_obj_info(femobj["Object"])
-            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(self.femmesh, femobj)
+            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
+                self.femmesh, femobj, self.cache
+            )
             # add nodes to constraint_conflict_nodes, needed by constraint plane rotation
             for node in femobj["Nodes"]:
                 self.constraint_conflict_nodes.append(node)
@@ -334,7 +429,9 @@ class MeshSetsGetter:
         for femobj in self.member.cons_planerotation:
             # femobj --> dict, FreeCAD document object is femobj["Object"]
             print_obj_info(femobj["Object"])
-            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(self.femmesh, femobj)
+            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
+                self.femmesh, femobj, self.cache
+            )
 
     def get_constraints_transform_nodes(self):
         if not self.member.cons_transform:
@@ -343,7 +440,9 @@ class MeshSetsGetter:
         for femobj in self.member.cons_transform:
             # femobj --> dict, FreeCAD document object is femobj["Object"]
             print_obj_info(femobj["Object"])
-            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(self.femmesh, femobj)
+            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
+                self.femmesh, femobj, self.cache
+            )
 
     def get_constraints_temperature_nodes(self):
         if not self.member.cons_temperature:
@@ -352,7 +451,9 @@ class MeshSetsGetter:
         for femobj in self.member.cons_temperature:
             # femobj --> dict, FreeCAD document object is femobj["Object"]
             print_obj_info(femobj["Object"])
-            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(self.femmesh, femobj)
+            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
+                self.femmesh, femobj, self.cache
+            )
 
     def get_constraints_initialtemperature_nodes(self):
         if not self.member.cons_initialtemperature:
@@ -361,7 +462,9 @@ class MeshSetsGetter:
         for femobj in self.member.cons_initialtemperature:
             # femobj --> dict, FreeCAD document object is femobj["Object"]
             print_obj_info(femobj["Object"])
-            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(self.femmesh, femobj)
+            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
+                self.femmesh, femobj, self.cache
+            )
 
     def get_constraints_fluidsection_nodes(self):
         if not self.member.geos_fluidsection:
@@ -370,7 +473,9 @@ class MeshSetsGetter:
         for femobj in self.member.geos_fluidsection:
             # femobj --> dict, FreeCAD document object is femobj["Object"]
             print_obj_info(femobj["Object"])
-            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(self.femmesh, femobj)
+            femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
+                self.femmesh, femobj, self.cache
+            )
 
     def get_constraints_electrostatic_nodes(self):
         if not self.member.cons_electrostatic:
@@ -381,7 +486,7 @@ class MeshSetsGetter:
             if femobj["Object"].BoundaryCondition == "Dirichlet":
                 print_obj_info(femobj["Object"])
                 femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
-                    self.femmesh, femobj
+                    self.femmesh, femobj, self.cache
                 )
 
     def get_constraints_electricchargedensity_nodes(self):
@@ -393,7 +498,7 @@ class MeshSetsGetter:
             if femobj["Object"].Concentrated:
                 print_obj_info(femobj["Object"])
                 femobj["Nodes"] = meshtools.get_femnodes_by_femobj_with_references(
-                    self.femmesh, femobj
+                    self.femmesh, femobj, self.cache
                 )
 
     def get_constraints_force_nodeloads(self):

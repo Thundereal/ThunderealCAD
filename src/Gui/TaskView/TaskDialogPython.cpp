@@ -31,6 +31,7 @@
 
 #include <App/Document.h>
 #include <App/DocumentPy.h>
+#include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>

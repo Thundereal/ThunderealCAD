@@ -32,6 +32,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
+#include <Gui/EditSteps.h>
 #include <Gui/WaitCursor.h>
 
 #include <Mod/TechDraw/App/DrawPage.h>
@@ -54,6 +55,12 @@ TaskProjGroup::TaskProjGroup(TechDraw::DrawProjGroup* featView, bool mode) :
     multiView(featView),
     m_createMode(mode)
 {
+    // An edit's changes each a step of their own with PerViewEdit on, so
+    // it may run beside another view's (docs/HandsOnQueue.md entry 232)
+    if (!m_createMode) {
+        m_steps = new Gui::EditSteps(featView, this);
+    }
+
     ui->setupUi(this);
 
     blockUpdate = true;
@@ -517,9 +524,20 @@ bool TaskProjGroup::accept()
         return false;
 
     Gui::Command::updateActive();
+    if (m_steps && m_steps->isOn()) {
+        // This edit, of the several there may be
+        m_steps->close();
+        m_steps->endEdit();
+        return true;
+    }
     Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
 
     return true;
+}
+
+bool TaskProjGroup::holdsTransaction() const
+{
+    return !m_steps || !m_steps->isOn();
 }
 
 bool TaskProjGroup::reject()
@@ -527,6 +545,13 @@ bool TaskProjGroup::reject()
     Gui::Document* doc = Gui::Application::Instance->getDocument(multiView->getDocument());
     if (!doc)
         return false;
+
+    // Its own steps taken back -- the projections it added among them --
+    // and no other view's
+    if (m_steps && m_steps->reject()) {
+        Gui::Command::updateActive();
+        return false;
+    }
 
 #if 0
     if (getCreateMode()) {
@@ -600,7 +625,14 @@ void TaskDlgProjGroup::open()
     // if (!widget->getCreateMode())  {    //this is an edit session, start a transaction
     //     Gui::Command::openCommand("Edit Projection Group");
     // }
-    App::GetApplication().setActiveTransaction("Edit Projection Group", true);
+    if (widget->holdsTransaction()) {
+        App::GetApplication().setActiveTransaction("Edit Projection Group", true);
+    }
+}
+
+bool TaskDlgProjGroup::holdsTransaction() const
+{
+    return widget->holdsTransaction();
 }
 
 void TaskDlgProjGroup::clicked(int i)

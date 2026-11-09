@@ -30,17 +30,15 @@
 #include <Inventor/SbImage.h>
 #include <Inventor/SbColor.h>
 
-#include <App/Part.h>
 #include <App/DocumentObserver.h>
+#include <Base/Parameter.h>
 #include <Base/Tools2D.h>
 #include <Base/Placement.h>
-#include <Gui/Document.h>
 #include <Gui/GLPainter.h>
 #include <Gui/Selection.h>
 #include <Mod/Part/Gui/ViewProvider2DObject.h>
 #include <Mod/Part/Gui/ViewProviderGridExtension.h>
 #include <Mod/Part/Gui/ViewProviderAttachExtension.h>
-#include <Mod/Part/App/BodyBase.h>
 #include <Mod/Sketcher/App/GeoEnum.h>
 #include <Mod/Sketcher/App/GeoList.h>
 
@@ -77,6 +75,7 @@ class SbTime;
 struct EditData;
 
 namespace Gui {
+class Document;
 class MenuItem;
 class SoDatumLabel;
 class View3DInventorViewer;
@@ -257,6 +256,17 @@ public:
      * that far, by the copy of the sketch taken then, in one transaction.
      */
     void cancelEditing();
+    /// Ends this sketch's edit, of the several its document may have
+    /// (docs/HandsOnQueue.md entry 232)
+    void resetOwnEdit();
+    /** With PerViewEdit on, a sketch's edit holds no transaction -- each
+     * change is a step of its own already, and Cancel takes back the
+     * edit's own (cancelEditing()) -- and may run beside another view's
+     * edit of the document (docs/HandsOnQueue.md entry 232).
+     */
+    bool editHoldsTransaction(int ModNum) const override;
+    /// The Sketcher's commands, but those that start or end an edit
+    bool editOwnsCommand(const char* name) const override;
     /** Turn the views' own selection on or off for the whole session.
      *
      * Entering the edit turns it off in every view (the initiator through
@@ -559,6 +569,11 @@ protected:
     /// (0: none), for cancelEditing()
     std::string editBackup;
     int editUndoMark = 0;
+    /// The undo steps this edit opened (Gui::Document::editStepsOf(),
+    /// kept across its sessions under the same task panel): what
+    /// cancelEditing() takes back with PerViewEdit on, where another
+    /// view's edit may have made steps between them (entry 232)
+    std::vector<int> editOwnSteps;
     /** The view an event of this edit is being handled in.
      *
      * A session has one initiator (edit->viewer) and N views that joined

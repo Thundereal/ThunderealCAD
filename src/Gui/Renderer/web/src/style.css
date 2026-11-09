@@ -343,6 +343,74 @@
   left: calc(60px + env(safe-area-inset-left));
 }
 
+/* The undo list's button, the third along the corner (undolist.tsx,
+ * docs/MultiViewEdit.md sec 12.11), and its panel: the stacks as rows, a
+ * group's row opening to its steps. */
+.fc-launcher-undo {
+  left: calc(108px + env(safe-area-inset-left));
+}
+.fc-undo-panel {
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 32px));
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.fc-undo-line { display: flex; align-items: center; }
+.fc-undo-line .fc-undo-take { flex: 1; }
+.fc-undo-exp {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: #9aa0a6;
+  cursor: pointer;
+}
+.fc-undo-step { padding-left: 34px; font-size: 12px; }
+.fc-undo-none { padding: 4px 12px; font-size: 12px; color: #9aa0a6; }
+.fc-undo-card, .fc-undo-note {
+  margin: 4px 8px 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 196, 106, 0.4);
+  border-radius: 8px;
+  background: rgba(255, 196, 106, 0.08);
+  font-size: 12px;
+}
+.fc-undo-dep { padding: 2px 0 0 10px; color: #c9ccd1; }
+.fc-undo-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.fc-undo-act {
+  touch-action: manipulation;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8e8ea;
+  font-size: 12px;
+  cursor: pointer;
+}
+.fc-undo-act:hover { background: rgba(255, 255, 255, 0.14); }
+/* Another user asked to let steps of this one's be undone with theirs:
+ * over the view, top middle, until answered. */
+.fc-consent {
+  pointer-events: auto;
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 196, 106, 0.45);
+  border-radius: 10px;
+  background: rgba(28, 30, 34, 0.96);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  color: #e8e8ea;
+  font-size: 13px;
+  z-index: 30;
+}
+
 /* Non-interactive group label inside a menu (Mode / Filter). */
 .fc-menu-header {
   padding: 6px 12px 2px;
@@ -1629,7 +1697,10 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
 }
 /* a bar wider than the phone wraps inside itself: every tool reached by
    scrolling up and down alone */
-.fc-tbcard-narrow .fc-tb-bar {
+.fc-tbcard-narrow .fc-tb-bar,
+/* narrowed clear of a task panel (toolbar.tsx): a bar wider than the room
+ * wraps its own buttons rather than running on under the panel */
+.fc-tbcard-fitted .fc-tb-bar {
   flex: 0 1 auto;
   flex-wrap: wrap;
   max-width: 100%;

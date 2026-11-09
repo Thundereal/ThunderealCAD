@@ -49,6 +49,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <App/Application.h>
+#include <App/Document.h>
 #include "ViewProviderAddSub.h"
 #include <Mod/Part/Gui/PartParams.h>
 #include <Mod/Part/Gui/SoBrepFaceSet.h>
@@ -448,7 +449,7 @@ bool ViewProviderAddSub::resolvePreview(const App::SubObjectT &occurrence,
 
 bool ViewProviderAddSub::showPreviewInSession(const App::SubObjectT &occurrence)
 {
-    auto gdoc = Gui::Application::Instance->editDocument();
+    auto gdoc = Gui::Application::Instance->editDocumentOf(getObject());
     if (!gdoc || !gdoc->editingViewer())
         return false;
     Gui::EditingRoot *root = gdoc->editingRoot();

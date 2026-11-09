@@ -207,8 +207,7 @@ class _TaskPanel:
         if self.preview_is_calculating():
             self._abort_process()
 
-        self.gmsh_obj.ViewObject.resetNodeColor()  # does not really work if color mode is not Node
-        self.gmsh_obj.ViewObject.ColorMode = self.gmsh_obj.ViewObject.ColorMode  # workaround
+        self.gmsh_obj.ViewObject.resetNodeColor()
         self.gmsh_obj.FemMesh = self.default_mesh
 
         self.gmsh_obj.ViewObject.Visibility = False

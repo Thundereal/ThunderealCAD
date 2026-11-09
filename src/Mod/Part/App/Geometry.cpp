@@ -1989,7 +1989,11 @@ void GeomBSplineCurve::approximate(double tol3d, int maxSegments, int maxDegree,
         GeomAdaptor_Curve adapt(myCurve);
         Handle(GeomAdaptor_HCurve) hCurve = new GeomAdaptor_HCurve(adapt);
         Approx_Curve3d approx(hCurve, tol3d, continuity, maxSegments, maxDegree);
-        if (approx.IsDone()) {
+        // IsDone() is no promise of the tolerance: when the segments run out
+        // the approximation still says done, its error whatever it came to
+        // (AdvApprox_ApproxAFunction; realthunder/FreeCAD#617, a sketch's
+        // intersection reference simplified to 1e-4 came 0.014 off its face).
+        if (approx.IsDone() && approx.MaxError() <= tol3d) {
             this->setHandle(approx.Curve());
         }
         else if (approx.HasResult()) {

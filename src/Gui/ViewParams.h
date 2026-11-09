@@ -34,7 +34,7 @@ import ViewParams
 ViewParams.declare_begin()
 ]]]*/
 
-// Auto generated code (Gui/ViewParams.py:1087)
+// Auto generated code (Gui/ViewParams.py:1092)
 #include <QString>
 
 // Auto generated code (Tools/params_utils.py:82)
@@ -945,6 +945,21 @@ public:
     static void removePerViewEdit();
     static void setPerViewEdit(const bool &v);
     static const char *docPerViewEdit();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter EditStepEachChange
+    ///
+    /// Make each change in an edit's task panel an undo step of its own, so
+    /// that it can be undone on its own; Cancel takes back all of the edit's.
+    /// When off, an edit's changes are one undo step, made at OK. Always on
+    /// with PerViewEdit. Takes effect with the next edit.
+    static const bool & getEditStepEachChange();
+    static const bool & defaultEditStepEachChange();
+    static void removeEditStepEachChange();
+    static void setEditStepEachChange(const bool &v);
+    static const char *docEditStepEachChange();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)
@@ -3482,7 +3497,7 @@ public:
     static const char *docHeadlightRotationW();
     //@}
 
-    // Auto generated code (Gui/ViewParams.py:1093)
+    // Auto generated code (Gui/ViewParams.py:1098)
     static const std::vector<QString> AnimationCurveTypes;
 
     static void onViewParamChanged(const char *sReason);
@@ -3513,7 +3528,7 @@ ViewParams.declare_end()
 }; // class ViewParams
 } // namespace Gui
 
-// Auto generated code (Gui/ViewParams.py:1106)
+// Auto generated code (Gui/ViewParams.py:1111)
 namespace Gui {
 /// Obtain all display style names, terminated by nullptr entry.
 GuiExport const char **drawStyleNames();

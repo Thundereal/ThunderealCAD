@@ -26,6 +26,9 @@ __author__ = "Ajinkya Dahale"
 __url__ = "https://www.freecad.org"
 
 
+import FreeCAD
+
+
 def get_analysis_types():
     return "all"  # write for all analysis types
 
@@ -59,6 +62,28 @@ def write_meshdata_constraint(f, femobj, rb_obj, ccxwriter):
     f.write("*NSET,NSET=" + rb_obj.Name + "\n")
     for n in femobj["Nodes"]:
         f.write(f"{n},\n")
+    # Not upstream: a distributing coupling's faces, element faces as
+    # CalculiX's *COUPLING takes them
+    if is_distributing(rb_obj):
+        f.write(f"*SURFACE, NAME={rb_obj.Name}_Surface\n")
+        for _, surf, is_sub_el in femobj["CouplingFaces"]:
+            if is_sub_el:
+                for elem, fno in surf:
+                    f.write(f"{elem},S{fno}\n")
+            else:
+                for elem in surf:
+                    f.write(f"{elem},S2\n")
+
+
+def is_distributing(rb_obj):
+    return getattr(rb_obj, "Coupling", "Rigid") == "Distributing"
+
+
+def node_line(idx, point):
+    # Not upstream: CalculiX reads a field of at most 20 characters, and a
+    # float's repr is up to 24 (-1.1050188541972261E-14): the card was
+    # refused, "ERROR reading *NODE", and so was every set on the node
+    return "{},{:.13G},{:.13G},{:.13G}\n".format(idx, *point)
 
 
 def write_constraint(f, femobj, rb_obj, ccxwriter):
@@ -69,9 +94,23 @@ def write_constraint(f, femobj, rb_obj, ccxwriter):
     ref_node_idx = node_count + 2 * rb_obj_idx + 1
     rot_node_idx = node_count + 2 * rb_obj_idx + 2
 
+    # Not upstream: a distributing coupling, its loads on its reference
+    # node's six degrees of freedom spread over its faces
+    if is_distributing(rb_obj):
+        f.write("*NODE\n")
+        f.write(node_line(ref_node_idx, rb_obj.ReferenceNode))
+        f.write(f"*NSET,NSET={rb_obj.Name}_RefNode\n")
+        f.write(f"{ref_node_idx},\n")
+        f.write(
+            f"*COUPLING, REF NODE={ref_node_idx}, SURFACE={rb_obj.Name}_Surface, "
+            f"CONSTRAINT NAME={rb_obj.Name}\n"
+        )
+        f.write("*DISTRIBUTING\n1,6\n")
+        return
+
     f.write("*NODE\n")
-    f.write("{},{},{},{}\n".format(ref_node_idx, *rb_obj.ReferenceNode))
-    f.write("{},{},{},{}\n".format(rot_node_idx, *rb_obj.ReferenceNode))
+    f.write(node_line(ref_node_idx, rb_obj.ReferenceNode))
+    f.write(node_line(rot_node_idx, rb_obj.ReferenceNode))
 
     f.write(f"*NSET,NSET={rb_obj.Name}_RefNode\n")
     f.write(f"{ref_node_idx},\n")
@@ -81,3 +120,14 @@ def write_constraint(f, femobj, rb_obj, ccxwriter):
     kw_line = f"*RIGID BODY, NSET={rb_obj.Name}, REF NODE={ref_node_idx}, ROT NODE={rot_node_idx}"
 
     f.write(kw_line + "\n")
+
+    # Not upstream: its axes turned, its nodes' degrees of freedom along
+    # them -- the rotation node's too, a hold free to turn about an axis
+    # that is none of the global ones
+    axes = getattr(rb_obj, "Axes", None)
+    if axes is not None and not axes.isIdentity():
+        a = axes.multVec(FreeCAD.Vector(1, 0, 0))
+        b = axes.multVec(FreeCAD.Vector(0, 1, 0))
+        for node in ("RefNode", "RotNode"):
+            f.write(f"*TRANSFORM, NSET={rb_obj.Name}_{node}, TYPE=R\n")
+            f.write("{:.13G},{:.13G},{:.13G},{:.13G},{:.13G},{:.13G}\n".format(*a, *b))

@@ -4074,6 +4074,17 @@ Phase D1 is under way (2026-10-28):
       the identity) the same matrices within 1.2e-16 of their norm, the
       trace comparing the two. The strip's first run 64.7 s to 33.0; the
       rod's 1 ms first run 3.2 s to 3.0.
+    - **K_II factored once** (2026-11-10): the eigenproblem's shift-and-invert
+      and the static modes each factored the same internal stiffness (6 s
+      apiece for the strip). Our Chrono's Craig-Bampton reduction factors
+      K_IIc first and hands it to the Krylov-Schur eigensolver
+      (`shift_inverse`), which takes it for a solve at a zero shift: its
+      A = [-K_II -a Cq_II'; -a Cq_II 0] is -D K_IIc D, D scaling the
+      multipliers by a over the static modes' own Cq scale. The modes are
+      found about 0 Hz now, not 1e-5 (`reduce()`): a K_II the static modes
+      solve with has no zero frequency to shift off, and the shift was
+      (2 pi 1e-5)^2 = 4e-9 against the first mode's w^2. The strip's first run 33.0 s
+      to 26.6; the rod's 1 ms first run 3.0 to 2.2 (12 modes 5.5 to 4.3).
   - Test: FlexibleBody.aPartsModesAreKeptForItsNextReduction -- the bar
     reduced again takes the kept reduction, the same frequencies to the
     bit; moved and turned, its interface's frame and a node an ulp off,
@@ -4084,10 +4095,10 @@ Phase D1 is under way (2026-10-28):
     each channel to 1e-9, the mode shapes to the bit.
   - Not yet: the kept reductions across sessions (they are the process's);
     a part's first run, its 1 ms run 4.4 s where the rerun's is 0.46 --
-    the reduction about 3.9, the strip's about 27 of its 33 -- its K_II
-    factored twice (the eigenproblem's shift and the static modes, Eigen's
-    SparseLU each, 6 s apiece), its K and M assembled by an element pass
-    each.
+    the reduction about 3.9, the strip's about 20 of its 26.6 -- its K and
+    M assembled by an element pass each (8.5 s), the mass pass making each
+    element's corotated K to scale it by 0, and a sparsity learner of a
+    list node per element term for each.
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

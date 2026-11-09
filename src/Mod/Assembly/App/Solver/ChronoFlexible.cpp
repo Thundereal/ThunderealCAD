@@ -507,9 +507,12 @@ ChronoFlexible::reduce(ch::ChSystem& sys, Built& built, const Flexible& flexible
             }
         }
     }
+    // The modes found about 0 Hz, the shift at which our Chrono's Craig-Bampton
+    // reduction hands the eigensolver its K_IIc factored for the static modes:
+    // the strip's 6 s factorization made once, not twice
     auto eigen = std::make_shared<KeptModesSolver>();
     ch::modal::ChModalSolverUndamped<KeptModesSolver> solver(
-        std::max(flexible.modes, 1), 1e-5, true, false, eigen);
+        std::max(flexible.modes, 1), 0.0, true, false, eigen);
     std::vector<double> hz;
     built.assembly->DoModalReduction(
         solver, StiffnessDamping(flexible.damping, flexible.dampingFrequency, hz));

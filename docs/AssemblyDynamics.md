@@ -4061,6 +4061,19 @@ Phase D1 is under way (2026-10-28):
       the static correction mode, which takes the gravity among them,
       keeps its way. The strip 64.7 s, run again 6.5; the rod's 0.25 s run
       again 0.7 s (1.9).
+    - **A fine mesh's reduction** (2026-11-09): the strip's, traced (a
+      temporary trace, gone since): its full K, M and Cq assembled 8.5 s;
+      turned into F's axes 32.6; the eigenproblem 10.5 (its shift's LU
+      6.2, the iterations 3.8); K_II's LU for the static and dynamic modes
+      6.3 and their solves 2.0. The turning was Chrono's general sparse
+      products L^T K L, L^T M L and Cq L for an L that turns each item's
+      translation by R_F and keeps the rest; it is now made block by block
+      in one pass over the rows (our Chrono's `TurnToLocal()`, R_F^T B R_F
+      for each 3x3 block of two translations), 0.17 s, the same 6.39
+      million terms -- and for the rod turned about a skew axis (R_F not
+      the identity) the same matrices within 1.2e-16 of their norm, the
+      trace comparing the two. The strip's first run 64.7 s to 33.0; the
+      rod's 1 ms first run 3.2 s to 3.0.
   - Test: FlexibleBody.aPartsModesAreKeptForItsNextReduction -- the bar
     reduced again takes the kept reduction, the same frequencies to the
     bit; moved and turned, its interface's frame and a node an ulp off,
@@ -4071,7 +4084,10 @@ Phase D1 is under way (2026-10-28):
     each channel to 1e-9, the mode shapes to the bit.
   - Not yet: the kept reductions across sessions (they are the process's);
     a part's first run, its 1 ms run 4.4 s where the rerun's is 0.46 --
-    the reduction about 3.9, the strip's about 58 of its 64.7.
+    the reduction about 3.9, the strip's about 27 of its 33 -- its K_II
+    factored twice (the eigenproblem's shift and the static modes, Eigen's
+    SparseLU each, 6 s apiece), its K and M assembled by an element pass
+    each.
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

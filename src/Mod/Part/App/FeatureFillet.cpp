@@ -86,6 +86,7 @@ App::DocumentObjectExecReturn *Fillet::execute()
         auto baseShape = baseTopoShape.getShape();
         BRepFilletAPI_MakeFillet mkFillet(baseShape);
         FilletFlatEnd flatEnd(_Version.getValue() >= 1);
+        OCCTFilletFixLevel fixLevel(_FilletFixLevel.getValue());
 
 #ifdef FC_NO_ELEMENT_MAP
         TopTools_IndexedMapOfShape mapOfShape;

@@ -41,6 +41,7 @@
 #include <Base/Reader.h>
 #include <App/Document.h>
 #include <Base/Tools.h>
+#include <Mod/Part/App/OCCTFork.h>
 #include <Mod/Part/App/PropertyTopoShape.h>
 #include <Mod/Part/App/TopoShape.h>
 
@@ -103,8 +104,16 @@ Chamfer::Chamfer()
       static_cast<App::PropertyType>(App::Prop_Hidden | App::Prop_Output),
       "The colour of an edge group's handles in the view, by group id ('#rrggbb').\n"
       "A group not listed takes an automatic colour.");
+    ADD_PROPERTY_TYPE(_FilletFixLevel, (0), "Chamfer", App::Prop_Hidden,
+      "The OCCT fork's fillet fix level the object recomputes at");
 
     updateProperties();
+}
+
+void Chamfer::setupObject()
+{
+    DressUp::setupObject();
+    _FilletFixLevel.setValue(Part::OCCTFilletFixLevelLatest);
 }
 
 short Chamfer::mustExecute() const
@@ -132,6 +141,7 @@ short Chamfer::mustExecute() const
 
 App::DocumentObjectExecReturn *Chamfer::execute()
 {
+    Part::OCCTFilletFixLevel fixLevel(_FilletFixLevel.getValue());
     // NOTE: Normally the Base property and the BaseFeature property should point to the same object.
     // The only difference is that the Base property also stores the edges that are to be chamfered
     Part::TopoShape baseShape;

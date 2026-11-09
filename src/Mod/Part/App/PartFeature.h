@@ -610,8 +610,13 @@ public:
     App::PropertyLink   Base;
     PropertyFilletEdges Edges;
     App::PropertyLinkSub   EdgeLinks;
+    /// The OCCT fork's fillet fix level the object recomputes at
+    /// (OCCTFilletFixLevel): the latest for an object made now, 0 for one a
+    /// file from before brings
+    App::PropertyInteger _FilletFixLevel;
 
     short mustExecute() const override;
+    void setupObject() override;
     void onUpdateElementReference(const App::Property *prop) override;
 
 protected:

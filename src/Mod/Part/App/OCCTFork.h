@@ -151,6 +151,55 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
                                        const TopoDS_Face &face,
                                        double depth);
 
+// --- TKFillet: the fork's fillet fix level ------------------------------
+
+/// The OCCT fork's fillet fix level a new fillet or chamfer is made at (its
+/// _FilletFixLevel): the highest this FreeCAD knows. A correction of the
+/// fork's that moves the shapes it changes no further than their tolerances,
+/// or makes only what was refused (an invalid result is refused), is made at
+/// every level and needs none: below the latest, a fillet the level set does
+/// not make, where a correction above it would have made it differently, is
+/// computed again at the latest.
+///  1 -- a chamfer's guide has an end moved to the edge beyond moved over its
+///       last quarter alone, not bent whole to it: #631's arm, a chamfer of
+///       0.8 from 0.52 to 1.37 wide along its edge, exact now (the fork's
+///       tests/fork/fillet/README.md, "A chamfer's guide bent at its other
+///       end"). Fillets on such edges move by their section planes, up to
+///       0.008 of volume. An OCCT without it makes level 1 as level 0.
+constexpr int OCCTFilletFixLevelLatest = 1;
+
+/// Sets, for the calling thread, the OCCT fork's fillet fix level
+/// (ChFi3d_SetFixLevel): which of the fork's corrections to fillets and
+/// chamfers are made that give a different shape than before for some
+/// input. Returns the level set before; -1 without the fork's function, where
+/// nothing is set. OCCTFilletFixLevel holds it for a scope.
+PartExport int setOCCTFilletFixLevel(int level);
+
+/** The OCCT fork's fillet fix level on the calling thread for as long as
+ * this lives, and as it was after. A fillet or chamfer feature holds its
+ * _FilletFixLevel with it while it recomputes: 0 for an object a file from
+ * before the level brings, which so recomputes as it did; the latest for one
+ * made from now on (OCCTFilletFixLevelLatest). Nothing where the OCCT
+ * libraries lack the level.
+ */
+class OCCTFilletFixLevel
+{
+public:
+    explicit OCCTFilletFixLevel(int level)
+        : previous(setOCCTFilletFixLevel(level))
+    {}
+    ~OCCTFilletFixLevel()
+    {
+        if (previous >= 0)
+            setOCCTFilletFixLevel(previous);
+    }
+    OCCTFilletFixLevel(const OCCTFilletFixLevel &) = delete;
+    OCCTFilletFixLevel &operator=(const OCCTFilletFixLevel &) = delete;
+
+private:
+    int previous;
+};
+
 // --- TKOffset: the fork's offset fix level ------------------------------
 
 /// The OCCT fork's offset fix level a new object of a feature that offsets

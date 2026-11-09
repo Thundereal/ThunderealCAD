@@ -84,6 +84,8 @@ set(Part_tests
     parttests/occt_fork.py
     parttests/OffsetFixLevelTest.py
     parttests/dome_fillet_r3.brep
+    parttests/FilletFixLevelTest.py
+    parttests/issue631_arm.brep
 )
 
 add_custom_target(PartScripts ALL SOURCES

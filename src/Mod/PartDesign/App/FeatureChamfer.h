@@ -52,12 +52,17 @@ public:
     /// A colour the user picked for an edge group's handles: the group id
     /// to "#rrggbb"; a group not here takes an automatic one (entry 202)
     App::PropertyMap GroupColors;
+    /// The OCCT fork's fillet fix level the object recomputes at
+    /// (Part::OCCTFilletFixLevel): the latest for an object made now, 0 for
+    /// one a file from before brings
+    App::PropertyInteger _FilletFixLevel;
 
     /** @name methods override feature */
     //@{
     /// recalculate the feature
     App::DocumentObjectExecReturn *execute() override;
     short mustExecute() const override;
+    void setupObject() override;
     /// returns the type name of the view provider
     const char* getViewProviderName() const override {
         return "PartDesignGui::ViewProviderChamfer";

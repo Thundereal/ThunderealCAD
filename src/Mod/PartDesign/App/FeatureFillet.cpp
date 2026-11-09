@@ -49,6 +49,7 @@
 #include <Base/Reader.h>
 #include <App/Document.h>
 #include <Mod/Part/App/FeatureFillet.h>
+#include <Mod/Part/App/OCCTFork.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/PropertyTopoShape.h>
 #include <Mod/Part/App/TopoShape.h>
@@ -112,6 +113,8 @@ Fillet::Fillet()
       "Needs the OCCT fork.");
 
     ADD_PROPERTY_TYPE(_Version, (0), "Part Design", App::Prop_Hidden, 0);
+    ADD_PROPERTY_TYPE(_FilletFixLevel, (0), "Part Design", App::Prop_Hidden,
+      "The OCCT fork's fillet fix level the object recomputes at");
 }
 
 namespace {
@@ -244,6 +247,7 @@ void Fillet::setupObject()
 {
     DressUp::setupObject();
     _Version.setValue(1);
+    _FilletFixLevel.setValue(Part::OCCTFilletFixLevelLatest);
 }
 
 short Fillet::mustExecute() const
@@ -258,6 +262,7 @@ short Fillet::mustExecute() const
 
 App::DocumentObjectExecReturn *Fillet::execute()
 {
+    Part::OCCTFilletFixLevel fixLevel(_FilletFixLevel.getValue());
     Part::TopoShape baseShape;
     try {
         baseShape = getBaseShape();

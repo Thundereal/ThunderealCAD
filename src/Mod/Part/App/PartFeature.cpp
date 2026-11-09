@@ -91,6 +91,7 @@ typedef boost::iterator_range<const char*> CharRange;
 #include <Mod/Material/App/Materials.h>
 
 #include "ForeignBaseShapes.h"
+#include "OCCTFork.h"
 #include "PartFeature.h"
 #include "PartFeaturePy.h"
 #include "PartParams.h"
@@ -2880,7 +2881,15 @@ FilletBase::FilletBase()
     ADD_PROPERTY(Edges,(0,0,0));
     ADD_PROPERTY_TYPE(EdgeLinks,(0), 0, 
             (App::PropertyType)(App::Prop_ReadOnly|App::Prop_Hidden),0);
+    ADD_PROPERTY_TYPE(_FilletFixLevel, (0), "Base", App::Prop_Hidden,
+            "The OCCT fork's fillet fix level the object recomputes at");
     Edges.setSize(0);
+}
+
+void FilletBase::setupObject()
+{
+    Feature::setupObject();
+    _FilletFixLevel.setValue(OCCTFilletFixLevelLatest);
 }
 
 void Feature::copyMaterial(Feature* feature)

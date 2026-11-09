@@ -4047,6 +4047,20 @@ Phase D1 is under way (2026-10-28):
     - The rod's 0.25 s run of a study run before: 1.9 s, 2.0 at 12 modes
       (7.2 with the modes kept, 9.6 at first); started 25 deg down, 1.9; a
       1 ms run 0.46 s (4.4). Its first run, 4.4 s at 6 modes, 6.4 at 12.
+    - **A fine mesh's steps** (2026-11-09): the manual's strip (31130
+      nodes, 12 modes, 0.3 s in 601 frames) ran in 88.6 s, 31.7 run again
+      -- its steps, at every residual, went over the whole mesh in our
+      Chrono's `IntLoadResidual_F()`: each internal node cast twice to its
+      type for its force, and the internal part's gravity made as a vector
+      of 93390, turned and reduced by Psi_S and Psi_D. That gravity is
+      constant in F's axes: reduced once at the reduction's end
+      (`ComputeGravityReduced()`, [Psi_S; Psi_D]^T times the internal
+      items' gravity columns), each residual takes it times the gravity in
+      F's axes; each node's type is found once (`SetupItemCoords()`); a
+      force on an internal node is still reduced at each residual, and
+      the static correction mode, which takes the gravity among them,
+      keeps its way. The strip 64.7 s, run again 6.5; the rod's 0.25 s run
+      again 0.7 s (1.9).
   - Test: FlexibleBody.aPartsModesAreKeptForItsNextReduction -- the bar
     reduced again takes the kept reduction, the same frequencies to the
     bit; moved and turned, its interface's frame and a node an ulp off,
@@ -4057,7 +4071,7 @@ Phase D1 is under way (2026-10-28):
     each channel to 1e-9, the mode shapes to the bit.
   - Not yet: the kept reductions across sessions (they are the process's);
     a part's first run, its 1 ms run 4.4 s where the rerun's is 0.46 --
-    the reduction about 3.9.
+    the reduction about 3.9, the strip's about 58 of its 64.7.
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the

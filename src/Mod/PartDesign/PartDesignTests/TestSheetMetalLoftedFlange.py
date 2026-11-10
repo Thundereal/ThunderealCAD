@@ -31,6 +31,8 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 
 
@@ -40,7 +42,7 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def round(self, radius, z=0, span=None, centre=(0, 0), tilt=0, name="Sketch"):
         """A sketch at height z of a circle, or an arc over span (degrees,

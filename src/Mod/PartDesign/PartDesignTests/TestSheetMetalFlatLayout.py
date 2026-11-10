@@ -16,6 +16,7 @@ import FreeCAD
 import Part
 import PartDesign
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat, flatObject
 
 V = FreeCAD.Vector
@@ -31,7 +32,7 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def sketch(self, points, closed=False, name="Sketch"):
         sketch = self.Body.newObject("Sketcher::SketchObject", name)

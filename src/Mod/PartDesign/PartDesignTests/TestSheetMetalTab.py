@@ -12,6 +12,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -45,7 +46,7 @@ class TestSheetMetalTab(unittest.TestCase):
         self.Doc.recompute()
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     @staticmethod
     def rectangle(sketch, a, b):

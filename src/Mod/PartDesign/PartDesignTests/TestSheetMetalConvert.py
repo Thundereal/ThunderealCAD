@@ -19,6 +19,7 @@ import FreeCAD
 import Part
 import PartDesign
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -31,7 +32,7 @@ class TestSheetMetalConvert(unittest.TestCase):
         self.Doc = FreeCAD.newDocument("PartDesignTestSheetMetalConvert")
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def body(self, shape, name="Imported"):
         """A body built on a Part feature holding shape"""

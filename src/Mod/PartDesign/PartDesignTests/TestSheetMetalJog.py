@@ -16,6 +16,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat, showFlat
 
 V = FreeCAD.Vector
@@ -56,7 +57,7 @@ class TestSheetMetalJog(unittest.TestCase):
         self.Doc.recompute()
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def line(self, x=25, z=1):
         """A sketch on the plate's top, a line across it at x"""

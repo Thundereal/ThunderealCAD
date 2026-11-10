@@ -13,6 +13,8 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 
 
@@ -22,7 +24,7 @@ class TestSheetMetalBaseWall(unittest.TestCase):
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def sketch(self, points, closed=False, name="Sketch"):
         sketch = self.Body.newObject("Sketcher::SketchObject", name)

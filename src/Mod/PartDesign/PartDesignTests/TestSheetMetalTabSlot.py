@@ -16,6 +16,8 @@ import FreeCAD
 import Part
 import unittest
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 T = 1.0
 
@@ -50,7 +52,7 @@ class TestSheetMetalTabSlot(unittest.TestCase):
         self.assertAlmostEqual(box.ZMin, 1)
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def wall(self, body, name, pts, placement=None):
         sketch = body.newObject("Sketcher::SketchObject", name + "Sketch")

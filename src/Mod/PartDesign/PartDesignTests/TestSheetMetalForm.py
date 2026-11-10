@@ -24,6 +24,8 @@ import PartDesign
 
 from PartDesignTests.TestSheetMetalFlat import readDXF
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 POINTS = [(10, 10), (28, 18)]
 T = 1.0
@@ -73,7 +75,7 @@ class TestSheetMetalForm(unittest.TestCase):
         self.Doc.recompute()
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def points(self, pts=POINTS, z=T):
         sketch = self.Body.newObject("Sketcher::SketchObject", "Points")

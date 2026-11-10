@@ -18,6 +18,7 @@ import FreeCAD
 import Part
 import PartDesign
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import flatObject
 
 V = FreeCAD.Vector
@@ -40,7 +41,7 @@ class TestSheetMetalBendOverride(unittest.TestCase):
         self.Doc.recompute()
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def edge(self, feature, a, b):
         for i, e in enumerate(feature.Shape.Edges):

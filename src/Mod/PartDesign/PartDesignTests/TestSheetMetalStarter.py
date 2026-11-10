@@ -15,6 +15,8 @@ import FreeCAD
 import Part
 import PartDesign
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 L, W, H, F = 40.0, 30.0, 15.0, 5.0
 KINDS = {
@@ -33,7 +35,7 @@ class TestSheetMetalStarter(unittest.TestCase):
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def fresh(self):
         """Another document, for the next shape"""

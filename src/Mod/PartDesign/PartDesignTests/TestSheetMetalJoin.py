@@ -14,6 +14,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -53,7 +54,7 @@ class TestSheetMetalJoin(unittest.TestCase):
         self.Plate = self.wall(V(0, 0, 0), V(1, 0, 0), V(0, 1, 0), 40, 20)
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def wall(self, origin, xdir, ydir, w, h):
         """A base wall w x h on the sketch at origin along xdir and ydir, its

@@ -17,6 +17,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -81,7 +82,7 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
         self.Body, (self.Far, self.Right) = build(self.Doc, (5, 5), (5, 5))
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def legEnd(self, feature, axis, at):
         """The face of a leg's end, across the leg at that coordinate"""

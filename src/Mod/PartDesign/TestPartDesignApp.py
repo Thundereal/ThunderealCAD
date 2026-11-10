@@ -101,6 +101,7 @@ from PartDesignTests.TestSheetMetalTabSlot import TestSheetMetalTabSlot
 from PartDesignTests.TestSheetMetalLoftedFlange import TestSheetMetalLoftedFlange
 from PartDesignTests.TestSheetMetalConvert import TestSheetMetalConvert
 from PartDesignTests.TestSheetMetalPart import TestSheetMetalPart
+from PartDesignTests.TestSheetMetalNames import TestSheetMetalNames
 from PartDesignTests.TestChainLocations import TestChainLocations
 from PartDesignTests.TestDefeaturing import TestDefeaturing
 from PartDesignTests.TestSuppressed import TestSuppressed

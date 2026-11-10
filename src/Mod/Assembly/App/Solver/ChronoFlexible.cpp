@@ -386,6 +386,10 @@ ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
     // iteration moved them all, half a flexible pendulum's time. Its
     // deformation is the run's modal coordinates' (D4b step 4).
     built.assembly->SetInternalNodesUpdate(false);
+    // And the residual modes of its inertia loads, for its deformation and
+    // stresses: what the modes left out take of the gravity and the part's
+    // motion, statically (D4b, the stress near a free end)
+    built.assembly->SetUseInertialResidual(true);
     // Its K_II inverse, for the static modes: Eigen's SparseLU, 0.4 s for the
     // test's bar where Chrono's default SparseQR took 2.2
     built.assembly->SetModalSolver(std::make_shared<ch::ChSolverSparseLU>());

@@ -5026,6 +5026,47 @@ struct ChronoSession::Impl
 #endif
     }
 
+    // A flexible body's inertia loads per unit mass, in SI: the coefficients
+    // of its residual modes' fields (our Chrono's GetInertialResidualModes())
+    // for its floating frame's motion and the gravity -- g - a, -alpha, then
+    // w's products -- in the frame's axes; none without those modes. At the
+    // start ('rest') the frame's accelerations are not its motion's yet, so
+    // the gravity and w's products alone: those it held read 122 rad/s^2 for
+    // a clamped rod at rest, and the line through the smallest steps' (as a
+    // reaction's) 83 m/s^2 along it, the reduced model's first steps settling
+    std::vector<double> inertialLoad(const FlexibleRun& run, bool rest = false) const
+    {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        if (run.built.assembly->GetInertialResidualModes().cols() != 12) {
+            return {};
+        }
+        const ch::ChFrameMoving<> floating = run.built.assembly->GetFloatingFrameOfReference();
+        // The translation's absolute, the turn's in F's axes
+        ch::ChVectorDynamic<> acc = run.built.assembly->GetFloatingFrameAccelerations();
+        if (rest) {
+            acc.setZero();
+        }
+        const ch::ChVector3d load = floating.GetRot().RotateBack(
+            sys->GetGravitationalAcceleration() - ch::ChVector3d(acc(0), acc(1), acc(2)));
+        const ch::ChVector3d w = floating.GetAngVelLocal();
+        return {load.x(),
+                load.y(),
+                load.z(),
+                -acc(3),
+                -acc(4),
+                -acc(5),
+                w.x() * w.x(),
+                w.y() * w.y(),
+                w.z() * w.z(),
+                -w.x() * w.y(),
+                -w.x() * w.z(),
+                -w.y() * w.z()};
+#else
+        (void)run;
+        return {};
+#endif
+    }
+
     // A flexible body's interfaces' deformation: each boundary body's pose in
     // the floating frame against its pose there at the start, as Chrono's
     // GetLocalDeformations() has it (the reduction matrix's coordinates): its
@@ -5061,21 +5102,26 @@ struct ChronoSession::Impl
     }
 
     // A flexible body's mode shapes (ModeShapes): the reduction matrix's
-    // rows of the mesh's nodes, in the floating frame's axes at the start,
-    // turned into the body's and in mm: a column of a translation in mm per
-    // mm, of a turn in mm per rad, of a mode in mm per modal coordinate
+    // rows of the mesh's nodes, then its inertia loads' residual modes', in
+    // the floating frame's axes at the start, turned into the body's and in
+    // mm: a column of a translation in mm per mm, of a turn in mm per rad, of
+    // a mode in mm per modal coordinate, of a residual mode in mm per its
+    // coefficient in SI (inertialLoad())
     ModeShapes modeShapesOf(const FlexibleRun& run, const std::string& source, double length) const
     {
         ModeShapes shapes;
         shapes.source = source;
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
         const auto& psi = run.built.assembly->GetModalReductionMatrix();
+        const auto& residual = run.built.assembly->GetInertialResidualModes();
         const auto boundary = static_cast<Eigen::Index>(6 * run.built.interfaces.size());
         const auto nodes = static_cast<Eigen::Index>(run.built.mesh->GetNumNodes());
         if (psi.rows() < boundary + 3 * nodes) {
             return shapes;
         }
-        const Eigen::Index columns = psi.cols();
+        const Eigen::Index reduced = psi.cols();
+        const Eigen::Index extra = residual.cols() == 12 && residual.rows() >= 3 * nodes ? 12 : 0;
+        const Eigen::Index columns = reduced + extra;
         shapes.columns = static_cast<std::size_t>(columns);
         shapes.values.resize(static_cast<std::size_t>(3 * nodes * columns));
         // The floating frame's axes to the body's
@@ -5084,9 +5130,13 @@ struct ChronoSession::Impl
             for (Eigen::Index c = 0; c < columns; ++c) {
                 const bool translation = c < boundary && (c % 6) < 3;
                 const double scale = translation ? 1.0 : 1.0 / length;
-                const ch::ChVector3d inFloating(psi(boundary + 3 * node, c),
-                                                psi(boundary + 3 * node + 1, c),
-                                                psi(boundary + 3 * node + 2, c));
+                const ch::ChVector3d inFloating =
+                    c < reduced ? ch::ChVector3d(psi(boundary + 3 * node, c),
+                                                 psi(boundary + 3 * node + 1, c),
+                                                 psi(boundary + 3 * node + 2, c))
+                                : ch::ChVector3d(residual(3 * node, c - reduced),
+                                                 residual(3 * node + 1, c - reduced),
+                                                 residual(3 * node + 2, c - reduced));
                 const ch::ChVector3d inBody = back * inFloating;
                 for (int k = 0; k < 3; ++k) {
                     shapes.values[static_cast<std::size_t>((3 * node + k) * columns + c)] =
@@ -8504,8 +8554,9 @@ Status ChronoSession::simulateDynamics(
     }
     // Each flexible body's modal coordinates (D4b): what its modes add to
     // the deformation its interfaces make about its floating frame
-    // and the deformation its interfaces make, six each (mm, rad): together
-    // its ModeShapes' coordinates
+    // and the deformation its interfaces make, six each (mm, rad), and its
+    // inertia loads, the residual modes' coefficients (SI): together its
+    // ModeShapes' coordinates
     for (const auto& flexible : run.d->flexibles) {
         const std::string& name = si.sourceName(si.dynamics->flexibles[flexible.record].source);
         channels.push_back({name,
@@ -8514,6 +8565,10 @@ Status ChronoSession::simulateDynamics(
         channels.push_back({name,
                             "ModalCoordinates",
                             static_cast<int>(run.d->modalCoordinates(flexible).size())});
+        const auto loads = run.d->inertialLoad(flexible);
+        if (!loads.empty()) {
+            channels.push_back({name, "InertialLoad", static_cast<int>(loads.size())});
+        }
     }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
@@ -8911,6 +8966,9 @@ Status ChronoSession::simulateDynamics(
         sys.LoadResidual_CqL(R, L, 1.0);
         return ok && L.allFinite();
     };
+    // The start's values: a flexible body's inertia loads without its
+    // floating frame's accelerations (inertialLoad())
+    bool atStart = false;
     auto valuesNow = [&]() {
         std::vector<double> out;
         out.reserve(6 * reactions.size() + rotationMotors.size() + linearMotors.size()
@@ -9183,6 +9241,9 @@ Status ChronoSession::simulateDynamics(
             }
             for (double q : run.d->modalCoordinates(flexible)) {
                 out.push_back(q);
+            }
+            for (double c : run.d->inertialLoad(flexible, atStart)) {
+                out.push_back(c);
             }
         }
         return out;
@@ -11111,8 +11172,10 @@ Status ChronoSession::simulateDynamics(
                         load->touching = pressing(*load) > 0.0;
                     }
                 }
+                atStart = true;
                 const std::vector<double> start =
                     channels.empty() ? std::vector<double>() : valuesNow();
+                atStart = false;
                 // The start's own forces, its loads' (a contact's as it
                 // stands, none where it only touches) and its bodies' turns:
                 // the fallback's accelerations are those with the reactions

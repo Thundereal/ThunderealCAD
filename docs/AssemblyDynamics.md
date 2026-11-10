@@ -4111,7 +4111,8 @@ Phase D1 is under way (2026-10-28):
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the
-    mesh -- gravity, inertia -- would give it back; the stresses inside the
+    mesh -- gravity, inertia -- would give it back (done, step 7); the
+    stresses inside the
     part (the surface's only, where the largest is but for a load inside);
     To FEM's vibration from the run's own coordinates.
 - Built, D4b step 6 (2026-11-10): the flexible body's task panel
@@ -4162,6 +4163,57 @@ Phase D1 is under way (2026-10-28):
     (`prepare()` makes no document and leaves an open transaction open,
     which aborting then undoes; `Fem.meshNetgen()` the Netgen object's
     mesh, its counts of nodes and of tetrahedra).
+- Built, D4b step 7 (2026-11-10): the stress near a free end, by the
+  inertia loads' residual modes (step 4's "not yet").
+  - **What was missing.** A part's stress, recovered from its mode shapes,
+    is only what its kept modes make of the loads on its mesh; the loads
+    spread over it -- gravity, and the inertia of its own motion -- also
+    load the modes left out, which a stress takes more of than a shape
+    does. The clamped rod settled under gravity at 6 modes: 13% of the
+    beam's stress missing 70 mm out, 21% at 80, 34% at 90 (at 12 modes 1%,
+    7%, 20%); the hinged rod swinging, at 12 modes, 4% over at L / 3 and
+    20% at 90 mm, which 24 modes took to 1 and 4.
+  - **The mode-acceleration method, for the loads a rigid motion makes.**
+    Their field over the mesh is g - a - alpha x r - w x (w x r) per unit
+    mass, in the floating frame's axes, r from its origin: twelve fixed
+    fields -- the three axes, the three e_k x r, and six of r's components
+    the centripetal term takes -- times twelve coefficients the run has at
+    each moment: g - a, -alpha, and w's products. Our Chrono's
+    Craig-Bampton reduction makes, for each field b, the internal nodes'
+    static displacement with the interfaces held, K_IIc^-1 {M_II b; 0}, by
+    the factorization the static modes use, less what the kept modes take
+    of it statically, Psi_D K_DD^-1 Psi_D^T M_II b (K_DD the reduced
+    stiffness's modal block: what the reduced model at rest under the load
+    has): `SetUseInertialResidual()`, `GetInertialResidualModes()`, in the
+    kept reduction's data too. They are not in the reduced model: its run is
+    as it was; they are the stress's and the drawn shape's, which take the
+    residual's static share at each moment.
+  - **What the run hands over**: twelve more columns in the flexible body's
+    ModeShapes (mm per coefficient, SI), after its interfaces' and its
+    modes', and a channel "InertialLoad" of the twelve coefficients,
+    after "ModalCoordinates" -- `FlexibleBodies.Deformation` takes it as
+    the columns' coordinates. The floating frame's accelerations at the
+    start are not its motion's, the state not stepped yet: the start's
+    coefficients leave them out, the gravity and w's products alone. Those
+    the frame held there read 122 rad/s^2 for a clamped rod at rest, and a
+    line through the smallest steps' (as a reaction's start) 83 m/s^2 along
+    it, the reduced model's first steps settling.
+  - The rod clamped, settled, its top and bottom against the beam's:
+    within 0.4% from 10 to 50 mm, 1.1% at 70, 2.4% at 80 -- at 6 modes as
+    at 12, to the digit: the modes no longer matter to it. What is left
+    nearer the end, 9% at 90 mm and 29% at 95, is the part's against the
+    beam's, a depth from a free end, where the beam's is not the solid's.
+    The hinged rod at 12 modes: within 2.3% from 10 to 90 mm, as 24 modes
+    with them; at 95 mm 16% under at either.
+  - Cost: twelve solves by K_IIc's factorization at a reduction, and
+    twelve columns over the mesh: the strip's ModeShapes 18 columns to 30.
+  - Tests: TestFlexibleBody.test_cantilever_stress (6 modes now: the
+    beam's out to 80 mm within 3%, without the residual modes' columns 13%
+    and 21% under at 70 and 80; the coefficients the gravity at the start
+    and the end); test_pendulum_stress (12 modes now, out to 90 mm, 3%);
+    test_cantilever_deformation (24 columns); FlexibleBody.
+    cantileverBendsAndRingsInARun (30 columns, the channel after the modal
+    coordinates, the gravity at rest).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

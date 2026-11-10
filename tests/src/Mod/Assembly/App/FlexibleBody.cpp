@@ -439,8 +439,9 @@ TEST_F(FlexibleBody, cantileverBendsAndRingsInARun)  // NOLINT
     // 8.87 um against 8.95: the mesh a little stiffer, as its modes say
     EXPECT_NEAR(rest, -sag, 0.02 * sag) << "sag " << sag << " mm";
     // Its modal coordinates, of the six modes, after its two interfaces'
-    // deformation
+    // deformation; then its inertia loads, the twelve residual modes'
     bool found = false;
+    bool loads = false;
     for (const Channel& channel : settled.seen) {
         if (channel.quantity == "ModalCoordinates") {
             found = true;
@@ -450,16 +451,24 @@ TEST_F(FlexibleBody, cantileverBendsAndRingsInARun)  // NOLINT
         if (channel.quantity == "InterfaceDeformation") {
             EXPECT_EQ(channel.width, 12);
         }
+        if (channel.quantity == "InertialLoad") {
+            loads = true;
+            EXPECT_EQ(channel.width, 12);
+        }
     }
     EXPECT_TRUE(found);
+    EXPECT_TRUE(loads);
     // Its mode shapes: the node at the middle of its end face, made of them
     // and the coordinates, where the gram welded to that face is
     ASSERT_EQ(settled.shapes.size(), 1u);
     const ModeShapes& shapes = settled.shapes[0];
     EXPECT_EQ(shapes.source, "Flexible");
-    ASSERT_EQ(shapes.columns, 18u);
+    ASSERT_EQ(shapes.columns, 30u);
     const std::size_t from = settled.offsetOf("InterfaceDeformation");
     ASSERT_EQ(settled.offsetOf("ModalCoordinates"), from + 12);
+    ASSERT_EQ(settled.offsetOf("InertialLoad"), from + 18);
+    // At rest, held still: the gravity's alone, in SI
+    EXPECT_NEAR(settled.rows.back()[from + 18 + 2], -g, 1e-3 * g);
     // A node on the bar's axis at x, where the run leaves it
     auto nodeAt = [&](int i) {
         const std::size_t node = (i * 3 + 1) * 3 + 1;  // (10 i, 5, 5)

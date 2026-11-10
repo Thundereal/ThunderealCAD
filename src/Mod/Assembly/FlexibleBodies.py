@@ -469,7 +469,9 @@ class Deformation:
         # Every node's, for the stresses; the surface's moved
         self.shapes = np.array(shapes).reshape(len(nodes), 3, columns)
         self.psi = self.shapes[used]  # surface nodes x 3 x columns
-        # The run's coordinates: its interfaces' deformation, then its modes'
+        # The run's coordinates: its interfaces' deformation, then its modes',
+        # then its inertia loads' -- the residual modes' coefficients, what the
+        # modes left out take of its gravity and motion statically
         name = flexible.FullName
         found = {}
         for channel in results.get("Channels", []):
@@ -483,10 +485,16 @@ class Deformation:
 
         interfaces = rows(found.get("InterfaceDeformation", []))
         modes = rows(found.get("ModalCoordinates", []))
+        loads = rows(found.get("InertialLoad", [()] * len(self.times)))
         if len(interfaces) != len(self.times) or len(modes) != len(self.times):
             self.valid = False
             return
-        self.coordinates = np.array([tuple(a) + tuple(b) for a, b in zip(interfaces, modes)])
+        if len(loads) != len(self.times):
+            self.valid = False
+            return
+        self.coordinates = np.array(
+            [tuple(a) + tuple(b) + tuple(c) for a, b, c in zip(interfaces, modes, loads)]
+        )
         if self.coordinates.shape[1] != columns:
             self.valid = False
             return

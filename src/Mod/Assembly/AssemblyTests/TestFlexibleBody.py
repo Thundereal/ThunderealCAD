@@ -176,8 +176,10 @@ class TestFlexibleBody(unittest.TestCase):
         run's coordinates, where the beam's is, q L^4 / 8 E I; at its hold,
         nothing"""
         rod, flexible, results = self.cantilever(6)
-        self.assertEqual(flexible.ModeShapeColumns, 12)
-        self.assertEqual(len(flexible.ModeShapes), 3 * len(flexible.Nodes) * 12)
+        # The hold's six, the six modes, the twelve residual modes of the
+        # inertia loads
+        self.assertEqual(flexible.ModeShapeColumns, 24)
+        self.assertEqual(len(flexible.ModeShapes), 3 * len(flexible.Nodes) * 24)
         shape = FlexibleBodies.Deformation(flexible, results)
         self.assertTrue(shape.valid)
         # In the rod's coordinates, which move with its floating frame: in
@@ -210,12 +212,14 @@ class TestFlexibleBody(unittest.TestCase):
         coordinates: settled, along its top the beam's, M c / I with M = q
         (L - x)^2 / 2, in tension, below it the same in compression; the
         largest the root's; the Results box's channel of it, the largest at
-        each frame"""
+        each frame. Six modes: the inertia loads' residual modes take what
+        the modes left out would of the gravity -- without them, a fifth of
+        the stress 80 mm out"""
         import numpy as np
 
         import CommandCreateSimulation
 
-        rod, flexible, results = self.cantilever(12)
+        rod, flexible, results = self.cantilever(6)
         shape = FlexibleBodies.Deformation(flexible, results)
         self.assertTrue(shape.valid)
         youngs, poisson = shape.elasticity
@@ -230,14 +234,35 @@ class TestFlexibleBody(unittest.TestCase):
         def beam(x, z):
             return q * (100 - x) ** 2 / 2 * (z - 5) / inertia
 
-        for x in (30.0, 50.0, 70.0):
+        # Without the residual modes, their twelve columns left out
+        modal = shape.stresses()
+        coordinates = shape.coordinatesAt(time)
+        without = np.einsum("nkc,c->nk", modal[:, :, :-12], coordinates[:-12])
+        for x in (30.0, 50.0, 70.0, 80.0):
             for z in (10.0, 0.0):
                 near = int(np.argmin(np.linalg.norm(shape.rest - (x, 5.0, z), axis=1)))
                 p = shape.rest[near]
                 want = beam(p[0], p[2])
-                # 1.3% at most here; near the free end, where it is a
-                # hundredth of the root's, the modes left out take a fifth
-                self.assertAlmostEqual(stress[near][0], want, delta=0.02 * abs(want), msg=(x, z))
+                # 2.4% at most here, 80 mm out, where it is a sixteenth of
+                # the root's; nearer the free end than its depth the beam's
+                # is not the part's (9% at 90 mm, at 6 modes as at 12)
+                self.assertAlmostEqual(stress[near][0], want, delta=0.03 * abs(want), msg=(x, z))
+                if x >= 70.0:
+                    # 13% and 21% under
+                    self.assertLess(abs(without[near][0]), 0.9 * abs(want), msg=(x, z))
+        # Their coefficients: the gravity, the rod at rest in the frame's axes
+        loads = [
+            c
+            for c in results["Channels"]
+            if c["Quantity"] == "InertialLoad"
+        ]
+        self.assertEqual(len(loads), 1)
+        for at in (0, -1):
+            load = loads[0]["Values"][at]
+            self.assertEqual(len(load), 12)
+            self.assertAlmostEqual(load[2], -G * 1e-3, delta=1e-3, msg=at)
+            for k in (0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11):
+                self.assertLess(abs(load[k]), 1e-3, msg=(at, k))
         # The largest at the root, as large as the beam's there or more: the
         # hold's corners
         root = q * 100**2 / 2 * 5 / inertia
@@ -273,13 +298,15 @@ class TestFlexibleBody(unittest.TestCase):
         what is beyond a section lifts it, so the rod bends concave up -- in
         compression, below it in tension, the largest at L / 3. Its bending
         alone, half the difference of top and bottom: the swing's pull along
-        the rod adds the same to both. 24 modes: at 12, L / 3 is 4% over"""
+        the rod adds the same to both. 12 modes, with the inertia loads'
+        residual modes as good as 24 without: without, 4% over at L / 3 and
+        20% at 90 mm"""
         import numpy as np
 
         rod, hinge = self.pendulum()
         sim = self.study(0.03, 1e-4)
         flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
-        flexible.Modes = 24
+        flexible.Modes = 12
         FlexibleBodies.prepare(flexible)
         self.doc.recompute()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
@@ -295,13 +322,13 @@ class TestFlexibleBody(unittest.TestCase):
         def want(p):
             return -q * p[0] * (100 - p[0]) ** 2 / 400 * (p[2] - 5) / inertia
 
-        for x in (20.0, 100.0 / 3, 50.0, 70.0):
+        for x in (20.0, 100.0 / 3, 50.0, 70.0, 80.0, 90.0):
             top, below = (
                 int(np.argmin(np.linalg.norm(shape.rest - (x, 5.0, z), axis=1))) for z in (10.0, 0.0)
             )
             self.assertLess(stress[top][0], 0.0)
             self.assertGreater(stress[below][0], 0.0)
-            # The difference, which the pull along the rod is not in; 1.7%
+            # The difference, which the pull along the rod is not in; 2.2%
             # at most
             ratio = (stress[top][0] - stress[below][0]) / (
                 want(shape.rest[top]) - want(shape.rest[below])

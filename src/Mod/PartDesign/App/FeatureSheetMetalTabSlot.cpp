@@ -48,6 +48,7 @@
 
 #include "FeatureSheetMetalRule.h"
 #include "FeatureSheetMetalTabSlot.h"
+#include "SheetMetal/Pieces.h"
 
 using namespace PartDesign;
 using Part::TopoShape;
@@ -253,7 +254,11 @@ App::DocumentObjectExecReturn* SheetMetalLocatingTabs::execute()
                           "Tab " << i + 1 << " runs off " << model.elements[wall].name);
             }
             builder.Add(tabs, tab);
-            fuse.emplace_back(tab);
+            // named, and this feature's
+            TopoShape piece(tab);
+            SheetMetal::nameRest(piece, "Tab" + std::to_string(i + 1));
+            piece.Tag = -getID();
+            fuse.push_back(piece);
         }
         const auto hasher = getDocument()->getStringHasher();
         TopoShape res(0, hasher);
@@ -342,12 +347,16 @@ App::DocumentObjectExecReturn* SheetMetalSlots::execute()
         shape.transformShape(move.toMatrix(), true);
         // each grown by the clearance all round, square
         const double clearance = Clearance.getValue();
-        BRep_Builder builder;
-        TopoDS_Compound grown;
-        builder.MakeCompound(grown);
+        // each named by its place among them, and this feature's
+        std::vector<TopoShape> grown;
+        auto slot = [&](const TopoDS_Shape& solid) {
+            TopoShape piece(solid);
+            SheetMetal::nameRest(piece, "Slot" + std::to_string(grown.size() + 1));
+            grown.push_back(piece);
+        };
         for (TopExp_Explorer it(shape.getShape(), TopAbs_SOLID); it.More(); it.Next()) {
             if (clearance <= Precision::Confusion()) {
-                builder.Add(grown, it.Current());
+                slot(it.Current());
                 continue;
             }
             BRepOffsetAPI_MakeOffsetShape offset;
@@ -361,11 +370,11 @@ App::DocumentObjectExecReturn* SheetMetalSlots::execute()
             if (!offset.IsDone()) {
                 THROWM(Base::CADKernelError, "A slot could not be grown by the clearance");
             }
-            builder.Add(grown, offset.Shape());
+            slot(offset.Shape());
         }
         const auto hasher = getDocument()->getStringHasher();
         TopoShape res(0, hasher);
-        res.makEBoolean(Part::OpCodes::Cut, {base, TopoShape(grown)});
+        res.makEBoolean(Part::OpCodes::Cut, {base, SheetMetal::toolOf(getID(), grown)});
         if (res.countSubShapes(TopAbs_SOLID) != 1) {
             THROWM(Base::ValueError, "The slots left the sheet in pieces");
         }

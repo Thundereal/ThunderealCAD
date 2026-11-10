@@ -335,7 +335,7 @@ App::DocumentObjectExecReturn* SheetMetalExtendWall::execute()
                 SheetMetal::storePCurves(piece);
             }
             TopoShape cut(0, hasher);
-            cut.makEBoolean(Part::OpCodes::Cut, {base, TopoShape().makECompound(cuts)});
+            cut.makEBoolean(Part::OpCodes::Cut, {base, SheetMetal::toolOf(getID(), cuts)});
             if (!cut.hasSubShape(TopAbs_SOLID)) {
                 return new App::DocumentObjectExecReturn(
                     QT_TRANSLATE_NOOP("Exception", "Nothing is left of the wall cut back"));

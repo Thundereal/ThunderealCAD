@@ -795,6 +795,8 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         wall.outline = poly;
 
         const std::string name = "Wall" + std::to_string(walls + 1 + static_cast<int>(j));
+        // its faces are named by the flange's own count (ownName())
+        const std::string own = "Wall" + std::to_string(1 + static_cast<int>(j));
         wall.index = model.addWall(name, gp_Ax3(poly.front(), f.normal, wall.bound[0].line.d));
         std::vector<std::pair<TopoDS_Edge, std::string>> edges;
         for (std::size_t i = 0; i < poly.size(); ++i) {
@@ -813,10 +815,10 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
                     role = bound.role + std::to_string(r + 1);
                 }
             }
-            edges.emplace_back(SheetMetal::lineEdge(p, q), name + role);
+            edges.emplace_back(SheetMetal::lineEdge(p, q), own + role);
         }
         pieces.push_back(
-            TopoShape(0, hasher).makEPrism(SheetMetal::namedFace(edges, name),
+            TopoShape(0, hasher).makEPrism(SheetMetal::namedFace(edges, own),
                                            gp_Vec(f.normal) * T));
         // Each stops at its outline, square to it: a seam's walls lie on
         // one plane, and where folds meet at a corner the next faces lie
@@ -896,7 +898,10 @@ void LinesLoft::build(Chain a, Chain b, const gp_Dir& normal, SheetMetal::Model&
         if (solid.IsNull()) {
             FC_THROWM(Base::RuntimeError, "The lofted flange's " << name << " could not be made");
         }
-        pieces.emplace_back(solid);
+        // named by the flange's own count (ownName()), a bare solid
+        TopoShape piece(solid);
+        SheetMetal::nameRest(piece, "Bend" + std::to_string(1 + static_cast<int>(j)));
+        pieces.push_back(piece);
         const int index = model.addBend(name, bend, wa.index, wb.index);
 
         // Its rims, each edge of the strip but its start and its end,
@@ -1116,7 +1121,7 @@ App::DocumentObjectExecReturn* SheetMetalLoftedFlange::execute()
 
             const std::string name = "Bend" + std::to_string(bends + 1);
             tool = TopoShape(0, hasher).makERevolve(
-                SheetMetal::coneSection(cone, slant, name),
+                SheetMetal::coneSection(cone, slant, "Bend1"),
                 gp_Ax1(cone.frame.Location(), axis),
                 sweep);
             model.addCone(name, cone);

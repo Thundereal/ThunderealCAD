@@ -51,6 +51,7 @@
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Dxf.h"
 #include "SheetMetal/Flat.h"
+#include "SheetMetal/Pieces.h"
 #include "SheetMetal/Svg.h"
 #include "SheetMetalExtension.h"
 #include "SheetMetalFlat.h"
@@ -78,8 +79,10 @@ TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, 
                      std::vector<TopoShape>& out) {
         for (std::size_t k = 0; k < segments.size(); ++k) {
             TopoShape edge(segments[k]);
-            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
-                                Data::MappedName(k ? name + "Part" + std::to_string(k + 1) : name));
+            const std::string part = k ? name + "Part" + std::to_string(k + 1) : name;
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1), Data::MappedName(part));
+            // its ends too: Bend1V1, Bend1V2
+            SheetMetal::nameRest(edge, part);
             out.push_back(edge);
         }
     };
@@ -102,6 +105,7 @@ TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, 
             TopoShape edge(edges[k]);
             edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
                                 Data::MappedName(nameOf(k)));
+            SheetMetal::nameRest(edge, nameOf(k));
             res.push_back(edge);
         }
         if (!res.empty()) {

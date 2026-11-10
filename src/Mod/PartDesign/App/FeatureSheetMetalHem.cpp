@@ -177,6 +177,11 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
         for (const Element& e : model.elements) {
             ++(e.kind == Element::Kind::Wall ? walls : bends);
         }
+        // its pieces' faces are named by its own count (ownName())
+        const int wallsBefore = walls, bendsBefore = bends;
+        auto ownNamed = [&](const std::string& name) {
+            return SheetMetal::ownName(name, wallsBefore, bendsBefore);
+        };
         TopoShape base = getBaseShape();
         const auto shadows = Edges.getShadowSubs();
         if (shadows.empty()) {
@@ -279,7 +284,7 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
                 bendStart = edgeStart.Translated(-e * (R + T));
                 cuts.push_back(TopoShape(0, hasher).makEPrism(
                     SheetMetal::wallSection(bendStart, edge.endOut, R + T, up.Reversed(), T,
-                                            bendName + "Cut"),
+                                            ownNamed(bendName) + "Cut"),
                     along));
                 // Where the hem stops inside the wall's end, the rule's bend
                 // relief beside the fold, as a flange's (sec 5.2)
@@ -294,7 +299,7 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
                 }
                 for (TopoShape& cut : SheetMetal::reliefCuts(relief, inner, edge.along,
                                                              edge.endOut, up, T, gap1, width,
-                                                             gap2, bendName + "Relief", hasher)) {
+                                                             gap2, ownNamed(bendName) + "Relief", hasher)) {
                     cuts.push_back(std::move(cut));
                 }
             }
@@ -330,10 +335,10 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             }
 
             pieces.push_back(TopoShape(0, hasher).makEPrism(
-                SheetMetal::bendSection(bend, bendName), along));
+                SheetMetal::bendSection(bend, ownNamed(bendName)), along));
             if (leg > Precision::Confusion()) {
                 pieces.push_back(TopoShape(0, hasher).makEPrism(
-                    SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
+                    SheetMetal::wallSection(legStart, legAlong, leg, x2, T, ownNamed(legName)), along));
             }
         }
 
@@ -342,7 +347,7 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             for (const TopoShape& cut : cuts) {
                 SheetMetal::storePCurves(cut);
             }
-            base = getSolid(SheetMetal::cutDroppingScrap(base, cuts, pieces, hasher));
+            base = getSolid(SheetMetal::cutDroppingScrap(base, cuts, pieces, hasher, getID()));
         }
         TopoShape tool = pieces.size() == 1 ? pieces.front()
                                              : TopoShape(0, hasher).makEFuse(pieces);

@@ -2001,6 +2001,55 @@ stored flat and this option do what it was for.
   - `TestSheetMetalLoftedFlange` (38, +6, one rewritten; before, 32 of 38): a square to a round
     Inside and Middle, a round to a square Inside, 8 segments Inside and Middle, radius 0.3
     Inside -- each exact, the corners clear, the square's lines on the sheet a tenth from them.
+- **Audited 2026-11-10, the element names** (asked 2026-11-10: "pay attention to toponaming,
+  e.g. check if tree item highlight of the feature only highlight the subshape of the feature";
+  the fixes approved the same day, with no element map version bumped: nothing is released).
+  Asked of every feature in every sheet metal test's document, 995 of them:
+  - **The tree highlight was the whole solid for most features.** A feature's highlight is
+    `Feature::getGeneratedIndices()`, the faces whose names say the feature made them. Lit, of
+    the faces each kind made: flange, contour flange, hem, join, bend cuts, extend wall, rip,
+    fold, jog, locating tabs 0 (of 4269 for the flange), corner closure 5%, form 63%, tab 65%,
+    convert 80% with 18 of the part before it; cutout and slots all, as a pocket. With none lit
+    the view lights everything, and a suppressed feature's ghost is empty. Two causes:
+    - *the test.* The default asks for a name ending in a generated step; these features build
+      their pieces and join them, so theirs end in the join's. Their faces did carry the
+      feature's tag. They now take the pad's test, a name tracing to the feature
+      (`Feature::isElementTraced()`, which `ProfileBased` used alone). A form adds the faces its
+      rounding made of an edge; a convert, which remakes the part, lights all of it.
+    - *no owner.* A piece made with tag 0 and cut or joined as it is gives what comes of it no
+      feature to trace to: the cuts of a flange, a hem, a join, a rip, a corner closure and an
+      extend wall (its wall cut back, its reliefs), a fold's and a jog's bends, the form's solids,
+      the tabs. Each is now the feature's before the boolean (`SheetMetal::toolOf()`, or its
+      `Tag`). A fold and a jog mark their bends and the jog's run only: the side they carry keeps
+      the wall's names, so a reference to a face of it holds, and it is not lit.
+  - **Elements with no name:** a shell converted (all of it: sewn of bare faces), the locating
+    tabs (bare prisms), a form's solids, a jog's run, a lofted flange's bends, and a corner of
+    every section (`namedFace()` named its face and edges only), which left a vertex of each
+    profile wall and the ends of each line of the flat object unnamed. `SheetMetal::nameRest()`
+    names what has none, by the piece's name and the element's place in it; no name was twice.
+  - **A bend added before a feature renamed every face the feature made.** The sheet numbers its
+    walls and bends on from those it has (`Bend2` is `Bend1` once the flange before it is
+    suppressed -- why the overrides' key, `BendKFactors`, is no name), and the pieces' faces
+    were named by that number. Measured on a plate with four flanges in a row, the first clear of
+    the others and suppressed: 41, 73 and 105 elements of the three after it renamed, of 41, 73
+    and 105 that stayed where they were; their references held because a name not found is
+    looked for by
+    where its element lay, which a change of its place at the same time would defeat. The
+    pieces are now named by the feature's own count (`SheetMetal::ownName()`: `Wall4` of a
+    feature the sheet had two walls before is `Wall2`): 0 renamed, and the references found by
+    name. The sheet's own names -- the bend table's, the flat's lines `Bend2`, `Bend2Part2` --
+    are still by its count, **open**: a drawing dimension to a flat's bend line follows the
+    line by place when a bend is added before it.
+  - **Held as they were:** a recompute, a flange's length and angle, the wall wider and deeper,
+    save and reopen: no element renamed. A feature suppressed, or put in, before one that uses
+    an edge it trims loses that edge (`?Edge12`); a chamfer on an edge a pocket trims does the
+    same, the core's.
+  - Tests: `SheetMetalNames.py`, asked of every sheet metal test's document as it closes (28
+    files' `tearDown`): each feature's highlight is the faces off the skin it built on, all and
+    no other, and every element is named (before, 375 of 446 tests failing it); and
+    `TestSheetMetalNames` (6; before, 0 of 6): a flange, a flange on a flange, a hem, a contour
+    flange, a fold and a jog keep their faces' names with a flange before them suppressed.
+    PartDesign 987 OK frozen and not.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at

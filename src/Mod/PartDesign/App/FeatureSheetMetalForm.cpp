@@ -72,6 +72,7 @@
 #include <Mod/Part/App/TopoShapeOpCode.h>
 
 #include "FeatureSheetMetalForm.h"
+#include "SheetMetal/Pieces.h"
 #include "FeatureSheetMetalRule.h"
 
 using namespace PartDesign;
@@ -1121,6 +1122,18 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
         const int steps = 2;
         // the forms pressed in, their bends rounded, the model with them
         auto finish = [&]() {
+            // each named by its place among them, and this feature's: bare
+            // solids, they would give what is made of them neither a name
+            // nor the form to trace to
+            auto owned = [this](std::vector<TopoShape>& shapes, const char* name) {
+                int k = 0;
+                for (TopoShape& shape : shapes) {
+                    SheetMetal::nameRest(shape, name + std::to_string(++k));
+                    shape.Tag = -getID();
+                }
+            };
+            owned(adds, "Form");
+            owned(cuts, "Hollow");
             std::vector<TopoShape> fuse {base};
             fuse.insert(fuse.end(), adds.begin(), adds.end());
             TopoShape fused(0, hasher);

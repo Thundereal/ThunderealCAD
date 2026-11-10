@@ -361,7 +361,7 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
             SheetMetal::storePCurves(c);
         }
         base = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
-                                                {base, TopoShape().makECompound(cuts)});
+                                                {base, SheetMetal::toolOf(getID(), cuts)});
         base = getSolid(base);
         TopoShape tool = pieces.size() == 1 ? pieces.front()
                                              : TopoShape(0, hasher).makEFuse(pieces);
@@ -383,7 +383,7 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
                                           rule->CornerReliefCover.getValue());
             if (!reliefs.empty()) {
                 result = getSolid(TopoShape(0, hasher).makEBoolean(
-                    Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));
+                    Part::OpCodes::Cut, {result, SheetMetal::toolOf(getID(), reliefs)}));
             }
         }
         Shape.setValue(result);

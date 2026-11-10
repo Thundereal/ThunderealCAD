@@ -66,6 +66,7 @@
 
 #include "FeatureSheetMetalConvert.h"
 #include "FeatureSheetMetalRule.h"
+#include "SheetMetal/Pieces.h"
 #include "SheetMetal/Recognise.h"
 #include "SheetMetal/Refold.h"
 
@@ -306,6 +307,16 @@ TopoDS_Shape ripSlab(const gp_Pnt& p, const gp_Dir& d, const gp_Dir& na, const g
     return BRepPrimAPI_MakeBox(gp_Ax2(origin, normal, d), t1 - t0, 2 * half, gap).Solid();
 }
 
+/// A name for every element of each of the bare solids, by its place among
+/// them: what is cut with one is then named after it
+void named(std::vector<TopoShape>& shapes, const char* name)
+{
+    int k = 0;
+    for (TopoShape& shape : shapes) {
+        SheetMetal::nameRest(shape, name + std::to_string(++k));
+    }
+}
+
 /** A thin part ripped: a gap at each edge given, a closed corner seam of
  * two walls, along the edge and no further -- past its ends lie a relief or
  * the walls' other sides. Throws naming an edge that is not straight between
@@ -352,6 +363,7 @@ TopoShape ripped(const TopoShape& part, const std::vector<TopoDS_Shape>& rips, d
                                    3 * T,
                                    gap));
     }
+    named(slabs, "Rip");
     TopoShape res(0, part.Hasher);
     res.makEBoolean(Part::OpCodes::Cut, {part, TopoShape().makECompound(slabs)});
     return res;
@@ -559,7 +571,7 @@ App::DocumentObjectExecReturn* SheetMetalConvert::execute()
                                           rule->CornerReliefCover.getValue());
             if (!reliefs.empty()) {
                 result = getSolid(TopoShape(0, hasher).makEBoolean(
-                    Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));
+                    Part::OpCodes::Cut, {result, SheetMetal::toolOf(getID(), reliefs)}));
             }
         }
         // every face one element's
@@ -691,7 +703,10 @@ TopoShape SheetMetalConvert::thickened(const TopoShape& base,
     TopoShape res(0, hasher);
     if (shell) {
         // a shell thickened against its faces' normals, or with them
-        res = getSolid(thickShell(base, inside ? -T : T));
+        // made of bare faces sewn: named by their place in it
+        TopoShape solid = thickShell(base, inside ? -T : T);
+        SheetMetal::nameRest(solid, "Shell");
+        res = getSolid(solid);
     }
     else {
         TopoShape from = base;
@@ -823,6 +838,7 @@ TopoShape SheetMetalConvert::thickened(const TopoShape& base,
         made.rips.push_back({e.p.Translated(gp_Vec(e.d) * (e.length / 2)), e.na, e.nb});
     }
     if (!cuts.empty()) {
+        named(cuts, "Rip");
         res = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
                                                {res, TopoShape().makECompound(cuts)});
         res = getSolid(res);

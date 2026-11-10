@@ -93,6 +93,8 @@ TopoShape namedFace(const std::vector<std::pair<TopoDS_Edge, std::string>>& edge
             }
         }
     }
+    // its corners too
+    nameRest(res, name);
     return res;
 }
 
@@ -294,12 +296,55 @@ std::vector<TopoDS_Face> skinFaces(const TopoDS_Shape& shape, const Model& model
     return res;
 }
 
+std::string ownName(const std::string& name, int walls, int bends)
+{
+    for (const auto& [prefix, before] :
+         {std::make_pair(std::string("Wall"), walls), std::make_pair(std::string("Bend"), bends)}) {
+        if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0
+            || !std::all_of(name.begin() + prefix.size(), name.end(), [](unsigned char c) {
+                   return std::isdigit(c) != 0;
+               })) {
+            continue;
+        }
+        const int number = std::stoi(name.substr(prefix.size()));
+        return number > before ? prefix + std::to_string(number - before) : "Base" + prefix;
+    }
+    return name;
+}
+
+void nameRest(TopoShape& shape, const std::string& name)
+{
+    for (const auto& kind : {std::make_pair(TopAbs_FACE, "Face"),
+                             std::make_pair(TopAbs_EDGE, "Edge"),
+                             std::make_pair(TopAbs_VERTEX, "Vertex")}) {
+        const int count = static_cast<int>(shape.countSubShapes(kind.first));
+        for (int i = 1; i <= count; ++i) {
+            const Data::IndexedName element(kind.second, i);
+            if (!shape.getMappedName(element)) {
+                shape.setElementName(
+                    element,
+                    Data::MappedName(name + kind.second[0] + std::to_string(i)));
+            }
+        }
+    }
+}
+
+TopoShape toolOf(long id, std::vector<TopoShape> shapes)
+{
+    for (TopoShape& shape : shapes) {
+        shape.Tag = -id;
+    }
+    TopoShape tool = TopoShape().makECompound(shapes);
+    tool.Tag = -id;
+    return tool;
+}
+
 TopoShape cutDroppingScrap(const TopoShape& base, const std::vector<TopoShape>& cuts,
                            const std::vector<TopoShape>& pieces,
-                           const App::StringHasherRef& hasher)
+                           const App::StringHasherRef& hasher, long id)
 {
-    const TopoShape res = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
-                                                           {base, TopoShape().makECompound(cuts)});
+    const TopoShape res =
+        TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut, {base, toolOf(id, cuts)});
     const auto before = base.getSubTopoShapes(TopAbs_SOLID);
     const auto after = res.getSubTopoShapes(TopAbs_SOLID);
     if (after.size() <= before.size()) {

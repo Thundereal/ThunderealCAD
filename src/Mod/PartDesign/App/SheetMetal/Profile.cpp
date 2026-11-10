@@ -252,7 +252,7 @@ void ProfileBuilder::profileAt(const std::vector<gp_Pnt>& p, const gp_Dir& n, do
         const int wall = model.addWall(name, gp_Ax3(origin, l[i], d[i]));
         added.push_back(wall);
         faces.push_back(wallSection(origin, d[i], start[i].Distance(end[i]), l[i], thickness,
-                                    name));
+                                    ownName(name, wallsBefore, bendsBefore)));
         if (i > 0) {
             bend(center[i], l[i - 1], n, turn[i], previous, wall, r[i]);
         }
@@ -345,7 +345,7 @@ void ProfileBuilder::closedProfile(std::vector<gp_Pnt> p, const gp_Dir& n, int s
         walls[i] = model.addWall(name, gp_Ax3(origin, l[i], d[i]));
         added.push_back(walls[i]);
         faces.push_back(wallSection(origin, d[i], start[i].Distance(end[i]), l[i], thickness,
-                                    name));
+                                    ownName(name, wallsBefore, bendsBefore)));
     }
     for (std::size_t j = 0; j < count; ++j) {
         bend(center[j], l[before(j)], n, turn[j], walls[before(j)], walls[j], radius);
@@ -368,7 +368,7 @@ void ProfileBuilder::bend(const gp_Pnt& c, const gp_Dir& l, const gp_Dir& n, dou
     if (firstBend < 0) {
         firstBend = index;
     }
-    faces.push_back(bendSection(bend, name));
+    faces.push_back(bendSection(bend, ownName(name, wallsBefore, bendsBefore)));
 }
 
 }  // namespace PartDesign::SheetMetal

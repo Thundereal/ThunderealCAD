@@ -244,6 +244,8 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
         const gp_Vec along = gp_Vec(d) * width;
 
         const std::string bendName = "Bend" + std::to_string(bends + 1);
+        // its pieces' faces are named by its own count (ownName()): its one bend
+        const std::string ownBend = "Bend1";
         CylBend bend;
         bend.frame =
             gp_Ax3(center.Translated(gp_Vec(d) * s0), gp_Dir(eA.Crossed(iA)), inA.Reversed());
@@ -264,7 +266,7 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
 
         std::vector<TopoShape> pieces, cuts;
         pieces.push_back(
-            TopoShape(0, hasher).makEPrism(SheetMetal::bendSection(bend, bendName), along));
+            TopoShape(0, hasher).makEPrism(SheetMetal::bendSection(bend, ownBend), along));
 
         // Each wall extended or trimmed from its end to where the bend starts
         const bool own = ReliefShape.getValue() != 0;
@@ -288,7 +290,7 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
                                                    .Dot(gp_Vec(d)));
             const gp_Pnt start = center.Translated(-gp_Vec(side.in) * R);
             const double reach = gp_Vec(edge.p0, start).Dot(e);
-            const std::string name = bendName + side.role;
+            const std::string name = ownBend + side.role;
             if (reach > tol) {
                 pieces.push_back(TopoShape(0, hasher).makEPrism(
                     SheetMetal::wallSection(q, edge.endOut, reach, edge.skinOut.Reversed(), T,
@@ -346,7 +348,7 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
             }
             const int solids = base.countSubShapes(TopAbs_SOLID);
             base = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
-                                                    {base, TopoShape().makECompound(cuts)});
+                                                    {base, SheetMetal::toolOf(getID(), cuts)});
             if (base.countSubShapes(TopAbs_SOLID) > solids) {
                 FC_THROWM(Base::ValueError,
                           both << ": trimming the walls back to the bend cuts off what they "

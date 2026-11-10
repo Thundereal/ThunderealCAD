@@ -133,17 +133,43 @@ PartDesignExport WallEdge wallEdge(const Part::TopoShape& base, const Model& mod
                                    const std::string& ref, const std::string& label);
 
 
+/** The name of a wall or a bend of the sheet's, Wall4 or Bend3, counted among
+ * a feature's own: with the walls and bends the sheet had before the feature,
+ * 2 and 2, Wall2 and Bend1. What the feature names its pieces' faces by: the
+ * sheet numbers its elements on from those it has, so a bend added before the
+ * feature renames every one of them, and a face named by the sheet's count
+ * would be renamed with it -- a reference to it then found by where it lies,
+ * if it lies there still. One the sheet had before is BaseWall or BaseBend;
+ * any other name is as it is.
+ */
+PartDesignExport std::string ownName(const std::string& name, int walls, int bends);
+
+/** A name for each element of shape that has none: name, then F, E or V and
+ * the element's index in shape, so a piece built the same way is named the
+ * same way. For a piece of bare geometry before it is swept or joined: an
+ * element with no name gives what is made of it none, and a reference to
+ * that then holds by its index only.
+ */
+PartDesignExport void nameRest(Part::TopoShape& shape, const std::string& name);
+
+/** The shapes as one tool of the feature id's: each marked as that feature's,
+ * so what a boolean makes of them traces to it -- its tree highlight lights
+ * them (Feature::isElementTraced()). A shape made with no tag carries no
+ * owner into the names of what is cut or joined with it.
+ */
+PartDesignExport Part::TopoShape toolOf(long id, std::vector<Part::TopoShape> shapes);
+
 /** base less the cuts (a wall cut back under a bend, its relief), less any
  * piece they free (docs/SheetMetal.md sec 12, 2026-11-04): of what a solid
  * of base parts into, what pieces (the bends and walls added) stand on
  * stays, else its largest; the rest is scrap, as the cutter drops it from
  * the blank -- two reliefs at a corner, between them a flange's cut-back,
- * free the corner.
+ * free the corner. The cuts are the feature id's (toolOf()).
  */
 PartDesignExport Part::TopoShape cutDroppingScrap(const Part::TopoShape& base,
                                                   const std::vector<Part::TopoShape>& cuts,
                                                   const std::vector<Part::TopoShape>& pieces,
-                                                  const App::StringHasherRef& hasher);
+                                                  const App::StringHasherRef& hasher, long id);
 
 /// The faces of shape the wall owns lying on the plane
 PartDesignExport std::vector<TopoDS_Face>

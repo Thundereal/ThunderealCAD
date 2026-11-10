@@ -1783,16 +1783,6 @@ void ProfileBased::handleChangedPropertyName(Base::XMLReader & reader, const cha
 
 bool ProfileBased::isElementGenerated(const TopoShape &shape, const Data::MappedName &name) const
 {
-    bool res = false;
-    shape.traceElement(name,
-        [&] (const Data::MappedName &, int, long tag2, long) {
-            if (std::abs(tag2) == this->getID()) {
-                res = true;
-                return true;
-            }
-            return false;
-        });
-
-    return res;
+    return isElementTraced(shape, name);
 }
 

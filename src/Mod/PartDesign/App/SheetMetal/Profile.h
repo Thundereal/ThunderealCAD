@@ -72,6 +72,8 @@ struct PartDesignExport ProfileBuilder
         : model(model)
         , walls(walls)
         , bends(bends)
+        , wallsBefore(walls)
+        , bendsBefore(bends)
     {}
 
     double thickness = 0;
@@ -81,7 +83,11 @@ struct PartDesignExport ProfileBuilder
     Model& model;
     int& walls;
     int& bends;
-    /// the sections made, named as their elements
+    /// the counts the sheet had before this profile
+    const int wallsBefore;
+    const int bendsBefore;
+    /// the sections made, each named as its element is among the profile's
+    /// own (ownName())
     std::vector<Part::TopoShape> faces;
     /// with first a wall of the model, the first line is that wall already:
     /// no wall nor section is made for it, and firstEnd is where its

@@ -329,7 +329,7 @@ App::DocumentObjectExecReturn* SheetMetalRip::execute()
             SheetMetal::storePCurves(c);
         }
         base = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
-                                                {base, TopoShape().makECompound(cuts)});
+                                                {base, SheetMetal::toolOf(getID(), cuts)});
         base = getSolid(base);
         TopoShape result = base;
         if (!legs.empty()) {

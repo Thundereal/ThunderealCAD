@@ -99,6 +99,13 @@ public:
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    /// its own faces are those tracing to it, as a pad's are, and those its
+    /// rounding made of an edge: the form's too, whatever the edge was
+    bool isElementGenerated(const Part::TopoShape& shape,
+                            const Data::MappedName& name) const override
+    {
+        return isElementTraced(shape, name) || Feature::isElementGenerated(shape, name);
+    }
     void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {

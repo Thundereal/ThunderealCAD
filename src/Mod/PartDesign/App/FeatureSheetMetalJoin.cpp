@@ -167,10 +167,10 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
             return new App::DocumentObjectExecReturn(
                 QT_TRANSLATE_NOOP("Exception", "A join by bend builds on sheet metal walls"));
         }
-        int bends = 0;
-        for (const Element& e : model.elements) {
-            bends += e.kind == Element::Kind::Bend ? 1 : 0;
-        }
+        // numbered on from the highest the sheet has (storeModel() gives
+        // it the number it keeps)
+        int walls = 0, bends = 0;
+        model.numbers(walls, bends);
 
         // In place, as a pad of the current version is (shouldApplyPlacement())
         TopoShape base = getBaseShape();
@@ -372,8 +372,7 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
             FC_THROWM(Base::ValueError, both << ": the bend between them runs into the sheet");
         }
         Shape.setValue(result);
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

@@ -221,7 +221,7 @@ App::DocumentObjectExecReturn* SheetMetalCutout::execute()
                 QT_TRANSLATE_NOOP("Exception", "A cutout leaves nothing of the sheet"));
         }
         Shape.setValue(result);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

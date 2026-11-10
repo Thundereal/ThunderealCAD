@@ -354,7 +354,7 @@ App::DocumentObjectExecReturn* SheetMetalExtendWall::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(tool.isNull() ? base : unifySeams(makeBoolean(base, tool, true), ends));
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

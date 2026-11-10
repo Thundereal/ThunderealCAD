@@ -61,12 +61,23 @@ public:
      * (docs/SheetMetal.md sec 4.6, ruled 2026-11-05)
      *
      * Keyed by the bend's place among the feature's own, counted from 1 in
-     * the order it makes them, not by its name: a bend added earlier in the
-     * sheet renames every later one, and the key holds. A key past the
-     * bends the feature makes is kept and changes nothing. Check Sheet's
-     * bend table edits it, through setBendKFactor().
+     * the order it makes them, as its number is kept (BendNumbers). A key
+     * past the bends the feature makes is kept and changes nothing. Check
+     * Sheet's bend table edits it, through setBendKFactor().
      */
     App::PropertyMap BendKFactors;
+    /** The numbers of the walls and of the bends this feature makes, each
+     * list in the order it makes them (docs/SheetMetal.md sec 12, ruled
+     * 2026-11-11): Wall4, Bend3
+     *
+     * A wall or a bend takes the next number of its body the first time its
+     * feature makes it, and keeps it: a feature suppressed, put in or taken
+     * out before this one renames nothing of this one's, in the bend table
+     * or on the flat's lines. A number past what the feature makes is kept,
+     * and taken up again when it makes that many. Filled by storeModel().
+     */
+    App::PropertyIntegerList WallNumbers;
+    App::PropertyIntegerList BendNumbers;
 
     /// The rule, null if none
     SheetMetalRule* getRule() const;
@@ -98,6 +109,18 @@ public:
      * is stored. Throws Base::ValueError for a key or a value that is none.
      */
     void applyBendOverrides(SheetMetal::Model& model) const;
+    /** Store the model this feature made as its SheetModel: its own walls
+     * and bends -- those the sheet it builds on has not, all of them where
+     * it remade the sheet (a convert) -- named by their numbers
+     * (WallNumbers, BendNumbers), its bends with their K (BendKFactors).
+     *
+     * A number is new where the feature has none for that wall or bend yet,
+     * or has one the sheet before it holds too (a copy of a feature): one
+     * above every number of the sheet before it and of every sheet metal
+     * feature of its body, suppressed or not. Throws as
+     * applyBendOverrides() does.
+     */
+    void storeModel(SheetMetal::Model model, bool remade = false);
     /// The K of one of this feature's bends, by its name, where the bend has
     /// one of its own
     std::optional<double> bendKFactor(const std::string& bend) const;

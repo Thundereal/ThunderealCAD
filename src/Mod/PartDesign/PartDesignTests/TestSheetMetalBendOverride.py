@@ -127,9 +127,9 @@ class TestSheetMetalBendOverride(unittest.TestCase):
         self.assertEqual(table["Bend1"]["Feature"], first.Name)
 
     def testKeyHoldsWhenEarlierBendsAreAdded(self):
-        """The near flange's bend is renamed Bend3 when the far flange takes
-        the left edge too (gaps at its ends, the near edge left whole); its K
-        goes with it"""
+        """The near flange's bend is Bend2 still when the far flange takes
+        the left edge too (gaps at its ends, the near edge left whole), that
+        edge's bend the body's next, Bend3; its K stays with it"""
         first, second = self.twoFlanges()
         second.setBendKFactor("Bend2", 0.3)
         self.Doc.recompute()
@@ -143,9 +143,13 @@ class TestSheetMetalBendOverride(unittest.TestCase):
         self.assertEqual(len(table), 3)
         mine = [b for b in table.values() if b["Feature"] == second.Name]
         self.assertEqual(len(mine), 1)
-        self.assertEqual(mine[0]["Name"], "Bend3")
+        self.assertEqual(mine[0]["Name"], "Bend2")
         self.assertAlmostEqual(mine[0]["KFactor"], 0.3, places=9)
         self.assertEqual(mine[0]["KFactorSource"], "bend")
+        self.assertEqual(
+            sorted(b["Name"] for b in table.values() if b["Feature"] == first.Name),
+            ["Bend1", "Bend3"],
+        )
         for b in table.values():
             if b["Feature"] == first.Name:
                 self.assertEqual(b["KFactorSource"], "rule")

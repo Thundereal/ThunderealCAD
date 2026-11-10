@@ -125,6 +125,10 @@ struct PartDesignExport Form
 /// (Element::rims) take it
 PartDesignExport gp_Pnt rimPoint(const CylBend& bend, const gp_Pnt& point);
 
+/// The number a name is prefix and then ("Wall", "Wall12": 12), 0 for a
+/// name that is not that
+PartDesignExport int numberOf(const std::string& name, const std::string& prefix);
+
 class PartDesignExport Model
 {
 public:
@@ -142,6 +146,12 @@ public:
     int addCone(const std::string& name, const ConeBend& cone);
     /// The element of that name, -1 for none
     int find(const std::string& name) const;
+    /** The highest number its walls' names (Wall3) and its bends' (Bend2, a
+     * cone's too) end in, 0 for none: a feature numbers what it makes on
+     * from these while it builds, and the names they keep are given as the
+     * model is stored (SheetMetalExtension::storeModel())
+     */
+    void numbers(int& walls, int& bends) const;
 
     /// Whether the point is in the element's material, within tol
     bool contains(int index, const gp_Pnt& point, double tol = 1e-7) const;

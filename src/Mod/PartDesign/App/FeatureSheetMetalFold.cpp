@@ -441,10 +441,10 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
                       "A " << noun << "'s line lies across no wall of the sheet");
         }
 
+        // numbered on from the highest the sheet has (storeModel() gives
+        // each the number it keeps)
         int walls = 0, bends = 0;
-        for (const Element& el : model.elements) {
-            ++(el.kind == Element::Kind::Wall ? walls : bends);
-        }
+        model.numbers(walls, bends);
         // its pieces' faces are named by its own count (ownName())
         const int wallsBefore = walls, bendsBefore = bends;
         auto ownNamed = [&](const std::string& name) {
@@ -671,8 +671,7 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         }
 
         Shape.setValue(result);
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

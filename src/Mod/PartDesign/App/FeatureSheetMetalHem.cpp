@@ -173,10 +173,10 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             return new App::DocumentObjectExecReturn(
                 QT_TRANSLATE_NOOP("Exception", "A hem builds on a sheet metal feature"));
         }
+        // numbered on from the highest the sheet has (storeModel() gives
+        // each the number it keeps)
         int walls = 0, bends = 0;
-        for (const Element& e : model.elements) {
-            ++(e.kind == Element::Kind::Wall ? walls : bends);
-        }
+        model.numbers(walls, bends);
         // its pieces' faces are named by its own count (ownName())
         const int wallsBefore = walls, bendsBefore = bends;
         auto ownNamed = [&](const std::string& name) {
@@ -359,8 +359,7 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(makeBoolean(base, tool, true));
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

@@ -26,12 +26,14 @@
 
 #include <charconv>
 #include <cmath>
+#include <set>
 
 #include <TopoDS.hxx>
 
 #include <Base/Exception.h>
 #include <Mod/Part/App/TopoShape.h>
 
+#include "Body.h"
 #include "Feature.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetalExtension.h"
@@ -62,6 +64,20 @@ SheetMetalExtension::SheetMetalExtension()
                                 "The K of each bend this feature makes that does not take the "
                                 "rule's, by the bend's place among its own counted from 1. Check "
                                 "Sheet's bend table edits it");
+    EXTENSION_ADD_PROPERTY_TYPE(WallNumbers,
+                                (std::vector<long>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "The number of each wall this feature makes, in the order it "
+                                "makes them, kept from when it first made it");
+    EXTENSION_ADD_PROPERTY_TYPE(BendNumbers,
+                                (std::vector<long>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "The number of each bend this feature makes, in the order it "
+                                "makes them, kept from when it first made it");
 }
 
 SheetMetalRule* SheetMetalExtension::getRule() const
@@ -201,6 +217,81 @@ void SheetMetalExtension::applyBendOverrides(SheetMetal::Model& model) const
             model.elements[own[place - 1]].bend.k = *k;
         }
     }
+}
+
+void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade)
+{
+    auto obj = getExtendedObject();
+    SheetMetal::Model earlier;
+    if (auto before = findBefore(obj)) {
+        earlier = before->SheetModel.getValue();
+    }
+    // the highest number held: by the sheet this builds on, by what this
+    // keeps of it, and by every sheet metal feature of the body, this one too
+    int top[2] = {0, 0};
+    earlier.numbers(top[0], top[1]);
+    auto hold = [&top](const SheetMetalExtension& ext) {
+        const App::PropertyIntegerList* lists[2] = {&ext.WallNumbers, &ext.BendNumbers};
+        for (int kind = 0; kind < 2; ++kind) {
+            for (long number : lists[kind]->getValues()) {
+                top[kind] = std::max(top[kind], static_cast<int>(number));
+            }
+        }
+    };
+    hold(*this);
+    if (auto body = obj ? Body::findBodyOf(obj) : nullptr) {
+        for (auto other : body->Group.getValues()) {
+            if (auto ext = other ? other->getExtensionByType<SheetMetalExtension>(true) : nullptr) {
+                hold(*ext);
+            }
+        }
+    }
+    const char* prefixes[2] = {"Wall", "Bend"};
+    App::PropertyIntegerList* lists[2] = {&WallNumbers, &BendNumbers};
+    for (int kind = 0; kind < 2; ++kind) {
+        const std::string prefix = prefixes[kind];
+        std::vector<int> own;
+        std::set<long> taken;
+        if (remade) {
+            // none of the sheet before it is in the model, its names are held still
+            for (const auto& element : earlier.elements) {
+                if (const int number = SheetMetal::numberOf(element.name, prefix)) {
+                    taken.insert(number);
+                }
+            }
+        }
+        for (std::size_t i = 0; i < model.elements.size(); ++i) {
+            const std::string& name = model.elements[i].name;
+            const int number = SheetMetal::numberOf(name, prefix);
+            if (!number) {
+                continue;
+            }
+            if (remade || earlier.find(name) < 0) {
+                own.push_back(static_cast<int>(i));
+            }
+            else {
+                taken.insert(number);
+                top[kind] = std::max(top[kind], number);
+            }
+        }
+        std::vector<long> numbers = lists[kind]->getValues();
+        if (numbers.size() < own.size()) {
+            numbers.resize(own.size(), 0);
+        }
+        for (std::size_t k = 0; k < own.size(); ++k) {
+            // none yet, or one something else of the sheet has
+            if (numbers[k] < 1 || !taken.insert(numbers[k]).second) {
+                numbers[k] = ++top[kind];
+                taken.insert(numbers[k]);
+            }
+            model.elements[own[k]].name = prefix + std::to_string(numbers[k]);
+        }
+        if (numbers != lists[kind]->getValues()) {
+            lists[kind]->setValues(numbers);
+        }
+    }
+    applyBendOverrides(model);
+    SheetModel.setValue(model);
 }
 
 namespace

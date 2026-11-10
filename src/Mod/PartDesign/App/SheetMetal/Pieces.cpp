@@ -300,14 +300,9 @@ std::string ownName(const std::string& name, int walls, int bends)
 {
     for (const auto& [prefix, before] :
          {std::make_pair(std::string("Wall"), walls), std::make_pair(std::string("Bend"), bends)}) {
-        if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0
-            || !std::all_of(name.begin() + prefix.size(), name.end(), [](unsigned char c) {
-                   return std::isdigit(c) != 0;
-               })) {
-            continue;
+        if (const int number = numberOf(name, prefix)) {
+            return number > before ? prefix + std::to_string(number - before) : "Base" + prefix;
         }
-        const int number = std::stoi(name.substr(prefix.size()));
-        return number > before ? prefix + std::to_string(number - before) : "Base" + prefix;
     }
     return name;
 }

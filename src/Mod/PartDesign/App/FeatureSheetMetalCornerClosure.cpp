@@ -387,7 +387,7 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
             }
         }
         Shape.setValue(result);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

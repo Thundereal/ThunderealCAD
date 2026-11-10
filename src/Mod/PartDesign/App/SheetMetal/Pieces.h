@@ -133,14 +133,12 @@ PartDesignExport WallEdge wallEdge(const Part::TopoShape& base, const Model& mod
                                    const std::string& ref, const std::string& label);
 
 
-/** The name of a wall or a bend of the sheet's, Wall4 or Bend3, counted among
- * a feature's own: with the walls and bends the sheet had before the feature,
- * 2 and 2, Wall2 and Bend1. What the feature names its pieces' faces by: the
- * sheet numbers its elements on from those it has, so a bend added before the
- * feature renames every one of them, and a face named by the sheet's count
- * would be renamed with it -- a reference to it then found by where it lies,
- * if it lies there still. One the sheet had before is BaseWall or BaseBend;
- * any other name is as it is.
+/** The name of a wall or a bend as a feature numbers it while it builds,
+ * Wall4 or Bend3, counted among the feature's own: with the highest numbers
+ * the sheet had before the feature (Model::numbers()), 2 and 2, Wall2 and
+ * Bend1. What the feature names its pieces' faces by, whatever numbers its
+ * walls and bends take in the sheet (SheetMetalExtension::storeModel()). One
+ * the sheet had before is BaseWall or BaseBend; any other name is as it is.
  */
 PartDesignExport std::string ownName(const std::string& name, int walls, int bends);
 

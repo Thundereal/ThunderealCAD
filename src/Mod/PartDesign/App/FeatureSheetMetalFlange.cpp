@@ -446,10 +446,10 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             return new App::DocumentObjectExecReturn(
                 QT_TRANSLATE_NOOP("Exception", "A flange builds on a sheet metal feature"));
         }
+        // numbered on from the highest the sheet has (storeModel() gives
+        // each the number it keeps)
         int walls = 0, bends = 0;
-        for (const Element& e : model.elements) {
-            ++(e.kind == Element::Kind::Wall ? walls : bends);
-        }
+        model.numbers(walls, bends);
         // its pieces' faces are named by its own count (ownName())
         const int wallsBefore = walls, bendsBefore = bends;
         auto ownNamed = [&](const std::string& name) {
@@ -1155,8 +1155,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 Part::OpCodes::Cut, {result, SheetMetal::toolOf(getID(), reliefs)}));
         }
         Shape.setValue(result);
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model);
         if (Notice.getStrValue() != notice) {
             Notice.setValue(notice);
         }

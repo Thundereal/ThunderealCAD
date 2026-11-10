@@ -957,10 +957,10 @@ App::DocumentObjectExecReturn* SheetMetalLoftedFlange::execute()
     try {
         SheetMetal::Model model = modelBefore(thickness);
         model.thickness = thickness;
+        // numbered on from the highest the sheet has (storeModel() gives
+        // each the number it keeps)
         int walls = 0, bends = 0;
-        for (const auto& e : model.elements) {
-            ++(e.kind == SheetMetal::Element::Kind::Wall ? walls : bends);
-        }
+        model.numbers(walls, bends);
 
         TopoShape base = getBaseShape(/*silent*/ true);
         auto invObjLoc = positionByPrevious();
@@ -1139,8 +1139,7 @@ App::DocumentObjectExecReturn* SheetMetalLoftedFlange::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(makeBoolean(base, tool, true));
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

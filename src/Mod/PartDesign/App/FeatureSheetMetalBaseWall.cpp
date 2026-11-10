@@ -130,7 +130,12 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             QT_TRANSLATE_NOOP("Exception", "The sheet has no rule"));
     }
     SheetMetal::Model model;
+    // numbered on from the highest of the sheet before it, if there is one
+    // (storeModel() gives each the number it keeps)
     int walls = 0, bends = 0;
+    if (auto before = findBefore(this)) {
+        before->SheetModel.getValue().numbers(walls, bends);
+    }
     SheetMetal::ProfileBuilder build(model, walls, bends);
     build.k = [rule](double angle, double radius) {
         return rule->modelK(angle, radius);
@@ -262,8 +267,7 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(makeBoolean(base, tool, true));
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

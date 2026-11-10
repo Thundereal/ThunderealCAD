@@ -268,7 +268,7 @@ App::DocumentObjectExecReturn* SheetMetalLocatingTabs::execute()
         }
         TabShape.setValue(TopoShape(tabs));
         Shape.setValue(getSolid(res));
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());
@@ -384,7 +384,7 @@ App::DocumentObjectExecReturn* SheetMetalSlots::execute()
                       "The tabs of " << tabs->getFullLabel() << " miss the part: no slot to cut");
         }
         Shape.setValue(res);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

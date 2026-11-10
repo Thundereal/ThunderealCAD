@@ -24,6 +24,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <map>
 
@@ -127,6 +128,27 @@ int Model::find(const std::string& name) const
         }
     }
     return -1;
+}
+
+int PartDesign::SheetMetal::numberOf(const std::string& name, const std::string& prefix)
+{
+    if (name.size() <= prefix.size() || name.size() > prefix.size() + 9
+        || name.compare(0, prefix.size(), prefix) != 0
+        || !std::all_of(name.begin() + prefix.size(), name.end(), [](unsigned char c) {
+               return std::isdigit(c) != 0;
+           })) {
+        return 0;
+    }
+    return std::stoi(name.substr(prefix.size()));
+}
+
+void Model::numbers(int& walls, int& bends) const
+{
+    walls = bends = 0;
+    for (const Element& element : elements) {
+        walls = std::max(walls, numberOf(element.name, "Wall"));
+        bends = std::max(bends, numberOf(element.name, "Bend"));
+    }
 }
 
 void Model::checkIndex(int index) const

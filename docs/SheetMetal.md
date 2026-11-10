@@ -2038,8 +2038,42 @@ stored flat and this option do what it was for.
     pieces are now named by the feature's own count (`SheetMetal::ownName()`: `Wall4` of a
     feature the sheet had two walls before is `Wall2`): 0 renamed, and the references found by
     name. The sheet's own names -- the bend table's, the flat's lines `Bend2`, `Bend2Part2` --
-    are still by its count, **open**: a drawing dimension to a flat's bend line follows the
-    line by place when a bend is added before it.
+    were still by its count; ruled and built 2026-11-11, the next item.
+  - **The sheet's own names hold (ruled 2026-11-11: "do not rename bend names, use a
+    monotonically growing index").** A wall or a bend takes the next number of its body the
+    first time its feature makes it, and keeps it: every sheet metal feature has `WallNumbers`
+    and `BendNumbers` (hidden, saved), the number of each wall and bend it makes in the order it
+    makes them. A feature builds as before, numbering on from the highest number the sheet
+    before it has (`Model::numbers()`, where it counted the elements), and
+    `SheetMetalExtension::storeModel()` -- every feature's one way to store its model now --
+    gives its own walls and bends the numbers it keeps, new ones where it has none: one above
+    every number of the sheet before it and of every sheet metal feature of the body,
+    suppressed or not. So a flange suppressed, put in or deleted before another renames
+    nothing of the other's, in the model, the bend table or on the flat's lines; a flange put
+    in between two takes `Bend3` where they are `Bend1` and `Bend2`; one made while the first
+    is suppressed takes `Bend3` too, and the first is `Bend1` when it is back. The numbers of a
+    sheet are then not 1 to its count, and not in the order of the tree.
+    - A number goes with the wall's or bend's place among its feature's own, as its K does
+      (`BendKFactors`): a flange on two edges given a third first numbers the three by their
+      new order, the first two taking the numbers it had.
+    - A feature holding a number the sheet before it has too (a copy of that feature) takes a
+      new one: no name is twice in a sheet.
+    - A number is free again only when no feature of the body holds it: the last flange
+      deleted and another made, that one takes its numbers. No count is kept beside the
+      features (it would be the body's, written by a feature as it recomputes).
+    - A convert numbers what it recognises in the order it finds them, kept the same way; a
+      part whose faces come in another order is numbered anew by place. A file saved before has
+      no numbers: each feature takes them as it next recomputes.
+    - The pieces' faces stay named by the feature's own count (`ownName()`), as above.
+    - Tests: `TestSheetMetalNames`, 14 more (before, 0 of the 14): the model's names of a
+      flange, a flange on a flange, a hem, a contour flange, a fold and a jog with the flange
+      before them suppressed and back; the bend table's row; the flat's line; a bend's K asked
+      by its name; a flange made while the one before is suppressed, one put in before
+      another, the one before deleted, a number held twice, save and reopen.
+      `TestSheetMetalBendOverride.testKeyHoldsWhenEarlierBendsAreAdded` said the rename
+      (`Bend2` to `Bend3`); it now says `Bend2` stays and the new bend is `Bend3`.
+      A gtest of the numbers a model holds (`SheetMetalModel.numbers`). PartDesign 1001 OK
+      frozen and not.
   - **Held as they were:** a recompute, a flange's length and angle, the wall wider and deeper,
     save and reopen: no element renamed. A feature suppressed, or put in, before one that uses
     an edge it trims loses that edge (`?Edge12`); a chamfer on an edge a pocket trims does the

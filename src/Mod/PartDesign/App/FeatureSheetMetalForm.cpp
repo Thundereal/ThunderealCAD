@@ -1173,7 +1173,7 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
                 }
             }
             Shape.setValue(res);
-            SheetModel.setValue(model);
+            storeModel(model);
         };
 
         // a gusset goes across a bend, the only form that does

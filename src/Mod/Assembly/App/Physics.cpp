@@ -1092,8 +1092,8 @@ FlexibleBody::FlexibleBody()
                       "Flexible",
                       App::Prop_None,
                       "The faces of its component a contact touches it on: their nodes move "
-                      "together, as one interface its contacts press it through. A contact on "
-                      "it needs them");
+                      "together, as one interface its contacts press it through. Without them "
+                      "a contact presses its mesh anywhere, where it touches");
 
     const auto made = static_cast<App::PropertyType>(App::Prop_Output | App::Prop_ReadOnly);
     ADD_PROPERTY_TYPE(Nodes,

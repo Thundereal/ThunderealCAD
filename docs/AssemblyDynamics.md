@@ -3924,7 +3924,8 @@ Phase D1 is under way (2026-10-28):
     a long face that bends. `FlexibleBodies.prepare()` makes the interface
     (labelled "Contact" in InterfaceFrames), less the nodes a joint's
     interface holds: two interfaces sharing nodes would hold each other. A
-    contact on a flexible part without them is refused, saying so.
+    contact on a flexible part without them was refused, saying so; it is
+    a contact anywhere on the part now (step 8).
   - Why not the mesh's own nodes, as Adams' contact on a flexible body
     has it: the modal assembly takes a force on an internal node (its
     projection on the modes, `Psi^T f`), but only in the residual, and a
@@ -3934,6 +3935,7 @@ Phase D1 is under way (2026-10-28):
     interface is the static modes RecurDyn's RFlex takes for a contact
     whose place is known; a contact anywhere on a part, its full nodal
     mesh (FFlex, Chrono's ChContactSurfaceMesh), when a case needs it.
+    (Step 8 takes the mesh's own nodes after all, with that coupling.)
   - The contact interface's body at its nodes' centre, as a joint's is on
     its face: at the contact shape's frame -- a mesh's, the part's origin,
     the hinge's end of a strip 200 mm from the pad it was tied to -- the
@@ -3967,7 +3969,8 @@ Phase D1 is under way (2026-10-28):
     an allowance of 1e-4 mm: it strikes, bounces and the run goes through
     (without the floating frame set back it diverges as it leaves), the
     blow softer than the rigid strip's (by Hertz's law, 69.7 N at most
-    against 283 N); test_contact_needs_its_faces.
+    against 283 N); test_contact_needs_its_faces (test_contact_anywhere
+    since step 8).
   - **Stops and joint friction on a flexible part** (2026-11-07): their
     substeps -- a penalty stop's period on its spring and damper, a
     friction's time to cross the stiction band -- read the bodies on the
@@ -3995,7 +3998,7 @@ Phase D1 is under way (2026-10-28):
     accelerations are held by the modal assembly, which a change to them
     would not keep (it has columns there, but no mass, no means: not the
     run's bodies, its part's proxy is).
-  - Not yet: a contact anywhere on a part (above).
+  - Not yet: a contact anywhere on a part (above) -- done, step 8.
   - **The reduction's cost** (2026-11-07), measured by a trace of
     `DoModalReduction()`'s steps on the pendulum's rod (16272 internal
     coordinates, 6 modes, 0.25 s run in 9.6 s, 6.8 of it the reduction):
@@ -4214,6 +4217,63 @@ Phase D1 is under way (2026-10-28):
     test_cantilever_deformation (24 columns); FlexibleBody.
     cantileverBendsAndRingsInARun (30 columns, the channel after the modal
     coordinates, the gravity at rest).
+- Built, D4b step 8 (2026-11-10): a contact anywhere on a flexible part.
+  - **Without the faces it is touched on** (`ContactFaces` empty), a contact
+    on a flexible part presses its mesh where it touches, as Adams' contact
+    on a flexible body does. The part's contact shapes ride its first
+    interface's boundary body, the carrier, on which collision detection
+    finds their points as it does any body's; each point found is put on
+    the mesh's surface -- the tetrahedra's faces no other shares, the
+    nearest one's corners and the point's weights on them, by a grid of
+    them (`ChronoFlexible::Surface`) -- where it is with the part at rest.
+    As the run goes each point is where the part's modes have it: its
+    position, velocity and map T onto the part's reduced coordinates from
+    our Chrono's `ChModalAssembly::GetInternalNodesMap()` -- the nodes'
+    F + R_F (r0 + Psi_S e_B + Psi_D eta), and T the transpose of the map
+    `IntLoadResidual_F()` takes the internal nodes' forces by, 3 x (6 per
+    boundary + modes), whose product with the reduced velocities is the
+    node's velocity.
+  - **The coupling the step 5 entry missed** (`FlexibleContact`, a physics
+    item per such part, in the system after its modal assembly and before
+    the loads, so its update puts the points where the state has them before
+    a load reads them): the points' forces go to the reduced coordinates as
+    T^T f, not to the carrier, and their stiffness and damping along the
+    normal with them, T^T (k n n') T and the blocks to the other side's
+    body, -T^T k n n' J and its transpose, J = [I, -R_A [r]x] -- a KRM
+    block over the reduced variables (`GetReducedVariables()`) and those
+    bodies'. The other side's own block stays the load's numerical
+    Jacobian; the load reads the point's place and velocity from the modes,
+    not from the carrier, so moving the carrier in that Jacobian moves
+    nothing and nothing is counted twice. k is the law's rate with depth,
+    e times the spring over the depth, the share and the damping's factor
+    held; c its rate with the depth's rate. Without these a force on the
+    mesh is in the residual only, as a node's load is.
+  - A flexible part touched anywhere is the load's B; the set's forces are
+    on its first group's side, so a load made the other way round says so
+    (`ContactLoad::swapped`) -- the first run read the prop's force
+    reversed. Two flexible parts touching each other anywhere are refused:
+    one needs its faces named.
+  - The shapes are found on the carrier rigid, the part's deformation then
+    taken in at each point: a contact shape that bends farther from the
+    carrier than collision detection's envelope (2e-5 m) before it touches
+    is found late, by the step that goes too deep (advance()), as a
+    contact it does not see coming is. A metal part bends microns.
+  - The rod clamped, its pad resting on the post, the pad's face not named:
+    the prop takes 106.6 mN for the propped cantilever's 104.9, 1.7% over
+    (through the faces 1.4%), clamp and prop the weight within 0.1%, the run
+    5.2 s. The strip struck on the post: its blow 132.9 N at most anywhere,
+    94.1 through the pad's face, 409 N rigid -- the pad's own patch moves
+    as one through the faces, and anywhere its nodes take the blow by the
+    modes alone, stiffer.
+  - Not in it: a stress near the contact from it (the modes and the
+    inertia loads' residual modes recover the deformation, not a contact's
+    local static share: no static correction for it); a cam or a profile
+    contact on a flexible part.
+  - Tests: TestFlexibleBody.test_propped_cantilever_anywhere (the prop
+    within 3%, clamp and prop the weight within 0.1%),
+    test_strike_anywhere (the run goes through, the blow under the rigid
+    strip's), test_contact_anywhere (test_contact_needs_its_faces's case
+    runs).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

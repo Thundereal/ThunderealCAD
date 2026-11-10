@@ -268,8 +268,8 @@ class TaskFlexibleBody(QtCore.QObject):
             translate(
                 "Assembly",
                 "The faces of its component a contact touches it on: their nodes move\n"
-                "together, as one interface its contacts press it through. A contact on\n"
-                "it needs them",
+                "together, as one interface its contacts press it through. Without them\n"
+                "a contact presses its mesh anywhere, where it touches",
             )
         )
         self.facesList.setMaximumHeight(110)

@@ -30,6 +30,8 @@
 // Chrono's headers: included by the backend's sources only, built with
 // ASSEMBLY_WITH_CHRONO_MODAL.
 
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -79,6 +81,38 @@ Built build(chrono::ChSystem& sys,
             const Flexible& flexible,
             const chrono::ChFramed& pose,
             const std::vector<Interface>& interfaces);
+
+// A flexible body's mesh surface, for a contact anywhere on it (D4b): the
+// tetrahedra's faces no other shares, as triangles of their corners, in the
+// body's frame, and a grid of them for the one nearest a point
+class Surface
+{
+public:
+    explicit Surface(const Flexible& flexible);
+
+    // A place on it: a triangle's corners (the mesh's nodes), the weights of
+    // the point on it, and that point, in the body's frame
+    struct Place
+    {
+        std::array<Id, 3> nodes {};
+        std::array<double, 3> weights {};
+        chrono::ChVector3d at;
+    };
+    // The place nearest p, in the body's frame; false when it has none
+    bool nearest(const chrono::ChVector3d& p, Place& place) const;
+    std::size_t size() const
+    {
+        return corners.size();
+    }
+
+private:
+    std::vector<chrono::ChVector3d> points;
+    std::vector<std::array<Id, 3>> corners;
+    chrono::ChVector3d low;
+    double cell = 1.0;
+    std::array<int, 3> count {1, 1, 1};
+    std::vector<std::vector<std::uint32_t>> cells;
+};
 
 // Reduces it to flexible.modes, Craig-Bampton, damped in proportion to its
 // stiffness (Flexible::damping at dampingFrequency); the system set up. The

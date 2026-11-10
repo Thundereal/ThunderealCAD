@@ -169,6 +169,9 @@
 
 #include "ChronoBackend.h"
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
+# include <chrono/fea/ChNodeFEAxyz.h>
+# include <chrono/solver/ChKRMBlock.h>
+
 # include "ChronoFlexible.h"
 #endif
 #include "JointEquations.h"
@@ -936,6 +939,7 @@ bool isProfileSet(const Dynamics& dynamics, const ContactPair& pair)
 }
 
 struct ShapeOn;
+class FlexibleContact;
 
 class ContactLoad: public ch::ChLoadBodyBody
 {
@@ -1026,6 +1030,7 @@ public:
         deepest = 0.0;
         count = 0;
         pressed.clear();
+        forcesOnB.clear();
         // A cam's point, or a profile contact's, found again at this state
         // (follow): the points are collision detection's, at the substep's
         // start, fixed on each body -- on a cam the follower slides along the
@@ -1049,7 +1054,8 @@ public:
         for (std::size_t i = 0; i < at.size(); ++i) {
             const Point& point = at[i];
             const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
-            const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
+            const ch::ChVector3d pB =
+                meshed(i) ? onMesh[i].at : b.TransformPointLocalToParent(point.onB);
             depths[i] = -ch::Vdot(point.normal, pB - pA);
             deepest = std::max(deepest, depths[i]);
             if (depths[i] > 0.0) {
@@ -1064,24 +1070,26 @@ public:
             if (!(depth > 0.0)) {
                 continue;
             }
+            const bool mesh = meshed(i);
             const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
-            const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
+            const ch::ChVector3d pB = mesh ? onMesh[i].at : b.TransformPointLocalToParent(point.onB);
             const ch::ChVector3d relative =
-                b.PointSpeedLocalToParent(point.onB) - a.PointSpeedLocalToParent(point.onA);
+                (mesh ? onMesh[i].speed : b.PointSpeedLocalToParent(point.onB))
+                - a.PointSpeedLocalToParent(point.onA);
             const double rate = -ch::Vdot(point.normal, relative);
             const double total = sum[point.patch];
             const double share = total > 0.0 ? squares[point.patch] / total / total : 1.0;
             const double spring =
                 stiffness[point.patch] * std::pow(depth, exponents[point.patch]);
-            double normal = share
-                * (law.damping == ContactLaw::Damping::Restitution
-                       ? spring
-                           * (1.0
-                              + hunt(std::pow(squares[point.patch] / total,
-                                              1.0 / exponents[point.patch]),
-                                     point.patch)
-                                  * rate)
-                       : spring + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate);
+            const bool restitution = law.damping == ContactLaw::Damping::Restitution;
+            const double factor = restitution
+                ? hunt(std::pow(squares[point.patch] / total, 1.0 / exponents[point.patch]),
+                       point.patch)
+                : 0.0;
+            const double viscous =
+                restitution ? 0.0 : step(depth, 0.0, 0.0, law.penetration, law.maxDamping);
+            double normal =
+                share * (restitution ? spring * (1.0 + factor * rate) : spring + viscous * rate);
             if (!(normal > 0.0)) {
                 continue;
             }
@@ -1096,9 +1104,26 @@ public:
                     : step(speed, law.vStiction, law.muStatic, law.vFriction, law.muDynamic);
                 f -= sliding * (mu * normal / speed);
             }
-            // f on B at pB, -f on A at pA; the torques in each body's axes
-            load_Q.segment(6, 3) += f.eigen();
-            load_Q.segment(9, 3) += b.GetRot().RotateBack(ch::Vcross(pB - b.GetPos(), f)).eigen();
+            // f on B at pB, -f on A at pA; the torques in each body's axes. A
+            // flexible part's point's on its reduced coordinates instead
+            // (FlexibleContact), with its rates along the normal: the
+            // spring's with the depth, the share and the damping's factor
+            // held, and the damping's
+            if (mesh) {
+                const double rates = restitution ? 1.0 + factor * rate : 1.0;
+                forcesOnB.push_back(
+                    {i,
+                     f,
+                     point.normal,
+                     point.onA,
+                     std::max(share * exponents[point.patch] * spring / depth * rates, 0.0),
+                     std::max(share * (restitution ? spring * factor : viscous), 0.0)});
+            }
+            else {
+                load_Q.segment(6, 3) += f.eigen();
+                load_Q.segment(9, 3) +=
+                    b.GetRot().RotateBack(ch::Vcross(pB - b.GetPos(), f)).eigen();
+            }
             load_Q.segment(0, 3) -= f.eigen();
             load_Q.segment(3, 3) -= a.GetRot().RotateBack(ch::Vcross(pA - a.GetPos(), f)).eigen();
             onB += f;
@@ -1256,9 +1281,238 @@ public:
     bool keep = false;
     std::vector<Pressed> pressed;
 
+    // A flexible part's side B, a contact anywhere on it (D4b,
+    // FlexibleContact): each point's place on its mesh's surface -- a
+    // triangle's corners and the point's weights on them, and the point's
+    // offset from that place in the carrier's (B's) axes -- and where the
+    // part's modes have it now, absolute, its velocity and its map onto the
+    // part's reduced coordinates. The forces of those points on B go to those
+    // coordinates (forcesOnB), not to B
+    FlexibleContact* flexible = nullptr;
+    // Its bodies the other way round from its set's groups: A from the set's
+    // second, B from its first -- a flexible part touched anywhere is B. The
+    // set's forces are on its first group's side
+    bool swapped = false;
+    struct OnMesh
+    {
+        bool placed = false;
+        std::array<Id, 3> nodes {};
+        std::array<double, 3> weights {};
+        ch::ChVector3d offset;
+        ch::ChVector3d at;
+        ch::ChVector3d speed;
+        ch::ChMatrixDynamic<> T;
+    };
+    std::vector<OnMesh> onMesh;
+    bool meshed(std::size_t i) const
+    {
+        return flexible && i < onMesh.size() && onMesh[i].placed;
+    }
+    // At the last state ComputeQ was given, each such point pressing: its
+    // force on B, absolute, its normal, where it is on A (A's frame), and the
+    // force's rates along the normal with the depth and with its rate (N/m,
+    // N s/m)
+    struct ForceOnB
+    {
+        std::size_t point = 0;
+        ch::ChVector3d force;
+        ch::ChVector3d normal;
+        ch::ChVector3d onA;
+        double k = 0.0;
+        double c = 0.0;
+    };
+    std::vector<ForceOnB> forcesOnB;
+
 private:
     std::vector<double> depths, squares, sum;
 };
+
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+// A contact anywhere on a flexible part (D4b): the part's contact shapes ride
+// one of its interfaces' boundary bodies, the carrier, on which collision
+// detection finds their points, and each point found is put on the mesh's
+// surface where it is with the part at rest (place()). As the run goes each
+// is where the part's modes have it (refresh(), at each update: the modal
+// assembly is in the system before this item, and this before the loads),
+// its force on the part taken to the part's reduced coordinates as T^T f --
+// T the point's map onto them, our Chrono's GetInternalNodesMap() -- and its
+// stiffness and damping too, T^T k n n' T, coupled with the other side's
+// body. Without them a force on the mesh is in the residual only (a node's
+// load is), and Newton's iterations on a metal's contact, far stiffer than
+// the part's modes, run away
+class FlexibleContact: public ch::ChPhysicsItem
+{
+public:
+    FlexibleContact* Clone() const override
+    {
+        return new FlexibleContact(*this);
+    }
+
+    ch::modal::ChModalAssembly* assembly = nullptr;
+    ch::ChBody* carrier = nullptr;
+    // The carrier's frame in the part's, at rest
+    ch::ChFramed carrierAt;
+    std::shared_ptr<const ChronoFlexible::Surface> surface;
+    // The mesh's nodes, by the record's numbers
+    std::vector<const ch::fea::ChNodeFEAxyz*> nodes;
+    // The loads it is B of
+    std::vector<ContactLoad*> loads;
+
+    // Each point of a load just found to its place on the surface, as the
+    // carrier has it at rest, then where it is now
+    void place(ContactLoad& load)
+    {
+        load.onMesh.assign(load.points.size(), {});
+        for (std::size_t i = 0; i < load.points.size(); ++i) {
+            const ch::ChVector3d inPart =
+                carrierAt.TransformPointLocalToParent(load.points[i].onB);
+            ChronoFlexible::Surface::Place found;
+            if (!surface || !surface->nearest(inPart, found)) {
+                continue;
+            }
+            auto& on = load.onMesh[i];
+            on.placed = true;
+            on.nodes = found.nodes;
+            on.weights = found.weights;
+            on.offset = load.points[i].onB - carrierAt.TransformPointParentToLocal(found.at);
+        }
+        refresh(load);
+    }
+
+    // A load's points where the modes have them, and their maps; each one's
+    // onB on the carrier there, for what reads a point by its bodies
+    void refresh(ContactLoad& load)
+    {
+        std::vector<const ch::fea::ChNodeFEAxyz*> asked;
+        for (const auto& on : load.onMesh) {
+            if (on.placed) {
+                for (Id n : on.nodes) {
+                    asked.push_back(n < nodes.size() ? nodes[n] : nullptr);
+                }
+            }
+        }
+        if (asked.empty()) {
+            return;
+        }
+        std::vector<ch::ChVector3d> pos;
+        std::vector<ch::ChVector3d> vel;
+        std::vector<ch::ChMatrixDynamic<>> maps;
+        if (!assembly->GetInternalNodesMap(asked, pos, vel, maps)) {
+            for (auto& on : load.onMesh) {
+                on.placed = false;
+            }
+            return;
+        }
+        std::size_t k = 0;
+        for (std::size_t i = 0; i < load.onMesh.size(); ++i) {
+            auto& on = load.onMesh[i];
+            if (!on.placed) {
+                continue;
+            }
+            on.at = carrier->GetRot().Rotate(on.offset);
+            on.speed = ch::VNULL;
+            on.T.setZero(3, maps[k].cols());
+            for (int j = 0; j < 3; ++j, ++k) {
+                on.at += pos[k] * on.weights[j];
+                on.speed += vel[k] * on.weights[j];
+                on.T += maps[k] * on.weights[j];
+            }
+            if (i < load.points.size()) {
+                load.points[i].onB = carrier->TransformPointParentToLocal(on.at);
+            }
+        }
+    }
+
+    // Its block of the system matrix: the reduced variables, then each other
+    // side's body's that moves. Once the loads are its
+    void setVariables()
+    {
+        std::vector<ch::ChVariables*> variables = assembly->GetReducedVariables();
+        reduced = 0;
+        for (const auto* v : variables) {
+            reduced += static_cast<int>(v->GetDOF());
+        }
+        others.clear();
+        for (ContactLoad* load : loads) {
+            ch::ChBody* a = load->GetBodyA().get();
+            if (a->IsFixed() || std::find(others.begin(), others.end(), a) != others.end()) {
+                continue;
+            }
+            others.push_back(a);
+            variables.push_back(&a->Variables());
+        }
+        block.SetVariables(variables);
+    }
+
+    void Update(double time, ch::UpdateFlags flags) override
+    {
+        ch::ChPhysicsItem::Update(time, flags);
+        for (ContactLoad* load : loads) {
+            refresh(*load);
+        }
+    }
+
+    // The points' forces on the reduced coordinates, T^T f
+    void IntLoadResidual_F(const unsigned int, ch::ChVectorDynamic<>& R, const double c) override
+    {
+        const unsigned int at = assembly->GetOffset_w();
+        for (ContactLoad* load : loads) {
+            for (const auto& f : load->forcesOnB) {
+                const auto& on = load->onMesh[f.point];
+                if (on.T.cols() != reduced || at + reduced > R.size()) {
+                    continue;
+                }
+                R.segment(at, reduced) += c * (on.T.transpose() * f.force.eigen());
+            }
+        }
+    }
+
+    void InjectKRMMatrices(ch::ChSystemDescriptor& descriptor) override
+    {
+        if (block.GetNumVariables()) {
+            descriptor.InsertKRMBlock(&block);
+        }
+    }
+
+    // Each point's k n n' and c n n' between where it is on the part, T, and
+    // on A, J = [I, -R_A [r]x] (A's velocity, its angular in its axes): A's
+    // own block is the load's (ContactLoad::ComputeJacobian())
+    void LoadKRMMatrices(double Kfactor, double Rfactor, double) override
+    {
+        auto& H = block.GetMatrix();
+        H.setZero();
+        for (ContactLoad* load : loads) {
+            ch::ChBody* a = load->GetBodyA().get();
+            const auto it = std::find(others.begin(), others.end(), a);
+            const int other = it == others.end() ? -1 : static_cast<int>(it - others.begin());
+            for (const auto& f : load->forcesOnB) {
+                const auto& on = load->onMesh[f.point];
+                if (on.T.cols() != reduced) {
+                    continue;
+                }
+                const Eigen::Matrix3d h = (Kfactor * f.k + Rfactor * f.c)
+                    * ch::TensorProduct(f.normal, f.normal);
+                const Eigen::MatrixXd hT = h * on.T;
+                H.topLeftCorner(reduced, reduced) += on.T.transpose() * hT;
+                if (other < 0) {
+                    continue;
+                }
+                Eigen::Matrix<double, 3, 6> J;
+                J.leftCols<3>().setIdentity();
+                J.rightCols<3>() = -(a->GetRotMat() * ch::ChStarMatrix33<>(f.onA));
+                const int col = reduced + 6 * other;
+                H.block(0, col, reduced, 6) -= on.T.transpose() * (h * J);
+                H.block(col, 0, 6, reduced) -= J.transpose() * hT;
+            }
+        }
+    }
+
+private:
+    ch::ChKRMBlock block;
+    int reduced = 0;
+    std::vector<ch::ChBody*> others;
+};
+#endif
 
 // What a shape on a body meets its neighbours by: a mesh triangle its
 // corners, any other shape itself
@@ -4734,6 +4988,11 @@ struct ChronoSession::Impl
         std::vector<double> hz;
         // Its contact interface's, in built.interfaces, or -1 (step 5)
         int contact = -1;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // Or a contact anywhere on it: its shapes on its first interface's
+        // body (FlexibleContact)
+        std::shared_ptr<FlexibleContact> anywhere;
+#endif
     };
     std::vector<FlexibleRun> flexibles;
     // Per frame, the boundary body of the interface it is on, a flexible
@@ -4937,10 +5196,9 @@ struct ChronoSession::Impl
                     touched.push_back(shape.frame);
                 }
             }
-            if (!touched.empty() && record.contactNodes.empty()) {
-                return "a contact touches the flexible body " + name
-                    + ", which has no faces it is touched on: name them, its ContactFaces";
-            }
+            // Its contact shapes without the faces it is touched on: a
+            // contact anywhere on its mesh's surface (FlexibleContact)
+            const bool anywhere = !touched.empty() && record.contactNodes.empty();
             std::vector<ChronoFlexible::Interface> faces;
             std::vector<Id> on;
             for (const auto& frame : model.frames) {
@@ -4964,7 +5222,7 @@ struct ChronoSession::Impl
             // The contact interface's body at its nodes' centre, in the
             // body's axes, as a joint's is on its faces
             ch::ChFramed contactAt;
-            if (!touched.empty()) {
+            if (!touched.empty() && !anywhere) {
                 ch::ChVector3d centre;
                 std::size_t counted = 0;
                 for (Id n : record.contactNodes) {
@@ -4977,7 +5235,7 @@ struct ChronoSession::Impl
                     contactAt.SetPos(centre / static_cast<double>(counted));
                 }
             }
-            if (!touched.empty()) {
+            if (!touched.empty() && !anywhere) {
                 run.contact = static_cast<int>(faces.size());
                 faces.push_back({contactAt, record.contactNodes});
             }
@@ -4999,10 +5257,32 @@ struct ChronoSession::Impl
             for (std::size_t i = 0; i < on.size(); ++i) {
                 frameBody[on[i]] = run.built.interfaces[i];
             }
-            // Each contact shape's frame where it is on the contact interface
+            // Each contact shape's frame where it is on the contact interface,
+            // or on the first interface's body, which carries it for a
+            // contact anywhere
             for (Id frame : touched) {
-                frameBody[frame] = run.built.interfaces[run.contact];
-                frameLocal[frame] = toCh(model.frames[frame].local) >> contactAt.GetInverse();
+                if (anywhere) {
+                    frameBody[frame] = run.built.interfaces[0];
+                    frameLocal[frame] =
+                        toCh(model.frames[frame].local) >> faces[0].local.GetInverse();
+                }
+                else {
+                    frameBody[frame] = run.built.interfaces[run.contact];
+                    frameLocal[frame] = toCh(model.frames[frame].local) >> contactAt.GetInverse();
+                }
+            }
+            // In the system after the modal assembly, and before the loads
+            if (anywhere) {
+                auto item = std::make_shared<FlexibleContact>();
+                item->assembly = run.built.assembly.get();
+                item->carrier = run.built.interfaces[0].get();
+                item->carrierAt = faces[0].local;
+                item->surface = std::make_shared<ChronoFlexible::Surface>(record);
+                for (const auto& node : run.built.mesh->GetNodes()) {
+                    item->nodes.push_back(dynamic_cast<const ch::fea::ChNodeFEAxyz*>(node.get()));
+                }
+                sys->Add(item);
+                run.anywhere = item;
             }
             // Its mass the mesh's, for what reads a body's (the tolerance's
             // lightest body); it is not in the system
@@ -7767,6 +8047,11 @@ Status ChronoSession::simulateDynamics(
             for (auto& load : *loads) {
                 patchesOf(*load);
                 patchStiffness(*load, shapesOn);
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+                if (load->flexible) {
+                    load->flexible->place(*load);
+                }
+#endif
             }
         }
     };
@@ -7931,6 +8216,20 @@ Status ChronoSession::simulateDynamics(
             }
         }
         auto finder = std::make_shared<ContactFinder>();
+        // A flexible part's carrier, touched anywhere on the part: its item
+        auto anywhereOn = [&](const ch::ChBody* body) -> FlexibleContact* {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+            for (const auto& flexible : run.d->flexibles) {
+                if (flexible.anywhere && flexible.anywhere->carrier == body) {
+                    return flexible.anywhere.get();
+                }
+            }
+#else
+            (void)body;
+#endif
+            return nullptr;
+        };
+        bool anywhereClash = false;
         // A load per pair of bodies a set lets touch, the first set's law --
         // its friction, from the materials, its first two shapes' families'
         // pair's where the model has it (ContactLaw::FrictionFrom)
@@ -7984,7 +8283,18 @@ Status ChronoSession::simulateDynamics(
             if (!first || !second) {
                 return;
             }
+            // A flexible part touched anywhere is B (FlexibleContact); two
+            // such touching each other are not supported
+            const bool swapped = anywhereOn(first.get()) != nullptr;
+            if (swapped) {
+                if (anywhereOn(second.get())) {
+                    anywhereClash = true;
+                    return;
+                }
+                std::swap(first, second);
+            }
             auto load = std::make_shared<ContactLoad>(first, second, lawOf(set, sx, sy), set);
+            load->swapped = swapped;
             loads->Add(load);
             contactLoads.push_back(load);
             finder->loads[{x, y}] = load.get();
@@ -8207,6 +8517,24 @@ Status ChronoSession::simulateDynamics(
             load->carried = {run.d->carriedMass(load->GetBodyA().get()),
                              run.d->carriedMass(load->GetBodyB().get())};
         }
+        if (anywhereClash) {
+            return refuse("two flexible parts touch each other with no faces either is touched "
+                          "on: name one's, its ContactFaces");
+        }
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // A contact anywhere on a flexible part: its loads, and its block
+        for (const auto& load : contactLoads) {
+            if (FlexibleContact* flexible = anywhereOn(load->GetBodyB().get())) {
+                load->flexible = flexible;
+                flexible->loads.push_back(load.get());
+            }
+        }
+        for (const auto& flexible : run.d->flexibles) {
+            if (flexible.anywhere) {
+                flexible.anywhere->setVariables();
+            }
+        }
+#endif
         collision->Initialize();
         std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*> features;
         std::set<ch::ChBody*> withShapes(shapeBody.begin(), shapeBody.end());
@@ -9115,8 +9443,9 @@ Status ChronoSession::simulateDynamics(
             load->keep = true;
             load->ComputeQ(nullptr, nullptr);
             load->keep = false;
-            onSet[load->set] -= load->onB;
-            normalOnSet[load->set] -= load->normalOnB;
+            const double side = load->swapped ? -1.0 : 1.0;
+            onSet[load->set] -= side * load->onB;
+            normalOnSet[load->set] -= side * load->normalOnB;
             deepest[load->set] = std::max(deepest[load->set], load->deepest);
             // f on B at its point there, -f on A at A's
             for (const auto& point : load->pressed) {

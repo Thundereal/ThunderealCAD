@@ -54,6 +54,7 @@
 #include <numbers>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 #include <Eigen/Dense>
 
@@ -366,6 +367,196 @@ std::deque<KeptReduction>& keptReductions()
 }
 
 }  // namespace
+
+namespace
+{
+
+// The point of triangle abc nearest p, as its weights on the corners (Ericson,
+// Real-Time Collision Detection, 5.1.5)
+std::array<double, 3> nearestOnTriangle(const ch::ChVector3d& p,
+                                        const ch::ChVector3d& a,
+                                        const ch::ChVector3d& b,
+                                        const ch::ChVector3d& c)
+{
+    const ch::ChVector3d ab = b - a;
+    const ch::ChVector3d ac = c - a;
+    const ch::ChVector3d ap = p - a;
+    const double d1 = ch::Vdot(ab, ap);
+    const double d2 = ch::Vdot(ac, ap);
+    if (d1 <= 0.0 && d2 <= 0.0) {
+        return {1.0, 0.0, 0.0};
+    }
+    const ch::ChVector3d bp = p - b;
+    const double d3 = ch::Vdot(ab, bp);
+    const double d4 = ch::Vdot(ac, bp);
+    if (d3 >= 0.0 && d4 <= d3) {
+        return {0.0, 1.0, 0.0};
+    }
+    const double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
+        const double v = d1 / (d1 - d3);
+        return {1.0 - v, v, 0.0};
+    }
+    const ch::ChVector3d cp = p - c;
+    const double d5 = ch::Vdot(ab, cp);
+    const double d6 = ch::Vdot(ac, cp);
+    if (d6 >= 0.0 && d5 <= d6) {
+        return {0.0, 0.0, 1.0};
+    }
+    const double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
+        const double w = d2 / (d2 - d6);
+        return {1.0 - w, 0.0, w};
+    }
+    const double va = d3 * d6 - d5 * d4;
+    if (va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0) {
+        const double w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return {0.0, 1.0 - w, w};
+    }
+    const double denominator = 1.0 / (va + vb + vc);
+    const double v = vb * denominator;
+    const double w = vc * denominator;
+    return {1.0 - v - w, v, w};
+}
+
+}  // namespace
+
+ChronoFlexible::Surface::Surface(const Flexible& flexible)
+{
+    points.reserve(flexible.nodes.size());
+    for (const auto& p : flexible.nodes) {
+        points.push_back(toCh(p));
+    }
+    // Each tetrahedron's four faces by their corners, sorted: those met once
+    // are the surface's, as the tetrahedron has them
+    struct Hash
+    {
+        std::size_t operator()(const std::array<Id, 3>& k) const
+        {
+            std::size_t h = std::hash<Id>()(k[0]);
+            h = h * 1000003u ^ std::hash<Id>()(k[1]);
+            return h * 1000003u ^ std::hash<Id>()(k[2]);
+        }
+    };
+    std::unordered_map<std::array<Id, 3>, std::pair<int, std::array<Id, 3>>, Hash> faces;
+    faces.reserve(4 * flexible.tetrahedra.size());
+    for (const auto& tet : flexible.tetrahedra) {
+        const std::array<std::array<Id, 3>, 4> four {{{tet[0], tet[1], tet[2]},
+                                                      {tet[0], tet[1], tet[3]},
+                                                      {tet[0], tet[2], tet[3]},
+                                                      {tet[1], tet[2], tet[3]}}};
+        for (const auto& face : four) {
+            std::array<Id, 3> key = face;
+            std::sort(key.begin(), key.end());
+            auto& entry = faces[key];
+            ++entry.first;
+            entry.second = face;
+        }
+    }
+    double edges = 0.0;
+    for (const auto& [key, entry] : faces) {
+        if (entry.first != 1 || key[2] >= points.size()) {
+            continue;
+        }
+        corners.push_back(entry.second);
+        const auto& t = entry.second;
+        edges += (points[t[1]] - points[t[0]]).Length() + (points[t[2]] - points[t[1]]).Length()
+            + (points[t[0]] - points[t[2]]).Length();
+    }
+    if (corners.empty()) {
+        return;
+    }
+    // The grid: cells twice the triangles' mean edge, at most 2e6 of them
+    low = ch::ChVector3d(std::numeric_limits<double>::max());
+    ch::ChVector3d high(-std::numeric_limits<double>::max());
+    for (const auto& t : corners) {
+        for (Id n : t) {
+            low = ch::Vmin(low, points[n]);
+            high = ch::Vmax(high, points[n]);
+        }
+    }
+    const ch::ChVector3d extent = high - low;
+    cell = std::max(2.0 * edges / (3.0 * static_cast<double>(corners.size())),
+                    1e-9 * std::max(extent.Length(), 1e-12));
+    auto counts = [&] {
+        for (int k = 0; k < 3; ++k) {
+            count[k] = std::max(1, static_cast<int>(std::ceil(extent[k] / cell)));
+        }
+        return static_cast<double>(count[0]) * count[1] * count[2];
+    };
+    while (counts() > 2e6) {
+        cell *= 1.25;
+    }
+    cells.assign(static_cast<std::size_t>(count[0]) * count[1] * count[2], {});
+    auto index = [&](const ch::ChVector3d& p, int k) {
+        return std::clamp(static_cast<int>(std::floor((p[k] - low[k]) / cell)), 0, count[k] - 1);
+    };
+    for (std::uint32_t i = 0; i < corners.size(); ++i) {
+        ch::ChVector3d lo(std::numeric_limits<double>::max());
+        ch::ChVector3d hi(-std::numeric_limits<double>::max());
+        for (Id n : corners[i]) {
+            lo = ch::Vmin(lo, points[n]);
+            hi = ch::Vmax(hi, points[n]);
+        }
+        for (int x = index(lo, 0); x <= index(hi, 0); ++x) {
+            for (int y = index(lo, 1); y <= index(hi, 1); ++y) {
+                for (int z = index(lo, 2); z <= index(hi, 2); ++z) {
+                    cells[(static_cast<std::size_t>(z) * count[1] + y) * count[0] + x].push_back(i);
+                }
+            }
+        }
+    }
+}
+
+bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) const
+{
+    if (corners.empty()) {
+        return false;
+    }
+    // Ring by ring of cells about p's (clamped to the grid): every point of
+    // the cells r + 1 rings out is at least r cells from p's nearest point in
+    // the grid, and so from p
+    int at[3];
+    for (int k = 0; k < 3; ++k) {
+        at[k] = std::clamp(static_cast<int>(std::floor((p[k] - low[k]) / cell)), 0, count[k] - 1);
+    }
+    double best = std::numeric_limits<double>::max();
+    bool found = false;
+    const int most = std::max({count[0], count[1], count[2]});
+    for (int r = 0; r <= most; ++r) {
+        for (int x = at[0] - r; x <= at[0] + r; ++x) {
+            for (int y = at[1] - r; y <= at[1] + r; ++y) {
+                for (int z = at[2] - r; z <= at[2] + r; ++z) {
+                    if (std::max({std::abs(x - at[0]), std::abs(y - at[1]), std::abs(z - at[2])})
+                            != r
+                        || x < 0 || y < 0 || z < 0 || x >= count[0] || y >= count[1]
+                        || z >= count[2]) {
+                        continue;
+                    }
+                    for (std::uint32_t i :
+                         cells[(static_cast<std::size_t>(z) * count[1] + y) * count[0] + x]) {
+                        const auto& t = corners[i];
+                        const auto w = nearestOnTriangle(p, points[t[0]], points[t[1]], points[t[2]]);
+                        const ch::ChVector3d q =
+                            points[t[0]] * w[0] + points[t[1]] * w[1] + points[t[2]] * w[2];
+                        const double d = (q - p).Length();
+                        if (d < best) {
+                            best = d;
+                            found = true;
+                            place.nodes = t;
+                            place.weights = w;
+                            place.at = q;
+                        }
+                    }
+                }
+            }
+        }
+        if (found && best <= r * cell) {
+            break;
+        }
+    }
+    return found;
+}
 
 ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
                                             const Flexible& flexible,

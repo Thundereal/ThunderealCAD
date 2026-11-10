@@ -335,14 +335,14 @@ class TestFlexibleBody(unittest.TestCase):
             )
             self.assertAlmostEqual(ratio, 1.0, delta=0.03, msg=x)
 
-    def test_propped_cantilever(self):
-        """A contact on a flexible part (D4b step 5), through the faces it
-        is touched on: the rod clamped at one end to the grounded block, a
-        pad under its free end resting on a grounded post, the pad's face
-        its contact face. Under its weight the post takes what a propped
-        cantilever's prop does -- the rod's bending decides it, which a
-        rigid rod leaves to chance -- q (6 L^2 - 4 L a + a^2) / 8 a, the
-        prop at a, and the pad's own weight; the clamp the rest"""
+    def propped(self, touchedOn):
+        """The rod clamped at one end to the grounded block, a pad under its
+        free end resting on a grounded post, the pad's face its contact face
+        (touchedOn) or none: the contact's normal force and the clamp's at the
+        end, what a propped cantilever's prop takes and the whole weight
+        (mN), and the run's time (s)"""
+        import time
+
         import Part
 
         import CommandCreateContact
@@ -382,11 +382,14 @@ class TestFlexibleBody(unittest.TestCase):
         flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
         flexible.Modes = 12
         flexible.Damping = 0.5
-        flexible.ContactFaces = [(rod, ["Face%d" % (bottom + 1)])]
+        if touchedOn:
+            flexible.ContactFaces = [(rod, ["Face%d" % (bottom + 1)])]
         FlexibleBodies.prepare(flexible)
-        self.assertEqual(flexible.InterfaceFrames[-1], FlexibleBodies.CONTACT)
+        self.assertEqual(FlexibleBodies.CONTACT in flexible.InterfaceFrames, touchedOn)
         self.doc.recompute()
+        start = time.perf_counter()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        took = time.perf_counter() - start
         results = self.assembly.getSimulationResults()
         normal = [
             c["Values"]
@@ -399,9 +402,6 @@ class TestFlexibleBody(unittest.TestCase):
         a = 97.5
         weight = 2700e-9 * 50 * G
         want = q * (6 * 100**2 - 4 * 100 * a + a**2) / (8 * a) + weight
-        # 1.4% over; a rigid rod's prop takes nothing, its clamp all
-        self.assertAlmostEqual(normal[0][-1].z, want, delta=0.03 * want)
-        # The clamp the rest of its weight
         force = [
             c["Values"]
             for c in results["Channels"]
@@ -409,13 +409,38 @@ class TestFlexibleBody(unittest.TestCase):
         ]
         self.assertEqual(len(force), 1)
         total = q * 100 + weight
-        self.assertAlmostEqual(abs(force[0][-1].z) + normal[0][-1].z, total, delta=1e-3 * total)
+        return normal[0][-1].z, abs(force[0][-1].z), want, total, took
 
-    def strike(self, flexible):
+    def test_propped_cantilever(self):
+        """A contact on a flexible part (D4b step 5), through the faces it
+        is touched on: the rod clamped at one end to the grounded block, a
+        pad under its free end resting on a grounded post, the pad's face
+        its contact face. Under its weight the post takes what a propped
+        cantilever's prop does -- the rod's bending decides it, which a
+        rigid rod leaves to chance -- q (6 L^2 - 4 L a + a^2) / 8 a, the
+        prop at a, and the pad's own weight; the clamp the rest"""
+        normal, clamp, want, total, _ = self.propped(True)
+        # 1.4% over; a rigid rod's prop takes nothing, its clamp all
+        self.assertAlmostEqual(normal, want, delta=0.03 * want)
+        self.assertAlmostEqual(clamp + normal, total, delta=1e-3 * total)
+
+    def test_propped_cantilever_anywhere(self):
+        """A contact anywhere on a flexible part, without the faces it is
+        touched on: the pad's points press the rod's mesh where they are,
+        each one's force on the part's reduced coordinates and its stiffness
+        with it. The post takes the propped cantilever's prop, as through the
+        faces"""
+        normal, clamp, want, total, took = self.propped(False)
+        print("anywhere: prop %.4g mN for %.4g, clamp %.4g, run %.1f s" % (normal, want, clamp, took))
+        self.assertAlmostEqual(normal, want, delta=0.03 * want)
+        self.assertAlmostEqual(clamp + normal, total, delta=1e-3 * total)
+
+    def strike(self, flexible, touchedOn=True):
         """An aluminium strip 200 x 20 x 4 hinged at one end, a pad 5 x 20 x
         1 under its free end, let go level onto a grounded post 10 mm under
-        the pad, stiff (an allowance of 1e-4 mm): the run's status and the
-        contact's largest normal force, mN"""
+        the pad, stiff (an allowance of 1e-4 mm), the pad's face its contact
+        face (touchedOn) or none: the run's status and the contact's largest
+        normal force, mN"""
         import Part
 
         import CommandCreateContact
@@ -453,8 +478,10 @@ class TestFlexibleBody(unittest.TestCase):
         if flexible:
             body = FlexibleBodies.makeFlexibleBody(self.assembly, strip)
             body.MeshSize = 8.0
-            body.ContactFaces = [(strip, ["Face%d" % (bottom + 1)])]
+            if touchedOn:
+                body.ContactFaces = [(strip, ["Face%d" % (bottom + 1)])]
             FlexibleBodies.prepare(body)
+            self.assertEqual(FlexibleBodies.CONTACT in body.InterfaceFrames, touchedOn)
         self.doc.recompute()
         status = self.assembly.generateSimulation(sim)
         results = self.assembly.getSimulationResults()
@@ -476,6 +503,20 @@ class TestFlexibleBody(unittest.TestCase):
         self.joints = self.assembly.getGroup("Joints", True)
         status, rigid = self.strike(False)
         self.assertEqual(status, 0)
+        print("strike: %.4g mN, rigid %.4g" % (flexible, rigid))
+        self.assertGreater(flexible, 0.0)
+        self.assertLess(flexible, rigid)
+
+    def test_strike_anywhere(self):
+        """The flexible strip strikes the post anywhere on it, without the
+        faces it is touched on: the run goes through, the blow softer than
+        the rigid strip's"""
+        status, flexible = self.strike(True, False)
+        self.assertEqual(status, 0)
+        self.renew()
+        status, rigid = self.strike(False)
+        self.assertEqual(status, 0)
+        print("strike anywhere: %.4g mN, rigid %.4g" % (flexible, rigid))
         self.assertGreater(flexible, 0.0)
         self.assertLess(flexible, rigid)
 
@@ -613,9 +654,9 @@ class TestFlexibleBody(unittest.TestCase):
             self.assertAlmostEqual(f, r, delta=0.05, msg=k)
         self.assertLess(took, 60.0)
 
-    def test_contact_needs_its_faces(self):
+    def test_contact_anywhere(self):
         """A contact on a flexible part without the faces it is touched on
-        is refused (the console says to name them, its ContactFaces)"""
+        runs, anywhere on the part (it was refused)"""
         rod, hinge = self.pendulum()
         floor = self.box("Floor", (200, 40, 5), (-50, -15, -60))
         held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedFloor")
@@ -630,8 +671,8 @@ class TestFlexibleBody(unittest.TestCase):
         flexible.Modes = 4
         FlexibleBodies.prepare(flexible)
         self.doc.recompute()
-        self.assertNotEqual(self.assembly.generateSimulation(sim), 0)
-        self.assertEqual(self.assembly.numberOfFrames(), 0)
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertEqual(self.assembly.numberOfFrames(), 11)
 
     def test_welded_block(self):
         """A block welded to the flexible rod's free end is held at an

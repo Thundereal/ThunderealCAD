@@ -9,7 +9,8 @@ the component, the nodes on the faces that hold it there: a joint's faces
 on the component, as D4a's loads take them (MotionLoads._facesOf()); a
 force element's end, the nearest node, the run's default; and the nodes of
 the faces a contact touches it on (ContactFaces), one interface of their
-own its contacts press it through (D4b step 5). Kept on the object, remade
+own its contacts press it through (D4b step 5); without them a contact
+presses its mesh anywhere, where it touches. Kept on the object, remade
 when the shape, the mesh size, what holds the component or its contact
 faces change (MeshSignature)."""
 

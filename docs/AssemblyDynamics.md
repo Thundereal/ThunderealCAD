@@ -3893,7 +3893,7 @@ Phase D1 is under way (2026-10-28):
     axis cross that feed was built for (a square of plain
     SoIndexedFaceSet, probed 2026-11-06); and a camera nested in the scene
     graph is not one the render cache takes. A picture saved by Save
-    Picture is without it.
+    Picture is without it (has it since step 10).
   - **The Results box** has each flexible body's largest von Mises stress on
     its surface at each frame ("FlexibleVonMises", MPa), and the CSV and the
     spreadsheet with it.
@@ -4320,6 +4320,25 @@ Phase D1 is under way (2026-10-28):
     FlexibleBody.aRunTakesTheReductionItsModelHands (this process's
     forgotten, a run handed the numbers takes them and swings the same,
     each frame and channel to 1e-9; a stiffer part's are not taken).
+- Built, D4b step 10 (2026-11-11): the stress legend in Save Picture.
+  - **A widget over the 3D view can ask to be in its picture**: a dynamic
+    property `pictureOverlay`, true. `saveImage(..., overlays=True)`
+    (keywords now, the old positional calls as they were) paints each
+    such child of the viewer, shown, into the picture after it is taken
+    -- `QWidget::render()` of its own painting, no background, where it
+    is on the view: its centre at the picture's scale of the view on each
+    axis, itself scaled by the smaller of the two. Save Picture
+    (Std_ViewScreenShot) passes it, so a macro it records does too; the
+    legend's widget sets the property. Save Animation paints its own
+    frames' legend (`videoFrame()`) and does not pass it.
+  - Painted after the capture, not into the scene, for step 4's reason:
+    on the bgfx backend nothing in the viewer's foreground root reaches
+    a saved picture. The backend's readback is at the view's size and
+    scaled for a larger picture; the overlay is painted at the picture's,
+    sharp at any size.
+  - Test: TestGuiCommands.test_flexible_body_playback -- the picture at
+    the view's size and at twice it, the legend's bar red at its top and
+    blue at its bottom where it is on the view; without overlays, not.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

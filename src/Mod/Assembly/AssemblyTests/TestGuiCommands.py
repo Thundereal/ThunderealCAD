@@ -2535,6 +2535,35 @@ class TestGuiCommands(unittest.TestCase):
         self.assertLess(top.blue(), 60)
         self.assertGreater(bottom.blue(), 200)
         self.assertLess(bottom.red(), 60)
+        # In Save Picture's picture (saveImage(overlays=True)) where it is on
+        # the view, and twice the view's size twice as large; not without
+        view = Gui.ActiveDocument.ActiveView
+        left, up, _, tall = legend.geometry().getRect()
+
+        def picture(name, scale, **kwds):
+            path = os.path.join(self.tmpdir, name)
+            view.saveImage(path, viewer.width() * scale, viewer.height() * scale, "White", **kwds)
+            saved = QtGui.QImage(path)
+            self.assertFalse(saved.isNull(), path)
+            self.assertEqual(saved.width(), viewer.width() * scale)
+            return saved
+
+        def bar(saved, scale):
+            # The bar's top and bottom, at their place on the view
+            x = (left + 21) * scale
+            top = saved.pixelColor(int(x), int((up + 54) * scale))
+            bottom = saved.pixelColor(int(x), int((up + tall - 16) * scale))
+            return top, bottom
+
+        for scale in (1, 2):
+            top, bottom = bar(picture("legend%d.png" % scale, scale, overlays=True), scale)
+            self.assertGreater(top.red(), 200, scale)
+            self.assertLess(top.blue(), 60, scale)
+            self.assertGreater(bottom.blue(), 200, scale)
+            self.assertLess(bottom.red(), 60, scale)
+        top, bottom = bar(picture("bare.png", 1), 1)
+        self.assertFalse(top.red() > 200 and top.blue() < 60)
+        self.assertFalse(bottom.blue() > 200 and bottom.red() < 60)
         # The Results box: its largest at each frame
         at = panel.resultIndex((flexible.Name, "FlexibleVonMises"))
         self.assertGreaterEqual(at, 0)

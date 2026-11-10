@@ -644,8 +644,10 @@ class Legend:
     """The stress colours' scale: from no stress to the largest, in MPa, and
     how many times the bending is drawn, on a light backing of its own so it
     reads on any background. Painted by Qt (paint()), not drawn in the
-    scene: over the 3D view's right side as a widget of its own, and into
-    Save Animation's frames at the same place (the panel's videoFrame()).
+    scene: over the 3D view's right side as a widget of its own, into Save
+    Animation's frames at the same place (the panel's videoFrame()), and
+    into Save Picture's (saveImage(overlays=True), the widget's
+    pictureOverlay).
     The render backend's overlay feed, where a view provider's front root
     goes, reaches neither its frames nor a saved picture (2026-11-06)."""
 
@@ -764,6 +766,8 @@ def _LegendWidget(parent, legend):
             self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
             self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
             self.setObjectName("FlexibleStressLegend")
+            # Painted into Save Picture's picture (saveImage(overlays=True))
+            self.setProperty("pictureOverlay", True)
             parent.installEventFilter(self)
 
         def eventFilter(self, watched, event):

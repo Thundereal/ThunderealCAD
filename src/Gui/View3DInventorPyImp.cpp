@@ -42,6 +42,10 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPainter>
+#include <QWidget>
+#include <algorithm>
+#include <vector>
 #include "Camera.h"
 #include "MiscParams.h"
 #include "Renderer/CyclesRenderer.h"
@@ -583,14 +587,60 @@ PyObject* View3DInventorPy::isAnimationEnabled(PyObject *args)
     } PY_CATCH
 }
 
-PyObject* View3DInventorPy::saveImage(PyObject *args)
+/// The view's own widgets over it that ask for it (a dynamic property
+/// "pictureOverlay" true and shown) -- a module's legend, say -- painted
+/// into a picture of the view: where they are on it, the picture's size
+/// against the view's, scaled with it by the smaller of its two scales
+static void paintPictureOverlays(QWidget* viewer, QImage& img)
+{
+    if (img.isNull() || viewer->width() <= 0 || viewer->height() <= 0) {
+        return;
+    }
+    std::vector<QWidget*> overlays;
+    for (auto* child : viewer->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly)) {
+        if (child->isVisibleTo(viewer) && child->property("pictureOverlay").toBool()) {
+            overlays.push_back(child);
+        }
+    }
+    if (overlays.empty()) {
+        return;
+    }
+    // One QPainter paints on: an indexed or a mono picture is made one
+    if (img.format() != QImage::Format_RGB32 && img.format() != QImage::Format_ARGB32
+        && img.format() != QImage::Format_ARGB32_Premultiplied) {
+        img = img.convertToFormat(img.hasAlphaChannel() ? QImage::Format_ARGB32
+                                                        : QImage::Format_RGB32);
+    }
+    const double sx = double(img.width()) / viewer->width();
+    const double sy = double(img.height()) / viewer->height();
+    const double scale = std::min(sx, sy);
+    QPainter painter(&img);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+    for (auto* overlay : overlays) {
+        const QRectF at = overlay->geometry();
+        painter.save();
+        painter.translate(at.center().x() * sx - at.width() * scale / 2,
+                          at.center().y() * sy - at.height() * scale / 2);
+        painter.scale(scale, scale);
+        // Its own painting only: a translucent widget has no background
+        overlay->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
+        painter.restore();
+    }
+}
+
+PyObject* View3DInventorPy::saveImage(PyObject *args, PyObject *kwds)
 {
     char *cFileName,*cColor="Current",*cComment="$MIBA";
     int w=-1,h=-1;
     int s=View3DInventorViewer::getNumSamples();
     int wait=1;
+    int overlays=0;
 
-    if (!PyArg_ParseTuple(args, "et|iissii","utf-8",&cFileName,&w,&h,&cColor,&cComment,&s,&wait))
+    static char* kwlist[] = {"path", "width", "height", "background", "comment",
+                             "samples", "wait", "overlays", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "et|iissiip", kwlist, "utf-8", &cFileName,
+                                     &w, &h, &cColor, &cComment, &s, &wait, &overlays))
         return nullptr;
 
     try {
@@ -610,6 +660,9 @@ PyObject* View3DInventorPy::saveImage(PyObject *args)
 
         QImage img;
         getView3DInventorPtr()->getViewer()->savePicture(w, h, s, bg, img, wait != 0);
+        if (overlays) {
+            paintPictureOverlays(getView3DInventorPtr()->getViewer(), img);
+        }
 
         SoFCOffscreenRenderer& renderer = SoFCOffscreenRenderer::instance();
         SoCamera* cam = getView3DInventorPtr()->getViewer()->getSoRenderManager()->getCamera();

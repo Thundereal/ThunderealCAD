@@ -609,6 +609,39 @@ PyObject* AssemblyObjectPy::getDragCollisions(PyObject* args) const
     return Py::new_reference_to(ret);
 }
 
+PyObject* AssemblyObjectPy::getFlexibleFrequencies(PyObject* args)
+{
+    PyObject* sim = nullptr;
+    PyObject* flexible = nullptr;
+    if (!PyArg_ParseTuple(args,
+                          "O!O!",
+                          &App::DocumentObjectPy::Type,
+                          &sim,
+                          &App::DocumentObjectPy::Type,
+                          &flexible)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        std::string error;
+        const auto hz = getAssemblyObjectPtr()->getFlexibleFrequencies(
+            static_cast<App::DocumentObjectPy*>(sim)->getDocumentObjectPtr(),
+            static_cast<App::DocumentObjectPy*>(flexible)->getDocumentObjectPtr(),
+            &error);
+        if (hz.empty()) {
+            PyErr_SetString(Base::PyExc_FC_GeneralError,
+                            error.empty() ? "no modes found" : error.c_str());
+            return nullptr;
+        }
+        Py::List list;
+        for (double f : hz) {
+            list.append(Py::Float(f));
+        }
+        return Py::new_reference_to(list);
+    }
+    PY_CATCH_OCC
+}
+
 PyObject* AssemblyObjectPy::getBodyInertias(PyObject* args)
 {
     if (!PyArg_ParseTuple(args, "")) {

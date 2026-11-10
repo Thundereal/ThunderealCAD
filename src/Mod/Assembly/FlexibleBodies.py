@@ -32,20 +32,27 @@ def flexibleBodiesOf(sim):
     return [e for e in getattr(sim, "Elements", []) if isFlexibleBody(e)]
 
 
+def newFlexibleBody(assembly, component):
+    """A flexible body of a component in the assembly's Physics group, ticked
+    in every Dynamic study of it"""
+    physics = assembly.getGroup("Physics", True)
+    flexible = physics.newObject("Assembly::FlexibleBody", "FlexibleBody")
+    flexible.Component = component
+    flexible.Label = "Flexible %s" % component.Label
+    sims = assembly.getGroup("Simulations")
+    for sim in sims.Group if sims else []:
+        if getattr(sim, "AnalysisType", None) == "Dynamic":
+            sim.Elements = list(sim.Elements) + [flexible]
+    return flexible
+
+
 def makeFlexibleBody(assembly, component):
     """A flexible body of a component, in a transaction; used by every
     Dynamic study of the assembly"""
     doc = assembly.Document
     doc.openTransaction("Create flexible body")
     try:
-        physics = assembly.getGroup("Physics", True)
-        flexible = physics.newObject("Assembly::FlexibleBody", "FlexibleBody")
-        flexible.Component = component
-        flexible.Label = "Flexible %s" % component.Label
-        sims = assembly.getGroup("Simulations")
-        for sim in sims.Group if sims else []:
-            if getattr(sim, "AnalysisType", None) == "Dynamic":
-                sim.Elements = list(sim.Elements) + [flexible]
+        flexible = newFlexibleBody(assembly, component)
     finally:
         doc.commitTransaction()
     return flexible
@@ -124,23 +131,57 @@ def contactFacesOf(flexible):
     return names
 
 
-def prepare(flexible, force=False):
-    """The flexible body's mesh and interfaces made, unless they are of what
-    the component is now. True when made."""
+def _whatMeshes(flexible):
+    """(shape, interfaces, contact faces, signature) the mesh is made of, as
+    the component is now; None without a component in an assembly"""
     import Part
-
-    import MotionLoads
 
     component = flexible.Component
     assembly = _assemblyOf(flexible)
     if component is None or assembly is None:
-        return False
+        return None
     local = Part.getShape(component, "", transform=False)
     if local.isNull() or not local.Solids:
         raise ValueError("the flexible body %s is of a component with no solid" % flexible.Label)
     holds = interfacesOf(assembly, component)
     touched = contactFacesOf(flexible)
-    signature = _signature(flexible, local, holds, touched)
+    return local, holds, touched, _signature(flexible, local, holds, touched)
+
+
+def meshState(flexible):
+    """Whether the flexible body's mesh is made: "none", "current" -- of what
+    the component, the size, what holds it and its contact faces are now --
+    or "stale", which the next run (prepare()) remakes"""
+    if not flexible.Nodes:
+        return "none"
+    try:
+        found = _whatMeshes(flexible)
+    except ValueError:
+        return "stale"
+    return "current" if found and found[3] == flexible.MeshSignature else "stale"
+
+
+def defaultMeshSize(flexible):
+    """The mesh size a MeshSize of 0 stands for, mm: a fortieth of the
+    component's diagonal; 0 without a component"""
+    import Part
+
+    component = flexible.Component
+    if component is None:
+        return 0.0
+    local = Part.getShape(component, "", transform=False)
+    return 0.0 if local.isNull() else local.BoundBox.DiagonalLength / 40.0
+
+
+def prepare(flexible, force=False):
+    """The flexible body's mesh and interfaces made, unless they are of what
+    the component is now. True when made."""
+    import MotionLoads
+
+    found = _whatMeshes(flexible)
+    if found is None:
+        return False
+    local, holds, touched, signature = found
     if not force and flexible.MeshSignature == signature and flexible.Nodes:
         return False
 

@@ -3823,8 +3823,8 @@ Phase D1 is under way (2026-10-28):
     now with every other tetrahedron turned the other way, the same modes.
   - Not yet: the reduction is made again at each run (5 s for the rod; its
     modes kept since, step 5's last entry); a task panel of its own, the
-    modes' frequencies shown before the run; the deformation and stresses
-    (step 4).
+    modes' frequencies shown before the run (step 6); the deformation and
+    stresses (step 4).
 - Built, D4b step 4 (first half): the deformation, drawn as the run plays.
   - **What the run reports for it**: each frame, beside the modal
     coordinates, its interfaces' own deformation ("InterfaceDeformation",
@@ -4113,6 +4113,43 @@ Phase D1 is under way (2026-10-28):
     mesh -- gravity, inertia -- would give it back; the stresses inside the
     part (the surface's only, where the largest is but for a load inside);
     To FEM's vibration from the run's own coordinates.
+- Built, D4b step 6 (2026-11-10): the flexible body's task panel
+  (`CommandCreateFlexibleBody.py`, `TaskFlexibleBody`), which the command
+  opens on the body it makes and a double click opens on one
+  (`ViewProviderFlexibleBody::doubleClicked()`).
+  - **Part**: the component, and its material as the run takes it (the
+    elastic material's name, E, Poisson's ratio, density; "assumed" where
+    none is chosen). **Modes**: how many, the damping (in %), its
+    frequency; **Find Modes** meshes the part if it must and reduces it as
+    the first Dynamic study using it would, and lists the frequencies --
+    the reduction kept, so the run after it takes it.
+  - **Mesh**: the size, and the size its 0 stands for
+    (`FlexibleBodies.defaultMeshSize()`); the mesh made, and whether it is
+    of the part as it is now (`meshState()`: none, current, stale -- the
+    signature `prepare()` keeps); **Mesh Now**; **Show the mesh**, its
+    surface's edges over the part and each interface's nodes (orange a
+    joint's or a force element's, green the contact faces'); what holds it,
+    each interface by its joint's label and its count of nodes.
+  - **Contact faces**, picked on the part in the 3D view (a gate lets only
+    its faces through), removed or cleared: set by script alone before.
+  - **The frequencies' entry**, `AssemblyObject.getFlexibleFrequencies(sim,
+    flexible)`: the model built as the study's run builds it
+    (`buildSimulation()`), its interfaces at that run's frames, then
+    `Chrono::flexibleFrequencies()`. Refused while a run of the assembly is
+    on: its model is the run's.
+  - **Found on the way: meshing ends the panel's transaction.**
+    `prepare()` makes the mesh in a document of its own, and the work there
+    replaces the application's active transaction, committing the panel's:
+    Cancel after Mesh Now undid nothing (the test's Modes stayed 4). The
+    panel opens its transaction again after meshing, and Cancel undoes back
+    to where the panel began (`undoBase`).
+  - Tests: TestGuiCommands -- test_flexible_body (the command opens the
+    panel; OK keeps the body), test_flexible_body_cancelled (Cancel leaves
+    none), test_flexible_body_panel (the rod's panel by a double click: the
+    material, Modes, Damping and Mesh Size set, Mesh Now and the hinge's
+    interface, the mesh drawn in the scene, a contact face picked and
+    another part's refused, Find Modes' four frequencies lowest first,
+    Cancel undoing it all).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

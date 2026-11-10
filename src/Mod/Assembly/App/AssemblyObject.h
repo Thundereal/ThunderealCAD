@@ -312,6 +312,14 @@ public:
         std::vector<App::DocumentObject*> objects;
     };
     std::vector<BodyInertia> getBodyInertias();
+    /// The modes of a flexible body (FlexibleBody) as a run of the study sim
+    /// reduces it, their frequencies (Hz, lowest first): the model built as
+    /// the run builds it, its interfaces at that run's frames. The reduction
+    /// is kept for the run. Empty, and the reason in 'error', when the study
+    /// does not bend it.
+    std::vector<double> getFlexibleFrequencies(App::DocumentObject* sim,
+                                               App::DocumentObject* flexible,
+                                               std::string* error = nullptr);
     bool requiresRigidSolveForMove(const std::vector<App::DocumentObject*>& movedParts);
 
     bool validateNewPlacements();

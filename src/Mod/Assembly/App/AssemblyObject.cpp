@@ -85,6 +85,7 @@
 #include "SimulationArchive.h"
 #include "Views.h"
 #include "Solver/Backend.h"
+#include "Solver/ChronoBackend.h"
 #include "Solver/ReferenceBackend.h"
 #include "Solver/Registry.h"
 #include "Solver/RigidGroups.h"
@@ -3035,6 +3036,46 @@ std::vector<AssemblyObject::BodyInertia> AssemblyObject::getBodyInertias()
             {inertia, solverModel->bodies[inertia.body].placement, std::move(objects)});
     }
     return result;
+}
+
+std::vector<double> AssemblyObject::getFlexibleFrequencies(App::DocumentObject* sim,
+                                                           App::DocumentObject* flexible,
+                                                           std::string* error)
+{
+    auto fail = [&](const char* why) {
+        if (error) {
+            *error = why;
+        }
+        return std::vector<double>();
+    };
+    auto* typed = freecad_cast<Simulation*>(sim);
+    if (!typed || typed->AnalysisType.getValue() != 1) {
+        return fail("the study is not a Dynamic one");
+    }
+    if (!freecad_cast<FlexibleBody*>(flexible)) {
+        return fail("not a flexible body");
+    }
+    if (simulationRun) {
+        // Its model is the run's
+        return fail("a simulation of the assembly is running");
+    }
+    // Built as the run builds it (generateSimulation()), not run
+    const int built = buildSimulation(sim);
+    motions.clear();
+    if (built != 0) {
+        return fail("the study's model could not be built: see the report view");
+    }
+    if (!solverModel->dynamics) {
+        return fail("the study does not bend it: see the report view");
+    }
+    const std::string name = flexible->getFullName();
+    const auto& flexibles = solverModel->dynamics->flexibles;
+    for (std::size_t i = 0; i < flexibles.size(); ++i) {
+        if (solverModel->sourceName(flexibles[i].source) == name) {
+            return Solver::Chrono::flexibleFrequencies(*solverModel, i, error);
+        }
+    }
+    return fail("the study does not bend it: see the report view");
 }
 
 void AssemblyObject::exportAsASMT(std::string fileName)

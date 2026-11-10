@@ -62,6 +62,21 @@ QIcon ViewProviderFlexibleBody::getIcon() const
     return Gui::BitmapFactory().pixmap("Assembly_FlexibleBody.svg");
 }
 
+bool ViewProviderFlexibleBody::doubleClicked()
+{
+    auto* obj = getObject();
+    if (!obj || !obj->isAttachedToDocument()) {
+        return false;
+    }
+    Gui::Command::doCommand(Gui::Command::Gui,
+                            "import CommandCreateFlexibleBody\n"
+                            "CommandCreateFlexibleBody.editFlexibleBody("
+                            "App.getDocument('%s').getObject('%s'))",
+                            obj->getDocument()->getName(),
+                            obj->getNameInDocument());
+    return true;
+}
+
 PROPERTY_SOURCE(AssemblyGui::ViewProviderTorsionSpring, Gui::ViewProviderDocumentObject)
 
 QIcon ViewProviderTorsionSpring::getIcon() const

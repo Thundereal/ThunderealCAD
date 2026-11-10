@@ -102,6 +102,47 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertTrue(FlexibleBodies.prepare(flexible))
         self.assertNotEqual(len(flexible.Nodes), len(nodes))
 
+    def test_mesh_in_no_document(self):
+        """prepare() meshes in no document (Fem.meshNetgen()): the mesh the
+        Netgen object makes, no document made, and a transaction open before
+        it open after it -- a task panel's, which Cancel then aborts"""
+        import Fem
+        import ObjectsFem
+        import Part
+
+        rod, hinge = self.pendulum()
+        self.study(0.01, 1e-3)
+        flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        flexible.MeshSize = 4.0
+        self.doc.UndoMode = 1
+        names = set(App.listDocuments())
+        self.doc.openTransaction("Mesh")
+        self.assertTrue(FlexibleBodies.prepare(flexible))
+        self.assertTrue(self.doc.HasPendingTransaction)
+        self.assertEqual(set(App.listDocuments()), names)
+        count = len(flexible.Nodes)
+        self.doc.abortTransaction()
+        self.assertEqual(len(flexible.Nodes), 0)
+
+        # The Netgen object's mesh of the same shape and settings
+        local = Part.getShape(rod, "", transform=False)
+        direct = Fem.meshNetgen(local, MaxSize=4.0, SecondOrder=True, Fineness=2)
+        self.assertEqual(direct.NodeCount, count)
+        shape = self.doc.addObject("Part::Feature", "Shape")
+        shape.Shape = local
+        mesh = ObjectsFem.makeMeshNetgenLegacy(self.doc, "Mesh")
+        mesh.Shape = shape
+        mesh.MaxSize = 4.0
+        mesh.SecondOrder = True
+        mesh.Fineness = 2
+        self.doc.recompute()
+        self.assertEqual(mesh.FemMesh.NodeCount, direct.NodeCount)
+        self.assertEqual(mesh.FemMesh.VolumeCount, direct.VolumeCount)
+        # Its faces' nodes, by the faces of the shape meshed
+        self.assertGreater(len(direct.getNodesByFace(local.Faces[0])), 0)
+        with self.assertRaises(ValueError):
+            Fem.meshNetgen(local, Fineness=6)
+
     def cantilever(self, modes):
         """The rod fixed by its end to the grounded block -- not taken onto
         the ground, flexible -- run 20 ms under gravity, damped hard: the

@@ -3,8 +3,8 @@
 a dynamic run, an Assembly::FlexibleBody in the Physics group. Not upstream.
 
 What the run takes from it is made here, before the run: the component's
-mesh of 10-node tetrahedra (Netgen, through the Fem workbench, in a hidden
-document of its own) and its interfaces -- for each frame of the model on
+mesh of 10-node tetrahedra (Netgen, through the Fem module, in no
+document: Fem.meshNetgen()) and its interfaces -- for each frame of the model on
 the component, the nodes on the faces that hold it there: a joint's faces
 on the component, as D4a's loads take them (MotionLoads._facesOf()); a
 force element's end, the nearest node, the run's default; and the nodes of
@@ -185,67 +185,63 @@ def prepare(flexible, force=False):
     if not force and flexible.MeshSignature == signature and flexible.Nodes:
         return False
 
-    import ObjectsFem
+    import Fem
 
-    work = App.newDocument("FlexibleMesh", hidden=True, temp=True)
-    try:
-        copy = work.addObject("Part::Feature", "Shape")
-        copy.Shape = local
-        mesh = ObjectsFem.makeMeshNetgenLegacy(work, "Mesh")
-        mesh.Shape = copy
-        size = flexible.MeshSize.Value
-        mesh.MaxSize = size if size > 0 else local.BoundBox.DiagonalLength / 40.0
-        mesh.SecondOrder = True
-        mesh.Fineness = 2
-        work.recompute()
-        femmesh = mesh.FemMesh
-        if not femmesh.Volumes:
-            raise ValueError("the flexible body %s could not be meshed" % flexible.Label)
-        # Taken once: each read of Nodes makes the whole dict again
-        points = femmesh.Nodes
-        ids = sorted(points.keys())
-        index = {n: i for i, n in enumerate(ids)}
-        rows, _ = MotionLoads._tet10Nodes(femmesh)
-        tetrahedra = [index[int(n)] for row in rows for n in row]
-        frames = []
-        held = []
-        faces = copy.Shape.Faces
-        for label, ref in holds:
-            element = _element(ref)
-            names = MotionLoads._facesOf(copy.Shape, element) if element is not None else []
-            on = set()
-            for name in names:
-                face = faces[int(name[4:]) - 1]
-                on.update(index[n] for n in femmesh.getNodesByFace(face) if n in index)
-            frames.append(label)
-            held.extend(sorted(on))
-            held.append(-1)
-        # The faces a contact touches it on, one interface of their own,
-        # but for the nodes another holds: two interfaces sharing nodes
-        # would hold each other
-        if touched:
-            holding = {n for n in held if n >= 0}
-            on = set()
-            for name in touched:
-                k = int(name[4:]) - 1
-                if 0 <= k < len(faces):
-                    on.update(index[n] for n in femmesh.getNodesByFace(faces[k]) if n in index)
-            on -= holding
-            if not on:
-                raise ValueError(
-                    "the flexible body %s: its contact faces are none of its component's, "
-                    "or all held by its joints" % flexible.Label
-                )
-            frames.append(CONTACT)
-            held.extend(sorted(on))
-            held.append(-1)
-        flexible.Nodes = [points[n] for n in ids]
-        flexible.Tetrahedra = tetrahedra
-        flexible.InterfaceFrames = frames
-        flexible.InterfaceNodes = held
-        flexible.MeshSignature = signature
-    finally:
-        App.closeDocument(work.Name)
+    # In no document: one made for it would commit the application's open
+    # transaction -- a task panel's
+    size = flexible.MeshSize.Value
+    femmesh = Fem.meshNetgen(
+        local,
+        MaxSize=size if size > 0 else local.BoundBox.DiagonalLength / 40.0,
+        SecondOrder=True,
+        Fineness=2,
+    )
+    if not femmesh.Volumes:
+        raise ValueError("the flexible body %s could not be meshed" % flexible.Label)
+    # Taken once: each read of Nodes makes the whole dict again
+    points = femmesh.Nodes
+    ids = sorted(points.keys())
+    index = {n: i for i, n in enumerate(ids)}
+    rows, _ = MotionLoads._tet10Nodes(femmesh)
+    tetrahedra = [index[int(n)] for row in rows for n in row]
+    frames = []
+    held = []
+    # The faces of the shape meshed: getNodesByFace() knows no other
+    faces = local.Faces
+    for label, ref in holds:
+        element = _element(ref)
+        names = MotionLoads._facesOf(local, element) if element is not None else []
+        on = set()
+        for name in names:
+            face = faces[int(name[4:]) - 1]
+            on.update(index[n] for n in femmesh.getNodesByFace(face) if n in index)
+        frames.append(label)
+        held.extend(sorted(on))
+        held.append(-1)
+    # The faces a contact touches it on, one interface of their own,
+    # but for the nodes another holds: two interfaces sharing nodes
+    # would hold each other
+    if touched:
+        holding = {n for n in held if n >= 0}
+        on = set()
+        for name in touched:
+            k = int(name[4:]) - 1
+            if 0 <= k < len(faces):
+                on.update(index[n] for n in femmesh.getNodesByFace(faces[k]) if n in index)
+        on -= holding
+        if not on:
+            raise ValueError(
+                "the flexible body %s: its contact faces are none of its component's, "
+                "or all held by its joints" % flexible.Label
+            )
+        frames.append(CONTACT)
+        held.extend(sorted(on))
+        held.append(-1)
+    flexible.Nodes = [points[n] for n in ids]
+    flexible.Tetrahedra = tetrahedra
+    flexible.InterfaceFrames = frames
+    flexible.InterfaceNodes = held
+    flexible.MeshSignature = signature
     return True
 
 

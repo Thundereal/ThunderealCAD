@@ -139,15 +139,9 @@ class TaskFlexibleBody(QtCore.QObject):
         self.creating = creating
         self.doc = flexible.Document
         self.assembly = FlexibleBodies._assemblyOf(flexible)
-        # Where Cancel undoes to: the command's transaction is open already
-        self.undoBase = self.doc.UndoCount
-        self.transaction = (
-            translate("Assembly", "Create flexible body")
-            if creating
-            else translate("Assembly", "Edit flexible body")
-        )
+        # The command's transaction is open already
         if not creating:
-            self.doc.openTransaction(self.transaction)
+            self.doc.openTransaction(translate("Assembly", "Edit flexible body"))
         self.view = Gui.getDocument(self.doc).activeView()
         self.picking = False
         self.gated = False
@@ -439,13 +433,6 @@ class TaskFlexibleBody(QtCore.QObject):
 
     # ------------------------------------------------------------- editing
 
-    def keepTransaction(self):
-        """The panel's transaction open again after what closed it: meshing,
-        in a document of its own, closes the application's active one, which
-        commits the panel's. Cancel undoes the steps so made (undoBase)"""
-        if not self.doc.HasPendingTransaction:
-            self.doc.openTransaction(self.transaction)
-
     def onModes(self, value):
         self.flexible.Modes = value
         self.frequencies = []
@@ -475,7 +462,6 @@ class TaskFlexibleBody(QtCore.QObject):
             App.Console.PrintError(
                 translate("Assembly", "The flexible body could not be meshed: {}\n").format(e)
             )
-        self.keepTransaction()
         self.fillMesh()
 
     def onFindModes(self):
@@ -490,11 +476,9 @@ class TaskFlexibleBody(QtCore.QObject):
         try:
             hz = self.busy(find)
         except Exception as e:
-            self.keepTransaction()
             self.modesLabel.setText(translate("Assembly", "No modes: {}").format(e))
             self.fillMesh()
             return
-        self.keepTransaction()
         self.fillMesh()
         self.frequencies = list(hz)
         self.modesLabel.setText(
@@ -651,9 +635,6 @@ class TaskFlexibleBody(QtCore.QObject):
     def reject(self):
         self.deactivate()
         self.doc.abortTransaction()
-        # And what meshing committed of it (keepTransaction())
-        while self.doc.UndoCount > self.undoBase:
-            self.doc.undo()
         Gui.Control.closeDialog()
         return True
 

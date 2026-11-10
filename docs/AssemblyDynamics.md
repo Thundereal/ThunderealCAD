@@ -3781,8 +3781,9 @@ Phase D1 is under way (2026-10-28):
     bent from its hold.
   - **Its mesh and interfaces are made before a run** (`FlexibleBodies.py`,
     `prepare()`; the Simulation panel calls it, `prepareStudy()`): Netgen
-    through the Fem workbench, second order, in a hidden document of its
-    own; each joint on the component an interface, labelled as the model
+    through the Fem module, second order, in no document
+    (`Fem.meshNetgen()`, since step 6; a hidden document of its own
+    before); each joint on the component an interface, labelled as the model
     labels the joint's frame (its full name), its nodes those of the faces
     its reference stands for (`MotionLoads._facesOf()`, FemMesh
     `getNodesByFace()`); kept while the shape, the size and the joints'
@@ -4140,16 +4141,27 @@ Phase D1 is under way (2026-10-28):
   - **Found on the way: meshing ends the panel's transaction.**
     `prepare()` makes the mesh in a document of its own, and the work there
     replaces the application's active transaction, committing the panel's:
-    Cancel after Mesh Now undid nothing (the test's Modes stayed 4). The
-    panel opens its transaction again after meshing, and Cancel undoes back
-    to where the panel began (`undoBase`).
+    Cancel after Mesh Now undid nothing (the test's Modes stayed 4). First
+    worked round in the panel (its transaction opened again after meshing,
+    Cancel undoing back to where it began); then removed at the source: the
+    one way to Netgen was `Fem::FemMeshShapeNetgenObject::execute()`, a
+    document object's recompute, so the Fem module now has it without one --
+    `FemMeshShapeNetgenObject::meshShape(mesh, shape, parameters)`, which
+    `execute()` calls, and `Fem.meshNetgen(shape, MaxSize=..., ...)` for
+    Python, a FemMesh whose `getNodesByFace()` takes the shape's own faces.
+    `prepare()` meshes by it: no document, no copy of the shape, nothing
+    of the application's transaction touched; the panel's workaround is
+    gone.
   - Tests: TestGuiCommands -- test_flexible_body (the command opens the
     panel; OK keeps the body), test_flexible_body_cancelled (Cancel leaves
     none), test_flexible_body_panel (the rod's panel by a double click: the
     material, Modes, Damping and Mesh Size set, Mesh Now and the hinge's
     interface, the mesh drawn in the scene, a contact face picked and
     another part's refused, Find Modes' four frequencies lowest first,
-    Cancel undoing it all).
+    Cancel undoing it all); TestFlexibleBody test_mesh_in_no_document
+    (`prepare()` makes no document and leaves an open transaction open,
+    which aborting then undoes; `Fem.meshNetgen()` the Netgen object's
+    mesh, its counts of nodes and of tetrahedra).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

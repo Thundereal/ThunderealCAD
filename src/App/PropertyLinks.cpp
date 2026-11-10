@@ -740,6 +740,20 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
             followMissed = true;
         return false;
     }
+    // Regenerating for a new map version ('reverse'), the old element is
+    // looked up by its number in the shape the feature had and found again
+    // by geometry. A reference that says already what the new map says is
+    // not one written against that shape: it was set since. A property
+    // that mirrors another (Support and AttachmentSupport, UpToFace and
+    // UpToShape) is pasted the other's value as soon as that one is
+    // brought up to date, and brought up to date itself in the same pass:
+    // its new number, read as an old one, was moved once more, and pasted
+    // back (a pad whose sketch's wire now starts an edge later: Face4 to
+    // Face3, right, then Face3 to Face2, and the sketch on it failed).
+    if (reverse && !missing && !unnamed && !shadow.first.empty() && shadow == elementName) {
+        holdShadowIDs(shadow, geo, shadowElement(shadow), false, hasher);
+        return false;
+    }
     // Nor searched where the feature has not the shape it was written
     // against: its old element is a number in that branch's shape, and
     // looked up by position in a shape of this feature it is some other

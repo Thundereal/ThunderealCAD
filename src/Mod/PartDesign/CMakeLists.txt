@@ -91,6 +91,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestInvoluteGear.py
     PartDesignTests/TestTopologicalNamingProblem.py
     PartDesignTests/TestNameEncoding.py
+    PartDesignTests/TestTwinReferences.py
 )
 
 set(PartDesign_TestFixtures
@@ -99,6 +100,7 @@ set(PartDesign_TestFixtures
     PartDesignTests/Fixtures/ModelFromV021.FCStd
     PartDesignTests/Fixtures/FaceRefs_v1-1-4.FCStd
     PartDesignTests/Fixtures/FaceRefs_fork_whole_names.FCStd
+    PartDesignTests/Fixtures/TwinRefs_map-1-15-70200.FCStd
 )
 
 set(PartDesign_GearScripts

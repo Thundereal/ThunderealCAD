@@ -171,6 +171,73 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         return rod, flexible, self.assembly.getSimulationResults()
 
+    def test_reduction_kept_in_the_file(self):
+        """A flexible body keeps its last run's reduction (Reduction), saved
+        with the document and opened again as it was; the run there goes as
+        the first, the same mode shapes and coordinates. Its mesh made again,
+        it has none. Opened from a file of another name, the document named
+        again, the joint's frame is the one the mesh was made for (its full
+        name kept in InterfaceFrames, of the document saved), its mesh not
+        stale. (That the run takes the file's when this process has none:
+        FlexibleBody.aRunTakesTheReductionItsModelHands)"""
+        import os
+        import tempfile
+
+        # Opened as saved: the clamp, a Python joint, would be converted to
+        # the C++ joint on opening, a joint of another name
+        convert = self.params.GetBool("ConvertJointsOnOpen", True)
+        self.params.SetBool("ConvertJointsOnOpen", False)
+        self.addCleanup(self.params.SetBool, "ConvertJointsOnOpen", convert)
+        rod, flexible, results = self.cantilever(6)
+        kept = list(flexible.Reduction)
+        self.assertGreater(len(kept), 0)
+        shapes = list(flexible.ModeShapes)
+
+        def modal(results):
+            return [
+                list(c["Values"])
+                for c in results["Channels"]
+                if c["Quantity"] == "ModalCoordinates"
+            ]
+
+        def apart(a, b):
+            """The largest difference of two lists of numbers, inf if their
+            lengths differ"""
+            a, b = list(a), list(b)
+            if len(a) != len(b):
+                return float("inf")
+            return max((abs(x - y) for x, y in zip(a, b)), default=0.0)
+
+        first = modal(results)
+        self.assertEqual(len(first), 1)
+        name = flexible.Name
+        sim = [o for o in self.doc.Objects if o.isDerivedFrom("Assembly::Simulation")][0].Name
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "kept.FCStd")
+            self.doc.saveAs(path)
+            App.closeDocument(self.doc.Name)
+            self.doc = App.openDocument(path)
+            self.assembly = self.doc.getObject("Assembly")
+            self.joints = self.assembly.getGroup("Joints", True)
+            flexible = self.doc.getObject(name)
+            self.assertNotEqual(self.doc.Name, "TestFlexibleBody")
+            self.assertEqual(FlexibleBodies.meshState(flexible), "current")
+            # Compared by their largest difference: assertEqual of two long
+            # lists that differ spends hours in difflib
+            self.assertEqual(apart(flexible.Reduction, kept), 0.0)
+            self.assertEqual(self.assembly.generateSimulation(self.doc.getObject(sim)), 0)
+            again = modal(self.assembly.getSimulationResults())
+            self.assertEqual(apart(flexible.Reduction, kept), 0.0)
+            self.assertEqual(apart(flexible.ModeShapes, shapes), 0.0)
+            self.assertEqual(len(again), 1)
+            self.assertEqual(len(again[0]), len(first[0]))
+            for a, b in zip(again[0], first[0]):
+                for x, y in zip(a, b):
+                    self.assertAlmostEqual(x, y, delta=1e-9 * (1 + abs(y)))
+            FlexibleBodies.prepare(flexible, force=True)
+            self.assertEqual(len(flexible.Reduction), 0)
+            self.renew()
+
     def test_cantilever_deformation(self):
         """The cantilever sags: its end, made of its mode shapes and the
         run's coordinates, where the beam's is, q L^4 / 8 E I; at its hold,

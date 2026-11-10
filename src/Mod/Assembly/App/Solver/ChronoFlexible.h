@@ -116,7 +116,20 @@ private:
 
 // Reduces it to flexible.modes, Craig-Bampton, damped in proportion to its
 // stiffness (Flexible::damping at dampingFrequency); the system set up. The
-// modes' frequencies (Hz), their interfaces held.
+// modes' frequencies (Hz), their interfaces held. A reduction of the part
+// as it is now, kept -- by this process, or in the document
+// (Flexible::reduction) -- is taken instead of made.
 std::vector<double> reduce(chrono::ChSystem& sys, Built& built, const Flexible& flexible);
+
+// Its reduction as numbers, for the document to keep (ModeShapes::reduction):
+// a format number, its key's hash, the modes' frequencies 'hz' and our
+// Chrono's ReducedData, but for Psi, which is made of the rest. Empty
+// unless reduced.
+std::vector<double> reductionNumbers(const Built& built, const std::vector<double>& hz);
+
+// Numbers reductionNumbers() made, kept by this process for the next reduction
+// of a part built as 'built' is (reduce()); false, and nothing kept, when
+// they are not that part's -- its key's hash another -- or not such numbers
+bool keepReduction(const Built& built, const std::vector<double>& numbers);
 
 }  // namespace Assembly::Solver::ChronoFlexible

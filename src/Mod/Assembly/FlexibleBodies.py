@@ -105,8 +105,10 @@ def _signature(flexible, local, holds, touched):
         " ".join("%.9g" % v for v in (box.XMin, box.YMin, box.ZMin, box.XMax, box.YMax, box.ZMax)),
         "%.9g" % flexible.MeshSize.Value,
     ]
+    # Each frame by its joint's name in the document: the document is named
+    # again when opened from a file of another name, and its mesh is the same
     for label, ref in holds:
-        parts.append("%s %s" % (label, ref[1]))
+        parts.append("%s %s" % (label.split("#")[-1], ref[1]))
     if touched:
         parts.append("contact %s" % " ".join(touched))
     return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
@@ -243,6 +245,9 @@ def prepare(flexible, force=False):
     flexible.InterfaceFrames = frames
     flexible.InterfaceNodes = held
     flexible.MeshSignature = signature
+    # A reduction of the mesh it had is not of this one
+    if hasattr(flexible, "Reduction"):
+        flexible.Reduction = []
     return True
 
 

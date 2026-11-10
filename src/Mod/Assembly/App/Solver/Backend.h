@@ -256,6 +256,9 @@ struct ModeShapes
     std::string source;  // the model's source name of the flexible body
     std::size_t columns = 0;
     std::vector<double> values;
+    // Its reduction, for the document to keep and hand back the next run
+    // (Flexible::reduction): the backend's own numbers; empty, none
+    std::vector<double> reduction;
 };
 
 // Poses of the bodies at each output time; owned by the neutral layer, so

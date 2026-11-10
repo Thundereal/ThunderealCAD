@@ -1112,7 +1112,8 @@ FlexibleBody::FlexibleBody()
                       "Mesh",
                       made,
                       "The model frame each interface is: a joint's full name, a force "
-                      "element's with -1 or -2 for its end");
+                      "element's with -1 or -2 for its end -- matched by the name in its "
+                      "document, whatever the document is named now");
     ADD_PROPERTY_TYPE(InterfaceNodes,
                       (),
                       "Mesh",
@@ -1134,6 +1135,12 @@ FlexibleBody::FlexibleBody()
                       "Mesh",
                       static_cast<App::PropertyType>(made | App::Prop_Hidden),
                       "The mode shapes' columns: the deformation's coordinates");
+    ADD_PROPERTY_TYPE(Reduction,
+                      (),
+                      "Mesh",
+                      static_cast<App::PropertyType>(made | App::Prop_Hidden),
+                      "Its last dynamic run's reduction to its modes, which the next run takes "
+                      "where the part is as it was, after the document is opened again too");
 }
 
 namespace App

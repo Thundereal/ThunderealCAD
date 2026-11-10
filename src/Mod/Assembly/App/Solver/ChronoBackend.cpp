@@ -9752,10 +9752,15 @@ Status ChronoSession::simulateDynamics(
         sink.channels(channels);
     }
     for (const auto& flexible : run.d->flexibles) {
-        sink.modeShapes(run.d->modeShapesOf(
+        ModeShapes shapes = run.d->modeShapesOf(
             flexible,
             si.sourceName(si.dynamics->flexibles[flexible.record].source),
-            SI::length));
+            SI::length);
+        // And its reduction, for the document to keep
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        shapes.reduction = ChronoFlexible::reductionNumbers(flexible.built, flexible.hz);
+#endif
+        sink.modeShapes(shapes);
     }
 
     // The events found (sec 8.4), held until their step is kept -- a
@@ -11818,4 +11823,7 @@ std::size_t Chrono::flexibleModesKept()
 {
     return 0;
 }
+
+void Chrono::forgetFlexibleReductions()
+{}
 #endif

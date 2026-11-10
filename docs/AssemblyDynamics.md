@@ -4106,7 +4106,8 @@ Phase D1 is under way (2026-10-28):
     FlexibleBody.aRunAgainTakesTheKeptReduction -- the flexible pendulum
     run again takes the first run's, and swings the same: each frame,
     each channel to 1e-9, the mode shapes to the bit.
-  - Not yet: the kept reductions across sessions (they are the process's);
+  - Not yet: the kept reductions across sessions (they are the process's;
+    done, step 9);
     a part's first run, the rod's 1 ms run 1.8 s where the rerun's is 0.2,
     the strip's reduction about 16 of its 22.4 -- the
     eigenproblem's factorization (6 s, Eigen's SparseLU) and iterations
@@ -4274,6 +4275,51 @@ Phase D1 is under way (2026-10-28):
     test_strike_anywhere (the run goes through, the blow under the rigid
     strip's), test_contact_anywhere (test_contact_needs_its_faces's case
     runs).
+- Built, D4b step 9 (2026-11-11): a flexible part's reduction kept in the
+  file.
+  - **The last run's reduction is the flexible body's** (`Reduction`, a
+    hidden float list in the Mesh group, written as a binary file of the
+    FCStd), and a run hands it to the backend (`Flexible::reduction`),
+    which takes it where the part is as it was -- its kept reductions
+    (step 5's) seeded with it -- so a part's first run in a session goes
+    as a rerun does. The rod's: a process that opens the file runs in
+    0.54 s, one with the file's dropped makes the reduction again in
+    2.31; the mode shapes the same to the bit either way.
+  - Its numbers (`ChronoFlexible::reductionNumbers()`): a format (1), the
+    key's hash as two 32-bit halves, the modes, the reduction's scaling,
+    the frequencies, then each of Psi_S, Psi_D, Psi_S Lambda^-1,
+    Psi_D Lambda^-1, M, K and R reduced, the gravity's M columns and
+    Psi_R as rows, columns and data. Psi itself, [I 0; Psi_S Psi_D;
+    Psi_S_L Psi_D_L], is made again of them, not kept. The rod's (6
+    modes, 24 columns with the residual ones) is 443028 numbers, 3.5 MB
+    of its 7.8 MB file.
+  - The key's hash is FNV-1a over the key the kept reductions are found
+    by: the exact numbers by their bits, the near ones (nodes and
+    interface frames over the part's size) rounded at 1e-9, sameReduction()'s
+    tolerance. One at a rounding's edge misses, and the reduction is
+    made again; a file's from another part (another mesh, material,
+    modes, damping or interface) is not taken. A new mesh (prepare())
+    empties it.
+  - **Found by the test: an interface held nothing in a document opened
+    from a file of another name.** InterfaceFrames keeps each joint's
+    full name, the document's in it; opened from kept.FCStd the document
+    is "kept", no frame matched, the interface's nodes were none and the
+    part ran free, with no word. The frames are matched by the joint's
+    name in its document now (the contact faces' label has no document
+    and is no joint's), and the mesh's signature takes that name too, so
+    the mesh is not stale and not made again for it.
+  - A Python joint converted to the C++ one on opening (ConvertJointsOnOpen)
+    is another joint, of another name: the part's mesh is stale, and made
+    again with its reduction when the study runs from its panel
+    (prepareStudy()). A script's run before that has the part held by
+    none of its nodes there, and says so now: a joint's frame on a
+    flexible part its mesh has no nodes for is warned of.
+  - Tests: TestFlexibleBody.test_reduction_kept_in_the_file (saved, opened
+    under another name, the mesh current, the reduction as saved, the run
+    the same mode shapes and coordinates to 1e-9; a new mesh empties it);
+    FlexibleBody.aRunTakesTheReductionItsModelHands (this process's
+    forgotten, a run handed the numbers takes them and swings the same,
+    each frame and channel to 1e-9; a stiffer part's are not taken).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

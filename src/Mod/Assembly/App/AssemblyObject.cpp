@@ -989,6 +989,12 @@ void AssemblyObject::keepFrames(App::DocumentObject* sim,
                 if (flexible && flexible->getFullName() == shapes.source) {
                     flexible->ModeShapes.setValues(shapes.values);
                     flexible->ModeShapeColumns.setValue(static_cast<long>(shapes.columns));
+                    // Its reduction, for a run after the document is opened
+                    // again; set only when it is another
+                    if (!shapes.reduction.empty()
+                        && flexible->Reduction.getValues() != shapes.reduction) {
+                        flexible->Reduction.setValues(shapes.reduction);
+                    }
                 }
             }
         }
@@ -2895,6 +2901,12 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         record.modes = static_cast<int>(flexible->Modes.getValue());
         record.damping = flexible->Damping.getValue();
         record.dampingFrequency = flexible->DampingFrequency.getValue();
+        // Its last run's reduction, kept in the document, for the backend to
+        // take where the part is as it was
+        if (flexible->Reduction.getSize()) {
+            record.reduction =
+                std::make_shared<const std::vector<double>>(flexible->Reduction.getValues());
+        }
         // Each interface's nodes, by its frame's label
         const auto& frames = flexible->InterfaceFrames.getValues();
         std::vector<std::vector<Solver::Id>> held(1);
@@ -2920,10 +2932,38 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             Solver::Flexible::Interface face;
             face.frame = frame.id;
             const std::string& name = model.sourceName(frame.label);
+            // A full name by the object's name in its document: opened from a
+            // file of another name, the document is named again, and its
+            // frames kept would hold nothing. The contact faces' label has
+            // no document, and is no joint's
+            auto sameFrame = [](const std::string& kept, const std::string& now) {
+                if (kept == now) {
+                    return true;
+                }
+                const auto a = kept.find('#');
+                const auto b = now.find('#');
+                return a != std::string::npos && b != std::string::npos
+                    && kept.compare(a, std::string::npos, now, b, std::string::npos) == 0;
+            };
             for (std::size_t i = 0; i < frames.size() && i < held.size(); ++i) {
-                if (frames[i] == name) {
+                if (sameFrame(frames[i], name)) {
                     face.nodes = held[i];
                     break;
+                }
+            }
+            // A joint's frame the mesh has no nodes for holds the part by
+            // nothing: a mesh made before the joint was, or renamed
+            if (face.nodes.empty()) {
+                for (const auto& joint : model.joints) {
+                    if (joint.frameI == frame.id || joint.frameJ == frame.id) {
+                        Base::Console().warning(
+                            "Assembly: the flexible body %s has no mesh nodes for %s, which "
+                            "holds it by none: its mesh is of other joints. Make it again "
+                            "(its panel, or FlexibleBodies.prepareStudy())\n",
+                            label.c_str(),
+                            name.c_str());
+                        break;
+                    }
                 }
             }
             record.interfaces.push_back(std::move(face));

@@ -48,6 +48,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <deque>
 #include <limits>
 #include <mutex>
@@ -243,6 +244,13 @@ public:
         return found;
     }
 
+    // The kept sets forgotten (Chrono::forgetFlexibleReductions())
+    static void forget()
+    {
+        std::scoped_lock lock(guard());
+        kept().clear();
+    }
+
     // How many solves took a kept set; the kept sets' and its lock
     static std::size_t& taken()
     {
@@ -365,6 +373,34 @@ std::deque<KeptReduction>& keptReductions()
     static std::deque<KeptReduction> kept;
     return kept;
 }
+
+// A reduction kept in a document: its key's hash, the exact numbers by their
+// bits, the near ones at 1e-9, sameReduction()'s tolerance -- one at a
+// rounding's edge misses, and the reduction is made again. FNV-1a's.
+std::uint64_t keyHash(const ChronoFlexible::Built::Key& key)
+{
+    std::uint64_t h = 14695981039346656037ull;
+    auto mix = [&](std::uint64_t v) {
+        for (int i = 0; i < 8; ++i) {
+            h ^= (v >> (8 * i)) & 0xffu;
+            h *= 1099511628211ull;
+        }
+    };
+    mix(key.exact.size());
+    for (double x : key.exact) {
+        std::uint64_t bits = 0;
+        std::memcpy(&bits, &x, sizeof bits);
+        mix(bits);
+    }
+    mix(key.near.size());
+    for (double x : key.near) {
+        mix(static_cast<std::uint64_t>(std::llround(x * 1e9)));
+    }
+    return h;
+}
+
+// reductionNumbers()'s format
+constexpr double reductionFormat = 1.0;
 
 }  // namespace
 
@@ -688,9 +724,133 @@ ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
     return built;
 }
 
+std::vector<double> ChronoFlexible::reductionNumbers(const Built& built, const std::vector<double>& hz)
+{
+    std::vector<double> out;
+    if (!built.assembly || !built.assembly->GetModalReductionMatrix().size()) {
+        return out;
+    }
+    const auto data = built.assembly->GetReducedData();
+    const std::uint64_t h = keyHash(built.key);
+    out = {reductionFormat,
+           static_cast<double>(h >> 32),
+           static_cast<double>(h & 0xffffffffu),
+           static_cast<double>(data.num_modes),
+           data.scaling_factor_CqI,
+           static_cast<double>(hz.size())};
+    out.insert(out.end(), hz.begin(), hz.end());
+    // Each matrix its rows, its columns and its terms, as it holds them
+    auto put = [&](const ch::ChMatrixDynamic<>& m) {
+        out.push_back(static_cast<double>(m.rows()));
+        out.push_back(static_cast<double>(m.cols()));
+        out.insert(out.end(), m.data(), m.data() + m.size());
+    };
+    put(data.Psi_S);
+    put(data.Psi_D);
+    put(data.Psi_S_LambdaI);
+    put(data.Psi_D_LambdaI);
+    put(data.M_red);
+    put(data.K_red);
+    put(data.R_red);
+    put(data.gravity_M_loc);
+    put(data.Psi_R);
+    return out;
+}
+
+bool ChronoFlexible::keepReduction(const Built& built, const std::vector<double>& numbers)
+{
+    std::size_t at = 0;
+    auto count = [&](double& v) {
+        if (at >= numbers.size()) {
+            return false;
+        }
+        v = numbers[at++];
+        return v >= 0.0 && v < 1e12 && v == std::floor(v);
+    };
+    double format = 0.0;
+    double high = 0.0;
+    double low = 0.0;
+    double modes = 0.0;
+    double frequencies = 0.0;
+    if (!count(format) || format != reductionFormat || !count(high) || !count(low)) {
+        return false;
+    }
+    const std::uint64_t h = keyHash(built.key);
+    if (high != static_cast<double>(h >> 32) || low != static_cast<double>(h & 0xffffffffu)) {
+        return false;
+    }
+    KeptReduction kept;
+    kept.key = built.key;
+    auto& data = kept.data;
+    if (!count(modes) || at >= numbers.size()) {
+        return false;
+    }
+    data.num_modes = static_cast<unsigned int>(modes);
+    data.scaling_factor_CqI = numbers[at++];
+    if (!count(frequencies) || at + static_cast<std::size_t>(frequencies) > numbers.size()) {
+        return false;
+    }
+    kept.hz.assign(numbers.begin() + at, numbers.begin() + at + static_cast<std::size_t>(frequencies));
+    at += static_cast<std::size_t>(frequencies);
+    auto get = [&](ch::ChMatrixDynamic<>& m) {
+        double rows = 0.0;
+        double cols = 0.0;
+        if (!count(rows) || !count(cols)) {
+            return false;
+        }
+        const std::size_t size = static_cast<std::size_t>(rows) * static_cast<std::size_t>(cols);
+        if (at + size > numbers.size()) {
+            return false;
+        }
+        m.resize(static_cast<Eigen::Index>(rows), static_cast<Eigen::Index>(cols));
+        std::copy(numbers.begin() + at, numbers.begin() + at + size, m.data());
+        at += size;
+        return true;
+    };
+    if (!get(data.Psi_S) || !get(data.Psi_D) || !get(data.Psi_S_LambdaI)
+        || !get(data.Psi_D_LambdaI) || !get(data.M_red) || !get(data.K_red) || !get(data.R_red)
+        || !get(data.gravity_M_loc) || !get(data.Psi_R) || at != numbers.size()) {
+        return false;
+    }
+    // Psi = [I 0; Psi_S Psi_D; Psi_S_LambdaI Psi_D_LambdaI] (GetModalReductionMatrix())
+    const Eigen::Index nB = data.Psi_S.cols();
+    const Eigen::Index nI = data.Psi_S.rows();
+    const Eigen::Index nL = data.Psi_S_LambdaI.rows();
+    const Eigen::Index nMod = data.num_modes;
+    if (data.Psi_D.rows() != nI || data.Psi_D.cols() != nMod
+        || (nL && (data.Psi_S_LambdaI.cols() != nB || data.Psi_D_LambdaI.rows() != nL
+                   || data.Psi_D_LambdaI.cols() != nMod))) {
+        return false;
+    }
+    data.Psi.setZero(nB + nI + nL, nB + nMod);
+    data.Psi.topLeftCorner(nB, nB).setIdentity();
+    data.Psi.block(nB, 0, nI, nB) = data.Psi_S;
+    data.Psi.block(nB, nB, nI, nMod) = data.Psi_D;
+    if (nL) {
+        data.Psi.block(nB + nI, 0, nL, nB) = data.Psi_S_LambdaI;
+        data.Psi.block(nB + nI, nB, nL, nMod) = data.Psi_D_LambdaI;
+    }
+    std::scoped_lock lock(KeptModesSolver::guard());
+    auto& reductions = keptReductions();
+    for (const auto& one : reductions) {
+        if (sameReduction(one.key, built.key)) {
+            return true;
+        }
+    }
+    reductions.push_front(std::move(kept));
+    if (reductions.size() > 2) {
+        reductions.pop_back();
+    }
+    return true;
+}
+
 std::vector<double>
 ChronoFlexible::reduce(ch::ChSystem& sys, Built& built, const Flexible& flexible)
 {
+    // The document's, for the part as it is now
+    if (flexible.reduction && !flexible.reduction->empty()) {
+        keepReduction(built, *flexible.reduction);
+    }
     sys.Setup();
     sys.Update(ch::UpdateFlags::UPDATE_ALL);
     // The symmetric eigensolver (Spectra's Krylov-Schur, a real LU): the
@@ -736,6 +896,13 @@ std::size_t Chrono::flexibleModesKept()
 {
     std::scoped_lock lock(KeptModesSolver::guard());
     return KeptModesSolver::taken();
+}
+
+void Chrono::forgetFlexibleReductions()
+{
+    KeptModesSolver::forget();
+    std::scoped_lock lock(KeptModesSolver::guard());
+    keptReductions().clear();
 }
 
 std::vector<double>

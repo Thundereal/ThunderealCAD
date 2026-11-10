@@ -658,6 +658,10 @@ public:
     /// mm; a node's x, y and z each a row of ModeShapeColumns
     App::PropertyFloatList ModeShapes;
     App::PropertyInteger ModeShapeColumns;
+    /// Its last dynamic run's reduction to its modes (Solver::ModeShapes::
+    /// reduction), the backend's numbers: the next run takes it where the part
+    /// is as it was, after the document is opened again too
+    App::PropertyFloatList Reduction;
 
     const char* getViewProviderName() const override
     {

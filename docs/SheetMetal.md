@@ -2193,11 +2193,12 @@ stored flat and this option do what it was for.
       - a draft's neutral plane and pull direction (`populateRefElement()`): one element each,
         the label amber with the tip, said and selected with the edges; the first of several
         was taken before, silently;
-      - the sketch-based panels' references -- a pad's or a pocket's up-to faces and start
-        reference, a revolution's up-to face, a sweep's spine and auxiliary spine
-        (`LinkSubWidget`), a loft's and a sweep's sections (`LinkSubListWidget`): the cell or
-        the item amber, a line under the table or the list. A table that holds one element (a
-        revolution's up-to face) is the single rule, the rest the list's. Before, the first
+      - the sketch-based panels' references -- the profile's elements, a pad's or a pocket's
+        up-to faces, a revolution's up-to face, the start reference, a sweep's spine and
+        auxiliary spine (`LinkSubWidget`), a loft's and a sweep's sections
+        (`LinkSubListWidget`): the cell or the item amber, a line under the table or the list.
+        A table that holds one element (a revolution's up-to face, a start reference) is the
+        single rule, the rest the list's. Before, the first
         element that answered was taken whatever else did, and the list widget looked for the
         first lost element only, adding what it found past the lost one;
       - a pattern's originals (`TaskTransformedParameters`, `OriginalSubs`): all that answer,
@@ -2209,6 +2210,14 @@ stored flat and this option do what it was for.
       parts), a draft's plane cut in two (none taken). `dressup-refound-edge.py` 11 (before,
       8). Both frozen and not. The pattern's panel and the list widget are not under a GUI
       check yet.
+    - **A primitive's element was never found again (fixed 2026-11-11, found taking the
+      manual's pictures).** A fillet on a box's edge, a pocket put in before it: nothing
+      answered, in any panel, where the same edge of a pad was found. A primitive's element
+      is named by its role alone (`RearT`, docs/PrimitiveNames.md), which tells no kind, and
+      `Part::Feature::getRelatedElements()` gave up on a name whose kind it could not read.
+      It looks through every kind for such a name now, each element's history followed as
+      its own kind's. `PrimitiveNamesBodyTest` +5 (before, 0 of the 5); PrimitiveNames.md
+      sec 6.
     - `sheet-metal-panels.py` 103 (before, 101 and one failing, the script stopping there).
   - Tests: `SheetMetalNames.py`, asked of every sheet metal test's document as it closes (28
     files' `tearDown`): each feature's highlight is the faces off the skin it built on, all and
@@ -2342,6 +2351,9 @@ stored flat and this option do what it was for.
     miter's slant, ruled between its edges or filled to them, is as it was and is not listed.
   - **Listed:** `FlatResult::approximated`, the folded faces laid out so, and Check Sheet's
     `Approximated`, one line with those faces, saying to drill and countersink after bending.
+    A hole in a bend touches the bend's line, and `HoleNearBend` said "A hole is 6.875e-11
+    mm from Bend1's line": it says "A hole lies across Bend1's line, in the bend" now, its
+    value 0 (`testHoleInBendIsToldAsAcrossItsLine`; before, failing).
   - How near: the blank's volume against the folded part's is within 0.02 mm^3 of 2.1 for a
     hole 1.6 across through a bend of radius 5; 0.06 of 3.1 for its countersink, the cone
     lying where the outer fibres are laid out 5.5 / 6 as long; 0.1 of 2.1 for the hole

@@ -254,14 +254,31 @@ started.
   the case on a box. *Mine:* `ea["Face3"] = material`, one name given a
   material outright, is still all its own.
 
+- **A role that a later feature changed was never found again** (fixed
+  2026-11-11, found with the panels that show a lost reference found again,
+  docs/SheetMetal.md sec 12). A reference to a primitive's element holds the
+  role alone, `;RearT`: a name with no step of a history in it and no kind.
+  `Part::Feature::getRelatedElements()` reads the kind of the element out of
+  the name, found none and gave up, so a fillet on a box's edge that a
+  pocket put in before it trimmed stayed lost in every panel, where the same
+  edge of a pad was found. For such a name every kind is looked through now,
+  each element's history followed as its own kind's: the role is answered by
+  what came of that very element (`RearT;:M;CUT;:H302:7,E`, a step tagged
+  with the box, in whose shape `RearT` is an edge), and not by the same role
+  of a second primitive, whose own elements are tagged with its id negated.
+  `PrimitiveNamesBodyTest` +5 (before, 0 of the 5): an edge cut in two, an
+  edge trimmed, a face and a vertex, only its kind answering, another
+  primitive's same role not answering.
+
 ## 7. Checks
 
-Python `parttests.PrimitiveNamesTest`, 12, and `PrimitiveNamesBodyTest`, 2: every kind's roles and
+Python `parttests.PrimitiveNamesTest`, 12, and `PrimitiveNamesBodyTest`, 7: every kind's roles and
 that none is unnamed, alike or `Other`; each through the change that
 renumbers it; the names in a file and read back, with nothing asked to be
 made again; what is made from a primitive named by its roles; a reference
 following its face through a cylinder cut open; PartDesign's eight first
-in a body, and one after another feature.
+in a body, and one after another feature; a role a later feature changed
+found again by what came of its element (sec 6).
 `parttests.ElementAppearanceTest`, +1: a box painted on a branch, left
 and come back to. The four tests that named a primitive's elements by
 number say the roles.

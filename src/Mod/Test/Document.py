@@ -1776,6 +1776,99 @@ class BoundTransactionCases(unittest.TestCase):
         self.assertEqual(obj.String, default)
 
 
+class _CloseInRecompute:
+    """A feature whose recompute closes the step open -- as a step's closer
+    queued on the event loop does when a long recompute pumps that loop (its
+    progress bar's checkAbort(), every 500 ms) -- and only then writes what
+    it computes"""
+
+    def __init__(self, obj):
+        obj.addProperty("App::PropertyInteger", "In")
+        obj.addProperty("App::PropertyInteger", "Out")
+        obj.Proxy = self
+
+    def execute(self, obj):
+        FreeCAD.closeActiveTransaction()
+        obj.Out = obj.In * 2
+
+
+class StepCommitCases(unittest.TestCase):
+    """What a commit makes an undo step of: nothing for a step that changed
+    nothing, and a step whole however long the recompute it holds takes"""
+
+    def setUp(self):
+        self.param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        self.mode = self.param.GetInt("TransactionLog", 2)
+        self.docs = []
+
+    def tearDown(self):
+        for doc in self.docs:
+            FreeCAD.closeDocument(doc.Name)
+        self.param.SetInt("TransactionLog", self.mode)
+
+    def make(self, name, log=2):
+        self.param.SetInt("TransactionLog", log)
+        doc = FreeCAD.newDocument(name)
+        self.docs.append(doc)
+        doc.UndoMode = 1
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        doc.recompute()
+        doc.clearUndos()
+        return doc, obj
+
+    def testAStepThatChangedNothingIsNoStep(self):
+        for log in (2, 0):
+            doc, obj = self.make("NothingStep%d" % log, log)
+            doc.openTransaction("something")
+            obj.Integer = 1
+            doc.commitTransaction()
+            FreeCAD.setActiveTransaction("nothing written")
+            FreeCAD.closeActiveTransaction()
+            doc.openTransaction("nothing opened")
+            doc.commitTransaction()
+            self.assertEqual(doc.UndoNames, ["something"], "log %d" % log)
+            doc.undo()
+            self.assertEqual(obj.Integer, 4711, "one undo takes the step below")
+
+    def testACommitAskedInARecomputeWaitsForItsEnd(self):
+        # The recompute a step makes is the step's: closed from inside it,
+        # the step is committed as the recompute ends, its writes in it
+        doc, _ = self.make("CloseInRecompute")
+        obj = doc.addObject("App::FeaturePython", "Closer")
+        _CloseInRecompute(obj)
+        doc.recompute()
+        doc.clearUndos()
+        last = max(r["seq"] for r in doc.getTransactionLog())
+        FreeCAD.setActiveTransaction("Step")
+        obj.In = 3
+        doc.recompute()
+        FreeCAD.closeActiveTransaction()
+        self.assertEqual(obj.Out, 6)
+        rows = [(r["kind"], r["name"]) for r in doc.getTransactionLog() if r["seq"] > last]
+        self.assertEqual(rows, [("user", "Step"), ("recompute", "recompute")],
+                         "the recompute's writes are in the step, no step of their own")
+        self.assertEqual(doc.UndoNames, ["Step"])
+        self.assertFalse(doc.HasPendingTransaction)
+        doc.undo()
+        self.assertEqual((obj.In, obj.Out), (0, 0), "one undo takes the step whole")
+
+    def testAnUndoOfSeveralRowsIsNamedForTheUsersOnly(self):
+        # An implicit row taken back with the user's step it follows is not
+        # named in the undo's name
+        doc, obj = self.make("RunName")
+        doc.openTransaction("mine")
+        obj.Integer = 1
+        doc.commitTransaction()
+        obj.String = "bare"   # no transaction open: an implicit one
+        doc.commitTransaction()
+        rows = [(r["seq"], r["kind"]) for r in doc.getTransactionLog()]
+        mine = [seq for seq, kind in rows if kind == "user"][-1]
+        implicit = [seq for seq, kind in rows if kind == "implicit"][-1]
+        self.assertGreater(implicit, mine)
+        self.assertTrue(doc.undoTransactionFromLog([mine, implicit]))
+        self.assertEqual(doc.UndoNames[0], "Undo mine")
+
+
 class DocumentGroupCases(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("GroupTests")

@@ -465,6 +465,12 @@ fc_add_gui_test(GuiDressUpGroupColorsKept_tests_run dressup-group-colors-kept.py
 fc_add_gui_test(GuiPdUndoStepNames_tests_run pd-undo-step-names.py
                 --timeout 200)
 
+# OK of a PartDesign panel is a step of its own holding the recompute it
+# makes, not left empty by the edit's end before it; with nothing to make
+# again it is no step.
+fc_add_gui_test(GuiPdOkStep_tests_run pd-ok-step.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

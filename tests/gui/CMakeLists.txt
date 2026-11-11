@@ -377,6 +377,13 @@ fc_add_gui_test(GuiOverlayListRowBandsInView_tests_run overlay-list-row-bands-in
 fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
                 --timeout 200)
 
+# Ruled 2026-11-11 (docs/SheetMetal.md sec 12): a dress-up's reference found
+# again by name when its panel opens is taken where one element answers,
+# and shown -- the row marked, the element selected, a line in the panel --
+# not taken silently; OK keeps it, Cancel leaves it missing.
+fc_add_gui_test(GuiDressUpRefoundEdge_tests_run dressup-refound-edge.py
+                --timeout 200)
+
 # Entry 214, a crash on stage28: a group typed into a fillet's Group cell
 # filled the list anew inside Qt's commit of it, the row deleted under the
 # commit (heap corruption). The edge's row is changed in place now.

@@ -2168,8 +2168,16 @@ stored flat and this option do what it was for.
       amber, its tip saying what it was; lit in the view, selected on the feature built on;
       and said in a line of the panel ("Found again by name: Edge3 is now Edge4 ..."). The
       feature is recomputed with it, so the part shows what taking it gives. OK keeps it;
-      Cancel leaves the reference as it was, lost. Proposed for the dress-ups' panels too,
-      not built there.
+      Cancel leaves the reference as it was, lost.
+    - **The dress-ups' panels the same (ruled 2026-11-11: "yes dress up do the same").**
+      `populateGeometryReferences()` took every element that answered, an edge cut in two as
+      its two halves, and said nothing. It takes one answer now, and tells the panel what it
+      took (`TaskDressUpParameters::refound`): the row amber, its tip saying what it was
+      before its own (`withRefound()`, which a fillet's and a chamfer's row tips go through),
+      the row selected and so its edge in the view, and the panel's message line saying it
+      under any error. Where two answer -- a pocket put in before a fillet, notching its
+      edge's middle -- the row stays missing for the user to pick. `dressup-refound-edge.py`,
+      new, 9 (before, 5: the three signs missing, and both halves taken).
     - `sheet-metal-panels.py` 103 (before, 101 and one failing, the script stopping there).
   - Tests: `SheetMetalNames.py`, asked of every sheet metal test's document as it closes (28
     files' `tearDown`): each feature's highlight is the faces off the skin it built on, all and

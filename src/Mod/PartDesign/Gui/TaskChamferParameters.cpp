@@ -1473,7 +1473,8 @@ void TaskChamferParameters::setItem(QTreeWidgetItem *item, const Part::TopoShape
     Part::TopoShape::ChamferInfo own;
     const bool customised =
         pcChamfer->ChamferInfo.getValue(getGeometryItemText(item).constData(), own);
-    item->setToolTip(0, edgeModeTip(customised ? edgeMode(own) : DefaultMode, group));
+    item->setToolTip(0, withRefound(item,
+                edgeModeTip(customised ? edgeMode(own) : DefaultMode, group)));
 
     if (!ui->treeWidgetReferences->isPersistentEditorOpen(item, 4))
         ui->treeWidgetReferences->openPersistentEditor(item, 4);

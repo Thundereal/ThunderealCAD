@@ -111,7 +111,16 @@ void toggleShowOnTop(Gui::ViewProviderDocumentObject *vp,
                      const char *prop,
                      bool init = false);
 
-bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh);
+/** Fill a panel's list with a property's references. Filled for the first
+ * time (not refresh), a reference whose element the base has no more is
+ * looked up by its name's history (Part::Feature::getRelatedElements()) and
+ * taken where one element answers that no other reference has; several, or
+ * none, leave it listed as missing. What was taken is told in refound, what
+ * it was and what it is now, for the panel to show (ruled 2026-11-11: not
+ * taken silently). Returns whether the property was changed.
+ */
+bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh,
+                                std::vector<std::pair<std::string, std::string>> *refound = nullptr);
 QByteArray getGeometryItemText(QTreeWidgetItem *item);
 QByteArray getGeometryItemReference(QTreeWidgetItem *item);
 void setGeometryItemText(QTreeWidgetItem *item, const std::string &);

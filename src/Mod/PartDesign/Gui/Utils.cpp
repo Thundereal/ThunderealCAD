@@ -2104,7 +2104,8 @@ bool importExternalElements(App::PropertyLinkSub &prop,
     return _MonitorInstance->importExternalObjects(prop, sobjs, report);
 }
 
-bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh)
+bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh,
+                                std::vector<std::pair<std::string, std::string>> *refound)
 {
     treeWidget->clear();
     auto base = prop.getValue();
@@ -2148,24 +2149,40 @@ bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &p
         }
         FC_WARN("missing element reference in " << prop.getFullName() << ": " << ref);
         bool popped = false;
+        // Taken by its name's history where one element answers that no
+        // other reference has (ruled 2026-11-11; every one that answered
+        // was taken before, an edge cut in two as its two halves): with
+        // several it is the user's to say which, and the row stays missing
+        std::vector<Data::MappedElement> answers;
         for(auto &element : Part::Feature::getRelatedElements(base,ref.c_str())) {
             tmp.clear();
             element.name.appendToBuffer(tmp);
-            if (!subSet.insert(tmp).second)
-                continue;
             indexedName.clear();
             element.index.appendToStringBuffer(indexedName);
-            if (!subSet.insert(indexedName).second)
-                continue;
+            if (!subSet.count(tmp) && !subSet.count(indexedName))
+                answers.push_back(element);
+        }
+        if (answers.size() == 1) {
+            const auto &element = answers.front();
+            tmp.clear();
+            element.name.appendToBuffer(tmp);
+            indexedName.clear();
+            element.index.appendToStringBuffer(indexedName);
+            subSet.insert(tmp);
+            subSet.insert(indexedName);
             FC_WARN("guess element reference in " << prop.getFullName() << ": " << ref << " -> " << element.name);
             auto item = new QTreeWidgetItem(treeWidget);
             item->setText(0, QString::fromStdString(indexedName));
             setGeometryItemText(item, indexedName);
-            if(!popped) {
-                refs.pop_back();
-                touched = true;
-                popped = true;
+            if (refound) {
+                std::string was = refs.back();
+                if (boost::starts_with(was, Data::missingPrefix()))
+                    was.erase(0, Data::missingPrefix().size());
+                refound->emplace_back(was, indexedName);
             }
+            refs.pop_back();
+            touched = true;
+            popped = true;
             refs.push_back(indexedName);
         }
         if(!popped) {

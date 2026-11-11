@@ -111,6 +111,18 @@ protected:
     bool populate(bool refresh=false);
     void refresh() override;
     void showMessage(const char *msg=nullptr);
+    /// The references found again by name when the panel opened, while they
+    /// are listed: their rows marked, each saying what it was
+    void markRefound();
+    /// Those rows selected, and so their elements in the view, and the
+    /// panel's line saying what was found
+    void showRefound();
+    /// What the panel's line says of them, empty for none
+    QString refoundNote() const;
+    /// A row's tip with what the row was before it was found again put
+    /// first, if it was: a panel that gives its rows tips of its own sets
+    /// them through this
+    QString withRefound(QTreeWidgetItem *row, const QString &tip) const;
     virtual void onNewItem(QTreeWidgetItem *) {}
     /// Whether a top-level row is a reference of Base (a fillet's corner row
     /// is not: Corners keeps it)
@@ -273,6 +285,9 @@ protected:
     int sortKeyColumn = -1;
     QCheckBox *btnAdd = nullptr;
     QLabel *messageLabel = nullptr;
+    /// A reference found again by its name when the panel opened
+    /// (populateGeometryReferences()): what it was, and what it is now
+    std::vector<std::pair<std::string, std::string>> refound;
 
     bool onTopEnabled;
     bool busy = false;

@@ -1208,6 +1208,41 @@ def run():
             )
         accept()
         pump(20)
+
+        # -- the hem's panel: its relief, the rule's or its own as a flange's --
+        hbody = doc.addObject("PartDesign::Body", "HemBody")
+        view.setActiveObject("pdbody", hbody)
+        hplate = sheetWall(hbody, "HemPlate", [(100, 0), (140, 0), (140, 20), (100, 20)])
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, hplate.Name, edgeAt(hplate, 20, 1))
+        FreeCADGui.runCommand("PartDesign_SheetMetalHem")
+        pump()
+        hems = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalHem"]
+        hem = hems[-1] if hems else None
+        w = panel() or {}
+        relief = w.get("ReliefShape")
+        check(
+            "Hem's panel has its relief: the rule's, its width and depth greyed out",
+            hem is not None
+            and relief is not None
+            and hem.ReliefShape == "Rule"
+            and all(n in w and not w[n].isEnabled() for n in ("ReliefWidth", "ReliefDepth")),
+            [(n, n in w and w[n].isEnabled()) for n in ("ReliefShape", "ReliefWidth")],
+        )
+        if hem is not None and relief is not None:
+            relief.setCurrentIndex(1)
+            pump(20)
+            doc.recompute()
+            pump(10)
+            check(
+                "a shape of its own: the hem's, width and depth from the rule's, open",
+                hem.ReliefShape == "Rectangle"
+                and all(w[n].isEnabled() for n in ("ReliefWidth", "ReliefDepth"))
+                and abs(w["ReliefWidth"].property("rawValue") - 1) < 1e-9,
+                (hem.ReliefShape, w["ReliefWidth"].isEnabled(), hem.ReliefWidth),
+            )
+        accept()
+        pump(20)
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

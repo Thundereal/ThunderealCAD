@@ -53,6 +53,7 @@ namespace
 const App::PropertyQuantityConstraint::Constraints angleRange = {90.0, 330.0, 1.0};
 }
 const char* SheetMetalHem::PositionEnums[] = {"Inside", "Outside", nullptr};
+const char* SheetMetalHem::ReliefShapeEnums[] = {"Rule", "Rectangle", "Obround", "Tear", nullptr};
 
 SheetMetalHem::SheetMetalHem()
 {
@@ -118,6 +119,25 @@ SheetMetalHem::SheetMetalHem()
                       "Sheet Metal",
                       App::Prop_None,
                       "Fold toward the other skin than the one the edge is on");
+    ADD_PROPERTY_TYPE(ReliefShape,
+                      (0L),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bend relief where the hem ends inside its wall's end, the wall cut "
+                      "back: Rule follows the rule's; another shape is the hem's own, from the "
+                      "rule's width and depth when chosen; a tear is the rule's Gap wide");
+    ReliefShape.setEnums(ReliefShapeEnums);
+    ADD_PROPERTY_TYPE(ReliefWidth,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bend relief's width, when ReliefShape is not Rule");
+    ADD_PROPERTY_TYPE(ReliefDepth,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "How far the bend relief runs past the fold, when ReliefShape is not Rule");
+    showReliefValues();
     showTypeValues();
     // A refined result would merge faces of two elements
     Refine.setValue(false);
@@ -128,7 +148,8 @@ short SheetMetalHem::mustExecute() const
 {
     if (Edges.isTouched() || HemType.isTouched() || Length.isTouched() || Gap.isTouched()
         || Position.isTouched() || Reversed.isTouched() || Radius.isTouched()
-        || Angle.isTouched() || Gap1.isTouched() || Gap2.isTouched()) {
+        || Angle.isTouched() || Gap1.isTouched() || Gap2.isTouched() || ReliefShape.isTouched()
+        || ReliefWidth.isTouched() || ReliefDepth.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -146,7 +167,24 @@ void SheetMetalHem::onChanged(const App::Property* prop)
     if (prop == &HemType) {
         showTypeValues();
     }
+    if (prop == &ReliefShape) {
+        // From the rule to the hem's own: it starts from the rule's
+        auto rule = getRule();
+        if (!isRestoring() && ReliefShape.getValue() != 0
+            && ReliefWidth.testStatus(App::Property::ReadOnly) && rule) {
+            ReliefWidth.setValue(rule->ReliefWidth.getValue());
+            ReliefDepth.setValue(rule->ReliefDepth.getValue());
+        }
+        showReliefValues();
+    }
     FeatureAddSub::onChanged(prop);
+}
+
+void SheetMetalHem::showReliefValues()
+{
+    const bool byRule = ReliefShape.getValue() == 0;
+    ReliefWidth.setStatus(App::Property::ReadOnly, byRule);
+    ReliefDepth.setStatus(App::Property::ReadOnly, byRule);
 }
 
 void SheetMetalHem::showTypeValues()
@@ -286,13 +324,16 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
                     SheetMetal::wallSection(bendStart, edge.endOut, R + T, up.Reversed(), T,
                                             ownNamed(bendName) + "Cut"),
                     along));
-                // Where the hem stops inside the wall's end, the rule's bend
-                // relief beside the fold, as a flange's (sec 5.2)
+                // Where the hem stops inside the wall's end, the bend relief
+                // beside the fold, as a flange's (sec 5.2): the hem's own,
+                // or the rule's
+                const bool ownRelief = ReliefShape.getValue() != 0;
                 SheetMetal::Relief relief;
-                relief.shape =
-                    static_cast<SheetMetal::Relief::Shape>(rule->ReliefShape.getValue());
-                relief.width = rule->ReliefWidth.getValue();
-                relief.depth = R + T + rule->ReliefDepth.getValue();
+                relief.shape = static_cast<SheetMetal::Relief::Shape>(
+                    ownRelief ? ReliefShape.getValue() - 1 : rule->ReliefShape.getValue());
+                relief.width = ownRelief ? ReliefWidth.getValue() : rule->ReliefWidth.getValue();
+                relief.depth = R + T
+                    + (ownRelief ? ReliefDepth.getValue() : rule->ReliefDepth.getValue());
                 if (relief.shape == SheetMetal::Relief::Shape::Slit) {
                     relief.width = rule->Gap.getValue();
                     relief.depth = R + T;

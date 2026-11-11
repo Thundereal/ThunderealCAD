@@ -239,7 +239,10 @@ TaskDlgFeatureParameters* ViewProviderSheetMetalHem::getEditDialog()
                                       "Position",
                                       "Gap1",
                                       "Gap2",
-                                      "Reversed"},
+                                      "Reversed",
+                                      "ReliefShape",
+                                      "ReliefWidth",
+                                      "ReliefDepth"},
                                      "Edges",
                                      "Edge"));
 }

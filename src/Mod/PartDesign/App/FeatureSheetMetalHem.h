@@ -75,6 +75,12 @@ public:
     /// Inside: the fold's outer face where the wall ended; Outside: past it
     App::PropertyEnumeration Position;
     App::PropertyBool Reversed;
+    /// The bend relief, as a flange's: Rule follows the rule's; another
+    /// shape is the hem's own, with its own width and depth, read only
+    /// under Rule
+    App::PropertyEnumeration ReliefShape;
+    App::PropertyLength ReliefWidth;
+    App::PropertyLength ReliefDepth;
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
@@ -98,6 +104,10 @@ public:
 private:
     /// The values a hem's type does not use, read only
     void showTypeValues();
+    /// The relief's width and depth read only while it follows the rule
+    void showReliefValues();
+
+    static const char* ReliefShapeEnums[];
 
     static const char* HemTypeEnums[];
     static const char* PositionEnums[];

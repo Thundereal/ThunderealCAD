@@ -910,8 +910,12 @@ and not frozen.
   - `Gap1`, `Gap2` narrow the hem at the edge's ends, as a flange's; where it stops inside the
     wall's end with the wall cut back (`Inside`), the rule's bend relief is cut beside the fold
     and the fold stops at its sides in the model, as a flange's bend does. The relief's cuts are
-    `SheetMetal::reliefCuts()`, which the flange now uses too. The relief overridden per hem
-    is not built.
+    `SheetMetal::reliefCuts()`, which the flange now uses too. The relief overridden per hem:
+    built 2026-11-11, as a flange's -- `ReliefShape` (`Rule`, or the hem's own `Rectangle`,
+    `Obround`, `Tear`), `ReliefWidth`, `ReliefDepth`, read only under `Rule` and starting from
+    the rule's when a shape is chosen; in its panel; Check Sheet tells one smaller than the
+    rule's as it does a flange's. `TestSheetMetalHem` 21 (before, 16), `sheet-metal-panels.py`
+    99 (before, 97).
   - Two edges of one hem meeting at a corner are refused, as their folds would run into each
     other.
 - M2's corner closure, `PartDesign::SheetMetalCornerClosure` (5.2, ruled 2026-11-02), with

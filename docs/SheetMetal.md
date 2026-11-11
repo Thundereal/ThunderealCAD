@@ -2151,6 +2151,26 @@ stored flat and this option do what it was for.
     save and reopen: no element renamed. A feature suppressed, or put in, before one that uses
     an edge it trims loses that edge (`?Edge12`); a chamfer on an edge a pocket trims does the
     same, the core's.
+  - **That lost edge, found again when the panel opens (ruled 2026-11-11: as a dress-up
+    does).** The core takes a reference whose name the shape has no more by a search for the
+    same geometry, alone: safe to do unasked, the shape not having changed. An edge trimmed
+    is another shape, so the reference is marked missing and the feature is in error, a
+    dress-up's and a sheet metal feature's alike. A dress-up's panel then, when it is opened
+    to edit, looks the name up by its history (`Part::Feature::getRelatedElements()`, in
+    `PartDesignGui::populateGeometryReferences()`) and takes what answers, in the panel's
+    transaction, with a warning in the log and nothing else said. The sheet metal panel does
+    the same now (`TaskSheetMetalParameters::findAgain()`), where one element of the list's
+    kind answers that no other reference has; several, or none, are left for the user to
+    pick. Measured: the flange on the plate's near edge, the flange before it suppressed, or
+    one put in before it that trims the edge's other end -- one answer each time, the right
+    edge.
+    - **Shown, not silent** (asked with the ruling): what was found is marked in its list,
+      amber, its tip saying what it was; lit in the view, selected on the feature built on;
+      and said in a line of the panel ("Found again by name: Edge3 is now Edge4 ..."). The
+      feature is recomputed with it, so the part shows what taking it gives. OK keeps it;
+      Cancel leaves the reference as it was, lost. Proposed for the dress-ups' panels too,
+      not built there.
+    - `sheet-metal-panels.py` 103 (before, 101 and one failing, the script stopping there).
   - Tests: `SheetMetalNames.py`, asked of every sheet metal test's document as it closes (28
     files' `tearDown`): each feature's highlight is the faces off the skin it built on, all and
     no other, and every element is named (before, 375 of 446 tests failing it); and

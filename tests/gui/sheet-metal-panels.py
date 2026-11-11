@@ -1243,6 +1243,76 @@ def run():
             )
         accept()
         pump(20)
+
+        # -- a reference lost to an edit before the feature: found again by
+        # its name when the panel opens, shown, and kept only with OK -------
+        rbody = doc.addObject("PartDesign::Body", "RefBody")
+        view.setActiveObject("pdbody", rbody)
+        rplate = sheetWall(rbody, "RefPlate", [(200, 0), (240, 0), (240, 20), (200, 20)])
+        left = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(rplate.Shape.Edges)
+            if all(abs(v.Point.x - 200) < 1e-7 and abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes)
+        ]
+        early = rbody.newObject("PartDesign::SheetMetalFlange", "RefEarly")
+        early.Edges = (rplate, left[:1])
+        doc.recompute()
+        mid = rbody.newObject("PartDesign::SheetMetalFlange", "RefMid")
+        mid.Edges = (early, [edgeAt(early, 0, 1)])
+        doc.recompute()
+        made = "Invalid" not in mid.State
+        # the flange before it trims that edge: suppressed, the edge is another
+        early.Suppress = True
+        doc.recompute()
+        pump(10)
+        check(
+            "a flange on an edge the flange before it trims loses it with that one suppressed",
+            made and "Invalid" in mid.State and mid.Edges[1][0].startswith("?"),
+            (made, mid.State, mid.Edges[1]),
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.ActiveDocument.setEdit(mid.Name)
+        pump()
+        wait(0.3)
+        w = panel() or {}
+        edges = w.get("listEdges")
+        said = w.get("labelRefound")
+        row = edges.item(0) if edges is not None and edges.count() == 1 else None
+        lit = [
+            (o.ObjectName, list(o.SubElementNames)) for o in FreeCADGui.Selection.getSelectionEx()
+        ]
+        check(
+            "its panel finds the edge again by name: the feature made, the row marked and "
+            "saying what it was, a line saying so, the edge lit in the view",
+            row is not None
+            and not row.text().startswith("?")
+            and "Was" in row.toolTip()
+            and said is not None
+            and said.isVisible()
+            and row.text() in said.text()
+            and "Invalid" not in mid.State
+            and lit == [(early.Name, [row.text()])],
+            (row and (row.text(), row.toolTip()), said and said.text(), mid.State, lit),
+        )
+        press(QtWidgets.QDialogButtonBox.Cancel)
+        pump(20)
+        doc.recompute()
+        check(
+            "Cancel leaves the reference as it was, lost",
+            mid.Edges[1][0].startswith("?") and "Invalid" in mid.State,
+            (mid.Edges[1], mid.State),
+        )
+        FreeCADGui.ActiveDocument.setEdit(mid.Name)
+        pump()
+        wait(0.3)
+        accept()
+        pump(20)
+        doc.recompute()
+        check(
+            "OK keeps what was found",
+            not mid.Edges[1][0].startswith("?") and "Invalid" not in mid.State,
+            (mid.Edges[1], mid.State),
+        )
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

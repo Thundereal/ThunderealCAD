@@ -49,6 +49,7 @@
 #include <Standard_Failure.hxx>
 
 #include <App/Document.h>
+#include <App/ElementNamingUtils.h>
 #include <Base/Exception.h>
 #include <Gui/Application.h>
 #include <Gui/Document.h>
@@ -59,6 +60,8 @@
 #include <Gui/QuantitySpinBox.h>
 #include <App/PropertyLinks.h>
 #include <Mod/Part/App/Part2DObject.h>
+#include <Mod/Part/App/PartFeature.h>
+#include <Mod/Part/App/TopoShape.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
@@ -224,6 +227,14 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(
     }
     layout->addLayout(grid);
 
+    // what was found again by its name when the panel opened (findAgain())
+    refoundNote = new QLabel(proxy);
+    refoundNote->setObjectName(QStringLiteral("labelRefound"));
+    refoundNote->setWordWrap(true);
+    refoundNote->setStyleSheet(QStringLiteral("color: #b07000"));
+    refoundNote->hide();
+    layout->addWidget(refoundNote);
+
     rule = new QLabel(proxy);
     rule->setObjectName(QStringLiteral("labelRule"));
     rule->setWordWrap(true);
@@ -295,6 +306,86 @@ TaskSheetMetalParameters::TaskSheetMetalParameters(
             });
     }
     refresh();
+    // once the panel is up: what it finds is selected in the view
+    QTimer::singleShot(0, this, [this] {
+        findAgain();
+    });
+}
+
+void TaskSheetMetalParameters::findAgain()
+{
+    auto obj = vp ? vp->getObject() : nullptr;
+    if (!obj || !refound.empty()) {
+        return;
+    }
+    bool changed = false;
+    for (int i = 0; i < static_cast<int>(refLists.size()); ++i) {
+        auto list = references(i);
+        App::DocumentObject* base = list ? list->getValue() : nullptr;
+        if (!base) {
+            continue;
+        }
+        const Part::TopoShape shape = Part::Feature::getTopoShape(base);
+        const auto shadows = list->getShadowSubs();
+        std::vector<std::string> subs = list->getSubValues(false);
+        if (shape.isNull() || shadows.size() != subs.size()) {
+            continue;
+        }
+        const std::string element = refLists[i].refs.element;
+        bool touched = false;
+        for (std::size_t k = 0; k < subs.size(); ++k) {
+            // by its name: one with none is not looked for
+            const std::string& ref = shadows[k].first;
+            if (ref.empty() || !shape.getSubShape(ref.c_str(), true).IsNull()) {
+                continue;
+            }
+            std::vector<std::string> candidates;
+            for (const auto& related : Part::Feature::getRelatedElements(base, ref.c_str())) {
+                std::string name;
+                related.index.appendToStringBuffer(name);
+                if (name.rfind(element, 0) == 0
+                    && std::find(subs.begin(), subs.end(), name) == subs.end()
+                    && std::find(candidates.begin(), candidates.end(), name)
+                           == candidates.end()) {
+                    candidates.push_back(name);
+                }
+            }
+            // one answer, or it is the user's to say
+            if (candidates.size() != 1) {
+                continue;
+            }
+            std::string was = subs[k];
+            if (was.rfind(Data::missingPrefix(), 0) == 0) {
+                was.erase(0, Data::missingPrefix().size());
+            }
+            refound.push_back({i, was, candidates.front()});
+            subs[k] = candidates.front();
+            touched = true;
+        }
+        if (touched) {
+            if (!changed) {
+                setupTransaction(tr("find references again"));
+            }
+            changed = true;
+            list->setValue(base, subs);
+        }
+    }
+    if (!changed) {
+        return;
+    }
+    fillList();
+    recomputeFeature();
+    // and lit in the view, on the feature built on
+    Gui::Selection().clearSelection();
+    for (const Refound& found : refound) {
+        auto list = references(found.list);
+        App::DocumentObject* base = list ? list->getValue() : nullptr;
+        if (base && base->getDocument()) {
+            Gui::Selection().addSelection(base->getDocument()->getName(),
+                                          base->getNameInDocument(),
+                                          found.now.c_str());
+        }
+    }
 }
 
 TaskSheetMetalParameters::~TaskSheetMetalParameters()
@@ -748,6 +839,36 @@ void TaskSheetMetalParameters::fillList()
         for (const auto& sub : list->getSubValues()) {
             widget->addItem(QString::fromStdString(sub));
         }
+    }
+    // those found again by name when the panel opened, while they are
+    // listed: marked, each saying what it was, and all said in a line
+    QStringList said;
+    for (const Refound& found : refound) {
+        QListWidget* widget = refLists[found.list].list;
+        for (int row = 0; row < widget->count(); ++row) {
+            QListWidgetItem* item = widget->item(row);
+            if (item->text().toStdString() != found.now) {
+                continue;
+            }
+            item->setForeground(QColor(0xb0, 0x70, 0x00));
+            item->setToolTip(tr("Was %1: found again by its name when this panel opened. "
+                                "It is lit in the view; OK keeps it, Cancel leaves the "
+                                "reference as it was.")
+                                 .arg(QString::fromStdString(found.was)));
+            said << tr("%1 is now %2")
+                        .arg(QString::fromStdString(found.was),
+                             QString::fromStdString(found.now));
+            break;
+        }
+    }
+    if (refoundNote) {
+        refoundNote->setVisible(!said.isEmpty());
+        refoundNote->setText(
+            said.isEmpty()
+                ? QString()
+                : tr("Found again by name: %1. Lit in the view and marked in the list: check, "
+                     "then OK keeps it, Cancel leaves the reference as it was.")
+                      .arg(said.join(QStringLiteral(", "))));
     }
 }
 

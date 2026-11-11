@@ -3393,14 +3393,34 @@ bool CellDraftOne::makeSheet(const std::vector<gp_Pnt>& corners, TopoDS_Shape& s
                             continue;
                         }
                         double sx = level(x);
-                        if (sx * dir <= 0 || (sx - cur) * dir < -tolS
-                            || (sx - sBest) * dir >= 0) {
+                        if (sx * dir <= 0 || (sx - cur) * dir < -tolS) {
                             continue;
+                        }
+                        const int kindHere =
+                            !m.planar ? 1 : (left.tangent || right.tangent) ? 3 : 2;
+                        if (best < 0) {
+                            if ((sx - sBest) * dir >= 0) {
+                                continue;
+                            }
+                        }
+                        else {
+                            // Events at one level (within tolS) are taken in the
+                            // order of their kind, then of the chain: which of
+                            // two came first by the last bit of its level is
+                            // the processor's answer, not the shape's. An L's
+                            // arms close over at the level its inner corner's
+                            // plane narrows to nothing beside the fillet there,
+                            // and the reason it was refused for differed from
+                            // one machine to the next.
+                            const double ahead = (sBest - sx) * dir;
+                            if (ahead < -tolS || (ahead <= tolS && kindHere >= kind)) {
+                                continue;
+                            }
                         }
                         best = i;
                         sBest = sx;
                         xBest = x;
-                        kind = !m.planar ? 1 : (left.tangent || right.tangent) ? 3 : 2;
+                        kind = kindHere;
                     }
                     // Two planes joined along a level line (opposite walls
                     // meeting) close the chain over there: only if the rest of

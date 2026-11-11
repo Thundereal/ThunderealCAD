@@ -193,10 +193,12 @@ def run():
         # a step of it picked: the edit down to that step only
         menu = undo_menu()
         group = [a for a in menu.actions() if a.menu()][0].menu()
-        picked = [a for a in group.actions()]
-        note("  group menu %s" % ([a.text() for a in picked],))
-        # newest first: OK's step, the step that typed 8, the one that typed 7
-        picked[1].trigger()
+        note("  group menu %s" % ([a.text() for a in group.actions()],))
+        # newest first: the step that typed 8, the one that typed 7 -- and
+        # above them OK's step, where OK had something to make again (a
+        # step that changed nothing is none)
+        picked = [a for a in group.actions() if not a.text().endswith("OK, recompute")]
+        picked[0].trigger()
         settle(800)
         left = doc.getUndoSteps()
         note("  after the fine undo: length %s steps %s" % (pad.Length, left))

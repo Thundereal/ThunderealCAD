@@ -2357,6 +2357,9 @@ protected:
     /// undoes, or one that follows an implicit step, folded into it. True
     /// when dropped or folded; the caller then drops `later`.
     bool _foldImplicit(Transaction* later);
+    /// The commit of the step open that was asked while the document
+    /// recomputed (DocumentP::commitHeld), made as the recompute ends.
+    void _commitHeld();
 
     /// refresh the internal dependency graph
     void _rebuildDependencyList(

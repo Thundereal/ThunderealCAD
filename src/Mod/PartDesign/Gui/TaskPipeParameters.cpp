@@ -35,6 +35,7 @@
 #include "ui_TaskPipeScaling.h"
 #include "TaskPipeParameters.h"
 #include <App/Application.h>
+#include <App/AutoTransaction.h>
 #include <App/DocumentObject.h>
 #include <App/Origin.h>
 #include <App/Part.h>
@@ -436,9 +437,14 @@ bool TaskDlgPipeParameters::accept()
     parameter->beginAcceptStep();
     try {
         parameter->setupTransaction();
-        // its own edit, of the several the document may have
-        resetOwnEdit();
-        Gui::cmdAppDocument(pcPipe, "recompute()");
+        {
+            // OK's step open through the edit's end to the recompute it is
+            // for (TaskDlgFeatureParameters::accept())
+            App::TransactionLocker keepStep;
+            // its own edit, of the several the document may have
+            resetOwnEdit();
+            Gui::cmdAppDocument(pcPipe, "recompute()");
+        }
         if (!vp->getObject()->isValid())
             THROWM(Base::RuntimeError, vp->getObject()->getStatusString())
         Gui::Command::commitCommand();

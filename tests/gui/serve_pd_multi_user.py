@@ -312,7 +312,11 @@ def run(preview):
         listed = does(alice, "undo.list") or {}
         mine = listed.get("undoSteps", [])
         groups = {s.get("group") for s in mine if s.get("group")}
-        check("1: her edit is one group in her list (%s)" % tag, len(groups) == 1,
+        # one step needs no group: without the preview her Pad1 is made as
+        # she types, her OK has nothing left to make, and a step that
+        # changed nothing is none
+        check("1: her edit is one undo in her list, one group or one step (%s)" % tag,
+              len(groups) == 1 or (not groups and len(mine) == 1),
               [(s.get("name"), s.get("group")) for s in mine])
         undone = does(alice, "undo")
         settle(1000)

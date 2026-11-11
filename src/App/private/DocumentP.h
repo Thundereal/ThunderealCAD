@@ -185,6 +185,12 @@ struct DocumentP
     /// 37.4 P4).
     int64_t lastCommitSeq {0};
     double lastCommitTime {0};
+    /// A commit of the step open asked while the document recomputes: made
+    /// as the recompute ends (Document::_commitHeld()), so the recompute's
+    /// writes are the step's however long it takes. A recompute that pumps
+    /// the event loop -- its progress bar's checkAbort(), every 500 ms --
+    /// runs the closers queued there, a panel's step among them.
+    bool commitHeld {false};
     bool snapshotting {false};
     /// The save in progress writes the string table as a member of its own
     /// (docs/TransactionLogJournal.md sec 27.50 item 1) -- or, snapshotting, names

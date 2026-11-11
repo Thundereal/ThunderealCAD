@@ -1393,10 +1393,16 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts confli
         _commitTransaction(true);
     log->resolvePending();
     std::map<int64_t, std::string> names;
+    // and the implicit ones among them, which are no step of their own
+    // (sec 33.4): taken back with the user's they follow, named for none
+    std::set<int64_t> implicitRows;
     for (int64_t seq : rows) {
         for (const auto& t : log->store().transactions(seq, 1)) {
-            if (t.seq == seq)
+            if (t.seq == seq) {
                 names[seq] = t.name;
+                if (t.kind == "implicit")
+                    implicitRows.insert(seq);
+            }
         }
     }
     if (several && conflicts == UndoConflicts::Refuse) {
@@ -1430,7 +1436,7 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts confli
         std::size_t said = 0;
         std::size_t named = 0;
         for (int64_t seq : rows) {
-            if (names[seq].empty())
+            if (names[seq].empty() || (implicitRows.count(seq) && implicitRows.size() < rows.size()))
                 continue;
             ++named;
             if (said == 3)
@@ -2801,6 +2807,16 @@ void Document::_commitTransaction(bool notify)
                 FC_WARN("Cannot commit transaction while transacting");
             return;
         }
+        // The step's recompute is the step's: asked to commit while it
+        // runs -- from an event loop it pumps -- the step stays open and is
+        // committed as the recompute ends. An implicit one the recompute
+        // commits itself, at its end.
+        if (testStatus(Recomputing) && !d->activeUndoTransaction->Implicit) {
+            FC_LOG("commit of '" << d->activeUndoTransaction->Name
+                   << "' held to the end of the recompute");
+            d->commitHeld = true;
+            return;
+        }
         Base::FlagToggler<> flag(d->committing);
         Application::TransactionSignaller signaller(false,true);
         int id = d->activeUndoTransaction->getID();
@@ -2846,8 +2862,26 @@ void Document::_commitTransaction(bool notify)
         if (!d->activeUndoTransaction->isEmpty())
             d->stateToken = ++d->stateCounter;
         d->activeUndoTransaction->StateAfter = d->stateToken;
-        if (d->iUndoMode && !_coalesceStep(d->activeUndoTransaction)
-                && !_foldImplicit(d->activeUndoTransaction)) {
+        // A step with nothing in it is no step: nothing to take back, and
+        // listed it would only go from the list later, as the hot window
+        // passes it (it has no row to go cold with). Unless it lists a step
+        // of another document's: a click in this one's view that changed
+        // only that one is undone from here (sec 12.2 rule 4). Not a step
+        // the log wrote no row for: what it holds may be what the log does
+        // not record (an object frozen, a material taken from its library).
+        Transaction* const step = d->activeUndoTransaction;
+        bool nothing = step->isEmpty();
+        if (nothing) {
+            for (auto doc : GetApplication().getDocuments()) {
+                if (doc != this && (doc->mUndoMap.count(id)
+                                    || (doc->d->activeUndoTransaction
+                                        && doc->d->activeUndoTransaction->getID() == id))) {
+                    nothing = false;
+                    break;
+                }
+            }
+        }
+        if (d->iUndoMode && !nothing && !_coalesceStep(step) && !_foldImplicit(step)) {
             mUndoTransactions.push_back(d->activeUndoTransaction);
         }
         else {
@@ -2957,6 +2991,24 @@ bool Document::_coalesceStep(Transaction* later)
     prev->StateAfter = later->StateAfter;
     d->lastCommitSeq = prev->LogSeq;
     return true;
+}
+
+void Document::_commitHeld()
+{
+    if (!d->commitHeld)
+        return;
+    d->commitHeld = false;
+    if (!d->activeUndoTransaction || d->activeUndoTransaction->Implicit)
+        return;
+    try {
+        _commitTransaction(false);
+    }
+    catch (Base::Exception& e) {
+        e.ReportException();
+    }
+    catch (std::exception& e) {
+        FC_ERR("commit after the recompute: " << e.what());
+    }
 }
 
 bool Document::_foldImplicit(Transaction* later)
@@ -18765,6 +18817,13 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
 
     FC_TIME_INIT(t);
 
+    // A commit asked while it runs is made as it ends, once Recomputing is
+    // off again: declared before the status locker, so undone after it
+    struct CommitHeld
+    {
+        Document* doc;
+        ~CommitHeld() { doc->_commitHeld(); }
+    } commitHeld {this};
     Base::ObjectStatusLocker<Document::Status, Document> exe(Document::Recomputing, this);
     // Every object's touched state before anything here changes it, for the
     // recompute record (docs/TransactionLogJournal.md sec 27.58). Asked without

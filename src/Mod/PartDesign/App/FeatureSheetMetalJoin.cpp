@@ -208,29 +208,7 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
             FC_THROWM(Base::ValueError, both << " do not lie parallel");
         }
         const gp_Dir d = a.along;
-        if (a.endOut.IsParallel(b.endOut, Precision::Angular())) {
-            FC_THROWM(Base::ValueError,
-                      both << " are on parallel walls: a join by bend turns between walls that "
-                              "meet, a jog steps a wall");
-        }
-
-        // Out of a's wall along its end's normal and into b's against b's:
-        // each wall's inner skin is the one facing the turn's inside
         const gp_Vec eA(a.endOut), eB(b.endOut);
-        auto across = [](const gp_Vec& v, const gp_Vec& from) {
-            return gp_Dir(v - from * v.Dot(from));
-        };
-        const gp_Dir inA = across(-eB, eA), inB = across(-eA, eB);
-        // how far the inner skin lies from the edge's skin along it
-        const double cA = inA.Dot(a.skinOut) > 0 ? 0 : T;
-        const double cB = inB.Dot(b.skinOut) > 0 ? 0 : T;
-        // the bend's centre R in from both inner skins, in the plane across
-        // the edges through a's first vertex
-        const gp_Vec iA(inA), iB(inB);
-        const double x =
-            (cB + R - gp_Vec(b.p0, a.p0).Dot(iB) - (cA + R) * iA.Dot(iB)) / eA.Dot(iB);
-        const gp_Pnt center = a.p0.Translated(eA * x + iA * (cA + R));
-        const double angle = std::atan2(eA.Crossed(-eB).Magnitude(), eA.Dot(-eB));
 
         // the length both edges share along the bend, from a's first vertex
         const double tb0 = gp_Vec(a.p0, b.p0).Dot(gp_Vec(d));
@@ -243,30 +221,143 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
         }
         const gp_Vec along = gp_Vec(d) * width;
 
-        const std::string bendName = "Bend" + std::to_string(bends + 1);
-        // its pieces' faces are named by its own count (ownName()): its one bend
-        const std::string ownBend = "Bend1";
-        CylBend bend;
-        bend.frame =
-            gp_Ax3(center.Translated(gp_Vec(d) * s0), gp_Dir(eA.Crossed(iA)), inA.Reversed());
-        bend.radius = R;
-        bend.thickness = T;
-        bend.angle = angle;
-        bend.k = rule->modelK(angle, R);
-        const int bendIndex = model.addBend(bendName, bend, a.wall, b.wall);
-        // stopping inside either edge's length, the bend ends at its sides
-        const double lb0 = std::min(tb0, tb1), lb1 = std::max(tb0, tb1);
-        if (s0 > tol || lb0 < s0 - tol) {
-            model.elements[bendIndex].limits.emplace_back(center.Translated(gp_Vec(d) * s0),
-                                                          d.Reversed());
+        // A bend as it turns across the edges: about its centre, from the
+        // way to where it starts on the inner skin of the wall before it
+        struct Turn
+        {
+            gp_Pnt center;
+            gp_Dir axis, from;
+            double angle;
+        };
+        std::vector<Turn> turns;
+        // each wall's inner skin is the one facing the turn's inside: the way
+        // to it from the edge's skin, and how far; where each wall's bend
+        // starts; between two bends, a run from its skin at runStart
+        gp_Dir inA, inB;
+        double cA = 0, cB = 0;
+        gp_Pnt startA, startB, runStart;
+        gp_Dir runAlong;
+        double runLength = 0;
+        const double quarter = std::numbers::pi / 2;
+        if (a.endOut.IsParallel(b.endOut, Precision::Angular())) {
+            // Parallel walls (2026-11-11): two bends of 90 deg and a run
+            // across from the one to the other. The first edge's wall stays
+            // as it is, its bend starting at its end.
+            const gp_Vec n(a.skinOut);
+            const double apart =
+                gp_Vec(a.p0.Translated(n * (-T / 2)),
+                       b.p0.Translated(gp_Vec(b.skinOut) * (-T / 2)))
+                    .Dot(n);
+            if (std::abs(apart) < tol) {
+                FC_THROWM(Base::ValueError,
+                          both << " are on walls in one plane: nothing to bend between them");
+            }
+            const gp_Dir toB = apart > 0 ? a.skinOut : a.skinOut.Reversed();
+            inA = toB;
+            inB = toB.Reversed();
+            cA = inA.Dot(a.skinOut) > 0 ? 0 : T;
+            cB = inB.Dot(b.skinOut) > 0 ? 0 : T;
+            const gp_Vec up(toB);
+            const gp_Pnt innerA = a.p0.Translated(up * cA);
+            // the facing skins, the bends' inner ones
+            const double gap = gp_Vec(innerA, b.p0.Translated(up * -cB)).Dot(up);
+            const bool facing = eA.Dot(eB) < 0;
+            runLength = gap - 2 * R;
+            if (runLength < (facing ? tol : -tol)) {
+                FC_THROWM(Base::ValueError,
+                          both << " are on parallel walls " << gap
+                               << " mm apart: two bends of radius " << R << " mm take "
+                               << (facing ? "more than " : "") << 2 * R << " mm");
+            }
+            const gp_Pnt c1 = innerA.Translated(up * R);
+            startA = a.p0;
+            if (runLength < tol) {
+                // ends the same way, just two radii apart: one half turn
+                runLength = 0;
+                turns.push_back({c1, gp_Dir(eA.Crossed(up)), inA.Reversed(), 2 * quarter});
+                startB = c1.Translated(up * R);
+            }
+            else {
+                turns.push_back({c1, gp_Dir(eA.Crossed(up)), inA.Reversed(), quarter});
+                runStart = c1.Translated(eA * R);
+                runAlong = toB;
+                // facing ends: on to the second wall, an S; ends the same
+                // way: back over the first, a U
+                const gp_Pnt c2 = facing ? c1.Translated(eA * (2 * R + T) + up * runLength)
+                                         : c1.Translated(up * runLength);
+                turns.push_back(facing ? Turn {c2, gp_Dir(up.Crossed(eA)), a.endOut.Reversed(),
+                                               quarter}
+                                       : Turn {c2, gp_Dir(eA.Crossed(up)), a.endOut, quarter});
+                startB = c2.Translated(up * R);
+            }
         }
-        if (s1 < a.p0.Distance(a.p1) - tol || lb1 > s1 + tol) {
-            model.elements[bendIndex].limits.emplace_back(center.Translated(gp_Vec(d) * s1), d);
+        else {
+            // Out of a's wall along its end's normal and into b's against b's
+            auto across = [](const gp_Vec& v, const gp_Vec& from) {
+                return gp_Dir(v - from * v.Dot(from));
+            };
+            inA = across(-eB, eA);
+            inB = across(-eA, eB);
+            // how far the inner skin lies from the edge's skin along it
+            cA = inA.Dot(a.skinOut) > 0 ? 0 : T;
+            cB = inB.Dot(b.skinOut) > 0 ? 0 : T;
+            // the bend's centre R in from both inner skins, in the plane
+            // across the edges through a's first vertex
+            const gp_Vec iA(inA), iB(inB);
+            const double x =
+                (cB + R - gp_Vec(b.p0, a.p0).Dot(iB) - (cA + R) * iA.Dot(iB)) / eA.Dot(iB);
+            const gp_Pnt center = a.p0.Translated(eA * x + iA * (cA + R));
+            turns.push_back({center,
+                             gp_Dir(eA.Crossed(iA)),
+                             inA.Reversed(),
+                             std::atan2(eA.Crossed(-eB).Magnitude(), eA.Dot(-eB))});
+            startA = center.Translated(-iA * R);
+            startB = center.Translated(-iB * R);
         }
 
+        // In the model: the bends, and between two the run, a wall; stopping
+        // inside either edge's length, each ends at its sides. Numbered on
+        // from the sheet's (storeModel() gives each the number it keeps);
+        // the pieces' faces are named by the join's own count (ownName())
+        const double lb0 = std::min(tb0, tb1), lb1 = std::max(tb0, tb1);
+        auto stopAtSides = [&](int index, const gp_Pnt& at) {
+            if (s0 > tol || lb0 < s0 - tol) {
+                model.elements[index].limits.emplace_back(at.Translated(gp_Vec(d) * s0),
+                                                          d.Reversed());
+            }
+            if (s1 < a.p0.Distance(a.p1) - tol || lb1 > s1 + tol) {
+                model.elements[index].limits.emplace_back(at.Translated(gp_Vec(d) * s1), d);
+            }
+        };
         std::vector<TopoShape> pieces, cuts;
-        pieces.push_back(
-            TopoShape(0, hasher).makEPrism(SheetMetal::bendSection(bend, ownBend), along));
+        int runWall = -1;
+        if (turns.size() == 2) {
+            const gp_Pnt at = runStart.Translated(gp_Vec(d) * s0);
+            runWall = model.addWall("Wall" + std::to_string(walls + 1),
+                                    gp_Ax3(at, a.endOut, runAlong));
+            stopAtSides(runWall, runStart);
+            pieces.push_back(TopoShape(0, hasher).makEPrism(
+                SheetMetal::wallSection(at, runAlong, runLength, a.endOut, T, "Wall1"), along));
+        }
+        for (std::size_t i = 0; i < turns.size(); ++i) {
+            const Turn& turn = turns[i];
+            CylBend bend;
+            bend.frame = gp_Ax3(turn.center.Translated(gp_Vec(d) * s0), turn.axis, turn.from);
+            bend.radius = R;
+            bend.thickness = T;
+            bend.angle = turn.angle;
+            bend.k = rule->modelK(turn.angle, R);
+            const int bendIndex =
+                model.addBend("Bend" + std::to_string(bends + 1 + static_cast<int>(i)),
+                              bend,
+                              i == 0 ? a.wall : runWall,
+                              i + 1 == turns.size() ? b.wall : runWall);
+            stopAtSides(bendIndex, turn.center);
+            pieces.push_back(TopoShape(0, hasher).makEPrism(
+                SheetMetal::bendSection(bend, "Bend" + std::to_string(i + 1)), along));
+        }
+        const std::string firstBend = "Bend1";
+        const std::string lastBend = "Bend" + std::to_string(turns.size());
 
         // Each wall extended or trimmed from its end to where the bend starts
         const bool own = ReliefShape.getValue() != 0;
@@ -277,10 +368,11 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
             const std::string& label;
             gp_Dir in;
             double c;
-            const char* role;
+            gp_Pnt start;
+            std::string role;
         };
-        for (const Side& side : {Side {a, labels[0], inA, cA, "Before"},
-                                 Side {b, labels[1], inB, cB, "After"}}) {
+        for (const Side& side : {Side {a, labels[0], inA, cA, startA, firstBend + "Before"},
+                                 Side {b, labels[1], inB, cB, startB, lastBend + "After"}}) {
             const SheetMetal::WallEdge& edge = side.edge;
             const gp_Vec e(edge.endOut);
             // the edge's skin at the shared length's start, and where the
@@ -288,9 +380,8 @@ App::DocumentObjectExecReturn* SheetMetalJoin::execute()
             const gp_Pnt q =
                 edge.p0.Translated(gp_Vec(d) * gp_Vec(edge.p0, a.p0.Translated(gp_Vec(d) * s0))
                                                    .Dot(gp_Vec(d)));
-            const gp_Pnt start = center.Translated(-gp_Vec(side.in) * R);
-            const double reach = gp_Vec(edge.p0, start).Dot(e);
-            const std::string name = ownBend + side.role;
+            const double reach = gp_Vec(edge.p0, side.start).Dot(e);
+            const std::string& name = side.role;
             if (reach > tol) {
                 pieces.push_back(TopoShape(0, hasher).makEPrism(
                     SheetMetal::wallSection(q, edge.endOut, reach, edge.skinOut.Reversed(), T,

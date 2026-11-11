@@ -43,6 +43,14 @@ namespace PartDesign
  * trimmed to where the bend starts, over the length the two edges share.
  * Where a wall is trimmed and runs on past that length, the bend relief goes
  * beside the bend. The first edge's wall is the bend's before.
+ *
+ * Parallel walls (2026-11-11) take two bends of 90 deg and a run between
+ * them, a wall of the sheet, across from the one to the other: the first
+ * edge's wall stays as it is, its bend starting at its end, and the second
+ * is extended or trimmed to where its bend starts -- past the run for ends
+ * facing each other (an S), back over the first for ends the same way (a
+ * U). Their facing skins are the bends' inner ones, twice the radius apart
+ * at least; at just that, ends the same way, the one bend of a half turn.
  */
 class PartDesignExport SheetMetalJoin : public FeatureAddSub, public SheetMetalExtension
 {

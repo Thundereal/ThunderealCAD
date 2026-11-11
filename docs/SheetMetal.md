@@ -2213,9 +2213,28 @@ stored flat and this option do what it was for.
   to where the bend starts.
 - Its width is the length the two edges share along the bend. Where a wall runs past that, the
   rest stays as it was, with the bend relief beside the bend where the wall is trimmed under it.
-- Refused: a trim that cuts off something the wall carries, or takes all of the wall; parallel
-  walls (two bends between them, as Inventor offers, maybe later: a jog steps a wall); walls
+- Refused: a trim that cuts off something the wall carries, or takes all of the wall; walls
   already joined, as a loop does not lie flat without a rip; two edges sharing no length.
+  (Parallel walls were refused: built 2026-11-11, below.)
+- **Built 2026-11-11, parallel walls** (the fourth limit listed; Inventor's double bend at 90
+  deg, its fixed edge the first picked): two bends of 90 deg at the join's radius and a run
+  between them, a wall of the sheet, across from the one wall to the other. Still nothing is
+  set but the two edges, and their order now tells:
+  - the first edge's wall stays as it is, its bend starting at its end; the second wall is
+    extended or trimmed to where its bend starts (with the bend relief where it is trimmed and
+    runs on, as before);
+  - ends facing each other make an S, the second wall starting twice the radius and a
+    thickness past the first's end; ends the same way make a U, the second wall brought to
+    where the first ends;
+  - the walls' facing skins are the bends' inner ones. They are twice the radius apart at
+    least; at just that, ends the same way, there is no run and the join is the one bend of a
+    half turn. Nearer, and walls in one plane, are refused by name; facing ends just twice the
+    radius apart too, as the two bends would meet with no wall between them.
+  - Not built: the double bend's other ways of Inventor's -- both edges kept and the bends at
+    whatever angle joins them, 45 deg, and a full radius for walls further apart.
+  - `TestSheetMetalJoin` 19 (before, 11): facing, either skin, the other order, trimmed,
+    stacked, stacked and shorter, the half turn, narrower; each with its flat's area the
+    part's volume at K 0.5.
 
 **Ruled 2026-11-03, M2's wrap cutout:**
 - An option on the cutout, `Wrap`, not a tool of its own.

@@ -151,11 +151,9 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             QT_TRANSLATE_NOOP("Exception", "The sheet has no thickness"));
     }
     try {
+        // the sheet before it, its walls and bends numbered on from above
         model = modelBefore(build.thickness);
         model.thickness = build.thickness;
-        for (const Element& e : model.elements) {
-            ++(e.kind == Element::Kind::Wall ? walls : bends);
-        }
 
         TopoShape base = getBaseShape(/*silent*/ true);
         auto invObjLoc = positionByPrevious();

@@ -90,6 +90,8 @@ public:
      */
     App::PropertyIntegerList WallNumbers;
     App::PropertyIntegerList BendNumbers;
+    /// And of the forms it presses (Form3), the body's third count
+    App::PropertyIntegerList FormNumbers;
     App::PropertyStringList WallKeys;
     App::PropertyStringList BendKeys;
 

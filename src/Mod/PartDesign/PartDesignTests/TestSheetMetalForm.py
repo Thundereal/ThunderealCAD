@@ -438,9 +438,10 @@ class TestSheetMetalForm(unittest.TestCase):
             self.assertFalse(shape.isInside(V(x, 15, T + 0.5), 1e-7, True), x)
             self.assertFalse(shape.isInside(V(x, 15, T / 2), 1e-7, True), x)
         self.assertTrue(shape.isInside(V(20 + 12.5, 15, T / 2), 1e-7, True))
+        # the one form, numbered past the one made and taken out before it
         forms = feature.SheetModel["Forms"]
-        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
-        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 15, T + 2))), "Form1")
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form2", "Wall1")])
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 15, T + 2))), "Form2")
         flat = self.flatObject()
         self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
         flat.FormDisplay = "Formed"
@@ -483,7 +484,8 @@ class TestSheetMetalForm(unittest.TestCase):
         for y in (5 + 12 - 3.6, 5 + 12 + 3.6):
             self.assertTrue(shape.isInside(V(20, y, T / 2), 1e-7, True), y)
             self.assertFalse(shape.isInside(V(20, y, T + 0.1), 1e-7, True), y)
-        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 17, T + 2))), "Form1")
+        # numbered past the bead made and taken out before it
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 17, T + 2))), "Form2")
         flat = self.flatObject()
         self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
         flat.FormDisplay = "Formed"
@@ -759,9 +761,10 @@ class TestSheetMetalForm(unittest.TestCase):
         self.assertTrue(shape.isInside(V(29, 15, T + 0.6), 1e-7, True))
         self.assertFalse(shape.isInside(V(28.2, 15, T + 0.6), 1e-7, True))
         self.assertFalse(shape.isInside(V(29.9, 15, T + 0.6), 1e-7, True))
+        # the one form, numbered past the one made and taken out before it
         forms = feature.SheetModel["Forms"]
-        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
-        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 15, T + 2))), "Form1")
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form2", "Wall1")])
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 15, T + 2))), "Form2")
         flat = self.flatObject()
         self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
         flat.FormDisplay = "Formed"
@@ -1013,6 +1016,35 @@ class TestSheetMetalForm(unittest.TestCase):
         feature.Positions = self.Body.newObject("Sketcher::SketchObject", "Empty")
         self.Doc.recompute()
         self.assertIn("Invalid", feature.State)
+
+    def testNamesHold(self):
+        """A form keeps its name with the forms before it suppressed, and
+        back; one made after takes the body's next number, not one a form
+        deleted had (2026-11-11, as a wall's and a bend's)"""
+
+        def names(feature):
+            return [f["Name"] for f in feature.SheetModel["Forms"]]
+
+        first = self.form(Kind="Dimple")
+        self.assertNotIn("Invalid", first.State, first.getStatusString())
+        second = self.form(Kind="Dimple", Positions=self.points([(32, 6)]))
+        self.assertNotIn("Invalid", second.State, second.getStatusString())
+        self.assertEqual(names(second), ["Form1", "Form2", "Form3"])
+        self.assertEqual(list(second.FormNumbers), [3])
+        first.Suppress = True
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", second.State, second.getStatusString())
+        self.assertEqual(names(second), ["Form3"])
+        self.assertEqual(second.sheetElementOf(faceAt(second, (32, 6, T + 2))), "Form3")
+        first.Suppress = False
+        self.Doc.recompute()
+        self.assertEqual(names(second), ["Form1", "Form2", "Form3"])
+        self.Body.removeObject(second)
+        self.Doc.removeObject(second.Name)
+        self.Doc.recompute()
+        third = self.form(Kind="Dimple", Positions=self.points([(32, 6)]))
+        self.assertNotIn("Invalid", third.State, third.getStatusString())
+        self.assertEqual(names(third), ["Form1", "Form2", "Form4"])
 
     def testSaveRestore(self):
         name = self.form().Name

@@ -106,12 +106,12 @@ public:
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
     /// its own faces are those tracing to it, as a pad's are, and those its
-    /// rounding made of an edge: the form's too, whatever the edge was
+    /// rounding made of an edge of the part it builds on, which trace to
+    /// that: told by the name's last step being the making -- not by a
+    /// making anywhere in it, which an earlier form's rounded face has too,
+    /// passing through this feature under the name it had
     bool isElementGenerated(const Part::TopoShape& shape,
-                            const Data::MappedName& name) const override
-    {
-        return isElementTraced(shape, name) || Feature::isElementGenerated(shape, name);
-    }
+                            const Data::MappedName& name) const override;
     void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {

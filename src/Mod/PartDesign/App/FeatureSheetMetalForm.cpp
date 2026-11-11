@@ -71,6 +71,7 @@
 #include <gp_XY.hxx>
 
 #include <App/Document.h>
+#include <App/ElementNamingUtils.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>
 #include <Mod/Part/App/PartFeature.h>
@@ -1389,6 +1390,21 @@ SheetMetalForm::SheetMetalForm()
     onChanged(&Kind);
 }
 
+bool SheetMetalForm::isElementGenerated(const TopoShape& shape,
+                                        const Data::MappedName& name) const
+{
+    if (isElementTraced(shape, name)) {
+        return true;
+    }
+    bool made = false;
+    shape.traceElement(name, [&](const Data::MappedName& step, int offset, long, long) {
+        // the last step alone
+        made = step.startsWith(Data::genPostfix(), offset);
+        return true;
+    });
+    return made;
+}
+
 short SheetMetalForm::mustExecute() const
 {
     if (Kind.isTouched() || Face.isTouched() || Positions.isTouched() || Angle.isTouched()
@@ -1515,6 +1531,12 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
         std::vector<TopoShape> adds;
         std::vector<TopoShape> cuts;
         const auto hasher = getDocument()->getStringHasher();
+        // its forms numbered on from the highest the sheet has (storeModel()
+        // gives each the number it keeps)
+        int formNumber = 0;
+        for (const Form& form : model.forms) {
+            formNumber = std::max(formNumber, SheetMetal::numberOf(form.name, "Form"));
+        }
         // each built-in form's bends, rounded once they are all in the part,
         // in steps: the form's bends of each step added to that step's
         using Round = std::function<int(BRepFilletAPI_MakeFillet&, const TopoDS_Shape&, int)>;
@@ -1591,7 +1613,7 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
             for (const gp_Pnt& p : points) {
                 GussetPressed made = pressGusset(g, model, wall, p);
                 Form& form = made.pressed.form;
-                form.name = "Form" + std::to_string(model.forms.size() + 1);
+                form.name = "Form" + std::to_string(++formNumber);
                 form.wall = wall;
                 model.forms.push_back(form);
                 adds.emplace_back(made.pressed.outside);
@@ -1640,7 +1662,7 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
                                             << ") runs off " << model.elements[wall].name);
                 }
             }
-            form.name = "Form" + std::to_string(model.forms.size() + 1);
+            form.name = "Form" + std::to_string(++formNumber);
             form.wall = wall;
             model.forms.push_back(form);
             adds.emplace_back(pressed.outside);

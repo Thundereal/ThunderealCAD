@@ -79,6 +79,13 @@ SheetMetalExtension::SheetMetalExtension()
                                                   | App::Prop_NoRecompute),
                                 "The number of each bend this feature makes, in the order it "
                                 "makes them, kept from when it first made it");
+    EXTENSION_ADD_PROPERTY_TYPE(FormNumbers,
+                                (std::vector<long>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "The number of each form this feature makes, in the order it "
+                                "makes them, kept from when it first made it");
     EXTENSION_ADD_PROPERTY_TYPE(WallKeys,
                                 (std::vector<std::string>()),
                                 "Sheet Metal",
@@ -244,14 +251,56 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade,
     if (auto before = findBefore(obj)) {
         earlier = before->SheetModel.getValue();
     }
-    // the highest number held: by the sheet this builds on, by what this
-    // keeps of it, and by every sheet metal feature of the body, this one too
-    int top[2] = {0, 0};
-    earlier.numbers(top[0], top[1]);
-    auto hold = [&top](const SheetMetalExtension& ext) {
-        const App::PropertyIntegerList* lists[2] = {&ext.WallNumbers, &ext.BendNumbers};
+    // What is numbered, kind by kind (the body's counts, 0, 1 and 2): the
+    // walls, the bends and the forms, each with its name in the model and
+    // what it is of, if the feature said
+    struct Named
+    {
+        std::string* name;
+        std::string key;
+    };
+    const char* prefixes[3] = {"Wall", "Bend", "Form"};
+    App::PropertyIntegerList* lists[3] = {&WallNumbers, &BendNumbers, &FormNumbers};
+    App::PropertyStringList* keyLists[3] = {&WallKeys, &BendKeys, nullptr};
+    std::vector<Named> named[3];
+    std::vector<std::string> before[3];
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
         for (int kind = 0; kind < 2; ++kind) {
-            for (long number : lists[kind]->getValues()) {
+            if (SheetMetal::numberOf(model.elements[i].name, prefixes[kind])) {
+                named[kind].push_back(
+                    {&model.elements[i].name, i < keys.size() ? keys[i] : std::string()});
+            }
+        }
+    }
+    for (SheetMetal::Form& form : model.forms) {
+        if (SheetMetal::numberOf(form.name, prefixes[2])) {
+            named[2].push_back({&form.name, std::string()});
+        }
+    }
+    for (const auto& element : earlier.elements) {
+        for (int kind = 0; kind < 2; ++kind) {
+            if (SheetMetal::numberOf(element.name, prefixes[kind])) {
+                before[kind].push_back(element.name);
+            }
+        }
+    }
+    for (const auto& form : earlier.forms) {
+        before[2].push_back(form.name);
+    }
+    // the highest number held: by the sheet this builds on, and by every
+    // sheet metal feature of the body, this one too
+    int top[3] = {0, 0, 0};
+    for (int kind = 0; kind < 3; ++kind) {
+        for (const std::string& name : before[kind]) {
+            top[kind] = std::max(top[kind], SheetMetal::numberOf(name, prefixes[kind]));
+        }
+    }
+    auto hold = [&top](const SheetMetalExtension& ext) {
+        const App::PropertyIntegerList* held[3] = {&ext.WallNumbers,
+                                                   &ext.BendNumbers,
+                                                   &ext.FormNumbers};
+        for (int kind = 0; kind < 3; ++kind) {
+            for (long number : held[kind]->getValues()) {
                 top[kind] = std::max(top[kind], static_cast<int>(number));
             }
         }
@@ -265,52 +314,46 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade,
             }
         }
     }
-    // A new number: the next of the body's count of the kind (0 its walls,
-    // 1 its bends), which is the file's (Document::nextObjectCount()) --
-    // above every number held, and above every one a feature since deleted
-    // had, so a deletion taken back, out of order too, brings back no name
-    // another has
+    // A new number: the next of the body's count of the kind, which is the
+    // file's (Document::nextObjectCount()) -- above every number held, and
+    // above every one a feature since deleted had, so a deletion taken
+    // back, out of order too, brings back no name another has
     auto doc = obj ? obj->getDocument() : nullptr;
-    struct
-    {
-        App::Document* doc;
-        long operator()(const App::DocumentObject* body, int kind, int floor) const
-        {
-            return body && doc ? doc->nextObjectCount(*body, kind, floor) : floor + 1;
-        }
-    } nextNumber {doc};
-    const char* prefixes[2] = {"Wall", "Bend"};
-    App::PropertyIntegerList* lists[2] = {&WallNumbers, &BendNumbers};
-    App::PropertyStringList* keyLists[2] = {&WallKeys, &BendKeys};
-    for (int kind = 0; kind < 2; ++kind) {
+    auto nextNumber = [&](int kind) {
+        top[kind] = body && doc
+            ? static_cast<int>(doc->nextObjectCount(*body, kind, top[kind]))
+            : top[kind] + 1;
+        return static_cast<long>(top[kind]);
+    };
+    for (int kind = 0; kind < 3; ++kind) {
         const std::string prefix = prefixes[kind];
-        std::vector<int> own;
+        // the feature's own: those the sheet before it has not, all of them
+        // where it remade the sheet; what it keeps of that sheet holds its
+        // numbers, and a sheet remade holds them all still
+        std::vector<Named*> own;
         std::set<long> taken;
-        if (remade) {
-            // none of the sheet before it is in the model, its names are held still
-            for (const auto& element : earlier.elements) {
-                if (const int number = SheetMetal::numberOf(element.name, prefix)) {
-                    taken.insert(number);
-                }
-            }
-        }
-        for (std::size_t i = 0; i < model.elements.size(); ++i) {
-            const std::string& name = model.elements[i].name;
-            const int number = SheetMetal::numberOf(name, prefix);
-            if (!number) {
-                continue;
-            }
-            if (remade || earlier.find(name) < 0) {
-                own.push_back(static_cast<int>(i));
+        for (Named& item : named[kind]) {
+            const bool had = std::find(before[kind].begin(), before[kind].end(), *item.name)
+                != before[kind].end();
+            if (remade || !had) {
+                own.push_back(&item);
             }
             else {
-                taken.insert(number);
-                top[kind] = std::max(top[kind], number);
+                taken.insert(SheetMetal::numberOf(*item.name, prefix));
             }
+        }
+        if (remade) {
+            for (const std::string& name : before[kind]) {
+                taken.insert(SheetMetal::numberOf(name, prefix));
+            }
+        }
+        for (long number : taken) {
+            top[kind] = std::max(top[kind], static_cast<int>(number));
         }
         // what the feature held: each number and what it was of
         const std::vector<long> held = lists[kind]->getValues();
-        std::vector<std::string> heldKeys = keyLists[kind]->getValues();
+        std::vector<std::string> heldKeys =
+            keyLists[kind] ? keyLists[kind]->getValues() : std::vector<std::string>();
         heldKeys.resize(held.size());
         std::vector<bool> used(held.size(), false);
         std::vector<long> numbers(own.size(), 0);
@@ -324,8 +367,7 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade,
         };
         // first by what each is of, then the rest in the order made
         for (std::size_t k = 0; k < own.size(); ++k) {
-            const std::size_t index = static_cast<std::size_t>(own[k]);
-            ownKeys[k] = index < keys.size() ? keys[index] : std::string();
+            ownKeys[k] = own[k]->key;
             if (ownKeys[k].empty()) {
                 continue;
             }
@@ -356,11 +398,10 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade,
         }
         for (std::size_t k = 0; k < own.size(); ++k) {
             if (numbers[k] < 1) {
-                numbers[k] = nextNumber(body, kind, top[kind]);
-                top[kind] = static_cast<int>(numbers[k]);
+                numbers[k] = nextNumber(kind);
                 taken.insert(numbers[k]);
             }
-            model.elements[own[k]].name = prefix + std::to_string(numbers[k]);
+            *own[k]->name = prefix + std::to_string(numbers[k]);
         }
         // and what it makes no more is kept, for when it does again
         for (std::size_t h = 0; h < held.size(); ++h) {
@@ -371,6 +412,9 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade,
         }
         if (numbers != held) {
             lists[kind]->setValues(numbers);
+        }
+        if (!keyLists[kind]) {
+            continue;
         }
         if (std::all_of(ownKeys.begin(), ownKeys.end(), [](const std::string& key) {
                 return key.empty();

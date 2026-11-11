@@ -2127,6 +2127,15 @@ stored flat and this option do what it was for.
       part whose faces come in another order is numbered anew by place. A file saved before has
       no numbers: each feature takes them as it next recomputes.
     - The pieces' faces stay named by the feature's own count (`ownName()`), as above.
+    - **Forms too (2026-11-11):** `Form3` was the sheet's third form, so a form feature
+      suppressed before another renamed the other's forms, and their outlines and marks on
+      the flat. `FormNumbers`, the body's third count, the same way. Found with it by the
+      names check, which had only seen one form feature in a sheet: a second one lit the
+      first's rounded faces -- its highlight took any face a rounding made, and an earlier
+      form's passes through under the name it had. Now those tracing to the feature, and
+      those whose name's last step is the making (a rounding of an edge of the part it
+      builds on traces to that part). `TestSheetMetalForm.testNamesHold` (before, failing on
+      both counts).
     - Tests: `TestSheetMetalNames`, 14 more (before, 0 of the 14): the model's names of a
       flange, a flange on a flange, a hem, a contour flange, a fold and a jog with the flange
       before them suppressed and back; the bend table's row; the flat's line; a bend's K asked

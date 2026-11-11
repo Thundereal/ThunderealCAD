@@ -201,7 +201,7 @@ App::DocumentObjectExecReturn* Helix::execute()
         invObjLoc = positionByPrevious();
         updateAxis();
         // generate the helix path
-        TopoDS_Shape path = generateHelixPath();
+        TopoDS_Shape path = generateHelixPath(invObjLoc);
         if (!isLegacySweep())
             return sweep(path, invObjLoc);
 
@@ -209,7 +209,7 @@ App::DocumentObjectExecReturn* Helix::execute()
         int mode = 2;
         if (fabs(Angle.getValue()) > Precision::Confusion()) {
             mode = 3;
-            auxpath = generateHelixPath(1.0);
+            auxpath = generateHelixPath(invObjLoc, 1.0);
         }
         return Pipe::_execute(this, path, invObjLoc, /*transition*/0, auxpath, mode);
     }
@@ -289,7 +289,7 @@ void Helix::updateAxis()
     Axis.setValue(dir.x, dir.y, dir.z);
 }
 
-TopoDS_Shape Helix::generateHelixPath(double startOffset0)
+TopoDS_Shape Helix::generateHelixPath(const TopLoc_Location& invObjLoc, double startOffset0)
 {
     double turns = Turns.getValue();
     double height = Height.getValue();
@@ -415,7 +415,16 @@ TopoDS_Shape Helix::generateHelixPath(double startOffset0)
     TopLoc_Location loc(mov);
     path.Move(loc.Inverted());
 
-    TopLoc_Location invObjLoc = this->getLocation().Inverted();
+    // Into the coordinates the profile and the base are moved to, by the
+    // same move: execute()'s, from positionByPrevious(). Not by the
+    // feature's Placement as it stands -- a helix of this fork's earlier
+    // files is stored with its sketch's placement, which the feature no
+    // longer takes (it is made where the body is and its Placement follows
+    // the shape): moved by that one, the path of the first recompute after
+    // opening lay a quarter turn from its profile, and the helix came out
+    // wound about the sketch's normal, a tenth of its volume
+    // (realthunder/FreeCAD#474). Made again it was right, the Placement
+    // having followed the first shape.
     path.Move(invObjLoc);
 
     return path;

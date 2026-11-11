@@ -93,7 +93,7 @@ protected:
                                          const TopLoc_Location& invObjLoc);
 
     /// generate helix and move it to the right location.
-    TopoDS_Shape generateHelixPath(double startOffset0 = 0.0);
+    TopoDS_Shape generateHelixPath(const TopLoc_Location& invObjLoc, double startOffset0 = 0.0);
 
     // project shape on plane. Used for detecting self intersection.
     TopoDS_Shape projectShape(const TopoDS_Shape& input, const gp_Ax2& plane);

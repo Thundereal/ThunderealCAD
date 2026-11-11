@@ -1773,6 +1773,17 @@ out far below these, the shortfall usually names its own cause: 1287 means `ply`
 is missing (`TestCAMApp`), ~2350 means `ifcopenshell` is (`TestArch`), 2538 means
 `BUILD_FEM=OFF`, and 499/559 on the C++ side means no `fcx_image` wheel.
 
+The Assembly simulation's Save Animation needs **PyAV** (`av`) for MP4 and AVI
+(a GIF only Pillow): without it the suites still pass -- `TestSimulationExport`
+skips -- and the GUI says so in an error box, which on the hidden desktop blocks
+a script until its guard ends it. The feedstock has `av` and `pillow` in its run
+deps. Into the Windows env, 2026-11-11, with ffmpeg held at the env's minor
+(one new package, av 18.1.0; ffmpeg 9.0.1 to a newer build of itself):
+
+```sh
+conda install -p ~/works/sw/fcad/.conda/freecad -y av "ffmpeg=9.0.1"
+```
+
 ### Quick verification after rebuilds
 
 ```sh

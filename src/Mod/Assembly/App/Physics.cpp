@@ -1094,6 +1094,15 @@ FlexibleBody::FlexibleBody()
                       "The faces of its component a contact touches it on: their nodes move "
                       "together, as one interface its contacts press it through. Without them "
                       "a contact presses its mesh anywhere, where it touches");
+    ADD_PROPERTY_TYPE(BendingScale,
+                      (0.0),
+                      "Flexible",
+                      App::Prop_None,
+                      "How many times its bending is drawn over a run's frames, 1 as it is; "
+                      "0: what shows it, its largest a tenth of the part's size, or as it is "
+                      "where that is a twentieth or more");
+    static const App::PropertyFloatConstraint::Constraints drawn = {0.0, 1.0e6, 1.0};
+    BendingScale.setConstraints(&drawn);
 
     const auto made = static_cast<App::PropertyType>(App::Prop_Output | App::Prop_ReadOnly);
     ADD_PROPERTY_TYPE(Nodes,

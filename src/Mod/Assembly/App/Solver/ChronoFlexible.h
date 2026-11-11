@@ -83,8 +83,9 @@ Built build(chrono::ChSystem& sys,
             const std::vector<Interface>& interfaces);
 
 // A flexible body's mesh surface, for a contact anywhere on it (D4b): the
-// tetrahedra's faces no other shares, as triangles of their corners, in the
-// body's frame, and a grid of them for the one nearest a point
+// tetrahedra's faces no other shares, as triangles of their corners wound
+// to face out of the body, in the body's frame, and a grid of them for the
+// one nearest a point
 class Surface
 {
 public:
@@ -100,9 +101,24 @@ public:
     };
     // The place nearest p, in the body's frame; false when it has none
     bool nearest(const chrono::ChVector3d& p, Place& place) const;
+    // The point of triangle abc nearest p, as its weights on the corners
+    static std::array<double, 3> weights(const chrono::ChVector3d& p,
+                                         const chrono::ChVector3d& a,
+                                         const chrono::ChVector3d& b,
+                                         const chrono::ChVector3d& c);
     std::size_t size() const
     {
         return corners.size();
+    }
+    // The mesh's nodes at rest, in the body's frame, and the triangles, of
+    // those nodes: for a collision mesh of it that the nodes move
+    const std::vector<chrono::ChVector3d>& nodes() const
+    {
+        return points;
+    }
+    const std::vector<std::array<Id, 3>>& triangles() const
+    {
+        return corners;
     }
 
 private:

@@ -642,6 +642,9 @@ public:
     App::PropertyFrequency DampingFrequency;
     App::PropertyLength MeshSize;
     App::PropertyLinkSubList ContactFaces;
+    /// How many times its bending is drawn over a run's frames; 0: what
+    /// shows it (FlexibleBodies.Deformation, Python). Not the model's
+    App::PropertyFloatConstraint BendingScale;
 
     /// The label of the contact faces' interface in InterfaceFrames
     static constexpr const char* ContactInterface = "Contact";

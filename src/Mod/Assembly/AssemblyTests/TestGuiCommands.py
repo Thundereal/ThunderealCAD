@@ -2397,6 +2397,15 @@ class TestGuiCommands(unittest.TestCase):
         self.assertIn("%d nodes" % len(flexible.Nodes), task.stateLabel.text())
         self.assertIn(hinge.Label, task.interfacesLabel.text())
 
+        # How its bending is drawn after a run: Automatic, or a scale. Not
+        # the mesh's
+        self.assertEqual(task.scaleBox.text(), "Automatic")
+        task.scaleBox.setValue(1.0)
+        _process()
+        self.assertEqual(flexible.BendingScale, 1.0)
+        self.assertEqual(task.scaleBox.text(), "x1.00")
+        self.assertEqual(FlexibleBodies.meshState(flexible), "current")
+
         task.showMeshBox.setChecked(True)
         _process()
         scene = Gui.ActiveDocument.ActiveView.getSceneGraph()

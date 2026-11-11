@@ -444,8 +444,10 @@ def colorsOf(fractions):
 class Deformation:
     """A flexible body's deformation as its last run had it: its mesh's
     surface moved by its mode shapes and the run's coordinates at a time,
-    scaled up to be seen: its largest over the run a tenth of its size,
-    unless show() is given a scale. And its stress there, each mode's
+    scaled up to be seen: its largest over the run a tenth of its size --
+    as it is where that is a twentieth or more -- unless the flexible body
+    has a BendingScale or show() is given a scale. And its stress there,
+    each mode's
     (modalStresses()) weighed by the coordinates, coloured over it, the
     largest over the run red."""
 
@@ -463,6 +465,7 @@ class Deformation:
         self.root = None
         self._stresses = None
         self._largest = None
+        self.automatic = 1.0
         if not self.valid:
             return
         triangles = surfaceOf(list(flexible.Tetrahedra), nodes)
@@ -509,7 +512,10 @@ class Deformation:
             moved = self.psi @ row
             largest = max(largest, float(np.max(np.linalg.norm(moved, axis=1))))
         size = float(np.max(np.ptp(self.rest, axis=0)))
-        self.scale = 0.1 * size / largest if largest > 0 else 1.0
+        self.automatic = 0.1 * size / largest if largest > 0 else 1.0
+        if self.automatic < 2.0:
+            # Seen as it is
+            self.automatic = 1.0
         self.elasticity = elasticityOf(flexible)
 
     def stresses(self):
@@ -568,6 +574,18 @@ class Deformation:
         span = times[i + 1] - times[i]
         f = (time - times[i]) / span if span > 0 else 0.0
         return self.coordinates[i] * (1 - f) + self.coordinates[i + 1] * f
+
+    @property
+    def scale(self):
+        """How many times the bending is drawn: the flexible body's
+        BendingScale, as it is now, or the automatic one where that is 0.
+        Scaled, a part bent onto another is drawn through it or off it: 1
+        draws it where it is"""
+        try:
+            given = float(self.flexible.BendingScale)
+        except (AttributeError, ReferenceError, RuntimeError):
+            given = 0.0
+        return given if given > 0 else self.automatic
 
     def pointsAt(self, time, scale=None):
         """The surface's nodes at a time, in the component's coordinates"""

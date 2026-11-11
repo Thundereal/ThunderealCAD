@@ -464,7 +464,8 @@ ChronoFlexible::Surface::Surface(const Flexible& flexible)
         points.push_back(toCh(p));
     }
     // Each tetrahedron's four faces by their corners, sorted: those met once
-    // are the surface's, as the tetrahedron has them
+    // are the surface's, turned to face away from the tetrahedron's fourth
+    // corner -- out of the body, a collision triangle being one sided
     struct Hash
     {
         std::size_t operator()(const std::array<Id, 3>& k) const
@@ -474,15 +475,15 @@ ChronoFlexible::Surface::Surface(const Flexible& flexible)
             return h * 1000003u ^ std::hash<Id>()(k[2]);
         }
     };
-    std::unordered_map<std::array<Id, 3>, std::pair<int, std::array<Id, 3>>, Hash> faces;
+    std::unordered_map<std::array<Id, 3>, std::pair<int, std::array<Id, 4>>, Hash> faces;
     faces.reserve(4 * flexible.tetrahedra.size());
     for (const auto& tet : flexible.tetrahedra) {
-        const std::array<std::array<Id, 3>, 4> four {{{tet[0], tet[1], tet[2]},
-                                                      {tet[0], tet[1], tet[3]},
-                                                      {tet[0], tet[2], tet[3]},
-                                                      {tet[1], tet[2], tet[3]}}};
+        const std::array<std::array<Id, 4>, 4> four {{{tet[0], tet[1], tet[2], tet[3]},
+                                                      {tet[0], tet[1], tet[3], tet[2]},
+                                                      {tet[0], tet[2], tet[3], tet[1]},
+                                                      {tet[1], tet[2], tet[3], tet[0]}}};
         for (const auto& face : four) {
-            std::array<Id, 3> key = face;
+            std::array<Id, 3> key {face[0], face[1], face[2]};
             std::sort(key.begin(), key.end());
             auto& entry = faces[key];
             ++entry.first;
@@ -491,11 +492,16 @@ ChronoFlexible::Surface::Surface(const Flexible& flexible)
     }
     double edges = 0.0;
     for (const auto& [key, entry] : faces) {
-        if (entry.first != 1 || key[2] >= points.size()) {
+        if (entry.first != 1 || key[2] >= points.size() || entry.second[3] >= points.size()) {
             continue;
         }
-        corners.push_back(entry.second);
-        const auto& t = entry.second;
+        std::array<Id, 3> t {entry.second[0], entry.second[1], entry.second[2]};
+        if (ch::Vdot(ch::Vcross(points[t[1]] - points[t[0]], points[t[2]] - points[t[0]]),
+                     points[entry.second[3]] - points[t[0]])
+            > 0.0) {
+            std::swap(t[1], t[2]);
+        }
+        corners.push_back(t);
         edges += (points[t[1]] - points[t[0]]).Length() + (points[t[2]] - points[t[1]]).Length()
             + (points[t[0]] - points[t[2]]).Length();
     }
@@ -542,6 +548,14 @@ ChronoFlexible::Surface::Surface(const Flexible& flexible)
             }
         }
     }
+}
+
+std::array<double, 3> ChronoFlexible::Surface::weights(const ch::ChVector3d& p,
+                                                       const ch::ChVector3d& a,
+                                                       const ch::ChVector3d& b,
+                                                       const ch::ChVector3d& c)
+{
+    return nearestOnTriangle(p, a, b, c);
 }
 
 bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) const

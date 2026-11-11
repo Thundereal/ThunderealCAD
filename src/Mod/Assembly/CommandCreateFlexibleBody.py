@@ -294,6 +294,25 @@ class TaskFlexibleBody(QtCore.QObject):
         self.pickHint.setWordWrap(True)
         box.addWidget(self.pickHint)
         layout.addWidget(contactBox)
+
+        drawnBox = QtWidgets.QGroupBox(translate("Assembly", "After a run"))
+        form = QtWidgets.QFormLayout(drawnBox)
+        self.scaleBox = QtWidgets.QDoubleSpinBox()
+        self.scaleBox.setRange(0.0, 1.0e6)
+        self.scaleBox.setDecimals(2)
+        self.scaleBox.setPrefix("x")
+        self.scaleBox.setSpecialValueText(translate("Assembly", "Automatic"))
+        self.scaleBox.setToolTip(
+            translate(
+                "Assembly",
+                "How many times its bending is drawn over a run's frames, 1 as it is.\n"
+                "Automatic: what shows it, its largest a tenth of the part's size, or as\n"
+                "it is where that is a twentieth or more",
+            )
+        )
+        self.scaleBox.valueChanged.connect(self.onScale)
+        form.addRow(translate("Assembly", "Bending drawn"), self.scaleBox)
+        layout.addWidget(drawnBox)
         layout.addStretch(1)
 
     def studies(self):
@@ -314,6 +333,7 @@ class TaskFlexibleBody(QtCore.QObject):
         for box, value in (
             (self.modesBox, flexible.Modes),
             (self.dampingBox, 100.0 * flexible.Damping),
+            (self.scaleBox, flexible.BendingScale),
         ):
             box.blockSignals(True)
             box.setValue(value)
@@ -447,6 +467,9 @@ class TaskFlexibleBody(QtCore.QObject):
     def onSize(self, quantity):
         self.flexible.MeshSize = quantity
         self.fillMesh()
+
+    def onScale(self, value):
+        self.flexible.BendingScale = value
 
     def busy(self, work):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)

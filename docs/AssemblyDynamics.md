@@ -3847,7 +3847,8 @@ Phase D1 is under way (2026-10-28):
     outer faces, each 6-node triangle as four, turned outward; at the time
     shown -- between two frames, the coordinates interpolated -- moved by
     the shapes and the coordinates, scaled up for the largest over the run
-    to be a tenth of the part's size, in place of the component, which
+    to be a tenth of the part's size (or by the body's `BendingScale`,
+    step 12), in place of the component, which
     hides while it is drawn and shows again when the panel closes. Save
     Animation's frames have it.
   - The panel's Elements lists the flexible bodies.
@@ -4260,7 +4261,8 @@ Phase D1 is under way (2026-10-28):
     is found late, by the step that goes too deep (advance()), as a
     contact it does not see coming is. A metal part bends microns -- a
     stocky one: a strip does not, and step 11 looks for the surface
-    farther ahead.
+    farther ahead. Since step 12 the shape is the surface itself, moved
+    by the modes.
   - The rod clamped, its pad resting on the post, the pad's face not named:
     the prop takes 106.6 mN for the propped cantilever's 104.9, 1.7% over
     (through the faces 1.4%), clamp and prop the weight within 0.1%, the run
@@ -4407,7 +4409,7 @@ Phase D1 is under way (2026-10-28):
     is said once a part: "the contact of ... on the flexible body ... was
     found ... mm in". The proper mend is collision shapes that follow
     the modes -- the surface's triangles placed by the nodes each step --
-    and is not built.
+    and is step 12.
   - The strip on the bar now (mesh 8, 9052 nodes, 30 coordinates): the
     blow 337.5 N at 47.50 ms, three lighter ones within 0.2 ms (156, 42,
     13 N), then the strip stays on the bar 3.3 ms, pressing 0.2 to 6 N,
@@ -4422,6 +4424,118 @@ Phase D1 is under way (2026-10-28):
     test_cancel_within_a_frame (a ball bouncing 1000 s, one frame,
     cancelled half a second in, done within 5 s). The strike with no
     contact faces is 129.6 N now, 132.9 in step 8.
+- Built, D4b step 12 (2026-11-11): a flexible part touched anywhere is
+  touched where it is, however far it has bent -- step 11's limit.
+  - **The part's surface is its collision shape, and moves with the
+    modes** (`FlexibleContact::makeMesh()`, `moveMesh()`). The triangles of
+    `ChronoFlexible::Surface` -- the tetrahedra's faces no other shares,
+    now wound to face out of the body, a collision triangle being one
+    sided -- are one `ChCollisionShapeTriangleMesh` on the carrier, in
+    place of every shape the part had there. As each collision detection
+    starts the vertices go where the modes have their nodes
+    (`ContactCollisionSystem::addMovingMesh()`, `moveMeshes()`): Bullet's
+    triangles read the vertices as they are, and what it keeps of them is
+    brought along -- each triangle's box in the carrier's tree, five
+    envelopes wider when it has left the one it had, the carrier's own
+    box, the triangles' features. Chrono's fork gathers the nodes' shapes
+    once (`ChModalAssembly::GetInternalNodesShapes()`) and places them all
+    by one product a step (`GetInternalNodesPos()`); the maps of step 8
+    are asked only for the points found.
+  - A point found on one of the mesh's triangles is kept by the triangle's
+    nodes and its weights on them (`FlexibleContact::place()`), not looked
+    up on the surface at rest: it is where the triangle is. Step 11's
+    search ahead is gone with what it needed -- `FlexibleContact::reach`,
+    `trim()`, `ShapeOn::search`, `SatPolyhedron::inset`, the "found ... mm
+    in" warning: the envelope is the run's own (2e-5 m) again.
+  - **A bar on a triangle its axis is not over got Bullet's point, and a
+    force 14 times the blow.** The finder clips a cylinder against a
+    mesh's triangle (`cylinderTrianglePoints()`); a pair it did not clip
+    went on with Bullet's GJK point. On the strip's surface that was a
+    triangle with a corner 0.8 mm from the bar's line of contact, its
+    normal 8 deg off the direction to the axis, and the cylinder's support
+    along that normal (`rollAlong()`) read a gap of 34 um as 13 um in:
+    4.7 kN where the blow is 340 N. Now such a pair has the triangle's
+    point nearest the cylinder's axis, the normal from it to the axis
+    (`cylinderTriangleEdge()`, `nearestOfSegments()`): an edge along the
+    axis gives the ends of what they share. The clip also flipped a
+    triangle's normal to face the cylinder; with the triangles wound
+    outward it gives no points for a cylinder whose middle is behind the
+    triangle -- a bar across the strip's edge had the strip's side face
+    through it, and its cap, 5 mm past that face, was a point 5 mm deep.
+    Both hold for a rigid mesh under a cylinder too.
+  - **The friction's rate was not in the part's matrix.**
+    `FlexibleContact`'s block had each point's spring and damper along the
+    normal only (step 8). The friction's slope with the sliding speed --
+    mu 0.3 reached at 0.1 mm/s, 81 N s/mm under 18 N -- was in the residual
+    alone, and the Newton iterations stopped unconverged on any substep
+    past m / (mu' N): the strip between two bars (below) took no substep
+    longer than 0.3 us under 18 N, each fourth try taken back, 98950 kept
+    and 32587 taken back, 1643 s for its 0.1 s. Without friction the same
+    run kept 5272 and took none back, in 44 s. The block now has, a point,
+    k l n' and c l n' -- l the normal less mu along the sliding, the force
+    that comes with the normal's -- and the friction's rate with the
+    sliding velocity, mu N / v across the sliding and mu' N along it where
+    mu rises (`ContactLoad::ForceOnB::line`, `drag`): 5274 kept, none
+    unconverged, 43 s. Where mu falls from the static to the dynamic the
+    rate along the sliding is left out, a damper that drives. Found by a
+    step trace (kept and taken-back substeps a frame, by cause) after a
+    softer contact law did not help: the largest step that converged went
+    as 1 / N.
+  - Numbers (mesh 8). The strip let go onto the bar: first touch at
+    47.498 ms as in step 11, the blow 351 N (337.5), after it at most
+    3.0 N, pressing in 12 of 13 frames. The strip between two bars: no
+    gravity, its hinge turned 0.06 rad in 0.1 s onto a bar 120 mm out,
+    0.05 mm under it; bent over that bar its end rises and 195 mm out
+    meets a second bar 1 mm over it, 14 mm from where the hinge's end has
+    it rigid (7 mm at the first). The second bar is met at 0.02899 rad for
+    a beam's 0.02928; over the last fifth of the run the first presses
+    17.54 N for the beam's 17.11 and the second 3.175 N for 3.145 -- the
+    beam clamped at the hinge's turn, the contacts springs of 1000 N/mm.
+    On the materials' law (Hertz) 17.63 N for 16.85 and 3.288 N for
+    3.074, the second bar met with a blow of 17 N.
+  - Limits.
+    - The surface is the elements' faces, flat each: a round face facets
+      as fine as the mesh, and a round's own law (a cylinder's line, a
+      ball's point) needs the faces named (`ContactFaces`).
+    - Two flexible parts touching each other anywhere are still refused.
+    - A part the mesh could not be made for keeps its own shapes on the
+      carrier, rigid, with no search ahead.
+    - A contact that stands under a changing load runs at the contact's
+      own substep, a fiftieth of the period of the part on the contact's
+      spring: `resting()` lets a settled contact take the frame's step
+      only while its depth stays within 2%, and a load a motion keeps
+      raising never does. On the materials' law that is 1.4 us for the
+      strip, 250 substeps a frame of 0.5 ms: the two bars' 0.1 s in 210 s,
+      where the spring of 1000 N/mm (18 us) takes 43 s. Proposed, not
+      built: judge a standing contact by how its depth follows the load --
+      the depth's rate against the spring's own period -- not by its
+      range, so a slowly loaded contact steps as a resting one does.
+  - **How the bending is drawn is the flexible body's**
+    (`FlexibleBody::BendingScale`, the panel's "Bending drawn" under After
+    a run): 0, Automatic, is the scale that shows it, the largest over the
+    run a tenth of the part's size -- as it is where that is a twentieth
+    or more, never less than it is; a value draws it that many times, 1 as
+    it is. The scale is of the bending about the part's floating frame,
+    which lies along the bent part, not at its joint: the strip between
+    the bars, 14 mm from its hinge's line, is 1.5 mm from its frame's and
+    was drawn 13.6 times that -- off its mount and through both bars. A
+    part bent onto others wants 1. `Deformation.scale` reads the property
+    as it is; it is not the model's, so the run kept stays the study's and
+    the mesh stays made.
+  - Tests: TestFlexibleBody.test_bent_between_bars_anywhere (the second
+    bar met within 10% of the beam's angle, the bars' forces within 10%
+    and 15% of the beam's, neither over 1.5 times its last; 44 s; before,
+    the second bar was never met and the first was 7 mm in);
+    test_bent_onto_bar_anywhere, test_strike_anywhere (132.3 N, rigid
+    409.1) and test_propped_cantilever_anywhere (106.3 mN for 104.9) hold
+    on the moving mesh. The drawn scale: test_cantilever_deformation, and
+    TestGuiCommands' flexible body panel.
+  - The manual's page (`assembly/simulation/flexible-contact`) has the
+    strip between the bars, drawn as it is, mesh 3 mm: the lower bar met
+    at 7.7 ms, the upper at 48.9 ms, the hinge turned 0.0290 rad (a beam's
+    0.0293); at the end 18.71 N and 3.51 N for a beam's 18.33 and 3.48,
+    the strip's root at 114.5 MPa for a beam's 114.1; the run of 0.1 s,
+    526 frames, 119 s.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

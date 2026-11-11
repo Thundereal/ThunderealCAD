@@ -249,6 +249,23 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertEqual(len(flexible.ModeShapes), 3 * len(flexible.Nodes) * 24)
         shape = FlexibleBodies.Deformation(flexible, results)
         self.assertTrue(shape.valid)
+        # Drawn scaled up to be seen, its largest a tenth of the rod, or as
+        # the flexible body's BendingScale has it; the run stays the study's
+        import numpy as np
+
+        automatic = shape.scale
+        largest = max(
+            float(np.max(np.linalg.norm(shape.pointsAt(t, 1.0) - shape.rest, axis=1)))
+            for t in results["Times"]
+        )
+        self.assertAlmostEqual(automatic * largest, 10.0, delta=0.01)
+        flexible.BendingScale = 1.0
+        self.doc.recompute()
+        self.assertEqual(shape.scale, 1.0)
+        self.assertFalse(results["Simulation"].ResultsStale)
+        self.assertEqual(len(self.assembly.getSimulationResults()["Times"]), len(results["Times"]))
+        flexible.BendingScale = 0.0
+        self.assertEqual(shape.scale, automatic)
         # In the rod's coordinates, which move with its floating frame: in
         # the assembly's at the last frame, its pose there
         last = len(results["Times"]) - 1
@@ -592,9 +609,10 @@ class TestFlexibleBody(unittest.TestCase):
         grounded bar 120 mm out, 10 mm under it, anywhere on it, and stays on
         the bar bent, 0.4 mm off where its hinge's end has it rigid: the
         contact is kept through that, its force never more than the blow's.
-        The strip's shapes ride its first interface rigid, and looked for
-        only 0.1 mm ahead of them the contact was lost as the strip bent and
-        found again 0.18 mm in: 62 kN on 21 g, where the blow is 340 N"""
+        The strip is touched on its mesh's surface, which goes with its
+        bending. Its shapes riding its first interface rigid, the contact was
+        lost as the strip bent and found again 0.18 mm in: 62 kN on 21 g,
+        where the blow is 340 N"""
         import CommandCreateContact
 
         mount = self.box("Mount", (10, 20, 10), (0, 0, -4))
@@ -641,8 +659,8 @@ class TestFlexibleBody(unittest.TestCase):
             self.assertEqual(self.assembly.generateSimulation(sim), 0)
         finally:
             App.Console.DetachObserver(warnings)
-        # Not found late (the run says when one is)
-        self.assertFalse(any("was found" in m for m in warnings.messages), warnings.messages)
+        # Touched on its mesh (the run says when a part has none)
+        self.assertFalse(any("no mesh of its surface" in m for m in warnings.messages), warnings.messages)
         results = self.assembly.getSimulationResults()
         times = results["Times"]
         normal = [c["Values"] for c in results["Channels"] if c["Quantity"] == "ContactNormalForce"]
@@ -658,6 +676,151 @@ class TestFlexibleBody(unittest.TestCase):
         # On the bar still a millisecond and more after, pressing lightly
         self.assertGreater(sum(1 for f in after if f > 0), len(after) // 2)
         self.assertLess(max(after), 0.1 * blow)
+
+    def stripOnBars(self, formula, end, step, bars=True, gap=0.05, rise=1.0):
+        """A strip 200 x 20 x 2 hinged at an end to a grounded mount, its
+        hinge turned by a Position motion (formula, rad), without gravity.
+        With bars, a grounded bar across it 120 mm from the hinge, gap under
+        it, and another 195 mm out, rise over it, each in a contact set of
+        its own with the strip, flexible and touched anywhere; without, the
+        strip rigid and alone. The contacts are springs of 1000 N/mm, not the
+        materials': under the first bar's 18 N the strip sinks 0.02 mm where
+        it is bent 7 mm, and the run steps a fiftieth of that spring's 0.9 ms
+        under the strip while the bars are loaded, not of the materials'
+        0.07 ms. The strip, its flexible body, the two contact sets and the
+        run's status"""
+        import CommandCreateContact
+
+        mount = self.box("Mount", (10, 20, 10), (0, 0, -4))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
+        JointObject.GroundedJoint(ground, mount)
+        strip = self.box("Strip", (200, 20, 2), (10, 0, 0))
+        placed = []
+        if bars:
+            for name, x, z in (("Under", 130, -5 - gap), ("Over", 205, 7 + rise)):
+                bar = self.assembly.newObject("Part::Cylinder", name)
+                bar.Radius = 5
+                bar.Height = 30
+                bar.Placement = plc(x, -5, z, App.Vector(1, 0, 0), -90)
+                held = self.joints.newObject("Assembly::GroundedJointPython", "Grounded" + name)
+                JointObject.GroundedJoint(held, bar)
+                placed.append(bar)
+        self.doc.recompute()
+        hinge = self.joints.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (mount, ["Face2"])
+        hinge.Reference2 = (strip, ["Face1"])
+        hinge.Placement1 = plc(10, 10, 5, App.Vector(1, 0, 0), -90)
+        hinge.Placement2 = plc(0, 10, 1, App.Vector(1, 0, 0), -90)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contacts = [
+            CommandCreateContact.newContactSet(self.assembly, [strip], [bar]) for bar in placed
+        ]
+        for contact in contacts:
+            contact.StiffnessFrom = "Value"
+            contact.Stiffness = 1000.0
+            contact.Exponent = 1.0
+        sim = self.study(end, step)
+        sim.GravityEnabled = False
+        sim.Elements = contacts
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = hinge
+        motion.MotionType = "Angular"
+        motion.Control = "Position"
+        motion.Formula = formula
+        body = None
+        if bars:
+            body = FlexibleBodies.makeFlexibleBody(self.assembly, strip)
+            body.MeshSize = 8.0
+            FlexibleBodies.prepare(body)
+            self.assertNotIn(FlexibleBodies.CONTACT, body.InterfaceFrames)
+        self.doc.recompute()
+        return strip, body, contacts, self.assembly.generateSimulation(sim)
+
+    def test_bent_between_bars_anywhere(self):
+        """A flexible part is touched where it is, however far it has bent
+        from where its first interface has it rigid (D4b step 12). A strip
+        200 x 20 x 2 without gravity, its hinge turned 0.06 rad by a motion
+        onto a bar across it 120 mm out: bent over the bar its far end
+        rises, and 195 mm out meets a second bar 1 mm over it. The strip is
+        14 mm there from where its hinge's end has it rigid, and 7 mm at the
+        first bar: its shapes riding that end, the second bar was never met
+        and the first was 7 mm in. Both bars press as a beam's supports do,
+        the beam clamped at the hinge's turn"""
+        # Which way the motion turns the hinge: a rigid strip alone
+        strip, _, _, status = self.stripOnBars("0.1*time", 0.01, 0.005, bars=False)
+        self.assertEqual(status, 0)
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        down = strip.Placement.multVec(App.Vector(200, 10, 1)).z < 1.0
+        self.renew()
+        turn, end, gap, rise = 0.06, 0.1, 0.05, 1.0
+        formula = "%g*(time/%g)*(time/%g)*(3 - 2*time/%g)" % (
+            turn if down else -turn,
+            end,
+            end,
+            end,
+        )
+        strip, body, contacts, status = self.stripOnBars(formula, end, 5e-4, True, gap, rise)
+        self.assertEqual(status, 0)
+        youngs, _ = FlexibleBodies.elasticityOf(body)
+        stiff = youngs * 20 * 2**3 / 12.0  # N mm^2
+        a, b = 120.0, 195.0
+
+        def supports(angle):
+            """The bars' forces (N) at the hinge's turn: a cantilever off the
+            turned end, held at a, and at b once it has come there"""
+            if angle * a <= gap:
+                return 0.0, 0.0
+            under = 3.0 * stiff * (angle * a - gap) / a**3
+            at = -angle * b + under * a * a * (3 * b - a) / (6.0 * stiff)
+            if at <= rise:
+                return under, 0.0
+            cross = a * a * (3 * b - a) / 6.0
+            m = [[a**3 / 3.0, -cross], [cross, -(b**3) / 3.0]]
+            r = [stiff * (angle * a - gap), stiff * (rise + angle * b)]
+            det = m[0][0] * m[1][1] - m[0][1] * m[1][0]
+            return (
+                (r[0] * m[1][1] - m[0][1] * r[1]) / det,
+                (m[0][0] * r[1] - m[1][0] * r[0]) / det,
+            )
+
+        results = self.assembly.getSimulationResults()
+        times = results["Times"]
+        forces = []
+        for contact in contacts:
+            values = [
+                c["Values"]
+                for c in results["Channels"]
+                if c["Quantity"] == "ContactNormalForce" and c["Name"] == contact.Name
+            ]
+            self.assertEqual(len(values), 1)
+            forces.append([abs(v.z) * 1e-3 for v in values[0]])
+        under, over = forces
+        angles = [turn * (t / end) ** 2 * (3 - 2 * t / end) for t in times]
+        want = [supports(angle) for angle in angles]
+        due = next(k for k, w in enumerate(want) if w[1] > 0)
+        met = next((k for k, f in enumerate(over) if f > 0), None)
+        self.assertIsNotNone(met, "the second bar is never met")
+        late = range(len(times) - len(times) // 5, len(times))
+
+        def mean(values):
+            return sum(values[k] for k in late) / len(late)
+
+        got = mean(under), mean(over)
+        beam = mean([w[0] for w in want]), mean([w[1] for w in want])
+        print("bent between bars: the second met at %.4g rad for %.4g; in the last fifth the "
+              "first presses %.4g N for %.4g, the second %.4g N for %.4g; at most %.4g and "
+              "%.4g N" % (angles[met], angles[due], got[0], beam[0], got[1], beam[1],
+                          max(under), max(over)))
+        self.assertAlmostEqual(angles[met], angles[due], delta=0.1 * angles[due])
+        self.assertAlmostEqual(got[0], beam[0], delta=0.1 * beam[0])
+        self.assertAlmostEqual(got[1], beam[1], delta=0.15 * beam[1])
+        # No blow as either is met
+        self.assertLess(max(under), 1.5 * want[-1][0])
+        self.assertLess(max(over), 1.5 * want[-1][1])
 
     def renew(self):
         """A new document for a second run, as setUp's"""

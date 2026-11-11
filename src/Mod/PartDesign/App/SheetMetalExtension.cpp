@@ -30,6 +30,7 @@
 
 #include <TopoDS.hxx>
 
+#include <App/Document.h>
 #include <Base/Exception.h>
 #include <Mod/Part/App/TopoShape.h>
 
@@ -239,13 +240,26 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade)
         }
     };
     hold(*this);
-    if (auto body = obj ? Body::findBodyOf(obj) : nullptr) {
+    auto body = obj ? Body::findBodyOf(obj) : nullptr;
+    if (body) {
         for (auto other : body->Group.getValues()) {
             if (auto ext = other ? other->getExtensionByType<SheetMetalExtension>(true) : nullptr) {
                 hold(*ext);
             }
         }
     }
+    // A new number: the next of the body's count of the kind (0 its walls,
+    // 1 its bends), which is the file's (Document::nextObjectCount()) --
+    // above every number held, and above every one a feature since deleted
+    // had, so a deletion taken back, out of order too, brings back no name
+    // another has
+    auto doc = obj ? obj->getDocument() : nullptr;
+    auto next = [&](int kind) {
+        top[kind] = body && doc
+            ? static_cast<int>(doc->nextObjectCount(*body, kind, top[kind]))
+            : top[kind] + 1;
+        return top[kind];
+    };
     const char* prefixes[2] = {"Wall", "Bend"};
     App::PropertyIntegerList* lists[2] = {&WallNumbers, &BendNumbers};
     for (int kind = 0; kind < 2; ++kind) {
@@ -281,7 +295,7 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade)
         for (std::size_t k = 0; k < own.size(); ++k) {
             // none yet, or one something else of the sheet has
             if (numbers[k] < 1 || !taken.insert(numbers[k]).second) {
-                numbers[k] = ++top[kind];
+                numbers[k] = next(kind);
                 taken.insert(numbers[k]);
             }
             model.elements[own[k]].name = prefix + std::to_string(numbers[k]);

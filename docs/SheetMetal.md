@@ -2058,9 +2058,20 @@ stored flat and this option do what it was for.
       new order, the first two taking the numbers it had.
     - A feature holding a number the sheet before it has too (a copy of that feature) takes a
       new one: no name is twice in a sheet.
-    - A number is free again only when no feature of the body holds it: the last flange
-      deleted and another made, that one takes its numbers. No count is kept beside the
-      features (it would be the body's, written by a feature as it recomputes).
+    - **No number is given twice (ruled 2026-11-11: "add a counter ... so no reuse happen",
+      as for object names, the transaction log taking a deletion back out of order).** A new
+      number is the next of the body's count of walls or of bends, and the count is the
+      file's, not the document's state: `Document::nextObjectCount(body, kind, floor)`, what
+      the file keeps of each object's counts by kind (TransactionLogJournal 39.5, built for
+      this beside a sketch's last geometry id; a table of its own in the log's store, with no
+      new layout version, nothing being released). It never goes down: not with an undo, a
+      feature deleted, a save and reopen, or another branch. So the last flange deleted and
+      another made, that one is `Bend3` where the first was `Bend2`; and the deletion taken
+      back from the log with the other left (`undoTransactionFromLog`) brings the first back
+      as `Bend2`, beside `Bend3`. What follows: a flange's panel cancelled has used a number,
+      as an object made and undone has used a name. Its floor is the highest number a feature
+      of the body holds, so a body whose count the file does not know (pasted from another
+      file, saved before this, a file saved with no history) starts above what it has.
     - A convert numbers what it recognises in the order it finds them, kept the same way; a
       part whose faces come in another order is numbered anew by place. A file saved before has
       no numbers: each feature takes them as it next recomputes.
@@ -2069,11 +2080,13 @@ stored flat and this option do what it was for.
       flange, a flange on a flange, a hem, a contour flange, a fold and a jog with the flange
       before them suppressed and back; the bend table's row; the flat's line; a bend's K asked
       by its name; a flange made while the one before is suppressed, one put in before
-      another, the one before deleted, a number held twice, save and reopen.
+      another, the one before deleted, a number held twice, save and reopen. And 4 for the
+      count (before, 0 of the 4): the last flange deleted and another made; made, undone and
+      made again; deleted, saved, reopened and another made; deleted, another made and the
+      deletion taken back out of order.
       `TestSheetMetalBendOverride.testKeyHoldsWhenEarlierBendsAreAdded` said the rename
       (`Bend2` to `Bend3`); it now says `Bend2` stays and the new bend is `Bend3`.
-      A gtest of the numbers a model holds (`SheetMetalModel.numbers`). PartDesign 1001 OK
-      frozen and not.
+      A gtest of the numbers a model holds (`SheetMetalModel.numbers`).
   - **Held as they were:** a recompute, a flange's length and angle, the wall wider and deeper,
     save and reopen: no element renamed. A feature suppressed, or put in, before one that uses
     an edge it trims loses that edge (`?Edge12`); a chamfer on an edge a pocket trims does the

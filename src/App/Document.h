@@ -1728,6 +1728,15 @@ public:
      * 27.40 item 4). Sketcher's geometry ids.
      */
     long nextGeoId(const DocumentObject& obj, long floor) const;
+    /** The next of a count `obj` keeps of what it numbers, above `floor` --
+     * the largest number it holds -- and, when the document has a file
+     * history, above every number it gave in any version or branch of the
+     * file, whatever was deleted or undone since
+     * (docs/TransactionLogJournal.md sec 39.5). `kind` tells the object's counts
+     * apart, 0, 1, ... as its class has them: a body's sheet metal walls
+     * and bends (docs/SheetMetal.md sec 12).
+     */
+    long nextObjectCount(const DocumentObject& obj, int kind, long floor) const;
     /// Returns a name of the form prefix_number. d specifies the number of digits.
     std::string getStandardObjectName(const char *Name, int d) const;
     /// Returns a list of document's objects including the dependencies

@@ -26547,3 +26547,41 @@ whether the freed memory is reused before that walk. `Fillet::onChanged` no
 longer relinks while the fillet is being removed (`App::Remove`). The test now
 also asserts the FeatureBase's InList is the body's two links: that fails on
 the old build every time, with the freeze on or off.
+
+### 39.5 What an object counts (2026-11-11)
+
+Asked for sheet metal (docs/SheetMetal.md sec 12): a body numbers its walls
+and its bends, each number kept by the feature that made the wall or bend,
+and no number may be given twice -- a deletion taken back out of order
+(24.4) would bring back a name another has taken since. A count in a
+property would go back with an undo; it is file-scope state, as the last
+geometry id of 27.45 is, but an object may keep more than one.
+
+Ruled: a table of its own, by object and kind, not a second row of
+`lastgeoid` under another key; and no new layout version nor a migrate step
+for it, nothing being released.
+
+- `FileHistory`: `nextObjectCount(id, kind, floor)`, `noteObjectCount`,
+  `objectCounts()` -- a map (object id, kind) -> the last number given. The
+  next is one above the larger of the entry and `floor`, the largest number
+  the object holds, so an object the file does not know starts above what
+  it has. `kind` is 0, 1, ... as the object's class has them: a body's
+  sheet metal walls and bends.
+- `Document::nextObjectCount(obj, kind, floor)`: the history's when the
+  document has one, else the document's own map (`DocumentP::objectCounts`),
+  handed over when the history comes (`_noteObjectsInHistory`), as the
+  geometry ids are.
+- The store: table `objcount(cid, kind, last)`, key (cid, kind);
+  `objectCounts()`, `addObjectCounts()` (a row is raised, never lowered),
+  read when the store is opened and written by `embed` beside
+  `lastgeoid`. `StoreVersion` stays 4: a store written before gets the table
+  when opened to be written (`setUp()` makes every table that is missing),
+  and one read as it is, the embedded copy, reads as having no counts.
+- Compaction (27.47) forgets the counts of an object nothing refers to, with
+  its name and its last geometry id (`forgetObjects`, `removeObjectState`).
+  The estimate of 27.48 does not count them.
+
+Tests: gtest `aStoreKeepsWhatAnObjectCounts`, `aFileCountsForItsObjects`;
+sheet metal's `TestSheetMetalNames` -- deleted and made again; made, undone
+and made again; deleted, saved, reopened and made again; deleted, another
+made, and the deletion undone from the log with "skip".

@@ -121,6 +121,8 @@ struct DocumentP
     /// The last geometry id of each object while the document has no file
     /// history; the history takes them when it comes (sec 27.40 item 4).
     std::unordered_map<long, long> lastGeoIds;
+    /// And what each object counts, by kind (sec 39.5), the same way.
+    std::map<std::pair<long, int>, long> objectCounts;
     mutable std::pair<long, long> treeRanks = std::make_pair(0,0);
     long treeRankRevision = 0;
     long revision = 0; // will increase on object add or remove

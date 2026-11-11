@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 #include <FCGlobal.h>
 
@@ -442,9 +443,14 @@ public:
     virtual std::vector<std::pair<long, long>> lastGeoIds() = 0;
     /// Raise the rows of `ids`, adding the missing ones.
     virtual void addLastGeoIds(const std::vector<std::pair<long, long>>& ids) = 0;
+    /// What each object counts (sec 39.5), table `objcount`: (object id,
+    /// kind, last number). None from a store that has no such table.
+    virtual std::vector<std::tuple<long, int, long>> objectCounts() = 0;
+    /// Raise the rows of `counts`, adding the missing ones.
+    virtual void addObjectCounts(const std::vector<std::tuple<long, int, long>>& counts) = 0;
     /// Every object id an op names (sec 27.47).
     virtual std::vector<long> objectIdsInOps() = 0;
-    /// Drop the `objname` and `lastgeoid` rows of `ids` (sec 27.47).
+    /// Drop the `objname`, `lastgeoid` and `objcount` rows of `ids` (sec 27.47).
     virtual void removeObjectState(const std::vector<long>& ids) = 0;
 
     /// Add `strings` to the file's string table (sec 27.50 item 2); an id

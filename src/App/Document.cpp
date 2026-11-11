@@ -3093,6 +3093,7 @@ void Document::clearDocument()
     // names made of them are to come out the same the next time.
     if (testStatus(TempDoc)) {
         d->lastGeoIds.clear();
+        d->objectCounts.clear();
         if (d->history && !d->joinedHistory)
             d->history->forgetIds();
         if (d->Hasher && !d->joinedHistory)
@@ -18207,6 +18208,9 @@ void Document::_noteObjectsInHistory() const
     for (const auto& g : d->lastGeoIds)
         d->history->noteGeoId(g.first, g.second);
     d->lastGeoIds.clear();
+    for (const auto& c : d->objectCounts)
+        d->history->noteObjectCount(c.first.first, c.first.second, c.second);
+    d->objectCounts.clear();
 }
 
 void Document::collectFileBlobs(const std::vector<App::DocumentObject*>& objs) const
@@ -20571,6 +20575,17 @@ long Document::nextGeoId(const DocumentObject& obj, long floor) const
     if (d->history)
         return d->history->nextGeoId(obj.getID(), floor);
     long& last = d->lastGeoIds[obj.getID()];
+    last = std::max(last, floor) + 1;
+    return last;
+}
+
+long Document::nextObjectCount(const DocumentObject& obj, int kind, long floor) const
+{
+    if (obj.getID() <= 0)
+        return floor + 1;
+    if (d->history)
+        return d->history->nextObjectCount(obj.getID(), kind, floor);
+    long& last = d->objectCounts[std::make_pair(obj.getID(), kind)];
     last = std::max(last, floor) + 1;
     return last;
 }

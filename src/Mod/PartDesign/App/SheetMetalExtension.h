@@ -74,7 +74,10 @@ public:
      * feature makes it, and keeps it: a feature suppressed, put in or taken
      * out before this one renames nothing of this one's, in the bend table
      * or on the flat's lines. A number past what the feature makes is kept,
-     * and taken up again when it makes that many. Filled by storeModel().
+     * and taken up again when it makes that many. No number is given twice,
+     * its feature deleted or not: the body's count of each kind is the
+     * file's (Document::nextObjectCount()), as an object's id and name are.
+     * Filled by storeModel().
      */
     App::PropertyIntegerList WallNumbers;
     App::PropertyIntegerList BendNumbers;
@@ -115,10 +118,10 @@ public:
      * (WallNumbers, BendNumbers), its bends with their K (BendKFactors).
      *
      * A number is new where the feature has none for that wall or bend yet,
-     * or has one the sheet before it holds too (a copy of a feature): one
-     * above every number of the sheet before it and of every sheet metal
-     * feature of its body, suppressed or not. Throws as
-     * applyBendOverrides() does.
+     * or has one the sheet before it holds too (a copy of a feature): the
+     * next of the body's count, above every number of the sheet before it
+     * and of every sheet metal feature of its body, suppressed or not, and
+     * above every one given before. Throws as applyBendOverrides() does.
      */
     void storeModel(SheetMetal::Model model, bool remade = false);
     /// The K of one of this feature's bends, by its name, where the bend has

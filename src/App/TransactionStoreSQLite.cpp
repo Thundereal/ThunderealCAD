@@ -160,6 +160,10 @@ const TableDef Tables[] = {
     {"objuid", "(cid INTEGER PRIMARY KEY, uid TEXT UNIQUE)"},
     // Item 4: the last geometry id of each object.
     {"lastgeoid", "(cid INTEGER PRIMARY KEY, id INTEGER)"},
+    // Sec 39.5: what each object counts, by kind. Added with no new layout
+    // version (ruled 2026-11-11, nothing released): a store without it gets
+    // it when opened to be written, and reads as having no counts.
+    {"objcount", "(cid INTEGER, kind INTEGER, last INTEGER, PRIMARY KEY(cid, kind)) WITHOUT ROWID"},
     // Sec 27.50 item 2: the file's string table, kept once for every
     // version; item 4: the ids each version and value uses, as ranges.
     {"strtable", "(id INTEGER PRIMARY KEY, flags INTEGER, sids TEXT, data BLOB, postfix BLOB)"},
@@ -1187,6 +1191,37 @@ public:
         });
     }
 
+    std::vector<std::tuple<long, int, long>> objectCounts() override
+    {
+        std::vector<std::tuple<long, int, long>> out;
+        // a copy read as it is, written before the table was (setUp())
+        if (!hasTable("objcount"))
+            return out;
+        auto s = prepare("SELECT cid, kind, last FROM objcount");
+        while (stepRow(s))
+            out.emplace_back(static_cast<long>(sqlite3_column_int64(s, 0)),
+                             sqlite3_column_int(s, 1),
+                             static_cast<long>(sqlite3_column_int64(s, 2)));
+        sqlite3_reset(s);
+        return out;
+    }
+
+    void addObjectCounts(const std::vector<std::tuple<long, int, long>>& counts) override
+    {
+        if (counts.empty())
+            return;
+        batch([&]() {
+            auto s = prepare("INSERT INTO objcount(cid, kind, last) VALUES(?, ?, ?)"
+                             " ON CONFLICT(cid, kind) DO UPDATE SET last=MAX(last, excluded.last)");
+            for (const auto& c : counts) {
+                sqlite3_bind_int64(s, 1, std::get<0>(c));
+                sqlite3_bind_int(s, 2, std::get<1>(c));
+                sqlite3_bind_int64(s, 3, std::get<2>(c));
+                step(s);
+            }
+        });
+    }
+
     std::vector<long> objectIdsInOps() override
     {
         std::vector<long> out;
@@ -1401,8 +1436,9 @@ public:
             auto names = prepare("DELETE FROM objname WHERE cid=?");
             auto geo = prepare("DELETE FROM lastgeoid WHERE cid=?");
             auto uids = prepare("DELETE FROM objuid WHERE cid=?");
+            auto counts = prepare("DELETE FROM objcount WHERE cid=?");
             for (long id : ids) {
-                for (auto s : {names, geo, uids}) {
+                for (auto s : {names, geo, uids, counts}) {
                     sqlite3_bind_int64(s, 1, id);
                     step(s);
                 }

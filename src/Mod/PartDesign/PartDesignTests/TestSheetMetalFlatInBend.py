@@ -125,6 +125,16 @@ class TestSheetMetalFlatInBend(unittest.TestCase):
         self.assertEqual(len(listed), 1)
         self.assertGreaterEqual(len(listed[0]["Elements"]), 1)
 
+    def testHoleInBendIsToldAsAcrossItsLine(self):
+        """A hole through the bend's middle touches the bend's line: Check
+        Sheet says it lies across the line, not a distance of 1e-11 from it"""
+        hole = self.hole(self.inBend())
+        near = [p for p in PartDesign.checkSheet(hole)["Problems"] if p["Kind"] == "HoleNearBend"]
+        self.assertEqual(len(near), 1)
+        self.assertEqual(near[0]["Value"], 0)
+        self.assertIn("across Bend1's line", near[0]["Message"])
+        self.assertNotIn("e-", near[0]["Message"])
+
     def testCountersinkInBend(self):
         # the cone is where the outer fibres are, laid out 5.5 / 6 as long
         # round the bend: the blank's cut is the smaller by 2 %

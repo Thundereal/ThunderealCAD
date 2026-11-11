@@ -536,10 +536,15 @@ SheetCheck checkSheet(const App::DocumentObject* obj)
             }
             SheetProblem problem;
             problem.kind = "HoleNearBend";
-            problem.value = distance.Value();
+            // a hole drilled in the bend touches the line: across it, not
+            // the 1e-11 mm from it the distance comes to
+            const bool across = distance.Value() < LengthTolerance;
+            problem.value = across ? 0.0 : distance.Value();
             problem.limit = limit;
-            problem.message = "A hole is " + format(distance.Value()) + " mm from " + line.name
-                + "'s line, nearer than " + format(limit) + " mm";
+            problem.message = across
+                ? "A hole lies across " + line.name + "'s line, in the bend"
+                : "A hole is " + format(distance.Value()) + " mm from " + line.name
+                    + "'s line, nearer than " + format(limit) + " mm";
             addFaces(faces, problem.elements, problem.flatElements);
             res.problems.push_back(std::move(problem));
         }

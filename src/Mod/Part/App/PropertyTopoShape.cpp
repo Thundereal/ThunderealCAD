@@ -1818,8 +1818,17 @@ void PropertyPartShape::Restore(Base::XMLReader &reader)
             if (owner ? owner->checkElementMapVersion(this, _Ver.c_str())
                       : _Shape.checkElementMapVersion(_Ver.c_str())) {
                 auto ver = owner?owner->getElementMapVersion(this):_Shape.getElementMapVersion();
-                if(!owner || !owner->getNameInDocument() || !_Shape.getElementMapSize()) {
+                if(!owner || !owner->getNameInDocument()) {
                     _Ver = ver;
+                } else if(!_Shape.getElementMapSize()) {
+                    // A shape saved with no names has nothing to regenerate, and
+                    // asks for no recompute. It keeps the version it was saved
+                    // with all the same: what refers into it does so by number,
+                    // and when a recompute names it -- and may number it another
+                    // way, as a primitive built otherwise since is -- the version
+                    // is seen to change, and those references are found again by
+                    // geometry (GeoFeature::updateElementReference). Taking the
+                    // current version here said the numbers were today's.
                 } else {
                     // version mismatch, signal for regenerating.
                     static const char *warnedDoc=0;

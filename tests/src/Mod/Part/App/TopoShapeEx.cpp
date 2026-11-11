@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <TColgp_Array2OfPnt.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
 #include <TColStd_HArray1OfReal.hxx>
 #include <gtest/gtest.h>
@@ -1483,6 +1485,55 @@ TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineWrittenAnotherWay)
     EXPECT_TRUE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(uneven), 1e-7, 1e-10));
     EXPECT_TRUE(GeomBSplineCurve(uneven).isSame(GeomBSplineCurve(even), 1e-7, 1e-10));
     EXPECT_FALSE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(swollen), 1e-7, 1e-10));
+}
+
+// And a straight edge written as a B-spline of degree 1: a line is found
+// again as that spline and the spline as the line, alone and as an edge of
+// a face (in realthunder/FreeCAD#474 three edges of a helix's end face came
+// back so, and the sketches on the face lost it).
+TEST_F(TopoShapeExpansionTest, searchSubShapeLineWrittenAsBSpline)
+{
+    // Arrange: a rectangle of lines, and the same of splines of degree 1
+    const gp_Pnt corners[] = {gp_Pnt(0, 0, 0), gp_Pnt(4, 0, 0), gp_Pnt(4, 2, 0), gp_Pnt(0, 2, 0)};
+    BRepBuilderAPI_MakeWire lines;
+    BRepBuilderAPI_MakeWire splines;
+    for (int i = 0; i < 4; ++i) {
+        const gp_Pnt& from = corners[i];
+        const gp_Pnt& to = corners[(i + 1) % 4];
+        lines.Add(BRepBuilderAPI_MakeEdge(from, to).Edge());
+        TColgp_Array1OfPnt poles(1, 2);
+        poles.SetValue(1, from);
+        poles.SetValue(2, to);
+        TColStd_Array1OfReal knots(1, 2);
+        knots.SetValue(1, 0);
+        knots.SetValue(2, 1);
+        TColStd_Array1OfInteger mults(1, 2);
+        mults.Init(2);
+        Handle(Geom_BSplineCurve) spline = new Geom_BSplineCurve(poles, knots, mults, 1);
+        splines.Add(BRepBuilderAPI_MakeEdge(spline).Edge());
+    }
+    TopoShape lineFace {BRepBuilderAPI_MakeFace(lines.Wire()).Face()};
+    TopoShape splineFace {BRepBuilderAPI_MakeFace(splines.Wire()).Face()};
+    std::vector<std::string> inSplines;
+    std::vector<std::string> inLines;
+    std::vector<std::string> edgeInSplines;
+    // Act
+    splineFace.searchSubShape(lineFace, &inSplines, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    lineFace.searchSubShape(splineFace, &inLines, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    splineFace.searchSubShape(
+        lineFace.getSubTopoShape(TopAbs_EDGE, 2),
+        &edgeInSplines,
+        Data::SearchOption::CheckGeometry,
+        1e-7,
+        1e-10
+    );
+    // Assert
+    ASSERT_EQ(inSplines.size(), 1);
+    EXPECT_EQ(inSplines[0], "Face1");
+    ASSERT_EQ(inLines.size(), 1);
+    EXPECT_EQ(inLines[0], "Face1");
+    ASSERT_EQ(edgeInSplines.size(), 1);
+    EXPECT_EQ(edgeInSplines[0], "Edge2");
 }
 
 TEST_F(TopoShapeExpansionTest, makEShellInvalid)

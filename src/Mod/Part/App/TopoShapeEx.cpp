@@ -914,6 +914,18 @@ std::vector<TopoShape> TopoShape::searchSubShape(
         std::unique_ptr<Geometry> g;
         bool isLine = false;
         bool isPlane = false;
+        // A straight edge is a line however it is written: a feature made
+        // again may hand back a line as a B-spline of degree 1 between the
+        // same two points (in realthunder/FreeCAD#474 three edges of a
+        // helix's end face came back so, and the face, there vertex for
+        // vertex, was not found again for the sketches attached to it).
+        auto isStraight = [](const Geometry &geo) {
+            if (geo.isDerivedFrom(GeomLine::getClassTypeId())
+                    || geo.isDerivedFrom(GeomLineSegment::getClassTypeId()))
+                return true;
+            auto curve = freecad_cast<const GeomCurve*>(&geo);
+            return curve && curve->isLinear();
+        };
 
         std::vector<TopoDS_Shape> vertices;
         TopoShape wire;
@@ -928,8 +940,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
             if(!g)
                 return res;
             if (shapeType == TopAbs_EDGE)
-                isLine = (g->isDerivedFrom(GeomLine::getClassTypeId())
-                            || g->isDerivedFrom(GeomLineSegment::getClassTypeId()));
+                isLine = isStraight(*g);
             else
                 isPlane = g->isDerivedFrom(GeomPlane::getClassTypeId());
         }
@@ -942,8 +953,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                 // For lines, don't compare geometry, just check the
                 // vertices below instead, because the exact same edge
                 // may have different geometrical representation.
-                if (!g2->isDerivedFrom(GeomLine::getClassTypeId())
-                        && !g2->isDerivedFrom(GeomLineSegment::getClassTypeId()))
+                if (!isStraight(*g2))
                     return false;
             } else if (isPlane && !strict) {
                 // For planes, don't compare geometry either, so that
@@ -1037,8 +1047,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                         }
                         bool isLine = false;
                         gp_Pnt pt1, pt2;
-                        if (g->isDerivedFrom(GeomLine::getClassTypeId())
-                                || g->isDerivedFrom(GeomLineSegment::getClassTypeId()))
+                        if (isStraight(*g))
                         {
                             pt1 = BRep_Tool::Pnt(TopExp::FirstVertex(TopoDS::Edge(e)));
                             pt2 = BRep_Tool::Pnt(TopExp::LastVertex(TopoDS::Edge(e)));
@@ -1057,8 +1066,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                                     break;
                             }
                             if (isLine) {
-                                if(g1->isDerivedFrom(GeomLine::getClassTypeId())
-                                        || g1->isDerivedFrom(GeomLineSegment::getClassTypeId()))
+                                if(isStraight(*g1))
                                 {
                                     auto p1 = BRep_Tool::Pnt(TopExp::FirstVertex(TopoDS::Edge(e1)));
                                     auto p2 = BRep_Tool::Pnt(TopExp::LastVertex(TopoDS::Edge(e1)));

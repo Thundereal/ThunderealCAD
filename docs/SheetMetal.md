@@ -933,9 +933,14 @@ and not frozen.
     short of the first's inner skin and its bend the gap short of where the first's bend starts,
     so the bends never meet; `Underlap` the other way round. In the model each side's limits
     toward the corner (a miter's, a gap's) give way to the new ones.
-  - A gap's relief at the corner stays where it reaches below where the bends start (1 x 1 each
-    with the rule's defaults); filling it is not built. Oracle: `Butt` on an open corner is the
-    automatic miter's part less those two, with the same flat.
+  - A gap's relief at the corner reached below where the bends start (1 x 1 each with the
+    rule's defaults) and stayed; **filled, built 2026-11-11**: beside where each side ended
+    (an end square across it, a gap's), the wall again in the relief's own shape below the
+    bend's start -- its straight part and an obround's half circle, as `reliefCuts()` cut
+    them, from the relief of the feature that made the bend (its own, or the rule's; a tear
+    reaches no further than the bend) -- and no further than where the other side's bend
+    starts. Oracle: `Butt` on an open corner is the automatic miter's part, with the same
+    flat. `TestSheetMetalCornerClosure` 8 (before, 4).
 - M2's corner relief (5.2, ruled 2026-11-02: drawn in the flat, folded back), at every miter -- one
   flange's, a flange's against an earlier one, a corner closure's `Butt` -- from the rule:
   `CornerReliefShape` `Circle` (the default) of `CornerReliefSize` across, or `Square` of that

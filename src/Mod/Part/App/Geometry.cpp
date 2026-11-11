@@ -2320,6 +2320,37 @@ PyObject* GeomBSplineCurve::getPyObject()
     return new BSplineCurvePy(freecad_cast<GeomBSplineCurve*>(this->clone()));
 }
 
+// Whether a B-spline lies on another: each of its spans is sampled, as many
+// points as fix a span of its degree, and every one is within tol of the
+// other curve.
+static bool isBSplineOn(
+    const Handle(Geom_BSplineCurve) & curve,
+    const Handle(Geom_BSplineCurve) & other,
+    double tol
+)
+{
+    const int samples = curve->Degree() + 1;
+    const gp_Pnt start = other->StartPoint();
+    const gp_Pnt end = other->EndPoint();
+    GeomAPI_ProjectPointOnCurve proj;
+    for (int i = curve->FirstUKnotIndex(); i < curve->LastUKnotIndex(); ++i) {
+        const double u1 = curve->Knot(i);
+        const double u2 = curve->Knot(i + 1);
+        for (int j = 0; j < samples; ++j) {
+            const gp_Pnt pt = curve->Value(u1 + (u2 - u1) * (j + 0.5) / samples);
+            proj.Init(pt, other);
+            if (proj.NbPoints() > 0 && proj.LowerDistance() <= tol) {
+                continue;
+            }
+            // no foot of a perpendicular past an end of the other curve
+            if (pt.Distance(start) > tol && pt.Distance(end) > tol) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool GeomBSplineCurve::isSame(const Geometry& _other, double tol, double atol) const
 {
     if (_other.getTypeId() != getTypeId()) {
@@ -2340,21 +2371,40 @@ bool GeomBSplineCurve::isSame(const Geometry& _other, double tol, double atol) c
         return false;
     }
 
+    bool same = true;
     double tol2 = tol * tol;
-    for (int i = 1, c = countPoles(); i <= c; ++i) {
+    for (int i = 1, c = countPoles(); same && i <= c; ++i) {
         if (myCurve->Pole(i).SquareDistance(other.myCurve->Pole(i)) > tol2
             || fabs(myCurve->Weight(i) - other.myCurve->Weight(i)) > tol) {
-            return false;
+            same = false;
         }
     }
-
-
-    for (int i = 1, c = countKnots(); i <= c; ++i) {
+    for (int i = 1, c = countKnots(); same && i <= c; ++i) {
         if (fabs(myCurve->Knot(i) - other.myCurve->Knot(i)) > tol) {
-            return false;
+            same = false;
         }
     }
-    return true;
+    if (same) {
+        return true;
+    }
+
+    // Poles and knots say how the curve is written, not where it runs. An
+    // intersection made again comes back approximated with its knots a few
+    // 1e-7 from where they were, and its poles with them, on the same points:
+    // in realthunder/FreeCAD#363 the two curves where a cylinder cuts another
+    // differed by 9e-7 in their poles and by 1e-9 as curves, and the face
+    // between them was not found again. Two B-splines of one make that start
+    // and end together are the same when each runs on the other.
+    if (myCurve->StartPoint().SquareDistance(other.myCurve->StartPoint()) > tol2
+        || myCurve->EndPoint().SquareDistance(other.myCurve->EndPoint()) > tol2) {
+        return false;
+    }
+    try {
+        return isBSplineOn(myCurve, other.myCurve, tol) && isBSplineOn(other.myCurve, myCurve, tol);
+    }
+    catch (Standard_Failure&) {
+        return false;
+    }
 }
 
 

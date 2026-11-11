@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <TColgp_Array2OfPnt.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <TColStd_HArray1OfReal.hxx>
 #include <gtest/gtest.h>
 #include "src/App/InitApplication.h"
 #include <Mod/Part/App/Geometry.h>
@@ -31,6 +33,7 @@
 #include <Geom_Circle.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <GeomAPI_Interpolate.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
@@ -1429,6 +1432,57 @@ TEST_F(TopoShapeExpansionTest, searchSubShapeCylinderWrittenAnotherWay)
     EXPECT_TRUE(GeomCylinder(up).isSame(GeomCylinder(down), 1e-7, 1e-10));
     EXPECT_FALSE(GeomCylinder(up).isSame(GeomCylinder(beside), 1e-7, 1e-10));
     EXPECT_FALSE(GeomCylinder(up).isSame(GeomCylinder(wider), 1e-7, 1e-10));
+}
+
+// And an edge on a B-spline written another way: the same points with the
+// parameter running otherwise along them, so the poles and the knots differ
+// (in realthunder/FreeCAD#363 the curves where a cylinder cuts another came
+// back so, 9e-7 off in their poles and 1e-9 as curves). A curve that leaves
+// it between the same ends is not the same.
+TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineWrittenAnotherWay)
+{
+    // Arrange: a helix interpolated at 41 points, three times -- evenly
+    // spaced; spaced unevenly; and on a radius that swells by 2e-6 midway
+    const double pi = std::numbers::pi;
+    const int count = 41;
+    const double sweep = 0.5;
+    auto helix = [&](double shift, double swell) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        Handle(TColStd_HArray1OfReal) params = new TColStd_HArray1OfReal(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double s = double(i) / (count - 1);
+            const double angle = sweep * s + shift * std::sin(3 * pi * s);
+            const double radius = 10 + swell * std::sin(pi * s);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+            params->SetValue(i + 1, s);
+        }
+        GeomAPI_Interpolate interpolate(points, params, false, 1e-9);
+        interpolate.Perform();
+        return interpolate.Curve();
+    };
+    Handle(Geom_BSplineCurve) even = helix(0, 0);
+    Handle(Geom_BSplineCurve) uneven = helix(1e-5, 0);
+    Handle(Geom_BSplineCurve) swollen = helix(0, 2e-6);
+    double poleDistance = 0;
+    for (int i = 1; i <= even->NbPoles(); ++i) {
+        poleDistance = std::max(poleDistance, even->Pole(i).Distance(uneven->Pole(i)));
+    }
+    TopoShape edge {BRepBuilderAPI_MakeEdge(even).Edge()};
+    TopoShape other {BRepBuilderAPI_MakeEdge(uneven).Edge()};
+    std::vector<std::string> names;
+    // Act
+    other.searchSubShape(edge, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    // Assert
+    ASSERT_EQ(even->NbPoles(), uneven->NbPoles());
+    EXPECT_GT(poleDistance, 1e-5);
+    ASSERT_EQ(names.size(), 1);
+    EXPECT_EQ(names[0], "Edge1");
+    EXPECT_TRUE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(uneven), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(uneven).isSame(GeomBSplineCurve(even), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(swollen), 1e-7, 1e-10));
 }
 
 TEST_F(TopoShapeExpansionTest, makEShellInvalid)

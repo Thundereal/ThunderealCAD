@@ -10,8 +10,10 @@
 # The sheet's own names -- its walls and bends as the model, the bend table
 # and the flat's lines have them -- hold as well: a wall or a bend takes the
 # next number of its body when its feature first makes it, and keeps it
-# (WallNumbers, BendNumbers). A number is not handed out again while a feature
-# of the body has it, suppressed or not.
+# (WallNumbers, BendNumbers). A number is not handed out again, its feature
+# deleted or not (ruled 2026-11-11): the body's count of each is the file's,
+# as an object's name is, so a deletion taken back out of order brings back
+# no name another has.
 #
 # Each test: a plate 40 x 20, 1 thick; a flange on its left edge; the feature
 # on the result, clear of that flange. The faces the feature made keep their
@@ -371,3 +373,98 @@ class TestSheetMetalNames(unittest.TestCase):
         self.Doc.recompute()
         self.assertNotIn("Invalid", flange.State)
         self.assertEqual(self.sheet(flange), before)
+
+    # no number twice, the feature that had it deleted or not
+
+    def own(self, feature):
+        """The names of the walls and bends feature made"""
+        return sorted(
+            set(self.sheet(feature).values()) - set(self.sheet(feature.BaseFeature).values())
+        )
+
+    def number(self, name):
+        return int(name[4:])
+
+    def checkNewer(self, flange, gone):
+        """flange's wall and bend are numbered above those of gone, the
+        names a deleted flange had"""
+        made = self.own(flange)
+        self.assertEqual(len(made), 2)
+        self.assertEqual([n[:4] for n in made], [n[:4] for n in gone])
+        for new, old in zip(made, gone):
+            self.assertGreater(self.number(new), self.number(old), (made, gone))
+
+    def testNumberNotGivenAgain(self):
+        """The last flange deleted and another made: it does not take the
+        numbers of the one deleted"""
+        flange = self.rightFlange()
+        gone = self.own(flange)
+        self.Body.removeObject(flange)
+        self.Doc.removeObject(flange.Name)
+        self.Doc.recompute()
+        self.checkNewer(self.rightFlange(), gone)
+
+    def testNumberNotGivenAgainUndone(self):
+        """A flange made and undone, and another made"""
+        self.Doc.UndoMode = 1
+        self.Doc.openTransaction("flange")
+        flange = self.rightFlange()
+        self.Doc.commitTransaction()
+        gone = self.own(flange)
+        self.Doc.undo()
+        self.Doc.recompute()
+        self.assertIsNone(self.Doc.getObject("Flange"))
+        self.Doc.openTransaction("another")
+        again = self.rightFlange()
+        self.Doc.commitTransaction()
+        self.checkNewer(again, gone)
+
+    def testNumberNotGivenAgainReopened(self):
+        """Deleted, the document saved and opened again, and another made:
+        the count is the file's"""
+        flange = self.rightFlange()
+        gone = self.own(flange)
+        self.Body.removeObject(flange)
+        self.Doc.removeObject(flange.Name)
+        self.Doc.recompute()
+        path = os.path.join(tempfile.mkdtemp(), "SheetMetalNames.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        self.Body = self.Doc.getObject("Body")
+        self.Early = self.Doc.getObject("Early")
+        self.checkNewer(self.rightFlange(), gone)
+
+    def testDeletionTakenBackOutOfOrder(self):
+        """A flange deleted, another made, and the deletion taken back from
+        the log, the making of the other left: the flange is back under its
+        names, which the other did not take"""
+        self.Doc.UndoMode = 1
+        self.Doc.openTransaction("flange")
+        flange = self.rightFlange()
+        self.Doc.commitTransaction()
+        had = self.own(flange)
+        self.Doc.openTransaction("delete")
+        self.Body.removeObject(flange)
+        self.Doc.removeObject("Flange")
+        self.Doc.recompute()
+        self.Doc.commitTransaction()
+        self.Doc.openTransaction("another")
+        other = self.Body.newObject("PartDesign::SheetMetalFlange", "Other")
+        other.Edges = (self.Early, [edgeOf(self.Early, (0, 0, 1), (40, 0, 1))])
+        self.Doc.recompute()
+        self.Doc.commitTransaction()
+        self.assertNotIn("Invalid", other.State)
+        made = self.own(other)
+        self.assertEqual(len(made), 2)
+        rows = [r for r in self.Doc.getTransactionLog() if r["kind"] == "user"]
+        seq = [r["seq"] for r in rows if r.get("name") == "delete"][-1]
+        # the body's list of features changed since: that is left as it is
+        self.assertTrue(self.Doc.undoTransactionFromLog([seq], "skip"))
+        self.Doc.recompute()
+        flange = self.Doc.getObject("Flange")
+        self.assertIsNotNone(flange)
+        self.assertNotIn("Invalid", flange.State)
+        self.assertEqual(self.own(flange), had)
+        self.assertEqual(self.own(other), made)
+        self.assertEqual(set(had) & set(made), set())

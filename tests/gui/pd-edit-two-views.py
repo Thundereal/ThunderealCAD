@@ -469,10 +469,17 @@ def run():
         check("the primitive goes in edit beside the fillet",
               (in_edit(gdoc, v1), in_edit(gdoc, v2)) == ("Fillet", "Box"),
               (in_edit(gdoc, v1), in_edit(gdoc, v2)))
-        steps = len(doc.UndoNames)
+        before = {step[0] for step in doc.getUndoSteps()}
         type_into(v2, "boxLength", "12")
+        # By the steps' ids, not the list's length: the list is past the hot
+        # window here (20 steps), and a step that changed nothing -- the
+        # fillet's "OK, recompute" above -- has no row of the log's to go
+        # cold with, so it leaves the list as a new step pushes it out of
+        # the window. Which step does that goes with how many recomputes
+        # fell after their step and not in it, that is with the run's speed.
+        made = [step[1] for step in doc.getUndoSteps() if step[0] not in before]
         check("what is typed into a primitive's box is one step",
-              len(doc.UndoNames) == steps + 1, doc.UndoNames[:3])
+              made == ["Edit Box"] and doc.UndoNames[:1] == made, (made, doc.UndoNames[:3]))
         type_into(v2, "attachmentOffsetX", "3")
         type_into(v1, "filletRadius", "1.7")
         check("the values typed are the features' (primitive)",

@@ -555,3 +555,63 @@ class TestSheetMetalNames(unittest.TestCase):
         self.setEdges(feature, self.FAR, self.NEAR)
         self.assertEqual(factors(), before)
         self.assertAlmostEqual(feature.bendKFactor(second), 0.3, places=12)
+
+    # a base wall and a lofted flange put on a sheet that is there already:
+    # walls and bends of their own beside it, numbered on from it
+
+    def lines(self, points, z, name):
+        sketch = self.Body.newObject("Sketcher::SketchObject", name)
+        sketch.MapMode = "Deactivated"
+        sketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+        for i in range(len(points)):
+            a, b = points[i], points[(i + 1) % len(points)]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        self.Doc.recompute()
+        return sketch
+
+    def checkBeside(self, feature, own):
+        """feature made own walls and bends beside the sheet's, and they
+        and its faces keep their names"""
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        had = set(self.sheet(self.Early).values())
+        names = self.sheet(feature)
+        self.assertEqual(len(set(names.values())), len(names))
+        self.assertTrue(had <= set(names.values()), (had, names))
+        self.assertEqual(len(names) - len(had), own)
+        self.checkSheetNamesHold(feature, own)
+        self.checkNamesHold(feature, 6)
+
+    def testBaseWallOnSheet(self):
+        """A second plate, above the first: one wall more"""
+        wall = self.Body.newObject("PartDesign::SheetMetalBaseWall", "Second")
+        wall.Profile = self.lines([(5, 5), (25, 5), (25, 15), (5, 15)], 30, "SecondSketch")
+        self.checkBeside(wall, 1)
+
+    def testProfileWallOnSheet(self):
+        """A second base wall drawn as a profile: two walls and a bend"""
+        s = self.Body.newObject("Sketcher::SketchObject", "ProfileSketch")
+        s.MapMode = "Deactivated"
+        s.Placement = FreeCAD.Placement(
+            V(0, 10, 30), FreeCAD.Rotation(V(1, 0, 0), V(0, 0, 1), V(0, -1, 0), "ZXY")
+        )
+        for p, q in (((5, 0), (25, 0)), ((25, 0), (25, 12))):
+            s.addGeometry(Part.LineSegment(V(p[0], p[1], 0), V(q[0], q[1], 0)))
+        self.Doc.recompute()
+        wall = self.Body.newObject("PartDesign::SheetMetalBaseWall", "Second")
+        wall.Profile = s
+        wall.Length = 10
+        self.checkBeside(wall, 3)
+
+    def testLoftedFlangeOnSheet(self):
+        """A duct above the plate, a square to the same square: four walls
+        and their bends, open along one corner"""
+        square = [(10, 5), (22, 5), (22, 17), (10, 17)]
+        loft = self.Body.newObject("PartDesign::SheetMetalLoftedFlange", "Loft")
+        loft.Profile = self.lines(square, 30, "LoftBottom")
+        loft.Section = self.lines(square, 50, "LoftTop")
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        own = len(self.sheet(loft)) - len(self.sheet(self.Early))
+        self.assertGreaterEqual(own, 7)
+        self.checkBeside(loft, own)

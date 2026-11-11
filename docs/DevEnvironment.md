@@ -4486,11 +4486,13 @@ Three fixes in source, none of them arm64's own:
 
 **The suites are not green here yet.** First run, 2026-11-11, `main` at
 `2cf90d50b6`: C++ **1114 of 1121**, Python **5131 tests, 19 failures, 2
-errors**. After the fixes below, `main` at `df8f1f3357` with OCCT at
-`759ca3cce5`: C++ **1118 of 1119** with the two `RenderGolden` tests left
-out (`QT_QPA_PLATFORM=offscreen ctest -j 4 -E '^RenderGolden'`, 39 s),
-Python **5133 tests, 18 failures, 2 errors**, 473 skipped, 6 expected
-failures (`ThunderealCmd -t 0` under `script`, 280 s).
+errors**. After the fixes below, `main` at `0418e879c9` with OCCT at
+`08ca431659` and libarea 0.3.3: C++ **1118 of 1119** with the two
+`RenderGolden` tests left out
+(`QT_QPA_PLATFORM=offscreen ctest -j 4 -E '^RenderGolden'`, 50 s), Python
+**5133 tests, 15 failures, 2 errors**, 473 skipped, 6 expected failures
+(`ThunderealCmd -t 0` under `script`, 286 s) -- all seventeen the symlinked
+temp folder's, below.
 
 What was found and fixed:
 
@@ -4498,17 +4500,20 @@ What was found and fixed:
 |---|---|---|
 | `FormulaEvaluator.valuesMatchOndselSolver`, `derivativesMatchOndselSolver` | **libc++'s `operator>>(double)` consumes the `d` of `1.5d-1`**, fails and leaves 0; libstdc++ stops at the `d`. On macOS OndselSolver read such a term as 0 | OndselSolver `015de97`: `SymbolicParser::xDigit` takes the digits itself |
 | `PublishOnly.noGraphicsDeviceIsCreated` | Cycles' `g_bvh_build_throttler`, a global in `device/metal/bvh.mm`, called `MTLCreateSystemDefaultDevice()` in its constructor: every process that loaded `libFreeCADRenderer` had `AGXMetalG14G.bundle` mapped before `main()`. Found with `DYLD_PRINT_LIBRARIES=1 DYLD_PRINT_INITIALIZERS=1` and `nm -n` on the initializer's address | cycles `b63d8b234`: the limit is asked on the first build |
-| `AssemblyTests.TestJoints.TestSolveStatus.test_malformed`, `MeshTwin.landsWhatAMeshInPlaceGives`, `CAMTests.TestPathProfile` `test01` to `test03` | **floating-point contraction.** GCC and Clang fuse `a*b+c` into one `fma` where the target has it -- every arm64, not the x86-64 baseline -- and it rounds once where the two operations round twice. The assembly solver dropped a constraint of the wrong one of two conflicting joints; BRepMesh left a face at a deflection of 0.080 with 0.05 asked; libarea split an arc into a line and an arc | `-ffp-contract=off` in three places, each proved by building that part alone with it: FreeCAD (`CompilerChecksAndSetups.cmake`), OCCT (`adm/cmake/occt_defs_flags.cmake`, beside MSVC's `/fp:precise`), libarea (`CMakeLists.txt`, `ecd12ff`) |
+| `AssemblyTests.TestJoints.TestSolveStatus.test_malformed`, `MeshTwin.landsWhatAMeshInPlaceGives`, `CAMTests.TestPathProfile` `test01` to `test03` | **floating-point contraction.** GCC and Clang fuse `a*b+c` into one `fma` where the target has it -- every arm64, not the x86-64 baseline -- and it rounds once where the two operations round twice. The assembly solver dropped a constraint of the wrong one of two conflicting joints; BRepMesh left a face at a deflection of 0.080 with 0.05 asked; libarea split an arc into a line and an arc | `-ffp-contract=off` in three places, each proved by building that part alone with it: FreeCAD (`CompilerChecksAndSetups.cmake`), OCCT (`adm/cmake/occt_defs_flags.cmake`, beside MSVC's `/fp:precise`, `08ca431659`), libarea (`CMakeLists.txt`, 0.3.3) |
 | `SurfaceTests.TestEdgeConditions.testFillOfTwoCurvesG1` -- **new with the flag** | the test, not the feature: `angleAlong()` projected a point of the shared edge onto the fill, and a fill of two curves that meet has two corners at that point. Which one came back turned on the last bit; the feature had reached 0.03 deg | the test reads the edge's own curve on the face |
 
-**OCCT has to be rebuilt after pulling `759ca3cce5`**, and FreeCAD needs no
-rebuild for that. **The CAM three still fail here**: the `libarea` in the env
-is the channel's package, built with contraction (`otool -tv` on it counts
-792 fused instructions; a build with the flag has none). They pass with a
-libarea built from `ecd12ff` put in front by `DYLD_LIBRARY_PATH`; the package
-has to be built again for osx-arm64 and linux-aarch64. libarea's own
-`area_ops_test` fails four cases on this box with and without the flag, to
-the same digits -- not looked into.
+**OCCT has to be rebuilt after pulling `08ca431659`**, and FreeCAD needs no
+rebuild for that. **libarea has to be 0.3.3**
+(`mamba install -p .conda/freecad -c realthunder -c conda-forge libarea=0.3.3`):
+0.3.2 was built with contraction on arm64 -- `otool -tv` on it counts 792
+fused instructions, 0.3.3 has none -- and the CAM three fail on it. libarea's
+own `area_ops_test` fails four cases on this box with and without the flag,
+to the same digits -- not looked into.
+
+**The first launch of a test binary just linked can outlast gtest's five
+second discovery** on macOS, and `ctest` then stops before running anything
+("Error running test executable ... Timeout: '5'"). Run `ctest` again.
 
 Still failing, and not for this box to settle:
 

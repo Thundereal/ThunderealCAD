@@ -4536,6 +4536,94 @@ Phase D1 is under way (2026-10-28):
     0.0293); at the end 18.71 N and 3.51 N for a beam's 18.33 and 3.48,
     the strip's root at 114.5 MPa for a beam's 114.1; the run of 0.1 s,
     526 frames, 119 s.
+- Built, D4b step 13 (2026-11-12): step 12's limits.
+  - **A contact standing under a changing load steps as a resting one
+    does.** `resting()` judges a load's depth over a window of one of its
+    periods (or of the last substep, where that was longer), not over all
+    of the time since it came to rest; the window's rate of depth sets the
+    substep a settled load allows, `standingStep()`: the time its depth
+    takes to move half the 2% `resting()` allows. Before, the range since
+    rest grew past 2% under a load a motion kept raising, the load fell out
+    of rest, the substep was taken back, and five periods were stepped at a
+    fiftieth of one before it settled again, over and over. The strip
+    between two bars (step 12), mesh 8: on the materials' law (Hertz) 0.1 s
+    in 44.9 s, 209.7 s before (48.6 s on the step's last build); at 1000
+    N/mm 36.5 s, 43.0 before (39.2). The
+    forces as they were: over the last fifth 18.203 N and 3.410 N for
+    18.204 and 3.413; the largest difference at any frame 0.095 N, at the
+    upper bar's blow. TestContact 63 in 81 s (89.5 before).
+  - **A round face touched anywhere is its elements' face, quadratic, not
+    flat** (`ChronoFlexible::Surface`). The mesh is of the second order and
+    Netgen (SMESH's quadratic helper) puts the edges' nodes on the face: on
+    a rod R 5 at a 4 mm mesh every one is at R to 1e-6 mm, the faces'
+    middles 0.198 mm in on their flat triangles, 0.0005 mm on the
+    quadratic faces. So:
+    - a face whose edges' nodes are off their edges' middles is four flat
+      triangles through them for collision detection, a quarter of its
+      sagitta; a flat face stays one (its quarters doubled the two bars'
+      time and changed nothing);
+    - a point found on one is placed on the face, by the six-node
+      triangle's shape functions, and its map onto the reduced coordinates
+      is the face's too -- each point six nodes, those of no weight left
+      out (`refresh()`);
+    - against a face of A (the point's normal A's face's own,
+      `Point::face`), the point goes to the face's farthest point towards
+      A, `Surface::farthest()`, A's point slid along with it: the flat
+      triangle's nearest is a corner or an edge, where the face and the
+      triangle are one, so placing the point alone changed nothing (the
+      rod's force ran from 23 to 124 N). Only to a point where the face
+      curves to A -- stationary inside it or along a curved edge, not a
+      corner a straight way runs to -- and only as far in as the face
+      stands out of its triangles (`Surface::bulge()`, 1.5 times). Both
+      found by a trace: the plate's end, where Bullet took the end face for
+      points of the rod sunk into the top past it, the normal along the
+      rod, sent the farthest point to the face's end along the rod's
+      straight, 0.11 mm in, 200 N for 46; and a normal leaning 1.3 deg
+      there, 1.4 mm along, read 0.033 mm deep;
+    - the carrier's envelope is wider by the bulge, and so is the reach
+      a cylinder's points on a mesh triangle are taken within: a triangle
+      is grown by its model's envelope alone (Chrono's Bullet, its
+      thickness its margin), and a face pressing where its triangles clear
+      the other part is found.
+    The rod R 5 x 40 hinged on its axis at an end face, turned one
+    revolution in 0.1 s on a plate 0.05 mm into its round, 1000 N/mm, no
+    friction: over the turn (0.03 s on) the force from 42.5 to 46.7 N, its
+    mean 44.9, in 6.4 s (mesh 4); 42.4 to 46.7 in 10.4 s (mesh 2). Its
+    faces flat, as in step 12 (the same build, all its faces taken flat):
+    0 to 104.5 N, the plate lost as each face rolled by, 23.0 s; at mesh
+    2, 0 to 80 N, 100.5 s.
+  - **The friction's fall stays out of the flexible part's matrix**, as
+    measured: with mu' along the sliding where mu falls from the static to
+    the dynamic, the strip between two bars ran at 1000 N/mm in 34.9 and
+    35.7 s for 36.2 and 36.0 without, on the materials' law 47.1 s for
+    44.7, its forces the same to the last digit both ways. The fall, from
+    0.1 to 10.16 mm/s, is 7.5 s/m at its steepest against the rise's 4500
+    (the default law); a damper that drives, kept out for no gain. (A
+    switch read from the environment at each point cost the run three
+    times its time: a getenv() per point per force, the stiff loads'
+    Jacobians by differences.)
+  - Limits.
+    - Against a round (a cylinder's points on the mesh, or a mesh's round),
+      the point stays on the face where the triangle has it: A's surface
+      falls away from the plane square to the normal. A quarter of the
+      flat face's sagitta, then.
+    - A part that runs on past the edge of a box it presses into: Bullet
+      takes the box's end face for some points of it, the normal along
+      the part, a penalty contact's edge -- the rod on a plate ending under
+      it pressed some 110 N for 46 at times. Not the faces'; flat faces
+      have it too.
+    - Two flexible parts touching each other anywhere are still refused:
+      a load's side A on a mesh of its own, its forces on A's reduced
+      coordinates, and a block coupling two parts' reduced variables, which
+      `FlexibleContact`'s, one part's, is not; Bullet finds a moving mesh's
+      triangles against another's.
+  - Tests: TestFlexibleBody.test_round_anywhere (the rod: within a tenth
+    of its mean over the turn, the mean under a rigid rod's 50 N; 9.6 s).
+    The rest hold: TestFlexibleBody 19, TestDynamics 90, TestJointFriction
+    4, TestContact 63; ctest 25; TestGuiCommands 76.
+  - The manual's page (`assembly/simulation/flexible-contact`) has the rod
+    turned on the plate, mesh 4: over the turn 42.1 to 46.7 N, the median
+    45.0; the run of 0.1 s, 504 frames, 10.5 s.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

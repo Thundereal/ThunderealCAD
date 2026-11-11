@@ -465,7 +465,9 @@ ChronoFlexible::Surface::Surface(const Flexible& flexible)
     }
     // Each tetrahedron's four faces by their corners, sorted: those met once
     // are the surface's, turned to face away from the tetrahedron's fourth
-    // corner -- out of the body, a collision triangle being one sided
+    // corner -- out of the body, a collision triangle being one sided. Each
+    // with its edges' nodes, the tetrahedron's (0 1) 4, (1 2) 5, (0 2) 6,
+    // (0 3) 7, (1 3) 8, (2 3) 9
     struct Hash
     {
         std::size_t operator()(const std::array<Id, 3>& k) const
@@ -475,38 +477,113 @@ ChronoFlexible::Surface::Surface(const Flexible& flexible)
             return h * 1000003u ^ std::hash<Id>()(k[2]);
         }
     };
-    std::unordered_map<std::array<Id, 3>, std::pair<int, std::array<Id, 4>>, Hash> faces;
-    faces.reserve(4 * flexible.tetrahedra.size());
+    // A face: its corners, the tetrahedron's fourth, and the edges' nodes
+    // (0 1), (1 2), (2 0)
+    struct Found
+    {
+        int count = 0;
+        std::array<Id, 4> corners {};
+        std::array<Id, 3> edges {};
+    };
+    static const std::array<std::array<int, 2>, 6> edgeOf {
+        {{0, 1}, {1, 2}, {0, 2}, {0, 3}, {1, 3}, {2, 3}}};
+    std::unordered_map<std::array<Id, 3>, Found, Hash> found;
+    found.reserve(4 * flexible.tetrahedra.size());
     for (const auto& tet : flexible.tetrahedra) {
-        const std::array<std::array<Id, 4>, 4> four {{{tet[0], tet[1], tet[2], tet[3]},
-                                                      {tet[0], tet[1], tet[3], tet[2]},
-                                                      {tet[0], tet[2], tet[3], tet[1]},
-                                                      {tet[1], tet[2], tet[3], tet[0]}}};
+        auto between = [&](int i, int j) {
+            for (std::size_t e = 0; e < edgeOf.size(); ++e) {
+                if ((edgeOf[e][0] == i && edgeOf[e][1] == j)
+                    || (edgeOf[e][0] == j && edgeOf[e][1] == i)) {
+                    return tet[4 + e];
+                }
+            }
+            return tet[i];
+        };
+        const std::array<std::array<int, 4>, 4> four {
+            {{0, 1, 2, 3}, {0, 1, 3, 2}, {0, 2, 3, 1}, {1, 2, 3, 0}}};
         for (const auto& face : four) {
-            std::array<Id, 3> key {face[0], face[1], face[2]};
+            std::array<Id, 3> key {tet[face[0]], tet[face[1]], tet[face[2]]};
             std::sort(key.begin(), key.end());
-            auto& entry = faces[key];
-            ++entry.first;
-            entry.second = face;
+            auto& entry = found[key];
+            ++entry.count;
+            entry.corners = {tet[face[0]], tet[face[1]], tet[face[2]], tet[face[3]]};
+            entry.edges = {between(face[0], face[1]),
+                           between(face[1], face[2]),
+                           between(face[2], face[0])};
         }
     }
     double edges = 0.0;
-    for (const auto& [key, entry] : faces) {
-        if (entry.first != 1 || key[2] >= points.size() || entry.second[3] >= points.size()) {
+    for (const auto& [key, entry] : found) {
+        if (entry.count != 1 || key[2] >= points.size() || entry.corners[3] >= points.size()) {
             continue;
         }
-        std::array<Id, 3> t {entry.second[0], entry.second[1], entry.second[2]};
-        if (ch::Vdot(ch::Vcross(points[t[1]] - points[t[0]], points[t[2]] - points[t[0]]),
-                     points[entry.second[3]] - points[t[0]])
+        std::array<Id, 6> f {entry.corners[0],
+                             entry.corners[1],
+                             entry.corners[2],
+                             entry.edges[0],
+                             entry.edges[1],
+                             entry.edges[2]};
+        if (ch::Vdot(ch::Vcross(points[f[1]] - points[f[0]], points[f[2]] - points[f[0]]),
+                     points[entry.corners[3]] - points[f[0]])
             > 0.0) {
-            std::swap(t[1], t[2]);
+            // b and c swapped: the edges (0 1) and (2 0) too
+            f = {f[0], f[2], f[1], f[5], f[4], f[3]};
         }
-        corners.push_back(t);
-        edges += (points[t[1]] - points[t[0]]).Length() + (points[t[2]] - points[t[1]]).Length()
-            + (points[t[0]] - points[t[2]]).Length();
+        // Curved: its edges' nodes near their edges' middles, one off it. A
+        // flat face's quarters cost the strip between two bars twice its
+        // time, four times the points, and changed nothing; and a mesh of
+        // the first order, or one whose nodes are not where they should be,
+        // is flat
+        bool middles = true;
+        bool off = false;
+        for (int e = 0; e < 3 && middles; ++e) {
+            const Id m = f[3 + e];
+            const ch::ChVector3d& a = points[f[e]];
+            const ch::ChVector3d& b = points[f[(e + 1) % 3]];
+            const double along = (b - a).Length();
+            const double from = m < points.size() ? (points[m] - (a + b) * 0.5).Length() : 0.0;
+            middles =
+                m < points.size() && m != f[e] && m != f[(e + 1) % 3] && from <= 0.25 * along;
+            off = off || from > 1e-6 * along;
+        }
+        const bool curved = middles && off;
+        const auto face = static_cast<std::uint32_t>(faces.size());
+        if (curved) {
+            // The four: a ab ca, ab b bc, ca bc c, and ab bc ca in the middle
+            static const std::array<std::array<int, 3>, 4> quarters {
+                {{0, 3, 5}, {3, 1, 4}, {5, 4, 2}, {3, 4, 5}}};
+            for (std::uint8_t q = 0; q < 4; ++q) {
+                corners.push_back({f[quarters[q][0]], f[quarters[q][1]], f[quarters[q][2]]});
+                pieces.emplace_back(face, q);
+            }
+        }
+        else {
+            f[3] = f[4] = f[5] = f[0];
+            corners.push_back({f[0], f[1], f[2]});
+            pieces.emplace_back(face, std::uint8_t(4));
+        }
+        faces.push_back(f);
+        edges += (points[f[1]] - points[f[0]]).Length() + (points[f[2]] - points[f[1]]).Length()
+            + (points[f[0]] - points[f[2]]).Length();
     }
     if (corners.empty()) {
         return;
+    }
+    // How far the faces stand off their triangles: at each one's middle and
+    // its edges' middles, the face's point against the triangle's
+    for (std::size_t i = 0; i < corners.size(); ++i) {
+        if (pieces[i].second > 3) {
+            continue;
+        }
+        static const std::array<std::array<double, 3>, 4> samples {
+            {{1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0}, {0.5, 0.5, 0.0}, {0.0, 0.5, 0.5}, {0.5, 0.0, 0.5}}};
+        const auto& t = corners[i];
+        for (const auto& w : samples) {
+            Place place;
+            onFace(i, w, place);
+            const ch::ChVector3d flat = points[t[0]] * w[0] + points[t[1]] * w[1] + points[t[2]] * w[2];
+            most = std::max(most, (place.at - flat).Length());
+        }
     }
     // The grid: cells twice the triangles' mean edge, at most 2e6 of them
     low = ch::ChVector3d(std::numeric_limits<double>::max());
@@ -518,7 +595,7 @@ ChronoFlexible::Surface::Surface(const Flexible& flexible)
         }
     }
     const ch::ChVector3d extent = high - low;
-    cell = std::max(2.0 * edges / (3.0 * static_cast<double>(corners.size())),
+    cell = std::max(2.0 * edges / (3.0 * static_cast<double>(faces.size())),
                     1e-9 * std::max(extent.Length(), 1e-12));
     auto counts = [&] {
         for (int k = 0; k < 3; ++k) {
@@ -558,6 +635,115 @@ std::array<double, 3> ChronoFlexible::Surface::weights(const ch::ChVector3d& p,
     return nearestOnTriangle(p, a, b, c);
 }
 
+void ChronoFlexible::Surface::onFace(std::size_t i,
+                                     const std::array<double, 3>& w,
+                                     Place& place) const
+{
+    const auto [face, piece] = pieces[i];
+    const auto& f = faces[face];
+    place.nodes = f;
+    place.weights = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    if (piece > 3) {
+        place.weights[0] = w[0];
+        place.weights[1] = w[1];
+        place.weights[2] = w[2];
+    }
+    else {
+        // The face's area coordinates at the piece's corners, its nodes'
+        static const std::array<std::array<double, 3>, 6> at {{{1.0, 0.0, 0.0},
+                                                               {0.0, 1.0, 0.0},
+                                                               {0.0, 0.0, 1.0},
+                                                               {0.5, 0.5, 0.0},
+                                                               {0.0, 0.5, 0.5},
+                                                               {0.5, 0.0, 0.5}}};
+        static const std::array<std::array<int, 3>, 4> quarters {
+            {{0, 3, 5}, {3, 1, 4}, {5, 4, 2}, {3, 4, 5}}};
+        std::array<double, 3> L {0.0, 0.0, 0.0};
+        for (int k = 0; k < 3; ++k) {
+            for (int j = 0; j < 3; ++j) {
+                L[j] += w[k] * at[quarters[piece][k]][j];
+            }
+        }
+        place.weights = shape(L);
+    }
+    place.at = ch::VNULL;
+    for (int k = 0; k < 6; ++k) {
+        place.at += points[f[k]] * place.weights[k];
+    }
+}
+
+std::array<double, 6> ChronoFlexible::Surface::shape(const std::array<double, 3>& L)
+{
+    return {L[0] * (2.0 * L[0] - 1.0),
+            L[1] * (2.0 * L[1] - 1.0),
+            L[2] * (2.0 * L[2] - 1.0),
+            4.0 * L[0] * L[1],
+            4.0 * L[1] * L[2],
+            4.0 * L[2] * L[0]};
+}
+
+std::array<double, 3> ChronoFlexible::Surface::farthest(const std::array<ch::ChVector3d, 6>& x,
+                                                        const ch::ChVector3d& d,
+                                                        bool* curve)
+{
+    // d . x over the face is the quadratic through the nodes' d . x: in
+    // s = L[1], t = L[2], g = c0 + c1 s + c2 t + c3 s^2 + c4 s t + c5 t^2,
+    // its most on the triangle at a stationary point inside, on an edge or
+    // at a corner
+    std::array<double, 6> p {};
+    for (int k = 0; k < 6; ++k) {
+        p[k] = ch::Vdot(d, x[k]);
+    }
+    const double c0 = p[0];
+    const double c1 = -3.0 * p[0] - p[1] + 4.0 * p[3];
+    const double c2 = -3.0 * p[0] - p[2] + 4.0 * p[5];
+    const double c3 = 2.0 * (p[0] + p[1]) - 4.0 * p[3];
+    const double c5 = 2.0 * (p[0] + p[2]) - 4.0 * p[5];
+    const double c4 = 4.0 * (p[4] - c0 - 0.5 * c1 - 0.5 * c2 - 0.25 * c3 - 0.25 * c5);
+    auto g = [&](double s, double t) {
+        return c0 + c1 * s + c2 * t + c3 * s * s + c4 * s * t + c5 * t * t;
+    };
+    double bestS = 0.0;
+    double bestT = 0.0;
+    double best = g(0.0, 0.0);
+    bool stationary = false;
+    auto consider = [&](double s, double t, bool still) {
+        if (!(s >= 0.0 && t >= 0.0 && s + t <= 1.0)) {
+            return;
+        }
+        const double v = g(s, t);
+        if (v > best) {
+            best = v;
+            bestS = s;
+            bestT = t;
+            stationary = still;
+        }
+    };
+    consider(1.0, 0.0, false);
+    consider(0.0, 1.0, false);
+    // The edges t = 0, s = 0 and s + t = 1, where curved
+    if (c3 < 0.0) {
+        consider(-c1 / (2.0 * c3), 0.0, true);
+    }
+    if (c5 < 0.0) {
+        consider(0.0, -c2 / (2.0 * c5), true);
+    }
+    const double a = c3 - c4 + c5;
+    if (a < 0.0) {
+        const double s = -(c1 - c2 + c4 - 2.0 * c5) / (2.0 * a);
+        consider(s, 1.0 - s, true);
+    }
+    // Inside: the gradient nought, a most where the face curves to d
+    const double det = 4.0 * c3 * c5 - c4 * c4;
+    if (det > 0.0 && c3 < 0.0) {
+        consider((-c1 * 2.0 * c5 + c2 * c4) / det, (-c2 * 2.0 * c3 + c1 * c4) / det, true);
+    }
+    if (curve) {
+        *curve = stationary;
+    }
+    return {1.0 - bestS - bestT, bestS, bestT};
+}
+
 bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) const
 {
     if (corners.empty()) {
@@ -572,6 +758,8 @@ bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) con
     }
     double best = std::numeric_limits<double>::max();
     bool found = false;
+    std::size_t nearestOne = 0;
+    std::array<double, 3> nearestWeights {};
     const int most = std::max({count[0], count[1], count[2]});
     for (int r = 0; r <= most; ++r) {
         for (int x = at[0] - r; x <= at[0] + r; ++x) {
@@ -593,9 +781,8 @@ bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) con
                         if (d < best) {
                             best = d;
                             found = true;
-                            place.nodes = t;
-                            place.weights = w;
-                            place.at = q;
+                            nearestOne = i;
+                            nearestWeights = w;
                         }
                     }
                 }
@@ -604,6 +791,9 @@ bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) con
         if (found && best <= r * cell) {
             break;
         }
+    }
+    if (found) {
+        onFace(nearestOne, nearestWeights, place);
     }
     return found;
 }

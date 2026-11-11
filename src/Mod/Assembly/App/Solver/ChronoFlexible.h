@@ -33,6 +33,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include <chrono/core/ChFrame.h>
@@ -83,20 +84,25 @@ Built build(chrono::ChSystem& sys,
             const std::vector<Interface>& interfaces);
 
 // A flexible body's mesh surface, for a contact anywhere on it (D4b): the
-// tetrahedra's faces no other shares, as triangles of their corners wound
-// to face out of the body, in the body's frame, and a grid of them for the
-// one nearest a point
+// tetrahedra's faces no other shares, wound to face out of the body, in the
+// body's frame, each its six nodes -- the elements' own surface, quadratic,
+// a round face's to second order. A curved one is four flat triangles
+// through its edges' nodes for collision detection, a quarter of the flat
+// face's sagitta, a flat one its own; a point found on one is placed on the
+// face (onFace(), farthest()). A grid of the triangles for the one nearest
+// a point
 class Surface
 {
 public:
     explicit Surface(const Flexible& flexible);
 
-    // A place on it: a triangle's corners (the mesh's nodes), the weights of
-    // the point on it, and that point, in the body's frame
+    // A place on it: its face's nodes -- the corners, then the nodes of the
+    // edges (0 1), (1 2) and (2 0) -- the weights of the point on them, the
+    // face's shape functions there, and that point, in the body's frame
     struct Place
     {
-        std::array<Id, 3> nodes {};
-        std::array<double, 3> weights {};
+        std::array<Id, 6> nodes {};
+        std::array<double, 6> weights {};
         chrono::ChVector3d at;
     };
     // The place nearest p, in the body's frame; false when it has none
@@ -106,9 +112,35 @@ public:
                                          const chrono::ChVector3d& a,
                                          const chrono::ChVector3d& b,
                                          const chrono::ChVector3d& c);
+    // The point of triangle i at weights w on its corners, on its face:
+    // place's nodes and weights, and its point at rest
+    void onFace(std::size_t i, const std::array<double, 3>& w, Place& place) const;
+    // Whether triangle i is a quarter of a curved face; that face's nodes
+    bool curved(std::size_t i) const
+    {
+        return pieces[i].second < 4;
+    }
+    const std::array<Id, 6>& faceOf(std::size_t i) const
+    {
+        return faces[pieces[i].first];
+    }
+    // The six-node triangle's shape functions at area coordinates L
+    static std::array<double, 6> shape(const std::array<double, 3>& L);
+    // The point of the quadratic face through x (its nodes in Place's
+    // order) farthest along d, as its area coordinates; curve, whether the
+    // face curves to it -- the way along d stationary there, inside it or
+    // along a curved edge, not a corner a straight way runs to
+    static std::array<double, 3> farthest(const std::array<chrono::ChVector3d, 6>& x,
+                                          const chrono::ChVector3d& d,
+                                          bool* curve = nullptr);
     std::size_t size() const
     {
         return corners.size();
+    }
+    // The farthest a face stands off its flat triangles, at rest
+    double bulge() const
+    {
+        return most;
     }
     // The mesh's nodes at rest, in the body's frame, and the triangles, of
     // those nodes: for a collision mesh of it that the nodes move
@@ -123,7 +155,13 @@ public:
 
 private:
     std::vector<chrono::ChVector3d> points;
+    // The faces' six nodes; each triangle's face and which piece of it,
+    // 0 to 3 a quarter (Surface()), 4 the whole: a flat face, its edges'
+    // nodes at their middles, or one whose edges' nodes are not near them
+    std::vector<std::array<Id, 6>> faces;
+    std::vector<std::pair<std::uint32_t, std::uint8_t>> pieces;
     std::vector<std::array<Id, 3>> corners;
+    double most = 0.0;
     chrono::ChVector3d low;
     double cell = 1.0;
     std::array<int, 3> count {1, 1, 1};

@@ -822,6 +822,83 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertLess(max(under), 1.5 * want[-1][0])
         self.assertLess(max(over), 1.5 * want[-1][1])
 
+    def test_round_anywhere(self):
+        """A round face of a flexible part touched anywhere is its elements'
+        quadratic faces, not their flat triangles (D4b step 13). A rod R 5 x
+        40 held by a hinge on its axis at an end face, turned one revolution
+        in 0.1 s by a motion, a grounded plate under it 0.05 mm into its
+        round, the contact 1000 N/mm, no friction or gravity. Its faces at
+        a 4 mm mesh stand 0.2 mm out of their flat triangles: on those the
+        force ran from 0 to 104 N as they rolled by, the plate lost each
+        time. On the faces it holds within a tenth over the turn, under the
+        50 N of a rigid rod pressed 0.05 mm"""
+        import CommandCreateContact
+
+        mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
+        JointObject.GroundedJoint(ground, mount)
+        rod = self.assembly.newObject("Part::Cylinder", "Rod")
+        rod.Radius = 5
+        rod.Height = 40
+        rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90)
+        plate = self.box("Plate", (55, 20, 5), (-10, -10, -10 + 0.05))
+        held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
+        JointObject.GroundedJoint(held, plate)
+        self.doc.recompute()
+        # Its end face at x = 0
+        end = next(
+            "Face%d" % (i + 1)
+            for i, face in enumerate(rod.Shape.Faces)
+            if face.Surface.__class__.__name__ == "Plane" and abs(face.CenterOfMass.x) < 1e-6
+        )
+        hinge = self.joints.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (mount, ["Face2"])
+        hinge.Reference2 = (rod, [end])
+        hinge.Placement1 = plc(10, 10, 10, App.Vector(0, 1, 0), 90)
+        hinge.Placement2 = plc(0, 0, 0)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, [rod], [plate])
+        contact.StiffnessFrom = "Value"
+        contact.Stiffness = 1000.0
+        contact.Exponent = 1.0
+        contact.FrictionFrom = "Value"
+        contact.StaticFriction = 0.0
+        contact.DynamicFriction = 0.0
+        sim = self.study(0.1, 2e-4)
+        sim.GravityEnabled = False
+        sim.Elements = [contact]
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = hinge
+        motion.MotionType = "Angular"
+        motion.Control = "Position"
+        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi)
+        body = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        body.MeshSize = 4.0
+        FlexibleBodies.prepare(body)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        values = [
+            c["Values"]
+            for c in results["Channels"]
+            if c["Quantity"] == "ContactNormalForce" and c["Name"] == contact.Name
+        ]
+        self.assertEqual(len(values), 1)
+        turning = [
+            v.Length * 1e-3 for t, v in zip(results["Times"], values[0]) if 0.03 <= t <= 0.1
+        ]
+        mean = sum(turning) / len(turning)
+        print("a round anywhere: over the turn %.4g N, from %.4g to %.4g"
+              % (mean, min(turning), max(turning)))
+        self.assertGreater(mean, 35.0)
+        self.assertLess(mean, 50.0)
+        self.assertGreater(min(turning), 0.9 * mean)
+        self.assertLess(max(turning), 1.1 * mean)
+
     def renew(self):
         """A new document for a second run, as setUp's"""
         App.closeDocument(self.doc.Name)

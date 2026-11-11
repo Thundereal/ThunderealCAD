@@ -1108,7 +1108,10 @@ public:
                     // The friction's rate with the sliding velocity: mu N / v
                     // across it, and along it mu' N where mu rises with the
                     // speed -- not where it falls from the static to the
-                    // dynamic, a damper that drives
+                    // dynamic, a damper that drives. With the fall, the strip
+                    // between two bars ran in the same time, its forces the
+                    // same to the last digit: the fall is a six-hundredth as
+                    // steep as the rise
                     const Eigen::Vector3d n = point.normal.eigen();
                     const Eigen::Vector3d along = sliding.eigen() / speed;
                     const double u = speed / law.vStiction;
@@ -1238,13 +1241,18 @@ public:
     // from then on
     double impact = 0.0;
     // Whether it rests (contactStep(), advance()): the range its deepest
-    // point's depth has kept, for how long, and the shortest period of its
-    // points on their springs
+    // point's depth has kept over the window now, for how long it has, and
+    // the shortest period of its points on their springs
     double low = 0.0;
     double high = 0.0;
     double calm = 0.0;
     double period = 0.0;
     bool settled = false;
+    // The window: its depth where it began and how long since, and the
+    // depth's rate over the last one, m/s -- how fast a standing load moves
+    double mark = 0.0;
+    double since = 0.0;
+    double drift = 0.0;
     // Whether it pressed at the end of the last substep kept, for the
     // contact events (advance())
     bool touching = false;
@@ -1303,11 +1311,11 @@ public:
 
     // A flexible part's side B, a contact anywhere on it (D4b,
     // FlexibleContact): each point's place on its mesh's surface -- a
-    // triangle's corners and the point's weights on them, and the point's
-    // offset from that place in the carrier's (B's) axes -- and where the
-    // part's modes have it now, absolute, its velocity and its map onto the
-    // part's reduced coordinates. The forces of those points on B go to those
-    // coordinates (forcesOnB), not to B
+    // face's six nodes and the point's weights on them (Surface::Place), and
+    // the point's offset from that place in the carrier's (B's) axes -- and
+    // where the part's modes have it now, absolute, its velocity and its map
+    // onto the part's reduced coordinates. The forces of those points on B go
+    // to those coordinates (forcesOnB), not to B
     FlexibleContact* flexible = nullptr;
     // Its bodies the other way round from its set's groups: A from the set's
     // second, B from its first -- a flexible part touched anywhere is B. The
@@ -1316,8 +1324,8 @@ public:
     struct OnMesh
     {
         bool placed = false;
-        std::array<Id, 3> nodes {};
-        std::array<double, 3> weights {};
+        std::array<Id, 6> nodes {};
+        std::array<double, 6> weights {};
         ch::ChVector3d offset;
         ch::ChVector3d at;
         ch::ChVector3d speed;
@@ -1400,20 +1408,24 @@ public:
     // the run's reach of 0.1 mm -- 62 kN on 21 g. None when it could not be
     // made: the part's own shapes ride the carrier then
     std::shared_ptr<ch::ChTriangleMeshConnected> mesh;
-    // Each vertex's node, by the record's numbers
+    // Each vertex's node, by the record's numbers, and each node's vertex;
+    // each triangle's in the surface's, by its vertices sorted
     std::vector<Id> meshNodes;
+    std::vector<int> vertexOf;
+    std::map<std::array<int, 3>, std::size_t> triangleOf;
 
     // Once the assembly is reduced, and before the carrier has its shapes
     bool makeMesh()
     {
         mesh.reset();
         meshNodes.clear();
+        triangleOf.clear();
         if (!surface || !assembly) {
             return false;
         }
         const auto& points = surface->nodes();
         auto made = std::make_shared<ch::ChTriangleMeshConnected>();
-        std::vector<int> vertexOf(points.size(), -1);
+        vertexOf.assign(points.size(), -1);
         std::vector<const ch::fea::ChNodeFEAxyz*> moving;
         for (const auto& triangle : surface->triangles()) {
             int corners[3] = {0, 0, 0};
@@ -1432,6 +1444,9 @@ public:
                 }
                 corners[k] = vertexOf[n];
             }
+            std::array<int, 3> key {corners[0], corners[1], corners[2]};
+            std::sort(key.begin(), key.end());
+            triangleOf.emplace(key, made->GetIndicesVertexes().size());
             made->GetIndicesVertexes().emplace_back(corners[0], corners[1], corners[2]);
         }
         if (meshNodes.empty() || !assembly->GetInternalNodesShapes(moving, shapes)) {
@@ -1456,9 +1471,11 @@ public:
     }
 
     // Each point of a load just found to its place on the surface, then
-    // where it is now: on the mesh's triangle it was found on, as the
-    // triangle is; one of no triangle of the mesh's (the part's own shapes
-    // on the carrier), on the surface nearest as the carrier has it at rest
+    // where it is now: on the face of the mesh's triangle it was found on,
+    // as the face is -- off the flat triangle by the face's curve there, its
+    // offset from the triangle kept; one of no triangle of the mesh's (the
+    // part's own shapes on the carrier), on the surface nearest as the
+    // carrier has it at rest
     void place(ContactLoad& load)
     {
         load.onMesh.assign(load.points.size(), {});
@@ -1471,20 +1488,84 @@ public:
             if (first && shape && shape->GetType() == ch::ChCollisionShape::Type::MESHTRIANGLE) {
                 const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
                 const ch::ChVector3d* corners[3] = {triangle->V1, triangle->V2, triangle->V3};
-                if (std::all_of(std::begin(corners), std::end(corners), [&](const auto* corner) {
-                        return corner >= first && corner < first + count;
-                    })) {
-                    on.weights = ChronoFlexible::Surface::weights(onB,
-                                                                  *corners[0],
-                                                                  *corners[1],
-                                                                  *corners[2]);
-                    ch::ChVector3d at = ch::VNULL;
+                std::array<int, 3> key {};
+                bool ours = true;
+                for (int k = 0; k < 3 && ours; ++k) {
+                    ours = corners[k] >= first && corners[k] < first + count;
+                    key[k] = ours ? static_cast<int>(corners[k] - first) : -1;
+                }
+                std::array<int, 3> sorted = key;
+                std::sort(sorted.begin(), sorted.end());
+                const auto it = ours ? triangleOf.find(sorted) : triangleOf.end();
+                if (it != triangleOf.end()) {
+                    const auto w = ChronoFlexible::Surface::weights(onB,
+                                                                    *corners[0],
+                                                                    *corners[1],
+                                                                    *corners[2]);
+                    // The weights in the surface's triangle's order of its
+                    // corners, and the point on the flat triangle
+                    const auto& t = surface->triangles()[it->second];
+                    std::array<double, 3> inOrder {0.0, 0.0, 0.0};
+                    ch::ChVector3d flat = ch::VNULL;
                     for (int k = 0; k < 3; ++k) {
-                        on.nodes[k] = meshNodes[static_cast<std::size_t>(corners[k] - first)];
-                        at += *corners[k] * on.weights[k];
+                        const Id n = meshNodes[static_cast<std::size_t>(key[k])];
+                        for (int j = 0; j < 3; ++j) {
+                            if (t[j] == n) {
+                                inOrder[j] = w[k];
+                            }
+                        }
+                        flat += *corners[k] * w[k];
                     }
-                    on.offset = onB - at;
+                    ChronoFlexible::Surface::Place face;
+                    surface->onFace(it->second, inOrder, face);
+                    on.nodes = face.nodes;
+                    on.weights = face.weights;
+                    on.offset = onB - flat;
                     on.placed = true;
+                    // On a curved face, its point farthest towards A: the
+                    // flat triangle's nearest is a corner or an edge, where
+                    // the face is the triangle -- a rod R 5 turned on a plate,
+                    // its faces 4 mm, pressed it from 23 to 124 N for 50 --
+                    // and A's point slid along with it, on the plane square
+                    // to the normal. So only where that plane is A's: the
+                    // normal its face's own (Point::face). At the plate's
+                    // edge Bullet's leaned 1.3 deg along the rod, which is
+                    // straight that way, and the farthest point ran 1.4 mm
+                    // to the face's end, its plane 0.033 mm off the plate --
+                    // 200 N, and 1.2 kN where it ran further. Against a
+                    // round, its surface falls away from that plane; the
+                    // triangles there, a quarter of the face's sagitta. And
+                    // only where the face curves to it (farthest()): the rod
+                    // sunk 0.05 mm into the plate's top ran on past its end,
+                    // whose face Bullet took for some points, the normal
+                    // along the rod, and the farthest that way, along the
+                    // rod's straight, was the face's end, 0.11 mm in -- the
+                    // run's force at 200 N for 46 in bursts. And only as far
+                    // in as the face can stand out of its triangles
+                    if (surface->curved(it->second) && load.points[i].face == 1) {
+                        const auto& nodesOf = surface->faceOf(it->second);
+                        std::array<ch::ChVector3d, 6> x;
+                        for (int k = 0; k < 6; ++k) {
+                            x[k] = first[vertexOf[nodesOf[k]]];
+                        }
+                        const ch::ChVector3d into =
+                            carrier->GetRot().RotateBack(-load.points[i].normal);
+                        bool curve = false;
+                        const auto weights = ChronoFlexible::Surface::shape(
+                            ChronoFlexible::Surface::farthest(x, into, &curve));
+                        ch::ChVector3d at = ch::VNULL;
+                        for (int k = 0; k < 6; ++k) {
+                            at += x[k] * weights[k];
+                        }
+                        if (curve && ch::Vdot(into, at - flat) <= 1.5 * surface->bulge()) {
+                            on.weights = weights;
+                            const ch::ChVector3d& n = load.points[i].normal;
+                            ch::ChVector3d moved = carrier->GetRot().Rotate(at - flat);
+                            moved -= n * ch::Vdot(n, moved);
+                            auto& onA = load.points[i].onA;
+                            onA += load.GetBodyA()->GetRot().RotateBack(moved);
+                        }
+                    }
                     continue;
                 }
             }
@@ -1505,11 +1586,15 @@ public:
     // onB on the carrier there, for what reads a point by its bodies
     void refresh(ContactLoad& load)
     {
+        // Each point's nodes that weigh: a flat face's corners alone
         std::vector<const ch::fea::ChNodeFEAxyz*> asked;
         for (const auto& on : load.onMesh) {
             if (on.placed) {
-                for (Id n : on.nodes) {
-                    asked.push_back(n < nodes.size() ? nodes[n] : nullptr);
+                for (std::size_t j = 0; j < on.nodes.size(); ++j) {
+                    if (on.weights[j] != 0.0) {
+                        const Id n = on.nodes[j];
+                        asked.push_back(n < nodes.size() ? nodes[n] : nullptr);
+                    }
                 }
             }
         }
@@ -1533,11 +1618,15 @@ public:
             }
             on.at = carrier->GetRot().Rotate(on.offset);
             on.speed = ch::VNULL;
-            on.T.setZero(3, maps[k].cols());
-            for (int j = 0; j < 3; ++j, ++k) {
+            on.T.setZero(3, maps.front().cols());
+            for (std::size_t j = 0; j < on.nodes.size(); ++j) {
+                if (on.weights[j] == 0.0) {
+                    continue;
+                }
                 on.at += pos[k] * on.weights[j];
                 on.speed += vel[k] * on.weights[j];
                 on.T += maps[k] * on.weights[j];
+                ++k;
             }
             if (i < load.points.size()) {
                 load.points[i].onB = carrier->TransformPointParentToLocal(on.at);
@@ -3095,6 +3184,10 @@ struct ShapeOn
     double half = 0.0;
     const cbtConvexPolyhedron* features = nullptr;
     double envelope = 0.0;
+    // A flexible part's surface: how far its faces stand out of the flat
+    // triangles collision detection has of them (Surface::bulge()), a point
+    // that far off a triangle touching
+    double bulge = 0.0;
     // For Hertz's law (patchStiffness()): a sphere's radius, the material's
     // E / (1 - nu^2), the radius of the ball of the solid's volume, and the
     // surface's curvature tensor at each vertex of its mesh, a mesh's or a
@@ -8359,7 +8452,7 @@ Status ChronoSession::simulateDynamics(
                                       cylinder,
                                       *mesh,
                                       *static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape),
-                                      reach,
+                                      reach + mesh->bulge,
                                       points,
                                       normal)
                                 : cylinderPoints(cylinder, *face, toOther, reach, points, normal);
@@ -8376,7 +8469,7 @@ Status ChronoSession::simulateDynamics(
                               *mesh,
                               *static_cast<const ch::ChCollisionShapeMeshTriangle*>(
                                   cylinderA ? f.shapeB : f.shapeA),
-                              reach,
+                              reach + mesh->bulge,
                               points,
                               normal)
                         : -1;
@@ -8648,9 +8741,12 @@ Status ChronoSession::simulateDynamics(
             // A flexible part touched anywhere has its mesh's surface for
             // all its shapes, moving with its modes (FlexibleContact::mesh):
             // the shapes ride its carrier rigid, off the part once it has
-            // bent. Its faces are the elements', flat each, a round one
-            // facets as fine: for a round face's own law, name the faces
-            // the part is touched on (ContactFaces)
+            // bent. Its faces are the elements', quadratic, a round one's to
+            // the second order; collision detection has a curved one as four
+            // flat triangles, and finds a point as far as the face bulges
+            // out of them sooner -- the carrier's envelope wider by that: a
+            // triangle is grown by its model's envelope alone, its
+            // thickness its margin
             if (FlexibleContact* flexible = anywhereOn(run.d->bodyOf(shape.frame).get());
                 flexible && flexible->mesh) {
                 auto carrier = run.d->bodyOf(shape.frame);
@@ -8662,8 +8758,9 @@ Status ChronoSession::simulateDynamics(
                                                                                     false,
                                                                                     false,
                                                                                     0.0);
+                    const double bulge = flexible->surface->bulge();
                     carrier->AddCollisionShape(whole, ch::ChFramed());
-                    carrier->GetCollisionModel()->SetEnvelope(envelope);
+                    carrier->GetCollisionModel()->SetEnvelope(envelope + bulge);
                     carrier->GetCollisionModel()->SetSafeMargin(margin);
                     carrier->EnableCollision(true);
                     surface = whole.get();
@@ -8672,6 +8769,7 @@ Status ChronoSession::simulateDynamics(
                     where.frame = run.d->localOf(shape.frame);
                     where.source = shape.frame;
                     where.envelope = envelope;
+                    where.bulge = bulge;
                     where.modulus = shape.modulus;
                     const auto& vertices = flexible->mesh->GetCoordsVertices();
                     const auto& triangles = flexible->mesh->GetIndicesVertexes();
@@ -11017,16 +11115,24 @@ Status ChronoSession::simulateDynamics(
         return false;
     };
     const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
-    // Whether a load rests: the range its deepest point's depth has kept,
-    // given the depth now too, within 2% of it or within the tolerance; and
-    // that range kept, after a substep of h, settled once it has held five
-    // of its periods -- an impact's sink and rebound move it all the way, and
-    // a resting part's rocking dies down under the damping within some. The
-    // tolerance for a metal's: a torus of aluminium on its ring, sunk 6e-8
-    // mm, rocks on its facets by 5e-8. Its deepest point within the
-    // tolerance of touching, not only pressing: a pin of 0.6 g lying on its
-    // rims across a bore sinks 0.17 nm, and chattered from 0.4 nm off to
-    // 0.1 nm in -- never resting, it took substeps of 0.3 us, 74 s for 0.3.
+    // Whether a load rests: the range its deepest point's depth has kept
+    // over a window of one of its periods, or of the last substep where that
+    // was longer, given the depth now too, within 2% of it or within the
+    // tolerance; and that kept, after a substep of h, settled once it has
+    // held five of its periods -- an impact's sink and rebound move it all
+    // the way within one, and a resting part's rocking dies down under the
+    // damping within some. Over a window, not since it came to rest: a load
+    // a motion keeps raising moves its depth by more than 2% sooner or
+    // later, and the strip pressed onto two bars by its hinge's turn, its
+    // range since then over 2% within some frames, fell out of rest, was
+    // taken back and stepped five periods at a fiftieth of one, again and
+    // again -- 1.4 us on the materials' law, 210 s for 0.1 s. The window's
+    // rate of depth is how fast it moves (standingStep()). The tolerance for a
+    // metal's: a torus of aluminium on its ring, sunk 6e-8 mm, rocks on its
+    // facets by 5e-8. Its deepest point within the tolerance of touching, not
+    // only pressing: a pin of 0.6 g lying on its rims across a bore sinks
+    // 0.17 nm, and chattered from 0.4 nm off to 0.1 nm in -- never resting,
+    // it took substeps of 0.3 us, 74 s for 0.3.
     auto resting = [&](const ContactLoad& load) {
         const double depth = pressing(load);
         const double high = std::max(load.high, depth);
@@ -11034,18 +11140,42 @@ Status ChronoSession::simulateDynamics(
         return depth > -tolerance && (range <= 0.02 * high || range <= tolerance);
     };
     auto keepCalm = [&](ContactLoad& load, double h) {
+        const double depth = pressing(load);
         if (load.calm > 0.0 && resting(load)) {
-            const double depth = pressing(load);
             load.low = std::min(load.low, depth);
             load.high = std::max(load.high, depth);
             load.calm += h;
+            load.since += h;
             load.settled = load.calm >= 5.0 * load.period;
+            if (load.since >= load.period) {
+                load.drift = std::abs(depth - load.mark) / load.since;
+                load.low = load.high = load.mark = depth;
+                load.since = 0.0;
+            }
             return;
         }
-        const double depth = pressing(load);
-        load.low = load.high = depth;
+        load.low = load.high = load.mark = depth;
         load.calm = depth > -tolerance ? h : 0.0;
+        load.since = 0.0;
+        load.drift = 0.0;
         load.settled = false;
+    };
+    // The substep a load at rest allows, which contactStep() leaves to it:
+    // the time its depth takes, at its last window's rate, to move half the
+    // range resting() allows. A load a motion raises keeps its rest and
+    // steps as long as its rise lets it, where a substep longer fell out of
+    // rest and was taken back.
+    auto standingStep = [&]() {
+        double h = std::numeric_limits<double>::infinity();
+        for (const auto& load : contactLoads) {
+            if (!load->settled || !(load->drift > 0.0)) {
+                continue;
+            }
+            const double allowed =
+                std::max(0.02 * std::max(load->high, pressing(*load)), tolerance);
+            h = std::min(h, 0.5 * allowed / load->drift);
+        }
+        return h;
     };
     // Newton's test, HHT's, is on its iterations' increments, in
     // accelerations and multipliers, 1e-10 absolute by default: a
@@ -11620,8 +11750,8 @@ Status ChronoSession::simulateDynamics(
                 throw Stopped {};
             }
             const double strict = contactStep(true);
-            double h =
-                std::min({dt - done, cap, contactStep(false), penaltyStep(), frictionStep()});
+            double h = std::min(
+                {dt - done, cap, contactStep(false), standingStep(), penaltyStep(), frictionStep()});
             if (dt - done - h < 1e-9 * dt) {
                 h = dt - done;
             }
@@ -11868,7 +11998,7 @@ Status ChronoSession::simulateDynamics(
             std::vector<double> limitAngles;
             struct LoadState
             {
-                double impact, low, high, calm, period;
+                double impact, low, high, calm, period, mark, since, drift;
                 bool settled, touching;
             };
             std::vector<LoadState> loads;
@@ -11894,6 +12024,9 @@ Status ChronoSession::simulateDynamics(
                                    load->high,
                                    load->calm,
                                    load->period,
+                                   load->mark,
+                                   load->since,
+                                   load->drift,
                                    load->settled,
                                    load->touching});
             }
@@ -11941,6 +12074,9 @@ Status ChronoSession::simulateDynamics(
                 load.high = kept.high;
                 load.calm = kept.calm;
                 load.period = kept.period;
+                load.mark = kept.mark;
+                load.since = kept.since;
+                load.drift = kept.drift;
                 load.settled = kept.settled;
                 load.touching = kept.touching;
             }

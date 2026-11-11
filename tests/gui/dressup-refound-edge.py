@@ -4,16 +4,17 @@ Ruled 2026-11-11 (docs/SheetMetal.md sec 12): a reference whose element the
 base has no more is searched for by geometry in a recompute, alone, which is
 safe; an edge a feature before the dress-up has trimmed is another shape, so
 the reference is marked missing and the dress-up is in error. Its panel,
-opened to edit, looks the name up by its history and takes what answers --
-where one element answers, and then not silently: the row is marked and says
-what it was, the element is selected in the view, and the panel says so in a
-line; OK keeps it, Cancel leaves the reference as it was.
+opened to edit, looks the name up by its history and takes what answers,
+all of it -- an edge a feature cut in two is its two halves -- and not
+silently: each row is marked and says what it was, the elements are selected
+in the view, and the panel says so in a line; OK keeps it, Cancel leaves the
+reference as it was.
 
 A box 40 x 20 x 10; a pocket taking its corner at x 0, so the top front edge
 runs from x 5; a fillet on that edge. The pocket suppressed, the edge is the
 box's whole one: the fillet's reference is missing. Then a fillet on the top
 back edge, and a pocket put in before it that notches the edge's middle: two
-edges answer for the one, and neither is taken.
+edges answer for the one, and both are taken, and shown.
 
 Claims:
   - the pocket suppressed, the fillet is in error, its reference missing;
@@ -23,7 +24,7 @@ Claims:
   - the edge is the selection, on the feature the fillet builds on;
   - Cancel leaves the reference missing;
   - opened again and OK: the reference kept, the fillet made;
-  - where two edges answer, the row stays missing and nothing is said found.
+  - where two edges answer, both are rows, marked, said and selected.
 """
 import os
 import time
@@ -237,15 +238,35 @@ def run():
         gdoc.setEdit(second.Name)
         pump(120)
         items = rows(tree())
+        names = [i.text(0) for i in items]
+        halves = sorted(
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(notch.Shape.Edges)
+            if len(e.Vertexes) == 2
+            and all(
+                abs(v.Point.y - 20) < 1e-7 and abs(v.Point.z - 10) < 1e-7 for v in e.Vertexes
+            )
+        )
+        was = back
+        said = message()
+        picked = selection()
+        subs = sorted(sub.rsplit(".", 1)[-1] for sub in (picked[0][1] if len(picked) == 1 else []))
         check(
-            "two edges answer for the one: the row stays missing, nothing is said found, "
-            "nothing selected",
-            len(items) == 1
-            and items[0].text(0).startswith("?")
-            and second.Base[1][0].startswith("?")
-            and "Found again" not in message()
-            and selection() == [],
-            ([i.text(0) for i in items], second.Base[1], message(), selection()),
+            "two edges answer for the one, the edge's two halves: both taken, the fillet made",
+            len(halves) == 2 and sorted(names) == halves and "Invalid" not in second.State,
+            (names, halves, second.State),
+        )
+        check(
+            "both rows are marked, saying what they were",
+            len(items) == 2 and all("found again" in i.toolTip(0) for i in items),
+            [i.toolTip(0) for i in items],
+        )
+        check(
+            "the panel says the one is now the two, and both are the selection",
+            "Found again by name" in said
+            and all(h in said for h in halves)
+            and subs == halves,
+            (said, picked, was),
         )
         press(QtWidgets.QDialogButtonBox.Cancel)
         pump(60)

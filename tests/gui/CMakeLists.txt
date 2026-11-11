@@ -383,6 +383,11 @@ fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
 # not taken silently; OK keeps it, Cancel leaves it missing.
 fc_add_gui_test(GuiDressUpRefoundEdge_tests_run dressup-refound-edge.py
                 --timeout 200)
+# And the other PartDesign panels that look a lost reference up by name: a
+# pad's face, a draft's plane, a pipe's spine. A list takes every element
+# that answers, one that holds a single element only where one does.
+fc_add_gui_test(GuiPdRefoundReferences_tests_run pd-refound-references.py
+                --timeout 300)
 
 # Entry 214, a crash on stage28: a group typed into a fillet's Group cell
 # filled the list anew inside Qt's commit of it, the row deleted under the

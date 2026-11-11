@@ -4484,21 +4484,40 @@ Three fixes in source, none of them arm64's own:
 | `src/Mod/Assembly/App/AssemblyObject.cpp` | `getFlexibleFrequencies()` called `Solver::Chrono::flexibleFrequencies()` unconditionally, and `ChronoBackend.cpp` is built only with `BUILD_ASSEMBLY_CHRONO`: the **default** build did not link on any platform. The call is under `ASSEMBLY_WITH_CHRONO` now |
 | `cycles` `src/device/metal/util.mm` | `MTLBindingAccessReadWrite` is the macOS 14 SDK's name; under SDK 13 it is `MTLArgumentAccessReadWrite`. Xcode 15 needs macOS 13.5, so this box cannot simply take the newer SDK |
 
-**The suites are not green here yet** (2026-11-11, `main` at `2cf90d50b6`).
+**The suites are not green here yet.** First run, 2026-11-11, `main` at
+`2cf90d50b6`: C++ **1114 of 1121**, Python **5131 tests, 19 failures, 2
+errors**. After the fixes below, `main` at `df8f1f3357` with OCCT at
+`759ca3cce5`: C++ **1118 of 1119** with the two `RenderGolden` tests left
+out (`QT_QPA_PLATFORM=offscreen ctest -j 4 -E '^RenderGolden'`, 39 s),
+Python **5133 tests, 18 failures, 2 errors**, 473 skipped, 6 expected
+failures (`ThunderealCmd -t 0` under `script`, 280 s).
 
-C++, `QT_QPA_PLATFORM=offscreen ctest -j 4`, 330 s: **1114 of 1121**, 3
-disabled, 1 skipped. Python, `ThunderealCmd -t 0` under `script`, 287 s:
-**5131 tests, 19 failures, 2 errors**, 471 skipped, 6 expected failures.
+What was found and fixed:
+
+| Failing | Cause | Fix |
+|---|---|---|
+| `FormulaEvaluator.valuesMatchOndselSolver`, `derivativesMatchOndselSolver` | **libc++'s `operator>>(double)` consumes the `d` of `1.5d-1`**, fails and leaves 0; libstdc++ stops at the `d`. On macOS OndselSolver read such a term as 0 | OndselSolver `015de97`: `SymbolicParser::xDigit` takes the digits itself |
+| `PublishOnly.noGraphicsDeviceIsCreated` | Cycles' `g_bvh_build_throttler`, a global in `device/metal/bvh.mm`, called `MTLCreateSystemDefaultDevice()` in its constructor: every process that loaded `libFreeCADRenderer` had `AGXMetalG14G.bundle` mapped before `main()`. Found with `DYLD_PRINT_LIBRARIES=1 DYLD_PRINT_INITIALIZERS=1` and `nm -n` on the initializer's address | cycles `b63d8b234`: the limit is asked on the first build |
+| `AssemblyTests.TestJoints.TestSolveStatus.test_malformed`, `MeshTwin.landsWhatAMeshInPlaceGives`, `CAMTests.TestPathProfile` `test01` to `test03` | **floating-point contraction.** GCC and Clang fuse `a*b+c` into one `fma` where the target has it -- every arm64, not the x86-64 baseline -- and it rounds once where the two operations round twice. The assembly solver dropped a constraint of the wrong one of two conflicting joints; BRepMesh left a face at a deflection of 0.080 with 0.05 asked; libarea split an arc into a line and an arc | `-ffp-contract=off` in three places, each proved by building that part alone with it: FreeCAD (`CompilerChecksAndSetups.cmake`), OCCT (`adm/cmake/occt_defs_flags.cmake`, beside MSVC's `/fp:precise`), libarea (`CMakeLists.txt`, `ecd12ff`) |
+| `SurfaceTests.TestEdgeConditions.testFillOfTwoCurvesG1` -- **new with the flag** | the test, not the feature: `angleAlong()` projected a point of the shared edge onto the fill, and a fill of two curves that meet has two corners at that point. Which one came back turned on the last bit; the feature had reached 0.03 deg | the test reads the edge's own curve on the face |
+
+**OCCT has to be rebuilt after pulling `759ca3cce5`**, and FreeCAD needs no
+rebuild for that. **The CAM three still fail here**: the `libarea` in the env
+is the channel's package, built with contraction (`otool -tv` on it counts
+792 fused instructions; a build with the flag has none). They pass with a
+libarea built from `ecd12ff` put in front by `DYLD_LIBRARY_PATH`; the package
+has to be built again for osx-arm64 and linux-aarch64. libarea's own
+`area_ops_test` fails four cases on this box with and without the flag, to
+the same digits -- not looked into.
+
+Still failing, and not for this box to settle:
 
 | Failing | What is known |
 |---|---|
-| `TransactionLogTest.aPinnedVersionIsFrozen`; 15 of `Document.TransactionBranchCases` and 2 of `TransactionAuditCases` | **`$TMPDIR` is `/var/folders/...`, and `/var` is a symlink to `/private/var`.** The file history answers with the real path and the tests compare it with the name they gave. Run with `TMPDIR=$(cd "$TMPDIR" && pwd -P)/` and all eighteen pass (`-t Document`: 358 tests, OK). Not fixed: test or product is the transaction log's call |
-| `FormulaEvaluator.valuesMatchOndselSolver`, `derivativesMatchOndselSolver` | for `1.5d-1*time` OndselSolver answers 0 where the evaluator answers 0.15 t. Cause not looked for |
-| `PublishOnly.noGraphicsDeviceIsCreated` | `AGXMetalG14G.bundle`, the Apple GPU's Metal driver, is mapped into a publish-only process. Not known whether a device is made or the image merely loads |
-| `MeshTwin.landsWhatAMeshInPlaceGives` | `BRepTools::Triangulation()` does not take the landed mesh for complete. Cause not looked for |
+| `TransactionLogTest.aPinnedVersionIsFrozen`; 15 of `Document.TransactionBranchCases` and 2 of `TransactionAuditCases` | **`$TMPDIR` is `/var/folders/...`, and `/var` is a symlink to `/private/var`.** A document keeps the spelling it was given, the file history knows the file by its canonical path and names a version's document after that, and the two spellings meet in the link lookup, the export sets and the merges. Run with `TMPDIR=$(cd "$TMPDIR" && pwd -P)/` and all eighteen pass (`-t Document`: 358 tests, OK). Which spelling a version's document takes is a design decision; not changed |
 | `RenderGoldenRaster`, `RenderGoldenRasterFlat` | the references were blessed on the Intel box's GPU; here depth, normal and ao agree and `beauty` differs in 0.13% of the pixels (flat). **Both open a window on the desktop** -- `ctest -E '^RenderGolden'` for a run that must not |
-| `AssemblyTests.TestJoints.TestSolveStatus.test_malformed` | a part lands 6.3 mm from where the test has it. Cause not looked for |
-| `CAMTests.TestPathProfile` `test01` to `test03` | the profile comes with more, shorter moves than the expected ones. Cause not looked for |
+
+`FormWidgets_Tests_run` failed once in three `-j 4` runs and passes alone.
 
 ## Regenerating the bundled material icons
 

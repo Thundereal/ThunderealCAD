@@ -55,6 +55,11 @@ namespace PartDesign
  * rib pressed in from its outside at each point's place along its axis,
  * its face across the inside corner Length along each wall from their
  * sharp, Width wide, its ends sloping back at FlankAngle, owned by the bend.
+ * A bead and an emboss are drawn too (2026-11-11): each open chain of lines
+ * and arcs in Positions, running on into each other, is a bead's path, the
+ * bead Diameter across along it and round past its ends; each closed chain
+ * an emboss's profile, where it leaves the face, its corners of two lines
+ * rounded by CornerRadius. Those lie as drawn, not turned by Angle.
  * The built-in ones' sizes start from the rule's thickness.
  * Each is a form of the sheet's model (SheetMetal::Form), owned by its wall.
  */
@@ -69,7 +74,8 @@ public:
     /// The wall's skin the forms rise out of, of the feature this builds on
     App::PropertyLinkSub Face;
     /// A sketch whose points are where the forms are (a sketch alone, its
-    /// subelements unused: the panel's sketch choice takes this kind)
+    /// subelements unused: the panel's sketch choice takes this kind); a
+    /// bead's paths and an emboss's profiles are what is drawn in it
     App::PropertyLinkSub Positions;
     /// Each form turned about the face's normal
     App::PropertyAngle Angle;

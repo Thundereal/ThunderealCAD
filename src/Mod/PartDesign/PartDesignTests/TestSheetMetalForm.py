@@ -396,6 +396,132 @@ class TestSheetMetalForm(unittest.TestCase):
                 self.assertIn("Invalid", feature.State)
                 self.Doc.removeObject(feature.Name)
 
+    # A bead along a line or an arc of the sketch, in place of straight at a
+    # point (built 2026-11-11): each open chain of the sketch is a bead's
+    # path, the bead reaching Diameter / 2 past its ends; Length and Angle
+    # are the path's.
+
+    def drawing(self, edges, z=T, name="Drawing"):
+        sketch = self.Body.newObject("Sketcher::SketchObject", name)
+        sketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+        for edge in edges:
+            sketch.addGeometry(edge)
+        self.Doc.recompute()
+        return sketch
+
+    def volumeOf(self, feature):
+        """A built-in form's volume, the form taken out again"""
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        volume = feature.Shape.Volume
+        self.Body.removeObject(feature)
+        self.Doc.removeObject(feature.Name)
+        self.Doc.recompute()
+        return volume
+
+    def alongPath(self, edges, **props):
+        sizes = dict(Diameter=6, Depth=2, Radius=0.5, FlankAngle=45)
+        sizes.update(props)
+        return self.form(Kind="Bead", Positions=self.drawing(edges), **sizes)
+
+    def testBeadAlongLine(self):
+        """A line 18 long through the plate's middle: the bead of testBead,
+        24 end to end"""
+        volume = self.volumeOf(self.bead())
+        feature = self.alongPath([Part.LineSegment(V(11, 15, 0), V(29, 15, 0))])
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.Volume, volume, places=6)
+        for x in (20, 20 + 8, 20 + 9.5):
+            self.assertTrue(shape.isInside(V(x, 15, T + 1.5), 1e-7, True), x)
+            self.assertFalse(shape.isInside(V(x, 15, T + 0.5), 1e-7, True), x)
+            self.assertFalse(shape.isInside(V(x, 15, T / 2), 1e-7, True), x)
+        self.assertTrue(shape.isInside(V(20 + 12.5, 15, T / 2), 1e-7, True))
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 15, T + 2))), "Form1")
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testBeadAlongSlantedLine(self):
+        """A line at 30 deg: the bead of that Angle"""
+        volume = self.volumeOf(self.bead(Angle=30))
+        c, s = 9 * math.cos(math.radians(30)), 9 * math.sin(math.radians(30))
+        feature = self.alongPath([Part.LineSegment(V(20 - c, 15 - s, 0), V(20 + c, 15 + s, 0))])
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isValid())
+        self.assertAlmostEqual(feature.Shape.Volume, volume, places=6)
+
+    def testBeadAlongArc(self):
+        """An arc of radius 12 about (20, 5), 120 deg: its section the
+        bead's all along, so (Pappus: the section is the same either side of
+        the arc) the volume of a straight bead as long as the arc"""
+        length = 12 * math.radians(120)
+        volume = self.volumeOf(self.bead(Length=length + 6))
+        circle = Part.Circle(V(20, 5, 0), V(0, 0, 1), 12)
+        feature = self.alongPath(
+            [Part.ArcOfCircle(circle, math.radians(30), math.radians(150))]
+        )
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 2, places=6)
+        self.assertAlmostEqual(shape.Volume, volume, places=5)
+        # on the arc: its top, its hollow, open beneath
+        for a in (35, 90, 140):
+            x = 20 + 12 * math.cos(math.radians(a))
+            y = 5 + 12 * math.sin(math.radians(a))
+            self.assertTrue(shape.isInside(V(x, y, T + 1.5), 1e-7, True), a)
+            self.assertFalse(shape.isInside(V(x, y, T + 0.5), 1e-7, True), a)
+            self.assertFalse(shape.isInside(V(x, y, T / 2), 1e-7, True), a)
+        # inside the arc and outside it, the plate as it was
+        for y in (5 + 12 - 3.6, 5 + 12 + 3.6):
+            self.assertTrue(shape.isInside(V(20, y, T / 2), 1e-7, True), y)
+            self.assertFalse(shape.isInside(V(20, y, T + 0.1), 1e-7, True), y)
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 17, T + 2))), "Form1")
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testBeadAlongChain(self):
+        """A line running into an arc, tangent: one bead"""
+        circle = Part.Circle(V(24, 9, 0), V(0, 0, 1), 9)
+        feature = self.alongPath(
+            [
+                Part.LineSegment(V(10, 18, 0), V(24, 18, 0)),
+                Part.ArcOfCircle(circle, math.radians(30), math.radians(90)),
+            ]
+        )
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertEqual(len(feature.SheetModel["Forms"]), 1)
+        straight = self.volumeOf(feature)
+        length = 14 + 9 * math.radians(60)
+        self.assertAlmostEqual(straight, self.volumeOf(self.bead(Length=length + 6)), places=5)
+
+    def testBeadAlongPathRefused(self):
+        """A path with a corner, an arc rounder than the bead is wide, a
+        path off the wall"""
+        tight = Part.Circle(V(20, 15, 0), V(0, 0, 1), 2)
+        for edges in (
+            [Part.LineSegment(V(10, 10, 0), V(20, 10, 0)), Part.LineSegment(V(20, 10, 0), V(20, 20, 0))],
+            [Part.ArcOfCircle(tight, 0, math.radians(180))],
+            [Part.LineSegment(V(20, 15, 0), V(39, 15, 0))],
+        ):
+            with self.subTest(edges=len(edges)):
+                feature = self.alongPath(edges)
+                self.assertIn("Invalid", feature.State)
+                self.Doc.removeObject(feature.Name)
+
     def lance(self, **props):
         """A lance at the plate's middle, (20, 15): 20 long along X, its tab
         6 from its hinge to its end, which faces +Y and rises 3 above the
@@ -583,6 +709,109 @@ class TestSheetMetalForm(unittest.TestCase):
         ):
             with self.subTest(**props):
                 feature = self.emboss(**props)
+                self.assertIn("Invalid", feature.State)
+                self.Doc.removeObject(feature.Name)
+
+    # An emboss of a sketch's profile, in place of a rounded rectangle at a
+    # point (built 2026-11-11): each closed chain of the sketch is where an
+    # emboss leaves the face; its corners drawn sharp are rounded by
+    # CornerRadius.
+
+    def rounded(self, x0, y0, x1, y1, r):
+        """A rectangle with corners r round, as a sketch's edges"""
+        up = V(0, 0, 1)
+        q = math.pi / 2
+        edges = [
+            Part.LineSegment(V(x0 + r, y0, 0), V(x1 - r, y0, 0)),
+            Part.LineSegment(V(x1, y0 + r, 0), V(x1, y1 - r, 0)),
+            Part.LineSegment(V(x1 - r, y1, 0), V(x0 + r, y1, 0)),
+            Part.LineSegment(V(x0, y1 - r, 0), V(x0, y0 + r, 0)),
+        ]
+        for (cx, cy), a in (
+            ((x1 - r, y0 + r), -q),
+            ((x1 - r, y1 - r), 0),
+            ((x0 + r, y1 - r), q),
+            ((x0 + r, y0 + r), 2 * q),
+        ):
+            edges.append(Part.ArcOfCircle(Part.Circle(V(cx, cy, 0), up, r), a, a + q))
+        return edges
+
+    def polygon(self, pts):
+        return [
+            Part.LineSegment(V(*pts[i], 0), V(*pts[(i + 1) % len(pts)], 0)) for i in range(len(pts))
+        ]
+
+    def profiled(self, edges, **props):
+        sizes = dict(CornerRadius=3, Depth=2, Radius=0.5, FlankAngle=60)
+        sizes.update(props)
+        return self.form(Kind="Emboss", Positions=self.drawing(edges), **sizes)
+
+    def testEmbossProfile(self):
+        """The rounded rectangle of testEmboss drawn: the same emboss"""
+        volume = self.volumeOf(self.emboss())
+        feature = self.profiled(self.rounded(10, 9, 30, 21, 3), CornerRadius=0)
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.Volume, volume, places=6)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 2, places=6)
+        self.assertTrue(shape.isInside(V(29, 15, T + 0.6), 1e-7, True))
+        self.assertFalse(shape.isInside(V(28.2, 15, T + 0.6), 1e-7, True))
+        self.assertFalse(shape.isInside(V(29.9, 15, T + 0.6), 1e-7, True))
+        forms = feature.SheetModel["Forms"]
+        self.assertEqual([(f["Name"], f["Wall"]) for f in forms], [("Form1", "Wall1")])
+        self.assertEqual(feature.sheetElementOf(faceAt(feature, (20, 15, T + 2))), "Form1")
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testEmbossProfileSharp(self):
+        """The rectangle drawn with sharp corners, CornerRadius 3: the same"""
+        volume = self.volumeOf(self.emboss())
+        feature = self.profiled(self.polygon([(10, 9), (30, 9), (30, 21), (10, 21)]))
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        self.assertTrue(feature.Shape.isValid())
+        self.assertAlmostEqual(feature.Shape.Volume, volume, places=6)
+
+    def testEmbossProfileL(self):
+        """An L, its inside corner rounded as the others: valid, the
+        thickness through it, the plate as it was in the L's notch"""
+        feature = self.profiled(
+            self.polygon([(6, 5), (34, 5), (34, 15), (20, 15), (20, 25), (6, 25)]),
+            FlankAngle=75,
+        )
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        shape = feature.Shape
+        self.assertTrue(shape.isValid())
+        self.assertEqual(len(shape.Solids), 1)
+        self.assertAlmostEqual(shape.optimalBoundingBox(False).ZMax, T + 2, places=6)
+        for x, y in ((12, 10), (28, 10), (12, 20)):
+            self.assertTrue(shape.isInside(V(x, y, T + 1.5), 1e-7, True), (x, y))
+            self.assertFalse(shape.isInside(V(x, y, T + 0.5), 1e-7, True), (x, y))
+            self.assertFalse(shape.isInside(V(x, y, T / 2), 1e-7, True), (x, y))
+        self.assertTrue(shape.isInside(V(27, 20, T / 2), 1e-7, True))
+        self.assertFalse(shape.isInside(V(27, 20, T + 0.1), 1e-7, True))
+        self.assertEqual(len(feature.SheetModel["Forms"]), 1)
+        flat = self.flatObject()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, PLATE, places=6)
+        flat.FormDisplay = "Formed"
+        self.Doc.recompute()
+        self.assertAlmostEqual(flat.Shape.Solids[0].Volume, shape.Volume, places=6)
+
+    def testEmbossProfileRefused(self):
+        """Sharp corners and no CornerRadius, corners closing at the slant
+        before the top, a profile off the wall"""
+        box = [(10, 9), (30, 9), (30, 21), (10, 21)]
+        for edges, props in (
+            (self.polygon(box), dict(CornerRadius=0)),
+            (self.polygon(box), dict(CornerRadius=1)),
+            (self.polygon([(20, 9), (41, 9), (41, 21), (20, 21)]), dict()),
+        ):
+            with self.subTest(**props):
+                feature = self.profiled(edges, **props)
                 self.assertIn("Invalid", feature.State)
                 self.Doc.removeObject(feature.Name)
 

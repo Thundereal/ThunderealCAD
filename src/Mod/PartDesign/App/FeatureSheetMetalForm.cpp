@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <numbers>
 #include <span>
 
@@ -38,6 +39,8 @@
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepCheck_Analyzer.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -63,7 +66,9 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <gp.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Pln.hxx>
+#include <gp_XY.hxx>
 
 #include <App/Document.h>
 #include <Base/Exception.h>
@@ -200,6 +205,338 @@ Pressed pressTool(const TopoDS_Shape& tool,
     return res;
 }
 
+/// One piece of a path or of a profile a form is drawn about, in its frame's
+/// XY plane: a line, or an arc of a circle, from a to b
+struct Piece
+{
+    gp_XY a, b;
+    bool arc = false;
+    /// an arc's centre and radius; turning left, as one goes from a to b;
+    /// a whole circle, a and b the same point
+    gp_XY c;
+    double radius = 0;
+    bool ccw = false;
+    bool full = false;
+
+    /// the way it runs where it starts, or where it ends
+    gp_XY tangent(bool end) const
+    {
+        if (!arc) {
+            return (b - a).Normalized();
+        }
+        const gp_XY v = ((end ? b : a) - c).Normalized();
+        return ccw ? gp_XY(-v.Y(), v.X()) : gp_XY(v.Y(), -v.X());
+    }
+    void flip()
+    {
+        std::swap(a, b);
+        ccw = !ccw;
+    }
+    /// how far q is from it, and whether q lies on its left
+    double distance(const gp_XY& q, bool& left) const
+    {
+        if (!arc) {
+            const gp_XY t = (b - a).Normalized();
+            const double u = std::clamp((q - a).Dot(t), 0.0, (b - a).Modulus());
+            left = t.Crossed(q - a) > 0;
+            return (q - (a + t * u)).Modulus();
+        }
+        const gp_XY v = q - c;
+        const double far = v.Modulus();
+        left = ccw ? far < radius : far > radius;
+        if (full) {
+            return std::abs(far - radius);
+        }
+        constexpr double turn = 2 * std::numbers::pi;
+        auto angle = [&](const gp_XY& p) {
+            return std::atan2(p.Y() - c.Y(), p.X() - c.X());
+        };
+        auto within = [&](double x) {
+            x = std::fmod(x, turn);
+            return x < 0 ? x + turn : x;
+        };
+        const double from = angle(ccw ? a : b), to = angle(ccw ? b : a);
+        if (far > Precision::Confusion() && within(angle(q) - from) <= within(to - from)) {
+            return std::abs(far - radius);
+        }
+        return std::min((q - a).Modulus(), (q - b).Modulus());
+    }
+};
+
+/** The lines and arcs of a sketch's wire, in the frame toFrame takes to the
+ * origin, chained end to end: an open chain from one end to the other, a
+ * closed one counter-clockwise. Throws Base::ValueError for an edge that is
+ * neither, a wire not parallel to the frame's XY plane, and edges that do
+ * not make one chain; what names the form in the message.
+ */
+std::vector<Piece> piecesOf(const TopoDS_Shape& wire, const gp_Trsf& toFrame, bool& closed,
+                            const std::string& what)
+{
+    const double tol = 1e-6;
+    std::vector<Piece> loose;
+    double height = 0;
+    bool first = true;
+    for (TopExp_Explorer it(wire, TopAbs_EDGE); it.More(); it.Next()) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(it.Current()));
+        const double u0 = curve.FirstParameter(), u1 = curve.LastParameter();
+        const gp_Pnt p0 = curve.Value(u0).Transformed(toFrame),
+                     pm = curve.Value((u0 + u1) / 2).Transformed(toFrame),
+                     p1 = curve.Value(u1).Transformed(toFrame);
+        if (first) {
+            height = p0.Z();
+            first = false;
+        }
+        for (const gp_Pnt& p : {p0, pm, p1}) {
+            if (std::abs(p.Z() - height) > tol) {
+                FC_THROWM(Base::ValueError, what << "'s sketch is parallel to the face");
+            }
+        }
+        Piece piece;
+        piece.a = gp_XY(p0.X(), p0.Y());
+        piece.b = gp_XY(p1.X(), p1.Y());
+        if (curve.GetType() == GeomAbs_Circle) {
+            const gp_Pnt center = curve.Circle().Location().Transformed(toFrame);
+            piece.arc = true;
+            piece.c = gp_XY(center.X(), center.Y());
+            piece.radius = curve.Circle().Radius();
+            piece.full = (piece.a - piece.b).Modulus() < tol;
+            // the way it turns: by its middle; a whole circle's by a
+            // quarter on from where it starts
+            const gp_Pnt pq = curve.Value(u0 + (u1 - u0) / 4).Transformed(toFrame);
+            const gp_XY m(pm.X(), pm.Y()), q(pq.X(), pq.Y());
+            piece.ccw = piece.full ? (piece.a - piece.c).Crossed(q - piece.c) > 0
+                                   : (m - piece.a).Crossed(piece.b - m) > 0;
+        }
+        else if (curve.GetType() != GeomAbs_Line) {
+            FC_THROWM(Base::ValueError, what << " is drawn of lines and arcs of circles");
+        }
+        else if ((piece.a - piece.b).Modulus() < tol) {
+            continue;
+        }
+        loose.push_back(piece);
+    }
+    if (loose.empty()) {
+        FC_THROWM(Base::ValueError, what << " has nothing drawn");
+    }
+    // chained: from an end that no other piece meets, if there is one
+    auto meets = [&](const gp_XY& p, std::size_t but) {
+        for (std::size_t i = 0; i < loose.size(); ++i) {
+            if (i != but
+                && ((loose[i].a - p).Modulus() < tol || (loose[i].b - p).Modulus() < tol)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::size_t start = 0;
+    closed = true;
+    for (std::size_t i = 0; i < loose.size() && closed; ++i) {
+        if (loose[i].full) {
+            continue;
+        }
+        if (!meets(loose[i].a, i)) {
+            start = i;
+            closed = false;
+        }
+        else if (!meets(loose[i].b, i)) {
+            start = i;
+            loose[i].flip();
+            closed = false;
+        }
+    }
+    std::vector<Piece> chain {loose[start]};
+    loose.erase(loose.begin() + static_cast<long>(start));
+    while (!loose.empty()) {
+        const gp_XY at = chain.back().b;
+        auto next = std::find_if(loose.begin(), loose.end(), [&](const Piece& piece) {
+            return (piece.a - at).Modulus() < tol || (piece.b - at).Modulus() < tol;
+        });
+        if (next == loose.end()) {
+            FC_THROWM(Base::ValueError, what << " is drawn in one chain, end to end");
+        }
+        if ((next->a - at).Modulus() >= tol) {
+            next->flip();
+        }
+        chain.push_back(*next);
+        loose.erase(next);
+    }
+    if (closed && !chain.front().full
+        && (chain.back().b - chain.front().a).Modulus() >= tol) {
+        FC_THROWM(Base::ValueError, what << " is drawn in one chain, end to end");
+    }
+    if (closed) {
+        // counter-clockwise: by the area of its pieces' chords and bulges
+        double area = 0;
+        for (const Piece& piece : chain) {
+            if (piece.full) {
+                area += (piece.ccw ? 1 : -1) * std::numbers::pi * piece.radius * piece.radius;
+                continue;
+            }
+            area += piece.a.Crossed(piece.b) / 2;
+            if (piece.arc) {
+                const double chord = (piece.b - piece.a).Modulus();
+                const double half = std::asin(std::min(chord / (2 * piece.radius), 1.0));
+                // the short way round, or the long
+                const gp_XY mid = (piece.a + piece.b) / 2;
+                const bool minor = (piece.ccw ? 1 : -1) * (piece.b - piece.a).Crossed(piece.c - mid)
+                    >= 0;
+                const double sweep = minor ? 2 * half : 2 * std::numbers::pi - 2 * half;
+                area += (piece.ccw ? 1 : -1) * piece.radius * piece.radius
+                    * (sweep - std::sin(sweep)) / 2;
+            }
+        }
+        if (area < 0) {
+            std::reverse(chain.begin(), chain.end());
+            for (Piece& piece : chain) {
+                piece.flip();
+            }
+        }
+    }
+    return chain;
+}
+
+/// Whether the chain turns a corner where piece i ends: its next piece does
+/// not run on the way it does
+bool cornerAfter(const std::vector<Piece>& chain, std::size_t i)
+{
+    const Piece& next = chain[(i + 1) % chain.size()];
+    return std::abs(chain[i].tangent(true).Crossed(next.tangent(false))) > 1e-6
+        || chain[i].tangent(true).Dot(next.tangent(false)) < 0;
+}
+
+/** A closed chain's corners between two lines rounded by radius, each line
+ * shortened by what its corners' arcs take. Throws Base::ValueError for a
+ * corner at an arc, and for a line shorter than its corners take.
+ */
+std::vector<Piece> roundCorners(std::vector<Piece> chain, double radius, const std::string& what)
+{
+    const std::size_t n = chain.size();
+    std::vector<Piece> arcs(n);
+    std::vector<bool> rounded(n, false);
+    const std::vector<Piece> drawn = chain;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!cornerAfter(drawn, i)) {
+            continue;
+        }
+        const Piece& in = drawn[i];
+        const Piece& out = drawn[(i + 1) % n];
+        if (in.arc || out.arc) {
+            FC_THROWM(Base::ValueError,
+                      what << "'s corners at an arc are drawn round: only a corner of two "
+                              "lines is rounded by CornerRadius");
+        }
+        if (radius <= Precision::Confusion()) {
+            FC_THROWM(Base::ValueError,
+                      what << "'s corners are round: CornerRadius above 0, or the corners "
+                              "drawn round");
+        }
+        const gp_XY t1 = in.tangent(true), t2 = out.tangent(false);
+        const double turn = std::atan2(t1.Crossed(t2), t1.Dot(t2));
+        const double take = radius * std::tan(std::abs(turn) / 2);
+        Piece arc;
+        arc.arc = true;
+        arc.radius = radius;
+        arc.ccw = turn > 0;
+        arc.a = in.b - t1 * take;
+        arc.b = in.b + t2 * take;
+        arc.c = arc.a + gp_XY(-t1.Y(), t1.X()) * (arc.ccw ? radius : -radius);
+        arcs[i] = arc;
+        rounded[i] = true;
+        chain[i].b = arc.a;
+        chain[(i + 1) % n].a = arc.b;
+    }
+    std::vector<Piece> res;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!drawn[i].arc) {
+            const double left = (chain[i].b - chain[i].a).Dot(drawn[i].tangent(false));
+            if (left < -1e-7) {
+                FC_THROWM(Base::ValueError,
+                          what << " has a side shorter than its corners' rounding takes: a "
+                                  "smaller CornerRadius");
+            }
+            if (left > 1e-7) {
+                res.push_back(chain[i]);
+            }
+        }
+        else {
+            res.push_back(chain[i]);
+        }
+        if (rounded[i]) {
+            res.push_back(arcs[i]);
+        }
+    }
+    return res;
+}
+
+/** The outline r from a chain, at height z: about an open chain, r to
+ * either side and round its ends; of a closed one, r outside it, or inside
+ * for an r below 0. Its pieces' own, each line moved and each arc's radius
+ * changed, so every r gives the same edges in the same order. Throws
+ * Base::ValueError where an arc would close; the chain has no corner.
+ */
+TopoDS_Wire outlineOf(const std::vector<Piece>& chain, bool closed, double r, double z,
+                      const std::string& what)
+{
+    auto point = [z](const gp_XY& p) {
+        return gp_Pnt(p.X(), p.Y(), z);
+    };
+    BRepBuilderAPI_MakeWire wire;
+    auto arc = [&](const gp_XY& center, double radius, bool ccw, const gp_XY& from,
+                   const gp_XY& to, bool full) {
+        const gp_Circ circle(gp_Ax2(point(center), ccw ? gp::DZ() : gp::DZ().Reversed()), radius);
+        if (full) {
+            wire.Add(BRepBuilderAPI_MakeEdge(circle).Edge());
+            return;
+        }
+        wire.Add(BRepBuilderAPI_MakeEdge(
+                     GC_MakeArcOfCircle(circle, point(from), point(to), true).Value())
+                     .Edge());
+    };
+    // a piece moved r to its right, run forward or back
+    auto side = [&](const Piece& piece, double by, bool back) {
+        if (!piece.arc) {
+            const gp_XY t = piece.tangent(false);
+            const gp_XY shift = gp_XY(t.Y(), -t.X()) * by;
+            const gp_XY a = piece.a + shift, b = piece.b + shift;
+            wire.Add(BRepBuilderAPI_MakeEdge(point(back ? b : a), point(back ? a : b)).Edge());
+            return;
+        }
+        const double radius = piece.ccw ? piece.radius + by : piece.radius - by;
+        if (radius <= 1e-7) {
+            FC_THROWM(Base::ValueError,
+                      what << " has an arc of radius " << piece.radius
+                           << " mm, which closes at its slant: a rounder arc, or a smaller form");
+        }
+        const gp_XY a = piece.c + (piece.a - piece.c) * (radius / piece.radius);
+        const gp_XY b = piece.c + (piece.b - piece.c) * (radius / piece.radius);
+        arc(piece.c, radius, back ? !piece.ccw : piece.ccw, back ? b : a, back ? a : b,
+            piece.full);
+    };
+    if (closed) {
+        for (const Piece& piece : chain) {
+            side(piece, r, false);
+        }
+    }
+    else {
+        for (const Piece& piece : chain) {
+            side(piece, r, false);
+        }
+        const gp_XY end = chain.back().b, te = chain.back().tangent(true);
+        arc(end, r, true, end + gp_XY(te.Y(), -te.X()) * r, end + gp_XY(-te.Y(), te.X()) * r,
+            false);
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+            side(*it, -r, true);
+        }
+        const gp_XY start = chain.front().a, ts = chain.front().tangent(false);
+        arc(start, r, true, start + gp_XY(-ts.Y(), ts.X()) * r,
+            start + gp_XY(ts.Y(), -ts.X()) * r, false);
+    }
+    if (!wire.IsDone()) {
+        FC_THROWM(Base::ValueError, what << "'s outline could not be made");
+    }
+    return wire.Wire();
+}
+
 /// A dimple: two cones the thickness apart, the outside's from where it
 /// leaves the face, the hollow's opened through the wall; its bends rounded
 /// afterwards (roundDimple()). A bead is a dimple drawn out along the
@@ -208,6 +545,9 @@ Pressed pressTool(const TopoDS_Shape& tool,
 /// cut away, only its rim's bend rounded; a flanged hole is a round one at
 /// 90 deg, a collar. An emboss is a dimple about a rectangle, 2 s by 2 t,
 /// r0 its corners' radius where it leaves the face: a rounded rectangle.
+/// Drawn in a sketch: a bead about its path, an open chain of lines and
+/// arcs, r0 to either side; an emboss from its profile, a closed chain,
+/// where it leaves the face, r0 none.
 struct Dimple
 {
     double r0;      // where the outside leaves the face
@@ -219,18 +559,42 @@ struct Dimple
     double t = 0;   // an emboss's straight part along Y, half of it
     bool open = false;
     const char* what = "dimple";
+    /// a path or a profile drawn in a sketch, in place of s and t; a
+    /// profile's closed
+    std::vector<Piece> chain;
+    bool closed = false;
 
-    /// drawn about a line or a rectangle, not a point
+    /// drawn about a line, a rectangle or a sketch's chain, not a point
     bool drawnOut() const
     {
-        return s > 0 || t > 0;
+        return s > 0 || t > 0 || !chain.empty();
     }
-    /// how far a point of the frame's XY is from the straight part
+    /// how far a point of the frame's XY is from the straight part; from a
+    /// profile, below 0 inside it
     double from(const gp_Pnt& q) const
     {
+        if (!chain.empty()) {
+            double best = std::numeric_limits<double>::max();
+            bool inside = false;
+            for (const Piece& piece : chain) {
+                bool left = false;
+                const double far = piece.distance(gp_XY(q.X(), q.Y()), left);
+                if (far < best) {
+                    best = far;
+                    inside = left;
+                }
+            }
+            return closed && inside ? -best : best;
+        }
         const double x = std::max(std::abs(q.X()) - s, 0.0);
         const double y = std::max(std::abs(q.Y()) - t, 0.0);
         return std::hypot(x, y);
+    }
+
+    /// "A dimple", "An emboss"
+    std::string label() const
+    {
+        return std::string(std::strchr("aeiou", what[0]) ? "An " : "A ") + what;
     }
 
     double outside(double z) const
@@ -297,16 +661,29 @@ TopoDS_Wire stadium(double s, double t, double r, double z)
 /// The solid ruled between the rounded rectangles at z0 and z1, r0 and r1
 /// from the straight part, placed in the frame: planes and part cones
 TopoDS_Shape drawn(const gp_Ax3& frame,
-                   double s,
-                   double t,
+                   const Dimple& d,
                    double z0,
                    double r0,
                    double z1,
                    double r1)
 {
+    auto outline = [&](double r, double z) {
+        if (d.chain.empty()) {
+            return stadium(d.s, d.t, r, z);
+        }
+        const TopoDS_Wire wire = outlineOf(d.chain, d.closed, r, z, d.label());
+        // one outline, crossing itself nowhere: its sides have not met
+        BRepBuilderAPI_MakeFace face(wire, true);
+        if (!face.IsDone() || !BRepCheck_Analyzer(face.Face()).IsValid()) {
+            FC_THROWM(Base::ValueError,
+                      d.label() << " that narrow, or turning back on itself, has no room "
+                                   "for its slant and the thickness");
+        }
+        return wire;
+    };
     BRepOffsetAPI_ThruSections loft(true, true);
-    loft.AddWire(stadium(s, t, r0, z0));
-    loft.AddWire(stadium(s, t, r1, z1));
+    loft.AddWire(outline(r0, z0));
+    loft.AddWire(outline(r1, z1));
     loft.Build();
     if (!loft.IsDone()) {
         THROWM(Base::CADKernelError, "The form could not be made");
@@ -318,13 +695,13 @@ TopoDS_Shape drawn(const gp_Ax3& frame,
 
 Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
 {
-    // "A dimple", "An emboss"
-    const std::string what =
-        std::string(std::strchr("aeiou", d.what[0]) ? "An " : "A ") + d.what;
-    if (d.r0 <= 0 || d.h <= 0) {
+    const std::string what = d.label();
+    // a profile is where it leaves the face: none of r0
+    const bool profile = !d.chain.empty() && d.closed;
+    if ((d.r0 <= 0 && !profile) || d.h <= 0) {
         FC_THROWM(Base::ValueError, what << "'s sizes and depth are above 0");
     }
-    if (d.outside(d.h) <= Precision::Confusion()) {
+    if (!profile && d.outside(d.h) <= Precision::Confusion()) {
         FC_THROWM(Base::ValueError,
                   what << " " << 2 * d.r0 << " mm across cannot rise " << d.h
                        << " mm at its slant: it closes to a point first");
@@ -332,14 +709,14 @@ Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
     // its hollow's top: under its own, or, open, past it, its floor cut away
     double top = d.h - d.T;
     if (d.open) {
-        if (d.inside(d.h) <= Precision::Confusion()) {
+        if (!profile && d.inside(d.h) <= Precision::Confusion()) {
             FC_THROWM(Base::ValueError,
                       what << " that narrow has no room at its top for the thickness");
         }
         // as far past the top as its hollow stays open, the thickness at most
         top = d.h + std::min(d.T, d.inside(d.h) * std::tan(d.phi) / 2);
     }
-    else if (d.inside(d.h - d.T) <= Precision::Confusion()) {
+    else if (!profile && d.inside(d.h - d.T) <= Precision::Confusion()) {
         FC_THROWM(Base::ValueError,
                   what << " that narrow has no room inside for the thickness");
     }
@@ -350,9 +727,8 @@ Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
     const double foot = -d.T / 2;
     Pressed res;
     if (d.drawnOut()) {
-        res.outside = drawn(frame, d.s, d.t, foot, d.outside(foot), d.h, d.outside(d.h));
-        res.cuts.push_back(
-            drawn(frame, d.s, d.t, -2 * d.T, d.inside(-2 * d.T), top, d.inside(top)));
+        res.outside = drawn(frame, d, foot, d.outside(foot), d.h, d.outside(d.h));
+        res.cuts.push_back(drawn(frame, d, -2 * d.T, d.inside(-2 * d.T), top, d.inside(top)));
     }
     else {
         res.outside = cone(frame, foot, d.outside(foot), d.h, d.outside(d.h));
@@ -364,6 +740,16 @@ Pressed pressDimple(const Dimple& d, const gp_Ax3& frame)
     const double reach = d.r0 + d.rho * std::tan(d.phi / 2) + 10 * Precision::Confusion();
     res.form.halfLength = d.s + reach;
     res.form.halfWidth = d.drawnOut() ? d.t + reach : 0;
+    if (!d.chain.empty()) {
+        // a sketch's: the box of its outline that far out, the frame at
+        // its middle (chainFrame())
+        Bnd_Box box;
+        BRepBndLib::AddOptimal(outlineOf(d.chain, d.closed, reach, 0, what), box, false);
+        double x0, y0, z0, x1, y1, z1;
+        box.Get(x0, y0, z0, x1, y1, z1);
+        res.form.halfLength = std::max(std::abs(x0), std::abs(x1));
+        res.form.halfWidth = std::max(std::abs(y0), std::abs(y1));
+    }
     res.form.zMin = -d.T;
     res.form.zMax = d.h;
     return res;
@@ -938,7 +1324,9 @@ SheetMetalForm::SheetMetalForm()
                       (nullptr),
                       "Sheet Metal",
                       App::Prop_None,
-                      "A sketch whose points are where the forms are");
+                      "A sketch whose points are where the forms are. Kind Bead: each open "
+                      "chain of lines and arcs drawn in it is a bead's path too; Kind Emboss: "
+                      "each closed one an emboss's profile, where it leaves the face");
     ADD_PROPERTY_TYPE(Angle,
                       (0.0),
                       "Sheet Metal",
@@ -996,7 +1384,8 @@ SheetMetalForm::SheetMetalForm()
                       (3.0),
                       "Form",
                       App::Prop_None,
-                      "Kind Emboss: its corners' radius where it leaves the face");
+                      "Kind Emboss: its corners' radius where it leaves the face; of a "
+                      "profile drawn in the sketch, the corners of two lines");
     onChanged(&Kind);
 }
 
@@ -1108,7 +1497,18 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
              it.Next()) {
             points.push_back(BRep_Tool::Pnt(TopoDS::Vertex(it.Current())));
         }
-        if (points.empty()) {
+        // and what is drawn in it: a bead's paths, an emboss's profiles
+        std::vector<TopoDS_Shape> drawings;
+        if (const long kind = Kind.getValue(); kind == 3 || kind == 7) {
+            const TopoDS_Shape all = Part::Feature::getTopoShape(sketch).getShape();
+            for (TopExp_Explorer it(all, TopAbs_WIRE); it.More(); it.Next()) {
+                drawings.push_back(it.Current());
+            }
+            for (TopExp_Explorer it(all, TopAbs_EDGE, TopAbs_WIRE); it.More(); it.Next()) {
+                drawings.push_back(it.Current());
+            }
+        }
+        if (points.empty() && drawings.empty()) {
             FC_THROWM(Base::ValueError, sketch->getFullLabel() << " has no point for a form");
         }
 
@@ -1224,7 +1624,30 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
         if (!across(gp_Vec(sx.x, sx.y, sx.z), rise, xDir)) {
             xDir = plane.Position().XDirection();
         }
+        // what is drawn lies as it is drawn, not turned
+        const gp_Dir sketchX = xDir;
         xDir.Rotate(gp_Ax1(gp_Pnt(), rise), Base::toRadians(Angle.getValue()));
+
+        // a form pressed: all of it on the wall, short of its bends and its
+        // limits, and in the model
+        auto place = [&](Pressed& pressed, const gp_Ax3& frame, const gp_Pnt& p) {
+            Form& form = pressed.form;
+            form.frame = frame;
+            for (const gp_Pnt& q : around(form, T)) {
+                if (!model.contains(wall, q, 1e-6)) {
+                    FC_THROWM(Base::ValueError,
+                              "A form at (" << p.X() << ", " << p.Y() << ", " << p.Z()
+                                            << ") runs off " << model.elements[wall].name);
+                }
+            }
+            form.name = "Form" + std::to_string(model.forms.size() + 1);
+            form.wall = wall;
+            model.forms.push_back(form);
+            adds.emplace_back(pressed.outside);
+            for (const TopoDS_Shape& cut : pressed.cuts) {
+                cuts.emplace_back(cut);
+            }
+        };
 
         // the tool, Kind Tool
         TopoDS_Shape tool;
@@ -1350,23 +1773,101 @@ App::DocumentObjectExecReturn* SheetMetalForm::execute()
                     return roundLouver(f, s, d, frame, hl, hw, step);
                 });
             }
-            // all of it on the wall: short of its bends and its limits
-            Form& form = pressed.form;
-            form.frame = frame;
-            for (const gp_Pnt& q : around(form, T)) {
-                if (!model.contains(wall, q, 1e-6)) {
-                    FC_THROWM(Base::ValueError,
-                              "A form at (" << p.X() << ", " << p.Y() << ", " << p.Z()
-                                            << ") runs off " << model.elements[wall].name);
+            place(pressed, frame, p);
+        }
+
+        // A bead along each open chain of the sketch, an emboss from each
+        // closed one: of lines and arcs, lying as drawn
+        for (const TopoDS_Shape& drawing : drawings) {
+            const bool bead = Kind.getValue() == 3;
+            Dimple d {Diameter.getValue() / 2,
+                      Depth.getValue(),
+                      Base::toRadians(FlankAngle.getValue()),
+                      Radius.getValue(),
+                      T};
+            d.what = bead ? "bead" : "emboss";
+            TopExp_Explorer vertex(drawing, TopAbs_VERTEX);
+            if (!vertex.More()) {
+                continue;
+            }
+            const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vertex.Current()));
+            const double off = gp_Vec(plane.Location(), p).Dot(gp_Vec(plane.Axis().Direction()));
+            const gp_Pnt on = p.Translated(gp_Vec(plane.Axis().Direction()) * -off);
+            gp_Ax3 frame(Reversed.getValue() ? on.Translated(gp_Vec(normal) * -T) : on,
+                         rise,
+                         sketchX);
+            gp_Trsf toFrame;
+            toFrame.SetTransformation(frame);
+            d.chain = piecesOf(drawing, toFrame, d.closed, d.label());
+            if (bead) {
+                if (d.closed) {
+                    THROWM(Base::ValueError,
+                           "A bead's path has two ends: a line, an arc, or a chain of them");
+                }
+                for (std::size_t i = 0; i + 1 < d.chain.size(); ++i) {
+                    if (cornerAfter(d.chain, i)) {
+                        THROWM(Base::ValueError,
+                               "A bead's path turns no corner: its lines and arcs run on into "
+                               "each other");
+                    }
+                }
+                if (d.r0 <= 0) {
+                    THROWM(Base::ValueError, "A bead's sizes and depth are above 0");
                 }
             }
-            form.name = "Form" + std::to_string(model.forms.size() + 1);
-            form.wall = wall;
-            model.forms.push_back(form);
-            adds.emplace_back(pressed.outside);
-            for (const TopoDS_Shape& cut : pressed.cuts) {
-                cuts.emplace_back(cut);
+            else {
+                if (!d.closed) {
+                    THROWM(Base::ValueError,
+                           "An emboss's profile is closed: for one at a point, a point");
+                }
+                // where it leaves the face: its corners rounded there
+                d.r0 = 0;
+                d.chain = roundCorners(d.chain, CornerRadius.getValue(), d.label());
             }
+            // the frame at the middle of what it covers of the face
+            Bnd_Box box;
+            BRepBndLib::AddOptimal(outlineOf(d.chain, d.closed, d.r0, 0, d.label()), box, false);
+            double x0, y0, z0, x1, y1, z1;
+            box.Get(x0, y0, z0, x1, y1, z1);
+            const gp_XY middle((x0 + x1) / 2, (y0 + y1) / 2);
+            for (Piece& piece : d.chain) {
+                piece.a -= middle;
+                piece.b -= middle;
+                piece.c -= middle;
+            }
+            frame.Translate(gp_Vec(frame.XDirection()) * middle.X()
+                            + gp_Vec(frame.YDirection()) * middle.Y());
+            // all of it on the face: where its rim's bend ends, along its
+            // outline
+            const double reach = d.r0 + d.rho * std::tan(d.phi / 2);
+            gp_Trsf fromFrame;
+            fromFrame.SetDisplacement(gp_Ax3(gp::XOY()), frame);
+            for (TopExp_Explorer it(outlineOf(d.chain, d.closed, reach, 0, d.label()),
+                                    TopAbs_EDGE);
+                 it.More();
+                 it.Next()) {
+                BRepAdaptor_Curve curve(TopoDS::Edge(it.Current()));
+                const double u0 = curve.FirstParameter(), u1 = curve.LastParameter();
+                for (double u : {u0, (u0 + u1) / 2, u1}) {
+                    const gp_Pnt q = curve.Value(u).Transformed(fromFrame);
+                    const double above =
+                        gp_Vec(plane.Location(), q).Dot(gp_Vec(plane.Axis().Direction()));
+                    BRepClass_FaceClassifier where(
+                        face, q.Translated(gp_Vec(plane.Axis().Direction()) * -above), 1e-6);
+                    if (where.State() == TopAbs_OUT) {
+                        FC_THROWM(Base::ValueError,
+                                  d.label() << " drawn in " << sketch->getFullLabel()
+                                            << " runs off the face at (" << q.X() << ", "
+                                            << q.Y() << ", " << q.Z() << ")");
+                    }
+                }
+            }
+            Pressed pressed = pressDimple(d, frame);
+            rounds.emplace_back(
+                [d, frame](BRepFilletAPI_MakeFillet& f, const TopoDS_Shape& s, int step) {
+                    return step == 0 ? roundDimple(f, s, d, frame) : 0;
+                });
+            place(pressed, frame, frame.Location());
         }
 
         finish();

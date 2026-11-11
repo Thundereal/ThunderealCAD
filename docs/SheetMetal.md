@@ -1730,7 +1730,8 @@ stored flat and this option do what it was for.
   their distance from the straight part's line, which for a dimple, no straight part, is its
   axis. Its region is a box. Refused: no longer than it is wide (a dimple), closing to a point
   first, no room inside, a size of 0. A bead along a sketch's line or arc, not straight at a
-  point, is not built. `TestSheetMetalForm` (20; before, 17), `testBead`, `testBeadTurned`,
+  point: built 2026-11-11, below. `TestSheetMetalForm` (20; before, 17), `testBead`,
+  `testBeadTurned`,
   `testBeadRefused`; `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
 - **Built 2026-11-06, the lance:** Kind `Lance` of the form, a louver whose ends are cut, not
   drawn: the sheet cut on three sides, the tab between bent up along the fourth, its hinge, a
@@ -1766,10 +1767,37 @@ stored flat and this option do what it was for.
   rectangles, their bends found by the distance from that core and rounded concentric. Refused:
   corners not round, or rounder than half its width; corners closing at its slant before its top
   (`CornerRadius` at most `Depth / tan(FlankAngle)`); no room inside; a size of 0. An emboss of a
-  sketch's profile, not a rounded rectangle at a point, is not built: a tool does that.
+  sketch's profile, not a rounded rectangle at a point: built 2026-11-11, below.
   `TestSheetMetalForm` (30; before, 7 errors), `testEmboss`, `testEmbossSharp`,
   `testEmbossRefused`, and `testSizesFromThickness` now with `CornerRadius`;
   `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
+- **Built 2026-11-11, a bead and an emboss drawn in the sketch** (the third limit listed):
+  what is drawn in `Positions`, beside its points. Kind `Bead`: each open chain of lines and
+  arcs, running on into each other, is a bead's path -- `Diameter` across along it, round past
+  its ends, `Length` and `Angle` unused. Kind `Emboss`: each closed chain is an emboss's
+  profile, where it leaves the face; its corners of two lines are rounded by `CornerRadius`,
+  a whole circle is one too. Both lie as drawn.
+  - One shape still: the dimple about a chain of lines and arcs (`Dimple::chain`, `Piece`),
+    as about a point, a line or a rectangle. The outline a distance from the chain
+    (`outlineOf()`) is the chain's own pieces, each line moved and each arc's radius changed,
+    which a chain with no corner allows: every distance gives the same edges in the same
+    order, so the solid ruled between two of them is planes and part cones, exact, and its
+    bends are found and rounded as the others' (`roundDimple()`, the distance from the chain
+    signed for a profile). No 2D offset of the kernel's.
+  - The frame is at the middle of what the form covers, the sketch's X its X; the form's
+    region in the model is the box about it, so for a bent path or an L it holds more than
+    the form, which only a face lying wholly in the box and not the form's would tell.
+  - Refused, by name: a path with a corner, or closed; a profile's corner at an arc, or a
+    corner with no `CornerRadius`; a side shorter than its corners take; an arc that closes
+    at the slant before the top (a path's rounder than the bead is wide, a profile's corner
+    rounder than `Depth / tan(FlankAngle)` allows); sides meeting, or a path turning back on
+    itself; a form running off its face, by its rim's outline (a plate's wall has no end in
+    the model); an edge that is neither a line nor an arc.
+  - Oracles: a bead along a line is the bead at its middle; along an arc, or a line and an
+    arc, the straight bead as long (Pappus: its section is the same either side of the
+    path); an emboss from the rounded rectangle drawn, or the rectangle drawn sharp with
+    `CornerRadius`, is the built-in one. `TestSheetMetalForm` 44 (before, 37: the seven that
+    make one; the two that refuse passed for want of the kind).
 - **Built 2026-11-06, the gusset, the last of the built-in forms** (its four points as recommended
   and taken 2026-11-06): Kind `Gusset`, the only form across a bend. `Face` is a bend's; at each
   point of `Positions`, its place along the bend's axis, a rib is pressed in from the bend's

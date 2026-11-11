@@ -2801,7 +2801,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def pollRun(self):
         """Not upstream: the worker's progress, and its frames once it is done"""
-        progress = self.assembly.getSimulationProgress()
+        try:
+            progress = self.assembly.getSimulationProgress()
+        except ReferenceError:
+            # Its document closed under the run: nothing is left to show, and
+            # the timer would raise this every 50 ms
+            self.runPoll.stop()
+            return
         span = self.simValues.TimeEnd - self.simValues.TimeStart
         done = (progress["Time"] - self.simValues.TimeStart) / span if span > 0 else 1.0
         self.runProgress.setValue(int(1000 * min(max(done, 0.0), 1.0)))

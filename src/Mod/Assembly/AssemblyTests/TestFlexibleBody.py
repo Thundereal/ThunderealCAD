@@ -587,6 +587,78 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertGreater(flexible, 0.0)
         self.assertLess(flexible, rigid)
 
+    def test_bent_onto_bar_anywhere(self):
+        """A strip 200 x 20 x 2 hinged at an end and let go level lands on a
+        grounded bar 120 mm out, 10 mm under it, anywhere on it, and stays on
+        the bar bent, 0.4 mm off where its hinge's end has it rigid: the
+        contact is kept through that, its force never more than the blow's.
+        The strip's shapes ride its first interface rigid, and looked for
+        only 0.1 mm ahead of them the contact was lost as the strip bent and
+        found again 0.18 mm in: 62 kN on 21 g, where the blow is 340 N"""
+        import CommandCreateContact
+
+        mount = self.box("Mount", (10, 20, 10), (0, 0, -4))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
+        JointObject.GroundedJoint(ground, mount)
+        strip = self.box("Strip", (200, 20, 2), (10, 0, 0))
+        bar = self.assembly.newObject("Part::Cylinder", "Bar")
+        bar.Radius = 5
+        bar.Height = 30
+        bar.Placement = plc(130, -5, -15, App.Vector(1, 0, 0), -90)
+        held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBar")
+        JointObject.GroundedJoint(held, bar)
+        self.doc.recompute()
+        hinge = self.joints.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (mount, ["Face2"])
+        hinge.Reference2 = (strip, ["Face1"])
+        hinge.Placement1 = plc(10, 10, 5, App.Vector(1, 0, 0), -90)
+        hinge.Placement2 = plc(0, 10, 1, App.Vector(1, 0, 0), -90)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, [strip], [bar])
+        sim = self.study(0.051, 2e-4)
+        sim.Elements = [contact]
+        body = FlexibleBodies.makeFlexibleBody(self.assembly, strip)
+        body.MeshSize = 8.0
+        FlexibleBodies.prepare(body)
+        self.assertNotIn(FlexibleBodies.CONTACT, body.InterfaceFrames)
+        self.doc.recompute()
+
+        class Warnings:
+            def __init__(self):
+                self.messages = []
+
+            def __call__(self, notifier, msg, level):
+                if level == "Warning":
+                    self.messages.append(msg)
+
+        warnings = Warnings()
+        App.Console.AttachObserver(warnings)
+        try:
+            self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        finally:
+            App.Console.DetachObserver(warnings)
+        # Not found late (the run says when one is)
+        self.assertFalse(any("was found" in m for m in warnings.messages), warnings.messages)
+        results = self.assembly.getSimulationResults()
+        times = results["Times"]
+        normal = [c["Values"] for c in results["Channels"] if c["Quantity"] == "ContactNormalForce"]
+        forces = [v.z for v in normal[0]]
+        hit = next(k for k, f in enumerate(forces) if f > 0)
+        blow = max(f for t, f in zip(times, forces) if t - times[hit] < 5e-5)
+        after = [f for t, f in zip(times, forces) if t - times[hit] > 1e-3]
+        print("bent onto the bar: first touch %.6f s, the blow %.4g mN, after it at most %.4g, "
+              "pressing in %d of %d frames" % (
+                  times[hit], blow, max(after), sum(1 for f in after if f > 0), len(after)))
+        self.assertGreater(blow, 0.0)
+        self.assertLessEqual(max(forces), blow)
+        # On the bar still a millisecond and more after, pressing lightly
+        self.assertGreater(sum(1 for f in after if f > 0), len(after) // 2)
+        self.assertLess(max(after), 0.1 * blow)
+
     def renew(self):
         """A new document for a second run, as setUp's"""
         App.closeDocument(self.doc.Name)

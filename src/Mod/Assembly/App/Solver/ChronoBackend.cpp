@@ -1308,6 +1308,15 @@ public:
     {
         return flexible && i < onMesh.size() && onMesh[i].placed;
     }
+    // A point's speed on B, absolute: B's there, or the part's surface's
+    // where its modes have it. What sizes a substep and judges a contact
+    // found late reads this one: the carrier's own is not how fast the
+    // surface comes in, a strip of 2 mm 0.2 mm off its carrier's shape and
+    // still bending as it came back onto a bar
+    ch::ChVector3d speedOnB(std::size_t i, const Point& point) const
+    {
+        return meshed(i) ? onMesh[i].speed : GetBodyB()->PointSpeedLocalToParent(point.onB);
+    }
     // At the last state ComputeQ was given, each such point pressing: its
     // force on B, absolute, its normal, where it is on A (A's frame), and the
     // force's rates along the normal with the depth and with its rate (N/m,
@@ -1357,6 +1366,15 @@ public:
     std::vector<const ch::fea::ChNodeFEAxyz*> nodes;
     // The loads it is B of
     std::vector<ContactLoad*> loads;
+    // How far ahead of the carrier's shapes its surface is looked for. The
+    // shapes ride the carrier rigid, and the surface is off them by what the
+    // part has bent since: a strip 200 x 20 x 2 hinged at an end, dropped
+    // 10 mm onto a bar 120 mm out, left it bent and came back with its
+    // surface 0.18 mm in when the shape came within the run's reach of 0.1
+    // mm -- 62 kN on 21 g. A hundredth of the part's size: the strip's 2 mm,
+    // its most bent 1.2 mm then. Ahead only: a surface behind its shape is
+    // found by the shape, and has no force until it is there.
+    double reach = 0.0;
 
     // Each point of a load just found to its place on the surface, as the
     // carrier has it at rest, then where it is now
@@ -1377,6 +1395,37 @@ public:
             on.offset = load.points[i].onB - carrierAt.TransformPointParentToLocal(found.at);
         }
         refresh(load);
+    }
+
+    // Of a load's points just found, as collision detection gave them, the
+    // ones whose surface is within 'within' of the other body's point: the
+    // shapes are looked for farther ahead (reach) than a contact's points
+    // are kept from, and one found that far off whose surface is not there
+    // is no contact's yet. Kept, a rod's underside 1 mm over the post its
+    // pad rested on shared the pad's stiffness, the post's force 5% light.
+    // Before the points' patches are made, and they are placed again after
+    void trim(ContactLoad& load, double within)
+    {
+        if (reach <= 0.0 || load.points.empty()) {
+            return;
+        }
+        // place() moves each point's onB to its surface's
+        const std::vector<ContactLoad::Point> found = load.points;
+        place(load);
+        const auto a = load.GetBodyA();
+        std::vector<ContactLoad::Point> kept;
+        kept.reserve(found.size());
+        for (std::size_t i = 0; i < found.size(); ++i) {
+            if (load.onMesh[i].placed
+                && ch::Vdot(found[i].normal,
+                            load.onMesh[i].at - a->TransformPointLocalToParent(found[i].onA))
+                    > within) {
+                continue;
+            }
+            kept.push_back(found[i]);
+        }
+        load.points.swap(kept);
+        load.onMesh.clear();
     }
 
     // A load's points where the modes have them, and their maps; each one's
@@ -1458,6 +1507,9 @@ public:
         const unsigned int at = assembly->GetOffset_w();
         for (ContactLoad* load : loads) {
             for (const auto& f : load->forcesOnB) {
+                if (f.point >= load->onMesh.size()) {
+                    continue;
+                }
                 const auto& on = load->onMesh[f.point];
                 if (on.T.cols() != reduced || at + reduced > R.size()) {
                     continue;
@@ -1486,6 +1538,9 @@ public:
             const auto it = std::find(others.begin(), others.end(), a);
             const int other = it == others.end() ? -1 : static_cast<int>(it - others.begin());
             for (const auto& f : load->forcesOnB) {
+                if (f.point >= load->onMesh.size()) {
+                    continue;
+                }
                 const auto& on = load->onMesh[f.point];
                 if (on.T.cols() != reduced) {
                     continue;
@@ -1702,6 +1757,8 @@ struct SatPolyhedron
     std::vector<std::vector<int>> facesAt;   // each vertex's faces
     bool triangle = false;                   // a mesh's, one-sided
     cbtScalar grown = 0;                     // a triangle's, along its normal
+    // How far inside the shape Bullet has its features are (ShapeOn::search)
+    cbtScalar inset = 0;
 };
 
 SatPolyhedron satOf(const cbtConvexPolyhedron& polyhedron)
@@ -2426,8 +2483,12 @@ public:
         const cbtTransform& ta = body0Wrap->getWorldTransform();
         const cbtTransform& tb = body1Wrap->getWorldTransform();
         const cbtTransform bInA = ta.inverse() * tb;
-        const cbtScalar threshold =
-            manifold->getContactBreakingThreshold() + resultOut->m_closestPointDistanceThreshold;
+        // Bullet's distances are between the shapes it has, and the features
+        // may stand inside those (SatPolyhedron::inset): searched as far,
+        // and their points given as those shapes'
+        const cbtScalar inside = a->second.inset + b->second.inset;
+        const cbtScalar threshold = manifold->getContactBreakingThreshold()
+            + resultOut->m_closestPointDistanceThreshold + inside;
         bool kept = false;
         if (axis.kind != SatAxis::None) {
             satRemeasure(a->second, b->second, bInA, axis);
@@ -2445,6 +2506,12 @@ public:
         clipped.clear();
         if (axis.kind != SatAxis::None && axis.separation <= threshold) {
             clipAlong(a->second, b->second, ta, tb, axis, threshold, clipped);
+            if (inside > 0) {
+                for (ClipPoint& point : clipped) {
+                    point.onB += point.normalOnB * b->second.inset;
+                    point.depth -= inside;
+                }
+            }
         }
         if (!ownManifold) {
             for (const ClipPoint& point : clipped) {
@@ -2604,6 +2671,7 @@ public:
     }
     void addPolyhedralFeatures(
         ch::ChCollisionModel& model,
+        double envelope,
         std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*>& features);
     // The Bullet shapes each shape of a model made (addPolyhedralFeatures()):
     // a mesh's its triangles, any other's one
@@ -2688,13 +2756,23 @@ thread_local const ContactCollisionSystem* ContactCollisionSystem::running = nul
 // points merges any within a millimetre of each other, so its features are
 // the exact hull of its points, each face moved out by the envelope and
 // each vertex onto its faces' planes.
+// The envelope is the run's, not the model's where that is wider, a
+// flexible part's carrier's (ShapeOn::search): Bullet's shape is rounded as
+// far out, the true shape's offset, but features grown so stand as far
+// sideways as well -- a bar across a strip 20 mm wide, looked for 0.5 mm
+// ahead, touched it along 21 mm. Grown by the run's, they keep how far
+// inside Bullet's shape they are (SatPolyhedron::inset).
 void ContactCollisionSystem::addPolyhedralFeatures(
     ch::ChCollisionModel& model,
+    double envelope,
     std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*>& features)
 {
     if (!model.HasImplementation()) {
         return;
     }
+    const double whole = static_cast<double>(model.GetEnvelope());
+    const cbtScalar grow = static_cast<cbtScalar>(std::min(envelope, whole));
+    const cbtScalar inset = static_cast<cbtScalar>(whole) - grow;
     // Its Bullet object, the one whose user pointer is the model's Bullet
     // half
     cbtCollisionShape* top = nullptr;
@@ -2729,8 +2807,8 @@ void ContactCollisionSystem::addPolyhedralFeatures(
                    && children[next]->getShapeType() == CH_TRIANGLE_SHAPE_PROXYTYPE) {
                 auto* triangle = static_cast<cbtCEtriangleShape*>(children[next++]);
                 made[instances[i].shape.get()].push_back(triangle);
-                polyhedra[triangle] =
-                    satOfTriangle(*triangle, static_cast<cbtScalar>(model.GetEnvelope()));
+                polyhedra[triangle] = satOfTriangle(*triangle, grow);
+                polyhedra[triangle].inset = inset;
             }
             continue;
         }
@@ -2742,9 +2820,24 @@ void ContactCollisionSystem::addPolyhedralFeatures(
         switch (instances[i].shape->GetType()) {
             case ch::ChCollisionShape::Type::BOX: {
                 auto* box = static_cast<cbtBoxShape*>(shape);
-                if (box->initializePolyhedralFeatures()) {
+                bool has = false;
+                if (inset > 0) {
+                    cbtBoxShape smaller(box->getHalfExtentsWithMargin()
+                                        - cbtVector3(inset, inset, inset));
+                    if (smaller.initializePolyhedralFeatures()) {
+                        cbtConvexPolyhedron its = *smaller.getConvexPolyhedron();
+                        box->setPolyhedralFeatures(its);
+                        has = true;
+                    }
+                }
+                else {
+                    has = box->initializePolyhedralFeatures();
+                }
+                if (has) {
                     features[instances[i].shape.get()] = box->getConvexPolyhedron();
-                    polyhedra[box->getConvexPolyhedron()] = satOf(*box->getConvexPolyhedron());
+                    SatPolyhedron& sat = polyhedra[box->getConvexPolyhedron()];
+                    sat = satOf(*box->getConvexPolyhedron());
+                    sat.inset = inset;
                 }
                 break;
             }
@@ -2763,7 +2856,6 @@ void ContactCollisionSystem::addPolyhedralFeatures(
                     break;
                 }
                 cbtConvexPolyhedron grown = *exact.getConvexPolyhedron();
-                const cbtScalar grow = static_cast<cbtScalar>(model.GetEnvelope());
                 std::vector<ch::ChMatrix33d> normals(grown.m_vertices.size(),
                                                      ch::ChMatrix33d::Zero());
                 std::vector<ch::ChVector3d> sums(grown.m_vertices.size(), ch::VNULL);
@@ -2801,7 +2893,9 @@ void ContactCollisionSystem::addPolyhedralFeatures(
                 auto* convex = static_cast<cbtConvexHullShape*>(shape);
                 convex->setPolyhedralFeatures(grown);
                 features[instances[i].shape.get()] = convex->getConvexPolyhedron();
-                polyhedra[convex->getConvexPolyhedron()] = satOf(*convex->getConvexPolyhedron());
+                SatPolyhedron& sat = polyhedra[convex->getConvexPolyhedron()];
+                sat = satOf(*convex->getConvexPolyhedron());
+                sat.inset = inset;
                 break;
             }
             default:
@@ -2821,6 +2915,10 @@ struct ShapeOn
     double half = 0.0;
     const cbtConvexPolyhedron* features = nullptr;
     double envelope = 0.0;
+    // How far beyond the envelope Bullet looks from it: a flexible part's
+    // carrier's shapes, whose surface is ahead of them by what the part has
+    // bent (FlexibleContact::reach)
+    double search = 0.0;
     // For Hertz's law (patchStiffness()): a sphere's radius, the material's
     // E / (1 - nu^2), the radius of the ball of the solid's volume, and the
     // surface's curvature tensor at each vertex of its mesh, a mesh's or a
@@ -3922,13 +4020,14 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         const auto b = load.GetBodyB();
         bool pressed = false;
         double fastest = 0.0;
-        for (const auto& point : load.points) {
+        for (std::size_t i = 0; i < load.points.size(); ++i) {
+            const auto& point = load.points[i];
             const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
             pressed = pressed || -ch::Vdot(point.normal, pB - pA) > 0.0;
             fastest = std::max(fastest,
                                -ch::Vdot(point.normal,
-                                         b->PointSpeedLocalToParent(point.onB)
+                                         load.speedOnB(i, point)
                                              - a->PointSpeedLocalToParent(point.onA)));
         }
         if (!pressed) {
@@ -5278,6 +5377,11 @@ struct ChronoSession::Impl
                 item->carrier = run.built.interfaces[0].get();
                 item->carrierAt = faces[0].local;
                 item->surface = std::make_shared<ChronoFlexible::Surface>(record);
+                ch::ChAABB box;
+                for (const auto& node : record.nodes) {
+                    box += toCh(node);
+                }
+                item->reach = record.nodes.empty() ? 0.0 : 0.01 * box.Size().Length();
                 for (const auto& node : run.built.mesh->GetNodes()) {
                     item->nodes.push_back(dynamic_cast<const ch::fea::ChNodeFEAxyz*>(node.get()));
                 }
@@ -7844,6 +7948,9 @@ Status ChronoSession::simulateDynamics(
                                 const ShapeOn* mesh,
                                 const ch::ChCollisionShape* shape,
                                 const ch::ChVector3d& toOther) {
+                    // As far as Bullet looked for the pair
+                    const double reach =
+                        this->reach + cylinder.search + (mesh ? mesh->search : face->search);
                     return mesh ? cylinderTrianglePoints(
                                       cylinder,
                                       *mesh,
@@ -7905,7 +8012,10 @@ Status ChronoSession::simulateDynamics(
                                 || (shapesOn.of(inner) == pair.innerOf && ofHollow(hollow));
                         }),
                     load.points.end());
-                hollowPoints(*pair.inner, *pair.hollow, reach, hollowAt);
+                hollowPoints(*pair.inner,
+                             *pair.hollow,
+                             reach + pair.inner->search + pair.hollow->search,
+                             hollowAt);
                 for (const HollowPoint& at : hollowAt) {
                     ContactLoad::Point point;
                     point.onA = load.GetBodyA()->TransformPointParentToLocal(
@@ -7959,7 +8069,8 @@ Status ChronoSession::simulateDynamics(
                     const double turn = 2.0 * pi * k / ring;
                     SeatPoint at;
                     if (!seatAt(*seat.ball, *seat.hollow, fb, fh, turn, at)
-                        || ch::Vdot(at.onRim - at.onBall, at.out) > reach) {
+                        || ch::Vdot(at.onRim - at.onBall, at.out)
+                            > reach + seat.ball->search + seat.hollow->search) {
                         continue;
                     }
                     ContactLoad::Point point;
@@ -8045,11 +8156,34 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             for (auto& load : *loads) {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+                // A flexible part's points are looked for ahead of its
+                // carrier's shapes: the ones whose surface is not within the
+                // run's own reach are no contact's yet
+                if (load->flexible) {
+                    load->flexible->trim(*load, reach);
+                }
+#endif
                 patchesOf(*load);
-                patchStiffness(*load, shapesOn);
+                // A flexible part's points onto its surface first: the speed
+                // a contact comes in at, and whether it presses, are the
+                // surface's (patchStiffness())
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
                 if (load->flexible) {
                     load->flexible->place(*load);
+                }
+#endif
+                patchStiffness(*load, shapesOn);
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+                // And its forces at the points just found: the ones it has
+                // are of the points before, by their numbers (forcesOnB), and
+                // a step taken back from a contact found late has them of
+                // the late points at the state before -- 7.6 kN on a strip of
+                // 21 g whose surface was 0.1 mm in already, its carrier's
+                // shape not yet within reach, read by the next step as its
+                // start's (HHT's share of the old forces) with no point left
+                if (load->flexible) {
+                    load->ComputeQ(nullptr, nullptr);
                 }
 #endif
             }
@@ -8139,7 +8273,17 @@ Status ChronoSession::simulateDynamics(
                                     shape.kind == ContactShape::Kind::Mesh
                                         ? ch::ChFramed()
                                         : run.d->localOf(shape.frame));
-            body->GetCollisionModel()->SetEnvelope(envelope);
+            // A flexible part's carrier: looked for as far ahead as the
+            // part's surface may be of it (FlexibleContact::reach)
+            double search = 0.0;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+            for (const auto& flexible : run.d->flexibles) {
+                if (flexible.anywhere && flexible.anywhere->carrier == body.get()) {
+                    search = flexible.anywhere->reach;
+                }
+            }
+#endif
+            body->GetCollisionModel()->SetEnvelope(envelope + search);
             body->GetCollisionModel()->SetSafeMargin(margin);
             body->EnableCollision(true);
             shapeBody[k] = body.get();
@@ -8148,6 +8292,7 @@ Status ChronoSession::simulateDynamics(
             where.frame = run.d->localOf(shape.frame);
             where.source = shape.frame;
             where.envelope = envelope;
+            where.search = search;
             if (shape.kind == ContactShape::Kind::Cylinder) {
                 where.radius = shape.size.x;
                 where.half = 0.5 * shape.size.z;
@@ -8195,6 +8340,7 @@ Status ChronoSession::simulateDynamics(
                 made.body = where.body;
                 made.source = where.source;
                 made.envelope = where.envelope;
+                made.search = where.search;
                 made.modulus = where.modulus;
                 made.size = where.size;
                 const ch::ChVector3d z = toCh(round.axis);
@@ -8540,7 +8686,7 @@ Status ChronoSession::simulateDynamics(
         std::set<ch::ChBody*> withShapes(shapeBody.begin(), shapeBody.end());
         for (ch::ChBody* body : withShapes) {
             if (body) {
-                collision->addPolyhedralFeatures(*body->GetCollisionModel(), features);
+                collision->addPolyhedralFeatures(*body->GetCollisionModel(), envelope, features);
             }
         }
         for (const auto& [shape, polyhedron] : features) {
@@ -10159,12 +10305,13 @@ Status ChronoSession::simulateDynamics(
             const auto pressing = std::count(pressed.begin(), pressed.end(), true);
             mass /= static_cast<double>(pressing ? pressing : load->patches);
             const ContactLaw& law = load->law;
-            for (const auto& point : load->points) {
+            for (std::size_t i = 0; i < load->points.size(); ++i) {
+                const auto& point = load->points[i];
                 const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
                 const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
                 const double depth = -ch::Vdot(point.normal, pB - pA);
                 const double rate = -ch::Vdot(point.normal,
-                                              b->PointSpeedLocalToParent(point.onB)
+                                              load->speedOnB(i, point)
                                                   - a->PointSpeedLocalToParent(point.onA));
                 const double approach = std::max(rate, 0.0);
                 const double k = load->stiffness[point.patch];
@@ -10280,7 +10427,10 @@ Status ChronoSession::simulateDynamics(
             if (depth > touch.depth) {
                 touch.depth = depth;
                 touch.frames = point.frames;
-                touch.rate = rateOf(point, *a, *b);
+                touch.rate = load.meshed(i)
+                    ? -ch::Vdot(point.normal,
+                                load.speedOnB(i, point) - a->PointSpeedLocalToParent(point.onA))
+                    : rateOf(point, *a, *b);
                 touch.accel = -ch::Vdot(point.normal,
                                         b->PointAccelerationLocalToParent(point.onB)
                                             - a->PointAccelerationLocalToParent(point.onA));
@@ -10384,7 +10534,8 @@ Status ChronoSession::simulateDynamics(
         const auto a = load.GetBodyA();
         const auto b = load.GetBodyB();
         const double mass = load.lighterMass();
-        for (const auto& point : load.points) {
+        for (std::size_t i = 0; i < load.points.size(); ++i) {
+            const auto& point = load.points[i];
             const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
             const double depth = -ch::Vdot(point.normal, pB - pA);
@@ -10392,7 +10543,7 @@ Status ChronoSession::simulateDynamics(
                 continue;
             }
             const double rate = std::max(-ch::Vdot(point.normal,
-                                                   b->PointSpeedLocalToParent(point.onB)
+                                                   load.speedOnB(i, point)
                                                        - a->PointSpeedLocalToParent(point.onA)),
                                          0.0);
             const double e = load.exponents[point.patch];
@@ -10917,6 +11068,19 @@ Status ChronoSession::simulateDynamics(
     // again, an eighth as long, from the state before it, and the steps
     // grow back after. One longer than the strict rule's that moved a load
     // at rest is taken again by it.
+    // A run asked to stop is seen here too, not only as a frame is given
+    // (TrajectorySink::cancelled()): a frame's substeps can take minutes.
+    // And one that will not get anywhere says so: 100000 substeps kept in a
+    // row, each under 10 ns -- a contact's, a hundredth of a metal's line
+    // contact's on a part of grams, or ones taken back down to a nanosecond
+    // again and again -- are an hour for a millisecond. A strip of 2 mm
+    // coming back onto a bar ran 0.4 ms in four minutes so, its panel
+    // showing a run under way, Cancel doing nothing.
+    struct Stopped
+    {};
+    int crawled = 0;
+    // The flexible parts a contact was found late on, each said once
+    std::set<const FlexibleContact*> foundLate;
     auto advance = [&](double dt) {
         if (!contact) {
             // A flexible body's modal coordinates never pass the default
@@ -10995,6 +11159,9 @@ Status ChronoSession::simulateDynamics(
         bool fresh = false;  // collision detection last ran at the state now
         goOn();
         while (dt - done > 1e-12 * dt) {
+            if (sink.cancelled()) {
+                throw Stopped {};
+            }
             const double strict = contactStep(true);
             double h =
                 std::min({dt - done, cap, contactStep(false), penaltyStep(), frictionStep()});
@@ -11079,8 +11246,42 @@ Status ChronoSession::simulateDynamics(
                 }
                 continue;
             }
+            // A flexible part's contact kept as deep as it was found, no
+            // shorter step finding it sooner: its surface was farther ahead
+            // of its carrier's shapes than the run looks for it
+            // (FlexibleContact::reach), or the parts overlap as they start
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+            if (tooDeep) {
+                for (std::size_t i = 0; i < contactLoads.size(); ++i) {
+                    const auto& load = contactLoads[i];
+                    if (!load->flexible || before[i] > 0.0 || !late(*load)
+                        || !foundLate.insert(load->flexible).second) {
+                        continue;
+                    }
+                    const Touch now = touchOf(*load);
+                    Base::Console().warning(
+                        "Assembly: the contact of %s on the flexible body %s was found %.3g mm "
+                        "in, at %.6g s: its force starts at that depth. The run looks for the "
+                        "body's surface %.3g mm ahead of where its first interface carries its "
+                        "shape, and it had bent more, or the parts overlap\n",
+                        partName(now.frames[0], load->GetBodyA().get()).c_str(),
+                        partName(now.frames[1], load->GetBodyB().get()).c_str(),
+                        now.depth / SI::length,
+                        t,
+                        load->flexible->reach / SI::length);
+                }
+            }
+#endif
             done += h;
             cap = std::min(dt, cap * 2.0);
+            if (!(h < 1e-8)) {
+                crawled = 0;
+            }
+            else if (++crawled > 100000) {
+                throw std::runtime_error("the contact's integration stalled at "
+                                         + std::to_string(sys.GetChTime())
+                                         + " s: 100000 substeps in a row under 10 ns");
+            }
             keepMoment();
             watchImpacts();
             // A load pressing as the substep ended that collision detection
@@ -11683,6 +11884,9 @@ Status ChronoSession::simulateDynamics(
                 break;
             }
         }
+    }
+    catch (const Stopped&) {
+        status = Status::Cancelled;
     }
     catch (const std::exception& e) {
         Base::Console().error("Assembly: the Chrono backend's dynamic run failed: %s\n", e.what());

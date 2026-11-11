@@ -280,6 +280,12 @@ public:
     virtual ~TrajectorySink() = default;
     // false: cancel the run
     virtual bool frame(double time, const std::vector<BodyPose>& poses) = 0;
+    // Whether the run is to stop, asked between frames too: a contact's
+    // substeps can take as long as they like over one
+    virtual bool cancelled() const
+    {
+        return false;
+    }
     // Once, before the first frame, from a run that reports values: their
     // channels
     virtual void channels(const std::vector<Channel>& channels)

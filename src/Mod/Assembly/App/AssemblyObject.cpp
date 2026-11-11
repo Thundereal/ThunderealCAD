@@ -391,6 +391,10 @@ struct TrajectoryRecorder: Solver::TrajectorySink
         ++count;
         return true;
     }
+    bool cancelled() const override
+    {
+        return cancel;
+    }
     void channels(const std::vector<Solver::Channel>& channels) override
     {
         frames.channels = channels;

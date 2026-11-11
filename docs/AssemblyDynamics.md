@@ -4258,7 +4258,9 @@ Phase D1 is under way (2026-10-28):
     taken in at each point: a contact shape that bends farther from the
     carrier than collision detection's envelope (2e-5 m) before it touches
     is found late, by the step that goes too deep (advance()), as a
-    contact it does not see coming is. A metal part bends microns.
+    contact it does not see coming is. A metal part bends microns -- a
+    stocky one: a strip does not, and step 11 looks for the surface
+    farther ahead.
   - The rod clamped, its pad resting on the post, the pad's face not named:
     the prop takes 106.6 mN for the propped cantilever's 104.9, 1.7% over
     (through the faces 1.4%), clamp and prop the weight within 0.1%, the run
@@ -4339,6 +4341,87 @@ Phase D1 is under way (2026-10-28):
   - Test: TestGuiCommands.test_flexible_body_playback -- the picture at
     the view's size and at twice it, the legend's bar red at its top and
     blue at its bottom where it is on the view; without overlays, not.
+- Built, D4b step 11 (2026-11-11): a flexible part bent off its carrier
+  keeps its contact; a run is stopped inside a frame.
+  - Found making the manual's video of step 8: an aluminium strip
+    200 x 20 x 2 hinged at an end, let go level onto a grounded bar 10 mm
+    across lying 10 mm under it, 120 mm out, no contact faces. The run got
+    past the first blow (336 N at 47.5 ms) and then crawled, 0.4 ms in
+    four minutes, the panel showing a run under way and Cancel doing
+    nothing. Five faults, in the order they were found.
+  - **A run is stopped inside a frame** (`TrajectorySink::cancelled()`, read
+    at each substep of advance()): Cancel was seen only as a frame was
+    given, and a contact's substeps can take minutes a frame. And a run
+    that will not get anywhere says so: 100000 substeps kept in a row, each
+    under 10 ns, fail the run with "the contact's integration stalled at
+    ... s". The panel's poll outlives its assembly when a document closes
+    under a run (`pollRun()` takes the ReferenceError).
+  - **A flexible part's forces after a step taken back were the late
+    points'.** A load's forces on a flexible part are kept by its points'
+    numbers (`forcesOnB`) for `FlexibleContact` to put on the reduced
+    coordinates. A step taken back from a contact found late left them as
+    computed at the late points, and collision detection run again at the
+    state before gave other points or none: the next step read 7.6 kN on a
+    strip of 21 g as its start's (HHT's share of the old forces). The
+    finder computes a flexible load's forces again at the points it has
+    just found, and the two readers skip a number past the points.
+  - **The surface's speed, not the carrier's**, sizes a substep and judges
+    a contact found late (`ContactLoad::speedOnB()`): the strip came back
+    onto the bar 0.2 mm off its carrier's shape and still bending.
+  - **The carrier's shapes lag the surface, and were looked for too
+    near.** The shapes ride the first interface rigid; after the first blow
+    the strip's surface at the bar was 0.2 to 0.45 mm ahead of them, the
+    contact was lost as the shapes left the bar by the run's reach (0.1 mm)
+    and found again with the surface 0.18 mm in: 62 kN, where the blow is
+    336 N. Step 8's "a metal part bends microns" holds for a stocky part,
+    not for a strip. Now a flexible part's carrier is looked for ahead by
+    `FlexibleContact::reach`, a hundredth of the diagonal of the part's
+    nodes' box (the strip's 2 mm), as its collision model's envelope:
+    - Chrono's Bullet shapes are grown by the model's envelope and its
+      report takes the envelope back off each point, so the points are the
+      true shapes' with a pair kept from that far off.
+    - Our polyhedral features (box, hull, a mesh's triangles) are grown by
+      the run's envelope (2e-5 m) only: grown by the wide one they stand as
+      far sideways too, and a bar across the strip's 20 mm touched it
+      along 21. They keep how far inside Bullet's shape they stand
+      (`SatPolyhedron::inset`); the clip searches that much farther and
+      gives its points as Bullet's shapes'.
+    - The finder's own clips (a cylinder on a face or a mesh, the hollow
+      rounds, a seat's ring) reach farther by the two shapes'
+      `ShapeOn::search`.
+    A point found ahead presses nothing until the surface is there: each
+    point's depth is the surface's, by the modes.
+  - **Points found ahead whose surface is not there are no contact's
+    yet** (`FlexibleContact::trim()`, in the finder before the points'
+    patches are made). Kept, they shared their load's stiffness and its
+    patches' extent: step 8's propped cantilever, a rod 100 x 10 x 10
+    resting a pad 1 mm proud on a post, had its whole underside found
+    1 mm over the post's top (its reach 1.01 mm) and the post's force came
+    5% light, 99.6 mN for 104.9. A point stays when its surface, by the
+    modes, is within the run's own reach (0.1 mm) of the other body's
+    point along the normal.
+  - Limits. The surface must stay within the reach of the carrier's shape,
+    and well within the part's thickness of it (the shape is the rigid
+    part's: bent a thickness off, its other side is where the surface
+    was). A contact still found deep, no shorter step finding it sooner,
+    is said once a part: "the contact of ... on the flexible body ... was
+    found ... mm in". The proper mend is collision shapes that follow
+    the modes -- the surface's triangles placed by the nodes each step --
+    and is not built.
+  - The strip on the bar now (mesh 8, 9052 nodes, 30 coordinates): the
+    blow 337.5 N at 47.50 ms, three lighter ones within 0.2 ms (156, 42,
+    13 N), then the strip stays on the bar 3.3 ms, pressing 0.2 to 6 N,
+    bent 0.45 mm off its carrier's shape, and leaves at 51 ms; 76 ms run
+    in 13.6 s. The manual's (mesh 3, 24296 nodes, 0.15 s): 336.2 N, 12
+    strikes, 0.16 N at the end for the 0.18 N of its weight's moment
+    about the hinge, 840 frames in 158 s.
+  - Tests: TestFlexibleBody.test_bent_onto_bar_anywhere (the force never
+    over the blow's, the strip pressing lightly a millisecond after, no
+    late contact said; 62 kN before); test_propped_cantilever_anywhere
+    holds the trim (106.6 mN as in step 8); TestContact.
+    test_cancel_within_a_frame (a ball bouncing 1000 s, one frame,
+    cancelled half a second in, done within 5 s). The strike with no
+    contact faces is 129.6 N now, 132.9 in step 8.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

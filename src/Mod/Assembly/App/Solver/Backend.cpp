@@ -137,6 +137,10 @@ public:
                 }
                 return sink.frame(time, out);
             }
+            bool cancelled() const override
+            {
+                return sink.cancelled();
+            }
             // Absolute, and in the model's axes: no body frame in them
             void channels(const std::vector<Channel>& channels) override
             {

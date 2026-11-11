@@ -468,3 +468,90 @@ class TestSheetMetalNames(unittest.TestCase):
         self.assertEqual(self.own(flange), had)
         self.assertEqual(self.own(other), made)
         self.assertEqual(set(had) & set(made), set())
+
+    # by the edge, not by its place in the feature's list (2026-11-11): a
+    # flange's or a hem's wall and bend go with the edge they are on, so the
+    # edges put in another order, one taken out or one put in first rename
+    # none of the others; a bend's own K goes with the bend
+
+    NEAR = ((0, 0, 1), (40, 0, 1))
+    FAR = ((0, 20, 1), (40, 20, 1))
+
+    def onEdges(self, kind, *edges, name="Sides"):
+        feature = self.Body.newObject(kind, name)
+        feature.Edges = (self.Early, [edgeOf(self.Early, *e) for e in edges])
+        if kind.endswith("Hem"):
+            feature.Length = 6
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        return feature
+
+    def setEdges(self, feature, *edges):
+        feature.Edges = (self.Early, [edgeOf(self.Early, *e) for e in edges])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+
+    def checkEdgesReordered(self, kind):
+        feature = self.onEdges(kind, self.NEAR, self.FAR)
+        before = self.sheet(feature)
+        self.assertEqual(len(self.own(feature)), 4)
+        self.setEdges(feature, self.FAR, self.NEAR)
+        self.assertEqual(self.sheet(feature), before)
+
+    def testFlangeEdgesReordered(self):
+        """A flange's two edges the other way round: each side's wall and
+        bend as they were"""
+        self.checkEdgesReordered("PartDesign::SheetMetalFlange")
+
+    def testHemEdgesReordered(self):
+        self.checkEdgesReordered("PartDesign::SheetMetalHem")
+
+    def testFlangeEdgeRemoved(self):
+        """The first of a flange's two edges taken out: the other side's
+        names stay; put back, last, it has the names it had"""
+        feature = self.onEdges("PartDesign::SheetMetalFlange", self.NEAR, self.FAR)
+        before = self.sheet(feature)
+        self.setEdges(feature, self.FAR)
+        after = self.sheet(feature)
+        self.assertEqual(len(self.own(feature)), 2)
+        self.assertEqual({k: before[k] for k in after}, after)
+        self.setEdges(feature, self.FAR, self.NEAR)
+        self.assertEqual(self.sheet(feature), before)
+
+    def testFlangeEdgeAddedFirst(self):
+        """An edge put before a flange's one edge: that one's names stay,
+        the new side takes the next numbers"""
+        feature = self.onEdges("PartDesign::SheetMetalFlange", self.FAR)
+        before = self.sheet(feature)
+        had = self.own(feature)
+        self.setEdges(feature, self.NEAR, self.FAR)
+        after = self.sheet(feature)
+        self.assertEqual({k: after.get(k) for k in before}, before)
+        new = sorted(set(self.own(feature)) - set(had))
+        self.assertEqual(len(new), 2)
+        for made, old in zip(new, had):
+            self.assertGreater(self.number(made), self.number(old))
+
+    def testOverrideFollowsBend(self):
+        """A bend's own K is the bend's: the flange's edges the other way
+        round, it is still on the bend where it was"""
+
+        def factors():
+            res = {}
+            for e in feature.SheetModel["Elements"]:
+                if e["Kind"] == "Bend":
+                    c = e["Center"]
+                    res[(round(c.x, 5), round(c.y, 5), round(c.z, 5))] = round(e["KFactor"], 9)
+            return res
+
+        feature = self.onEdges("PartDesign::SheetMetalFlange", self.NEAR, self.FAR)
+        second = sorted(
+            r["Name"] for r in PartDesign.sheetBends(feature) if r["Feature"] == feature.Name
+        )[1]
+        feature.setBendKFactor(second, 0.3)
+        self.Doc.recompute()
+        before = factors()
+        self.assertEqual(sorted(before.values()).count(0.3), 1)
+        self.setEdges(feature, self.FAR, self.NEAR)
+        self.assertEqual(factors(), before)
+        self.assertAlmostEqual(feature.bendKFactor(second), 0.3, places=12)

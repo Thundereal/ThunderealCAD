@@ -273,9 +273,10 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
         }
 
         std::vector<SheetMetal::WallEdge> edges;
-        std::vector<std::string> labels;
+        std::vector<std::string> labels, refs;
         for (const auto& shadow : shadows) {
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
+            refs.push_back(ref);
             edges.push_back(SheetMetal::wallEdge(base, model, ref, shadow.second));
             labels.push_back(shadow.second);
             for (std::size_t i = 0; i + 1 < edges.size(); ++i) {
@@ -293,7 +294,10 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
         }
 
         std::vector<TopoShape> pieces, cuts;
+        // what each edge makes goes by the edge (storeModel())
+        std::vector<std::pair<std::size_t, std::string>> starts;
         for (std::size_t k = 0; k < edges.size(); ++k) {
+            starts.emplace_back(model.elements.size(), refs[k]);
             const SheetMetal::WallEdge& edge = edges[k];
             // folding toward up, its inner skin the one facing that way
             gp_Dir up = edge.skinOut;
@@ -400,7 +404,7 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(makeBoolean(base, tool, true));
-        storeModel(model);
+        storeModel(model, false, edgeKeys(model, starts));
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

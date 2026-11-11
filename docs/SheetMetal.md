@@ -2092,9 +2092,21 @@ stored flat and this option do what it was for.
     in between two takes `Bend3` where they are `Bend1` and `Bend2`; one made while the first
     is suppressed takes `Bend3` too, and the first is `Bend1` when it is back. The numbers of a
     sheet are then not 1 to its count, and not in the order of the tree.
-    - A number goes with the wall's or bend's place among its feature's own, as its K does
-      (`BendKFactors`): a flange on two edges given a third first numbers the three by their
-      new order, the first two taking the numbers it had.
+    - A number went with the wall's or bend's place among its feature's own, as its K did
+      (`BendKFactors`): a flange on two edges given a third first numbered the three by their
+      new order. **By the edge since 2026-11-11** (the first weak spot told): a flange's and a
+      hem's walls and bends go with the edge they are on -- `WallKeys`, `BendKeys` (hidden,
+      saved), the edge's reference and the place among that edge's own, beside each number
+      (`SheetMetalExtension::edgeKeys()`, from where each edge's elements start in the model;
+      a contour flange's several per edge the same way). The edges in another order, one
+      taken out or one put in first rename none of the others, and an edge put back has the
+      numbers it had. A wall or bend with no key (the other features', by the order made as
+      before), or whose key is not found because the edge's reference changed, takes the
+      numbers left over in order. And a bend's own K is keyed by the bend's number, 3 for
+      `Bend3`, no longer by its place, so it stays on its bend. The pieces' faces are still
+      named by the feature's own count, in the order made. `TestSheetMetalNames` 29 (before,
+      24): a flange's and a hem's edges reordered, one removed and put back, one added first,
+      the K on its bend.
     - A feature holding a number the sheet before it has too (a copy of that feature) takes a
       new one: no name is twice in a sheet.
     - **No number is given twice (ruled 2026-11-11: "add a counter ... so no reuse happen",

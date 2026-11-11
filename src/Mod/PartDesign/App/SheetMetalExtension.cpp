@@ -63,7 +63,7 @@ SheetMetalExtension::SheetMetalExtension()
                                 "Sheet Metal",
                                 App::Prop_Hidden,
                                 "The K of each bend this feature makes that does not take the "
-                                "rule's, by the bend's place among its own counted from 1. Check "
+                                "rule's, by the bend's number, 3 for Bend3. Check "
                                 "Sheet's bend table edits it");
     EXTENSION_ADD_PROPERTY_TYPE(WallNumbers,
                                 (std::vector<long>()),
@@ -79,6 +79,20 @@ SheetMetalExtension::SheetMetalExtension()
                                                   | App::Prop_NoRecompute),
                                 "The number of each bend this feature makes, in the order it "
                                 "makes them, kept from when it first made it");
+    EXTENSION_ADD_PROPERTY_TYPE(WallKeys,
+                                (std::vector<std::string>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "What each of WallNumbers is of, where the feature says: the "
+                                "edge its wall is on");
+    EXTENSION_ADD_PROPERTY_TYPE(BendKeys,
+                                (std::vector<std::string>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "What each of BendNumbers is of, where the feature says: the "
+                                "edge its bend is on");
 }
 
 SheetMetalRule* SheetMetalExtension::getRule() const
@@ -202,11 +216,11 @@ void SheetMetalExtension::applyBendOverrides(SheetMetal::Model& model) const
     }
     const std::vector<int> own = ownBends(model);
     for (const auto& [key, text] : values) {
-        int place = 0;
-        auto [ptr, ec] = std::from_chars(key.data(), key.data() + key.size(), place);
-        if (ec != std::errc() || ptr != key.data() + key.size() || place < 1) {
+        int number = 0;
+        auto [ptr, ec] = std::from_chars(key.data(), key.data() + key.size(), number);
+        if (ec != std::errc() || ptr != key.data() + key.size() || number < 1) {
             FC_THROWM(Base::ValueError,
-                      "BendKFactors: '" << key << "' is no bend's place, counted from 1");
+                      "BendKFactors: '" << key << "' is no bend's number, as 3 is Bend3's");
         }
         const auto k = parseNumber(text);
         if (!k || !validK(*k)) {
@@ -214,13 +228,16 @@ void SheetMetalExtension::applyBendOverrides(SheetMetal::Model& model) const
                       "BendKFactors: the K of bend " << key << ", '" << text
                                                      << "', is no number from 0 to 1");
         }
-        if (place <= static_cast<int>(own.size())) {
-            model.elements[own[place - 1]].bend.k = *k;
+        for (int index : own) {
+            if (SheetMetal::numberOf(model.elements[index].name, "Bend") == number) {
+                model.elements[index].bend.k = *k;
+            }
         }
     }
 }
 
-void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade)
+void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade,
+                                     const std::vector<std::string>& keys)
 {
     auto obj = getExtendedObject();
     SheetMetal::Model earlier;
@@ -254,14 +271,17 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade)
     // had, so a deletion taken back, out of order too, brings back no name
     // another has
     auto doc = obj ? obj->getDocument() : nullptr;
-    auto next = [&](int kind) {
-        top[kind] = body && doc
-            ? static_cast<int>(doc->nextObjectCount(*body, kind, top[kind]))
-            : top[kind] + 1;
-        return top[kind];
-    };
+    struct
+    {
+        App::Document* doc;
+        long operator()(const App::DocumentObject* body, int kind, int floor) const
+        {
+            return body && doc ? doc->nextObjectCount(*body, kind, floor) : floor + 1;
+        }
+    } nextNumber {doc};
     const char* prefixes[2] = {"Wall", "Bend"};
     App::PropertyIntegerList* lists[2] = {&WallNumbers, &BendNumbers};
+    App::PropertyStringList* keyLists[2] = {&WallKeys, &BendKeys};
     for (int kind = 0; kind < 2; ++kind) {
         const std::string prefix = prefixes[kind];
         std::vector<int> own;
@@ -288,38 +308,112 @@ void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade)
                 top[kind] = std::max(top[kind], number);
             }
         }
-        std::vector<long> numbers = lists[kind]->getValues();
-        if (numbers.size() < own.size()) {
-            numbers.resize(own.size(), 0);
+        // what the feature held: each number and what it was of
+        const std::vector<long> held = lists[kind]->getValues();
+        std::vector<std::string> heldKeys = keyLists[kind]->getValues();
+        heldKeys.resize(held.size());
+        std::vector<bool> used(held.size(), false);
+        std::vector<long> numbers(own.size(), 0);
+        std::vector<std::string> ownKeys(own.size());
+        // a number held, if it is one and nothing else of the sheet has it
+        auto take = [&](std::size_t k, std::size_t h) {
+            used[h] = true;
+            if (held[h] >= 1 && taken.insert(held[h]).second) {
+                numbers[k] = held[h];
+            }
+        };
+        // first by what each is of, then the rest in the order made
+        for (std::size_t k = 0; k < own.size(); ++k) {
+            const std::size_t index = static_cast<std::size_t>(own[k]);
+            ownKeys[k] = index < keys.size() ? keys[index] : std::string();
+            if (ownKeys[k].empty()) {
+                continue;
+            }
+            for (std::size_t h = 0; h < held.size(); ++h) {
+                if (!used[h] && heldKeys[h] == ownKeys[k]) {
+                    take(k, h);
+                    break;
+                }
+            }
+        }
+        std::size_t next = 0;
+        for (std::size_t k = 0; k < own.size(); ++k) {
+            if (numbers[k] >= 1) {
+                continue;
+            }
+            // one whose own was found is not another's; nor is one the
+            // feature has the edge of still
+            while (next < held.size()
+                   && (used[next]
+                       || (!heldKeys[next].empty()
+                           && std::find(ownKeys.begin(), ownKeys.end(), heldKeys[next])
+                                  != ownKeys.end()))) {
+                ++next;
+            }
+            if (next < held.size()) {
+                take(k, next);
+            }
         }
         for (std::size_t k = 0; k < own.size(); ++k) {
-            // none yet, or one something else of the sheet has
-            if (numbers[k] < 1 || !taken.insert(numbers[k]).second) {
-                numbers[k] = next(kind);
+            if (numbers[k] < 1) {
+                numbers[k] = nextNumber(body, kind, top[kind]);
+                top[kind] = static_cast<int>(numbers[k]);
                 taken.insert(numbers[k]);
             }
             model.elements[own[k]].name = prefix + std::to_string(numbers[k]);
         }
-        if (numbers != lists[kind]->getValues()) {
+        // and what it makes no more is kept, for when it does again
+        for (std::size_t h = 0; h < held.size(); ++h) {
+            if (!used[h] && held[h] >= 1) {
+                numbers.push_back(held[h]);
+                ownKeys.push_back(heldKeys[h]);
+            }
+        }
+        if (numbers != held) {
             lists[kind]->setValues(numbers);
+        }
+        if (std::all_of(ownKeys.begin(), ownKeys.end(), [](const std::string& key) {
+                return key.empty();
+            })) {
+            ownKeys.clear();
+        }
+        if (ownKeys != keyLists[kind]->getValues()) {
+            keyLists[kind]->setValues(ownKeys);
         }
     }
     applyBendOverrides(model);
     SheetModel.setValue(model);
 }
 
+std::vector<std::string>
+SheetMetalExtension::edgeKeys(const SheetMetal::Model& model,
+                              const std::vector<std::pair<std::size_t, std::string>>& starts)
+{
+    std::vector<std::string> keys(model.elements.size());
+    for (std::size_t edge = 0; edge < starts.size(); ++edge) {
+        const std::size_t end =
+            edge + 1 < starts.size() ? starts[edge + 1].first : model.elements.size();
+        int places[2] = {0, 0};
+        for (std::size_t i = starts[edge].first; i < end && i < keys.size(); ++i) {
+            const bool wall = model.elements[i].kind == SheetMetal::Element::Kind::Wall;
+            keys[i] = starts[edge].second + "#" + std::to_string(++places[wall ? 0 : 1]);
+        }
+    }
+    return keys;
+}
+
 namespace
 {
 
-/// The key of one of a feature's bends in BendKFactors, empty if it made
-/// none of that name
+/// The key of one of a feature's bends in BendKFactors, its number, empty
+/// if it made none of that name
 std::string placeOf(const SheetMetalExtension& ext, const std::string& bend)
 {
     const SheetMetal::Model model = ext.SheetModel.getValue();
     const std::vector<int> own = ext.ownBends(model);
-    for (std::size_t i = 0; i < own.size(); ++i) {
-        if (model.elements[own[i]].name == bend) {
-            return std::to_string(i + 1);
+    for (int index : own) {
+        if (model.elements[index].name == bend) {
+            return std::to_string(SheetMetal::numberOf(bend, "Bend"));
         }
     }
     return {};

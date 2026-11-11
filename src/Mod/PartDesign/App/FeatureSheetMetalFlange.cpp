@@ -583,10 +583,13 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             std::vector<int> elements;
         };
         std::vector<Side> sides;
+        // what each edge makes goes by the edge (storeModel())
+        std::vector<std::pair<std::size_t, std::string>> starts;
         for (const auto& shadow : shadows) {
             std::size_t first = pieces.size();
             const std::size_t firstCut = cuts.size();
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
+            starts.emplace_back(model.elements.size(), ref);
             const SheetMetal::WallEdge edge = SheetMetal::wallEdge(base, model, ref, shadow.second);
             const gp_Pnt p0 = edge.p0, p1 = edge.p1;
             const gp_Dir d = edge.along, endOut = edge.endOut;
@@ -1155,7 +1158,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 Part::OpCodes::Cut, {result, SheetMetal::toolOf(getID(), reliefs)}));
         }
         Shape.setValue(result);
-        storeModel(model);
+        storeModel(model, false, edgeKeys(model, starts));
         if (Notice.getStrValue() != notice) {
             Notice.setValue(notice);
         }

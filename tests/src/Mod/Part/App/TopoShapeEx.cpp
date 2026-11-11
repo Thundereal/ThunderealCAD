@@ -19,6 +19,7 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -33,6 +34,7 @@
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Pln.hxx>
 #include <ShapeFix_Wireframe.hxx>
 #include <ShapeBuild_ReShape.hxx>
@@ -1355,6 +1357,47 @@ TEST_F(TopoShapeExpansionTest, searchSubShapeCylinderFace)
     // Assert
     ASSERT_EQ(names.size(), 1);
     EXPECT_EQ(names[0], "Face1");
+}
+
+// The same search finds a face whose arc is written another way: the same
+// circle with its angle counted from another direction, or the other way
+// round.  A feature made again may give that (the arc of a pad's top in
+// realthunder/FreeCAD#333 came back a quarter turn on), and the face is
+// the same face; the arc's complement, with the same ends, is not.
+TEST_F(TopoShapeExpansionTest, searchSubShapeArcWrittenAnotherWay)
+{
+    // Arrange
+    const double r = 6;
+    const double quarter = std::numbers::pi / 2;
+    auto slice = [&](const gp_Ax2& axes, double first, double last) {
+        TopoDS_Edge arc = BRepBuilderAPI_MakeEdge(gp_Circ(axes, r), first, last).Edge();
+        TopoDS_Edge in = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(r, 0, 0)).Edge();
+        TopoDS_Edge out = BRepBuilderAPI_MakeEdge(gp_Pnt(0, r, 0), gp_Pnt(0, 0, 0)).Edge();
+        TopoDS_Wire wire = BRepBuilderAPI_MakeWire(in, arc, out).Wire();
+        return std::make_pair(TopoShape(BRepBuilderAPI_MakeFace(wire).Face()), arc);
+    };
+    const gp_Pnt o(0, 0, 0);
+    auto [face, arc] = slice(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), 0, quarter);
+    auto [turned, arcTurned] = slice(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(0, 1, 0)), -quarter, 0);
+    auto [flipped, arcFlipped]
+        = slice(gp_Ax2(o, gp_Dir(0, 0, -1), gp_Dir(1, 0, 0)), 3 * quarter, 4 * quarter);
+    const gp_Circ circleTurned(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(0, 1, 0)), r);
+    TopoDS_Edge rest = BRepBuilderAPI_MakeEdge(circleTurned, 0, 3 * quarter).Edge();
+    std::unique_ptr<Geometry> g(Geometry::fromShape(arc));
+    std::unique_ptr<Geometry> gTurned(Geometry::fromShape(arcTurned));
+    std::unique_ptr<Geometry> gFlipped(Geometry::fromShape(arcFlipped));
+    std::unique_ptr<Geometry> gRest(Geometry::fromShape(rest));
+    for (auto* other : {&turned, &flipped}) {
+        std::vector<std::string> names;
+        // Act
+        other->searchSubShape(face, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+        // Assert
+        ASSERT_EQ(names.size(), 1);
+        EXPECT_EQ(names[0], "Face1");
+    }
+    EXPECT_TRUE(g->isSame(*gTurned, 1e-7, 1e-10));
+    EXPECT_TRUE(g->isSame(*gFlipped, 1e-7, 1e-10));
+    EXPECT_FALSE(g->isSame(*gRest, 1e-7, 1e-10));
 }
 
 TEST_F(TopoShapeExpansionTest, makEShellInvalid)

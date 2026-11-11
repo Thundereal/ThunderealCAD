@@ -2613,9 +2613,6 @@ bool GeomTrimmedCurve::isSame(const Geometry& _other, double tol, double atol) c
     double u, v, u1, v1;
     getRange(u, v);
     other.getRange(u1, v1);
-    if (fabs(u - u1) > tol || fabs(v - v1) > tol) {
-        return false;
-    }
 
     Handle(Geom_Curve) basis = myCurve->BasisCurve();
     Handle(Geom_Curve) basis1 = other.myCurve->BasisCurve();
@@ -2625,10 +2622,26 @@ bool GeomTrimmedCurve::isSame(const Geometry& _other, double tol, double atol) c
 
     std::unique_ptr<Geometry> b(makeFromCurve(basis));
     std::unique_ptr<Geometry> b1(makeFromCurve(basis1));
-    if (b && b1 && b->isSame(*b1, tol, atol)) {
+    if (!b || !b1 || !b->isSame(*b1, tol, atol)) {
+        return false;
+    }
+    if (fabs(u - u1) <= tol && fabs(v - v1) <= tol) {
         return true;
     }
-    return false;
+    if (!basis->IsKind(STANDARD_TYPE(Geom_Circle))) {
+        return false;
+    }
+    // An arc of a circle is its circle and where it runs, not the parameters
+    // it runs between: those follow the circle's X direction and sense, which
+    // say nothing of its points (GeomCircle::isSame). Two arcs of one circle
+    // with the same ends, in either order, are the same arc or each other's
+    // complement, which the middle tells.
+    const double tol2 = tol * tol;
+    const gp_Pnt s = basis->Value(u), e = basis->Value(v), m = basis->Value((u + v) / 2);
+    const gp_Pnt s1 = basis1->Value(u1), e1 = basis1->Value(v1), m1 = basis1->Value((u1 + v1) / 2);
+    return m.SquareDistance(m1) <= tol2
+        && ((s.SquareDistance(s1) <= tol2 && e.SquareDistance(e1) <= tol2)
+            || (s.SquareDistance(e1) <= tol2 && e.SquareDistance(s1) <= tol2));
 }
 
 bool GeomTrimmedCurve::intersectBasisCurves(
@@ -3080,9 +3093,18 @@ bool GeomCircle::isSame(const Geometry& _other, double tol, double atol) const
         return false;
     }
 
-    (void)atol;
+    // The same circle is the same points: its centre, its radius and the
+    // line of its axis. Where its angle is counted from (the X direction)
+    // and which way round (the axis' sense) are how it is written down, and
+    // a feature made again may write its circle another way (an arc of a
+    // pad's top came back with its X direction a quarter turn on, and the
+    // face it bounds was not found again by its geometry).
     auto& other = static_cast<const GeomCircle&>(_other);
-    return GeomConic::isSame(other, tol, atol) && fabs(getRadius() - other.getRadius()) <= tol;
+    Handle(Geom_Circle) circle = Handle(Geom_Circle)::DownCast(handle());
+    Handle(Geom_Circle) circle2 = Handle(Geom_Circle)::DownCast(other.handle());
+    return fabs(getRadius() - other.getRadius()) <= tol
+        && Base::DistanceP2(getLocation(), other.getLocation()) <= tol * tol
+        && circle->Axis().Direction().IsParallel(circle2->Axis().Direction(), atol);
 }
 
 // -------------------------------------------------

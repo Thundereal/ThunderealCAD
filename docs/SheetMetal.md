@@ -566,6 +566,8 @@ recompute; nothing kept):
     they cross); a square 2 on a side clears it, none leaves 0.35 mm^2. Hence the rule's
     `CornerReliefCover` (5.2's notes below), after which the default is clean.
   - `Relief`: a feature's own relief (not "Rule") narrower or shallower than the rule's.
+  - `Approximated` (2026-11-11): the faces cut in a bend otherwise than square to the sheet,
+    which the flat has approximately (risk 2).
   - `NoFlat`: why the flat cannot be laid.
 - Check Sheet (Sheet Metal tool bar): a panel of the bend table and the problems for the selected
   feature or solid, else the active body's sheet; a row picked selects its faces where they are
@@ -844,7 +846,7 @@ and not frozen.
   - The shape is a compound of the flat solid and one bend line per bend, along the bend's
     middle on the inner skin, named after the bend.
   - Refused by name for now: a face no element owns, a face of a bend that does not lie flat as a
-    plane (risk 2's approximation is still to come), a flat that does not close.
+    plane (risk 2's approximation: built 2026-11-11, sec 12), a flat that does not close.
   - The manufacturing properties of 5.4 (e827522697), read-only in a `Manufacturing` group:
     `FlatLength`, `FlatWidth` (its size on XY, the longer first), `FlatArea` (the blank's),
     `Thickness`, `MaterialName` (the rule's card), `BendCount`, `MaxBendAngle`, and
@@ -2235,6 +2237,42 @@ stored flat and this option do what it was for.
   - `TestSheetMetalJoin` 19 (before, 11): facing, either skin, the other order, trimmed,
     stacked, stacked and shorter, the half turn, narrower; each with its flat's area the
     part's volume at K 0.5.
+- **Built 2026-11-11, risk 2: what is cut in a bend otherwise than square to the sheet** (the
+  fifth limit listed). A hole drilled straight through a bend, a countersink in one, a pocket
+  or a hole across the line where a bend starts did not lie flat ("does not lie flat as a
+  plane", "The flat does not close"): only a skin and a cut square to the sheet unroll
+  exactly. Measured before on a flange: a plain and a countersunk hole in the bend, a hole, a
+  countersink, a pocket and a slanted pocket across its line -- none of the six laid out.
+  - **A face across a bend's line is laid out in parts** (`partsOf()`): cut at the half planes
+    from each bend's axis through where the bend starts and where it ends, each part then by
+    its own wall or bend. Found by where the face's edges lie strictly in a bend of its wall
+    (a wall's slab runs on through its bends in the model, and its end's own faces touch the
+    bends' planes), or leave the bend that owns it. A round wall, a cylinder's or a cone's,
+    is cut along its own lines too, every 30 deg, so that no part of it in a bend turns far
+    from a plane. Only the face is cut, not the solid: the flat is sewn of the faces laid out.
+  - **A hole's wall wholly in a bend**, closed round on itself, has no outline that unrolls
+    (`Mapper::around()`): it is laid out in bands, four across the thickness, each ruled
+    between two curves round the hole through its points unrolled, taken along the lines of
+    its surface from the one rim to the other and broken where a rim's edges meet. The rims'
+    points are those of the rim's own curve, which the skin beside it shares.
+  - **A part of a face in a bend that is no plane and not square across the sheet** is a
+    surface filled to its outline unrolled, as a miter's slant with a relief was already, now
+    through points of the face too, and past its seam where the part has one in it.
+  - The exact ways are tried first, as before: a plane, a wall square across the sheet. A
+    miter's slant, ruled between its edges or filled to them, is as it was and is not listed.
+  - **Listed:** `FlatResult::approximated`, the folded faces laid out so, and Check Sheet's
+    `Approximated`, one line with those faces, saying to drill and countersink after bending.
+  - How near: the blank's volume against the folded part's is within 0.02 mm^3 of 2.1 for a
+    hole 1.6 across through a bend of radius 5; 0.06 of 3.1 for its countersink, the cone
+    lying where the outer fibres are laid out 5.5 / 6 as long; 0.1 of 2.1 for the hole
+    through a bend of radius 1, across both its lines. That is the map's, not the fit's: a
+    cut that is not square to the sheet has no exact flat.
+  - Not done: a face closed round with a hole in it, or closed round another way than its
+    surface's U (a torus, a fillet round a hole in a bend), is still refused by name; cones
+    (a lofted flange's) take no part in the cutting.
+  - `TestSheetMetalFlatInBend` 9 (before, 2: the plain flange and a countersink in the wall):
+    the six above and a hole through a tight bend, each laid out, valid, its volume near the
+    folded part's, and listed once. All 503 sheet metal tests pass.
 
 **Ruled 2026-11-03, M2's wrap cutout:**
 - An option on the cutout, `Wrap`, not a tool of its own.

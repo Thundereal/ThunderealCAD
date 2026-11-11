@@ -78,8 +78,16 @@ struct PartDesignExport FlatResult
     };
     /// Each bend's line, along its middle on the inner skin
     std::vector<BendLine> bendLines;
-    /// Each face of the folded part and the face of the solid it lies flat as
+    /// Each face of the folded part and the face of the solid it lies flat
+    /// as; a face across a bend's line has one for each part the line cuts
+    /// it in
     std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> faces;
+    /// The faces of the folded part cut in a bend otherwise than square to
+    /// the sheet -- a hole drilled straight through it, a countersink, a
+    /// slanted pocket's wall -- which lie flat as a surface through their
+    /// outline and points of them unrolled, not exactly (docs/SheetMetal.md
+    /// sec 10 risk 2)
+    std::vector<TopoDS_Shape> approximated;
     /// The grain arrow, where asked for (grainArrow())
     std::vector<TopoDS_Edge> grain;
     struct CrossBreak

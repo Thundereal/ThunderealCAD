@@ -36,6 +36,8 @@
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
@@ -63,6 +65,11 @@
 #include <Geom2d_BSplineCurve.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <GeomFill.hxx>
+#include <TColStd_HArray1OfReal.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <Precision.hxx>
 #include <GProp_GProps.hxx>
@@ -282,11 +289,47 @@ struct Mapper
         return res;
     }
 
-    TopoDS_Wire wire(int element, const TopoDS_Wire& w, const TopoDS_Face& face) const
+    /// Points of a face inside its outline: of a grid over its parameters,
+    /// those in it
+    static std::vector<gp_Pnt> inside(const TopoDS_Face& f)
+    {
+        std::vector<gp_Pnt> res;
+        BRepAdaptor_Surface s(f, false);
+        double u0, u1, v0, v1;
+        BRepTools::UVBounds(f, u0, u1, v0, v1);
+        constexpr int n = 4;
+        for (int i = 1; i < n; ++i) {
+            for (int j = 1; j < n; ++j) {
+                const gp_Pnt2d uv(u0 + (u1 - u0) * i / n, v0 + (v1 - v0) * j / n);
+                BRepClass_FaceClassifier where(f, uv, 1e-7);
+                if (where.State() == TopAbs_IN) {
+                    res.push_back(s.Value(uv.X(), uv.Y()));
+                }
+            }
+        }
+        return res;
+    }
+
+    /// A face's outline unrolled. pastSeam: of a part of a face closed round
+    /// on itself with its seam in it -- the seam is there and back, and the
+    /// outline runs on past it both ways
+    TopoDS_Wire wire(int element, const TopoDS_Wire& w, const TopoDS_Face& face,
+                     bool pastSeam = false) const
     {
         BRepBuilderAPI_MakeWire mk;
         Handle(TopTools_HSequenceOfShape) edges = new TopTools_HSequenceOfShape;
+        TopTools_DataMapOfShapeInteger passes;
+        for (BRepTools_WireExplorer it(w, face); it.More() && pastSeam; it.Next()) {
+            const TopoDS_Shape key = it.Current().Oriented(TopAbs_FORWARD);
+            if (!passes.IsBound(key)) {
+                passes.Bind(key, 0);
+            }
+            ++passes.ChangeFind(key);
+        }
         for (BRepTools_WireExplorer it(w, face); it.More(); it.Next()) {
+            if (pastSeam && passes.Find(it.Current().Oriented(TopAbs_FORWARD)) > 1) {
+                continue;
+            }
             const TopoDS_Edge e = edge(element, it.Current(), face);
             edges->Append(e);
             if (mk.Error() == BRepBuilderAPI_WireDone || edges->Length() == 1) {
@@ -365,13 +408,182 @@ struct Mapper
         return fix.Face();
     }
 
+    /** A face of a bend closed round on itself -- the wall of a hole drilled
+     * through the bend, a countersink's cone -- unrolled. No outline of it
+     * lies flat as a plane, and its two rims meet only along its seam: it is
+     * laid out as the surface through its points unrolled, taken along each
+     * line of its surface across it from the one rim to the other, so the
+     * surface's own ends are the rims: in bands across it, each ruled between
+     * two curves round it. None for a face that is not so: closed round its
+     * surface's U, two rims and the seam, no hole in it.
+     */
+    std::vector<TopoDS_Face> around(int element, const TopoDS_Face& f) const
+    {
+        BRepAdaptor_Surface s(f, false);
+        double u0, u1, v0, v1;
+        BRepTools::UVBounds(f, u0, u1, v0, v1);
+        if (!s.IsUPeriodic() || std::abs(u1 - u0 - s.UPeriod()) > 1e-9) {
+            return {};
+        }
+        int wires = 0;
+        for (TopExp_Explorer it(f, TopAbs_WIRE); it.More(); it.Next()) {
+            ++wires;
+        }
+        // its rims: the edges between the seam's two passes
+        std::vector<TopoDS_Edge> order;
+        std::vector<bool> seam;
+        for (BRepTools_WireExplorer it(BRepTools::OuterWire(f), f); it.More(); it.Next()) {
+            order.push_back(it.Current());
+            seam.push_back(BRep_Tool::IsClosed(it.Current(), f));
+        }
+        const auto first = std::find(seam.begin(), seam.end(), true);
+        if (wires != 1 || std::count(seam.begin(), seam.end(), true) != 2) {
+            return {};
+        }
+        const std::size_t start = static_cast<std::size_t>(first - seam.begin());
+        std::vector<TopoDS_Edge> rims[2];
+        int rim = -1;
+        for (std::size_t k = 0; k < order.size(); ++k) {
+            const std::size_t i = (start + k) % order.size();
+            if (seam[i]) {
+                ++rim;
+            }
+            else {
+                rims[rim].push_back(order[i]);
+            }
+        }
+        if (rims[0].empty() || rims[1].empty()) {
+            return {};
+        }
+        // where a rim crosses the surface's line at u: on its edge's curve,
+        // which the face next to it shares, and how far along the line
+        auto cross = [&](const std::vector<TopoDS_Edge>& edges, double u, gp_Pnt& on, double& v) {
+            for (const TopoDS_Edge& e : edges) {
+                double a, b;
+                Handle(Geom2d_Curve) c2d = BRep_Tool::CurveOnSurface(e, f, a, b);
+                if (c2d.IsNull()) {
+                    return false;
+                }
+                const double ua = c2d->Value(a).X(), ub = c2d->Value(b).X();
+                if (u < std::min(ua, ub) || u > std::max(ua, ub)) {
+                    continue;
+                }
+                const bool rising = ub > ua;
+                for (int k = 0; k < 64; ++k) {
+                    const double m = (a + b) / 2;
+                    ((c2d->Value(m).X() < u) == rising ? a : b) = m;
+                }
+                const double t = (a + b) / 2;
+                v = c2d->Value(t).Y();
+                on = BRepAdaptor_Curve(e).Value(t);
+                return true;
+            }
+            return false;
+        };
+        // each rim once round, and where its edges meet: there the rim may
+        // turn a corner -- from the skin's own edge to one a bend's line cut
+        const double period = u1 - u0;
+        std::vector<double> stops {u0, u1};
+        for (const auto& edges : rims) {
+            double covered = 0;
+            for (const TopoDS_Edge& e : edges) {
+                double a, b;
+                Handle(Geom2d_Curve) c2d = BRep_Tool::CurveOnSurface(e, f, a, b);
+                if (c2d.IsNull()) {
+                    return {};
+                }
+                const double ua = c2d->Value(a).X(), ub = c2d->Value(b).X();
+                covered += std::abs(ub - ua);
+                stops.push_back(ua);
+                stops.push_back(ub);
+            }
+            if (std::abs(covered - period) > 1e-6) {
+                return {};
+            }
+        }
+        std::sort(stops.begin(), stops.end());
+        stops.erase(std::unique(stops.begin(),
+                                stops.end(),
+                                [](double a, double b) { return std::abs(a - b) < 1e-7; }),
+                    stops.end());
+        // Between each two of those, curves round it from the one rim to the
+        // other, each through its points unrolled, by the surface's U, and
+        // between each two curves a band ruled from the one to the other.
+        // The rims' own are the first and the last.
+        constexpr int across = 4;
+        constexpr int round = 96;
+        std::vector<TopoDS_Face> res;
+        std::vector<gp_Pnt> closing;
+        for (std::size_t stop = 0; stop + 1 < stops.size(); ++stop) {
+            const double from = stops[stop], to = stops[stop + 1];
+            const int n = std::max(8, static_cast<int>(std::ceil(round * (to - from) / period)));
+            Handle(TColStd_HArray1OfReal) at = new TColStd_HArray1OfReal(1, n + 1);
+            std::vector<Handle(TColgp_HArray1OfPnt)> lines;
+            for (int k = 0; k <= across; ++k) {
+                lines.push_back(new TColgp_HArray1OfPnt(1, n + 1));
+            }
+            for (int i = 0; i <= n; ++i) {
+                // just inside the ends, where the next edge of a rim starts
+                const double u =
+                    std::clamp(from + (to - from) * i / n, from + 1e-10, to - 1e-10);
+                at->SetValue(i + 1, from + (to - from) * i / n);
+                gp_Pnt on[2];
+                double v[2];
+                if (!cross(rims[0], u, on[0], v[0]) || !cross(rims[1], u, on[1], v[1])) {
+                    return {};
+                }
+                lines[0]->SetValue(i + 1, map(element, on[0]));
+                lines[across]->SetValue(i + 1, map(element, on[1]));
+                for (int k = 1; k < across; ++k) {
+                    lines[k]->SetValue(
+                        i + 1, map(element, s.Value(u, v[0] + (v[1] - v[0]) * k / across)));
+                }
+            }
+            // closed: the last line round it is the first
+            for (int k = 0; k <= across; ++k) {
+                if (stop == 0) {
+                    closing.push_back(lines[k]->Value(1));
+                }
+                if (stop + 2 == stops.size()) {
+                    lines[k]->SetValue(n + 1, closing[k]);
+                }
+            }
+            std::vector<Handle(Geom_BSplineCurve)> curves;
+            for (const auto& line : lines) {
+                GeomAPI_Interpolate through(line, at, false, Precision::Confusion());
+                through.Perform();
+                if (!through.IsDone()) {
+                    return {};
+                }
+                curves.push_back(through.Curve());
+            }
+            for (int k = 0; k < across; ++k) {
+                BRepBuilderAPI_MakeFace mk(GeomFill::Surface(curves[k], curves[k + 1]),
+                                           Precision::Confusion());
+                if (!mk.IsDone()) {
+                    return {};
+                }
+                res.push_back(mk.Face());
+            }
+        }
+        return res;
+    }
+
     /// A face of a bend, unrolled: it must lie flat as a plane, but for a
     /// cut across the thickness at a slant (a miter's), which unrolls into a
-    /// face ruled between its edges on the two skins
-    TopoDS_Face face(int element, const TopoDS_Face& f, int index) const
+    /// face ruled between its edges on the two skins, and for what is cut
+    /// otherwise than square to the sheet (risk 2): the wall of a hole
+    /// through the bend (around()), and any face of one outline, a surface
+    /// filled to it, and with through, through points of the face unrolled
+    /// (a slanted wall bulges between its edges; a miter's slant is filled
+    /// to its edges alone, as it was); filled says so. pastSeam as wire()
+    /// has it.
+    TopoDS_Face face(int element, const TopoDS_Face& f, int index, bool& filled,
+                     bool pastSeam = false, bool through = false) const
     {
+        filled = false;
         const TopoDS_Wire outer = BRepTools::OuterWire(f);
-        const TopoDS_Wire unrolled = wire(element, outer, f);
+        const TopoDS_Wire unrolled = wire(element, outer, f, pastSeam);
         BRepBuilderAPI_MakeFace mk(unrolled, true);
         if (!mk.IsDone()) {
             std::vector<TopoDS_Edge> edges;
@@ -385,6 +597,15 @@ struct Mapper
             auto straight = [&](std::size_t i) {
                 return BRepAdaptor_Curve(edges[i % 4]).GetType() == GeomAbs_Line;
             };
+            // closed round on itself, its seam there and back: square to the
+            // sheet it is upright; else its rims start apart, and it is laid
+            // out by around(), not ruled between them nor filled
+            bool closedRound = false;
+            for (std::size_t a = 0; a < edges.size() && !closedRound; ++a) {
+                for (std::size_t b = a + 1; b < edges.size() && !closedRound; ++b) {
+                    closedRound = edges[a].IsSame(edges[b]);
+                }
+            }
             if (wires == 1 && edges.size() == 4) {
                 // the two edges across the thickness are straight; the face
                 // runs between the other two, set the same way round
@@ -394,10 +615,12 @@ struct Mapper
                     if (!square.IsNull()) {
                         return square;
                     }
-                    return BRepFill::Face(edges[a], TopoDS::Edge(edges[a + 2].Reversed()));
+                    if (!closedRound) {
+                        return BRepFill::Face(edges[a], TopoDS::Edge(edges[a + 2].Reversed()));
+                    }
                 }
             }
-            if (wires == 1 && edges.size() >= 3) {
+            if (wires == 1 && edges.size() >= 3 && !closedRound) {
                 // Across the thickness, cut by a corner relief as well as a
                 // miter: neither plane nor ruled. A surface filled to its
                 // outline, the edges its neighbours share as they are.
@@ -405,9 +628,13 @@ struct Mapper
                 for (const TopoDS_Edge& e : edges) {
                     fill.Add(e, GeomAbs_C0);
                 }
+                for (const gp_Pnt& p : through ? inside(f) : std::vector<gp_Pnt>()) {
+                    fill.Add(map(element, p));
+                }
                 fill.Build();
                 if (fill.IsDone()) {
                     for (TopExp_Explorer it(fill.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+                        filled = true;
                         return TopoDS::Face(it.Current());
                     }
                 }
@@ -427,6 +654,141 @@ struct Mapper
         return fix.Face();
     }
 };
+
+/** The parts of a face of the folded sheet that lies in more than one
+ * element -- a hole's wall across the line where a bend starts -- cut where
+ * the bends it crosses meet their walls: at the half plane from each bend's
+ * axis through where it starts, and where it ends. Each part then lies flat
+ * by its own element. The face alone where it lies in one, as a skin does
+ * and most faces across the sheet.
+ */
+std::vector<TopoDS_Face> partsOf(const TopoDS_Face& face, const Model& model, int owner)
+{
+    if (owner < 0 || model.elements[owner].kind == Element::Kind::Cone) {
+        return {face};
+    }
+    const Element& element = model.elements[owner];
+    BRepAdaptor_Surface surface(face);
+    if (element.kind == Element::Kind::Wall) {
+        if (surface.GetType() == GeomAbs_Plane
+            && surface.Plane().Axis().Direction().IsParallel(element.frame.Direction(),
+                                                             Precision::Angular())) {
+            return {face};
+        }
+    }
+    else if (surface.GetType() == GeomAbs_Cylinder) {
+        const gp_Ax1 axis = surface.Cylinder().Axis();
+        if (axis.IsParallel(element.bend.frame.Axis(), Precision::Angular())
+            && gp_Lin(element.bend.frame.Axis()).Distance(axis.Location())
+                   <= Precision::Confusion()) {
+            return {face};
+        }
+    }
+    // The bends it crosses, by its edges: a bend's own face by where they
+    // leave the bend; a wall's by where they lie in a bend of the wall's,
+    // off the planes the bend meets its walls at -- a wall's slab runs on
+    // through its bends, and its end's own faces touch those planes
+    std::vector<int> bends;
+    constexpr double tol = 1e-6;
+    auto within = [&](int index, const gp_Pnt& p) {
+        const CylBend& bend = model.elements[index].bend;
+        if (!model.contains(index, p, tol)) {
+            return false;
+        }
+        for (double angle : {0.0, bend.angle}) {
+            gp_Dir out = bend.frame.XDirection();
+            out.Rotate(bend.frame.Axis(), angle);
+            const gp_Vec normal(bend.frame.Direction().Crossed(out));
+            if (std::abs(gp_Vec(bend.frame.Location(), p).Dot(normal)) <= tol) {
+                return false;
+            }
+        }
+        return true;
+    };
+    std::vector<int> candidates;
+    if (element.kind == Element::Kind::Bend) {
+        candidates.push_back(owner);
+    }
+    else {
+        for (std::size_t b = 0; b < model.elements.size(); ++b) {
+            const Element& bend = model.elements[b];
+            if (bend.kind == Element::Kind::Bend && (bend.before == owner || bend.after == owner)) {
+                candidates.push_back(static_cast<int>(b));
+            }
+        }
+    }
+    for (TopExp_Explorer it(face, TopAbs_EDGE); it.More() && !candidates.empty(); it.Next()) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(it.Current()));
+        const double f = curve.FirstParameter(), l = curve.LastParameter();
+        constexpr int n = 4;
+        for (int k = 0; k <= n; ++k) {
+            const gp_Pnt p = curve.Value(f + (l - f) * k / n);
+            for (int index : candidates) {
+                const bool crossed = element.kind == Element::Kind::Bend
+                    ? !model.contains(index, p, tol)
+                    : within(index, p);
+                if (crossed && std::find(bends.begin(), bends.end(), index) == bends.end()) {
+                    bends.push_back(index);
+                }
+            }
+        }
+    }
+    if (bends.empty()) {
+        return {face};
+    }
+    Bnd_Box box;
+    BRepBndLib::Add(face, box);
+    TopTools_ListOfShape tools;
+    for (int index : bends) {
+        const CylBend& bend = model.elements[index].bend;
+        const gp_Ax3& frame = bend.frame;
+        Bnd_Box reach = box;
+        reach.Add(frame.Location());
+        const double size = 2 * std::sqrt(reach.SquareExtent()) + 1;
+        for (double angle : {0.0, bend.angle}) {
+            gp_Dir out = frame.XDirection();
+            out.Rotate(frame.Axis(), angle);
+            const gp_Pln plane(gp_Ax3(frame.Location(), frame.Direction().Crossed(out), out));
+            tools.Append(BRepBuilderAPI_MakeFace(plane, 0, size, -size, size).Face());
+        }
+    }
+    // A hole's or a slanted pocket's wall goes round: cut along its own
+    // lines too, every 30 deg about its axis, so that no part of it in a
+    // bend turns far from a plane -- a surface is filled to each part's
+    // outline (Mapper::face()), which a part wrapped half round defeats
+    if (surface.GetType() == GeomAbs_Cylinder || surface.GetType() == GeomAbs_Cone) {
+        const gp_Ax3 position = surface.GetType() == GeomAbs_Cylinder
+            ? surface.Cylinder().Position()
+            : surface.Cone().Position();
+        Bnd_Box reach = box;
+        reach.Add(position.Location());
+        const double size = 2 * std::sqrt(reach.SquareExtent()) + 1;
+        constexpr int sectors = 12;
+        for (int k = 0; k < sectors; ++k) {
+            gp_Dir out = position.XDirection();
+            out.Rotate(position.Axis(), 2 * std::numbers::pi * k / sectors);
+            const gp_Pln plane(
+                gp_Ax3(position.Location(), position.Direction().Crossed(out), out));
+            tools.Append(BRepBuilderAPI_MakeFace(plane, 0, size, -size, size).Face());
+        }
+    }
+    TopTools_ListOfShape arguments;
+    arguments.Append(face);
+    BRepAlgoAPI_Splitter splitter;
+    splitter.SetArguments(arguments);
+    splitter.SetTools(tools);
+    splitter.Build();
+    std::vector<TopoDS_Face> res;
+    if (splitter.IsDone()) {
+        for (TopExp_Explorer it(splitter.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+            res.push_back(TopoDS::Face(it.Current()));
+        }
+    }
+    if (res.size() < 2) {
+        return {face};
+    }
+    return res;
+}
 
 /// What takes the root wall's skin to XY, the material above
 gp_Trsf rootToXY(const Model& model, int root, bool secondSkin)
@@ -1239,27 +1601,59 @@ FlatResult flatten(const TopoDS_Shape& folded,
         }
         return changed ? res : face;
     };
-    for (int i = 1; i <= faces.Extent(); ++i) {
-        const TopoDS_Face& face = TopoDS::Face(faces(i));
-        const int owner = owners[i];
+    // the folded faces laid out approximately (FlatResult::approximated)
+    std::vector<TopoDS_Shape> approximated;
+    // a face, or a part of one across a bend's line, laid out by its element
+    auto lay = [&](const TopoDS_Face& face, int owner, int i, bool part) {
         if (owner < 0) {
             FC_THROWM(Base::ValueError, "Face" << i << " is in no wall or bend of the sheet");
         }
-        if (formOf[i] >= 0) {
-            continue;
-        }
+        const TopoDS_Shape origin = originOf(faces(i));
         const Element& element = model.elements[owner];
         if (element.kind == Element::Kind::Wall) {
             gp_Trsf move = mapper.toXY * model.placement(owner, root);
-            laid.emplace_back(originOf(face),
-                              BRepBuilderAPI_Transform(closed(face), move, true).Shape());
+            laid.emplace_back(origin, BRepBuilderAPI_Transform(closed(face), move, true).Shape());
             sewing.Add(laid.back().second);
-            continue;
+            return;
         }
-        laid.emplace_back(originOf(face), mapper.face(owner, face, i));
-        sewing.Add(laid.back().second);
+        // As it unrolls: a plane, or square across the sheet. Failing that,
+        // what is cut otherwise than square to it (risk 2): a hole's wall
+        // through a bend, closed round on itself, in bands; else a surface
+        // filled to its outline, past its seam if it has one in it.
+        std::vector<TopoDS_Face> bands;
+        bool filled = false;
+        TopoDS_Face flat;
+        auto other = [&]() {
+            if (element.kind == Element::Kind::Bend) {
+                bands = mapper.around(owner, face);
+            }
+            if (bands.empty()) {
+                flat = mapper.face(owner, face, i, filled, true, true);
+            }
+        };
+        try {
+            flat = mapper.face(owner, face, i, filled, false, part);
+        }
+        catch (const Base::Exception&) {
+            other();
+        }
+        catch (const Standard_Failure&) {
+            other();
+        }
+        if (bands.empty()) {
+            laid.emplace_back(origin, flat);
+            sewing.Add(flat);
+        }
+        for (const TopoDS_Face& band : bands) {
+            laid.emplace_back(origin, band);
+            sewing.Add(band);
+        }
+        // a miter's slant, filled to its outline as before, is not listed
+        if (!bands.empty() || (filled && part)) {
+            approximated.push_back(origin);
+        }
         if (element.kind != Element::Kind::Bend) {
-            continue;
+            return;
         }
         // how far along its axis the bend goes, for its line
         const gp_Ax3& f = element.bend.frame;
@@ -1268,6 +1662,24 @@ FlatResult flatten(const TopoDS_Shape& folded,
                                  .Dot(gp_Vec(f.Direction()));
             extent[owner].first = std::min(extent[owner].first, z);
             extent[owner].second = std::max(extent[owner].second, z);
+        }
+    };
+    for (int i = 1; i <= faces.Extent(); ++i) {
+        const TopoDS_Face& face = TopoDS::Face(faces(i));
+        if (owners[i] < 0) {
+            FC_THROWM(Base::ValueError, "Face" << i << " is in no wall or bend of the sheet");
+        }
+        if (formOf[i] >= 0) {
+            continue;
+        }
+        // across a bend's line: each part of it by the element it lies in
+        const std::vector<TopoDS_Face> parts = partsOf(face, model, owners[i]);
+        if (parts.size() == 1) {
+            lay(face, owners[i], i, false);
+            continue;
+        }
+        for (const TopoDS_Face& part : parts) {
+            lay(part, model.owner(part), i, true);
         }
     }
     sewing.Perform();
@@ -1288,6 +1700,12 @@ FlatResult flatten(const TopoDS_Shape& folded,
     FlatResult res;
     res.toXY = mapper.toXY;
     res.solid = fix.Solid();
+    for (const TopoDS_Shape& face : approximated) {
+        if (std::none_of(res.approximated.begin(), res.approximated.end(),
+                         [&](const TopoDS_Shape& have) { return have.IsSame(face); })) {
+            res.approximated.push_back(face);
+        }
+    }
     // the faces as the solid has them: sewn, then as the fix left them
     Handle(ShapeBuild_ReShape) context = fix.Context();
     for (const auto& [from, to] : laid) {

@@ -37,6 +37,7 @@
 #include <Mod/PartDesign/App/FeatureDressUp.h>
 
 #include "TaskFeatureParameters.h"
+#include "Utils.h"
 #include "ViewProviderDressUp.h"
 
 class QAction;
@@ -285,9 +286,11 @@ protected:
     int sortKeyColumn = -1;
     QCheckBox *btnAdd = nullptr;
     QLabel *messageLabel = nullptr;
-    /// A reference found again by its name when the panel opened
-    /// (populateGeometryReferences()): what it was, and what it is now
-    std::vector<std::pair<std::string, std::string>> refound;
+    /// The references found again by their names when the panel opened
+    /// (populateGeometryReferences()): the edges, and what a panel with
+    /// references of its own found of them (a draft's plane and line)
+    std::vector<PartDesignGui::RefoundReference> refound;
+    std::vector<PartDesignGui::RefoundReference> refoundOther;
 
     bool onTopEnabled;
     bool busy = false;

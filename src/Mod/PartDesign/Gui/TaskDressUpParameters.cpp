@@ -266,31 +266,28 @@ void TaskDressUpParameters::setup(QLabel *label, QTreeWidget *widget, QCheckBox 
     }
     // what was found again by name is shown, once the panel is up: not
     // taken silently (ruled 2026-11-11)
-    if (!refound.empty())
+    if (!refound.empty() || !refoundOther.empty())
         QTimer::singleShot(0, this, [this]() { showRefound(); });
 }
 
 QString TaskDressUpParameters::refoundNote() const
 {
-    QStringList said;
+    // those still listed, and the panel's own
+    std::vector<PartDesignGui::RefoundReference> listed;
     if (treeWidget) {
         for (const auto &found : refound) {
             for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
                 auto row = treeWidget->topLevelItem(i);
-                if (getGeometryItemText(row) == found.second.c_str()
+                if (getGeometryItemText(row) == found.now.c_str()
                         && getGeometryItemReference(row).isEmpty()) {
-                    said << tr("%1 is now %2").arg(QString::fromStdString(found.first),
-                                                   QString::fromStdString(found.second));
+                    listed.push_back(found);
                     break;
                 }
             }
         }
     }
-    if (said.isEmpty())
-        return QString();
-    return tr("Found again by name: %1. Selected in the view and marked in the list: check, "
-              "then OK keeps it, Cancel leaves the reference as it was.")
-            .arg(said.join(QStringLiteral(", ")));
+    listed.insert(listed.end(), refoundOther.begin(), refoundOther.end());
+    return PartDesignGui::refoundNote(listed);
 }
 
 void TaskDressUpParameters::markRefound()
@@ -300,10 +297,10 @@ void TaskDressUpParameters::markRefound()
     for (const auto &found : refound) {
         for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
             auto row = treeWidget->topLevelItem(i);
-            if (getGeometryItemText(row) != found.second.c_str()
+            if (getGeometryItemText(row) != found.now.c_str()
                     || !getGeometryItemReference(row).isEmpty())
                 continue;
-            row->setForeground(0, QColor(0xb0, 0x70, 0x00));
+            row->setForeground(0, PartDesignGui::refoundColor());
             row->setToolTip(0, withRefound(row, row->toolTip(0)));
             break;
         }
@@ -315,11 +312,9 @@ QString TaskDressUpParameters::withRefound(QTreeWidgetItem *row, const QString &
     if (!row || !getGeometryItemReference(row).isEmpty())
         return tip;
     for (const auto &found : refound) {
-        if (getGeometryItemText(row) != found.second.c_str())
+        if (getGeometryItemText(row) != found.now.c_str())
             continue;
-        const QString was = tr("Was %1: found again by its name when this panel opened. "
-                               "OK keeps it, Cancel leaves the reference as it was.")
-                .arg(QString::fromStdString(found.first));
+        const QString was = PartDesignGui::refoundTip(found.was);
         return tip.isEmpty() || tip.startsWith(was) ? (tip.isEmpty() ? was : tip)
                                                     : was + QStringLiteral("\n") + tip;
     }
@@ -328,7 +323,7 @@ QString TaskDressUpParameters::withRefound(QTreeWidgetItem *row, const QString &
 
 void TaskDressUpParameters::showRefound()
 {
-    if (!treeWidget || refound.empty() || selectionMode == refToggle)
+    if (!treeWidget || (refound.empty() && refoundOther.empty()) || selectionMode == refToggle)
         return;
     {
         Base::StateLocker guard(busy);
@@ -336,7 +331,7 @@ void TaskDressUpParameters::showRefound()
         for (const auto &found : refound) {
             for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
                 auto row = treeWidget->topLevelItem(i);
-                if (getGeometryItemText(row) == found.second.c_str()
+                if (getGeometryItemText(row) == found.now.c_str()
                         && getGeometryItemReference(row).isEmpty()) {
                     row->setSelected(true);
                     break;
@@ -344,8 +339,15 @@ void TaskDressUpParameters::showRefound()
             }
         }
     }
-    // the rows' elements selected in the view, as a click on them does
-    onItemSelectionChanged();
+    // the rows' elements selected in the view, as a click on them does;
+    // the panel's own beside them, unheard by the panel
+    if (!refound.empty())
+        onItemSelectionChanged();
+    if (!refoundOther.empty()) {
+        bool blocked = blockSelection(true);
+        PartDesignGui::selectRefound(refoundOther, !refound.empty());
+        blockSelection(blocked);
+    }
     showMessage();
 }
 

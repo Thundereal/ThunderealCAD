@@ -33,6 +33,7 @@
 #endif
 
 #include <boost/algorithm/string/find.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 
 #include <App/Document.h>
 #include <App/Origin.h>
@@ -356,7 +357,8 @@ QString getRefStr(const App::DocumentObject* obj, const std::vector<std::string>
         return {};
 }
 
-bool populateRefElement(App::PropertyLinkSub *prop, QLabel *label, bool canTouch) {
+bool populateRefElement(App::PropertyLinkSub *prop, QLabel *label, bool canTouch,
+                        RefoundReference *refound) {
     if(!prop || !label)
         return false;
 
@@ -380,17 +382,41 @@ bool populateRefElement(App::PropertyLinkSub *prop, QLabel *label, bool canTouch
     bool touched = false;
     if(Data::hasMissingElement(sub.second.c_str())) {
         if(canTouch) {
-            for(auto &mapped : Part::Feature::getRelatedElements(obj,sub.first.c_str())) {
-                FC_WARN("guess element reference: " << sub.first << " -> " << mapped.name);
+            // one element it holds: taken where one answers (ruled
+            // 2026-11-11; the first of several was taken before), and told
+            // to the panel, which shows it
+            const auto answers = refoundAnswers(obj, sub.first, {}, true);
+            if (!answers.empty()) {
+                FC_WARN("guess element reference: " << sub.first << " -> " << answers.front());
                 touched = true;
-                sub.second.clear();
-                mapped.index.appendToStringBuffer(sub.second);
+                std::string was = sub.second;
+                if (boost::starts_with(was, Data::missingPrefix()))
+                    was.erase(0, Data::missingPrefix().size());
+                sub.second = answers.front();
                 prop->setValue(obj, {sub.second});
-                break;
+                label->setProperty("refoundWas", QByteArray(was.c_str()));
+                label->setProperty("refoundNow", QByteArray(sub.second.c_str()));
+                if (refound)
+                    *refound = RefoundReference {obj, was, sub.second};
             }
         }
         if(!touched)
             fmt = QStringLiteral("<font color='red'>%1:%2</font>");
+    }
+
+    // found again by name, for as long as it is the one shown: marked, its
+    // tip saying what it was
+    const QByteArray now = label->property("refoundNow").toByteArray();
+    if (!now.isEmpty()) {
+        if (now == sub.second.c_str()) {
+            fmt = QStringLiteral("<font color='%1'>%2</font>")
+                    .arg(refoundColor().name(), QStringLiteral("%1:%2"));
+            label->setToolTip(refoundTip(label->property("refoundWas").toByteArray().constData()));
+        }
+        else {
+            label->setProperty("refoundNow", QByteArray());
+            label->setToolTip(QString());
+        }
     }
 
     // Display the shorter index based name

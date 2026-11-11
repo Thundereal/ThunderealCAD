@@ -2104,8 +2104,101 @@ bool importExternalElements(App::PropertyLinkSub &prop,
     return _MonitorInstance->importExternalObjects(prop, sobjs, report);
 }
 
+QColor refoundColor()
+{
+    return QColor(0xb0, 0x70, 0x00);
+}
+
+QString refoundTip(const std::string &was)
+{
+    return QObject::tr("Was %1: found again by its name when this panel opened. "
+                       "OK keeps it, Cancel leaves the reference as it was.")
+            .arg(QString::fromStdString(was));
+}
+
+QString refoundNote(const std::vector<RefoundReference> &found)
+{
+    // each as "Edge8 is now Edge10", one that became several as
+    // "Edge13 is now Edge13, Edge17"
+    QStringList said;
+    std::vector<std::string> done;
+    for (const auto &first : found) {
+        if (std::find(done.begin(), done.end(), first.was) != done.end())
+            continue;
+        done.push_back(first.was);
+        QStringList now;
+        for (const auto &other : found) {
+            if (other.object == first.object && other.was == first.was)
+                now << QString::fromStdString(other.now);
+        }
+        said << QObject::tr("%1 is now %2").arg(QString::fromStdString(first.was),
+                                                now.join(QStringLiteral(", ")));
+    }
+    if (said.isEmpty())
+        return QString();
+    return QObject::tr("Found again by name: %1. Selected in the view and marked here: check, "
+                       "then OK keeps it, Cancel leaves the reference as it was.")
+            .arg(said.join(QStringLiteral("; ")));
+}
+
+void selectRefound(const std::vector<RefoundReference> &found, bool add)
+{
+    // Beside the feature in edit, in what holds it: the selection is by the
+    // path from there. (Not selectObjectOnTop(): the feature a panel's
+    // feature builds on is shown on top already, and that selects nothing
+    // of it.)
+    Gui::ViewProviderDocumentObject *parentVp = nullptr;
+    std::string path;
+    if (auto gdoc = Gui::Application::Instance->editDocument())
+        gdoc->getInEdit(&parentVp, &path);
+    if (parentVp) {
+        // less the feature in edit itself
+        auto dot = path.rfind('.', path.size() >= 2 ? path.size() - 2 : std::string::npos);
+        path = path.empty() || path.back() != '.' || dot == std::string::npos
+                ? std::string() : path.substr(0, dot + 1);
+    }
+    for (const auto &ref : found) {
+        if (!ref.object || !ref.object->isAttachedToDocument())
+            continue;
+        App::SubObjectT objT(ref.object, ref.now.c_str());
+        if (parentVp) {
+            App::SubObjectT inEdit(parentVp->getObject(),
+                    (path + ref.object->getNameInDocument() + "." + ref.now).c_str());
+            if (inEdit.getSubObject() == ref.object)
+                objT = std::move(inEdit);
+        }
+        // the first in place of the selection, unless added to it
+        if (!add)
+            Gui::Selection().clearSelection();
+        add = true;
+        Gui::Selection().addSelection(objT);
+    }
+}
+
+std::vector<std::string> refoundAnswers(App::DocumentObject *obj, const std::string &mapped,
+                                        const std::set<std::string> &used, bool single)
+{
+    std::vector<std::string> answers;
+    if (!obj || mapped.empty())
+        return answers;
+    std::string name, index;
+    for (auto &element : Part::Feature::getRelatedElements(obj, mapped.c_str())) {
+        name.clear();
+        element.name.appendToBuffer(name);
+        index.clear();
+        element.index.appendToStringBuffer(index);
+        if (used.count(name) || used.count(index)
+                || std::find(answers.begin(), answers.end(), index) != answers.end())
+            continue;
+        answers.push_back(index);
+    }
+    if (single && answers.size() != 1)
+        answers.clear();
+    return answers;
+}
+
 bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh,
-                                std::vector<std::pair<std::string, std::string>> *refound)
+                                std::vector<RefoundReference> *refound)
 {
     treeWidget->clear();
     auto base = prop.getValue();
@@ -2149,40 +2242,33 @@ bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &p
         }
         FC_WARN("missing element reference in " << prop.getFullName() << ": " << ref);
         bool popped = false;
-        // Taken by its name's history where one element answers that no
-        // other reference has (ruled 2026-11-11; every one that answered
-        // was taken before, an edge cut in two as its two halves): with
-        // several it is the user's to say which, and the row stays missing
-        std::vector<Data::MappedElement> answers;
+        // Taken by its name's history, every element that answers and no
+        // other reference has: an edge a feature cut in two is its two
+        // halves. Told to the panel, which shows what was taken (ruled
+        // 2026-11-11: not silently).
+        std::string was = refs.back();
+        if (boost::starts_with(was, Data::missingPrefix()))
+            was.erase(0, Data::missingPrefix().size());
         for(auto &element : Part::Feature::getRelatedElements(base,ref.c_str())) {
             tmp.clear();
             element.name.appendToBuffer(tmp);
+            if (!subSet.insert(tmp).second)
+                continue;
             indexedName.clear();
             element.index.appendToStringBuffer(indexedName);
-            if (!subSet.count(tmp) && !subSet.count(indexedName))
-                answers.push_back(element);
-        }
-        if (answers.size() == 1) {
-            const auto &element = answers.front();
-            tmp.clear();
-            element.name.appendToBuffer(tmp);
-            indexedName.clear();
-            element.index.appendToStringBuffer(indexedName);
-            subSet.insert(tmp);
-            subSet.insert(indexedName);
+            if (!subSet.insert(indexedName).second)
+                continue;
             FC_WARN("guess element reference in " << prop.getFullName() << ": " << ref << " -> " << element.name);
             auto item = new QTreeWidgetItem(treeWidget);
             item->setText(0, QString::fromStdString(indexedName));
             setGeometryItemText(item, indexedName);
-            if (refound) {
-                std::string was = refs.back();
-                if (boost::starts_with(was, Data::missingPrefix()))
-                    was.erase(0, Data::missingPrefix().size());
-                refound->emplace_back(was, indexedName);
+            if (refound)
+                refound->push_back({base, was, indexedName});
+            if(!popped) {
+                refs.pop_back();
+                touched = true;
+                popped = true;
             }
-            refs.pop_back();
-            touched = true;
-            popped = true;
             refs.push_back(indexedName);
         }
         if(!popped) {

@@ -41,6 +41,8 @@
 # include <QTreeWidget>
 #endif
 
+#include <map>
+#include <set>
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <Base/Console.h>
@@ -74,6 +76,7 @@
 #include "TaskTransformedParameters.h"
 #include "TaskMultiTransformParameters.h"
 #include "ReferenceSelection.h"
+#include <App/ElementNamingUtils.h>
 #include "Utils.h"
 
 namespace sp = std::placeholders;
@@ -483,33 +486,66 @@ void TaskTransformedParameters::setupBaseUI() {
     PartDesign::Feature *feat = 0;
     auto subs = pcTransformed->OriginalSubs.getSubValues(false);
     bool touched = false;
+    // An element that is gone, by what answers for it by its name's
+    // history: all that do, in its place -- a face cut in two is its two
+    // parts. Kept to be shown (ruled 2026-11-11: not taken silently; the
+    // first that answered was taken before).
+    std::map<App::DocumentObject*, std::set<std::string>> used;
+    {
+        auto it = values.begin();
+        for (const auto &shadow : shadows) {
+            used[*it].insert(shadow.first);
+            used[*it].insert(shadow.second);
+            ++it;
+        }
+    }
+    std::vector<App::DocumentObject*> newValues;
+    std::vector<std::string> newSubs;
     for(auto &sub : subs) {
         auto obj = *itValue++;
         const auto &shadow = *itShadow++;
         if(feat!=obj)
             feat = Base::freecad_dynamic_cast<PartDesign::Feature>(obj);
+        std::vector<std::string> answers;
         if(feat && shadow.first.size()) {
             try {
                 feat->Shape.getShape().getSubShape(shadow.first.c_str());
             }catch(...) {
-                auto names = Part::Feature::getRelatedElements(obj,shadow.first.c_str());
-                if(names.size()) {
-                    auto &mapped = names.front();
-                    FC_WARN("guess element reference: " << shadow.first << " -> " << mapped.name);
-                    sub.clear();
-                    mapped.index.appendToStringBuffer(sub);
-                    touched = true;
-                } else {
+                answers = PartDesignGui::refoundAnswers(obj, shadow.first, used[obj], false);
+                if(answers.empty())
                     sub = shadow.first; // use new style name for future guessing
-                }
             }
         }
+        if (answers.empty()) {
+            newValues.push_back(obj);
+            newSubs.push_back(sub);
+            continue;
+        }
+        std::string was = shadow.second;
+        if (boost::starts_with(was, Data::missingPrefix()))
+            was.erase(0, Data::missingPrefix().size());
+        for (const auto &now : answers) {
+            FC_WARN("guess element reference: " << shadow.first << " -> " << now);
+            used[obj].insert(now);
+            newValues.push_back(obj);
+            newSubs.push_back(now);
+            refound.push_back({obj, was, now});
+        }
+        touched = true;
     }
 
     if(touched) {
         setupTransaction();
-        pcTransformed->OriginalSubs.setValues(values,subs);
+        pcTransformed->OriginalSubs.setValues(newValues,newSubs);
         recomputeFeature();
+        // said in the panel's line, and selected in the view once the panel
+        // is up, unheard by the panel's list of originals
+        slotDiagnosis(QString());
+        QTimer::singleShot(0, this, [this]() {
+            bool blocked = blockSelection(true);
+            PartDesignGui::selectRefound(refound);
+            blockSelection(blocked);
+        });
     }
 
     linkEditor->init(App::DocumentObjectT(&pcTransformed->OriginalSubs),false);
@@ -526,6 +562,28 @@ void TaskTransformedParameters::setupBaseUI() {
 void TaskTransformedParameters::slotDiagnosis(QString msg)
 {
     if(labelMessage) {
+        // under it, what was found again by name while the feature has it
+        // (refound)
+        std::vector<PartDesignGui::RefoundReference> listed;
+        if (auto pcTransformed = getObject()) {
+            const auto &objs = pcTransformed->OriginalSubs.getValues();
+            const auto &subs = pcTransformed->OriginalSubs.getSubValues();
+            for (const auto &found : refound) {
+                for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+                    if (objs[i] == found.object && subs[i] == found.now) {
+                        listed.push_back(found);
+                        break;
+                    }
+                }
+            }
+        }
+        const QString note = PartDesignGui::refoundNote(listed);
+        if (!note.isEmpty()) {
+            if (!msg.isEmpty())
+                msg += QStringLiteral("<br/>");
+            msg += QStringLiteral("<font color='%1'>%2</font>")
+                    .arg(PartDesignGui::refoundColor().name(), note.toHtmlEscaped());
+        }
         if(msg.isEmpty())
             labelMessage->hide();
         else {

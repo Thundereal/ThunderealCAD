@@ -2178,6 +2178,37 @@ stored flat and this option do what it was for.
       under any error. Where two answer -- a pocket put in before a fillet, notching its
       edge's middle -- the row stays missing for the user to pick. `dressup-refound-edge.py`,
       new, 9 (before, 5: the three signs missing, and both halves taken).
+    - **An edge cut in two is its two halves again, and the other panels show what they take
+      (asked 2026-11-11: "restore split edge. and do the same auto fix visual for other
+      features").** One rule by what the reference holds (`PartDesignGui::refoundAnswers()`):
+      a list takes every element that answers and no other reference has, an edge or a face a
+      feature cut in two as its two parts; a reference that holds one element takes the answer
+      only where there is one, and stays missing where two answer. What is taken is a
+      `RefoundReference` (the object, what the element was, what it is now), and one set of
+      helpers in `Gui/Utils.cpp` shows it wherever it is listed: `refoundColor()` (the amber),
+      `refoundTip()`, `refoundNote()` (the panel's line, "Edge13 is now Edge13, Edge17" for
+      one that became two) and `selectRefound()` (selected beside the feature in edit, by the
+      path from what holds it). Who uses them:
+      - a dress-up's list (`populateGeometryReferences()`): all that answer, each row marked;
+      - a draft's neutral plane and pull direction (`populateRefElement()`): one element each,
+        the label amber with the tip, said and selected with the edges; the first of several
+        was taken before, silently;
+      - the sketch-based panels' references -- a pad's or a pocket's up-to faces and start
+        reference, a revolution's up-to face, a sweep's spine and auxiliary spine
+        (`LinkSubWidget`), a loft's and a sweep's sections (`LinkSubListWidget`): the cell or
+        the item amber, a line under the table or the list. A table that holds one element (a
+        revolution's up-to face) is the single rule, the rest the list's. Before, the first
+        element that answered was taken whatever else did, and the list widget looked for the
+        first lost element only, adding what it found past the lost one;
+      - a pattern's originals (`TaskTransformedParameters`, `OriginalSubs`): all that answer,
+        said in the panel's message line and selected.
+      The sheet metal panel keeps its one answer (`findAgain()`): a flange's edge cut in two
+      is two flanges, which is the user's to say.
+      `pd-refound-references.py`, new, 19 (before, 10): a pad up to a face, a draft's plane, a
+      sweep's spine, a spine cut in two (both halves), a pad's up-to face cut in two (both
+      parts), a draft's plane cut in two (none taken). `dressup-refound-edge.py` 11 (before,
+      8). Both frozen and not. The pattern's panel and the list widget are not under a GUI
+      check yet.
     - `sheet-metal-panels.py` 103 (before, 101 and one failing, the script stopping there).
   - Tests: `SheetMetalNames.py`, asked of every sheet metal test's document as it closes (28
     files' `tearDown`): each feature's highlight is the faces off the skin it built on, all and

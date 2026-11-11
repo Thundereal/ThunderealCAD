@@ -1765,6 +1765,18 @@ void Feature::onBeforeChange(const App::Property *prop) {
                 _shapeVersions.insert(_shapeVersions.begin(), std::move(version));
             }
         }
+        // Held, the shape set now is one no reference was resolved against,
+        // and that is so from this announcement on, not from the end of
+        // onChanged(): on its way there the placement the new shape brings
+        // is written to Placement, which sets the shape once more. That
+        // second announcement found nothing flagged, retained the new shape
+        // as a generation and moved every healthy referrer onto it; found
+        // there by position, each reference kept its number in a shape
+        // numbered otherwise (realthunder/FreeCAD#474: four sketches on a
+        // helix's end face, Face1 in the file and Face17 made again, stayed
+        // on Face1, a side of the helix: "No planar face").
+        if (_holdingReferences && prop == getPropertyOfGeometry())
+            _heldShapeChange = true;
     }
     GeoFeature::onBeforeChange(prop);
 }

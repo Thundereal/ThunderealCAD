@@ -144,6 +144,30 @@ void Type::addModuleRoot(const std::string& dir)
     moduleRoots.push_back(s);
 }
 
+vector<string> Type::moduleLibDirs;
+
+void Type::addModuleLibDir(const std::string& dir)
+{
+    if (dir.empty()) {
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::path p = std::filesystem::weakly_canonical(dir, ec);
+    if (ec) {
+        p = std::filesystem::path(dir).lexically_normal();
+    }
+    string s = p.generic_string();
+    while (s.size() > 1 && s.back() == '/') {
+        s.pop_back();
+    }
+    for (const auto& r : moduleLibDirs) {
+        if (r == s) {
+            return;
+        }
+    }
+    moduleLibDirs.push_back(s);
+}
+
 const std::vector<std::string>& Type::getModuleRoots()
 {
     return moduleRoots;
@@ -167,6 +191,20 @@ bool underRoot(const std::string& file, const std::string& root)
 
 namespace
 {
+/// Is `file` a regular file directly in `dir` (a canonical directory)?
+bool directlyIn(const std::string& file, const std::string& dir)
+{
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(file, ec)) {
+        return false;
+    }
+    std::filesystem::path p = std::filesystem::weakly_canonical(file, ec);
+    if (ec) {
+        p = std::filesystem::path(file).lexically_normal();
+    }
+    return p.parent_path().generic_string() == dir;
+}
+
 /// The locations a spec would import from: its origin (a file) and, for
 /// a package, its search directories (a namespace package has only
 /// those).  "built-in" and "frozen" are not paths and match no root.
@@ -287,6 +325,17 @@ bool Type::moduleAllowed(const std::string& module)
         for (const auto& loc : locations) {
             for (const auto& root : moduleRoots) {
                 if (underRoot(loc, root)) {
+                    under = true;
+                    break;
+                }
+            }
+            if (under) {
+                break;
+            }
+            // an installation's module binaries: the file itself in the
+            // library directory, nothing below it
+            for (const auto& dir : moduleLibDirs) {
+                if (directlyIn(loc, dir)) {
                     under = true;
                     break;
                 }

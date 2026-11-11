@@ -108,6 +108,30 @@ TEST_F(TypeImport, onSysPathOutsideEveryRootIsRefused)
     EXPECT_FALSE(inSysModules("fcxtypeimport_outside")) << "a refused module must not be imported";
 }
 
+TEST_F(TypeImport, aFileInALibraryDirIsAdmittedAndNothingBelowIt)
+{
+    // an installation: the modules' binaries flat in lib, which in a conda
+    // prefix also holds the standard library and site-packages below it
+    namespace fs = std::filesystem;
+    const std::string lib = base + "/lib";
+    const std::string below = lib + "/python/site-packages";
+    fs::create_directories(below);
+    std::ofstream(lib + "/fcxtypeimport_inlib.py") << "MARK = 'lib'\n";
+    std::ofstream(below + "/fcxtypeimport_below.py") << "MARK = 'below'\n";
+    Base::Interpreter().addPythonPath(lib.c_str());
+    Base::Interpreter().addPythonPath(below.c_str());
+    Base::Type::addModuleLibDir(lib);
+
+    ASSERT_FALSE(inSysModules("fcxtypeimport_inlib"));
+    EXPECT_TRUE(Base::Type::moduleAllowed("fcxtypeimport_inlib"));
+    EXPECT_NO_THROW(Base::Type::importModule("fcxtypeimport_inlib::Thing"));
+    EXPECT_TRUE(inSysModules("fcxtypeimport_inlib"));
+
+    EXPECT_FALSE(Base::Type::moduleAllowed("fcxtypeimport_below"));
+    EXPECT_THROW(Base::Type::importModule("fcxtypeimport_below::Thing"), Base::RuntimeError);
+    EXPECT_FALSE(inSysModules("fcxtypeimport_below"));
+}
+
 TEST_F(TypeImport, stdlibIsRefused)
 {
     // a document naming "<stdlib module>::Whatever": the stdlib is not a

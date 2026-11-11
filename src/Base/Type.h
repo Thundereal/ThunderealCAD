@@ -105,6 +105,12 @@ public:
     /// A directory a type-string import may resolve into (a Mod root);
     /// registered by the application before any document loads.
     static void addModuleRoot(const std::string& dir);
+    /// A directory an installation keeps its modules' binaries in, flat:
+    /// a build tree has Spreadsheet.so in Mod/Spreadsheet, an install has
+    /// it in lib beside the libraries. A type-string import may resolve to
+    /// a FILE directly in it, and to nothing below it -- in a conda prefix
+    /// lib also holds the whole standard library and site-packages.
+    static void addModuleLibDir(const std::string& dir);
     /// The registered module roots, in registration order.
     static const std::vector<std::string>& getModuleRoots();
     /// Whether a document-chosen module name may be imported natively:
@@ -188,6 +194,7 @@ private:
     static std::vector<TypeData*> typedata;
     static std::set<std::string> loadModuleSet;
     static std::vector<std::string> moduleRoots;
+    static std::vector<std::string> moduleLibDirs;
 };
 
 

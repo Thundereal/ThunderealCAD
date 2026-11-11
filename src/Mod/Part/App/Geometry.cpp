@@ -5733,10 +5733,22 @@ bool GeomCylinder::isSame(const Geometry& _other, double tol, double atol) const
         return false;
     }
 
-    (void)atol;
+    // The same cylinder is the same points: its radius and the line of its
+    // axis. Where along that line its origin lies, which way the axis points
+    // and where its angle is counted from are how it is written down, and a
+    // feature made again may write it another way (GeomCircle::isSame): a
+    // cut's hole came back with its axis the other way round, a pocket's
+    // wall with its origin moved along the axis, and neither face was found
+    // again by its geometry.
     auto& other = static_cast<const GeomCylinder&>(_other);
-    return GeomElementarySurface::isSame(other, tol, atol)
-        && fabs(getRadius() - other.getRadius()) <= tol;
+    Handle(Geom_CylindricalSurface) cyl = Handle(Geom_CylindricalSurface)::DownCast(handle());
+    Handle(Geom_CylindricalSurface) cyl2
+        = Handle(Geom_CylindricalSurface)::DownCast(other.handle());
+    const gp_Ax1 axis = cyl->Axis();
+    const gp_Ax1 axis2 = cyl2->Axis();
+    return fabs(getRadius() - other.getRadius()) <= tol
+        && axis.Direction().IsParallel(axis2.Direction(), atol)
+        && gp_Lin(axis).SquareDistance(axis2.Location()) <= tol * tol;
 }
 
 

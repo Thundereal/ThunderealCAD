@@ -29,6 +29,7 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <Geom_Circle.hxx>
+#include <Geom_CylindricalSurface.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Geom_BezierCurve.hxx>
@@ -1398,6 +1399,36 @@ TEST_F(TopoShapeExpansionTest, searchSubShapeArcWrittenAnotherWay)
     EXPECT_TRUE(g->isSame(*gTurned, 1e-7, 1e-10));
     EXPECT_TRUE(g->isSame(*gFlipped, 1e-7, 1e-10));
     EXPECT_FALSE(g->isSame(*gRest, 1e-7, 1e-10));
+}
+
+// And a face of a cylinder written another way: the same cylinder with its
+// axis the other way round and its origin moved along it (in
+// realthunder/FreeCAD#363 a cut's hole and a pocket's wall came back so).
+// A cylinder beside it, or of another radius, is not the same.
+TEST_F(TopoShapeExpansionTest, searchSubShapeCylinderWrittenAnotherWay)
+{
+    // Arrange
+    const double pi = std::numbers::pi;
+    const gp_Dir x(1, 0, 0);
+    Handle(Geom_CylindricalSurface) up
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), x), 2);
+    Handle(Geom_CylindricalSurface) down
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 7), gp_Dir(0, 0, -1), x), 2);
+    Handle(Geom_CylindricalSurface) beside
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 1e-3, 0), gp_Dir(0, 0, 1), x), 2);
+    Handle(Geom_CylindricalSurface) wider
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), x), 2.001);
+    TopoShape face {BRepBuilderAPI_MakeFace(up, 0, pi, 0, 5, 1e-7).Face()};
+    TopoShape other {BRepBuilderAPI_MakeFace(down, pi, 2 * pi, 2, 7, 1e-7).Face()};
+    std::vector<std::string> names;
+    // Act
+    other.searchSubShape(face, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    // Assert
+    ASSERT_EQ(names.size(), 1);
+    EXPECT_EQ(names[0], "Face1");
+    EXPECT_TRUE(GeomCylinder(up).isSame(GeomCylinder(down), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomCylinder(up).isSame(GeomCylinder(beside), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomCylinder(up).isSame(GeomCylinder(wider), 1e-7, 1e-10));
 }
 
 TEST_F(TopoShapeExpansionTest, makEShellInvalid)

@@ -3116,7 +3116,12 @@ std::vector<double> AssemblyObject::getFlexibleFrequencies(App::DocumentObject* 
     const auto& flexibles = solverModel->dynamics->flexibles;
     for (std::size_t i = 0; i < flexibles.size(); ++i) {
         if (solverModel->sourceName(flexibles[i].source) == name) {
+#ifdef ASSEMBLY_WITH_CHRONO
             return Solver::Chrono::flexibleFrequencies(*solverModel, i, error);
+#else
+            // ChronoBackend.cpp, which defines it, is built only with Chrono
+            return fail("built without the Chrono backend (BUILD_ASSEMBLY_CHRONO)");
+#endif
         }
     }
     return fail("the study does not bend it: see the report view");

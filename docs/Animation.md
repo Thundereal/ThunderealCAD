@@ -912,6 +912,30 @@ And the driver form needs nothing new:
 | 1 | Codec on the property types of 3.12; `interpolate()` over it; easing and Bezier evaluation; rotation modes | C++ unit tests: values at known times, against closed forms |
 | 2 | `App::Animation`, `PropertyAnimationTracks` (save, restore, undo of key edits), `AnimatedWrites`, rest values, Python API, `Time` in expressions | Python suite, headless; the transaction log suite stays green; save while active writes the rest values |
 | 3 | Gui: a timeline panel (play, pause, stop, previous and next key, scrub, range, frame rate, keys per track), insert key and key markers in the property editor, Record; the old branch's icons and command names | GUI tests under the offscreen and Windows hidden-desktop harnesses |
+
+Phase 3, built (2026-11-12), and what is left of it:
+- App: Record (`onBeforeRecord`/`onRecord` on the document's change
+  signals: the value before the edit stays the rest value, the edit is a
+  pose; a drag is one key, replaced at each move, in the edit's own step),
+  `keyNow()` for Insert key with the part tracks whose piece moved,
+  `keyState()` for the marks, `nextKeyTime()`. Tests in TestAnimation.
+- Gui: `AnimationTimeline` (a dock, `Std_AnimationTimeline`),
+  `AnimationPlayer`, `ViewProviderAnimation`, `CommandAnimation.cpp`
+  (`Std_AnimationNew`, `Timeline`, `Play`, `Pause`, `Stop`, `Start`,
+  `Prev`, `Next`, `Record`, `NewFrame` = key the selection's placements),
+  Tools > Animation; the property editor's Insert key / Delete key / Clear
+  track and its yellow, green and orange marks (`Gui::animationKeyMark()`).
+- A path through `ViewObject` resolves through ObjectIdentifier's pseudo
+  property of that name (it answers the object's Label in its place) to
+  the view provider's own property.
+- The user manual: thundereal-manual `core/animation` (screenshots and two
+  videos, made on macOS in a real window) and the help page
+  thundereal-help `pages/Animation.md`.
+- Left: GUI tests in `tests/gui` (the manual's scripts drive every part of
+  the panel, but as media, not as assertions); the `I` key over the
+  property editor; the Driven mark on the property editor's row and in the
+  expression editor (the timeline has it); Record of view provider
+  properties (Insert key keys them).
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache if needed | |
 

@@ -3354,3 +3354,118 @@ another: 116 lost; the kernel says "unchanged" in one run and "modified"
 in the next, OCCT sec 69) are not built.  The guard for what stays
 positional (9.10 item 6) is not ruled.  Whether A is offered upstream is
 not asked.
+
+### 9.12 The rest, built (2026-11-12)
+
+Ruled on 9.11: "The postfix is ok. Finish the undone items."  Findings 3
+and 4 and the guard are built; the element map version is 17.  The branch
+first took `thundereal/LinkVibe` (`948d1f4888`): the guard builds on its
+search by geometry, and it held the same mend as 9.11's first fault, a
+day older (`eb1a503501`), which stands in place of this branch's.
+
+**Finding 3: a result is numbered among the results of the very same
+sources.**  A history name held its element's place in the list the maker
+gives for its first source, and, behind `;K`, the place in each further
+source's list: `Top;:G3(DrillFace;K-2)`.  One result more in a list, of
+whatever other sources, moved the numbers of all after it -- a third
+drill renamed the edges of the first two.  Now the sources tell a result
+apart first (the first, and up to four more, as the name spells them),
+and a number is counted only among the results they leave together: a
+cut's edge is `Top;:G(DrillFace;K-1)`, the one edge of that face and that
+one, with no number.  `;K` keeps `-1` for a source that generated the
+result and `0`, `00` for the two fixed places; it holds no place any
+more.
+
+**The pieces of an edge are numbered along its curve**, not in the order
+the maker lists them: the first is `;:M`, the last `;:M-1`, and one
+between them says how many there are, `;:M2-3`.  The first and the last
+hold an end of the edge and keep their names whichever piece is cut
+again.  One between the ends is told by nothing but its place, which is
+another piece's as soon as one more is cut before it; with the count in
+it, its name is then no name at all, the reference is looked for by
+geometry as any missing one is, and is found where the piece is
+unchanged.  (Numbered from both ends without the count, the corpus had
+one reference on a wrong piece, a disc's rim when a fourth lug cut it
+again.)  The results of anything else that the sources leave together --
+the two halves of a face -- are numbered in the maker's order, as they
+were: for a face nothing as plain as a curve's direction exists.
+
+**Finding 4: an element made again as it was is named as one passed
+on.**  A result with one source that modified it, on the very surface or
+curve of that source at the same location and with the same bounds (edge
+for edge, by curve and range), takes the names the source would pass on:
+the source's names under its tag, with no step of the operation.  The
+plate's walls are `Face2` at every thickness, where they were `Face2`
+passed on and `Face2;:M;THK` made again.  A boolean does the same to what
+it rebuilds and leaves as it was (`Edge3;:M;CUT` is `Edge3`).  A vertex
+is as it was at the very point *and* as an end of one of its edges that
+is as it was: the point alone would make a mirror's vertices in its plane
+the input's.  And B (9.11) takes a vertex so too.  Not for an input with
+no tag, a shape between two steps of one feature: its bare name is not
+told from a number (`Wall1`).
+
+| | references | **WRONG** | name lost | names with no position in them | `Mn` names |
+| --- | --- | --- | --- | --- | --- |
+| 9.11, after the merge | 7362 | **2** | 219 | 5962 (81%) | 560 |
+| built | 7362 | **0** | 85 | 6257 (85%) | 204 |
+
+The same frozen and unfrozen.  (The merge took 24 references out of the
+corpus: a pattern leaves out an instance since `6681f43f36`.)  What is
+still lost is lost to its inputs: a sketch whose geometry the change
+numbered anew, a tool that became a compound, an edge whose neighbours
+changed -- and the pieces between an edge's ends, by design.
+
+**Older files** (15 to 17): the 17 corpus models as 9.11 has them, 1847
+of 7103 names change and all 7103 references name the element they were
+made on.  More references than before stand on a name that changes -- a
+face a fuse rebuilt unchanged was `;:M;FUS` and is passed on now -- so
+the recompute before any edit matters more than it did:
+`TestLoft.testLoftThroughItsEndWritesIntoNoInput`, which lengthens the
+pads of a stored file first, lost the loft's section and now recomputes
+before it edits, as `TestNameEncoding` does.
+
+**The guard** (9.10 item 6).  When an object changes its shape, every
+reference into it that still resolves is checked against the element it
+was on: that element, by its number in the shape before, is looked for in
+the new shape by geometry (`Part::Feature::searchElementCache`, the
+search a missing reference gets, LinkVibe's `13266c5b84`).  Where it is
+still there, unchanged, as one element, and the name finds another, the
+reference has been moved off it:
+
+- nothing is changed in the recompute -- the shape changed, which is no
+  ground for moving a reference unseen (ruled 2026-11-11); the reference
+  goes on by its name;
+- the report view says so, and the reference keeps where the element
+  lies (`App::ShadowSub::elsewhere`, a name of the target's, saved with
+  the reference as `elsewhere=`);
+- `DocumentObject.getReferencesElsewhere()` lists them: (property,
+  object, the element named, the element it was on);
+- a dress-up's panel, opened, takes the element the reference was on and
+  shows it as it shows one found again by name: the row marked and its
+  tip saying what it was, the element selected in the view, a line in the
+  panel; OK keeps it, Cancel leaves the reference as it was.
+
+It is kept until the reference is set anew, or names that element, or
+the element is gone.  Every name is checked, not only one that holds a
+place: the first of several results is spelled as an only one is.  The
+cost is one search for each reference at each change of what it refers
+to.  Not built: the other panels (a sketch-based feature's face, a
+pattern's originals) list such a reference as it is.
+
+**Tests.**  C++ (`TopoShapeEx.cpp`):
+`makESHAPENamesAnElementMadeAgainAsOnePassedOn`,
+`makESHAPENumbersAResultAmongThoseOfTheSameSources`,
+`makESHAPENumbersThePiecesOfAnEdgeAlongItsCurve`; the expected names of
+ten boolean, slice and transform cases are the new ones.  Python:
+`TestReferenceGuard`.  GUI: `dressup-moved-reference.py`.
+
+**Suites** (Linux): the C++ tests 1623 of 1624 -- the one is
+`GuiAssemblyWorkbench_tests_run`, as in 9.11 -- and Python 5326 OK, both
+frozen and unfrozen; the name corpus the same both ways.  Three
+expectations moved with the names: `TestTopologicalNamingProblem` counts
+two names on a vertex made again as it was (the input had two), in a
+pocket, a revolution and a fillet.
+
+**Still open.**  The halves of a face keep the maker's order.  The guard
+is shown in the dress-ups' panel only.  Whether any of this is offered
+upstream is not asked.

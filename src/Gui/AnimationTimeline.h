@@ -132,6 +132,7 @@ private:
     QComboBox* animations = nullptr;
     QToolButton* playButton = nullptr;
     QToolButton* recordButton = nullptr;
+    QToolButton* curvesButton = nullptr;
     QDoubleSpinBox* timeBox = nullptr;
     QDoubleSpinBox* startBox = nullptr;
     QDoubleSpinBox* endBox = nullptr;

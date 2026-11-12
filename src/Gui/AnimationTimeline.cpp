@@ -593,10 +593,18 @@ public:
                 f.setStrikeOut(true);
             }
             p.setFont(f);
+            if (curves && row.track == curveTrack) {
+                QColor hl = pal.highlight().color();
+                hl.setAlpha(60);
+                p.fillRect(QRect(0, y, g, rowHeight), hl);
+            }
             p.setPen(text);
             p.drawText(QRect(6, y, g - 10, rowHeight), Qt::AlignVCenter | Qt::AlignLeft,
                        p.fontMetrics().elidedText(row.label, Qt::ElideLeft, g - 12));
             p.setFont(font);
+            if (curves) {
+                continue;
+            }
             for (auto& k : row.keys) {
                 bool sel = selected.count({row.track, k.id}) > 0;
                 double t = k.t + (sel && dragging ? dragDt : 0.0);
@@ -606,6 +614,9 @@ public:
                 }
                 drawKey(p, QPointF(x, y + rowHeight / 2.0), k.interp, sel, row.mute);
             }
+        }
+        if (curves) {
+            paintCurves(p);
         }
         // The gutter's edge, and the time
         p.setPen(pal.mid().color());
@@ -709,6 +720,15 @@ public:
             return;
         }
         pressPos = pos;
+        if (curves) {
+            if (curvePress(ev)) {
+                return;
+            }
+            // Anywhere else on the curves: the time
+            mode = Scrub;
+            scrubTo(pos.x(), ev->modifiers());
+            return;
+        }
         if (pos.y() < rulerHeight) {
             mode = Scrub;
             scrubTo(pos.x(), ev->modifiers());
@@ -748,6 +768,10 @@ public:
 
     void mouseMoveEvent(QMouseEvent* ev) override
     {
+        if (curves && grab.key >= 0) {
+            curveMove(ev);
+            return;
+        }
         if (mode == Scrub) {
             scrubTo(ev->pos().x(), ev->modifiers());
         }
@@ -769,8 +793,12 @@ public:
         }
     }
 
-    void mouseReleaseEvent(QMouseEvent*) override
+    void mouseReleaseEvent(QMouseEvent* ev) override
     {
+        if (curves && grab.key >= 0) {
+            curveRelease(ev);
+            return;
+        }
         if (mode == Drag && dragging && std::fabs(dragDt) > App::Anim::TimeEpsilon) {
             if (auto anim = owner->animation()) {
                 App::AutoTransaction guard(QT_TRANSLATE_NOOP("Command", "Move keys"));
@@ -1041,6 +1069,374 @@ public:
         });
     }
 
+    // ----------------------------------------------------------------------
+    // The curve editor (docs/Animation.md phase 4): the chosen track's
+    // numbers over time, its keys and, where a span is Bezier, their handles
+
+    const App::AnimationTrack* currentTrack() const
+    {
+        auto anim = owner->animation();
+        return anim && curveTrack >= 0 ? anim->Tracks.getTrack(curveTrack) : nullptr;
+    }
+
+    /// The numbers drawn, and of those which take a handle of their own
+    void components(const App::AnimationTrack& track, std::vector<int>& shown,
+                    std::vector<bool>& editable) const
+    {
+        shown.clear();
+        editable.clear();
+        int i = 0;
+        for (auto& g : track.layout.groups) {
+            for (int j = 0; j < g.size; ++j, ++i) {
+                shown.push_back(i);
+                editable.push_back(g.kind == App::Anim::Kind::Scalar
+                                   || g.kind == App::Anim::Kind::Colour);
+            }
+        }
+    }
+
+    /// The track as drawn: dragged, a copy with the drag applied
+    App::AnimationTrack shownTrack(const App::AnimationTrack& track) const
+    {
+        App::AnimationTrack t = track;
+        if (grab.key < 0 || !grabMoved) {
+            return t;
+        }
+        int i = t.findId(grab.key);
+        if (i < 0) {
+            return t;
+        }
+        auto& k = t.keys[i].key;
+        if (grab.side == 0) {
+            k.t += grabDt;
+            if (grab.comp >= 0 && grab.comp < static_cast<int>(k.v.size())) {
+                k.v[grab.comp] += grabDv;
+            }
+            std::stable_sort(t.keys.begin(), t.keys.end(), [](auto& a, auto& b) {
+                return a.key.t < b.key.t;
+            });
+        }
+        else {
+            k.left = grabLeft;
+            k.right = grabRight;
+        }
+        return t;
+    }
+
+    double curveTop() const
+    {
+        return rulerHeight + 12.0;
+    }
+    double curveBottom() const
+    {
+        return std::max(curveTop() + 20.0, height() - 12.0);
+    }
+    double yOfValue(double v) const
+    {
+        return curveBottom() - (v - vmin) / (vmax - vmin) * (curveBottom() - curveTop());
+    }
+    double valuePerPixel() const
+    {
+        return (vmax - vmin) / (curveBottom() - curveTop());
+    }
+
+    void fitValues(const App::Anim::Curve& curve, const std::vector<int>& shown)
+    {
+        double lo = 1e300;
+        double hi = -1e300;
+        std::vector<double> nums;
+        for (int x = gutter(); x < width(); x += 4) {
+            if (curve.evaluate(tOf(x), nums)) {
+                for (int c : shown) {
+                    lo = std::min(lo, nums[c]);
+                    hi = std::max(hi, nums[c]);
+                }
+            }
+        }
+        for (auto& k : curve.keys) {
+            for (int c : shown) {
+                lo = std::min(lo, k.v[c]);
+                hi = std::max(hi, k.v[c]);
+            }
+        }
+        if (lo > hi) {
+            lo = 0;
+            hi = 1;
+        }
+        double pad = std::max((hi - lo) * 0.1, 1e-6);
+        vmin = lo - pad;
+        vmax = hi + pad;
+    }
+
+    static QColor componentColor(int c)
+    {
+        static const QColor colors[] = {{0xd0, 0x40, 0x40}, {0x40, 0xa0, 0x40},
+                                        {0x40, 0x70, 0xd0}, {0xc0, 0x80, 0x20},
+                                        {0x90, 0x50, 0xc0}, {0x20, 0xa0, 0xa0},
+                                        {0x80, 0x80, 0x80}};
+        return colors[c % 7];
+    }
+
+    void paintCurves(QPainter& p)
+    {
+        auto track0 = currentTrack();
+        int g = gutter();
+        QRect area(g + 1, rulerHeight, width() - g - 1, height() - rulerHeight);
+        p.fillRect(area, palette().base());
+        if (!track0 || track0->stepped() || track0->keys.empty()) {
+            p.setPen(palette().mid().color());
+            p.drawText(area, Qt::AlignCenter,
+                       track0 && track0->stepped()
+                           ? tr2("A stepped track has no curve")
+                           : tr2("Click a track's name to see its curves"));
+            return;
+        }
+        App::AnimationTrack track = shownTrack(*track0);
+        App::Anim::Curve curve;
+        track.makeCurve(curve);
+        std::vector<int> shown;
+        std::vector<bool> editable;
+        components(track, shown, editable);
+        if (!grabMoved) {
+            fitValues(curve, shown);
+        }
+        p.save();
+        p.setClipRect(area);
+        // Value grid
+        double span = vmax - vmin;
+        double step = std::pow(10.0, std::floor(std::log10(span / 4)));
+        for (double m : {1.0, 2.0, 5.0}) {
+            if (span / (step * m) <= 6) {
+                step *= m;
+                break;
+            }
+        }
+        p.setPen(palette().mid().color());
+        for (double v = std::ceil(vmin / step) * step; v <= vmax; v += step) {
+            double y = yOfValue(v);
+            p.drawLine(QPointF(g, y), QPointF(width(), y));
+            p.drawText(QPointF(g + 4, y - 2), QString::number(v, 'g', 5));
+        }
+        // The curves
+        std::vector<double> nums;
+        for (std::size_t s = 0; s < shown.size(); ++s) {
+            int c = shown[s];
+            QPainterPath path;
+            bool first = true;
+            for (int x = g; x <= width(); x += 2) {
+                if (!curve.evaluate(tOf(x), nums)) {
+                    continue;
+                }
+                QPointF pt(x, yOfValue(nums[c]));
+                if (first) {
+                    path.moveTo(pt);
+                    first = false;
+                }
+                else {
+                    path.lineTo(pt);
+                }
+            }
+            QColor col = componentColor(c);
+            if (!editable[s]) {
+                col.setAlpha(110);
+            }
+            p.setPen(QPen(col, editable[s] ? 1.6 : 1.0));
+            p.setBrush(Qt::NoBrush);
+            p.drawPath(path);
+        }
+        // Keys and handles
+        for (std::size_t i = 0; i < curve.keys.size(); ++i) {
+            auto& k = curve.keys[i];
+            bool bezierOut = k.interp == App::Anim::Interp::Bezier && i + 1 < curve.keys.size();
+            bool bezierIn = i > 0 && curve.keys[i - 1].interp == App::Anim::Interp::Bezier;
+            int id = track.keys[i].id;
+            for (std::size_t s = 0; s < shown.size(); ++s) {
+                int c = shown[s];
+                QPointF kp(xOf(k.t), yOfValue(k.v[c]));
+                if (editable[s]) {
+                    auto handle = [&](const App::Anim::Handle& h, bool on) {
+                        if (!on || c >= static_cast<int>(h.dv.size())) {
+                            return;
+                        }
+                        QPointF hp(xOf(k.t + h.dt), yOfValue(k.v[c] + h.dv[c]));
+                        p.setPen(QPen(palette().text().color(), 1));
+                        p.drawLine(kp, hp);
+                        p.setBrush(componentColor(c));
+                        p.drawRect(QRectF(hp.x() - 3, hp.y() - 3, 6, 6));
+                    };
+                    handle(k.left, bezierIn);
+                    handle(k.right, bezierOut);
+                }
+                bool sel = grab.key == id && grab.comp == c;
+                p.setPen(QPen(QColor(0x30, 0x30, 0x30), 1));
+                p.setBrush(sel ? QColor(0xff, 0xb0, 0x20) : componentColor(c));
+                p.drawEllipse(kp, editable[s] ? 4.5 : 3.0, editable[s] ? 4.5 : 3.0);
+            }
+        }
+        p.restore();
+    }
+
+    /// A press in curve mode: true when it was the curve editor's
+    bool curvePress(QMouseEvent* ev)
+    {
+        QPoint pos = ev->pos();
+        grab = Grab();
+        grabMoved = false;
+        if (pos.x() < gutter()) {
+            int r = rowAt(pos.y());
+            if (r >= 0) {
+                curveTrack = rows[r].track;
+                update();
+            }
+            return true;
+        }
+        if (pos.y() < rulerHeight) {
+            return false;  // scrub as ever
+        }
+        auto track = currentTrack();
+        if (!track || track->stepped() || track->keys.empty()) {
+            return false;
+        }
+        App::Anim::Curve curve;
+        track->makeCurve(curve);
+        std::vector<int> shown;
+        std::vector<bool> editable;
+        components(*track, shown, editable);
+        auto near = [&](QPointF a) {
+            return std::hypot(a.x() - pos.x(), a.y() - pos.y()) <= 6.0;
+        };
+        // Handles first: they lie over keys at small zooms
+        for (std::size_t i = 0; i < curve.keys.size(); ++i) {
+            auto& k = curve.keys[i];
+            bool bezierOut = k.interp == App::Anim::Interp::Bezier && i + 1 < curve.keys.size();
+            bool bezierIn = i > 0 && curve.keys[i - 1].interp == App::Anim::Interp::Bezier;
+            for (std::size_t s = 0; s < shown.size(); ++s) {
+                int c = shown[s];
+                if (!editable[s]) {
+                    continue;
+                }
+                for (int side : {-1, 1}) {
+                    auto& h = side < 0 ? k.left : k.right;
+                    if (!(side < 0 ? bezierIn : bezierOut) || c >= static_cast<int>(h.dv.size())) {
+                        continue;
+                    }
+                    if (near(QPointF(xOf(k.t + h.dt), yOfValue(k.v[c] + h.dv[c])))) {
+                        grab = {track->keys[i].id, side, c};
+                        grabLeft = k.left;
+                        grabRight = k.right;
+                        grabFrom = side < 0 ? QPointF(k.left.dt, k.left.dv[c])
+                                            : QPointF(k.right.dt, k.right.dv[c]);
+                        return true;
+                    }
+                }
+            }
+        }
+        for (std::size_t i = 0; i < curve.keys.size(); ++i) {
+            auto& k = curve.keys[i];
+            for (std::size_t s = 0; s < shown.size(); ++s) {
+                int c = shown[s];
+                if (near(QPointF(xOf(k.t), yOfValue(k.v[c])))) {
+                    grab = {track->keys[i].id, 0, editable[s] ? c : -1};
+                    grabFrom = QPointF(k.t, k.v[c]);
+                    grabDt = 0;
+                    grabDv = 0;
+                    update();
+                    return true;
+                }
+            }
+        }
+        return false;  // the time, as a click anywhere else
+    }
+
+    void curveMove(QMouseEvent* ev)
+    {
+        QPoint d = ev->pos() - pressPos;
+        if (!grabMoved && std::abs(d.x()) + std::abs(d.y()) < 3) {
+            return;
+        }
+        grabMoved = true;
+        double dt = d.x() / scale();
+        double dv = -d.y() * valuePerPixel();
+        if (grab.side == 0) {
+            grabDt = snap(grabFrom.x() + dt, ev->modifiers()) - grabFrom.x();
+            grabDv = grab.comp >= 0 ? dv : 0.0;
+            if (ev->modifiers() & Qt::ShiftModifier) {
+                grabDt = 0;  // in value only
+            }
+        }
+        else {
+            // The handle dragged becomes Free; Alt mirrors it on the other side
+            auto& h = grab.side < 0 ? grabLeft : grabRight;
+            h.type = App::Anim::HandleType::Free;
+            h.dt = grab.side < 0 ? std::min(-1e-4, grabFrom.x() + dt)
+                                 : std::max(1e-4, grabFrom.x() + dt);
+            h.dv[grab.comp] = grabFrom.y() + dv;
+            if (ev->modifiers() & Qt::AltModifier) {
+                auto& o = grab.side < 0 ? grabRight : grabLeft;
+                o.type = App::Anim::HandleType::Free;
+                o.dt = -h.dt;
+                if (grab.comp < static_cast<int>(o.dv.size())) {
+                    o.dv[grab.comp] = -h.dv[grab.comp];
+                }
+            }
+        }
+        update();
+    }
+
+    void curveRelease(QMouseEvent*)
+    {
+        auto anim = owner->animation();
+        auto track = currentTrack();
+        Grab g = grab;
+        bool moved = grabMoved;
+        grab = Grab();
+        grabMoved = false;
+        if (!anim || !track || !moved) {
+            update();
+            return;
+        }
+        try {
+            if (g.side == 0) {
+                App::AutoTransaction guard(QT_TRANSLATE_NOOP("Command", "Move key"));
+                if (std::fabs(grabDt) > App::Anim::TimeEpsilon) {
+                    anim->Tracks.moveKeys({{track->id, g.key}}, grabDt);
+                }
+                track = anim->Tracks.getTrack(curveTrack);
+                int i = track ? track->findId(g.key) : -1;
+                if (i >= 0 && g.comp >= 0 && grabDv != 0) {
+                    App::AnimationKey k = track->keys[i];
+                    k.key.v[g.comp] += grabDv;
+                    anim->Tracks.setKey(track->id, std::move(k));
+                }
+            }
+            else {
+                App::AutoTransaction guard(QT_TRANSLATE_NOOP("Command", "Move handle"));
+                anim->Tracks.setHandles({track->id, g.key}, grabLeft, grabRight);
+            }
+        }
+        catch (Base::Exception& e) {
+            e.ReportException();
+        }
+        update();
+    }
+
+    struct Grab
+    {
+        int key = -1;
+        int side = 0;  ///< 0 the key, -1 its left handle, 1 its right
+        int comp = -1;
+    } grab;
+    bool curves = false;
+    int curveTrack = -1;
+    double vmin = 0;
+    double vmax = 1;
+    bool grabMoved = false;
+    QPointF grabFrom;
+    double grabDt = 0;
+    double grabDv = 0;
+    App::Anim::Handle grabLeft;
+    App::Anim::Handle grabRight;
+
     AnimationTimeline* owner;
     std::vector<Row> rows;
     std::set<std::pair<int, int>> selected;
@@ -1112,6 +1508,26 @@ AnimationTimeline::AnimationTimeline(QWidget* parent)
               tr("Key the selected objects' placements at the current time"));
     cmdButton("Std_AnimationKeyCamera", "camera-photo",
               tr("Key the 3D view's camera at the current time"));
+    bar->addSpacing(8);
+    curvesButton = new QToolButton(this);
+    curvesButton->setText(tr("Curves"));
+    curvesButton->setCheckable(true);
+    curvesButton->setToolTip(tr("Show the curves of the track chosen (click its name): drag a "
+                                "key in time and value, Shift in value only; drag a Bezier "
+                                "handle, Alt to mirror it"));
+    bar->addWidget(curvesButton);
+    connect(curvesButton, &QToolButton::toggled, this, [this](bool on) {
+        keys->curves = on;
+        if (on && keys->curveTrack < 0) {
+            if (!keys->selected.empty()) {
+                keys->curveTrack = keys->selected.begin()->first;
+            }
+            else if (!keys->rows.empty()) {
+                keys->curveTrack = keys->rows.front().track;
+            }
+        }
+        keys->update();
+    });
     bar->addSpacing(8);
 
     auto spin = [&](const QString& label, const QString& tip, double min, double max,

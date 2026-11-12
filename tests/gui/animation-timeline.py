@@ -19,6 +19,10 @@ A document with a cylinder, its Height keyed 10 mm at 0 s and 40 mm at
   - I over the property editor's Radius row keys the Radius; bound to an
     expression too, the row's name turns dark orange (written twice);
   - none of the scrubbing and playing marks the document modified;
+  - the curve editor: Curves on, the Radius track chosen by its name, its
+    key at 2 s dragged up with Shift: its value up by what the drag spans,
+    its time kept, one undo step; the key at 0 s's right handle dragged
+    up: Free, and the curve at 0.5 s higher;
   - Key the camera, isometric at 0 s and from the top at 1 s: a Camera
     track; at 0.5 s the view's orientation is halfway on the shortest arc
     between them; Stop puts the camera back as it was before.
@@ -312,6 +316,54 @@ def run():
         pump(0.3)
         check("a recorded pose is no design edit", abs(post.Height.Value - 10) < 1e-9, post.Height)
         check("nor a recorded view", post.ViewObject.Transparency == 0, post.ViewObject.Transparency)
+
+        # The curve editor
+        Gui.runCommand("Std_AnimationStop")
+        anim.addKey("Post.Radius", 0.0, 2.0, interp="Bezier")
+        anim.addKey("Post.Radius", 2.0, 8.0, interp="Bezier")
+        pump(0.4)
+        curvesButton = next(b for b in dock.findChildren(QtWidgets.QToolButton)
+                            if b.text() == "Curves")
+        curvesButton.setChecked(True)
+        pump(0.2)
+        layout = Layout(view, anim)
+        paths = sorted(t["Path"] for t in anim.Tracks)
+        click(view, QtCore.QPoint(30, 22 + paths.index("Post.Radius") * 20 + 10))
+        pump(0.2)
+        top, bottom = 22 + 12.0, max(22 + 12.0 + 20, view.height() - 12.0)
+        vmin, vmax = 2 - 0.6, 8 + 0.6
+
+        def y(v):
+            return int(round(bottom - (v - vmin) / (vmax - vmin) * (bottom - top)))
+
+        undo = doc.UndoCount
+        a = QtCore.QPoint(layout.x(2.0), y(8.0))
+        b = QtCore.QPoint(a.x(), a.y() - 30)
+        mouse(view, QtCore.QEvent.MouseButtonPress, a, mods=Qt.ShiftModifier)
+        for i in range(1, 7):
+            mouse(view, QtCore.QEvent.MouseMove, a + (b - a) * (i / 6.0), button=Qt.NoButton,
+                  buttons=Qt.LeftButton, mods=Qt.ShiftModifier)
+            pump(0.02)
+        mouse(view, QtCore.QEvent.MouseButtonRelease, b, mods=Qt.ShiftModifier)
+        pump(0.3)
+        keys = [(k[0], k[1].Value) for k in anim.keys("Post.Radius")]
+        want = 8.0 + 30 * (vmax - vmin) / (bottom - top)
+        check("a key dragged up in value", keys[-1][0] == 2.0 and abs(keys[-1][1] - want) < 0.1,
+              (keys, want))
+        check("one undo step for the drag", doc.UndoCount == undo + 1, (undo, doc.UndoCount))
+        doc.undo()
+        pump(0.3)
+        before = anim.value("Post.Radius", 0.5).Value
+        layout = Layout(view, anim)
+        a = QtCore.QPoint(layout.x(2.0 / 3), y(2.0))
+        drag(view, a, QtCore.QPoint(a.x(), a.y() - 40))
+        tr = anim.track("Post.Radius")
+        after = anim.value("Post.Radius", 0.5).Value
+        check("a handle dragged: Free", tr["Keys"][0]["Handles"][1] == "Free", tr["Keys"][0])
+        check("and the curve follows it", after > before + 0.05, (before, after))
+        curvesButton.setChecked(False)
+        anim.removeTrack("Post.Radius")
+        pump(0.2)
 
         # The camera
         view3d = Gui.ActiveDocument.ActiveView

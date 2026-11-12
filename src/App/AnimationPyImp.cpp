@@ -370,6 +370,50 @@ PyObject* AnimationPy::state(PyObject* args)
     PY_CATCH
 }
 
+PyObject* AnimationPy::keyNow(PyObject* args)
+{
+    const char* path;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto anim = getAnimationPtr();
+        return Py::new_reference_to(Py::Long(anim->keyNow(anim->parsePath(path))));
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::keyState(PyObject* args)
+{
+    const char* path;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        static const char* names[] = {"None", "Animated", "Keyed", "Changed"};
+        auto anim = getAnimationPtr();
+        auto state = anim->keyState(anim->parsePath(path));
+        return Py::new_reference_to(Py::String(names[static_cast<int>(state)]));
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::nextKeyTime(PyObject* args)
+{
+    PyObject* forward = Py_True;
+    if (!PyArg_ParseTuple(args, "|O", &forward)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        return Py::new_reference_to(
+            Py::Float(getAnimationPtr()->nextKeyTime(PyObject_IsTrue(forward) != 0)));
+    }
+    PY_CATCH
+}
+
 PyObject* AnimationPy::activate(PyObject* args)
 {
     if (!PyArg_ParseTuple(args, "")) {

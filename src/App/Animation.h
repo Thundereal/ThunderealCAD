@@ -313,6 +313,27 @@ public:
      */
     static const Property* restValueOf(const Property& prop);
 
+    /// What the property editor marks on a row (docs/Animation.md sec 6)
+    enum class KeyState : std::uint8_t
+    {
+        None,      ///< no track on the path
+        Animated,  ///< a track, no key at Time
+        Keyed,     ///< a key at Time
+        Changed,   ///< the value shown is not the track's at Time: changed, not keyed
+    };
+    KeyState keyState(const ObjectIdentifier& path) const;
+
+    /** Key the property at `path` at Time with its value now: the track on
+     * the path, made if missing, and each part track of the same property
+     * whose piece is not the curve's at Time (docs/Animation.md sec 6). The
+     * key the Insert key command and Record make. Returns the key's id.
+     */
+    int keyNow(const ObjectIdentifier& path);
+    /// Whether Record skips `prop` (Output, Transient, Exclude ...)
+    bool recordSkips(const DocumentObject& obj, const Property& prop) const;
+    /// The time of the key before or after Time on any track, or Time
+    double nextKeyTime(bool forward) const;
+
 protected:
     void onChanged(const Property* prop) override;
     void onDocumentRestored() override;
@@ -336,6 +357,9 @@ private:
     bool _evaluating = false;
     bool _pending = false;
     bool _saving = false;
+    bool _recordingKey = false;
+    void onBeforeRecord(const DocumentObject& obj, const Property& prop);
+    void onRecord(const DocumentObject& obj, const Property& prop);
 };
 
 }  // namespace App

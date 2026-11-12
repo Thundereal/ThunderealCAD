@@ -328,6 +328,75 @@ class TestAnimation(unittest.TestCase):
         self.doc.removeObject("Anim")
         self.assertAlmostEqual(self.obj.F, 1.0)
 
+    # -- making keys -------------------------------------------------------
+
+    def testKeyStateAndKeyNow(self):
+        self.assertEqual(self.anim.keyState("Obj.F"), "None")
+        self.anim.addKey("Obj.F", 0.0, 0.0)
+        self.anim.addKey("Obj.F", 2.0, 4.0)
+        self.anim.Time = 1.0
+        self.assertEqual(self.anim.keyState("Obj.F"), "Animated")
+        self.obj.F = 9.0  # Record off: the design, shown until the next evaluation
+        self.assertEqual(self.anim.keyState("Obj.F"), "Changed")
+        self.anim.keyNow("Obj.F")
+        self.assertEqual(self.anim.keyState("Obj.F"), "Keyed")
+        self.assertAlmostEqual(self.anim.value("Obj.F", 1.0), 9.0)
+        self.assertEqual(self.anim.nextKeyTime(), 2.0)
+        self.assertEqual(self.anim.nextKeyTime(False), 0.0)
+
+    def testKeyNowKeysMovedParts(self):
+        self.anim.addKey("Obj.P", 0.0, App.Placement())
+        self.anim.addKey("Obj.P.Base.z", 0.0, 0.0)
+        self.anim.addKey("Obj.P.Base.z", 2.0, 10.0)
+        self.anim.Time = 1.0
+        self.assertAlmostEqual(self.obj.P.Base.z, 5.0)
+        self.obj.P = App.Placement(App.Vector(3, 0, 20), App.Rotation())
+        self.anim.keyNow("Obj.P")
+        self.anim.Time = 0.5
+        self.anim.Time = 1.0
+        # The part keyed with its piece: the pose stays as posed
+        self.assertAlmostEqual(self.obj.P.Base.x, 3.0)
+        self.assertAlmostEqual(self.obj.P.Base.z, 20.0)
+
+    def testRecord(self):
+        self.anim.Recording = True
+        self.assertTrue(self.anim.Active)
+        self.anim.Time = 0.5  # nothing animated yet
+        self.doc.openTransaction("pose 1")
+        self.obj.F = 3.0
+        self.doc.commitTransaction()
+        self.anim.Time = 1.5
+        self.doc.openTransaction("pose 2")
+        self.obj.F = 6.0
+        self.obj.F = 7.0  # a drag: one key, the last value
+        self.doc.commitTransaction()
+        self.assertEqual([k[0] for k in self.anim.keys("Obj.F")], [0.5, 1.5])
+        self.assertAlmostEqual(self.anim.value("Obj.F", 1.5), 7.0)
+        self.anim.Time = 1.0
+        self.assertAlmostEqual(self.obj.F, 5.0)
+        self.anim.Recording = False
+        self.anim.stop()
+        self.assertAlmostEqual(self.obj.F, 1.0)  # posing while recording is not the design
+        # Skipped: what Record never keys
+        self.anim.Exclude = ["Obj.L"]
+        self.anim.Recording = True
+        self.obj.L = 6.0
+        self.obj.Label = "Renamed"
+        self.anim.Recording = False
+        paths = [t["Path"] for t in self.anim.Tracks]
+        self.assertEqual(paths, ["Obj.F"])
+
+    def testRecordUndo(self):
+        self.anim.Recording = True
+        self.anim.Time = 1.0
+        self.doc.openTransaction("pose")
+        self.obj.F = 3.0
+        self.doc.commitTransaction()
+        self.assertEqual(len(self.anim.keys("Obj.F")), 1)
+        self.doc.undo()  # the track Record made, its key and the pose: one step
+        self.assertEqual(len(self.anim.Tracks), 0)
+        self.assertAlmostEqual(self.obj.F, 1.0)
+
     def testErrors(self):
         with self.assertRaises(Exception):
             self.anim.addKey("Nothing.F", 0.0)

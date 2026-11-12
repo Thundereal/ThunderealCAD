@@ -1269,6 +1269,253 @@ void Animation::writeTrack(const AnimationTrack& track, const Target& target, do
     }
 }
 
+namespace
+{
+
+/// Whether two values of a layout are the same, a quaternion and its
+/// negative being one rotation
+bool sameNumbers(const Layout& layout, const std::vector<double>& a, const std::vector<double>& b)
+{
+    if (a.size() != b.size()) {
+        return false;
+    }
+    auto close = [](double x, double y) {
+        return std::fabs(x - y) <= 1e-7 * (1.0 + std::fabs(x) + std::fabs(y));
+    };
+    std::size_t i = 0;
+    for (auto& g : layout.groups) {
+        bool same = true;
+        bool negated = g.kind == Kind::Quaternion;
+        for (int j = 0; j < g.size && i + j < a.size(); ++j) {
+            same = same && close(a[i + j], b[i + j]);
+            negated = negated && close(a[i + j], -b[i + j]);
+        }
+        if (!same && !negated) {
+            return false;
+        }
+        i += static_cast<std::size_t>(g.size);
+    }
+    return true;
+}
+
+/// A shell pattern, '*' and '?'
+bool globMatch(const char* p, const char* s)
+{
+    if (*p == 0) {
+        return *s == 0;
+    }
+    if (*p == '*') {
+        return globMatch(p + 1, s) || (*s && globMatch(p, s + 1));
+    }
+    if (*s && (*p == '?' || *p == *s)) {
+        return globMatch(p + 1, s + 1);
+    }
+    return false;
+}
+
+}  // namespace
+
+Animation::KeyState Animation::keyState(const ObjectIdentifier& path) const
+{
+    auto track = Tracks.findTrack(path);
+    if (!track || track->keys.empty()) {
+        return KeyState::None;
+    }
+    double t = Time.getValue();
+    KeyState res = track->find(t) >= 0 ? KeyState::Keyed : KeyState::Animated;
+    // Changed only means something while the pose is on show
+    Target target;
+    if (!Active.getValue() || !resolve(*track, target) || !_rest.count(target.prop)) {
+        return res;
+    }
+    // A whole track under part tracks is not the value on show by itself
+    std::string prefix = track->target.toString() + ".";
+    for (auto& other : Tracks.getValues()) {
+        if (!other.keys.empty() && !other.mute
+            && other.target.toString().compare(0, prefix.size(), prefix) == 0) {
+            return res;
+        }
+    }
+    try {
+        AnimationKey now;
+        if (!readValue(*track, target, nullptr, now)) {
+            return res;
+        }
+        if (track->stepped()) {
+            auto it = std::upper_bound(
+                track->keys.begin(), track->keys.end(), t + TimeEpsilon,
+                [](double v, const AnimationKey& k) { return v < k.key.t; });
+            const auto& key = it == track->keys.begin() ? *it : *(it - 1);
+            return key.text == now.text ? res : KeyState::Changed;
+        }
+        Curve curve;
+        track->makeCurve(curve);
+        std::vector<double> nums;
+        if (curve.evaluate(t, nums) && !sameNumbers(track->layout, nums, now.key.v)) {
+            return KeyState::Changed;
+        }
+    }
+    catch (Base::Exception&) {
+    }
+    return res;
+}
+
+int Animation::keyNow(const ObjectIdentifier& path)
+{
+    // No evaluation between the keys: it would put the pieces back on
+    // their curves before they are read. One after, when not Record's.
+    bool outer = !_recordingKey;
+    struct Restore
+    {
+        bool& flag;
+        bool old;
+        ~Restore()
+        {
+            flag = old;
+        }
+    } restore {_recordingKey, _recordingKey};
+    _recordingKey = true;
+    double t = Time.getValue();
+    int id = trackOf(path, true);
+    int key = setKey(id, t, nullptr);
+    // The part tracks of the same property whose piece moved: without
+    // their keys, applied after the whole, they would undo the pose just
+    // keyed
+    std::string prefix = path.toString() + ".";
+    std::vector<int> parts;
+    for (auto& other : Tracks.getValues()) {
+        if (other.id != id && other.target.toString().compare(0, prefix.size(), prefix) == 0) {
+            parts.push_back(other.id);
+        }
+    }
+    for (int part : parts) {
+        auto track = Tracks.getTrack(part);
+        if (!track || track->keys.empty() || track->stepped()) {
+            continue;
+        }
+        Target target;
+        if (!resolve(*track, target)) {
+            continue;
+        }
+        AnimationKey now;
+        if (!readValue(*track, target, nullptr, now)) {
+            continue;
+        }
+        Curve curve;
+        track->makeCurve(curve);
+        std::vector<double> nums;
+        if (curve.evaluate(t, nums) && !sameNumbers(track->layout, nums, now.key.v)) {
+            setKey(part, t, nullptr);
+        }
+    }
+    if (outer && Active.getValue()) {
+        _recordingKey = false;
+        evaluate();
+    }
+    return key;
+}
+
+bool Animation::recordSkips(const DocumentObject& obj, const Property& prop) const
+{
+    if (&obj == this || obj.isDerivedFrom(Animation::getClassTypeId()) || !prop.getName()
+        || obj.getDocument() != getDocument()) {
+        return true;
+    }
+    auto type = prop.getType();
+    if ((type & (Prop_Output | Prop_Transient | Prop_NoPersist | Prop_ReadOnly | Prop_Hidden))
+        || prop.testStatus(Property::Output) || prop.testStatus(Property::Transient)
+        || prop.testStatus(Property::PropNoPersist) || prop.testStatus(Property::ReadOnly)
+        || prop.testStatus(Property::Hidden) || prop.testStatus(Property::Immutable)) {
+        return true;
+    }
+    if (&prop == &obj.Label || &prop == &obj.Label2 || &prop == &obj.ExpressionEngine
+        || &prop == &obj.ViewObject || prop.isDerivedFrom(PropertyLinkBase::getClassTypeId())) {
+        return true;
+    }
+    // What a recompute writes is the model's, not the user's
+    if (obj.isRecomputing() || getDocument()->testStatus(Document::Recomputing)) {
+        return true;
+    }
+    Layout layout;
+    if (!prop.getAnimLayout(layout) && !prop.isDerivedFrom(PropertyBool::getClassTypeId())
+        && !prop.isDerivedFrom(PropertyEnumeration::getClassTypeId())) {
+        return true;  // a shape, a string: not what a pose is made of
+    }
+    std::string path = std::string(obj.getNameInDocument()) + "." + prop.getName();
+    for (auto& pattern : Exclude.getValues()) {
+        if (globMatch(pattern.c_str(), path.c_str()) || globMatch(pattern.c_str(), prop.getName())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Animation::onBeforeRecord(const DocumentObject& obj, const Property& prop)
+{
+    auto doc = getDocument();
+    if (!Recording.getValue() || !Active.getValue() || _recordingKey || _evaluating
+        || AnimatedWrites::active() || !doc || doc->isPerformingTransaction()
+        || doc->testStatus(Document::Restoring) || recordSkips(obj, prop)) {
+        return;
+    }
+    // The value before the edit is the design's: kept as the rest value,
+    // the edit being a pose
+    auto& r = _rest[&prop];
+    if (!r) {
+        r = std::make_unique<Rest>();
+        r->obj = const_cast<DocumentObject*>(&obj);
+        r->touched = obj.isTouched();
+        r->rest.reset(prop.Copy());
+        restOwners()[&prop] = this;
+    }
+    else if (!r->written || !r->written->isSame(prop)) {
+        r->rest.reset(prop.Copy());
+    }
+    r->written.reset(prop.Copy());
+}
+
+void Animation::onRecord(const DocumentObject& obj, const Property& prop)
+{
+    auto doc = getDocument();
+    if (!Recording.getValue() || !Active.getValue() || _recordingKey || _evaluating
+        || AnimatedWrites::active() || !doc || doc->isPerformingTransaction()
+        || doc->testStatus(Document::Restoring) || recordSkips(obj, prop)) {
+        return;
+    }
+    Base::FlagToggler<bool> flag(_recordingKey);
+    try {
+        keyNow(parsePath(std::string(obj.getNameInDocument()) + "." + prop.getName()));
+    }
+    catch (Base::Exception& e) {
+        FC_ERR(getFullName() << ": cannot record " << prop.getFullName() << ": " << e.what());
+        return;
+    }
+    // What it holds now is the pose keyed, not the design
+    auto it = _rest.find(&prop);
+    if (it != _rest.end()) {
+        it->second->written.reset(prop.Copy());
+    }
+}
+
+double Animation::nextKeyTime(bool forward) const
+{
+    double t = Time.getValue();
+    double best = t;
+    bool found = false;
+    for (auto& track : Tracks.getValues()) {
+        for (auto& k : track.keys) {
+            double kt = k.key.t;
+            if (forward ? kt > t + TimeEpsilon : kt < t - TimeEpsilon) {
+                if (!found || (forward ? kt < best : kt > best)) {
+                    best = kt;
+                    found = true;
+                }
+            }
+        }
+    }
+    return best;
+}
+
 void Animation::evaluate()
 {
     evaluateAt(Time.getValue());
@@ -1545,6 +1792,10 @@ void Animation::connectDocument()
         }
         dropRest(&obj, nullptr);
     }));
+    _conns.emplace_back(doc->signalBeforeChangeObject.connect(
+        [this](const DocumentObject& obj, const Property& prop) { onBeforeRecord(obj, prop); }));
+    _conns.emplace_back(doc->signalChangedObject.connect(
+        [this](const DocumentObject& obj, const Property& prop) { onRecord(obj, prop); }));
     _conns.emplace_back(
         GetApplication().signalFinishRestoreDocument.connect([this](const Document& d) {
             if (&d == getDocument() && _pending) {
@@ -1592,8 +1843,14 @@ void Animation::onChanged(const Property* prop)
         }
     }
     else if (prop == &Tracks) {
-        if (Active.getValue()) {
+        // A key Record makes is of the value on show already
+        if (Active.getValue() && !_recordingKey) {
             evaluate();
+        }
+    }
+    else if (prop == &Recording) {
+        if (Recording.getValue() && !Active.getValue()) {
+            Active.setValue(true);
         }
     }
 }

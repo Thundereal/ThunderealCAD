@@ -163,8 +163,12 @@ std::string Gui::animationPath(const App::Property& prop, const App::ObjectIdent
     return res;
 }
 
-QColor Gui::animationKeyMark(const App::Property& prop, const App::ObjectIdentifier* sub)
+QColor Gui::animationKeyMark(const App::Property& prop, const App::ObjectIdentifier* sub,
+                             bool* driven)
 {
+    if (driven) {
+        *driven = false;
+    }
     auto container = prop.getContainer();
     App::DocumentObject* obj = freecad_dynamic_cast<App::DocumentObject>(container);
     if (!obj) {
@@ -196,7 +200,17 @@ QColor Gui::animationKeyMark(const App::Property& prop, const App::ObjectIdentif
         return {};
     }
     try {
-        switch (anim->keyState(anim->parsePath(path))) {
+        auto target = anim->parsePath(path);
+        if (driven) {
+            // Written by the keys and by something else: an expression, a
+            // solver (docs/Animation.md 3.11)
+            if (auto track = anim->Tracks.findTrack(target)) {
+                auto state = anim->state(track->id);
+                *driven = state == App::AnimationTrackState::Driven
+                    || state == App::AnimationTrackState::Solved;
+            }
+        }
+        switch (anim->keyState(target)) {
         case App::Animation::KeyState::Keyed:
             return {0xf2, 0xd0, 0x4a};  // a key here: yellow
         case App::Animation::KeyState::Animated:

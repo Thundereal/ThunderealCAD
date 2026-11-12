@@ -38,6 +38,7 @@
 
 #include <Inventor/annex/FXViz/nodes/SoShadowStyle.h>
 
+#include <App/Animation.h>
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <App/GroupExtension.h>
@@ -280,6 +281,10 @@ void ViewProviderDocumentObject::onBeforeChange(const App::Property* prop)
         if (doc && !prop->testStatus(App::Property::Legacy)) {
             onBeforeChangeProperty(doc, prop);
         }
+        // Record keys a view's property too (docs/Animation.md sec 6), a
+        // Legacy name among them: Transparency over the object's own look
+        if (doc && prop->getName())
+            App::Animation::recordViewBefore(*obj, *prop);
     }
 
     ViewProvider::onBeforeChange(prop);
@@ -287,6 +292,7 @@ void ViewProviderDocumentObject::onBeforeChange(const App::Property* prop)
 
 void ViewProviderDocumentObject::onChanged(const App::Property* prop)
 {
+
     if (prop == &DisplayMode) {
         setActiveMode();
     }
@@ -422,6 +428,12 @@ void ViewProviderDocumentObject::onChanged(const App::Property* prop)
     // every look set on one, with nothing of it to send.
     if (pcObject && !testStatus(Gui::ViewStatus::HostOnlyView))
         pcObject->ViewObject.touch();
+
+    // Last: what this change set in turn (a colour's alpha for a
+    // transparency) came between, and is not what Record keys
+    if (prop && prop->getName() && pcObject && pcObject->isAttachedToDocument()
+            && isAttachedToDocument() && !testStatus(SecondaryView))
+        App::Animation::recordViewAfter(*pcObject, *prop);
 }
 
 void ViewProviderDocumentObject::hide()

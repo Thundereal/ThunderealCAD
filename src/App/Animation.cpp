@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <sstream>
+#include <set>
 #include <unordered_map>
 
 #include <Base/Console.h>
@@ -184,6 +185,14 @@ std::unordered_map<const Property*, Animation*>& restOwners()
 {
     static std::unordered_map<const Property*, Animation*> owners;
     return owners;
+}
+
+/// The Animations recording: a view provider's every change asks, so the
+/// answer when none is must cost nothing
+std::set<Animation*>& recorders()
+{
+    static std::set<Animation*> set;
+    return set;
 }
 
 std::map<std::string, std::shared_ptr<AnimationTrackHandler>>& handlers()
@@ -893,6 +902,7 @@ Animation::~Animation()
     for (auto& v : _rest) {
         owners.erase(v.first);
     }
+    recorders().erase(this);
 }
 
 DocumentObjectExecReturn* Animation::execute()
@@ -1440,7 +1450,7 @@ int Animation::keyNow(const ObjectIdentifier& path)
     return key;
 }
 
-bool Animation::recordSkips(const DocumentObject& obj, const Property& prop) const
+bool Animation::recordSkips(const DocumentObject& obj, const Property& prop, bool view) const
 {
     if (&obj == this || obj.isDerivedFrom(Animation::getClassTypeId()) || !prop.getName()
         || obj.getDocument() != getDocument()) {
@@ -1457,6 +1467,14 @@ bool Animation::recordSkips(const DocumentObject& obj, const Property& prop) con
         || &prop == &obj.ViewObject || prop.isDerivedFrom(PropertyLinkBase::getClassTypeId())) {
         return true;
     }
+    // A view provider sets many of its own as it goes (a display mode, what
+    // is selectable): what has numbers or a colour is a pose, Visibility the
+    // one switch that is
+    Layout viewLayout;
+    if (view && !prop.getAnimLayout(viewLayout)
+        && std::strcmp(prop.getName(), "Visibility") != 0) {
+        return true;
+    }
     // What a recompute writes is the model's, not the user's
     if (obj.isRecomputing() || getDocument()->testStatus(Document::Recomputing)) {
         return true;
@@ -1466,7 +1484,8 @@ bool Animation::recordSkips(const DocumentObject& obj, const Property& prop) con
         && !prop.isDerivedFrom(PropertyEnumeration::getClassTypeId())) {
         return true;  // a shape, a string: not what a pose is made of
     }
-    std::string path = std::string(obj.getNameInDocument()) + "." + prop.getName();
+    std::string path = std::string(obj.getNameInDocument()) + (view ? ".ViewObject." : ".")
+        + prop.getName();
     for (auto& pattern : Exclude.getValues()) {
         if (globMatch(pattern.c_str(), path.c_str()) || globMatch(pattern.c_str(), prop.getName())) {
             return true;
@@ -1475,12 +1494,12 @@ bool Animation::recordSkips(const DocumentObject& obj, const Property& prop) con
     return false;
 }
 
-void Animation::onBeforeRecord(const DocumentObject& obj, const Property& prop)
+void Animation::onBeforeRecord(const DocumentObject& obj, const Property& prop, bool view)
 {
     auto doc = getDocument();
     if (!Recording.getValue() || !Active.getValue() || _recordingKey || _evaluating
         || AnimatedWrites::active() || !doc || doc->isPerformingTransaction()
-        || doc->testStatus(Document::Restoring) || recordSkips(obj, prop)) {
+        || doc->testStatus(Document::Restoring) || recordSkips(obj, prop, view)) {
         return;
     }
     // The value before the edit is the design's: kept as the rest value,
@@ -1499,17 +1518,18 @@ void Animation::onBeforeRecord(const DocumentObject& obj, const Property& prop)
     r->written.reset(prop.Copy());
 }
 
-void Animation::onRecord(const DocumentObject& obj, const Property& prop)
+void Animation::onRecord(const DocumentObject& obj, const Property& prop, bool view)
 {
     auto doc = getDocument();
     if (!Recording.getValue() || !Active.getValue() || _recordingKey || _evaluating
         || AnimatedWrites::active() || !doc || doc->isPerformingTransaction()
-        || doc->testStatus(Document::Restoring) || recordSkips(obj, prop)) {
+        || doc->testStatus(Document::Restoring) || recordSkips(obj, prop, view)) {
         return;
     }
     Base::FlagToggler<bool> flag(_recordingKey);
     try {
-        keyNow(parsePath(std::string(obj.getNameInDocument()) + "." + prop.getName()));
+        keyNow(parsePath(std::string(obj.getNameInDocument()) + (view ? ".ViewObject." : ".")
+                         + prop.getName()));
     }
     catch (Base::Exception& e) {
         FC_ERR(getFullName() << ": cannot record " << prop.getFullName() << ": " << e.what());
@@ -1519,6 +1539,42 @@ void Animation::onRecord(const DocumentObject& obj, const Property& prop)
     auto it = _rest.find(&prop);
     if (it != _rest.end()) {
         it->second->written.reset(prop.Copy());
+    }
+}
+
+namespace
+{
+/// The view property a change is being made to: one set in turn while it
+/// changes is the view provider's doing, not the user's, and not keyed
+const Property* viewChanging = nullptr;
+}  // namespace
+
+void Animation::recordViewBefore(const DocumentObject& owner, const Property& prop)
+{
+    if (recorders().empty() || AnimatedWrites::active()) {
+        return;
+    }
+    if (viewChanging && viewChanging != &prop) {
+        return;
+    }
+    viewChanging = &prop;
+    for (auto anim : std::vector<Animation*>(recorders().begin(), recorders().end())) {
+        if (anim->getDocument() == owner.getDocument()) {
+            anim->onBeforeRecord(owner, prop, true);
+        }
+    }
+}
+
+void Animation::recordViewAfter(const DocumentObject& owner, const Property& prop)
+{
+    if (recorders().empty() || AnimatedWrites::active() || viewChanging != &prop) {
+        return;
+    }
+    viewChanging = nullptr;
+    for (auto anim : std::vector<Animation*>(recorders().begin(), recorders().end())) {
+        if (anim->getDocument() == owner.getDocument()) {
+            anim->onRecord(owner, prop, true);
+        }
     }
 }
 
@@ -1874,6 +1930,13 @@ void Animation::onChanged(const Property* prop)
         }
     }
     else if (prop == &Recording) {
+        if (Recording.getValue()) {
+            recorders().insert(this);
+        }
+        else {
+            recorders().erase(this);
+        }
+        viewChanging = nullptr;
         if (Recording.getValue() && !Active.getValue()) {
             Active.setValue(true);
         }
@@ -1892,6 +1955,7 @@ void Animation::onDocumentRestored()
 
 void Animation::unsetupObject()
 {
+    recorders().erase(this);
     // Deleted: the design is put back as it was
     deactivate(true);
     _conns.clear();

@@ -2456,7 +2456,9 @@ void Document::slotSkipRecompute(const App::Document& doc, const std::vector<App
 void Document::slotTouchedObject(const App::DocumentObject &Obj)
 {
     getMainWindow()->updateActions(true);
-    if(!isModified()) {
+    // An Animation's write touches what it writes, and the recompute that
+    // follows purges it: played, not edited (docs/Animation.md sec 5.1)
+    if(!isModified() && !App::AnimatedWrites::active()) {
         FC_LOG(Obj.getFullName() << (Obj.isTouched()?" touched":" purged"));
         setModified(true);
     }

@@ -333,8 +333,16 @@ public:
      * key the Insert key command and Record make. Returns the key's id.
      */
     int keyNow(const ObjectIdentifier& path);
-    /// Whether Record skips `prop` (Output, Transient, Exclude ...)
-    bool recordSkips(const DocumentObject& obj, const Property& prop) const;
+    /// Whether Record skips `prop` of `obj`, or of its view provider when
+    /// `view` (Output, Transient, Exclude ...)
+    bool recordSkips(const DocumentObject& obj, const Property& prop, bool view = false) const;
+
+    /** Record's hooks for a property of `owner`'s view provider, which the
+     * document's change signals do not carry: the view provider calls them
+     * before and after a change of its own property.
+     */
+    static void recordViewBefore(const DocumentObject& owner, const Property& prop);
+    static void recordViewAfter(const DocumentObject& owner, const Property& prop);
     /// The time of the key before or after Time on any track, or Time
     double nextKeyTime(bool forward) const;
 
@@ -362,8 +370,8 @@ private:
     bool _pending = false;
     bool _saving = false;
     bool _recordingKey = false;
-    void onBeforeRecord(const DocumentObject& obj, const Property& prop);
-    void onRecord(const DocumentObject& obj, const Property& prop);
+    void onBeforeRecord(const DocumentObject& obj, const Property& prop, bool view = false);
+    void onRecord(const DocumentObject& obj, const Property& prop, bool view = false);
 };
 
 }  // namespace App

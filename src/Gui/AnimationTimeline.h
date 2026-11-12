@@ -63,7 +63,8 @@ GuiExport std::string animationPath(const App::Property& prop,
 /// The colour the property editor marks a row with: keyed, animated, or
 /// changed and not keyed (Blender's three); invalid for none
 GuiExport QColor animationKeyMark(const App::Property& prop,
-                                  const App::ObjectIdentifier* sub = nullptr);
+                                  const App::ObjectIdentifier* sub = nullptr,
+                                  bool* driven = nullptr);
 
 /// The wall clock that plays the chosen Animation, one per process
 class GuiExport AnimationPlayer: public QObject

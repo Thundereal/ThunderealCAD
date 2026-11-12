@@ -772,11 +772,14 @@ QVariant PropertyItem::data(int column, int role) const
             while (owner && owner->propertyItems.empty())
                 owner = owner->parentItem;
             if (owner && owner->propertyItems.size() == 1) {
+                bool driven = false;
                 QColor mark = Gui::animationKeyMark(*owner->propertyItems.front(),
-                                                    isBound() ? &getPath() : nullptr);
+                                                    isBound() ? &getPath() : nullptr, &driven);
+                // Keyed and bound to an expression too: the name in dark
+                // orange, a conflict warned (docs/Animation.md 3.11)
                 if (mark.isValid())
                     return role == Qt::BackgroundRole ? QVariant::fromValue(mark)
-                                                      : QVariant::fromValue(QColor(0,0,0));
+                        : QVariant::fromValue(driven ? QColor(0xb0,0x38,0x00) : QColor(0,0,0));
             }
             if(PropertyView::showAll()
                 && propertyItems.size() == 1

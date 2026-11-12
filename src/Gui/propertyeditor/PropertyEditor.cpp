@@ -256,11 +256,30 @@ bool PropertyEditor::event(QEvent* event)
     return QTreeView::event(event);
 }
 
+namespace {
+bool animationTarget(const PropertyItem *item, std::string &path, App::Document *&doc);
+enum class KeyAction { Insert, Delete, Clear };
+void animationKey(App::Document *doc, const std::string &path, KeyAction which);
+}  // namespace
+
 // Ctrl+F in the property view: the omni search, with what the view shows
 // typed in (docs/HandsOnQueue.md entry 78). In the view alone -- the editor
 // is used in dialogs too, where the key stays what it was.
 void PropertyEditor::keyPressEvent(QKeyEvent* event)
 {
+    // I over a row not being edited: Insert key, as Blender has it
+    // (docs/Animation.md sec 6)
+    if (event->key() == Qt::Key_I && event->modifiers() == Qt::NoModifier
+            && state() != EditingState && currentIndex().isValid()) {
+        std::string path;
+        App::Document *doc = nullptr;
+        if (animationTarget(static_cast<PropertyItem*>(currentIndex().internalPointer()),
+                            path, doc)) {
+            event->accept();
+            animationKey(doc, path, KeyAction::Insert);
+            return;
+        }
+    }
     if (event->matches(QKeySequence::Find)) {
         for (QWidget *w = parentWidget(); w; w = w->parentWidget()) {
             if (auto view = qobject_cast<PropertyView*>(w)) {
@@ -797,6 +816,72 @@ bool confirmClearInput(QWidget *parent, const std::set<App::DocumentObjectT> &pr
 
 }  // namespace
 
+namespace {
+
+/// The path an Animation names a row by -- the property, or the piece of
+/// it the row shows -- and the document it is in; false for a row that is
+/// not to be keyed (docs/Animation.md sec 6)
+bool animationTarget(const PropertyItem *item, std::string &path, App::Document *&doc)
+{
+    const PropertyItem *owner = item;
+    while (owner && owner->getPropertyData().empty())
+        owner = owner->parent();
+    if (!item || !owner || owner->getPropertyData().size() != 1)
+        return false;
+    auto prop = owner->getPropertyData().front();
+    if (!prop || prop->isReadOnly() || prop->testStatus(App::Property::Immutable)
+            || (prop->getType() & (App::Prop_ReadOnly | App::Prop_Output))
+            || prop->isDerivedFrom(App::PropertyExpressionEngine::getClassTypeId()))
+        return false;
+    auto container = prop->getContainer();
+    doc = nullptr;
+    if (Base::freecad_dynamic_cast<App::Animation>(container))
+        return false;
+    if (auto obj = Base::freecad_dynamic_cast<App::DocumentObject>(container))
+        doc = obj->getDocument();
+    else if (auto vp = Base::freecad_dynamic_cast<Gui::ViewProviderDocumentObject>(container))
+        doc = vp->getObject() ? vp->getObject()->getDocument() : nullptr;
+    path = Gui::animationPath(*prop, item->isBound() ? &item->boundPath() : nullptr);
+    return doc && !path.empty();
+}
+
+/// Insert key, Delete key or Clear track on `path`, one undo step
+void animationKey(App::Document *doc, const std::string &path, KeyAction which)
+{
+    App::AutoTransaction committer(which == KeyAction::Insert ? "Insert key"
+            : (which == KeyAction::Delete ? "Delete key" : "Clear track"));
+    try {
+        auto anim = Gui::activeAnimation(doc);
+        if (!anim && which == KeyAction::Insert) {
+            anim = Base::freecad_dynamic_cast<App::Animation>(
+                    doc->addObject("App::Animation", "Animation"));
+            Gui::chooseAnimation(anim);
+        }
+        if (!anim)
+            return;
+        auto target = anim->parsePath(path);
+        if (which == KeyAction::Insert) {
+            anim->keyNow(target);
+            Gui::DockWnd::AnimationTimeline::showTimeline();
+            return;
+        }
+        auto track = anim->Tracks.findTrack(target);
+        if (!track)
+            return;
+        if (which == KeyAction::Clear)
+            anim->Tracks.removeTrack(track->id);
+        else {
+            int i = track->find(anim->Time.getValue());
+            if (i >= 0)
+                anim->Tracks.removeKey(track->id, track->keys[i].id);
+        }
+    } catch (Base::Exception &e) {
+        e.ReportException();
+    }
+}
+
+}  // namespace
+
 void PropertyEditor::contextMenuEvent(QContextMenuEvent *ev) {
     QMenu menu;
     QAction *autoExpand = Action::addCheckBox(&menu, tr("Auto expand"), autoexpand);
@@ -881,27 +966,12 @@ void PropertyEditor::contextMenuEvent(QContextMenuEvent *ev) {
     // (docs/Animation.md sec 6)
     std::string animPath;
     App::Document* animDoc = nullptr;
-    if(props.size() == 1) {
-        auto item = static_cast<PropertyItem*>(contextIndex.internalPointer());
-        auto prop = props.begin()->getProperty();
-        if(item && prop && !prop->isReadOnly()
-                && !prop->testStatus(App::Property::Immutable)
-                && !(prop->getType() & (App::Prop_ReadOnly | App::Prop_Output))
-                && !prop->isDerivedFrom(App::PropertyExpressionEngine::getClassTypeId())) {
-            animPath = Gui::animationPath(*prop, item->isBound() ? &item->boundPath() : nullptr);
-            auto container = prop->getContainer();
-            if (auto obj = Base::freecad_dynamic_cast<App::DocumentObject>(container))
-                animDoc = obj->getDocument();
-            else if (auto vp = Base::freecad_dynamic_cast<ViewProviderDocumentObject>(container))
-                animDoc = vp->getObject() ? vp->getObject()->getDocument() : nullptr;
-            if (animDoc && Base::freecad_dynamic_cast<App::Animation>(container))
-                animPath.clear();
-        }
-    }
-    if(!animPath.empty() && animDoc) {
+    if(props.size() == 1
+            && animationTarget(static_cast<PropertyItem*>(contextIndex.internalPointer()),
+                               animPath, animDoc)) {
         menu.addSeparator();
         menu.addAction(BitmapFactory().iconFromTheme("AnimationKeyFrame"),
-                       tr("Insert key"))->setData(QVariant(MA_InsertKey));
+                       tr("Insert key") + QStringLiteral("\tI"))->setData(QVariant(MA_InsertKey));
         if(auto anim = Gui::activeAnimation(animDoc)) {
             try {
                 auto state = anim->keyState(anim->parsePath(animPath));
@@ -1018,41 +1088,14 @@ void PropertyEditor::contextMenuEvent(QContextMenuEvent *ev) {
             break;
         }
         case MA_InsertKey:
-        case MA_DeleteKey:
-        case MA_ClearTrack: {
-            int which = action->data().toInt();
-            App::AutoTransaction committer(which == MA_InsertKey ? "Insert key"
-                    : (which == MA_DeleteKey ? "Delete key" : "Clear track"));
-            try {
-                auto anim = Gui::activeAnimation(animDoc);
-                if (!anim && which == MA_InsertKey) {
-                    anim = Base::freecad_dynamic_cast<App::Animation>(
-                            animDoc->addObject("App::Animation", "Animation"));
-                    Gui::chooseAnimation(anim);
-                }
-                if (!anim)
-                    break;
-                auto path = anim->parsePath(animPath);
-                if (which == MA_InsertKey) {
-                    anim->keyNow(path);
-                    Gui::DockWnd::AnimationTimeline::showTimeline();
-                } else {
-                    auto track = anim->Tracks.findTrack(path);
-                    if (!track)
-                        break;
-                    if (which == MA_ClearTrack)
-                        anim->Tracks.removeTrack(track->id);
-                    else {
-                        int i = track->find(anim->Time.getValue());
-                        if (i >= 0)
-                            anim->Tracks.removeKey(track->id, track->keys[i].id);
-                    }
-                }
-            } catch (Base::Exception &e) {
-                e.ReportException();
-            }
+            animationKey(animDoc, animPath, KeyAction::Insert);
             break;
-        }
+        case MA_DeleteKey:
+            animationKey(animDoc, animPath, KeyAction::Delete);
+            break;
+        case MA_ClearTrack:
+            animationKey(animDoc, animPath, KeyAction::Clear);
+            break;
         case MA_Expression:
             if(contextIndex == currentIndex()) {
                 Base::FlagToggler<> flag(binding);

@@ -775,6 +775,137 @@ class TestHole(unittest.TestCase):
         # the drill point's tip a little past that
         self.assertGreater(hole.AddSubShape.BoundBox.ZMin, -10)
 
+    def _reopened(self, name, earlier=False):
+        """A copy of the document saved and opened again; with  earlier,
+        as a file of before ThreadDiameter was a property."""
+        import os, tempfile, zipfile
+        path = os.path.join(tempfile.gettempdir(), name + ".FCStd")
+        if earlier:
+            # what Python's zipfile reads
+            self.Doc.BlobCompression = "Deflate"
+        self.Doc.saveCopy(path)
+        if earlier:
+            with zipfile.ZipFile(path) as z:
+                entries = [(i.filename, z.read(i.filename)) for i in z.infolist()]
+            found = 0
+            with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+                for filename, data in entries:
+                    if filename.endswith(".xml"):
+                        # a property no class has is passed over
+                        found += data.count(b'name="ThreadDiameter"')
+                        data = data.replace(b'name="ThreadDiameter"', b'name="ThreadDiameterGone"')
+                    z.writestr(filename, data)
+            self.assertEqual(found, 1)
+        doc = FreeCAD.openDocument(path)
+        os.remove(path)
+        return doc
+
+    def testThreadSizeSurvivesSaveAndRestore(self):
+        """A file states its hole's thread size: the size was looked for
+        again by diameter as the file was read, so that an M8x1.0 came back
+        as M8x0.75, the first M8 of its table, with that one's diameter."""
+        for thread_type, size, threaded in (("ISOMetricFineProfile", "M8x1.0", True),
+                                            ("ISOMetricFineProfile", "M10x1.25", False),
+                                            ("ISOTyre", "17v3", True),
+                                            ("ISOMetricProfile", "M3", True),
+                                            ("UNF", "1 1/4", True)):
+            self.Hole.ThreadType = thread_type
+            self.Hole.ThreadSize = size
+            self.Hole.Threaded = threaded
+            self.Doc.recompute()
+            doc = self._reopened("PartDesignTestHoleSize")
+            try:
+                hole = doc.getObject("Hole")
+                self.assertEqual(hole.ThreadSize, size, thread_type)
+                self.assertAlmostEqual(hole.Diameter.Value, self.Hole.Diameter.Value, 9, size)
+                self.assertAlmostEqual(hole.ThreadDiameter.Value,
+                                       self.Hole.ThreadDiameter.Value, 9, size)
+            finally:
+                FreeCAD.closeDocument(doc.Name)
+
+    def testEarlierFileKeepsSizeAndThread(self):
+        """A hole of a file without ThreadDiameter keeps its size and its
+        modelled thread: the size was taken as the one nearest the bore (an
+        M3's 2.52 mm made it an M2.5, whose thread could not be added), and
+        the thread is cut with the profile it was made with."""
+        self.Box.Height = 6
+        self.Hole.ThreadType = "ISOMetricProfile"
+        self.Hole.ThreadSize = "M3"
+        self.Hole.Threaded = True
+        self.Hole.ModelThread = True
+        self.Hole.ThreadClass = "4G"
+        self.Hole.DepthType = "Dimension"
+        self.Hole.Depth = 4
+        self.Hole.DrillPoint = "Flat"
+        self.Doc.recompute()
+        self.assertNotIn('Invalid', self.Hole.State)
+        self.assertAlmostEqual(self.Hole.Diameter.Value, 2.52, 9)
+        self.assertEqual(self.Hole._ProfileBasedVersion, 2)
+        today = self.Hole.Shape.Volume
+
+        def remade(doc):
+            hole = doc.getObject("Hole")
+            hole.touch()
+            doc.recompute()
+            self.assertNotIn('Invalid', hole.State)
+            self.assertTrue(hole.Shape.isValid())
+            return hole
+
+        doc = self._reopened("PartDesignTestHoleEarlier", earlier=True)
+        try:
+            hole = remade(doc)
+            self.assertEqual(hole.ThreadSize, "M3")
+            self.assertAlmostEqual(hole.Diameter.Value, 2.52, 9)
+            self.assertAlmostEqual(hole.ThreadDiameter.Value, 3.0, 9)
+            self.assertEqual(hole._ProfileBasedVersion, 1)
+            # The two profiles have the same flanks and differ inside the
+            # bore: the earlier one takes less where the thread runs an
+            # eighth of the pitch past the flat bottom
+            earlier = hole.Shape.Volume
+            self.assertGreater(earlier, today + 5e-4)
+            self.assertLess(earlier, today + 2e-3)
+
+            # and it says so itself in the next file, which has a ThreadDiameter
+            self.Doc, mine = doc, self.Doc
+            try:
+                again = self._reopened("PartDesignTestHoleEarlierAgain")
+            finally:
+                self.Doc = mine
+            try:
+                hole = remade(again)
+                self.assertEqual(hole._ProfileBasedVersion, 1)
+                self.assertAlmostEqual(hole.Shape.Volume, earlier, 6)
+            finally:
+                FreeCAD.closeDocument(again.Name)
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+
+        # A file of today's hole is not taken for an earlier one
+        doc = self._reopened("PartDesignTestHoleToday")
+        try:
+            hole = remade(doc)
+            self.assertEqual(hole._ProfileBasedVersion, 2)
+            self.assertAlmostEqual(hole.Shape.Volume, today, 6)
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+
+    def testEarlierFilesUNFSize(self):
+        """UNF 1 3/16 joined its table ahead of three sizes, and a size is
+        saved as its place there: an earlier file's 1 1/4 is not 1 3/16."""
+        self.Hole.ThreadType = "UNF"
+        sizes = self.Hole.getEnumerationsOfProperty("ThreadSize")
+        at = sizes.index("1 3/16")
+        self.assertEqual(sizes[at - 1:], ["1 1/8", "1 3/16", "1 1/4", "1 3/8", "1 1/2"])
+        # what an earlier build wrote for its 1 1/8, 1 1/4 and 1 3/8
+        for written, meant in (("1 1/8", "1 1/8"), ("1 3/16", "1 1/4"), ("1 1/4", "1 3/8")):
+            self.Hole.ThreadSize = written
+            self.Doc.recompute()
+            doc = self._reopened("PartDesignTestHoleUNF", earlier=True)
+            try:
+                self.assertEqual(doc.getObject("Hole").ThreadSize, meant)
+            finally:
+                FreeCAD.closeDocument(doc.Name)
+
     def tearDown(self):
         #closing doc
         FreeCAD.closeDocument("PartDesignTestHole")

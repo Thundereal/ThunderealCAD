@@ -9112,8 +9112,16 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertTrue(doc.Static.Shape.Hasher.isSame(doc.Hasher))
         # Which is what the recompute here names the same elements: the
         # fillet's face reads as the copy's did, under the ids here.
+        # But for the length a step says of itself where the step holds a
+        # string's number (";:B#2f;CHF;:H6ed:a,E", an edge named from the
+        # faces it lies between): the number has the digits this file's
+        # table gives it.
+        def unsized(text):
+            return re.sub(r"(;:H-?[0-9a-f]*):[0-9a-f]+,", r"\1,", text)
+
         self.assertEqual(
-            expand(doc.Hasher, byElement(doc.Theirs2.Shape)["Face3"]), retag(saidFace, tags)
+            unsized(expand(doc.Hasher, byElement(doc.Theirs2.Shape)["Face3"])),
+            unsized(retag(saidFace, tags)),
         )
         # The reference resolves, and this file's own fillet is as it was.
         self.assertEqual(doc.Ref.Sub, (doc.Theirs2, ["Face3"]))

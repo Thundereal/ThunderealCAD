@@ -57,6 +57,12 @@ const std::string& Data::upperPostfix()
     return tag;
 }
 
+const std::string& Data::boundaryPostfix()
+{
+    static const std::string tag = elementMapPrefix() + ":B";
+    return tag;
+}
+
 const std::string& Data::lowerPostfix()
 {
     static const std::string tag = elementMapPrefix() + ":L";

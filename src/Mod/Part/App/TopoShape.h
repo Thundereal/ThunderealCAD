@@ -2700,6 +2700,11 @@ public:
 
     std::string getElementMapVersion() const override;
     bool checkElementMapVersion(const char * ver) const override;
+    /** Whether a shape's saved version string says a naming older than this
+     * build's (OpCodes::Version), whatever kernel and map format it names
+     * besides. Reads this fork's "1.15.80001.4" and upstream's "15.70200.5".
+     */
+    static bool isOlderNamingVersion(const char *ver);
 
     void flushElementMap() const override;
 

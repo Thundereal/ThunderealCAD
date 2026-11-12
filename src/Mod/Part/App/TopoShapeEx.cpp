@@ -201,7 +201,9 @@
 #include <deque>
 #include <mutex>
 #include <set>
+#include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
 
@@ -1642,6 +1644,20 @@ bool TopoShape::checkElementMapVersion(const char * ver) const
 
     return Data::ComplexGeoData::checkElementMapVersion(
             ver + _getElementMapVersion().size());
+}
+
+bool TopoShape::isOlderNamingVersion(const char *ver)
+{
+    // "<naming>.<kernel>.<map format>", and before it, from this fork, "0."
+    // or "1." for whose string table holds the names
+    std::vector<std::string> fields;
+    boost::split(fields, ver, boost::is_any_of("."));
+    if (fields.size() < 3)
+        return false;
+    const std::string &naming = fields[fields.size() - 3];
+    char *end = nullptr;
+    long version = std::strtol(naming.c_str(), &end, 10);
+    return end != naming.c_str() && !*end && version > 0 && version < OpCodes::Version;
 }
 
 TopoShape &TopoShape::makECompound(const std::vector<TopoShape> &shapes, const char *op, bool force)
@@ -4463,6 +4479,9 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
     Data::MappedName newName;
 
     std::map<Data::IndexedName, std::map<NameKey,NameInfo> > newNames;
+    // How many results the maker reported as modified from each input
+    // element, by (input shape, element type, index)
+    std::map<std::tuple<size_t, int, int>, int> reportedModified;
     // Names of an input of another table come in with this one's ids
     // (docs/TransactionLogJournal.md sec 27.76 item 2).
     App::StringHasher::ImportMemo importMemo;
@@ -4534,6 +4553,8 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                     name_info.index = k;
                     name_info.shapetype = info.shapetype;
                 }
+                if (k)
+                    reportedModified[std::make_tuple(n, int(info.type), i)] = k;
 
                 int checkParallel = -1;
                 gp_Pln pln;
@@ -4648,6 +4669,96 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                     key.shapetype -= shapeOffset;
                 }
             }
+        }
+    }
+
+    // An element the maker reports no history for, on the very geometry of an
+    // input element: a face on the surface of one input face is that face
+    // modified, an edge on the curve of one input edge and within its range is
+    // that edge modified. It is the same handle at the same location that is
+    // asked for, not a surface found equal, so there is no tolerance in it.
+    // An offset rebuilds the walls it has to trim and says nothing of where
+    // they came from, and without this they are named by the reverse or the
+    // forward pass, from their neighbours (docs/TopoNamingEnhance.md sec 9).
+    // The pieces are counted on from what the maker did report for the input
+    // element, so that no name is one the maker's own history gives another.
+    for (auto type : {TopAbs_FACE, TopAbs_EDGE}) {
+        auto &info = *infoMap[type];
+        std::vector<int> unnamed;
+        for (int j=1; j<=info.count(); ++j) {
+            Data::IndexedName element = Data::IndexedName::fromConst(info.shapetype, j);
+            if (!getMappedName(element) && !newNames.count(element))
+                unnamed.push_back(j);
+        }
+        if (unnamed.empty())
+            continue;
+
+        struct Source {
+            size_t shape;
+            int index;
+            TopLoc_Location loc;
+            double first, last;
+        };
+        auto geometry = [type](const TopoDS_Shape &s, TopLoc_Location &loc,
+                               double &first, double &last) -> const Standard_Transient* {
+            first = last = 0.0;
+            if (type == TopAbs_FACE)
+                return BRep_Tool::Surface(TopoDS::Face(s), loc).get();
+            return BRep_Tool::Curve(TopoDS::Edge(s), loc, first, last).get();
+        };
+        std::unordered_map<const Standard_Transient*, std::vector<Source>> sources;
+        for (size_t n=0; n<shapes.size(); ++n) {
+            const auto &other = shapes[n];
+            if (!canMapElement(other))
+                continue;
+            auto &otherMap = other._Cache->getInfo(type);
+            for (int i=1; i<=otherMap.count(); ++i) {
+                Source src;
+                src.shape = n;
+                src.index = i;
+                if (auto geo = geometry(otherMap.find(other._Shape, i), src.loc, src.first, src.last))
+                    sources[geo].push_back(src);
+            }
+        }
+        for (int j : unnamed) {
+            TopLoc_Location loc;
+            double first, last;
+            auto geo = geometry(info.find(j), loc, first, last);
+            auto it = geo ? sources.find(geo) : sources.end();
+            if (it == sources.end())
+                continue;
+            const Source *found = nullptr;
+            bool unique = true;
+            for (auto &src : it->second) {
+                if (!src.loc.IsEqual(loc))
+                    continue;
+                if (type == TopAbs_EDGE
+                        && (first < src.first - Precision::PConfusion()
+                            || last > src.last + Precision::PConfusion()))
+                    continue;
+                if (found)
+                    unique = false;
+                found = &src;
+            }
+            // Of several input elements on the one geometry, which it came
+            // from is not to be told
+            if (!found || !unique)
+                continue;
+            const auto &other = shapes[found->shape];
+            Data::ElementIDRefs sids;
+            Data::MappedName otherName = other.getMappedName(
+                    Data::IndexedName::fromConst(info.shapetype, found->index), true, &sids);
+            if (Hasher && other.Hasher && Hasher != other.Hasher) {
+                Data::MappedName imported;
+                if (Hasher->importName(otherName, *other.Hasher, imported, sids, importMemo))
+                    otherName = imported;
+            }
+            NameKey key(type, otherName);
+            key.tag = other.Tag;
+            auto &name_info = newNames[Data::IndexedName::fromConst(info.shapetype, j)][key];
+            name_info.sids = sids;
+            name_info.index = ++reportedModified[std::make_tuple(found->shape, int(type), found->index)];
+            name_info.shapetype = info.shapetype;
         }
     }
 
@@ -4783,18 +4894,13 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
         }
 
         // The reverse pass. Starting from the highest level element, i.e.
-        // Face, for any element that are named, assign names for its lower unnamed
-        // elements. For example, if Edge1 is named E1, and its vertexes are not
-        // named, then name them as E1;U1, E1;U2, etc.
-        //
-        // In order to make the name as stable as possible, we may assign multiple
-        // names (which must be sorted, because we may use the first one to name
-        // upper element in the final pass) to lower element if it appears in
-        // multiple higher elements, e.g. same edge in multiple faces.
+        // Face, for any element that are named, collect for each of its lower
+        // unnamed elements the names of every upper element it appears in,
+        // sorted, e.g. the faces an edge lies between.
 
         for(size_t ifo=infos.size()-1;ifo!=0;--ifo) {
             std::map<Data::IndexedName,
-                     std::map<Data::MappedName, NameInfo, Data::ElementNameComp> > names;
+                     std::map<Data::MappedName, Data::ElementIDRefs, Data::ElementNameComp> > names;
             auto &info = *infos[ifo];
             auto &next = *infos[ifo-1];
             int i = 1;
@@ -4826,38 +4932,63 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
 
                 TopTools_IndexedMapOfShape submap;
                 TopExp::MapShapes(info.find(i), next.type, submap);
-                for(int j=1,n=1;j<=submap.Extent();++j) {
-                    ss.str("");
+                for(int j=1;j<=submap.Extent();++j) {
                     int k = next.find(submap(j));
                     assert(k);
                     Data::IndexedName e = Data::IndexedName::fromConst(next.shapetype, k);
                     if(getMappedName(e))
                         continue;
-                    auto &info = names[e][mapped];
-                    info.index = n++;
-                    info.sids = sids;
+                    names[e][mapped] = sids;
                 }
             }
-            // Assign the actual names
+            // Assign the actual names. An element is named from ALL the
+            // named upper elements it is in -- an edge from the faces it lies
+            // between, a vertex from the edges that meet in it -- and not from
+            // one of them and its place among that one's unnamed elements,
+            // which moves whenever the upper element gains or loses an edge
+            // elsewhere (docs/TopoNamingEnhance.md sec 9). The first upper
+            // name in sorting order is the base and the others go into the
+            // postfix, hashed, as in the forward pass. A number is left only
+            // where several elements are in the very same upper elements, two
+            // edges between the same two faces.
+            std::map<std::pair<std::string, std::string>, int> counts;
             for(auto &v : names) {
-#ifndef FC_ELEMENT_MAP_ALL
-                // Do we really want multiple names for an element in this case?
-                // If not, we just pick the name in the first sorting order here.
-                auto &name = *v.second.begin();
-#else
-                for(auto &name : v.second)
-#endif
-                {
-                    auto &info = name.second;
-                    auto &sids = info.sids;
-                    newName = name.first;
-                    ss.str("");
-                    ss << upperPostfix();
-                    if(info.index>1)
-                        ss << info.index;
-                    encodeElementName(v.first[0],newName,ss,&sids,op);
-                    setElementName(v.first,newName,&sids);
+                // The string ids of every upper name, each once: the upper
+                // elements of one element mostly come from the same input
+                // and hold the same ids
+                Data::ElementIDRefs sids;
+                auto hold = [&sids](const Data::ElementIDRefs &more) {
+                    for (auto &sid : more) {
+                        if (!sids.contains(sid))
+                            sids.push_back(sid);
+                    }
+                };
+                auto itUpper = v.second.begin();
+                hold(itUpper->second);
+                newName = itUpper->first;
+                std::string others;
+                for (++itUpper; itUpper != v.second.end(); ++itUpper) {
+                    others += others.empty() ? '(' : '|';
+                    others += itUpper->first.toString();
+                    hold(itUpper->second);
                 }
+                if (!others.empty())
+                    others += ')';
+                int index = ++counts[std::make_pair(newName.toString(), others)];
+                ss.str("");
+                ss << boundaryPostfix();
+                if (index > 1)
+                    ss << index;
+                if (!others.empty()) {
+                    if (Hasher) {
+                        sids.push_back(Hasher->getID(others.c_str()));
+                        ss << sids.back().toString();
+                    }
+                    else
+                        ss << others;
+                }
+                encodeElementName(v.first[0],newName,ss,&sids,op);
+                setElementName(v.first,newName,&sids);
             }
         }
 

@@ -3047,7 +3047,7 @@ that holds a position:
 | `pass` | passed on with the plain tag step |
 | `B`, `Bn` | 9.9's prototype: all its upper elements; `Bn` with a number |
 
-The corpus is 16 models and 36 changes: plates with holes, fillets,
+The corpus is 17 models and 36 changes: plates with holes, fillets,
 chamfers and drafts in chains; pockets on faces; linear, polar, mirrored
 and multi-transform patterns; a revolution with a groove; a pipe; a hole
 feature; sheet metal; Part workbench cuts, fuses, fillets, chamfers and a
@@ -3230,3 +3230,127 @@ Nothing here is decided; the naming is released (9.4).
    lost).
 6. **A guard for what stays positional** (9.3's last idea) is still
    worth having for `Bn`, `Mn` and `M1` names, on `13266c5b84`.
+
+### 9.11 Ruled and built (2026-11-12)
+
+Ruled on 9.10: "A, suggest an opcode. B in fcad. Then fix occt history.
+Bump element version."  All four are built.
+
+**A: an element is named from all its named upper elements.**  The
+reverse pass of `TopoShape::makESHAPE` no longer writes `;:U<n>`.  An
+unnamed edge or vertex takes the first of its upper elements' names, in
+sorting order, as its base, and the others go into the postfix:
+
+    <first upper name>;:B[<n>][#<id of "(other|other)">];<op>;:H<tag>:<len>,<type>
+
+The postfix is `;:B`, "boundary" (`Data::boundaryPostfix()`, the one place
+that spells it).  With no hasher the others are written out,
+`;:B(Face3;:G;DFT;:H1:7,F)`.  `<n>` is there only for the second and later
+of several elements in the very same upper elements, two edges between
+the same two faces.  A vertex is still named from its edges, not from its
+faces: a wire has none.  `;:U` is still read -- an older file's names
+resolve until the shape is made again -- and `Data::upperPostfix()` stays
+for that.
+
+**B: the same geometry is history.**  After the history pass, a face or
+an edge of the result with no name, whose surface or curve is the very
+one of exactly one input element (the same handle and location; an edge
+also within that edge's range), is that element modified, numbered after
+the pieces the maker itself reported.  Two inputs on one surface give no
+name: nothing is guessed.
+
+**The kernel says it too.**  `BRepOffset_MakeOffset::Modified` now answers
+for the walls a thick solid makes again where a cut edge of the removed
+face meets them (OCCT `Thickness.md` sec 69; the check is
+`tests/src/Mod/Part/App/ThickSolidHistory.cpp`).  On #360's plate at 2, 3,
+4 and 5 inward, 22, 56, 78 and 110 faces, and as many edges, lay on input
+geometry with nothing told of them; none do now.  With it B has nothing
+left to find on the plate, and the corpus scores the same with the older
+kernel and B alone as with this one: B stays for every other maker.
+
+**The element map version is 16** (`OpCodes::Version`).  A file of an
+older naming asks for its recompute at load, as files of older primitive
+names do.
+
+| | references | **WRONG** | name lost | names with no position in them | `U`/`Bn` names |
+| --- | --- | --- | --- | --- | --- |
+| before (9.7) | 7336 | **191** | 344 | 4030 (55%) | 2160 |
+| built | 7386 | **2** | 219 | 6052 (82%) | 8 |
+
+The same frozen and unfrozen.  The two wrong are finding 3; of the 219
+lost, 116 are finding 4 and 45 finding 3.
+
+**Older files, measured** (`~/.cache/name-audit/migrate.py`).  The 17
+corpus models saved by the old naming with a reference on every element,
+opened, every feature made again as it is: 1318 of 7103 names change and
+all 7103 references name the element they were made on.  Two faults came
+out of the stored files of `TestNameEncoding`, and are mended:
+
+1. *A reference already put right was looked up again by its number.*  A
+   sketch keeps `Support` beside `AttachmentSupport` and copies one into
+   the other.  On the migration recompute the pad under it listed its
+   faces in another order than when the file was written; `Support` went
+   from `Face3` to `Face2`, rightly, wrote that into `AttachmentSupport`,
+   and that one was then looked up as the *old* `Face2`, a cylinder: "No
+   planar face".  `PropertyLinkBase::_updateElementReference` no longer
+   searches by position for a reference whose name already finds the
+   element at the number it holds.
+2. *A file upstream wrote was never asked.*  Upstream's format keeps a
+   shape's map in a file of its own, read after the document's XML, so
+   the version check in `PropertyPartShape::Restore` saw no map and took
+   the shape for one with nothing to regenerate -- for any version, since
+   that check was written.  With naming 16 the chamfer of
+   `FaceRefs_v1-1-4.FCStd` lost its edge (`?Edge23`) at the first edit.
+   The check is now made again in `afterRestore`, on the naming alone
+   (`TopoShape::isOlderNamingVersion`; upstream's kernel and map format
+   numbers differ from the fork's in every file and are let through as
+   before).  **So every file written by upstream FreeCAD now asks for a
+   recompute the first time it is opened here**, which is item 4 of 9.10
+   as ruled.  A file this fork wrote in upstream's format (schema 4)
+   always asked.
+
+Not covered, as it never was: a model edited before that recompute.  The
+two tests now recompute before they edit, as the prompt has the user do.
+
+**The string table.**  An edge named from two faces holds the ids of both
+faces' names, and both hold the sketch edge they came from: the same id
+twice.  `StringHasher::compact` drops what a dropped string was built
+from when "the table and that string" are all that hold it, counted as
+two references, and a string named twice in one list holds three -- it
+stayed in the file for good.  The count is now by how often the list
+names it (`StringHasherTest.compactDropsWhatAStringNamesTwice`; the fault
+is older than this work, lists of ten or less were never sorted out), and
+A gives each id once.  What the names cost: over the 17 corpus files made
+again and saved, the string tables are 98799 bytes where they were 56325,
+and the documents' XML, which holds the maps, 1809427 where it was
+1770636 -- 4% on the two together.
+
+**A step that holds a string's number says its own length with it.**
+`;:B#2f;CHF;:H6ed:a,E` is ten characters and `;:B#7;CHF;:H6ed:9,E` nine:
+the same name in two files' tables.  It was so for `;:G#<id>` and
+`;:L#<id>` before; `testAForkImportTakesItsStringsByContent` now compares
+its one recomputed name without the lengths.  A shape imported into
+another table and not recomputed keeps the length it had.  Not chased.
+
+**Tests.**  C++: `makEChamferNamesAnElementFromAllItsUpperElements`,
+`makESHAPENumbersElementsOfTheSameUpperElements`,
+`makESHAPETakesAnInputElementsGeometryForHistory` (`TopoShapeEx.cpp`),
+`ThickSolidHistory.aWallMadeAgainIsModified`, and the compaction case
+above; the expected names of the chamfer, fillet, prism, offset and draft
+tests are the new ones.  Python: `TestNameStability` (a hole added to a
+drafted, filleted block moves no name; no edge is named from one face and
+a number), `TestNameEncoding` as above.
+
+**Suites** (Linux): the C++ tests 1622 of 1623 -- the one is
+`GuiAssemblyWorkbench_tests_run`, which failed before this work too
+(`test_flexible_body_playback`: no Chrono in this tree; and
+`test_playback_speed`) -- and Python 5302 OK, both frozen and unfrozen;
+the name corpus the same both ways.  The kernel's own suites are in OCCT
+`Thickness.md` sec 69.
+
+**Still open.**  Finding 3 (the order of `;:M<n>` pieces: 2 wrong, 45
+lost) and finding 4 (a wall passed on at one thickness and made again at
+another: 116 lost; the kernel says "unchanged" in one run and "modified"
+in the next, OCCT sec 69) are not built.  The guard for what stays
+positional (9.10 item 6) is not ruled.  Whether A is offered upstream is
+not asked.

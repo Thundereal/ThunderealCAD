@@ -10,6 +10,7 @@
 #include "PartTestHelpers.h"
 
 #include <functional>
+#include <set>
 // std::numbers::pi below: libstdc++ hands it over through another header,
 // MSVC does not.
 #include <numbers>
@@ -36,6 +37,9 @@
 #include <gp_Pln.hxx>
 #include <ShapeFix_Wireframe.hxx>
 #include <ShapeBuild_ReShape.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -1678,7 +1682,11 @@ TEST_F(TopoShapeExpansionTest, makEDraft)
     EXPECT_NEAR(getVolume(result.getShape()), 4.3333333333, 1e-06);  // Truncated pyramid
     // Assert elementMap is correct
     EXPECT_EQ(elements.size(), 26);  // Cubes have 6 Faces, 12 Edges, 8 Vertexes
-    EXPECT_EQ(elements[IndexedName("Edge", 1)], MappedName("Face1;:G;DFT;:H1:7,F;:U;DFT;:H1:7,E"));
+    // between the drafts of two faces, and named from both
+    EXPECT_EQ(
+        elements[IndexedName("Edge", 1)],
+        MappedName("Face1;:G;DFT;:H1:7,F;:B(Face3;:G;DFT;:H1:7,F);DFT;:H1:1d,E")
+    );
 }
 
 TEST_F(TopoShapeExpansionTest, makEDraftTopoShapes)
@@ -2252,6 +2260,166 @@ TEST_F(TopoShapeExpansionTest, makECut)
     ));
 }
 
+// The three tests below: how an element is named that the maker says nothing
+// of (docs/TopoNamingEnhance.md sec 9.11).
+
+namespace
+{
+/// A maker that tells of one face what it became, and of nothing else
+struct OneFaceMapper: TopoShape::Mapper
+{
+    TopoDS_Shape from, to;
+    const std::vector<TopoDS_Shape>& modified(const TopoDS_Shape& s) const override
+    {
+        _res.clear();
+        if (s.IsSame(from)) {
+            _res.push_back(to);
+        }
+        return _res;
+    }
+    const std::vector<TopoDS_Shape>& generated(const TopoDS_Shape&) const override
+    {
+        _res.clear();
+        return _res;
+    }
+};
+}  // namespace
+
+// An edge is named from all the named faces it lies between, and a vertex
+// from the edges that meet in it, not from one of them and its place there
+TEST_F(TopoShapeExpansionTest, makEChamferNamesAnElementFromAllItsUpperElements)
+{
+    // Arrange
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape cube {cube1, 1L};
+    auto edges = cube.getSubTopoShapes(TopAbs_EDGE);
+    // Act: one edge chamfered. The kernel tells of the chamfer's face (made
+    // from the edge) and of the cube's faces (modified); of the chamfer's
+    // four edges and their vertices it says nothing
+    cube.makEChamfer({cube}, {edges[0]}, .05, .05);
+    auto elements = elementMap(cube);
+    // Assert
+    const std::string chamfer = "Edge1;:G;CHF;:H1:7,F";
+    TopTools_IndexedDataMapOfShapeListOfShape facesOf;
+    TopExp::MapShapesAndAncestors(cube.getShape(), TopAbs_EDGE, TopAbs_FACE, facesOf);
+    int chamferFace = 0;
+    for (int i = 1; i <= static_cast<int>(cube.countSubShapes(TopAbs_FACE)); ++i) {
+        if (elements[IndexedName("Face", i)].toString() == chamfer) {
+            chamferFace = i;
+        }
+    }
+    ASSERT_NE(chamferFace, 0);
+    int count = 0;
+    for (TopExp_Explorer xp(cube.getSubShape(TopAbs_FACE, chamferFace), TopAbs_EDGE); xp.More();
+         xp.Next()) {
+        // the face across the edge
+        std::string across;
+        for (TopTools_ListIteratorOfListOfShape it(facesOf.FindFromKey(xp.Current())); it.More();
+             it.Next()) {
+            int j = cube.findShape(it.Value());
+            if (j != chamferFace) {
+                across = elements[IndexedName("Face", j)].toString();
+            }
+        }
+        ASSERT_FALSE(across.empty());
+        const std::string name
+            = elements[IndexedName("Edge", cube.findShape(xp.Current()))].toString();
+        // one of the two is the base, the other in the postfix, and no number
+        EXPECT_TRUE(
+            name.starts_with(chamfer + ";:B(" + across + ")")
+            || name.starts_with(across + ";:B(" + chamfer + ")")
+        ) << name;
+        ++count;
+    }
+    EXPECT_EQ(count, 4);
+    for (const auto& [indexed, mapped] : elements) {
+        const std::string name = mapped.toString();
+        EXPECT_EQ(name.find(";:U"), std::string::npos) << name;
+        if (indexed.getType() == std::string("Vertex") && name.find(";:B") != std::string::npos) {
+            // from more than one edge
+            EXPECT_NE(name.find(";:B("), std::string::npos) << name;
+        }
+    }
+}
+
+// Elements in the very same upper elements are told apart by a number
+TEST_F(TopoShapeExpansionTest, makESHAPENumbersElementsOfTheSameUpperElements)
+{
+    // Arrange: a face, and a copy of it with a geometry of its own
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {TopoShape(cube1, 1L).getSubShape(TopAbs_FACE, 1), 1L};
+    OneFaceMapper mapper;
+    mapper.from = source.getShape();
+    mapper.to = BRepBuilderAPI_Copy(source.getShape(), true).Shape();
+    TopoShape result {2L};
+    // Act
+    result.makESHAPE(mapper.to, mapper, {source}, "TST");
+    auto elements = elementMap(result);
+    // Assert: the face by its history, its four edges from it alone
+    const std::string face = "Face1;:M;TST;:H1:7,F";
+    EXPECT_EQ(elements[IndexedName("Face", 1)].toString(), face);
+    std::set<std::string> names;
+    for (int i = 1; i <= 4; ++i) {
+        names.insert(elements[IndexedName("Edge", i)].toString());
+    }
+    EXPECT_EQ(
+        names,
+        (std::set<std::string> {
+            face + ";:B;TST;:H1:7,E",
+            face + ";:B2;TST;:H1:8,E",
+            face + ";:B3;TST;:H1:8,E",
+            face + ";:B4;TST;:H1:8,E",
+        })
+    );
+}
+
+// An element the maker says nothing of, on the very surface or curve of one
+// input element, is that element modified
+TEST_F(TopoShapeExpansionTest, makESHAPETakesAnInputElementsGeometryForHistory)
+{
+    // Arrange: a cube, and a copy that shares its geometry -- other faces and
+    // edges, on the cube's own surfaces and curves
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {cube1, 1L};
+    TopoDS_Shape remade = BRepBuilderAPI_Copy(cube1, false).Shape();
+    TopoShape result {2L};
+    // Act: a maker with no history at all
+    result.makESHAPE(remade, TopoShape::Mapper(), {source}, "TST");
+    auto elements = elementMap(result);
+    // Assert
+    EXPECT_EQ(elements.size(), 26);
+    for (int i = 1; i <= 6; ++i) {
+        EXPECT_EQ(
+            elements[IndexedName("Face", i)].toString(),
+            "Face" + std::to_string(i) + ";:M;TST;:H1:7,F"
+        );
+    }
+    for (int i = 1; i <= 12; ++i) {
+        EXPECT_EQ(
+            elements[IndexedName("Edge", i)].toString(),
+            "Edge" + std::to_string(i) + ";:M;TST;:H1:7,E"
+        );
+    }
+    // a vertex has no geometry to share, and is named from its edges
+    for (int i = 1; i <= 8; ++i) {
+        EXPECT_NE(elements[IndexedName("Vertex", i)].toString().find(";:B("), std::string::npos);
+    }
+
+    // Arrange: the same surface under two input faces
+    TopoShape face {TopoShape(cube1, 1L).getSubShape(TopAbs_FACE, 1), 1L};
+    TopoShape twin {BRepBuilderAPI_Copy(face.getShape(), false).Shape(), 3L};
+    TopoShape other {4L};
+    // Act
+    other.makESHAPE(
+        BRepBuilderAPI_Copy(face.getShape(), false).Shape(),
+        TopoShape::Mapper(),
+        {face, twin},
+        "TST"
+    );
+    // Assert: which of the two it came from is not to be told, and it is not
+    EXPECT_TRUE(elementMap(other).empty());
+}
+
 TEST_F(TopoShapeExpansionTest, makEChamfer)
 {
     // Arrange
@@ -2271,89 +2439,89 @@ TEST_F(TopoShapeExpansionTest, makEChamfer)
         cube1TS,
         {
             "Edge10;:G;CHF;:H1:7,F",
-            "Edge10;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge10;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge10;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge10;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge10;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge10;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge10;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge10;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge11;:G;CHF;:H1:7,F",
-            "Edge11;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge11;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge11;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge11;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge11;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge11;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge11;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge11;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge12;:G;CHF;:H1:7,F",
-            "Edge12;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge12;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge12;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge12;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge12;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge12;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge12;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge12;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge1;:G;CHF;:H1:7,F",
-            "Edge1;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge1;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge1;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge1;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge1;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge1;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge1;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge1;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge1;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge2;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge2;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge1;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge4;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge4;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge1;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge10;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge10;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge1;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge9;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge9;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge1;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge1;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge2;:G;CHF;:H1:7,F",
-            "Edge2;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge2;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge2;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge2;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge2;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge2;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge2;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge2;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge3;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge3;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge2;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge10;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge10;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge2;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge12;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge12;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge2;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge2;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge3;:G;CHF;:H1:7,F",
-            "Edge3;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge3;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge3;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge3;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge3;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge3;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge3;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge3;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge4;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge4;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge3;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge12;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge12;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge3;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge11;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge11;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge3;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge3;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge4;:G;CHF;:H1:7,F",
-            "Edge4;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge4;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge4;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge4;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge4;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge4;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge4;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge4;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge4;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge4;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge9;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge9;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge4;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge4;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge11;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge11;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge4;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge4;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge5;:G;CHF;:H1:7,F",
-            "Edge5;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge5;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge5;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge5;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge5;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge5;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge5;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge5;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge5;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge6;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge6;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge5;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge8;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge8;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge5;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge10;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge10;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge5;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge9;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge9;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge5;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge5;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge6;:G;CHF;:H1:7,F",
-            "Edge6;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge6;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge6;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge6;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge6;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge6;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge6;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge6;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge7;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge7;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge6;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge10;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge10;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge6;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge12;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge12;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge6;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge6;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge7;:G;CHF;:H1:7,F",
-            "Edge7;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge7;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge7;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge7;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge7;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge7;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge7;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge7;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge8;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge8;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge7;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge12;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge12;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge7;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge11;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge11;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge7;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge7;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge8;:G;CHF;:H1:7,F",
-            "Edge8;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge8;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge8;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge8;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge8;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge8;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge8;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge8;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge8;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge8;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge9;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge9;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge8;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge8;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge11;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge11;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge8;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge8;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge9;:G;CHF;:H1:7,F",
-            "Edge9;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge9;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge9;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge9;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge9;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge9;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge9;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge9;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Face1;:M;CHF;:H1:7,F",
             "Face2;:M;CHF;:H1:7,F",
             "Face3;:M;CHF;:H1:7,F",
@@ -2390,89 +2558,89 @@ TEST_F(TopoShapeExpansionTest, makEFillet)
         cube1TS,
         {
             "Edge10;:G;FLT;:H1:7,F",
-            "Edge10;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge10;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge10;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge10;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge10;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge10;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge10;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge10;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge11;:G;FLT;:H1:7,F",
-            "Edge11;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge11;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge11;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge11;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge11;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge11;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge11;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge11;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge12;:G;FLT;:H1:7,F",
-            "Edge12;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge12;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge12;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge12;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge12;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge12;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge12;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge12;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge1;:G;FLT;:H1:7,F",
-            "Edge1;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge1;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge1;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge1;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge1;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge1;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge1;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge1;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge1;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge2;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge2;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge1;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge4;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge4;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge1;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge10;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge10;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge1;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge9;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge9;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge1;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge1;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge2;:G;FLT;:H1:7,F",
-            "Edge2;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge2;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge2;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge2;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge2;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge2;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge2;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge2;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge3;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge3;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge2;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge10;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge10;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex1;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge2;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge12;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge12;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge2;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge2;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge3;:G;FLT;:H1:7,F",
-            "Edge3;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge3;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge3;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge3;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge3;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge3;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge3;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge3;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge4;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge4;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge3;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge12;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge12;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex3;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge3;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge11;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge11;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge3;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge3;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge4;:G;FLT;:H1:7,F",
-            "Edge4;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge4;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge4;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge4;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge4;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge4;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge4;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge4;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge4;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge4;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge9;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge9;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex2;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e3,V",
+            "Edge4;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge4;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge11;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge11;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex4;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge4;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge4;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge5;:G;FLT;:H1:7,F",
-            "Edge5;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge5;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge5;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge5;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge5;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge5;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge5;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge5;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge5;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge6;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge6;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge5;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge8;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge8;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge5;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge10;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge10;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge5;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge9;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge9;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge5;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge5;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge6;:G;FLT;:H1:7,F",
-            "Edge6;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge6;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge6;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge6;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge6;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge6;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge6;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge6;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge7;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge7;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge6;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge10;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge10;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex5;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge6;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge12;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge12;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge6;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge6;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge7;:G;FLT;:H1:7,F",
-            "Edge7;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge7;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge7;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge7;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge7;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge7;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge7;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge7;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge8;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge8;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge7;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge12;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge12;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex7;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge7;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge11;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge11;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge7;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge7;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge8;:G;FLT;:H1:7,F",
-            "Edge8;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge8;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge8;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge8;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge8;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge8;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge8;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge8;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge8;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge8;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge9;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge9;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex6;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e3,V",
+            "Edge8;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge8;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge11;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge11;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex8;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge8;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge8;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge9;:G;FLT;:H1:7,F",
-            "Edge9;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge9;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge9;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge9;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge9;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge9;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge9;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge9;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Face1;:M;FLT;:H1:7,F",
             "Face2;:M;FLT;:H1:7,F",
             "Face3;:M;FLT;:H1:7,F",
@@ -2480,21 +2648,21 @@ TEST_F(TopoShapeExpansionTest, makEFillet)
             "Face5;:M;FLT;:H1:7,F",
             "Face6;:M;FLT;:H1:7,F",
             "Vertex1;:G;FLT;:H1:7,F",
-            "Vertex1;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex1;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex2;:G;FLT;:H1:7,F",
-            "Vertex2;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex2;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex3;:G;FLT;:H1:7,F",
-            "Vertex3;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex3;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex4;:G;FLT;:H1:7,F",
-            "Vertex4;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex4;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex5;:G;FLT;:H1:7,F",
-            "Vertex5;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex5;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex6;:G;FLT;:H1:7,F",
-            "Vertex6;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex6;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex7;:G;FLT;:H1:7,F",
-            "Vertex7;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex7;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex8;:G;FLT;:H1:7,F",
-            "Vertex8;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex8;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
         }
     ));
 }
@@ -2966,21 +3134,22 @@ TEST_F(TopoShapeExpansionTest, makEPrism)
         result,
         {
             "Edge1;:G;XTR;:H2:7,F",
-            "Edge1;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E",
-            "Edge1;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E;:U2;XTR;:H2:8,V",
-            "Edge1;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E;:U;XTR;:H2:7,V",
+            "Edge1;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E",
+            "Edge1;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E;:B(Edge2;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E|Vertex1;:G;XTR;:H2:7,E);XTR;:H2:43,V",
+            "Edge1;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E;:B(Edge4;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E|Vertex2;:G;XTR;:H2:7,E);XTR;:H2:43,V",
             "Edge1;:H2,E",
             "Edge2;:G;XTR;:H2:7,F",
-            "Edge2;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E",
-            "Edge2;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E;:U;XTR;:H2:7,V",
+            "Edge2;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E",
+            "Edge2;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E;:B(Edge3;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E|Vertex3;:G;XTR;:H2:7,E);XTR;:H2:43,V",
             "Edge2;:H2,E",
             "Edge3;:G;XTR;:H2:7,F",
-            "Edge3;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E",
-            "Edge3;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E;:U2;XTR;:H2:8,V",
+            "Edge3;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E",
+            "Edge3;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E;:B(Edge4;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E|Vertex4;:G;XTR;:H2:7,E);XTR;:H2:43,V",
             "Edge3;:H2,E",
             "Edge4;:G;XTR;:H2:7,F",
-            "Edge4;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E",
+            "Edge4;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E",
             "Edge4;:H2,E",
+            "Face1;:G0;XTR;:H2:8,F",
             "Face1;:H2,F",
             "Vertex1;:G;XTR;:H2:7,E",
             "Vertex1;:H2,V",
@@ -3323,89 +3492,89 @@ TEST_F(TopoShapeExpansionTest, makEOffset)
         result,
         {
             "Edge10;:G;OFS;:H1:7,F",
-            "Edge10;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge10;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge10;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge10;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge10;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge10;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge10;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge10;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge11;:G;OFS;:H1:7,F",
-            "Edge11;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge11;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge11;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge11;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge11;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge11;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge11;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge11;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge12;:G;OFS;:H1:7,F",
-            "Edge12;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge12;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge12;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge12;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge12;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge12;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge12;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge12;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge1;:G;OFS;:H1:7,F",
-            "Edge1;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge1;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge1;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge1;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge1;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge1;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge1;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge1;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge1;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge2;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge2;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge1;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge4;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge4;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge1;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge10;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge10;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge1;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge9;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge9;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge1;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge1;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge2;:G;OFS;:H1:7,F",
-            "Edge2;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge2;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge2;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge2;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge2;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge2;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge2;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge2;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge3;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge3;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge2;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge10;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge10;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge2;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge12;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge12;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge2;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge2;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge3;:G;OFS;:H1:7,F",
-            "Edge3;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge3;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge3;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge3;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge3;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge3;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge3;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge3;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge4;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge4;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge3;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge12;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge12;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge3;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge11;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge11;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge3;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge3;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge4;:G;OFS;:H1:7,F",
-            "Edge4;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge4;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge4;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge4;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge4;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge4;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge4;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge4;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge4;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge4;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge9;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge9;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge4;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge4;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge11;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge11;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge4;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge4;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge5;:G;OFS;:H1:7,F",
-            "Edge5;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge5;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge5;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge5;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge5;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge5;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge5;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge5;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge5;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge6;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge6;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge5;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge8;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge8;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge5;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge10;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge10;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge5;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge9;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge9;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge5;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge5;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge6;:G;OFS;:H1:7,F",
-            "Edge6;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge6;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge6;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge6;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge6;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge6;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge6;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge6;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge7;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge7;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge6;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge10;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge10;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge6;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge12;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge12;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge6;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge6;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge7;:G;OFS;:H1:7,F",
-            "Edge7;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge7;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge7;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge7;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge7;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge7;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge7;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge7;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge8;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge8;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge7;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge12;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge12;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge7;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge11;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge11;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge7;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge7;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge8;:G;OFS;:H1:7,F",
-            "Edge8;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge8;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge8;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge8;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge8;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge8;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge8;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge8;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge8;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge8;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge9;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge9;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge8;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge8;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge11;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge11;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge8;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge8;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge9;:G;OFS;:H1:7,F",
-            "Edge9;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge9;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge9;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge9;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge9;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge9;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge9;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge9;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Face1;:G;OFS;:H1:7,F",
             "Face2;:G;OFS;:H1:7,F",
             "Face3;:G;OFS;:H1:7,F",
@@ -3446,18 +3615,18 @@ TEST_F(TopoShapeExpansionTest, makEOffsetFace)
         result,
         {
             "Edge1;:G;OFF;:H1:7,E",
-            "Edge1;:G;OFF;:H1:7,E;:U2;OFF;:H1:8,V",
-            "Edge1;:G;OFF;:H1:7,E;:U;OFF;:H1:7,V",
+            "Edge1;:G;OFF;:H1:7,E;:B(Vertex1;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
+            "Edge1;:G;OFF;:H1:7,E;:B(Vertex2;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
             "Edge1;:G;OFF;:H1:7,E;FAC;:H1:4,F",
             "Edge2;:G;OFF;:H1:7,E",
-            "Edge2;:G;OFF;:H1:7,E;:U2;OFF;:H1:8,V",
-            "Edge2;:G;OFF;:H1:7,E;:U;OFF;:H1:7,V",
+            "Edge2;:G;OFF;:H1:7,E;:B(Vertex2;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
+            "Edge2;:G;OFF;:H1:7,E;:B(Vertex3;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
             "Edge3;:G;OFF;:H1:7,E",
-            "Edge3;:G;OFF;:H1:7,E;:U2;OFF;:H1:8,V",
-            "Edge3;:G;OFF;:H1:7,E;:U;OFF;:H1:7,V",
+            "Edge3;:G;OFF;:H1:7,E;:B(Vertex3;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
+            "Edge3;:G;OFF;:H1:7,E;:B(Vertex4;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
             "Edge4;:G;OFF;:H1:7,E",
-            "Edge4;:G;OFF;:H1:7,E;:U2;OFF;:H1:8,V",
-            "Edge4;:G;OFF;:H1:7,E;:U;OFF;:H1:7,V",
+            "Edge4;:G;OFF;:H1:7,E;:B(Vertex1;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
+            "Edge4;:G;OFF;:H1:7,E;:B(Vertex4;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
             "Edge5;:H1,E",
             "Vertex1;:G;OFF;:H1:7,E",
             "Vertex2;:G;OFF;:H1:7,E",

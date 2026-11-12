@@ -108,6 +108,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestInvoluteGear.py
     PartDesignTests/TestTopologicalNamingProblem.py
     PartDesignTests/TestNameEncoding.py
+    PartDesignTests/TestNameStability.py
 )
 
 set(PartDesign_TestFixtures

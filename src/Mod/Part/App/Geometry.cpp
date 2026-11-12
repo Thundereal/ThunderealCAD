@@ -2366,12 +2366,13 @@ bool GeomBSplineCurve::isSame(const Geometry& _other, double tol, double atol) c
     auto& other = dynamic_cast<const GeomBSplineCurve&>(_other);
     (void)atol;
 
-    if (countPoles() != other.countPoles() || countKnots() != other.countKnots()
-        || getDegree() != other.getDegree() || isPeriodic() != other.isPeriodic()) {
+    if (isPeriodic() != other.isPeriodic()) {
         return false;
     }
 
-    bool same = true;
+    // Written the same way, pole for pole and knot for knot?
+    bool same = countPoles() == other.countPoles() && countKnots() == other.countKnots()
+        && getDegree() == other.getDegree();
     double tol2 = tol * tol;
     for (int i = 1, c = countPoles(); same && i <= c; ++i) {
         if (myCurve->Pole(i).SquareDistance(other.myCurve->Pole(i)) > tol2
@@ -2393,10 +2394,21 @@ bool GeomBSplineCurve::isSame(const Geometry& _other, double tol, double atol) c
     // 1e-7 from where they were, and its poles with them, on the same points:
     // in realthunder/FreeCAD#363 the two curves where a cylinder cuts another
     // differed by 9e-7 in their poles and by 1e-9 as curves, and the face
-    // between them was not found again. Two B-splines of one make that start
-    // and end together are the same when each runs on the other.
-    if (myCurve->StartPoint().SquareDistance(other.myCurve->StartPoint()) > tol2
-        || myCurve->EndPoint().SquareDistance(other.myCurve->EndPoint()) > tol2) {
+    // between them was not found again. Nor does the make say it: in
+    // realthunder/FreeCAD#474 an edge of a swept helix is written with 21
+    // poles of degree 11 in the file and with 34 of degree 9 made again, the
+    // same curve to 4e-7. Two B-splines that start and end together are the
+    // same when each runs on the other -- whichever way each is run: an edge
+    // of that model where a pad meets the helix comes back reversed.
+    const gp_Pnt start = myCurve->StartPoint();
+    const gp_Pnt end = myCurve->EndPoint();
+    const gp_Pnt otherStart = other.myCurve->StartPoint();
+    const gp_Pnt otherEnd = other.myCurve->EndPoint();
+    const bool along = start.SquareDistance(otherStart) <= tol2
+        && end.SquareDistance(otherEnd) <= tol2;
+    const bool against = start.SquareDistance(otherEnd) <= tol2
+        && end.SquareDistance(otherStart) <= tol2;
+    if (!along && !against) {
         return false;
     }
     try {

@@ -2124,6 +2124,19 @@ static void searchLiveShape(const PropertyPartShape *propShape,
     TopoShape newShape = propShape->getShape();
     newShape.searchSubShape(sub, &names, options, tol, atol);
     if (names.empty()) {
+        // Not there to the tolerance.  A feature made again by another
+        // build may put the same element a little off -- in
+        // realthunder/FreeCAD#474 the spline edges of a swept helix come
+        // back 4e-7 from where the file has them, and the search is at
+        // 1e-7 -- so look once more a hundred times looser, and take what
+        // is found only where it is the one element there: two that close
+        // cannot be told apart, and the reference stays missing.
+        std::vector<std::string> loose;
+        newShape.searchSubShape(sub, &loose, options, tol * 100.0, atol * 100.0);
+        if (loose.size() == 1)
+            names = std::move(loose);
+    }
+    if (names.empty()) {
         // Can't find any shape with the same geometry. But in
         // case the new shape has only one sub-shape with the
         // searching shape type, we can safely choose that

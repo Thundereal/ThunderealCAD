@@ -1487,6 +1487,55 @@ TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineWrittenAnotherWay)
     EXPECT_FALSE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(swollen), 1e-7, 1e-10));
 }
 
+// Nor does the make of a B-spline say where it runs, or the way it is run:
+// the same curve with its degree raised, and reversed, is found again, alone
+// and at the tolerance it is off by (in realthunder/FreeCAD#474 an edge of a
+// swept helix has 21 poles of degree 11 in the file and 34 of degree 9 made
+// again, 4e-7 off, and another comes back reversed).
+TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineOfAnotherMakeOrDirection)
+{
+    // Arrange: a helix interpolated at 41 points; the same with its degree
+    // raised; reversed; and on a radius 4e-7 larger with its degree raised
+    const int count = 41;
+    auto helix = [&](double radius) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double angle = 0.5 * i / (count - 1);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+        }
+        GeomAPI_Interpolate interpolate(points, false, 1e-9);
+        interpolate.Perform();
+        return interpolate.Curve();
+    };
+    Handle(Geom_BSplineCurve) plain = helix(10);
+    Handle(Geom_BSplineCurve) raised = Handle(Geom_BSplineCurve)::DownCast(plain->Copy());
+    raised->IncreaseDegree(plain->Degree() + 2);
+    Handle(Geom_BSplineCurve) reversed = Handle(Geom_BSplineCurve)::DownCast(plain->Reversed());
+    Handle(Geom_BSplineCurve) off = helix(10 + 4e-7);
+    off->IncreaseDegree(plain->Degree() + 2);
+    TopoShape edge {BRepBuilderAPI_MakeEdge(plain).Edge()};
+    auto found = [&](const Handle(Geom_BSplineCurve) & curve, double tol) {
+        TopoShape other {BRepBuilderAPI_MakeEdge(curve).Edge()};
+        std::vector<std::string> names;
+        other.searchSubShape(edge, &names, Data::SearchOption::CheckGeometry, tol, 1e-10);
+        return names.size();
+    };
+    // Act, Assert
+    ASSERT_GT(raised->NbPoles(), plain->NbPoles());
+    EXPECT_EQ(found(raised, 1e-7), 1);
+    EXPECT_EQ(found(reversed, 1e-7), 1);
+    EXPECT_EQ(found(off, 1e-7), 0);
+    EXPECT_EQ(found(off, 1e-5), 1);
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(raised), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(raised).isSame(GeomBSplineCurve(plain), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(reversed), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(off), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(off), 1e-5, 1e-10));
+}
+
 // And a straight edge written as a B-spline of degree 1: a line is found
 // again as that spline and the spline as the line, alone and as an edge of
 // a face (in realthunder/FreeCAD#474 three edges of a helix's end face came

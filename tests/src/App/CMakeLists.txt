@@ -34,6 +34,7 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/TransactionMeasure.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/TypeImport.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/TypeRename.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/WriteScope.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/XLinkSnapshot.cpp
 )
 

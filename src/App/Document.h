@@ -1426,6 +1426,15 @@ public:
      * keep the old file over, whether the log records it or not.
      */
     void noteSavedChange(const TransactionalObject* who);
+    /** What a write of `what` -- a property of this document, of one of its
+     * objects or of a view provider of one -- does now, as WriteEffect bits
+     * (WriteScope.h): whether it opens an undo step, is recorded in one,
+     * changes the file, marks the document modified, is keyed by Record.
+     * The one place a write is classified; ask it, do not test for a cause.
+     */
+    unsigned writeEffects(const Property& what) const;
+    /// The same for a touch of one of its objects
+    unsigned touchEffects() const;
     /// Schema version this document asks to be written with -- the user's
     /// cap, validated against the writable list.
     long getSaveSchemaVersion() const;

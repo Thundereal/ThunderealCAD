@@ -200,7 +200,7 @@ the op that causes it was the user's idea (Journal 27.58).
   `Version`, `Branch` open no transaction and are forgotten by the log.
 - A view provider's saved properties ARE logged with the log on, whatever
   `ViewObjectTransaction` says (user, 2026-09-24: "colours are important in
-  CAD"); not logged: writes under `App::DerivedViewWrites` (sizes a view
+  CAD"); not logged: writes under an `App::WriteScope` of `ViewFit` (sizes a view
   computes). Other CAD tools classify by the kind of state, never by who made
   the change.
 - The camera and other 3D-view state: to get a per-view, session-only stack

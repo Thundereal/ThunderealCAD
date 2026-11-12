@@ -691,6 +691,7 @@ SET(FreeCADApp_CPP_SRCS
     Application.cpp
     ApplicationPy.cpp
     AutoTransaction.cpp
+    WriteScope.cpp
     BrandText.cpp
     Branding.cpp
     CleanupProcess.cpp
@@ -724,6 +725,7 @@ SET(FreeCADApp_HPP_SRCS
     Actor.h
     Application.h
     AutoTransaction.h
+    WriteScope.h
     BrandText.h
     Branding.h
     CleanupProcess.h

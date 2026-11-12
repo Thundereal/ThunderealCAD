@@ -17,7 +17,7 @@
 /** Key frame animation of any property (docs/Animation.md sections 3 to 5).
  *
  * An App::Animation holds every track and key in one property, Tracks. Its
- * Time evaluates the tracks and writes the targets under AnimatedWrites: no
+ * Time evaluates the tracks and writes the targets under a WriteScope of Animation: no
  * undo step, no log row, no modified document. What a target held before
  * the first write is its rest value, the design's, and it is what Stop puts
  * back, what a save writes and what a transaction records as the value

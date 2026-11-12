@@ -32,7 +32,7 @@
 #include <QTimer>
 #endif
 
-#include <App/AutoTransaction.h>
+#include <App/WriteScope.h>
 #include <App/AuxGroup.h>
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
@@ -219,7 +219,7 @@ void ViewProviderOriginGroupExtension::updateOriginSize () {
               || owner->getDocument()->isPerformingTransaction())
         return;
     // Fitted to the model, not edited (docs/TransactionLogJournal.md sec 24.10).
-    App::DerivedViewWrites derived;
+    App::WriteScope derived(App::WriteCause::ViewFit);
 
     auto* group = owner->getExtensionByType<App::OriginGroupExtension>();
     if(!group)

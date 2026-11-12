@@ -40,6 +40,7 @@
 
 #include <App/Animation.h>
 #include <App/AutoTransaction.h>
+#include <App/WriteScope.h>
 #include <App/Document.h>
 #include <App/GroupExtension.h>
 #include <App/DocumentObserver.h>
@@ -407,15 +408,15 @@ void ViewProviderDocumentObject::onChanged(const App::Property* prop)
             setSelectable(Selectable.getValue());
     }
 
-    if (prop && !prop->testStatus(App::Property::NoModify)
-             && pcDocument
+    if (prop && pcDocument
              && !pcDocument->isModified()
              && testStatus(Gui::ViewStatus::TouchDocument)
-             // Fitted to the model, not edited: an origin sized after a
-             // load made a document that was only opened a modified one
-             && !App::DerivedViewWrites::active()
-             // Played, not edited (docs/Animation.md sec 5.1)
-             && !App::AnimatedWrites::active()) {
+             // Not NoModify; not fitted to the model -- an origin sized
+             // after a load made a document that was only opened a modified
+             // one; not played (docs/Animation.md sec 5.1). App's table
+             // says which (App/WriteScope.h)
+             && (pcDocument->getDocument()->writeEffects(*prop)
+                 & App::WriteEffect::Modified)) {
         if (prop)
             FC_LOG(prop->getFullName() << " changed");
         pcDocument->setModified(true);

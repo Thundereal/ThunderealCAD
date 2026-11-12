@@ -118,6 +118,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "private/DocumentP.h"
 #include "Application.h"
 #include "AutoTransaction.h"
+#include "WriteScope.h"
 #include "BrandText.h"
 #include "DocumentObserver.h"
 #include "DocumentObject.h"
@@ -2668,30 +2669,14 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
                 // 12.2 rule 2)
                 if (!name)
                     name = GetApplication().getOpenStep(&tid, this);
-                bool ignore = false;
-                if(What) {
-                    // Legacy: a name over a value kept elsewhere, and the
-                    // write to that is what opens a transaction
-                    if(What->testStatus(Property::NoModify)
-                            || What->testStatus(Property::Legacy))
-                        ignore = true;
-                    else if(!Base::freecad_dynamic_cast<Document>(What->getContainer())
-                            && !Base::freecad_dynamic_cast<DocumentObject>(What->getContainer())) {
-                        // A view provider's property. With the log on, a
-                        // saved one is document data like any other and is
-                        // recorded whatever ViewObjectTransaction says
-                        // (docs/TransactionLogJournal.md sec 24.10); one that is
-                        // never saved is not.
-                        short type = What->getContainer()->getPropertyType(What);
-                        if (DocumentParams::getTransactionLog() != 0)
-                            ignore = (type & Prop_Transient) || (type & Prop_NoPersist)
-                                || What->testStatus(Property::Transient)
-                                || DerivedViewWrites::active();
-                        else if (!DocumentParams::getViewObjectTransaction()
-                                 && !AutoTransaction::recordViewObjectChange())
-                            ignore = true;
-                    }
-                }
+                // Which writes open a step is the table's to say
+                // (writeEffectsOf() in WriteScope.cpp): not NoModify, not
+                // Legacy -- a name over a value kept elsewhere, the write to
+                // which is what opens one -- and of a view provider's
+                // properties, with the log on, every saved one that is not
+                // fitted to the model (docs/TransactionLogJournal.md sec
+                // 24.10)
+                const bool ignore = What && !(writeEffects(*What) & WriteEffect::Step);
                 // Not the application's id when a step on the undo stack
                 // already has it: an undo committed the transaction while the
                 // command that opened it still names it, and reopening it
@@ -3350,17 +3335,16 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
         if (obj && obj->testStatus(ObjectStatus::Restore))
             return;
     }
-    // An Animation's write is no edit (docs/Animation.md sec 5.1): in no
-    // step, open or not, and no change to the file, which a save writes
-    // with the rest values anyway.
-    const bool animated = AnimatedWrites::active();
+    // What the write is, said once (WriteScope.h). An Animation's is no
+    // edit (docs/Animation.md sec 5.1): in no step, open or not, and no
+    // change to the file, which a save writes with the rest values anyway.
+    const unsigned fx = writeEffects(*What);
     // A value the file does not hold changes nothing in it (sec 38.14).
-    if (!animated && !(What->getType() & (Prop_Transient | Prop_NoPersist))
-            && !What->testStatus(Property::Transient) && !What->testStatus(Property::PropNoPersist))
+    if (fx & WriteEffect::Dirty)
         noteSavedChange(Who);
     // Bookkeeping -- a compatibility name put on an object (sec 36.7) --
     // is no step and in no step that is open.
-    if(!d->rollback && !d->bookkeeping && !animated) {
+    if(!d->rollback && (fx & WriteEffect::Undo)) {
         _checkTransaction(nullptr, What, __LINE__);
         if (d->activeUndoTransaction)
             d->activeUndoTransaction->addObjectChange(Who, What);
@@ -3372,7 +3356,7 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
     // An undo, a replay or a checkout puts recorded values back, which the
     // log follows itself.
     if (d->transactionLog && !isPerformingTransaction()
-            && (d->bookkeeping || animated || !d->activeUndoTransaction))
+            && (!(fx & WriteEffect::Undo) || !d->activeUndoTransaction))
         d->transactionLog->forgetValue(*What);
 }
 
@@ -4121,6 +4105,52 @@ void Document::viewFileRead(const DocumentObject* obj, const std::string& entry,
         return;
     d->folderRead.views[obj->getID()] = {entry};
     d->folderRead.heads[obj->getID()] = head;
+}
+
+unsigned Document::writeEffects(const Property& what) const
+{
+    auto container = what.getContainer();
+    auto obj = Base::freecad_dynamic_cast<const DocumentObject>(container);
+    WriteTraits t;
+    t.view = !obj && !Base::freecad_dynamic_cast<const Document>(container);
+    // Whose file the property is in: the object, or a view provider's
+    const DocumentObject* owner = obj;
+    if (t.view) {
+        if (auto who = dynamic_cast<const TransactionalObject*>(container))
+            owner = who->getTransactionOwner();
+    }
+    t.viewMirror = obj && &what == &obj->ViewObject;
+    short type = what.getType();
+    if (container)
+        type |= container->getPropertyType(&what);
+    t.unsaved = (type & (Prop_Transient | Prop_NoPersist))
+        || what.testStatus(Property::Transient) || what.testStatus(Property::PropNoPersist);
+    t.noModify = what.testStatus(Property::NoModify);
+    t.legacy = what.testStatus(Property::Legacy);
+    t.logOn = DocumentParams::getTransactionLog() != 0;
+    t.viewUndo = DocumentParams::getViewObjectTransaction()
+        || AutoTransaction::recordViewObjectChange();
+
+    // Who writes: the scopes that are live, and what this document is doing
+    unsigned causes = WriteScope::causes();
+    if (d->bookkeeping)
+        causes |= WriteCause::Bookkeeping;
+    if (isPerformingTransaction())
+        causes |= WriteCause::Transacting;
+    if (testStatus(Restoring))
+        causes |= WriteCause::Restoring;
+    else if (obj && obj->testStatus(ObjectStatus::Restore))
+        causes |= WriteCause::DeferredLoad;
+    if (testStatus(Recomputing) || (owner && owner->isRecomputing()))
+        causes |= WriteCause::Recompute;
+    return writeEffectsOf(causes, t);
+}
+
+unsigned Document::touchEffects() const
+{
+    WriteTraits t;
+    t.touch = true;
+    return writeEffectsOf(WriteScope::causes(), t);
 }
 
 void Document::noteSavedChange(const TransactionalObject* who)

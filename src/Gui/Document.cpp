@@ -55,6 +55,7 @@
 
 #include <App/Actor.h>
 #include <App/AutoTransaction.h>
+#include <App/WriteScope.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/DocumentParams.h>
@@ -2336,10 +2337,9 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
     // a property of an object has changed. Its ViewObject is its view
     // provider saying one of its own did, which is no edit while that is
     // fitted to the model (ViewProviderDocumentObject::onChanged())
-    // An Animation's write is played, not edited (docs/Animation.md sec 5.1)
-    if(!Prop.testStatus(App::Property::NoModify) && !isModified()
-            && !App::AnimatedWrites::active()
-            && !(&Prop == &Obj.ViewObject && App::DerivedViewWrites::active())) {
+    // An Animation's write is played, not edited (docs/Animation.md sec
+    // 5.1). Which writes are edits is App's to say (App/WriteScope.h)
+    if(!isModified() && (getDocument()->writeEffects(Prop) & App::WriteEffect::Modified)) {
         FC_LOG(Prop.getFullName() << " modified");
         setModified(true);
     }
@@ -2458,7 +2458,7 @@ void Document::slotTouchedObject(const App::DocumentObject &Obj)
     getMainWindow()->updateActions(true);
     // An Animation's write touches what it writes, and the recompute that
     // follows purges it: played, not edited (docs/Animation.md sec 5.1)
-    if(!isModified() && !App::AnimatedWrites::active()) {
+    if(!isModified() && (getDocument()->touchEffects() & App::WriteEffect::Modified)) {
         FC_LOG(Obj.getFullName() << (Obj.isTouched()?" touched":" purged"));
         setModified(true);
     }

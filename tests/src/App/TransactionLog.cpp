@@ -23,6 +23,7 @@
 #include "App/PropertyExpressionEngine.h"
 #include "App/ObjectIdentifier.h"
 #include "App/AutoTransaction.h"
+#include "App/WriteScope.h"
 #include "App/Document.h"
 #include "App/DocumentObject.h"
 #include "App/DocumentParams.h"
@@ -2966,7 +2967,7 @@ TEST_F(TransactionLogTest, viewChangesAreLoggedWhateverTheSetting)
     // Sec 24.10: with the log on, a view provider's saved property is
     // document data -- recorded with ViewObjectTransaction off, in an
     // implicit transaction of its own when none is open -- except while
-    // DerivedViewWrites says the Gui is only fitting view state to the model.
+    // A WriteScope of ViewFit says the Gui is only fitting view state to the model.
     std::map<const App::DocumentObject*, TxnLogFakeView*> views;
     App::Document::setViewResolver([&views](const App::DocumentObject* obj) {
         auto it = views.find(obj);
@@ -3013,7 +3014,7 @@ TEST_F(TransactionLogTest, viewChangesAreLoggedWhateverTheSetting)
     EXPECT_EQ(view.Shade.getValue(), 3);
 
     {
-        App::DerivedViewWrites derived;
+        App::WriteScope derived(App::WriteCause::ViewFit);
         view.Shade.setValue(4);
     }
     EXPECT_FALSE(doc()->hasPendingTransaction());

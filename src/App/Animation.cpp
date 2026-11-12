@@ -38,6 +38,7 @@
 #include "AnimationPy.h"
 #include "Application.h"
 #include "AutoTransaction.h"
+#include "WriteScope.h"
 #include "Document.h"
 #include "PropertyContainerPy.h"
 #include "PropertyGeo.h"
@@ -1352,7 +1353,7 @@ Animation::Rest& Animation::restOf(const Target& target)
 
 const Property* Animation::restValueOf(const Property& prop)
 {
-    if (AnimatedWrites::active()) {
+    if (WriteScope::causes() & WriteCause::Animation) {
         return nullptr;
     }
     auto& owners = restOwners();
@@ -1606,10 +1607,6 @@ bool Animation::recordSkips(const DocumentObject& obj, const Property& prop, boo
         && std::strcmp(prop.getName(), "Visibility") != 0) {
         return true;
     }
-    // What a recompute writes is the model's, not the user's
-    if (obj.isRecomputing() || getDocument()->testStatus(Document::Recomputing)) {
-        return true;
-    }
     Layout layout;
     if (!prop.getAnimLayout(layout) && !prop.isDerivedFrom(PropertyBool::getClassTypeId())
         && !prop.isDerivedFrom(PropertyEnumeration::getClassTypeId())) {
@@ -1629,8 +1626,8 @@ void Animation::onBeforeRecord(const DocumentObject& obj, const Property& prop, 
 {
     auto doc = getDocument();
     if (!Recording.getValue() || !Active.getValue() || _recordingKey || _evaluating
-        || AnimatedWrites::active() || !doc || doc->isPerformingTransaction()
-        || doc->testStatus(Document::Restoring) || recordSkips(obj, prop, view)) {
+        || !doc || !(doc->writeEffects(prop) & WriteEffect::Key)
+        || recordSkips(obj, prop, view)) {
         return;
     }
     // The value before the edit is the design's: kept as the rest value,
@@ -1653,8 +1650,8 @@ void Animation::onRecord(const DocumentObject& obj, const Property& prop, bool v
 {
     auto doc = getDocument();
     if (!Recording.getValue() || !Active.getValue() || _recordingKey || _evaluating
-        || AnimatedWrites::active() || !doc || doc->isPerformingTransaction()
-        || doc->testStatus(Document::Restoring) || recordSkips(obj, prop, view)) {
+        || !doc || !(doc->writeEffects(prop) & WriteEffect::Key)
+        || recordSkips(obj, prop, view)) {
         return;
     }
     Base::FlagToggler<bool> flag(_recordingKey);
@@ -1682,7 +1679,7 @@ const Property* viewChanging = nullptr;
 
 void Animation::recordViewBefore(const DocumentObject& owner, const Property& prop)
 {
-    if (recorders().empty() || AnimatedWrites::active()) {
+    if (recorders().empty() || (WriteScope::causes() & WriteCause::Animation)) {
         return;
     }
     if (viewChanging && viewChanging != &prop) {
@@ -1698,7 +1695,8 @@ void Animation::recordViewBefore(const DocumentObject& owner, const Property& pr
 
 void Animation::recordViewAfter(const DocumentObject& owner, const Property& prop)
 {
-    if (recorders().empty() || AnimatedWrites::active() || viewChanging != &prop) {
+    if (recorders().empty() || (WriteScope::causes() & WriteCause::Animation)
+        || viewChanging != &prop) {
         return;
     }
     viewChanging = nullptr;
@@ -1875,7 +1873,7 @@ void Animation::evaluateAt(double t)
     }
     _pending = false;
     Base::FlagToggler<bool> flag(_evaluating);
-    AnimatedWrites animated;
+    WriteScope animated(WriteCause::Animation);
 
     struct Item
     {
@@ -2042,7 +2040,7 @@ void Animation::deactivate(bool recompute)
     }
     std::vector<DocumentObject*> purge;
     {
-        AnimatedWrites animated;
+        WriteScope animated(WriteCause::Animation);
         auto rest = std::move(_rest);
         _rest.clear();
         auto& owners = restOwners();
@@ -2209,7 +2207,7 @@ void Animation::connectDocument()
             return;
         }
         // Kept by the undo as it is now: put the design back in it first
-        AnimatedWrites animated;
+        WriteScope animated(WriteCause::Animation);
         for (auto& [prop, r] : _rest) {
             if (r->obj == &obj && r->rest && r->written && r->written->isSame(*prop)) {
                 try {

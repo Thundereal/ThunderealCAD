@@ -32,8 +32,8 @@ viewer. One mechanism, not one per workbench.
    as a quaternion. A type with no codec (string, link, shape) is stepped.
    The existing `Property::interpolate()` stays and is written on top.
 5. **Playing does not edit the design.** Values written while an animation
-   plays are written in a scope (`App::AnimatedWrites`, the pattern of
-   `App::DerivedViewWrites`) that opens no transaction, is not logged, and
+   plays are written in a scope (`App::WriteScope` of `Animation`, sec
+   5.1) that opens no transaction, is not logged, and
    does not mark the document modified. The values the animation displaced
    are kept and put back on stop, and a save writes them, not the pose of
    the moment.
@@ -720,8 +720,47 @@ Performance, for large models:
 
 ### 5.1 The write scope
 
-`App::AnimatedWrites` is a guard like `App::DerivedViewWrites`
-(`AutoTransaction.h:103`). Under it, a property write:
+Every property write is classified once, by `Document::writeEffects()`
+(`App/WriteScope.h`), from who writes and what is written; the answer is a
+set of effects, and each listener reads its own bit of it:
+
+| Effect | Read by |
+|---|---|
+| `Step` -- opens an undo step when none is open | `Document::_checkTransaction` |
+| `Undo` -- is recorded in the open step, and so in the log's row | `Document::onBeforeChangeProperty` |
+| `Dirty` -- changes the owner's file; a folder save writes it again | `Document::noteSavedChange` |
+| `Modified` -- marks the Gui document modified | `Gui::Document`, `ViewProviderDocumentObject` |
+| `Key` -- is keyed by Record | `Animation::onBeforeRecord`, `onRecord` |
+
+Who writes is a set of causes. Two are scopes, `App::WriteScope(cause)`:
+`Animation`, and `ViewFit` (view state fitted to the model, an origin's
+size). The rest is the document's state: `Bookkeeping`, `Transacting` (an
+undo, redo or replay), `Restoring`, `Recompute`, `DeferredLoad`. Scopes add
+up; a scope of `Edit` starts over, for a real edit made from inside one.
+What is written is the property's traits: a view provider's, never saved,
+`NoModify`, `Legacy`. The table is `writeEffectsOf()` in
+`App/WriteScope.cpp`, and `tests/src/App/WriteScope.cpp` pins it:
+
+| Write | Step | Undo | Dirty | Modified | Key |
+|---|---|---|---|---|---|
+| an edit of a saved property | x | x | x | x | x |
+| `NoModify` | | x | x | | x |
+| `Legacy` (object's) | | x | x | x | x |
+| never saved (object's) | x | x | | x | x |
+| never saved (view's, log on) | | x | | x | x |
+| `ViewFit`, a view's property (log on) | | x | x | | x |
+| `Bookkeeping` | | | x | x | x |
+| `Transacting`, `Restoring`, `Recompute` | x | x | x | x | |
+| `Animation` | | | | | |
+| `DeferredLoad` | | | | | |
+| a touch | | | | x | |
+| a touch under `Animation` | | | | | |
+
+`Step` and `Undo` under `Transacting` are what the table says of the
+write; the document itself opens and records nothing while it puts values
+back. `Dirty` under `Restoring` is likewise dropped by `noteSavedChange`.
+
+Under the `Animation` scope, then, a property write:
 - opens no transaction and puts nothing on the undo stack;
 - is not logged (TransactionLogDesign sec 2.4 gets a line for it);
 - does not set `Gui::Document::setModified`;
@@ -802,7 +841,8 @@ evaluates once after the document is restored.
 
   Skipped:
   - Output, Transient and NoPersist properties;
-  - writes under `AnimatedWrites` and `DerivedViewWrites`;
+  - writes that are not `Key` in the table of sec 5.1 (played, written by
+    a recompute, put back by an undo);
   - the Animation's `Exclude` list.
 - **Key all changed**: keys every property changed since the last key time,
   in one step. That is the old "new key frame" command.
